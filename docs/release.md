@@ -4,13 +4,14 @@ A release is an unpacked snapshot `<release folder>\<version>\` plus `<release f
 `<release folder>\atlas\atlas.db`. Users get it through the update check at login (`smartass serve`) or
 `smartass update`. `latest.json` is written last, so clients never see a half-copied release.
 
-1. Bump `version` in `engine\pyproject.toml` and `__version__` in `engine\smartview_mcp\__init__.py`.
+1. Bump `version` in `engine\pyproject.toml` (the only place; the engine reads its version from the package metadata).
 2. Add an entry to `CHANGELOG.md`.
 3. Run `uv lock` and the tests: `cd engine; uv lock; uv run pytest -q; uv run ruff check .`
 4. Run the live checks in `engine\tests\live\README.md` on this PC.
 5. Commit and push; CI must be green.
 6. Publish: `scripts\publish_release.ps1 -Folder "<release folder>" [-WithAtlas]`.
-   It refuses a dirty working tree or an existing version, copies HEAD (`git archive`), optionally snapshots your
+   It refuses a dirty working tree, an existing version, or an engine that reports a different version than
+   `pyproject.toml`, copies HEAD (`git archive`), optionally snapshots your
    `%LOCALAPPDATA%\smartass\atlas.db`, writes `latest.json`, then tags and pushes `v<version>`.
 7. Monthly: after `sv_atlas_build`, bump the patch version and publish again with `-WithAtlas`.
 8. Roll back: a user pins a version with `release.version` in their `config.toml` (pinning down is allowed), or

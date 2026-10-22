@@ -42,3 +42,22 @@ def test_missing_target_folder_is_error(tmp_path):
 def test_dev_checkout_never_auto_updates(monkeypatch):
     monkeypatch.setattr(update, "is_dev_checkout", lambda: True)
     assert update.start_if_available() is False
+
+
+def test_same_target_is_not_retried_within_30_minutes(tmp_path, monkeypatch, caplog):
+    (tmp_path / "rel").mkdir()
+    rel = _release(tmp_path / "rel", "0.2.1", ["0.2.1"])
+    monkeypatch.setattr(update.config, "HOME", tmp_path / "home")
+    monkeypatch.setattr(update.config, "RELEASE_FOLDER", str(rel))
+    monkeypatch.setattr(update.config, "RELEASE_PIN", "")
+    monkeypatch.setattr(update, "__version__", "0.2.0")
+    monkeypatch.setattr(update, "is_dev_checkout", lambda: False)
+    started = []
+    monkeypatch.setattr(update.subprocess, "Popen", lambda *a, **k: started.append(a))
+    assert update.start_if_available(now=1000.0) is True
+    rec = json.loads((tmp_path / "home" / "update_attempt.json").read_text(encoding="utf-8"))
+    assert rec["target"] == "0.2.1" and rec["time"] == 1000.0
+    assert update.start_if_available(now=1000.0 + 29 * 60) is False   # installer ran, version still 0.2.0: no loop
+    assert "already attempted" in caplog.text
+    assert update.start_if_available(now=1000.0 + 31 * 60) is True
+    assert len(started) == 2
