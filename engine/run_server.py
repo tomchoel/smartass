@@ -173,6 +173,11 @@ class Relay:
 
     # ------------------------------------------------------------ input from Claude Code
     def run(self):
+        try:                                 # proxy.log is appended per line with no rotation: cap it at startup
+            if LOG.stat().st_size > 1_000_000:
+                os.replace(LOG, LOG.with_suffix(".log.1"))
+        except OSError:
+            pass
         log("relay started")
         for raw in sys.stdin.buffer:
             line = raw.strip()
