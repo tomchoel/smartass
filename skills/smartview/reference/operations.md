@@ -55,8 +55,8 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\smarta
 - **Read-only.** Submit, calculate and business-rule functions do not exist in the bridge.
 - **Watchdog.** Every call has a deadline. A hang kills **only this server's own Excel**, recorded in `%LOCALAPPDATA%\smartass\pids.json`
   together with the owning server process, and the next call restarts it. The error text names any dialog the hung Excel had open.
-- **SSO.** The global watcher `mcp\sso_watcher.ps1` (PowerShell, .NET UI Automation) runs from the Startup folder
-  (`svkit-sso-watcher.lnk`). It clicks "Telenor SSO" in the Smart View Login dialog of *any* Excel, and it never types.
+- **SSO.** The global watcher `engine\sso_watcher.ps1` (PowerShell, .NET UI Automation) runs from the Startup folder
+  (`smartass-sso-watcher.lnk`, created by `installer\install.ps1`; re-run the installer to recreate it). It clicks "Telenor SSO" in the Smart View Login dialog of *any* Excel, and it never types.
   - It writes a heartbeat to `smartass\logs\sso_watcher.heartbeat`. The MCP restarts it if the heartbeat is older than 90 s.
   - The log is `smartass\logs\sso_watcher_ps.log`.
   - A Python `uiautomation` version was removed because it blocked on this dialog.
@@ -73,7 +73,7 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\smarta
 | Server log | `%LOCALAPPDATA%\smartass\logs\server.log` |
 | SSO watcher log | `%LOCALAPPDATA%\smartass\logs\sso_watcher.log` |
 | Atlas | `%LOCALAPPDATA%\smartass\atlas.db` |
-| Venv (mcp 2.3.0, pywin32 312, psutil, uiautomation) | `%LOCALAPPDATA%\smartass\venv` |
+| Venv (mcp 2.3.0, pywin32 312, psutil, uiautomation) | `engine\.venv` in the install folder (`%LOCALAPPDATA%\smartass\app`, or the git checkout) |
 
 ## Routine tasks
 
