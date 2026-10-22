@@ -166,7 +166,8 @@ QUEUE_TIMEOUT_S = float(os.environ.get("SV_QUEUE_TIMEOUT", "900"))
 LABEL_ID = _pick("SV_LABEL_ID", "label.id")
 LABEL_SITE = _pick("SV_LABEL_SITE", "label.site")
 
-RELEASE_FOLDER = _pick("SMARTASS_RELEASE", "release.folder")
+_release = _pick("SMARTASS_RELEASE", "release.folder")
+RELEASE_FOLDER = str(_path(_release)) if _release else _release   # %VAR% and ~ expand; empty = not configured
 RELEASE_PIN = get(SETTINGS, "release.version")
 HTTP_PORT = _checked(as_int(_pick("SMARTASS_HTTP_PORT", "http.port", 47811), "http.port",
                             as_int(get(ORG_SETTINGS, "http.port", 47811), "", 47811)[0]),

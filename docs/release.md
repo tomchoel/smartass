@@ -4,6 +4,10 @@ A release is an unpacked snapshot `<release folder>\<version>\` plus `<release f
 `<release folder>\atlas\atlas.db`. Users get it through the update check at login (`smartass serve`) or
 `smartass update`. `latest.json` is written last, so clients never see a half-copied release.
 
+Users point at the release folder with `release.folder` in `config.toml` (or `SMARTASS_RELEASE`). Environment
+variables and `~` are allowed, for example `folder = '%OneDriveCommercial%\<synced library>\smartass-release'`. An empty
+value means "not configured".
+
 1. Bump `version` in `engine\pyproject.toml` (the only place; the engine reads its version from the package metadata).
 2. Add an entry to `CHANGELOG.md`.
 3. Run `uv lock` and the tests: `cd engine; uv lock; uv run pytest -q; uv run ruff check .`
