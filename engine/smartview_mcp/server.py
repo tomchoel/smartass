@@ -155,7 +155,12 @@ async def _call_user(fn, what: str):
 
 
 # Tool modules register their tools on `mcp` when imported (module imports only - see the rule above).
-from . import tools_drill, tools_query, tools_status, tools_ws, tools_xl  # noqa: E402,F401
+# Order = order the model sees the tools in (status, query, ws, drill, xl - as before the split).
+from . import tools_status  # noqa: E402,F401,I001
+from . import tools_query  # noqa: E402,F401
+from . import tools_ws  # noqa: E402,F401
+from . import tools_drill  # noqa: E402,F401
+from . import tools_xl  # noqa: E402,F401
 
 
 def main():
