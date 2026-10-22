@@ -2,7 +2,7 @@
 
 Kilder: atlas (FinMax All Entities under un.SY), uttrekk map_org_costbase (sv_query save_xlsx: C30, C40S, C50S, C60,
 EBITDA_BOI, STA20Y × Dec 25 / Sep 26), og reorg-kartleggingen 2025→2026
-(prodreg2026\\01 Struktur og mapping\\2026_Reorg_Mapping_Ansvarssted_Verdistrom.xlsx, ark Src_GLCC_2025).
+(Produktregnskapet-mappen «01 Struktur og mapping\\2026_Reorg_Mapping_Ansvarssted_Verdistrom.xlsx», ark Src_GLCC_2025).
 Lager «Forretningskart 3 - Organisasjon og kostnader.xlsx» og org_map.json.
 """
 import datetime as dt

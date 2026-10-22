@@ -1,6 +1,6 @@
 """Live test of smartview_mcp.styling against its OWN Excel instance (DispatchEx; never attaches to a running Excel).
 
-Run:  %LOCALAPPDATA%\\svkit\\venv\\Scripts\\python.exe tests\\test_styling_live.py
+Run (from engine):  uv run python tests\\live\\test_styling_live.py
 Under pytest it skips cleanly when Excel / pywin32 is not available.
 """
 from __future__ import annotations

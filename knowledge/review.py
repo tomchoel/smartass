@@ -43,7 +43,8 @@ def apply(area: str, rows: list[dict], key: str = "member") -> tuple[str, str]:
     return status, f"Godkjent {d}" + (f" · {new} nye ikke gjennomgått" if new else "")
 
 
-def approve(area: str, comment: str = "", by: str = "Tom Hoel") -> int:
+def approve(area: str, comment: str = "", by: str | None = None) -> int:
+    by = by or os.environ.get("USERNAME", "")
     fname, field, key = JSON_OF[area]
     with open(os.path.join(HERE, fname), encoding="utf-8") as f:
         rows = json.load(f)[field]

@@ -1,5 +1,5 @@
-"""Local cache of drilled lines (%LOCALAPPDATA%/svkit/drill.db, outside OneDrive). Follow-up reports and key
-points read the lines from here; drills older than DRILL_KEEP_DAYS are pruned."""
+"""Local cache of drilled lines (config.HOME\\drill.db, normally %LOCALAPPDATA%\\smartass, outside OneDrive). Follow-up
+reports and key points read the lines from here; drills older than DRILL_KEEP_DAYS are pruned."""
 from __future__ import annotations
 
 import datetime as dt
