@@ -11,8 +11,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from . import config, ops, qlog, userexcel
 from . import tools_ws as ws                      # module ref: tools_ws never imports tools_drill at module level
 from .grid import Axis
-from .host import HostError
-from .server import WRITE, _call, _call_user, _err, _is_our_analysis_file, tool
+from .host import HostError, rewrap
+from .server import WRITE, _call, _call_user, _err, _is_our_analysis_file, tool, with_next_step
 from .timing import Timer, stage
 
 def _has_drill_cells(spec) -> bool:
@@ -267,7 +267,7 @@ async def sv_drill(question: str, cell: dict[str, str], connection: Literal["Fin
     except Exception as e:
         msg = redact(str(e) if isinstance(e, ToolError) else f"{type(e).__name__}: {e}")   # never an sso_token
         qlog.write({"tool": "sv_drill", "question": question, "cell": cell, "error": msg})
-        raise ToolError(msg) from None
+        raise ToolError(with_next_step(msg, e)) from None
 
 
 async def _sv_drill(question, cell, connection, id, split, max_lines, target, q, allow_archive) -> dict:
@@ -357,7 +357,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
                 extra = ""
                 if had_table and lines_started:     # the reused table may be half written: put the old lines back
                     extra = "; " + _restore_lines(t, qn, id, prev, source)
-                raise HostError(f"{e} (removed the partial sheets: {', '.join(removed) or 'none'}{extra})") from None
+                raise rewrap(e, f"{e} (removed the partial sheets: {', '.join(removed) or 'none'}{extra})") from None
             if parked:
                 with stage("drop old grid"):
                     userexcel.drop_parked(t, parked)

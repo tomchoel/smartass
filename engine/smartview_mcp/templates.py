@@ -14,7 +14,7 @@ from typing import Callable
 
 from . import atlas, ops
 from .grid import Axis
-from .host import ExcelHost, HostError
+from .host import ExcelHost, HostError, InputError
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -69,7 +69,7 @@ def closed_month(h: ExcelHost, connection: str = "FinMax") -> str:
 def split_period(p: str) -> tuple[int, int]:
     m = re.fullmatch(r"([A-Z][a-z]{2}) (\d\d)", p.strip())
     if not m or m.group(1) not in MONTHS:
-        raise HostError(f"Period '{p}' is not a month like 'Sep 26'.")
+        raise InputError(f"Period '{p}' is not a month like 'Sep 26'.")
     return MONTHS.index(m.group(1)) + 1, int(m.group(2))
 
 
@@ -267,7 +267,7 @@ def cost_base(h: ExcelHost, parent: str = "un.SY", accounts: list[str] | None = 
             seen.add(e)
             members.append(e)
     if len(members) * len(accounts) > 50000:
-        raise HostError(f"{len(members)} cost centres × {len(accounts)} accounts is too large; narrow 'parent'.")
+        raise InputError(f"{len(members)} cost centres × {len(accounts)} accounts is too large; narrow 'parent'.")
     pov = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Time Periods": period,
            "All Balance Types": "Accumulated"}
     pulls = [PullSpec("cb", connection, [Axis("All Entities", members)], [Axis("All Accounts", accounts)], pov)]

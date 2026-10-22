@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import config
 from .grid import Axis, Layout, full_pov, indent_of, name_from_label, parse
-from .host import ExcelHost, HostError
+from .host import ExcelHost, HostError, InputError
 
 log = logging.getLogger("smartview.ops")
 
@@ -252,7 +252,7 @@ def _query_once(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list
     cols = [Axis(canon_dim(conn, a.dimension), a.members) for a in cols]
     problems = validate_axes(dims, pov, rows, cols)
     if problems:
-        raise HostError("Invalid query: " + "; ".join(problems))
+        raise InputError("Invalid query: " + "; ".join(problems))
     lay = Layout(full_pov(dims, pov, rows, cols), rows, cols)
     ws = h.wb.Worksheets(sheet)
     ws.Activate()
@@ -362,7 +362,7 @@ def save_table(h: ExcelHost, path: Path, sheets: list[tuple[str, list[list]]]) -
         _label(wb)
         from .userexcel import is_archive
         if is_archive(path):
-            raise HostError("Refusing to save into the archive.")
+            raise InputError("Refusing to save into the archive.")
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             path.unlink()
@@ -412,7 +412,7 @@ def refresh_workbook(h: ExcelHost, src: Path, out: Path) -> dict:
     com = h.com
     from .userexcel import is_archive
     if is_archive(out):
-        raise HostError("Refusing to save a refreshed copy into the archive.")
+        raise InputError("Refusing to save a refreshed copy into the archive.")
     # Macros in the user's workbook must not run in our Excel (an event macro could call a Smart View submit).
     prev_sec = h.app.AutomationSecurity
     h.app.AutomationSecurity = 3                  # msoAutomationSecurityForceDisable, only for this Open
@@ -480,9 +480,9 @@ def drill_link(h: ExcelHost, conn: str, cell: dict[str, str]) -> dict:
     need = {"All Accounts", "All Time Periods", "All Entities"}
     missing = need - set(cell)
     if missing:
-        raise HostError(f"sv_drill needs these dimensions in cell: {sorted(missing)}")
+        raise InputError(f"sv_drill needs these dimensions in cell: {sorted(missing)}")
     if cell.get("All Balance Types", "Periodic") != "Periodic":
-        raise HostError("Drill-through works on Periodic data only; use a period member (quarter/year) instead "
+        raise InputError("Drill-through works on Periodic data only; use a period member (quarter/year) instead "
                         "of Accumulated.")
     pov = {**DRILL_DEFAULTS, **{d: m for d, m in cell.items() if d not in ("All Accounts", "All Time Periods")}}
     lay, _, _ = query(h, conn, pov, [Axis("All Accounts", [cell["All Accounts"]])],

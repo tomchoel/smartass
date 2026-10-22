@@ -27,7 +27,7 @@ from openpyxl.utils.cell import range_boundaries
 
 from . import config
 from . import formulas as fx
-from .host import HostError
+from .host import HostError, InputError
 from .userexcel import _wait_ready, com, fast_excel, hold_turn, interactive_excels, is_archive, local_path
 
 log = logging.getLogger("smartview.livexl")
@@ -62,7 +62,7 @@ class Book:
             return com(lambda: self.wb.Worksheets(name))
         except pywintypes.com_error:
             names = [s.Name for s in self.wb.Worksheets]
-            raise HostError(f"No sheet '{name}' in '{self.name}'. Sheets: {names}") from None
+            raise InputError(f"No sheet '{name}' in '{self.name}'. Sheets: {names}") from None
 
 
 def _books(app):
@@ -87,7 +87,7 @@ def find_book(workbook: str | None, write: bool = False, allow_archive: bool = F
                 hit = (pid, app, wb)
                 break
         if hit is None:
-            raise HostError("No active workbook in Excel.")
+            raise HostError("No active workbook in Excel. Open or click into the workbook in Excel, or pass workbook=.")
     else:
         want = workbook.strip().lower()
         stem = lambda s: re.sub(r"\.(xlsx|xlsm|xlsb|xls)$", "", s)
@@ -103,17 +103,17 @@ def find_book(workbook: str | None, write: bool = False, allow_archive: bool = F
                     if stem(want) in str(wb.Name).lower():
                         cands.append((pid, app, wb))
         if not cands:
-            raise HostError(f"No open workbook matches '{workbook}'. Open: {list_names(excels)}")
+            raise InputError(f"No open workbook matches '{workbook}'. Open: {list_names(excels)}")
         if len(cands) > 1:
-            raise HostError(f"'{workbook}' matches several open workbooks: {[str(c[2].Name) for c in cands]}. "
-                            "Use the full name.")
+            raise InputError(f"'{workbook}' matches several open workbooks: {[str(c[2].Name) for c in cands]}. "
+                             "Use the full name.")
         hit = cands[0]
     pid, app, wb = hit
     hold_turn(pid, what="this Excel change")
     b = Book(app, wb, pid)
     if write and is_archive(local_path(b.full_name)) and not allow_archive:
-        raise HostError(f"'{b.name}' is in the Produktregnskapet archive (audit record). Not changed - pass "
-                        "allow_archive=true only if the user explicitly asked to edit it.")
+        raise InputError(f"'{b.name}' is in the Produktregnskapet archive (audit record). Not changed - pass "
+                         "allow_archive=true only if the user explicitly asked to edit it.")
     if write:
         _autosave_off(b)
     return b
@@ -179,11 +179,11 @@ def _rng(ws, address: str | None):
                 return _one_area(ws, sel)
         except Exception:   # noqa: BLE001
             pass
-        raise HostError("Give a range address (the current selection is not a range on that sheet).")
+        raise InputError("Give a range address (the current selection is not a range on that sheet).")
     try:
         rng = com(lambda: ws.Range(address))
     except pywintypes.com_error:
-        raise HostError(f"'{address}' is not a valid range address.") from None
+        raise InputError(f"'{address}' is not a valid range address.") from None
     return _one_area(ws, rng)
 
 
@@ -191,9 +191,9 @@ def _one_area(ws, rng):
     """Snapshots and reverts cover one rectangular block on one sheet: refuse multi-area ranges and names that
     point at another sheet (they would be recorded under the wrong sheet)."""
     if int(com(lambda: rng.Areas.Count)) > 1:
-        raise HostError("That range has several areas; do one rectangular block per call.")
+        raise InputError("That range has several areas; do one rectangular block per call.")
     if com(lambda: rng.Worksheet.Name) != com(lambda: ws.Name):
-        raise HostError(f"That range is on sheet '{com(lambda: rng.Worksheet.Name)}'; pass sheet= that sheet.")
+        raise InputError(f"That range is on sheet '{com(lambda: rng.Worksheet.Name)}'; pass sheet= that sheet.")
     return rng
 
 
@@ -316,8 +316,8 @@ def _capture(ws, rng) -> dict:
     turns dynamic arrays into literal per-cell formulas) + column widths."""
     n = _ncells(rng)
     if n > MAX_SNAPSHOT_CELLS:
-        raise HostError(f"The change covers {n} cells - too big to snapshot safely (limit {MAX_SNAPSHOT_CELLS}). "
-                        "Work on a smaller range.")
+        raise InputError(f"The change covers {n} cells - too big to snapshot safely (limit {MAX_SNAPSHOT_CELLS}). "
+                         "Work on a smaller range.")
     r0, c0 = com(lambda: rng.Row), com(lambda: rng.Column)
     f2 = _grid(com(lambda: rng.Formula2))
     formulas = {f"{L(c0 + j)}{r0 + i}": v for i, row in enumerate(f2) for j, v in enumerate(row)
@@ -482,16 +482,16 @@ def write(workbook, sheet, address, values=None, formulas=None, formula=None, nu
           allow_archive=False, label=None) -> dict:
     given = [x is not None for x in (values, formulas, formula)]
     if sum(given) > 1:
-        raise HostError("Give ONE of values (2D), formulas (2D) or formula (one formula filled over the range).")
+        raise InputError("Give ONE of values (2D), formulas (2D) or formula (one formula filled over the range).")
     if not any(given) and number_format is None:
-        raise HostError("Nothing to write: give values, formulas, formula or number_format.")
+        raise InputError("Nothing to write: give values, formulas, formula or number_format.")
     b = find_book(workbook, write=True, allow_archive=allow_archive)
     ws = b.sheet(sheet)
     _wait_ready(b.app)
     grid = values if values is not None else formulas
     if grid is not None:
         if not grid or not isinstance(grid, list) or not isinstance(grid[0], list):
-            raise HostError("values/formulas must be a 2D list: [[row1...], [row2...]].")
+            raise InputError("values/formulas must be a 2D list: [[row1...], [row2...]].")
         width = max(len(r) for r in grid)
         grid = [list(r) + [None] * (width - len(r)) for r in grid]
         anchor = _rng(ws, address)
@@ -552,8 +552,8 @@ def rows_cols(workbook, sheet, action: str, at: str, allow_archive=False, force=
     if action.startswith("delete"):
         deps = _dependents_outside(b, ws, area, is_row)
         if deps and not force:
-            raise HostError(f"{len(deps)} formula cell(s) depend on {spec} (e.g. {deps[:5]}); deleting turns them "
-                            "into #REF! and a revert cannot repair that. Pass force=true if that is intended.")
+            raise InputError(f"{len(deps)} formula cell(s) depend on {spec} (e.g. {deps[:5]}); deleting turns them "
+                             "into #REF! and a revert cannot repair that. Pass force=true if that is intended.")
         before = _capture(ws, com(lambda: ws.Range(area)))
         follow = _fingerprint(ws, is_row, first + n)       # the line that moves up/left into the gap
     else:
@@ -620,12 +620,12 @@ def _dependents_outside(b: Book, ws, area: str, rows_mode: bool) -> list[str]:
 def add_sheet(workbook, name: str, after: str | None = None, allow_archive=False) -> dict:
     name = (name or "").strip()
     if not name or len(name) > 31 or re.search(r"[:\\/?*\[\]]", name) or name.startswith("'") or name.endswith("'"):
-        raise HostError(f"'{name}' is not a valid sheet name (1-31 characters, none of : \\ / ? * [ ], no ' at the "
-                        "ends).")
+        raise InputError(f"'{name}' is not a valid sheet name (1-31 characters, none of : \\ / ? * [ ], no ' at the "
+                         "ends).")
     b = find_book(workbook, write=True, allow_archive=allow_archive)
     _wait_ready(b.app)
     if any(str(s.Name).lower() == name.lower() for s in b.wb.Worksheets):
-        raise HostError(f"A sheet named '{name}' already exists.")
+        raise InputError(f"A sheet named '{name}' already exists.")
     ref = b.sheet(after) if after else com(lambda: b.wb.Worksheets(b.wb.Worksheets.Count))
     ws = com(lambda: b.wb.Worksheets.Add(None, ref))   # positional: keyword After= is ignored via late-bound COM
     try:
@@ -657,8 +657,8 @@ def _tn_style(style: str) -> str:
     for n in names:                                    # 'tittel' -> 'TN Tittel'
         if n.lower() == f"tn {style.lower()}":
             return n
-    raise HostError(f"Unknown TN style '{style}'. Use a kind[.emphasis] ({sorted(styling.tn.KIND_NAME)} x "
-                    f"{sorted(k for k in TN_EMPH if k)}) or a style name: {sorted(names)}")
+    raise InputError(f"Unknown TN style '{style}'. Use a kind[.emphasis] ({sorted(styling.tn.KIND_NAME)} x "
+                     f"{sorted(k for k in TN_EMPH if k)}) or a style name: {sorted(names)}")
 
 
 def format_range(workbook, sheet, address, style=None, number_format=None, column_width=None,
@@ -712,8 +712,8 @@ def format_sheet(workbook, sheet, last_col: str, rows: dict, label_cols=None, nu
     bad = {k for k in kinds.values() if k not in ("title", "subtitle", "section", "text", "header", "line", "sum",
                                                   "grand", "note", "blank")}
     if bad:
-        raise HostError(f"Unknown row kinds {sorted(bad)}; use title, subtitle, section, text, header, line, sum, "
-                        "grand, note, blank.")
+        raise InputError(f"Unknown row kinds {sorted(bad)}; use title, subtitle, section, text, header, line, sum, "
+                         "grand, note, blank.")
     ur = com(lambda: ws.UsedRange)
     last_row = max([com(lambda: ur.Row) + int(com(lambda: ur.Rows.Count)) - 1] + list(kinds))
     area = f"A1:{last_col}{last_row}"
@@ -853,7 +853,7 @@ def check(workbook, sheet=None) -> dict:
 def _load(cid: str) -> dict:
     p = SNAP_DIR / f"{cid}.json"
     if not p.exists():
-        raise HostError(f"No change '{cid}' (snapshots are kept {KEEP_DAYS} days). See xl_changes.")
+        raise InputError(f"No change '{cid}' (snapshots are kept {KEEP_DAYS} days). See xl_changes.")
     return json.loads(p.read_text(encoding="utf-8"))
 
 
@@ -884,26 +884,27 @@ def revert(change_id: str | None, workbook: str | None, force: bool = False) -> 
         b0 = find_book(workbook)
         mine = [c for c in changes(b0.full_name, limit=200) if not c["reverted"]]
         if not mine:
-            raise HostError(f"No change to revert for '{b0.name}'.")
+            raise InputError(f"No change to revert for '{b0.name}'.")
         change_id = mine[0]["id"]
     ch = _load(change_id)
     if ch["reverted"]:
-        raise HostError(f"Change {change_id} was already reverted.")
+        raise InputError(f"Change {change_id} was already reverted.")
     b = find_book(ch["full_name"], write=True, allow_archive=True)    # reverting is always allowed
     _wait_ready(b.app)
     if not re.search(r"[\\/]", ch["full_name"]) and ch.get("pid") and ch["pid"] != b.pid and not force:
-        raise HostError(f"'{ch['workbook']}' was never saved and this is another Excel than the one the change was "
-                        "made in - probably a different workbook with the same name. Not reverted.")
+        raise InputError(f"'{ch['workbook']}' was never saved and this is another Excel than the one the change was "
+                         "made in - probably a different workbook with the same name. Not reverted. Check the "
+                         "workbook (xl_changes lists the changes per workbook).")
     later = [c for c in changes(ch["full_name"], limit=200) if c["id"] > change_id and not c["reverted"]
              and c["sheet"] == ch["sheet"]]
     if later and not force:
-        raise HostError(f"Later changes on '{ch['sheet']}' are not reverted yet: {[c['id'] for c in later]}. "
-                        "Revert them first (newest first), or pass force=true.")
+        raise InputError(f"Later changes on '{ch['sheet']}' are not reverted yet: {[c['id'] for c in later]}. "
+                         "Revert them first (newest first), or pass force=true.")
     op = ch["op"]
     if op == "add_sheet":
         ws = b.sheet(ch["extra"]["name"])
         if int(com(lambda: ws.UsedRange.Count)) > 1 and not force:
-            raise HostError(f"Sheet '{ch['extra']['name']}' has content now; pass force=true to delete it anyway.")
+            raise InputError(f"Sheet '{ch['extra']['name']}' has content now; pass force=true to delete it anyway.")
         alerts = com(lambda: b.app.DisplayAlerts)
         com(lambda: setattr(b.app, "DisplayAlerts", False))
         try:
@@ -921,29 +922,29 @@ def revert(change_id: str | None, workbook: str | None, force: bool = False) -> 
             if op in ("write", "format", "format_sheet"):
                 rng = com(lambda: ws.Range(ch["address"]))
                 if ch.get("after") and _state_hash(rng) != ch["after"] and not force:
-                    raise HostError(f"{ch['sheet']}!{ch['address']} was edited after change {change_id}; a revert "
-                                    "would overwrite those edits. Pass force=true to revert anyway.")
+                    raise InputError(f"{ch['sheet']}!{ch['address']} was edited after change {change_id}; a revert "
+                                     "would overwrite those edits. Pass force=true to revert anyway.")
                 _restore(ws, ch["address"], ch["before"])
             elif op.startswith("insert"):
                 spec, ex = ch["address"], ch["extra"]
                 lines = com(lambda: (ws.Rows if op.endswith("rows") else ws.Columns)(spec))
                 if not force:
                     if com(lambda: b.app.WorksheetFunction.CountA(lines)):
-                        raise HostError(f"The inserted {spec} now has content; reverting would delete it. Pass "
-                                        "force=true to delete anyway.")
+                        raise InputError(f"The inserted {spec} now has content; reverting would delete it. Pass "
+                                         "force=true to delete anyway.")
                     if ex.get("follow") and _fingerprint(ws, ex["is_row"], ex["first"] + ex["count"]) != ex["follow"]:
-                        raise HostError(f"Rows/columns around {spec} moved since the insert; reverting could delete "
-                                        "the wrong lines. Pass force=true to revert anyway.")
+                        raise InputError(f"Rows/columns around {spec} moved since the insert; reverting could delete "
+                                         "the wrong lines. Pass force=true to revert anyway.")
                 com(lambda: lines.Delete())
             elif op.startswith("delete"):
                 spec, ex = ch["address"], ch["extra"]
                 if not force and ex.get("follow") and _fingerprint(ws, ex["is_row"], ex["first"]) != ex["follow"]:
-                    raise HostError(f"Rows/columns around {spec} moved since the delete; restoring could put the "
-                                    "content in the wrong place. Pass force=true to revert anyway.")
+                    raise InputError(f"Rows/columns around {spec} moved since the delete; restoring could put the "
+                                     "content in the wrong place. Pass force=true to revert anyway.")
                 com(lambda: (ws.Rows if op.endswith("rows") else ws.Columns)(spec).Insert())
                 _restore(ws, ex["area"], ch["before"])
             else:
-                raise HostError(f"Cannot revert operation '{op}'.")
+                raise InputError(f"Cannot revert operation '{op}'.")
         com(lambda: ws.Calculate())
         _jump(b, ws, ch["address"] if op in ("write", "format") else "A1")
     ch["reverted"] = dt.datetime.now().isoformat(timespec="seconds")

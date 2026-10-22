@@ -115,7 +115,7 @@ async def sv_find_member(text: str, connection: Connection | None = None, dimens
                              if st["built"] else "Atlas not built yet - run sv_atlas_build (one-off, minutes).")
     if live or (not out["atlas_hits"] and connection):
         if not connection:
-            raise ToolError("live lookup needs a connection")
+            raise ToolError("live lookup needs a connection; pass connection= FinMax, FinLite or FinPlan.")
         try:
             out["live"] = await _call(lambda h: ops.find_member(h, connection, text), what="find_member")
         except (HostError, ToolError) as e:
@@ -151,7 +151,7 @@ async def sv_refresh_workbook(path: str, output_name: str | None = None) -> dict
     excel-mcp for further work. The source must be closed in Excel."""
     src = Path(path)
     if not src.exists():
-        raise ToolError(f"File not found: {path}")
+        raise ToolError(f"File not found: {path}. Check the path (absolute, to a closed workbook).")
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M%S")
     out = config.OUT_DIR / f"{stamp}_{output_name or ('refreshed_' + src.stem)}{src.suffix}"
     try:
@@ -248,7 +248,7 @@ async def sv_adhoc_action(action: Literal["retrieve", "zoom_in", "zoom_out", "ke
             h.run("B_Pivot", s, cell, end_cell)
         return _grid_preview(h, s)
     if action != "retrieve" and not cell:
-        raise ToolError(f"{action} needs a cell address")
+        raise ToolError(f"{action} needs a cell address; pass cell= (e.g. 'B3').")
     try:
         res = await _call(job, what=f"adhoc_{action}")
     except (HostError, ToolError) as e:

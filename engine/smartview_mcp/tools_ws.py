@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from . import qlog
 from .grid import Axis, to_markdown
-from .host import HostError
+from .host import HostError, InputError, rewrap
 from .server import WRITE, AxisIn, Connection, _call_user, _doc, _err, _is_our_analysis_file, log, tool
 
 # ---------------------------------------------------------------- analysis in the user's workbook
@@ -156,8 +156,8 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
             removed = userexcel.rollback(t)
             for name in removed:
                 sess.pop(name, None)
-            raise HostError(f"{e} (the analysis was not completed; removed the partial sheets: "
-                            f"{', '.join(removed) or 'none'})") from None
+            raise rewrap(e, f"{e} (the analysis was not completed; removed the partial sheets: "
+                         f"{', '.join(removed) or 'none'})") from None
         notes = "; ".join(spec.get("notes", [])[:1])
         with stage("log Kilder"):
             for p in pulls_by_id.values():
@@ -205,7 +205,7 @@ async def sv_ws_pull(question: str, connection: Connection, rows: list[AxisIn], 
                                    title=sheet_title or f"Q{qn} {connection}")
         except Exception as e:
             removed = userexcel.rollback(t)
-            raise HostError(f"{e} (removed the partial sheet: {', '.join(removed) or 'none'})") from None
+            raise rewrap(e, f"{e} (removed the partial sheet: {', '.join(removed) or 'none'})") from None
         _session(t.path, qn)[p.sheet] = p
         with stage("log Kilder"):
             try:
@@ -305,12 +305,12 @@ async def sv_ws_answer(q: int, spec: dict | None = None, spec_patch: dict | None
             t = userexcel.resolve_target(h, target, allow_archive)
         sess = _load_session(t, q)
         if not sess:
-            raise HostError(f"No pulls for Q{q} in '{t.name}'. Run sv_ws_pull first with the same target.")
+            raise InputError(f"No pulls for Q{q} in '{t.name}'. Run sv_ws_pull first with the same target.")
         stored = userexcel.load_spec(t, q)
         ids = stored[1] if stored else {}
         if spec is None:
             if not stored:
-                raise HostError(f"No earlier answer spec for Q{q}; pass spec.")
+                raise InputError(f"No earlier answer spec for Q{q}; pass spec.")
             raw = specs.merge(stored[0], spec_patch or {})
         else:
             raw = specs.merge(spec, spec_patch or {})
@@ -354,9 +354,9 @@ def _build_job(h, tm, question: str, pulls: list, spec: dict, target: str, allow
         if parked:
             userexcel.restore_parked(t, parked)
             _sessions.get(t.path.lower(), {}).pop(qn, None)      # reload the restored sheets from the workbook
-        raise HostError(f"{e} (the analysis was not completed; removed the partial sheets: "
-                        f"{', '.join(removed) or 'none'}" + ("; the previous version was kept" if parked else "")
-                        + ")") from None
+        raise rewrap(e, f"{e} (the analysis was not completed; removed the partial sheets: "
+                     f"{', '.join(removed) or 'none'}" + ("; the previous version was kept" if parked else "")
+                     + ")") from None
     if parked:
         with stage("drop old data sheets"):
             userexcel.drop_parked(t, parked)

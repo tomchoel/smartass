@@ -39,6 +39,15 @@ class HostTimeout(HostError):
     pass
 
 
+class InputError(ValueError):
+    """Bad input from the caller (spec, address, name, path) - not a host failure, so no restart advice."""
+
+
+def rewrap(e: Exception, msg: str) -> Exception:
+    """The same kind of error with more context: input errors stay input errors."""
+    return InputError(msg) if isinstance(e, InputError) else HostError(msg)
+
+
 def _excel_pids() -> set[int]:
     return {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == "excel.exe"}
 
@@ -252,11 +261,12 @@ class ExcelHost:
                 raise HostError(f"Excel was busy during {what} - probably a cell is being edited or a dialog is "
                                 "open. Press Enter or Esc in Excel and ask again.") from None
             raise HostError(f"COM error during {what}: {e}") from None
-        except HostError:
+        except (HostError, InputError):
             raise
         except Exception as e:   # noqa: BLE001 - always give the model a readable reason
             log.exception("unexpected error during %s", what)
-            raise HostError(f"Unexpected {type(e).__name__} during {what}: {e}. If it repeats, run sv_restart.") from None
+            raise HostError(f"Unexpected {type(e).__name__} during {what}: {e}. Retry once; if it repeats, run "
+                            "sv_restart.") from None
 
     # ---------------- worker-thread side ----------------
     def ensure(self) -> "ExcelHost":

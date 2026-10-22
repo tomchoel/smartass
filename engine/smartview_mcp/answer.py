@@ -36,7 +36,7 @@ from openpyxl.utils import get_column_letter as L
 from . import formulas as fx
 from .drill_xl import drill_formula, missing_columns, table_name
 from .drill_xl import table_columns as drill_table_columns
-from .host import HostError
+from .host import HostError, InputError
 from .userexcel import Pull, Target, add_sheet, com, lookup_formula
 
 FIRST_COL = 3            # column C: first value column; B = labels, A = margin
@@ -68,7 +68,7 @@ def _expr_to_formula(expr: str, col_letter: str, rows_by_key: dict) -> str:
     def rep(m):
         k = m.group(0)
         if k not in rows_by_key:
-            raise HostError(f"Unknown line key '{k}' in expression '{expr}'. Known: {sorted(rows_by_key)}")
+            raise InputError(f"Unknown line key '{k}' in expression '{expr}'. Known: {sorted(rows_by_key)}")
         return f"{col_letter}{rows_by_key[k]}"
     return "=" + re.sub(r"[A-Za-z_][A-Za-z0-9_]*", rep, expr)
 
@@ -132,7 +132,7 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
     t.status(f"bygger svar-arket 'Q{q} Svar' ...")
     cols = spec.get("columns") or []
     if not cols:
-        raise HostError("answer spec needs 'columns'")
+        raise InputError("answer spec needs 'columns'")
     ncol = len(cols)
     last_col = L(FIRST_COL + ncol - 1)
     rows_meta: list[dict] = []
@@ -199,12 +199,12 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
                             table_cols[tn_] = None
                     miss = missing_columns(table_cols[tn_], c.get("where") or {})
                     if miss:                                       # e.g. a detail column left out above 50 000 lines
-                        raise HostError(f"the lines table {tn_} has no column {', '.join(miss)} (cell left empty)")
+                        raise InputError(f"the lines table {tn_} has no column {', '.join(miss)} (cell left empty)")
                     f = drill_formula(tn_, c.get("where") or {}, c.get("agg", "sum"))
                 elif "pull" in c:
                     p = pulls.get(c["pull"])
                     if p is None:
-                        raise HostError(f"Unknown pull sheet '{c['pull']}'. Pulls in this answer: {sorted(pulls)}")
+                        raise InputError(f"Unknown pull sheet '{c['pull']}'. Pulls in this answer: {sorted(pulls)}")
                     f = lookup_formula(p, list(c["row"]), list(c["col"]))
                 elif "var" in c:
                     a, b = (L(FIRST_COL + k) for k in c["var"])
@@ -235,7 +235,7 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
                     com(lambda: setattr(cell, "Value", f))
             except Exception as e:   # noqa: BLE001 - one bad cell spec must not abort the whole answer
                 if isinstance(e, KeyError):
-                    e = HostError(f"unknown line key {e} (known: {sorted(rows_by_key)})")
+                    e = InputError(f"unknown line key {e} (known: {sorted(rows_by_key)})")
                 warnings.append(f"{ln.get('label')}: {e}")
         rows_meta.append({"row": row, "kind": {"sum": "sum", "grand": "grand"}.get(ln.get("kind"), "line"), "num": num})
     r = rr
@@ -257,7 +257,7 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
                     com(lambda: setattr(ws.Cells(r, FIRST_COL), "Formula2", f))
                     com(lambda: setattr(ws.Cells(r, FIRST_COL + 1), "Formula2",
                                         f'=IF(ISNUMBER({L(FIRST_COL)}{r}),IF(ABS({L(FIRST_COL)}{r})<1,"OK","DIFF"),"DIFF")'))
-                except HostError as e:
+                except (HostError, InputError) as e:
                     warnings.append(f"check {ck['label']}: {e}")
                 rows_meta.append({"row": r, "kind": "check", "num": {L(FIRST_COL): "heltall"},
                                   "status_col": L(FIRST_COL + 1)})

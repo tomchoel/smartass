@@ -17,7 +17,7 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 from . import config, logsetup, userexcel
-from .host import ExcelHost, HostError
+from .host import ExcelHost, HostError, InputError
 
 logsetup.configure(config.SERVER_LOG)
 logsetup.add_secret(config.HTTP_SECRET)
@@ -95,28 +95,39 @@ class AxisIn(BaseModel):
 
 
 def _err(e: Exception) -> ToolError:
-    return ToolError(str(e))
+    return ToolError(with_next_step(logsetup.redact(e), e))
 
 
+ESCALATE = ("if it repeats, call sv_status (in a terminal: `smartass doctor`) and send the file from "
+            "`smartass doctor --bundle` to the maintainer.")
+GENERIC_NEXT = "Retry once; " + ESCALATE
 NEXT_STEP = {
-    "HostError": "Excel/Smart View did not respond: call sv_restart, then retry.",
-    "DrillError": "The hidden drill browser failed: retry once.",
+    "InputError": "Correct the input named above and call the tool again.",
+    "HostError": "Call sv_restart (restarts the hidden Smart View Excel), then retry; " + ESCALATE,
+    "DrillError": "Retry the drill once; " + ESCALATE,
     "CellTooWide": "Narrow the cell (e.g. child entities) and drill again.",
     "TimeoutError": "Retry with a smaller request (fewer members or periods).",
 }
-GENERIC_NEXT = ("If it repeats, call sv_status (in a terminal: `smartass doctor`) and send the file from "
-                "`smartass doctor --bundle` to the maintainer.")
+# A message that already says what to do ('Next step: ...', 'If it repeats, run sv_restart.', '... Try again
+# shortly.', '; pass force=true') gets no second piece of advice.
+_ADVISED = re.compile(
+    r"next step|if it (?:repeats|persists)|(?:^|[.;:!?]\s+|,\s*(?:or|then)\s+|\bthen\s+|\s-\s+)"
+    r"(?:try|retry|press|pass|use|run|re-run|call|click|open|give|narrow|split|choose|revert|see|check|correct|"
+    r"fix|do|work on|ask|wait|select)\b", re.I)
 
 
-def with_next_step(msg: str) -> str:
-    return msg if "next step" in msg.lower() else f"{msg.rstrip(' .')}. Next step: {GENERIC_NEXT}"
+def with_next_step(msg: str, e: BaseException | None = None) -> str:
+    """msg with exactly one next step: its own advice if it has some, else the advice for e's class (most
+    specific along the class hierarchy: HostTimeout -> HostError, CellTooWide before DrillError), else generic."""
+    if _ADVISED.search(msg):
+        return msg
+    hint = next((NEXT_STEP[c.__name__] for c in type(e).__mro__ if c.__name__ in NEXT_STEP), None) \
+        if e is not None else None
+    return f"{msg.rstrip(' .')}. Next step: {hint or GENERIC_NEXT}"
 
 
 def explain(tool_name: str, e: Exception) -> str:
-    base = f"{tool_name} failed - {type(e).__name__}: {logsetup.redact(e)}"
-    # Most specific advice along the class hierarchy (HostTimeout -> HostError, CellTooWide before DrillError).
-    hint = next((NEXT_STEP[c.__name__] for c in type(e).__mro__ if c.__name__ in NEXT_STEP), None)
-    return f"{base.rstrip(' .')}. Next step: {hint} {GENERIC_NEXT}" if hint else with_next_step(base)
+    return with_next_step(f"{tool_name} failed - {type(e).__name__}: {logsetup.redact(e)}", e)
 
 
 def guard(fn):
@@ -151,11 +162,11 @@ def tool(annotations: ToolAnnotations = READ):
 
 
 async def _call(fn, timeout: float | None = None, what: str = "call"):
-    """host().call with every failure surfaced as a readable ToolError."""
+    """host().call with every failure surfaced as a readable ToolError (with the advice for its class)."""
     try:
         return await host().call(fn, timeout=timeout, what=what)
-    except (HostError, ToolError) as e:
-        raise ToolError(str(e)) from None
+    except (HostError, InputError, ToolError) as e:
+        raise _err(e) from None
 
 
 def _safe_name(s: str) -> str:
@@ -183,8 +194,8 @@ async def _call_user(fn, what: str):
     """host().call for jobs that drive the user's Excel (never killed on timeout)."""
     try:
         return await host().call(fn, what=what, user_excel=True)
-    except HostError as e:
-        raise ToolError(str(e)) from None
+    except (HostError, InputError) as e:
+        raise _err(e) from None
 
 
 # Tool modules register their tools on `mcp` when imported (module imports only - see the rule above).

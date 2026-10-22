@@ -32,7 +32,7 @@ import win32process
 
 from . import config
 from .grid import Axis, Layout, full_pov, parse
-from .host import ExcelHost, HostError
+from .host import ExcelHost, HostError, InputError
 
 WM_GETOBJECT, OBJID_NATIVEOM = 0x003D, -16
 RETRY = {-2147418111, -2147417846}            # call rejected / retry later (edit mode, busy)
@@ -511,9 +511,9 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
     if target not in ("active", "new"):
         p = Path(target)
         if not p.is_absolute():
-            raise HostError(f"Give an absolute path for target (got '{target}'), or use 'session' / 'active' / 'new'.")
+            raise InputError(f"Give an absolute path for target (got '{target}'), or use 'session' / 'active' / 'new'.")
         if is_archive(p) and not allow_archive:       # refuse BEFORE opening anything
-            raise HostError(ARCHIVE_REFUSAL.format(name=p.name))
+            raise InputError(ARCHIVE_REFUSAL.format(name=p.name))
     excels = interactive_excels()                     # waits for any open EPM login before touching an Excel
     if target == "active":
         for pid, hwnd, app in excels:
@@ -590,7 +590,7 @@ def _spawn_excel(tpl: Path, known: set[int]):
 def _finish_target(h: ExcelHost, t: Target, allow_archive: bool) -> Target:
     wait_login_cleared(t.pid)                         # before any further COM into that Excel
     if (is_archive(t.path) or is_archive(t.full_name)) and not allow_archive:
-        raise HostError(ARCHIVE_REFUSAL.format(name=t.name))
+        raise InputError(ARCHIVE_REFUSAL.format(name=t.name))
     _wait_ready(t.app)
     _attach_bridge(h, t)
     return t
@@ -598,7 +598,7 @@ def _finish_target(h: ExcelHost, t: Target, allow_archive: bool) -> Target:
 
 def _open_path(h: ExcelHost, path: Path, excels) -> Target:
     if not path.exists():
-        raise HostError(f"File not found: {path}")
+        raise InputError(f"File not found: {path}")
     for pid, hwnd, app in excels:
         for wb in app.Workbooks:
             if _norm(wb.FullName) == _norm(path):
@@ -867,7 +867,7 @@ def pull(h: ExcelHost, t: Target, q: int, connection: str, pov: dict, rows: list
         dims = _dims_cache[connection]
         problems = validate_axes(dims, p_, r_, c_)
         if problems:
-            raise HostError("Invalid pull: " + "; ".join(problems))
+            raise InputError("Invalid pull: " + "; ".join(problems))
         return Layout(full_pov(dims, p_, r_, c_), r_, c_)
 
     # dimension labels come from the on-disk cache, else from this sheet's own default grid below - never from the
@@ -961,7 +961,8 @@ def refresh_pull(t: Target, p: Pull) -> Pull:
         parsed = parse(p.layout, com(lambda: _used_values(ws)), suppress_missing=False, suppress_zeros=False)
         bad = _verify_labels(p.layout, parsed)
     if bad:
-        raise HostError(f"'{p.sheet}' no longer has the expected layout: " + "; ".join(bad[:5]))
+        raise HostError(f"'{p.sheet}' no longer has the expected layout: " + "; ".join(bad[:5])
+                        + ". Re-run the pull (sv_ws_pull / sv_ws_build) for this question.")
     parsed.pov_problems[:0] = [w for w in p.parsed.pov_problems if w.startswith("Smart View rejected")]
     return _make_pull(p.sheet, p.connection, p.layout, parsed, secs)
 
@@ -1051,8 +1052,8 @@ def lookup_formula(p: Pull, row_members: list[str], col_members: list[str]) -> s
     rlab = p.row_labels.get(tuple(row_members))
     clab = p.col_labels.get(tuple(col_members))
     if rlab is None or clab is None:
-        raise HostError(f"No cell for rows {row_members} / columns {col_members} in '{p.sheet}'. "
-                        f"Available rows: {list(p.row_labels)[:6]} columns: {list(p.col_labels)[:6]}")
+        raise InputError(f"No cell for rows {row_members} / columns {col_members} in '{p.sheet}'. "
+                         f"Available rows: {list(p.row_labels)[:6]} columns: {list(p.col_labels)[:6]}")
     s = "'" + p.sheet.replace("'", "''") + "'!"
     nr, nc = p.layout.nr, p.layout.nc
     from openpyxl.utils import get_column_letter as L
