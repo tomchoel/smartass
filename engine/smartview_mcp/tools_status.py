@@ -7,7 +7,7 @@ import time
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import atlas, atlas_history, config, ops, qlog
+from . import atlas, atlas_history, config, doctor, ops, qlog
 from . import server as core                      # live module ref: read core._host at call time
 from .host import HostError
 from .server import _STARTED, ADMIN, LOCAL, Connection, _call, host, tool
@@ -16,7 +16,10 @@ from .server import _STARTED, ADMIN, LOCAL, Connection, _call, host, tool
 @tool(annotations=LOCAL)
 async def sv_status() -> dict:
     """Health of the Smart View engine: Excel pid, connected sheets, Smart View version, restarts, atlas age,
-    and which drill browsers can start (drill_browser). Cheap; does not start Excel or a browser."""
+    which drill browsers can start (drill_browser), and the doctor checks (config, Excel, Smart View, EPM, output
+    folder, HTTP API, update). Cheap; does not start Excel or a browser."""
+    import asyncio
+    doc = await asyncio.to_thread(doctor.run)      # network checks (EPM 5 s, HTTP 2 s) off the event loop
     db = atlas.connect()
     st = atlas.status(db)
     from . import sso
@@ -28,6 +31,7 @@ async def sv_status() -> dict:
         drill = {"error": str(e)[:200]}
     return {**h, "server_started": _STARTED, "behind_reload_proxy": bool(os.environ.get("SVKIT_PROXY")),
             "drill_browser": drill,
+            "doctor": doctor.as_dict(doc),
             "atlas": {"oldest_age_days": st["oldest_age_days"], "stale": st["stale"],
                       "dimensions_built": len(st["built"])},
             "query_log": str(config.QUERY_LOG), "output_dir": str(config.OUT_DIR)}
