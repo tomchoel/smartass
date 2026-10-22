@@ -10,7 +10,9 @@ analyses in your own Excel: Smart View data sheets plus a formatted answer sheet
 powershell -ExecutionPolicy Bypass -File "<release folder>\<version>\installer\install.ps1"
 ```
 
-Then restart Copilot CLI or Claude Code, and run `smartass doctor`. Per user, no admin, safe to re-run.
+Then restart Copilot CLI or Claude Code, open a new terminal (the installer adds `smartass` to your user PATH), and
+run `smartass doctor`. If `smartass` is not found, use the full path
+`%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe`. Per user, no admin, safe to re-run.
 Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 
 ## Data safety

@@ -1,8 +1,46 @@
 import json
 import subprocess
+import winreg
 
 from smartview_mcp import setup_user
 
+
+class FakeReg:
+    def __init__(self, value, kind=winreg.REG_EXPAND_SZ):
+        self.value, self.kind, self.writes, self.broadcasts = value, kind, [], 0
+
+    def kw(self):
+        return {"read": lambda: (self.value, self.kind), "write": self.write, "broadcast": self.bc}
+
+    def write(self, value, kind):
+        self.value, self.kind = value, kind
+        self.writes.append((value, kind))
+
+    def bc(self):
+        self.broadcasts += 1
+
+
+def test_scripts_dir_is_added_to_user_path_once(tmp_path):
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir()
+    (scripts / "smartass.exe").write_bytes(b"")
+    reg = FakeReg(r"%USERPROFILE%\bin;C:\Tools;")
+    assert setup_user.path_step(str(scripts / "python.exe"), **reg.kw()).startswith("path: added")
+    assert reg.value == rf"%USERPROFILE%\bin;C:\Tools;{scripts}" and reg.kind == winreg.REG_EXPAND_SZ
+    assert reg.broadcasts == 1
+    upper = FakeReg(str(scripts).upper() + "\\")
+    assert setup_user.path_step(str(scripts / "python.exe"), **upper.kw()).startswith("path: unchanged")
+    assert setup_user.path_step(str(scripts / "python.exe"), **reg.kw()).startswith("path: unchanged")
+    assert len(reg.writes) == 1 and not upper.writes
+    empty = FakeReg("", winreg.REG_SZ)
+    setup_user.path_step(str(scripts / "python.exe"), **empty.kw())
+    assert empty.value == str(scripts) and empty.kind == winreg.REG_SZ
+
+
+def test_path_step_skips_without_smartass_exe(tmp_path):
+    reg = FakeReg("C:\\Tools")
+    assert setup_user.path_step(str(tmp_path / "python.exe"), **reg.kw()).startswith("path: skipped")
+    assert not reg.writes
 
 def test_user_config_is_written_once_with_a_secret(tmp_path):
     p = tmp_path / "config.toml"

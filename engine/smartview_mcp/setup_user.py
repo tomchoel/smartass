@@ -7,6 +7,7 @@ import os
 import secrets
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -122,6 +123,61 @@ def startup_entries() -> list[str]:
     return out
 
 
+def _read_user_path() -> tuple[str, int]:
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
+        try:
+            value, kind = winreg.QueryValueEx(k, "Path")
+            return value or "", kind
+        except FileNotFoundError:
+            return "", winreg.REG_EXPAND_SZ
+
+
+def _write_user_path(value: str, kind: int) -> None:
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as k:
+        winreg.SetValueEx(k, "Path", 0, kind, value)
+
+
+def _broadcast_env_change() -> None:
+    """Tell Explorer (and so new terminals) that the environment changed. Best effort."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        result = wintypes.DWORD()
+        ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, "Environment", 0x0002, 5000,
+                                                 ctypes.byref(result))   # HWND_BROADCAST, WM_SETTINGCHANGE
+    except Exception:  # noqa: BLE001 - only a notification
+        pass
+
+
+def _path_key(entry: str) -> str:
+    return os.path.expandvars(entry.strip().strip('"')).rstrip("\\/").lower()
+
+
+def add_to_user_path(folder: Path, read=_read_user_path, write=_write_user_path,
+                     broadcast=_broadcast_env_change) -> str:
+    """Append folder to HKCU\\Environment Path once (case-insensitive), keeping the value type (REG_EXPAND_SZ)."""
+    value, kind = read()
+    if _path_key(str(folder)) in {_path_key(e) for e in value.split(";") if e.strip()}:
+        return "unchanged"
+    write(f"{value.rstrip(';')};{folder}" if value.strip() else str(folder), kind)
+    broadcast()
+    return "added"
+
+
+def path_step(executable: str | None = None, **reg) -> str:
+    """Put the engine venv's Scripts folder (where smartass.exe lives) on the user PATH."""
+    scripts = Path(executable or sys.executable).parent
+    if not (scripts / "smartass.exe").exists():
+        return f"path: skipped - no smartass.exe next to {scripts}"
+    try:
+        r = add_to_user_path(scripts, **reg)
+    except OSError as e:
+        return f"path: failed ({e}) - run {scripts / 'smartass.exe'} by its full path"
+    return f"path: {r} ({scripts}; open a new terminal to use `smartass`)"
+
+
 def copy_atlas() -> str:
     if not config.RELEASE_FOLDER:
         return "atlas: no release folder configured"
@@ -149,5 +205,6 @@ def run() -> list[str]:
     out.append(f"skill (claude): {link_skill(skill_src, USER / '.claude' / 'skills' / 'smartview', backup)}")
     out.append(f"skill (agents): {link_skill(skill_src, USER / '.agents' / 'skills' / 'smartview', backup)}")
     out += startup_entries()
+    out.append(path_step())
     out.append(copy_atlas())
     return out

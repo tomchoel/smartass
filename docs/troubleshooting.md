@@ -6,6 +6,9 @@ the same as in the doctor (`engine\smartview_mcp\doctor.py`).
 
 User settings live in `%LOCALAPPDATA%\smartass\config.toml`; defaults in `engine\defaults.toml`.
 
+`smartass` not found? Open a new terminal after install (the installer adds it to your user PATH). Otherwise run it
+by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe`.
+
 ## config
 
 - **Symptom:** `FAIL  config  <TOML error>` or `WARN  config  no ...\smartass\config.toml`.
