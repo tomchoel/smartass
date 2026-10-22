@@ -337,16 +337,24 @@ class ExcelHost:
 
     def _apply_global_options(self):
         """The user's own values are recorded ONCE in a file before we change them, so a crash (no clean shutdown)
-        never turns our settings into the 'originals' of the next run."""
+        never turns our settings into the 'originals' of the next run. While the old svkit engine may still have its
+        own values applied, its file holds the real originals: copy them (the legacy file stays for that engine)."""
         orig_file = config.SVKIT / "smartview_options_original.json"
-        saved = {}
-        try:
-            saved = {int(k): v for k, v in json.loads(orig_file.read_text()).items()}
-        except (OSError, ValueError):
+        legacy = config.LEGACY_HOME / "smartview_options_original.json" if config.LEGACY_HOME else None
+        saved, src = None, None
+        for f in [p for p in (orig_file, legacy) if p]:
+            try:
+                saved, src = {int(k): v for k, v in json.loads(f.read_text()).items()}, f
+                break
+            except (OSError, ValueError):
+                pass
+        if saved is None:
+            saved = {}
             for k in config.GLOBAL_OPTIONS:
                 got = self._run("B_GetOption", k, "")
                 if got and got[0] == "OK":
                     saved[k] = got[1]
+        if src != orig_file:
             orig_file.parent.mkdir(parents=True, exist_ok=True)
             orig_file.write_text(json.dumps({str(k): v for k, v in saved.items()}))
         self.saved_options = saved

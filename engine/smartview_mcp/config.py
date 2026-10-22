@@ -101,6 +101,8 @@ def find_first(configured: str | None, app_exe: str | None, candidates: list[str
 HOME = Path(os.environ.get("SMARTASS_HOME") or os.environ.get("SVKIT_DIR")
             or Path(os.environ["LOCALAPPDATA"]) / "smartass")
 SVKIT = HOME                                               # old name, kept for callers
+_lad = os.environ.get("LOCALAPPDATA")
+LEGACY_HOME = Path(_lad) / "svkit" if _lad else None       # old svkit engine's state (read only, never changed)
 USER_CONFIG = HOME / "config.toml"
 SETTINGS, CONFIG_ERROR = load_settings(DEFAULTS_FILE, USER_CONFIG)
 ORG_SETTINGS, _ = load_settings(DEFAULTS_FILE, DEFAULTS_FILE.with_name("absent.toml"))   # fallbacks for bad user values
