@@ -98,22 +98,55 @@ def _err(e: Exception) -> ToolError:
     return ToolError(str(e))
 
 
-def tool(annotations: ToolAnnotations = READ):
-    """mcp.tool + a guard: ANY exception reaches the model as readable text (the SDK otherwise reports only
+NEXT_STEP = {
+    "HostError": "Excel/Smart View did not respond: call sv_restart, then retry.",
+    "DrillError": "The hidden drill browser failed: retry once.",
+    "CellTooWide": "Narrow the cell (e.g. child entities) and drill again.",
+    "TimeoutError": "Retry with a smaller request (fewer members or periods).",
+}
+GENERIC_NEXT = ("If it repeats, call sv_status (in a terminal: `smartass doctor`) and send the file from "
+                "`smartass doctor --bundle` to the maintainer.")
+
+
+def with_next_step(msg: str) -> str:
+    return msg if "next step" in msg.lower() else f"{msg.rstrip(' .')}. Next step: {GENERIC_NEXT}"
+
+
+def explain(tool_name: str, e: Exception) -> str:
+    base = f"{tool_name} failed - {type(e).__name__}: {logsetup.redact(e)}"
+    # Most specific advice along the class hierarchy (HostTimeout -> HostError, CellTooWide before DrillError).
+    hint = next((NEXT_STEP[c.__name__] for c in type(e).__mro__ if c.__name__ in NEXT_STEP), None)
+    return f"{base.rstrip(' .')}. Next step: {hint} {GENERIC_NEXT}" if hint else with_next_step(base)
+
+
+def guard(fn):
+    """ANY exception reaches the model as readable text with a next step (the SDK otherwise reports only
     'Error executing tool X' for non-ToolError exceptions)."""
     import functools
+    import inspect
 
-    def deco(fn):
-        @functools.wraps(fn)
-        async def guarded(*args, **kwargs):
-            try:
+    import anyio.to_thread
+
+    is_async = inspect.iscoroutinefunction(fn)
+
+    @functools.wraps(fn)          # keeps __wrapped__, so the SDK builds the same input schema
+    async def guarded(*args, **kwargs):
+        try:
+            if is_async:
                 return await fn(*args, **kwargs)
-            except ToolError:
-                raise
-            except Exception as e:   # noqa: BLE001
-                log.exception("tool %s failed", fn.__name__)
-                raise ToolError(f"{type(e).__name__}: {e}") from None
-        return mcp.tool(annotations=annotations)(guarded)
+            # The SDK runs sync tools in a worker thread; keep that.
+            return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
+        except ToolError as e:
+            raise ToolError(with_next_step(logsetup.redact(e))) from None
+        except Exception as e:   # noqa: BLE001
+            log.exception("tool %s failed", fn.__name__)
+            raise ToolError(explain(fn.__name__, e)) from None
+    return guarded
+
+
+def tool(annotations: ToolAnnotations = READ):
+    def deco(fn):
+        return mcp.tool(annotations=annotations)(guard(fn))
     return deco
 
 
