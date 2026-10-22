@@ -1,0 +1,117 @@
+# Recipes — Produktregnskapet extracts
+
+Each recipe is the grid the team builds in Smart View, written as an `sv_query` call. "Verified" means the recipe
+was run against FY2025 and reconciled cell by cell with the archived workbook (2026-10-13, Smart View 25.100).
+Every difference was explained; the explanations are the traps listed in `SKILL.md`.
+
+For grids larger than the 60-row preview, pass `save_xlsx: true` and read the saved file. It holds a `Data` sheet
+(member names plus label columns) and a `POV` sheet (source, time, full POV, axes).
+
+## 1. GL extract — cost base per cost centre (FinMax)
+
+This is the `GL` sheet of the interview and input workbooks (`2 Input\22 Arsverkfordeling\…\<year>_INPUT_Aktivitet_*.xlsm`,
+2026 template `3 Modell\Test ny intervjumal\2026 Input Produktregnskap blank.xlsm`). The final cut is taken in
+early January: Dec of the model year, **Accumulated**, with FTE.
+
+```json
+{"connection": "FinMax",
+ "rows":    [{"dimension": "All Entities", "members": ["un.SY.QT11", "un.SY.K570", "…", "un.SY"]}],
+ "columns": [{"dimension": "All Accounts", "members": ["ac.C50S", "ac.C60", "ac.C70", "ac.C50100", "ac.C50200", "…", "ac.STA20Y"]}],
+ "pov": {"All Scenarios": "Actual", "All Currencies": "NOK", "All Time Periods": "Dec 25", "All Balance Types": "Accumulated"},
+ "suppress_missing": false, "save_xlsx": true, "title": "GL Dec 25"}
+```
+
+- **Rows.** Take the cost-centre list from the workbook's own `GL` sheet: column A holds the member names. Alternatively use
+  `sv_members(FinMax, un.SY, descendants)`. The archive sheet has about 480 entities.
+- **Columns.** The account names are in row 6 of the `GL` sheet, shown as labels such as `C50100 Salaries and Holiday Pay (ac)`, which is the member `ac.C50100`.
+- **FTE.** FTE is account `ac.STA20Y` ("Total number of man-years - EoP"). It exists only in **FinMax**, not in FinLite.
+- **Archive copies.** The archive `GL` sheets hold *pasted values*, not live Smart View grids, so `sv_refresh_workbook` changes
+  nothing on them. Rebuild with `sv_query`.
+- **Verified** against `2025\2 Input\22 Arsverkfordeling\2IFRS15\2025_INPUT_Aktivitet_G916_CP.xlsm` (extract dated 07.01.2026,
+  482 entities × 50 Dec 25 Accumulated accounts). 24,100 cells were compared and **95.5 % are identical**. The retrieve took 11 s.
+  - The total `un.SY` agrees within 0.03 %. Pension `C50500` is the exception at 2.8 %: Dec 25 postings were made after 07.01.
+  - Every other difference is in parent nodes restated by the 1 June 2026 reorg. `2CON`, `2CWK`, `5BRO_C` and `4IT_T` are now 0, and `2ADM`, `2TEC`, `2IT` and `2IG`
+    are redistributed.
+  - `un.SY.01_SUM` no longer exists.
+
+## 2. Revenue and COGS per division × product (FinMax)
+
+This is the grid behind `2 Input\20 Inntekt-varekost\<division>\<year>_Inntekt og varekost *.xlsx`.
+
+```json
+{"connection": "FinMax",
+ "rows":    [{"dimension": "All Entities", "members": ["un.SY.4REV_W"]},
+             {"dimension": "All Products", "members": ["pd.SY.N5Z00", "pd.SY.N6800", "pd.SY.P56"]}],
+ "columns": [{"dimension": "All Accounts", "members": ["ac.C30"]},
+             {"dimension": "All Time Periods", "members": ["Q1 25", "Apr 25", "May 25", "Jun 25", "Q2 25"]}],
+ "pov": {"All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}}
+```
+
+- **Accounts.** Revenue is `ac.C30` and COGS is `ac.C40S`, or their detail accounts.
+- **Products and entities.** Products are `pd.SY.<code>` (`pd.SY.P56` COLOCATION, `pd.SY.P50` BROADBAND WHS). Find a division's
+  product and entity leaves with `sv_members`.
+- **Periods.** Quarters (`Q1 25`) and months can be mixed on one axis.
+- **Verified** by refreshing `2025\2 Input\20 Inntekt-varekost\Wholesale\2025_Inntekt og varekost WHS_Large Sites.xlsx`.
+  **690 of 753 numbers are identical.** The other 63 are all `3WHS_C` rows, which now return 0: the reorg moved `4REV_W` from `3WHS_C`
+  to `3WHS_W`. Leaf data is unchanged.
+
+## 3. Opex and depreciation control per division (FinMax)
+
+This is the grid behind `2 Input\21 Costbase\211_Avskrivning\<year>_Avskrivningkost kontroll.xlsx`. Accounts are on the rows, and the divisions × year are on the columns.
+
+```json
+{"connection": "FinMax",
+ "rows":    [{"dimension": "All Accounts", "members": ["ac.EBITDA", "ac.60120", "ac.C75130", "ac.60100", "ac.C75110",
+                                                      "ac.60300", "ac.C75120", "ac.C75", "ac.C76S", "ac.EBIT"]}],
+ "columns": [{"dimension": "All Entities", "members": ["un.SY.2IT", "un.SY.2I16", "un.SY.2TEC", "un.SY.2ADM", "un.SY.2BUS", "un.SY"]},
+             {"dimension": "All Time Periods", "members": ["Yr 25"]}],
+ "pov": {"All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}}
+```
+
+- **IFRS16.** The IFRS16 sheets in the same workbook add counterparts (`cp.*`) or the Towers counterpart (`TE Telenor Towers Norway AS`).
+- **Verified** by refreshing the 2025 file. 13,600 numbers were compared and **12,422 are identical**.
+  - **The total for `SY Telenor Norge AS` is identical.** All the IFRS16 processing sheets are identical too.
+  - The differences are the split between divisions, which is restated to today's organisation. `2CON` went from 10,520 MNOK EBITDA 2024 to 0
+    and `2CWK` went to 0. `2BUS`, `2TEC`, `2ADM`, `2IT` and `2IG` were redistributed.
+  - The sheet `FinMax opex & avskr 2024` failed with rc=1000. It references members that no longer exist.
+
+## 4. Special costs per cost centre (FinLite)
+
+This is the grid behind `2 Input\22 Arsverkfordeling\<division>\<year>_*særkost*.xlsx`. The base sheets (`Grunnlag …`) are FinLite
+grids, and the pivot sheets are built on top of them.
+
+```json
+{"connection": "FinLite",
+ "rows":    [{"dimension": "All Entities", "members": ["un.SY.K570", "un.SY.E257", "un.SY.3SEC_C"]}],
+ "columns": [{"dimension": "All Accounts", "members": ["ac.C50S", "ac.C60", "ac.C70", "ac.C50100", "ac.C50200", "ac.C50300"]}],
+ "pov": {"All Scenarios": "Actual", "All Currencies": "NOK", "All Time Periods": "Yr 25", "All Balance Types": "Periodic"}}
+```
+
+- **Why FinLite.** It is lighter and faster than FinMax and has the same dimensions *except Functions, Projects, Reserves and Systems*. It holds no FTE.
+- **Verified** by refreshing `2025\2 Input\22 Arsverkfordeling\2CSW_CA_Security_WHS_Kystradio\2025_CWK_SEC_særkostnader_20251117.xlsx`.
+  - **All base and pivot sheets are identical** (1,367 of 1,436 numbers).
+  - Three `GL` rows differ by about 1.7 %. That sheet uses `Yr 25 / Periodic` and was extracted on 17.11.2025, when `Yr 25` was still year-to-date.
+
+## FinPlan (plan / forecast)
+
+FinPlan has different dimensions:
+
+- **Columns:** `Years` (`FY25`, …) and `Period` (`Jan` … `Dec`).
+- **Rows:** `Account` and `Entity`.
+- **POV:** `Scenario` (`Forecast Running Version`, `Target`, `Forecast Q425`, …), `Version` (`Working`, `Final`, `Division`),
+  `All Products` and `All Balance Types`.
+
+FinPlan's grid shows *aliases*, and the atlas stores those aliases (`BANORWAY`, `4TIP_I Tipo`, `FY26`, `Target 2025`).
+**Aliases work as query members**, because Smart View resolves them. The real names still carry prefixes: `BANORWAY` is
+`un.BANORWAYP`, `4TIP_I Tipo` is `un.FU.4TIP_I`, and `Wholesale` in Account is `ac.CAP_WHS` (a capex node, not the division).
+`sv_member_info` gives the real name.
+
+```json
+{"connection": "FinPlan",
+ "rows":    [{"dimension": "Entity", "members": ["BANORWAY"]}],
+ "columns": [{"dimension": "Years", "members": ["FY25", "FY26"]}, {"dimension": "Period", "members": ["TotalYear"]}],
+ "pov": {"Scenario": "Target 2025", "Version": "Final"}}
+```
+
+This was smoke-tested on 2026-10-13: BANORWAY, Target 2025, Final, FY25 TotalYear returned 7,518,989,026.37 at the top Account level.
+No FinPlan recipe has been reconciled against an archive file yet.

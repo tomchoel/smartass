@@ -1,0 +1,22 @@
+[project]
+name = "smartview-mcp"
+version = "0.1.0"
+description = "Read-only MCP server for Oracle Smart View (FinMax / FinLite / FinPlan on EPM Cloud) via a dedicated Excel instance"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp==2.3.0",
+    "pydantic==2.14.1",
+    "pywin32==312",
+    "psutil==7.2.2",
+    "uiautomation==2.0.29",
+    "openpyxl",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "anyio"]
+
+[project.scripts]
+smartview-mcp = "smartview_mcp.server:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
