@@ -9,7 +9,7 @@ import time
 sys.path.insert(0, __file__.rsplit("\\tests", 1)[0])
 from mcp import Client  # noqa: E402
 
-from smartview_mcp import server  # noqa: E402
+from smartview_mcp import server, tools_ws  # noqa: E402
 
 RUNS = {
     "pnl": ("Hva er inntekter, varekost, driftskostnader og EBITDA for Technology hittil i år, og årsverk?",
@@ -60,7 +60,7 @@ async def freeform(c, target, failures):
     print("freeform answer error=", r.is_error, b.get("_text", "")[:300] or b["table"])
     if r.is_error or "1 994 151 358" not in b.get("table", ""):
         failures.append("freeform: answer wrong/error")
-    server._sessions.clear()                                         # simulate a server restart
+    tools_ws._sessions.clear()                                         # simulate a server restart
     spec["key_points"] = ["Rebuilt after restart."]
     r = await c.call_tool("sv_ws_answer", {"q": q, "spec": spec, "target": wbk})
     b = body(r)

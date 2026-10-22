@@ -2,7 +2,7 @@
 from types import SimpleNamespace
 
 from smartview_mcp.grid import Axis, Layout
-from smartview_mcp.server import fin
+from smartview_mcp.tools_ws import fin
 from smartview_mcp.templates import _clean, _fmt, _pct, months_to, same_period_ly, split_period
 from smartview_mcp.userexcel import _verify_labels, is_archive, local_path
 
