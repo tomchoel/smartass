@@ -20,7 +20,6 @@ import re
 import threading
 import time
 import uuid
-from pathlib import Path
 
 import pywintypes
 from openpyxl.utils import get_column_letter as L

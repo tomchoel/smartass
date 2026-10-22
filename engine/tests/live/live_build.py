@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-MCP = Path(__file__).resolve().parents[1]
+MCP = Path(__file__).resolve().parents[2]
 p = subprocess.Popen([sys.executable, "-B", str(MCP / "run_server.py")], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 inbox: queue.Queue = queue.Queue()
 threading.Thread(target=lambda: [inbox.put(json.loads(x)) for x in p.stdout if x.strip()], daemon=True).start()

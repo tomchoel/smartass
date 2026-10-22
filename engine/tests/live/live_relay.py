@@ -12,7 +12,7 @@ from pathlib import Path
 
 import psutil
 
-MCP = Path(__file__).resolve().parents[1]
+MCP = Path(__file__).resolve().parents[2]
 p = subprocess.Popen([sys.executable, "-B", str(MCP / "run_server.py")], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 inbox: queue.Queue = queue.Queue()
 threading.Thread(target=lambda: [inbox.put(json.loads(l)) for l in p.stdout if l.strip()], daemon=True).start()

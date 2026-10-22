@@ -3,6 +3,7 @@ import asyncio
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 sys.path.insert(0, __file__.rsplit("\\tests", 1)[0])
 import psutil  # noqa: E402
@@ -10,7 +11,7 @@ import psutil  # noqa: E402
 from smartview_mcp import ops  # noqa: E402
 from smartview_mcp.host import ExcelHost  # noqa: E402
 
-DUMP = r"C:\Users\t992115\OneDrive - Telenor\Projects\prodreg2026\smartview\uia_dump.ps1"
+DUMP = str(Path(__file__).resolve().parents[2] / "scripts" / "uia_dump.ps1")
 
 
 def dump(tag):
