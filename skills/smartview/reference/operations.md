@@ -1,14 +1,14 @@
 # Operating the smartview MCP
 
-Code: `OneDrive - Telenor\Projects\prodreg2026\smartview\mcp\`. Design and test history: `..\DESIGN.md`.
-Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\svkit\venv\Scripts\python.exe" "<mcp>\run_server.py"`.
+Code: the smartass repo, `engine\` (`<mcp>` below). Design and test history: `docs\DESIGN.md`.
+Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\smartass\venv\Scripts\python.exe" "<mcp>\run_server.py"`.
 
 ## Working in the user's Excel (analyses)
 
 - **Attach.** The MCP attaches through the Excel window (`AccessibleObjectFromWindow`). It never uses `GetObject(path)`, because that
   starts a hidden Excel when the file is not registered yet. It always waits until no EPM `Login` dialog is open in that Excel
   before any COM call: a COM call during the login deadlocks Excel.
-- **Bridge.** A hidden add-in `%LOCALAPPDATA%\svkit\svbridge_<hash>.xlam` is loaded into the user's Excel. The file name is
+- **Bridge.** A hidden add-in `%LOCALAPPDATA%\smartass\svbridge_<hash>.xlam` is loaded into the user's Excel. The file name is
   versioned, so a new build never collides with one still loaded. Old builds are pruned when free. Smart View acts on the
   ACTIVE sheet, so every bridge call activates our target sheet first, and the user's view jumps to it.
 - **Data sheets.** Suppression is forced OFF and the missing label is set to `#NumericZero`. Excel formatting is kept on
@@ -26,10 +26,10 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\svkit\
 - **Outliers outside our code.**
   - Smart View asks for an SSO re-login about hourly per Excel, and the grid waits up to about 70 s until EPM shows
     the dialog. The watcher clicks within 1 s.
-  - The once-a-day "Current Reporting Month" lookup starts the hidden Excel (about 13 s). It is then cached in `svkit\closed_month.json`.
+  - The once-a-day "Current Reporting Month" lookup starts the hidden Excel (about 13 s). It is then cached in `smartass\closed_month.json`.
 - **What keeps it fast.** Do not undo these:
-  - Dimension labels are cached in `svkit\dims_cache.json`, so user-Excel jobs never start the hidden Excel.
-  - TN styles are installed once per workbook (marker name `_tnStylesVer`), and new files come from `svkit\tn_template_<ver>.xltx`.
+  - Dimension labels are cached in `smartass\dims_cache.json`, so user-Excel jobs never start the hidden Excel.
+  - TN styles are installed once per workbook (marker name `_tnStylesVer`), and new files come from `smartass\tn_template_<ver>.xltx`.
   - `fast_excel` (no redraw, manual calculation, settings restored) wraps writes and formatting.
   - `PrintCommunication=False` is set around page setup.
   - The lint works without per-cell COM.
@@ -37,7 +37,7 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\svkit\
 - **Never skip Smart View's default grid** before a retrieve. It was tried and was followed by a 752 error and two Excel crashes.
 - **Several agents in parallel** (live-tested 2026-10-14 with 2 subagents).
   - **Per-job worker.** Every user-Excel job runs on its own COM thread.
-  - **Turns per Excel.** Turns are kept per Excel process (`svkit\user_excel_<pid>.lock`), because one Excel runs all automation on one
+  - **Turns per Excel.** Turns are kept per Excel process (`smartass\user_excel_<pid>.lock`), because one Excel runs all automation on one
     thread and Smart View writes to the active sheet.
   - **New analyses spread out.** `target='new'` takes a free Excel, or starts another Excel window on the TN template (once, about 25 s; up to
     `MAX_EXCELS`=4 windows). Only then does it wait.
@@ -53,12 +53,12 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\svkit\
 - **One Excel.** The MCP drives one hidden, dedicated Excel (`DispatchEx`) on a single COM thread. The VBA bridge `vba\modBridge.bas`
   and Oracle's `smartview_body.bas` are loaded into an in-memory workbook at every start, and that workbook is never saved.
 - **Read-only.** Submit, calculate and business-rule functions do not exist in the bridge.
-- **Watchdog.** Every call has a deadline. A hang kills **only this server's own Excel**, recorded in `%LOCALAPPDATA%\svkit\pids.json`
+- **Watchdog.** Every call has a deadline. A hang kills **only this server's own Excel**, recorded in `%LOCALAPPDATA%\smartass\pids.json`
   together with the owning server process, and the next call restarts it. The error text names any dialog the hung Excel had open.
 - **SSO.** The global watcher `mcp\sso_watcher.ps1` (PowerShell, .NET UI Automation) runs from the Startup folder
   (`svkit-sso-watcher.lnk`). It clicks "Telenor SSO" in the Smart View Login dialog of *any* Excel, and it never types.
-  - It writes a heartbeat to `svkit\logs\sso_watcher.heartbeat`. The MCP restarts it if the heartbeat is older than 90 s.
-  - The log is `svkit\logs\sso_watcher_ps.log`.
+  - It writes a heartbeat to `smartass\logs\sso_watcher.heartbeat`. The MCP restarts it if the heartbeat is older than 90 s.
+  - The log is `smartass\logs\sso_watcher_ps.log`.
   - A Python `uiautomation` version was removed because it blocked on this dialog.
   - One login covers both pods: plan1 (FinMax, FinLite) and stratmodel (FinPlan).
 - **Saving.** Excel cancels unlabelled `SaveAs` silently, so the MCP sets the **Internal** label
@@ -68,23 +68,23 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\svkit\
 
 | What | Where |
 |---|---|
-| Results (`save_xlsx`, refreshed copies) | `prodreg2026\smartview\output\` |
-| Query log (audit trail, JSONL) | `prodreg2026\smartview\logs\queries.jsonl` |
-| Server log | `%LOCALAPPDATA%\svkit\logs\server.log` |
-| SSO watcher log | `%LOCALAPPDATA%\svkit\logs\sso_watcher.log` |
-| Atlas | `%LOCALAPPDATA%\svkit\atlas.db` |
-| Venv (mcp 2.3.0, pywin32 312, psutil, uiautomation) | `%LOCALAPPDATA%\svkit\venv` |
+| Results (`save_xlsx`, refreshed copies) | the output folder (`paths.output` in `%LOCALAPPDATA%\smartass\config.toml`) |
+| Query log (audit trail, JSONL) | `%LOCALAPPDATA%\smartass\logs\queries.jsonl` (`paths.query_log`) |
+| Server log | `%LOCALAPPDATA%\smartass\logs\server.log` |
+| SSO watcher log | `%LOCALAPPDATA%\smartass\logs\sso_watcher.log` |
+| Atlas | `%LOCALAPPDATA%\smartass\atlas.db` |
+| Venv (mcp 2.3.0, pywin32 312, psutil, uiautomation) | `%LOCALAPPDATA%\smartass\venv` |
 
 ## Routine tasks
 
 - **Refresh the atlas** when `sv_status` says `stale` (older than 30 days), or after a reorganisation. Run `sv_atlas_build`, which takes about 3 minutes for all
   three cubes. Then regenerate the readable atlas with
-  `"%LOCALAPPDATA%\svkit\venv\Scripts\python.exe" "<mcp>\gen_atlas_md.py"`, which writes `reference\cubes.md` of this skill.
+  `"%LOCALAPPDATA%\smartass\venv\Scripts\python.exe" "<mcp>\gen_atlas_md.py"`, which writes `reference\cubes.md` of this skill.
 - **Apply code changes: automatic.** The registered entry `run_server.py` is a relay. It runs the real server
   (`child_server.py`) as a child process. When a tool is called after any edit to `smartview_mcp\*.py`, `vba\*.bas` or
   `child_server.py`, it restarts that child gracefully (its Excel closes and options are restored), then tells Claude Code the tool list changed.
   No `/mcp` is needed. Only an edit to `run_server.py` itself needs a reconnect. `sv_status` shows `server_started` and
-  `behind_reload_proxy`. The relay log is `svkit\logs\proxy.log`, and the test is `tests\live_relay.py [excel]`. `sv_restart`
+  `behind_reload_proxy`. The relay log is `smartass\logs\proxy.log`, and the test is `tests\live_relay.py [excel]`. `sv_restart`
   restarts only Excel.
 - **Tests.**
   - Unit: `python -m pytest -q` in `<mcp>`.

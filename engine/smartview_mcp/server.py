@@ -76,7 +76,7 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
   If a concept matches (e.g. 'splitt', or a product family 'fam_*'), answer with sv_concept(concept) - it marks every line booked / estimated (with
   key) / attributed / not in FinMax. No concept: research, PROPOSE the blocks to the user, then save the concept.
 - Analyses: ONE call - sv_ws_build(question, pulls, spec) (or sv_analyse for a template). Default target 'session' =
-  this session's own workbook (prodreg2026\\analyser\\<project>\\..., Q1, Q2 ...); 'active' only when the user asks
+  this session's own workbook (the analyser folder\\<project>\\..., Q1, Q2 ...); 'active' only when the user asks
   for their open workbook. Follow-ups: sv_ws_answer(q, spec_patch=..., target=<workbook>). Add the same period last
   year by default. Write key_points only for interpretation - factual points are drafted from the numbers.
 - Format: full NOK 1 000 000, negatives (1 000 000) in tables and with a minus sign in text; costs negative;
@@ -615,7 +615,8 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
     """Answer a financial question as an analysis IN THE USER'S EXCEL: live Smart View data sheets ('Q<n> FinMax' ...),
     a formatted answer sheet 'Q<n> Svar' (TN report style, live formulas, key points, checks, variance drivers, chart)
     and a 'Kilder' log. target: 'session' (default: this session's own analysis workbook in
-    prodreg2026\\analyser\\<project>, created on its first question and reused/reopened for every later one),
+    the analyser folder (config.ANALYSER_DIR, set in config.toml)\\<project>, created on its first question and
+    reused/reopened for every later one),
     'active' (the workbook the user is working in - only when they ask for it), 'new' (a new file that becomes the
     session's workbook), or a path. Archive files are refused unless allow_archive=true. q: extend an existing
     question number (follow-up), else the next free number. Templates and params:
@@ -1352,7 +1353,7 @@ async def sv_atlas_changes(connection: Connection, dimension: str | None = None,
 
 
 def _is_our_analysis_file(path: str) -> bool:
-    """A file the MCP itself created in prodreg2026\\analyser (never a user's or an archive workbook)."""
+    """A file the MCP itself created in the analyser folder (config.ANALYSER_DIR; never a user's or an archive workbook)."""
     try:
         parent, root = Path(path).resolve().parent, config.ANALYSER_DIR.resolve()
         return (parent == root or parent.parent == root) and not userexcel.is_archive(path)   # analyser\[<project>\]

@@ -1,6 +1,6 @@
 # Cube atlas (generated)
 
-Generated 2026-10-13 21:41 from `%LOCALAPPDATA%\svkit\atlas.db` by `gen_atlas_md.py`. Top levels only; search everything with `sv_find_member`, walk with `sv_members`.
+Generated 2026-10-13 21:41 from `%LOCALAPPDATA%\smartass\atlas.db` by `gen_atlas_md.py`. Top levels only; search everything with `sv_find_member`, walk with `sv_members`.
 
 ## FinLite
 

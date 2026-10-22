@@ -7,7 +7,8 @@ description: Pull Telenor Norge financial data from Oracle EPM Cloud (FinMax/Fin
 
 The `smartview` MCP is read-only towards EPM. It works **inside the user's Excel**.
 - **Default target: the session file.** Every session (Claude Code or Copilot) keeps its own analysis workbook,
-  `prodreg2026\analyser\<project folder>\<date time> <first question>.xlsx`. It is created on the session's first question,
+  `<analyser folder>\<project folder>\<date time> <first question>.xlsx`, where the analyser folder is `paths.analyser` in
+  `%LOCALAPPDATA%\smartass\config.toml`. It is created on the session's first question,
   and every later question of that session goes into it as Q2, Q3 and so on. If it was closed, it is reopened.
 - **Other targets.** Use `target='active'` only when the user says to put it in *their* open workbook; `target='new'` for an explicitly separate file.
 - **Parallel sessions.** Sessions run in parallel. Only writing in the same Excel window takes turns, and a second window opens when that one is busy.
@@ -100,7 +101,7 @@ from the tool list, or `sv_status` lacks `behind_reload_proxy`, the server preda
    - cube · POV · period on one line;
    - every `checks` value that is not OK, and every warning;
    - the sheet names;
-   - that the user's workbook was **not saved** (new analysis files are saved in `prodreg2026\analyser\`).
+   - that the user's workbook was **not saved** (new analysis files are saved in the analyser folder (`paths.analyser` in `%LOCALAPPDATA%\smartass\config.toml`)).
 
 ## Drill-through (invoice / journal lines)
 
@@ -160,7 +161,7 @@ no depreciation, so stop at EBITDA.
 
 ## Business map (forretningskart)
 
-`prodreg2026\smartview\knowledge\` holds what the business MEANS in FinMax and FinPlan. Each area is an Excel review
+The repo's `knowledge\` folder (plus `packs\<pack>\knowledge\` for enabled packs) holds what the business MEANS in FinMax and FinPlan. Each area is an Excel review
 sheet and a JSON copy that `sv_scope` reads:
 
 | Area | File | Contents |

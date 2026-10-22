@@ -42,14 +42,19 @@ def test_verify_labels_catches_shifted_rows():
     assert len(_verify_labels(lay, shifted)) == 2
 
 
-def test_archive_guard_local_url_and_unsaved():
-    assert is_archive(r"C:\Users\t992115\OneDrive - Telenor\Analyse (Telenor Norge AS) - Produktregnskapet\2025\x.xlsx")
+def test_archive_guard_local_url_and_unsaved(monkeypatch, tmp_path):
+    from smartview_mcp import config
+    root = tmp_path / "Analyse (Telenor Norge AS) - Produktregnskapet"
+    monkeypatch.setattr(config, "ARCHIVE_ROOT", root)
+    assert is_archive(str(root / "2025" / "x.xlsx"))
     assert is_archive("https://telenorgroup.sharepoint.com/sites/AnalyseTelenorNorgeAS/Shared Documents/2025/x.xlsx")
-    assert not is_archive(r"C:\Users\t992115\OneDrive - Telenor\Projects\prodreg2026\analyser\a.xlsx")
+    assert not is_archive(str(tmp_path / "analyser" / "a.xlsx"))
     assert not is_archive("Book1")
 
 
-def test_local_path_maps_personal_onedrive():
-    url = ("https://telenorgroup-my.sharepoint.com/personal/tom_chamkrai_hoel_telenor_no/Documents/"
-           "Projects/prodreg2026/analyser/a%20b.xlsx")
-    assert local_path(url).endswith(r"Projects\prodreg2026\analyser\a b.xlsx")
+def test_local_path_maps_personal_onedrive(monkeypatch):
+    from smartview_mcp import userexcel
+    monkeypatch.setattr(userexcel, "_onedrive_mounts",
+                        lambda: [("https://contoso-my.sharepoint.com/personal/a_b/Documents/", r"C:\OD")])
+    url = "https://contoso-my.sharepoint.com/personal/a_b/Documents/smartass/analyser/a%20b.xlsx"
+    assert local_path(url) == r"C:\OD\smartass\analyser\a b.xlsx"

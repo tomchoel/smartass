@@ -1,6 +1,6 @@
 # Drill-through (sv_drill): glossary, report rules, text repair
 
-Spec: `prodreg2026\smartview\specs\2026-10-15-sv-drill-design.md`. Plan: `plans\2026-10-15-sv-drill.md`.
+Spec: `docs\specs\2026-10-15-sv-drill-design.md` in the smartass repo. Plan: `docs\plans\2026-10-15-sv-drill.md`.
 The lines come from the FinLite drill page (view `DrillFilter`, 45 columns). **Key** = used in most reports.
 
 ## Column glossary (45 columns, in page order)
@@ -74,7 +74,7 @@ The lines come from the FinLite drill page (view `DrillFilter`, 45 columns). **K
 - **Key points** name the drivers from the profile: largest suppliers, invoices vs journals, allocation journals by
   name. Running text uses full NOK with a minus sign (`−24 706 615`).
 - **Size.** Excel gets all 45 columns up to 50 000 lines; above that only the key columns (full detail stays in the
-  cache `svkit\drill.db`). Chat shows totals and top suppliers, never line dumps.
+  cache `smartass\drill.db`). Chat shows totals and top suppliers, never line dumps.
 
 ## Text repair
 
@@ -97,11 +97,11 @@ Applied to every text field in `drill_lines.normalize`. The result carries `text
   (e.g. `un.SY` with all other dimensions at the top). The cell then splits by child entity (then account) by itself;
   empty (#Missing) children and children without a drill report are skipped. Example: 12881 × `un.SY` × Sep 26 →
   22 children, 4 with data, 95 lines, exact. A cell refused once splits at once on a re-drill (same server).
-- **Browser:** headless Microsoft Edge first (`config.DRILL_CHANNELS` = msedge, chrome; profile `svkit\drill_edge`).
+- **Browser:** headless Microsoft Edge first (`config.DRILL_CHANNELS` = msedge, chrome; profile `smartass\drill_edge`).
   A channel with a `UserDataDir` browser policy is skipped (Chrome has one: it forces every launch onto the user's
   own profile); a failed launch is retried once, then the next channel. A browser that died is restarted and the
   drill retried once. `sv_status` → `drill_browser` shows which channels can start. A failed drill page leaves a
-  screenshot and HTML in `svkit\logs\drill_fail_*`.
+  screenshot and HTML in `smartass\logs\drill_fail_*`.
 - Excel gets key columns only above 50 000 lines. Maximum 300 000 lines; above that the tool stops after the first
   page and reports the size, and you narrow the request.
 - No drill report on the cell (data entered by journal in EPM): cube value returned, `lines=0`, with the reason.
