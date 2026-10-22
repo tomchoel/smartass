@@ -7,17 +7,15 @@ Rules, agreed with the user 2026-10-15:
 """
 from __future__ import annotations
 
-import importlib.util
 import logging
 import re
-import sys
 from pathlib import Path
 
 from openpyxl.utils import get_column_letter as L
 
 log = logging.getLogger("smartview.formulas")
 
-CHECKER_PATH = Path.home() / ".claude" / "skills" / "tn-formelstil" / "formelsjekk.py"
+CHECKER_PATH = Path(__file__).resolve().parent / "vendor" / "formelsjekk.py"   # pinned copy of tn-formelstil's checker
 _checker = None
 
 
@@ -79,13 +77,8 @@ def expr_keys_if_plain_sum(expr: str) -> list[str] | None:
 def _load_checker():
     global _checker
     if _checker is None:
-        if not CHECKER_PATH.exists():
-            raise FileNotFoundError(f"formula checker not found: {CHECKER_PATH}")
-        spec = importlib.util.spec_from_file_location("formelsjekk", CHECKER_PATH)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules["formelsjekk"] = mod            # dataclasses look their module up while building
-        spec.loader.exec_module(mod)
-        _checker = mod
+        from .vendor import formelsjekk
+        _checker = formelsjekk
     return _checker
 
 

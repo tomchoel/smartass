@@ -1,7 +1,8 @@
 """Styling adapter: TN report style on workbooks that are ALREADY OPEN in Excel (live pywin32 COM objects).
 
 The style definitions (fonts, colours, named cell styles ``TN ...``, number formats, locale translation and the
-Arial text-width / wrap calibration) are reused from the ``tn-rapportstil`` skill (``tn_rapportstil.py``); this
+Arial text-width / wrap calibration) are reused from the ``tn-rapportstil`` skill, through the pinned copy in
+``smartview_mcp/vendor/tn_rapportstil.py``; this
 module only adds the live-workbook plumbing: COM retry, row-role based application, a COM-based lint, and a
 non-destructive look for Smart View ad hoc grids.
 
@@ -14,21 +15,12 @@ Nothing here saves a workbook, attaches to a running Excel or clears cell conten
 """
 from __future__ import annotations
 
-import os
-import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
 
-# ---------------------------------------------------------------- reuse the skill's definitions
-_SKILL_DIR = os.environ.get("TN_RAPPORTSTIL_DIR") or str(Path.home() / ".claude" / "skills" / "tn-rapportstil")
-if _SKILL_DIR not in sys.path:
-    sys.path.append(_SKILL_DIR)
-try:
-    import tn_rapportstil as tn   # needs openpyxl (imported at module level by the skill)
-except ImportError as exc:        # pragma: no cover
-    raise ImportError(f"styling.py reuses {_SKILL_DIR}\\tn_rapportstil.py ({exc}); "
-                      "set TN_RAPPORTSTIL_DIR or install openpyxl in this environment") from exc
+# ---------------------------------------------------------------- reuse the skill's definitions (pinned copy)
+from .vendor import tn_rapportstil as tn
 
 # ---------------------------------------------------------------- COM retry
 _BUSY = {-2147418111, -2147417846}      # RPC_E_CALL_REJECTED, RPC_E_SERVERCALL_RETRYLATER
