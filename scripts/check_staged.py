@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 DB = re.compile(r"\.(db|sqlite3?|db-wal|db-shm)$", re.I)
 WORKBOOK = re.compile(r"\.(xlsx|xlsm|xlsb|xls)$", re.I)
@@ -31,18 +32,22 @@ def problems(path: str, data: bytes) -> list[str]:
     return out
 
 
-def _git(*a: str) -> bytes:
-    return subprocess.run(["git", *a], capture_output=True, check=True).stdout
+def _git(*a: str, cwd: str | None = None) -> bytes:
+    return subprocess.run(["git", *a], capture_output=True, check=True, cwd=cwd).stdout
 
 
 def main(argv: list[str]) -> int:
+    # Run everything from the top level so paths are repo-relative, wherever the script is called from.
+    top = _git("rev-parse", "--show-toplevel").decode().strip()
     if "--all" in argv:
-        files = _git("ls-files", "-z").decode().split("\0")
-        read = lambda f: open(f, "rb").read()  # noqa: E731
+        files = _git("ls-files", "-z", cwd=top).decode().split("\0")
+        read = lambda f: (Path(top) / f).read_bytes()  # noqa: E731
     else:
-        files = _git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").decode().split("\0")
-        read = lambda f: _git("show", f":{f}")  # noqa: E731
+        files = _git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z", cwd=top).decode().split("\0")
+        read = lambda f: _git("show", f":{f}", cwd=top)  # noqa: E731
     found = [m for f in files if f for m in problems(f, read(f))]
+    if "--all" in argv:
+        print(f"checked {sum(1 for f in files if f)} tracked files")
     for m in found:
         print("BLOCKED", m)
     if found:

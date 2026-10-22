@@ -21,4 +21,6 @@ jobs:
       - run: uv run pytest -q
         env:
           SMARTASS_HOME: ${{ runner.temp }}\smartass
-      - run: uv run python ..\scripts\check_staged.py --all
+      - name: data/secret guard (every tracked file, from the repo root)
+        working-directory: .
+        run: engine\.venv\Scripts\python scripts\check_staged.py --all
