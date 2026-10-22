@@ -571,7 +571,7 @@ def _new_target(h: ExcelHost, title: str, excels) -> Target:
 
 def _spawn_excel(tpl: Path, known: set[int]):
     """Start a new interactive Excel on the TN template (opens as a new unsaved workbook) and take its turn."""
-    proc = subprocess.Popen([config.EXCEL_EXE, "/x", str(tpl)])
+    proc = _launch_excel(tpl)
     t0 = time.monotonic()
     while time.monotonic() - t0 < 120:
         time.sleep(1)
@@ -609,9 +609,9 @@ def _open_path(h: ExcelHost, path: Path, excels) -> Target:
         hold_turn(pid, what="this request")
         wb = com(lambda: app.Workbooks.Open(str(path)), limit=180)
         return Target(app, wb, pid, hwnd)
-    proc = subprocess.Popen([config.EXCEL_EXE, "/x", str(path)])
+    proc = _launch_excel(path)
     t0 = time.monotonic()
-    while time.monotonic() - t0 < 90:
+    while time.monotonic() - t0 < OPEN_TIMEOUT_S:
         time.sleep(1)
         for pid, hwnd, app in interactive_excels():
             for wb in app.Workbooks:
@@ -619,7 +619,25 @@ def _open_path(h: ExcelHost, path: Path, excels) -> Target:
                     hold_turn(pid, what="this request")
                     wait_login_cleared(pid, appear_grace=12)     # a fresh Excel shows the EPM login at start-up
                     return Target(app, wb, pid, hwnd)
-    raise HostError(f"Excel did not open {path} within 90 s (pid {proc.pid}).")
+        if proc.poll() is not None:
+            raise HostError(f"Excel (pid {proc.pid}) closed before it opened {path.name}. "
+                            "Next step: open Excel yourself (any workbook), then ask again.")
+    raise HostError(f"Excel did not open {path} within {OPEN_TIMEOUT_S} s (pid {proc.pid}). "
+                    "Next step: check that Excel window for a sign-in or OneDrive prompt, answer it, and ask again.")
+
+
+# A cold Excel loads Smart View and the OneDrive file (sync, sensitivity label) before the workbook appears;
+# on a busy PC that takes well over a minute.
+OPEN_TIMEOUT_S = 240
+
+
+def _launch_excel(path: Path) -> subprocess.Popen:
+    """Start a new interactive Excel on path with a normal, visible window, so any start-up prompt can be seen
+    (inherited start-up info otherwise left it minimised, hiding prompts from the user)."""
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 1                                # SW_SHOWNORMAL
+    return subprocess.Popen([config.EXCEL_EXE, "/x", str(path)], startupinfo=si)
 
 
 def _new_path(title: str) -> Path:
