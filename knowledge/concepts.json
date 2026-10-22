@@ -1,0 +1,3007 @@
+{
+ "meta": {
+  "about": "Begrepsbibliotek for smartview: forretningsbegrep -> FinMax-poster + regler. Lønnsomhet = direkte bidrag fra FinMax. Hver post er 'booked' (merket på produkt/koststed), 'attributed' (ikke merket, henført i sin helhet), 'estimated' (delt beløp x nøkkel) eller 'missing' (ikke i FinMax).",
+  "status": "Splitt avtalt med Tom 14.10.2026 (grilling). Øvrige begrep: utkast til gjennomgang."
+ },
+ "concepts": [
+  {
+   "id": "splitt",
+   "title": "Splitt – direkte lønnsomhet",
+   "names": [
+    "splitt",
+    "splitt lønnsomhet",
+    "delbetaling",
+    "avbetaling",
+    "håndsett på avbetaling",
+    "handset instalment",
+    "split payment"
+   ],
+   "kind": "product_offer",
+   "description": "Telenor Consumers tilbud om å kjøpe håndsett/utstyr på delbetaling, med valgfri Plussforsikring og egne Splitt-abonnement. Lønnsomhet = direkte bidrag fra FinMax.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Maskinvare (Splitt-salg av utstyr)",
+     "items": [
+      {
+       "key": "hw_apple",
+       "label": "Splitt-inntekt Apple",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.FV064",
+        "pd.SY.FV065",
+        "pd.SY.FV066",
+        "pd.SY.FV067",
+        "pd.SY.FV068"
+       ]
+      },
+      {
+       "key": "hw_samsung",
+       "label": "Splitt-inntekt Samsung",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.FV069",
+        "pd.SY.FV070",
+        "pd.SY.FV071",
+        "pd.SY.FV072",
+        "pd.SY.FV073"
+       ]
+      },
+      {
+       "key": "hw_other",
+       "label": "Splitt-inntekt øvrige merker",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.FV074",
+        "pd.SY.FV075",
+        "pd.SY.FV076",
+        "pd.SY.FV077",
+        "pd.SY.FV078"
+       ]
+      },
+      {
+       "key": "hw_gsn",
+       "label": "God Som Ny (brukte enheter)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.FV079"
+       ]
+      },
+      {
+       "key": "hw_fin",
+       "label": "Finanskomponent (renteandel skilt ut av inntekten)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.FV081"
+       ]
+      },
+      {
+       "key": "hw_rev",
+       "label": "Maskinvareinntekt Splitt",
+       "kind": "sum",
+       "of": [
+        "hw_apple",
+        "hw_samsung",
+        "hw_other",
+        "hw_gsn",
+        "hw_fin"
+       ]
+      },
+      {
+       "key": "hw_cogs",
+       "label": "Varekost maskinvare",
+       "kind": "estimated",
+       "base": {
+        "label": "Håndsett-varekost totalt (M5008 + M5010)",
+        "account": "ac.C40S",
+        "products": [
+         "pd.SY.M5008",
+         "pd.SY.M5010"
+        ]
+       },
+       "key_num": {
+        "label": "Splitt maskinvareinntekt ekskl. finanskomponent",
+        "expr": "hw_rev-hw_fin"
+       },
+       "key_den": {
+        "label": "Håndsettinntekt totalt (M411)",
+        "account": "ac.C30",
+        "products": [
+         "pd.SY.M411"
+        ]
+       },
+       "key_text": "Splitts andel av all håndsettinntekt"
+      }
+     ]
+    },
+    {
+     "title": "Andre kostnader bokført på Splitt-produktene",
+     "items": [
+      {
+       "key": "bk_cogs",
+       "label": "Varekost bokført på Splitt (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.M4517"
+       ]
+      },
+      {
+       "key": "bk_opex",
+       "label": "Driftskostnader bokført på Splitt (C70, bl.a. provisjon C60140)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.M4517"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Finansiering",
+     "items": [
+      {
+       "key": "fin_int",
+       "label": "Renteinntekt på avbetalingsplaner (C80311)",
+       "kind": "attributed",
+       "account": "ac.C80311",
+       "entities": [
+        "un.SY"
+       ],
+       "note": "Ikke produktmerket; henført 100 % til Splitt."
+      },
+      {
+       "key": "fin_cost",
+       "label": "Finansieringskostnad og tap på avbetalingsfordringer",
+       "kind": "missing",
+       "note": "Ikke synlig i FinMax un.SY (C81313–C81315, 81502) – ikke med i bidraget."
+      }
+     ]
+    },
+    {
+     "title": "Forsikring",
+     "items": [
+      {
+       "key": "ins_rev",
+       "label": "Splitt Plussforsikring",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.F4046"
+       ]
+      },
+      {
+       "key": "ins_cost",
+       "label": "Forsikringsinnholdskostnad",
+       "kind": "estimated",
+       "base": {
+        "label": "Forsikringsinnholdskostnad totalt (F4010)",
+        "account": "ac.C48",
+        "products": [
+         "pd.SY.F4010"
+        ]
+       },
+       "key_num": {
+        "label": "Splitt Plussforsikring",
+        "ref": "ins_rev"
+       },
+       "key_den": {
+        "label": "Forsikringsinntekt totalt (M4124)",
+        "account": "ac.C30",
+        "products": [
+         "pd.SY.M4124"
+        ]
+       },
+       "key_text": "Splitts andel av all forsikringsinntekt"
+      }
+     ]
+    },
+    {
+     "title": "Innbytte",
+     "items": [
+      {
+       "key": "trade",
+       "label": "Innbytte (innbytteverdi og -bonus, C120–C134)",
+       "kind": "estimated",
+       "base": {
+        "label": "Innbytte totalt (EBITDA før andre poster, C120–C134)",
+        "account": "ac.EBITDA_BOI",
+        "entities": [
+         "un.SY.C120",
+         "un.SY.C121",
+         "un.SY.C122",
+         "un.SY.C123",
+         "un.SY.C124",
+         "un.SY.C130",
+         "un.SY.C131",
+         "un.SY.C132",
+         "un.SY.C133",
+         "un.SY.C134"
+        ]
+       },
+       "key_same_as": "hw_cogs",
+       "key_text": "samme nøkkel som maskinvaren (andel av håndsettinntekt) – innbytte gjelder alt håndsettsalg"
+      }
+     ]
+    },
+    {
+     "title": "Splitt-abonnement og datapakker",
+     "items": [
+      {
+       "key": "tar",
+       "label": "Splitt-tariffer og datapakker (bidrag C30 + C40S)",
+       "kind": "booked",
+       "account": "ac.C48",
+       "products": [
+        "pd.SY.FF884",
+        "pd.SY.FC884",
+        "pd.SY.FC960",
+        "pd.SY.FC961",
+        "pd.SY.FC962",
+        "pd.SY.FC963",
+        "pd.SY.FF960",
+        "pd.SY.FF961",
+        "pd.SY.FF962",
+        "pd.SY.FF963"
+       ]
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Maskinvarelinjene = M4517 Handset Splitt Revenue",
+     "source": {
+      "account": "ac.C30",
+      "products": [
+       "pd.SY.M4517"
+      ]
+     },
+     "expr": "hw_rev-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Splitt (før finansieringskostnad og tap)",
+    "of": [
+     "hw_rev",
+     "hw_cogs",
+     "bk_cogs",
+     "bk_opex",
+     "fin_int",
+     "ins_rev",
+     "ins_cost",
+     "trade",
+     "tar"
+    ]
+   },
+   "notes": [
+    "Lønnsomhet = direkte bidrag fra FinMax (ikke fullfordelt Produktregnskap).",
+    "Merking: (bokført) = merket på Splitt-produkt/koststed; (estimert) = delt beløp × nøkkel; (henført 100 %) = ikke merket, men tilhører Splitt.",
+    "Øvrige kontoer bokført på Splitt-produktene (tap på fordringer, frakt, markedsføring, rabatter, gebyrer) kommer automatisk med i C40S/C70-linjene.",
+    "Sammenligning mot i fjor: provisjon på FV081 (C60140) og renteinntekt C80311 ble i 2025 først bokført i 4. kvartal – hittil-tall mot hittil i fjor gir derfor store endringer.",
+    "Plussforsikring (F4046) økte kraftig fra 2025 til 2026 – nøkkelen for forsikringsinnholdskostnad følger med (andel av forsikringsinntekt).",
+    "Innbytte fordeles med håndsettnøkkelen (Splitts andel av håndsettinntekt), fordi innbytte gjelder alt håndsettsalg. Valgt 15.10.2026 uten bedre kilde; uvesentlig: innbytte totalt er −3,5 MNOK hittil sep 26, så 0 % eller 100 % flytter bidraget med under 3 %."
+   ],
+   "decisions": {
+    "trade_in_key": {
+     "value": "håndsettnøkkel (key_same_as hw_cogs)",
+     "decided": "2026-10-15",
+     "by": "Claude (brukeren hadde ingen preferanse)",
+     "materiality": "innbytte totalt −3,5 MNOK YTD sep 26"
+    }
+   }
+  },
+  {
+   "id": "streamix",
+   "title": "Streamix – direkte bidrag siden lansering",
+   "names": [
+    "streamix",
+    "streamix lønnsomhet",
+    "streamix pl",
+    "streamix p&l"
+   ],
+   "kind": "product_offer",
+   "source": "manual",
+   "description": "Streamix (pd.SY.P255) bokført i FinMax: abonnement, oppkjøpsprodukter og COGS, samt driftskostnader merket på produktet. Streamix Mobil (GF068/GF069 under M4115) vises som memo utenfor totalen.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {"key": "rev", "label": "Inntekter (C30)", "kind": "booked", "account": "ac.C30", "products": ["pd.SY.P255"]},
+      {"key": "cogs", "label": "Varekost (C40S)", "kind": "booked", "account": "ac.C40S", "products": ["pd.SY.P255"]},
+      {"key": "gp", "label": "Bruttofortjeneste", "kind": "sum", "of": ["rev", "cogs"]}
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktet",
+     "items": [
+      {"key": "opex", "label": "Driftskostnader (C70)", "kind": "booked", "account": "ac.C70", "products": ["pd.SY.P255"]}
+     ]
+    },
+    {
+     "title": "Memo: Streamix Mobil (ikke i total)",
+     "items": [
+      {"key": "memo_rev", "label": "Memo: inntekter Streamix Mobil (C30)", "kind": "booked", "account": "ac.C30", "products": ["pd.SY.GF068", "pd.SY.GF069"]},
+      {"key": "memo_cogs", "label": "Memo: varekost Streamix Mobil (C40S)", "kind": "booked", "account": "ac.C40S", "products": ["pd.SY.GF068", "pd.SY.GF069"]}
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {"key": "not_tagged", "kind": "missing", "label": "Lønn og kostnader på koststed", "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis."}
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktet",
+     "source": {"account": "ac.EBITDA_BOI", "products": ["pd.SY.P255"]},
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {"label": "Direkte bidrag Streamix", "of": ["rev", "cogs", "opex"]},
+   "notes": [
+    "Forbrukerens fast-produkter har ingen fast Produktregnskap-kode; Streamix P255 fordeles med FinPlan-nøkler etter årsslutt.",
+    "Avtalt med Tom 22.10.2026: booked + Streamix Mobil som memo."
+   ]
+  },
+  {
+   "id": "fam_mobil_own_subscriptions_mobile_consumer",
+   "title": "Mobil Own Subscriptions Mobile – direkte bidrag",
+   "names": [
+    "Mobil Own Subscriptions Mobile",
+    "mobil own subscriptions mobile",
+    "Mobil / Consumer / Mobil Own Subscriptions Mobile",
+    "Mobil Consumer Mobil Own Subscriptions Mobile"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Mobil / Consumer / Mobil Own Subscriptions Mobile» i FinMax (pd.SY): 13 produktgruppe(r), bl.a. M4115 Subscription Voice in bundled services, M210 Interconnect Mobile costs, M040 Interconnect, M5050 Roaming-outbound costs. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.M040",
+        "pd.SY.M112",
+        "pd.SY.M121",
+        "pd.SY.M124",
+        "pd.SY.M141",
+        "pd.SY.M210",
+        "pd.SY.M4115",
+        "pd.SY.M4210",
+        "pd.SY.M4431",
+        "pd.SY.M4514",
+        "pd.SY.M5050",
+        "pd.SY.M5080",
+        "pd.SY.M5095"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.M040",
+        "pd.SY.M112",
+        "pd.SY.M121",
+        "pd.SY.M124",
+        "pd.SY.M141",
+        "pd.SY.M210",
+        "pd.SY.M4115",
+        "pd.SY.M4210",
+        "pd.SY.M4431",
+        "pd.SY.M4514",
+        "pd.SY.M5050",
+        "pd.SY.M5080",
+        "pd.SY.M5095"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.M040",
+        "pd.SY.M112",
+        "pd.SY.M121",
+        "pd.SY.M124",
+        "pd.SY.M141",
+        "pd.SY.M210",
+        "pd.SY.M4115",
+        "pd.SY.M4210",
+        "pd.SY.M4431",
+        "pd.SY.M4514",
+        "pd.SY.M5050",
+        "pd.SY.M5080",
+        "pd.SY.M5095"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.M040",
+       "pd.SY.M112",
+       "pd.SY.M121",
+       "pd.SY.M124",
+       "pd.SY.M141",
+       "pd.SY.M210",
+       "pd.SY.M4115",
+       "pd.SY.M4210",
+       "pd.SY.M4431",
+       "pd.SY.M4514",
+       "pd.SY.M5050",
+       "pd.SY.M5080",
+       "pd.SY.M5095"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Mobil Own Subscriptions Mobile",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 8474918441.87,
+    "fy2025_c40s": -746574537.85,
+    "fy2025_c70": -223146818.02,
+    "fy2025_ebitda_boi": 7505197086.0
+   }
+  },
+  {
+   "id": "fam_internett_og_tv_fordeles_med_nokler_consumer",
+   "title": "Internett og TV (fordeles med nøkler) – direkte bidrag",
+   "names": [
+    "Internett og TV (fordeles med nøkler)",
+    "internett og tv (fordeles med nøkler)",
+    "Fixed / Consumer / Internett og TV (fordeles med nøkler)",
+    "Fixed Consumer Internett og TV (fordeles med nøkler)"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Consumer / Internett og TV (fordeles med nøkler)» i FinMax (pd.SY): 4 produktgruppe(r), bl.a. P25 TV, PR220 Fiber Abonnement, P205 HFC Internett, PR261 FMBB abonnement. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.P205",
+        "pd.SY.P25",
+        "pd.SY.PR220",
+        "pd.SY.PR261"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.P205",
+        "pd.SY.P25",
+        "pd.SY.PR220",
+        "pd.SY.PR261"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.P205",
+        "pd.SY.P25",
+        "pd.SY.PR220",
+        "pd.SY.PR261"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.P205",
+       "pd.SY.P25",
+       "pd.SY.PR220",
+       "pd.SY.PR261"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Internett og TV (fordeles med nøkler)",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 6137723346.9,
+    "fy2025_c40s": -2874020636.4,
+    "fy2025_c70": -132579055.27,
+    "fy2025_ebitda_boi": 3131123655.23
+   }
+  },
+  {
+   "id": "fam_mobil_own_subscriptions_business",
+   "title": "Mobil Own Subscriptions Business – direkte bidrag",
+   "names": [
+    "Mobil Own Subscriptions Business",
+    "mobil own subscriptions business",
+    "Mobil / Business / Mobil Own Subscriptions Business",
+    "Mobil Business Mobil Own Subscriptions Business"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Mobil / Business / Mobil Own Subscriptions Business» i FinMax (pd.SY): 29 produktgruppe(r), bl.a. M4131 Bundle ME/LE, M4205 Domestic Services SMS/RCS access, M4126 SIM Tvilling, M4129 Mobilt Bedriftsnett. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.M113",
+        "pd.SY.M116",
+        "pd.SY.M122",
+        "pd.SY.M131",
+        "pd.SY.M132",
+        "pd.SY.M134",
+        "pd.SY.M4000",
+        "pd.SY.M4004",
+        "pd.SY.M4008",
+        "pd.SY.M4100",
+        "pd.SY.M4103",
+        "pd.SY.M4104",
+        "pd.SY.M4109",
+        "pd.SY.M4119",
+        "pd.SY.M4120",
+        "pd.SY.M4126",
+        "pd.SY.M4129",
+        "pd.SY.M4130",
+        "pd.SY.M4131",
+        "pd.SY.M4205",
+        "pd.SY.M4207",
+        "pd.SY.M4211",
+        "pd.SY.M4225",
+        "pd.SY.M4228",
+        "pd.SY.M5081",
+        "pd.SY.M5082",
+        "pd.SY.M5091",
+        "pd.SY.M5092",
+        "pd.SY.M5093"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.M113",
+        "pd.SY.M116",
+        "pd.SY.M122",
+        "pd.SY.M131",
+        "pd.SY.M132",
+        "pd.SY.M134",
+        "pd.SY.M4000",
+        "pd.SY.M4004",
+        "pd.SY.M4008",
+        "pd.SY.M4100",
+        "pd.SY.M4103",
+        "pd.SY.M4104",
+        "pd.SY.M4109",
+        "pd.SY.M4119",
+        "pd.SY.M4120",
+        "pd.SY.M4126",
+        "pd.SY.M4129",
+        "pd.SY.M4130",
+        "pd.SY.M4131",
+        "pd.SY.M4205",
+        "pd.SY.M4207",
+        "pd.SY.M4211",
+        "pd.SY.M4225",
+        "pd.SY.M4228",
+        "pd.SY.M5081",
+        "pd.SY.M5082",
+        "pd.SY.M5091",
+        "pd.SY.M5092",
+        "pd.SY.M5093"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.M113",
+        "pd.SY.M116",
+        "pd.SY.M122",
+        "pd.SY.M131",
+        "pd.SY.M132",
+        "pd.SY.M134",
+        "pd.SY.M4000",
+        "pd.SY.M4004",
+        "pd.SY.M4008",
+        "pd.SY.M4100",
+        "pd.SY.M4103",
+        "pd.SY.M4104",
+        "pd.SY.M4109",
+        "pd.SY.M4119",
+        "pd.SY.M4120",
+        "pd.SY.M4126",
+        "pd.SY.M4129",
+        "pd.SY.M4130",
+        "pd.SY.M4131",
+        "pd.SY.M4205",
+        "pd.SY.M4207",
+        "pd.SY.M4211",
+        "pd.SY.M4225",
+        "pd.SY.M4228",
+        "pd.SY.M5081",
+        "pd.SY.M5082",
+        "pd.SY.M5091",
+        "pd.SY.M5092",
+        "pd.SY.M5093"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.M113",
+       "pd.SY.M116",
+       "pd.SY.M122",
+       "pd.SY.M131",
+       "pd.SY.M132",
+       "pd.SY.M134",
+       "pd.SY.M4000",
+       "pd.SY.M4004",
+       "pd.SY.M4008",
+       "pd.SY.M4100",
+       "pd.SY.M4103",
+       "pd.SY.M4104",
+       "pd.SY.M4109",
+       "pd.SY.M4119",
+       "pd.SY.M4120",
+       "pd.SY.M4126",
+       "pd.SY.M4129",
+       "pd.SY.M4130",
+       "pd.SY.M4131",
+       "pd.SY.M4205",
+       "pd.SY.M4207",
+       "pd.SY.M4211",
+       "pd.SY.M4225",
+       "pd.SY.M4228",
+       "pd.SY.M5081",
+       "pd.SY.M5082",
+       "pd.SY.M5091",
+       "pd.SY.M5092",
+       "pd.SY.M5093"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Mobil Own Subscriptions Business",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 2728271165.35,
+    "fy2025_c40s": -171508970.05,
+    "fy2025_c70": -14199684.87,
+    "fy2025_ebitda_boi": 2542562510.43
+   }
+  },
+  {
+   "id": "fam_mobil_handset_mobile_consumer",
+   "title": "Mobil Handset Mobile – direkte bidrag",
+   "names": [
+    "Mobil Handset Mobile",
+    "mobil handset mobile",
+    "Mobil / Consumer / Mobil Handset Mobile",
+    "Mobil Consumer Mobil Handset Mobile"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Mobil / Consumer / Mobil Handset Mobile» i FinMax (pd.SY): 3 produktgruppe(r), bl.a. M150 Mobile Non-Mobile COGS, M411 Handsets, M4124 Insurance. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.M150",
+        "pd.SY.M411",
+        "pd.SY.M4124"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.M150",
+        "pd.SY.M411",
+        "pd.SY.M4124"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.M150",
+        "pd.SY.M411",
+        "pd.SY.M4124"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.M150",
+       "pd.SY.M411",
+       "pd.SY.M4124"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Mobil Handset Mobile",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 2723162322.24,
+    "fy2025_c40s": -2009610293.97,
+    "fy2025_c70": -252495606.93,
+    "fy2025_ebitda_boi": 461056421.34
+   }
+  },
+  {
+   "id": "fam_mobil_safe_mobile_consumer",
+   "title": "Mobil SAFE Mobile – direkte bidrag",
+   "names": [
+    "Mobil SAFE Mobile",
+    "mobil safe mobile",
+    "Mobil / Consumer / Mobil SAFE Mobile",
+    "Mobil Consumer Mobil SAFE Mobile"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Mobil / Consumer / Mobil SAFE Mobile» i FinMax (pd.SY): 2 produktgruppe(r), bl.a. M4135 Security, M5085 COGS Security. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.M4135",
+        "pd.SY.M5085"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.M4135",
+        "pd.SY.M5085"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.M4135",
+        "pd.SY.M5085"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.M4135",
+       "pd.SY.M5085"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Mobil SAFE Mobile",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 770538844.45,
+    "fy2025_c40s": -60860722.79,
+    "fy2025_c70": -3363938.06,
+    "fy2025_ebitda_boi": 706314183.6
+   }
+  },
+  {
+   "id": "fam_fixed_other_retail_business",
+   "title": "Fixed Other Retail Business – direkte bidrag",
+   "names": [
+    "Fixed Other Retail Business",
+    "fixed other retail business",
+    "Fixed / Business / Fixed Other Retail Business",
+    "Fixed Business Fixed Other Retail Business"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Business / Fixed Other Retail Business» i FinMax (pd.SY): 15 produktgruppe(r), bl.a. P45 Hardware, P48 Misc Retail, P47 Konsulent, S10 Security. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.B17",
+        "pd.SY.C09D",
+        "pd.SY.M4521",
+        "pd.SY.P208",
+        "pd.SY.P210",
+        "pd.SY.P41",
+        "pd.SY.P425",
+        "pd.SY.P426",
+        "pd.SY.P45",
+        "pd.SY.P47",
+        "pd.SY.P48",
+        "pd.SY.P51",
+        "pd.SY.PR217",
+        "pd.SY.S10",
+        "pd.SY.S11"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.B17",
+        "pd.SY.C09D",
+        "pd.SY.M4521",
+        "pd.SY.P208",
+        "pd.SY.P210",
+        "pd.SY.P41",
+        "pd.SY.P425",
+        "pd.SY.P426",
+        "pd.SY.P45",
+        "pd.SY.P47",
+        "pd.SY.P48",
+        "pd.SY.P51",
+        "pd.SY.PR217",
+        "pd.SY.S10",
+        "pd.SY.S11"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.B17",
+        "pd.SY.C09D",
+        "pd.SY.M4521",
+        "pd.SY.P208",
+        "pd.SY.P210",
+        "pd.SY.P41",
+        "pd.SY.P425",
+        "pd.SY.P426",
+        "pd.SY.P45",
+        "pd.SY.P47",
+        "pd.SY.P48",
+        "pd.SY.P51",
+        "pd.SY.PR217",
+        "pd.SY.S10",
+        "pd.SY.S11"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.B17",
+       "pd.SY.C09D",
+       "pd.SY.M4521",
+       "pd.SY.P208",
+       "pd.SY.P210",
+       "pd.SY.P41",
+       "pd.SY.P425",
+       "pd.SY.P426",
+       "pd.SY.P45",
+       "pd.SY.P47",
+       "pd.SY.P48",
+       "pd.SY.P51",
+       "pd.SY.PR217",
+       "pd.SY.S10",
+       "pd.SY.S11"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Fixed Other Retail Business",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 754649434.07,
+    "fy2025_c40s": -471415762.51,
+    "fy2025_c70": -6873365.67,
+    "fy2025_ebitda_boi": 276360305.89
+   }
+  },
+  {
+   "id": "fam_data_services_business",
+   "title": "Data Services Business – direkte bidrag",
+   "names": [
+    "Data Services Business",
+    "data services business",
+    "Fixed / Business / Data Services Business",
+    "Fixed Business Data Services Business"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Business / Data Services Business» i FinMax (pd.SY): 11 produktgruppe(r), bl.a. C09F Nordic Connect Fiber, C094 Øvrig Nordic Connect, P207 IPVPN Add-on, B08 Ethernet Connect - Business. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.B01",
+        "pd.SY.B08",
+        "pd.SY.C090",
+        "pd.SY.C091",
+        "pd.SY.C092",
+        "pd.SY.C093",
+        "pd.SY.C094",
+        "pd.SY.C09F",
+        "pd.SY.C09G",
+        "pd.SY.C20",
+        "pd.SY.P207"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.B01",
+        "pd.SY.B08",
+        "pd.SY.C090",
+        "pd.SY.C091",
+        "pd.SY.C092",
+        "pd.SY.C093",
+        "pd.SY.C094",
+        "pd.SY.C09F",
+        "pd.SY.C09G",
+        "pd.SY.C20",
+        "pd.SY.P207"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.B01",
+        "pd.SY.B08",
+        "pd.SY.C090",
+        "pd.SY.C091",
+        "pd.SY.C092",
+        "pd.SY.C093",
+        "pd.SY.C094",
+        "pd.SY.C09F",
+        "pd.SY.C09G",
+        "pd.SY.C20",
+        "pd.SY.P207"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.B01",
+       "pd.SY.B08",
+       "pd.SY.C090",
+       "pd.SY.C091",
+       "pd.SY.C092",
+       "pd.SY.C093",
+       "pd.SY.C094",
+       "pd.SY.C09F",
+       "pd.SY.C09G",
+       "pd.SY.C20",
+       "pd.SY.P207"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Data Services Business",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 754179935.04,
+    "fy2025_c40s": -274330447.24,
+    "fy2025_c70": 11250974.59,
+    "fy2025_ebitda_boi": 491100462.39
+   }
+  },
+  {
+   "id": "fam_fixed_norkring_retail_business",
+   "title": "Fixed Norkring Retail Business – direkte bidrag",
+   "names": [
+    "Fixed Norkring Retail Business",
+    "fixed norkring retail business",
+    "Fixed / Business / Fixed Norkring Retail Business",
+    "Fixed Business Fixed Norkring Retail Business"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Business / Fixed Norkring Retail Business» i FinMax (pd.SY): 1 produktgruppe(r), bl.a. P43 Broadcast & Media Services. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.P43"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.P43"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.P43"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.P43"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Fixed Norkring Retail Business",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 630513958.03,
+    "fy2025_c40s": -74810,
+    "fy2025_c70": -4772167.77,
+    "fy2025_ebitda_boi": 625666980.26
+   }
+  },
+  {
+   "id": "fam_fiber_wholesale",
+   "title": "Fiber Wholesale – direkte bidrag",
+   "names": [
+    "Fiber Wholesale",
+    "fiber wholesale",
+    "Fixed / Wholesale / Fiber Wholesale",
+    "Fixed Wholesale Fiber Wholesale"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Wholesale / Fiber Wholesale» i FinMax (pd.SY): 1 produktgruppe(r), bl.a. P502 VULA. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.P502"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.P502"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.P502"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.P502"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Fiber Wholesale",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 270009426.47,
+    "fy2025_c40s": -211775168.37,
+    "fy2025_c70": 0,
+    "fy2025_ebitda_boi": 58234258.1
+   }
+  },
+  {
+   "id": "fam_mobil_mobilt_bredband_business",
+   "title": "Mobil Mobilt Bredbånd Business – direkte bidrag",
+   "names": [
+    "Mobil Mobilt Bredbånd Business",
+    "mobil mobilt bredbånd business",
+    "Mobil / Business / Mobil Mobilt Bredbånd Business",
+    "Mobil Business Mobil Mobilt Bredbånd Business"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Mobil / Business / Mobil Mobilt Bredbånd Business» i FinMax (pd.SY): 4 produktgruppe(r), bl.a. M114 Subscription fee data subscriptions, M4208 Data Packet Mobile Broadband in Norway, M4226 Data Packet Mobile Broadband Int. Roaming, M111 Connection fee. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.M111",
+        "pd.SY.M114",
+        "pd.SY.M4208",
+        "pd.SY.M4226"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.M111",
+        "pd.SY.M114",
+        "pd.SY.M4208",
+        "pd.SY.M4226"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.M111",
+        "pd.SY.M114",
+        "pd.SY.M4208",
+        "pd.SY.M4226"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.M111",
+       "pd.SY.M114",
+       "pd.SY.M4208",
+       "pd.SY.M4226"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Mobil Mobilt Bredbånd Business",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 226427152.99,
+    "fy2025_c40s": 0,
+    "fy2025_c70": 0,
+    "fy2025_ebitda_boi": 226427152.99
+   }
+  },
+  {
+   "id": "fam_mobil_other_business",
+   "title": "Mobil Other Business – direkte bidrag",
+   "names": [
+    "Mobil Other Business",
+    "mobil other business",
+    "Mobil / Business / Mobil Other Business",
+    "Mobil Business Mobil Other Business"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Mobil / Business / Mobil Other Business» i FinMax (pd.SY): 7 produktgruppe(r), bl.a. M4422 Data Service Provideres in Norway, M4513 Other Non Mobile Revenues, M4427 Fixed Fee Service Provider in Norway, M4453 Misc_Mobile Revenues. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.M410",
+        "pd.SY.M415",
+        "pd.SY.M4421",
+        "pd.SY.M4422",
+        "pd.SY.M4427",
+        "pd.SY.M4453",
+        "pd.SY.M4513"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.M410",
+        "pd.SY.M415",
+        "pd.SY.M4421",
+        "pd.SY.M4422",
+        "pd.SY.M4427",
+        "pd.SY.M4453",
+        "pd.SY.M4513"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.M410",
+        "pd.SY.M415",
+        "pd.SY.M4421",
+        "pd.SY.M4422",
+        "pd.SY.M4427",
+        "pd.SY.M4453",
+        "pd.SY.M4513"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.M410",
+       "pd.SY.M415",
+       "pd.SY.M4421",
+       "pd.SY.M4422",
+       "pd.SY.M4427",
+       "pd.SY.M4453",
+       "pd.SY.M4513"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Mobil Other Business",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 212429530.02,
+    "fy2025_c40s": -88026.84,
+    "fy2025_c70": -52887963.74,
+    "fy2025_ebitda_boi": 159453539.44
+   }
+  },
+  {
+   "id": "fam_kystradio_wholesale",
+   "title": "Kystradio Wholesale – direkte bidrag",
+   "names": [
+    "Kystradio Wholesale",
+    "kystradio wholesale",
+    "Fixed / Wholesale / Kystradio Wholesale",
+    "Fixed Wholesale Kystradio Wholesale"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Wholesale / Kystradio Wholesale» i FinMax (pd.SY): 2 produktgruppe(r), bl.a. P423 Maritim Radio, 63 Managed Voice. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.63",
+        "pd.SY.P423"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.63",
+        "pd.SY.P423"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.63",
+        "pd.SY.P423"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.63",
+       "pd.SY.P423"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Kystradio Wholesale",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 192179367.06,
+    "fy2025_c40s": -211611.41,
+    "fy2025_c70": -150030.8,
+    "fy2025_ebitda_boi": 191817724.85
+   }
+  },
+  {
+   "id": "fam_ws_capacity_wholesale",
+   "title": "WS Capacity – direkte bidrag",
+   "names": [
+    "WS Capacity",
+    "ws capacity",
+    "Fixed / Wholesale / WS Capacity",
+    "Fixed Wholesale WS Capacity"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Wholesale / WS Capacity» i FinMax (pd.SY): 2 produktgruppe(r), bl.a. P542 Backhaul, DP323 High speed other. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.DP323",
+        "pd.SY.P542"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.DP323",
+        "pd.SY.P542"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.DP323",
+        "pd.SY.P542"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.DP323",
+       "pd.SY.P542"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag WS Capacity",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 184205681.04,
+    "fy2025_c40s": -29958530.99,
+    "fy2025_c70": 0,
+    "fy2025_ebitda_boi": 154247150.05
+   }
+  },
+  {
+   "id": "fam_mobil_international_roaming_mobile_consumer",
+   "title": "Mobil International Roaming Mobile – direkte bidrag",
+   "names": [
+    "Mobil International Roaming Mobile",
+    "mobil international roaming mobile",
+    "Mobil / Consumer / Mobil International Roaming Mobile",
+    "Mobil Consumer Mobil International Roaming Mobile"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Mobil / Consumer / Mobil International Roaming Mobile» i FinMax (pd.SY): 1 produktgruppe(r), bl.a. M311 Roaming - Inbound. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.M311"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.M311"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.M311"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.M311"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Mobil International Roaming Mobile",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 137770743.97,
+    "fy2025_c40s": 0,
+    "fy2025_c70": 0,
+    "fy2025_ebitda_boi": 137770743.97
+   }
+  },
+  {
+   "id": "fam_fixed_phone_business",
+   "title": "Fixed Phone Business – direkte bidrag",
+   "names": [
+    "Fixed Phone Business",
+    "fixed phone business",
+    "Fixed / Business / Fixed Phone Business",
+    "Fixed Business Fixed Phone Business"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Business / Fixed Phone Business» i FinMax (pd.SY): 14 produktgruppe(r), bl.a. PRX1 Abonnement BBT, PRX5 Mobil BBT, 2 Taleløsninger, DP08 Tilleggstjenester. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.2",
+        "pd.SY.DP01",
+        "pd.SY.DP06",
+        "pd.SY.DP07",
+        "pd.SY.DP08",
+        "pd.SY.DP09",
+        "pd.SY.DP300",
+        "pd.SY.PR06",
+        "pd.SY.PR09",
+        "pd.SY.PRX1",
+        "pd.SY.PRX3",
+        "pd.SY.PRX5",
+        "pd.SY.PRX6",
+        "pd.SY.PRX7"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.2",
+        "pd.SY.DP01",
+        "pd.SY.DP06",
+        "pd.SY.DP07",
+        "pd.SY.DP08",
+        "pd.SY.DP09",
+        "pd.SY.DP300",
+        "pd.SY.PR06",
+        "pd.SY.PR09",
+        "pd.SY.PRX1",
+        "pd.SY.PRX3",
+        "pd.SY.PRX5",
+        "pd.SY.PRX6",
+        "pd.SY.PRX7"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.2",
+        "pd.SY.DP01",
+        "pd.SY.DP06",
+        "pd.SY.DP07",
+        "pd.SY.DP08",
+        "pd.SY.DP09",
+        "pd.SY.DP300",
+        "pd.SY.PR06",
+        "pd.SY.PR09",
+        "pd.SY.PRX1",
+        "pd.SY.PRX3",
+        "pd.SY.PRX5",
+        "pd.SY.PRX6",
+        "pd.SY.PRX7"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.2",
+       "pd.SY.DP01",
+       "pd.SY.DP06",
+       "pd.SY.DP07",
+       "pd.SY.DP08",
+       "pd.SY.DP09",
+       "pd.SY.DP300",
+       "pd.SY.PR06",
+       "pd.SY.PR09",
+       "pd.SY.PRX1",
+       "pd.SY.PRX3",
+       "pd.SY.PRX5",
+       "pd.SY.PRX6",
+       "pd.SY.PRX7"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Fixed Phone Business",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 114809155.25,
+    "fy2025_c40s": -1511671.15,
+    "fy2025_c70": -379129.04,
+    "fy2025_ebitda_boi": 112918355.06
+   }
+  },
+  {
+   "id": "fam_services_miscellaneous_ovrige",
+   "title": "Services Miscellaneous – direkte bidrag",
+   "names": [
+    "Services Miscellaneous",
+    "services miscellaneous",
+    "Annet / Øvrige / Services Miscellaneous",
+    "Annet Øvrige Services Miscellaneous"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Annet / Øvrige / Services Miscellaneous» i FinMax (pd.SY): 1 produktgruppe(r), bl.a. M4523 Services to other BU. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.M4523"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.M4523"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.M4523"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.M4523"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Services Miscellaneous",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 109189254.03,
+    "fy2025_c40s": 0,
+    "fy2025_c70": 0,
+    "fy2025_ebitda_boi": 109189254.03
+   }
+  },
+  {
+   "id": "fam_internet_business",
+   "title": "Internet Business – direkte bidrag",
+   "names": [
+    "Internet Business",
+    "internet business",
+    "Fixed / Business / Internet Business",
+    "Fixed Business Internet Business"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Business / Internet Business» i FinMax (pd.SY): 2 produktgruppe(r), bl.a. C09M Nordic Connect Mobile, PR262 FMBB Business+. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.C09M",
+        "pd.SY.PR262"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.C09M",
+        "pd.SY.PR262"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.C09M",
+        "pd.SY.PR262"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.C09M",
+       "pd.SY.PR262"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Internet Business",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 79627680.82,
+    "fy2025_c40s": 0,
+    "fy2025_c70": 0,
+    "fy2025_ebitda_boi": 79627680.82
+   }
+  },
+  {
+   "id": "fam_ws_leased_line_wholesale",
+   "title": "WS Leased Line – direkte bidrag",
+   "names": [
+    "WS Leased Line",
+    "ws leased line",
+    "Fixed / Wholesale / WS Leased Line",
+    "Fixed Wholesale WS Leased Line"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Wholesale / WS Leased Line» i FinMax (pd.SY): 4 produktgruppe(r), bl.a. DP33 Mørk Fiber, DP322 WDM, P540 Low speed, DP321 SDH. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.DP321",
+        "pd.SY.DP322",
+        "pd.SY.DP33",
+        "pd.SY.P540"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.DP321",
+        "pd.SY.DP322",
+        "pd.SY.DP33",
+        "pd.SY.P540"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.DP321",
+        "pd.SY.DP322",
+        "pd.SY.DP33",
+        "pd.SY.P540"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.DP321",
+       "pd.SY.DP322",
+       "pd.SY.DP33",
+       "pd.SY.P540"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag WS Leased Line",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 67791982.75,
+    "fy2025_c40s": -21615144.36,
+    "fy2025_c70": 0,
+    "fy2025_ebitda_boi": 46176838.39
+   }
+  },
+  {
+   "id": "fam_leased_line_business",
+   "title": "Leased Line Business – direkte bidrag",
+   "names": [
+    "Leased Line Business",
+    "leased line business",
+    "Fixed / Business / Leased Line Business",
+    "Fixed Business Leased Line Business"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Business / Leased Line Business» i FinMax (pd.SY): 1 produktgruppe(r), bl.a. P44 Capacity Retail. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.P44"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.P44"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.P44"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.P44"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Leased Line Business",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 63130293.34,
+    "fy2025_c40s": -111549574.35,
+    "fy2025_c70": 0,
+    "fy2025_ebitda_boi": -48419281.01
+   }
+  },
+  {
+   "id": "fam_ws_other_wholesale",
+   "title": "WS Other – direkte bidrag",
+   "names": [
+    "WS Other",
+    "ws other",
+    "Fixed / Wholesale / WS Other",
+    "Fixed Wholesale WS Other"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Wholesale / WS Other» i FinMax (pd.SY): 2 produktgruppe(r), bl.a. P543 Ethernet Connect, P55 OTHER WHOLESALE. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.P543",
+        "pd.SY.P55"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.P543",
+        "pd.SY.P55"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.P543",
+        "pd.SY.P55"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.P543",
+       "pd.SY.P55"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag WS Other",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 52319352.01,
+    "fy2025_c40s": -2747265.01,
+    "fy2025_c70": 727787.43,
+    "fy2025_ebitda_boi": 50299874.43
+   }
+  },
+  {
+   "id": "fam_ws_broadband_wholesale",
+   "title": "WS Broadband – direkte bidrag",
+   "names": [
+    "WS Broadband",
+    "ws broadband",
+    "Fixed / Wholesale / WS Broadband",
+    "Fixed Wholesale WS Broadband"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Wholesale / WS Broadband» i FinMax (pd.SY): 2 produktgruppe(r), bl.a. P504 FIXED MOBILE BROADBAND WHS, P503 Broadband transport. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.P503",
+        "pd.SY.P504"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.P503",
+        "pd.SY.P504"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.P503",
+        "pd.SY.P504"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.P503",
+       "pd.SY.P504"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag WS Broadband",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 49431503.65,
+    "fy2025_c40s": 0,
+    "fy2025_c70": 0,
+    "fy2025_ebitda_boi": 49431503.65
+   }
+  },
+  {
+   "id": "fam_fixed_other_retail_ovrige",
+   "title": "Fixed Other Retail – direkte bidrag",
+   "names": [
+    "Fixed Other Retail",
+    "fixed other retail",
+    "Fixed / Øvrige / Fixed Other Retail",
+    "Fixed Øvrige Fixed Other Retail"
+   ],
+   "kind": "product_family",
+   "source": "auto-familie",
+   "description": "Produktfamilien «Fixed / Øvrige / Fixed Other Retail» i FinMax (pd.SY): 3 produktgruppe(r), bl.a. P427 Øvrige Produkter, P421 Innhold Internett, 66 66. Direkte bidrag = inntekter + varekost + driftskostnader bokført på produktene.",
+   "entity": "un.SY",
+   "blocks": [
+    {
+     "title": "Inntekter og varekost",
+     "items": [
+      {
+       "key": "rev",
+       "label": "Inntekter (C30)",
+       "kind": "booked",
+       "account": "ac.C30",
+       "products": [
+        "pd.SY.66",
+        "pd.SY.P421",
+        "pd.SY.P427"
+       ]
+      },
+      {
+       "key": "cogs",
+       "label": "Varekost (C40S)",
+       "kind": "booked",
+       "account": "ac.C40S",
+       "products": [
+        "pd.SY.66",
+        "pd.SY.P421",
+        "pd.SY.P427"
+       ]
+      },
+      {
+       "key": "gp",
+       "label": "Bruttofortjeneste",
+       "kind": "sum",
+       "of": [
+        "rev",
+        "cogs"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Driftskostnader bokført på produktene",
+     "items": [
+      {
+       "key": "opex",
+       "label": "Driftskostnader (C70)",
+       "kind": "booked",
+       "account": "ac.C70",
+       "products": [
+        "pd.SY.66",
+        "pd.SY.P421",
+        "pd.SY.P427"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Ikke med",
+     "items": [
+      {
+       "key": "not_tagged",
+       "kind": "missing",
+       "label": "Lønn og kostnader på koststed",
+       "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."
+      }
+     ]
+    }
+   ],
+   "checks": [
+    {
+     "label": "Direkte bidrag = EBITDA før andre poster på produktene",
+     "source": {
+      "account": "ac.EBITDA_BOI",
+      "products": [
+       "pd.SY.66",
+       "pd.SY.P421",
+       "pd.SY.P427"
+      ]
+     },
+     "expr": "rev+cogs+opex-$src"
+    }
+   ],
+   "total": {
+    "label": "Direkte bidrag Fixed Other Retail",
+    "of": [
+     "rev",
+     "cogs",
+     "opex"
+    ]
+   },
+   "notes": [
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."
+   ],
+   "fy2025": {
+    "fy2025_c30": 9229905.88,
+    "fy2025_c40s": 1655776.05,
+    "fy2025_c70": 24621228.98,
+    "fy2025_ebitda_boi": 35506910.91
+   }
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+# Org defaults for every smartass user (in git). Per-user overrides: %LOCALAPPDATA%\smartass\config.toml.
+# Environment variables (SV_*, SMARTASS_*) override both.
+
+[epm]
+base = "https://plan1-telenorepm.epm.eu-frankfurt-1.ocs.oraclecloud.com"
+
+[label]          # Telenor sensitivity label "Internal", applied before any Excel SaveAs
+id = "f604d2c9-1577-460e-b668-57374a0216c3"
+site = "1676489c-5c72-46b7-ba63-9ab90c4aad44"
+
+[drill]          # browsers tried in order for sv_drill (Edge first: Chrome's UserDataDir policy blocks a hidden Chrome)
+channels = ["msedge", "chrome"]
+
+[archive]        # under the user's OneDrive for Business root; never written unless explicitly allowed
+subdir = "Analyse (Telenor Norge AS) - Produktregnskapet"
+
+[release]        # SharePoint/Teams release folder (synced local path); empty until it exists
+folder = ""
+
+[http]           # localhost-only API (the secret is per user, in config.toml)
+port = 47811

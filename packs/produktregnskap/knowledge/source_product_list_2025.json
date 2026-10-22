@@ -1,0 +1,4862 @@
+[
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "Internet",
+  "product": "Trådløst Bredbånd CON",
+  "code_sas": "C2C_FTB",
+  "code_costperform": "L50C_FTB",
+  "value_stream": "(V) Internet @home",
+  "valuestream": "Internet @home"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "Internet",
+  "product": "Trådløst Bredbånd TV CON",
+  "code_sas": "C2C_FTB-TV",
+  "code_costperform": "L50C_FTB-TV",
+  "value_stream": "(V) Entertainment",
+  "valuestream": "Entertainment"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "Internet",
+  "product": "Øvrige produkter CON",
+  "code_sas": "C2C_Øvrig_Fixed",
+  "code_costperform": "L50C_Øvrig_Fixed",
+  "value_stream": "(V) Internet @home",
+  "valuestream": "Internet @home"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "TV og Aksess MDU",
+  "product": "MDU Fiber TV",
+  "code_sas": "C2C_TV_FIBER_MDU",
+  "code_costperform": "L50C_TV_FIBER_MDU",
+  "value_stream": "(V) Entertainment",
+  "valuestream": "Entertainment"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "TV og Aksess MDU",
+  "product": "MDU HFC TV",
+  "code_sas": "C2C_TV_HFC_MDU",
+  "code_costperform": "L50C_TV_HFC_MDU",
+  "value_stream": "(V) Entertainment",
+  "valuestream": "Entertainment"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "TV og Aksess MDU",
+  "product": "MDU Fiber Aksess",
+  "code_sas": "C2C_AKSESS_FIBER_MDU",
+  "code_costperform": "L50C_AKSESS_FIBER_MDU",
+  "value_stream": "(V) Internet @home",
+  "valuestream": "Internet @home"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "TV og Aksess MDU",
+  "product": "MDU HFC Aksess",
+  "code_sas": "C2C_AKSESS_HFC_MDU",
+  "code_costperform": "L50C_AKSESS_HFC_MDU",
+  "value_stream": "(V) Internet @home",
+  "valuestream": "Internet @home"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "TV og Aksess MDU",
+  "product": "MDU Bredbåndstelefoni Fiber BBT",
+  "code_sas": "C2C_BBT_FIBER_MDU",
+  "code_costperform": "L50C_BBT_FIBER_MDU",
+  "value_stream": "(V) Internet @home",
+  "valuestream": "Internet @home"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "TV og Aksess SDU",
+  "product": "SDU Fiber TV",
+  "code_sas": "C2C_TV_FIBER_SDU",
+  "code_costperform": "L50C_TV_FIBER_SDU",
+  "value_stream": "(V) Entertainment",
+  "valuestream": "Entertainment"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "TV og Aksess SDU",
+  "product": "SDU HFC TV",
+  "code_sas": "C2C_TV_HFC_SDU",
+  "code_costperform": "L50C_TV_HFC_SDU",
+  "value_stream": "(V) Entertainment",
+  "valuestream": "Entertainment"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "TV og Aksess SDU",
+  "product": "SDU Fiber Aksess",
+  "code_sas": "C2C_AKSESS_FIBER_SDU",
+  "code_costperform": "L50C_AKSESS_FIBER_SDU",
+  "value_stream": "(V) Internet @home",
+  "valuestream": "Internet @home"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "TV og Aksess SDU",
+  "product": "SDU HFC Aksess",
+  "code_sas": "C2C_AKSESS_HFC_SDU",
+  "code_costperform": "L50C_AKSESS_HFC_SDU",
+  "value_stream": "(V) Internet @home",
+  "valuestream": "Internet @home"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Consumer",
+  "product_group": "TV og Aksess SDU",
+  "product": "SDU Bredbåndstelefoni Fiber BBT",
+  "code_sas": "C2C_BBT_FIBER_SDU",
+  "code_costperform": "L50C_BBT_FIBER_SDU",
+  "value_stream": "(V) Internet @home",
+  "valuestream": "Internet @home"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Phone Business",
+  "product": "Bedrift IPT",
+  "code_sas": "C2B_VOIP",
+  "code_costperform": "L50B_VOIP",
+  "value_stream": "(V) Mobile Business",
+  "valuestream": "Mobile Business"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Internet Business",
+  "product": "Bedrift Trådløst Bredbånd",
+  "code_sas": "C2B_FTB",
+  "code_costperform": "L50B_FTB",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Data Services Business",
+  "product": "Bedrift Fiber WAN",
+  "code_sas": "C2B_IA-WAN",
+  "code_costperform": "L50B_IA-WAN",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Leased Line Business",
+  "product": "Bedrift Leide Samband",
+  "code_sas": "C2B_LSA",
+  "code_costperform": "L50B_LSA",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Norkring Retail Business",
+  "product": "Bedrift Broadcast og Media Services",
+  "code_sas": "C2B_Broadcast_Media",
+  "code_costperform": "L50B_Broadcast_Media",
+  "value_stream": "(V) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift  SD WAN",
+  "code_sas": "C2B_SDWAN",
+  "code_costperform": "L50B_SDWAN",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift  SD LAN - Meraki",
+  "code_sas": "C2B_SDLAN-MERAKI",
+  "code_costperform": "L50B_SDLAN-MERAKI",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift  WiFi Connect",
+  "code_sas": "C2B_WIFI-CONNECT",
+  "code_costperform": "L50B_WIFI-CONNECT",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Kundeeid Konsulenttjenester",
+  "code_sas": "C2B_CISCO-KUNDEEID_KONSULENT",
+  "code_costperform": "L50B_CISCO-KUNDEEID_KONSULENT",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Kundeeid avtaler",
+  "code_sas": "C2B_CISCO-KUNDEEID_AVTALE",
+  "code_costperform": "L50B_CISCO-KUNDEEID_AVTALE",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Kundeeid hardware",
+  "code_sas": "C2B_CISCO-KUNDEEID_HW",
+  "code_costperform": "L50B_CISCO-KUNDEEID_HW",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Security Fixed network",
+  "code_sas": "C2B_Sikkerhet_Fixed",
+  "code_costperform": "L50B_Sikkerhet_Fixed",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Security Operational Technology med Omny",
+  "code_sas": "C2B_Sikkerhet-OMNY",
+  "code_costperform": "L50B_Sikkerhet-OMNY",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Security Consultancy & Advisory",
+  "code_sas": "C2B_SIKKERHET-KONSULENT",
+  "code_costperform": "L50B_SIKKERHET-KONSULENT",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Security andre BU Fixed Network",
+  "code_sas": "C2B_Sikkerhet_andre-BU",
+  "code_costperform": "L50B_Sikkerhet_andre-BU",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Security Kommersielle kunder",
+  "code_sas": "C2B_SIKKERHET-KOMMERSIELL",
+  "code_costperform": "L50B_SIKKERHET-KOMMERSIELL",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Security Telenor Norge Fixed Network",
+  "code_sas": "C2B_SIKKERHET-TN",
+  "code_costperform": "L50B_SIKKERHET-TN",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Safezone Fixed",
+  "code_sas": "C2B_Safezone_Fixed",
+  "code_costperform": "L50B_Safezone_Fixed",
+  "value_stream": "(V) Out of scope",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift 5G Enterprise",
+  "code_sas": "C2B_5G-Enterprise",
+  "code_costperform": "L50B_5G-Enterprise",
+  "value_stream": "(V) Network @Workplace",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Business",
+  "product_group": "Fixed Other Retail Business",
+  "product": "Bedrift Øvrig Fixed",
+  "code_sas": "C2B_Øvrig_Fixed",
+  "code_costperform": "L50B_Øvrig_Fixed",
+  "value_stream": "(V) Out of scope",
+  "valuestream": "Network @Workplace"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Samtrafikk",
+  "product": "Samtrafikk Fixed",
+  "code_sas": "C2W_Samtrafikk_Fixed",
+  "code_costperform": "L50W_Samtrafikk_Fixed",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Transit Fixed",
+  "product": "Transitt Fixed",
+  "code_sas": "C2W_Transitt_Fixed",
+  "code_costperform": "L50W_Transitt_Fixed",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Broadband",
+  "product": "Videresalg xDSL abonnement",
+  "code_sas": "C2W_xDSL_abon",
+  "code_costperform": "L50W_xDSL_abon",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Broadband",
+  "product": "Videresalg xDSL etablering",
+  "code_sas": "C2W_xDSL_etab",
+  "code_costperform": "L50W_xDSL_etab",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Broadband",
+  "product": "Videresalg Trådløst Bredbånd WHS",
+  "code_sas": "C2W_FTB",
+  "code_costperform": "L50W_FTB",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Broadband",
+  "product": "Transport BAP-connect E-line IP-whs",
+  "code_sas": "C2W_Transport_produkter",
+  "code_costperform": "L50W_Transport_produkter",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS LLUB",
+  "product": "Operatøraksess abonnement",
+  "code_sas": "C2W_Operatøraksess_abon",
+  "code_costperform": "L50W_Operatøraksess_abon",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS LLUB",
+  "product": "Operatøraksess etablering",
+  "code_sas": "C2W_Operatøraksess_etab",
+  "code_costperform": "L50W_Operatøraksess_etab",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Leased Line",
+  "product": "Leide Samband lavhastighet",
+  "code_sas": "C2W_LSA_WHS-lav",
+  "code_costperform": "L50W_LSA_WHS-lav",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Leased Line",
+  "product": "Leide Samband høyhastighet",
+  "code_sas": "C2W_LSA_WHS-høy",
+  "code_costperform": "L50W_LSA_WHS-høy",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Capacity",
+  "product": "Ekstern fremføringsvei rørutleie",
+  "code_sas": "C2W_Framføringsvei_rørutleie",
+  "code_costperform": "L50W_Framføringsvei_rørutleie",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Capacity",
+  "product": "Backhaul for operatører",
+  "code_sas": "C2W_Backhaul",
+  "code_costperform": "L50W_Backhaul",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "NetOp Wholesale",
+  "product": "NetOp CDN Content Delivery Network",
+  "code_sas": "C2W_NetOp_CDN",
+  "code_costperform": "L50W_NetOp_CDN",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "NetOp Wholesale",
+  "product": "NetOp ServiceProvider og CoLo datasenter",
+  "code_sas": "C2W_NetOp_Øvrig",
+  "code_costperform": "L50W_NetOp_Øvrig",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "Fiber Wholesale",
+  "product": "Fiberbasert aksessnett VULA - Virtual Unbundled Access",
+  "code_sas": "C2W_VULA_FIBER",
+  "code_costperform": "L50W_VULA_FIBER",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "Kystradio Wholesale",
+  "product": "Telenor Kystradio SSO",
+  "code_sas": "C2W_Kystradio-SSO",
+  "code_costperform": "L50W_Kystradio-SSO",
+  "value_stream": "(V) Out of scope",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "Kystradio Wholesale",
+  "product": "Telenor Kystradio Kommersiell",
+  "code_sas": "C2W_Kystradio-øvrig",
+  "code_costperform": "L50W_Kystradio-øvrig",
+  "value_stream": "(V) Out of scope",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Other",
+  "product": "Tunnel- og innendørsanlegg Wholesale",
+  "code_sas": "C2W_Telelosji",
+  "code_costperform": "L50W_Telelosji",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Other",
+  "product": "Telelosji på A-, og C-Siter Wholesale",
+  "code_sas": "C2W_Telelosji på A-, C-Siter",
+  "code_costperform": "L50W_Telelosji på A-, C-Siter",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Other",
+  "product": "Ethernet Connect Wholesale",
+  "code_sas": "C2W_Ethernet_Connect",
+  "code_costperform": "L50W_Ethernet_Connect",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Wholesale",
+  "product_group": "WS Other",
+  "product": "Wholesale Øvrige Fixed",
+  "code_sas": "C2W_Øvrig_Fixed",
+  "code_costperform": "L50W_Øvrig_Fixed",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Fixed",
+  "market": "Øvrige",
+  "product_group": "Fixed Other Retail",
+  "product": "Øvrige Fixed",
+  "code_sas": "C2A_Annet_Fixed",
+  "code_costperform": "L50A_Annet_Fixed",
+  "value_stream": "(V) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Consumer",
+  "product_group": "Mobil Own Subscriptions Mobile",
+  "product": "Privat Mobiltelefoni",
+  "code_sas": "C2M_Mobile_Core_Service_Telenor",
+  "code_costperform": "L50M_Mobile_Core_Service_Telenor",
+  "value_stream": "(V) Mobile Consumer",
+  "valuestream": "Mobile Consumer"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Consumer",
+  "product_group": "Mobil Mobilt Bredbånd ",
+  "product": "Privat Mobilt bredbånd",
+  "code_sas": "C2M_Mobile_bredbånd",
+  "code_costperform": "L50M_Mobile_bredbånd",
+  "value_stream": "(V) Mobile Consumer",
+  "valuestream": "Mobile Consumer"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Consumer",
+  "product_group": "Mobil M2M & IOT Mobile",
+  "product": "Privat M2M",
+  "code_sas": "C2M_Telemetri_M2M_IOT",
+  "code_costperform": "L50M_Telemetri_M2M_IOT",
+  "value_stream": "(V) Mobile Consumer",
+  "valuestream": "Mobile Consumer"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Consumer",
+  "product_group": "Mobil Handset Mobile",
+  "product": "Privat Håndsett",
+  "code_sas": "C2M_Terminal_Telenor",
+  "code_costperform": "L50M_Terminal_Telenor",
+  "value_stream": "(V) Hardware & e-commerce",
+  "valuestream": "Hardware & e-commerce"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Consumer",
+  "product_group": "Mobil SAFE Mobile",
+  "product": "Privat SAFE og svindelforsikring",
+  "code_sas": "C2M_SAFE",
+  "code_costperform": "L50M_SAFE",
+  "value_stream": "(V) Security",
+  "valuestream": "Security Consumer"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Consumer",
+  "product_group": "Mobil International Roaming Mobile",
+  "product": "Privat Inbound roaming",
+  "code_sas": "C2M_Utlendinger_i_Norge",
+  "code_costperform": "L50M_Utlendinger_i_Norge",
+  "value_stream": "(V) Mobile Consumer",
+  "valuestream": "Mobile Consumer"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Consumer",
+  "product_group": "Mobil Other Mobile",
+  "product": "Privat Online_epost og øvrig",
+  "code_sas": "C2M_Online_epost",
+  "code_costperform": "L50M_Online_epost",
+  "value_stream": "(V) Security",
+  "valuestream": "Security Consumer"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Business",
+  "product_group": "Mobil Own Subscriptions Business",
+  "product": "Bedrift Mobiltelefoni",
+  "code_sas": "C2B_Mobile_Phone",
+  "code_costperform": "L50B_Mobile_Phone",
+  "value_stream": "(V) Mobile Business",
+  "valuestream": "Mobile Business"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Business",
+  "product_group": "Mobil Own Subscriptions Business",
+  "product": "Bedrift SMS Aksess og tjenester",
+  "code_sas": "C2B_SMS_Aksess_og_tjenester",
+  "code_costperform": "L50B_SMS_Aksess_og_tjenester",
+  "value_stream": "(V) Mobile Business",
+  "valuestream": "Mobile Business"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Business",
+  "product_group": "Mobil Own Subscriptions Business",
+  "product": "Bedrift Teams/SKL",
+  "code_sas": "C2B_SKL-Teams",
+  "code_costperform": "L50B_SKL-Teams",
+  "value_stream": "(V) Mobile Business",
+  "valuestream": "Mobile Business"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Business",
+  "product_group": "Mobil Mobilt Bredbånd Business",
+  "product": "Bedrift Mobilt bredbånd",
+  "code_sas": "C2B_Mobile_bredbånd",
+  "code_costperform": "L50B_Mobile_bredbånd",
+  "value_stream": "(V) Mobile Business",
+  "valuestream": "Mobile Business"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Business",
+  "product_group": "Mobil Other Business",
+  "product": "Bedrift MBN",
+  "code_sas": "C2B_MBN",
+  "code_costperform": "L50B_MBN",
+  "value_stream": "(V) Mobile Business",
+  "valuestream": "Mobile Business"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Business",
+  "product_group": "Mobil M2M & IOT Business",
+  "product": "Bedrift IOT ",
+  "code_sas": "C2B_IOT",
+  "code_costperform": "L50B_IOT",
+  "value_stream": "(V) Mobile Business",
+  "valuestream": "Mobile Business"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Business",
+  "product_group": "Mobil Handset Business",
+  "product": "Bedrift Mobil Handset, Terminaler, Nettbrett etc",
+  "code_sas": "C2B_Mobil-Handset",
+  "code_costperform": "L50B_Mobil-Handset",
+  "value_stream": "(V) Mobile Business",
+  "valuestream": "Mobile Business"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Business",
+  "product_group": "Mobil Other Business",
+  "product": "Bedrift Admin løsninger fakturakontroll og mPort",
+  "code_sas": "C2B_mPort-innkjøp",
+  "code_costperform": "L50B_mPort-innkjøp",
+  "value_stream": "(V) Mobile Business",
+  "valuestream": "Mobile Business"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Business",
+  "product_group": "Mobil Other Business",
+  "product": "Bedrift Safezone Mobil",
+  "code_sas": "C2B_Øvrig_mobil",
+  "code_costperform": "L50B_Øvrig_mobil",
+  "value_stream": "(V) Mobile Business",
+  "valuestream": "Mobile Business"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Wholesale",
+  "product_group": "Service Provider",
+  "product": "Wholesale MVNO og Service Provider",
+  "code_sas": "C2W_Mobil-Wholesale",
+  "code_costperform": "L50W_Mobil-Wholesale",
+  "value_stream": "(V) Wholesale",
+  "valuestream": "Wholesale"
+ },
+ {
+  "value_chain": "Mobil",
+  "market": "Øvrige",
+  "product_group": "Miscellaneous Mobile",
+  "product": "Drift og annet Mobil",
+  "code_sas": "C2A_Annet_Mobil",
+  "code_costperform": "L50A_Annet_Mobil",
+  "value_stream": "(V) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Annet",
+  "market": "Øvrige",
+  "product_group": "Services Miscellaneous",
+  "product": "Annet arbeid for øvrige Business units",
+  "code_sas": "C2A_Services_BU",
+  "code_costperform": "L50A_Services_BU",
+  "value_stream": "(H) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Annet",
+  "market": "Øvrige",
+  "product_group": "Services Miscellaneous",
+  "product": "Annet arbeid for INFRA",
+  "code_sas": "C2A_Services_Infra",
+  "code_costperform": "L50A_Services_Infra",
+  "value_stream": "(H) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Annet",
+  "market": "Øvrige",
+  "product_group": "Services Miscellaneous",
+  "product": "Arbeid i IG for FIBER as",
+  "code_sas": "C2A_Services_FIB-IG",
+  "code_costperform": "L50A_Services_FIB-IG",
+  "value_stream": "(H) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Annet",
+  "market": "Øvrige",
+  "product_group": "Services Miscellaneous",
+  "product": "Arbeid i TECH for FIBER as",
+  "code_sas": "C2A_Services_FIB-TECH",
+  "code_costperform": "L50A_Services_FIB-TECH",
+  "value_stream": "(H) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Annet",
+  "market": "Øvrige",
+  "product_group": "Services Miscellaneous",
+  "product": "Arbeid i IG Fiber MDU for FIBER as",
+  "code_sas": "C2A_Services_FIB-IG Fiber MDU",
+  "code_costperform": "L50A_Services_FIB-IG Fiber MDU",
+  "value_stream": "(H) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Annet",
+  "market": "Øvrige",
+  "product_group": "Services Miscellaneous",
+  "product": "Arbeid i IG Fiber SDU for FIBER as",
+  "code_sas": "C2A_Services_FIB-IG Fiber SDU",
+  "code_costperform": "L50A_Services_FIB-IG Fiber SDU",
+  "value_stream": "(H) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Annet",
+  "market": "Øvrige",
+  "product_group": "Services Miscellaneous",
+  "product": "Arbeid i TECH HFC MDU for FIBER as",
+  "code_sas": "C2A_Services_FIB-TECH HFC MDU",
+  "code_costperform": "L50A_Services_FIB-TECH HFC MDU",
+  "value_stream": "(H) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Annet",
+  "market": "Øvrige",
+  "product_group": "Services Miscellaneous",
+  "product": "Arbeid i TECH HFC SDU for FIBER as",
+  "code_sas": "C2A_Services_FIB-TECH HFC SDU",
+  "code_costperform": "L50A_Services_FIB-TECH HFC SDU",
+  "value_stream": "(H) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Annet",
+  "market": "Øvrige",
+  "product_group": "Services Miscellaneous",
+  "product": "Arbeid i TECH Fiber MDU for FIBER as",
+  "code_sas": "C2A_Services_FIB-TECH Fiber MDU",
+  "code_costperform": "L50A_Services_FIB-TECH Fiber MDU",
+  "value_stream": "(H) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Annet",
+  "market": "Øvrige",
+  "product_group": "Services Miscellaneous",
+  "product": "Arbeid i TECH Fiber SDU for FIBER as",
+  "code_sas": "C2A_Services_FIB-TECH Fiber SDU",
+  "code_costperform": "L50A_Services_FIB-TECH Fiber SDU",
+  "value_stream": "(H) Out of scope",
+  "valuestream": "Out of scope"
+ },
+ {
+  "value_chain": "Type",
+  "market": "Category",
+  "product_group": "Group",
+  "product": "Network element",
+  "code_sas": "Element code SAS CPM",
+  "code_costperform": "Element code CostPerform",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fiber Kabel",
+  "product": "Aksess kobberkabel",
+  "code_sas": "A2_NV_A_K_KOBBER",
+  "code_costperform": "L30_NV_A_K_KOBBER",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fiber Kabel",
+  "product": "Aksess nedkobling kobberkabel",
+  "code_sas": "A2_NV_NED_KOBBER",
+  "code_costperform": "L30_NV_NED_KOBBER",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fiber Kabel",
+  "product": "Aksess fiberkabel",
+  "code_sas": "A2_NV_A_K_FIBER",
+  "code_costperform": "L30_NV_A_K_FIBER",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fiber Kabel",
+  "product": "Aksess stolpefremføring",
+  "code_sas": "A2_NV_A_K_STOLPE",
+  "code_costperform": "L30_NV_A_K_STOLPE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett COAX Kabel",
+  "product": "Aksess HFC coax nettet",
+  "code_sas": "A2_NV_A_K_COAX",
+  "code_costperform": "L30_NV_A_K_COAX",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett COAX Kabel",
+  "product": "Aksess Fremføring rørutleie",
+  "code_sas": "A2_NV_A_K_RØRUTLEIE",
+  "code_costperform": "L30_NV_A_K_RØRUTLEIE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed ARO",
+  "product": "Aksess ARO avsetning kobberkabel",
+  "code_sas": "A2_NV_A_R_ARO-KOBBER",
+  "code_costperform": "L30_NV_A_R_ARO-KOBBER",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed ARO",
+  "product": "Aksess ARO avsetning stolper",
+  "code_sas": "A2_NV_A_R_ARO-STOLPE",
+  "code_costperform": "L30_NV_A_R_ARO-STOLPE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess Arealkonsum for aksess utstyr",
+  "code_sas": "A2_NV_A_AREAL",
+  "code_costperform": "L30_NV_A_AREAL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksessutstyr GPON Gigabit-capable Passive Optical Net",
+  "code_sas": "A2_NV_A_U_GPON",
+  "code_costperform": "L30_NV_A_U_GPON",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess utstyr ONT Optical Network Termination brukerside",
+  "code_sas": "A2_NV_A_U_ONT",
+  "code_costperform": "L30_NV_A_U_ONT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess utstyr OLT Optical Line Termination sentralside",
+  "code_sas": "A2_NV_A_U_OLT",
+  "code_costperform": "L30_NV_A_U_OLT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess utstyr ODP Operator Delivery Port Operatørtilknytning",
+  "code_sas": "A2_NV_A_U_ODP",
+  "code_costperform": "L30_NV_A_U_ODP",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess utstyr Fixed Wireless Access",
+  "code_sas": "A2_NV_A_U_FWA",
+  "code_costperform": "L30_NV_A_U_FWA",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess utstyr Fixed CPE Internet",
+  "code_sas": "A2_NV_A_U_CPE",
+  "code_costperform": "L30_NV_A_U_CPE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess og transport passivt koblingsutstyr",
+  "code_sas": "A2_NV_A_U_KOBL",
+  "code_costperform": "L30_NV_A_U_KOBL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess FTTH utstyr fiber",
+  "code_sas": "A2_NV_A_U_FIB",
+  "code_costperform": "L30_NV_A_U_FIB",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess Fiber Lumino",
+  "code_sas": "A2_NV_A_U_LUM",
+  "code_costperform": "L30_NV_A_U_LUM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksessutstyr VPN",
+  "code_sas": "A2_NV_A_U_VPN",
+  "code_costperform": "L30_NV_A_U_VPN",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksessutstyr DSLAM",
+  "code_sas": "A2_NV_A_U_DSLAM",
+  "code_costperform": "L30_NV_A_U_DSLAM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess Bredbåndutstyr Customer Premises Equipment",
+  "code_sas": "A2_NV_A_U_BB-CPE",
+  "code_costperform": "L30_NV_A_U_BB-CPE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess Smalbandsaksess Optical Network Termination TV decoder",
+  "code_sas": "A2_NV_A_U_SMAL",
+  "code_costperform": "L30_NV_A_U_SMAL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess Kundeplassert utstyr-TV bokser CPE",
+  "code_sas": "A2_NV_A_U_IPTV",
+  "code_costperform": "L30_NV_A_U_IPTV",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess Digital TV dekoder",
+  "code_sas": "A2_NV_A_U_T-WE",
+  "code_costperform": "L30_NV_A_U_T-WE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksessutstyr Multimodem",
+  "code_sas": "A2_NV_A_U_MODEM",
+  "code_costperform": "L30_NV_A_U_MODEM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksess Bredbåndsplattformen",
+  "code_sas": "A2_NV_A_U_BREDBÅND",
+  "code_costperform": "L30_NV_A_U_BREDBÅND",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Fixed Utstyr",
+  "product": "Aksessutstyr POTS",
+  "code_sas": "A2_NV_A_U_POTS",
+  "code_costperform": "L30_NV_A_U_POTS",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "BSC RNC Basestasjonscontroller",
+  "code_sas": "A2_NV_A_U_BSC-RNC",
+  "code_costperform": "L30_NV_A_U_BSC-RNC",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "Mobil Utfasing av 2G",
+  "code_sas": "A2_NV_A_U_BSS-UTRAN-2G",
+  "code_costperform": "L30_NV_A_U_BSS-UTRAN-2G",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "BSS UTRAN Basestasjon 4G inkl LTE",
+  "code_sas": "A2_NV_A_U_BSS-UTRAN-4G",
+  "code_costperform": "L30_NV_A_U_BSS-UTRAN-4G",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "BSS UTRAN Basestasjon 5G inkl",
+  "code_sas": "A2_NV_A_U_BSS-UTRAN-5G",
+  "code_costperform": "L30_NV_A_U_BSS-UTRAN-5G",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "BSS Mobilvogner bevegelige basestasjoner",
+  "code_sas": "A2_NV_A_U_BSS-MOBILVOGN",
+  "code_costperform": "L30_NV_A_U_BSS-MOBILVOGN",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "Basestasjon Utstyr for Kraft og Kjøling egen bruk",
+  "code_sas": "A2_NV_A_U_BSS-KRAFT",
+  "code_costperform": "L30_NV_A_U_BSS-KRAFT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "BSS Mobil 5G utbygging",
+  "code_sas": "A2_NV_A_U_BSS-Mobil_5G",
+  "code_costperform": "L30_NV_A_U_BSS-Mobil_5G",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "BSS Mobil FMBB utbygging",
+  "code_sas": "A2_NV_A_U_BSS-Mobil_FMBB",
+  "code_costperform": "L30_NV_A_U_BSS-Mobil_FMBB",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "Mobil 5G Entreprise for BUS",
+  "code_sas": "A2_NV_A_U_Mobil_5G_Entreprise_BUS",
+  "code_costperform": "L30_NV_A_U_Mobil_5G_Entreprise_BUS",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "Mobil mobilmaster kun egen bruk",
+  "code_sas": "A2_NV_A_U_MOBILMAST",
+  "code_costperform": "L30_NV_A_U_MOBILMAST",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "ESIM for Mobil",
+  "code_sas": "A2_NV_A_U_MOBIL-ESIM",
+  "code_costperform": "L30_NV_A_U_MOBIL-ESIM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "SIM kort for Mobil",
+  "code_sas": "A2_NV_A_U_MOBIL_SIM",
+  "code_costperform": "L30_NV_A_U_MOBIL_SIM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "Basestasjon plassleie for lokale tak land",
+  "code_sas": "A2_NV_A_U_BSS-LOKAL",
+  "code_costperform": "L30_NV_A_U_BSS-LOKAL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "Fiber lease Backhaul egen bruk",
+  "code_sas": "A2_NW_FIBER_BACKHAUL-TN",
+  "code_costperform": "L30_NW_FIBER_BACKHAUL-TN",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Mobil",
+  "product": "Fiber lease Backhaul operatør WHS",
+  "code_sas": "A2_NW_FIBER_WHS_Backhaul",
+  "code_costperform": "L30_NW_FIBER_WHS_Backhaul",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Felles",
+  "product": "Driftsmeldte feil hele nettet",
+  "code_sas": "Ax_NW_Aksess",
+  "code_costperform": "L25_NW_NETTVERK-DMF",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Aksessnett",
+  "product_group": "Aksessnett Felles",
+  "product": "Kabel- og kanal-rør nettet",
+  "code_sas": "Ax_NW_Aksess",
+  "code_costperform": "L25_NW_AKSESS_KANAL-RØR",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Support",
+  "product_group": "Supportavtaler",
+  "product": "Support lisenser for Nordic CDN/Streaming OTT-tjenester",
+  "code_sas": "A2_NV_SUP_CDN-OTT",
+  "code_costperform": "L30_NV_SUP_CDN-OTT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Support",
+  "product_group": "Supportavtaler",
+  "product": "Support lisenser for Mobilt kjernenett for MBB",
+  "code_sas": "A2_NV_SUP_MBB",
+  "code_costperform": "L30_NV_SUP_MBB",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Fixed",
+  "product": "Svitsjing Fixed samlet",
+  "code_sas": "Ax_NW_Sentral-fixed",
+  "code_costperform": "L25_NW_Sentral-fixed",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Fixed",
+  "product": "Sentral aksess Tilknytningsdel av RSX Endesentral",
+  "code_sas": "A2_NV_S_SENTRAL_AKSESS",
+  "code_costperform": "L30_NV_S_SENTRAL_AKSESS",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Fixed",
+  "product": "Sentraler Trafikk Fixed RSX ES GW TeS",
+  "code_sas": "A2_NV_S_SENTRAL_TRAFIKK",
+  "code_costperform": "L30_NV_S_SENTRAL_TRAFIKK",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Fixed",
+  "product": "VOIP Sentral BBT Consumer",
+  "code_sas": "A2_NV_S_SENTRAL_VOIP-BBT",
+  "code_costperform": "L30_NV_S_SENTRAL_VOIP-BBT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Fixed",
+  "product": "VOIP Sentral IPT Business",
+  "code_sas": "A2_NV_S_SENTRAL_VOIP-IPT",
+  "code_costperform": "L30_NV_S_SENTRAL_VOIP-IPT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "Mobil UDC",
+  "code_sas": "A2_NV_S_MOB_UDC",
+  "code_costperform": "L30_NV_S_MOB_UDC",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "Mobile Switching Centre (MSS/MGw/VLR)",
+  "code_sas": "A2_NV_S_MOB_MSS_MGw_VLR",
+  "code_costperform": "L30_NV_S_MOB_MSS_MGw_VLR",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "CS MSS og andel MGW for 2G/3G",
+  "code_sas": "A2_NV_S_MOB_MSS_MGw_2G3G",
+  "code_costperform": "L30_NV_S_MOB_MSS_MGw_2G3G",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "Mobile Switching Centre MSS MGw 4G UDM",
+  "code_sas": "A2_NV_S_MOB_MSS_MGw_UDM",
+  "code_costperform": "L30_NV_S_MOB_MSS_MGw_UDM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "Mobilsentral kun tale",
+  "code_sas": "A2_NV_S_Mobil-sentral-tale",
+  "code_costperform": "L30_NV_S_Mobil-sentral-tale",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "Mobil Core senter CircuitSwitchedCore Mediagateway",
+  "code_sas": "A2_NV_S_Mobilsentral",
+  "code_costperform": "L30_NV_S_Mobilsentral",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "Mobil IMS IP-Multimedia-Subsystem inkl. MGW",
+  "code_sas": "A2_NV_S_MOB-IMS-MGW",
+  "code_costperform": "L30_NV_S_MOB-IMS-MGW",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "Mobil SBC Station Border Controller plattform",
+  "code_sas": "A2_NV_S_Mobil_SBC",
+  "code_costperform": "L30_NV_S_Mobil_SBC",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "Mobil Core signalling IP for VOIP",
+  "code_sas": "A2_NV_S_Signal_STP-IP",
+  "code_costperform": "L30_NV_S_Signal_STP-IP",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "Network switching subsystem (NSS) Signallering",
+  "code_sas": "A2_NV_S_NSS_Signalering",
+  "code_costperform": "L30_NV_S_NSS_Signalering",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "PCRF & OCS funksjon for Mobil Data og MBB og VoLTE",
+  "code_sas": "A2_NV_S_PCRF-OCS",
+  "code_costperform": "L30_NV_S_PCRF-OCS",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Svitsjing Mobil",
+  "product": "PS-core (SGSN GGSN MME SGW PGW)",
+  "code_sas": "A2_NV_S_PS-core_SGSN-GGSN",
+  "code_costperform": "L30_NV_S_PS-core_SGSN-GGSN",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "Konsesjon og spektrum Fixed Mobil",
+  "product": "Spektrum for mobil basestasjoner",
+  "code_sas": "A2_NV_A_U_MOBIL-SPEKTRUM",
+  "code_costperform": "L30_NV_A_U_MOBIL-SPEKTRUM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "IP svitsje utstyr",
+  "product": "IP-MPLS Access Border Distribution Routers felles",
+  "code_sas": "A2_NV_S_IP_UTSTYR-FELLES",
+  "code_costperform": "L30_NV_S_IP_UTSTYR-FELLES",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Svitsjing",
+  "product_group": "IP svitsje utstyr",
+  "product": "IP-MPLS Access Border Distribution Routers FIXED",
+  "code_sas": "A2_NV_S_IP_UTSTYR-FIXED",
+  "code_costperform": "L30_NV_S_IP_UTSTYR-FIXED",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Coax",
+  "product_group": "Fiber HFC leie fra Fiber AS",
+  "product": "Fiber lease mørk fiber BUS",
+  "code_sas": "A2_NW_FIBER_BUS_Mørk-fiber",
+  "code_costperform": "L30_NW_FIBER_BUS_Mørk-fiber",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Coax",
+  "product_group": "Fiber HFC leie fra Fiber AS",
+  "product": "Fiber lease optisk kapasitet WHS",
+  "code_sas": "A2_NW_FIBER_WHS_Capacity-Fiber",
+  "code_costperform": "L30_NW_FIBER_WHS_Capacity-Fiber",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Coax",
+  "product_group": "Fiber HFC leie fra Fiber AS",
+  "product": "Fiber lease mørk fiber WHS",
+  "code_sas": "A2_NW_FIBER_WHS_Mørk-fiber",
+  "code_costperform": "L30_NW_FIBER_WHS_Mørk-fiber",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transport-Kabel felles",
+  "product": "Transportnett kabel",
+  "code_sas": "Ax_NW_Transport-kabel",
+  "code_costperform": "L25_NW_Transport-kabel",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transport-Kabel felles",
+  "product": "Transportnett Sjøkabel",
+  "code_sas": "Ax_NW_Sjøkabel",
+  "code_costperform": "L25_NW_Sjøkabel",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet kabel",
+  "product": "Transportnett kabel BRUT Core nett",
+  "code_sas": "Ax_NW_TN_BRUT",
+  "code_costperform": "L25_NW_TN_BRUT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet kabel",
+  "product": "Transportnett kabel BRUT METRO nett",
+  "code_sas": "Ax_NW_TN_METRO-BRUT",
+  "code_costperform": "L25_NW_TN_METRO-BRUT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet kabel",
+  "product": "Transportnett kabel BRUM Mobil Core nett",
+  "code_sas": "Ax_NW_TN_BRUM-Mobil",
+  "code_costperform": "L25_NW_TN_BRUM-Mobil",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet kabel",
+  "product": "Transportnett arbeid på Sjøkabel",
+  "code_sas": "Ax_NW_Sjøkabel",
+  "code_costperform": "L25_NW_Sjøkabel",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet kabel",
+  "product": "DMF på Transportnett-kabel driftsmeldte feil",
+  "code_sas": "Ax_NW_Transport-drift",
+  "code_costperform": "L25_NW_Transport-drift",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet kabel",
+  "product": "Transportnett arbeid på kabel",
+  "code_sas": "Ax_NW_Transport-kabel",
+  "code_costperform": "L25_NW_Transport-kabel",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet utstyr",
+  "product": "Fixed master store",
+  "code_sas": "Ax_NW_Fixedmast",
+  "code_costperform": "L25_NW_Fixedmast",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet utstyr",
+  "product": "Transportnett utstyr samlet",
+  "code_sas": "Ax_NW_Transport-altutstyr",
+  "code_costperform": "L25_NW_Transport-altutstyr",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet utstyr",
+  "product": "Transportnett-utstyr DXX",
+  "code_sas": "Ax_NW_Transport-utstyr_DXX",
+  "code_costperform": "L25_NW_Transport-utstyr_DXX",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet utstyr",
+  "product": "Transportnett-utstyr Radio",
+  "code_sas": "Ax_NW_Transport-utstyr_RADIO",
+  "code_costperform": "L25_NW_Transport-utstyr_RADIO",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet utstyr",
+  "product": "Transportnett-utstyr SDH PDH",
+  "code_sas": "Ax_NW_Transport-utstyr_SDH",
+  "code_costperform": "L25_NW_Transport-utstyr_SDH",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet utstyr",
+  "product": "Transportnett-utstyr WDM",
+  "code_sas": "Ax_NW_Transport-utstyr_WDM",
+  "code_costperform": "L25_NW_Transport-utstyr_WDM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet utstyr",
+  "product": "DMF Transport utstyr Radiolinje driftsmeldte feil",
+  "code_sas": "Ax_NW_DMF_UTSTYR_RADIO",
+  "code_costperform": "L25_NW_DMF_UTSTYR_RADIO",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnettet utstyr",
+  "product": "Driftsmeldt feil DMF Radiolinje transport",
+  "code_sas": "Ax_NW_OP_DMF_RADIOLINJE",
+  "code_costperform": "L25_NW_OP_DMF_RADIOLINJE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett CORE utstyr",
+  "product": "IP-MPLS Access CORE Ruter i Brut nettet",
+  "code_sas": "A2_NV_S_IP_Ruter-CORE",
+  "code_costperform": "L30_NV_S_IP_Ruter-CORE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett CORE utstyr",
+  "product": "BRUT samband&utstyr (ex backhaul & IPMPLS rutere)",
+  "code_sas": "A2_NV_TN_BRUT-KABEL-UTSTYR",
+  "code_costperform": "L30_NV_TN_BRUT-KABEL-UTSTYR",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett CORE utstyr",
+  "product": "Plassleie for transportnett utstyr",
+  "code_sas": "A2_NV_TN_PLASSLEIE-UTSTYR",
+  "code_costperform": "L30_NV_TN_PLASSLEIE-UTSTYR",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett METRO nett",
+  "product": "IP-MPLS Access EDGE Router Broadband Network Gateway",
+  "code_sas": "A2_NV_S_IP_Ruter-EDGE-BNG",
+  "code_costperform": "L30_NV_S_IP_Ruter-EDGE-BNG",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Transportnett samband dedikert POTS",
+  "code_sas": "A2_NV_TN_SAMBAND_POTS",
+  "code_costperform": "L30_NV_TN_SAMBAND_POTS",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Transportnett samband dedikert LEIDE SAMBAND",
+  "code_sas": "A2_NV_TN_SAMBAND_LSA",
+  "code_costperform": "L30_NV_TN_SAMBAND_LSA",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Transportnett samband dedikert PRODUKTSPESIFIK",
+  "code_sas": "A2_NV_TN_SAMBAND_PSF",
+  "code_costperform": "L30_NV_TN_SAMBAND_PSF",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Leide samband LSA DSL utstyr DXX",
+  "code_sas": "A2_NV_TN_LSA_UTSTYR_DXX",
+  "code_costperform": "L30_NV_TN_LSA_UTSTYR_DXX",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Leide samband LSA DSL utstyr SDH PDH",
+  "code_sas": "A2_NV_TN_LSA_UTSTYR_SDH",
+  "code_costperform": "L30_NV_TN_LSA_UTSTYR_SDH",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Leide samband LSA DSL utstyr WDM",
+  "code_sas": "A2_NV_TN_LSA_UTSTYR_WDM",
+  "code_costperform": "L30_NV_TN_LSA_UTSTYR_WDM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Produktspesifiksamband utstyr DXX",
+  "code_sas": "A2_NV_TN_PSF_UTSTYR_DXX",
+  "code_costperform": "L30_NV_TN_PSF_UTSTYR_DXX",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Produktspesifiksamband utstyr SDH",
+  "code_sas": "A2_NV_TN_PSF_UTSTYR_SDH",
+  "code_costperform": "L30_NV_TN_PSF_UTSTYR_SDH",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Produktspesifiksamband utstyr WDM",
+  "code_sas": "A2_NV_TN_PSF_UTSTYR_WDM",
+  "code_costperform": "L30_NV_TN_PSF_UTSTYR_WDM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Transport utstyr Kystradio (Maritim radio)",
+  "code_sas": "A2_NV_TN_ANNET_KYSTRADIO",
+  "code_costperform": "L30_NV_TN_ANNET_KYSTRADIO",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Transport utstyr Transmisjon 2Mbit",
+  "code_sas": "A2_NV_TN_ANNET_TRANS_2MBIT",
+  "code_costperform": "L30_NV_TN_ANNET_TRANS_2MBIT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Wholesale Høyhastighet samband",
+  "code_sas": "A2_NV_TN_SAMBAND_WHS_HØY",
+  "code_costperform": "L30_NV_TN_SAMBAND_WHS_HØY",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Wholesale Lavhastighet samband",
+  "code_sas": "A2_NV_TN_SAMBAND_WHS_LAV",
+  "code_costperform": "L30_NV_TN_SAMBAND_WHS_LAV",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Business Høy- og lav-hastighet samband",
+  "code_sas": "A2_NV_TN_SAMBAND_BUS_HØY-LAV",
+  "code_costperform": "L30_NV_TN_SAMBAND_BUS_HØY-LAV",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Transportnett Nødnettsamband",
+  "code_sas": "A2_NV_TN_NODNETT",
+  "code_costperform": "L30_NV_TN_NODNETT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Fixed",
+  "product": "Transportutstyr for Nordic Connect",
+  "code_sas": "A2_NV_TN_NORDICCONNECT",
+  "code_costperform": "L30_NV_TN_NORDICCONNECT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Mobil",
+  "product": "Transportnett samband dedikert Mobil",
+  "code_sas": "A2_NV_TN_SAMBAND_MOBIL",
+  "code_costperform": "L30_NV_TN_SAMBAND_MOBIL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Mobil",
+  "product": "Backhaulsamband til egne basestasjoner",
+  "code_sas": "A2_NV_TN_BACKHAUL-TN",
+  "code_costperform": "L30_NV_TN_BACKHAUL-TN",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Mobil",
+  "product": "Backhaulsamband for operatørers basestasjoner",
+  "code_sas": "A2_NV_TN_BACKHAUL-OP",
+  "code_costperform": "L30_NV_TN_BACKHAUL-OP",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Mobil",
+  "product": "Transportnett-svitsjet BRUM Mobil",
+  "code_sas": "A2_NV_TN_BRUM-Mobil",
+  "code_costperform": "L30_NV_TN_BRUM-Mobil",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Mobil",
+  "product": "Mobil utstyr DXX",
+  "code_sas": "A2_NV_TN_MOB_UTSTYR_DXX",
+  "code_costperform": "L30_NV_TN_MOB_UTSTYR_DXX",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Transportnett",
+  "product_group": "Transportnett Mobil",
+  "product": "Mobil utstyr WDM",
+  "code_sas": "A2_NV_TN_MOB_UTSTYR_WDM",
+  "code_costperform": "L30_NV_TN_MOB_UTSTYR_WDM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Norkring nettet",
+  "product_group": "Norkring transmitter bakkenett",
+  "product": "Norkring Transmitter TV",
+  "code_sas": "A2_NV_NK_TRANSMITTER-DTT",
+  "code_costperform": "L30_NV_NK_TRANSMITTER-DTT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Norkring nettet",
+  "product_group": "Norkring transmitter bakkenett",
+  "product": "Norkring Transmitter AM Svalbard",
+  "code_sas": "A2_NV_NK_TRANSMITTER-AM",
+  "code_costperform": "L30_NV_NK_TRANSMITTER-AM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Norkring nettet",
+  "product_group": "Norkring transmitter bakkenett",
+  "product": "Norkring Transmitter DAB",
+  "code_sas": "A2_NV_NK_TRANSMITTER-DAB",
+  "code_costperform": "L30_NV_NK_TRANSMITTER-DAB",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Norkring nettet",
+  "product_group": "Norkring transmitter bakkenett",
+  "product": "Norkring Broadcast Core Equipment",
+  "code_sas": "A2_NV_NK_BROAD-CORE",
+  "code_costperform": "L30_NV_NK_BROAD-CORE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Norkring nettet",
+  "product_group": "Norkring transmitter bakkenett",
+  "product": "Norkring Broadcast Microwave Equipment",
+  "code_sas": "A2_NV_NK_BROAD-MICROWAVE",
+  "code_costperform": "L30_NV_NK_BROAD-MICROWAVE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Norkring nettet",
+  "product_group": "Norkring transmitter bakkenett",
+  "product": "Norkring Broadcast kontribusjonsnett",
+  "code_sas": "A2_NV_NK_DISTRIBUSJONSNETT",
+  "code_costperform": "L30_NV_NK_DISTRIBUSJONSNETT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Norkring nettet",
+  "product_group": "Norkring transmitter bakkenett",
+  "product": "Norkring Broadcast digitalt bakkenett",
+  "code_sas": "A2_NV_NK_BROADCAST",
+  "code_costperform": "L30_NV_NK_BROADCAST",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Norkring nettet",
+  "product_group": "Norkring transmitter bakkenett",
+  "product": "Datasenter A-, og C-siter",
+  "code_sas": "A2_NV_NK_DATASENTER_A_OG_C_SITER",
+  "code_costperform": "L30_NV_NK_DATASENTER_A_OG_C_SITER",
+  "value_stream": null,
+  "valuestream": "NY i 2025!!!"
+ },
+ {
+  "value_chain": "Network",
+  "market": "Norkring nettet",
+  "product_group": "Norkring transmitter bakkenett",
+  "product": "Norkring øvrig nettverk",
+  "code_sas": "A2_NV_NK_ØVRIG",
+  "code_costperform": "L30_NV_NK_ØVRIG",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Arbeid på fibernettet for FIBER",
+  "product_group": "Aksessnett Fixed Kabel",
+  "product": "TECH Arbeid for FIBER fiberkabel",
+  "code_sas": "A2_NV_FIBER-AS_FIBER",
+  "code_costperform": "L30_NV_FIBER-AS_FIBER",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Arbeid på fibernettet for FIBER",
+  "product_group": "Aksessnett Fixed Kabel",
+  "product": "TECH Arbeid for FIBER HFC coax nettet",
+  "code_sas": "A2_NV_FIBER-AS_COAX",
+  "code_costperform": "L30_NV_FIBER-AS_COAX",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Arbeid på fibernettet for FIBER",
+  "product_group": "Aksessnett Fixed Kabel",
+  "product": "TECH Arbeid for FIBER Transport kabel",
+  "code_sas": "A2_NV_FIBER-AS_TRANSPORTKABEL",
+  "code_costperform": "L30_NV_FIBER-AS_TRANSPORTKABEL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Arbeid på fibernettet for FIBER",
+  "product_group": "Aksessnett Fixed Kabel",
+  "product": "TECH Arbeid for FIBER Sjøkabel",
+  "code_sas": "A2_NV_FIBER-AS_SJØKABEL",
+  "code_costperform": "L30_NV_FIBER-AS_SJØKABEL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Arbeid på fibernettet for FIBER",
+  "product_group": "Aksessnett Fixed Kabel",
+  "product": "TECH Arbeid for FIBER Geomatikk",
+  "code_sas": "A2_NV_FIBER-AS_GEOMETIKK",
+  "code_costperform": "L30_NV_FIBER-AS_GEOMETIKK",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Arbeid på fibernettet for FIBER",
+  "product_group": "Aksessnett Fixed Kabel",
+  "product": "TECH Arbeid for FIBER Omlegging",
+  "code_sas": "A2_NV_FIBER-AS_OMLEGGING",
+  "code_costperform": "L30_NV_FIBER-AS_OMLEGGING",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Arbeid på fibernettet for FIBER",
+  "product_group": "Aksessnett Fixed Kabel",
+  "product": "TECH Arbeid for FIBER Kjerne-nettet",
+  "code_sas": "A2_NV_FIBER-AS_KJERNE",
+  "code_costperform": "L30_NV_FIBER-AS_KJERNE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Arbeid på fibernettet for FIBER",
+  "product_group": "Aksessnett Fixed Kabel",
+  "product": "TECH Arbeid for FIBER Kundemeldte-feil",
+  "code_sas": "A2_NV_FIBER-AS_KMF",
+  "code_costperform": "L30_NV_FIBER-AS_KMF",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Arbeid på fibernettet for FIBER",
+  "product_group": "Aksessnett Fixed Kabel",
+  "product": "TECH Arbeid for FIBER Volum-feil",
+  "code_sas": "A2_NV_FIBER-AS_VOL-FEIL",
+  "code_costperform": "L30_NV_FIBER-AS_VOL-FEIL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Driftsmeldt feil",
+  "product_group": "Opex Driftsmeldte feil",
+  "product": "Driftsmeldt feil DMF Aksessnett Fixed",
+  "code_sas": "A2_NV_OP_DMF_AKSESS",
+  "code_costperform": "L30_NV_OP_DMF_AKSESS",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Driftsmeldt feil",
+  "product_group": "Opex Driftsmeldte feil",
+  "product": "Driftsmeldt feil DMF Transportnett Fixed",
+  "code_sas": "A2_NV_OP_DMF_FIBER-TRANS",
+  "code_costperform": "L30_NV_OP_DMF_FIBER-TRANS",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Driftsmeldt feil",
+  "product_group": "Opex Driftsmeldte feil",
+  "product": "Driftsmeldt feil DMF Aksessnett Fiber del",
+  "code_sas": "A2_NV_OP_DMF_AKS-FIBER",
+  "code_costperform": "L30_NV_OP_DMF_AKS-FIBER",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Driftsmeldt feil",
+  "product_group": "Opex Driftsmeldte feil",
+  "product": "Driftsmeldt feil DMF Aksessnett Kobber del",
+  "code_sas": "A2_NV_OP_DMF_AKS-KOBBER",
+  "code_costperform": "L30_NV_OP_DMF_AKS-KOBBER",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Driftsmeldt feil",
+  "product_group": "Opex Driftsmeldte feil",
+  "product": "Driftsmeldt feil DMF CDK aksessnett",
+  "code_sas": "A2_NV_OP_DMF_CDK",
+  "code_costperform": "L30_NV_OP_DMF_CDK",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Driftsmeldt feil",
+  "product_group": "Opex Driftsmeldte feil",
+  "product": "Driftsmeldt feil DMF DK10 DSLAM plattform",
+  "code_sas": "A2_NV_OP_DMF_DSLAM",
+  "code_costperform": "L30_NV_OP_DMF_DSLAM",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Driftsmeldt feil",
+  "product_group": "Opex Driftsmeldte feil",
+  "product": "Driftsmeldt feil DMF DK10 POTS plattform",
+  "code_sas": "A2_NV_OP_DMF_POTS",
+  "code_costperform": "L30_NV_OP_DMF_POTS",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Driftsmeldt feil",
+  "product_group": "Opex Driftsmeldte feil",
+  "product": "Driftsmeldt feil DMF Transportnett",
+  "code_sas": "A2_NV_OP_DMF_TRANS",
+  "code_costperform": "L30_NV_OP_DMF_TRANS",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Driftsmeldt feil",
+  "product_group": "Opex Driftsmeldte feil",
+  "product": "Driftsmeldt feil DMF Mobilnettet",
+  "code_sas": "A2_NV_OP_DMF_MOBIL",
+  "code_costperform": "L30_NV_OP_DMF_MOBIL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Driftsmeldt feil",
+  "product_group": "Opex Driftsmeldte feil",
+  "product": "Driftsmeldt feil DMF Norkring",
+  "code_sas": "A2_NV_OP_DMF_NORKRING",
+  "code_costperform": "L30_NV_OP_DMF_NORKRING",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Kundemeldte feil",
+  "product_group": "Opex Kundemeldte feil alle",
+  "product": "Kundemeldt feil KMF alle",
+  "code_sas": "A2_NV_OP_KMF_ALL",
+  "code_costperform": "L30_NV_OP_KMF_ALL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Kundemeldte feil",
+  "product_group": "Opex Kundemeldte feil alle",
+  "product": "Kundemeldt feil KMF GPON modul",
+  "code_sas": "A2_NV_OP_KMF_GPON",
+  "code_costperform": "L30_NV_OP_KMF_GPON",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Kundemeldte feil",
+  "product_group": "Opex Kundemeldte feil alle",
+  "product": "Kundemeldt feil KMF VULA tilkobling",
+  "code_sas": "A2_NV_OP_KMF_VULA",
+  "code_costperform": "L30_NV_OP_KMF_VULA",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Kundemeldte feil",
+  "product_group": "Opex Kundemeldte feil Fixed",
+  "product": "Kundemeldt feil KMF Fiber-To-The-Home",
+  "code_sas": "A2_NV_OP_KMF_FTTH",
+  "code_costperform": "L30_NV_OP_KMF_FTTH",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Kundemeldte feil",
+  "product_group": "Opex Kundemeldte feil Fixed",
+  "product": "Kundemeldt feil KMF FMBB",
+  "code_sas": "A2_NV_OP_KMF_FMBB",
+  "code_costperform": "L30_NV_OP_KMF_FMBB",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Kundemeldte feil",
+  "product_group": "Opex Kundemeldte feil Fixed",
+  "product": "Kundemeldt feil KMF IP TV",
+  "code_sas": "A2_NV_OP_KMF_IP-TV",
+  "code_costperform": "L30_NV_OP_KMF_IP-TV",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Kundemeldte feil",
+  "product_group": "Opex Infrastruktur Mobil",
+  "product": "Kundemeldt feil KMF Mobil MBB",
+  "code_sas": "A2_NV_OP_KMF_MBB",
+  "code_costperform": "L30_NV_OP_KMF_MBB",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Kundemeldte feil",
+  "product_group": "Opex Infrastruktur Mobil",
+  "product": "Kundemeldt feil KMF Mobil Bedriftsnett Mobil",
+  "code_sas": "A2_NV_OP_KMF_MOB-PROFF",
+  "code_costperform": "L30_NV_OP_KMF_MOB-PROFF",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Kundemeldte feil",
+  "product_group": "Opex Infrastruktur Mobil",
+  "product": "Kundemeldt feil KMF Mobil Bedriftsnett - Fixed",
+  "code_sas": "A2_NV_OP_KMF_MOB-BEDRIFT",
+  "code_costperform": "L30_NV_OP_KMF_MOB-BEDRIFT",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "CDK arbeid",
+  "product_group": "IS System Fixed",
+  "product": "Driftsarbeid for CDK",
+  "code_sas": "A2_NV_OP_ARBEID_CDK",
+  "code_costperform": "L30_NV_OP_ARBEID_CDK",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Samlokasjon",
+  "product_group": "Samlokasjon Fixed og Mobil",
+  "product": "Innleid plass hos INFRA",
+  "code_sas": "A2_NW_PLASSLEIE-HOS-INFRA",
+  "code_costperform": "L30_NW_PLASSLEIE-HOS-INFRA",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Samlokasjon",
+  "product_group": "Samlokasjon Fixed og Mobil",
+  "product": "Telelosji i tunnel Fixed",
+  "code_sas": "A2_NV_AN_COLOC-TUNNEL",
+  "code_costperform": "L30_NV_AN_COLOC-TUNNEL",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Plassleie hos Towers",
+  "product_group": "Plassleie netto ved INFRA og IFRS16justert",
+  "product": "Strømleie INFRA og IFRS16 for Fixed",
+  "code_sas": "A2_NW_STRØM_INFRA_FIXED",
+  "code_costperform": "L30_NW_STRØM_INFRA_FIXED",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Plassleie hos Towers",
+  "product_group": "Plassleie netto ved INFRA og IFRS16justert",
+  "product": "Plassleie INFRA og IFRS16 for Fixed",
+  "code_sas": "A2_NW_PLASS_INFRA_FIXED",
+  "code_costperform": "L30_NW_PLASS_INFRA_FIXED",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Plassleie hos Towers",
+  "product_group": "Plassleie netto ved INFRA og IFRS16justert",
+  "product": "Plassleie INFRA og IFRS16 for Mobile 4G",
+  "code_sas": "A2_NW_PLASS_INFRA_MOBIL4G",
+  "code_costperform": "L30_NW_PLASS_INFRA_MOBIL4G",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Plassleie hos Towers",
+  "product_group": "Plassleie netto ved INFRA og IFRS16justert",
+  "product": "Plassleie INFRA og IFRS16 for Mobile 5G",
+  "code_sas": "A2_NW_PLASS_INFRA_MOBIL5G",
+  "code_costperform": "L30_NW_PLASS_INFRA_MOBIL5G",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Plassleie hos Towers",
+  "product_group": "Plassleie netto ved INFRA og IFRS16justert",
+  "product": "Plassleie INFRA og IFRS16 for Radio Line",
+  "code_sas": "A2_NW_PLASS_INFRA_RADIOLINJE",
+  "code_costperform": "L30_NW_PLASS_INFRA_RADIOLINJE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Plassleie hos Towers",
+  "product_group": "Plassleie netto ved INFRA og IFRS16justert",
+  "product": "Plassleie INFRA og IFRS16 for Broadcast",
+  "code_sas": "A2_NW_PLASS_INFRA_BROADCAST",
+  "code_costperform": "L30_NW_PLASS_INFRA_BROADCAST",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Plassleie hos Towers",
+  "product_group": "Plassleie netto ved INFRA og IFRS16justert",
+  "product": "Plassleie INFRA og IFRS16 for CDK",
+  "code_sas": "A2_NW_PLASS_INFRA_CDK",
+  "code_costperform": "L30_NW_PLASS_INFRA_CDK",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Plassleie hos Towers",
+  "product_group": "Plassleie netto ved INFRA og IFRS16justert",
+  "product": "Plassleie INFRA og IFRS16 for Repeaters",
+  "code_sas": "A2_NW_PLASS_INFRA_REPEATER",
+  "code_costperform": "L30_NW_PLASS_INFRA_REPEATER",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Plassleie hos Towers",
+  "product_group": "Plassleie netto ved INFRA og IFRS16justert",
+  "product": "Plassleie INFRA og IFRS16 for Kystradio",
+  "code_sas": "A2_NW_PLASS_INFRA_KYSTRADIO",
+  "code_costperform": "L30_NW_PLASS_INFRA_KYSTRADIO",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Plassleie hos Towers",
+  "product_group": "Plassleie netto ved INFRA og IFRS16justert",
+  "product": "Plassleie INFRA og IFRS16 for Data senter",
+  "code_sas": "A2_NW_PLASS_INFRA_DATA",
+  "code_costperform": "L30_NW_PLASS_INFRA_DATA",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Øvrig  nettverk",
+  "product_group": "Annen Infrastruktur",
+  "product": "Connection Fee",
+  "code_sas": "A2_NV_AN_CONNECTIONFEE",
+  "code_costperform": "L30_NV_AN_CONNECTIONFEE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Øvrig  nettverk",
+  "product_group": "Annen Infrastruktur",
+  "product": "Tech strøm tekniske lokaler",
+  "code_sas": "A2_NV_STRØM_TEC-EKSTERN",
+  "code_costperform": "L30_NV_STRØM_TEC-EKSTERN",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Øvrig  nettverk",
+  "product_group": "Annen Infrastruktur",
+  "product": "Telenorbutikken",
+  "code_sas": "A2_NV_AN_Telenorbutikken",
+  "code_costperform": "L30_NV_AN_Telenorbutikken",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Øvrig  nettverk",
+  "product_group": "Annen Infrastruktur",
+  "product": "Talkmore kundebase",
+  "code_sas": "A2_NV_AN_TALKMORE",
+  "code_costperform": "L30_NV_AN_TALKMORE",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Øvrig nettverkskost",
+  "product_group": "Annen Infrastruktur",
+  "product": "Energiteknisk utstyr sum",
+  "code_sas": "Ax_NW_Energiteknisk",
+  "code_costperform": "L25_NW_Energiteknisk",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Øvrig nettverkskost",
+  "product_group": "Annen Infrastruktur",
+  "product": "Felles Bygninger",
+  "code_sas": "Ax_NW_Bygninger",
+  "code_costperform": "L25_NW_Bygninger",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "IFRS-16 justeringer",
+  "product_group": "Annen Infrastruktur",
+  "product": "IFRS16 VF99 Technology",
+  "code_sas": "Ax_NW_IFRS16-VF99",
+  "code_costperform": "L25_NW_IFRS16-VF99",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00001 AXE SSCP MP1",
+  "code_sas": "A2_NV_TP_P00001",
+  "code_costperform": "L30_NV_TP_P00001",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00002 AXE SSCP MP2",
+  "code_sas": "A2_NV_TP_P00002",
+  "code_costperform": "L30_NV_TP_P00002",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00002 AXE SSCP TEST1",
+  "code_sas": "A2_NV_TP_P00003",
+  "code_costperform": "L30_NV_TP_P00003",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00005 Multivox IPSN IVR",
+  "code_sas": "A2_NV_TP_P00005",
+  "code_costperform": "L30_NV_TP_P00005",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00007 Multivox TEST IVR",
+  "code_sas": "A2_NV_TP_P00007",
+  "code_costperform": "L30_NV_TP_P00007",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00008 GIN AS",
+  "code_sas": "A2_NV_TP_P00008",
+  "code_costperform": "L30_NV_TP_P00008",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00010 Telcordia ISCP",
+  "code_sas": "A2_NV_TP_P00010",
+  "code_costperform": "L30_NV_TP_P00010",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00011 Telcordia TEST-ISCP",
+  "code_sas": "A2_NV_TP_P00011",
+  "code_costperform": "L30_NV_TP_P00011",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00013 NIPS AS NIPS AS",
+  "code_sas": "A2_NV_TP_P00013",
+  "code_costperform": "L30_NV_TP_P00013",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00014 NIPS IVR",
+  "code_sas": "A2_NV_TP_P00014",
+  "code_costperform": "L30_NV_TP_P00014",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00016 InContact AS",
+  "code_sas": "A2_NV_TP_P00016",
+  "code_costperform": "L30_NV_TP_P00016",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00017 InContact SNT IVR",
+  "code_sas": "A2_NV_TP_P00017",
+  "code_costperform": "L30_NV_TP_P00017",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00018 Talk2Call IVR",
+  "code_sas": "A2_NV_TP_P00018",
+  "code_costperform": "L30_NV_TP_P00018",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00029 Derdak SMS GW",
+  "code_sas": "A2_NV_TP_P00029",
+  "code_costperform": "L30_NV_TP_P00029",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00030 SMAS AXE SCP OSS",
+  "code_sas": "A2_NV_TP_P00030",
+  "code_costperform": "L30_NV_TP_P00030",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00031 VAS BSS Adapters",
+  "code_sas": "A2_NV_TP_P00031",
+  "code_costperform": "L30_NV_TP_P00031",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00032 TelsisAB ordre- abonsystem kundeserv",
+  "code_sas": "A2_NV_TP_P00032",
+  "code_costperform": "L30_NV_TP_P00032",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00033 TELSIS LK data Telenors abonnentnett",
+  "code_sas": "A2_NV_TP_P00033",
+  "code_costperform": "L30_NV_TP_P00033",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "P00048 Unified Communication System",
+  "code_sas": "A2_NV_TP_P00048",
+  "code_costperform": "L30_NV_TP_P00048",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "S00440 STINA",
+  "code_sas": "A2_NV_TP_S00440",
+  "code_costperform": "L30_NV_TP_S00440",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "S00455 GISP",
+  "code_sas": "A2_NV_TP_S00455",
+  "code_costperform": "L30_NV_TP_S00455",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "S00498 Sketch A Call",
+  "code_sas": "A2_NV_TP_S00498",
+  "code_costperform": "L30_NV_TP_S00498",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "S02083 IN-Plattform Telcordia IN",
+  "code_sas": "A2_NV_TP_S02083",
+  "code_costperform": "L30_NV_TP_S02083",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "S02112 Kundetilpassede rutingsløsninger",
+  "code_sas": "A2_NV_TP_S02112",
+  "code_costperform": "L30_NV_TP_S02112",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "S02114 Automatisk sentralbord",
+  "code_sas": "A2_NV_TP_S02114",
+  "code_costperform": "L30_NV_TP_S02114",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "S02116 InContact Kundekontakt løsninger",
+  "code_sas": "A2_NV_TP_S02116",
+  "code_costperform": "L30_NV_TP_S02116",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "S04095 - Ericsson POTS EMS",
+  "code_sas": "A2_NV_TP_S04095",
+  "code_costperform": "L30_NV_TP_S04095",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F1 Tjenesteplattform Fixed trafikk",
+  "product": "S05176 Teksttelefon MMX",
+  "code_sas": "A2_NV_TP_S05176",
+  "code_costperform": "L30_NV_TP_S05176",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F2 Tjenesteplattform IPTV i CON",
+  "product": "P00040 IPTV",
+  "code_sas": "A2_NV_TP_P00040",
+  "code_costperform": "L30_NV_TP_P00040",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F2 Tjenesteplattform IPTV i CON",
+  "product": "P00041 Conference Platform",
+  "code_sas": "A2_NV_TP_P00041",
+  "code_costperform": "L30_NV_TP_P00041",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F2 Tjenesteplattform IPTV i CON",
+  "product": "S02642 Agama  IPTV og kabelTV kvalitetsovervåkning",
+  "code_sas": "A2_NV_TP_S02642",
+  "code_costperform": "L30_NV_TP_S02642",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F2 Tjenesteplattform IPTV i CON",
+  "product": "S02692 IPTV LiveTV VideoOnDemand private customers",
+  "code_sas": "A2_NV_TP_S02692",
+  "code_costperform": "L30_NV_TP_S02692",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F2 Tjenesteplattform IPTV i CON",
+  "product": "S05199 TVinPeaks T-We",
+  "code_sas": "A2_NV_TP_S05199",
+  "code_costperform": "L30_NV_TP_S05199",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F3 Tjenesteplattform VOIP i BUS",
+  "product": "P00019 Alcatel (Open Services Platform) OSP",
+  "code_sas": "A2_NV_TP_P00019",
+  "code_costperform": "L30_NV_TP_P00019",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F3 Tjenesteplattform VOIP i BUS",
+  "product": "P00020 Alcatel SoftSwitch",
+  "code_sas": "A2_NV_TP_P00020",
+  "code_costperform": "L30_NV_TP_P00020",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F3 Tjenesteplattform VOIP i BUS",
+  "product": "S02237 Alcatel Open Service Platform IN-plattform",
+  "code_sas": "A2_NV_TP_S02237",
+  "code_costperform": "L30_NV_TP_S02237",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F3 Tjenesteplattform VOIP i BUS",
+  "product": "S05158 IPT IMS IP-telephony for the Business",
+  "code_sas": "A2_NV_TP_S05158",
+  "code_costperform": "L30_NV_TP_S05158",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F3 Tjenesteplattform VOIP i BUS",
+  "product": "S05159 IPT OSP  Application Servers IPT Telefoni",
+  "code_sas": "A2_NV_TP_S05159",
+  "code_costperform": "L30_NV_TP_S05159",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F3 Tjenesteplattform VOIP i BUS",
+  "product": "S07162 Oracle SBC for VoIP networks",
+  "code_sas": "A2_NV_TP_S07162",
+  "code_costperform": "L30_NV_TP_S07162",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F4 Tjenesteplattform BBT i CON",
+  "product": "P00021 HP HotSip SipServer",
+  "code_sas": "A2_NV_TP_P00021",
+  "code_costperform": "L30_NV_TP_P00021",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F4 Tjenesteplattform BBT i CON",
+  "product": "P00022 IPCen",
+  "code_sas": "A2_NV_TP_P00022",
+  "code_costperform": "L30_NV_TP_P00022",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F4 Tjenesteplattform BBT i CON",
+  "product": "P00043 Voice Application Server",
+  "code_sas": "A2_NV_TP_P00043",
+  "code_costperform": "L30_NV_TP_P00043",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F4 Tjenesteplattform BBT i CON",
+  "product": "P00044 Home Subscriber Server",
+  "code_sas": "A2_NV_TP_P00044",
+  "code_costperform": "L30_NV_TP_P00044",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F4 Tjenesteplattform BBT i CON",
+  "product": "P00045 Call Session control Function",
+  "code_sas": "A2_NV_TP_P00045",
+  "code_costperform": "L30_NV_TP_P00045",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F4 Tjenesteplattform BBT i CON",
+  "product": "P00046 Media Gateway",
+  "code_sas": "A2_NV_TP_P00046",
+  "code_costperform": "L30_NV_TP_P00046",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F4 Tjenesteplattform BBT i CON",
+  "product": "P00047 Session Border Control",
+  "code_sas": "A2_NV_TP_P00047",
+  "code_costperform": "L30_NV_TP_P00047",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F4 Tjenesteplattform BBT i CON",
+  "product": "S02205 IpBB Betalingsmotor for varer tjeneste",
+  "code_sas": "A2_NV_TP_S02205",
+  "code_costperform": "L30_NV_TP_S02205",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "P00023 LDAP DB",
+  "code_sas": "A2_NV_TP_P00023",
+  "code_costperform": "L30_NV_TP_P00023",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "P00024 Virus & Spam",
+  "code_sas": "A2_NV_TP_P00024",
+  "code_costperform": "L30_NV_TP_P00024",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "P00025 NextMail",
+  "code_sas": "A2_NV_TP_P00025",
+  "code_costperform": "L30_NV_TP_P00025",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "P00026 MobileOffice",
+  "code_sas": "A2_NV_TP_P00026",
+  "code_costperform": "L30_NV_TP_P00026",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "P00027 Streaming",
+  "code_sas": "A2_NV_TP_P00027",
+  "code_costperform": "L30_NV_TP_P00027",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "P00034 Domain Name System",
+  "code_sas": "A2_NV_TP_P00034",
+  "code_costperform": "L30_NV_TP_P00034",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "P00035 MMx Multimedia Plattform",
+  "code_sas": "A2_NV_TP_P00035",
+  "code_costperform": "L30_NV_TP_P00035",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "P00036 Web Hotel",
+  "code_sas": "A2_NV_TP_P00036",
+  "code_costperform": "L30_NV_TP_P00036",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "P00037 Home Online",
+  "code_sas": "A2_NV_TP_P00037",
+  "code_costperform": "L30_NV_TP_P00037",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S00218 PIA",
+  "code_sas": "A2_NV_TP_S00218",
+  "code_costperform": "L30_NV_TP_S00218",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S00304 ABEL",
+  "code_sas": "A2_NV_TP_S00304",
+  "code_costperform": "L30_NV_TP_S00304",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S00419 FIN Designer",
+  "code_sas": "A2_NV_TP_S00419",
+  "code_costperform": "L30_NV_TP_S00419",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S00422 FINSMS",
+  "code_sas": "A2_NV_TP_S00422",
+  "code_costperform": "L30_NV_TP_S00422",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S02014 SPIDER",
+  "code_sas": "A2_NV_TP_S02014",
+  "code_costperform": "L30_NV_TP_S02014",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S02018 DHS Brev",
+  "code_sas": "A2_NV_TP_S02018",
+  "code_costperform": "L30_NV_TP_S02018",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S02074 Mailsystem for privat bruker online frisurf",
+  "code_sas": "A2_NV_TP_S02074",
+  "code_costperform": "L30_NV_TP_S02074",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S02094 - IIS Web Hotel",
+  "code_sas": "A2_NV_TP_S02094",
+  "code_costperform": "L30_NV_TP_S02094",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S02105 Virus&SPAM-sluse for Internett-tjenester",
+  "code_sas": "A2_NV_TP_S02105",
+  "code_costperform": "L30_NV_TP_S02105",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S02115 IN-statistikk",
+  "code_sas": "A2_NV_TP_S02115",
+  "code_costperform": "L30_NV_TP_S02115",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S02124 Autorativ DNS",
+  "code_sas": "A2_NV_TP_S02124",
+  "code_costperform": "L30_NV_TP_S02124",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S02137 Nettaktivering Instant Link",
+  "code_sas": "A2_NV_TP_S02137",
+  "code_costperform": "L30_NV_TP_S02137",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S05140 MS Hosted Exchange fixed Business bredbånd",
+  "code_sas": "A2_NV_TP_S05140",
+  "code_costperform": "L30_NV_TP_S05140",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S05154 Alcatel Manager translating XMLC to web",
+  "code_sas": "A2_NV_TP_S05154",
+  "code_costperform": "L30_NV_TP_S05154",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S05160 IPT SBC",
+  "code_sas": "A2_NV_TP_S05160",
+  "code_costperform": "L30_NV_TP_S05160",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S05175 Symkom IN-Applikasjoner",
+  "code_sas": "A2_NV_TP_S05175",
+  "code_costperform": "L30_NV_TP_S05175",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S05181 WAF",
+  "code_sas": "A2_NV_TP_S05181",
+  "code_costperform": "L30_NV_TP_S05181",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S06033 Kataloghotell CA Directory MobileOffice",
+  "code_sas": "A2_NV_TP_S06033",
+  "code_costperform": "L30_NV_TP_S06033",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S06062 - Online Webmail",
+  "code_sas": "A2_NV_TP_S06062",
+  "code_costperform": "L30_NV_TP_S06062",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F5 Tjenesteplattform Internett i BUS og CON",
+  "product": "S06079 SESAM",
+  "code_sas": "A2_NV_TP_S06079",
+  "code_costperform": "L30_NV_TP_S06079",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F6 Tjenesteplattform: Avanserte Taletjenester",
+  "product": "S00049 Pandora Produksjonsstøtte Telenor Link",
+  "code_sas": "A2_NV_TP_S00049",
+  "code_costperform": "L30_NV_TP_S00049",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F6 Tjenesteplattform: Avanserte Taletjenester",
+  "product": "S00523 Gateway to IN",
+  "code_sas": "A2_NV_TP_S00523",
+  "code_costperform": "L30_NV_TP_S00523",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F6 Tjenesteplattform: Avanserte Taletjenester",
+  "product": "S07143 PKI-PSF Politisvarfunksjonen",
+  "code_sas": "A2_NV_TP_S07143",
+  "code_costperform": "L30_NV_TP_S07143",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F6 Tjenesteplattform: Avanserte Taletjenester",
+  "product": "S07409 CNX Infrastructure platform",
+  "code_sas": "A2_NV_TP_S07409",
+  "code_costperform": "L30_NV_TP_S07409",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F6 Tjenesteplattform: Avanserte Taletjenester",
+  "product": "S07586 IMS CE Proxy",
+  "code_sas": "A2_NV_TP_S07586",
+  "code_costperform": "L30_NV_TP_S07586",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F7 Tjenesteplattform: Monitorering",
+  "product": "S02644 Monitorering",
+  "code_sas": "A2_NV_TP_S02644",
+  "code_costperform": "L30_NV_TP_S02644",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F7 Tjenesteplattform: Monitorering",
+  "product": "S07033 ITI Monitoring",
+  "code_sas": "A2_NV_TP_S07033",
+  "code_costperform": "L30_NV_TP_S07033",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F7 Tjenesteplattform: Monitorering",
+  "product": "S07085 Splunk EVRY",
+  "code_sas": "A2_NV_TP_S07085",
+  "code_costperform": "L30_NV_TP_S07085",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F7 Tjenesteplattform: Monitorering",
+  "product": "S07204 Shared Platform Monitoring",
+  "code_sas": "A2_NV_TP_S07204",
+  "code_costperform": "L30_NV_TP_S07204",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "F7 Tjenesteplattform: Monitorering",
+  "product": "S07555 OCTO",
+  "code_sas": "A2_NV_TP_S07555",
+  "code_costperform": "L30_NV_TP_S07555",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "P10003 Felles VØT",
+  "code_sas": "A2_NV_TP_P10003",
+  "code_costperform": "L30_NV_TP_P10003",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "P10004 HSCSD for 2G",
+  "code_sas": "A2_NV_TP_P10004",
+  "code_costperform": "L30_NV_TP_P10004",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "P10020 EIR - Equipment Identity Register",
+  "code_sas": "A2_NV_TP_P10020",
+  "code_costperform": "L30_NV_TP_P10020",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "P10021 SIM løsninger",
+  "code_sas": "A2_NV_TP_P10021",
+  "code_costperform": "L30_NV_TP_P10021",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "P10034 Telenor preinstallerte tjenester terminaler",
+  "code_sas": "A2_NV_TP_P10034",
+  "code_costperform": "L30_NV_TP_P10034",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "P10041 DMS-AUTOMATIC Device Detection",
+  "code_sas": "A2_NV_TP_P10041",
+  "code_costperform": "L30_NV_TP_P10041",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S00383 Online Forhandler Mobilbestilling",
+  "code_sas": "A2_NV_TP_S00383",
+  "code_costperform": "L30_NV_TP_S00383",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S02009 NEC Pasolink  samband basestasjon DSLAM",
+  "code_sas": "A2_NV_TP_S02009",
+  "code_costperform": "L30_NV_TP_S02009",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S02246 DP Supports SIM cards STK and OTA",
+  "code_sas": "A2_NV_TP_S02246",
+  "code_costperform": "L30_NV_TP_S02246",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S02436 Mobil Kontroll",
+  "code_sas": "A2_NV_TP_S02436",
+  "code_costperform": "L30_NV_TP_S02436",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S02659 Device Program Tools Handset Analysis Tool",
+  "code_sas": "A2_NV_TP_S02659",
+  "code_costperform": "L30_NV_TP_S02659",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S05112 Overvåkning Mobile Tjenester",
+  "code_sas": "A2_NV_TP_S05112",
+  "code_costperform": "L30_NV_TP_S05112",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S05193 mPOS",
+  "code_sas": "A2_NV_TP_S05193",
+  "code_costperform": "L30_NV_TP_S05193",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S06017 UDC kundedatabase for 2G/3G/4G mobil",
+  "code_sas": "A2_NV_TP_S06017",
+  "code_costperform": "L30_NV_TP_S06017",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S07065 Jasper BSS",
+  "code_sas": "A2_NV_TP_S07065",
+  "code_costperform": "L30_NV_TP_S07065",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S07066 Jasper Radius",
+  "code_sas": "A2_NV_TP_S07066",
+  "code_costperform": "L30_NV_TP_S07066",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S07135 ESIM Profilemanager",
+  "code_sas": "A2_NV_TP_S07135",
+  "code_costperform": "L30_NV_TP_S07135",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S07213 LIMS",
+  "code_sas": "A2_NV_TP_S07213",
+  "code_costperform": "L30_NV_TP_S07213",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S07061 TNT Core",
+  "code_sas": "A2_NV_TP_S07061",
+  "code_costperform": "L30_NV_TP_S07061",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M1 Tjenesteplattform Mobile produkt BUS CON SP M2M",
+  "product": "S07592 Sigmon",
+  "code_sas": "A2_NV_TP_S07592",
+  "code_costperform": "L30_NV_TP_S07592",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M2 Tjenesteplattform MBB i BUS CON SP",
+  "product": "P10030 Mobile Broadband Home Agent",
+  "code_sas": "A2_NV_TP_P10030",
+  "code_costperform": "L30_NV_TP_P10030",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M2 Tjenesteplattform MBB i BUS CON SP",
+  "product": "S05106 SMS-GW",
+  "code_sas": "A2_NV_TP_S05106",
+  "code_costperform": "L30_NV_TP_S05106",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M2 Tjenesteplattform MBB i BUS CON SP",
+  "product": "S06074 - OCS Policy",
+  "code_sas": "A2_NV_TP_S06074",
+  "code_costperform": "L30_NV_TP_S06074",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M3 Tjenesteplattform Messaging BUS CON SP MVNO NR",
+  "product": "P10018 Positioning (LocatiX/AlertiX)",
+  "code_sas": "A2_NV_TP_P10018",
+  "code_costperform": "L30_NV_TP_P10018",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M3 Tjenesteplattform Messaging BUS CON SP MVNO NR",
+  "product": "P10019 Konsolidert ASP tjeneste",
+  "code_sas": "A2_NV_TP_P10019",
+  "code_costperform": "L30_NV_TP_P10019",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M3 Tjenesteplattform Messaging BUS CON SP MVNO NR",
+  "product": "S02245 PMS CPA Locatix for posisjonering SMS Alert",
+  "code_sas": "A2_NV_TP_S02245",
+  "code_costperform": "L30_NV_TP_S02245",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M3 Tjenesteplattform Messaging BUS CON SP MVNO NR",
+  "product": "S04083 MPS",
+  "code_sas": "A2_NV_TP_S04083",
+  "code_costperform": "L30_NV_TP_S04083",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M3 Tjenesteplattform Messaging BUS CON SP MVNO NR",
+  "product": "S07121 DSC diametersignalering i mobilnettet",
+  "code_sas": "A2_NV_TP_S07121",
+  "code_costperform": "L30_NV_TP_S07121",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M3 Tjenesteplattform Messaging BUS CON SP MVNO NR",
+  "product": "S07356 Alertix",
+  "code_sas": "A2_NV_TP_S07356",
+  "code_costperform": "L30_NV_TP_S07356",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M3 Tjenesteplattform Messaging BUS CON SP MVNO NR",
+  "product": "S07478 nødvarsling på mobil",
+  "code_sas": "A2_NV_TP_S07478",
+  "code_costperform": "L30_NV_TP_S07478",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "P10001 CPA",
+  "code_sas": "A2_NV_TP_P10001",
+  "code_costperform": "L30_NV_TP_P10001",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "P10006 MMSC",
+  "code_sas": "A2_NV_TP_P10006",
+  "code_costperform": "L30_NV_TP_P10006",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "P10010 SMSC",
+  "code_sas": "A2_NV_TP_P10010",
+  "code_costperform": "L30_NV_TP_P10010",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "P10013 UMS",
+  "code_sas": "A2_NV_TP_P10013",
+  "code_costperform": "L30_NV_TP_P10013",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "P10027 SMS GW",
+  "code_sas": "A2_NV_TP_P10027",
+  "code_costperform": "L30_NV_TP_P10027",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "P20019 Bank ID på mobil",
+  "code_sas": "A2_NV_TP_P20019",
+  "code_costperform": "L30_NV_TP_P20019",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "S00039 UMS Selvbetjening via SMS",
+  "code_sas": "A2_NV_TP_S00039",
+  "code_costperform": "L30_NV_TP_S00039",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "S02113 Interaktiv SMS tjenester",
+  "code_sas": "A2_NV_TP_S02113",
+  "code_costperform": "L30_NV_TP_S02113",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "S02235 MMSC handles MMS Telenor Denmark Norway",
+  "code_sas": "A2_NV_TP_S02235",
+  "code_costperform": "L30_NV_TP_S02235",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "S02236 SMSC meldingssentral håndterer SMS",
+  "code_sas": "A2_NV_TP_S02236",
+  "code_costperform": "L30_NV_TP_S02236",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "S04098 MONA",
+  "code_sas": "A2_NV_TP_S04098",
+  "code_costperform": "L30_NV_TP_S04098",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "S05119 BankID Mobil ID- og signatur-løsning",
+  "code_sas": "A2_NV_TP_S05119",
+  "code_costperform": "L30_NV_TP_S05119",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "S07179 Entitlement Server",
+  "code_sas": "A2_NV_TP_S07179",
+  "code_costperform": "L30_NV_TP_S07179",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M4 Tjenesteplattform Messaging i BUS CON SP",
+  "product": "S07384 SMS-MMS",
+  "code_sas": "A2_NV_TP_S07384",
+  "code_costperform": "L30_NV_TP_S07384",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "P10005 IN",
+  "code_sas": "A2_NV_TP_P10005",
+  "code_costperform": "L30_NV_TP_P10005",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "P10017 Prepaid",
+  "code_sas": "A2_NV_TP_P10017",
+  "code_costperform": "L30_NV_TP_P10017",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "P10028 RBT (Ventetone, Ring Back Tone)",
+  "code_sas": "A2_NV_TP_P10028",
+  "code_costperform": "L30_NV_TP_P10028",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "P10031 NTR / Trafikkdirigering&styring ved roaming",
+  "code_sas": "A2_NV_TP_P10031",
+  "code_costperform": "L30_NV_TP_P10031",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "P10043 MobilBackup/Hostes av Tactel",
+  "code_sas": "A2_NV_TP_P10043",
+  "code_costperform": "L30_NV_TP_P10043",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "P10044 PCRF",
+  "code_sas": "A2_NV_TP_P10044",
+  "code_costperform": "L30_NV_TP_P10044",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "S02161 JODA CDR-collection for Police",
+  "code_sas": "A2_NV_TP_S02161",
+  "code_costperform": "L30_NV_TP_S02161",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "S02247 recharging MobilHandel Minibank Web Gateway",
+  "code_sas": "A2_NV_TP_S02247",
+  "code_costperform": "L30_NV_TP_S02247",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "S02256 NTR/Trafikkdirigering til preferte nettverk",
+  "code_sas": "A2_NV_TP_S02256",
+  "code_costperform": "L30_NV_TP_S02256",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "S02435 Ericsson Core EMS Network Management",
+  "code_sas": "A2_NV_TP_S02435",
+  "code_costperform": "L30_NV_TP_S02435",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "S07070 RCS HW person-to-person and person-to-group",
+  "code_sas": "A2_NV_TP_S07070",
+  "code_costperform": "L30_NV_TP_S07070",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "S07223 vEPC (sy)",
+  "code_sas": "A2_NV_TP_S07223",
+  "code_costperform": "L30_NV_TP_S07223",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M5 Tjenesteplattform Mobil Voice i BUS CON SP",
+  "product": "S07460 ccENM",
+  "code_sas": "A2_NV_TP_S07460",
+  "code_costperform": "L30_NV_TP_S07460",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S02661 MBN TSG Mobilt Bedriftsnett",
+  "code_sas": "A2_NV_TP_S02661",
+  "code_costperform": "L30_NV_TP_S02661",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S02662 MBN BAS Mobilt Bedriftsnett",
+  "code_sas": "A2_NV_TP_S02662",
+  "code_costperform": "L30_NV_TP_S02662",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S05117 xAdmin NORM Mobilt bedriftsnett",
+  "code_sas": "A2_NV_TP_S05117",
+  "code_costperform": "L30_NV_TP_S05117",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S05161 MBN ECN Applikasjonen skaper MBN tjeneste",
+  "code_sas": "A2_NV_TP_S05161",
+  "code_costperform": "L30_NV_TP_S05161",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S05184 MBN Recording Mobilbedrifsnett taleopptak",
+  "code_sas": "A2_NV_TP_S05184",
+  "code_costperform": "L30_NV_TP_S05184",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S05186 MBN MAS Mobile Application Server",
+  "code_sas": "A2_NV_TP_S05186",
+  "code_costperform": "L30_NV_TP_S05186",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S07131 BCFS",
+  "code_sas": "A2_NV_TP_S07131",
+  "code_costperform": "L30_NV_TP_S07131",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S07151 MBN TSG 2",
+  "code_sas": "A2_NV_TP_S07151",
+  "code_costperform": "L30_NV_TP_S07151",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S07359 MBN TSG3",
+  "code_sas": "A2_NV_TP_S07359",
+  "code_costperform": "L30_NV_TP_S07359",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S07360 MBN AS IMS applicationserver Mobilt Bedriftsnett",
+  "code_sas": "A2_NV_TP_S07360",
+  "code_costperform": "L30_NV_TP_S07360",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S07363 MBN Mobile App",
+  "code_sas": "A2_NV_TP_S07363",
+  "code_costperform": "L30_NV_TP_S07363",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M6 Tjenesteplattform Mobilt bedriftsnett",
+  "product": "S07365 MBN Web",
+  "code_sas": "A2_NV_TP_S07365",
+  "code_costperform": "L30_NV_TP_S07365",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M7 Tjenesteplattform SSD i BUS CON SP",
+  "product": "P10015 WAP Gateway",
+  "code_sas": "A2_NV_TP_P10015",
+  "code_costperform": "L30_NV_TP_P10015",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M7 Tjenesteplattform SSD i BUS CON SP",
+  "product": "P10029 Streaming platform Mobil TV",
+  "code_sas": "A2_NV_TP_P10029",
+  "code_costperform": "L30_NV_TP_P10029",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M7 Tjenesteplattform SSD i BUS CON SP",
+  "product": "P10040 Mobil portal Norge og Danmark (mPort)",
+  "code_sas": "A2_NV_TP_P10040",
+  "code_costperform": "L30_NV_TP_P10040",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M8 Tjenesteplattform SSD i CON",
+  "product": "P10037 Live Messenger",
+  "code_sas": "A2_NV_TP_P10037",
+  "code_costperform": "L30_NV_TP_P10037",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M8 Tjenesteplattform SSD i CON",
+  "product": "P10038 Online Album",
+  "code_sas": "A2_NV_TP_P10038",
+  "code_costperform": "L30_NV_TP_P10038",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M8 Tjenesteplattform SSD i CON",
+  "product": "P20017 IM instant messaging",
+  "code_sas": "A2_NV_TP_P20017",
+  "code_costperform": "L30_NV_TP_P20017",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M8 Tjenesteplattform SSD i CON",
+  "product": "S05137 Email web residential customer Nextmail",
+  "code_sas": "A2_NV_TP_S05137",
+  "code_costperform": "L30_NV_TP_S05137",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M9 Tjenesteplattform SSD MBB i BUS CON SP MVNO",
+  "product": "P10039 Hostes av Platekompaniet",
+  "code_sas": "A2_NV_TP_P10039",
+  "code_costperform": "L30_NV_TP_P10039",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M9 Tjenesteplattform SSD MBB i BUS CON SP MVNO",
+  "product": "P20020 MDA - Mobile Data Access",
+  "code_sas": "A2_NV_TP_P20020",
+  "code_costperform": "L30_NV_TP_P20020",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M10 Tjenesteplattform Voice BUS",
+  "product": "P10009 Proffnett",
+  "code_sas": "A2_NV_TP_P10009",
+  "code_costperform": "L30_NV_TP_P10009",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M10 Tjenesteplattform Voice BUS",
+  "product": "P10022 MOVE",
+  "code_sas": "A2_NV_TP_P10022",
+  "code_costperform": "L30_NV_TP_P10022",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M10 Tjenesteplattform Voice BUS",
+  "product": "S00857 ProffNett",
+  "code_sas": "A2_NV_TP_S00857",
+  "code_costperform": "L30_NV_TP_S00857",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M10 Tjenesteplattform Voice BUS",
+  "product": "S02180 Tems-Netqure",
+  "code_sas": "A2_NV_TP_S02180",
+  "code_costperform": "L30_NV_TP_S02180",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M10 Tjenesteplattform Voice BUS",
+  "product": "S06013 Dipper Web Commercial web page",
+  "code_sas": "A2_NV_TP_S06013",
+  "code_costperform": "L30_NV_TP_S06013",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M11 Tjenesteplattform Messaging SSD kun BUS",
+  "product": "P10042 Smartphones",
+  "code_sas": "A2_NV_TP_P10042",
+  "code_costperform": "L30_NV_TP_P10042",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M11 Tjenesteplattform Messaging SSD kun BUS",
+  "product": "S07154 Telenor DeveloperPortal",
+  "code_sas": "A2_NV_TP_S07154",
+  "code_costperform": "L30_NV_TP_S07154",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M12 Tjenesteplattform Trådløs",
+  "product": "P10032 Trådløs tjenesteplattform (WLAN)",
+  "code_sas": "A2_NV_TP_P10032",
+  "code_costperform": "L30_NV_TP_P10032",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "M12 Tjenesteplattform Trådløs",
+  "product": "S02314 Tjenesteplattform for Trådløs Sone",
+  "code_sas": "A2_NV_TP_S02314",
+  "code_costperform": "L30_NV_TP_S02314",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B1 Tjenesteplattform VMS Voicemail",
+  "product": "P10014 VMS  Voicemail",
+  "code_sas": "A2_NV_TP_P10014",
+  "code_costperform": "L30_NV_TP_P10014",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B1 Tjenesteplattform VMS Voicemail",
+  "product": "S00030 VMS (Voice Mail Services - Common Nordic)",
+  "code_sas": "A2_NV_TP_S00030",
+  "code_costperform": "L30_NV_TP_S00030",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B1 Tjenesteplattform VMS Voicemail",
+  "product": "S00852 CTI Genesys",
+  "code_sas": "A2_NV_TP_S00852",
+  "code_costperform": "L30_NV_TP_S00852",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B1 Tjenesteplattform VMS Voicemail",
+  "product": "S02004 FMS fordmidling elektroniske meldinger",
+  "code_sas": "A2_NV_TP_S02004",
+  "code_costperform": "L30_NV_TP_S02004",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B1 Tjenesteplattform VMS Voicemail",
+  "product": "S05198 VMS Agility Mobile-Fixedline Voicemail",
+  "code_sas": "A2_NV_TP_S05198",
+  "code_costperform": "L30_NV_TP_S05198",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B1 Tjenesteplattform VMS Voicemail",
+  "product": "S06082 VVM Proxy",
+  "code_sas": "A2_NV_TP_S06082",
+  "code_costperform": "L30_NV_TP_S06082",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B1 Tjenesteplattform VMS Voicemail",
+  "product": "S07426 Broadcast & Media Redhat Postfix",
+  "code_sas": "A2_NV_TP_S07426",
+  "code_costperform": "L30_NV_TP_S07426",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B2 Tjenesteplattform Bedriftsløsninger",
+  "product": "P00015 Dolphin HotVoice IVR",
+  "code_sas": "A2_NV_TP_P00015",
+  "code_costperform": "L30_NV_TP_P00015",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B2 Tjenesteplattform Bedriftsløsninger",
+  "product": "S00411 Telekonferanse",
+  "code_sas": "A2_NV_TP_S00411",
+  "code_costperform": "L30_NV_TP_S00411",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B2 Tjenesteplattform Bedriftsløsninger",
+  "product": "S02111 Interaktive Taletjenester",
+  "code_sas": "A2_NV_TP_S02111",
+  "code_costperform": "L30_NV_TP_S02111",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B2 Tjenesteplattform Bedriftsløsninger",
+  "product": "S02651 Min bedrift",
+  "code_sas": "A2_NV_TP_S02651",
+  "code_costperform": "L30_NV_TP_S02651",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B2 Tjenesteplattform Bedriftsløsninger",
+  "product": "S05165 Metro IN-Applikasjon Fixed order handling",
+  "code_sas": "A2_NV_TP_S05165",
+  "code_costperform": "L30_NV_TP_S05165",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B2 Tjenesteplattform Bedriftsløsninger",
+  "product": "S05179 Unified Communication",
+  "code_sas": "A2_NV_TP_S05179",
+  "code_costperform": "L30_NV_TP_S05179",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B2 Tjenesteplattform Bedriftsløsninger",
+  "product": "S05195 Microsoft Office 365 Lync2Phone gateway",
+  "code_sas": "A2_NV_TP_S05195",
+  "code_costperform": "L30_NV_TP_S05195",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B2 Tjenesteplattform Bedriftsløsninger",
+  "product": "S07260 Managed IOT Cloud",
+  "code_sas": "A2_NV_TP_S07260",
+  "code_costperform": "L30_NV_TP_S07260",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B2 Tjenesteplattform Bedriftsløsninger",
+  "product": "S07506 CvAM",
+  "code_sas": "A2_NV_TP_S07506",
+  "code_costperform": "L30_NV_TP_S07506",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "D00001 IS eRAF Kjøp tjenester",
+  "code_sas": "A2_NV_TP_D00001",
+  "code_costperform": "L30_NV_TP_D00001",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S00000 EKSTERNT SYSTEM HW",
+  "code_sas": "A2_NV_TP_S00000",
+  "code_costperform": "L30_NV_TP_S00000",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S02100 - MS SQL DB Hotel",
+  "code_sas": "A2_NV_TP_S02100",
+  "code_costperform": "L30_NV_TP_S02100",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S02359 ESS Emergency Services Support ",
+  "code_sas": "A2_NV_TP_S02359",
+  "code_costperform": "L30_NV_TP_S02359",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S05125 Centralized log analysis infrastructure",
+  "code_sas": "A2_NV_TP_S05125",
+  "code_costperform": "L30_NV_TP_S05125",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S05168 NGV IMS kjerne",
+  "code_sas": "A2_NV_TP_S05168",
+  "code_costperform": "L30_NV_TP_S05168",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S05169 Perforce",
+  "code_sas": "A2_NV_TP_S05169",
+  "code_costperform": "L30_NV_TP_S05169",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S06039 Capella",
+  "code_sas": "A2_NV_TP_S06039",
+  "code_costperform": "L30_NV_TP_S06039",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S06065 SFB Salg for Business Salgsstøttesystem",
+  "code_sas": "A2_NV_TP_S06065",
+  "code_costperform": "L30_NV_TP_S06065",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S06077 Monitoring (MasterClaw)",
+  "code_sas": "A2_NV_TP_S06077",
+  "code_costperform": "L30_NV_TP_S06077",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S06094 JOAR",
+  "code_sas": "A2_NV_TP_S06094",
+  "code_costperform": "L30_NV_TP_S06094",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07009 OCMDS Operations Configuration Management and DeploymeNT",
+  "code_sas": "A2_NV_TP_S07009",
+  "code_costperform": "L30_NV_TP_S07009",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07011 BIS Business Integrity System",
+  "code_sas": "A2_NV_TP_S07011",
+  "code_costperform": "L30_NV_TP_S07011",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07063 ISADE",
+  "code_sas": "A2_NV_TP_S07063",
+  "code_costperform": "L30_NV_TP_S07063",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07068 CHECI Live TV",
+  "code_sas": "A2_NV_TP_S07068",
+  "code_costperform": "L30_NV_TP_S07068",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07123 NO Business DSP",
+  "code_sas": "A2_NV_TP_S07123",
+  "code_costperform": "L30_NV_TP_S07123",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07125 NO Business SA",
+  "code_sas": "A2_NV_TP_S07125",
+  "code_costperform": "L30_NV_TP_S07125",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07140 T-We Backoffice",
+  "code_sas": "A2_NV_TP_S07140",
+  "code_costperform": "L30_NV_TP_S07140",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07200 PRIMA",
+  "code_sas": "A2_NV_TP_S07200",
+  "code_costperform": "L30_NV_TP_S07200",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07222 NFVI",
+  "code_sas": "A2_NV_TP_S07222",
+  "code_costperform": "L30_NV_TP_S07222",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07230 Hybrid Terminal",
+  "code_sas": "A2_NV_TP_S07230",
+  "code_costperform": "L30_NV_TP_S07230",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07257 Smarte Bygg",
+  "code_sas": "A2_NV_TP_S07257",
+  "code_costperform": "L30_NV_TP_S07257",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07280 TV Test and Diagnosis",
+  "code_sas": "A2_NV_TP_S07280",
+  "code_costperform": "L30_NV_TP_S07280",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07420 Broadcast & Media Atlassian Jira Server",
+  "code_sas": "A2_NV_TP_S07420",
+  "code_costperform": "L30_NV_TP_S07420",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "S07562 VAR Vulnerability Management",
+  "code_sas": "A2_NV_TP_S07562",
+  "code_costperform": "L30_NV_TP_S07562",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B3 Tjenesteplattform Øvrige",
+  "product": "Tjenesteplattformer TSOC",
+  "code_sas": "A2_NV_TP_TSOC",
+  "code_costperform": "L30_NV_TP_TSOC",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S02451 CA Servicedesk",
+  "code_sas": "A2_NV_TP_S02451",
+  "code_costperform": "L30_NV_TP_S02451",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S06015 VC4-IMS",
+  "code_sas": "A2_NV_TP_S06015",
+  "code_costperform": "L30_NV_TP_S06015",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07323 Dataminer",
+  "code_sas": "A2_NV_TP_S07323",
+  "code_costperform": "L30_NV_TP_S07323",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07329 Chirplus",
+  "code_sas": "A2_NV_TP_S07329",
+  "code_costperform": "L30_NV_TP_S07329",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07330 NimbraVision",
+  "code_sas": "A2_NV_TP_S07330",
+  "code_costperform": "L30_NV_TP_S07330",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07331 Network Service Orchestration",
+  "code_sas": "A2_NV_TP_S07331",
+  "code_costperform": "L30_NV_TP_S07331",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07332 VideoIPath",
+  "code_sas": "A2_NV_TP_S07332",
+  "code_costperform": "L30_NV_TP_S07332",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07333 Bosslink Manager",
+  "code_sas": "A2_NV_TP_S07333",
+  "code_costperform": "L30_NV_TP_S07333",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07334 Aurora",
+  "code_sas": "A2_NV_TP_S07334",
+  "code_costperform": "L30_NV_TP_S07334",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07335 VMware Horizon",
+  "code_sas": "A2_NV_TP_S07335",
+  "code_costperform": "L30_NV_TP_S07335",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07336 IBM Integration Bus (IIB)",
+  "code_sas": "A2_NV_TP_S07336",
+  "code_costperform": "L30_NV_TP_S07336",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07337 IBM Api Connect",
+  "code_sas": "A2_NV_TP_S07337",
+  "code_costperform": "L30_NV_TP_S07337",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07338 IBM Business Process Manager",
+  "code_sas": "A2_NV_TP_S07338",
+  "code_costperform": "L30_NV_TP_S07338",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07355 Paneda DAB-MUX",
+  "code_sas": "A2_NV_TP_S07355",
+  "code_costperform": "L30_NV_TP_S07355",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "Tjenesteplattform",
+  "product_group": "B4 Tjenesteplattform NORKRING",
+  "product": "S07362 Cisco Data Center Network Manager",
+  "code_sas": "A2_NV_TP_S07362",
+  "code_costperform": "L30_NV_TP_S07362",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "CDK nettverk",
+  "product_group": "CDK Kabel nettverk",
+  "product": "Cable network COAX",
+  "code_sas": "A2_I_TV_TV-EQUIP",
+  "code_costperform": "L30_I_TV_TV-EQUIP",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "CDK nettverk",
+  "product_group": "CDK Kabel nettverk",
+  "product": "Cable network FIBER",
+  "code_sas": "A2_I_TV_CABLE_HFC",
+  "code_costperform": "L30_I_TV_CABLE_HFC",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "CDK nettverk",
+  "product_group": "CDK TV nettverk",
+  "product": "Digital TV equipment",
+  "code_sas": "A2_I_TV_CABLE_FIBER",
+  "code_costperform": "L30_I_TV_CABLE_FIBER",
+  "value_stream": null,
+  "valuestream": null
+ },
+ {
+  "value_chain": "Network",
+  "market": "CDK nettverk",
+  "product_group": "CDK TV nettverk",
+  "product": "Cable TV Head-end Digital Equipment",
+  "code_sas": "A2_I_TV_CABLE-TV_DIGITAL",
+  "code_costperform": "L30_I_TV_CABLE-TV_DIGITAL",
+  "value_stream": null,
+  "valuestream": null
+ }
+]

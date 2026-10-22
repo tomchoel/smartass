@@ -1,0 +1,39 @@
+[project]
+name = "smartass"
+version = "0.2.0"
+description = "smartass engine: read-only Smart View (FinMax / FinLite / FinPlan) for AI agents and Excel"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp==2.3.0",
+    "pydantic==2.14.1",
+    "pywin32==312",
+    "psutil==7.2.2",
+    "openpyxl",
+    "playwright==1.64.0",
+]
+
+[dependency-groups]
+dev = ["pytest", "anyio", "ruff"]
+
+[project.scripts]
+smartview-mcp = "smartview_mcp.server:main"
+smartass = "smartview_mcp.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["smartview_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["live", "fixtures"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["tests/live", "smartview_mcp/vendor"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]

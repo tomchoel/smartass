@@ -1,0 +1,5715 @@
+[
+ {
+  "division": "2CON",
+  "pd_label": "45300 Frihet Medium BB HFC (pd.SY)",
+  "pd_code": "45300",
+  "member": "pd.SY.45300",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 83,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 88226296.00999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 88226296.00999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45104 Grunnintekt UGMI (pd.SY)",
+  "pd_code": "45104",
+  "member": "pd.SY.45104",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 84,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 77044.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 77044.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45140 Komplett 250 HD (pd.SY)",
+  "pd_code": "45140",
+  "member": "pd.SY.45140",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 85,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 34928.64000000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 34928.64000000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45141 Komplett 250 HD/Pvr (pd.SY)",
+  "pd_code": "45141",
+  "member": "pd.SY.45141",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 86,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 11746913.209999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 11746913.209999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45150 Komplett 10 (pd.SY)",
+  "pd_code": "45150",
+  "member": "pd.SY.45150",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 87,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 973519.4299999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 973519.4299999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45154 Komplett 50 (pd.SY)",
+  "pd_code": "45154",
+  "member": "pd.SY.45154",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 88,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 808855.23
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 808855.23,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45155 CATV Rabatt Bredband Kollektiv (pd.SY)",
+  "pd_code": "45155",
+  "member": "pd.SY.45155",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 89,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -22686955.02
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -22686955.02,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45159 MINI komplett kollektiv HD-PVR (pd.SY)",
+  "pd_code": "45159",
+  "member": "pd.SY.45159",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 90,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 21504545.73
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 21504545.73,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45160 MIDI komplett kollektiv HD-PVR (pd.SY)",
+  "pd_code": "45160",
+  "member": "pd.SY.45160",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 91,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 58341969.29000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 58341969.29000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45200 Frihet Small BB HFC (pd.SY)",
+  "pd_code": "45200",
+  "member": "pd.SY.45200",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 92,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 14831436.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 14831436.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48203 BB500 UGMI (pd.SY)",
+  "pd_code": "48203",
+  "member": "pd.SY.48203",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 93,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 753861.04
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 753861.04,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48204 BB1000 UGMI (pd.SY)",
+  "pd_code": "48204",
+  "member": "pd.SY.48204",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 94,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 262381.17
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 262381.17,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48301 BB100 kollektiv (komplett 10) (pd.SY)",
+  "pd_code": "48301",
+  "member": "pd.SY.48301",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 95,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 10388916.270000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 10388916.270000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48302 BB250 kollektiv (komplett 10) (pd.SY)",
+  "pd_code": "48302",
+  "member": "pd.SY.48302",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 96,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 10015223.86
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 10015223.86,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48303 BB500 kollektiv (komplett 10) (pd.SY)",
+  "pd_code": "48303",
+  "member": "pd.SY.48303",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 97,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 2559903.39
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 2559903.39,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48305 CATV Rabatt BB MDU (pd.SY)",
+  "pd_code": "48305",
+  "member": "pd.SY.48305",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 98,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -16542.600000000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -16542.600000000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48307 BB 1000 kollektiv (komplett 20) (pd.SY)",
+  "pd_code": "48307",
+  "member": "pd.SY.48307",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 99,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 474453.07999999996
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 474453.07999999996,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48401 BB100 kollektiv (komplett 50) (pd.SY)",
+  "pd_code": "48401",
+  "member": "pd.SY.48401",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 100,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 6918230.079999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 6918230.079999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48402 BB250 kollektiv (komplett 50) (pd.SY)",
+  "pd_code": "48402",
+  "member": "pd.SY.48402",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 101,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 8024435.4399999995
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 8024435.4399999995,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48403 BB500 kollektiv (komplett 50) (pd.SY)",
+  "pd_code": "48403",
+  "member": "pd.SY.48403",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 102,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 3223189.3099999996
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 3223189.3099999996,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48404 BB1000 kollektiv (komplett 50) (pd.SY)",
+  "pd_code": "48404",
+  "member": "pd.SY.48404",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 103,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 712697.3500000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 712697.3500000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48503 BB500 kollektiv (komplett 250) (pd.SY)",
+  "pd_code": "48503",
+  "member": "pd.SY.48503",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 104,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 432373.13000000006
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 432373.13000000006,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48504 BB1000 kollektiv (komplett 250) (pd.SY)",
+  "pd_code": "48504",
+  "member": "pd.SY.48504",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 105,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 103356.21
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 103356.21,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48906 Other establishment HFC (pd.SY)",
+  "pd_code": "48906",
+  "member": "pd.SY.48906",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 106,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 853401.36
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 853401.36,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48200 BB50 UGMI (pd.SY)",
+  "pd_code": "48200",
+  "member": "pd.SY.48200",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 107,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 22265997.120000005
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 22265997.120000005,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48300 BB50 kollektiv (komplett 10) (pd.SY)",
+  "pd_code": "48300",
+  "member": "pd.SY.48300",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 108,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 9360692.58
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 9360692.58,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "46105 Antivirus/Brannmur (pd.SY)",
+  "pd_code": "46105",
+  "member": "pd.SY.46105",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 109,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -69493.58
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 0.0,
+  "c40s": -69493.58
+ },
+ {
+  "division": "2CON",
+  "pd_label": "47102 SMB Midi Bedrift (pd.SY)",
+  "pd_code": "47102",
+  "member": "pd.SY.47102",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 110,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 3262909.14
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 3262909.14,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "47103 SMB Maxi Bedrift (pd.SY)",
+  "pd_code": "47103",
+  "member": "pd.SY.47103",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 111,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 608107.5700000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 608107.5700000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "47104 SMB Mega Bedrift (pd.SY)",
+  "pd_code": "47104",
+  "member": "pd.SY.47104",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 112,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 459087.7
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 459087.7,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "47106 SMB Super 70 Bedrift (pd.SY)",
+  "pd_code": "47106",
+  "member": "pd.SY.47106",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 113,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 98610.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 98610.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "47107 SMB Giga Bedrift (pd.SY)",
+  "pd_code": "47107",
+  "member": "pd.SY.47107",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 114,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 47850.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 47850.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "47108 SMB Midi Bedrift (pd.SY)",
+  "pd_code": "47108",
+  "member": "pd.SY.47108",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 115,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 303462.55
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 303462.55,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48010 Ordinær (pd.SY)",
+  "pd_code": "48010",
+  "member": "pd.SY.48010",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 116,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 434764.76
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 434764.76,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48015 Trådløs router (pd.SY)",
+  "pd_code": "48015",
+  "member": "pd.SY.48015",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 117,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 476.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 476.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48060 WIFI forsterker leie HFC (pd.SY)",
+  "pd_code": "48060",
+  "member": "pd.SY.48060",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 118,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 2296030.82
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 2296030.82,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48062 WIFI ruter HFC (pd.SY)",
+  "pd_code": "48062",
+  "member": "pd.SY.48062",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 119,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 11073555.17
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 11073555.17,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48072 Rabatt leie WIFI ruter HFC (pd.SY)",
+  "pd_code": "48072",
+  "member": "pd.SY.48072",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 120,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -1701977.84
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -1701977.84,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48101 BB50 standard (pd.SY)",
+  "pd_code": "48101",
+  "member": "pd.SY.48101",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 121,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 118568287.26999998
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 118568287.26999998,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48102 BB100 standard (pd.SY)",
+  "pd_code": "48102",
+  "member": "pd.SY.48102",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 122,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 61695007.14999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 61695007.14999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48103 BB250 standard (pd.SY)",
+  "pd_code": "48103",
+  "member": "pd.SY.48103",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 123,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 179928683.78999996
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 179928683.78999996,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48104 BB500 standard (pd.SY)",
+  "pd_code": "48104",
+  "member": "pd.SY.48104",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 124,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 33074588.279999994
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 33074588.279999994,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48105 CATV Rabatt BB (pd.SY)",
+  "pd_code": "48105",
+  "member": "pd.SY.48105",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 125,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -82099473.55
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -82099473.55,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48106 BB1000 standard (pd.SY)",
+  "pd_code": "48106",
+  "member": "pd.SY.48106",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 126,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 9946049.27
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 9946049.27,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48199 Alltid på nett HFC (pd.SY)",
+  "pd_code": "48199",
+  "member": "pd.SY.48199",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 127,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -451.20000000000005
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -451.20000000000005,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48201 BB100 UGMI (pd.SY)",
+  "pd_code": "48201",
+  "member": "pd.SY.48201",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 128,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 5215276.359999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 5215276.359999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48202 BB250 UGMI (pd.SY)",
+  "pd_code": "48202",
+  "member": "pd.SY.48202",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 129,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 5139864.86
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 5139864.86,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48900 CATV Internett Other (pd.SY)",
+  "pd_code": "48900",
+  "member": "pd.SY.48900",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 130,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 5860909.62
+   },
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -90682.14999999998
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 5860909.62,
+  "c40s": -90682.14999999998
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45400 Frihet Large BB HFC (pd.SY)",
+  "pd_code": "45400",
+  "member": "pd.SY.45400",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P205 HFC Internett (pd.SY)",
+  "code_row": 132,
+  "row": 131,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 8872233.26
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 8872233.26,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26E50 Consumer CPE (pd.SY)",
+  "pd_code": "26E50",
+  "member": "pd.SY.26E50",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 133,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 9513734.469999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 9513734.469999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26E51 Consumer Installation (pd.SY)",
+  "pd_code": "26E51",
+  "member": "pd.SY.26E51",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 134,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 3241438.19
+   },
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -1080.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 3241438.19,
+  "c40s": -1080.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26E52 Hjemmebredbånd Mobil 5G CPE (pd.SY)",
+  "pd_code": "26E52",
+  "member": "pd.SY.26E52",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 135,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -802095.6399999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -802095.6399999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26E70 FWA tjenester (pd.SY)",
+  "pd_code": "26E70",
+  "member": "pd.SY.26E70",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 136,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 1864836.98
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 1864836.98,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A10 Hjemmebredbånd mobil 30 (pd.SY)",
+  "pd_code": "26A10",
+  "member": "pd.SY.26A10",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 138,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 93354982.41000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 93354982.41000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A20 Hjemmebredbånd mobil 100 (pd.SY)",
+  "pd_code": "26A20",
+  "member": "pd.SY.26A20",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 139,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 167893234.69
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 167893234.69,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A30 Hjemmebredbånd mobil 10 (pd.SY)",
+  "pd_code": "26A30",
+  "member": "pd.SY.26A30",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 140,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 54043764.43000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 54043764.43000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A50 Hjemmebredbånd mobil 60 (pd.SY)",
+  "pd_code": "26A50",
+  "member": "pd.SY.26A50",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 141,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 68308.80000000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 68308.80000000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A60 Hjemmebredbånd Mobil 200 (pd.SY)",
+  "pd_code": "26A60",
+  "member": "pd.SY.26A60",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 142,
+  "amounts": [],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 0.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A61 Hjemmebredbånd Mobil 300 (pd.SY)",
+  "pd_code": "26A61",
+  "member": "pd.SY.26A61",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 143,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 19180.8
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 19180.8,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A62 Hjemmebredbånd Mobil 500 (pd.SY)",
+  "pd_code": "26A62",
+  "member": "pd.SY.26A62",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 144,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 17175979.830000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 17175979.830000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A63 TBB Hytte 10 (pd.SY)",
+  "pd_code": "26A63",
+  "member": "pd.SY.26A63",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 145,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 42750141.81000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 42750141.81000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A64 TBB Hytte 30 (pd.SY)",
+  "pd_code": "26A64",
+  "member": "pd.SY.26A64",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 146,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 24278762.289999995
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 24278762.289999995,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A65 TBB Hytte 60 (pd.SY)",
+  "pd_code": "26A65",
+  "member": "pd.SY.26A65",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 147,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 307714.17
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 307714.17,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A66 TBB Hytte 100 (pd.SY)",
+  "pd_code": "26A66",
+  "member": "pd.SY.26A66",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 148,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 25212381.169999998
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 25212381.169999998,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A70 FWA Ruter (pd.SY)",
+  "pd_code": "26A70",
+  "member": "pd.SY.26A70",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 149,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 24643376.04
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 24643376.04,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A71 FWA Extender (pd.SY)",
+  "pd_code": "26A71",
+  "member": "pd.SY.26A71",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 150,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 3916622.28
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 3916622.28,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A45 Hjemmebredbånd mobil 50 (pd.SY)",
+  "pd_code": "26A45",
+  "member": "pd.SY.26A45",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 151,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 264906648.09
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 264906648.09,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26A55 Hjemmebredbånd mobil 250 (pd.SY)",
+  "pd_code": "26A55",
+  "member": "pd.SY.26A55",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P206 Fixed Mobile Broadband (pd.SY)",
+  "code_row": 154,
+  "row": 152,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 59834357.17000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 59834357.17000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48907 Other establishment FTTH (pd.SY)",
+  "pd_code": "48907",
+  "member": "pd.SY.48907",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 166,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 4007213.88
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 4007213.88,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48905 CATV Internett Other FTTH (pd.SY)",
+  "pd_code": "48905",
+  "member": "pd.SY.48905",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 167,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 4252354.409999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 4252354.409999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48022 Wifi-Bridge FTTH (pd.SY)",
+  "pd_code": "48022",
+  "member": "pd.SY.48022",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 168,
+  "amounts": [],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 0.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48020 Trådløs router FTTH (pd.SY)",
+  "pd_code": "48020",
+  "member": "pd.SY.48020",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 169,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -476.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -476.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "22K00 Fiber montør (pd.SY)",
+  "pd_code": "22K00",
+  "member": "pd.SY.22K00",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 170,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 932077.84
+   },
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -14865.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 932077.84,
+  "c40s": -14865.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "23K00 Fiber modem (pd.SY)",
+  "pd_code": "23K00",
+  "member": "pd.SY.23K00",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 171,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 476.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 476.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26K00 Fiber etablering (pd.SY)",
+  "pd_code": "26K00",
+  "member": "pd.SY.26K00",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 172,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -2156740.19
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -2156740.19,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26K10 Fiber aktivering (pd.SY)",
+  "pd_code": "26K10",
+  "member": "pd.SY.26K10",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 173,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 2614996.87
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 2614996.87,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26G00 Fiber etablering (pd.SY)",
+  "pd_code": "26G00",
+  "member": "pd.SY.26G00",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 174,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 23879.98
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 23879.98,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "22G00 Fiber montør (pd.SY)",
+  "pd_code": "22G00",
+  "member": "pd.SY.22G00",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 175,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 19104.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 19104.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "28C00 Trafikk Online (FFI) (pd.SY)",
+  "pd_code": "28C00",
+  "member": "pd.SY.28C00",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 177,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -134871.5
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -134871.5,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27K60 Bredbånd 1000 FTTH (pd.SY)",
+  "pd_code": "27K60",
+  "member": "pd.SY.27K60",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 179,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 11744916.76
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 11744916.76,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48061 WIFI forsterker leie FTTH (pd.SY)",
+  "pd_code": "48061",
+  "member": "pd.SY.48061",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 180,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 9360944.08
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 9360944.08,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48073 Rabatt leie WIFI ruter FTTH (pd.SY)",
+  "pd_code": "48073",
+  "member": "pd.SY.48073",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 181,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -16958161.15
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -16958161.15,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48116 BB1000 standard FTTH (pd.SY)",
+  "pd_code": "48116",
+  "member": "pd.SY.48116",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 182,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 37403023.07000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 37403023.07000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48214 BB1000 UGMI FTTH (pd.SY)",
+  "pd_code": "48214",
+  "member": "pd.SY.48214",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 183,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 8493.07
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 8493.07,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48414 BB1000 kollektiv (komplett 50) FTTH (pd.SY)",
+  "pd_code": "48414",
+  "member": "pd.SY.48414",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 184,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 984506.6599999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 984506.6599999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48514 BB1000 kollektiv (komplett 250) FTTH (pd.SY)",
+  "pd_code": "48514",
+  "member": "pd.SY.48514",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 185,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 226317.60000000003
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 226317.60000000003,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27K01 Fakturagebyr (pd.SY)",
+  "pd_code": "27K01",
+  "member": "pd.SY.27K01",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 186,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 153190.85000000003
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 153190.85000000003,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48063 WIFI ruter FTTH (pd.SY)",
+  "pd_code": "48063",
+  "member": "pd.SY.48063",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 187,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 76567563.59
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 76567563.59,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48110 BB50 standard FTTH (pd.SY)",
+  "pd_code": "48110",
+  "member": "pd.SY.48110",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 188,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 543834135.2199999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 543834135.2199999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48111 BB100 standard FTTH (pd.SY)",
+  "pd_code": "48111",
+  "member": "pd.SY.48111",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 189,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 159830899.52
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 159830899.52,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48112 BB250 standard FTTH (pd.SY)",
+  "pd_code": "48112",
+  "member": "pd.SY.48112",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 190,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 931263861.69
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 931263861.69,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48114 BB500 standard FTTH (pd.SY)",
+  "pd_code": "48114",
+  "member": "pd.SY.48114",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 191,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 100170977.31
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 100170977.31,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48115 FTTH Rabatt BB (pd.SY)",
+  "pd_code": "48115",
+  "member": "pd.SY.48115",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 192,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -481391520.02000004
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -481391520.02000004,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48210 BB50 UGMI FTTH (pd.SY)",
+  "pd_code": "48210",
+  "member": "pd.SY.48210",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 193,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 1158986.6600000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 1158986.6600000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27K30 BROADBAND 250/250 (pd.SY)",
+  "pd_code": "27K30",
+  "member": "pd.SY.27K30",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 194,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 222167335.98000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 222167335.98000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45170 Komplett 10 FTTH PVR (pd.SY)",
+  "pd_code": "45170",
+  "member": "pd.SY.45170",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 195,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 19270530.299999997
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 19270530.299999997,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45175 FTTH Rabatt Bredband Kollektiv (pd.SY)",
+  "pd_code": "45175",
+  "member": "pd.SY.45175",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 196,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -35696356.660000004
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -35696356.660000004,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45180 Komplett 50 FTTH PVR (pd.SY)",
+  "pd_code": "45180",
+  "member": "pd.SY.45180",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 197,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 74781533.57000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 74781533.57000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45190 FTTH Komplett 250 HD (pd.SY)",
+  "pd_code": "45190",
+  "member": "pd.SY.45190",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 198,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 30555.599999999995
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 30555.599999999995,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45191 FTTH Komplett 250 HD/Pvr (pd.SY)",
+  "pd_code": "45191",
+  "member": "pd.SY.45191",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 199,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 21891769.450000003
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 21891769.450000003,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48211 BB100 UGMI FTTH (pd.SY)",
+  "pd_code": "48211",
+  "member": "pd.SY.48211",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 200,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 230875.85000000003
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 230875.85000000003,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48212 BB250 UGMI FTTH (pd.SY)",
+  "pd_code": "48212",
+  "member": "pd.SY.48212",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 201,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 173839.80000000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 173839.80000000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48213 BB500 UGMI FTTH (pd.SY)",
+  "pd_code": "48213",
+  "member": "pd.SY.48213",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 202,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 30690.399999999994
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 30690.399999999994,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48310 BB50 kollektiv (Komplett 10) FTTH (pd.SY)",
+  "pd_code": "48310",
+  "member": "pd.SY.48310",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 203,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 6475239.390000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 6475239.390000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48311 BB100 kollektiv (komplett 10) FTTH (pd.SY)",
+  "pd_code": "48311",
+  "member": "pd.SY.48311",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 204,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 7194647.17
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 7194647.17,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48312 BB250 kollektiv (komplett 10) FTTH (pd.SY)",
+  "pd_code": "48312",
+  "member": "pd.SY.48312",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 205,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 7830785.74
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 7830785.74,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48313 BB500 kollektiv (komplett 10) FTTH (pd.SY)",
+  "pd_code": "48313",
+  "member": "pd.SY.48313",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 206,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 1676485.3599999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 1676485.3599999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48316 FTTH Rabatt BB MDU (pd.SY)",
+  "pd_code": "48316",
+  "member": "pd.SY.48316",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 207,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -14053.269999999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -14053.269999999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48411 BB100 kollektiv (komplett 50) FTTH (pd.SY)",
+  "pd_code": "48411",
+  "member": "pd.SY.48411",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 208,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 6845273.090000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 6845273.090000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48412 BB250 kollektiv (komplett 50) FTTH (pd.SY)",
+  "pd_code": "48412",
+  "member": "pd.SY.48412",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 209,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 8001385.529999998
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 8001385.529999998,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48413 BB500 kollektiv (komplett 50) FTTH (pd.SY)",
+  "pd_code": "48413",
+  "member": "pd.SY.48413",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 210,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 3176417.91
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 3176417.91,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48510 BB500 kollektiv (komplett 250) FTTH (pd.SY)",
+  "pd_code": "48510",
+  "member": "pd.SY.48510",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 211,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 422764.79
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 422764.79,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27K00 FIBER Felles (pd.SY)",
+  "pd_code": "27K00",
+  "member": "pd.SY.27K00",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 212,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -19976068.38
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -19976068.38,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27K10 BROADBAND 25/25 (pd.SY)",
+  "pd_code": "27K10",
+  "member": "pd.SY.27K10",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 213,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -31.43
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -31.43,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27K15 BROADBAND 50/50 (pd.SY)",
+  "pd_code": "27K15",
+  "member": "pd.SY.27K15",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 214,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 22117097.690000005
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 22117097.690000005,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27K20 BROADBAND 100/100 (pd.SY)",
+  "pd_code": "27K20",
+  "member": "pd.SY.27K20",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 215,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 223833993.88
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 223833993.88,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27K70 Bruddgebyr (pd.SY)",
+  "pd_code": "27K70",
+  "member": "pd.SY.27K70",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 216,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 768498.7400000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 768498.7400000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27K50 Fiber 500/500 (pd.SY)",
+  "pd_code": "27K50",
+  "member": "pd.SY.27K50",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 217,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 35273993.41
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 35273993.41,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27K75 FIBER Lisens (pd.SY)",
+  "pd_code": "27K75",
+  "member": "pd.SY.27K75",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 218,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -1600.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -1600.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45201 Frihet Small BB FTTH (pd.SY)",
+  "pd_code": "45201",
+  "member": "pd.SY.45201",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 219,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 36494538.699999996
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 36494538.699999996,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45301 Frihet Medium BB FTTH (pd.SY)",
+  "pd_code": "45301",
+  "member": "pd.SY.45301",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 220,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 186964334.67000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 186964334.67000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "45401 Frihet Large BB FTTH (pd.SY)",
+  "pd_code": "45401",
+  "member": "pd.SY.45401",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 221,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 33723829.3
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 33723829.3,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27G15 Bredbånd 150 Fiber (pd.SY)",
+  "pd_code": "27G15",
+  "member": "pd.SY.27G15",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 222,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 412326.4
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 412326.4,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27G30 Bredbånd 500 Fiber (pd.SY)",
+  "pd_code": "27G30",
+  "member": "pd.SY.27G30",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 223,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 569731.11
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 569731.11,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27G60 Bredbånd 1000 Fiber (pd.SY)",
+  "pd_code": "27G60",
+  "member": "pd.SY.27G60",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 224,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 72598.81
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 72598.81,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27M10 Talkmore Fiber Broadband (pd.SY)",
+  "pd_code": "27M10",
+  "member": "pd.SY.27M10",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 225,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 15076219.91
+   },
+   {
+    "entity": "3TAL_C",
+    "account": "C30",
+    "value": 15076219.91
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 30152439.82,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "27G50 Bredbånd 750 Fiber (pd.SY)",
+  "pd_code": "27G50",
+  "member": "pd.SY.27G50",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 226,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 1815.63
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 1815.63,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26G70 Fiber Ruter (pd.SY)",
+  "pd_code": "26G70",
+  "member": "pd.SY.26G70",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 227,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 14751.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 14751.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "26G71 Fiber Extender (pd.SY)",
+  "pd_code": "26G71",
+  "member": "pd.SY.26G71",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P201 Fiber (pd.SY)",
+  "code_row": 230,
+  "row": 228,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 10546.74
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 10546.74,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33172 FTTH Pluss kollektiv m/HD-PVR (pd.SY)",
+  "pd_code": "33172",
+  "member": "pd.SY.33172",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 232,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 123080.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 123080.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33180 FTTH Komplett 250 HD (pd.SY)",
+  "pd_code": "33180",
+  "member": "pd.SY.33180",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 233,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 6913190.71
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 6913190.71,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "34001 CATV card fee FTTH (pd.SY)",
+  "pd_code": "34001",
+  "member": "pd.SY.34001",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 234,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 12988873.670000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 12988873.670000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "36110 CATV Select FTTH (pd.SY)",
+  "pd_code": "36110",
+  "member": "pd.SY.36110",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 235,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 989179.3999999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 989179.3999999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "36114 CATV V5 FTTH (pd.SY)",
+  "pd_code": "36114",
+  "member": "pd.SY.36114",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 236,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 1347233.22
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 1347233.22,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "36118 NENT Premier Leauge FTTH (pd.SY)",
+  "pd_code": "36118",
+  "member": "pd.SY.36118",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 237,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 22299813.869999997
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 22299813.869999997,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "36119 TV2 Sport Total FTTH (pd.SY)",
+  "pd_code": "36119",
+  "member": "pd.SY.36119",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 238,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 7926835.090000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 7926835.090000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38020 CATV HDTV box FTTH (pd.SY)",
+  "pd_code": "38020",
+  "member": "pd.SY.38020",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 239,
+  "amounts": [],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 0.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38021 CATV HD/PVR box establish FTTH (pd.SY)",
+  "pd_code": "38021",
+  "member": "pd.SY.38021",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 240,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 5184.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 5184.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38061 T-We Boks II uten opptaker FTTH (pd.SY)",
+  "pd_code": "38061",
+  "member": "pd.SY.38061",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 241,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 16158655.490000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 16158655.490000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38063 T-We boks II dekoderleie FTTH (pd.SY)",
+  "pd_code": "38063",
+  "member": "pd.SY.38063",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 242,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 146191649.85000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 146191649.85000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38071 Rabatt dekoderleie med HDD FTTH (pd.SY)",
+  "pd_code": "38071",
+  "member": "pd.SY.38071",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 243,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -41627729.87
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -41627729.87,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "39001 CATV Pay TV Other FTTH (pd.SY)",
+  "pd_code": "39001",
+  "member": "pd.SY.39001",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 244,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 5809246.329999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 5809246.329999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40022 FTTH Program Kollektiv (pd.SY)",
+  "pd_code": "40022",
+  "member": "pd.SY.40022",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 245,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 252536787.07000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 252536787.07000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40023 FTTH Program Individuell (pd.SY)",
+  "pd_code": "40023",
+  "member": "pd.SY.40023",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 246,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 562563828.8900001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 562563828.8900001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40060 Ekstrapakke TV FTTH (pd.SY)",
+  "pd_code": "40060",
+  "member": "pd.SY.40060",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 247,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 92673124.98
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 92673124.98,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41022 FTTH Service Kollektiv (pd.SY)",
+  "pd_code": "41022",
+  "member": "pd.SY.41022",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 248,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 73076945.69
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 73076945.69,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41023 FTTH Service Individuell (pd.SY)",
+  "pd_code": "41023",
+  "member": "pd.SY.41023",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 249,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 421229860.62999994
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 421229860.62999994,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41025 FTTH Rabatt Service Kollektiv (pd.SY)",
+  "pd_code": "41025",
+  "member": "pd.SY.41025",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 250,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -81424826.46000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -81424826.46000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41026 FTTH Rabatt Service Individuell (pd.SY)",
+  "pd_code": "41026",
+  "member": "pd.SY.41026",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 251,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -148361554.04
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -148361554.04,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41032 Frihet Medium FTTH (pd.SY)",
+  "pd_code": "41032",
+  "member": "pd.SY.41032",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 252,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 187143362.68
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 187143362.68,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41033 Frihet Large FTTH (pd.SY)",
+  "pd_code": "41033",
+  "member": "pd.SY.41033",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 253,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 22449690.87
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 22449690.87,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41901 Other FTTH (pd.SY)",
+  "pd_code": "41901",
+  "member": "pd.SY.41901",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 254,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 728866.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 728866.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "42010 FTTH Utbyggingsprosjekt (pd.SY)",
+  "pd_code": "42010",
+  "member": "pd.SY.42010",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 255,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 808968.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 808968.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "43010 FTTH Fortettning (pd.SY)",
+  "pd_code": "43010",
+  "member": "pd.SY.43010",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 256,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 4296559.6899999995
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 4296559.6899999995,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "90110 Filmleie FTTH (pd.SY)",
+  "pd_code": "90110",
+  "member": "pd.SY.90110",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 257,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 3447358.4
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 3447358.4,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "90112 T-We Plus Standalone FTTH (pd.SY)",
+  "pd_code": "90112",
+  "member": "pd.SY.90112",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 258,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 94796.73
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 94796.73,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "32013 CATV C+ film FTTH (pd.SY)",
+  "pd_code": "32013",
+  "member": "pd.SY.32013",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 259,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 1888512.1499999997
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 1888512.1499999997,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33051 Netflix FTTH (pd.SY)",
+  "pd_code": "33051",
+  "member": "pd.SY.33051",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 260,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 602149.2200000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 602149.2200000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33156 FTTH MINI Komplett (pd.SY)",
+  "pd_code": "33156",
+  "member": "pd.SY.33156",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 261,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 129213.12
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 129213.12,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33157 FTTH Maxi Komplett (pd.SY)",
+  "pd_code": "33157",
+  "member": "pd.SY.33157",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 262,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 35249.659999999996
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 35249.659999999996,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33158 FTTH MINI Komplett m/HD-PVR (pd.SY)",
+  "pd_code": "33158",
+  "member": "pd.SY.33158",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 263,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 21482500.03
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 21482500.03,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33159 FTTH Maxi Komplett m HDPVR (pd.SY)",
+  "pd_code": "33159",
+  "member": "pd.SY.33159",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 264,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 23556780.49
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 23556780.49,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33171 FTTH Pluss kollektiv PVR eller HD (pd.SY)",
+  "pd_code": "33171",
+  "member": "pd.SY.33171",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P250 Fiber TV (pd.SY)",
+  "code_row": 266,
+  "row": 265,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 2080.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 2080.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "42000 Utbyggingsprosjekt (pd.SY)",
+  "pd_code": "42000",
+  "member": "pd.SY.42000",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 267,
+  "amounts": [],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 0.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "90102 T-We Plus Standalone (pd.SY)",
+  "pd_code": "90102",
+  "member": "pd.SY.90102",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 268,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 221192.37
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 221192.37,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "90301 Wimp Premium (pd.SY)",
+  "pd_code": "90301",
+  "member": "pd.SY.90301",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 269,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -117.6
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -117.6,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "55103 SMATV B TV2 Barclays Premier League HD (pd.SY)",
+  "pd_code": "55103",
+  "member": "pd.SY.55103",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 270,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 58702.6
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 58702.6,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "55104 SMATV B V5 (pd.SY)",
+  "pd_code": "55104",
+  "member": "pd.SY.55104",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 271,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 14871.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 14871.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "55107 Viasat B2B (pd.SY)",
+  "pd_code": "55107",
+  "member": "pd.SY.55107",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 272,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 434806.16
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 434806.16,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "56201 SMATV B Maintainance customer (pd.SY)",
+  "pd_code": "56201",
+  "member": "pd.SY.56201",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 273,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 1699053.8499999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 1699053.8499999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "56301 SMATV B Årsavgift (pd.SY)",
+  "pd_code": "56301",
+  "member": "pd.SY.56301",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 274,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 1446318.2700000003
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 1446318.2700000003,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "56900 SMATV B Other (pd.SY)",
+  "pd_code": "56900",
+  "member": "pd.SY.56900",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 275,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 12691.4
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 12691.4,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "32010 CATV C+ film (pd.SY)",
+  "pd_code": "32010",
+  "member": "pd.SY.32010",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 276,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 1926116.07
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 1926116.07,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "32011 CATV Canal+ Sport (pd.SY)",
+  "pd_code": "32011",
+  "member": "pd.SY.32011",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 277,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -925.6999999999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -925.6999999999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "32012 C More Film Kampanje (pd.SY)",
+  "pd_code": "32012",
+  "member": "pd.SY.32012",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 278,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -2495496.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 0.0,
+  "c40s": -2495496.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33004 Viasat Film (pd.SY)",
+  "pd_code": "33004",
+  "member": "pd.SY.33004",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 279,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -111.2
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -111.2,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33151 CATV Midi komplett (pd.SY)",
+  "pd_code": "33151",
+  "member": "pd.SY.33151",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 280,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 202213.82
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 202213.82,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33154 CATV MINI komplett HD-PVR (pd.SY)",
+  "pd_code": "33154",
+  "member": "pd.SY.33154",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 281,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 24249806.2
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 24249806.2,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33155 CATV MAXI komplett HD-PVR (pd.SY)",
+  "pd_code": "33155",
+  "member": "pd.SY.33155",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 282,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 18423778.8
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 18423778.8,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33161 CATV Pluss kollektiv PVR el HD (pd.SY)",
+  "pd_code": "33161",
+  "member": "pd.SY.33161",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 283,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 3833132.23
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 3833132.23,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "36104 CATV V5 (pd.SY)",
+  "pd_code": "36104",
+  "member": "pd.SY.36104",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 284,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 673836.2999999999
+   },
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -1207854.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 673836.2999999999,
+  "c40s": -1207854.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33005 Viasat Sport (pd.SY)",
+  "pd_code": "33005",
+  "member": "pd.SY.33005",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 285,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -616.1
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -616.1,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33050 Netflix HFC (pd.SY)",
+  "pd_code": "33050",
+  "member": "pd.SY.33050",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 286,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 401432.82
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 401432.82,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33140 Komplett 250 HD (pd.SY)",
+  "pd_code": "33140",
+  "member": "pd.SY.33140",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 287,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 18381.36
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 18381.36,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33141 Komplett 250 HD/Pvr (pd.SY)",
+  "pd_code": "33141",
+  "member": "pd.SY.33141",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 288,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 3709551.02
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 3709551.02,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "33150 Mini komplett Digital-TV (pd.SY)",
+  "pd_code": "33150",
+  "member": "pd.SY.33150",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 289,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 796248.94
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 796248.94,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "36108 NENT Premier Leauge HFC (pd.SY)",
+  "pd_code": "36108",
+  "member": "pd.SY.36108",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 290,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 10329045.559999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 10329045.559999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "36109 TV2 Sport Total (pd.SY)",
+  "pd_code": "36109",
+  "member": "pd.SY.36109",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 291,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 5943773.12
+   },
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -83005904.63
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 5943773.12,
+  "c40s": -83005904.63
+ },
+ {
+  "division": "2CON",
+  "pd_label": "39040 CATV CAM other (pd.SY)",
+  "pd_code": "39040",
+  "member": "pd.SY.39040",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 292,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 86790.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 86790.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40002 CATV Program Kollektiv (pd.SY)",
+  "pd_code": "40002",
+  "member": "pd.SY.40002",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 293,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 266014388.47999996
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 266014388.47999996,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40003 CATV Program Individuell (pd.SY)",
+  "pd_code": "40003",
+  "member": "pd.SY.40003",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 294,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 137838548.36
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 137838548.36,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40004 CATV Program Operatør (pd.SY)",
+  "pd_code": "40004",
+  "member": "pd.SY.40004",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 295,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 17569064.930000003
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 17569064.930000003,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40005 CATV Program Business (pd.SY)",
+  "pd_code": "40005",
+  "member": "pd.SY.40005",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 296,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 33879562.03
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 33879562.03,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40009 CATV Program Other (pd.SY)",
+  "pd_code": "40009",
+  "member": "pd.SY.40009",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 297,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -6725761.690000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 0.0,
+  "c40s": -6725761.690000002
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40010 Fast Grunnpakke (pd.SY)",
+  "pd_code": "40010",
+  "member": "pd.SY.40010",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 298,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -907487763.99
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 0.0,
+  "c40s": -907487763.99
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40032 Frihet Medium HFC (pd.SY)",
+  "pd_code": "40032",
+  "member": "pd.SY.40032",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 299,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 88238855.42999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 88238855.42999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40033 Frihet Large HFC (pd.SY)",
+  "pd_code": "40033",
+  "member": "pd.SY.40033",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 300,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 5926807.319999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 5926807.319999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40050 Ekstrapakke TV HFC (pd.SY)",
+  "pd_code": "40050",
+  "member": "pd.SY.40050",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 301,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 41864978.57
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 41864978.57,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41002 CATV Service Kollektiv (pd.SY)",
+  "pd_code": "41002",
+  "member": "pd.SY.41002",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 302,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 81227021.32000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 81227021.32000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38018 CATV HD/PVR box establish (pd.SY)",
+  "pd_code": "38018",
+  "member": "pd.SY.38018",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 303,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 5592.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 5592.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38060 T-We Boks II uten opptaker HFC (pd.SY)",
+  "pd_code": "38060",
+  "member": "pd.SY.38060",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 304,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 6817933.579999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 6817933.579999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38062 T-We boks II dekoderleie HFC (pd.SY)",
+  "pd_code": "38062",
+  "member": "pd.SY.38062",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 305,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 23960318.29
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 23960318.29,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38070 Rabatt dekoderleie med HDD HFC (pd.SY)",
+  "pd_code": "38070",
+  "member": "pd.SY.38070",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 306,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -4728521.22
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -4728521.22,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38201 CATV Maintain customer (pd.SY)",
+  "pd_code": "38201",
+  "member": "pd.SY.38201",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 307,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 2158.3999999999996
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 2158.3999999999996,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41003 CATV Service Individuell (pd.SY)",
+  "pd_code": "41003",
+  "member": "pd.SY.41003",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 308,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 110241355.87
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 110241355.87,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41004 CATV Service Operatør (pd.SY)",
+  "pd_code": "41004",
+  "member": "pd.SY.41004",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 309,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 644871.81
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 644871.81,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41005 CATV Rabatt Service Kollektiv (pd.SY)",
+  "pd_code": "41005",
+  "member": "pd.SY.41005",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 310,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -52936223.32000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -52936223.32000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41006 CATV Rabatt Service Individuell (pd.SY)",
+  "pd_code": "41006",
+  "member": "pd.SY.41006",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 311,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -22179446.169999998
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -22179446.169999998,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "55000 SMATV B Program (pd.SY)",
+  "pd_code": "55000",
+  "member": "pd.SY.55000",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 312,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 308292.4
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 308292.4,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "55048 SMATV B C+ Film (pd.SY)",
+  "pd_code": "55048",
+  "member": "pd.SY.55048",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 313,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 13200.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 13200.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "32000 CATV Canal + (pd.SY)",
+  "pd_code": "32000",
+  "member": "pd.SY.32000",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 314,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 5702.399999999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 5702.399999999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "34000 CATV card fee (pd.SY)",
+  "pd_code": "34000",
+  "member": "pd.SY.34000",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 315,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 21063370.990000002
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 21063370.990000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "39000 CATV Pay TV Other (pd.SY)",
+  "pd_code": "39000",
+  "member": "pd.SY.39000",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 316,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 4165975.9999999995
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 4165975.9999999995,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "36100 CATV Select (pd.SY)",
+  "pd_code": "36100",
+  "member": "pd.SY.36100",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 317,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 721767.5199999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 721767.5199999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "43000 Fortettning (pd.SY)",
+  "pd_code": "43000",
+  "member": "pd.SY.43000",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 318,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 326510.4
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 326510.4,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41900 Other (pd.SY)",
+  "pd_code": "41900",
+  "member": "pd.SY.41900",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 319,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 5293156.74
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 5293156.74,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "90100 Filmleie (pd.SY)",
+  "pd_code": "90100",
+  "member": "pd.SY.90100",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 320,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 1308819.1999999997
+   },
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -49230600.64000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 1308819.1999999997,
+  "c40s": -49230600.64000001
+ },
+ {
+  "division": "2CON",
+  "pd_label": "41000 Service (pd.SY)",
+  "pd_code": "41000",
+  "member": "pd.SY.41000",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P252 HFC TV (pd.SY)",
+  "code_row": 322,
+  "row": 321,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 6520.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 6520.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "51301 SMATV D Årsafgift (pd.SY)",
+  "pd_code": "51301",
+  "member": "pd.SY.51301",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P253 SMATV (pd.SY)",
+  "code_row": 327,
+  "row": 323,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 12116.720000000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 12116.720000000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "52900 SMATV Grunnpakke (pd.SY)",
+  "pd_code": "52900",
+  "member": "pd.SY.52900",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P253 SMATV (pd.SY)",
+  "code_row": 327,
+  "row": 324,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -82878709.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -82878709.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "53900 SMATV A Other (pd.SY)",
+  "pd_code": "53900",
+  "member": "pd.SY.53900",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P253 SMATV (pd.SY)",
+  "code_row": 327,
+  "row": 325,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 867.6
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 867.6,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "53001 SMATV A Establish customer (pd.SY)",
+  "pd_code": "53001",
+  "member": "pd.SY.53001",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P253 SMATV (pd.SY)",
+  "code_row": 327,
+  "row": 326,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 960.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 960.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40044 TBB Kampanjerabatt TV (pd.SY)",
+  "pd_code": "40044",
+  "member": "pd.SY.40044",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P254 Fixed Mobile Broadband TV (pd.SY)",
+  "code_row": 334,
+  "row": 328,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -19897854.76
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -19897854.76,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "48317 TBB Rabatt BB (pd.SY)",
+  "pd_code": "48317",
+  "member": "pd.SY.48317",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P254 Fixed Mobile Broadband TV (pd.SY)",
+  "code_row": 334,
+  "row": 329,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 596546.9099999999
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 596546.9099999999,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38074 Rabatter T-We- boks TBB (pd.SY)",
+  "pd_code": "38074",
+  "member": "pd.SY.38074",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P254 Fixed Mobile Broadband TV (pd.SY)",
+  "code_row": 334,
+  "row": 330,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": -1597981.9499999997
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": -1597981.9499999997,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "38064 T-We Boks II uten opptaker TBB (pd.SY)",
+  "pd_code": "38064",
+  "member": "pd.SY.38064",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P254 Fixed Mobile Broadband TV (pd.SY)",
+  "code_row": 334,
+  "row": 331,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 10184320.409999998
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 10184320.409999998,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40070 Ekstrapakke TV TBB (pd.SY)",
+  "pd_code": "40070",
+  "member": "pd.SY.40070",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P254 Fixed Mobile Broadband TV (pd.SY)",
+  "code_row": 334,
+  "row": 332,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 3360929.1300000004
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 3360929.1300000004,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "40043 TBB Program Individuell (pd.SY)",
+  "pd_code": "40043",
+  "member": "pd.SY.40043",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P254 Fixed Mobile Broadband TV (pd.SY)",
+  "code_row": 334,
+  "row": 333,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 63929659.39
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 63929659.39,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "ST100 Streamix abonnements tjenester (pd.SY)",
+  "pd_code": "ST100",
+  "member": "pd.SY.ST100",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P255 Streamix (pd.SY)",
+  "code_row": 338,
+  "row": 335,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 66785.29000000001
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 66785.29000000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "ST500 Streamix oppkjøpsprodukter med MVA (pd.SY)",
+  "pd_code": "ST500",
+  "member": "pd.SY.ST500",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P255 Streamix (pd.SY)",
+  "code_row": 338,
+  "row": 336,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C30",
+    "value": 620493.75
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 620493.75,
+  "c40s": 0.0
+ },
+ {
+  "division": "2CON",
+  "pd_label": "ST999 Streamix COGS (pd.SY)",
+  "pd_code": "ST999",
+  "member": "pd.SY.ST999",
+  "prodreg_code": "skal ha egen fordeling etter årslutt",
+  "assigned_from": "ancestor:P255 Streamix (pd.SY)",
+  "code_row": 338,
+  "row": 337,
+  "amounts": [
+   {
+    "entity": "2CON",
+    "account": "C40S",
+    "value": -1181928.0
+   }
+  ],
+  "source_file": "Consumer\\2025_Inntekt-VK_Consumer_2026_04_21.xlsx",
+  "sheet": "Consumer 2025 hele år",
+  "c30": 0.0,
+  "c40s": -1181928.0
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "33953 Meraki Svitsj (pd.SY)",
+  "pd_code": "33953",
+  "member": "pd.SY.33953",
+  "prodreg_code": "C2B-SDLAN",
+  "assigned_from": "ancestor:P211 Meraki aaS (pd.SY)",
+  "code_row": 309,
+  "row": 303,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C40S",
+    "value": -103.49
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 0.0,
+  "c40s": -103.49
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "33954 Meraki aaS - subscriptions (MRC) (pd.SY)",
+  "pd_code": "33954",
+  "member": "pd.SY.33954",
+  "prodreg_code": "C2B-SDLAN",
+  "assigned_from": "ancestor:P211 Meraki aaS (pd.SY)",
+  "code_row": 309,
+  "row": 304,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C30",
+    "value": 13046739.239999998
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 13046739.239999998,
+  "c40s": 0.0
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "66045 Operations agreements Meraki aaS (pd.SY)",
+  "pd_code": "66045",
+  "member": "pd.SY.66045",
+  "prodreg_code": "C2B-SDLAN",
+  "assigned_from": "ancestor:P211 Meraki aaS (pd.SY)",
+  "code_row": 309,
+  "row": 305,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C40S",
+    "value": -2627523.59
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 0.0,
+  "c40s": -2627523.59
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "66046 Meraki aaS - establishment and  one-time charges (OTC) (pd.SY)",
+  "pd_code": "66046",
+  "member": "pd.SY.66046",
+  "prodreg_code": "C2B-SDLAN",
+  "assigned_from": "ancestor:P211 Meraki aaS (pd.SY)",
+  "code_row": 309,
+  "row": 306,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C30",
+    "value": 60003.48
+   },
+   {
+    "entity": "2BUS",
+    "account": "C40S",
+    "value": -18105.71
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 60003.48,
+  "c40s": -18105.71
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "66041 Drift Basis - subscriptions (MRC) (pd.SY)",
+  "pd_code": "66041",
+  "member": "pd.SY.66041",
+  "prodreg_code": "C2B-SDLAN",
+  "assigned_from": "ancestor:P211 Meraki aaS (pd.SY)",
+  "code_row": 309,
+  "row": 307,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C30",
+    "value": 3614505.6600000006
+   },
+   {
+    "entity": "2BUS",
+    "account": "C40S",
+    "value": 252980.0
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 3614505.6600000006,
+  "c40s": 252980.0
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "66071 Drift Basis - establishment and one-time charges (OTC) (pd.SY)",
+  "pd_code": "66071",
+  "member": "pd.SY.66071",
+  "prodreg_code": "C2B-SDLAN",
+  "assigned_from": "ancestor:P211 Meraki aaS (pd.SY)",
+  "code_row": 309,
+  "row": 308,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C30",
+    "value": 46376.84
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 46376.84,
+  "c40s": 0.0
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "66063 SD-LAN_SE asS - establishment and  one-time charges (OTC) (pd.SY)",
+  "pd_code": "66063",
+  "member": "pd.SY.66063",
+  "prodreg_code": "C2B-SDLAN",
+  "assigned_from": "ancestor:P212 SDLan_Aruba_SE (pd.SY)",
+  "code_row": 312,
+  "row": 310,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C30",
+    "value": 178056.5
+   },
+   {
+    "entity": "2BUS",
+    "account": "C40S",
+    "value": -308166.84
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 178056.5,
+  "c40s": -308166.84
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "66064 SD-LAN_SE  aaS - subscriptions (MRC) (pd.SY)",
+  "pd_code": "66064",
+  "member": "pd.SY.66064",
+  "prodreg_code": "C2B-SDLAN",
+  "assigned_from": "ancestor:P212 SDLan_Aruba_SE (pd.SY)",
+  "code_row": 312,
+  "row": 311,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C30",
+    "value": 14403993.79
+   },
+   {
+    "entity": "2BUS",
+    "account": "C40S",
+    "value": -4800000.0
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 14403993.79,
+  "c40s": -4800000.0
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "66062 SD-WAN_SE - aaS subscriptions (MRC) (pd.SY)",
+  "pd_code": "66062",
+  "member": "pd.SY.66062",
+  "prodreg_code": "C2B-SDWAN",
+  "assigned_from": "ancestor:P213 SDWan Fortinet _SE (pd.SY)",
+  "code_row": 314,
+  "row": 313,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C30",
+    "value": 875052.0
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 875052.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "66047 SD-WAN aaS - subscriptions (MRC) (pd.SY)",
+  "pd_code": "66047",
+  "member": "pd.SY.66047",
+  "prodreg_code": "C2B-SDWAN",
+  "assigned_from": "ancestor:P214 SD WAN som tjeneste (pd.SY)",
+  "code_row": 317,
+  "row": 315,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C30",
+    "value": 5087133.84
+   },
+   {
+    "entity": "2BUS",
+    "account": "C40S",
+    "value": -1510419.06
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 5087133.84,
+  "c40s": -1510419.06
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "66016 SD-WAN aaS - establishment and  one-time charges (OTC) (pd.SY)",
+  "pd_code": "66016",
+  "member": "pd.SY.66016",
+  "prodreg_code": "C2B-SDWAN",
+  "assigned_from": "ancestor:P214 SD WAN som tjeneste (pd.SY)",
+  "code_row": 317,
+  "row": 316,
+  "amounts": [
+   {
+    "entity": "2BUS",
+    "account": "C40S",
+    "value": -3359505.7199999997
+   }
+  ],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 0.0,
+  "c40s": -3359505.7199999997
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "J5100 Digital+, korte ordin re samband 64 kbit/s (pd.SY)",
+  "pd_code": "J5100",
+  "member": "pd.SY.J5100",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 340,
+  "amounts": [],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 2.3283064365386963e-10,
+  "c40s": 0.0
+ },
+ {
+  "division": "2BUS",
+  "pd_label": "U7330 Messaging MMS IC SP (pd.SY)",
+  "pd_code": "U7330",
+  "member": "pd.SY.U7330",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 468,
+  "amounts": [],
+  "source_file": "Business\\2025_02_11 Inntekt_VK_Business_v1.xlsx",
+  "sheet": "Business 2025",
+  "c30": 0.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "DP03 Norgespris (pd.SY)",
+  "pd_code": "DP03",
+  "member": "pd.SY.DP03",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 4,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C40S",
+    "value": -2508260.36
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 0.0,
+  "c40s": -2508260.36
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "DP06 Utland (pd.SY)",
+  "pd_code": "DP06",
+  "member": "pd.SY.DP06",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 5,
+  "amounts": [
+   {
+    "entity": "3KYS_C",
+    "account": "C30",
+    "value": -51790.97
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": -51790.97,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "P41 MANAGED VOICE (pd.SY)",
+  "pd_code": "P41",
+  "member": "pd.SY.P41",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 20,
+  "amounts": [],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 0.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "P56 COLOCATION (pd.SY)",
+  "pd_code": "P56",
+  "member": "pd.SY.P56",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 38,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 33753359.71
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 33753359.71,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "Q8E00 ADSL 3616/512 abm. (pd.SY)",
+  "pd_code": "Q8E00",
+  "member": "pd.SY.Q8E00",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 58,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 980865.6800000002
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 980865.6800000002,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "Q8G00 ADSL 4864/640 abm. (pd.SY)",
+  "pd_code": "Q8G00",
+  "member": "pd.SY.Q8G00",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 59,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 666.0
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 666.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "Q8K00 ADSL 7232/704 abm. (pd.SY)",
+  "pd_code": "Q8K00",
+  "member": "pd.SY.Q8K00",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 60,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 2704169.58
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 2704169.58,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "SLA93 SLA DSL (pd.SY)",
+  "pd_code": "SLA93",
+  "member": "pd.SY.SLA93",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 62,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": -11114.0
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": -11114.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "Q8U00 ADSL - FT-element - OMS/deFakto (pd.SY)",
+  "pd_code": "Q8U00",
+  "member": "pd.SY.Q8U00",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 63,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 469738.7
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 469738.7,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "J0800 VDSL - FT-element - OMS/deFakto (pd.SY)",
+  "pd_code": "J0800",
+  "member": "pd.SY.J0800",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 66,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 274261.78
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 274261.78,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "J0400 VDSL 20000/1000 abm (pd.SY)",
+  "pd_code": "J0400",
+  "member": "pd.SY.J0400",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 68,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 541900.51
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 541900.51,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "J0300 VDSL 40000/10048 abm (pd.SY)",
+  "pd_code": "J0300",
+  "member": "pd.SY.J0300",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 69,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 898523.1100000001
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 898523.1100000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "J0200 VDSL 30016/10048 abm (pd.SY)",
+  "pd_code": "J0200",
+  "member": "pd.SY.J0200",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 70,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 1201994.81
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 1201994.81,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "J0100 VDSL 25024/5056 abm (pd.SY)",
+  "pd_code": "J0100",
+  "member": "pd.SY.J0100",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 72,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 11877.51
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 11877.51,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "H0900 SHDSL 2304/2304 kbps (pd.SY)",
+  "pd_code": "H0900",
+  "member": "pd.SY.H0900",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 75,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 78210.89
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 78210.89,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "H0800 SHDSL 1216/1216 kbps (pd.SY)",
+  "pd_code": "H0800",
+  "member": "pd.SY.H0800",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 76,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 17141.53
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 17141.53,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "H0700 SHDSL 640/640 kbps (pd.SY)",
+  "pd_code": "H0700",
+  "member": "pd.SY.H0700",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 77,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 2583.0
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 2583.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "H6000 SHDSL 4608/4608 kbps (pd.SY)",
+  "pd_code": "H6000",
+  "member": "pd.SY.H6000",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 79,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 104235.26000000001
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 104235.26000000001,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "H5000 SHDSL 9216/9216 kbps (pd.SY)",
+  "pd_code": "H5000",
+  "member": "pd.SY.H5000",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 81,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 206160.99
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 206160.99,
+  "c40s": 0.0
+ },
+ {
+  "division": "3WHS",
+  "pd_label": "P51 OPERATØRAKSESS (pd.SY)",
+  "pd_code": "P51",
+  "member": "pd.SY.P51",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 86,
+  "amounts": [
+   {
+    "entity": "3WHS_C",
+    "account": "C30",
+    "value": 4578068.32
+   }
+  ],
+  "source_file": "Wholesale\\2025_02_11 Inntekt_VK_WHS_v2.xlsb",
+  "sheet": "Wholesale 2025",
+  "c30": 4578068.32,
+  "c40s": 0.0
+ },
+ {
+  "division": "2IT",
+  "pd_label": "DL000 Intern drift og utbygging (pd.SY)",
+  "pd_code": "DL000",
+  "member": "pd.SY.DL000",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 9,
+  "amounts": [],
+  "source_file": "IT\\2025_02_11  Inntekt VK_IT.xlsx",
+  "sheet": "SY IT 2025",
+  "c30": 0.0,
+  "c40s": 0.0
+ },
+ {
+  "division": "2IG",
+  "pd_label": "Q4200 Fysisk drift (pd.SY)",
+  "pd_code": "Q4200",
+  "member": "pd.SY.Q4200",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 13,
+  "amounts": [],
+  "source_file": "IG\\2025_02_11  Inntekt VK_2IG_v1.xlsx",
+  "sheet": "IG 2025_inntekter",
+  "c30": 0.0,
+  "c40s": null
+ },
+ {
+  "division": "2IG",
+  "pd_label": "48015 Trådløs router (pd.SY)",
+  "pd_code": "48015",
+  "member": "pd.SY.48015",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 5,
+  "amounts": [],
+  "source_file": "IG\\2025_02_11  Inntekt VK_2IG_v1.xlsx",
+  "sheet": "IG 2025_ varekost",
+  "c30": null,
+  "c40s": -0.03
+ },
+ {
+  "division": "2IG",
+  "pd_label": "26E50 Consumer CPE (pd.SY)",
+  "pd_code": "26E50",
+  "member": "pd.SY.26E50",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 7,
+  "amounts": [
+   {
+    "entity": "2IG",
+    "account": "C40S",
+    "value": -23252217.89
+   }
+  ],
+  "source_file": "IG\\2025_02_11  Inntekt VK_2IG_v1.xlsx",
+  "sheet": "IG 2025_ varekost",
+  "c30": null,
+  "c40s": -23252217.89
+ },
+ {
+  "division": "2IG",
+  "pd_label": "26E51 Consumer Installation (pd.SY)",
+  "pd_code": "26E51",
+  "member": "pd.SY.26E51",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 8,
+  "amounts": [
+   {
+    "entity": "2IG",
+    "account": "C40S",
+    "value": -5954751.0600000005
+   }
+  ],
+  "source_file": "IG\\2025_02_11  Inntekt VK_2IG_v1.xlsx",
+  "sheet": "IG 2025_ varekost",
+  "c30": null,
+  "c40s": -5954751.0600000005
+ },
+ {
+  "division": "2IG",
+  "pd_label": "33851 Internkabling (pd.SY)",
+  "pd_code": "33851",
+  "member": "pd.SY.33851",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 11,
+  "amounts": [
+   {
+    "entity": "2IG",
+    "account": "C40S",
+    "value": 39357.04999999993
+   }
+  ],
+  "source_file": "IG\\2025_02_11  Inntekt VK_2IG_v1.xlsx",
+  "sheet": "IG 2025_ varekost",
+  "c30": null,
+  "c40s": 39357.04999999993
+ },
+ {
+  "division": "2IG",
+  "pd_label": "22K00 Fiber montør (pd.SY)",
+  "pd_code": "22K00",
+  "member": "pd.SY.22K00",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 12,
+  "amounts": [
+   {
+    "entity": "2IG",
+    "account": "C40S",
+    "value": -66831881.730000004
+   }
+  ],
+  "source_file": "IG\\2025_02_11  Inntekt VK_2IG_v1.xlsx",
+  "sheet": "IG 2025_ varekost",
+  "c30": null,
+  "c40s": -66831881.730000004
+ },
+ {
+  "division": "2IG",
+  "pd_label": "DL000 Intern drift og utbygging (pd.SY)",
+  "pd_code": "DL000",
+  "member": "pd.SY.DL000",
+  "prodreg_code": null,
+  "assigned_from": null,
+  "code_row": null,
+  "row": 33,
+  "amounts": [
+   {
+    "entity": "2IG",
+    "account": "C40S",
+    "value": -16400782.51
+   }
+  ],
+  "source_file": "IG\\2025_02_11  Inntekt VK_2IG_v1.xlsx",
+  "sheet": "IG 2025_ varekost",
+  "c30": null,
+  "c40s": -16400782.51,
+  "note": "FTTB?"
+ }
+]

@@ -1,0 +1,34 @@
+<# Publish the committed HEAD as a release: <Folder>\<version>\ + latest.json (+ atlas snapshot), tag v<version>. #>
+param([Parameter(Mandatory)][string]$Folder, [switch]$WithAtlas)
+$ErrorActionPreference = 'Stop'
+$Folder = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Folder)   # .NET calls need it absolute
+$repo = Split-Path $PSScriptRoot -Parent
+if (git -C $repo status --porcelain) { throw 'working tree not clean - commit first' }
+$ver = (Select-String -Path "$repo\engine\pyproject.toml" -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+Push-Location "$repo\engine"
+try { $engineVer = (uv run python -c "import smartview_mcp;print(smartview_mcp.__version__)" | Select-Object -Last 1) }
+finally { Pop-Location }
+if ($LASTEXITCODE -ne 0) { throw "could not read the engine version (uv run failed: $LASTEXITCODE)" }
+if ("$engineVer".Trim() -ne $ver) { throw "pyproject.toml says $ver but the engine reports '$engineVer' - run uv sync in engine" }
+$dest = Join-Path $Folder $ver
+if (Test-Path $dest) { throw "release $ver already exists in $Folder - bump the version" }
+$zip = Join-Path $env:TEMP "smartass-$ver.zip"
+git -C $repo archive --format zip -o $zip HEAD
+if ($LASTEXITCODE -ne 0) { throw "git archive failed ($LASTEXITCODE)" }
+Expand-Archive $zip $dest; Remove-Item $zip
+if ($WithAtlas) {
+    New-Item -ItemType Directory -Force (Join-Path $Folder 'atlas') | Out-Null
+    $py = "$repo\engine\.venv\Scripts\python.exe"
+    & $py -c "import sqlite3,sys; s=sqlite3.connect(sys.argv[1]); d=sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); s.close()" `
+        "$env:LOCALAPPDATA\smartass\atlas.db" (Join-Path $Folder 'atlas\atlas.db')
+    if ($LASTEXITCODE -ne 0) { throw "atlas snapshot failed ($LASTEXITCODE)" }
+}
+# Tag and push before latest.json: clients only see a release that exists as a pushed tag.
+git -C $repo tag "v$ver"
+if ($LASTEXITCODE -ne 0) { throw "git tag v$ver failed ($LASTEXITCODE)" }
+git -C $repo push origin "v$ver"
+if ($LASTEXITCODE -ne 0) { throw "git push of tag v$ver failed ($LASTEXITCODE) - latest.json not written" }
+# UTF-8 without BOM: PowerShell 5.1's -Encoding utf8 adds a BOM, which update.py's json.loads rejects.
+$json = @{ version = $ver; published = (Get-Date -Format 'yyyy-MM-dd') } | ConvertTo-Json
+[IO.File]::WriteAllText((Join-Path $Folder 'latest.json'), $json, (New-Object Text.UTF8Encoding $false))
+"published $ver to $Folder"

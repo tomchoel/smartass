@@ -1,0 +1,26 @@
+name: ci
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: engine
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install uv
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+        env:
+          SMARTASS_HOME: ${{ runner.temp }}\smartass
+      - name: data/secret guard (every tracked file, from the repo root)
+        working-directory: .
+        run: engine\.venv\Scripts\python scripts\check_staged.py --all
