@@ -1,0 +1,4 @@
+#!/bin/sh
+py=engine/.venv/Scripts/python.exe
+[ -x "$py" ] || py=python
+exec "$py" scripts/check_staged.py

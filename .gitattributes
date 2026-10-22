@@ -2,3 +2,4 @@
 *.bas text eol=crlf
 *.ps1 text eol=crlf
 *.xlsx binary
+.githooks/* text eol=lf
