@@ -19,13 +19,12 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from . import atlas, config, ops, qlog
+from . import atlas, config, logsetup, ops, qlog
 from .grid import Axis, to_markdown
 from .host import ExcelHost, HostError
 
-config.SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
-logging.basicConfig(filename=config.SERVER_LOG, level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logsetup.configure(config.SERVER_LOG)
+logsetup.add_secret(config.HTTP_SECRET)
 log = logging.getLogger("smartview")
 
 Connection = Literal["FinMax", "FinLite", "FinPlan"]
