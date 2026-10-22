@@ -233,8 +233,9 @@ def query(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis]
     rows2 = [Axis(a.dimension, [m for m in a.members if (a.dimension, m) not in drop]) for a in rows]
     cols2 = [Axis(a.dimension, [m for m in a.members if (a.dimension, m) not in drop]) for a in cols]
     if any(not a.members for a in rows2 + cols2):
-        raise HostError("Smart View rejects every member on an axis: "
-                        + "; ".join(_explain_reject(conn, d, m) for d, m in rej))
+        raise InputError("Smart View rejects every member on an axis: "
+                         + "; ".join(_explain_reject(conn, d, m) for d, m in rej)
+                         + ". Next step: pick valid members with sv_find_member / sv_members.")
     lay, p, secs = _query_once(h, conn, pov, rows2, cols2, suppress_missing, suppress_zeros)
     p.pov_problems.insert(0, "Smart View rejected these members (rc=1000), so they were left out: "
                           + "; ".join(_explain_reject(conn, d, m) for d, m in rej)

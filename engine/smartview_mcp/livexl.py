@@ -103,7 +103,7 @@ def find_book(workbook: str | None, write: bool = False, allow_archive: bool = F
                     if stem(want) in str(wb.Name).lower():
                         cands.append((pid, app, wb))
         if not cands:
-            raise InputError(f"No open workbook matches '{workbook}'. Open: {list_names(excels)}")
+            raise InputError(f"No open workbook matches '{workbook}' (open now: {list_names(excels)}). Next step: pass one of those names, or open the workbook in Excel first.")
         if len(cands) > 1:
             raise InputError(f"'{workbook}' matches several open workbooks: {[str(c[2].Name) for c in cands]}. "
                              "Use the full name.")

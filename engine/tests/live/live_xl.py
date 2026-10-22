@@ -5,7 +5,7 @@ os.environ["SV_XL_JUMP"] = "0"
 import pythoncom
 pythoncom.CoInitialize()
 from smartview_mcp import livexl as x, userexcel
-from smartview_mcp.host import HostError
+from smartview_mcp.host import HostError, InputError
 WB = sys.argv[1] if len(sys.argv) > 1 else "formelstil_test"
 fails = []
 def ok(cond, what):
@@ -16,7 +16,7 @@ def cleanup():
         if not c["reverted"]:
             try:
                 x.revert(c["id"], WB, force=True)
-            except HostError as e:
+            except (HostError, InputError) as e:
                 print("   cleanup:", e)
 try:
     cleanup()
@@ -55,7 +55,7 @@ try:
     x.write(WB, "XL test", "H10", formulas=[["=C3"]])          # a single-cell reference: deleting row 3 breaks it
     try:
         x.rows_cols(WB, "XL test", "delete_rows", "3"); ok(False, "delete with dependents refused")
-    except HostError as e:
+    except (HostError, InputError) as e:
         ok("#REF!" in str(e) or "depend" in str(e), "delete with dependents refused")
     x.revert(x.changes(WB)[0]["id"], WB)                        # take H10 out again
     x.write(WB, "XL test", "H2", values=[["scratch"]]); dl = x.rows_cols(WB, "XL test", "delete_cols", "H")
@@ -65,21 +65,21 @@ try:
     x.write(WB, "XL test", "B10", values=[["later edit"]])
     try:
         x.revert(w5["change_id"], WB); ok(False, "revert refuses when later changes exist")
-    except HostError as e:
+    except (HostError, InputError) as e:
         ok("Later changes" in str(e), "revert refuses when later changes exist")
     # review fixes
     ins2 = x.rows_cols(WB, "XL test", "insert_rows", "12")
     x.write(WB, "XL test", "B12", values=[["typed by the user"]])
     try:
         x.revert(ins2["change_id"], WB); ok(False, "insert revert refuses when the new row has content")
-    except HostError as e:
+    except (HostError, InputError) as e:
         ok("content" in str(e) or "Later changes" in str(e), "insert revert refuses when the new row has content")
     for bad_call, what in ((lambda: x.write(WB, "XL test", "B2:B3;D2:D3", values=[[1]]), "multi-area range refused"),
                            (lambda: x.add_sheet(WB, "bad/name"), "invalid sheet name refused"),
                            (lambda: x.rows_cols(WB, "Q1 FinMax x", "delete_rows", "2"), "cross-sheet delete guard (header row)")):
         try:
             bad_call(); ok(False, what)
-        except HostError as e:
+        except (HostError, InputError) as e:
             ok(True, what); print("    ", str(e)[:140])
     chk = x.check(WB, "Q1 Svar"); ok(chk["ok"] is True, "xl_check on the smartview answer sheet is clean"); show({k: chk[k] for k in ("ok", "checked")})
     ov = x.overview(WB, None); ok(any(s["name"] == "XL test" for s in ov["sheets"]), "overview"); 
@@ -89,7 +89,7 @@ try:
         if not c["reverted"]:
             try:
                 x.revert(c["id"], WB, force=True)
-            except HostError as e:
+            except (HostError, InputError) as e:
                 print("   cleanup:", e)
     ok("XL test" not in x.workbooks()[[w["name"].startswith(WB) for w in x.workbooks()].index(True)]["sheets"], "full revert removed the test sheet")
 finally:
