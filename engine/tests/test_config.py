@@ -50,6 +50,34 @@ def test_knowledge_file_falls_back_to_enabled_pack(tmp_path, monkeypatch):
     assert config.knowledge_file("b.json") == core / "b.json"
 
 
+def test_wrong_typed_int_falls_back_with_message():
+    assert config.as_int(47999, "http.port", 47811) == (47999, None)
+    port, err = config.as_int("x", "http.port", 47811)
+    assert port == 47811 and "http.port" in err and "'x'" in err and "47811" in err
+
+
+def test_string_list_value_becomes_one_element_list_and_junk_falls_back():
+    assert config.as_list("chrome", "drill.channels", ["msedge"]) == (["chrome"], None)
+    assert config.as_list(["a", "b"], "packs.enabled", []) == (["a", "b"], None)
+    chans, err = config.as_list(5, "drill.channels", ["msedge"])
+    assert chans == ["msedge"] and "drill.channels" in err
+
+
+def test_import_survives_wrong_typed_user_config(tmp_path):
+    import os
+    import subprocess
+    import sys
+    (tmp_path / "config.toml").write_text('packs.enabled = "p1"\n[http]\nport = "x"\n[drill]\nchannels = "chrome"\n',
+                                          encoding="utf-8")
+    env = {**os.environ, "SMARTASS_HOME": str(tmp_path)}
+    for k in ("SMARTASS_HTTP_PORT", "SV_DRILL_CHANNELS"):
+        env.pop(k, None)
+    code = ("from smartview_mcp import config as c; "
+            "print(c.HTTP_PORT, c.DRILL_CHANNELS, c.PACKS, repr(c.CONFIG_ERROR))")
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout
+    assert "47811 ('chrome',) ['p1']" in out and "http.port" in out
+
+
 def test_shipped_defaults_parse_and_hold_org_values():
     s, err = config.load_settings(config.DEFAULTS_FILE, config.DEFAULTS_FILE.with_name("absent.toml"))
     assert err is None
