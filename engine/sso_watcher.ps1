@@ -1,13 +1,13 @@
 # Global SSO watcher (started hidden at logon). Clicks "Telenor SSO" in the Smart View EPM Cloud "Login" dialog
 # (#32770) of ANY Excel: the smartview MCP's, excel-mcp's and the user's own. Only invokes that one button; never types.
 # .NET UI Automation is used because the Python 'uiautomation' package blocked on this dialog in interactive Excel.
-param([int]$IntervalMs = 1000)
+param([int]$IntervalMs = 1000, [string]$LogDir = (Join-Path $env:LOCALAPPDATA 'smartass\logs'))
 $ErrorActionPreference = 'Continue'
 $created = $false
 $mutex = [System.Threading.Mutex]::new($true, 'Local\svkit-sso-watcher-ps', [ref]$created)
 if (-not $created) { exit 0 }
 
-$logDir = Join-Path $env:LOCALAPPDATA 'svkit\logs'
+$logDir = $LogDir
 New-Item -ItemType Directory -Force $logDir | Out-Null
 $log = Join-Path $logDir 'sso_watcher_ps.log'
 function Log($m) {

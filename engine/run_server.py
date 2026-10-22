@@ -1,5 +1,5 @@
-"""Stable stdio entry point for Claude Code. Registered with:
-claude mcp add --scope user smartview -- "%LOCALAPPDATA%\\svkit\\venv\\Scripts\\python.exe" "<this file>"
+"""Stable stdio entry point for Claude Code.
+Registered by installer\\install.ps1 as: <engine>\\.venv\\Scripts\\python.exe <this file>
 
 Claude Code never restarts a stdio server by itself, so a code change used to need '/mcp' reconnect. This file is a
 small relay instead: it runs the real server (child_server.py) as a child process and passes MCP JSON-RPC lines
@@ -20,7 +20,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CHILD = HERE / "child_server.py"
-LOG = Path(os.environ.get("LOCALAPPDATA", str(HERE))) / "svkit" / "logs" / "proxy.log"
+LOG = Path(os.environ.get("SMARTASS_HOME") or os.environ.get("SVKIT_DIR")
+           or Path(os.environ.get("LOCALAPPDATA", str(HERE))) / "smartass") / "logs" / "proxy.log"
 STOP_GRACE = 60          # s for the child to close its Excel on shutdown
 INIT_TIMEOUT = 60        # s for a restarted child to answer the replayed 'initialize'
 STALE_INFLIGHT = 1800    # s after which an unanswered request no longer blocks a reload
@@ -39,7 +40,7 @@ def log(msg: str):
 
 
 def fingerprint() -> tuple:
-    files = [CHILD, *sorted((HERE / "smartview_mcp").glob("*.py")), *sorted((HERE / "vba").glob("*.bas"))]
+    files = [CHILD, HERE / "defaults.toml", *sorted((HERE / "smartview_mcp").glob("*.py")), *sorted((HERE / "vba").glob("*.bas"))]
     out = []
     for f in files:
         try:

@@ -1,6 +1,6 @@
 """Smart View EPM Cloud login handling.
 
-The clicking itself is done by the global PowerShell watcher `mcp\\sso_watcher.ps1` (.NET UI Automation), started at
+The clicking itself is done by the global PowerShell watcher `engine\\sso_watcher.ps1` (.NET UI Automation), started at
 logon from the Startup folder. It clicks "Telenor SSO" in the "Login" dialog of ANY Excel (this server's, excel-mcp's,
 the user's own) and never types anything. A Python 'uiautomation' implementation was tried first and removed: it
 blocked on the dialog in interactive Excel (2026-10-13).
@@ -12,15 +12,14 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
-from pathlib import Path
 
 import psutil
 
 from . import config
 
 log = logging.getLogger("smartview.sso")
-SV_DLL = r"C:\Program Files (x86)\Oracle\SmartView\bin\HsAddin.dll"
-WATCHER_PS1 = Path(__file__).resolve().parent.parent / "sso_watcher.ps1"
+SV_DLL = config.SMARTVIEW_DLL
+WATCHER_PS1 = config.ENGINE_DIR / "sso_watcher.ps1"
 POWERSHELL = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
 HEARTBEAT = config.SVKIT / "logs" / "sso_watcher.heartbeat"
 STALE_S = 90
@@ -67,7 +66,7 @@ def ensure_global_watcher() -> bool:
         except psutil.Error:
             pass
     subprocess.Popen([POWERSHELL, "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
-                      "-File", str(WATCHER_PS1)], creationflags=0x08000000)   # CREATE_NO_WINDOW
+                      "-File", str(WATCHER_PS1), "-LogDir", str(config.HOME / "logs")], creationflags=0x08000000)   # CREATE_NO_WINDOW
     time.sleep(2)
     log.info("started global SSO watcher: %s", global_watcher_pids())
     return bool(global_watcher_pids())

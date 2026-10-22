@@ -5,7 +5,10 @@ import sqlite3
 import sys
 import time
 
-DB = os.path.expandvars(r"%LOCALAPPDATA%\svkit\atlas.db")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from smartview_mcp import config  # noqa: E402
+
+DB = str(config.ATLAS_DB)
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser(r"~\.claude\skills\smartview\reference\cubes.md")
 # extra depth for the dimensions people navigate most
 DEEP = {("FinMax", "All Entities"): "un.SY", ("FinLite", "All Entities"): "un.SY", ("FinMax", "All Accounts"): None,
@@ -28,7 +31,7 @@ def fmt(name, label):
 
 
 lines = ["# Cube atlas (generated)", "",
-         f"Generated {time.strftime('%Y-%m-%d %H:%M')} from `%LOCALAPPDATA%\\svkit\\atlas.db` by `gen_atlas_md.py`. "
+         f"Generated {time.strftime('%Y-%m-%d %H:%M')} from `%LOCALAPPDATA%\\smartass\\atlas.db` by `gen_atlas_md.py`. "
          "Top levels only; search everything with `sv_find_member`, walk with `sv_members`.", ""]
 for (conn,) in db.execute("SELECT DISTINCT connection FROM build ORDER BY connection"):
     lines += [f"## {conn}", "", "| Dimension | Members | Built |", "|---|---:|---|"]

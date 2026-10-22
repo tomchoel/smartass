@@ -19,7 +19,7 @@ SUFFIX = {"booked": " (bokført)", "attributed": " (henført 100 %)", "estimated
 
 
 def _load(name: str) -> dict:
-    p = config.KNOWLEDGE_DIR / name
+    p = config.knowledge_file(name)
     try:
         return json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
