@@ -101,6 +101,7 @@ def link_skill(src: Path, dst: Path, backup_root: Path) -> str:
 
 def make_shortcut(lnk: Path, target: str, args: str, workdir: str) -> None:
     import win32com.client
+    lnk.parent.mkdir(parents=True, exist_ok=True)
     sc = win32com.client.Dispatch("WScript.Shell").CreateShortcut(str(lnk))
     sc.TargetPath, sc.Arguments, sc.WorkingDirectory, sc.WindowStyle = target, args, workdir, 7
     sc.Save()

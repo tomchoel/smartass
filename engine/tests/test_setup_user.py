@@ -83,3 +83,9 @@ def test_link_skill_replaces_dir_and_old_junction(tmp_path):
     subprocess.run(["cmd", "/c", "mklink", "/J", str(dst), str(other)], check=True, capture_output=True)
     assert setup_user.link_skill(src, dst, backup) == "linked"
     assert (dst / "SKILL.md").exists()
+
+
+def test_make_shortcut_creates_missing_startup_folder(tmp_path):
+    lnk = tmp_path / "Microsoft" / "Windows" / "Startup" / "x.lnk"
+    setup_user.make_shortcut(lnk, "cmd.exe", "/c exit", str(tmp_path))
+    assert lnk.exists()
