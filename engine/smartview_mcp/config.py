@@ -212,4 +212,5 @@ DRILL_KEEP_DAYS = 90
 DRILL_LOGIN_TIMEOUT_S = 60                         # per attempt; one retry in a fresh tab (spec §6)
 DRILL_CAPTURE_TIMEOUT_S = 45
 DRILL_IDLE_S = int(os.environ.get("SV_DRILL_IDLE_S", "300"))   # close the hidden browser (and free the profile) when idle
-TEXT_FIXES = KNOWLEDGE_DIR / "text_fixes.json"
+TEXT_FIXES = KNOWLEDGE_DIR / "text_fixes.json"              # shipped; replaced by every update
+USER_TEXT_FIXES = HOME / "text_fixes.json"                 # the user's own corrections; win over the shipped list

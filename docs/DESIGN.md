@@ -262,5 +262,5 @@ Follow-up the same day:
 - **Route.** Smart View `B_DrillReports` returns the cell's drill link. Headless Chrome with Telenor SSO opens it, and we replay the page's own `getData` request with offset paging (500 lines per page). Lines go to `svkit\drill.db` and the session workbook.
 - **Read-only.** Never call `HypExecuteDrillThroughReport` (it opens the default browser) and never build or alter SQL. Only the page's own body is replayed, with `limit`/`offset` changed.
 - **Process safety.** Own Chrome profile `svkit\drill_chrome` plus a lock file (one drill at a time across sessions). Chrome is recognised by `--user-data-dir`; only our Chrome is killed, never the user's Chrome or Edge. It closes after 5 idle minutes.
-- **Text and reports.** Mojibake is repaired exactly; letters lost in EPM go through `knowledge\text_fixes.json`; the rest is reported, never guessed.
+- **Text and reports.** Mojibake is repaired exactly; letters lost in EPM go through `knowledge\text_fixes.json` plus the user's `%LOCALAPPDATA%\smartass\text_fixes.json` (user entries win; updates never touch it); the rest is reported, never guessed.
 - **Docs.** Spec: `specs\2026-10-15-sv-drill-design.md`. Plan: `plans\2026-10-15-sv-drill.md`. Skill reference: `~\.claude\skills\smartview\reference\drill.md`.

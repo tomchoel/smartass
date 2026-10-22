@@ -120,7 +120,7 @@ For "what is behind this number" (suppliers, invoices, accruals, allocations) on
 3. Build the report with `sv_ws_answer(q, spec, target=<workbook>)` using `{drill: 'd', where: {...}}` cells and
    a reconciliation block that reads the live `cube_pull`. Pick the sections that answer the question. If
    `signs_mixed`, use no share column; show gross debit and credit instead.
-4. Report `text_repairs.unfixed` (letters lost in EPM) and offer to add them to `knowledge\text_fixes.json`.
+4. Report `text_repairs.unfixed` (letters lost in EPM) and offer to add them to `%LOCALAPPDATA%\smartass\text_fixes.json`.
 
 Column glossary, report rules, text repair, timings and a worked example: [reference/drill.md](reference/drill.md).
 

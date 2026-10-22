@@ -65,7 +65,8 @@ async def fetch():
             link = await h.call(lambda hh, c=cell: ops.drill_link(hh, "FinLite", c), timeout=300, what="drill_link")
             res = b.fetch(link["url"]).result(timeout=600)
             cols = dl.columns_from_view(res["view"])
-            rows, stats = dl.normalize(res["items"], cols, dl.load_text_fixes(config.TEXT_FIXES))
+            rows, stats = dl.normalize(res["items"], cols,
+                                       dl.load_text_fixes(config.TEXT_FIXES, config.USER_TEXT_FIXES))
             rec = dl.reconcile(link["cube_value"], rows)
             print(cell["All Entities"], cell["All Time Periods"], rec["lines"], rec["lines_sum"], rec["status"],
                   f"{res['secs']}s", stats["unfixed"], f"our chrome.exe: {len(our_chrome())}", flush=True)

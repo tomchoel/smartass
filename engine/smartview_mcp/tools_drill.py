@@ -163,7 +163,7 @@ def _lines_of(pieces: list[dict], view: dict, parent_cube: float | None = None) 
     PARENT cell's own cube value; split_check = sum of the piece cubes - parent (None without a split)."""
     from . import drill_lines as dl
     cols = dl.columns_from_view(view)
-    fixes = dl.load_text_fixes(config.TEXT_FIXES)
+    fixes = dl.load_text_fixes(config.TEXT_FIXES, config.USER_TEXT_FIXES)
     rows, piece_recs = [], []
     stats = {"fixed_mojibake": 0, "fixed_by_list": 0, "unfixed": set()}
     for p in pieces:
@@ -297,7 +297,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
     warnings = []
     if stats["unfixed"]:
         warnings.append("Text broken in EPM (letters lost at load): " + "; ".join(stats["unfixed"][:5])
-                        + " - add corrections to knowledge\\text_fixes.json")
+                        + " - add corrections to %LOCALAPPDATA%\\smartass\\text_fixes.json")
     if rec["status"] == "gap":
         warnings.append(_gap_warning(rec))
     if L["split_check"]:

@@ -77,6 +77,14 @@ def test_repair_text_leaves_good_norwegian_alone():
     assert stats["fixed_mojibake"] == 0
 
 
+def test_user_text_fixes_merge_over_the_shipped_list(tmp_path):
+    shipped, user = tmp_path / "shipped.json", tmp_path / "user.json"
+    shipped.write_text(json.dumps({"fixes": {"H\ufffd\ufffdy": "Høy", "Fjordb\ufffdnd": "Fjordbond"}}), encoding="utf-8")
+    user.write_text(json.dumps({"fixes": {"Fjordb\ufffdnd": "Fjordbånd", "Str\ufffdm": "Strøm"}}), encoding="utf-8")
+    assert dl.load_text_fixes(shipped, user) == {"H\ufffd\ufffdy": "Høy", "Fjordb\ufffdnd": "Fjordbånd",
+                                                 "Str\ufffdm": "Strøm"}
+    assert dl.load_text_fixes(shipped, tmp_path / "absent.json") == dl.load_text_fixes(shipped)
+
 def test_profile_names_the_drivers(whs):
     rows, _ = whs
     p = dl.profile(rows, top=5)

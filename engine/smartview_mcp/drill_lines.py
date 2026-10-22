@@ -36,11 +36,15 @@ def columns_from_view(view: dict, name: str = "DrillFilter") -> list[tuple[str, 
     return [(c["label"], c["value"]) for c in json.loads(v["viewDefinition"])]
 
 
-def load_text_fixes(path: Path) -> dict[str, str]:
-    try:
-        return dict(json.loads(Path(path).read_text(encoding="utf-8")).get("fixes", {}))
-    except (OSError, ValueError):
-        return {}
+def load_text_fixes(*paths: Path) -> dict[str, str]:
+    """Merge correction lists in order; a later file wins (shipped list first, then the user's own)."""
+    out: dict[str, str] = {}
+    for path in paths:
+        try:
+            out.update(json.loads(Path(path).read_text(encoding="utf-8")).get("fixes", {}))
+        except (OSError, ValueError, AttributeError):
+            pass
+    return out
 
 
 def repair_text(s: str, fixes: dict[str, str], stats: dict) -> str:

@@ -80,11 +80,13 @@ The lines come from the FinLite drill page (view `DrillFilter`, 45 columns). **K
 
 Applied to every text field in `drill_lines.normalize`. The result carries `text_repairs {fixed_mojibake, fixed_by_list, unfixed}`.
 - **U+FFFD (letters lost in EPM at load).** Cannot be computed back. Fragment list in `knowledge\text_fixes.json`
-  (broken fragment → correct fragment, replaced wherever it occurs). Seed: `H��yhastighet → Høyhastighet`.
+  (shipped, replaced by updates) merged with the user's own `%LOCALAPPDATA%\smartass\text_fixes.json` (same
+  format `{"fixes": {...}}`, wins on conflicts; broken fragment → correct fragment, replaced wherever it occurs).
+  Seed: `H��yhastighet → Høyhastighet`.
 - **Mojibake** (`FjordbÃ¥ndet`): repaired exactly with `encode("latin-1").decode("utf-8")`, only when the
   string matches `Ã[\x80-\xbf]` or `Â[\x80-\xbf]` and the round trip succeeds.
 - **Unfixed** strings stay as they are, are listed in `warnings` and `text_repairs.unfixed`, and are never guessed.
-  Offer to add them to `text_fixes.json`.
+  Offer to add them to `%LOCALAPPDATA%\smartass\text_fixes.json` (survives updates).
 - The SYPR68 "Høyhastighet" project text is broken in the EPM metadata itself (the FinMax alias of `pj.SY.SY.SYPR68`
   too). Tell the user once; the EPM admins should fix it.
 
