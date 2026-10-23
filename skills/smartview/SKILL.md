@@ -106,12 +106,14 @@ from the tool list, or `sv_status` lacks `behind_reload_proxy`, the server preda
 ## Drill-through (invoice / journal lines)
 
 For "what is behind this number" (suppliers, invoices, accruals, allocations) on any FinLite cell. FinLite only.
-1. `sv_drill(question, cell={'All Accounts': .., 'All Entities': .., 'All Time Periods': ..})`. Parents and
+1. `sv_drill(question, cell={'All Accounts': .., 'All Entities': .., 'All Time Periods': ..})` (account and period
+   required; without an entity the top member is drilled, with a warning). Parents and
    quarters are fine, and big cells (over 20 000 lines) split themselves into months, entities, accounts. It runs
    in a hidden browser: nothing opens on screen. NEVER use Smart View's own drill execute.
    - **One drill at a time across sessions.** A lock serialises them; a second session gets "try again": wait and retry.
    - **Time.** About 60–90 s per drill including the silent SSO login. The headless browser closes after 5 idle
-     minutes, so the next drill pays the login again.
+     minutes, so the next drill pays the login again. Sign-in and page load are capped (about 95 s); the errors then
+     name the next step (see the error table in [reference/operations.md](reference/operations.md)).
    - **Re-drill.** The same `q` and `id` refreshes the lines table in place. If the result says columns or grid
      changed, re-run `sv_ws_answer` for that q.
    - `target='none'` = cache only (no sheets in a workbook).
@@ -155,6 +157,12 @@ no depreciation, so stop at EBITDA.
   work around that with fixed cell references.
 - **Rejected members.** One member Smart View rejects (rc=1000) no longer sinks a pull: the engine isolates it, leaves it
   out and says so in `warnings`. Report those lines as missing.
+- **Error cells.** Answers are scanned for `#NoAccess`, `#Invalid`, `#VALUE!` and the like, on the answer sheet and its
+  data sheets. A warning such as `error cells on 'Q3 FinMax': 12 x #NoAccess (first: B7, ...)` or `formula error on line
+  'x'` means those numbers are not usable: say so, never report them as zero. `sv_analyse` checks every template
+  member against the atlas (and live for members the atlas lacks) before it pulls, and names a wrong one.
+- **Input shapes.** `rows`/`columns` may be `[{dimension, members}]` or `{dimension: [members]}`.
+- **Long calls** send progress notes (`still working: <stage> (n s)`) every 10 s: wait for them, do not call again.
 - **FinPlan KPIs.** Read volumes, ARPU and percentages as `Periodic` per month; `Accumulated` sums the months for many
   of them (Mobile Subscriptions YTD Sep = 78 M against a stock of 8.7 M). Actual volumes are not in FinPlan for
   `BANORWAY`, only Target and forecast.

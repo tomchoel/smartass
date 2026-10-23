@@ -13,6 +13,7 @@ uv run python tests\live\matrix.py
 | `--fresh` | off | Run only the fresh-user scenarios |
 | `--keep` | off | Leave the scratch workbooks and the `_matrix` folder |
 | `--out NAME` | `matrix` | Report name: `docs\audit\<date>-<NAME>.json/.md` |
+| `--before NAME` | latest run of the same kind | Compare with `docs\audit\<NAME>.json` (the before column) |
 
 ## Scenarios
 
