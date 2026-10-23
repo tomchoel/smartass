@@ -69,12 +69,21 @@ def usable(db, connection: str, dimension: str) -> bool:
     return bool(r and r[1] and not r[2] and (time.time() - r[0]) / 86400 <= MAX_AGE_DAYS)
 
 
+def canonical(db, connection: str, dimension: str, name: str) -> str | None:
+    """The atlas spelling of a member given by name (or, failing that, alias label), case-insensitive like Essbase;
+    None if the dimension does not have it. The dimension's own name is its top member."""
+    if name.casefold() == dimension.casefold():
+        return dimension
+    sql = "SELECT name FROM member WHERE connection=? AND dimension=? AND {} = ? COLLATE NOCASE LIMIT 1"
+    for col in ("name", "label"):
+        r = db.execute(sql.format(col), (connection, dimension, name)).fetchone()
+        if r:
+            return r[0]
+    return None
+
+
 def has_member(db, connection: str, dimension: str, name: str) -> bool:
-    """Name (or, failing that, alias label) exists in the dimension; the dimension's own name is its top member."""
-    if name == dimension:
-        return True
-    sql = "SELECT 1 FROM member WHERE connection=? AND dimension=? AND {} = ? LIMIT 1"
-    return any(db.execute(sql.format(col), (connection, dimension, name)).fetchone() for col in ("name", "label"))
+    return canonical(db, connection, dimension, name) is not None
 
 
 def search(db, text: str, connection: str | None = None, dimension: str | None = None, limit: int = 25) -> list[dict]:

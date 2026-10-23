@@ -247,12 +247,37 @@ def unknown_members(conn: str, pov: dict, rows: list[Axis], cols: list[Axis]) ->
     return out
 
 
-def check_members(conn: str, pov: dict, rows: list[Axis], cols: list[Axis]) -> None:
-    """InputError naming every member the atlas does not know in conn (see unknown_members)."""
+def canonical_pov(conn: str, pov: dict) -> dict:
+    """pov with each member in the atlas spelling (Essbase ignores case; the sheets then show the real name)."""
+    from . import atlas
+    try:
+        db = atlas.connect()
+    except Exception:       # noqa: BLE001 - no atlas: keep the given spelling
+        return dict(pov)
+    out = {}
+    for d, m in pov.items():
+        out[d] = (atlas.canonical(db, conn, canon_dim(conn, d), m) or m) if isinstance(m, str) else m
+    return out
+
+
+def check_members(conn: str, pov: dict, rows: list[Axis], cols: list[Axis], confirm=None) -> None:
+    """InputError naming every member the atlas does not know in conn (see unknown_members). The atlas can predate a
+    new period or account, so each miss is first confirmed live with confirm(conn, member) -> bool when given; a
+    member is rejected only when the live check says it does not exist (a failed check leaves it unverified)."""
     bad = unknown_members(conn, pov, rows, cols)
+    if confirm:
+        bad = [(d, m) for d, m in bad if _missing_live(confirm, conn, m)]
     if bad:
         raise InputError("Invalid query: unknown member " + "; ".join(f"'{m}' ({conn} / {d})" for d, m in bad)
                          + ". Find the right name with sv_find_member / sv_members.")
+
+
+def _missing_live(confirm, conn: str, member: str) -> bool:
+    try:
+        return not confirm(conn, member)
+    except Exception as e:  # noqa: BLE001 - unverified: let the pull and the error-cell scan decide
+        log.warning("live member check of %s / %s failed: %s", conn, member, e)
+        return False
 
 
 def query(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis],

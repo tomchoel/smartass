@@ -169,14 +169,24 @@ def cell_trace(plan: list, rows_by_key: dict, pulls: dict, ncol: int) -> dict:
     return out
 
 
+MAX_LINE_WARNINGS = 10
+
+
 def error_warnings(sheet: str, grid, trace: dict, pull_grids: dict) -> list[str]:
     """Warnings for every error cell in the answer sheet and its data sheets, with the likely cause: on a data sheet
     '#NoAccess' = no read access / member not in this cube; on an answer line, the data-sheet cell it depends on."""
     out = []
     for name, g in pull_grids.items():
+        by_code: dict[str, list] = {}
         for r, c, code in _error_cells(g):
-            cause = _PULL_CAUSE.get(code)
-            out.append(f"error cell {_addr(name, r, c)} is {code}" + (f": {cause}" if cause else ""))
+            by_code.setdefault(code, []).append((r, c))
+        for code, cells in by_code.items():
+            cause = f": {_PULL_CAUSE[code]}" if code in _PULL_CAUSE else ""
+            if len(cells) == 1:
+                out.append(f"error cell {_addr(name, *cells[0])} is {code}{cause}")
+                continue
+            first = ", ".join(f"{L(c)}{r}" for r, c in cells[:3]) + (", ..." if len(cells) > 3 else "")
+            out.append(f"error cells on '{name}': {len(cells)} x {code} (first: {first}){cause}")
     vals = {(r, c): code for r, c, code in _error_cells(grid)}
 
     def sources(rc, seen) -> list[str]:
@@ -192,14 +202,23 @@ def error_warnings(sheet: str, grid, trace: dict, pull_grids: dict) -> list[str]
                 found += [s for s in sources(d, seen) if s not in found]
         return found
 
+    lines: dict = {}                                    # one warning per answer line (or untraced cell)
     for (r, c), code in sorted(vals.items()):
         ent = trace.get((r, c))
+        k = ent["key"] if ent else (r, c)
+        if k in lines:
+            lines[k][1] += 1
+            continue
         where = f"{_addr(sheet, r, c)} is {code}"
         if ent is None:
-            out.append(f"error cell {where}")
+            lines[k] = [f"error cell {where}", 0]
             continue
         src = sources((r, c), set())
-        out.append(f"formula error on line '{ent['key']}': {where}" + (f" (depends on {', '.join(src)})" if src else ""))
+        lines[k] = [f"formula error on line '{ent['key']}': {where}" + (f" (depends on {', '.join(src)})" if src else ""), 0]
+    texts = [t + (f" (+{n} more cells)" if n else "") for t, n in lines.values()]
+    out += texts[:MAX_LINE_WARNINGS]
+    if len(texts) > MAX_LINE_WARNINGS:
+        out.append(f"... and {len(texts) - MAX_LINE_WARNINGS} more answer lines with error cells on '{sheet}'")
     return out
 
 

@@ -137,3 +137,50 @@ def test_scan_flags_noaccess_pull_and_value_error_on_answer_line():
     assert "formula error on line 'fm_diff': 'Q6 Svar'!C21 is #VALUE! (depends on 'Q6 FinMax recon'!B3)" in text
     assert "formula error on line 'fm_ebitda': 'Q6 Svar'!C20 is #NoAccess" in text
     assert not any("line 'ebitda'" in x for x in w)
+
+
+# ------------------------------------------------------------------ review of 4c9ca14
+def test_member_check_is_case_insensitive_and_pov_gets_atlas_spelling(fake_atlas):
+    assert atlas.has_member(fake_atlas, "FinMax", "All Entities", "un.sy.2tec")
+    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["AC.ebitda"])],
+                            [Axis("All Time Periods", ["Sep 26"])], {"All Entities": "UN.SY.2TEC"})
+    templates.check_pulls([ps])
+    assert ps.pov["All Entities"] == "un.SY.2TEC"
+
+
+def test_atlas_miss_is_confirmed_live_before_rejecting(fake_atlas):
+    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])],
+                            [Axis("All Time Periods", ["Jan 27"])], {"All Entities": "un.SY.NOPE"})
+    asked = []
+
+    def confirm(conn, member):
+        asked.append((conn, member))
+        return member == "ac.NEW1"               # new account exists in the cube, the entity does not
+    with pytest.raises(InputError) as e:
+        templates.check_pulls([ps], confirm=confirm)
+    assert "un.SY.NOPE" in str(e.value) and "ac.NEW1" not in str(e.value)
+    assert set(asked) == {("FinMax", "un.SY.NOPE"), ("FinMax", "ac.NEW1")}
+    ok = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])], [Axis("All Time Periods", ["x"])], {})
+    templates.check_pulls([ok], confirm=lambda c, m: True)
+
+
+def test_failed_live_confirmation_does_not_reject(fake_atlas):
+    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])], [Axis("All Time Periods", ["x"])], {})
+
+    def broken(conn, member):
+        raise RuntimeError("Smart View busy")
+    templates.check_pulls([ps], confirm=broken)  # unverified, not rejected: the error-cell scan still runs
+
+
+def test_error_scan_groups_pull_cells_and_caps_answer_lines():
+    pull = [[None, "Sep 26"]] + [[f"cc{i}", "#NoAccess"] for i in range(400)]
+    ans = [[None] * 3 for _ in range(60)]
+    trace = {}
+    for r in range(10, 60):
+        ans[r - 1][2] = VALUE_ERR
+        trace[(r, 3)] = {"key": f"k{r}"}
+    w = answer.error_warnings("Q6 Svar", ans, trace, {"Q6 FinMax cb": pull})
+    assert w[0] == ("error cells on 'Q6 FinMax cb': 400 x #NoAccess (first: B2, B3, B4, ...): "
+                    "no read access or member not valid in this cube")
+    assert len(w) <= 1 + answer.MAX_LINE_WARNINGS + 1
+    assert w[-1] == f"... and {50 - answer.MAX_LINE_WARNINGS} more answer lines with error cells on 'Q6 Svar'"

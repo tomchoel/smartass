@@ -183,10 +183,12 @@ def map_finmax_entity(entity: str, explicit: str | None = None) -> tuple[str | N
     return None, f"No FinMax entity matches {entity}; pass finmax_entity to reconcile."
 
 
-def check_pulls(pulls: list[PullSpec]) -> None:
-    """Every member of every pull must exist in the atlas (ops.check_members) - before anything is pulled."""
+def check_pulls(pulls: list[PullSpec], confirm=None) -> None:
+    """Every member of every pull must exist - before anything is pulled (ops.check_members: atlas, then atlas misses
+    confirmed live with confirm(connection, member)). POV members get the atlas spelling."""
     for ps in pulls:
-        ops.check_members(ps.connection, ps.pov, ps.rows, ps.cols)
+        ps.pov = ops.canonical_pov(ps.connection, ps.pov)
+        ops.check_members(ps.connection, ps.pov, ps.rows, ps.cols, confirm)
 
 
 # ------------------------------------------------------------------ A. division P&L

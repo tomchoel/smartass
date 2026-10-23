@@ -13,7 +13,7 @@ from .server import WRITE, AxisIn, Connection, _call_user, _doc, _err, _is_our_a
 
 # ---------------------------------------------------------------- analysis in the user's workbook
 from . import answer as answer_mod            # noqa: E402
-from . import templates, userexcel   # noqa: E402
+from . import ops, templates, userexcel   # noqa: E402
 from .timing import Timer, stage                    # noqa: E402
 
 Target = Literal["active", "new"] | str
@@ -142,7 +142,7 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
         with stage("plan (template)"):
             plan = fn(h, **params)
         with stage("check members (atlas)"):
-            templates.check_pulls(plan.pulls)
+            templates.check_pulls(plan.pulls, confirm=lambda c, m: ops.find_member(h, c, m)["found"])
         with stage("open target"):
             t = userexcel.resolve_target(h, target, allow_archive, title=plan.title)
             qn = q or userexcel.next_question(t)
