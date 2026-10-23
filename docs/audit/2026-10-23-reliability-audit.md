@@ -104,6 +104,8 @@ Four subagents, each with only the skill and the smartass MCP and one Norwegian 
 
 ## Accepted limits
 
+Accepted by the owner on 2026-10-23. They are listed by symptom, with the known cause, in `docs/troubleshooting.md` ("Known limits").
+
 | Item | Reason |
 |---|---|
 | S9.lookup | A fresh-profile lookup needs a real signed-in Excel. COM Excel inherits the simulated environment, so verify manually on a new machine. |

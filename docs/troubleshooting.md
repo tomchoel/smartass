@@ -97,6 +97,24 @@ call once. If the second try fails the same way, you get this error.
 - Sign in once in your own Excel (Smart View ribbon → Panel → connect), then retry.
 - Still failing: run `smartass doctor --bundle`.
 
+## Known limits (accepted by the owner, 2026-10-23)
+
+These were investigated in the reliability audit (`docs\audit\2026-10-23-reliability-audit.md`) and accepted as they
+are. If one of these symptoms shows up, the cause below is already known; no new investigation is needed.
+
+| Symptom | Known cause | What to do |
+|---|---|---|
+| Logins are clicked late (18–200 s), pulls are 2–3× slower than usual (`open default grid` 7–167 s), "The Oracle EPM login dialog is still open" | Another Office app, usually PowerPoint, holds Smart View's WebView2 folder. The SSO watcher's UI Automation then blocks for 47–118 s (`sso_watcher_ps.log`: "loop stalled"). | Close PowerPoint (and restart a long-running Excel), then retry. Measured: S2.build median 39.6 s → 25.8 s. |
+| The first FinMax call after a server start takes 15–30 s | It starts the hidden Excel (about 13–19 s) and does the hourly SSO login. | None; later calls are fast. |
+| A build in a newly started Excel window takes 35–50 s in `open target.new workbook` | A cold Excel start plus SSO for a new interactive Excel (a parallel agent, or no Excel open). | None; the next build in that Excel takes about 2 s. |
+| Progress notes (`still working: …`) keep arriving after a call to your Excel timed out | The abandoned job's COM call is still hung; its ticker runs until that call returns. The client drops notes for a finished request. | Harmless. It stops when Excel answers or closes. |
+| Many `msedgewebview2.exe --type=crashpad-handler` processes for the Smart View WebView folder, with their parent gone | Each forced restart of the engine's hidden Excel leaves Smart View's WebView2 crash reporter behind. | Harmless (they do not lock the folder). They disappear at log off; ending them by hand is safe. |
+| Matrix: `S9.lookup` is LIMIT | A fresh-profile lookup needs a real signed-in Excel; the COM Excel inherits the simulated environment. | Verify by hand on a new machine (colleague rollout). |
+| Matrix: `S10.5.textfixes` is LIMIT | The user override of a shipped text fix is verified in-process; no current drill line hits a shipped key. | None. |
+| Matrix: `S10.6.pack` is LIMIT | The `produktregnskap` pack has no runtime consumer yet; only its wiring is checked. | Roadmap: give it a consumer or remove it. |
+| Matrix: `S10.8.coldexcel` is LIMIT | A cold start needs no Excel running, and the owner's Excel is open during runs. | Run it with all Excels closed if needed. |
+| Matrix: `S5.drill.report` FAILs with "needs S#.build" under `--only drill` | It builds on S2.build's workbook from the same run. | Include `S2.build` in `--only`, or run the full matrix. |
+
 ## Still stuck
 
 Run `smartass doctor --bundle` and send the zip it prints to the maintainer. It contains the doctor result,
