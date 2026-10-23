@@ -15,7 +15,7 @@
 - **Phase B (Task 7):** the baseline is committed (`87e83e5`). Tasks 8 and 10 were dropped because the baseline didn't reproduce them.
 - **Fix order item 1, the Smart View Login/WebView2 dialog:** `9ea7feb`, `f7079dc`, `ef62a6b`. Reviewed and approved. The likely cause is orphaned `msedgewebview2` processes left by another Office app (an old PowerPoint) holding `%APPDATA%\Oracle\SmartView\WebView\EBWebView`. That is in `docs/troubleshooting.md`.
 - **Fix order item 2, workbook open in another Excel instance / SaveAs collision:** `da7fe11` and `ffa3754`. Reviewed and approved.
-- **Fix order item 3, error codes not noticed in answers (#NoAccess on BANORWAY recon):** `4c9ca14`. **NOT yet reviewed.**
+- **Fix order item 3, error codes not noticed in answers (#NoAccess on BANORWAY recon):** `4c9ca14`. Reviewed: 3 Medium issues are open (see Next, item 1).
 
 ## Next
 1. **Fix the 3 Medium findings from the review of `4c9ca14`,** then re-review. The mapping, `cell_trace`, and the template members checked against the real atlas are all correct.
