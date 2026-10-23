@@ -36,10 +36,9 @@ The decisions come from the grilling session (memory: smartview-mcp-plan). This 
 - `sv_query(connection, pov, rows, columns, suppress, save_xlsx)` → table
 - `sv_find_member` (atlas)
 - `sv_refresh_workbook(copy_of_path)`
-- `sv_show` / `sv_hide`
 - `sv_restart`
 
-**Advanced (full API, read-only):** retrieve, zoom in/out, pivot, pivot to POV, keep/remove only, set POV, get dimensions, get/set members, find member, query members, member information, get/set option, list applications/databases, get sheet grid, `HypGetLastError`.
+**Advanced:** `sv_member_info` (member properties). The ad hoc tools (`sv_adhoc_*`: zoom, pivot, keep/remove only, options) and `sv_show` were removed in the 2026-10 reliability audit: no agent called them in 30 days. The VBA bridge keeps the `B_*` macros the engine itself uses.
 
 **Never exposed:** any submit, calc, or business-rule function.
 

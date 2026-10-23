@@ -3,17 +3,18 @@ from __future__ import annotations
 
 from typing import Literal
 
+from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import qlog
 from .grid import Axis, to_markdown
 from .host import HostError, InputError, rewrap
-from .server import WRITE, AxisIn, Connection, _call_user, _doc, _err, _is_our_analysis_file, log, tool
+from .server import WRITE, AxesIn, AxisIn, Connection, axes_in, _call_user, _doc, _err, _is_our_analysis_file, log, tool
 
 # ---------------------------------------------------------------- analysis in the user's workbook
 from . import answer as answer_mod            # noqa: E402
-from . import templates, userexcel   # noqa: E402
+from . import ops, templates, userexcel   # noqa: E402
 from .timing import Timer, stage                    # noqa: E402
 
 Target = Literal["active", "new"] | str
@@ -81,7 +82,8 @@ def _result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> di
         "key_points": spec.get("key_points", []),
         "table": _answer_markdown(spec, res),
         "checks": res["checks"],
-        "warnings": warnings + res["warnings"] + [f"formula error on line '{k}'" for k in res["formula_errors"]],
+        "warnings": warnings + res["warnings"] + (res.get("error_warnings")
+                                                  or [f"formula error on line '{k}'" for k in res["formula_errors"]]),
         "style_lint": res["lint"],
         # tn-formelstil: 'block' findings must be fixed (spec_patch) before the answer is presented as done
         "formula_style": res.get("formula_style"),
@@ -117,7 +119,8 @@ def _finish(t, q: int, spec: dict, res: dict, saved_new: bool):
 
 @tool(annotations=WRITE)
 async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base", "monthly_trend", "actual_vs_plan"],
-                     params: dict, target: str = "session", allow_archive: bool = False, q: int | None = None) -> dict:
+                     params: dict, target: str = "session", allow_archive: bool = False, q: int | None = None,
+                     ctx: Context | None = None) -> dict:
     """Answer a financial question as an analysis IN THE USER'S EXCEL: live Smart View data sheets ('Q<n> FinMax' ...),
     a formatted answer sheet 'Q<n> Svar' (TN report style, live formulas, key points, checks, variance drivers, chart)
     and a 'Kilder' log. target: 'session' (default: this session's own analysis workbook in
@@ -130,7 +133,9 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
                       compare 'ly'|None, drivers bool
       cost_base:      parent ('un.SY.2TEC'), accounts (['ac.C50S','ac.C60','ac.C70','ac.STA20Y']), period, top (25)
       monthly_trend:  entity, accounts, through ('Sep 26')
-      actual_vs_plan: entity (FinPlan alias, e.g. '2TEC Technology'), month ('Sep'), year ('FY26'), basis, forecast
+      actual_vs_plan: entity (FinPlan alias, e.g. '2TEC Technology'), month ('Sep'), year ('FY26'), basis, forecast,
+                      finmax_entity (FinMax entity for the EBITDA reconciliation; default: mapped via the atlas,
+                      'BANORWAY' -> 'un.SY'; no match -> no reconciliation, with a note)
     Write the chat reply from the returned key_points/table/checks."""
     fn = templates.TEMPLATES[template]
 
@@ -138,6 +143,8 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
         tm = Timer.start()
         with stage("plan (template)"):
             plan = fn(h, **params)
+        with stage("check members (atlas)"):
+            templates.check_pulls(plan.pulls, confirm=ops.live_confirm(h))
         with stage("open target"):
             t = userexcel.resolve_target(h, target, allow_archive, title=plan.title)
             qn = q or userexcel.next_question(t)
@@ -183,14 +190,15 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
 
 
 @tool(annotations=WRITE)
-async def sv_ws_pull(question: str, connection: Connection, rows: list[AxisIn], columns: list[AxisIn],
+async def sv_ws_pull(question: str, connection: Connection, rows: AxesIn, columns: AxesIn,
                      pov: dict[str, str] | None = None, target: str = "session", allow_archive: bool = False,
-                     q: int | None = None, sheet_title: str | None = None) -> dict:
+                     q: int | None = None, sheet_title: str | None = None, ctx: Context | None = None) -> dict:
     """Free-form analysis, step 1 (use sv_analyse when a template fits): put a LIVE Smart View grid (financial NOK
     format) into the user's workbook as 'Q<n> <cube>' and log it in 'Kilder'.
     For several pulls of ONE question: call again with target=<returned 'workbook'> and q=<returned 'q'> (otherwise
     target='new' would create a new file and q would advance). Then call sv_ws_answer(q, spec, target=<workbook>).
     Returns workbook, q, sheet, a data preview and the exact row_keys/col_keys to use in the answer spec."""
+    rows, columns = axes_in(rows), axes_in(columns)
     rows_ax = [Axis(a.dimension, a.members) for a in rows]
     cols_ax = [Axis(a.dimension, a.members) for a in columns]
 
@@ -292,7 +300,7 @@ def _answer_job(t, q: int, raw_spec: dict, ids: dict, sess: dict, tm, extra_warn
 @tool(annotations=WRITE)
 @_doc(SPEC_DOC)
 async def sv_ws_answer(q: int, spec: dict | None = None, spec_patch: dict | None = None, target: str = "session",
-                       allow_archive: bool = False) -> dict:
+                       allow_archive: bool = False, ctx: Context | None = None) -> dict:
     """Free-form analysis, step 2 (sv_ws_build does pulls + answer in ONE call): build or rebuild 'Q<n> Svar' from a
     spec whose cells reference the pulls of question q (same target as the pulls, ideally their 'workbook').
     Follow-up: pass spec_patch instead of spec - it is deep-merged into the question's last spec (dicts merge,
@@ -381,11 +389,16 @@ class PullIn(BaseModel):
     pov: dict[str, str] | None = None
     title: str | None = Field(default=None, description="Sheet name; default 'Q<n> <cube>' (+ ' <id>' if needed)")
 
+    @field_validator("rows", "columns", mode="before")
+    @classmethod
+    def _dict_axes(cls, v):
+        return [a.model_dump() for a in axes_in(v)] if isinstance(v, dict) else v
+
 
 @tool(annotations=WRITE)
 @_doc(SPEC_DOC)
 async def sv_ws_build(question: str, pulls: list[PullIn], spec: dict, target: str = "session",
-                      allow_archive: bool = False, q: int | None = None) -> dict:
+                      allow_archive: bool = False, q: int | None = None, ctx: Context | None = None) -> dict:
     """ONE call for a free-form analysis: every pull as a live Smart View sheet, then 'Q<n> Svar' from the spec, in
     the session's workbook (target 'session' default: one file per session, Q1, Q2 ... | 'active' = the user's open
     workbook, only when asked | 'new' | path; archive refused unless allow_archive). Pull cells in the
@@ -406,7 +419,8 @@ async def sv_ws_build(question: str, pulls: list[PullIn], spec: dict, target: st
 
 @tool(annotations=WRITE)
 async def sv_concept(concept: str, period: str | None = None, compare: str | None = None, entity: str | None = None,
-                     target: str = "session", allow_archive: bool = False, q: int | None = None) -> dict:
+                     target: str = "session", allow_archive: bool = False, q: int | None = None,
+                     ctx: Context | None = None) -> dict:
     """ONE call for a business-concept analysis (e.g. 'splitt' = Splitt profitability): builds every block of the
     concept from knowledge\\concepts.json - booked lines, estimated lines with their keys, attributed lines and what is
     not in FinMax - as live Smart View sheets + 'Q<n> Svar' in the session's workbook, YTD `period` (default: last

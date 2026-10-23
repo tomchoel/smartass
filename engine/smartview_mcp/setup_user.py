@@ -128,7 +128,22 @@ def startup_entries() -> list[str]:
     return out
 
 
+REG_EXPAND_SZ = 2
+
+
+def _path_override() -> Path | None:
+    """SMARTASS_USER_PATH_FILE: a file stands in for HKCU\\Environment Path (fresh-profile tests)."""
+    f = os.environ.get("SMARTASS_USER_PATH_FILE")
+    return Path(f) if f else None
+
+
 def _read_user_path() -> tuple[str, int]:
+    fake = _path_override()
+    if fake:
+        try:
+            return fake.read_text(encoding="utf-8"), REG_EXPAND_SZ
+        except FileNotFoundError:
+            return "", REG_EXPAND_SZ
     import winreg
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
         try:
@@ -139,6 +154,11 @@ def _read_user_path() -> tuple[str, int]:
 
 
 def _write_user_path(value: str, kind: int) -> None:
+    fake = _path_override()
+    if fake:
+        fake.parent.mkdir(parents=True, exist_ok=True)
+        fake.write_text(value, encoding="utf-8")
+        return
     import winreg
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as k:
         winreg.SetValueEx(k, "Path", 0, kind, value)
@@ -146,6 +166,8 @@ def _write_user_path(value: str, kind: int) -> None:
 
 def _broadcast_env_change() -> None:
     """Tell Explorer (and so new terminals) that the environment changed. Best effort."""
+    if _path_override():
+        return
     try:
         import ctypes
         from ctypes import wintypes

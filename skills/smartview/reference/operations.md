@@ -47,6 +47,9 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\smarta
   - **Claude Code itself.** Within ONE agent, Claude Code runs write tools one after another. Parallelism comes from several agents
     (subagents, sessions, Copilot).
 - **Stage log.** `server.log` logs `stage > ...` at the start of every stage, which pins a crash or hang to its step.
+  `open target` has sub-stages (find Excel windows, new workbook: add from template / save as, ready + bridge).
+- **Progress notes.** A stage that runs over 10 s sends an MCP progress note (`still working: <stage>`), repeated
+  every 10 s, for the tools that build in Excel and for `sv_drill`.
 
 ## How it works
 
@@ -84,11 +87,11 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\smarta
   (`child_server.py`) as a child process. When a tool is called after any edit to `smartview_mcp\*.py`, `vba\*.bas` or
   `child_server.py`, it restarts that child gracefully (its Excel closes and options are restored), then tells Claude Code the tool list changed.
   No `/mcp` is needed. Only an edit to `run_server.py` itself needs a reconnect. `sv_status` shows `server_started` and
-  `behind_reload_proxy`. The relay log is `smartass\logs\proxy.log`, and the test is `tests\live_relay.py [excel]`. `sv_restart`
+  `behind_reload_proxy`. The relay log is `smartass\logs\proxy.log`, and the live test is matrix scenario `S10.3.reload`. `sv_restart`
   restarts only Excel.
 - **Tests.**
   - Unit: `python -m pytest -q` in `<mcp>`.
-  - Live: `tests\live_smoke.py [quick|atlas|hang]`, `tests\live_refresh.py <xlsx>`, `tests\verify_gl.py <workbook>`.
+  - Live: `uv run python tests\live\matrix.py [--only TAGS]` in `<mcp>` (see `tests\live\README.md`).
   - Live tests start their own Excel. They no longer touch the server's.
 
 ## Errors and what they mean
@@ -109,6 +112,13 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\smarta
 | "…is in the Produktregnskapet archive" | Archive guard. Use `target='new'`, or `allow_archive=true` only when the user explicitly asks for it. |
 | Bare "Error executing tool …" with no reason | The server is running code from before the 13.10.2026 fix (the Excel was dead: `AttributeError: Excel.Application.Ready` in server.log). Run `sv_restart`, then ask the user to reconnect `smartass` with `/mcp`. |
 | Unknown-member warning | Smart View turned the text into a comment. Find the right name with `sv_find_member`. |
+| `Invalid query: unknown member 'X' (FinMax / All Entities)` from `sv_analyse` | The template member is not in the atlas and EPM confirmed live that it does not exist in that dimension. Fix the param (for `actual_vs_plan`, pass `finmax_entity`). If the live check itself fails, the member is pulled unverified instead. |
+| Warning `error cells on '<sheet>': N x #NoAccess (first: …)` / `formula error on line 'k'` | No read access, or a member not valid in that cube, on a data sheet; the answer lines that depend on it are errors. Tell the user these numbers are missing; never report them as zero. |
+| `Sign-in to EPM did not complete - open EPM once in Edge and log in, then retry sv_drill` | The drill's silent SSO login stalled (the browser nudges a hung `/oauth2/callback` once). The user opens EPM in Edge once, then you retry. |
+| `The drill page loaded but never requested data (also after one reload)` | The Oracle drill page stayed blank. Retry once; if it repeats, the page has changed (screenshot path in the error). |
+| `The hidden drill browser crashed … retry sv_drill` / `ran out of time before it could sign in` | The headless browser died or started too slowly within the drill's time limit. Retry. |
+| `this cell has no drill-through report: it is not a FinLite base-level intersection …` | The cell's data did not come through Data Integration. Use a FinLite account and a lower entity or period. |
+| Progress `still working: <stage> (n s)` | A long stage is running (sent every 10 s). Wait; do not call again. |
 
 ## Smart View settings the MCP touches
 

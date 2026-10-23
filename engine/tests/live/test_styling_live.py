@@ -13,7 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-WORK = Path(os.environ.get("LOCALAPPDATA", ".")) / "svkit" / "work"
+from smartview_mcp import config  # noqa: E402
+
+WORK = Path(config.ANALYSER_DIR) / "_matrix"      # same scratch folder as matrix.py
 
 
 def _norm(s: str) -> str:

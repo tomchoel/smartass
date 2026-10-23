@@ -1,4 +1,4 @@
-"""Status / atlas / admin tools: sv_status, sv_atlas_build, sv_atlas_status, sv_show, sv_restart, sv_atlas_changes. Registered on the shared `mcp` object by importing this module (see server.py)."""
+"""Status / atlas / admin tools: sv_status, sv_atlas_build, sv_atlas_status, sv_restart, sv_atlas_changes. Registered on the shared `mcp` object by importing this module (see server.py)."""
 from __future__ import annotations
 
 import os
@@ -84,13 +84,6 @@ async def sv_atlas_build(ctx: Context, connections: list[Connection] | None = No
 async def sv_atlas_status() -> dict:
     """What the atlas contains (per cube and dimension), when each part was built, and whether it is stale."""
     return atlas.status(atlas.connect())
-
-
-@tool(annotations=LOCAL)
-async def sv_show(visible: bool = True) -> dict:
-    """Show or hide the Smart View Excel window (hidden by default). Showing lets the user watch."""
-    await _call(lambda h: h.show(visible), what="show")
-    return {"visible": visible}
 
 
 @tool(annotations=ADMIN)

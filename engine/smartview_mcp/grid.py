@@ -121,6 +121,7 @@ class Parsed:
     pov_problems: list[str]
     no_access_cells: int
     total_rows: int
+    suppressed_rows: list[str] = field(default_factory=list)   # known members whose row was all #Missing
 
 
 def _clean(v):
@@ -150,7 +151,7 @@ def parse(layout: Layout, values: tuple | list, suppress_missing: bool, suppress
         pov_problems.append("Smart View did not recognise a POV member and appended: " + ", ".join(map(str, extra)))
 
     col_labels = [[cell(1 + d, nr + k) for d in range(nc)] for k in range(len(layout.col_tuples))]
-    out_rows, row_labels, unknown = [], [], set()
+    out_rows, row_labels, unknown, suppressed = [], [], set(), []
     no_access = 0
     last = [None] * nr
     first_data_row = 1 + nc
@@ -180,6 +181,8 @@ def parse(layout: Layout, values: tuple | list, suppress_missing: bool, suppress
                 data.append(_clean(v))
         nums = [v for v in data if isinstance(v, (int, float))]
         if suppress_missing and all(v is None for v in data):
+            if not all(v is None for v in data_raw):    # a real member with no data (not an unknown name)
+                suppressed.append(" / ".join(combo))
             continue
         if suppress_zeros and nums and all(v == 0 for v in nums) and len(nums) == len([v for v in data if v is not None]):
             continue
@@ -195,7 +198,7 @@ def parse(layout: Layout, values: tuple | list, suppress_missing: bool, suppress
                     unknown.add(f"{layout.cols[d].dimension}: {combo[d]}")
     columns = [a.dimension for a in layout.rows] + [" / ".join(c) for c in layout.col_tuples]
     return Parsed(columns, out_rows, row_labels, col_labels, sorted(unknown), pov_problems, no_access,
-                  len(layout.row_tuples))
+                  len(layout.row_tuples), suppressed)
 
 
 def to_markdown(columns: list[str], rows: list[list], labels: list[list[str]] | None = None, limit: int = 60) -> str:

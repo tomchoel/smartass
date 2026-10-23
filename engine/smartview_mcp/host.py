@@ -11,6 +11,7 @@ import concurrent.futures as cf
 import json
 import logging
 import queue
+import re
 import threading
 import time
 from typing import Any, Callable
@@ -23,7 +24,7 @@ import win32con
 import win32com.client as wc
 import win32process
 
-from . import config, sso
+from . import config, dialogs, sso
 
 log = logging.getLogger("smartview.host")
 
@@ -37,6 +38,31 @@ class HostError(Exception):
 
 class HostTimeout(HostError):
     pass
+
+
+class SignInBlocked(HostError):
+    """Smart View's sign-in is stuck in our hidden Excel (an Internet Explorer Login window, a WebView2-fallback box,
+    or a Login window the SSO watcher could not finish). ExcelHost.call kills that Excel and retries once."""
+
+    def __init__(self, msg: str, dialog: dialogs.Dialog, pid: int | None = None):
+        super().__init__(msg)
+        self.dialog, self.pid = dialog, pid
+
+
+def signin_message(d: dialogs.Dialog, again: bool, holders: list[str]) -> str:
+    if d.kind == "webview2_fallback" or d.ie:
+        cause = ("Smart View showed its sign-in window (WebView2 failed and it fell back to Internet Explorer, whose "
+                 "Oracle login page doesn't work)")
+    else:
+        cause = (f"Smart View's sign-in window stayed open for more than {config.LOGIN_GRACE_S:.0f}s (the automatic "
+                 "SSO click did not complete)")
+    hold = (f" Smart View's WebView2 folder is in use by {', '.join(holders)}; closing that app (and its Smart View) "
+            "may let WebView2 start again." if holders else "")
+    if not again:
+        return f"{cause}. Dialog: {dialogs.describe(d)}. The engine restarted its hidden Excel; retry.{hold}"
+    return (f"{cause}. Dialog: {dialogs.describe(d)}. The engine restarted Excel once; it happened again.{hold} "
+            "Next step: sign in to Smart View once in your own Excel (Smart View ribbon → Panel → connect), then "
+            "retry; if it repeats, run `smartass doctor --bundle`.")
 
 
 class InputError(ValueError):
@@ -144,6 +170,8 @@ class ComThread(threading.Thread):
         super().__init__(daemon=True, name=name)
         self.q: queue.Queue = queue.Queue()
         self.busy_since: float | None = None
+        self.job_no = 0                           # counts started jobs: tells a reset that the blocked job has ended
+        self.waiting_reset = False                # the current job sits in ExcelHost._wait_reset (not blocked)
 
     def run(self):
         pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)
@@ -158,6 +186,7 @@ class ComThread(threading.Thread):
                     break
                 if not fut.set_running_or_notify_cancel():
                     continue
+                self.job_no += 1
                 self.busy_since = time.monotonic()
                 try:
                     fut.set_result(fn())
@@ -192,6 +221,10 @@ class ExcelHost:
         self._known_before: set[int] = _excel_pids()
         self._start_wall = time.time()
         self.sv_version = sso.smartview_version()
+        self.detect: Callable[[int], list[dialogs.Dialog]] = dialogs.scan
+        self._resetting = threading.Event()       # set while _hard_reset runs: queued jobs wait, scans pause
+        self._reset_lock = threading.Lock()
+        self.reset_gen = 0
         swept = self.registry.sweep()
         if swept:
             log.warning("killed own orphaned Excel from a previous run: %s", swept)
@@ -200,7 +233,23 @@ class ExcelHost:
     async def call(self, fn: Callable[["ExcelHost"], Any], timeout: float | None = None, what: str = "call",
                    user_excel: bool = False):
         """Run fn on the COM thread. user_excel=True: fn also drives the USER's Excel, which is never killed - on a
-        timeout the blocked COM thread is abandoned instead (and our own hidden Excel restarted with a fresh thread)."""
+        timeout the blocked COM thread is abandoned instead (and our own hidden Excel restarted with a fresh thread).
+        A stuck Smart View sign-in in our hidden Excel (SignInBlocked) kills that Excel; the call is retried once."""
+        import asyncio
+        for attempt in (1, 2):
+            try:
+                return await self._call_once(fn, timeout, what, user_excel)
+            except SignInBlocked as e:
+                d, pid = e.dialog, e.pid
+                await asyncio.to_thread(self._hard_reset, f"{what}: Smart View sign-in stuck at {dialogs.describe(d)}",
+                                        pid)
+                if attempt == 2 or user_excel:
+                    holders = await asyncio.to_thread(dialogs.webview2_holders, exclude_parent=pid)
+                    raise SignInBlocked(signin_message(d, attempt == 2, holders), d) from None
+                log.warning("Smart View sign-in stuck during %s (%s); restarted its Excel, retrying once",
+                            what, dialogs.describe(d))
+
+    async def _call_once(self, fn: Callable[["ExcelHost"], Any], timeout: float | None, what: str, user_excel: bool):
         import asyncio
         from . import userexcel
         timeout = timeout or (config.USER_CALL_TIMEOUT_S if user_excel else config.CALL_TIMEOUT_S)
@@ -211,6 +260,7 @@ class ExcelHost:
             started.set()
             userexcel.bind_job(token)             # an abandoned job stops at its next COM call (token check)
             if not user_excel:                    # jobs in the user's Excel start the hidden one only on demand
+                self._wait_reset()
                 self._ensure_started()            # (h.on_host): it costs ~10 s + an SSO login per server start
                 return fn(self)
             try:
@@ -228,6 +278,7 @@ class ExcelHost:
         else:
             fut = self.thread.submit(job)
         wrapped = asyncio.wrap_future(fut)
+        wrapped.add_done_callback(lambda f: f.cancelled() or f.exception())   # an abandoned job's error is expected
         q0 = time.monotonic()                     # the deadline starts when the job STARTS, not while it queues
         while not started.is_set() and not fut.done():
             if time.monotonic() - q0 > config.QUEUE_TIMEOUT_S:
@@ -236,7 +287,7 @@ class ExcelHost:
                                 f"(e.g. an atlas build); {what} was not started. Try again shortly.")
             await asyncio.sleep(0.1)
         try:
-            return await asyncio.wait_for(wrapped, timeout)
+            return await self._await_job(wrapped, timeout, watch_dialogs=not user_excel)
         except asyncio.TimeoutError:
             if user_excel:
                 token.aborted = True              # only this job: it rolls back when that Excel frees up
@@ -245,9 +296,10 @@ class ExcelHost:
                     f"Your Excel did not respond within {timeout:.0f}s during {what} (a dialog, edit mode, or a large "
                     "refresh). Nothing was closed. Check Excel for an open dialog, press Esc/Enter, and ask again.") from None
             pid = self.pid
-            await asyncio.to_thread(self._hard_reset, f"{what} exceeded {timeout:.0f}s")
+            dlg = await asyncio.to_thread(self._open_dialog_note)
+            await asyncio.to_thread(self._hard_reset, f"{what} exceeded {timeout:.0f}s", pid)
             raise HostTimeout(
-                f"Smart View did not respond within {timeout:.0f}s during {what}; its Excel (pid {pid}) was "
+                f"Smart View did not respond within {timeout:.0f}s during {what}{dlg}; its Excel (pid {pid}) was "
                 "terminated and will restart on the next call (SSO is clicked automatically). "
                 f"Retry, or use a smaller grid. Diagnosis: {self.last_error}") from None
         except pywintypes.com_error as e:
@@ -258,8 +310,9 @@ class ExcelHost:
             log.warning("COM error during %s", what, exc_info=True)
             inner = e.excepinfo[5] if e.excepinfo and len(e.excepinfo) > 5 else None
             if e.hresult in RETRY_HRESULTS or -2146777998 in (e.hresult, inner):    # 0x800AC472 VBA_E_IGNORE
-                raise HostError(f"Excel was busy during {what} - probably a cell is being edited or a dialog is "
-                                "open. Press Enter or Esc in Excel and ask again.") from None
+                dlg = "" if user_excel else await asyncio.to_thread(self._open_dialog_note)
+                raise HostError(f"Excel was busy during {what}{dlg or ' - probably a cell is being edited or a dialog is open'}"
+                                ". Press Enter or Esc in Excel and ask again.") from None
             raise HostError(f"COM error during {what}: {e}") from None
         except (HostError, InputError):
             raise
@@ -267,6 +320,62 @@ class ExcelHost:
             log.exception("unexpected error during %s", what)
             raise HostError(f"Unexpected {type(e).__name__} during {what}: {e}. Retry once; if it repeats, run "
                             "sv_restart.") from None
+
+    async def _await_job(self, wrapped, timeout: float, watch_dialogs: bool):
+        """Wait for the job; from DIALOG_CHECK_AFTER_S on, every DIALOG_POLL_S, look for a stuck Smart View sign-in in
+        our hidden Excel (the COM thread is blocked by its modal window, so only this side can see it)."""
+        import asyncio
+        t0, first_seen = time.monotonic(), {}
+        while True:
+            elapsed = time.monotonic() - t0
+            if elapsed >= timeout:
+                raise asyncio.TimeoutError
+            nxt = max(config.DIALOG_CHECK_AFTER_S, elapsed + config.DIALOG_POLL_S)
+            done, _ = await asyncio.wait({wrapped}, timeout=min(nxt, timeout) - elapsed)
+            if done:
+                return wrapped.result()
+            pid = self.pid                        # read at scan time: a reset may have replaced the Excel
+            if watch_dialogs and pid and not self._resetting.is_set() \
+                    and time.monotonic() - t0 >= config.DIALOG_CHECK_AFTER_S:
+                found = await asyncio.to_thread(self._dialogs, pid)
+                d = dialogs.blocking(found, first_seen, time.monotonic(), config.LOGIN_GRACE_S)
+                if d and pid == self.pid:
+                    raise SignInBlocked(f"Smart View sign-in stuck: {dialogs.describe(d)}", d, pid)
+
+    def _dialogs(self, pid: int) -> list[dialogs.Dialog]:
+        try:
+            return self.detect(pid)
+        except Exception:   # noqa: BLE001 - diagnosis only; never mask the real outcome
+            log.warning("dialog scan of pid %s failed", pid, exc_info=True)
+            return []
+
+    def _open_dialog_note(self) -> str:
+        """' - a dialog is open in the hidden Excel: 'title: text'' when one is, else ''."""
+        found = self._dialogs(self.pid) if self.pid else []
+        return f" - a dialog is open in the hidden Excel: {dialogs.describe(found[0])}" if found else ""
+
+    def check_signin(self) -> None:
+        """On the COM thread, after a transient Smart View error: raise SignInBlocked if a Login window or a
+        WebView2-fallback box is open in our Excel (retrying in that Excel is pointless; ExcelHost.call restarts it)."""
+        if self.pid is None:
+            return
+        d = dialogs.blocking(self._dialogs(self.pid), {}, 0.0, 0.0)
+        if d:
+            raise SignInBlocked(f"Smart View sign-in stuck: {dialogs.describe(d)}", d, self.pid)
+
+    def _wait_reset(self) -> None:
+        """A job queued behind a reset waits for it, so it never starts an Excel the reset then forgets."""
+        deadline = time.monotonic() + config.RESET_WAIT_S + 5
+        me = threading.current_thread()
+        mark = isinstance(me, ComThread)
+        if mark:
+            me.waiting_reset = True
+        try:
+            while self._resetting.is_set() and time.monotonic() < deadline:
+                time.sleep(0.05)
+        finally:
+            if mark:
+                me.waiting_reset = False
 
     # ---------------- worker-thread side ----------------
     def ensure(self) -> "ExcelHost":
@@ -283,6 +392,7 @@ class ExcelHost:
             return fn()
 
         def job():
+            self._wait_reset()
             self._ensure_started()
             return fn()
         return self.thread.submit(job).result(timeout or config.CALL_TIMEOUT_S)
@@ -427,11 +537,6 @@ class ExcelHost:
         self.run("B_Connect", name, connection)
         self.connected[name] = connection
 
-    def show(self, visible: bool):
-        self.visible = visible
-        if self.app is not None:
-            self.app.Visible = visible
-
     def shutdown(self):
         def job():
             if self.app is None:
@@ -496,9 +601,25 @@ class ExcelHost:
         self.connected.clear()
         self.pid = self.ctime = None
 
-    def _hard_reset(self, why: str):
-        """Called from the event-loop thread while the COM thread is blocked."""
-        pid, ctime = self.pid, self.ctime
+    def _hard_reset(self, why: str, expected_pid: int | None = None):
+        """Called from the event-loop thread while the COM thread is blocked. expected_pid: the Excel the caller saw
+        stuck - if another reset already replaced it, there is nothing to do. One reset at a time; jobs queued behind
+        it wait (_wait_reset), so the Excel they start is never cleared or orphaned by this reset."""
+        with self._reset_lock:
+            if expected_pid is not None and self.pid != expected_pid:
+                log.info("reset for Excel pid=%s skipped: already replaced by pid=%s", expected_pid, self.pid)
+                return
+            thread, job_no = self.thread, self.thread.job_no    # before the flag: a job starting after it is not ours
+            self._resetting.set()
+            self.reset_gen += 1
+            try:
+                self._do_hard_reset(why, thread, job_no)
+            finally:
+                self._resetting.clear()
+
+    def _do_hard_reset(self, why: str, thread: "ComThread", job_no: int):
+        pid0 = pid = self.pid
+        ctime = self.ctime
         if pid is None:
             # Still inside DispatchEx: only if exactly ONE new Excel appeared within 5 s of our start is it ours.
             # Anything else (excel-mcp, the user) may have started one in the meantime - leave it alone.
@@ -515,16 +636,20 @@ class ExcelHost:
         if pid and ctime and kill_ours(pid, ctime):
             log.warning("terminated own Excel pid=%s (%s)", pid, why)
             self.registry.remove(pid)
-        deadline = time.monotonic() + 10
-        while self.thread.busy_since is not None and time.monotonic() < deadline:
-            time.sleep(0.2)
-        if self.thread.busy_since is not None:
+        deadline = time.monotonic() + config.RESET_WAIT_S
+
+        def blocked() -> bool:                    # the job that was running when we killed is still running
+            return thread.busy_since is not None and thread.job_no == job_no and not thread.waiting_reset
+        while blocked() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if blocked() and self.thread is thread:
             log.error("COM thread still blocked after kill; replacing it")
             self.thread = ComThread()
             self.thread.start()
-        self.app = self.wb = None          # COM refs are dead anyway; the worker recreates on next call
-        self.connected.clear()
-        self.pid = self.ctime = None
+        if self.pid == pid0:                      # COM refs are dead anyway; the worker recreates on next call
+            self.app = self.wb = None
+            self.connected.clear()
+            self.pid = self.ctime = None
 
 
 def _explain(fn: str, status: str) -> str:
@@ -535,6 +660,9 @@ def _explain(fn: str, status: str) -> str:
     low = detail.lower()
     if "cannot connect to provider" in low or "<update>" in low or "empty response" in low:
         hint = "EPM Cloud did not accept the connection (transient; usually works on retry)"
+    elif rc == "-15" and re.search(r"\bsid\b", low):
+        hint = ("Smart View is not signed in yet (no session id): wait until the EPM login has completed, or ask the "
+                "user to sign in once in their Excel, then retry")
     elif rc == "57704" and "mbrs" in low:
         hint = ("the EPM Cloud Planning provider does not support this member query; use sv_find_member / sv_members "
                 "(atlas) instead")

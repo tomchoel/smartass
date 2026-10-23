@@ -1,4 +1,4 @@
-"""Cube query tools: sv_dimensions, sv_query, sv_find_member, sv_members, sv_refresh_workbook, the advanced ad hoc API, sv_member_info, sv_scope. Registered on the shared `mcp` object by importing this module (see server.py)."""
+"""Cube query tools: sv_dimensions, sv_query, sv_find_member, sv_members, sv_refresh_workbook, sv_member_info, sv_scope. Registered on the shared `mcp` object by importing this module (see server.py)."""
 from __future__ import annotations
 
 import datetime as dt
@@ -11,8 +11,9 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from . import atlas, config, ops, qlog
 from .grid import Axis, to_markdown
-from .host import ExcelHost, HostError
-from .server import LOCAL, READ, WRITE, AxisIn, Connection, _call, _err, _safe_name, tool
+from .timing import Timer, stage
+from .host import HostError
+from .server import LOCAL, READ, WRITE, AxesIn, Connection, axes_in, _call, _err, _safe_name, tool
 
 @tool(annotations=READ)
 async def sv_dimensions(connection: Connection) -> dict:
@@ -25,7 +26,7 @@ async def sv_dimensions(connection: Connection) -> dict:
 
 
 @tool(annotations=WRITE)
-async def sv_query(connection: Connection, rows: list[AxisIn], columns: list[AxisIn], ctx: Context,
+async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: Context,
                    pov: dict[str, str] | None = None, suppress_missing: bool = True, suppress_zeros: bool = False,
                    save_xlsx: bool = False, title: str | None = None, large: bool = False,
                    max_preview_rows: int = config.PREVIEW_ROWS) -> dict:
@@ -41,6 +42,7 @@ async def sv_query(connection: Connection, rows: list[AxisIn], columns: list[Axi
     Unknown members are reported (Smart View silently ignores them) - fix with sv_find_member.
     save_xlsx writes the full result (with a POV/metadata sheet, label 'Internal') to the output folder.
     Grids over 50,000 cells need large=true."""
+    rows, columns = axes_in(rows), axes_in(columns)
     rows_ax = [Axis(a.dimension, a.members) for a in rows]
     cols_ax = [Axis(a.dimension, a.members) for a in columns]
     n_cells = 1
@@ -85,6 +87,11 @@ async def sv_query(connection: Connection, rows: list[AxisIn], columns: list[Axi
                 "total_s": round(time.monotonic() - t0, 2), "unknown": parsed.unknown_members, "saved": saved})
     warnings = parsed.pov_problems + ([f"{parsed.no_access_cells} cells are #NoAccess (no read access)"]
                                       if parsed.no_access_cells else [])
+    if parsed.suppressed_rows:
+        n = len(parsed.suppressed_rows)
+        warnings.append(f"{n} requested row(s) had no data and were left out (suppress_missing): "
+                        + "; ".join(parsed.suppressed_rows[:10]) + (" ..." if n > 10 else "")
+                        + ". They are valid members with nothing booked - report them as 0 / empty.")
     if parsed.unknown_members:
         warnings.insert(0, "Unknown/unrecognised members (no data returned for them): "
                         + "; ".join(parsed.unknown_members) + ". Use sv_find_member to get the right names.")
@@ -145,7 +152,7 @@ async def sv_members(connection: Connection, member: str,
 
 
 @tool(annotations=WRITE)
-async def sv_refresh_workbook(path: str, output_name: str | None = None) -> dict:
+async def sv_refresh_workbook(path: str, output_name: str | None = None, ctx: Context | None = None) -> dict:
     """Refresh every Smart View sheet of an existing workbook. Works on a COPY: the source file is never changed.
     The refreshed copy is saved (label 'Internal') to the output folder and the path is returned; open it with
     excel-mcp for further work. The source must be closed in Excel."""
@@ -155,135 +162,15 @@ async def sv_refresh_workbook(path: str, output_name: str | None = None) -> dict
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M%S")
     out = config.OUT_DIR / f"{stamp}_{output_name or ('refreshed_' + src.stem)}{src.suffix}"
     try:
-        res = await _call(lambda h: ops.refresh_workbook(h, src, out), timeout=900, what="refresh_workbook")
+        def job(h):
+            Timer.start()                         # its own timer: progress notes while the refresh runs
+            with stage("refresh workbook"):
+                return ops.refresh_workbook(h, src, out)
+        res = await _call(job, timeout=900, what="refresh_workbook")
     except (HostError, ToolError) as e:
         raise _err(e)
     qlog.write({"tool": "sv_refresh_workbook", **res})
     return res
-
-
-# ---------------------------------------------------------------- advanced: full ad hoc API (read-only)
-def _sheet(name: str) -> str:
-    return ("X_" + _safe_name(name))[:31]
-
-
-def _grid_preview(h: ExcelHost, sheet: str, max_rows: int = 80) -> dict:
-    ws = h.wb.Worksheets(sheet)
-    vals = ops._used_values(ws)
-    rows = [list(r) for r in vals]
-    return {"sheet": sheet, "used_range": ws.UsedRange.Address, "rows": len(rows),
-            "grid": rows[:max_rows], "truncated": len(rows) > max_rows}
-
-
-@tool(annotations=READ)
-async def sv_adhoc_open(connection: Connection, sheet: str = "adhoc") -> dict:
-    """Advanced: open a fresh ad hoc sheet on a cube with Smart View's default grid (POV in row 1). Then edit
-    cells with sv_adhoc_set_cells and run sv_adhoc_action. Returns the grid (cell A1 = grid[0][0])."""
-    s = _sheet(sheet)
-
-    def job(h):
-        ops.ensure_grid_sheet(h, connection, sheet=s, fresh=True)
-        return _grid_preview(h, s)
-    try:
-        return await _call(job, what="adhoc_open")
-    except (HostError, ToolError) as e:
-        raise _err(e)
-
-
-@tool(annotations=READ)
-async def sv_adhoc_grid(sheet: str = "adhoc", max_rows: int = 80) -> dict:
-    """Advanced: read the current contents of an ad hoc sheet."""
-    s = _sheet(sheet)
-    return await _call(lambda h: _grid_preview(h, s, max_rows), what="adhoc_grid")
-
-
-@tool(annotations=READ)
-async def sv_adhoc_set_cells(cells: dict[str, str], sheet: str = "adhoc", clear_first: bool = False) -> dict:
-    """Advanced: type member names / text into cells of an ad hoc sheet (stored as text), e.g.
-    {'B2':'Sep 26','A3':'ac.C30'}. Follow with sv_adhoc_action(action='retrieve')."""
-    s = _sheet(sheet)
-
-    def job(h):
-        ws = h.wb.Worksheets(s)
-        ws.Activate()
-        if clear_first:
-            ws.Cells.ClearContents()
-        for addr, text in cells.items():
-            r = ws.Range(addr)
-            r.NumberFormat = "@"
-            r.Value = text
-        return _grid_preview(h, s)
-    return await _call(job, what="adhoc_set_cells")
-
-
-@tool(annotations=READ)
-async def sv_adhoc_action(action: Literal["retrieve", "zoom_in", "zoom_out", "keep_only", "remove_only",
-                                          "pivot_to_pov", "pivot_to_grid", "pivot"],
-                          sheet: str = "adhoc", cell: str | None = None, level: Literal[
-                              "next", "all", "bottom", "siblings", "same_level", "same_generation"] = "next",
-                          dimension: str | None = None, end_cell: str | None = None) -> dict:
-    """Advanced: run a Smart View ad hoc operation on a sheet (read-only; no submit exists).
-    zoom_in(cell, level) · zoom_out(cell) · keep_only(cell or range) · remove_only(cell or range) ·
-    pivot_to_pov(cell) · pivot_to_grid(dimension, cell) · pivot(cell -> end_cell) · retrieve."""
-    s = _sheet(sheet)
-    lv = {"next": 0, "all": 1, "bottom": 2, "siblings": 3, "same_level": 4, "same_generation": 5}[level]
-
-    def job(h):
-        h.wb.Worksheets(s).Activate()
-        if action == "retrieve":
-            h.run("B_Retrieve", s)
-        elif action == "zoom_in":
-            h.run("B_ZoomIn", s, cell, lv, False)
-        elif action == "zoom_out":
-            h.run("B_ZoomOut", s, cell)
-        elif action == "keep_only":
-            h.run("B_KeepOnly", s, cell)
-        elif action == "remove_only":
-            h.run("B_RemoveOnly", s, cell)
-        elif action == "pivot_to_pov":
-            h.run("B_PivotToPOV", s, cell)
-        elif action == "pivot_to_grid":
-            h.run("B_PivotToGrid", s, dimension, cell)
-        elif action == "pivot":
-            h.run("B_Pivot", s, cell, end_cell)
-        return _grid_preview(h, s)
-    if action != "retrieve" and not cell:
-        raise ToolError(f"{action} needs a cell address; pass cell= (e.g. 'B3').")
-    try:
-        res = await _call(job, what=f"adhoc_{action}")
-    except (HostError, ToolError) as e:
-        raise _err(e)
-    qlog.write({"tool": "sv_adhoc_action", "action": action, "sheet": s, "cell": cell, "level": level,
-                "dimension": dimension})
-    return res
-
-
-@tool(annotations=WRITE)
-async def sv_adhoc_option(option: int, value: str | None = None, sheet: str | None = "adhoc") -> dict:
-    """Advanced: get (value omitted) or set a Smart View option. sheet=None means global (careful: global options
-    are the user's preferences). Codes: 1 zoom level, 5 indentation (0 none,1 sub items,2 totals),
-    6/41 suppress missing rows/cols, 7/42 suppress zero rows/cols, 13 missing label, 16 member display
-    (0 name,1 name+desc,2 desc), 33 navigate without data, 44 suppress missing blocks."""
-    s = _sheet(sheet) if sheet else ""
-
-    def coerce(v):
-        if v is None:
-            return None
-        if v.lower() in ("true", "false"):
-            return v.lower() == "true"
-        try:
-            return int(v)
-        except ValueError:
-            return v
-
-    def job(h):
-        if value is None:
-            r = h._run("B_GetOption", option, s)
-            return {"option": option, "sheet": s or "(global)", "value": r[1] if r and r[0] == "OK" else None,
-                    "status": r[0] if r else None}
-        return {"option": option, "sheet": s or "(global)", "set": coerce(value),
-                "status": h._run("B_SetOption", option, coerce(value), s)}
-    return await _call(job, what="adhoc_option")
 
 
 @tool(annotations=READ)

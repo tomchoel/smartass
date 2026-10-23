@@ -54,6 +54,7 @@ def _connect_with_retry(h: ExcelHost, sheet: str, conn: str, attempts: int = 3):
                                                   "did not accept the connection"))
             if i == attempts - 1 or not transient:
                 raise
+            h.check_signin()                      # a stuck sign-in: no point retrying in this Excel
             time.sleep(4 * (i + 1))
 
 
@@ -171,6 +172,16 @@ def is_rc1000(msg) -> bool:
     return re.search(r"(?<!\d)1000(?!\d)", str(msg)) is not None
 
 
+def is_transient(msg) -> bool:
+    """rc=752 'Empty response from provider' or rc=57704 'Unsupported Error' (server says 'H&yperion') on a retrieve:
+    seen right after an unfinished sign-in; usually gone on the next try. Not the 57704 of an unsupported member
+    query (_explain's 'does not support this member query')."""
+    s = str(msg)
+    if "does not support this member query" in s:
+        return False
+    return re.search(r"(?:rc=|ERR\|)(752|57704)(?!\d)", s) is not None or "empty response from provider" in s.lower()
+
+
 def _rejected_members(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis]) -> list[tuple[str, str]]:
     """After an rc=1000 'Unsupported Error': bisect each multi-member axis to find the members Smart View rejects
     (e.g. a name used twice in one dimension, like FinPlan Account 'Other'). Returns [(dimension, member)]."""
@@ -216,13 +227,74 @@ def _explain_reject(conn: str, dim: str, member: str) -> str:
     return f"{dim}: {member}{why}"
 
 
+def unknown_members(conn: str, pov: dict, rows: list[Axis], cols: list[Axis]) -> list[tuple[str, str]]:
+    """(dimension, member) pairs the atlas does not know - one indexed lookup per member. Dimensions whose atlas is
+    missing, failed or stale are skipped (no verdict without a trustworthy catalogue)."""
+    from . import atlas
+    try:
+        db = atlas.connect()
+    except Exception:       # noqa: BLE001 - no atlas: nothing to check against
+        return []
+    items = [(canon_dim(conn, d), m) for d, m in pov.items()]
+    items += [(canon_dim(conn, a.dimension), m) for a in rows + cols for m in a.members]
+    ok: dict[str, bool] = {}
+    out = []
+    for dim, m in dict.fromkeys(items):
+        if dim not in ok:
+            ok[dim] = atlas.usable(db, conn, dim)
+        if ok[dim] and not atlas.has_member(db, conn, dim, m):
+            out.append((dim, m))
+    return out
+
+
+def canonical_pov(conn: str, pov: dict) -> dict:
+    """pov with each member in the atlas spelling (Essbase ignores case; the sheets then show the real name)."""
+    from . import atlas
+    try:
+        db = atlas.connect()
+    except Exception:       # noqa: BLE001 - no atlas: keep the given spelling
+        return dict(pov)
+    out = {}
+    for d, m in pov.items():
+        out[d] = (atlas.canonical(db, conn, canon_dim(conn, d), m) or m) if isinstance(m, str) else m
+    return out
+
+
+def check_members(conn: str, pov: dict, rows: list[Axis], cols: list[Axis], confirm=None) -> None:
+    """InputError naming every member the atlas does not know in conn (see unknown_members). The atlas can predate a
+    new period or account, so each miss is first confirmed live with confirm(conn, dim, member) -> bool (live_confirm); a
+    member is rejected only when the live check says it does not exist (a failed check leaves it unverified)."""
+    bad = unknown_members(conn, pov, rows, cols)
+    if confirm:
+        bad = [(d, m) for d, m in bad if _missing_live(confirm, conn, d, m)]
+    if bad:
+        raise InputError("Invalid query: unknown member " + "; ".join(f"'{m}' ({conn} / {d})" for d, m in bad)
+                         + ". Find the right name with sv_find_member / sv_members.")
+
+
+def _missing_live(confirm, conn: str, dim: str, member: str) -> bool:
+    try:
+        return not confirm(conn, dim, member)
+    except Exception as e:  # noqa: BLE001 - unverified: let the pull and the error-cell scan decide
+        log.warning("live member check of %s / %s failed: %s", conn, member, e)
+        return False
+
+
 def query(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis],
           suppress_missing: bool, suppress_zeros: bool):
     """Retrieve a grid. If Smart View rejects it (rc=1000), find the rejected members by bisection, drop them,
-    retrieve again and report them in parsed.pov_problems, so one bad member does not sink a large pull."""
+    retrieve again and report them in parsed.pov_problems, so one bad member does not sink a large pull.
+    A transient rc=752 / rc=57704 is retried once on a fresh grid sheet - after a restart if Smart View's sign-in
+    is stuck (h.check_signin raises SignInBlocked; ExcelHost.call restarts Excel and runs the query again)."""
     try:
         return _query_once(h, conn, pov, rows, cols, suppress_missing, suppress_zeros)
     except HostError as e:
+        if is_transient(e):
+            log.warning("transient Smart View error on %s, retrying once: %s", conn, e)
+            h.check_signin()
+            time.sleep(config.TRANSIENT_RETRY_WAIT_S)
+            ensure_grid_sheet(h, conn, fresh=True)
+            return _query_once(h, conn, pov, rows, cols, suppress_missing, suppress_zeros)
         if not is_rc1000(e) or all(len(a.members) <= 1 for a in rows + cols):
             raise
         err = e
@@ -281,6 +353,43 @@ def _query_once(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list
         raise HostError("Smart View returned a different layout than requested (rows/columns moved): "
                         + "; ".join(bad[:5]))
     return lay, p, secs
+
+
+def live_dimension(h: ExcelHost, conn: str, member: str) -> str | None:
+    """Dimension of an exact member name, asked live (B_FindMember only); None when EPM does not return it. Smart View
+    gives the same kind of error for 'no such member' and a broken session - live_confirm tells them apart."""
+    r = h._run("B_FindMember", ensure_grid_sheet(h, conn), member, "Default")
+    if isinstance(r, tuple) and r[0] == "OK":
+        return str(r[1])
+    status = str(r[0] if isinstance(r, tuple) else r)
+    if status.startswith("ERR|VBA"):
+        raise HostError(f"live member check failed: {status}")
+    return None
+
+
+def live_confirm(h: ExcelHost):
+    """confirm(conn, dim, member) for check_members: the member exists live in that dimension. A miss counts only
+    when the check itself works right then - a member the atlas has at the top of that dimension is found (asked
+    again on every miss: misses are rare); otherwise HostError, so the member stays unverified, not rejected."""
+    def confirm(conn: str, dim: str, member: str) -> bool:
+        d = live_dimension(h, conn, member)
+        if d is not None:
+            return canon_dim(conn, d).casefold() == canon_dim(conn, dim).casefold()
+        probe = _atlas_top(conn, dim) or dim
+        if live_dimension(h, conn, probe) is None:
+            raise HostError(f"live member check on {conn} does not work now (even '{probe}' is not found)")
+        return False
+    return confirm
+
+
+def _atlas_top(conn: str, dim: str) -> str | None:
+    from . import atlas
+    try:
+        r = atlas.connect().execute("SELECT name FROM member WHERE connection=? AND dimension=? ORDER BY depth, ord "
+                                    "LIMIT 1", (conn, dim)).fetchone()
+    except Exception:       # noqa: BLE001 - no atlas: probe the dimension name
+        return None
+    return r[0] if r else None
 
 
 def find_member(h: ExcelHost, conn: str, member: str) -> dict:
@@ -475,13 +584,21 @@ def _explain_status(status) -> str:
 DRILL_DEFAULTS = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}
 
 
+def drill_cell_defaults(cell: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+    """A drill cell needs an account and a period; a missing entity drills the top member, with a warning."""
+    missing = {"All Accounts", "All Time Periods"} - set(cell)
+    if missing:
+        raise InputError(f"sv_drill needs these dimensions in cell: {sorted(missing)}")
+    if "All Entities" in cell:
+        return dict(cell), []
+    return {**cell, "All Entities": "All Entities"}, [
+        "All Entities not given - drilled the top member; name an entity to narrow it"]
+
+
 def drill_link(h: ExcelHost, conn: str, cell: dict[str, str]) -> dict:
     """Retrieve ONE cell (account on rows, period on columns, the rest as POV) on our hidden grid sheet and return
     {cube_value, url, report}. url is relative to config.EPM_BASE. Read-only: the report is listed, never run."""
-    need = {"All Accounts", "All Time Periods", "All Entities"}
-    missing = need - set(cell)
-    if missing:
-        raise InputError(f"sv_drill needs these dimensions in cell: {sorted(missing)}")
+    cell, _ = drill_cell_defaults(cell)
     if cell.get("All Balance Types", "Periodic") != "Periodic":
         raise InputError("Drill-through works on Periodic data only; use a period member (quarter/year) instead "
                         "of Accumulated.")

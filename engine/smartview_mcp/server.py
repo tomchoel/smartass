@@ -4,9 +4,11 @@ Tools never write to EPM: submit, calculate and business-rule functions are not 
 """
 from __future__ import annotations
 
+import contextvars
 import datetime as dt
 import logging
 import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -94,6 +96,18 @@ class AxisIn(BaseModel):
     members: list[str] = Field(description="Member names in order, e.g. ['ac.C30','ac.EBITDA'] or ['Aug 26','Sep 26']")
 
 
+AxesIn = list[AxisIn] | dict[str, list[str] | str]
+
+
+def axes_in(x) -> list[AxisIn]:
+    """rows/columns as [{dimension, members}] (documented) or {dimension: [members]} (what agents often send)."""
+    if isinstance(x, dict) and set(x) == {"dimension", "members"}:
+        x = [x]                                         # one axis object instead of a list of them
+    if isinstance(x, dict):
+        return [AxisIn(dimension=d, members=[m] if isinstance(m, str) else list(m)) for d, m in x.items()]
+    return [a if isinstance(a, AxisIn) else AxisIn(**a) for a in x]
+
+
 def _err(e: Exception) -> ToolError:
     return ToolError(with_next_step(logsetup.redact(e), e))
 
@@ -142,6 +156,10 @@ def guard(fn):
 
     @functools.wraps(fn)          # keeps __wrapped__, so the SDK builds the same input schema
     async def guarded(*args, **kwargs):
+        from mcp.server.mcpserver import Context
+        # tools that declare ctx get progress notes from their slow stages (None for the others: no stale ctx)
+        _ctx.set(next((v for v in kwargs.values() if isinstance(v, Context)), None))
+        _t0.set(time.monotonic())
         try:
             if is_async:
                 return await fn(*args, **kwargs)
@@ -161,10 +179,46 @@ def tool(annotations: ToolAnnotations = READ):
     return deco
 
 
+_ctx: contextvars.ContextVar = contextvars.ContextVar("smartass_tool_ctx", default=None)
+_t0: contextvars.ContextVar = contextvars.ContextVar("smartass_tool_t0", default=0.0)   # progress = s since call start
+
+
+def progress_secs() -> float:
+    """Seconds since this tool call started: the MCP progress value (it must only increase within a request)."""
+    return round(time.monotonic() - _t0.get(), 1)
+
+
+def _with_progress(fn):
+    """fn(h) whose Timer sends 'still working: <stage>' notes to the client (MCP progress) while a stage runs
+    long (timing.PROGRESS_AFTER_S). Only for tools that declare ctx; a client without a progress token ignores them."""
+    import asyncio
+
+    from .timing import Timer
+    ctx = _ctx.get()
+    if ctx is None:
+        return fn
+    loop = asyncio.get_running_loop()
+
+    def notify(text: str) -> None:
+        asyncio.run_coroutine_threadsafe(ctx.report_progress(progress_secs(), None, text), loop)
+
+    def job(h):
+        Timer.note_notify(notify)
+        try:
+            return fn(h)
+        finally:                                  # no notes after the job (also when the call was abandoned)
+            Timer.note_notify(None)
+            t = Timer.current()
+            if t is not None and t.notify is notify:
+                t.notify = None
+                t._ticker(False)
+    return job
+
+
 async def _call(fn, timeout: float | None = None, what: str = "call"):
     """host().call with every failure surfaced as a readable ToolError (with the advice for its class)."""
     try:
-        return await host().call(fn, timeout=timeout, what=what)
+        return await host().call(_with_progress(fn), timeout=timeout, what=what)
     except (HostError, InputError, ToolError) as e:
         raise _err(e) from None
 
@@ -193,7 +247,7 @@ def _is_our_analysis_file(path: str) -> bool:
 async def _call_user(fn, what: str):
     """host().call for jobs that drive the user's Excel (never killed on timeout)."""
     try:
-        return await host().call(fn, what=what, user_excel=True)
+        return await host().call(_with_progress(fn), what=what, user_excel=True)
     except (HostError, InputError) as e:
         raise _err(e) from None
 

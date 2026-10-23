@@ -1,0 +1,87 @@
+{
+ "date": "2026-10-23",
+ "out": "matrix-baseline-fresh",
+ "time": "2026-10-23T13:33:11",
+ "version": "0.2.0",
+ "atlas_age": "9.7 days",
+ "repeat": 1,
+ "totals": {
+  "PASS": 3,
+  "LIMIT": 1
+ },
+ "options": {
+  "only": "fresh",
+  "repeat": 1,
+  "fresh": true,
+  "keep": false
+ },
+ "before_file": "2026-10-23-matrix-baseline.json",
+ "results": [
+  {
+   "id": "S9.install",
+   "tags": [
+    "fresh"
+   ],
+   "result": "PASS",
+   "secs": 40.0,
+   "error": null,
+   "error_class": "",
+   "notes": "install 29s; doctor 9/9 OK",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  },
+  {
+   "id": "S9.lookup",
+   "tags": [
+    "fresh"
+   ],
+   "result": "LIMIT",
+   "secs": 13.0,
+   "error": "Limit: fresh-profile lookup needs a real signed-in Excel; COM Excel inherits the simulated env — verify manually on a new machine",
+   "error_class": "Limit: fresh-profile lookup needs a real signed-in Excel; COM Excel inherits the simulated env — verify manually on a new machine",
+   "notes": "",
+   "limit": "Limit: fresh-profile lookup needs a real signed-in Excel; COM Excel inherits the simulated env — verify manually on a new machine",
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  },
+  {
+   "id": "S10.2.setup",
+   "tags": [
+    "feature",
+    "fresh"
+   ],
+   "result": "PASS",
+   "secs": 2.3,
+   "error": null,
+   "error_class": "",
+   "notes": "2nd run unchanged (8 lines); smartview -> smartass migrated, other kept",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  },
+  {
+   "id": "S10.4.update",
+   "tags": [
+    "feature",
+    "fresh"
+   ],
+   "result": "PASS",
+   "secs": 21.1,
+   "error": null,
+   "error_class": "",
+   "notes": "guard True/False/True; 0.2.1 installed, 2nd = no update; pin 0.2.0 -> downgraded and kept",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  }
+ ]
+}

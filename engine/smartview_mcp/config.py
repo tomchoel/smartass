@@ -192,6 +192,13 @@ SHEET_OPTIONS = {5: 0, 6: False, 7: False, 9: False, 41: False, 42: False, 43: F
 
 CALL_TIMEOUT_S = float(os.environ.get("SV_CALL_TIMEOUT", "180"))
 START_TIMEOUT_S = float(os.environ.get("SV_START_TIMEOUT", "120"))
+# While a hidden-Excel call runs, look for Smart View dialogs (dialogs.py) after DIALOG_CHECK_AFTER_S, every
+# DIALOG_POLL_S. A WebView2 Login window gets LOGIN_GRACE_S for the SSO watcher (it once needed 18 s).
+DIALOG_CHECK_AFTER_S = 5.0
+DIALOG_POLL_S = 2.0
+LOGIN_GRACE_S = float(os.environ.get("SV_LOGIN_GRACE", "45"))
+TRANSIENT_RETRY_WAIT_S = 3.0                        # before the one retry after rc=752 / rc=57704
+RESET_WAIT_S = 10.0                                 # after killing our Excel, wait this long for the COM call to return
 MAX_CELLS = int(os.environ.get("SV_MAX_CELLS", "50000"))
 PREVIEW_ROWS = 60
 
@@ -214,6 +221,8 @@ DRILL_XL_FULL = int(os.environ.get("SV_DRILL_XL_FULL", "50000"))   # above this:
 DRILL_KEEP_DAYS = 90
 DRILL_LOGIN_TIMEOUT_S = 60                         # per attempt; one retry in a fresh tab (spec §6)
 DRILL_CAPTURE_TIMEOUT_S = 45
+DRILL_RELOAD_WAIT_S = 25                           # after the one reload of a page that never asked for data
+DRILL_SETUP_S = 95                                 # sign-in + capture of one drill (S8: no call past 120 s)
 DRILL_IDLE_S = int(os.environ.get("SV_DRILL_IDLE_S", "300"))   # close the hidden browser (and free the profile) when idle
 TEXT_FIXES = KNOWLEDGE_DIR / "text_fixes.json"              # shipped; replaced by every update
 USER_TEXT_FIXES = HOME / "text_fixes.json"                 # the user's own corrections; win over the shipped list

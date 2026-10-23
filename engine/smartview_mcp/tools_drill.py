@@ -6,6 +6,7 @@ import time
 from contextlib import contextmanager
 from typing import Literal
 
+from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import config, ops, qlog, userexcel
@@ -79,6 +80,7 @@ async def _drill_fetch(url: str, max_lines: int) -> dict:
     budget = 300 + 10 * math.ceil(max_lines / config.DRILL_PAGE)      # login + capture (+ one browser restart),
                                                                        # then ~10 s per page
     async with _drill_lock:
+        tick = asyncio.create_task(_progress("drill (hidden browser: sign-in, drill page, lines)"))
         try:
             return await asyncio.wait_for(asyncio.wrap_future(browser().fetch(url, max_lines=max_lines)), budget)
         except asyncio.TimeoutError:
@@ -87,6 +89,25 @@ async def _drill_fetch(url: str, max_lines: int) -> dict:
                             "Try again, or narrow the cell.") from None
         except DrillBusy as e:
             raise ToolError(str(e)) from None
+        finally:
+            tick.cancel()
+
+
+async def _progress(what: str) -> None:
+    """'still working: <what> (n s)' to the client every timing.PROGRESS_AFTER_S (tools that declare ctx)."""
+    import asyncio
+
+    from . import timing
+    from .server import _ctx, progress_secs
+    ctx = _ctx.get()
+    if ctx is None:
+        return
+    while True:
+        await asyncio.sleep(timing.PROGRESS_AFTER_S)
+        try:
+            await ctx.report_progress(progress_secs(), None, f"still working: {what} ({progress_secs():.0f}s)")
+        except Exception:   # noqa: BLE001 - a progress note must never break the drill
+            return
 
 
 _too_wide: set = set()      # cells EPM refused as too wide (EPMFDM-140373) in this server: split them right away
@@ -123,7 +144,8 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
                  "note": "empty cell (skipped)"}]
     if not link["url"]:
         return [{"cell": cell, "cube_value": link["cube_value"], "items": [], "view": None, "secs": 0,
-                 "note": "no drill report on this cell (data not loaded through Data Integration)"}]
+                 "note": "this cell has no drill-through report: it is not a FinLite base-level intersection "
+                         "loaded through Data Integration (use a FinLite account and a base entity/period)"}]
     can_split = split == "auto" and depth < 4
     left = state["left"]
     limit = min(config.DRILL_SPLIT_AT, left) if can_split else left
@@ -249,7 +271,8 @@ def _cache_drill(**kw) -> str:
 @tool(annotations=WRITE)
 async def sv_drill(question: str, cell: dict[str, str], connection: Literal["FinLite"] = "FinLite", id: str = "d",
                    split: Literal["auto", "none"] = "auto", max_lines: int = config.DRILL_MAX_LINES,
-                   target: str = "session", q: int | None = None, allow_archive: bool = False) -> dict:
+                   target: str = "session", q: int | None = None, allow_archive: bool = False,
+                   ctx: Context | None = None) -> dict:
     """Drill a FinLite cell down to its ledger lines (supplier, invoice, voucher, JE source, line text, product)
     through a hidden headless browser (Data Integration drill-through; nothing opens on screen).
     cell: {'All Accounts': 'ac.C40S', 'All Entities': 'un.SY.2WHS', 'All Time Periods': 'Q3 26', ...} - parents
@@ -275,6 +298,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
     from . import drill_lines as dl
     from . import drill_xl
     tm = Timer()
+    cell, cell_warns = ops.drill_cell_defaults(cell)
     with _timed(tm, "drill"):
         pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
     view = next((p["view"] for p in pieces if p.get("view")), None)
@@ -283,7 +307,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
         reasons = sorted({p.get("note") or "the drill page returned no view" for p in pieces})
         out = {"question": question, "cell": cell, "reconciliation": dl.reconcile(total_cube, []),
                "pieces": [{"cell": p["cell"], "cube_value": p["cube_value"], "note": p.get("note")} for p in pieces]
-               if len(pieces) > 1 else [], "warnings": ["No drill-through lines: " + "; ".join(reasons)],
+               if len(pieces) > 1 else [], "warnings": cell_warns + ["No drill-through lines: " + "; ".join(reasons)],
                "timings": tm.summary()}
         qlog.write({"tool": "sv_drill", "question": question, "cell": cell, "lines": 0, "note": reasons})
         return out
@@ -294,7 +318,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
            "profile": L["profile"], "text_repairs": stats, "columns": cols}
     if L["split_check"] is not None:
         out["split_check"] = L["split_check"]
-    warnings = []
+    warnings = list(cell_warns)
     if stats["unfixed"]:
         warnings.append("Text broken in EPM (letters lost at load): " + "; ".join(stats["unfixed"][:5])
                         + " - add corrections to %LOCALAPPDATA%\\smartass\\text_fixes.json")

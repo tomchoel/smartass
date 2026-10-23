@@ -58,3 +58,56 @@ def test_local_path_maps_personal_onedrive(monkeypatch):
                         lambda: [("https://contoso-my.sharepoint.com/personal/a_b/Documents/", r"C:\OD")])
     url = "https://contoso-my.sharepoint.com/personal/a_b/Documents/smartass/analyser/a%20b.xlsx"
     assert local_path(url) == r"C:\OD\smartass\analyser\a b.xlsx"
+
+
+def test_axes_in_accepts_dict_list_and_models():
+    from smartview_mcp.server import AxisIn, axes_in
+    d = axes_in({"All Accounts": ["ac.C30"], "All Time Periods": "Sep 26"})
+    assert [(a.dimension, a.members) for a in d] == [("All Accounts", ["ac.C30"]), ("All Time Periods", ["Sep 26"])]
+    li = axes_in([{"dimension": "All Accounts", "members": ["x"]}, AxisIn(dimension="E", members=["y"])])
+    assert [a.dimension for a in li] == ["All Accounts", "E"]
+
+
+def test_pull_in_accepts_dict_rows():
+    from smartview_mcp.tools_ws import PullIn
+    p = PullIn(id="m", connection="FinMax", rows={"All Accounts": ["ac.C30"]}, columns={"All Time Periods": "Sep 26"})
+    assert p.rows[0].members == ["ac.C30"] and p.columns[0].dimension == "All Time Periods"
+
+
+def test_axes_in_wraps_a_single_axis_object():
+    from smartview_mcp.server import axes_in
+    a = axes_in({"dimension": "All Accounts", "members": ["ac.C30"]})
+    assert [(x.dimension, x.members) for x in a] == [("All Accounts", ["ac.C30"])]
+
+
+def test_slow_stage_sends_progress_notes_and_stops_after(monkeypatch):
+    import time as _t
+
+    from smartview_mcp import timing
+    monkeypatch.setattr(timing, "PROGRESS_AFTER_S", 0.05)
+    notes = []
+    timing.Timer.note_notify(notes.append)
+    timing.Timer.start()
+    with timing.stage("open target"):
+        with timing.stage("slow"):
+            _t.sleep(0.13)
+    n = len(notes)
+    _t.sleep(0.12)
+    assert n >= 1 and "open target.slow" in notes[0] and notes[0].startswith("still working: ")
+    assert len(notes) == n                       # no notes once the stages are done
+    timing.Timer.start()                         # the next timer on this thread has no notify of its own
+    assert timing.Timer.current().notify is None
+
+
+def test_progress_job_clears_its_notify_after_the_job():
+    import asyncio
+
+    from smartview_mcp import server, timing
+
+    async def run():
+        server._ctx.set(object())                 # any ctx: notify is only called by a ticker
+        job = server._with_progress(lambda h: timing.Timer.start())
+        t = job(None)
+        return t
+    t = asyncio.run(run())
+    assert t.notify is None and getattr(timing._local, "pending_notify", None) is None

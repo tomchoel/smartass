@@ -110,7 +110,7 @@ Applied to every text field in `drill_lines.normalize`. The result carries `text
 
 ## Worked example: golden report
 
-`mcp\tests\live_drill_report.py`: FinLite `ac.C40S` × `un.SY.2WHS` × `Q3 26` (Wholesale COGS). 1 231 lines, −24 706 615.55,
+Built 15.10 by a since-deleted live script (the matrix's `S5.drill.report` now covers drill reports): FinLite `ac.C40S` × `un.SY.2WHS` × `Q3 26` (Wholesale COGS). 1 231 lines, −24 706 615.55,
 gap 0, 14/14 checks OK, 0 BLOCK findings from `formelsjekk.py`. Eight sections, each totalling the same amount:
 1. Reconciliation. 2. JE source (Payables −123 132 549.19, 359 lines). 3. Journal category. 4. Month (354 / 459 / 418 lines;
 `Jul-26` uses the FILTER form). 5. Account. 6. Top 12 suppliers + no supplier (872 lines) + other (SUPPLIER 037 AS

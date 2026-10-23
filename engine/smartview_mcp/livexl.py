@@ -28,7 +28,18 @@ from openpyxl.utils.cell import range_boundaries
 from . import config
 from . import formulas as fx
 from .host import HostError, InputError
-from .userexcel import _wait_ready, com, fast_excel, hold_turn, interactive_excels, is_archive, local_path
+from .userexcel import (
+    _wait_ready,
+    busy_error,
+    busy_holder,
+    com,
+    excel_instances,
+    fast_excel,
+    hold_turn,
+    interactive_excels,
+    is_archive,
+    local_path,
+)
 
 log = logging.getLogger("smartview.livexl")
 
@@ -76,8 +87,14 @@ def _books(app):
 
 def find_book(workbook: str | None, write: bool = False, allow_archive: bool = False) -> Book:
     """The user's active workbook (workbook=None) or an open one by name / file name / full path, in any Excel."""
-    excels = interactive_excels()
+    instances = excel_instances()
+    excels = [(i.pid, i.hwnd, i.app) for i in instances if i.app is not None]
     if not excels:
+        holder = busy_holder(instances, workbook.strip()) if workbook else None
+        if holder is not None:
+            raise busy_error(holder.pid, workbook.strip())
+        if instances:
+            raise busy_error(instances[0].pid, "your workbook")
         raise HostError("No open Excel window found. Open the workbook in Excel first.")
     hit = None
     if not workbook:
@@ -103,6 +120,9 @@ def find_book(workbook: str | None, write: bool = False, allow_archive: bool = F
                     if stem(want) in str(wb.Name).lower():
                         cands.append((pid, app, wb))
         if not cands:
+            holder = busy_holder(instances, workbook.strip())
+            if holder is not None:
+                raise busy_error(holder.pid, workbook.strip())
             raise InputError(f"No open workbook matches '{workbook}' (open now: {list_names(excels)}). Next step: pass one of those names, or open the workbook in Excel first.")
         if len(cands) > 1:
             raise InputError(f"'{workbook}' matches several open workbooks: {[str(c[2].Name) for c in cands]}. "
@@ -250,7 +270,9 @@ def read(workbook, sheet, address, what: str = "values", max_cells: int = MAX_RE
                            if isinstance(v, str) and v.startswith("=")}
     if what == "formats":
         r0, c0 = com(lambda: rng.Row), com(lambda: rng.Column)
-        fm = _grid(com(lambda: rng.NumberFormat))
+        nr, nc = int(com(lambda: rng.Rows.Count)), int(com(lambda: rng.Columns.Count))
+        fm = _format_grid(com(lambda: rng.NumberFormat), nr, nc,
+                          lambda i, j: com(lambda: ws.Cells(r0 + i, c0 + j).NumberFormat))
         out["number_formats"] = fm
         styles = {}
         for i in range(len(fm)):
@@ -261,6 +283,14 @@ def read(workbook, sheet, address, what: str = "values", max_cells: int = MAX_RE
     if truncated:
         out["truncated"] = truncated
     return out
+
+
+def _format_grid(whole, nr: int, nc: int, cell) -> list[list]:
+    """Number formats in the range's shape: Range.NumberFormat is ONE value for a uniform range and None when the
+    cells differ - then each cell is read (cell(i, j))."""
+    if whole is not None:
+        return [[whole] * nc for _ in range(nr)]
+    return [[cell(i, j) for j in range(nc)] for i in range(nr)]
 
 
 def overview(workbook, sheet, preview_rows: int = 12) -> dict:
@@ -327,8 +357,41 @@ def _capture(ws, rng) -> dict:
     if ncol <= 200:
         for j in range(ncol):
             widths[L(c0 + j)] = com(lambda: ws.Columns(c0 + j).ColumnWidth)
+    consts = _constants(f2, _grid(com(lambda: rng.Value2)), r0, c0) if n <= MAX_STYLE_CELLS else None
     return {"xml": com(lambda: rng.GetValue(11)), "formulas": formulas, "widths": widths,
-            "styles": _style_runs(ws, rng, r0, c0)}
+            "styles": _style_runs(ws, rng, r0, c0), "constants": consts}
+
+
+def _constants(f2: list[list], v2: list[list], r0: int, c0: int) -> dict:
+    """{address: value} of every non-formula cell, typed (text stays text, empty = None). A cell with no formula but
+    a value is a spill child of a dynamic array: not a constant (writing it would break the spill)."""
+    out = {}
+    for i, row in enumerate(f2):
+        for j, f in enumerate(row):
+            v = v2[i][j]
+            if isinstance(f, str) and f.startswith("=") or (f in ("", None) and v not in ("", None)):
+                continue
+            out[f"{L(c0 + j)}{r0 + i}"] = None if v == "" else v
+    return out
+
+
+def _same(a, b) -> bool:
+    num = (int, float)
+    if isinstance(a, num) and isinstance(b, num) and not isinstance(a, bool) and not isinstance(b, bool):
+        return a == b
+    return type(a) is type(b) and a == b
+
+
+def _coerced(consts: dict, now: list[list], r0: int, c0: int) -> list[tuple[str, object]]:
+    """(address, snapshot value) of the constants the XML import did not bring back as they were: it turns text
+    like '2026' into numbers and can leave stray values in cells that were empty."""
+    out = []
+    for i, row in enumerate(now):
+        for j, v in enumerate(row):
+            a = f"{L(c0 + j)}{r0 + i}"
+            if a in consts and not _same(None if v == "" else v, consts[a]):
+                out.append((a, consts[a]))
+    return out
 
 
 MAX_STYLE_CELLS = 20_000
@@ -439,6 +502,15 @@ def _restore(ws, address: str, snap: dict) -> None:
         cell = com(lambda: ws.Range(a))
         if com(lambda: cell.Formula2) != f:
             com(lambda: setattr(cell, "Formula2", f))
+    if snap.get("constants") is not None:
+        for a, v in _coerced(snap["constants"], _grid(com(lambda: rng.Value2)), r0, c0):
+            cell = com(lambda: ws.Range(a))
+            if v is None:
+                com(lambda: cell.ClearContents())
+            elif isinstance(v, str):
+                com(lambda: setattr(cell, "Formula2", "'" + v))    # as text, like xl_write stores it
+            else:
+                com(lambda: setattr(cell, "Value2", v))
     for col, w in (snap.get("widths") or {}).items():
         com(lambda: setattr(ws.Columns(col), "ColumnWidth", w))
 
@@ -857,6 +929,22 @@ def _load(cid: str) -> dict:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def _same_book(workbook: str, ch: dict) -> bool:
+    """workbook (a name, with or without extension, or a full path) names the change's workbook. A local path matches
+    the OneDrive/SharePoint URL Excel reports as FullName for a synced file."""
+    g, full = workbook.strip(), str(ch["full_name"])
+    if g.lower() == full.lower():
+        return True
+    if re.search(r"[\\/]", g):
+        def norm(x: str) -> str:
+            return os.path.normcase(os.path.abspath(local_path(x)))
+        return re.search(r"[\\/]", full) is not None and norm(g) == norm(full)
+
+    def stem(x: str) -> str:
+        return re.sub(r"\.(xlsx|xlsm|xlsb|xls)$", "", x.lower())
+    return stem(g) == stem(str(ch["workbook"]))
+
+
 def changes(workbook: str | None = None, limit: int = 20) -> list[dict]:
     if not SNAP_DIR.exists():
         return []
@@ -868,15 +956,18 @@ def changes(workbook: str | None = None, limit: int = 20) -> list[dict]:
             ch = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if workbook:
-            w = re.sub(r"\.(xlsx|xlsm|xlsb|xls)$", "", workbook.strip().lower())
-            if w not in (re.sub(r"\.(xlsx|xlsm|xlsb|xls)$", "", ch["workbook"].lower()), ch["full_name"].lower()) \
-                    and workbook.strip().lower() != ch["full_name"].lower():
-                continue
+        if workbook and not _same_book(workbook, ch):
+            continue
         out.append({k: ch.get(k) for k in ("id", "ts", "workbook", "sheet", "op", "address", "label", "reverted")})
         if len(out) >= limit:
             break
     return out
+
+
+def _has_content(app, ws) -> bool:
+    """Values, formulas or shapes (charts, pictures) anywhere on the sheet. Not UsedRange: formats left by reverted
+    changes keep it large."""
+    return int(com(lambda: app.WorksheetFunction.CountA(ws.Cells))) > 0 or int(com(lambda: ws.Shapes.Count)) > 0
 
 
 def revert(change_id: str | None, workbook: str | None, force: bool = False) -> dict:
@@ -903,7 +994,7 @@ def revert(change_id: str | None, workbook: str | None, force: bool = False) -> 
     op = ch["op"]
     if op == "add_sheet":
         ws = b.sheet(ch["extra"]["name"])
-        if int(com(lambda: ws.UsedRange.Count)) > 1 and not force:
+        if _has_content(b.app, ws) and not force:
             raise InputError(f"Sheet '{ch['extra']['name']}' has content now; pass force=true to delete it anyway.")
         alerts = com(lambda: b.app.DisplayAlerts)
         com(lambda: setattr(b.app, "DisplayAlerts", False))
