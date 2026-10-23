@@ -353,13 +353,15 @@ def _capture(ws, rng) -> dict:
 
 
 def _constants(f2: list[list], v2: list[list], r0: int, c0: int) -> dict:
-    """{address: value} of every non-formula cell, typed (text stays text, empty = None)."""
+    """{address: value} of every non-formula cell, typed (text stays text, empty = None). A cell with no formula but
+    a value is a spill child of a dynamic array: not a constant (writing it would break the spill)."""
     out = {}
     for i, row in enumerate(f2):
         for j, f in enumerate(row):
-            if not (isinstance(f, str) and f.startswith("=")):
-                v = v2[i][j]
-                out[f"{L(c0 + j)}{r0 + i}"] = None if v == "" else v
+            v = v2[i][j]
+            if isinstance(f, str) and f.startswith("=") or (f in ("", None) and v not in ("", None)):
+                continue
+            out[f"{L(c0 + j)}{r0 + i}"] = None if v == "" else v
     return out
 
 

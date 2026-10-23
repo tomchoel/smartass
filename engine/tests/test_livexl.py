@@ -12,3 +12,9 @@ def test_coerced_finds_text_turned_number_and_leftovers():
     consts = {"B2": "Line", "C2": "2026", "D2": 80, "C3": None}
     now = [["Line", 2026.0, 80.0], [7.0, 1.0, None]]   # B2:D3 after the XML import
     assert _coerced(consts, now, 2, 2) == [("C2", "2026"), ("C3", None)]
+
+
+def test_constants_skip_spill_children():
+    f2 = [["=SEQUENCE(2)"], [""], [""]]          # B2 spills into B3; B4 is really empty
+    v2 = [[1.0], [2.0], [None]]
+    assert _constants(f2, v2, 2, 2) == {"B4": None}
