@@ -122,7 +122,10 @@ sheet account alike (`un.SY` is a valid entity). FinLite only.
    - **Re-drill.** The same `q` and `id` refreshes the lines table in place. If the result says columns or grid
      changed, re-run `sv_ws_answer` for that q.
    - `target='none'` = cache only (no sheets in a workbook).
-2. Read `reconciliation` (must be `exact`, or explain the gap) and `profile`. The profile has the top suppliers,
+   - In the lines table, `Entity` is the cost centre (`un.SY.<cc>`), not the division; per-division totals are in
+     `pieces` when the cell split. Use the column names the drill result returns in `where`.
+2. Read `reconciliation` (must be `exact`, or explain the gap) and `profile`. If `no_supplier` is ~100 % (e.g. asset or
+   accrual journals, `JE_SOURCE` Assets), say there are no suppliers and what the journals are instead. The profile has the top suppliers,
    accounts, months and journals without a supplier, plus `signs_mixed`.
 3. Build the report with `sv_ws_answer(q, spec, target=<workbook>)` using `{drill: 'd', where: {...}}` cells and
    a reconciliation block that reads the live `cube_pull`. Pick the sections that answer the question. If
