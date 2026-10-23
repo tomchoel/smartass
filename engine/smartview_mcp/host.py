@@ -536,11 +536,6 @@ class ExcelHost:
         self.run("B_Connect", name, connection)
         self.connected[name] = connection
 
-    def show(self, visible: bool):
-        self.visible = visible
-        if self.app is not None:
-            self.app.Visible = visible
-
     def shutdown(self):
         def job():
             if self.app is None:
