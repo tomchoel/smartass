@@ -94,6 +94,16 @@ class AxisIn(BaseModel):
     members: list[str] = Field(description="Member names in order, e.g. ['ac.C30','ac.EBITDA'] or ['Aug 26','Sep 26']")
 
 
+AxesIn = list[AxisIn] | dict[str, list[str] | str]
+
+
+def axes_in(x) -> list[AxisIn]:
+    """rows/columns as [{dimension, members}] (documented) or {dimension: [members]} (what agents often send)."""
+    if isinstance(x, dict):
+        return [AxisIn(dimension=d, members=[m] if isinstance(m, str) else list(m)) for d, m in x.items()]
+    return [a if isinstance(a, AxisIn) else AxisIn(**a) for a in x]
+
+
 def _err(e: Exception) -> ToolError:
     return ToolError(with_next_step(logsetup.redact(e), e))
 

@@ -58,3 +58,17 @@ def test_local_path_maps_personal_onedrive(monkeypatch):
                         lambda: [("https://contoso-my.sharepoint.com/personal/a_b/Documents/", r"C:\OD")])
     url = "https://contoso-my.sharepoint.com/personal/a_b/Documents/smartass/analyser/a%20b.xlsx"
     assert local_path(url) == r"C:\OD\smartass\analyser\a b.xlsx"
+
+
+def test_axes_in_accepts_dict_list_and_models():
+    from smartview_mcp.server import AxisIn, axes_in
+    d = axes_in({"All Accounts": ["ac.C30"], "All Time Periods": "Sep 26"})
+    assert [(a.dimension, a.members) for a in d] == [("All Accounts", ["ac.C30"]), ("All Time Periods", ["Sep 26"])]
+    li = axes_in([{"dimension": "All Accounts", "members": ["x"]}, AxisIn(dimension="E", members=["y"])])
+    assert [a.dimension for a in li] == ["All Accounts", "E"]
+
+
+def test_pull_in_accepts_dict_rows():
+    from smartview_mcp.tools_ws import PullIn
+    p = PullIn(id="m", connection="FinMax", rows={"All Accounts": ["ac.C30"]}, columns={"All Time Periods": "Sep 26"})
+    assert p.rows[0].members == ["ac.C30"] and p.columns[0].dimension == "All Time Periods"

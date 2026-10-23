@@ -12,7 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from . import atlas, config, ops, qlog
 from .grid import Axis, to_markdown
 from .host import ExcelHost, HostError
-from .server import LOCAL, READ, WRITE, AxisIn, Connection, _call, _err, _safe_name, tool
+from .server import LOCAL, READ, WRITE, AxesIn, Connection, axes_in, _call, _err, _safe_name, tool
 
 @tool(annotations=READ)
 async def sv_dimensions(connection: Connection) -> dict:
@@ -25,7 +25,7 @@ async def sv_dimensions(connection: Connection) -> dict:
 
 
 @tool(annotations=WRITE)
-async def sv_query(connection: Connection, rows: list[AxisIn], columns: list[AxisIn], ctx: Context,
+async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: Context,
                    pov: dict[str, str] | None = None, suppress_missing: bool = True, suppress_zeros: bool = False,
                    save_xlsx: bool = False, title: str | None = None, large: bool = False,
                    max_preview_rows: int = config.PREVIEW_ROWS) -> dict:
@@ -41,6 +41,7 @@ async def sv_query(connection: Connection, rows: list[AxisIn], columns: list[Axi
     Unknown members are reported (Smart View silently ignores them) - fix with sv_find_member.
     save_xlsx writes the full result (with a POV/metadata sheet, label 'Internal') to the output folder.
     Grids over 50,000 cells need large=true."""
+    rows, columns = axes_in(rows), axes_in(columns)
     rows_ax = [Axis(a.dimension, a.members) for a in rows]
     cols_ax = [Axis(a.dimension, a.members) for a in columns]
     n_cells = 1

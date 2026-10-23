@@ -4,12 +4,12 @@ from __future__ import annotations
 from typing import Literal
 
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import qlog
 from .grid import Axis, to_markdown
 from .host import HostError, InputError, rewrap
-from .server import WRITE, AxisIn, Connection, _call_user, _doc, _err, _is_our_analysis_file, log, tool
+from .server import WRITE, AxesIn, AxisIn, Connection, axes_in, _call_user, _doc, _err, _is_our_analysis_file, log, tool
 
 # ---------------------------------------------------------------- analysis in the user's workbook
 from . import answer as answer_mod            # noqa: E402
@@ -188,7 +188,7 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
 
 
 @tool(annotations=WRITE)
-async def sv_ws_pull(question: str, connection: Connection, rows: list[AxisIn], columns: list[AxisIn],
+async def sv_ws_pull(question: str, connection: Connection, rows: AxesIn, columns: AxesIn,
                      pov: dict[str, str] | None = None, target: str = "session", allow_archive: bool = False,
                      q: int | None = None, sheet_title: str | None = None) -> dict:
     """Free-form analysis, step 1 (use sv_analyse when a template fits): put a LIVE Smart View grid (financial NOK
@@ -196,6 +196,7 @@ async def sv_ws_pull(question: str, connection: Connection, rows: list[AxisIn], 
     For several pulls of ONE question: call again with target=<returned 'workbook'> and q=<returned 'q'> (otherwise
     target='new' would create a new file and q would advance). Then call sv_ws_answer(q, spec, target=<workbook>).
     Returns workbook, q, sheet, a data preview and the exact row_keys/col_keys to use in the answer spec."""
+    rows, columns = axes_in(rows), axes_in(columns)
     rows_ax = [Axis(a.dimension, a.members) for a in rows]
     cols_ax = [Axis(a.dimension, a.members) for a in columns]
 
@@ -385,6 +386,11 @@ class PullIn(BaseModel):
     columns: list[AxisIn]
     pov: dict[str, str] | None = None
     title: str | None = Field(default=None, description="Sheet name; default 'Q<n> <cube>' (+ ' <id>' if needed)")
+
+    @field_validator("rows", "columns", mode="before")
+    @classmethod
+    def _dict_axes(cls, v):
+        return [a.model_dump() for a in axes_in(v)] if isinstance(v, dict) else v
 
 
 @tool(annotations=WRITE)
