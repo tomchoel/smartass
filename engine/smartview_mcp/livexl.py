@@ -347,8 +347,39 @@ def _capture(ws, rng) -> dict:
     if ncol <= 200:
         for j in range(ncol):
             widths[L(c0 + j)] = com(lambda: ws.Columns(c0 + j).ColumnWidth)
+    consts = _constants(f2, _grid(com(lambda: rng.Value2)), r0, c0) if n <= MAX_STYLE_CELLS else None
     return {"xml": com(lambda: rng.GetValue(11)), "formulas": formulas, "widths": widths,
-            "styles": _style_runs(ws, rng, r0, c0)}
+            "styles": _style_runs(ws, rng, r0, c0), "constants": consts}
+
+
+def _constants(f2: list[list], v2: list[list], r0: int, c0: int) -> dict:
+    """{address: value} of every non-formula cell, typed (text stays text, empty = None)."""
+    out = {}
+    for i, row in enumerate(f2):
+        for j, f in enumerate(row):
+            if not (isinstance(f, str) and f.startswith("=")):
+                v = v2[i][j]
+                out[f"{L(c0 + j)}{r0 + i}"] = None if v == "" else v
+    return out
+
+
+def _same(a, b) -> bool:
+    num = (int, float)
+    if isinstance(a, num) and isinstance(b, num) and not isinstance(a, bool) and not isinstance(b, bool):
+        return a == b
+    return type(a) is type(b) and a == b
+
+
+def _coerced(consts: dict, now: list[list], r0: int, c0: int) -> list[tuple[str, object]]:
+    """(address, snapshot value) of the constants the XML import did not bring back as they were: it turns text
+    like '2026' into numbers and can leave stray values in cells that were empty."""
+    out = []
+    for i, row in enumerate(now):
+        for j, v in enumerate(row):
+            a = f"{L(c0 + j)}{r0 + i}"
+            if a in consts and not _same(None if v == "" else v, consts[a]):
+                out.append((a, consts[a]))
+    return out
 
 
 MAX_STYLE_CELLS = 20_000
@@ -459,6 +490,15 @@ def _restore(ws, address: str, snap: dict) -> None:
         cell = com(lambda: ws.Range(a))
         if com(lambda: cell.Formula2) != f:
             com(lambda: setattr(cell, "Formula2", f))
+    if snap.get("constants") is not None:
+        for a, v in _coerced(snap["constants"], _grid(com(lambda: rng.Value2)), r0, c0):
+            cell = com(lambda: ws.Range(a))
+            if v is None:
+                com(lambda: cell.ClearContents())
+            elif isinstance(v, str):
+                com(lambda: setattr(cell, "Formula2", "'" + v))    # as text, like xl_write stores it
+            else:
+                com(lambda: setattr(cell, "Value2", v))
     for col, w in (snap.get("widths") or {}).items():
         com(lambda: setattr(ws.Columns(col), "ColumnWidth", w))
 
