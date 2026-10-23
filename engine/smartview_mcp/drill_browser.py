@@ -304,6 +304,7 @@ class _Session:
         self.plock: ProfileLock | None = None     # set while this session's browser runs on the profile
         self.channel: str | None = None           # browser that started (msedge / chrome)
         self.deadline = float("inf")               # sign-in + capture of the current drill end by then
+        self.paging = False                        # the current drill got past its capture
 
 
 class DrillBrowser:
@@ -637,7 +638,7 @@ class DrillBrowser:
     def _fetch(self, s: _Session, url: str, max_lines: int, progress) -> dict:
         """One drill; if the browser died under it, restart the browser and try ONCE more. Sign-in and capture
         share one deadline (DRILL_SETUP_S), so a stuck login fails with a next step instead of hanging."""
-        s.deadline = time.monotonic() + config.DRILL_SETUP_S
+        s.deadline, s.paging = time.monotonic() + config.DRILL_SETUP_S, False
         try:
             return self._fetch_once(s, url, max_lines, progress)
         except (TooManyLines, CellTooWide, DrillBusy):
@@ -646,7 +647,9 @@ class DrillBrowser:
             if s.ctx is None or self._alive(s):     # a real answer from a live page: do not repeat it
                 raise
             self._close(s)
-            if s.deadline - time.monotonic() < CRASH_RETRY_S:
+            if s.paging:                            # long drills page past the setup deadline: start a new one
+                s.deadline = time.monotonic() + config.DRILL_SETUP_S
+            elif s.deadline - time.monotonic() < CRASH_RETRY_S:
                 raise DrillError(f"The hidden drill browser crashed ({e}) with too little time left to start it "
                                  "again - retry sv_drill.") from None
             log.warning("drill browser died mid-drill (%s); restarting it and retrying once", e)
@@ -656,6 +659,7 @@ class DrillBrowser:
         try:
             self._ensure(s)
             got = self._capture(s, url)
+            s.paging = True                         # captured: a crash from here on is mid-paging
             state = {"req": got["req"]}
 
             def recover():                          # spec §6: re-login, then resume from the last offset

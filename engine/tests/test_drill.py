@@ -1282,3 +1282,20 @@ def test_crash_retry_needs_time_left(monkeypatch):
     with pytest.raises(db.DrillError, match="browser crashed"):
         b._fetch(db._Session(), "u", 10, None)
     assert len(calls) == 1
+
+
+def test_crash_while_paging_retries_with_a_fresh_deadline():
+    from smartview_mcp import drill_browser as db
+    b = db.DrillBrowser.__new__(db.DrillBrowser)
+    calls = []
+
+    def once(s, url, n, progress):
+        calls.append(s.deadline - db.time.monotonic())
+        if len(calls) == 1:
+            s.ctx, s.paging = object(), True        # captured, then crashed while paging
+            s.deadline = db.time.monotonic() - 50   # long past the setup deadline
+            raise db.DrillError("Page crashed")
+        return {"items": []}
+    b._fetch_once, b._alive, b._close = once, lambda s: False, lambda s: None
+    assert b._fetch(db._Session(), "u", 10, None) == {"items": []}
+    assert calls[1] > 60
