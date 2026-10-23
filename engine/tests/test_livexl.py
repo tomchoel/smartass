@@ -34,3 +34,12 @@ def test_changes_filter_matches_a_local_path_to_a_onedrive_url(monkeypatch):
     assert livexl._same_book(r"C:\OneDrive\analyser\Q.xlsx", ch)
     assert livexl._same_book("q", ch) and livexl._same_book(url, ch)
     assert not livexl._same_book(r"C:\Other\Q.xlsx", ch)
+
+
+def test_a_sheet_with_only_formats_has_no_content():
+    from types import SimpleNamespace as NS
+
+    from smartview_mcp.livexl import _has_content
+    app = NS(WorksheetFunction=NS(CountA=lambda cells: cells["n"]))
+    assert not _has_content(app, NS(Cells={"n": 0}, UsedRange=NS(Count=42)))   # formatted after a revert, no values
+    assert _has_content(app, NS(Cells={"n": 3}, UsedRange=NS(Count=42)))

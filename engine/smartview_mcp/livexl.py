@@ -964,6 +964,11 @@ def changes(workbook: str | None = None, limit: int = 20) -> list[dict]:
     return out
 
 
+def _has_content(app, ws) -> bool:
+    """Values or formulas anywhere on the sheet. Not UsedRange: formats left by reverted changes keep it large."""
+    return int(com(lambda: app.WorksheetFunction.CountA(ws.Cells))) > 0
+
+
 def revert(change_id: str | None, workbook: str | None, force: bool = False) -> dict:
     if not change_id:
         b0 = find_book(workbook)
@@ -988,7 +993,7 @@ def revert(change_id: str | None, workbook: str | None, force: bool = False) -> 
     op = ch["op"]
     if op == "add_sheet":
         ws = b.sheet(ch["extra"]["name"])
-        if int(com(lambda: ws.UsedRange.Count)) > 1 and not force:
+        if _has_content(b.app, ws) and not force:
             raise InputError(f"Sheet '{ch['extra']['name']}' has content now; pass force=true to delete it anyway.")
         alerts = com(lambda: b.app.DisplayAlerts)
         com(lambda: setattr(b.app, "DisplayAlerts", False))
