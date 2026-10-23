@@ -71,7 +71,7 @@ def _need(ctx, key: str, who: str):
 
 
 def _all_ok(checks: dict) -> bool:
-    """Every check OK (a template without checks, e.g. cost_base, passes)."""
+    """Every check OK (vacuously True for {}: _answer_ok rejects empty checks unless allowed)."""
     return all(v == "OK" for v in checks.values())
 
 
@@ -214,8 +214,10 @@ def _bus_spec(m: str = "m", ytd: str = "ytd") -> dict:
         "chart": {"type": "column", "lines": "m*", "columns": [0, 1], "title": "EBITDA per month"}}
 
 
-def _answer_ok(out: dict, what: str) -> None:
-    assert _all_ok(out.get("checks") or {}), f"{what}: checks {out.get('checks')}"
+def _answer_ok(out: dict, what: str, allow_empty_checks: bool = False) -> None:
+    checks = out.get("checks") or {}
+    assert checks or allow_empty_checks, f"{what}: no checks in the answer"
+    assert _all_ok(checks), f"{what}: checks {out.get('checks')}"
     errs = _no_formula_errors(out)
     assert not errs, f"{what}: {errs}"
 
@@ -262,7 +264,7 @@ def s2_plan(ctx):
     used = next(s["used"] for s in ov["sheets"] if s["name"] == ans)
     f = helpers.values(ctx.client, wb, ans, used.split("!")[-1].replace("$", ""), "formulas")["formulas"]
     text = " ".join(f.values())
-    orphans = [n for n in data if n not in text]
+    orphans = [n for n in data if f"'{n}'!" not in text and f"{n}!" not in text]
     assert not orphans, f"data sheets not referenced by {ans}: {orphans} (sheets {names})"
     late = [n for n in data if names.index(n) < names.index(ans)]
     assert not late, f"data sheets before the answer {ans}: {late} (order {names})"
@@ -289,7 +291,7 @@ def _template(name: str, which: str):
         out, _ = ctx.client.must("sv_analyse", {"question": f"MATRIX S3 {name} {which}", "template": name,
                                                 "params": params, "target": target})
         ctx.state["s3_wb"] = out["workbook"]
-        _answer_ok(out, f"{name}.{which}")
+        _answer_ok(out, f"{name}.{which}", allow_empty_checks=name == "cost_base")
         if name == "division_pnl" and which == "tec":
             assert TEC_PNL_EBITDA in out["table"], f"{TEC_PNL_EBITDA} not in the TEC P&L:\n{out['table']}"
         return {"notes": out["answer_sheet"]}
@@ -376,6 +378,21 @@ def s5_report(ctx):
 
 
 # ================================================================== S6 xl_* round trip
+def _formats_per_cell(c, wb: str, sheet: str, rng: str) -> dict[str, tuple]:
+    """{address: (number format, style name)} read one cell at a time. Engine bug (livexl.py read_range, logged
+    for the baseline): xl_read(what="formats") on a multi-cell range reads Range.NumberFormat once, so it returns
+    [[x]] (None when mixed) and styles for the first cell only."""
+    m = re.fullmatch(r"([A-Z]+)(\d+):([A-Z]+)(\d+)", rng)
+    c1, r1, c2, r2 = _col(m.group(1)), int(m.group(2)), _col(m.group(3)), int(m.group(4))
+    out = {}
+    for r in range(r1, r2 + 1):
+        for col in range(c1, c2 + 1):
+            a = f"{_letters(col)}{r}"
+            f = helpers.values(c, wb, sheet, a, "formats")
+            out[a] = (f["number_formats"][0][0], next(iter(f.get("styles") or {}), None))
+    return out
+
+
 @scenario("S6.xl", ["xl"], budget=60)
 def s6_xl(ctx):
     c = ctx.client
@@ -391,7 +408,7 @@ def s6_xl(ctx):
     base, _ = c.must("xl_write", {"range": "B2", "sheet": sheet, "workbook": wb, "values": [
         ["Line", "2026", "2025", "Var", "Var %"], ["Revenue", 100, 80, None, None], ["COGS", -30, -20, None, None],
         ["Opex", -20, -25, None, None], ["Total", None, None, None, None]]})
-    snap = {w: helpers.values(c, wb, sheet, rng, w) for w in ("both", "formats")}
+    snap = {"both": helpers.values(c, wb, sheet, rng, "both"), "formats": _formats_per_cell(c, wb, sheet, rng)}
     done = []
     w1, _ = c.must("xl_write", {"range": "C6:D6", "sheet": sheet, "workbook": wb, "formula": "=SUM(C3:C5)"})
     done.append(w1["change_id"])
@@ -416,10 +433,11 @@ def s6_xl(ctx):
     assert not missing, f"xl_changes misses {missing}: {ids}"
     for cid in reversed(done):
         c.must("xl_revert", {"change_id": cid, "workbook": wb})
-    after = {w: helpers.values(c, wb, sheet, rng, w) for w in ("both", "formats")}
-    diff = [k for w in after for k in ("values", "formulas", "number_formats", "styles")
-            if k in after[w] and after[w][k] != snap[w][k]]
-    assert not diff, f"after revert differs from the snapshot in {diff}: {after} vs {snap}"
+    after = {"both": helpers.values(c, wb, sheet, rng, "both"), "formats": _formats_per_cell(c, wb, sheet, rng)}
+    diff = [k for k in ("values", "formulas") if after["both"].get(k) != snap["both"].get(k)]
+    diff += [f"format {a}: {snap['formats'][a]} -> {after['formats'][a]}"
+             for a in snap["formats"] if after["formats"][a] != snap["formats"][a]]
+    assert not diff, f"after revert differs from the snapshot in {diff}"
     c.must("xl_revert", {"change_id": base["change_id"], "workbook": wb})
     c.must("xl_revert", {"change_id": add["change_id"], "workbook": wb})
     ov, _ = c.must("xl_overview", {"workbook": wb, "preview_rows": 0})
@@ -446,8 +464,11 @@ def s7_refresh(ctx):
     assert not err, err
     ctx.state.setdefault("files", []).append(out["output"])
     assert "Call was rejected" not in str(out), f"'Call was rejected' in the result: {out}"
-    ws = openpyxl.load_workbook(out["output"], data_only=True, read_only=True)[ans]
-    after = [list(r) for r in ws.iter_rows(min_row=1, values_only=True)]
+    book = openpyxl.load_workbook(out["output"], data_only=True, read_only=True)
+    try:
+        after = [list(r) for r in book[ans].iter_rows(min_row=1, values_only=True)]
+    finally:
+        book.close()               # read-only keeps the file open; cleanup must be able to delete it
     r0 = int(re.match(r"[A-Z]+(\d+)", used).group(1))
     c0 = _col(re.match(r"([A-Z]+)", used).group(1))
     diff = []
@@ -466,3 +487,11 @@ def _col(letters: str) -> int:
     for ch in letters:
         n = n * 26 + ord(ch) - 64
     return n
+
+
+def _letters(col: int) -> str:
+    s = ""
+    while col:
+        col, rem = divmod(col - 1, 26)
+        s = chr(65 + rem) + s
+    return s
