@@ -147,6 +147,53 @@ async def test_a_call_queued_behind_a_sign_in_reset_does_not_orphan_an_excel(mon
     assert xl.killed == [1001] and xl.h.reset_gen == 1
 
 
+@pytest.mark.anyio
+async def test_a_job_starting_as_the_reset_begins_is_not_waited_for(monkeypatch):
+    """check_signin path: the COM thread is idle, so a queued job B starts the moment the reset raises its flag.
+    The reset must not wait on B (B waits for the reset) nor swap the thread under it."""
+    xl = FakeExcel(monkeypatch, [[], []])
+    h = xl.h
+    assert await h.call(lambda h: h.pid, timeout=5) == 1001
+    monkeypatch.setattr(config, "RESET_WAIT_S", 1.0)
+    thread0, b = h.thread, {}
+
+    class Hook(threading.Event):
+        def set(self):
+            super().set()
+            n = h.thread.job_no
+
+            def job_b():
+                h._wait_reset()
+                h._ensure_started()
+                return h.pid
+            b["fut"] = h.thread.submit(job_b)
+            while h.thread.job_no == n:          # B is running (and waiting for the reset)
+                time.sleep(0.01)
+    h._resetting = Hook()
+    t0 = time.monotonic()
+    h._hard_reset("sign-in stuck", 1001)
+    assert time.monotonic() - t0 < 0.8 and h.thread is thread0
+    assert b["fut"].result(5) == 1002 == h.pid and xl.killed == [1001]
+
+
+@pytest.mark.anyio
+async def test_a_job_waiting_for_the_reset_is_not_counted_as_blocked(monkeypatch):
+    xl = FakeExcel(monkeypatch, [[], []])
+    h = xl.h
+    await h.call(lambda h: h.pid, timeout=5)
+    monkeypatch.setattr(config, "RESET_WAIT_S", 1.0)
+    thread0 = h.thread
+    h._resetting.set()
+    fut = h.thread.submit(h._wait_reset)
+    while not h.thread.waiting_reset:
+        time.sleep(0.01)
+    t0 = time.monotonic()
+    h._do_hard_reset("x", h.thread, h.thread.job_no)   # even a snapshot taken after that job started
+    assert time.monotonic() - t0 < 0.8 and h.thread is thread0
+    h._resetting.clear()
+    fut.result(5)
+
+
 def test_check_signin_ignores_plain_messages():
     h = ExcelHost.__new__(ExcelHost)
     h.pid = 5

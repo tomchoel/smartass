@@ -170,6 +170,7 @@ class ComThread(threading.Thread):
         self.q: queue.Queue = queue.Queue()
         self.busy_since: float | None = None
         self.job_no = 0                           # counts started jobs: tells a reset that the blocked job has ended
+        self.waiting_reset = False                # the current job sits in ExcelHost._wait_reset (not blocked)
 
     def run(self):
         pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)
@@ -364,8 +365,16 @@ class ExcelHost:
     def _wait_reset(self) -> None:
         """A job queued behind a reset waits for it, so it never starts an Excel the reset then forgets."""
         deadline = time.monotonic() + config.RESET_WAIT_S + 5
-        while self._resetting.is_set() and time.monotonic() < deadline:
-            time.sleep(0.05)
+        me = threading.current_thread()
+        mark = isinstance(me, ComThread)
+        if mark:
+            me.waiting_reset = True
+        try:
+            while self._resetting.is_set() and time.monotonic() < deadline:
+                time.sleep(0.05)
+        finally:
+            if mark:
+                me.waiting_reset = False
 
     # ---------------- worker-thread side ----------------
     def ensure(self) -> "ExcelHost":
@@ -604,17 +613,17 @@ class ExcelHost:
             if expected_pid is not None and self.pid != expected_pid:
                 log.info("reset for Excel pid=%s skipped: already replaced by pid=%s", expected_pid, self.pid)
                 return
+            thread, job_no = self.thread, self.thread.job_no    # before the flag: a job starting after it is not ours
             self._resetting.set()
             self.reset_gen += 1
             try:
-                self._do_hard_reset(why)
+                self._do_hard_reset(why, thread, job_no)
             finally:
                 self._resetting.clear()
 
-    def _do_hard_reset(self, why: str):
+    def _do_hard_reset(self, why: str, thread: "ComThread", job_no: int):
         pid0 = pid = self.pid
         ctime = self.ctime
-        thread, job_no = self.thread, self.thread.job_no
         if pid is None:
             # Still inside DispatchEx: only if exactly ONE new Excel appeared within 5 s of our start is it ours.
             # Anything else (excel-mcp, the user) may have started one in the meantime - leave it alone.
@@ -634,7 +643,7 @@ class ExcelHost:
         deadline = time.monotonic() + config.RESET_WAIT_S
 
         def blocked() -> bool:                    # the job that was running when we killed is still running
-            return thread.busy_since is not None and thread.job_no == job_no
+            return thread.busy_since is not None and thread.job_no == job_no and not thread.waiting_reset
         while blocked() and time.monotonic() < deadline:
             time.sleep(0.05)
         if blocked() and self.thread is thread:
