@@ -52,6 +52,9 @@ from the tool list, or `sv_status` lacks `behind_reload_proxy`, the server preda
    Then act on what it found:
    - **A concept matches:** answer with `sv_concept(concept)`. That is one call: every block, the keys and the FinMax basis. Report
      what was included, what was estimated (and the key used) and what is not in FinMax.
+   - **Several family concepts match** (e.g. "mobilabonnement" = Consumer and Business subscriptions): run `sv_concept`
+     once per family on the same workbook (`target=<workbook>`; each gets its own Q), and give each family plus their
+     sum in the reply. Ask first only if the question clearly means one segment.
    - **No concept matches:** research the members, using the map hits plus `sv_find_member` / `sv_members` and the archive's
      revenue/COGS files. PROPOSE the blocks to the user (included / estimated with key / left out). Once they confirm, add the
      concept to `knowledge\concepts.json` and run `sv_concept`.
@@ -101,11 +104,13 @@ from the tool list, or `sv_status` lacks `behind_reload_proxy`, the server preda
    - cube · POV · period on one line;
    - every `checks` value that is not OK, and every warning;
    - the sheet names;
-   - that the user's workbook was **not saved** (new analysis files are saved in the analyser folder (`paths.analyser` in `%LOCALAPPDATA%\smartass\config.toml`)).
+   - that the user's workbook was **not saved**. New analysis files (`target='new'` / `'session'`) are the MCP's own
+     and ARE saved, in the analyser folder (`paths.analyser` in `%LOCALAPPDATA%\smartass\config.toml`).
 
 ## Drill-through (invoice / journal lines)
 
-For "what is behind this number" (suppliers, invoices, accruals, allocations) on any FinLite cell. FinLite only.
+For "what is behind this number" (suppliers, invoices, accruals, allocations) on any FinLite cell, P&L or balance
+sheet account alike (`un.SY` is a valid entity). FinLite only.
 1. `sv_drill(question, cell={'All Accounts': .., 'All Entities': .., 'All Time Periods': ..})` (account and period
    required; without an entity the top member is drilled, with a warning). Parents and
    quarters are fine, and big cells (over 20 000 lines) split themselves into months, entities, accounts. It runs
@@ -162,6 +167,10 @@ no depreciation, so stop at EBITDA.
   'x'` means those numbers are not usable: say so, never report them as zero. `sv_analyse` checks every template
   member against the atlas (and live for members the atlas lacks) before it pulls, and names a wrong one.
 - **Input shapes.** `rows`/`columns` may be `[{dimension, members}]` or `{dimension: [members]}`.
+- **Sign-in.** If a tool says the EPM login dialog is open or Smart View is not signed in, the USER has to click
+  'Telenor SSO' in their Excel (you cannot): tell them, then retry once. Repeated login prompts usually mean another
+  Office app (often PowerPoint) holds Smart View's WebView2: ask them to close it.
+- **Member details:** `sv_member_info(connection, member)`.
 - **Long calls** send progress notes (`still working: <stage> (n s)`) every 10 s: wait for them, do not call again.
 - **FinPlan KPIs.** Read volumes, ARPU and percentages as `Periodic` per month; `Accumulated` sums the months for many
   of them (Mobile Subscriptions YTD Sep = 78 M against a stock of 8.7 M). Actual volumes are not in FinPlan for
