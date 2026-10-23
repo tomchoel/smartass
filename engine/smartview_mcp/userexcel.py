@@ -273,40 +273,132 @@ def wait_login_cleared(pid: int, appear_grace: float = 0.0, limit: float = 90.0)
                     "watcher did not), then ask again.")
 
 
-def interactive_excels(_retry_login: bool = True) -> list[tuple[int, int, object]]:
-    """[(pid, main hwnd, Application)] of visible, user-started Excel instances, most recently active first.
-    An Excel showing the EPM Login dialog is waited for (the SSO watcher clicks it) before it is touched."""
-    out, seen, pending = [], set(), []
+@dataclass
+class XlInstance:
+    """One interactive Excel process. `app` is None when that Excel did not answer COM (a dialog is open, a cell is
+    being edited, or it is busy); its workbook window captions (`captions`) are known either way."""
+    pid: int
+    hwnd: int                                        # front-most main window
+    captions: list[str]
+    app: object = None
+
+
+def _excel_windows() -> list[tuple[int, int, list[tuple[int, str]]]]:
+    """Thin Win32 part: [(pid, front-most XLMAIN hwnd, [(EXCEL7 hwnd, caption)])] of the visible Excel main windows,
+    grouped by process, front-most process first (EnumWindows walks top-level windows in z-order)."""
+    by_pid: dict[int, tuple[int, list[tuple[int, str]]]] = {}
 
     def cb(h, _):
-        if win32gui.GetClassName(h) != "XLMAIN" or not win32gui.IsWindowVisible(h):
-            return True
-        pid = win32process.GetWindowThreadProcessId(h)[1]
-        if pid in seen or _is_embedding(pid):
-            return True
-        if login_open(pid):
-            pending.append((pid, h))              # no COM into an Excel whose EPM login is open (deadlock)
-            return True
-        desk = win32gui.FindWindowEx(h, 0, "XLDESK", None)
-        ex7 = win32gui.FindWindowEx(desk, 0, "EXCEL7", None) if desk else 0
-        if not ex7:
-            return True
         try:
-            _, lres = win32gui.SendMessageTimeout(ex7, WM_GETOBJECT, 0, OBJID_NATIVEOM, 2, 3000)
-            win = wc.Dispatch(pythoncom.ObjectFromLresult(lres, pythoncom.IID_IDispatch, 0))
-            out.append((pid, h, win.Application))
-            seen.add(pid)
-        except Exception:   # noqa: BLE001 - window busy or not an Excel workbook window
+            if win32gui.GetClassName(h) != "XLMAIN" or not win32gui.IsWindowVisible(h):
+                return True
+            pid = win32process.GetWindowThreadProcessId(h)[1]
+            desk = win32gui.FindWindowEx(h, 0, "XLDESK", None)
+            ex7 = win32gui.FindWindowEx(desk, 0, "EXCEL7", None) if desk else 0
+            entry = by_pid.setdefault(pid, (h, []))
+            if ex7:
+                entry[1].append((ex7, win32gui.GetWindowText(ex7)))
+        except pywintypes.error:
             pass
         return True
-    win32gui.EnumWindows(cb, None)              # EnumWindows walks top-level windows in z-order (front first)
+    win32gui.EnumWindows(cb, None)
+    return [(pid, h, ex7s) for pid, (h, ex7s) in by_pid.items()]
+
+
+def _app_from_window(ex7: int):
+    """Excel.Application behind a workbook window (AccessibleObjectFromWindow), or None if that Excel refuses."""
+    try:
+        _, lres = win32gui.SendMessageTimeout(ex7, WM_GETOBJECT, 0, OBJID_NATIVEOM, 2, 3000)
+        win = wc.Dispatch(pythoncom.ObjectFromLresult(lres, pythoncom.IID_IDispatch, 0))
+        return win.Application
+    except Exception:   # noqa: BLE001 - modal dialog, cell edit mode, busy, or not a workbook window
+        return None
+
+
+def engine_excel_pids() -> set[int]:
+    """The hidden automation Excels the smartass servers started (pids.json): never a user's Excel."""
+    from .host import _PidRegistry
+    return {int(i["pid"]) for i in _PidRegistry().load() if isinstance(i, dict) and i.get("pid")}
+
+
+def excel_instances(_retry_login: bool = True) -> list[XlInstance]:
+    """Every visible, user-facing Excel process (not the engine's hidden ones), most recently active first, including
+    Excels that do not answer COM right now (app=None). An Excel showing the EPM Login dialog is waited for (the SSO
+    watcher clicks it) before it is touched."""
+    out, pending = [], []
+    engine = engine_excel_pids()
+    for pid, h, ex7s in _excel_windows():
+        if pid in engine or _is_embedding(pid):
+            continue
+        if login_open(pid):
+            pending.append(pid)                   # no COM into an Excel whose EPM login is open (deadlock)
+            continue
+        if not ex7s:
+            continue
+        app = None
+        for ex7, _cap in ex7s:                    # some windows (e.g. an add-in shown read-only) give no object
+            app = _app_from_window(ex7)
+            if app is not None:
+                break
+        out.append(XlInstance(pid, h, [c for _e, c in ex7s], app))
     if pending and _retry_login:
         from . import sso
         sso.ensure_global_watcher()
-        for pid, _h in pending:
+        for pid in pending:
             wait_login_cleared(pid)
-        return interactive_excels(_retry_login=False)
+        return excel_instances(_retry_login=False)
     return out
+
+
+def interactive_excels(_retry_login: bool = True) -> list[tuple[int, int, object]]:
+    """[(pid, main hwnd, Application)] of the visible, user-started Excel instances that answer COM, most recently
+    active first (excel_instances() also lists the ones that are busy)."""
+    return [(i.pid, i.hwnd, i.app) for i in excel_instances(_retry_login) if i.app is not None]
+
+
+def _caption_book(caption: str) -> str:
+    """Workbook name in a window caption: 'Book  -  Read-Only  -  Compatibility Mode' / 'Book.xlsx:2' -> 'book'."""
+    s = str(caption).split("  -  ")[0].strip()
+    s = re.sub(r":\d+$", "", s)
+    return re.sub(r"\.(xlsx|xlsm|xlsb|xls|xltx|xltm)$", "", s, flags=re.I).lower()
+
+
+def busy_holder(instances: list[XlInstance], name: str) -> XlInstance | None:
+    """The Excel that does not answer COM but shows a window for workbook `name` (a file name or path)."""
+    want = _caption_book(Path(str(name)).name)
+    return next((i for i in instances if i.app is None and any(_caption_book(c) == want for c in i.captions)), None)
+
+
+def busy_error(pid: int, name: str, found: list | None = None) -> HostError:
+    """Name what blocks the Excel holding `name`: a dialog (dialogs.scan) or else cell edit mode."""
+    from . import dialogs
+    if found is None:
+        try:
+            found = dialogs.scan(pid)
+        except Exception:   # noqa: BLE001
+            found = []
+    if found:
+        return HostError(f"'{name}' is open in an Excel (pid {pid}) that has a dialog open "
+                         f"({dialogs.describe(found[0])}). Close that dialog in Excel, then ask again.")
+    return HostError(f"'{name}' is open in an Excel (pid {pid}) that is in cell edit mode or busy (no dialog seen). "
+                     "Press Enter or Esc in that Excel window, then ask again.")
+
+
+def _file_in_use(path: Path) -> bool:
+    """Another process holds the file open for writing (Excel locks the workbooks it has open)."""
+    try:
+        fd = os.open(str(path), os.O_RDWR | getattr(os, "O_BINARY", 0))
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    os.close(fd)
+    return False
+
+
+def _locked_error(path: Path) -> HostError:
+    return HostError(f"'{path.name}' is open in another program, or in an Excel this engine cannot reach (the file is "
+                     "locked). Close it there (or save and close it in that Excel), then ask again.")
 
 
 ARCHIVE_URL_MARK = "/sites/analysetelenornorgeas/"     # SharePoint site behind the Produktregnskapet archive
@@ -461,7 +553,7 @@ class Target:
             pass
 
 
-def _wait_ready(app, limit: float = EDIT_WAIT_S):
+def _wait_ready(app, limit: float = EDIT_WAIT_S, pid: int | None = None, name: str | None = None):
     t0 = time.monotonic()
     while time.monotonic() - t0 < limit:
         try:
@@ -471,6 +563,8 @@ def _wait_ready(app, limit: float = EDIT_WAIT_S):
             if not _busy(e):
                 raise
         time.sleep(0.5)
+    if pid:
+        raise busy_error(pid, name or "The workbook")
     raise HostError("Your Excel is in edit mode (a cell is being typed in) or showing a dialog. Press Enter or Esc, "
                     "then ask again.")
 
@@ -514,7 +608,8 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
             raise InputError(f"Give an absolute path for target (got '{target}'), or use 'session' / 'active' / 'new'.")
         if is_archive(p) and not allow_archive:       # refuse BEFORE opening anything
             raise InputError(ARCHIVE_REFUSAL.format(name=p.name))
-    excels = interactive_excels()                     # waits for any open EPM login before touching an Excel
+    instances = excel_instances()                     # waits for any open EPM login before touching an Excel
+    excels = [(i.pid, i.hwnd, i.app) for i in instances if i.app is not None]
     if target == "active":
         for pid, hwnd, app in excels:
             try:
@@ -526,25 +621,26 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
                 return _finish_target(h, Target(app, wb, pid, hwnd), allow_archive)
         target = "new"                                # nothing open: fall back to a new analysis workbook
     if target == "new":
-        t = _finish_target(h, _new_target(h, title or "Analyse", excels), allow_archive)
+        t = _finish_target(h, _new_target(h, title or "Analyse", excels, {i.pid for i in instances}), allow_archive)
         session.set_workbook(t.path)                  # a new file becomes this session's workbook
         return t
-    return _finish_target(h, _open_path(h, Path(target), excels), allow_archive)
+    return _finish_target(h, _open_path(h, Path(target), excels, instances), allow_archive)
 
 
-def _new_target(h: ExcelHost, title: str, excels) -> Target:
+def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None) -> Target:
     """A new analysis workbook in a FREE Excel, so parallel agents do not wait for each other: the first Excel whose
-    turn is free; else (below MAX_EXCELS) a new Excel window started on the TN template; else wait for the first."""
+    turn is free; else (below MAX_EXCELS) a new Excel window started on the TN template; else wait for the first.
+    If it cannot be saved, the new workbook is closed unsaved (and an Excel started for it is closed again)."""
     from . import styling
-    from .ops import _label
-    path = _new_path(title)
     tpl = styling.template_path()
     choice = next((e for e in excels if hold_turn(e[0], wait=False)), None)
     wb = None
+    spawned = False
     if choice is None and excels and len(excels) < MAX_EXCELS and tpl.exists():
         from .timing import stage
         with stage("start another Excel (parallel agent)"):
-            choice, wb = _spawn_excel(tpl, {e[0] for e in excels})
+            choice, wb = _spawn_excel(tpl, {e[0] for e in excels} | (known or set()))
+        spawned = True
     if choice is None and excels:
         hold_turn(excels[0][0], what="this request")
         choice = excels[0]
@@ -553,20 +649,63 @@ def _new_target(h: ExcelHost, title: str, excels) -> Target:
         t.created = True
         return t
     pid, hwnd, app = choice
-    if wb is None:
-        try:                                          # from the TN template: the styles come for free (saves ~11 s)
-            tpl_s = str(styling.ensure_template(app))
-            wb = com(lambda: app.Workbooks.Add(tpl_s))
-        except Exception:   # noqa: BLE001 - template unavailable: plain workbook, styles installed later
-            wb = com(lambda: app.Workbooks.Add())
-    com(lambda: setattr(wb.Worksheets(1), "Name", "Kilder"))
-    com(lambda: _label(wb))
-    com(lambda: wb.SaveAs(str(path), 51))
-    if not path.exists():
-        raise HostError(f"Could not create {path} (sensitivity label?).")
+    try:
+        if wb is None:
+            try:                                      # from the TN template: the styles come for free (saves ~11 s)
+                tpl_s = str(styling.ensure_template(app))
+                wb = com(lambda: app.Workbooks.Add(tpl_s))
+            except Exception:   # noqa: BLE001 - template unavailable: plain workbook, styles installed later
+                wb = com(lambda: app.Workbooks.Add())
+        _save_new(app, wb, title)
+    except BaseException:
+        _discard_new(app, wb, spawned)
+        raise
     t = Target(app, wb, pid, hwnd)
     t.created = True
     return t
+
+
+def _save_new(app, wb, title: str) -> Path:
+    """Name the first sheet 'Kilder', label and SaveAs the new workbook under a file name that is free on disk and
+    not the name of a workbook already open in that Excel (Excel refuses both with 0x800A03EC)."""
+    from .ops import _label
+    try:
+        taken = {str(b.Name).lower() for b in com(lambda: app.Workbooks)}
+    except Exception:   # noqa: BLE001
+        taken = set()
+    path = _new_path(title, taken)
+    com(lambda: setattr(wb.Worksheets(1), "Name", "Kilder"))
+    com(lambda: _label(wb))
+    try:
+        com(lambda: wb.SaveAs(str(path), 51))
+    except pywintypes.com_error as e:
+        raise HostError(f"Excel could not save the new workbook as {path} ({_com_text(e)}). Nothing was left open; "
+                        "check that the folder exists and is writable, then ask again.") from None
+    if not path.exists():
+        raise HostError(f"Could not create {path} (sensitivity label?).")
+    return path
+
+
+def _com_text(e: pywintypes.com_error) -> str:
+    info = e.excepinfo if e.excepinfo and len(e.excepinfo) > 2 else None
+    return str(info[2]) if info and info[2] else str(e)
+
+
+def _discard_new(app, wb, spawned: bool) -> None:
+    """Close a new workbook that could not be saved, without saving; quit an Excel started only for it."""
+    if wb is not None:
+        try:
+            com(lambda: wb.Close(False), limit=30, check=False)
+        except Exception:   # noqa: BLE001
+            log.warning("could not close the unsaved new workbook")
+    if spawned:
+        try:
+            left = [b for b in com(lambda: app.Workbooks, limit=10, check=False)
+                    if not str(b.Name).lower().endswith((".xlam", ".xla"))]
+            if not left:
+                com(lambda: app.Quit(), limit=10, check=False)
+        except Exception:   # noqa: BLE001
+            pass
 
 
 def _spawn_excel(tpl: Path, known: set[int]):
@@ -591,23 +730,66 @@ def _finish_target(h: ExcelHost, t: Target, allow_archive: bool) -> Target:
     wait_login_cleared(t.pid)                         # before any further COM into that Excel
     if (is_archive(t.path) or is_archive(t.full_name)) and not allow_archive:
         raise InputError(ARCHIVE_REFUSAL.format(name=t.name))
-    _wait_ready(t.app)
+    _wait_ready(t.app, pid=t.pid, name=t.name)
     _attach_bridge(h, t)
     return t
 
 
-def _open_path(h: ExcelHost, path: Path, excels) -> Target:
-    if not path.exists():
-        raise InputError(f"File not found: {path}")
+def _find_open(excels, path: Path) -> Target | None:
     for pid, hwnd, app in excels:
         for wb in app.Workbooks:
             if _norm(wb.FullName) == _norm(path):
-                hold_turn(pid, what="this request")
                 return Target(app, wb, pid, hwnd)
+    return None
+
+
+BUSY_WAIT_S = 10                    # a busy Excel that holds the target gets this long to answer before we say why
+
+
+def _wait_busy_holder(pid: int, path: Path) -> Target:
+    """The target is open in Excel `pid`, which does not answer COM (dialog, cell edit mode, busy). Take that Excel's
+    turn (another agent may be working in it), give it BUSY_WAIT_S to answer, else name what blocks it."""
+    hold_turn(pid, what="this request")
+    t0 = time.monotonic()
+    while True:
+        insts = [i for i in excel_instances() if i.pid == pid]
+        if not insts:
+            raise HostError(f"The Excel (pid {pid}) that had '{path.name}' open has closed. Ask again.")
+        i = insts[0]
+        if i.app is not None:
+            t = _find_open([(i.pid, i.hwnd, i.app)], path)
+            if t is not None:
+                return t
+        if time.monotonic() - t0 >= BUSY_WAIT_S:
+            raise busy_error(pid, path.name)
+        time.sleep(0.5)
+
+
+def _open_path(h: ExcelHost, path: Path, excels, instances: list[XlInstance] | None = None) -> Target:
+    """The workbook at `path`, wherever it is open: any Excel that answers, else a busy Excel showing its window
+    (which is named if it stays busy); else opened in the user's running Excel; else in a new Excel."""
+    if not path.exists():
+        raise InputError(f"File not found: {path}")
+    t = _find_open(excels, path)
+    if t is not None:
+        hold_turn(t.pid, what="this request")
+        return t
+    if instances is None:
+        instances = excel_instances()
+    holder = busy_holder(instances, path.name)
+    if holder is not None:
+        return _wait_busy_holder(holder.pid, path)
+    if _file_in_use(path):
+        raise _locked_error(path)
     if excels:                                  # open it in the user's Excel that is already running
         pid, hwnd, app = excels[0]
         hold_turn(pid, what="this request")
-        wb = com(lambda: app.Workbooks.Open(str(path)), limit=180)
+        try:
+            wb = com(lambda: app.Workbooks.Open(str(path)), limit=180)
+        except pywintypes.com_error as e:
+            if "cannot access" in str(e).lower():
+                raise _locked_error(path) from None
+            raise
         return Target(app, wb, pid, hwnd)
     proc = _launch_excel(path)
     t0 = time.monotonic()
@@ -640,11 +822,19 @@ def _launch_excel(path: Path) -> subprocess.Popen:
     return subprocess.Popen([config.EXCEL_EXE, "/x", str(path)], startupinfo=si)
 
 
-def _new_path(title: str) -> Path:
-    """analyser\\<project of this session>\\<date time> <title>.xlsx"""
+def _new_path(title: str, taken: set[str] | frozenset = frozenset()) -> Path:
+    """analyser\\<project of this session>\\<date time> <title>.xlsx, with ' (2)', ' (3)' ... when that file exists
+    (the same question again within the minute, e.g. a retry) or its name is in `taken` (open workbooks, lower case)."""
     from . import session
     safe = re.sub(r'[\\/:*?"<>|]+', "_", title).strip()[:60] or "Analyse"   # only characters Windows forbids
-    return session.project_dir() / f"{dt.datetime.now():%Y-%m-%d_%H%M} {safe}.xlsx"
+    stem = f"{dt.datetime.now():%Y-%m-%d_%H%M} {safe}"
+    folder = session.project_dir()
+    n = 1
+    while True:
+        p = folder / (f"{stem}.xlsx" if n == 1 else f"{stem} ({n}).xlsx")
+        if not p.exists() and p.name.lower() not in taken:
+            return p
+        n += 1
 
 
 def _new_analysis_file(h: ExcelHost, title: str) -> Path:

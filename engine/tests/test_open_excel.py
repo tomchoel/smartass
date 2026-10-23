@@ -1,6 +1,11 @@
-import pytest
+import json
+from pathlib import Path
 
-from smartview_mcp import userexcel
+import pytest
+import pywintypes
+
+from smartview_mcp import config, dialogs, ops, session, styling, userexcel
+from smartview_mcp.dialogs import Dialog
 from smartview_mcp.host import HostError
 
 
@@ -37,7 +42,7 @@ def test_open_path_fails_fast_when_the_new_excel_exits(tmp_path, monkeypatch, fa
     monkeypatch.setattr(userexcel, "_launch_excel", lambda p: proc)
     monkeypatch.setattr(userexcel, "interactive_excels", lambda: [])
     with pytest.raises(HostError, match="closed before it opened"):
-        userexcel._open_path(None, f, [])
+        userexcel._open_path(None, f, [], [])
     assert proc.polls == 2
 
 
@@ -54,5 +59,134 @@ def test_open_path_waits_for_a_slow_cold_excel(tmp_path, monkeypatch, fast):
     monkeypatch.setattr(userexcel, "interactive_excels", excels)
     clock = iter(range(0, 10_000))
     monkeypatch.setattr(userexcel.time, "monotonic", lambda: next(clock))
-    t = userexcel._open_path(None, f, [])
+    t = userexcel._open_path(None, f, [], [])
     assert t.pid == 7
+
+
+# ------------------------------------------------------------------ several Excels (fake windows and COM objects)
+SAVEAS_FAILED = pywintypes.com_error(-2147352567, "Exception occurred.", (0, "Microsoft Excel", "SaveAs method of "
+                                     "Workbook class failed", "xlmain11.chm", 0, -2146827284), None)
+
+
+class Books(list):
+    def __init__(self, items=(), add=None):
+        super().__init__(items)
+        self._add = add
+
+    def Add(self, *a):
+        wb = self._add()
+        self.append(wb)
+        return wb
+
+
+class NewWb:
+    def __init__(self, fail: bool):
+        self.Name, self.fail, self.closed, self.saved_as = "tn_template_x1", fail, [], None
+        self.sheet = type("Sheet", (), {"Name": "Sheet1"})()
+
+    def Worksheets(self, i):
+        return self.sheet
+
+    def SaveAs(self, path, fmt):
+        if self.fail:
+            raise SAVEAS_FAILED
+        self.saved_as = path
+        open(path, "wb").close()
+
+    def Close(self, save):
+        self.closed.append(save)
+
+
+def _excels(monkeypatch, windows: dict, apps: dict, engine=()):
+    """windows: {pid: [captions]} in z-order; apps: {pid: FakeApp or None (does not answer COM)}."""
+    config.PID_FILE.write_text(json.dumps([{"pid": p, "ctime": 1.0} for p in engine]))
+    monkeypatch.setattr(userexcel, "_excel_windows",
+                        lambda: [(pid, pid * 10, [(pid * 100 + i, c) for i, c in enumerate(caps)])
+                                 for pid, caps in windows.items()])
+    monkeypatch.setattr(userexcel, "_app_from_window", lambda ex7: apps.get(ex7 // 100))
+    monkeypatch.setattr(userexcel, "_is_embedding", lambda pid: False)
+    monkeypatch.setattr(userexcel, "login_open", lambda pid: False)
+
+
+def test_target_open_in_the_second_excel_is_used_there(tmp_path, monkeypatch, fast):
+    f = tmp_path / "Book A.xlsx"
+    f.write_bytes(b"x")
+    first = FakeApp(Books([FakeWb(str(tmp_path / "other.xlsx"))]))
+    second = FakeApp(Books([FakeWb(str(tmp_path / "x.xlsx")), FakeWb(str(f))]))
+    _excels(monkeypatch, {11: ["other"], 22: ["x", "Book A"]}, {11: first, 22: second})
+    monkeypatch.setattr(userexcel, "com", lambda *a, **k: pytest.fail("must not open it in another Excel"))
+    inst = userexcel.excel_instances()
+    excels = [(i.pid, i.hwnd, i.app) for i in inst if i.app is not None]
+    t = userexcel._open_path(None, f, excels, inst)
+    assert (t.pid, t.app, t.wb.FullName) == (22, second, str(f))
+
+
+def test_engine_hidden_excel_is_never_a_user_excel(tmp_path, monkeypatch):
+    f = tmp_path / "Book A.xlsx"
+    engine, user = FakeApp(Books([FakeWb(str(f))])), FakeApp(Books([FakeWb(str(f))]))
+    _excels(monkeypatch, {33: ["Book A"], 44: ["Book A"]}, {33: engine, 44: user}, engine=[33])
+    assert [i.pid for i in userexcel.excel_instances()] == [44]
+    assert [e[0] for e in userexcel.interactive_excels()] == [44]
+
+
+@pytest.mark.parametrize("found,words", [([Dialog(5, "NUIDialog", "Microsoft Excel", "matrix", "message")], "dialog"),
+                                         ([], "edit mode")])
+def test_target_in_a_busy_excel_names_dialog_or_edit_mode(tmp_path, monkeypatch, fast, found, words):
+    f = tmp_path / "2026-10-23_1318 MATRIX S8 scratch.xlsx"
+    f.write_bytes(b"x")
+    user = FakeApp(Books([FakeWb(str(tmp_path / "mine.xlsx"))]))
+    _excels(monkeypatch, {11: ["mine"], 22: ["2026-10-23_1318 MATRIX S8 scratch  -  Read-Only"]}, {11: user, 22: None})
+    monkeypatch.setattr(userexcel, "BUSY_WAIT_S", 0)
+    monkeypatch.setattr(dialogs, "scan", lambda pid: found if pid == 22 else [])
+    monkeypatch.setattr(userexcel, "com", lambda *a, **k: pytest.fail("must not open it in another Excel"))
+    inst = userexcel.excel_instances()
+    with pytest.raises(HostError, match=words) as e:
+        userexcel._open_path(None, f, [(11, 110, user)], inst)
+    assert "pid 22" in str(e.value) and f.name in str(e.value)
+
+
+def test_busy_excel_that_answers_in_time_is_used(tmp_path, monkeypatch, fast):
+    f = tmp_path / "Book A.xlsx"
+    f.write_bytes(b"x")
+    later = FakeApp(Books([FakeWb(str(f))]))
+    apps = {22: None}
+    _excels(monkeypatch, {22: ["Book A"]}, apps)
+    inst = userexcel.excel_instances()
+    apps[22] = later                                # e.g. the user pressed Esc
+    assert userexcel._open_path(None, f, [], inst).app is later
+
+
+def test_locked_file_open_in_no_reachable_excel_is_named(tmp_path, monkeypatch, fast):
+    f = tmp_path / "Book A.xlsx"
+    f.write_bytes(b"x")
+    monkeypatch.setattr(userexcel, "_file_in_use", lambda p: True)
+    monkeypatch.setattr(userexcel, "com", lambda *a, **k: pytest.fail("must not try Workbooks.Open"))
+    with pytest.raises(HostError, match="open in another program"):
+        userexcel._open_path(None, f, [(11, 110, FakeApp(Books()))], [])
+
+
+def test_failed_saveas_of_a_new_workbook_closes_it_unsaved(tmp_path, monkeypatch, fast):
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    monkeypatch.setattr(styling, "ensure_template", lambda app: tmp_path / "tn_template_x.xltx")
+    monkeypatch.setattr(ops, "_label", lambda wb: None)
+    new = NewWb(fail=True)
+    app = FakeApp(Books([FakeWb(str(tmp_path / "mine.xlsx"))], add=lambda: new))
+    with pytest.raises(HostError, match="could not save the new workbook"):
+        userexcel._new_target(None, "Q", [(11, 110, app)])
+    assert new.closed == [False]
+
+
+def test_new_workbook_never_reuses_a_file_name_from_the_same_minute(tmp_path, monkeypatch, fast):
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    monkeypatch.setattr(styling, "ensure_template", lambda app: tmp_path / "tn_template_x.xltx")
+    monkeypatch.setattr(ops, "_label", lambda wb: None)
+    made = []
+
+    def add():
+        made.append(NewWb(fail=False))
+        return made[-1]
+    app = FakeApp(Books(add=add))
+    t1 = userexcel._new_target(None, "Same question", [(11, 110, app)])
+    t2 = userexcel._new_target(None, "Same question", [(11, 110, app)])
+    names = [Path(w.saved_as).name for w in made]
+    assert t1.created and t2.created and names[0] != names[1] and names[1].endswith(" (2).xlsx")

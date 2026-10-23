@@ -28,7 +28,18 @@ from openpyxl.utils.cell import range_boundaries
 from . import config
 from . import formulas as fx
 from .host import HostError, InputError
-from .userexcel import _wait_ready, com, fast_excel, hold_turn, interactive_excels, is_archive, local_path
+from .userexcel import (
+    _wait_ready,
+    busy_error,
+    busy_holder,
+    com,
+    excel_instances,
+    fast_excel,
+    hold_turn,
+    interactive_excels,
+    is_archive,
+    local_path,
+)
 
 log = logging.getLogger("smartview.livexl")
 
@@ -76,8 +87,14 @@ def _books(app):
 
 def find_book(workbook: str | None, write: bool = False, allow_archive: bool = False) -> Book:
     """The user's active workbook (workbook=None) or an open one by name / file name / full path, in any Excel."""
-    excels = interactive_excels()
+    instances = excel_instances()
+    excels = [(i.pid, i.hwnd, i.app) for i in instances if i.app is not None]
     if not excels:
+        holder = busy_holder(instances, workbook.strip()) if workbook else None
+        if holder is not None:
+            raise busy_error(holder.pid, workbook.strip())
+        if instances:
+            raise busy_error(instances[0].pid, "your workbook")
         raise HostError("No open Excel window found. Open the workbook in Excel first.")
     hit = None
     if not workbook:
@@ -103,6 +120,9 @@ def find_book(workbook: str | None, write: bool = False, allow_archive: bool = F
                     if stem(want) in str(wb.Name).lower():
                         cands.append((pid, app, wb))
         if not cands:
+            holder = busy_holder(instances, workbook.strip())
+            if holder is not None:
+                raise busy_error(holder.pid, workbook.strip())
             raise InputError(f"No open workbook matches '{workbook}' (open now: {list_names(excels)}). Next step: pass one of those names, or open the workbook in Excel first.")
         if len(cands) > 1:
             raise InputError(f"'{workbook}' matches several open workbooks: {[str(c[2].Name) for c in cands]}. "
