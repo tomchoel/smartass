@@ -1,0 +1,133 @@
+"""ExcelHost.call: Smart View sign-in / WebView2 dialogs in the hidden Excel lead to one restart and retry.
+Fake Excel (pids only), fake dialog detector and fake kill - no real Excel or Win32 windows are touched."""
+import threading
+import time
+
+import pytest
+import pywintypes
+
+from smartview_mcp import config, host
+from smartview_mcp.dialogs import Dialog
+from smartview_mcp.host import ComThread, ExcelHost, HostError, HostTimeout, SignInBlocked
+
+LOGIN_IE = Dialog(11, "#32770", "Login", "", "login", True)
+MESSAGE = Dialog(12, "#32770", "Oracle Smart View for Office", "Empty response from provider", "message")
+
+
+class _Registry:
+    def remove(self, pid):
+        pass
+
+
+class FakeExcel:
+    """Each start gets a new pid. A 'hanging' call blocks until that pid is killed, then fails like a dead RPC."""
+
+    def __init__(self, monkeypatch, dialogs_by_start):
+        self.dialogs_by_start = dialogs_by_start
+        self.starts, self.killed = [], []
+        self.released: dict[int, threading.Event] = {}
+        h = ExcelHost.__new__(ExcelHost)
+        h.thread = ComThread()
+        h.thread.start()
+        h.registry = _Registry()
+        h.app = h.wb = h.pid = h.ctime = None
+        h.connected, h.restarts, h.last_error = {}, 0, None
+        h._known_before, h._start_wall = set(), time.time()
+        h._ensure_started = self._ensure
+        h.detect = self._detect
+        self.h = h
+        monkeypatch.setattr(host, "kill_ours", self._kill)
+        monkeypatch.setattr(host, "windows_of", lambda pid: [])
+        monkeypatch.setattr(host.dialogs, "webview2_holders", lambda exclude_parent: [])
+        monkeypatch.setattr(config, "DIALOG_CHECK_AFTER_S", 0.05)
+        monkeypatch.setattr(config, "DIALOG_POLL_S", 0.05)
+
+    def _ensure(self):
+        if self.h.pid is None:
+            self.starts.append(1)
+            self.h.pid, self.h.ctime = 1000 + len(self.starts), 1.0
+            self.released[self.h.pid] = threading.Event()
+
+    def _detect(self, pid):
+        i = pid - 1001
+        return list(self.dialogs_by_start[i]) if i < len(self.dialogs_by_start) else []
+
+    def _kill(self, pid, ctime):
+        self.killed.append(pid)
+        self.released[pid].set()
+        return True
+
+    def hang(self, h):
+        if not self.released[h.pid].wait(5):
+            raise AssertionError("never killed")
+        raise pywintypes.com_error(-2147023170, "The remote procedure call failed.", None, None)
+
+
+@pytest.mark.anyio
+async def test_login_dialog_hang_restarts_excel_and_retries_once(monkeypatch):
+    xl = FakeExcel(monkeypatch, [[LOGIN_IE], []])
+
+    def fn(h):
+        return "ok" if h.pid == 1002 else xl.hang(h)
+
+    assert await xl.h.call(fn, timeout=5, what="sv_query") == "ok"
+    assert xl.killed == [1001] and len(xl.starts) == 2
+
+
+@pytest.mark.anyio
+async def test_login_dialog_twice_raises_the_cause_and_next_step(monkeypatch):
+    xl = FakeExcel(monkeypatch, [[LOGIN_IE], [LOGIN_IE]])
+    with pytest.raises(HostError) as e:
+        await xl.h.call(xl.hang, timeout=5, what="sv_query")
+    msg = str(e.value)
+    assert "sign-in window" in msg and "Internet Explorer" in msg
+    assert "restarted Excel once; it happened again" in msg
+    assert "smartass doctor --bundle" in msg
+    assert not isinstance(e.value, HostTimeout)
+    assert xl.killed == [1001, 1002]
+
+
+@pytest.mark.anyio
+async def test_message_dialog_is_named_in_the_timeout_error(monkeypatch):
+    xl = FakeExcel(monkeypatch, [[MESSAGE]])
+    with pytest.raises(HostTimeout) as e:
+        await xl.h.call(xl.hang, timeout=0.5, what="sv_query")
+    assert "a dialog is open in the hidden Excel: 'Oracle Smart View for Office: Empty response from provider'" \
+        in str(e.value)
+    assert xl.killed == [1001] and len(xl.starts) == 1
+
+
+@pytest.mark.anyio
+async def test_young_webview2_login_is_left_to_the_sso_watcher(monkeypatch):
+    xl = FakeExcel(monkeypatch, [[Dialog(11, "#32770", "Login", "", "login", False)]])
+
+    def fn(h):
+        time.sleep(0.4)                       # the SSO watcher clicks 'Telenor SSO' meanwhile
+        return "ok"
+
+    assert await xl.h.call(fn, timeout=5, what="sv_query") == "ok"
+    assert xl.killed == []
+
+
+@pytest.mark.anyio
+async def test_sign_in_blocked_raised_by_the_job_restarts_and_retries(monkeypatch):
+    xl = FakeExcel(monkeypatch, [[LOGIN_IE], []])
+
+    def fn(h):
+        if h.pid == 1001:
+            h.check_signin()                  # what ops does after a transient rc=752 / rc=57704
+            raise AssertionError("check_signin should have raised")
+        return "ok"
+
+    assert await xl.h.call(fn, timeout=5, what="sv_query") == "ok"
+    assert xl.killed == [1001]
+
+
+def test_check_signin_ignores_plain_messages():
+    h = ExcelHost.__new__(ExcelHost)
+    h.pid = 5
+    h.detect = lambda pid: [MESSAGE]
+    h.check_signin()
+    h.detect = lambda pid: [LOGIN_IE]
+    with pytest.raises(SignInBlocked):
+        h.check_signin()

@@ -85,6 +85,18 @@ Startup entry `smartass-sso-watcher.lnk` and logs to `%LOCALAPPDATA%\smartass\lo
 - Restart it: double-click `smartass-sso-watcher.lnk` in the Startup folder (`Win+R`, `shell:startup`), or log off
   and on. If the entry is missing, re-run `installer\install.ps1`.
 
+## "Smart View showed its sign-in window (WebView2 failed …)"
+
+Smart View's login page runs in WebView2. When WebView2 cannot start, Smart View says so ("WebView2 Runtime failed …
+switching to IE") and opens the login in Internet Explorer, where the Oracle page fails ("Script Error: Function
+expected"). That window cannot be closed, so the engine kills its own hidden Excel, starts a new one and retries the
+call once. If the second try fails the same way, you get this error.
+
+- Smart View keeps one WebView2 folder for all Office apps (`%APPDATA%\Oracle\SmartView\WebView`). If the error names
+  an app that holds it (e.g. `POWERPNT.EXE`), close that app and retry.
+- Sign in once in your own Excel (Smart View ribbon → Panel → connect), then retry.
+- Still failing: run `smartass doctor --bundle`.
+
 ## Still stuck
 
 Run `smartass doctor --bundle` and send the zip it prints to the maintainer. It contains the doctor result,

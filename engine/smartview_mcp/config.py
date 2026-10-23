@@ -192,6 +192,12 @@ SHEET_OPTIONS = {5: 0, 6: False, 7: False, 9: False, 41: False, 42: False, 43: F
 
 CALL_TIMEOUT_S = float(os.environ.get("SV_CALL_TIMEOUT", "180"))
 START_TIMEOUT_S = float(os.environ.get("SV_START_TIMEOUT", "120"))
+# While a hidden-Excel call runs, look for Smart View dialogs (dialogs.py) after DIALOG_CHECK_AFTER_S, every
+# DIALOG_POLL_S. A WebView2 Login window gets LOGIN_GRACE_S for the SSO watcher (it once needed 18 s).
+DIALOG_CHECK_AFTER_S = 5.0
+DIALOG_POLL_S = 2.0
+LOGIN_GRACE_S = float(os.environ.get("SV_LOGIN_GRACE", "45"))
+TRANSIENT_RETRY_WAIT_S = 3.0                        # before the one retry after rc=752 / rc=57704
 MAX_CELLS = int(os.environ.get("SV_MAX_CELLS", "50000"))
 PREVIEW_ROWS = 60
 

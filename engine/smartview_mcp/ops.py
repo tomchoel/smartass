@@ -54,6 +54,7 @@ def _connect_with_retry(h: ExcelHost, sheet: str, conn: str, attempts: int = 3):
                                                   "did not accept the connection"))
             if i == attempts - 1 or not transient:
                 raise
+            h.check_signin()                      # a stuck sign-in: no point retrying in this Excel
             time.sleep(4 * (i + 1))
 
 
@@ -171,6 +172,16 @@ def is_rc1000(msg) -> bool:
     return re.search(r"(?<!\d)1000(?!\d)", str(msg)) is not None
 
 
+def is_transient(msg) -> bool:
+    """rc=752 'Empty response from provider' or rc=57704 'Unsupported Error' (server says 'H&yperion') on a retrieve:
+    seen right after an unfinished sign-in; usually gone on the next try. Not the 57704 of an unsupported member
+    query (_explain's 'does not support this member query')."""
+    s = str(msg)
+    if "does not support this member query" in s:
+        return False
+    return re.search(r"(?:rc=|ERR\|)(752|57704)(?!\d)", s) is not None or "empty response from provider" in s.lower()
+
+
 def _rejected_members(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis]) -> list[tuple[str, str]]:
     """After an rc=1000 'Unsupported Error': bisect each multi-member axis to find the members Smart View rejects
     (e.g. a name used twice in one dimension, like FinPlan Account 'Other'). Returns [(dimension, member)]."""
@@ -219,10 +230,18 @@ def _explain_reject(conn: str, dim: str, member: str) -> str:
 def query(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis],
           suppress_missing: bool, suppress_zeros: bool):
     """Retrieve a grid. If Smart View rejects it (rc=1000), find the rejected members by bisection, drop them,
-    retrieve again and report them in parsed.pov_problems, so one bad member does not sink a large pull."""
+    retrieve again and report them in parsed.pov_problems, so one bad member does not sink a large pull.
+    A transient rc=752 / rc=57704 is retried once on a fresh grid sheet - after a restart if Smart View's sign-in
+    is stuck (h.check_signin raises SignInBlocked; ExcelHost.call restarts Excel and runs the query again)."""
     try:
         return _query_once(h, conn, pov, rows, cols, suppress_missing, suppress_zeros)
     except HostError as e:
+        if is_transient(e):
+            log.warning("transient Smart View error on %s, retrying once: %s", conn, e)
+            h.check_signin()
+            time.sleep(config.TRANSIENT_RETRY_WAIT_S)
+            ensure_grid_sheet(h, conn, fresh=True)
+            return _query_once(h, conn, pov, rows, cols, suppress_missing, suppress_zeros)
         if not is_rc1000(e) or all(len(a.members) <= 1 for a in rows + cols):
             raise
         err = e
