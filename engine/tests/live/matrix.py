@@ -158,8 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     resumed = helpers.resume_leftover_suspended()   # a crashed S8.sleep run must not leave servers suspended
     if resumed:
         print(f"resumed leftover suspended server(s): {resumed}", flush=True)
-    if helpers.restore_leftover_hkcu_options():  # a crashed S9.lookup must not leave the fresh engine's options
-        print("restored the owner's Smart View options (CAOptionsXML) from matrix-hkcu-options.json", flush=True)
+    (Path(config.HOME) / "matrix-hkcu-options.json").unlink(missing_ok=True)   # retired S9 HKCU marker (582b6fb)
     chosen = select(args.only, args.fresh)
     if not chosen:
         print("no scenarios match", file=sys.stderr)

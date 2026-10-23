@@ -770,31 +770,30 @@ def s9_install(ctx):
     return {"notes": f"install {secs:.0f}s; doctor {len(lines)}/{len(lines)} OK"}
 
 
-@scenario("S9.lookup", ["fresh"], budget=180, fresh=True)
+@scenario("S9.lookup", ["fresh"], budget=60, fresh=True)
 def s9_lookup(ctx):
+    """Only the fresh MCP server start + sv_status (doctor, atlas; it never starts Excel: server.host() is lazy).
+    No Smart View call: the fresh engine's COM Excel inherits the simulated profile (no SSO, so it could only end
+    as LIMIT) and would write its global options into the owner's real HKCU."""
     import psutil
     from mcpclient import McpClient
 
     fr, p = _fresh(ctx), helpers.fresh_paths()
-    with helpers.owner_sv_options_kept(p["home"]):     # the fresh engine writes its options into the real HKCU
-        c = McpClient(env=fr["env"], cmd=[str(p["py"]), "-B", str(p["engine"] / "run_server.py")], cwd=p["engine"])
-        try:
-            with helpers.tracked(c):
-                fx = Ctx(client=c, scratch=ctx.scratch, keep=ctx.keep)
-                c.must("sv_status", {})
-                servers = helpers.server_pids(c)
-                assert servers, "no child_server.py under the fresh relay"
-                cmd = " ".join(psutil.Process(servers[0]).cmdline()).lower()
-                assert str(p["engine"]).lower() in cmd, f"the server does not run from the fresh install: {cmd}"
-                fr["owners"].update(helpers.fresh_owners(c))
-                s1_find(fx)
-                s1_finmax(fx)
-                fr["owners"].update(helpers.fresh_owners(c))
-        finally:
-            c.close()
-            killed = helpers.kill_fresh_excels(fr["owners"])
-    return {"notes": "S1.find + S1.query.finmax ok from the fresh install" +
-                     (f"; killed leftover hidden Excel {killed}" if killed else "")}
+    c = McpClient(env=fr["env"], cmd=[str(p["py"]), "-B", str(p["engine"] / "run_server.py")], cwd=p["engine"])
+    try:
+        st, _ = c.must("sv_status", {})
+        servers = helpers.server_pids(c)
+        assert servers, "no child_server.py under the fresh relay"
+        cmd = " ".join(psutil.Process(servers[0]).cmdline()).lower()
+        assert str(p["engine"]).lower() in cmd, f"the server does not run from the fresh install: {cmd}"
+        fr["owners"].update(helpers.fresh_owners(c))
+        assert not st.get("excel_running"), f"sv_status reports a running Excel in the fresh server: {st}"
+    finally:
+        c.close()
+        killed = helpers.kill_fresh_excels(fr["owners"])
+    assert not killed, f"the fresh server started a hidden Excel {killed}"
+    raise helpers.Limit("fresh-profile lookup needs a real signed-in Excel; COM Excel inherits the simulated env — "
+                        "verify manually on a new machine")
 
 
 # ================================================================== S10 features
