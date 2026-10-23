@@ -45,18 +45,25 @@ log = logging.getLogger("smartview.drill")
 SIGNIN = "/ui/v1/signin"
 SIGNIN_FAILED = ("Sign-in to EPM did not complete - open EPM once in Edge and log in, then retry sv_drill. Nothing "
                  "was shown on screen.")
+CRASH_RETRY_S = 45             # a browser restart + sign-in + capture after a crash needs this much of the deadline
 MIN_RETRY_S = 15               # a second login attempt / page reload needs at least this much of the deadline left
 LOGIN_NUDGE_S = 15             # a login page unchanged this long (not the sign-in form): reopen the EPM home once
 
 
-def login_action(url: str, base: str, elapsed: float, unchanged: float, clicked: bool, nudged: bool) -> str:
+def login_action(url: str, base: str, elapsed: float, unchanged: float, clicked: bool, nudged: bool,
+                 left: float = float("inf")) -> str:
     """Next step of the headless SSO login: 'click' the Telenor SSO button, 'done' (on the EPM home), 'home'
     (reopen the home: a redirect such as /oauth2/callback has hung - seen for 60 s in the baseline) or 'wait'."""
     if SIGNIN in url:
         return "wait" if clicked else "click"
     if url.startswith(base + "/HyperionPlanning/"):
         return "done" if elapsed > 3 else "wait"
-    return "home" if unchanged >= LOGIN_NUDGE_S and not nudged else "wait"
+    return "home" if unchanged >= LOGIN_NUDGE_S and not nudged and left >= MIN_RETRY_S else "wait"
+
+
+def load_timeout_ms(deadline: float, now: float) -> int:
+    """Playwright timeout for a page load: at most 90 s and never past the drill's deadline (at least 1 s)."""
+    return int(min(90.0, max(1.0, deadline - now)) * 1000)
 
 
 def classify_stall(url: str, page_text: str) -> str:
@@ -418,9 +425,9 @@ class DrillBrowser:
             return False
 
     @staticmethod
-    def _goto(p, url: str):
+    def _goto(p, url: str, deadline: float = float("inf")):
         try:
-            p.goto(url, wait_until="domcontentloaded", timeout=90_000)
+            p.goto(url, wait_until="domcontentloaded", timeout=load_timeout_ms(deadline, time.monotonic()))
         except PwError as e:
             raise DrillError(f"Could not open {redact(url)}: {redact(str(e).splitlines()[0] if str(e) else e)}") \
                 from None
@@ -428,7 +435,7 @@ class DrillBrowser:
     def _login_once(self, p, deadline: float):
         """Open the EPM home (signs in via Telenor SSO if needed); the drill page needs its session state."""
         home = self.base + "/HyperionPlanning/"
-        self._goto(p, home)
+        self._goto(p, home, deadline)
         t0, clicked, nudged = time.monotonic(), False, False
         last, changed = None, t0
         end = min(t0 + config.DRILL_LOGIN_TIMEOUT_S, deadline)
@@ -436,7 +443,7 @@ class DrillBrowser:
             url, now = p.url, time.monotonic()
             if url != last:
                 last, changed = url, now
-            act = login_action(url, self.base, now - t0, now - changed, clicked, nudged)
+            act = login_action(url, self.base, now - t0, now - changed, clicked, nudged, deadline - now)
             if act == "click":
                 b = p.get_by_role("button", name="Telenor SSO")
                 if b.count():
@@ -445,12 +452,12 @@ class DrillBrowser:
             elif act == "home":                     # e.g. stuck on /oauth2/callback: the session is usually set
                 log.warning("drill SSO stalled on %s; reopening the EPM home", redact(url)[:120])
                 nudged = True
-                self._goto(p, home)
+                self._goto(p, home, deadline)
                 last, changed = None, time.monotonic()
                 continue
             elif act == "done":
                 try:
-                    p.wait_for_load_state("networkidle", timeout=15_000)
+                    p.wait_for_load_state("networkidle", timeout=min(15_000, load_timeout_ms(deadline, now)))
                 except PwError:   # a busy home page is fine once we are on it
                     pass
                 return
@@ -460,6 +467,9 @@ class DrillBrowser:
     def _login(self, s: _Session):
         """Sign in; on failure keep the profile and retry ONCE in a fresh tab (spec §6) if the drill's time allows."""
         s.ready = False
+        if s.deadline - time.monotonic() < 1:
+            raise DrillError("The drill ran out of time before it could sign in (the hidden browser was slow to "
+                             "start or restarted) - retry sv_drill.")
         try:
             self._login_once(s.page, s.deadline)
         except DrillError as first:
@@ -526,7 +536,7 @@ class DrillBrowser:
         p = s.page
         attach(p)
         try:
-            self._goto(p, target)
+            self._goto(p, target, s.deadline)
             t0, relogged, reloaded, wait_s = time.monotonic(), False, False, config.DRILL_CAPTURE_TIMEOUT_S
             while True:
                 if "req" in got and "view" in got:
@@ -541,7 +551,12 @@ class DrillBrowser:
                         break
                     log.warning("drill page never asked for its data (%s); reloading it once", kind)
                     reloaded, wait_s = True, config.DRILL_RELOAD_WAIT_S
-                    p.reload(wait_until="domcontentloaded", timeout=30_000)
+                    try:
+                        p.reload(wait_until="domcontentloaded",
+                                 timeout=min(30_000, load_timeout_ms(s.deadline, time.monotonic())))
+                    except PwError as e:            # fall through to the 'never requested data' error
+                        log.warning("drill page reload failed: %s", redact(str(e).splitlines()[0] if str(e) else e))
+                        break
                     t0 = time.monotonic()
                     continue
                 if SIGNIN in p.url:                 # session expired: log in again (once), then reopen the drill
@@ -554,7 +569,7 @@ class DrillBrowser:
                         detach(p)
                         p = s.page
                         attach(p)
-                    self._goto(p, target)
+                    self._goto(p, target, s.deadline)
                     t0 = time.monotonic()
                     continue
                 epm = self._epm_error(p)
@@ -630,8 +645,11 @@ class DrillBrowser:
         except DrillError as e:
             if s.ctx is None or self._alive(s):     # a real answer from a live page: do not repeat it
                 raise
-            log.warning("drill browser died mid-drill (%s); restarting it and retrying once", e)
             self._close(s)
+            if s.deadline - time.monotonic() < CRASH_RETRY_S:
+                raise DrillError(f"The hidden drill browser crashed ({e}) with too little time left to start it "
+                                 "again - retry sv_drill.") from None
+            log.warning("drill browser died mid-drill (%s); restarting it and retrying once", e)
             return self._fetch_once(s, url, max_lines, progress)
 
     def _fetch_once(self, s: _Session, url: str, max_lines: int, progress) -> dict:

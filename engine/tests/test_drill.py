@@ -1253,3 +1253,32 @@ def test_login_skips_the_retry_when_the_drill_deadline_is_near():
     with pytest.raises(db.DrillError, match="open EPM once in Edge"):
         b._login(s)
     assert len(tries) == 1
+
+
+def test_page_loads_are_bounded_by_the_drill_deadline():
+    from smartview_mcp.drill_browser import load_timeout_ms
+    assert load_timeout_ms(float("inf"), 0) == 90_000
+    assert load_timeout_ms(100.0, 70.0) == 30_000
+    assert load_timeout_ms(100.0, 120.0) == 1_000
+
+
+def test_no_nudge_without_time_left():
+    from smartview_mcp.drill_browser import login_action
+    cb = "https://epm/cloudgate/v1/oauth2/callback"
+    assert login_action(cb, "https://epm", 30, 20, clicked=True, nudged=False, left=10) == "wait"
+
+
+def test_crash_retry_needs_time_left(monkeypatch):
+    from smartview_mcp import drill_browser as db
+    b = db.DrillBrowser.__new__(db.DrillBrowser)
+    calls = []
+
+    def once(s, url, n, progress):
+        calls.append(1)
+        s.ctx = object()                           # a browser that is dead now
+        s.deadline = db.time.monotonic() + 5       # most of the drill's time is used up
+        raise db.DrillError("Page crashed")
+    b._fetch_once, b._alive, b._close = once, lambda s: False, lambda s: None
+    with pytest.raises(db.DrillError, match="browser crashed"):
+        b._fetch(db._Session(), "u", 10, None)
+    assert len(calls) == 1
