@@ -27,6 +27,7 @@ import psutil
 import pythoncom
 import pywintypes
 import win32com.client as wc
+import win32file
 import win32gui
 import win32process
 
@@ -384,15 +385,20 @@ def busy_error(pid: int, name: str, found: list | None = None) -> HostError:
                      "Press Enter or Esc in that Excel window, then ask again.")
 
 
+SHARING_VIOLATION = {32, 33}        # ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+
+
 def _file_in_use(path: Path) -> bool:
-    """Another process holds the file open for writing (Excel locks the workbooks it has open)."""
+    """Another process holds the file open (Excel locks the workbooks it has open): only a sharing/lock violation
+    counts. A read-only file (access denied, e.g. a SharePoint file with read rights only) is NOT in use - Excel
+    opens it read-only."""
     try:
-        fd = os.open(str(path), os.O_RDWR | getattr(os, "O_BINARY", 0))
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    os.close(fd)
+        h = win32file.CreateFile(str(path), win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                                 win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE | win32file.FILE_SHARE_DELETE,
+                                 None, win32file.OPEN_EXISTING, 0, None)
+    except pywintypes.error as e:
+        return e.winerror in SHARING_VIOLATION
+    h.Close()
     return False
 
 
@@ -746,9 +752,10 @@ def _find_open(excels, path: Path) -> Target | None:
 BUSY_WAIT_S = 10                    # a busy Excel that holds the target gets this long to answer before we say why
 
 
-def _wait_busy_holder(pid: int, path: Path) -> Target:
-    """The target is open in Excel `pid`, which does not answer COM (dialog, cell edit mode, busy). Take that Excel's
-    turn (another agent may be working in it), give it BUSY_WAIT_S to answer, else name what blocks it."""
+def _wait_busy_holder(pid: int, path: Path) -> Target | None:
+    """The target seems open in Excel `pid` (a window caption shows its name), which does not answer COM (dialog, cell
+    edit mode, busy). Take that Excel's turn (another agent may be working in it), give it BUSY_WAIT_S to answer, else
+    name what blocks it. None when it answers but does not hold `path` (a same-named workbook from another folder)."""
     hold_turn(pid, what="this request")
     t0 = time.monotonic()
     while True:
@@ -757,9 +764,7 @@ def _wait_busy_holder(pid: int, path: Path) -> Target:
             raise HostError(f"The Excel (pid {pid}) that had '{path.name}' open has closed. Ask again.")
         i = insts[0]
         if i.app is not None:
-            t = _find_open([(i.pid, i.hwnd, i.app)], path)
-            if t is not None:
-                return t
+            return _find_open([(i.pid, i.hwnd, i.app)], path)
         if time.monotonic() - t0 >= BUSY_WAIT_S:
             raise busy_error(pid, path.name)
         time.sleep(0.5)
@@ -778,7 +783,9 @@ def _open_path(h: ExcelHost, path: Path, excels, instances: list[XlInstance] | N
         instances = excel_instances()
     holder = busy_holder(instances, path.name)
     if holder is not None:
-        return _wait_busy_holder(holder.pid, path)
+        t = _wait_busy_holder(holder.pid, path)
+        if t is not None:
+            return t
     if _file_in_use(path):
         raise _locked_error(path)
     if excels:                                  # open it in the user's Excel that is already running

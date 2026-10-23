@@ -156,6 +156,44 @@ def test_busy_excel_that_answers_in_time_is_used(tmp_path, monkeypatch, fast):
     assert userexcel._open_path(None, f, [], inst).app is later
 
 
+def test_busy_excel_with_a_same_named_workbook_elsewhere_falls_back_to_open(tmp_path, monkeypatch, fast):
+    f = tmp_path / "Book A.xlsx"
+    f.write_bytes(b"x")
+    (tmp_path / "other").mkdir()
+    holder = FakeApp(Books([FakeWb(str(tmp_path / "other" / "Book A.xlsx"))]))
+    apps = {22: None}
+    _excels(monkeypatch, {11: ["mine"], 22: ["Book A"]}, apps)
+    inst = userexcel.excel_instances()
+    apps[22] = holder                               # answers COM, but its 'Book A' is another file
+    opened = FakeWb(str(f))
+    user = FakeApp(Books())
+    user.Workbooks.Open = lambda p: opened
+    monkeypatch.setattr(userexcel, "_file_in_use", lambda p: False)
+    monkeypatch.setattr(userexcel, "com", lambda fn, **k: fn())
+    t = userexcel._open_path(None, f, [(11, 110, user)], inst)
+    assert (t.pid, t.wb) == (11, opened)
+
+
+def test_read_only_file_is_not_in_use_but_a_locked_one_is(tmp_path):
+    import win32file
+    ro = tmp_path / "ro.xlsx"
+    ro.write_bytes(b"x")
+    ro.chmod(0o444)                                 # read-only attribute: access denied for write, Excel opens it R/O
+    try:
+        assert userexcel._file_in_use(ro) is False
+    finally:
+        ro.chmod(0o666)
+    locked = tmp_path / "locked.xlsx"
+    locked.write_bytes(b"x")
+    h = win32file.CreateFile(str(locked), win32file.GENERIC_READ | win32file.GENERIC_WRITE, win32file.FILE_SHARE_READ,
+                             None, win32file.OPEN_EXISTING, 0, None)   # like Excel holding it open
+    try:
+        assert userexcel._file_in_use(locked) is True
+    finally:
+        h.Close()
+    assert userexcel._file_in_use(locked) is False
+
+
 def test_locked_file_open_in_no_reachable_excel_is_named(tmp_path, monkeypatch, fast):
     f = tmp_path / "Book A.xlsx"
     f.write_bytes(b"x")
