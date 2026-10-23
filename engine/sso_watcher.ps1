@@ -1,5 +1,6 @@
 # Global SSO watcher (started hidden at logon). Clicks "Telenor SSO" in the Smart View EPM Cloud "Login" dialog
-# (#32770) of ANY Excel: the smartview MCP's, excel-mcp's and the user's own. Only invokes that one button; never types.
+# (#32770) of ANY Excel or PowerPoint (Smart View's add-in shows the same dialog in tn-deck's automation PowerPoint,
+# 24.10.2026): the smartview MCP's, excel-mcp's and the user's own. Only invokes that one button; never types.
 # .NET UI Automation is used because the Python 'uiautomation' package blocked on this dialog in interactive Excel.
 param([int]$IntervalMs = 1000, [string]$LogDir = (Join-Path $env:LOCALAPPDATA 'smartass\logs'))
 $ErrorActionPreference = 'Continue'
@@ -37,16 +38,16 @@ while ($true) {
         $hbLast = Get-Date
     }
     try {
-        $pids = @(Get-Process EXCEL -ErrorAction SilentlyContinue | ForEach-Object Id)
+        $pids = @(Get-Process EXCEL, POWERPNT -ErrorAction SilentlyContinue | ForEach-Object Id)
         if ($pids.Count) {
             foreach ($w in $AE::RootElement.FindAll($scope::Children, $loginCond)) {
                 if ($pids -notcontains $w.Current.ProcessId -or $w.Current.ClassName -ne '#32770') { continue }
                 $h = $w.Current.NativeWindowHandle
-                if (-not $seen.ContainsKey($h)) { $seen[$h] = Get-Date; Log "Login dialog seen in Excel pid $($w.Current.ProcessId) (hwnd $h)" }
+                if (-not $seen.ContainsKey($h)) { $seen[$h] = Get-Date; Log "Login dialog seen in Office pid $($w.Current.ProcessId) (hwnd $h)" }
                 $btn = $w.FindAll($scope::Descendants, $btnCond) | Where-Object { $_.Current.Name -match 'Telenor SSO' } | Select-Object -First 1
                 if ($btn) {
                     $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-                    Log ("clicked Telenor SSO in Login dialog of Excel pid {0} ({1:N1}s after it appeared)" -f $w.Current.ProcessId, ((Get-Date) - $seen[$h]).TotalSeconds)
+                    Log ("clicked Telenor SSO in Login dialog of Office pid {0} ({1:N1}s after it appeared)" -f $w.Current.ProcessId, ((Get-Date) - $seen[$h]).TotalSeconds)
                     Start-Sleep -Seconds 3
                 }
             }
@@ -54,6 +55,6 @@ while ($true) {
     } catch {
         Log "sweep error: $($_.Exception.Message)"
     }
-    if (((Get-Date) - $beat).TotalMinutes -ge 10) { Log "alive; excel pids: $($pids -join ',')"; $beat = Get-Date }
+    if (((Get-Date) - $beat).TotalMinutes -ge 10) { Log "alive; office pids: $($pids -join ',')"; $beat = Get-Date }
     Start-Sleep -Milliseconds $IntervalMs
 }
