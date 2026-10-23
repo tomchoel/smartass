@@ -43,9 +43,9 @@ class SignInBlocked(HostError):
     """Smart View's sign-in is stuck in our hidden Excel (an Internet Explorer Login window, a WebView2-fallback box,
     or a Login window the SSO watcher could not finish). ExcelHost.call kills that Excel and retries once."""
 
-    def __init__(self, msg: str, dialog: dialogs.Dialog):
+    def __init__(self, msg: str, dialog: dialogs.Dialog, pid: int | None = None):
         super().__init__(msg)
-        self.dialog = dialog
+        self.dialog, self.pid = dialog, pid
 
 
 def signin_message(d: dialogs.Dialog, again: bool, holders: list[str]) -> str:
@@ -169,6 +169,7 @@ class ComThread(threading.Thread):
         super().__init__(daemon=True, name=name)
         self.q: queue.Queue = queue.Queue()
         self.busy_since: float | None = None
+        self.job_no = 0                           # counts started jobs: tells a reset that the blocked job has ended
 
     def run(self):
         pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)
@@ -183,6 +184,7 @@ class ComThread(threading.Thread):
                     break
                 if not fut.set_running_or_notify_cancel():
                     continue
+                self.job_no += 1
                 self.busy_since = time.monotonic()
                 try:
                     fut.set_result(fn())
@@ -218,6 +220,9 @@ class ExcelHost:
         self._start_wall = time.time()
         self.sv_version = sso.smartview_version()
         self.detect: Callable[[int], list[dialogs.Dialog]] = dialogs.scan
+        self._resetting = threading.Event()       # set while _hard_reset runs: queued jobs wait, scans pause
+        self._reset_lock = threading.Lock()
+        self.reset_gen = 0
         swept = self.registry.sweep()
         if swept:
             log.warning("killed own orphaned Excel from a previous run: %s", swept)
@@ -233,8 +238,9 @@ class ExcelHost:
             try:
                 return await self._call_once(fn, timeout, what, user_excel)
             except SignInBlocked as e:
-                d, pid = e.dialog, self.pid
-                await asyncio.to_thread(self._hard_reset, f"{what}: Smart View sign-in stuck at {dialogs.describe(d)}")
+                d, pid = e.dialog, e.pid
+                await asyncio.to_thread(self._hard_reset, f"{what}: Smart View sign-in stuck at {dialogs.describe(d)}",
+                                        pid)
                 if attempt == 2 or user_excel:
                     holders = await asyncio.to_thread(dialogs.webview2_holders, exclude_parent=pid)
                     raise SignInBlocked(signin_message(d, attempt == 2, holders), d) from None
@@ -252,6 +258,7 @@ class ExcelHost:
             started.set()
             userexcel.bind_job(token)             # an abandoned job stops at its next COM call (token check)
             if not user_excel:                    # jobs in the user's Excel start the hidden one only on demand
+                self._wait_reset()
                 self._ensure_started()            # (h.on_host): it costs ~10 s + an SSO login per server start
                 return fn(self)
             try:
@@ -288,7 +295,7 @@ class ExcelHost:
                     "refresh). Nothing was closed. Check Excel for an open dialog, press Esc/Enter, and ask again.") from None
             pid = self.pid
             dlg = await asyncio.to_thread(self._open_dialog_note)
-            await asyncio.to_thread(self._hard_reset, f"{what} exceeded {timeout:.0f}s")
+            await asyncio.to_thread(self._hard_reset, f"{what} exceeded {timeout:.0f}s", pid)
             raise HostTimeout(
                 f"Smart View did not respond within {timeout:.0f}s during {what}{dlg}; its Excel (pid {pid}) was "
                 "terminated and will restart on the next call (SSO is clicked automatically). "
@@ -325,12 +332,13 @@ class ExcelHost:
             done, _ = await asyncio.wait({wrapped}, timeout=min(nxt, timeout) - elapsed)
             if done:
                 return wrapped.result()
-            pid = self.pid
-            if watch_dialogs and pid and time.monotonic() - t0 >= config.DIALOG_CHECK_AFTER_S:
+            pid = self.pid                        # read at scan time: a reset may have replaced the Excel
+            if watch_dialogs and pid and not self._resetting.is_set() \
+                    and time.monotonic() - t0 >= config.DIALOG_CHECK_AFTER_S:
                 found = await asyncio.to_thread(self._dialogs, pid)
                 d = dialogs.blocking(found, first_seen, time.monotonic(), config.LOGIN_GRACE_S)
-                if d:
-                    raise SignInBlocked(f"Smart View sign-in stuck: {dialogs.describe(d)}", d)
+                if d and pid == self.pid:
+                    raise SignInBlocked(f"Smart View sign-in stuck: {dialogs.describe(d)}", d, pid)
 
     def _dialogs(self, pid: int) -> list[dialogs.Dialog]:
         try:
@@ -351,7 +359,13 @@ class ExcelHost:
             return
         d = dialogs.blocking(self._dialogs(self.pid), {}, 0.0, 0.0)
         if d:
-            raise SignInBlocked(f"Smart View sign-in stuck: {dialogs.describe(d)}", d)
+            raise SignInBlocked(f"Smart View sign-in stuck: {dialogs.describe(d)}", d, self.pid)
+
+    def _wait_reset(self) -> None:
+        """A job queued behind a reset waits for it, so it never starts an Excel the reset then forgets."""
+        deadline = time.monotonic() + config.RESET_WAIT_S + 5
+        while self._resetting.is_set() and time.monotonic() < deadline:
+            time.sleep(0.05)
 
     # ---------------- worker-thread side ----------------
     def ensure(self) -> "ExcelHost":
@@ -368,6 +382,7 @@ class ExcelHost:
             return fn()
 
         def job():
+            self._wait_reset()
             self._ensure_started()
             return fn()
         return self.thread.submit(job).result(timeout or config.CALL_TIMEOUT_S)
@@ -581,9 +596,25 @@ class ExcelHost:
         self.connected.clear()
         self.pid = self.ctime = None
 
-    def _hard_reset(self, why: str):
-        """Called from the event-loop thread while the COM thread is blocked."""
-        pid, ctime = self.pid, self.ctime
+    def _hard_reset(self, why: str, expected_pid: int | None = None):
+        """Called from the event-loop thread while the COM thread is blocked. expected_pid: the Excel the caller saw
+        stuck - if another reset already replaced it, there is nothing to do. One reset at a time; jobs queued behind
+        it wait (_wait_reset), so the Excel they start is never cleared or orphaned by this reset."""
+        with self._reset_lock:
+            if expected_pid is not None and self.pid != expected_pid:
+                log.info("reset for Excel pid=%s skipped: already replaced by pid=%s", expected_pid, self.pid)
+                return
+            self._resetting.set()
+            self.reset_gen += 1
+            try:
+                self._do_hard_reset(why)
+            finally:
+                self._resetting.clear()
+
+    def _do_hard_reset(self, why: str):
+        pid0 = pid = self.pid
+        ctime = self.ctime
+        thread, job_no = self.thread, self.thread.job_no
         if pid is None:
             # Still inside DispatchEx: only if exactly ONE new Excel appeared within 5 s of our start is it ours.
             # Anything else (excel-mcp, the user) may have started one in the meantime - leave it alone.
@@ -600,16 +631,20 @@ class ExcelHost:
         if pid and ctime and kill_ours(pid, ctime):
             log.warning("terminated own Excel pid=%s (%s)", pid, why)
             self.registry.remove(pid)
-        deadline = time.monotonic() + 10
-        while self.thread.busy_since is not None and time.monotonic() < deadline:
-            time.sleep(0.2)
-        if self.thread.busy_since is not None:
+        deadline = time.monotonic() + config.RESET_WAIT_S
+
+        def blocked() -> bool:                    # the job that was running when we killed is still running
+            return thread.busy_since is not None and thread.job_no == job_no
+        while blocked() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if blocked() and self.thread is thread:
             log.error("COM thread still blocked after kill; replacing it")
             self.thread = ComThread()
             self.thread.start()
-        self.app = self.wb = None          # COM refs are dead anyway; the worker recreates on next call
-        self.connected.clear()
-        self.pid = self.ctime = None
+        if self.pid == pid0:                      # COM refs are dead anyway; the worker recreates on next call
+            self.app = self.wb = None
+            self.connected.clear()
+            self.pid = self.ctime = None
 
 
 def _explain(fn: str, status: str) -> str:

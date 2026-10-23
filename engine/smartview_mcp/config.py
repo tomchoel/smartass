@@ -198,6 +198,7 @@ DIALOG_CHECK_AFTER_S = 5.0
 DIALOG_POLL_S = 2.0
 LOGIN_GRACE_S = float(os.environ.get("SV_LOGIN_GRACE", "45"))
 TRANSIENT_RETRY_WAIT_S = 3.0                        # before the one retry after rc=752 / rc=57704
+RESET_WAIT_S = 10.0                                 # after killing our Excel, wait this long for the COM call to return
 MAX_CELLS = int(os.environ.get("SV_MAX_CELLS", "50000"))
 PREVIEW_ROWS = 60
 

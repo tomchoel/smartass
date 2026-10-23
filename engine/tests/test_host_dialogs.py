@@ -33,9 +33,11 @@ class FakeExcel:
         h.app = h.wb = h.pid = h.ctime = None
         h.connected, h.restarts, h.last_error = {}, 0, None
         h._known_before, h._start_wall = set(), time.time()
+        h._resetting, h._reset_lock, h.reset_gen = threading.Event(), threading.Lock(), 0
         h._ensure_started = self._ensure
         h.detect = self._detect
         self.h = h
+        self.start_s = 0.0
         monkeypatch.setattr(host, "kill_ours", self._kill)
         monkeypatch.setattr(host, "windows_of", lambda pid: [])
         monkeypatch.setattr(host.dialogs, "webview2_holders", lambda exclude_parent: [])
@@ -43,10 +45,12 @@ class FakeExcel:
         monkeypatch.setattr(config, "DIALOG_POLL_S", 0.05)
 
     def _ensure(self):
-        if self.h.pid is None:
+        if self.h.pid is None or self.h.pid in self.killed:     # a killed Excel is gone: start a new one
             self.starts.append(1)
-            self.h.pid, self.h.ctime = 1000 + len(self.starts), 1.0
-            self.released[self.h.pid] = threading.Event()
+            pid = 1000 + len(self.starts)
+            self.released[pid] = threading.Event()
+            time.sleep(self.start_s)
+            self.h.pid, self.h.ctime = pid, 1.0
 
     def _detect(self, pid):
         i = pid - 1001
@@ -121,6 +125,26 @@ async def test_sign_in_blocked_raised_by_the_job_restarts_and_retries(monkeypatc
 
     assert await xl.h.call(fn, timeout=5, what="sv_query") == "ok"
     assert xl.killed == [1001]
+
+
+@pytest.mark.anyio
+async def test_a_call_queued_behind_a_sign_in_reset_does_not_orphan_an_excel(monkeypatch):
+    import asyncio
+    xl = FakeExcel(monkeypatch, [[LOGIN_IE], [], []])
+    xl.start_s = 0.5                          # a start outlasts the reset's wait for the COM thread
+    monkeypatch.setattr(config, "RESET_WAIT_S", 0.2)
+
+    def a(h):
+        return "a" if h.pid != 1001 else xl.hang(h)
+
+    async def b():
+        await asyncio.sleep(0.02)             # queued while A is blocked by the Login window
+        return await xl.h.call(lambda h: "b", timeout=5, what="sv_members")
+
+    assert await asyncio.gather(xl.h.call(a, timeout=5, what="sv_query"), b()) == ["a", "b"]
+    started = list(range(1001, 1001 + len(xl.starts)))
+    assert all(p in xl.killed or p == xl.h.pid for p in started), (started, xl.killed, xl.h.pid)
+    assert xl.killed == [1001] and xl.h.reset_gen == 1
 
 
 def test_check_signin_ignores_plain_messages():
