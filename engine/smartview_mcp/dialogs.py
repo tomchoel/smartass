@@ -5,7 +5,8 @@ Smart View signs in through a 'Login' window. Normally it hosts WebView2 and the
 Explorer, whose Oracle IDCS page fails ('Script Error: Function expected'). In our hidden Excel that Excel is killed and
 restarted. In a visible Excel the usual cause is an earlier, unfinished WebView2 login of the same Excel still holding
 the WebView2 folder: ending that stale WebView2 and closing the IE windows lets Smart View reopen the login in WebView2
-(userexcel.recover_ie_login). classify/blocking/ie_fallback/stale_sv_webview2_from are pure; the rest is thin Win32.
+(userexcel.recover_ie_login; WM_CLOSE closes the IE Login and 'Script Error' windows - seen live 2026-10-23).
+classify/blocking/ie_fallback/stale_sv_webview2_from are pure; the rest is thin Win32.
 """
 from __future__ import annotations
 

@@ -117,6 +117,8 @@ def test_wait_login_recovers_an_ie_fallback_login_by_itself(monkeypatch):
     from smartview_mcp import dialogs, userexcel
     from smartview_mcp.dialogs import Dialog
     state = {"ie": True, "recovered": 0}
+    clock = {"t": 0.0}
+    monkeypatch.setattr(userexcel.time, "monotonic", lambda: clock["t"])
 
     def scan(pid):
         return [Dialog(2, "#32770", "Login", "", "login", ie=True)] if state["ie"] else []
@@ -128,6 +130,24 @@ def test_wait_login_recovers_an_ie_fallback_login_by_itself(monkeypatch):
     monkeypatch.setattr(dialogs, "scan", scan)
     monkeypatch.setattr(userexcel, "recover_ie_login", recover)
     monkeypatch.setattr(userexcel, "login_open", lambda pid: state["ie"])
-    monkeypatch.setattr(userexcel.time, "sleep", lambda s: None)
-    userexcel.wait_login_cleared(1, limit=5)
+    monkeypatch.setattr(userexcel.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    userexcel.wait_login_cleared(1, limit=60)
     assert state["recovered"] == 1
+
+
+def test_wait_login_after_recovery_waits_for_the_new_login_and_spaces_retries(monkeypatch):
+    from smartview_mcp import dialogs, userexcel
+    from smartview_mcp.dialogs import Dialog
+    clock = {"t": 0.0}
+    monkeypatch.setattr(userexcel.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(userexcel.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    # IE login until 1 s; then nothing for 5 s (Smart View has not reopened yet); a new login 6-9 s; then signed in
+    def login_at(t):
+        return t < 1 or 6 <= t < 9
+    monkeypatch.setattr(userexcel, "login_open", lambda pid: login_at(clock["t"]))
+    monkeypatch.setattr(dialogs, "scan", lambda pid: [Dialog(2, "#32770", "Login", "", "login", ie=True)]
+                        if clock["t"] < 1 else [])
+    rec = []
+    monkeypatch.setattr(userexcel, "recover_ie_login", lambda pid, h: rec.append(clock["t"]) or {"ended": [], "closed": h})
+    userexcel.wait_login_cleared(1, limit=60)
+    assert clock["t"] >= 9 and len(rec) == 1      # did not return in the gap before the new login

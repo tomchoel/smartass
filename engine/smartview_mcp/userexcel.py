@@ -260,6 +260,9 @@ def login_open(pid: int) -> bool:
     return bool(found)
 
 
+RECOVER_SETTLE_S = 12          # after a login recovery: time for Smart View to reopen the login before we go on
+
+
 def recover_ie_login(pid: int, hwnds: list[int]) -> dict:
     """The login in Excel `pid` is on the Internet Explorer fallback because an earlier, unfinished WebView2 login
     still holds Smart View's WebView2 folder. End that stale WebView2 (this Excel's own, or an orphan - never another
@@ -276,19 +279,25 @@ def wait_login_cleared(pid: int, appear_grace: float = 0.0, limit: float = 90.0)
     from . import dialogs
     t0 = time.monotonic()
     seen = False
-    recoveries = 0
+    recoveries, t_rec = 0, None
     while time.monotonic() - t0 < limit:
+        now = time.monotonic()
         if login_open(pid):
-            seen = True
             broken = dialogs.ie_fallback(dialogs.scan(pid))
-            if broken and recoveries < 2:
+            if not broken:                        # a real (WebView2) login: the watcher clicks it
+                seen = True
+            # a second recovery only after RECOVER_SETTLE_S: a new WebView2 login of this Excel must not be ended
+            elif recoveries < 2 and (t_rec is None or now - t_rec >= RECOVER_SETTLE_S):
                 recoveries += 1
                 res = recover_ie_login(pid, broken)
                 log.warning("Smart View login in Excel pid %s fell back to Internet Explorer; ended stale WebView2 %s "
                             "and closed %s so it can sign in again", pid, res["ended"], res["closed"])
-                time.sleep(3)                     # Smart View reopens the login, now in WebView2
+                seen, t_rec = False, time.monotonic()   # Smart View reopens the login (in WebView2): wait for it
                 continue
-        elif seen or time.monotonic() - t0 >= appear_grace:
+        elif t_rec is not None:
+            if seen or now - t_rec >= RECOVER_SETTLE_S:   # the new login came and went, or none came back
+                return
+        elif seen or now - t0 >= appear_grace:
             return
         time.sleep(0.5)
     raise HostError("The Oracle EPM login dialog is still open in your Excel and the automatic SSO click did not "
