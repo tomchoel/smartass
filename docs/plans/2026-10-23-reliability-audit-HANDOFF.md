@@ -18,7 +18,10 @@
 - **Fix order item 3, error codes not noticed in answers (#NoAccess on BANORWAY recon):** `4c9ca14`. **NOT yet reviewed.**
 
 ## Next
-1. **Review `4c9ca14`.** Focus on false member rejections (stale atlas, aliases, generated period/scenario members, "All …" tops), the cost of the scan, `cell_trace`, and the mapping for 2TEC, BANORWAY, 2WHS and BUS. Fix whatever the review finds.
+1. **Fix the 3 Medium findings from the review of `4c9ca14`,** then re-review. The mapping, `cell_trace`, and the template members checked against the real atlas are all correct.
+   - **Case-sensitive member check** (`atlas.py:72-76` `has_member` uses SQLite `=`). Essbase is case-insensitive, so `"un.sy.2tec"` is now wrongly rejected. Fix: `COLLATE NOCASE`, and pass the atlas's canonical spelling into the pull.
+   - **Stale-but-usable atlas blocks new members** (`ops.py:250-255`, `atlas.py:65-69`). There is a 30-day window, and FinMax periods only go up to Yr 26, so for example "Jan 27" and "Forecast Q426" would be rejected, with no override. Fix: treat an atlas miss as "unverified". Confirm it live (the `sv_member_info` path) before raising, or raise only for template-generated guesses (the `finmax_entity` mapping) and just warn for members the user gave.
+   - **No limit on scan warnings** (`answer.py:177` `error_warnings`): one warning per error cell, possibly thousands for `cost_base`. Fix: group pull-sheet errors per sheet and code ("'cb': 412 cells #NoAccess (first: B7, B9, …)", like `tools_query.py:86`) and cap the answer-line warnings.
 2. **Item 4:** `xl_revert` doesn't restore the values. Scenario S6.xl: "after revert differs from the snapshot in ['values']".
 3. **Item 5:** after SSO cookie loss, the drill passes 130 s and succeeds on retry (S8.sso, flaky). Plan Task 11.
 4. **Item 6:** dict rows are rejected with a raw pydantic error (S1.bad.dictrows). Plan Task 9.
