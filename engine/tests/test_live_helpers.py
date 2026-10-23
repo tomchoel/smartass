@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -36,3 +37,82 @@ def test_expired_sso_restores_a_leftover_backup_first(cookies):
         assert not (cookies / "Cookies").exists()
     assert (cookies / "Cookies").read_text() == "real sign-in"
     assert not list(cookies.glob("*.matrix-bak"))
+
+
+class FakeReg:
+    """CAOptionsXML in memory (None = absent); counts writes/deletes."""
+
+    def __init__(self, value=None):
+        self.value, self.writes, self.deletes = value, 0, 0
+
+    def read(self):
+        if self.value is None:
+            raise FileNotFoundError
+        return self.value
+
+    def write(self, data, kind):
+        self.value, self.writes = (data, kind), self.writes + 1
+
+    def delete(self):
+        self.value, self.deletes = None, self.deletes + 1
+
+
+XML = ('<options><option key="messageDisplay" value="2"/><option key="bDisplayHomePanelOnStartup" value="1"/>'
+       '<option key="bCommentDlgEnable" value="0"/></options>')
+
+
+@pytest.fixture
+def homes(tmp_path, monkeypatch):
+    from smartview_mcp import config
+
+    monkeypatch.setattr(config, "LEGACY_HOME", None)
+    real, fresh = tmp_path / "real", tmp_path / "fresh"
+    real.mkdir()
+    return real, fresh, real / "matrix-hkcu-options.json"
+
+
+def test_owner_options_put_back_and_fresh_originals_seeded_from_hkcu(homes):
+    real, fresh, marker = homes
+    reg = FakeReg((XML, 1))
+    with helpers.owner_sv_options_kept(fresh, reg, marker, real) as snap:
+        assert json.loads(marker.read_text()) == snap == {"present": True, "data": XML, "kind": 1}
+        assert json.loads((fresh / "smartview_options_original.json").read_text()) == \
+            {"104": 2, "109": True, "110": False}
+        reg.write(XML.replace('"2"', '"3"'), 1)                 # the fresh engine applies its values
+    assert reg.value == (XML, 1) and reg.writes == 2
+    assert not marker.exists()
+
+
+def test_owner_options_absent_value_is_deleted_again(homes):
+    real, fresh, marker = homes
+    reg = FakeReg()
+    with helpers.owner_sv_options_kept(fresh, reg, marker, real):
+        assert json.loads((fresh / "smartview_options_original.json").read_text()) == {}
+        reg.write("<engine/>", 1)
+    assert reg.value is None and reg.deletes == 1 and not marker.exists()
+
+
+def test_owner_options_unchanged_are_not_rewritten_and_real_originals_win(homes):
+    real, fresh, marker = homes
+    (real / "smartview_options_original.json").write_text('{"104": 0, "109": true, "110": true}')
+    reg = FakeReg((XML, 1))                                      # the real engine's values are applied
+    with pytest.raises(RuntimeError):
+        with helpers.owner_sv_options_kept(fresh, reg, marker, real):
+            assert json.loads((fresh / "smartview_options_original.json").read_text()) == \
+                {"104": 0, "109": True, "110": True}
+            raise RuntimeError("scenario failed")
+    assert reg.writes == 0 and reg.deletes == 0 and not marker.exists()
+
+
+def test_leftover_marker_restored_at_startup_and_before_a_new_snapshot(homes):
+    real, fresh, marker = homes
+    marker.write_text(json.dumps({"present": True, "data": XML, "kind": 1}))   # a run died inside S9.lookup
+    reg = FakeReg(("<engine/>", 1))
+    assert helpers.restore_leftover_hkcu_options(reg, marker) is True
+    assert reg.value == (XML, 1) and not marker.exists()
+    assert helpers.restore_leftover_hkcu_options(reg, marker) is False
+    marker.write_text(json.dumps({"present": True, "data": XML, "kind": 1}))
+    reg.value = ("<engine/>", 1)
+    with helpers.owner_sv_options_kept(fresh, reg, marker, real) as snap:
+        assert snap["data"] == XML                               # the owner's value, not the leftover engine one
+    assert reg.value == (XML, 1)

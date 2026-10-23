@@ -1022,6 +1022,106 @@ def doctor_lines(text: str) -> dict[str, tuple[str, str]]:
     return out
 
 
+# ---------------------------------------------------------------- the owner's HKCU Smart View options around S9
+class SvOptionsReg:
+    """HKCU ...\\HyperionSmartView\\Options CAOptionsXML (read/write/delete, for auditlib.reg_snapshot/reg_restore)."""
+
+    def read(self):
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, SV_OPTIONS_KEY) as k:
+            return winreg.QueryValueEx(k, "CAOptionsXML")
+
+    def write(self, data, kind) -> None:
+        import winreg
+
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, SV_OPTIONS_KEY, 0, winreg.KEY_SET_VALUE) as k:
+            winreg.SetValueEx(k, "CAOptionsXML", 0, kind, data)
+
+    def delete(self) -> None:
+        import winreg
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, SV_OPTIONS_KEY, 0, winreg.KEY_SET_VALUE) as k:
+                winreg.DeleteValue(k, "CAOptionsXML")
+        except FileNotFoundError:
+            pass
+
+
+def _hkcu_marker() -> Path:
+    from smartview_mcp import config
+
+    return Path(config.HOME) / "matrix-hkcu-options.json"
+
+
+def restore_leftover_hkcu_options(reg=None, marker: Path | None = None) -> bool:
+    """A matrix run killed during S9.lookup left the fresh engine's Smart View options in the owner's HKCU: put the
+    snapshot in the marker back, then delete the marker (kept when the restore fails). True when HKCU was changed."""
+    import json
+
+    from smartview_mcp.auditlib import reg_restore
+
+    reg, m = reg or SvOptionsReg(), marker or _hkcu_marker()
+    if not m.exists():
+        return False
+    try:
+        snap = json.loads(m.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        snap = None
+    changed = isinstance(snap, dict) and "present" in snap and reg_restore(snap, reg.read, reg.write, reg.delete)
+    m.unlink(missing_ok=True)
+    return bool(changed)
+
+
+def seed_fresh_originals(fresh_home: Path, snap: dict, real_home: Path | None = None) -> dict:
+    """Write the owner's TRUE Smart View originals into the fresh engine's smartview_options_original.json, so its
+    own restore puts those back (not values another engine applied). The real engine's file holds them while it has
+    its values applied (host.py _apply_global_options; then the old svkit engine's file); else they are in HKCU."""
+    import json
+
+    from smartview_mcp import config
+    from smartview_mcp.auditlib import sv_originals
+
+    real_home = Path(real_home or config.HOME)
+    legacy = [config.LEGACY_HOME] if config.LEGACY_HOME else []
+    saved = None
+    for d in (real_home, *legacy):
+        try:
+            got = json.loads((Path(d) / "smartview_options_original.json").read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(got, dict):
+            saved = got
+            break
+    if saved is None:
+        saved = sv_originals(snap.get("data", "")) if isinstance(snap.get("data"), str) else {}
+    fresh_home.mkdir(parents=True, exist_ok=True)
+    (fresh_home / "smartview_options_original.json").write_text(json.dumps(saved))
+    return saved
+
+
+@contextlib.contextmanager
+def owner_sv_options_kept(fresh_home: Path, reg=None, marker: Path | None = None, real_home: Path | None = None):
+    """Around a fresh engine: snapshot the owner's raw CAOptionsXML (or that it is absent) into a marker file (the
+    next matrix start restores it if this run dies), seed the fresh engine's originals, and on exit put the snapshot
+    back and delete the marker. An older marker is restored first: it holds the state before that run."""
+    import json
+
+    from smartview_mcp.auditlib import reg_restore, reg_snapshot
+
+    reg, m = reg or SvOptionsReg(), marker or _hkcu_marker()
+    restore_leftover_hkcu_options(reg, m)
+    snap = reg_snapshot(reg.read)
+    m.parent.mkdir(parents=True, exist_ok=True)
+    m.write_text(json.dumps(snap), encoding="utf-8")
+    try:
+        seed_fresh_originals(fresh_home, snap, real_home)
+        yield snap
+    finally:
+        reg_restore(snap, reg.read, reg.write, reg.delete)
+        m.unlink(missing_ok=True)
+
+
 # ---------------------------------------------------------------- S10 helpers
 SV_OPTIONS_KEY = r"Software\Hyperion Solutions\HyperionSmartView\Options"
 SV_OPTION_NAMES = ("messageDisplay", "bDisplayHomePanelOnStartup", "bCommentDlgEnable")  # GLOBAL_OPTIONS 104/109/110

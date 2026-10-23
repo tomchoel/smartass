@@ -776,22 +776,23 @@ def s9_lookup(ctx):
     from mcpclient import McpClient
 
     fr, p = _fresh(ctx), helpers.fresh_paths()
-    c = McpClient(env=fr["env"], cmd=[str(p["py"]), "-B", str(p["engine"] / "run_server.py")], cwd=p["engine"])
-    try:
-        with helpers.tracked(c):
-            fx = Ctx(client=c, scratch=ctx.scratch, keep=ctx.keep)
-            c.must("sv_status", {})
-            servers = helpers.server_pids(c)
-            assert servers, "no child_server.py under the fresh relay"
-            cmd = " ".join(psutil.Process(servers[0]).cmdline()).lower()
-            assert str(p["engine"]).lower() in cmd, f"the server does not run from the fresh install: {cmd}"
-            fr["owners"].update(helpers.fresh_owners(c))
-            s1_find(fx)
-            s1_finmax(fx)
-            fr["owners"].update(helpers.fresh_owners(c))
-    finally:
-        c.close()
-        killed = helpers.kill_fresh_excels(fr["owners"])
+    with helpers.owner_sv_options_kept(p["home"]):     # the fresh engine writes its options into the real HKCU
+        c = McpClient(env=fr["env"], cmd=[str(p["py"]), "-B", str(p["engine"] / "run_server.py")], cwd=p["engine"])
+        try:
+            with helpers.tracked(c):
+                fx = Ctx(client=c, scratch=ctx.scratch, keep=ctx.keep)
+                c.must("sv_status", {})
+                servers = helpers.server_pids(c)
+                assert servers, "no child_server.py under the fresh relay"
+                cmd = " ".join(psutil.Process(servers[0]).cmdline()).lower()
+                assert str(p["engine"]).lower() in cmd, f"the server does not run from the fresh install: {cmd}"
+                fr["owners"].update(helpers.fresh_owners(c))
+                s1_find(fx)
+                s1_finmax(fx)
+                fr["owners"].update(helpers.fresh_owners(c))
+        finally:
+            c.close()
+            killed = helpers.kill_fresh_excels(fr["owners"])
     return {"notes": "S1.find + S1.query.finmax ok from the fresh install" +
                      (f"; killed leftover hidden Excel {killed}" if killed else "")}
 
@@ -942,7 +943,7 @@ def s10_update(ctx):
     return {"notes": "; ".join(notes)}
 
 
-@scenario("S10.5.textfixes", ["feature"], budget=90)
+@scenario("S10.5.textfixes", ["feature"], budget=30)
 def s10_textfixes(ctx):
     from smartview_mcp import config
     from smartview_mcp import drill_lines as dl
@@ -952,41 +953,52 @@ def s10_textfixes(ctx):
     key, val = "MATRIX\ufffdS10.5", "MATRIX-S10.5-ok"
     shipped = json.loads(Path(config.TEXT_FIXES).read_text(encoding="utf-8")).get("fixes", {})
     lost = next((k for k in shipped if "\ufffd" in k), None)
+    assert lost, f"no shipped fix with a lost letter (U+FFFD) in {Path(config.TEXT_FIXES).name}"
     try:
         data = json.loads(old.decode("utf-8")) if old else {}
-        fixes = {**data.get("fixes", {}), key: val, **({lost: "MATRIX-override"} if lost else {})}
+        fixes = {**data.get("fixes", {}), key: val, lost: "MATRIX-override"}
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps({**data, "fixes": fixes}, ensure_ascii=False), encoding="utf-8")
         merged = dl.load_text_fixes(config.TEXT_FIXES, f)
         stats = {"fixed_mojibake": 0, "fixed_by_list": 0, "unfixed": set()}
         got = dl.repair_text(f"a {key} b", merged, stats)
         assert got == f"a {val} b", f"user fix not applied: {got!r}"
-        if lost:
-            got = dl.repair_text(lost, merged, stats)
-            assert got == "MATRIX-override", f"the user's list does not win over the shipped one: {got!r}"
-        out = _drill(ctx, CELL_12881)                    # the engine reads the user file on every drill
-        _exact(out)
-        assert "text_repairs" in out, f"no text_repairs in sv_drill: {sorted(out)}"
+        got = dl.repair_text(lost, merged, stats)
+        assert got == "MATRIX-override", f"the user's list does not win over the shipped one: {got!r}"
     finally:
         if old is None:
             f.unlink(missing_ok=True)
         else:
             f.write_bytes(old)
-    return {"notes": f"user fix + override of a shipped key applied; drill text_repairs {out['text_repairs']}"}
+    # The 12881 drill lines (95, cached in drill.db 2026-10-23) have no lost letter, so they hit no shipped key
+    # (the only one is H\ufffd\ufffdyhastighet) and a drill could not show the override.
+    raise helpers.Limit("user fix + override of a shipped key verified in-process (repair_text); the drill part "
+                        "is not tested: the 12881 lines hit no shipped text-fix key")
 
 
-@scenario("S10.6.pack", ["feature"], budget=20)
+@scenario("S10.6.pack", ["feature"], budget=30)
 def s10_pack(ctx):
-    from smartview_mcp import config
+    import subprocess
+    import sys
 
-    if "produktregnskap" not in config.PACKS:
-        raise helpers.Limit("the produktregnskap pack is not enabled in config.toml")
-    sc, _ = ctx.client.must("sv_scope", {"text": "trådløst bredbånd"})
-    text = json.dumps(sc, ensure_ascii=False)
-    hits = [w for w in ("L50C_FTB", "C2C_FTB", "Internet @home", "produktregnskap") if w in text]
-    assert hits or sc.get("pack"), f"no produktregnskap knowledge (code_costperform/value_stream) in sv_scope: " \
-                                   f"{text[:300]}"
-    return {"notes": f"pack hits {hits}"}
+    from mcpclient import ENGINE
+
+    name = "source_product_list_2025.json"           # in packs\produktregnskap\knowledge only (not in core)
+    code = ("import json; from smartview_mcp import config as c; "
+            f"print(json.dumps({{'packs': c.PACKS, 'file': str(c.knowledge_file({name!r})), "
+            "'pack': str(c.PACKS_DIR / 'produktregnskap')}))")
+    r = subprocess.run([sys.executable, "-c", code], cwd=ENGINE, capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=60)   # a new process reads config.toml as the child server does
+    assert r.returncode == 0, f"config probe exit {r.returncode}: {r.stderr[-800:]}"
+    got = json.loads(r.stdout.strip().splitlines()[-1])
+    enabled = "produktregnskap" in got["packs"]
+    under = got["file"].lower().startswith(got["pack"].lower().rstrip("\\") + "\\")
+    if enabled:
+        assert under, f"pack enabled but knowledge_file({name}) -> {got['file']}"
+    else:
+        assert not under, f"pack disabled but knowledge_file({name}) -> {got['file']}"
+    raise helpers.Limit(f"pack has no runtime consumer; wiring only verified (pack {'en' if enabled else 'dis'}abled, "
+                        f"{name} -> {got['file']})")
 
 
 @scenario("S10.7.style", ["feature"], budget=60)
