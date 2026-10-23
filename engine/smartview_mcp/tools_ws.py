@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field, field_validator
 
@@ -118,7 +119,8 @@ def _finish(t, q: int, spec: dict, res: dict, saved_new: bool):
 
 @tool(annotations=WRITE)
 async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base", "monthly_trend", "actual_vs_plan"],
-                     params: dict, target: str = "session", allow_archive: bool = False, q: int | None = None) -> dict:
+                     params: dict, target: str = "session", allow_archive: bool = False, q: int | None = None,
+                     ctx: Context | None = None) -> dict:
     """Answer a financial question as an analysis IN THE USER'S EXCEL: live Smart View data sheets ('Q<n> FinMax' ...),
     a formatted answer sheet 'Q<n> Svar' (TN report style, live formulas, key points, checks, variance drivers, chart)
     and a 'Kilder' log. target: 'session' (default: this session's own analysis workbook in
@@ -190,7 +192,7 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
 @tool(annotations=WRITE)
 async def sv_ws_pull(question: str, connection: Connection, rows: AxesIn, columns: AxesIn,
                      pov: dict[str, str] | None = None, target: str = "session", allow_archive: bool = False,
-                     q: int | None = None, sheet_title: str | None = None) -> dict:
+                     q: int | None = None, sheet_title: str | None = None, ctx: Context | None = None) -> dict:
     """Free-form analysis, step 1 (use sv_analyse when a template fits): put a LIVE Smart View grid (financial NOK
     format) into the user's workbook as 'Q<n> <cube>' and log it in 'Kilder'.
     For several pulls of ONE question: call again with target=<returned 'workbook'> and q=<returned 'q'> (otherwise
@@ -298,7 +300,7 @@ def _answer_job(t, q: int, raw_spec: dict, ids: dict, sess: dict, tm, extra_warn
 @tool(annotations=WRITE)
 @_doc(SPEC_DOC)
 async def sv_ws_answer(q: int, spec: dict | None = None, spec_patch: dict | None = None, target: str = "session",
-                       allow_archive: bool = False) -> dict:
+                       allow_archive: bool = False, ctx: Context | None = None) -> dict:
     """Free-form analysis, step 2 (sv_ws_build does pulls + answer in ONE call): build or rebuild 'Q<n> Svar' from a
     spec whose cells reference the pulls of question q (same target as the pulls, ideally their 'workbook').
     Follow-up: pass spec_patch instead of spec - it is deep-merged into the question's last spec (dicts merge,
@@ -396,7 +398,7 @@ class PullIn(BaseModel):
 @tool(annotations=WRITE)
 @_doc(SPEC_DOC)
 async def sv_ws_build(question: str, pulls: list[PullIn], spec: dict, target: str = "session",
-                      allow_archive: bool = False, q: int | None = None) -> dict:
+                      allow_archive: bool = False, q: int | None = None, ctx: Context | None = None) -> dict:
     """ONE call for a free-form analysis: every pull as a live Smart View sheet, then 'Q<n> Svar' from the spec, in
     the session's workbook (target 'session' default: one file per session, Q1, Q2 ... | 'active' = the user's open
     workbook, only when asked | 'new' | path; archive refused unless allow_archive). Pull cells in the
@@ -417,7 +419,8 @@ async def sv_ws_build(question: str, pulls: list[PullIn], spec: dict, target: st
 
 @tool(annotations=WRITE)
 async def sv_concept(concept: str, period: str | None = None, compare: str | None = None, entity: str | None = None,
-                     target: str = "session", allow_archive: bool = False, q: int | None = None) -> dict:
+                     target: str = "session", allow_archive: bool = False, q: int | None = None,
+                     ctx: Context | None = None) -> dict:
     """ONE call for a business-concept analysis (e.g. 'splitt' = Splitt profitability): builds every block of the
     concept from knowledge\\concepts.json - booked lines, estimated lines with their keys, attributed lines and what is
     not in FinMax - as live Smart View sheets + 'Q<n> Svar' in the session's workbook, YTD `period` (default: last

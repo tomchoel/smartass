@@ -4,6 +4,7 @@ Tools never write to EPM: submit, calculate and business-rule functions are not 
 """
 from __future__ import annotations
 
+import contextvars
 import datetime as dt
 import logging
 import re
@@ -154,6 +155,9 @@ def guard(fn):
 
     @functools.wraps(fn)          # keeps __wrapped__, so the SDK builds the same input schema
     async def guarded(*args, **kwargs):
+        from mcp.server.mcpserver import Context
+        # tools that declare ctx get progress notes from their slow stages (None for the others: no stale ctx)
+        _ctx.set(next((v for v in kwargs.values() if isinstance(v, Context)), None))
         try:
             if is_async:
                 return await fn(*args, **kwargs)
@@ -173,10 +177,34 @@ def tool(annotations: ToolAnnotations = READ):
     return deco
 
 
+_ctx: contextvars.ContextVar = contextvars.ContextVar("smartass_tool_ctx", default=None)
+
+
+def _with_progress(fn):
+    """fn(h) whose Timer sends 'still working: <stage>' notes to the client (MCP progress) while a stage runs
+    long (timing.PROGRESS_AFTER_S). Only for tools that declare ctx; a client without a progress token ignores them."""
+    import asyncio
+    import time
+
+    from .timing import Timer
+    ctx = _ctx.get()
+    if ctx is None:
+        return fn
+    loop, t0 = asyncio.get_running_loop(), time.monotonic()
+
+    def notify(text: str) -> None:
+        asyncio.run_coroutine_threadsafe(ctx.report_progress(round(time.monotonic() - t0), None, text), loop)
+
+    def job(h):
+        Timer.note_notify(notify)
+        return fn(h)
+    return job
+
+
 async def _call(fn, timeout: float | None = None, what: str = "call"):
     """host().call with every failure surfaced as a readable ToolError (with the advice for its class)."""
     try:
-        return await host().call(fn, timeout=timeout, what=what)
+        return await host().call(_with_progress(fn), timeout=timeout, what=what)
     except (HostError, InputError, ToolError) as e:
         raise _err(e) from None
 
@@ -205,7 +233,7 @@ def _is_our_analysis_file(path: str) -> bool:
 async def _call_user(fn, what: str):
     """host().call for jobs that drive the user's Excel (never killed on timeout)."""
     try:
-        return await host().call(fn, what=what, user_excel=True)
+        return await host().call(_with_progress(fn), what=what, user_excel=True)
     except (HostError, InputError) as e:
         raise _err(e) from None
 

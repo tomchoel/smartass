@@ -146,7 +146,7 @@ async def sv_members(connection: Connection, member: str,
 
 
 @tool(annotations=WRITE)
-async def sv_refresh_workbook(path: str, output_name: str | None = None) -> dict:
+async def sv_refresh_workbook(path: str, output_name: str | None = None, ctx: Context | None = None) -> dict:
     """Refresh every Smart View sheet of an existing workbook. Works on a COPY: the source file is never changed.
     The refreshed copy is saved (label 'Internal') to the output folder and the path is returned; open it with
     excel-mcp for further work. The source must be closed in Excel."""

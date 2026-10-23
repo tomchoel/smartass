@@ -6,6 +6,7 @@ import time
 from contextlib import contextmanager
 from typing import Literal
 
+from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import config, ops, qlog, userexcel
@@ -79,6 +80,7 @@ async def _drill_fetch(url: str, max_lines: int) -> dict:
     budget = 300 + 10 * math.ceil(max_lines / config.DRILL_PAGE)      # login + capture (+ one browser restart),
                                                                        # then ~10 s per page
     async with _drill_lock:
+        tick = asyncio.create_task(_progress("drill (hidden browser: sign-in, drill page, lines)"))
         try:
             return await asyncio.wait_for(asyncio.wrap_future(browser().fetch(url, max_lines=max_lines)), budget)
         except asyncio.TimeoutError:
@@ -87,6 +89,26 @@ async def _drill_fetch(url: str, max_lines: int) -> dict:
                             "Try again, or narrow the cell.") from None
         except DrillBusy as e:
             raise ToolError(str(e)) from None
+        finally:
+            tick.cancel()
+
+
+async def _progress(what: str) -> None:
+    """'still working: <what> (n s)' to the client every timing.PROGRESS_AFTER_S (tools that declare ctx)."""
+    import asyncio
+
+    from . import timing
+    from .server import _ctx
+    ctx, t0 = _ctx.get(), time.monotonic()
+    if ctx is None:
+        return
+    while True:
+        await asyncio.sleep(timing.PROGRESS_AFTER_S)
+        try:
+            await ctx.report_progress(round(time.monotonic() - t0), None,
+                                      f"still working: {what} ({time.monotonic() - t0:.0f}s)")
+        except Exception:   # noqa: BLE001 - a progress note must never break the drill
+            return
 
 
 _too_wide: set = set()      # cells EPM refused as too wide (EPMFDM-140373) in this server: split them right away
@@ -250,7 +272,8 @@ def _cache_drill(**kw) -> str:
 @tool(annotations=WRITE)
 async def sv_drill(question: str, cell: dict[str, str], connection: Literal["FinLite"] = "FinLite", id: str = "d",
                    split: Literal["auto", "none"] = "auto", max_lines: int = config.DRILL_MAX_LINES,
-                   target: str = "session", q: int | None = None, allow_archive: bool = False) -> dict:
+                   target: str = "session", q: int | None = None, allow_archive: bool = False,
+                   ctx: Context | None = None) -> dict:
     """Drill a FinLite cell down to its ledger lines (supplier, invoice, voucher, JE source, line text, product)
     through a hidden headless browser (Data Integration drill-through; nothing opens on screen).
     cell: {'All Accounts': 'ac.C40S', 'All Entities': 'un.SY.2WHS', 'All Time Periods': 'Q3 26', ...} - parents

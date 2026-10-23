@@ -78,3 +78,22 @@ def test_axes_in_wraps_a_single_axis_object():
     from smartview_mcp.server import axes_in
     a = axes_in({"dimension": "All Accounts", "members": ["ac.C30"]})
     assert [(x.dimension, x.members) for x in a] == [("All Accounts", ["ac.C30"])]
+
+
+def test_slow_stage_sends_progress_notes_and_stops_after(monkeypatch):
+    import time as _t
+
+    from smartview_mcp import timing
+    monkeypatch.setattr(timing, "PROGRESS_AFTER_S", 0.05)
+    notes = []
+    timing.Timer.note_notify(notes.append)
+    timing.Timer.start()
+    with timing.stage("open target"):
+        with timing.stage("slow"):
+            _t.sleep(0.13)
+    n = len(notes)
+    _t.sleep(0.12)
+    assert n >= 1 and "open target.slow" in notes[0] and notes[0].startswith("still working: ")
+    assert len(notes) == n                       # no notes once the stages are done
+    timing.Timer.start()                         # the next timer on this thread has no notify of its own
+    assert timing.Timer.current().notify is None
