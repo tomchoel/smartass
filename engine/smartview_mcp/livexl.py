@@ -929,6 +929,22 @@ def _load(cid: str) -> dict:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def _same_book(workbook: str, ch: dict) -> bool:
+    """workbook (a name, with or without extension, or a full path) names the change's workbook. A local path matches
+    the OneDrive/SharePoint URL Excel reports as FullName for a synced file."""
+    g, full = workbook.strip(), str(ch["full_name"])
+    if g.lower() == full.lower():
+        return True
+    if re.search(r"[\\/]", g):
+        def norm(x: str) -> str:
+            return os.path.normcase(os.path.abspath(local_path(x)))
+        return re.search(r"[\\/]", full) is not None and norm(g) == norm(full)
+
+    def stem(x: str) -> str:
+        return re.sub(r"\.(xlsx|xlsm|xlsb|xls)$", "", x.lower())
+    return stem(g) == stem(str(ch["workbook"]))
+
+
 def changes(workbook: str | None = None, limit: int = 20) -> list[dict]:
     if not SNAP_DIR.exists():
         return []
@@ -940,11 +956,8 @@ def changes(workbook: str | None = None, limit: int = 20) -> list[dict]:
             ch = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if workbook:
-            w = re.sub(r"\.(xlsx|xlsm|xlsb|xls)$", "", workbook.strip().lower())
-            if w not in (re.sub(r"\.(xlsx|xlsm|xlsb|xls)$", "", ch["workbook"].lower()), ch["full_name"].lower()) \
-                    and workbook.strip().lower() != ch["full_name"].lower():
-                continue
+        if workbook and not _same_book(workbook, ch):
+            continue
         out.append({k: ch.get(k) for k in ("id", "ts", "workbook", "sheet", "op", "address", "label", "reverted")})
         if len(out) >= limit:
             break

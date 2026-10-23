@@ -24,3 +24,13 @@ def test_format_grid_has_the_range_shape():
     from smartview_mcp.livexl import _format_grid
     assert _format_grid("0.0", 2, 3, lambda i, j: 1 / 0) == [["0.0"] * 3] * 2      # uniform: no per-cell reads
     assert _format_grid(None, 2, 2, lambda i, j: f"f{i}{j}") == [["f00", "f01"], ["f10", "f11"]]
+
+
+def test_changes_filter_matches_a_local_path_to_a_onedrive_url(monkeypatch):
+    from smartview_mcp import livexl
+    url = "https://telenor-my.sharepoint.com/personal/x/Documents/analyser/Q.xlsx"
+    monkeypatch.setattr(livexl, "local_path", lambda s: r"C:\OneDrive\analyser\Q.xlsx" if s == url else s)
+    ch = {"workbook": "Q.xlsx", "full_name": url}
+    assert livexl._same_book(r"C:\OneDrive\analyser\Q.xlsx", ch)
+    assert livexl._same_book("q", ch) and livexl._same_book(url, ch)
+    assert not livexl._same_book(r"C:\Other\Q.xlsx", ch)

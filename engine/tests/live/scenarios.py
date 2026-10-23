@@ -388,9 +388,7 @@ def s5_report(ctx):
 
 # ================================================================== S6 xl_* round trip
 def _formats_per_cell(c, wb: str, sheet: str, rng: str) -> dict[str, tuple]:
-    """{address: (number format, style name)} read one cell at a time. Engine bug (livexl.py read_range, logged
-    for the baseline): xl_read(what="formats") on a multi-cell range reads Range.NumberFormat once, so it returns
-    [[x]] (None when mixed) and styles for the first cell only."""
+    """{address: (number format, style name)} read one cell at a time (the per-cell truth the revert is held to)."""
     m = re.fullmatch(r"([A-Z]+)(\d+):([A-Z]+)(\d+)", rng)
     c1, r1, c2, r2 = _col(m.group(1)), int(m.group(2)), _col(m.group(3)), int(m.group(4))
     out = {}
@@ -418,6 +416,8 @@ def s6_xl(ctx):
         ["Line", "2026", "2025", "Var", "Var %"], ["Revenue", 100, 80, None, None], ["COGS", -30, -20, None, None],
         ["Opex", -20, -25, None, None], ["Total", None, None, None, None]]})
     snap = {"both": helpers.values(c, wb, sheet, rng, "both"), "formats": _formats_per_cell(c, wb, sheet, rng)}
+    nf = helpers.values(c, wb, sheet, rng, "formats")["number_formats"]
+    assert (len(nf), len(nf[0])) == (7, 6), f"xl_read formats is not the range's shape: {nf}"
     done = []
     w1, _ = c.must("xl_write", {"range": "C6:D6", "sheet": sheet, "workbook": wb, "formula": "=SUM(C3:C5)"})
     done.append(w1["change_id"])
@@ -433,10 +433,7 @@ def s6_xl(ctx):
     assert [x["address"] for x in tr.get("precedents", [])] == ["C3:C5"], f"trace C6: {tr}"
     c.must("xl_overview", {"workbook": wb, "sheet": sheet})
     chs, _ = c.must("xl_changes", {"workbook": wb, "limit": 20})
-    soft = []
-    if not chs:          # engine finding: the path filter misses changes whose full_name is a OneDrive URL
-        soft.append("xl_changes(workbook=<full path>) returns [] (the file-name filter works)")
-        chs, _ = c.must("xl_changes", {"workbook": path.name, "limit": 20})
+    assert chs, "xl_changes(workbook=<full path>) returns [] (path vs OneDrive URL)"
     ids = [x["id"] for x in chs]
     missing = [i for i in done + [base["change_id"], add["change_id"]] if i not in ids]
     assert not missing, f"xl_changes misses {missing}: {ids}"
@@ -453,7 +450,6 @@ def s6_xl(ctx):
     assert sheet not in [s["name"] for s in ov["sheets"]], "the test sheet is still there after reverting add_sheet"
     if mtime is not None:
         assert path.stat().st_mtime == mtime, "the workbook file was saved by an xl_* call"
-    assert not soft, "; ".join(soft)
     return {"notes": f"xl_check {ck.get('counts', ck.get('ok'))}"}
 
 
