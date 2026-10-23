@@ -1,0 +1,164 @@
+{
+ "date": "2026-10-23",
+ "out": "matrix-rerun",
+ "time": "2026-10-23T16:02:11",
+ "version": "0.2.0",
+ "atlas_age": "9.8 days",
+ "repeat": 3,
+ "totals": {
+  "SLOW": 9
+ },
+ "options": {
+  "only": "S2.build,S5.drill.report,S6.xl",
+  "repeat": 3,
+  "fresh": false,
+  "keep": false
+ },
+ "before_file": "2026-10-23-matrix-after.json",
+ "results": [
+  {
+   "id": "S2.build",
+   "tags": [
+    "build"
+   ],
+   "result": "SLOW",
+   "secs": 61.3,
+   "error": null,
+   "error_class": "",
+   "notes": "Q1 Svar + ['Q1 FinMax', 'Q1 FinMax YTD', 'Kilder']",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "SLOW"
+  },
+  {
+   "id": "S5.drill.report",
+   "tags": [
+    "drill"
+   ],
+   "result": "SLOW",
+   "secs": 112.0,
+   "error": null,
+   "error_class": "",
+   "notes": "Q2 Q2 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "SLOW"
+  },
+  {
+   "id": "S6.xl",
+   "tags": [
+    "xl"
+   ],
+   "result": "SLOW",
+   "secs": 64.4,
+   "error": null,
+   "error_class": "",
+   "notes": "xl_check {}",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "FAIL"
+  },
+  {
+   "id": "S2.build",
+   "tags": [
+    "build"
+   ],
+   "result": "SLOW",
+   "secs": 37.9,
+   "error": null,
+   "error_class": "",
+   "notes": "Q1 Svar + ['Q1 FinMax', 'Q1 FinMax YTD', 'Kilder']",
+   "limit": null,
+   "flaky": false,
+   "run": 2,
+   "dialogs": [],
+   "before": "SLOW"
+  },
+  {
+   "id": "S5.drill.report",
+   "tags": [
+    "drill"
+   ],
+   "result": "SLOW",
+   "secs": 92.0,
+   "error": null,
+   "error_class": "",
+   "notes": "Q2 Q2 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 2,
+   "dialogs": [],
+   "before": "SLOW"
+  },
+  {
+   "id": "S6.xl",
+   "tags": [
+    "xl"
+   ],
+   "result": "SLOW",
+   "secs": 82.5,
+   "error": null,
+   "error_class": "",
+   "notes": "xl_check {}",
+   "limit": null,
+   "flaky": false,
+   "run": 2,
+   "dialogs": [],
+   "before": "FAIL"
+  },
+  {
+   "id": "S2.build",
+   "tags": [
+    "build"
+   ],
+   "result": "SLOW",
+   "secs": 39.6,
+   "error": null,
+   "error_class": "",
+   "notes": "Q1 Svar + ['Q1 FinMax', 'Q1 FinMax YTD', 'Kilder']",
+   "limit": null,
+   "flaky": false,
+   "run": 3,
+   "dialogs": [],
+   "before": "SLOW"
+  },
+  {
+   "id": "S5.drill.report",
+   "tags": [
+    "drill"
+   ],
+   "result": "SLOW",
+   "secs": 101.6,
+   "error": null,
+   "error_class": "",
+   "notes": "Q2 Q2 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 3,
+   "dialogs": [],
+   "before": "SLOW"
+  },
+  {
+   "id": "S6.xl",
+   "tags": [
+    "xl"
+   ],
+   "result": "SLOW",
+   "secs": 95.9,
+   "error": null,
+   "error_class": "",
+   "notes": "xl_check {}",
+   "limit": null,
+   "flaky": false,
+   "run": 3,
+   "dialogs": [],
+   "before": "FAIL"
+  }
+ ]
+}
