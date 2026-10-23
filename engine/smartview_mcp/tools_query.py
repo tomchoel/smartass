@@ -87,6 +87,11 @@ async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: C
                 "total_s": round(time.monotonic() - t0, 2), "unknown": parsed.unknown_members, "saved": saved})
     warnings = parsed.pov_problems + ([f"{parsed.no_access_cells} cells are #NoAccess (no read access)"]
                                       if parsed.no_access_cells else [])
+    if parsed.suppressed_rows:
+        n = len(parsed.suppressed_rows)
+        warnings.append(f"{n} requested row(s) had no data and were left out (suppress_missing): "
+                        + "; ".join(parsed.suppressed_rows[:10]) + (" ..." if n > 10 else "")
+                        + ". They are valid members with nothing booked - report them as 0 / empty.")
     if parsed.unknown_members:
         warnings.insert(0, "Unknown/unrecognised members (no data returned for them): "
                         + "; ".join(parsed.unknown_members) + ". Use sv_find_member to get the right names.")

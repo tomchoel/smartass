@@ -99,3 +99,14 @@ def test_tree_bottom_up():
     assert by["un.SY.2WHS"]["parent"] == "un.SY"
     assert by["un.SY.3WHS_W"]["parent"] == "un.SY.2WHS"
     assert by["un.SY.2BUS"]["parent"] == "un.SY"
+
+
+def test_parse_names_rows_suppressed_as_empty():
+    rows = [Axis("All Entities", ["un.SY.2CON", "un.SY.2SSM"]), Axis("All Accounts", ["ac.C693"])]
+    cols = [Axis("All Time Periods", ["Q3 26"])]
+    vals = ((None, None, "Actual"), (None, None, "Q3 26"),
+            ("2CON Consumer (un.SY)", "C693 Consultancy (ac)", "#Missing"),
+            ("2SSM SSM (un.SY)", "C693 Consultancy (ac)", -25695850.0))
+    lay = Layout([("All Scenarios", "Actual")], rows, cols)
+    p = parse(lay, vals, suppress_missing=True, suppress_zeros=False)
+    assert len(p.rows) == 1 and p.suppressed_rows == ["un.SY.2CON / ac.C693"]
