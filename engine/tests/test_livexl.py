@@ -18,3 +18,9 @@ def test_constants_skip_spill_children():
     f2 = [["=SEQUENCE(2)"], [""], [""]]          # B2 spills into B3; B4 is really empty
     v2 = [[1.0], [2.0], [None]]
     assert _constants(f2, v2, 2, 2) == {"B4": None}
+
+
+def test_format_grid_has_the_range_shape():
+    from smartview_mcp.livexl import _format_grid
+    assert _format_grid("0.0", 2, 3, lambda i, j: 1 / 0) == [["0.0"] * 3] * 2      # uniform: no per-cell reads
+    assert _format_grid(None, 2, 2, lambda i, j: f"f{i}{j}") == [["f00", "f01"], ["f10", "f11"]]

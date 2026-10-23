@@ -270,7 +270,9 @@ def read(workbook, sheet, address, what: str = "values", max_cells: int = MAX_RE
                            if isinstance(v, str) and v.startswith("=")}
     if what == "formats":
         r0, c0 = com(lambda: rng.Row), com(lambda: rng.Column)
-        fm = _grid(com(lambda: rng.NumberFormat))
+        nr, nc = int(com(lambda: rng.Rows.Count)), int(com(lambda: rng.Columns.Count))
+        fm = _format_grid(com(lambda: rng.NumberFormat), nr, nc,
+                          lambda i, j: com(lambda: ws.Cells(r0 + i, c0 + j).NumberFormat))
         out["number_formats"] = fm
         styles = {}
         for i in range(len(fm)):
@@ -281,6 +283,14 @@ def read(workbook, sheet, address, what: str = "values", max_cells: int = MAX_RE
     if truncated:
         out["truncated"] = truncated
     return out
+
+
+def _format_grid(whole, nr: int, nc: int, cell) -> list[list]:
+    """Number formats in the range's shape: Range.NumberFormat is ONE value for a uniform range and None when the
+    cells differ - then each cell is read (cell(i, j))."""
+    if whole is not None:
+        return [[whole] * nc for _ in range(nr)]
+    return [[cell(i, j) for j in range(nc)] for i in range(nr)]
 
 
 def overview(workbook, sheet, preview_rows: int = 12) -> dict:
