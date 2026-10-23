@@ -67,13 +67,19 @@ def repair_text(s: str, fixes: dict[str, str], stats: dict) -> str:
 
 
 def _oslo(d: dt.datetime) -> dt.datetime:
-    """UTC -> Europe/Oslo wall clock (naive). Without tzdata (Windows) fall back to this PC's local time zone."""
-    d = d.replace(tzinfo=dt.timezone.utc)
+    """UTC -> Europe/Oslo wall clock (naive). Without tzdata (Windows) apply the EU rule: CET, and CEST from the last
+    Sunday of March to the last Sunday of October, switching at 01:00 UTC. Never this PC's zone (CI, travel)."""
     try:
         from zoneinfo import ZoneInfo
-        return d.astimezone(ZoneInfo("Europe/Oslo")).replace(tzinfo=None)
-    except Exception:   # noqa: BLE001 - ZoneInfoNotFoundError when tzdata is missing
-        return d.astimezone().replace(tzinfo=None)
+        return d.replace(tzinfo=dt.timezone.utc).astimezone(ZoneInfo("Europe/Oslo")).replace(tzinfo=None)
+    except Exception:   # noqa: BLE001 - ImportError / ZoneInfoNotFoundError when tzdata is missing
+        pass
+
+    def last_sunday_0100(month: int) -> dt.datetime:
+        last = dt.datetime(d.year, month, 31, 1)
+        return last - dt.timedelta(days=(last.weekday() + 1) % 7)
+    summer = last_sunday_0100(3) <= d < last_sunday_0100(10)
+    return d + dt.timedelta(hours=2 if summer else 1)
 
 
 def _value(field: str, v):

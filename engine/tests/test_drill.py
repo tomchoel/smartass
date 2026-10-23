@@ -665,6 +665,26 @@ def test_gl_posted_date_is_oslo_wall_clock():
     assert dl._value("ATTR4", "2026-07-06T00:00:00.000+00:00") == dt_.datetime(2026, 7, 6)              # unchanged
 
 
+def test_oslo_without_tzdata_ignores_pc_time_zone(monkeypatch):
+    # Windows has no tzdata: the fallback must apply EU summer time, not this PC's zone (CI runs in UTC)
+    import builtins
+    import datetime as dt_
+    real_import = builtins.__import__
+
+    def no_zoneinfo(name, *a, **k):
+        if name == "zoneinfo":
+            raise ImportError
+        return real_import(name, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", no_zoneinfo)
+    U = dt_.datetime
+    assert dl._oslo(U(2026, 7, 6, 10, 25, 27)) == U(2026, 7, 6, 12, 25, 27)       # CEST
+    assert dl._oslo(U(2026, 1, 15, 23, 30)) == U(2026, 1, 16, 0, 30)              # CET
+    assert dl._oslo(U(2026, 3, 29, 0, 59)) == U(2026, 3, 29, 1, 59)               # last minute of CET
+    assert dl._oslo(U(2026, 3, 29, 1, 0)) == U(2026, 3, 29, 3, 0)                 # summer time starts 01:00 UTC
+    assert dl._oslo(U(2026, 10, 25, 0, 59)) == U(2026, 10, 25, 2, 59)             # last minute of CEST
+    assert dl._oslo(U(2026, 10, 25, 1, 0)) == U(2026, 10, 25, 2, 0)               # back to CET
+
+
 # ------------------------------------------------------------------ sheet placement and re-drill (fake COM)
 class _Sh:
     def __init__(self, name):
