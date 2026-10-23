@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -496,3 +498,223 @@ def _letters(col: int) -> str:
         col, rem = divmod(col - 1, 26)
         s = chr(65 + rem) + s
     return s
+
+
+# ================================================================== S8 bad-condition injections
+HANG_S, CALL_TIMEOUT = 120, 130
+
+
+class HANG(Exception):
+    """A call still running at HANG_S (error class 'HANG: ...')."""
+
+
+def _call(client, tool: str, args: dict, hang: float = HANG_S, timeout: float = CALL_TIMEOUT):
+    """client.call with the S8 budget: (body, secs, err); raises HANG at `hang` s or on the client timeout."""
+    try:
+        body, secs, err = client.call(tool, args, timeout=timeout)
+    except TimeoutError:
+        raise HANG(f"{tool} still running at {timeout:.0f}s") from None
+    if secs >= hang:
+        raise HANG(f"{tool} took {secs:.0f}s" + (f" and failed: {err[:200]}" if err else ""))
+    return body, secs, err
+
+
+def _in_thread(fn, *a) -> tuple[threading.Thread, dict]:
+    box: dict = {}
+
+    def run():
+        try:
+            box["out"] = fn(*a)
+        except BaseException as e:      # noqa: BLE001 - re-raised by _join
+            box["exc"] = e
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return t, box
+
+
+def _join(t: threading.Thread, box: dict, timeout: float):
+    t.join(timeout)
+    if t.is_alive():
+        raise HANG(f"call thread still running after {timeout:.0f}s")
+    if "exc" in box:
+        raise box["exc"]
+    return box["out"]
+
+
+def _followup(ctx) -> str:
+    """The S1.query.finmax check: the engine still answers afterwards."""
+    b, secs, err = _call(ctx.client, "sv_query", _ebitda_q())
+    assert not err, f"follow-up sv_query failed: {err[:300]}"
+    v = helpers.number(b["table"])
+    assert _close(v, EBITDA_WHS_YTD), f"follow-up EBITDA WHS YTD Sep 26 = {v}, expected {EBITDA_WHS_YTD}"
+    return f"follow-up {secs:.0f}s"
+
+
+def _small_build(client, question: str, pov: dict | None = None) -> dict:
+    """A one-line sv_ws_build into a new scratch workbook (EBITDA YTD Sep 26 of the given entity)."""
+    pull = {"id": "p", "connection": "FinMax", "rows": [{"dimension": "All Accounts", "members": E}],
+            "columns": [{"dimension": "All Time Periods", "members": ["Sep 26"]}], "pov": pov or WHS_POV}
+    spec = {"title": question, "subtitle": "NOK · FinMax · Actual", "columns": [{"header": "YTD Sep 26"}],
+            "sections": [{"title": "EBITDA", "lines": [{"key": "e", "label": "EBITDA YTD",
+                                                       "cells": [{"pull": "p", "row": E, "col": ["Sep 26"]}]}]}],
+            "checks": [{"label": "Line equals itself", "expr": "e-e", "columns": [0]}]}
+    out, _, err = _call(client, "sv_ws_build", {"question": question, "pulls": [pull], "spec": spec, "target": "new"})
+    assert not err, f"sv_ws_build '{question}': {err[:300]}"
+    _answer_ok(out, question)
+    return out
+
+
+def _s8_book(ctx) -> dict:
+    """One small scratch workbook (with a stored answer spec) shared by S8.dialog and S8.editmode."""
+    if not ctx.state.get("s8_book"):
+        out = _small_build(ctx.client, "MATRIX S8 scratch")
+        ctx.state["s8_book"] = {"wb": out["workbook"], "q": int(str(out["question"]).lstrip("Q")),
+                                "sheet": out["answer_sheet"]}
+    return ctx.state["s8_book"]
+
+
+def _names_dialog(err: str | None, *words: str) -> bool:
+    return bool(err) and any(w in err.lower() for w in words)
+
+
+@scenario("S8.sso", ["inject"], budget=150)
+def s8_sso(ctx):
+    notes = []
+    with helpers.expired_sso() as moved:
+        notes.append(f"moved {len(moved)} cookie file(s)")
+        b, secs, err = _call(ctx.client, "sv_query", _ebitda_q())
+        assert not err or _names_dialog(err, "login", "sign in", "sso"), f"sv_query: {err[:300]}"
+        notes.append(f"sv_query {secs:.0f}s " + ("ok" if not err else "names login"))
+        d, secs, err = _call(ctx.client, "sv_drill", {"question": "MATRIX S8 sso drill", "cell": CELL_12881,
+                                                      "target": "none"})
+        assert not err or _names_dialog(err, "login", "sign in", "sso"), f"sv_drill without cookies: {err[:300]}"
+        notes.append(f"drill {secs:.0f}s " + ("ok" if not err else "names login"))
+    notes.append(_followup(ctx))
+    return {"notes": "; ".join(notes)}
+
+
+def _blocked_answer(ctx, inject, words: tuple[str, ...]):
+    bk = _s8_book(ctx)
+    with helpers.scratch_excel(bk["wb"], ctx.watch) as pid:
+        with inject(pid, bk) as st:
+            b, secs, err = _call(ctx.client, "sv_ws_answer", {"q": bk["q"], "target": bk["wb"],
+                                                              "spec_patch": {"notes": ["S8 injection."]}})
+        assert err, f"sv_ws_answer passed ({secs:.0f}s) although Excel was blocked ({st})"
+        assert _names_dialog(err, *words), f"sv_ws_answer ({secs:.0f}s) does not name {words}: {err[:300]}"
+        note = f"pid {pid}; {st}; sv_ws_answer {secs:.0f}s: {err.splitlines()[0][:120]}"
+    return {"notes": note + "; " + _followup(ctx)}
+
+
+@scenario("S8.dialog", ["inject"], budget=60)
+def s8_dialog(ctx):
+    return _blocked_answer(ctx, lambda pid, bk: helpers.modal_dialog(pid, ctx.watch), ("dialog",))
+
+
+@scenario("S8.editmode", ["inject"], budget=60)
+def s8_editmode(ctx):
+    return _blocked_answer(ctx, lambda pid, bk: helpers.edit_mode(pid, bk["sheet"]), ("dialog", "edit"))
+
+
+@scenario("S8.parallel", ["inject"], budget=120)
+def s8_parallel(ctx):
+    from mcpclient import McpClient
+
+    second = McpClient(cwd=ctx.scratch)
+    try:
+        jobs = [(ctx.client, "MATRIX S8 parallel A WHS", WHS_POV, "1 858 190 823"),
+                (second, "MATRIX S8 parallel B BUS", {**BUS_POV, "All Balance Types": "Accumulated"}, BUS_YTD)]
+        threads = [_in_thread(_small_build, c, q, pov) for c, q, pov, _ in jobs]
+        outs, errs = [], []
+        for (t, box), (_, q, _, want) in zip(threads, jobs):
+            try:
+                out = _join(t, box, CALL_TIMEOUT + 10)
+                assert want in out["table"], f"{q}: {want} not in\n{out['table']}"
+                outs.append(out)
+            except Exception as e:
+                errs.append(f"{q}: {type(e).__name__}: {e}")
+        if any(e.split(": ", 2)[1] == "HANG" for e in errs):
+            raise HANG("; ".join(errs))
+        assert not errs, "; ".join(errs)
+        assert outs[0]["workbook"] != outs[1]["workbook"], f"both answers went to {outs[0]['workbook']}"
+    finally:
+        second.close()
+    return {"notes": f"{[Path(o['workbook']).name for o in outs]}; " + _followup(ctx)}
+
+
+@scenario("S8.kill.excel", ["inject"], budget=90)
+def s8_kill_excel(ctx):
+    st, _, err = _call(ctx.client, "sv_status", {})
+    assert not err, err
+    if not st.get("pid"):
+        _followup(ctx)                       # start the engine's Excel first
+        st, _, _ = _call(ctx.client, "sv_status", {})
+    pid = helpers.engine_hidden_excel_pid(st["pid"])
+    import psutil
+    big = _q([{"dimension": "All Accounts", "members": BUS_ACC}],
+             [{"dimension": "All Time Periods", "members": MONTHS}], {**BUS_POV, "All Balance Types": "Periodic"})
+    t, box = _in_thread(_call, ctx.client, "sv_query", big)
+    time.sleep(1.0)
+    alive_at_kill = t.is_alive()
+    psutil.Process(pid).kill()
+    b, secs, err = _join(t, box, CALL_TIMEOUT + 10)
+    notes = [f"killed Excel {pid} ({'during' if alive_at_kill else 'after'} the query)"]
+    if err:
+        if "sv_restart" in err:
+            notes.append(f"error names sv_restart ({secs:.0f}s)")
+        else:
+            b2, secs2, err2 = _call(ctx.client, "sv_query", big)
+            assert not err2, f"error without sv_restart ({err[:200]}) and the retry failed too: {err2[:200]}"
+            notes.append(f"error without sv_restart, retry ok in {secs2:.0f}s: {err.splitlines()[0][:100]}")
+    else:
+        notes.append(f"query ok in {secs:.0f}s")
+    notes.append(_followup(ctx))
+    return {"notes": "; ".join(notes)}
+
+
+@scenario("S8.kill.edge", ["inject"], budget=150)
+def s8_kill_edge(ctx):
+    args = {"question": "MATRIX S8 kill edge", "cell": CELL_12881, "target": "none"}
+    t, box = _in_thread(_call, ctx.client, "sv_drill", args)
+    time.sleep(5)
+    alive_at_kill = t.is_alive()
+    killed = helpers.kill_engine_edge()
+    out, secs, err = _join(t, box, CALL_TIMEOUT + 10)
+    notes = [f"killed {len(killed)} engine Edge ({'during' if alive_at_kill else 'after'} the drill)"]
+    if err:
+        assert "next" in err.lower(), f"drill error without a next step ({secs:.0f}s): {err[:300]}"
+        notes.append(f"error with a next step ({secs:.0f}s)")
+    else:
+        rec = _exact(out)
+        notes.append(f"drill ok in {secs:.0f}s, {rec['lines']} lines")
+    notes.append(_followup(ctx))
+    return {"notes": "; ".join(notes)}
+
+
+@scenario("S8.cold", ["inject"], budget=240)
+def s8_cold(ctx):
+    wb = ctx.state.pop("wb", None)               # S2's workbook when S2 ran; closed below, so S2's users stop here
+    if not wb:
+        wb = _small_build(ctx.client, "MATRIX S8 cold")["workbook"]
+    assert helpers.close_scratch_book(wb, save=True), f"could not close {wb}"
+    out, secs, err = _call(ctx.client, "sv_drill", {"question": "MATRIX S8 cold drill", "cell": CELL_12881,
+                                                    "target": wb}, hang=240, timeout=250)
+    assert not err, f"sv_drill into the closed {Path(wb).name} ({secs:.0f}s): {err[:300]}"
+    rec = _exact(out)
+    return {"notes": f"{Path(wb).name} reopened, drill {secs:.0f}s, {rec['lines']} lines; " + _followup(ctx)}
+
+
+@scenario("S8.sleep", ["inject"], budget=230)
+def s8_sleep(ctx):
+    pids = helpers.server_pids(ctx.client)
+    assert pids, "no child_server.py process under the relay"
+    t, box = _in_thread(_call, ctx.client, "sv_query", _ebitda_q(), 90 + HANG_S, 90 + CALL_TIMEOUT)
+    time.sleep(0.2)
+    with helpers.suspended(pids):
+        time.sleep(90)
+    resumed = time.monotonic()
+    b, secs, err = _join(t, box, CALL_TIMEOUT + 10)
+    after = time.monotonic() - resumed
+    assert after < HANG_S, f"sv_query answered {after:.0f}s after the resume"
+    assert not err, f"sv_query after the resume ({after:.0f}s): {err[:300]}"
+    assert _close(helpers.number(b["table"]), EBITDA_WHS_YTD), b["table"]
+    return {"notes": f"suspended {pids} 90s; answered {after:.0f}s after the resume; " + _followup(ctx)}

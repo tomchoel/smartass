@@ -14,6 +14,9 @@ from smartview_mcp.auditlib import is_engine_excel
 
 _IN_MATRIX = re.compile(r"[\\/]_matrix[\\/][^\\/]+$", re.IGNORECASE)
 BM_CLICK, WM_GETOBJECT, OBJID_NATIVEOM, SMTO_ABORTIFHUNG = 0x00F5, 0x003D, -16, 0x0002
+# '#32770': Win32 message boxes (Smart View's). 'NUIDialog': Excel's own alerts (ALERT, MsgBox) - no Button children,
+# so the watchdog can only record those.
+DIALOG_CLASSES = ("#32770", "NUIDialog")
 
 
 # ================================================================== engine-owned Excel and the dialog watchdog
@@ -153,7 +156,7 @@ class DialogWatch:
             return
         now = time.monotonic()
         for hwnd, pid, cls, title in _windows(pids):
-            if cls != "#32770" and title not in self.WATCH_TITLES:
+            if cls not in DIALOG_CLASSES and title not in self.WATCH_TITLES:
                 continue
             if hwnd not in self._seen:
                 rec = {"title": title, "text": dialog_text(hwnd), "pid": pid,
@@ -161,14 +164,14 @@ class DialogWatch:
                 self.dialogs.append(rec)
                 self._seen[hwnd] = (now, rec)
                 if title != "Login":
-                    rec["clicked"] = click_button(hwnd)
+                    rec["clicked"] = dismiss_dialog(hwnd) or click_button(hwnd)
                 continue
             first, rec = self._seen[hwnd]
             if title == "Login":
                 if now - first >= self.login_grace and not rec.get("killed"):
                     rec["killed"] = _kill_engine_excel(pid, self.scratch)
             elif not rec.get("clicked"):
-                rec["clicked"] = click_button(hwnd)
+                rec["clicked"] = dismiss_dialog(hwnd) or click_button(hwnd)
 
 
 def _excel_apps() -> list:
@@ -272,3 +275,392 @@ def cleanup(ctx) -> None:
         except OSError:
             pass
     shutil.rmtree(ctx.scratch, ignore_errors=True)
+
+
+# ================================================================== S8 injections (each undoes itself in finally)
+BAK = ".matrix-bak"
+COOKIE_FILES = ("Cookies", "Cookies-journal")
+
+
+def _cookie_dirs() -> list[Path]:
+    """Cookie folders of the engine's drill Edge profiles (drill_edge, drill_edge_<channel>)."""
+    from smartview_mcp import config
+
+    out = []
+    for prof in Path(config.DRILL_PROFILE).parent.glob(Path(config.DRILL_PROFILE).name + "*"):
+        if prof.is_dir():
+            out += [d for d in (prof / "Default" / "Network", prof / "Default") if d.is_dir()]
+    return out
+
+
+def restore_matrix_bak() -> list[str]:
+    """Put every *.matrix-bak cookie store back (a crashed S8.sso run left it). A store the engine's Edge made in the
+    meantime is replaced, and a fresh journal without a backup is dropped so it cannot roll into the old database."""
+    restored = []
+    dirs = [d for d in _cookie_dirs() if any(d.glob("*" + BAK))]
+    if not dirs:
+        return restored
+    kill_engine_edge()                        # it holds the cookie store open
+    time.sleep(1)
+    for d in dirs:
+        for name in COOKIE_FILES:
+            if not (d / (name + BAK)).exists() and (d / name).exists() and name.endswith("-journal"):
+                (d / name).unlink()
+        for bak in d.glob("*" + BAK):
+            orig = bak.with_name(bak.name[:-len(BAK)])
+            for i in range(5):
+                try:
+                    bak.replace(orig)
+                    restored.append(str(orig))
+                    break
+                except OSError:
+                    if i == 4:
+                        raise
+                    time.sleep(1)
+    return restored
+
+
+@contextlib.contextmanager
+def expired_sso():
+    """The engine's drill Edge loses its sign-in: its cookie store is renamed to *.matrix-bak for the duration.
+    (The engine keeps no SSO token file of its own; Smart View's EPM session lives inside its Excel.)"""
+    kill_engine_edge()
+    time.sleep(1)
+    moved = []
+    try:
+        for d in _cookie_dirs():
+            for name in COOKIE_FILES:
+                f = d / name
+                if f.exists():
+                    f.replace(f.with_name(name + BAK))
+                    moved.append(str(f))
+        yield moved
+    finally:
+        restore_matrix_bak()
+
+
+def engine_hidden_excel_pid(pid: int) -> int:
+    """`pid` if it is the engine's hidden Excel (recorded in pids.json AND started '-Embedding'); else AssertionError."""
+    import json
+
+    import psutil
+    from smartview_mcp import config
+
+    try:
+        owned = {i["pid"] for i in json.loads(Path(config.PID_FILE).read_text())}
+    except (OSError, ValueError, KeyError, TypeError):
+        owned = set()
+    if pid not in owned:
+        raise AssertionError(f"Excel pid {pid} is not in the engine's {config.PID_FILE.name} {sorted(owned)}")
+    cmd = " ".join(psutil.Process(pid).cmdline()).lower()
+    if "-embedding" not in cmd:
+        raise AssertionError(f"Excel pid {pid} is not an -Embedding Excel: {cmd[:120]}")
+    return pid
+
+
+def server_pids(client) -> list[int]:
+    """The real MCP server behind the relay: child_server.py processes under the client's run_server.py."""
+    import psutil
+
+    out = []
+    for c in psutil.Process(client.p.pid).children(recursive=True):
+        try:
+            if "child_server.py" in " ".join(c.cmdline()):
+                out.append(c.pid)
+        except psutil.Error:
+            continue
+    return out
+
+
+@contextlib.contextmanager
+def suspended(pids: list[int]):
+    import psutil
+
+    done = []
+    try:
+        for pid in pids:
+            p = psutil.Process(pid)
+            p.suspend()
+            done.append(p)
+        yield done
+    finally:
+        for p in done:
+            try:
+                p.resume()
+            except psutil.Error:
+                pass
+
+
+def app_of(pid: int, timeout_ms: int = 3000):
+    """(Application, main hwnd) of Excel `pid` through its workbook window (the caller has initialised COM)."""
+    import pythoncom
+    import win32com.client
+    import win32gui
+
+    for hwnd, _pid, cls, _t in _windows({pid}, visible=False):
+        if cls != "XLMAIN":
+            continue
+        desk = win32gui.FindWindowEx(hwnd, 0, "XLDESK", None)
+        ex7 = win32gui.FindWindowEx(desk, 0, "EXCEL7", None) if desk else 0
+        if not ex7:
+            continue
+        _, lres = win32gui.SendMessageTimeout(ex7, WM_GETOBJECT, 0, OBJID_NATIVEOM, SMTO_ABORTIFHUNG, timeout_ms)
+        win = win32com.client.Dispatch(pythoncom.ObjectFromLresult(lres, pythoncom.IID_IDispatch, 0))
+        return win.Application, hwnd
+    return None, None
+
+
+def _book_names(app) -> list[str]:
+    return [str(app.Workbooks(i).FullName) for i in range(1, app.Workbooks.Count + 1)]
+
+
+def _login_open(pid: int) -> bool:
+    return any(t == "Login" for _h, _p, _c, t in _windows({pid}))
+
+
+@contextlib.contextmanager
+def scratch_excel(path, watch=None, timeout: float = 240):
+    """Our own Excel ('/x <scratch workbook>': engine-owned by auditlib.is_engine_excel) with `path` open; yields its
+    pid. The workbook is first closed in any other Excel. Afterwards our Excel is closed, or killed if it hangs (an
+    Excel that holds a workbook from outside _matrix is left alone)."""
+    import pythoncom
+    from smartview_mcp import config
+
+    p = str(path)
+    if not _IN_MATRIX.search(p):
+        raise ValueError(f"not a scratch workbook: {p}")
+    for _ in range(3):
+        if not close_scratch_book(p, save=True):
+            break
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 1
+    proc = subprocess.Popen([config.EXCEL_EXE, "/x", p], startupinfo=si)
+    try:
+        with watch.ignoring(proc.pid) if watch else contextlib.nullcontext():   # its start-up login: SSO watcher
+            pythoncom.CoInitialize()
+            t0, want = time.monotonic(), Path(p).name.lower()
+            while True:
+                if proc.poll() is not None:
+                    raise AssertionError(f"our scratch Excel (pid {proc.pid}) exited before it opened {want}")
+                if time.monotonic() - t0 > timeout:
+                    raise AssertionError(f"our scratch Excel (pid {proc.pid}) did not open {want} in {timeout:.0f}s")
+                time.sleep(1)
+                if _login_open(proc.pid):
+                    continue
+                try:
+                    app, _ = app_of(proc.pid)
+                    if app is not None and app.Ready and \
+                            any(Path(n.replace("/", "\\")).name.lower() == want for n in _book_names(app)):
+                        break
+                except Exception:
+                    continue
+            time.sleep(3)
+            while _login_open(proc.pid) and time.monotonic() - t0 < timeout:
+                time.sleep(1)
+        yield proc.pid
+    finally:
+        _quit_scratch_excel(proc)
+
+
+def _quit_scratch_excel(proc) -> None:
+    import pythoncom
+
+    foreign: list[str] = []
+    if proc.poll() is None:
+        try:                                       # nothing modal may block the close (or outlive the kill)
+            close_own_dialogs(_dialogs_of(proc.pid), proc.pid)
+        except Exception:
+            pass
+
+    def quit_():
+        pythoncom.CoInitialize()
+        try:
+            app, _ = app_of(proc.pid, 2000)
+            if app is None:
+                return
+            app.DisplayAlerts = False
+            for i in range(app.Workbooks.Count, 0, -1):
+                wb = app.Workbooks(i)
+                if _IN_MATRIX.search(str(wb.FullName)):
+                    wb.Close(SaveChanges=False)
+                else:
+                    foreign.append(str(wb.Name))
+            if not foreign:
+                app.Quit()
+        except Exception:
+            pass
+        finally:
+            pythoncom.CoUninitialize()
+    t = threading.Thread(target=quit_, daemon=True)
+    t.start()
+    t.join(30)
+    if foreign:
+        return
+    try:
+        proc.wait(20)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(10)
+
+
+def _dialogs_of(pid: int) -> list[int]:
+    return [h for h, _p, cls, _t in _windows({pid}) if cls in DIALOG_CLASSES]
+
+
+def _post_key(hwnd: int, vk: int) -> None:
+    """A key press posted straight to one window of OUR Excel (no focus needed, so it can never reach another app)."""
+    import win32api
+    import win32con
+    import win32gui
+
+    scan = win32api.MapVirtualKey(vk, 0)
+    win32gui.PostMessage(hwnd, win32con.WM_KEYDOWN, vk, 1 | scan << 16)
+    win32gui.PostMessage(hwnd, win32con.WM_KEYUP, vk, 1 | scan << 16 | 0xC0000000)
+
+
+class Limit(Exception):
+    """The injection cannot run safely here; matrix.py scores it LIMIT (no retry)."""
+
+
+def dismiss_dialog(hwnd: int) -> str | None:
+    """Close one dialog without focus or keystrokes into the foreground: BM_CLICK OK/No/Close on a '#32770', or
+    WM_CLOSE on an Excel 'NUIDialog' (its buttons are not windows; for an ALERT, close = OK). Returns what was done."""
+    import win32con
+    import win32gui
+
+    try:
+        cls = win32gui.GetClassName(hwnd)
+    except Exception:
+        return None
+    if cls == "#32770":
+        return click_button(hwnd)
+    if cls == "NUIDialog":
+        win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        return "WM_CLOSE"
+    return None
+
+
+def _gone(hwnds, pid: int, wait: float) -> bool:
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < wait:
+        if not set(hwnds) & set(_dialogs_of(pid)):
+            return True
+        time.sleep(0.5)
+    return not set(hwnds) & set(_dialogs_of(pid))
+
+
+def close_own_dialogs(hwnds, pid: int) -> str:
+    """Make sure the dialogs `hwnds` of OUR Excel `pid` are gone: dismiss (BM_CLICK OK / WM_CLOSE), then Enter
+    posted to the dialog, then kill that (engine-owned) Excel. Returns how they went; raises if they survive."""
+    import win32con
+
+    hwnds = [h for h in hwnds if h in _dialogs_of(pid)]
+    if not hwnds:
+        return "already gone"
+    for h in hwnds:
+        dismiss_dialog(h)
+    if _gone(hwnds, pid, 5):
+        return "dismissed"
+    for h in hwnds:
+        for c in [h] + [ch for ch, _cls, _t in _children(h)]:
+            _post_key(c, win32con.VK_RETURN)
+    if _gone(hwnds, pid, 5):
+        return "dismissed with Enter"
+    if _kill_engine_excel(pid, _scratch_root()) and _gone(hwnds, pid, 10):
+        return "Excel killed"
+    raise AssertionError(f"dialog(s) {hwnds} of Excel {pid} are still open")
+
+
+@contextlib.contextmanager
+def modal_dialog(pid: int, watch=None):
+    """An Excel 4 ALERT("matrix") in OUR engine-owned scratch Excel `pid`, from a helper thread. Afterwards exactly
+    that alert (the dialog window that appeared after it started) is closed and checked gone (close_own_dialogs).
+    Refuses (Limit) a non-engine Excel, and refuses an Excel that already shows a dialog (no second alert)."""
+    import pythoncom
+
+    if pid not in engine_excel_pids(_scratch_root()):
+        raise Limit(f"Excel {pid} is not engine-owned (user's Excel?): no alert injected")
+    if _dialogs_of(pid):
+        raise AssertionError(f"Excel {pid} already shows a dialog {_dialogs_of(pid)}: no second alert")
+    state: dict = {}
+
+    def run():
+        pythoncom.CoInitialize()
+        try:
+            app, _ = app_of(pid)
+            state["started"] = True
+            state["result"] = app.ExecuteExcel4Macro('ALERT("matrix")')
+        except Exception as e:
+            state["error"] = repr(e)[:200]
+        finally:
+            pythoncom.CoUninitialize()
+    with watch.ignoring(pid) if watch else contextlib.nullcontext():
+        t = threading.Thread(target=run, daemon=True, name="matrix-alert")
+        t.start()
+        ours: list[int] = []
+        try:
+            t0 = time.monotonic()
+            while not ours and time.monotonic() - t0 < 20:
+                time.sleep(0.5)
+                ours = _dialogs_of(pid)
+            if not ours:
+                raise AssertionError(f"the ALERT dialog did not appear in Excel {pid}: {state}")
+            state["dialog"] = ours
+            yield state
+        finally:
+            if not ours:                           # it may still come up after the 20 s wait
+                time.sleep(2)
+                ours = _dialogs_of(pid)
+            state["dismissed"] = close_own_dialogs(ours, pid)
+            t.join(15)
+
+
+@contextlib.contextmanager
+def edit_mode(pid: int, sheet: str | None = None):
+    """Cell edit mode in OUR scratch Excel `pid`: activate the sheet, select an empty cell, F2 + 'x'; afterwards ESC
+    (nothing is entered). The keys are posted to that Excel's grid window (EXCEL7), not typed into the foreground."""
+    import pythoncom
+    import win32con
+    import win32gui
+
+    if pid not in engine_excel_pids(_scratch_root()):
+        raise Limit(f"Excel {pid} is not engine-owned (user's Excel?): no edit mode injected")
+    pythoncom.CoInitialize()
+    app, hwnd = app_of(pid)
+    wb = next(app.Workbooks(i) for i in range(1, app.Workbooks.Count + 1)
+              if _IN_MATRIX.search(str(app.Workbooks(i).FullName)))
+    wb.Activate()
+    ws = wb.Worksheets(sheet) if sheet else wb.ActiveSheet
+    ws.Activate()
+    ws.Range("AZ500").Select()
+    app = wb = ws = None
+    grid = win32gui.FindWindowEx(win32gui.FindWindowEx(hwnd, 0, "XLDESK", None), 0, "EXCEL7", None)
+    _post_key(grid, win32con.VK_F2)
+    time.sleep(0.5)
+    win32gui.PostMessage(grid, win32con.WM_CHAR, ord("x"), 1)
+    time.sleep(1.5)
+    state = {"in_edit": None}
+    try:
+        try:
+            a, _ = app_of(pid, 2000)
+            state["in_edit"] = "no COM object (window busy)" if a is None else not a.Ready
+        except Exception as e:
+            state["in_edit"] = f"COM refused: {type(e).__name__}"
+        if state["in_edit"] is False:
+            raise AssertionError(f"Excel {pid} did not enter edit mode")
+        yield state
+    finally:
+        _post_key(grid, win32con.VK_ESCAPE)
+        time.sleep(1)
+        try:
+            a, _ = app_of(pid, 2000)
+            state["escaped"] = bool(a.Ready)
+        except Exception as e:
+            state["escaped"] = f"COM refused: {type(e).__name__}"
+
+
+def _scratch_root() -> Path:
+    from smartview_mcp import config
+
+    return Path(config.ANALYSER_DIR) / "_matrix"

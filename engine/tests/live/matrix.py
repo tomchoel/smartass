@@ -51,6 +51,9 @@ def attempt(sc: scenarios.Scenario, ctx: scenarios.Ctx) -> tuple[bool, float, st
 def run_one(sc: scenarios.Scenario, ctx: scenarios.Ctx, run: int) -> dict:
     ok, secs, err, out = attempt(sc, ctx)
     flaky = False
+    if not ok and err.startswith("Limit:"):        # an injection that cannot run safely here: no re-run
+        return {"id": sc.id, "tags": sc.tags, "result": "LIMIT", "secs": round(secs, 1), "error": err,
+                "error_class": error_class(err), "notes": "", "limit": err, "flaky": False, "run": run}
     if not ok:
         first_err = err
         ok, secs, err, out = attempt(sc, ctx)
@@ -148,11 +151,14 @@ def write_report(args: argparse.Namespace, started: datetime, atlas: str, result
 
 def main(argv: list[str] | None = None) -> int:
     args = parse(argv)
+    started = datetime.now()
+    restored = helpers.restore_matrix_bak()      # a crashed S8.sso run must not leave the drill Edge signed out
+    if restored:
+        print(f"restored leftover *.matrix-bak: {restored}", flush=True)
     chosen = select(args.only, args.fresh)
     if not chosen:
         print("no scenarios match", file=sys.stderr)
         return 2
-    started = datetime.now()
     scratch = Path(config.ANALYSER_DIR) / "_matrix"
     scratch.mkdir(parents=True, exist_ok=True)
     results: list[dict] = []
