@@ -260,7 +260,47 @@ def login_open(pid: int) -> bool:
     return bool(found)
 
 
-RECOVER_SETTLE_S = 12          # after a login recovery: time for Smart View to reopen the login before we go on
+BOX_POLL_S = 0.5
+
+
+class SmartViewBoxes:
+    """While the engine drives Smart View in a visible Excel: a thread clicks OK on Smart View's modal message boxes
+    in that Excel (they would block the call until the user clicks) and keeps their texts for the caller."""
+
+    def __init__(self, pid: int):
+        self.pid, self.texts = pid, []
+        self._stop, self._seen = threading.Event(), set()
+        self._thread = threading.Thread(target=self._run, name=f"sv-boxes-{pid}", daemon=True)
+
+    def _run(self):
+        from . import dialogs
+        while not self._stop.wait(BOX_POLL_S):
+            try:
+                for d in dialogs.sv_boxes(dialogs.scan(self.pid)):
+                    if d.hwnd not in self._seen:
+                        self._seen.add(d.hwnd)
+                        self.texts.append(d.text)
+                        log.warning("Smart View message in Excel pid %s dismissed: %s", self.pid, d.text)
+                        dialogs.press_ok(d.hwnd)
+            except Exception:   # noqa: BLE001 - the guard must never break the pull
+                log.debug("Smart View box guard failed", exc_info=True)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        self._thread.join(timeout=2)
+
+
+NOT_SIGNED_IN = ("Smart View in this Excel is not signed in correctly: EPM answers 'Empty response from provider' to "
+                 "every connect, and Smart View shows no Login to click. Ask the user to sign in once in that Excel "
+                 "(Smart View ribbon -> Panel -> connect FinMax, or close that Excel so the next call starts a fresh "
+                 "one), then ask again.")
+
+
+RECOVER_SETTLE_S = 12         # after a login recovery: time for Smart View to reopen the login before we go on
 
 
 def recover_ie_login(pid: int, hwnds: list[int]) -> dict:
@@ -1112,6 +1152,14 @@ def _make_pull(name, connection, lay, parsed, secs) -> "Pull":
 
 def pull(h: ExcelHost, t: Target, q: int, connection: str, pov: dict, rows: list[Axis], cols: list[Axis],
          title: str | None = None) -> Pull:
+    """A live Smart View grid in the user's workbook; Smart View's modal message boxes in that Excel are dismissed
+    while it runs (SmartViewBoxes), so they cannot block the pull."""
+    with SmartViewBoxes(t.pid) as boxes:
+        return _pull(h, t, q, connection, pov, rows, cols, title, boxes)
+
+
+def _pull(h: ExcelHost, t: Target, q: int, connection: str, pov: dict, rows: list[Axis], cols: list[Axis],
+          title: str | None, boxes: "SmartViewBoxes") -> Pull:
     from . import styling                         # provided by the styling adapter
     from .grid import validate_axes
     from .ops import _dims_cache, _grid_labels, _used_values, canon_dim, dims_known, is_rc1000, learn_dims
@@ -1141,6 +1189,9 @@ def pull(h: ExcelHost, t: Target, q: int, connection: str, pov: dict, rows: list
             st = t.run("B_Connect", name, connection)
             if st == "OK":
                 break
+            from .dialogs import not_signed_in
+            if not_signed_in(boxes.texts):        # retrying cannot fix a session EPM keeps rejecting
+                raise HostError(NOT_SIGNED_IN)
             if attempt == 2:
                 from .host import _explain
                 raise HostError(_explain("Connect", st))

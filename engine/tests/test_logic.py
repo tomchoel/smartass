@@ -151,3 +151,18 @@ def test_wait_login_after_recovery_waits_for_the_new_login_and_spaces_retries(mo
     monkeypatch.setattr(userexcel, "recover_ie_login", lambda pid, h: rec.append(clock["t"]) or {"ended": [], "closed": h})
     userexcel.wait_login_cleared(1, limit=60)
     assert clock["t"] >= 9 and len(rec) == 1      # did not return in the gap before the new login
+
+
+def test_smart_view_box_guard_dismisses_each_box_once_and_keeps_its_text(monkeypatch):
+    import time as _t
+
+    from smartview_mcp import dialogs, userexcel
+    from smartview_mcp.dialogs import Dialog
+    box = Dialog(5, "#32770", "Oracle Smart View for Office", "Empty response from provider.", "message")
+    pressed = []
+    monkeypatch.setattr(dialogs, "scan", lambda pid: [box] if 5 not in pressed else [])
+    monkeypatch.setattr(dialogs, "press_ok", lambda h: pressed.append(h))
+    monkeypatch.setattr(userexcel, "BOX_POLL_S", 0.01)
+    with userexcel.SmartViewBoxes(1) as g:
+        _t.sleep(0.1)
+    assert pressed == [5] and g.texts == ["Empty response from provider."]

@@ -119,6 +119,36 @@ def webview2_holders_from(rows: list[tuple[int, int, str]], exclude_parent: int 
     return out
 
 
+SV_BOX_TITLE = "Oracle Smart View for Office"
+
+
+def sv_boxes(found: list[Dialog]) -> list[Dialog]:
+    """Smart View's own modal message boxes (e.g. 'Empty response from provider.'). In our hidden Excel they are
+    switched off (option 104); in a visible Excel they block the call that raised them until someone clicks OK."""
+    return [d for d in found if d.kind == "message" and d.title == SV_BOX_TITLE]
+
+
+def not_signed_in(texts: list[str]) -> bool:
+    """EPM answered 'Empty response from provider' to repeated connects: this Excel's Smart View session is not
+    valid (it shows no Login, so the SSO watcher cannot help). Retrying does not fix it; a manual sign-in does."""
+    return sum("empty response from provider" in (t or "").lower() for t in texts) >= 2
+
+
+def press_ok(hwnd: int) -> None:
+    import pywintypes
+    import win32con
+    import win32gui
+
+    try:
+        ok = win32gui.FindWindowEx(hwnd, 0, "Button", "OK")
+        if ok:
+            win32gui.PostMessage(ok, win32con.BM_CLICK, 0, 0)
+        else:
+            win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+    except pywintypes.error:
+        pass
+
+
 def ie_fallback(found: list[Dialog]) -> list[int]:
     """Windows of a sign-in that already fell back to Internet Explorer (an IE-rendered Login, a 'Script Error' or a
     WebView2-failed box): broken for good, so they can be closed. Empty while a WebView2 Login is still in progress."""

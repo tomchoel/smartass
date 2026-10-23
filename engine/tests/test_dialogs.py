@@ -90,3 +90,11 @@ def test_recover_only_when_the_login_already_fell_back_to_ie():
     err = Dialog(3, "Internet Explorer_TridentDlgFrame", "Script Error", "", "webview2_fallback")
     assert dialogs.ie_fallback([web]) == []
     assert dialogs.ie_fallback([web, ie, err]) == [2, 3]
+
+
+def test_smart_view_boxes_and_the_not_signed_in_verdict():
+    box = Dialog(5, "#32770", "Oracle Smart View for Office", "Empty response from provider.", "message")
+    other = Dialog(6, "#32770", "Microsoft Excel", "Something else", "message")
+    assert dialogs.sv_boxes([box, other]) == [box]
+    assert not dialogs.not_signed_in(["Empty response from provider."])
+    assert dialogs.not_signed_in(["Empty response from provider.", "x", "Empty response from provider."])
