@@ -3,6 +3,7 @@ and the S8 injections."""
 from __future__ import annotations
 
 import contextlib
+import os
 import re
 import shutil
 import subprocess
@@ -318,10 +319,17 @@ def values(client, wb: str, sheet: str, rng: str, what: str = "values") -> dict:
 
 
 def cleanup(ctx) -> None:
-    """Close the scratch workbooks unsaved, delete the extra files the run made elsewhere (ctx.state['files'], e.g.
-    sv_refresh_workbook's output) and the _matrix folder, unless --keep."""
+    """Stop the fresh install's processes (S9) always; then, unless --keep: close the scratch workbooks unsaved,
+    delete the extra files the run made elsewhere (ctx.state['files'], e.g. sv_refresh_workbook's output), the
+    _matrix folder and the fresh profile."""
+    fresh = ctx.state.get("fresh") or {}
+    if fresh.get("owners"):
+        kill_fresh_excels(fresh["owners"])
+    if FRESH_ROOT.exists():
+        stop_fresh_processes()
     if ctx.keep:
         return
+    remove_fresh()
     close_scratch_workbooks()
     for f in ctx.state.get("files", []):
         try:
@@ -766,3 +774,330 @@ def _scratch_root() -> Path:
     from smartview_mcp import config
 
     return Path(config.ANALYSER_DIR) / "_matrix"
+
+
+# ================================================================== part 3: S9 fresh profile and S10 feature helpers
+REPO = Path(__file__).resolve().parents[3]
+FRESH_ROOT = REPO / ".matrix-fresh"        # not %TEMP%: a repo folder (git-ignored), deleted after the run
+FRESH_PORT = "47899"
+_DROP_ENV = ("SV_", "SMARTASS_", "SVKIT_")
+
+
+def _uv_dir(var: str, args: list[str]) -> str:
+    """The REAL uv cache / Python folder, read before LOCALAPPDATA/APPDATA are overridden (reuse, no re-download)."""
+    v = os.environ.get(var)
+    if v:
+        return v
+    return subprocess.run(["uv", *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def fresh_paths(root: Path = FRESH_ROOT) -> dict[str, Path]:
+    home = root / "local" / "smartass"
+    engine = home / "app" / "engine"
+    return {"root": root, "home": home, "app": home / "app", "engine": engine,
+            "py": engine / ".venv" / "Scripts" / "python.exe", "config": home / "config.toml",
+            "pids": home / "pids.json", "pathfile": root / "user_path.txt", "release": root / "release",
+            "copilot": root / "profile" / ".copilot" / "mcp-config.json", "claude": root / "profile" / ".claude.json",
+            "startup": root / "roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"}
+
+
+def fresh_profile(root: Path = FRESH_ROOT, version: str = "0.2.0") -> dict:
+    """A new user's profile under `root`: a `git archive` of HEAD as release `version`, a copy of the real atlas.db,
+    empty agent configs. Returns the env dict for the child installer/CLI/MCP processes (the parent's own
+    environment is never changed). The user PATH goes to a file (SMARTASS_USER_PATH_FILE), the HTTP API to its own
+    port, so nothing reaches the owner's registry, profile or running `serve`."""
+    import json
+    import os
+    import sqlite3
+    import zipfile
+
+    from smartview_mcp import config
+
+    remove_fresh(root)
+    p = fresh_paths(root)
+    for d in ("local", "roaming", "profile/.copilot", "onedrive", "release/atlas"):
+        (root / d).mkdir(parents=True, exist_ok=True)
+    p["copilot"].write_text("{}", encoding="utf-8")
+    p["claude"].write_text("{}", encoding="utf-8")
+    (p["release"] / "latest.json").write_text(json.dumps({"version": version}), encoding="utf-8")
+    z = root / "rel.zip"
+    subprocess.run(["git", "-C", str(REPO), "archive", "--format", "zip", "-o", str(z), "HEAD"], check=True,
+                   capture_output=True)
+    with zipfile.ZipFile(z) as zf:
+        zf.extractall(p["release"] / version)
+    z.unlink()
+    su = (p["release"] / version / "engine" / "smartview_mcp" / "setup_user.py").read_text(encoding="utf-8")
+    if "SMARTASS_USER_PATH_FILE" not in su:
+        raise AssertionError("HEAD has no SMARTASS_USER_PATH_FILE override: its setup would write the real user PATH")
+    src = sqlite3.connect(f"file:{config.ATLAS_DB}?mode=ro", uri=True)
+    dst = sqlite3.connect(p["release"] / "atlas" / "atlas.db")
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
+    uv_cache = _uv_dir("UV_CACHE_DIR", ["cache", "dir"])
+    uv_python = _uv_dir("UV_PYTHON_INSTALL_DIR", ["python", "dir"])
+    env = {k: v for k, v in os.environ.items()
+           if not k.upper().startswith(_DROP_ENV) and k.upper() not in ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT")}
+    env.update({"UV_CACHE_DIR": uv_cache, "UV_PYTHON_INSTALL_DIR": uv_python,
+                "LOCALAPPDATA": str(root / "local"), "APPDATA": str(root / "roaming"),
+                "USERPROFILE": str(root / "profile"), "ONEDRIVECOMMERCIAL": str(root / "onedrive"),
+                "ONEDRIVE": str(root / "onedrive"), "SMARTASS_RELEASE": str(p["release"]),
+                "SMARTASS_HTTP_PORT": FRESH_PORT, "SMARTASS_USER_PATH_FILE": str(p["pathfile"]),
+                "PYTHONIOENCODING": "utf-8"})
+    return env
+
+
+def _run(cmd: list[str], env: dict, cwd=None, timeout: float = 900) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, env=env, cwd=cwd, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=timeout)
+
+
+def fresh_install(env: dict, version: str = "0.2.0", root: Path = FRESH_ROOT) -> subprocess.CompletedProcess:
+    """The release's installer in a child `powershell -NoProfile -File` with the fresh env."""
+    ps1 = fresh_paths(root)["release"] / version / "installer" / "install.ps1"
+    return _run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps1), "-NoDoctor"], env)
+
+
+def fresh_cli(env: dict, *args: str, root: Path = FRESH_ROOT, timeout: float = 900) -> subprocess.CompletedProcess:
+    """`smartass <args>` of the fresh install (its venv python, the fresh env)."""
+    p = fresh_paths(root)
+    return _run([str(p["py"]), "-m", "smartview_mcp.cli", *args], env, cwd=p["engine"], timeout=timeout)
+
+
+def fresh_py(env: dict, code: str, root: Path = FRESH_ROOT) -> subprocess.CompletedProcess:
+    p = fresh_paths(root)
+    return _run([str(p["py"]), "-c", code], env, cwd=p["engine"], timeout=120)
+
+
+def make_release(version: str, base: str = "0.2.0", root: Path = FRESH_ROOT) -> Path:
+    """release\\<version>: a copy of release\\<base> with the version bumped (pyproject + the smartass uv.lock entry),
+    then latest.json points to it."""
+    import json
+
+    rel = fresh_paths(root)["release"]
+    dst = rel / version
+    shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(rel / base, dst)
+    for f, pat in ((dst / "engine" / "pyproject.toml", r'(?m)^version = "[^"]+"'),
+                   (dst / "engine" / "uv.lock", r'(name = "smartass"\r?\nversion = )"[^"]+"')):
+        text = f.read_text(encoding="utf-8")
+        new, n = re.subn(pat, (f'version = "{version}"' if f.suffix == ".toml" else rf'\g<1>"{version}"'), text,
+                         count=1)
+        if n != 1:
+            raise AssertionError(f"no version line in {f}")
+        f.write_text(new, encoding="utf-8")
+    (rel / "latest.json").write_text(json.dumps({"version": version}), encoding="utf-8")
+    return dst
+
+
+def _under(path: str | None, root: Path) -> bool:
+    return bool(path) and str(path).lower().startswith(str(root).lower().rstrip("\\") + "\\")
+
+
+def _fresh_env(p, root: Path) -> bool:
+    """The process runs with the fresh profile's environment. COM starts Excel with the CALLER's environment, so the
+    fresh server's hidden Excels have it too, even those the engine never registered (DispatchEx failed)."""
+    import psutil
+
+    try:
+        return _under(p.environ().get("LOCALAPPDATA"), root)
+    except (psutil.Error, OSError):
+        return False
+
+
+def stop_fresh_processes(root: Path = FRESH_ROOT) -> list[int]:
+    """Kill the processes of the fresh install only: command line, exe, working folder or LOCALAPPDATA under `root`
+    (its `serve`, the venv launcher's base-python child, a leftover installer, Excels started by its server), and
+    their children."""
+    import psutil
+
+    me = {os.getpid(), *(p.pid for p in psutil.Process().parents())}
+    hits: dict[int, psutil.Process] = {}
+    for p in psutil.process_iter(["cmdline", "exe"]):
+        if p.pid in me:
+            continue
+        try:
+            cmd = subprocess.list2cmdline(p.info["cmdline"] or [])
+            if str(root).lower() in cmd.lower() or _under(p.info["exe"], root) or _under(p.cwd(), root) \
+                    or _fresh_env(p, root):
+                hits[p.pid] = p
+                for c in p.children(recursive=True):
+                    if c.pid not in me:
+                        hits[c.pid] = c
+        except (psutil.Error, OSError):
+            continue
+    for p in hits.values():
+        try:
+            p.kill()
+        except psutil.Error:
+            pass
+    psutil.wait_procs(list(hits.values()), timeout=10)
+    return sorted(hits)
+
+
+def fresh_owners(client) -> dict[int, float]:
+    """{pid: create time} of the fresh client's child_server.py processes (owners of its hidden Excel)."""
+    import psutil
+
+    out = {}
+    for pid in server_pids(client):
+        try:
+            out[pid] = psutil.Process(pid).create_time()
+        except psutil.Error:
+            continue
+    return out
+
+
+def kill_fresh_excels(owners: dict[int, float], root: Path = FRESH_ROOT) -> list[int]:
+    """Kill the hidden Excels the fresh install's pids.json records for `owners` (the fresh client's servers): the
+    same strict rule as engine_excel_pids, with the fresh registry; plus any Excel running with the fresh profile's
+    environment (see _fresh_env). Normally the server already quit them."""
+    import json
+
+    import psutil
+
+    try:
+        registry = json.loads(fresh_paths(root)["pids"].read_text())
+    except (OSError, ValueError):
+        registry = []
+    registry = [i for i in registry if isinstance(i, dict)] if isinstance(registry, list) else []
+    killed = []
+    for p in psutil.process_iter(["name", "cmdline", "create_time"]):
+        try:
+            if (p.info["name"] or "").lower() == "excel.exe" and (
+                    is_engine_excel(subprocess.list2cmdline(p.info["cmdline"] or []), "", p.pid,
+                                    p.info["create_time"], registry, owners) or _fresh_env(p, root)):
+                p.kill()
+                killed.append(p.pid)
+        except (psutil.Error, TypeError):
+            continue
+    return killed
+
+
+def _rm_junctions(root: Path) -> None:
+    """Remove the junctions under `root` (the skill links) as links, so deleting the tree never follows one."""
+    import os
+
+    for dirpath, dirnames, _files in os.walk(root):
+        for d in list(dirnames):
+            full = os.path.join(dirpath, d)
+            if os.path.isjunction(full) or os.path.islink(full):
+                os.rmdir(full)
+                dirnames.remove(d)
+
+
+def remove_fresh(root: Path = FRESH_ROOT) -> None:
+    """Stop the fresh processes and delete the fresh profile (only ever the .matrix-fresh folder)."""
+    import os
+    import stat
+
+    if root.name != ".matrix-fresh" or not root.exists():
+        return
+    stop_fresh_processes(root)
+    _rm_junctions(root)
+
+    def _ro(func, path, _exc):
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    for _ in range(5):
+        try:
+            shutil.rmtree(root, onexc=_ro)
+        except OSError:
+            pass
+        if not root.exists():
+            return
+        time.sleep(2)
+    raise OSError(f"could not delete {root}")
+
+
+def doctor_lines(text: str) -> dict[str, tuple[str, str]]:
+    """{check: (status, detail)} from `smartass doctor` text output."""
+    out = {}
+    for ln in text.splitlines():
+        m = re.match(r"\s{2}(OK|WARN|FAIL)\s+(\S+)\s*(.*)$", ln)
+        if m:
+            out[m.group(2)] = (m.group(1), m.group(3))
+    return out
+
+
+# ---------------------------------------------------------------- S10 helpers
+SV_OPTIONS_KEY = r"Software\Hyperion Solutions\HyperionSmartView\Options"
+SV_OPTION_NAMES = ("messageDisplay", "bDisplayHomePanelOnStartup", "bCommentDlgEnable")  # GLOBAL_OPTIONS 104/109/110
+
+
+def _sv_options_raw() -> tuple[str, int]:
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, SV_OPTIONS_KEY) as k:
+        return winreg.QueryValueEx(k, "CAOptionsXML")
+
+
+def sv_options() -> dict[str, str | None]:
+    """The Smart View global options the engine changes (messages, home panel, comment dialog), from CAOptionsXML."""
+    xml, _ = _sv_options_raw()
+    out = {}
+    for name in SV_OPTION_NAMES:
+        m = re.search(rf'<option key="{name}" value="([^"]*)"\s*/>', xml)
+        out[name] = m.group(1) if m else None
+    return out
+
+
+def write_sv_options(values: dict[str, str | None]) -> None:
+    """Put `values` back into CAOptionsXML (only those keys; the value type is kept)."""
+    import winreg
+
+    xml, kind = _sv_options_raw()
+    for name, v in values.items():
+        if v is not None:
+            xml = re.sub(rf'(<option key="{name}" value=")[^"]*("\s*/>)', rf"\g<1>{v}\g<2>", xml)
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, SV_OPTIONS_KEY, 0, winreg.KEY_SET_VALUE) as k:
+        winreg.SetValueEx(k, "CAOptionsXML", 0, kind, xml)
+
+
+def visible_excel_pids() -> set[int]:
+    """Excel processes with a visible main window (XLMAIN): the user's and the matrix's interactive Excels."""
+    import psutil
+
+    pids = set()
+    for p in psutil.process_iter(["name"]):
+        if (p.info["name"] or "").lower() == "excel.exe":
+            pids.add(p.pid)
+    return {pid for _h, pid, cls, _t in _windows(pids) if cls == "XLMAIN"}
+
+
+class _PsProc:
+    """psutil.Process with the subprocess.Popen bits _quit_scratch_excel uses."""
+
+    def __init__(self, pid: int):
+        import psutil
+
+        self.pid, self._p = pid, psutil.Process(pid)
+
+    def poll(self):
+        return None if self._p.is_running() else 0
+
+    def wait(self, timeout):
+        import psutil
+
+        try:
+            return self._p.wait(timeout)
+        except psutil.TimeoutExpired:
+            raise subprocess.TimeoutExpired("excel", timeout) from None
+
+    def kill(self):
+        import psutil
+
+        try:
+            self._p.kill()
+        except psutil.Error:
+            pass
+
+
+def quit_owned_excel(pid: int, scratch) -> None:
+    """Close an interactive Excel the matrix owns ('/x <scratch workbook>', engine_excel_pids): its _matrix books
+    unsaved, then Quit (killed if it hangs). Any other Excel raises; one holding a non-matrix book is left open."""
+    if pid not in engine_excel_pids(scratch):
+        raise AssertionError(f"Excel {pid} is not owned by the matrix")
+    _quit_scratch_excel(_PsProc(pid))

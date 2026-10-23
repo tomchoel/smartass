@@ -1,6 +1,7 @@
 """Live scenarios S1-S10. Each is fn(ctx) -> dict(notes=..., budget=...) and raises AssertionError/ToolFailed on failure."""
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
@@ -550,7 +551,8 @@ def _followup(ctx) -> str:
     return f"follow-up {secs:.0f}s"
 
 
-def _small_build(client, question: str, pov: dict | None = None) -> dict:
+def _small_build(client, question: str, pov: dict | None = None, hang: float = HANG_S,
+                 timeout: float = CALL_TIMEOUT) -> dict:
     """A one-line sv_ws_build into a new scratch workbook (EBITDA YTD Sep 26 of the given entity)."""
     pull = {"id": "p", "connection": "FinMax", "rows": [{"dimension": "All Accounts", "members": E}],
             "columns": [{"dimension": "All Time Periods", "members": ["Sep 26"]}], "pov": pov or WHS_POV}
@@ -558,7 +560,8 @@ def _small_build(client, question: str, pov: dict | None = None) -> dict:
             "sections": [{"title": "EBITDA", "lines": [{"key": "e", "label": "EBITDA YTD",
                                                        "cells": [{"pull": "p", "row": E, "col": ["Sep 26"]}]}]}],
             "checks": [{"label": "Line equals itself", "expr": "e-e", "columns": [0]}]}
-    out, _, err = _call(client, "sv_ws_build", {"question": question, "pulls": [pull], "spec": spec, "target": "new"})
+    out, _, err = _call(client, "sv_ws_build", {"question": question, "pulls": [pull], "spec": spec, "target": "new"},
+                        hang, timeout)
     assert not err, f"sv_ws_build '{question}': {err[:300]}"
     _answer_ok(out, question)
     return out
@@ -727,3 +730,353 @@ def s8_sleep(ctx):
     assert not err, f"sv_query after the resume ({after:.0f}s): {err[:300]}"
     assert _close(helpers.number(b["table"]), EBITDA_WHS_YTD), b["table"]
     return {"notes": f"suspended {pids} 90s; answered {after:.0f}s after the resume; " + _followup(ctx)}
+
+
+# ================================================================== S9 fresh install (only with --fresh)
+DOCTOR_CHECKS = {"config", "excel", "smartview", "epm", "drill_browser", "atlas", "output", "http_api", "update"}
+
+
+def _fresh(ctx) -> dict:
+    return _need(ctx, "fresh", "S9.install")
+
+
+def _fresh_doctor(env: dict, wait: float = 30) -> tuple[dict, str]:
+    """`smartass doctor` of the fresh install; re-run for up to `wait` s while a check is not OK (the `serve` the
+    installer started may still be binding its port)."""
+    t0 = time.monotonic()
+    while True:
+        r = helpers.fresh_cli(env, "doctor", timeout=120)
+        lines = helpers.doctor_lines(r.stdout)
+        if (lines and all(s == "OK" for s, _ in lines.values())) or time.monotonic() - t0 > wait:
+            return lines, r.stdout + r.stderr
+        time.sleep(3)
+
+
+@scenario("S9.install", ["fresh"], budget=400, fresh=True)
+def s9_install(ctx):
+    ctx.state.pop("fresh", None)
+    env = helpers.fresh_profile()
+    p = helpers.fresh_paths()
+    t0 = time.monotonic()
+    r = helpers.fresh_install(env)
+    secs = time.monotonic() - t0
+    assert r.returncode == 0, f"installer exit {r.returncode}: {(r.stdout + r.stderr)[-1500:]}"
+    assert p["py"].exists(), f"no venv python at {p['py']}"
+    ctx.state["fresh"] = {"env": env, "owners": {}}
+    lines, text = _fresh_doctor(env)
+    assert DOCTOR_CHECKS <= set(lines), f"doctor lines missing {sorted(DOCTOR_CHECKS - set(lines))}:\n{text[-1500:]}"
+    bad = [f"{k} {s} {d}" for k, (s, d) in lines.items() if s != "OK"]
+    assert not bad, "doctor not OK: " + "; ".join(bad)
+    return {"notes": f"install {secs:.0f}s; doctor {len(lines)}/{len(lines)} OK"}
+
+
+@scenario("S9.lookup", ["fresh"], budget=180, fresh=True)
+def s9_lookup(ctx):
+    import psutil
+    from mcpclient import McpClient
+
+    fr, p = _fresh(ctx), helpers.fresh_paths()
+    c = McpClient(env=fr["env"], cmd=[str(p["py"]), "-B", str(p["engine"] / "run_server.py")], cwd=p["engine"])
+    try:
+        with helpers.tracked(c):
+            fx = Ctx(client=c, scratch=ctx.scratch, keep=ctx.keep)
+            c.must("sv_status", {})
+            servers = helpers.server_pids(c)
+            assert servers, "no child_server.py under the fresh relay"
+            cmd = " ".join(psutil.Process(servers[0]).cmdline()).lower()
+            assert str(p["engine"]).lower() in cmd, f"the server does not run from the fresh install: {cmd}"
+            fr["owners"].update(helpers.fresh_owners(c))
+            s1_find(fx)
+            s1_finmax(fx)
+            fr["owners"].update(helpers.fresh_owners(c))
+    finally:
+        c.close()
+        killed = helpers.kill_fresh_excels(fr["owners"])
+    return {"notes": "S1.find + S1.query.finmax ok from the fresh install" +
+                     (f"; killed leftover hidden Excel {killed}" if killed else "")}
+
+
+# ================================================================== S10 features
+_CHANGED = re.compile(r"\b(created|updated|added|linked|copied|removed)\b")
+_SSO_VALUE = re.compile(r"sso_token=(?!\*\*\*)([^&\s'\"]{6,})")
+
+
+@scenario("S10.1.bundle", ["feature"], budget=60)
+def s10_bundle(ctx):
+    import subprocess
+    import sys
+    import zipfile
+
+    from mcpclient import ENGINE
+    from smartview_mcp import config
+
+    home = Path(config.HOME)
+    secrets = {config.HTTP_SECRET} if config.HTTP_SECRET else set()
+    for f in (home / "logs").glob("*.log*"):          # any raw sso_token value the logs may hold
+        try:
+            secrets |= set(_SSO_VALUE.findall(f.read_text(encoding="utf-8", errors="replace")))
+        except OSError:
+            continue
+    bundles = home / "bundles"
+    before = set(bundles.glob("*.zip"))
+    r = subprocess.run([sys.executable, "-m", "smartview_mcp.cli", "doctor", "--bundle"], cwd=ENGINE,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+    made = sorted(set(bundles.glob("*.zip")) - before)
+    try:
+        assert r.returncode == 0 and made, f"doctor --bundle exit {r.returncode}, no zip: {(r.stdout + r.stderr)[-800:]}"
+        leaks, names = [], []
+        with zipfile.ZipFile(made[-1]) as z:
+            names = z.namelist()
+            for n in names:
+                text = z.read(n).decode("utf-8", errors="replace")
+                if any(s in text for s in secrets):
+                    leaks.append(f"{n}: a secret value")
+                if _SSO_VALUE.search(text):
+                    leaks.append(f"{n}: unredacted sso_token=")
+        assert "doctor.json" in names and "versions.json" in names, f"members {names}"
+        assert not leaks, "; ".join(leaks)
+    finally:
+        for z in made:
+            z.unlink(missing_ok=True)
+    return {"notes": f"{len(names)} members; {len(secrets)} secret value(s) searched; none found"}
+
+
+@scenario("S10.2.setup", ["feature", "fresh"], budget=120, fresh=True)
+def s10_setup(ctx):
+    env, p = _fresh(ctx)["env"], helpers.fresh_paths()
+    outs = []
+    for _ in range(2):
+        r = helpers.fresh_cli(env, "setup", timeout=300)
+        assert r.returncode == 0, f"setup exit {r.returncode}: {(r.stdout + r.stderr)[-800:]}"
+        outs.append(r.stdout)
+    changed = [ln for ln in outs[1].splitlines() if _CHANGED.search(ln)]
+    assert not changed, f"the second setup still changed: {changed}"
+    for f in (p["copilot"], p["claude"]):
+        servers = json.loads(f.read_text(encoding="utf-8"))["mcpServers"]
+        assert "smartass" in servers and "smartview" not in servers, f"{f.name}: {sorted(servers)}"
+    lnks = {f.name for f in p["startup"].glob("*.lnk")}
+    assert {"smartass-engine.lnk", "smartass-sso-watcher.lnk"} <= lnks, f"Startup: {sorted(lnks)}"
+    scripts = str(p["engine"] / ".venv" / "Scripts").lower()
+    assert scripts in p["pathfile"].read_text(encoding="utf-8").lower(), "venv Scripts not on the (fake) user PATH"
+    data = json.loads(p["copilot"].read_text(encoding="utf-8"))
+    data["mcpServers"] = {"smartview": data["mcpServers"]["smartass"], "matrix-other": {"command": "x"}}
+    p["copilot"].write_text(json.dumps(data), encoding="utf-8")
+    r = helpers.fresh_cli(env, "setup", timeout=300)
+    line = next((ln for ln in r.stdout.splitlines() if ln.startswith("copilot mcp:")), "")
+    servers = json.loads(p["copilot"].read_text(encoding="utf-8"))["mcpServers"]
+    assert "updated" in line, f"legacy entry: {line!r}"
+    assert set(servers) == {"smartass", "matrix-other"}, f"after the legacy migration: {sorted(servers)}"
+    unchanged = [ln.split(":")[0] for ln in outs[1].splitlines() if not _CHANGED.search(ln)]
+    return {"notes": f"2nd run unchanged ({len(unchanged)} lines); smartview -> smartass migrated, other kept"}
+
+
+@scenario("S10.3.reload", ["feature"], budget=90)
+def s10_reload(ctx):
+    import os
+
+    from mcpclient import McpClient
+    from smartview_mcp import config
+
+    f = Path(config.__file__)
+    st = f.stat()
+
+    def changed(c) -> int:
+        return sum(1 for m in list(c.notes) if m.get("method") == "notifications/tools/list_changed")
+    c = McpClient(cwd=ctx.scratch)
+    try:
+        with helpers.tracked(c):
+            c.must("sv_status", {})
+            n0 = changed(c)
+            os.utime(f)                                  # the relay sees a new fingerprint on the next request
+            try:
+                b, secs = c.must("sv_status", {})
+            finally:                                     # the owner's relays must not see a change
+                os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))
+            t0 = time.monotonic()
+            while changed(c) - n0 < 1 and time.monotonic() - t0 < 30:
+                time.sleep(0.5)
+            time.sleep(3)
+            n = changed(c) - n0
+            assert b, "sv_status gave nothing after the reload"
+            assert n == 1, f"{n} tools/list_changed notifications after touching config.py, expected 1"
+    finally:
+        if f.stat().st_mtime_ns != st.st_mtime_ns:
+            os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))
+        c.close()
+    return {"notes": f"1 list_changed; sv_status after reload {secs:.1f}s"}
+
+
+@scenario("S10.4.update", ["feature", "fresh"], budget=600, fresh=True)
+def s10_update(ctx):
+    env, p = _fresh(ctx)["env"], helpers.fresh_paths()
+
+    def version() -> str:
+        return helpers.fresh_py(env, "from smartview_mcp import __version__; print(__version__)").stdout.strip()
+    notes = []
+    assert version() == "0.2.0", f"fresh install is {version()}"
+    helpers.make_release("0.2.1")
+    guard = helpers.fresh_py(env, "import time\nfrom smartview_mcp import update\n"
+                                  "update.subprocess.Popen = lambda *a, **k: None\nnow = time.time()\n"
+                                  "print(update.start_if_available(now), update.start_if_available(now + 60),"
+                                  " update.start_if_available(now + 31 * 60))")
+    (p["home"] / "update_attempt.json").unlink(missing_ok=True)
+    assert guard.stdout.split() == ["True", "False", "True"], \
+        f"loop guard (first, +1 min, +31 min): {guard.stdout.strip()} {guard.stderr[-500:]}"
+    notes.append("guard True/False/True")
+    r = helpers.fresh_cli(env, "update")
+    assert "installed 0.2.1" in r.stdout, f"update to 0.2.1: {(r.stdout + r.stderr)[-800:]}"
+    assert version() == "0.2.1", f"after the update: {version()}"
+    r = helpers.fresh_cli(env, "update")
+    assert r.stdout.startswith("no update"), f"second update: {r.stdout.strip()}"
+    notes.append("0.2.1 installed, 2nd = no update")
+    cfg = p["config"].read_text(encoding="utf-8")
+    new, n = re.subn(r"(?m)^\[release\][ \t]*$", '[release]\nversion = "0.2.0"', cfg, count=1)
+    assert n == 1, "no [release] section in the fresh config.toml"
+    p["config"].write_text(new, encoding="utf-8")
+    r = helpers.fresh_cli(env, "update")
+    assert "installed 0.2.0" in r.stdout, f"pin 0.2.0: {(r.stdout + r.stderr)[-800:]}"
+    assert version() == "0.2.0", f"after the pinned update: {version()}"
+    r = helpers.fresh_cli(env, "update")
+    assert r.stdout.startswith("no update"), f"update while pinned: {r.stdout.strip()}"
+    notes.append("pin 0.2.0 -> downgraded and kept")
+    return {"notes": "; ".join(notes)}
+
+
+@scenario("S10.5.textfixes", ["feature"], budget=90)
+def s10_textfixes(ctx):
+    from smartview_mcp import config
+    from smartview_mcp import drill_lines as dl
+
+    f = Path(config.USER_TEXT_FIXES)
+    old = f.read_bytes() if f.exists() else None
+    key, val = "MATRIX\ufffdS10.5", "MATRIX-S10.5-ok"
+    shipped = json.loads(Path(config.TEXT_FIXES).read_text(encoding="utf-8")).get("fixes", {})
+    lost = next((k for k in shipped if "\ufffd" in k), None)
+    try:
+        data = json.loads(old.decode("utf-8")) if old else {}
+        fixes = {**data.get("fixes", {}), key: val, **({lost: "MATRIX-override"} if lost else {})}
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({**data, "fixes": fixes}, ensure_ascii=False), encoding="utf-8")
+        merged = dl.load_text_fixes(config.TEXT_FIXES, f)
+        stats = {"fixed_mojibake": 0, "fixed_by_list": 0, "unfixed": set()}
+        got = dl.repair_text(f"a {key} b", merged, stats)
+        assert got == f"a {val} b", f"user fix not applied: {got!r}"
+        if lost:
+            got = dl.repair_text(lost, merged, stats)
+            assert got == "MATRIX-override", f"the user's list does not win over the shipped one: {got!r}"
+        out = _drill(ctx, CELL_12881)                    # the engine reads the user file on every drill
+        _exact(out)
+        assert "text_repairs" in out, f"no text_repairs in sv_drill: {sorted(out)}"
+    finally:
+        if old is None:
+            f.unlink(missing_ok=True)
+        else:
+            f.write_bytes(old)
+    return {"notes": f"user fix + override of a shipped key applied; drill text_repairs {out['text_repairs']}"}
+
+
+@scenario("S10.6.pack", ["feature"], budget=20)
+def s10_pack(ctx):
+    from smartview_mcp import config
+
+    if "produktregnskap" not in config.PACKS:
+        raise helpers.Limit("the produktregnskap pack is not enabled in config.toml")
+    sc, _ = ctx.client.must("sv_scope", {"text": "trådløst bredbånd"})
+    text = json.dumps(sc, ensure_ascii=False)
+    hits = [w for w in ("L50C_FTB", "C2C_FTB", "Internet @home", "produktregnskap") if w in text]
+    assert hits or sc.get("pack"), f"no produktregnskap knowledge (code_costperform/value_stream) in sv_scope: " \
+                                   f"{text[:300]}"
+    return {"notes": f"pack hits {hits}"}
+
+
+@scenario("S10.7.style", ["feature"], budget=60)
+def s10_style(ctx):
+    out = _small_build(ctx.client, "MATRIX S10.7 style", hang=240, timeout=300)
+    fs = out.get("formula_style")
+    assert isinstance(fs, dict) and fs.get("ok"), f"formula_style {fs!r}"
+    cells = _formats_per_cell(ctx.client, out["workbook"], out["answer_sheet"], "A1:C5")
+    styles = sorted({s for _nf, s in cells.values() if s})
+    assert any(s.startswith("TN ") for s in styles), f"no TN style in {out['answer_sheet']} A1:C5: {styles}"
+    return {"notes": f"formula_style ok; styles {styles}"}
+
+
+@scenario("S10.8.coldexcel", ["feature"], budget=240)
+def s10_coldexcel(ctx):
+    import pythoncom
+
+    vis, owned = helpers.visible_excel_pids(), helpers.engine_excel_pids(ctx.scratch)
+    if vis - owned:
+        raise helpers.Limit(f"the user's own Excel is open (pid {sorted(vis - owned)}): a cold start needs none")
+    for pid in vis & owned:
+        helpers.quit_owned_excel(pid, ctx.scratch)
+    left = helpers.visible_excel_pids()
+    assert not left, f"could not close the matrix's Excel {sorted(left)}"
+    _, _, err = _call(ctx.client, "sv_restart", {})
+    assert not err, f"sv_restart: {err[:300]}"
+    new: set[int] = set()
+    try:
+        t0 = time.monotonic()
+        out = _small_build(ctx.client, "MATRIX S10.8 cold excel", hang=240, timeout=300)
+        secs = time.monotonic() - t0
+        new = helpers.visible_excel_pids() & helpers.engine_excel_pids(ctx.scratch)
+        assert new, f"no visible matrix Excel after the cold build ({secs:.0f}s)"
+        pythoncom.CoInitialize()
+        try:
+            app, _ = helpers.app_of(sorted(new)[0])
+            visible = bool(app.Visible) if app is not None else None
+            del app
+        finally:
+            pythoncom.CoUninitialize()
+        assert visible, f"Excel {sorted(new)} Visible={visible}"
+    finally:
+        for pid in new or (helpers.visible_excel_pids() & helpers.engine_excel_pids(ctx.scratch)):
+            helpers.quit_owned_excel(pid, ctx.scratch)
+    return {"notes": f"cold build {secs:.0f}s into {Path(out['workbook']).name}; Visible=True"}
+
+
+@scenario("S10.9.options", ["feature"], budget=120)
+def s10_options(ctx):
+    from smartview_mcp import config
+
+    orig = Path(config.HOME) / "smartview_options_original.json"
+    before = helpers.sv_options()
+    orig_before = orig.read_text() if orig.exists() else None
+    try:
+        _, secs, err = _call(ctx.client, "sv_restart", {})
+        assert not err, f"sv_restart: {err[:300]}"
+        follow = _followup(ctx)                          # the new Excel has applied the engine's options
+        after = helpers.sv_options()
+        assert after == before, f"Smart View options changed by sv_restart: {before} -> {after}"
+        if orig_before is not None and orig.exists():
+            assert orig.read_text() == orig_before, f"{orig.name} changed: {orig_before} -> {orig.read_text()}"
+    finally:
+        if helpers.sv_options() != before:
+            helpers.write_sv_options(before)
+    return {"notes": f"{before} unchanged; restart {secs:.0f}s; {follow}"}
+
+
+@scenario("S10.10.http", ["feature"], budget=30)
+def s10_http(ctx):
+    import urllib.error
+    import urllib.request
+
+    from smartview_mcp import config
+
+    url = f"http://127.0.0.1:{config.HTTP_PORT}/health"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def get(headers: dict) -> int:
+        try:
+            with opener.open(urllib.request.Request(url, headers=headers), timeout=30) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+    try:
+        none = get({})
+    except (urllib.error.URLError, OSError) as e:
+        raise helpers.Limit(f"`smartass serve` is not answering on {url}: {e}") from None
+    wrong = get({"X-Smartass-Secret": "matrix-wrong-secret"})
+    right = get({"X-Smartass-Secret": config.HTTP_SECRET})
+    assert none in (401, 403) and wrong in (401, 403), f"without/wrong secret: {none}/{wrong}"
+    assert right == 200, f"with the secret: {right}"
+    return {"notes": f"no secret {none}, wrong {wrong}, right {right}"}
