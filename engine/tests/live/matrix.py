@@ -62,6 +62,14 @@ def run_one(sc: scenarios.Scenario, ctx: scenarios.Ctx, run: int) -> dict:
             "limit": sc.limit if not ok else None, "flaky": flaky, "run": run}
 
 
+def add_dialogs(r: dict, dialogs: list[dict]) -> dict:
+    r["dialogs"] = [dict(d) for d in dialogs]
+    seen = [f"DIALOG: {d['title']}: {d['text']}" for d in dialogs]
+    if seen:
+        r["notes"] = "; ".join(([r["notes"]] if r.get("notes") else []) + seen)
+    return r
+
+
 def atlas_age(client: McpClient) -> str:
     body, _, err = client.call("sv_atlas_status", {}, timeout=60)
     if err or not body:
@@ -102,6 +110,16 @@ def render_md(head: dict, results: list[dict]) -> str:
         for cls, n in counts.most_common():
             ids = sorted({r["id"] for r in results if r["error_class"] == cls})
             lines.append(f"| {n} | {cls.replace('|', chr(92) + '|')} | {', '.join(ids)} |")
+    else:
+        lines.append("None.")
+    dialogs = [(r, d) for r in results for d in r.get("dialogs", [])]
+    lines += ["", "## Dialogs seen", ""]
+    if dialogs:
+        lines += ["| Scenario | s into scenario | PID | Title | Text | Clicked | Killed |", "|---|---:|---:|---|---|---|---|"]
+        for r, d in dialogs:
+            cells = [r["id"], d["seconds_into_scenario"], d["pid"], d["title"], d["text"], d.get("clicked") or "",
+                     "yes" if d.get("killed") else ""]
+            lines.append("| " + " | ".join(str(c).replace("|", "\\|").replace("\n", " ") for c in cells) + " |")
     else:
         lines.append("None.")
     return "\n".join(lines) + "\n"
@@ -147,10 +165,16 @@ def main(argv: list[str] | None = None) -> int:
         atlas = atlas_age(client)
         for run in range(1, args.repeat + 1):
             for sc in chosen:
-                r = run_one(sc, ctx, run)
+                with helpers.DialogWatch(scratch) as watch:
+                    ctx.watch = watch
+                    try:
+                        r = run_one(sc, ctx, run)
+                    finally:
+                        ctx.watch = None
+                add_dialogs(r, watch.dialogs)
                 results.append(r)
-                print(f"{r['result']:5} {r['secs']:7.1f}s  {sc.id}" + (f"  {r['error_class']}" if r["error"] else ""),
-                      flush=True)
+                print(f"{r['result']:5} {r['secs']:7.1f}s  {sc.id}" + (f"  {r['error_class']}" if r["error"] else "")
+                      + (f"  [{len(r['dialogs'])} dialog(s)]" if r["dialogs"] else ""), flush=True)
     finally:
         try:
             helpers.cleanup(ctx)

@@ -26,6 +26,7 @@ class Ctx:
     scratch: object          # Path to <analyser>\_matrix
     keep: bool
     state: dict = field(default_factory=dict)   # shared between scenarios (e.g. S2's workbook for S7)
+    watch: object = None     # the running helpers.DialogWatch (matrix.py sets it around each scenario)
 
 
 def scenario(id: str, tags: list[str], budget: float = 60, limit: str | None = None, fresh: bool = False):
