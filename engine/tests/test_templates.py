@@ -182,17 +182,19 @@ class FakeFind:
         return self.known.get(member)
 
 
-def test_live_confirm_checks_dimension_and_that_the_check_works(monkeypatch):
+def test_live_confirm_checks_dimension_and_that_the_check_works(fake_atlas, monkeypatch):
     find = FakeFind({"ac.NEW1": "All Accounts", "All Entities": "All Entities", "un.SY.2TEC": "All Entities"})
     monkeypatch.setattr(ops, "live_dimension", find)
     confirm = ops.live_confirm(None)
     assert confirm("FinMax", "All Accounts", "ac.NEW1")
     assert not confirm("FinMax", "All Accounts", "un.SY.2TEC")          # exists, but in another dimension
-    assert not confirm("FinMax", "All Entities", "un.SY.NOPE")          # control 'All Entities' found: real miss
-    broken = ops.live_confirm(None)
-    monkeypatch.setattr(ops, "live_dimension", FakeFind({}))            # nothing found, not even the control
+    assert not confirm("FinMax", "All Entities", "un.SY.NOPE")          # probe (atlas top) found: a real miss
+    assert find.calls[-1] == "All Entities"
+    find.known.clear()                                                  # session broke: nothing is found now
     with pytest.raises(Exception):
-        broken("FinMax", "All Entities", "Jan 27")
+        confirm("FinMax", "All Entities", "Jan 27")                     # probed again, not trusted from cache
+    find.known["All Entities"] = "All Entities"                         # works again
+    assert not confirm("FinMax", "All Entities", "un.SY.NOPE")
 
 
 def test_error_scan_groups_pull_cells_and_caps_answer_lines():

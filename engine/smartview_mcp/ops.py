@@ -369,20 +369,27 @@ def live_dimension(h: ExcelHost, conn: str, member: str) -> str | None:
 
 def live_confirm(h: ExcelHost):
     """confirm(conn, dim, member) for check_members: the member exists live in that dimension. A miss counts only
-    when the check itself works - the dimension's own top member is found (asked once per connection); otherwise
-    HostError, so the member stays unverified instead of being rejected."""
-    works: dict[str, bool] = {}
-
+    when the check itself works right then - a member the atlas has at the top of that dimension is found (asked
+    again on every miss: misses are rare); otherwise HostError, so the member stays unverified, not rejected."""
     def confirm(conn: str, dim: str, member: str) -> bool:
         d = live_dimension(h, conn, member)
         if d is not None:
             return canon_dim(conn, d).casefold() == canon_dim(conn, dim).casefold()
-        if conn not in works:
-            works[conn] = live_dimension(h, conn, dim) is not None
-        if not works[conn]:
-            raise HostError(f"live member check on {conn} does not work now (even '{dim}' is not found)")
+        probe = _atlas_top(conn, dim) or dim
+        if live_dimension(h, conn, probe) is None:
+            raise HostError(f"live member check on {conn} does not work now (even '{probe}' is not found)")
         return False
     return confirm
+
+
+def _atlas_top(conn: str, dim: str) -> str | None:
+    from . import atlas
+    try:
+        r = atlas.connect().execute("SELECT name FROM member WHERE connection=? AND dimension=? ORDER BY depth, ord "
+                                    "LIMIT 1", (conn, dim)).fetchone()
+    except Exception:       # noqa: BLE001 - no atlas: probe the dimension name
+        return None
+    return r[0] if r else None
 
 
 def find_member(h: ExcelHost, conn: str, member: str) -> dict:
