@@ -98,15 +98,14 @@ async def _progress(what: str) -> None:
     import asyncio
 
     from . import timing
-    from .server import _ctx
-    ctx, t0 = _ctx.get(), time.monotonic()
+    from .server import _ctx, progress_secs
+    ctx = _ctx.get()
     if ctx is None:
         return
     while True:
         await asyncio.sleep(timing.PROGRESS_AFTER_S)
         try:
-            await ctx.report_progress(round(time.monotonic() - t0), None,
-                                      f"still working: {what} ({time.monotonic() - t0:.0f}s)")
+            await ctx.report_progress(progress_secs(), None, f"still working: {what} ({progress_secs():.0f}s)")
         except Exception:   # noqa: BLE001 - a progress note must never break the drill
             return
 

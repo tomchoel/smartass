@@ -97,3 +97,17 @@ def test_slow_stage_sends_progress_notes_and_stops_after(monkeypatch):
     assert len(notes) == n                       # no notes once the stages are done
     timing.Timer.start()                         # the next timer on this thread has no notify of its own
     assert timing.Timer.current().notify is None
+
+
+def test_progress_job_clears_its_notify_after_the_job():
+    import asyncio
+
+    from smartview_mcp import server, timing
+
+    async def run():
+        server._ctx.set(object())                 # any ctx: notify is only called by a ticker
+        job = server._with_progress(lambda h: timing.Timer.start())
+        t = job(None)
+        return t
+    t = asyncio.run(run())
+    assert t.notify is None and getattr(timing._local, "pending_notify", None) is None

@@ -11,6 +11,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from . import atlas, config, ops, qlog
 from .grid import Axis, to_markdown
+from .timing import Timer, stage
 from .host import ExcelHost, HostError
 from .server import LOCAL, READ, WRITE, AxesIn, Connection, axes_in, _call, _err, _safe_name, tool
 
@@ -156,7 +157,11 @@ async def sv_refresh_workbook(path: str, output_name: str | None = None, ctx: Co
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M%S")
     out = config.OUT_DIR / f"{stamp}_{output_name or ('refreshed_' + src.stem)}{src.suffix}"
     try:
-        res = await _call(lambda h: ops.refresh_workbook(h, src, out), timeout=900, what="refresh_workbook")
+        def job(h):
+            Timer.start()                         # its own timer: progress notes while the refresh runs
+            with stage("refresh workbook"):
+                return ops.refresh_workbook(h, src, out)
+        res = await _call(job, timeout=900, what="refresh_workbook")
     except (HostError, ToolError) as e:
         raise _err(e)
     qlog.write({"tool": "sv_refresh_workbook", **res})

@@ -8,6 +8,7 @@ import contextvars
 import datetime as dt
 import logging
 import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -158,6 +159,7 @@ def guard(fn):
         from mcp.server.mcpserver import Context
         # tools that declare ctx get progress notes from their slow stages (None for the others: no stale ctx)
         _ctx.set(next((v for v in kwargs.values() if isinstance(v, Context)), None))
+        _t0.set(time.monotonic())
         try:
             if is_async:
                 return await fn(*args, **kwargs)
@@ -178,26 +180,38 @@ def tool(annotations: ToolAnnotations = READ):
 
 
 _ctx: contextvars.ContextVar = contextvars.ContextVar("smartass_tool_ctx", default=None)
+_t0: contextvars.ContextVar = contextvars.ContextVar("smartass_tool_t0", default=0.0)   # progress = s since call start
+
+
+def progress_secs() -> float:
+    """Seconds since this tool call started: the MCP progress value (it must only increase within a request)."""
+    return round(time.monotonic() - _t0.get(), 1)
 
 
 def _with_progress(fn):
     """fn(h) whose Timer sends 'still working: <stage>' notes to the client (MCP progress) while a stage runs
     long (timing.PROGRESS_AFTER_S). Only for tools that declare ctx; a client without a progress token ignores them."""
     import asyncio
-    import time
 
     from .timing import Timer
     ctx = _ctx.get()
     if ctx is None:
         return fn
-    loop, t0 = asyncio.get_running_loop(), time.monotonic()
+    loop = asyncio.get_running_loop()
 
     def notify(text: str) -> None:
-        asyncio.run_coroutine_threadsafe(ctx.report_progress(round(time.monotonic() - t0), None, text), loop)
+        asyncio.run_coroutine_threadsafe(ctx.report_progress(progress_secs(), None, text), loop)
 
     def job(h):
         Timer.note_notify(notify)
-        return fn(h)
+        try:
+            return fn(h)
+        finally:                                  # no notes after the job (also when the call was abandoned)
+            Timer.note_notify(None)
+            t = Timer.current()
+            if t is not None and t.notify is notify:
+                t.notify = None
+                t._ticker(False)
     return job
 
 
