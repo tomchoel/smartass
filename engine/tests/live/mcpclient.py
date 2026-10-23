@@ -16,10 +16,13 @@ class ToolFailed(Exception):
     pass
 
 
+_EOF = object()
+
+
 class McpClient:
-    def __init__(self, python: str | None = None, env: dict | None = None):
-        self.p = subprocess.Popen([python or sys.executable, "-B", str(ENGINE / "run_server.py")], cwd=ENGINE,
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+    def __init__(self, python: str | None = None, env: dict | None = None, cmd: list[str] | None = None):
+        cmd = cmd or [python or sys.executable, "-B", str(ENGINE / "run_server.py")]
+        self.p = subprocess.Popen(cmd, cwd=ENGINE, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
         self.inbox: queue.Queue = queue.Queue()
         self.notes: list[dict] = []
         self._id = 0
@@ -29,10 +32,30 @@ class McpClient:
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
     def _read(self):
-        for line in self.p.stdout:
-            if line.strip():
-                m = json.loads(line)
-                (self.notes.append(m) if "id" not in m else self.inbox.put(m))
+        try:
+            for line in self.p.stdout:
+                if not line.strip():
+                    continue
+                try:
+                    m = json.loads(line)
+                except ValueError:
+                    self.notes.append({"_raw": line.decode(errors="replace").rstrip()})
+                    continue
+                if not isinstance(m, dict):
+                    self.notes.append({"_raw": line.decode(errors="replace").rstrip()})
+                elif "id" in m:
+                    self.inbox.put(m)
+                else:
+                    self.notes.append(m)
+        finally:
+            self.inbox.put(_EOF)
+
+    def _gone(self, method: str):
+        try:
+            code = self.p.wait(5)
+        except subprocess.TimeoutExpired:
+            code = self.p.poll()
+        raise ConnectionError(f"{method}: MCP server is gone (exit code {code})")
 
     def _send(self, msg: dict):
         self.p.stdin.write((json.dumps(msg) + "\n").encode())
@@ -41,13 +64,27 @@ class McpClient:
     def request(self, method: str, params: dict | None = None, timeout: float = 600) -> dict:
         self._id += 1
         i = self._id
-        self._send({"jsonrpc": "2.0", "id": i, "method": method, "params": params or {}})
+        if self.p.poll() is not None:
+            self._gone(method)
+        try:
+            self._send({"jsonrpc": "2.0", "id": i, "method": method, "params": params or {}})
+        except OSError:
+            self._gone(method)
         t0 = time.monotonic()
         while time.monotonic() - t0 < timeout:
             try:
                 m = self.inbox.get(timeout=1)
             except queue.Empty:
-                continue
+                if self.p.poll() is not None:
+                    try:
+                        m = self.inbox.get(timeout=2)
+                    except queue.Empty:
+                        self._gone(method)
+                else:
+                    continue
+            if m is _EOF:
+                self.inbox.put(_EOF)
+                self._gone(method)
             if m.get("id") == i:
                 return m
         raise TimeoutError(f"{method} gave no answer within {timeout:.0f}s")

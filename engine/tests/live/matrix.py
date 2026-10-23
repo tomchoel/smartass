@@ -1,6 +1,7 @@
 """Live audit matrix: runs the registered scenarios (scenarios.py) over stdio MCP and scores them.
 Usage (from engine): uv run python tests\\live\\matrix.py [--only TAGS] [--repeat N] [--fresh] [--keep] [--out NAME]
-Writes docs\\audit\\<date>-<out>.json and .md, with a before column from the newest earlier *-matrix*.json.
+Writes docs\\audit\\<date>-<out>.json and .md (or <date>-<out>-HHMM if that exists), with a before column from the
+newest earlier *-matrix*.json (a same-day file counts).
 Exit code 1 if any scenario FAILs."""
 from __future__ import annotations
 
@@ -69,9 +70,8 @@ def atlas_age(client: McpClient) -> str:
     return "not built" if age is None else f"{age} days" + (" (stale)" if body.get("stale") else "")
 
 
-def previous(exclude: Path) -> tuple[Path | None, list[dict]]:
-    files = sorted((p for p in AUDIT.glob("*-matrix*.json") if p.resolve() != exclude.resolve()),
-                   key=lambda p: (p.name[:10], p.stat().st_mtime))
+def previous() -> tuple[Path | None, list[dict]]:
+    files = sorted(AUDIT.glob("*-matrix*.json"), key=lambda p: (p.name[:10], p.stat().st_mtime))
     if not files:
         return None, []
     try:
@@ -111,7 +111,11 @@ def write_report(args: argparse.Namespace, started: datetime, atlas: str, result
     AUDIT.mkdir(parents=True, exist_ok=True)
     date = started.strftime("%Y-%m-%d")
     base = AUDIT / f"{date}-{args.out}"
-    before_file, before = previous(base.with_suffix(".json"))
+    for stamp in ("%H%M", "%H%M%S"):
+        if not (base.with_suffix(".json").exists() or base.with_suffix(".md").exists()):
+            break
+        base = AUDIT / f"{date}-{args.out}-{started.strftime(stamp)}"
+    before_file, before = previous()
     merged = merge_before(results, before)
     totals = dict(Counter(r["result"] for r in merged))
     head = {"date": date, "out": args.out, "time": started.isoformat(timespec="seconds"), "version": __version__,
