@@ -659,6 +659,9 @@ def _explain(fn: str, status: str) -> str:
     low = detail.lower()
     if "cannot connect to provider" in low or "<update>" in low or "empty response" in low:
         hint = "EPM Cloud did not accept the connection (transient; usually works on retry)"
+    elif rc == "-15" and "sid" in low:
+        hint = ("Smart View is not signed in yet (no session id): wait until the EPM login has completed, or ask the "
+                "user to sign in once in their Excel, then retry")
     elif rc == "57704" and "mbrs" in low:
         hint = ("the EPM Cloud Planning provider does not support this member query; use sv_find_member / sv_members "
                 "(atlas) instead")

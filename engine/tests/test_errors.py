@@ -138,3 +138,22 @@ def test_rewrap_keeps_input_errors_as_input_errors():
     from smartview_mcp.host import InputError, rewrap
     assert type(rewrap(InputError("bad spec"), "bad spec (removed: none)")) is InputError
     assert type(rewrap(RuntimeError("boom"), "boom (removed: none)")) is RealHostError
+
+
+def test_connect_without_a_session_id_says_sign_in_and_retry():
+    from smartview_mcp.host import _explain
+    msg = _explain("B_Connect", "ERR|-15|invalid parameter|Argument sID in the request is an empty string or NULL. "
+                                "Try to connect again.")
+    assert "not signed in" in msg and "retry" in msg
+
+
+def test_login_dialog_message_asks_the_user_not_the_agent(monkeypatch):
+    import pytest
+
+    from smartview_mcp import userexcel
+    from smartview_mcp.host import HostError
+    monkeypatch.setattr(userexcel, "login_open", lambda pid: True)
+    monkeypatch.setattr(userexcel.time, "sleep", lambda s: None)
+    with pytest.raises(HostError) as e:
+        userexcel.wait_login_cleared(1, limit=0.01)
+    assert "Ask the user" in str(e.value) and "PowerPoint" in str(e.value)

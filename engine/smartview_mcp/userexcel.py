@@ -270,8 +270,10 @@ def wait_login_cleared(pid: int, appear_grace: float = 0.0, limit: float = 90.0)
         elif seen or time.monotonic() - t0 >= appear_grace:
             return
         time.sleep(0.5)
-    raise HostError("The Oracle EPM login dialog is still open in your Excel. Click 'Telenor SSO' once (the automatic "
-                    "watcher did not), then ask again.")
+    raise HostError("The Oracle EPM login dialog is still open in your Excel and the automatic SSO click did not "
+                    "complete. Ask the user to click 'Telenor SSO' in it, then ask again. If it keeps coming back, "
+                    "Smart View's WebView2 may be held by another Office app (often an old PowerPoint): closing that "
+                    "app usually fixes it.")
 
 
 @dataclass
