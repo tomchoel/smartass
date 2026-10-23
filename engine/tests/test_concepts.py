@@ -51,3 +51,23 @@ def test_expand_passes_through():
     s = specs.expand(spec, {"p": "Q1 FinMax", "e": "Q1 FinMax e"}, {})
     cell = next(ln for sec in s["sections"] for ln in sec["lines"] if ln["key"] == "d1")["cells"][0]
     assert cell["pull"] == "Q1 FinMax"
+
+
+def test_concept_checks_use_the_total_not_plus_chains():
+    """tn-formelstil blocks 3+ cells added with + (PLUS_CHAIN): a check compares the total line instead."""
+    import json
+    import re
+    from pathlib import Path
+    data = json.loads((Path(__file__).parents[2] / "knowledge" / "concepts.json").read_text(encoding="utf-8"))
+    concepts = data["concepts"] if isinstance(data, dict) else data
+    for c in concepts:
+        for ch in c.get("checks", []):
+            assert len(re.findall(r"[+]", ch["expr"])) < 2, (c["id"], ch["expr"])
+
+
+def test_family_concept_check_refers_to_existing_keys():
+    c = concepts.get("fam_mobil_own_subscriptions_mobile_consumer")
+    pulls, spec = concepts.plan(c, "Sep 26", "Sep 25")
+    for ch in spec["checks"]:
+        for k in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", ch["expr"]):
+            assert k in keys_of(spec), (k, ch["expr"])

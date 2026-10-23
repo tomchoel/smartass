@@ -93,7 +93,7 @@ def concept(fam: str, roots: list[dict]) -> dict:
                 {"key": "not_tagged", "kind": "missing", "label": "Lønn og kostnader på koststed",
                  "note": "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet."}]}],
         "checks": [{"label": "Direkte bidrag = EBITDA før andre poster på produktene",
-                    "source": {"account": "ac.EBITDA_BOI", "products": prods}, "expr": "rev+cogs+opex-$src"}],
+                    "source": {"account": "ac.EBITDA_BOI", "products": prods}, "expr": "total-$src"}],
         "total": {"label": f"Direkte bidrag {short}", "of": ["rev", "cogs", "opex"]},
         "notes": ["Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall."],
         "fy2025": {k: round(sum(r.get(k) or 0 for r in roots), 2)

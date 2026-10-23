@@ -342,7 +342,7 @@
     {
      "label": "Direkte bidrag = EBITDA før andre poster på produktet",
      "source": {"account": "ac.EBITDA_BOI", "products": ["pd.SY.P255"]},
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {"label": "Direkte bidrag Streamix", "of": ["rev", "cogs", "opex"]},
@@ -480,7 +480,7 @@
        "pd.SY.M5095"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -594,7 +594,7 @@
        "pd.SY.PR261"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -808,7 +808,7 @@
        "pd.SY.M5093"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -918,7 +918,7 @@
        "pd.SY.M4124"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -1024,7 +1024,7 @@
        "pd.SY.M5085"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -1182,7 +1182,7 @@
        "pd.SY.S11"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -1324,7 +1324,7 @@
        "pd.SY.P207"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -1426,7 +1426,7 @@
        "pd.SY.P43"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -1528,7 +1528,7 @@
        "pd.SY.P502"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -1642,7 +1642,7 @@
        "pd.SY.M4226"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -1768,7 +1768,7 @@
        "pd.SY.M4513"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -1874,7 +1874,7 @@
        "pd.SY.P423"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -1980,7 +1980,7 @@
        "pd.SY.P542"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -2082,7 +2082,7 @@
        "pd.SY.M311"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -2236,7 +2236,7 @@
        "pd.SY.PRX7"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -2338,7 +2338,7 @@
        "pd.SY.M4523"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -2444,7 +2444,7 @@
        "pd.SY.PR262"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -2558,7 +2558,7 @@
        "pd.SY.P540"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -2660,7 +2660,7 @@
        "pd.SY.P44"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -2766,7 +2766,7 @@
        "pd.SY.P55"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -2872,7 +2872,7 @@
        "pd.SY.P504"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
@@ -2982,7 +2982,7 @@
        "pd.SY.P427"
       ]
      },
-     "expr": "rev+cogs+opex-$src"
+     "expr": "total-$src"
     }
    ],
    "total": {
