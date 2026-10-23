@@ -264,6 +264,38 @@ def close_scratch_workbooks() -> list[str]:
     return closed
 
 
+def excel_pids() -> set[int]:
+    import psutil
+    return {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == "excel.exe"}
+
+
+def leftover_excel(pid: int, before: set[int], n_books: int, parent: str | None) -> bool:
+    """An Excel the run started (the engine opens one per parallel agent), left without a workbook once the scratch
+    books are closed. Never one that was running before the run or that the user started (parent explorer.exe)."""
+    return pid not in before and n_books == 0 and (parent or "").lower() != "explorer.exe"
+
+
+def quit_leftover_excels(before: set[int]) -> list[int]:
+    import psutil
+    import win32process
+
+    quit_: list[int] = []
+    for app in _excel_apps():
+        try:
+            pid = win32process.GetWindowThreadProcessId(int(app.Hwnd))[1]
+            try:
+                parent = psutil.Process(pid).parent()
+                pname = parent.name() if parent else None
+            except psutil.Error:
+                pname = None
+            if leftover_excel(pid, before, int(app.Workbooks.Count), pname):
+                app.Quit()
+                quit_.append(pid)
+        except Exception:
+            continue
+    return quit_
+
+
 def close_scratch_book(path: str, save: bool = False) -> bool:
     """Close ONE workbook of ours (it must live in a _matrix folder); save first if asked and it has changes."""
     want = Path(path).name.lower()
@@ -331,11 +363,15 @@ def cleanup(ctx) -> None:
         return
     remove_fresh()
     close_scratch_workbooks()
+    if ctx.state.get("excels_before") is not None:
+        left = quit_leftover_excels(ctx.state["excels_before"])
+        if left:
+            print(f"cleanup: quit the empty Excel(s) this run started: {left}")
     for f in ctx.state.get("files", []):
         try:
             Path(f).unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as e:                     # e.g. still open in an Excel: say so, do not leave it silently
+            print(f"cleanup: could not delete {f}: {e}")
     shutil.rmtree(ctx.scratch, ignore_errors=True)
 
 

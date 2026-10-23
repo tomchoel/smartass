@@ -45,3 +45,11 @@ def test_answer_ok_fails_on_error_cell_warnings():
     with pytest.raises(AssertionError, match="#NoAccess"):
         scenarios._answer_ok(out, "actual_vs_plan.sy")
     scenarios._answer_ok({"checks": {"c": "OK"}, "warnings": ["could not log Q1 in 'Kilder'"]}, "ok")
+
+
+def test_only_empty_excels_the_run_started_are_quit():
+    before = {100, 200}
+    assert helpers.leftover_excel(300, before, 0, "python.exe")           # started in the run, now empty
+    assert not helpers.leftover_excel(100, before, 0, "python.exe")       # was there before the run
+    assert not helpers.leftover_excel(300, before, 1, "python.exe")       # still has a workbook
+    assert not helpers.leftover_excel(300, before, 0, "explorer.exe")     # the user opened it meanwhile

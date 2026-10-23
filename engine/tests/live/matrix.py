@@ -169,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
     atlas = "unknown"
     client = None
     ctx = scenarios.Ctx(client=None, scratch=scratch, keep=args.keep)
+    ctx.state["excels_before"] = helpers.excel_pids()   # cleanup quits only empty Excels the run started
     try:
         client = McpClient(cwd=scratch)          # project '_matrix': target 'new' lands in the scratch folder
         ctx.client = client
