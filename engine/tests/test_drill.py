@@ -552,6 +552,9 @@ def test_capture_timeout_reports_console_errors_without_token(monkeypatch):
             self.gotos.append(url)
             self.url = url
 
+        def reload(self, **kw):
+            self.reloads = getattr(self, "reloads", 0) + 1
+
         def wait_for_timeout(self, ms):
             self.clock.t += ms / 1000
             if "console" in self.handlers and self.clock.t < 1:
@@ -565,6 +568,7 @@ def test_capture_timeout_reports_console_errors_without_token(monkeypatch):
     with pytest.raises(db.DrillError) as e:
         b._capture(s, "aif/x.jsp?sso_token=T")
     assert "CDN_HOST null" in str(e.value) and "sso_token=T" not in str(e.value)
+    assert s.page.reloads == 1 and "also after one reload" in str(e.value)          # blank page: reloaded once
 
 
 def test_login_retries_once_in_fresh_tab():
@@ -582,7 +586,7 @@ def test_login_retries_once_in_fresh_tab():
     b = db.DrillBrowser.__new__(db.DrillBrowser)
     tries = []
 
-    def once(p):
+    def once(p, deadline):
         tries.append(p)
         if len(tries) == 1:
             raise db.DrillError("last page: signin")
@@ -593,10 +597,10 @@ def test_login_retries_once_in_fresh_tab():
     b._login(s)
     assert s.ready and len(tries) == 2 and tries[1] is s.page and s.page is not first and first.closed
 
-    def never(p):
+    def never(p, deadline):
         raise db.DrillError("last page: signin")
     b._login_once = never
-    with pytest.raises(db.DrillError, match="SSO did not complete headless"):
+    with pytest.raises(db.DrillError, match="Sign-in to EPM did not complete"):
         b._login(s)
     assert not s.ready
 
@@ -1026,7 +1030,7 @@ def test_drill_cell_mixed_piece_without_drill_report(monkeypatch):
     links = {**_LINKS, "Sep 26": {"url": None, "cube_value": -431.0}}
     _drill_fakes(monkeypatch, links, {"q3": 1231, "jul": 400, "aug": 400}, _KIDS)
     pieces, parent = asyncio.run(server._drill_cell("FinLite", _CELL, 300000, "auto"))
-    assert [len(p["items"]) for p in pieces] == [400, 400, 0] and "no drill report" in pieces[2]["note"]
+    assert [len(p["items"]) for p in pieces] == [400, 400, 0] and "no drill-through report" in pieces[2]["note"]
 
 
 def test_drill_cell_too_wide_splits_by_entity_and_skips_empty(monkeypatch):
@@ -1200,3 +1204,52 @@ def test_drill_rows_follow_the_excel_columns(monkeypatch, tmp_path):
     db.close()
     monkeypatch.setattr(drill_store, "connect", lambda path=None: drill_store.sqlite3.connect(tmp_path / "d.db"))
     assert server._drill_rows("w.xlsx", 1) == {"d": [{"Period": "Jul-26", "AMOUNT": -1.0}]}
+
+
+# ------------------------------------------------------------------ reliability audit (Task 11)
+def test_drill_cell_defaults_entity_and_needs_account_and_period():
+    from smartview_mcp.host import InputError
+    from smartview_mcp.ops import drill_cell_defaults
+    cell, w = drill_cell_defaults({"All Accounts": "ac.12881", "All Time Periods": "Sep 26"})
+    assert cell["All Entities"] == "All Entities" and "All Entities not given" in w[0]
+    cell, w = drill_cell_defaults({"All Accounts": "a", "All Time Periods": "p", "All Entities": "un.SY"})
+    assert cell["All Entities"] == "un.SY" and w == []
+    for bad in ({"All Time Periods": "Sep 26"}, {"All Accounts": "ac.12881"}):
+        with pytest.raises(InputError):
+            drill_cell_defaults(bad)
+
+
+def test_classify_stall():
+    from smartview_mcp.drill_browser import classify_stall
+    assert classify_stall("https://login.microsoftonline.com/x", "Sign in") == "sso"
+    assert classify_stall("https://epm/cloudgate/v1/oauth2/callback", "") == "sso"
+    assert classify_stall("https://epm/aif/drill", "  ") == "blank"
+    assert classify_stall("https://epm/aif/drill", "Drill Through") == "page"
+
+
+def test_login_action_nudges_a_stalled_redirect_once():
+    from smartview_mcp.drill_browser import SIGNIN, login_action
+    base = "https://epm"
+    assert login_action(base + SIGNIN, base, 1, 2, clicked=False, nudged=False) == "click"
+    assert login_action(base + "/HyperionPlanning/", base, 5, 5, clicked=True, nudged=False) == "done"
+    assert login_action(base + "/HyperionPlanning/", base, 2, 2, clicked=True, nudged=False) == "wait"
+    cb = base + "/cloudgate/v1/oauth2/callback"
+    assert login_action(cb, base, 10, 5, clicked=True, nudged=False) == "wait"
+    assert login_action(cb, base, 30, 20, clicked=True, nudged=False) == "home"     # stuck 20 s on one page
+    assert login_action(cb, base, 50, 20, clicked=True, nudged=True) == "wait"      # only once
+
+
+def test_login_skips_the_retry_when_the_drill_deadline_is_near():
+    from smartview_mcp import drill_browser as db
+    b = db.DrillBrowser.__new__(db.DrillBrowser)
+    tries = []
+
+    def never(p, deadline):
+        tries.append(p)
+        raise db.DrillError("last page: oauth2/callback")
+    b._login_once = never
+    s = db._Session()
+    s.page, s.deadline = object(), db.time.monotonic() + 5
+    with pytest.raises(db.DrillError, match="open EPM once in Edge"):
+        b._login(s)
+    assert len(tries) == 1

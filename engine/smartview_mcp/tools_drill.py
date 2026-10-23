@@ -123,7 +123,8 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
                  "note": "empty cell (skipped)"}]
     if not link["url"]:
         return [{"cell": cell, "cube_value": link["cube_value"], "items": [], "view": None, "secs": 0,
-                 "note": "no drill report on this cell (data not loaded through Data Integration)"}]
+                 "note": "this cell has no drill-through report: it is not a FinLite base-level intersection "
+                         "loaded through Data Integration (use a FinLite account and a base entity/period)"}]
     can_split = split == "auto" and depth < 4
     left = state["left"]
     limit = min(config.DRILL_SPLIT_AT, left) if can_split else left
@@ -275,6 +276,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
     from . import drill_lines as dl
     from . import drill_xl
     tm = Timer()
+    cell, cell_warns = ops.drill_cell_defaults(cell)
     with _timed(tm, "drill"):
         pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
     view = next((p["view"] for p in pieces if p.get("view")), None)
@@ -283,7 +285,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
         reasons = sorted({p.get("note") or "the drill page returned no view" for p in pieces})
         out = {"question": question, "cell": cell, "reconciliation": dl.reconcile(total_cube, []),
                "pieces": [{"cell": p["cell"], "cube_value": p["cube_value"], "note": p.get("note")} for p in pieces]
-               if len(pieces) > 1 else [], "warnings": ["No drill-through lines: " + "; ".join(reasons)],
+               if len(pieces) > 1 else [], "warnings": cell_warns + ["No drill-through lines: " + "; ".join(reasons)],
                "timings": tm.summary()}
         qlog.write({"tool": "sv_drill", "question": question, "cell": cell, "lines": 0, "note": reasons})
         return out
@@ -294,7 +296,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
            "profile": L["profile"], "text_repairs": stats, "columns": cols}
     if L["split_check"] is not None:
         out["split_check"] = L["split_check"]
-    warnings = []
+    warnings = list(cell_warns)
     if stats["unfixed"]:
         warnings.append("Text broken in EPM (letters lost at load): " + "; ".join(stats["unfixed"][:5])
                         + " - add corrections to %LOCALAPPDATA%\\smartass\\text_fixes.json")

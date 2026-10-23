@@ -584,13 +584,21 @@ def _explain_status(status) -> str:
 DRILL_DEFAULTS = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}
 
 
+def drill_cell_defaults(cell: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+    """A drill cell needs an account and a period; a missing entity drills the top member, with a warning."""
+    missing = {"All Accounts", "All Time Periods"} - set(cell)
+    if missing:
+        raise InputError(f"sv_drill needs these dimensions in cell: {sorted(missing)}")
+    if "All Entities" in cell:
+        return dict(cell), []
+    return {**cell, "All Entities": "All Entities"}, [
+        "All Entities not given - drilled the top member; name an entity to narrow it"]
+
+
 def drill_link(h: ExcelHost, conn: str, cell: dict[str, str]) -> dict:
     """Retrieve ONE cell (account on rows, period on columns, the rest as POV) on our hidden grid sheet and return
     {cube_value, url, report}. url is relative to config.EPM_BASE. Read-only: the report is listed, never run."""
-    need = {"All Accounts", "All Time Periods", "All Entities"}
-    missing = need - set(cell)
-    if missing:
-        raise InputError(f"sv_drill needs these dimensions in cell: {sorted(missing)}")
+    cell, _ = drill_cell_defaults(cell)
     if cell.get("All Balance Types", "Periodic") != "Periodic":
         raise InputError("Drill-through works on Periodic data only; use a period member (quarter/year) instead "
                         "of Accumulated.")
