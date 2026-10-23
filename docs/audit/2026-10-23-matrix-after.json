@@ -1,0 +1,729 @@
+{
+ "date": "2026-10-23",
+ "out": "matrix-after",
+ "time": "2026-10-23T15:07:14",
+ "version": "0.2.0",
+ "atlas_age": "9.7 days",
+ "repeat": 1,
+ "totals": {
+  "PASS": 32,
+  "SLOW": 7,
+  "FAIL": 1,
+  "LIMIT": 3
+ },
+ "options": {
+  "only": "",
+  "repeat": 1,
+  "fresh": false,
+  "keep": false
+ },
+ "before_file": "2026-10-23-matrix-baseline.json",
+ "results": [
+  {
+   "id": "S0.status",
+   "tags": [
+    "smoke"
+   ],
+   "result": "PASS",
+   "secs": 0.7,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S1.find",
+   "tags": [
+    "lookup"
+   ],
+   "result": "PASS",
+   "secs": 1.9,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S1.query.finmax",
+   "tags": [
+    "lookup"
+   ],
+   "result": "SLOW",
+   "secs": 30.4,
+   "error": null,
+   "error_class": "",
+   "notes": "DIALOG: Login: ",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [
+    {
+     "title": "Login",
+     "text": "",
+     "pid": 122256,
+     "seconds_into_scenario": 22.2
+    }
+   ],
+   "before": "SLOW"
+  },
+  {
+   "id": "S1.query.finlite",
+   "tags": [
+    "lookup"
+   ],
+   "result": "SLOW",
+   "secs": 6.1,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S1.query.finplan",
+   "tags": [
+    "lookup"
+   ],
+   "result": "PASS",
+   "secs": 6.3,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S1.bad.balance",
+   "tags": [
+    "lookup",
+    "input"
+   ],
+   "result": "PASS",
+   "secs": 0.1,
+   "error": null,
+   "error_class": "",
+   "notes": "rejected, names All Balance Types",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S1.bad.quoted",
+   "tags": [
+    "lookup",
+    "input"
+   ],
+   "result": "PASS",
+   "secs": 0.1,
+   "error": null,
+   "error_class": "",
+   "notes": "rejected, names All Balance Types",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S1.bad.dictrows",
+   "tags": [
+    "lookup",
+    "input"
+   ],
+   "result": "PASS",
+   "secs": 1.9,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "FAIL"
+  },
+  {
+   "id": "S1.bad.member",
+   "tags": [
+    "lookup",
+    "input"
+   ],
+   "result": "PASS",
+   "secs": 2.6,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S2.build",
+   "tags": [
+    "build"
+   ],
+   "result": "SLOW",
+   "secs": 38.5,
+   "error": null,
+   "error_class": "",
+   "notes": "Q1 Svar + ['Q1 FinMax', 'Q1 FinMax YTD', 'Kilder']",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "SLOW"
+  },
+  {
+   "id": "S2.patch",
+   "tags": [
+    "build"
+   ],
+   "result": "PASS",
+   "secs": 10.0,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S2.plan",
+   "tags": [
+    "build"
+   ],
+   "result": "PASS",
+   "secs": 25.1,
+   "error": null,
+   "error_class": "",
+   "notes": "sheets ['Q1 Svar', 'Q1 FinMax', 'Q1 FinMax YTD', 'Q1 FinPlan', 'Kilder', '_svmeta']",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S3.division_pnl.tec",
+   "tags": [
+    "template"
+   ],
+   "result": "PASS",
+   "secs": 52.6,
+   "error": null,
+   "error_class": "",
+   "notes": "Q1 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S3.division_pnl.sy",
+   "tags": [
+    "template"
+   ],
+   "result": "PASS",
+   "secs": 46.3,
+   "error": null,
+   "error_class": "",
+   "notes": "Q2 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S3.monthly_trend.tec",
+   "tags": [
+    "template"
+   ],
+   "result": "PASS",
+   "secs": 32.2,
+   "error": null,
+   "error_class": "",
+   "notes": "Q3 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S3.monthly_trend.sy",
+   "tags": [
+    "template"
+   ],
+   "result": "PASS",
+   "secs": 45.1,
+   "error": null,
+   "error_class": "",
+   "notes": "Q4 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S3.actual_vs_plan.tec",
+   "tags": [
+    "template"
+   ],
+   "result": "PASS",
+   "secs": 39.7,
+   "error": null,
+   "error_class": "",
+   "notes": "Q5 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S3.actual_vs_plan.sy",
+   "tags": [
+    "template"
+   ],
+   "result": "PASS",
+   "secs": 40.1,
+   "error": null,
+   "error_class": "",
+   "notes": "Q6 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "FAIL"
+  },
+  {
+   "id": "S3.cost_base.tec",
+   "tags": [
+    "template"
+   ],
+   "result": "PASS",
+   "secs": 26.8,
+   "error": null,
+   "error_class": "",
+   "notes": "Q7 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S3.cost_base.sy",
+   "tags": [
+    "template"
+   ],
+   "result": "PASS",
+   "secs": 41.4,
+   "error": null,
+   "error_class": "",
+   "notes": "Q8 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S4.scope",
+   "tags": [
+    "concept"
+   ],
+   "result": "SLOW",
+   "secs": 80.7,
+   "error": null,
+   "error_class": "",
+   "notes": "fam_mobil_own_subscriptions_mobile_consumer: ['Direkte bidrag = EBITDA før andre poster på produktene — Hittil Sep 26', 'Direkte bidrag = EBITDA før andre poster på produktene — Hittil Sep 25']",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "SLOW"
+  },
+  {
+   "id": "S5.drill.cold",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 71.6,
+   "error": null,
+   "error_class": "",
+   "notes": "killed 0 engine Edge; 95 lines",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.warm",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 58.1,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.quarter",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 59.0,
+   "error": null,
+   "error_class": "",
+   "notes": "164 lines, 22 pieces",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.report",
+   "tags": [
+    "drill"
+   ],
+   "result": "SLOW",
+   "secs": 98.6,
+   "error": null,
+   "error_class": "",
+   "notes": "Q2 Q2 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S6.xl",
+   "tags": [
+    "xl"
+   ],
+   "result": "FAIL",
+   "secs": 90.5,
+   "error": "ToolFailed: xl_revert: Error executing tool xl_revert: Sheet 'XL test' has content now; pass force=true to delete it anyway.",
+   "error_class": "ToolFailed: xl_revert: Error executing tool xl_revert: Sheet 'XL test' has content now; pass force=true to delete it anyway.",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "FAIL"
+  },
+  {
+   "id": "S7.refresh",
+   "tags": [
+    "refresh"
+   ],
+   "result": "PASS",
+   "secs": 26.2,
+   "error": null,
+   "error_class": "",
+   "notes": "C:\\Users\\t992115\\OneDrive - Telenor\\smartass\\output\\2026-10-23_152359_matrix_s7.xlsx",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S8.sso",
+   "tags": [
+    "inject"
+   ],
+   "result": "PASS",
+   "secs": 80.5,
+   "error": null,
+   "error_class": "",
+   "notes": "moved 2 cookie file(s); sv_query 2s ok; drill 74s ok; follow-up 2s",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S8.dialog",
+   "tags": [
+    "inject"
+   ],
+   "result": "SLOW",
+   "secs": 80.6,
+   "error": null,
+   "error_class": "",
+   "notes": "pid 126748; {'started': True, 'dialog': [983800], 'result': True, 'dismissed': 'dismissed'}; sv_ws_answer 11s: Error executing tool sv_ws_answer: '2026-10-23_1525 MATRIX S8 scratch.xlsx' is open in an Excel (pid 126748) that has a ; follow-up 2s",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "FAIL"
+  },
+  {
+   "id": "S8.editmode",
+   "tags": [
+    "inject"
+   ],
+   "result": "SLOW",
+   "secs": 60.3,
+   "error": null,
+   "error_class": "",
+   "notes": "pid 125264; {'in_edit': 'COM refused: AttributeError', 'escaped': True}; sv_ws_answer 11s: Error executing tool sv_ws_answer: '2026-10-23_1525 MATRIX S8 scratch.xlsx' is open in an Excel (pid 125264) that is in ; follow-up 2s",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "FAIL"
+  },
+  {
+   "id": "S8.parallel",
+   "tags": [
+    "inject"
+   ],
+   "result": "PASS",
+   "secs": 57.6,
+   "error": null,
+   "error_class": "",
+   "notes": "['2026-10-23_1528 MATRIX S8 parallel A WHS.xlsx', '2026-10-23_1528 MATRIX S8 parallel B BUS.xlsx']; follow-up 2s",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S8.kill.excel",
+   "tags": [
+    "inject"
+   ],
+   "result": "PASS",
+   "secs": 25.4,
+   "error": null,
+   "error_class": "",
+   "notes": "killed Excel 122256 during the query; error without sv_restart, retry ok in 20s: Error executing tool sv_query: The Smart View Excel process died during the call; it will restart on; follow-up 3s",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S8.kill.edge",
+   "tags": [
+    "inject"
+   ],
+   "result": "PASS",
+   "secs": 88.0,
+   "error": null,
+   "error_class": "",
+   "notes": "killed 1 engine Edge during the drill; drill ok in 86s, 95 lines; follow-up 2s",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S8.cold",
+   "tags": [
+    "inject"
+   ],
+   "result": "PASS",
+   "secs": 104.8,
+   "error": null,
+   "error_class": "",
+   "notes": "2026-10-23_1530 MATRIX S8 cold.xlsx reopened, drill 84s, 95 lines; follow-up 3s",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S8.sleep",
+   "tags": [
+    "inject"
+   ],
+   "result": "PASS",
+   "secs": 92.3,
+   "error": null,
+   "error_class": "",
+   "notes": "suspended [100412, 115636] 90s; answered 0s after the resume; follow-up 2s",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S10.1.bundle",
+   "tags": [
+    "feature"
+   ],
+   "result": "PASS",
+   "secs": 1.8,
+   "error": null,
+   "error_class": "",
+   "notes": "7 members; 1 secret value(s) searched; none found",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S10.3.reload",
+   "tags": [
+    "feature"
+   ],
+   "result": "PASS",
+   "secs": 10.7,
+   "error": null,
+   "error_class": "",
+   "notes": "1 list_changed; sv_status after reload 4.0s",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S10.5.textfixes",
+   "tags": [
+    "feature"
+   ],
+   "result": "LIMIT",
+   "secs": 0.0,
+   "error": "Limit: user fix + override of a shipped key verified in-process (repair_text); the drill part is not tested: the 12881 lines hit no shipped text-fix key",
+   "error_class": "Limit: user fix + override of a shipped key verified in-process (repair_text); the drill part is not tested: the # lines hit no shipped text-fix key",
+   "notes": "",
+   "limit": "Limit: user fix + override of a shipped key verified in-process (repair_text); the drill part is not tested: the 12881 lines hit no shipped text-fix key",
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "LIMIT"
+  },
+  {
+   "id": "S10.6.pack",
+   "tags": [
+    "feature"
+   ],
+   "result": "LIMIT",
+   "secs": 0.4,
+   "error": "Limit: pack has no runtime consumer; wiring only verified (pack enabled, source_product_list_2025.json -> C:\\dev\\smartass\\packs\\produktregnskap\\knowledge\\source_product_list_2025.json)",
+   "error_class": "Limit: pack has no runtime consumer; wiring only verified (pack enabled, source_product_list_#.json -> C:\\dev\\smartass\\packs\\produktregnskap\\knowledge\\source_pr",
+   "notes": "",
+   "limit": "Limit: pack has no runtime consumer; wiring only verified (pack enabled, source_product_list_2025.json -> C:\\dev\\smartass\\packs\\produktregnskap\\knowledge\\source_product_list_2025.json)",
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "LIMIT"
+  },
+  {
+   "id": "S10.7.style",
+   "tags": [
+    "feature"
+   ],
+   "result": "PASS",
+   "secs": 28.3,
+   "error": null,
+   "error_class": "",
+   "notes": "formula_style ok; styles ['TN Kolonne', 'TN Kolonne tall', 'TN Seksjon', 'TN Tittel', 'TN Tom', 'TN Undertittel']",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S10.8.coldexcel",
+   "tags": [
+    "feature"
+   ],
+   "result": "LIMIT",
+   "secs": 0.1,
+   "error": "Limit: the user's own Excel is open (pid [25452]): a cold start needs none",
+   "error_class": "Limit: the user's own Excel is open (pid [#]): a cold start needs none",
+   "notes": "",
+   "limit": "Limit: the user's own Excel is open (pid [25452]): a cold start needs none",
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "LIMIT"
+  },
+  {
+   "id": "S10.9.options",
+   "tags": [
+    "feature"
+   ],
+   "result": "PASS",
+   "secs": 26.9,
+   "error": null,
+   "error_class": "",
+   "notes": "{'messageDisplay': '2', 'bDisplayHomePanelOnStartup': '1', 'bCommentDlgEnable': '0'} unchanged; restart 14s; follow-up 13s; DIALOG: Login: ",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [
+    {
+     "title": "Login",
+     "text": "",
+     "pid": 112412,
+     "seconds_into_scenario": 15.8
+    }
+   ],
+   "before": "PASS"
+  },
+  {
+   "id": "S10.10.http",
+   "tags": [
+    "feature"
+   ],
+   "result": "PASS",
+   "secs": 0.2,
+   "error": null,
+   "error_class": "",
+   "notes": "no secret 401, wrong 401, right 200",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  }
+ ]
+}

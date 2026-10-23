@@ -1,0 +1,341 @@
+{
+ "date": "2026-10-23",
+ "out": "matrix-drill5",
+ "time": "2026-10-23T15:37:46",
+ "version": "0.2.0",
+ "atlas_age": "9.8 days",
+ "repeat": 5,
+ "totals": {
+  "PASS": 15,
+  "FAIL": 5
+ },
+ "options": {
+  "only": "drill",
+  "repeat": 5,
+  "fresh": false,
+  "keep": false
+ },
+ "before_file": "2026-10-23-matrix-baseline.json",
+ "results": [
+  {
+   "id": "S5.drill.cold",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 84.8,
+   "error": null,
+   "error_class": "",
+   "notes": "killed 0 engine Edge; 95 lines",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.warm",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 49.4,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.quarter",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 55.8,
+   "error": null,
+   "error_class": "",
+   "notes": "164 lines, 22 pieces",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.report",
+   "tags": [
+    "drill"
+   ],
+   "result": "FAIL",
+   "secs": 0.0,
+   "error": "AssertionError: needs S2.build (no wb in this run: run it in the same matrix run, and it must pass)",
+   "error_class": "AssertionError: needs S#.build (no wb in this run: run it in the same matrix run, and it must pass)",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.cold",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 67.6,
+   "error": null,
+   "error_class": "",
+   "notes": "killed 5 engine Edge; 95 lines",
+   "limit": null,
+   "flaky": false,
+   "run": 2,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.warm",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 51.9,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 2,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.quarter",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 56.1,
+   "error": null,
+   "error_class": "",
+   "notes": "164 lines, 22 pieces",
+   "limit": null,
+   "flaky": false,
+   "run": 2,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.report",
+   "tags": [
+    "drill"
+   ],
+   "result": "FAIL",
+   "secs": 0.0,
+   "error": "AssertionError: needs S2.build (no wb in this run: run it in the same matrix run, and it must pass)",
+   "error_class": "AssertionError: needs S#.build (no wb in this run: run it in the same matrix run, and it must pass)",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 2,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.cold",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 63.8,
+   "error": null,
+   "error_class": "",
+   "notes": "killed 9 engine Edge; 95 lines",
+   "limit": null,
+   "flaky": false,
+   "run": 3,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.warm",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 59.9,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 3,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.quarter",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 58.0,
+   "error": null,
+   "error_class": "",
+   "notes": "164 lines, 22 pieces",
+   "limit": null,
+   "flaky": false,
+   "run": 3,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.report",
+   "tags": [
+    "drill"
+   ],
+   "result": "FAIL",
+   "secs": 0.0,
+   "error": "AssertionError: needs S2.build (no wb in this run: run it in the same matrix run, and it must pass)",
+   "error_class": "AssertionError: needs S#.build (no wb in this run: run it in the same matrix run, and it must pass)",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 3,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.cold",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 68.2,
+   "error": null,
+   "error_class": "",
+   "notes": "killed 9 engine Edge; 95 lines",
+   "limit": null,
+   "flaky": false,
+   "run": 4,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.warm",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 54.8,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 4,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.quarter",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 61.8,
+   "error": null,
+   "error_class": "",
+   "notes": "164 lines, 22 pieces",
+   "limit": null,
+   "flaky": false,
+   "run": 4,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.report",
+   "tags": [
+    "drill"
+   ],
+   "result": "FAIL",
+   "secs": 0.0,
+   "error": "AssertionError: needs S2.build (no wb in this run: run it in the same matrix run, and it must pass)",
+   "error_class": "AssertionError: needs S#.build (no wb in this run: run it in the same matrix run, and it must pass)",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 4,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.cold",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 64.2,
+   "error": null,
+   "error_class": "",
+   "notes": "killed 9 engine Edge; 95 lines",
+   "limit": null,
+   "flaky": false,
+   "run": 5,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.warm",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 55.9,
+   "error": null,
+   "error_class": "",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 5,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.quarter",
+   "tags": [
+    "drill"
+   ],
+   "result": "PASS",
+   "secs": 58.7,
+   "error": null,
+   "error_class": "",
+   "notes": "164 lines, 22 pieces",
+   "limit": null,
+   "flaky": false,
+   "run": 5,
+   "dialogs": [],
+   "before": "PASS"
+  },
+  {
+   "id": "S5.drill.report",
+   "tags": [
+    "drill"
+   ],
+   "result": "FAIL",
+   "secs": 0.0,
+   "error": "AssertionError: needs S2.build (no wb in this run: run it in the same matrix run, and it must pass)",
+   "error_class": "AssertionError: needs S#.build (no wb in this run: run it in the same matrix run, and it must pass)",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 5,
+   "dialogs": [],
+   "before": "PASS"
+  }
+ ]
+}
