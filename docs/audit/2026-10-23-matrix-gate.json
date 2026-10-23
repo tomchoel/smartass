@@ -1,0 +1,76 @@
+{
+ "date": "2026-10-23",
+ "out": "matrix-gate",
+ "time": "2026-10-23T16:48:54",
+ "version": "0.2.0",
+ "atlas_age": "9.8 days",
+ "repeat": 3,
+ "totals": {
+  "SLOW": 1,
+  "PASS": 2
+ },
+ "options": {
+  "only": "S2.build",
+  "repeat": 3,
+  "fresh": false,
+  "keep": false
+ },
+ "before_file": "2026-10-23-matrix-baseline.json",
+ "results": [
+  {
+   "id": "S2.build",
+   "tags": [
+    "build"
+   ],
+   "result": "SLOW",
+   "secs": 51.9,
+   "error": null,
+   "error_class": "",
+   "notes": "Q1 Svar + ['Q1 FinMax', 'Q1 FinMax YTD', 'Kilder']; DIALOG: Login: ",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [
+    {
+     "title": "Login",
+     "text": "",
+     "pid": 135952,
+     "seconds_into_scenario": 22.1
+    }
+   ],
+   "before": "SLOW"
+  },
+  {
+   "id": "S2.build",
+   "tags": [
+    "build"
+   ],
+   "result": "PASS",
+   "secs": 25.8,
+   "error": null,
+   "error_class": "",
+   "notes": "Q1 Svar + ['Q1 FinMax', 'Q1 FinMax YTD', 'Kilder']",
+   "limit": null,
+   "flaky": false,
+   "run": 2,
+   "dialogs": [],
+   "before": "SLOW"
+  },
+  {
+   "id": "S2.build",
+   "tags": [
+    "build"
+   ],
+   "result": "PASS",
+   "secs": 18.7,
+   "error": null,
+   "error_class": "",
+   "notes": "Q1 Svar + ['Q1 FinMax', 'Q1 FinMax YTD', 'Kilder']",
+   "limit": null,
+   "flaky": false,
+   "run": 3,
+   "dialogs": [],
+   "before": "SLOW"
+  }
+ ]
+}
