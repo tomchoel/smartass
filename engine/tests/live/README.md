@@ -1,28 +1,41 @@
 # Live checks (run before every release)
 
-These need desktop Excel, Smart View, an EPM login and the network, so CI cannot run them. Run them on a
-maintainer PC with the MCP connected (Copilot CLI or Claude Code), as tool calls. The scripts in this folder
-(`live_smoke.py`, `live_build.py`, `live_drill.py`, `live_relay.py`, ...) do the same over stdio.
+These need desktop Excel, Smart View, an EPM login and the network, so CI cannot run them. From `engine`:
 
-1. **`sv_query` on each cube** - a small grid comes back with numbers.
-   - FinMax:
-     `sv_query(connection="FinMax", rows=[{"dimension":"All Accounts","members":["ac.C30","ac.EBITDA"]}],
-     columns=[{"dimension":"All Time Periods","members":["Aug 26","Sep 26"]}],
-     pov={"All Entities":"un.SY.2WHS","All Scenarios":"Actual","All Currencies":"NOK","All Balance Types":"Accumulated"})`
-   - FinLite: the same call with `connection="FinLite"`.
-   - FinPlan:
-     `sv_query(connection="FinPlan", rows=[{"dimension":"Entity","members":["BANORWAY"]}],
-     columns=[{"dimension":"Years","members":["FY25","FY26"]},{"dimension":"Period","members":["TotalYear"]}],
-     pov={"Scenario":"Target 2025","Version":"Final"})`
+```
+uv run python tests\live\matrix.py
+```
 
-   Expected: no error, numeric values in the table.
-2. **`sv_ws_build`** - one small analysis, e.g. the FinMax pull above as `pulls=[{"id":"m", ...}]` with a short
-   spec (see `live_build.py`), `target="session"`. Expected: a live Smart View sheet and a `Q1 Svar` sheet, saved in
-   your `analyser` folder (`paths.analyser`).
-3. **`sv_drill`** on FinLite ac.12881 x un.SY x Sep 26:
-   `sv_drill(question="live check", cell={"All Accounts":"ac.12881","All Entities":"un.SY","All Time Periods":"Sep 26"})`.
-   Expected: **95 lines, sum equal to the cell, difference exactly 0.**
-4. **Relay reload** - save `engine\smartview_mcp\config.py` without changes, make one tool call (e.g. `sv_status`),
-   and check `%LOCALAPPDATA%\smartass\logs\proxy.log`. Expected: exactly one restart and no error.
-5. **Doctor bundle** - run `smartass doctor --bundle` and open the zip. Expected: no `sso_token=` value and not the
-   `http.secret` value from `config.toml` anywhere in it.
+| Option | Default | Meaning |
+|---|---|---|
+| `--only TAGS` | all | Comma-separated tags or scenario IDs |
+| `--repeat N` | 1 | Run each selected scenario N times |
+| `--fresh` | off | Run only the fresh-user scenarios |
+| `--keep` | off | Leave the scratch workbooks and the `_matrix` folder |
+| `--out NAME` | `matrix` | Report name: `docs\audit\<date>-<NAME>.json/.md` |
+
+## Scenarios
+
+| IDs | Tags | Covers |
+|---|---|---|
+| S0 | `smoke` | `sv_status` |
+| S1 | `lookup`, `input` | find member, `sv_query` on FinMax/FinLite/FinPlan, bad input |
+| S2 | `build` | `sv_ws_build`, patch, plan |
+| S3 | `template` | the `sv_analyse` templates |
+| S4 | `concept` | `sv_scope`, `sv_concept` |
+| S5 | `drill` | `sv_drill` cold, warm, quarter, report |
+| S6 | `xl` | the `xl_*` tools |
+| S7 | `refresh` | `sv_refresh_workbook` |
+| S8 | `inject` | SSO expiry, dialogs, edit mode, parallel calls, killed Excel/Edge, cold start, sleep |
+| S9 | `fresh` | install and first lookup as a new user (`--fresh`) |
+| S10 | `feature`, some `fresh` | bundle, setup, relay reload, update, text fixes, pack, style, cold Excel, options, HTTP |
+
+`test_styling_live.py` is separate: it uses its own Excel (`SV_STYLING_LIVE=1` under pytest).
+
+## Safety
+
+- It drives the real Excel and needs SSO. **Warn the owner of the PC first.**
+- Injection scenarios (S8) kill or suspend only engine-owned Excel and Edge processes, never the owner's.
+- `--fresh` uses a gitignored `.matrix-fresh` profile in the repo, deleted after the run.
+- Scratch workbooks go in `<analyser>\_matrix`.
+- Reports go to `docs\audit`.

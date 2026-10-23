@@ -84,11 +84,11 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\smarta
   (`child_server.py`) as a child process. When a tool is called after any edit to `smartview_mcp\*.py`, `vba\*.bas` or
   `child_server.py`, it restarts that child gracefully (its Excel closes and options are restored), then tells Claude Code the tool list changed.
   No `/mcp` is needed. Only an edit to `run_server.py` itself needs a reconnect. `sv_status` shows `server_started` and
-  `behind_reload_proxy`. The relay log is `smartass\logs\proxy.log`, and the test is `tests\live_relay.py [excel]`. `sv_restart`
+  `behind_reload_proxy`. The relay log is `smartass\logs\proxy.log`, and the live test is matrix scenario `S10.3.reload`. `sv_restart`
   restarts only Excel.
 - **Tests.**
   - Unit: `python -m pytest -q` in `<mcp>`.
-  - Live: `tests\live_smoke.py [quick|atlas|hang]`, `tests\live_refresh.py <xlsx>`, `tests\verify_gl.py <workbook>`.
+  - Live: `uv run python tests\live\matrix.py [--only TAGS]` in `<mcp>` (see `tests\live\README.md`).
   - Live tests start their own Excel. They no longer touch the server's.
 
 ## Errors and what they mean
