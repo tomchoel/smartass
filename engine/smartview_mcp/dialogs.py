@@ -128,25 +128,36 @@ def sv_boxes(found: list[Dialog]) -> list[Dialog]:
     return [d for d in found if d.kind == "message" and d.title == SV_BOX_TITLE]
 
 
-def not_signed_in(texts: list[str]) -> bool:
-    """EPM answered 'Empty response from provider' to repeated connects: this Excel's Smart View session is not
-    valid (it shows no Login, so the SSO watcher cannot help). Retrying does not fix it; a manual sign-in does."""
-    return sum("empty response from provider" in (t or "").lower() for t in texts) >= 2
+def not_signed_in(attempts: list[list[str]]) -> bool:
+    """EPM answered 'Empty response from provider' to two connect attempts (attempts = the box texts each failed
+    attempt raised): this Excel's Smart View session is not valid (it shows no Login, so the SSO watcher cannot
+    help). Retrying does not fix it; a manual sign-in does."""
+    return sum(any("empty response from provider" in (t or "").lower() for t in a) for a in attempts) >= 2
 
 
-def press_ok(hwnd: int) -> None:
+def ok_only(buttons: list[str]) -> bool:
+    """A box that only informs (its single button is OK) - safe to dismiss. Never OK/Cancel or Yes/No questions."""
+    return [b.replace("&", "").strip().lower() for b in buttons] == ["ok"]
+
+
+def buttons(hwnd: int) -> list[str]:
+    return [t for c, t in _children(hwnd) if c == "Button"]
+
+
+def press_ok(hwnd: int) -> bool:
+    """Click OK on an information box; False (nothing done) for any box with other buttons."""
     import pywintypes
     import win32con
     import win32gui
 
     try:
-        ok = win32gui.FindWindowEx(hwnd, 0, "Button", "OK")
-        if ok:
-            win32gui.PostMessage(ok, win32con.BM_CLICK, 0, 0)
-        else:
-            win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        if not ok_only(buttons(hwnd)):
+            return False
+        ok = win32gui.FindWindowEx(hwnd, 0, "Button", None)
+        win32gui.PostMessage(ok, win32con.BM_CLICK, 0, 0)
+        return True
     except pywintypes.error:
-        pass
+        return False
 
 
 def ie_fallback(found: list[Dialog]) -> list[int]:

@@ -276,12 +276,14 @@ class SmartViewBoxes:
         from . import dialogs
         while not self._stop.wait(BOX_POLL_S):
             try:
-                for d in dialogs.sv_boxes(dialogs.scan(self.pid)):
+                boxes = dialogs.sv_boxes(dialogs.scan(self.pid))
+                self._seen &= {d.hwnd for d in boxes}     # a reused window handle is a new box
+                for d in boxes:
                     if d.hwnd not in self._seen:
                         self._seen.add(d.hwnd)
-                        self.texts.append(d.text)
-                        log.warning("Smart View message in Excel pid %s dismissed: %s", self.pid, d.text)
-                        dialogs.press_ok(d.hwnd)
+                        if dialogs.press_ok(d.hwnd):      # information boxes only, never a question
+                            self.texts.append(d.text)
+                            log.warning("Smart View message in Excel pid %s dismissed: %s", self.pid, d.text)
             except Exception:   # noqa: BLE001 - the guard must never break the pull
                 log.debug("Smart View box guard failed", exc_info=True)
 
@@ -1185,12 +1187,15 @@ def _pull(h: ExcelHost, t: Target, q: int, connection: str, pov: dict, rows: lis
         ws = add_sheet(t, name, after_q=q, color=0xA6A6A6)
         com(ws.Activate)
     with stage("connect"):
+        from .dialogs import not_signed_in
+        failed: list[list[str]] = []              # box texts of each failed attempt
         for attempt in range(3):                  # EPM sometimes answers a connect with its extension manifest
+            n0 = len(boxes.texts)
             st = t.run("B_Connect", name, connection)
             if st == "OK":
                 break
-            from .dialogs import not_signed_in
-            if not_signed_in(boxes.texts):        # retrying cannot fix a session EPM keeps rejecting
+            failed.append(boxes.texts[n0:])
+            if not_signed_in(failed):             # retrying cannot fix a session EPM keeps rejecting
                 raise HostError(NOT_SIGNED_IN)
             if attempt == 2:
                 from .host import _explain
@@ -1254,7 +1259,12 @@ def _pull(h: ExcelHost, t: Target, q: int, connection: str, pov: dict, rows: lis
 
 def refresh_pull(t: Target, p: Pull) -> Pull:
     """Retrieve an existing data sheet again IN PLACE (same layout): its name, formulas pointing at it and its
-    formatting stay; only the numbers are refreshed."""
+    formatting stay; only the numbers are refreshed. Smart View's message boxes are dismissed meanwhile."""
+    with SmartViewBoxes(t.pid):
+        return _refresh_pull(t, p)
+
+
+def _refresh_pull(t: Target, p: Pull) -> Pull:
     from .ops import _used_values
     from .timing import stage
     ws = com(lambda: t.wb.Worksheets(p.sheet))

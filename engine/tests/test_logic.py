@@ -161,7 +161,7 @@ def test_smart_view_box_guard_dismisses_each_box_once_and_keeps_its_text(monkeyp
     box = Dialog(5, "#32770", "Oracle Smart View for Office", "Empty response from provider.", "message")
     pressed = []
     monkeypatch.setattr(dialogs, "scan", lambda pid: [box] if 5 not in pressed else [])
-    monkeypatch.setattr(dialogs, "press_ok", lambda h: pressed.append(h))
+    monkeypatch.setattr(dialogs, "press_ok", lambda h: pressed.append(h) or True)
     monkeypatch.setattr(userexcel, "BOX_POLL_S", 0.01)
     with userexcel.SmartViewBoxes(1) as g:
         _t.sleep(0.1)

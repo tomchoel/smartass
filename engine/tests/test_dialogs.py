@@ -96,5 +96,8 @@ def test_smart_view_boxes_and_the_not_signed_in_verdict():
     box = Dialog(5, "#32770", "Oracle Smart View for Office", "Empty response from provider.", "message")
     other = Dialog(6, "#32770", "Microsoft Excel", "Something else", "message")
     assert dialogs.sv_boxes([box, other]) == [box]
-    assert not dialogs.not_signed_in(["Empty response from provider."])
-    assert dialogs.not_signed_in(["Empty response from provider.", "x", "Empty response from provider."])
+    # per failed connect attempt: the box texts it raised
+    assert not dialogs.not_signed_in([["Empty response from provider.", "Empty response from provider."]])
+    assert not dialogs.not_signed_in([["Empty response from provider."], ["other"]])
+    assert dialogs.not_signed_in([["Empty response from provider."], [], ["Empty response from provider."]])
+    assert dialogs.ok_only(["OK"]) and not dialogs.ok_only(["OK", "Cancel"]) and not dialogs.ok_only(["Yes", "No"])
