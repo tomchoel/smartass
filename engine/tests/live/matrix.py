@@ -142,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     client = None
     ctx = scenarios.Ctx(client=None, scratch=scratch, keep=args.keep)
     try:
-        client = McpClient()
+        client = McpClient(cwd=scratch)          # project '_matrix': target 'new' lands in the scratch folder
         ctx.client = client
         atlas = atlas_age(client)
         for run in range(1, args.repeat + 1):

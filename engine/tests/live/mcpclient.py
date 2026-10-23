@@ -20,9 +20,11 @@ _EOF = object()
 
 
 class McpClient:
-    def __init__(self, python: str | None = None, env: dict | None = None, cmd: list[str] | None = None):
+    def __init__(self, python: str | None = None, env: dict | None = None, cmd: list[str] | None = None,
+                 cwd: str | Path | None = None):
+        """cwd: the relay's working folder = the session's project (its 'new' workbooks go to analyser\\<cwd name>)."""
         cmd = cmd or [python or sys.executable, "-B", str(ENGINE / "run_server.py")]
-        self.p = subprocess.Popen(cmd, cwd=ENGINE, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+        self.p = subprocess.Popen(cmd, cwd=cwd or ENGINE, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
         self.inbox: queue.Queue = queue.Queue()
         self.notes: list[dict] = []
         self._id = 0
@@ -100,6 +102,9 @@ class McpClient:
         text = res["content"][0]["text"] if res.get("content") else ""
         if res.get("isError"):
             return None, secs, text
+        sc = res.get("structuredContent")
+        if isinstance(sc, dict) and set(sc) == {"result"} and isinstance(sc["result"], list):
+            return sc["result"], secs, None      # a list tool: content holds one item per element
         try:
             return json.loads(text), secs, None
         except ValueError:
