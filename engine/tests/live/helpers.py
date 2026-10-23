@@ -288,7 +288,8 @@ def quit_leftover_excels(before: set[int]) -> list[int]:
                 pname = parent.name() if parent else None
             except psutil.Error:
                 pname = None
-            if leftover_excel(pid, before, int(app.Workbooks.Count), pname):
+            books = int(app.Workbooks.Count) + int(app.ProtectedViewWindows.Count)   # a Protected View file counts
+            if leftover_excel(pid, before, books, pname):
                 app.Quit()
                 quit_.append(pid)
         except Exception:

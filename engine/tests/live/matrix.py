@@ -30,6 +30,8 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--fresh", action="store_true", help="run only the fresh-user scenarios")
     ap.add_argument("--keep", action="store_true", help="leave the scratch workbooks and _matrix folder")
     ap.add_argument("--out", default="matrix", help="output name: docs\\audit\\<date>-<out>.json/.md")
+    ap.add_argument("--before", default=None,
+                    help="compare with docs/audit/<before>.json (default: the latest run of the same kind)")
     return ap.parse_args(argv)
 
 
@@ -81,8 +83,14 @@ def atlas_age(client: McpClient) -> str:
     return "not built" if age is None else f"{age} days" + (" (stale)" if body.get("stale") else "")
 
 
-def previous() -> tuple[Path | None, list[dict]]:
-    files = sorted(AUDIT.glob("*-matrix*.json"), key=lambda p: (p.name[:10], p.stat().st_mtime))
+def previous(fresh: bool = False, name: str | None = None) -> tuple[Path | None, list[dict]]:
+    """The run to compare with: docs/audit/<name>.json if given, else the latest earlier run of the same kind
+    (fresh-profile runs and normal runs have different scenarios)."""
+    if name:
+        files = [AUDIT / f"{name}.json"]
+    else:
+        files = sorted((p for p in AUDIT.glob("*-matrix*.json") if p.stem.endswith("-fresh") == fresh),
+                       key=lambda p: (p.name[:10], p.stat().st_mtime))
     if not files:
         return None, []
     try:
@@ -136,7 +144,7 @@ def write_report(args: argparse.Namespace, started: datetime, atlas: str, result
         if not (base.with_suffix(".json").exists() or base.with_suffix(".md").exists()):
             break
         base = AUDIT / f"{date}-{args.out}-{started.strftime(stamp)}"
-    before_file, before = previous()
+    before_file, before = previous(args.fresh, args.before)
     merged = merge_before(results, before)
     totals = dict(Counter(r["result"] for r in merged))
     head = {"date": date, "out": args.out, "time": started.isoformat(timespec="seconds"), "version": __version__,

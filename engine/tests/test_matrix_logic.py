@@ -96,3 +96,19 @@ def test_poll_kill_misses_when_call_finishes_or_times_out():
     clock = _Clock()
     killed, running = poll_kill(lambda: [], lambda: False, 60, 1, clock.sleep, clock)
     assert killed == [] and running and 60 <= clock.t < 62
+
+
+def test_before_file_compares_like_with_like(tmp_path, monkeypatch):
+    import json
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "live"))
+    import matrix
+    monkeypatch.setattr(matrix, "AUDIT", tmp_path)
+    for i, name in enumerate(("2026-10-23-matrix-baseline", "2026-10-23-matrix-baseline-fresh")):
+        p = tmp_path / f"{name}.json"
+        p.write_text(json.dumps({"results": [{"id": name}]}))
+        os.utime(p, (1000 + i, 1000 + i))
+    assert matrix.previous(fresh=False)[0].name == "2026-10-23-matrix-baseline.json"
+    assert matrix.previous(fresh=True)[0].name == "2026-10-23-matrix-baseline-fresh.json"
+    assert matrix.previous(fresh=True, name="2026-10-23-matrix-baseline")[0].name == "2026-10-23-matrix-baseline.json"
