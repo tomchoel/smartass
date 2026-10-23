@@ -1,4 +1,4 @@
-# Operating the smartview MCP
+# Operating the smartass MCP
 
 Code: the smartass repo, `engine\` (`<mcp>` below). Design and test history: `docs\DESIGN.md`.
 Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\smartass\venv\Scripts\python.exe" "<mcp>\run_server.py"`.
@@ -107,7 +107,7 @@ Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\smarta
 | "Smart View returned a different layout than requested" | Rows or columns moved (suppression, or an unknown or duplicate member). The numbers were NOT used. Check the members with `sv_find_member`. |
 | "Your Excel is in edit mode…" / "Excel is busy" | A cell is being typed in or a dialog is open. The user presses Enter or Esc, then you ask again. |
 | "…is in the Produktregnskapet archive" | Archive guard. Use `target='new'`, or `allow_archive=true` only when the user explicitly asks for it. |
-| Bare "Error executing tool …" with no reason | The server is running code from before the 13.10.2026 fix (the Excel was dead: `AttributeError: Excel.Application.Ready` in server.log). Run `sv_restart`, then ask the user to reconnect `smartview` with `/mcp`. |
+| Bare "Error executing tool …" with no reason | The server is running code from before the 13.10.2026 fix (the Excel was dead: `AttributeError: Excel.Application.Ready` in server.log). Run `sv_restart`, then ask the user to reconnect `smartass` with `/mcp`. |
 | Unknown-member warning | Smart View turned the text into a comment. Find the right name with `sv_find_member`. |
 
 ## Smart View settings the MCP touches

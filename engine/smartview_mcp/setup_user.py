@@ -13,7 +13,8 @@ from pathlib import Path
 
 from . import config
 
-SERVER_NAME = "smartview"
+SERVER_NAME = "smartass"
+LEGACY_SERVER_NAMES = ("smartview",)   # renamed 2026-10-23; register_mcp moves these entries to SERVER_NAME
 USER = Path(os.environ.get("USERPROFILE", str(Path.home())))
 STARTUP = Path(os.environ.get("APPDATA", str(USER / "AppData" / "Roaming"))) / \
     "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
@@ -51,21 +52,24 @@ def mcp_entries(python: Path, relay: Path) -> dict:
 
 
 def register_mcp(path: Path, entry: dict, create: bool = False) -> str:
-    """Set mcpServers.smartview in an agent config. Other servers and keys are kept, an existing `env` is kept,
-    the first original is backed up once, and the file is replaced atomically."""
+    """Set mcpServers.smartass in an agent config (a legacy `smartview` entry is replaced). Other servers and keys
+    are kept, an existing `env` is kept, the first original is backed up once, and the file is replaced atomically."""
     if not path.exists():
         if not (create and path.parent.exists()):
             return "missing"
         path.write_text("{}", encoding="utf-8")
     data = json.loads(path.read_text(encoding="utf-8") or "{}")
     servers = data.setdefault("mcpServers", {})
-    old = servers.get(SERVER_NAME) or {}
+    legacy = [n for n in LEGACY_SERVER_NAMES if n in servers]
+    old = servers.get(SERVER_NAME) or next((servers[n] for n in legacy if servers[n]), {})
     new = {**entry, "env": old.get("env") or entry.get("env", {})}
-    if old == new:
+    if servers.get(SERVER_NAME) == new and not legacy:
         return "unchanged"
     bak = path.with_name(path.name + ".bak-smartass")
     if not bak.exists():
         shutil.copy2(path, bak)
+    for n in legacy:
+        del servers[n]
     servers[SERVER_NAME] = new
     tmp = path.with_name(path.name + ".tmp-smartass")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

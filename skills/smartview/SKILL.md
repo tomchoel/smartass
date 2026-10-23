@@ -1,6 +1,6 @@
 ---
 name: smartview
-description: Pull Telenor Norge financial data from Oracle EPM Cloud (FinMax/FinLite actuals, FinPlan plan/forecast) through the read-only smartview MCP (sv_* tools) and answer with an analysis in the user's Excel - live Smart View data sheets plus a formatted answer sheet. Use for any number or analysis from FinMax, FinLite, FinPlan, Smart View, Hyperion or EPM - actuals, YTD, P&L, EBITDA, revenue/COGS, opex, depreciation, FTE/årsverk, cost base per cost centre (un.SY), monthly trend, actual vs budget/forecast, GL extract/uttrekk - for finding member names, and for refreshing a workbook's Smart View sheets.
+description: Pull Telenor Norge financial data from Oracle EPM Cloud (FinMax/FinLite actuals, FinPlan plan/forecast) through the read-only smartass MCP (sv_* tools) and answer with an analysis in the user's Excel - live Smart View data sheets plus a formatted answer sheet. Use for any number or analysis from FinMax, FinLite, FinPlan, Smart View, Hyperion or EPM - actuals, YTD, P&L, EBITDA, revenue/COGS, opex, depreciation, FTE/årsverk, cost base per cost centre (un.SY), monthly trend, actual vs budget/forecast, GL extract/uttrekk - for finding member names, and for refreshing a workbook's Smart View sheets.
 ---
 
 # Smart View analyses (FinMax · FinLite · FinPlan)
@@ -24,10 +24,10 @@ Per question it builds:
   other sheets, then data per question (FinMax, FinLite, FinPlan, `Linjer`), `Kilder` last, hidden sheets after.
   In the user's own workbook only these sheets are reordered among themselves. Do not reorder by hand.
 
-**Call the `mcp__smartview__sv_*` tools directly.** That is how the user wants Smart View used: never a side script that
+**Call the `mcp__smartass__sv_*` tools directly** (server `smartass`, formerly `smartview`). That is how the user wants Smart View used: never a side script that
 imports the package. Code changes reload by themselves on the next call. If `sv_analyse` / `sv_ws_pull` are missing
 from the tool list, or `sv_status` lacks `behind_reload_proxy`, the server predates the reload relay. Ask the user to type
-`/mcp` → smartview → Reconnect once, then continue with the tools.
+`/mcp` → smartass → Reconnect once, then continue with the tools.
 
 ## Pick the cube (decided with the user)
 

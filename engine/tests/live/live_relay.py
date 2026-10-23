@@ -61,7 +61,7 @@ def children():
 
 r, _ = request(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                                  "clientInfo": {"name": "relay-test", "version": "1"}})
-check("result" in r and r["result"]["serverInfo"]["name"] == "smartview", "initialize answered by the child")
+check("result" in r and r["result"]["serverInfo"]["name"] == "smartass", "initialize answered by the child")
 check(r["result"]["capabilities"].get("tools", {}).get("listChanged") is True, "relay announces tools.listChanged")
 send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 r, _ = request(2, "tools/list")

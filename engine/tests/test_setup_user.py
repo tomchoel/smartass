@@ -54,17 +54,27 @@ def test_user_config_is_written_once_with_a_secret(tmp_path):
 def test_register_mcp_creates_updates_and_keeps_env(tmp_path):
     p = tmp_path / "mcp-config.json"
     p.write_text(json.dumps({"mcpServers": {"other": {"command": "x"},
-                                            "smartview": {"command": "old", "env": {"K": "1"}}}}), encoding="utf-8")
+                                            "smartass": {"command": "old", "env": {"K": "1"}}}}), encoding="utf-8")
     entry = {"type": "local", "command": "py.exe", "args": ["run_server.py"], "env": {}, "tools": ["*"]}
     assert setup_user.register_mcp(p, entry) == "updated"
     d = json.loads(p.read_text(encoding="utf-8"))
     assert d["mcpServers"]["other"] == {"command": "x"}
-    assert d["mcpServers"]["smartview"]["command"] == "py.exe" and d["mcpServers"]["smartview"]["env"] == {"K": "1"}
+    assert d["mcpServers"]["smartass"]["command"] == "py.exe" and d["mcpServers"]["smartass"]["env"] == {"K": "1"}
     assert (tmp_path / "mcp-config.json.bak-smartass").exists()
     assert setup_user.register_mcp(p, entry) == "unchanged"
     assert setup_user.register_mcp(tmp_path / "absent.json", entry) == "missing"
     assert setup_user.register_mcp(tmp_path / "new.json", entry, create=True) == "updated"
     assert setup_user.register_mcp(tmp_path / "nodir" / "x.json", entry, create=True) == "missing"
+
+
+def test_register_mcp_renames_legacy_smartview_entry(tmp_path):
+    p = tmp_path / "mcp-config.json"
+    p.write_text(json.dumps({"mcpServers": {"smartview": {"command": "old", "env": {"K": "1"}}}}), encoding="utf-8")
+    entry = {"type": "local", "command": "py.exe", "args": ["run_server.py"], "env": {}, "tools": ["*"]}
+    assert setup_user.register_mcp(p, entry) == "updated"
+    servers = json.loads(p.read_text(encoding="utf-8"))["mcpServers"]
+    assert list(servers) == ["smartass"] and servers["smartass"]["env"] == {"K": "1"}
+    assert setup_user.register_mcp(p, entry) == "unchanged"
 
 
 def test_link_skill_replaces_dir_and_old_junction(tmp_path):

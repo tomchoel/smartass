@@ -86,7 +86,7 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
   xl_trace / xl_check to explain and audit formulas. Never saved by the tools: the user saves. Closed files: the
   separate Excel MCP. Formulas follow skill tn-formelstil (SUM over ranges, XLOOKUP, no guessed ranges)."""
 
-mcp = MCPServer("smartview", instructions=INSTRUCTIONS, lifespan=lifespan)
+mcp = MCPServer("smartass", instructions=INSTRUCTIONS, lifespan=lifespan)
 
 
 class AxisIn(BaseModel):
