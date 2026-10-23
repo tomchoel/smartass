@@ -1,4 +1,4 @@
-# Handoff: reliability audit (paused 2026-10-23)
+# Handoff: reliability audit (DONE 2026-10-23, see docs/audit/2026-10-23-reliability-audit.md)
 
 **Branch:** `impl/reliability-audit` (not pushed, not merged).
 
