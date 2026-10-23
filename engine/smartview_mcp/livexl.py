@@ -965,8 +965,9 @@ def changes(workbook: str | None = None, limit: int = 20) -> list[dict]:
 
 
 def _has_content(app, ws) -> bool:
-    """Values or formulas anywhere on the sheet. Not UsedRange: formats left by reverted changes keep it large."""
-    return int(com(lambda: app.WorksheetFunction.CountA(ws.Cells))) > 0
+    """Values, formulas or shapes (charts, pictures) anywhere on the sheet. Not UsedRange: formats left by reverted
+    changes keep it large."""
+    return int(com(lambda: app.WorksheetFunction.CountA(ws.Cells))) > 0 or int(com(lambda: ws.Shapes.Count)) > 0
 
 
 def revert(change_id: str | None, workbook: str | None, force: bool = False) -> dict:

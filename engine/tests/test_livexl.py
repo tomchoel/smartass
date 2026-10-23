@@ -41,5 +41,6 @@ def test_a_sheet_with_only_formats_has_no_content():
 
     from smartview_mcp.livexl import _has_content
     app = NS(WorksheetFunction=NS(CountA=lambda cells: cells["n"]))
-    assert not _has_content(app, NS(Cells={"n": 0}, UsedRange=NS(Count=42)))   # formatted after a revert, no values
-    assert _has_content(app, NS(Cells={"n": 3}, UsedRange=NS(Count=42)))
+    assert not _has_content(app, NS(Cells={"n": 0}, Shapes=NS(Count=0)))   # formatted after a revert, no values
+    assert _has_content(app, NS(Cells={"n": 3}, Shapes=NS(Count=0)))
+    assert _has_content(app, NS(Cells={"n": 0}, Shapes=NS(Count=1)))      # a chart the user added
