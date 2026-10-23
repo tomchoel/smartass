@@ -123,6 +123,26 @@ def sv_originals(xml: str) -> dict[str, int | bool]:
     return out
 
 
+def sv_patch(xml: str, originals: dict) -> str:
+    """CAOptionsXML with only the options in `originals` (sv_originals format: {"104": int, "109": bool, ...}) set;
+    every other option, and an option the XML lacks, is left as it is. Booleans keep the XML's style (1/0, true/false)."""
+    names = {str(oid): (name, kind) for name, (oid, kind) in SV_OPTION_IDS.items()}
+    for oid, v in originals.items():
+        if str(oid) not in names:
+            continue
+        name, kind = names[str(oid)]
+
+        def put(m, v=v, kind=kind):
+            if kind is bool:
+                words = m.group(2).strip().lower() in ("true", "false")
+                new = ("true" if v else "false") if words else ("1" if v else "0")
+            else:
+                new = str(int(v))
+            return m.group(1) + new + m.group(3)
+        xml = re.sub(rf'(<option key="{name}" value=")([^"]*)("\s*/>)', put, xml)
+    return xml
+
+
 def poll_kill(kill, done, timeout: float, interval: float, sleep, clock) -> tuple[list, bool]:
     """Call `kill()` every `interval` s until it kills something (returns a non-empty list), the call under test is
     `done()`, or `timeout` s pass. Returns (killed, call_was_running_at_the_kill)."""

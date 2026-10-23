@@ -1054,68 +1054,92 @@ def _hkcu_marker() -> Path:
     return Path(config.HOME) / "matrix-hkcu-options.json"
 
 
-def restore_leftover_hkcu_options(reg=None, marker: Path | None = None) -> bool:
-    """A matrix run killed during S9.lookup left the fresh engine's Smart View options in the owner's HKCU: put the
-    snapshot in the marker back, then delete the marker (kept when the restore fails). True when HKCU was changed."""
+def _originals_files(real_home: Path | None = None) -> list[Path]:
+    """The engine's smartview_options_original.json files host.py reads (smartass, then the old svkit engine's)."""
+    from smartview_mcp import config
+
+    homes = [Path(real_home or config.HOME), *([config.LEGACY_HOME] if config.LEGACY_HOME else [])]
+    return [Path(d) / "smartview_options_original.json" for d in homes]
+
+
+def true_originals(snap: dict, real_home: Path | None = None) -> tuple[dict, bool]:
+    """(the owner's TRUE Smart View originals, a real originals file held them). The real engine's file holds them
+    while it has its values applied (host.py _apply_global_options); else they are in HKCU (`snap`)."""
     import json
 
-    from smartview_mcp.auditlib import reg_restore
+    from smartview_mcp.auditlib import sv_originals
+
+    for f in _originals_files(real_home):
+        try:
+            got = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(got, dict):
+            return got, True
+    return (sv_originals(snap["data"]) if isinstance(snap.get("data"), str) else {}), False
+
+
+def restore_leftover_hkcu_options(reg=None, marker: Path | None = None, real_home: Path | None = None) -> bool:
+    """A matrix run killed during S9.lookup may have left the fresh engine's Smart View options in the owner's HKCU.
+    The raw snapshot is never written back (it may hold another engine's values, and would undo the user's later
+    changes): while a real originals file exists, that engine restores them; else only the engine's 3 options are set
+    to the saved true originals inside the current CAOptionsXML. The marker is then deleted (kept when the write
+    fails). True when HKCU was changed."""
+    import json
+
+    from smartview_mcp.auditlib import sv_patch
 
     reg, m = reg or SvOptionsReg(), marker or _hkcu_marker()
     if not m.exists():
         return False
     try:
-        snap = json.loads(m.read_text(encoding="utf-8"))
+        mark = json.loads(m.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        snap = None
-    changed = isinstance(snap, dict) and "present" in snap and reg_restore(snap, reg.read, reg.write, reg.delete)
+        mark = None
+    changed = False
+    originals = mark.get("originals") if isinstance(mark, dict) else None
+    if isinstance(originals, dict) and originals and not any(f.exists() for f in _originals_files(real_home)):
+        try:
+            xml, kind = reg.read()
+        except FileNotFoundError:
+            xml, kind = None, None
+        if isinstance(xml, str):
+            new = sv_patch(xml, originals)
+            if new != xml:
+                reg.write(new, kind)
+                changed = True
     m.unlink(missing_ok=True)
-    return bool(changed)
+    return changed
 
 
-def seed_fresh_originals(fresh_home: Path, snap: dict, real_home: Path | None = None) -> dict:
-    """Write the owner's TRUE Smart View originals into the fresh engine's smartview_options_original.json, so its
-    own restore puts those back (not values another engine applied). The real engine's file holds them while it has
-    its values applied (host.py _apply_global_options; then the old svkit engine's file); else they are in HKCU."""
+def seed_fresh_originals(fresh_home: Path, originals: dict) -> None:
+    """Write the owner's true originals into the fresh engine's smartview_options_original.json, so its own restore
+    puts those back (not values another engine applied)."""
     import json
 
-    from smartview_mcp import config
-    from smartview_mcp.auditlib import sv_originals
-
-    real_home = Path(real_home or config.HOME)
-    legacy = [config.LEGACY_HOME] if config.LEGACY_HOME else []
-    saved = None
-    for d in (real_home, *legacy):
-        try:
-            got = json.loads((Path(d) / "smartview_options_original.json").read_text())
-        except (OSError, ValueError):
-            continue
-        if isinstance(got, dict):
-            saved = got
-            break
-    if saved is None:
-        saved = sv_originals(snap.get("data", "")) if isinstance(snap.get("data"), str) else {}
     fresh_home.mkdir(parents=True, exist_ok=True)
-    (fresh_home / "smartview_options_original.json").write_text(json.dumps(saved))
-    return saved
+    (fresh_home / "smartview_options_original.json").write_text(json.dumps(originals))
 
 
 @contextlib.contextmanager
 def owner_sv_options_kept(fresh_home: Path, reg=None, marker: Path | None = None, real_home: Path | None = None):
-    """Around a fresh engine: snapshot the owner's raw CAOptionsXML (or that it is absent) into a marker file (the
-    next matrix start restores it if this run dies), seed the fresh engine's originals, and on exit put the snapshot
-    back and delete the marker. An older marker is restored first: it holds the state before that run."""
+    """Around a fresh engine: snapshot the owner's raw CAOptionsXML (or that it is absent) and the true originals into
+    a marker file (the next matrix start repairs HKCU from it if this run dies: restore_leftover_hkcu_options), seed
+    the fresh engine's originals, and on exit put the raw snapshot back and delete the marker. An older marker is
+    handled first."""
     import json
 
     from smartview_mcp.auditlib import reg_restore, reg_snapshot
 
     reg, m = reg or SvOptionsReg(), marker or _hkcu_marker()
-    restore_leftover_hkcu_options(reg, m)
+    restore_leftover_hkcu_options(reg, m, real_home)
     snap = reg_snapshot(reg.read)
+    originals, existed = true_originals(snap, real_home)
     m.parent.mkdir(parents=True, exist_ok=True)
-    m.write_text(json.dumps(snap), encoding="utf-8")
+    m.write_text(json.dumps({"snap": snap, "originals": originals, "real_originals_existed": existed}),
+                 encoding="utf-8")
     try:
-        seed_fresh_originals(fresh_home, snap, real_home)
+        seed_fresh_originals(fresh_home, originals)
         yield snap
     finally:
         reg_restore(snap, reg.read, reg.write, reg.delete)

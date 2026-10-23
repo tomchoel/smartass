@@ -75,7 +75,9 @@ def test_owner_options_put_back_and_fresh_originals_seeded_from_hkcu(homes):
     real, fresh, marker = homes
     reg = FakeReg((XML, 1))
     with helpers.owner_sv_options_kept(fresh, reg, marker, real) as snap:
-        assert json.loads(marker.read_text()) == snap == {"present": True, "data": XML, "kind": 1}
+        assert json.loads(marker.read_text()) == {"snap": snap, "originals": {"104": 2, "109": True, "110": False},
+                                                  "real_originals_existed": False}
+        assert snap == {"present": True, "data": XML, "kind": 1}
         assert json.loads((fresh / "smartview_options_original.json").read_text()) == \
             {"104": 2, "109": True, "110": False}
         reg.write(XML.replace('"2"', '"3"'), 1)                 # the fresh engine applies its values
@@ -104,15 +106,58 @@ def test_owner_options_unchanged_are_not_rewritten_and_real_originals_win(homes)
     assert reg.writes == 0 and reg.deletes == 0 and not marker.exists()
 
 
-def test_leftover_marker_restored_at_startup_and_before_a_new_snapshot(homes):
+def _opts(msg, home, comment, other="A"):
+    return (f'<options><option key="messageDisplay" value="{msg}"/><option key="other" value="{other}"/>'
+            f'<option key="bDisplayHomePanelOnStartup" value="{home}"/><option key="bCommentDlgEnable" '
+            f'value="{comment}"/></options>')
+
+
+TRUE_VALUES = {"104": 2, "109": True, "110": True}
+
+
+_DEAD = []                       # the entered contexts of "dead" runs: never closed, so their finally never runs
+
+
+def _died_in_s9(fresh, reg, marker, real):
+    """S9.lookup entered, then the matrix process died (the finally never ran)."""
+    cm = helpers.owner_sv_options_kept(fresh, reg, marker, real)
+    cm.__enter__()
+    _DEAD.append(cm)
+    assert marker.exists()
+
+
+def test_leftover_marker_left_to_the_real_engine_while_its_originals_file_exists(homes):
     real, fresh, marker = homes
-    marker.write_text(json.dumps({"present": True, "data": XML, "kind": 1}))   # a run died inside S9.lookup
-    reg = FakeReg(("<engine/>", 1))
-    assert helpers.restore_leftover_hkcu_options(reg, marker) is True
-    assert reg.value == (XML, 1) and not marker.exists()
-    assert helpers.restore_leftover_hkcu_options(reg, marker) is False
-    marker.write_text(json.dumps({"present": True, "data": XML, "kind": 1}))
-    reg.value = ("<engine/>", 1)
-    with helpers.owner_sv_options_kept(fresh, reg, marker, real) as snap:
-        assert snap["data"] == XML                               # the owner's value, not the leftover engine one
-    assert reg.value == (XML, 1)
+    (real / "smartview_options_original.json").write_text(json.dumps(TRUE_VALUES))
+    reg = FakeReg((_opts(3, 0, 0), 1))                          # the real engine's values are applied
+    _died_in_s9(fresh, reg, marker, real)
+    reg.value, reg.writes = (_opts(3, 0, 0, other="B"), 1), 0
+    assert helpers.restore_leftover_hkcu_options(reg, marker, real) is False
+    assert reg.writes == 0 and reg.deletes == 0 and not marker.exists()
+
+
+def test_leftover_marker_sets_only_the_three_options_and_keeps_the_type(homes):
+    real, fresh, marker = homes
+    reg = FakeReg((_opts(2, 1, 1), 2))                          # no engine running: HKCU holds the owner's values
+    _died_in_s9(fresh, reg, marker, real)
+    reg.value, reg.writes = (_opts(3, 0, 0, other="changed by the user"), 2), 0   # fresh engine's values
+    assert helpers.restore_leftover_hkcu_options(reg, marker, real) is True
+    assert reg.value == (_opts(2, 1, 1, other="changed by the user"), 2) and reg.writes == 1
+    assert not marker.exists()
+
+
+def test_leftover_marker_after_the_real_engine_exited_keeps_the_true_values(homes):
+    real, fresh, marker = homes
+    orig = real / "smartview_options_original.json"
+    orig.write_text(json.dumps(TRUE_VALUES))
+    reg = FakeReg((_opts(3, 0, 0), 1))                          # snapshot = the real engine's values
+    _died_in_s9(fresh, reg, marker, real)
+    reg.value = (_opts(2, 1, 1), 1)                             # the real engine exits cleanly: true values back
+    orig.unlink()
+    helpers.restore_leftover_hkcu_options(reg, marker, real)
+    assert reg.value == (_opts(2, 1, 1), 1) and not marker.exists()
+    reg.value = (_opts(3, 0, 0), 1)                             # even if the fresh engine's values were still there
+    marker.write_text(json.dumps({"snap": {"present": True, "data": _opts(3, 0, 0), "kind": 1},
+                                  "originals": TRUE_VALUES, "real_originals_existed": True}))
+    assert helpers.restore_leftover_hkcu_options(reg, marker, real) is True
+    assert reg.value == (_opts(2, 1, 1), 1)

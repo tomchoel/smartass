@@ -7,6 +7,7 @@ from smartview_mcp.auditlib import (
     reg_snapshot,
     stale_suspended,
     sv_originals,
+    sv_patch,
     verdict,
 )
 
@@ -17,6 +18,14 @@ def test_sv_originals_reads_the_engine_options_from_caoptionsxml():
     assert sv_originals(xml) == {"104": 3, "109": False, "110": True}
     assert sv_originals('<option key="messageDisplay" value="x"/>') == {}
     assert sv_originals("") == {}
+
+
+def test_sv_patch_sets_only_the_engine_options_in_the_xml_style():
+    xml = ('<o><option key="messageDisplay" value="3" /><option key="bDisplayHomePanelOnStartup" value="false"/>'
+           '<option key="bCommentDlgEnable" value="0"/><option key="other" value="3"/></o>')
+    new = sv_patch(xml, {"104": 2, "109": True, "110": True, "999": 1})
+    assert new == xml.replace('"3" ', '"2" ').replace('"false"', '"true"').replace('"0"', '"1"')
+    assert sv_originals(new) == {"104": 2, "109": True, "110": True}
 
 
 def test_reg_snapshot_restores_binary_values_after_a_json_round_trip():
