@@ -2,8 +2,10 @@
 
 Smart View signs in through a 'Login' window. Normally it hosts WebView2 and the global SSO watcher clicks
 'Telenor SSO' within 1-20 s. When WebView2 fails, Smart View says so in a message box and falls back to Internet
-Explorer, whose Oracle IDCS page fails ('Script Error: Function expected'); that Login window is modal, ignores
-WM_CLOSE, and only killing its Excel gets out. classify/blocking are pure; scan is the thin Win32 part.
+Explorer, whose Oracle IDCS page fails ('Script Error: Function expected'). In our hidden Excel that Excel is killed and
+restarted. In a visible Excel the usual cause is an earlier, unfinished WebView2 login of the same Excel still holding
+the WebView2 folder: ending that stale WebView2 and closing the IE windows lets Smart View reopen the login in WebView2
+(userexcel.recover_ie_login). classify/blocking/ie_fallback/stale_sv_webview2_from are pure; the rest is thin Win32.
 """
 from __future__ import annotations
 
@@ -114,6 +116,61 @@ def webview2_holders_from(rows: list[tuple[int, int, str]], exclude_parent: int 
         if name not in out:
             out.append(name)
     return out
+
+
+def ie_fallback(found: list[Dialog]) -> list[int]:
+    """Windows of a sign-in that already fell back to Internet Explorer (an IE-rendered Login, a 'Script Error' or a
+    WebView2-failed box): broken for good, so they can be closed. Empty while a WebView2 Login is still in progress."""
+    return [d.hwnd for d in found if d.kind == "webview2_fallback" or (d.kind == "login" and d.ie)]
+
+
+def stale_sv_webview2_from(rows: list[tuple[int, int, str]], excel_pid: int, alive) -> list[int]:
+    """Smart View WebView2 browser processes to end so the next login can start WebView2 again, from
+    [(pid, parent pid, command line)]: the ones of this Excel (its login is already on the IE fallback, so they are
+    a stuck earlier login) and orphans whose app is gone. Never one owned by another live app (e.g. PowerPoint)."""
+    out = []
+    for pid, ppid, cmd in rows:
+        low = (cmd or "").lower()
+        if "--type=" in low or SV_WEBVIEW_DIR not in low:
+            continue
+        if ppid == excel_pid or not alive(ppid):
+            out.append(pid)
+    return out
+
+
+def end_stale_sv_webview2(excel_pid: int) -> list[int]:
+    """End the stale Smart View WebView2 browser processes (with their child processes); returns their pids."""
+    import psutil
+
+    rows = []
+    for p in psutil.process_iter(["name", "ppid", "cmdline"]):
+        try:
+            if (p.info["name"] or "").lower() == "msedgewebview2.exe":
+                rows.append((p.pid, p.info["ppid"], " ".join(p.info["cmdline"] or [])))
+        except psutil.Error:
+            continue
+    ended = []
+    for pid in stale_sv_webview2_from(rows, excel_pid, psutil.pid_exists):
+        try:
+            p = psutil.Process(pid)
+            for k in p.children(recursive=True) + [p]:
+                k.kill()
+            ended.append(pid)
+        except psutil.Error:
+            continue
+    return ended
+
+
+def close(hwnds: list[int]) -> None:
+    import pywintypes
+    import win32con
+    import win32gui
+
+    for h in hwnds:
+        try:
+            win32gui.PostMessage(h, win32con.WM_CLOSE, 0, 0)
+        except pywintypes.error:
+            pass
 
 
 def webview2_holders(exclude_parent: int | None) -> list[str]:

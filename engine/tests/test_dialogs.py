@@ -69,3 +69,24 @@ def test_webview2_holders_names_other_apps_on_smart_views_profile():
         (13, 7, r'msedgewebview2.exe --webview-exe-name=OneDrive.exe --user-data-dir="C:\x\OneDrive\EBWebView"'),
     ]
     assert dialogs.webview2_holders_from(rows, exclude_parent=555) == ["POWERPNT.EXE"]
+
+
+SV = r"--user-data-dir=C:\Users\x\AppData\Roaming\Oracle\SmartView\WebView\EBWebView"
+
+
+def test_stale_smart_view_webview2_is_this_excels_own_or_orphaned():
+    rows = [(10, 500, f"msedgewebview2.exe --embedded-browser-webview=1 {SV} --webview-exe-name=EXCEL.EXE"),
+            (11, 10, f"msedgewebview2.exe --type=renderer {SV}"),                      # a child: ended with its tree
+            (20, 777, f"msedgewebview2.exe {SV} --webview-exe-name=EXCEL.EXE"),        # its Excel is gone
+            (30, 900, f"msedgewebview2.exe {SV} --webview-exe-name=POWERPNT.EXE"),     # a live other app: never
+            (40, 500, r"msedgewebview2.exe --user-data-dir=C:\OneDrive\EBWebView")]    # not Smart View's folder
+    alive = {500, 900}.__contains__
+    assert dialogs.stale_sv_webview2_from(rows, 500, alive) == [10, 20]
+
+
+def test_recover_only_when_the_login_already_fell_back_to_ie():
+    web = Dialog(1, "#32770", "Login", "", "login", ie=False)
+    ie = Dialog(2, "#32770", "Login", "", "login", ie=True)
+    err = Dialog(3, "Internet Explorer_TridentDlgFrame", "Script Error", "", "webview2_fallback")
+    assert dialogs.ie_fallback([web]) == []
+    assert dialogs.ie_fallback([web, ie, err]) == [2, 3]

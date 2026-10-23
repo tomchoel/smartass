@@ -94,6 +94,10 @@ call once. If the second try fails the same way, you get this error.
 
 - Smart View keeps one WebView2 folder for all Office apps (`%APPDATA%\Oracle\SmartView\WebView`). If the error names
   an app that holds it (e.g. `POWERPNT.EXE`), close that app and retry.
+- In your own (visible) Excel the engine recovers by itself since 2026-10-23: when the login has fallen back to
+  Internet Explorer, it ends Smart View's stale WebView2 of that Excel (or an orphan whose app is gone; never another
+  app's) and closes the broken IE windows, and Smart View reopens the login in WebView2 (at most twice per call;
+  `server.log`: "fell back to Internet Explorer; ended stale WebView2").
 - Sign in once in your own Excel (Smart View ribbon → Panel → connect), then retry.
 - Still failing: run `smartass doctor --bundle`.
 

@@ -111,3 +111,23 @@ def test_progress_job_clears_its_notify_after_the_job():
         return t
     t = asyncio.run(run())
     assert t.notify is None and getattr(timing._local, "pending_notify", None) is None
+
+
+def test_wait_login_recovers_an_ie_fallback_login_by_itself(monkeypatch):
+    from smartview_mcp import dialogs, userexcel
+    from smartview_mcp.dialogs import Dialog
+    state = {"ie": True, "recovered": 0}
+
+    def scan(pid):
+        return [Dialog(2, "#32770", "Login", "", "login", ie=True)] if state["ie"] else []
+
+    def recover(pid, hwnds):
+        state["recovered"] += 1
+        state["ie"] = False                       # Smart View reopens the login in WebView2; the watcher clicks it
+        return {"ended": [10], "closed": hwnds}
+    monkeypatch.setattr(dialogs, "scan", scan)
+    monkeypatch.setattr(userexcel, "recover_ie_login", recover)
+    monkeypatch.setattr(userexcel, "login_open", lambda pid: state["ie"])
+    monkeypatch.setattr(userexcel.time, "sleep", lambda s: None)
+    userexcel.wait_login_cleared(1, limit=5)
+    assert state["recovered"] == 1

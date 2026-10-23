@@ -260,13 +260,34 @@ def login_open(pid: int) -> bool:
     return bool(found)
 
 
+def recover_ie_login(pid: int, hwnds: list[int]) -> dict:
+    """The login in Excel `pid` is on the Internet Explorer fallback because an earlier, unfinished WebView2 login
+    still holds Smart View's WebView2 folder. End that stale WebView2 (this Excel's own, or an orphan - never another
+    app's) and close the broken IE windows; Smart View then opens a new login in WebView2. Excel itself is untouched."""
+    from . import dialogs
+    ended = dialogs.end_stale_sv_webview2(pid)
+    dialogs.close(hwnds)
+    return {"ended": ended, "closed": hwnds}
+
+
 def wait_login_cleared(pid: int, appear_grace: float = 0.0, limit: float = 90.0) -> None:
-    """Block until no Smart View Login dialog is open in `pid` (the global SSO watcher clicks it)."""
+    """Block until no Smart View Login dialog is open in `pid` (the global SSO watcher clicks it). A login that fell
+    back to Internet Explorer ('Script Error') never completes: it is recovered (recover_ie_login), at most twice."""
+    from . import dialogs
     t0 = time.monotonic()
     seen = False
+    recoveries = 0
     while time.monotonic() - t0 < limit:
         if login_open(pid):
             seen = True
+            broken = dialogs.ie_fallback(dialogs.scan(pid))
+            if broken and recoveries < 2:
+                recoveries += 1
+                res = recover_ie_login(pid, broken)
+                log.warning("Smart View login in Excel pid %s fell back to Internet Explorer; ended stale WebView2 %s "
+                            "and closed %s so it can sign in again", pid, res["ended"], res["closed"])
+                time.sleep(3)                     # Smart View reopens the login, now in WebView2
+                continue
         elif seen or time.monotonic() - t0 >= appear_grace:
             return
         time.sleep(0.5)
