@@ -142,7 +142,7 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
         with stage("plan (template)"):
             plan = fn(h, **params)
         with stage("check members (atlas)"):
-            templates.check_pulls(plan.pulls, confirm=lambda c, m: ops.find_member(h, c, m)["found"])
+            templates.check_pulls(plan.pulls, confirm=ops.live_confirm(h))
         with stage("open target"):
             t = userexcel.resolve_target(h, target, allow_archive, title=plan.title)
             qn = q or userexcel.next_question(t)

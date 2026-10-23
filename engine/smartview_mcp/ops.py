@@ -262,19 +262,19 @@ def canonical_pov(conn: str, pov: dict) -> dict:
 
 def check_members(conn: str, pov: dict, rows: list[Axis], cols: list[Axis], confirm=None) -> None:
     """InputError naming every member the atlas does not know in conn (see unknown_members). The atlas can predate a
-    new period or account, so each miss is first confirmed live with confirm(conn, member) -> bool when given; a
+    new period or account, so each miss is first confirmed live with confirm(conn, dim, member) -> bool (live_confirm); a
     member is rejected only when the live check says it does not exist (a failed check leaves it unverified)."""
     bad = unknown_members(conn, pov, rows, cols)
     if confirm:
-        bad = [(d, m) for d, m in bad if _missing_live(confirm, conn, m)]
+        bad = [(d, m) for d, m in bad if _missing_live(confirm, conn, d, m)]
     if bad:
         raise InputError("Invalid query: unknown member " + "; ".join(f"'{m}' ({conn} / {d})" for d, m in bad)
                          + ". Find the right name with sv_find_member / sv_members.")
 
 
-def _missing_live(confirm, conn: str, member: str) -> bool:
+def _missing_live(confirm, conn: str, dim: str, member: str) -> bool:
     try:
-        return not confirm(conn, member)
+        return not confirm(conn, dim, member)
     except Exception as e:  # noqa: BLE001 - unverified: let the pull and the error-cell scan decide
         log.warning("live member check of %s / %s failed: %s", conn, member, e)
         return False
@@ -353,6 +353,36 @@ def _query_once(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list
         raise HostError("Smart View returned a different layout than requested (rows/columns moved): "
                         + "; ".join(bad[:5]))
     return lay, p, secs
+
+
+def live_dimension(h: ExcelHost, conn: str, member: str) -> str | None:
+    """Dimension of an exact member name, asked live (B_FindMember only); None when EPM does not return it. Smart View
+    gives the same kind of error for 'no such member' and a broken session - live_confirm tells them apart."""
+    r = h._run("B_FindMember", ensure_grid_sheet(h, conn), member, "Default")
+    if isinstance(r, tuple) and r[0] == "OK":
+        return str(r[1])
+    status = str(r[0] if isinstance(r, tuple) else r)
+    if status.startswith("ERR|VBA"):
+        raise HostError(f"live member check failed: {status}")
+    return None
+
+
+def live_confirm(h: ExcelHost):
+    """confirm(conn, dim, member) for check_members: the member exists live in that dimension. A miss counts only
+    when the check itself works - the dimension's own top member is found (asked once per connection); otherwise
+    HostError, so the member stays unverified instead of being rejected."""
+    works: dict[str, bool] = {}
+
+    def confirm(conn: str, dim: str, member: str) -> bool:
+        d = live_dimension(h, conn, member)
+        if d is not None:
+            return canon_dim(conn, d).casefold() == canon_dim(conn, dim).casefold()
+        if conn not in works:
+            works[conn] = live_dimension(h, conn, dim) is not None
+        if not works[conn]:
+            raise HostError(f"live member check on {conn} does not work now (even '{dim}' is not found)")
+        return False
+    return confirm
 
 
 def find_member(h: ExcelHost, conn: str, member: str) -> dict:

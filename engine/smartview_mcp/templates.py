@@ -185,7 +185,7 @@ def map_finmax_entity(entity: str, explicit: str | None = None) -> tuple[str | N
 
 def check_pulls(pulls: list[PullSpec], confirm=None) -> None:
     """Every member of every pull must exist - before anything is pulled (ops.check_members: atlas, then atlas misses
-    confirmed live with confirm(connection, member)). POV members get the atlas spelling."""
+    confirmed live with confirm(connection, dimension, member)). POV members get the atlas spelling."""
     for ps in pulls:
         ps.pov = ops.canonical_pov(ps.connection, ps.pov)
         ops.check_members(ps.connection, ps.pov, ps.rows, ps.cols, confirm)

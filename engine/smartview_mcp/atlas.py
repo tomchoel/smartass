@@ -74,9 +74,10 @@ def canonical(db, connection: str, dimension: str, name: str) -> str | None:
     None if the dimension does not have it. The dimension's own name is its top member."""
     if name.casefold() == dimension.casefold():
         return dimension
-    sql = "SELECT name FROM member WHERE connection=? AND dimension=? AND {} = ? COLLATE NOCASE LIMIT 1"
+    db.create_function("fold", 1, lambda s: s.casefold() if isinstance(s, str) else s, deterministic=True)
+    sql = "SELECT name FROM member WHERE connection=? AND dimension=? AND fold({}) = ? LIMIT 1"   # æøå too
     for col in ("name", "label"):
-        r = db.execute(sql.format(col), (connection, dimension, name)).fetchone()
+        r = db.execute(sql.format(col), (connection, dimension, name.casefold())).fetchone()
         if r:
             return r[0]
     return None

@@ -153,23 +153,46 @@ def test_atlas_miss_is_confirmed_live_before_rejecting(fake_atlas):
                             [Axis("All Time Periods", ["Jan 27"])], {"All Entities": "un.SY.NOPE"})
     asked = []
 
-    def confirm(conn, member):
-        asked.append((conn, member))
+    def confirm(conn, dim, member):
+        asked.append((conn, dim, member))
         return member == "ac.NEW1"               # new account exists in the cube, the entity does not
     with pytest.raises(InputError) as e:
         templates.check_pulls([ps], confirm=confirm)
     assert "un.SY.NOPE" in str(e.value) and "ac.NEW1" not in str(e.value)
-    assert set(asked) == {("FinMax", "un.SY.NOPE"), ("FinMax", "ac.NEW1")}
+    assert set(asked) == {("FinMax", "All Entities", "un.SY.NOPE"), ("FinMax", "All Accounts", "ac.NEW1")}
     ok = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])], [Axis("All Time Periods", ["x"])], {})
-    templates.check_pulls([ok], confirm=lambda c, m: True)
+    templates.check_pulls([ok], confirm=lambda c, d, m: True)
 
 
 def test_failed_live_confirmation_does_not_reject(fake_atlas):
     ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])], [Axis("All Time Periods", ["x"])], {})
 
-    def broken(conn, member):
+    def broken(conn, dim, member):
         raise RuntimeError("Smart View busy")
     templates.check_pulls([ps], confirm=broken)  # unverified, not rejected: the error-cell scan still runs
+
+
+class FakeFind:
+    """ops.live_dimension stand-in: {member: dimension}; everything else is not found."""
+    def __init__(self, known):
+        self.known, self.calls = known, []
+
+    def __call__(self, h, conn, member):
+        self.calls.append(member)
+        return self.known.get(member)
+
+
+def test_live_confirm_checks_dimension_and_that_the_check_works(monkeypatch):
+    find = FakeFind({"ac.NEW1": "All Accounts", "All Entities": "All Entities", "un.SY.2TEC": "All Entities"})
+    monkeypatch.setattr(ops, "live_dimension", find)
+    confirm = ops.live_confirm(None)
+    assert confirm("FinMax", "All Accounts", "ac.NEW1")
+    assert not confirm("FinMax", "All Accounts", "un.SY.2TEC")          # exists, but in another dimension
+    assert not confirm("FinMax", "All Entities", "un.SY.NOPE")          # control 'All Entities' found: real miss
+    broken = ops.live_confirm(None)
+    monkeypatch.setattr(ops, "live_dimension", FakeFind({}))            # nothing found, not even the control
+    with pytest.raises(Exception):
+        broken("FinMax", "All Entities", "Jan 27")
 
 
 def test_error_scan_groups_pull_cells_and_caps_answer_lines():
@@ -184,3 +207,8 @@ def test_error_scan_groups_pull_cells_and_caps_answer_lines():
                     "no read access or member not valid in this cube")
     assert len(w) <= 1 + answer.MAX_LINE_WARNINGS + 1
     assert w[-1] == f"... and {50 - answer.MAX_LINE_WARNINGS} more answer lines with error cells on 'Q6 Svar'"
+
+
+def test_member_check_folds_norwegian_letters(fake_atlas):
+    atlas.store(fake_atlas, "FinMax", "All Accounts", [_m("ac.STA20Y", "All Accounts") | {"label": "Årsverk"}], 1.0)
+    assert atlas.canonical(fake_atlas, "FinMax", "All Accounts", "årsverk") == "ac.STA20Y"
