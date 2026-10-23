@@ -37,6 +37,22 @@ def test_scripts_dir_is_added_to_user_path_once(tmp_path):
     assert empty.value == str(scripts) and empty.kind == winreg.REG_SZ
 
 
+def test_path_step_honours_registry_override(tmp_path, monkeypatch):
+    def no_registry(*a):
+        raise AssertionError("the real HKCU Path must not be written")
+    monkeypatch.setattr(winreg, "SetValueEx", no_registry)
+    fake = tmp_path / "path.txt"
+    monkeypatch.setenv("SMARTASS_USER_PATH_FILE", str(fake))
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir()
+    (scripts / "smartass.exe").write_text("")
+    out = setup_user.path_step(str(scripts / "python.exe"))
+    assert str(scripts) in fake.read_text(encoding="utf-8")
+    assert "added" in out or "kept" in out
+    assert setup_user.path_step(str(scripts / "python.exe")).startswith("path: unchanged")
+    assert fake.read_text(encoding="utf-8") == str(scripts)
+
+
 def test_path_step_skips_without_smartass_exe(tmp_path):
     reg = FakeReg("C:\\Tools")
     assert setup_user.path_step(str(tmp_path / "python.exe"), **reg.kw()).startswith("path: skipped")
