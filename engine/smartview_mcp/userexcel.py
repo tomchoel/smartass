@@ -614,7 +614,9 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
             raise InputError(f"Give an absolute path for target (got '{target}'), or use 'session' / 'active' / 'new'.")
         if is_archive(p) and not allow_archive:       # refuse BEFORE opening anything
             raise InputError(ARCHIVE_REFUSAL.format(name=p.name))
-    instances = excel_instances()                     # waits for any open EPM login before touching an Excel
+    from .timing import stage
+    with stage("find Excel windows"):
+        instances = excel_instances()                 # waits for any open EPM login before touching an Excel
     excels = [(i.pid, i.hwnd, i.app) for i in instances if i.app is not None]
     if target == "active":
         for pid, hwnd, app in excels:
@@ -627,10 +629,16 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
                 return _finish_target(h, Target(app, wb, pid, hwnd), allow_archive)
         target = "new"                                # nothing open: fall back to a new analysis workbook
     if target == "new":
-        t = _finish_target(h, _new_target(h, title or "Analyse", excels, {i.pid for i in instances}), allow_archive)
+        with stage("new workbook"):
+            t = _new_target(h, title or "Analyse", excels, {i.pid for i in instances})
+        with stage("ready + bridge"):
+            t = _finish_target(h, t, allow_archive)
         session.set_workbook(t.path)                  # a new file becomes this session's workbook
         return t
-    return _finish_target(h, _open_path(h, Path(target), excels, instances), allow_archive)
+    with stage("open workbook"):
+        t = _open_path(h, Path(target), excels, instances)
+    with stage("ready + bridge"):
+        return _finish_target(h, t, allow_archive)
 
 
 def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None) -> Target:
@@ -638,12 +646,12 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None)
     turn is free; else (below MAX_EXCELS) a new Excel window started on the TN template; else wait for the first.
     If it cannot be saved, the new workbook is closed unsaved (and an Excel started for it is closed again)."""
     from . import styling
+    from .timing import stage
     tpl = styling.template_path()
     choice = next((e for e in excels if hold_turn(e[0], wait=False)), None)
     wb = None
     spawned = False
     if choice is None and excels and len(excels) < MAX_EXCELS and tpl.exists():
-        from .timing import stage
         with stage("start another Excel (parallel agent)"):
             choice, wb = _spawn_excel(tpl, {e[0] for e in excels} | (known or set()))
         spawned = True
@@ -657,12 +665,14 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None)
     pid, hwnd, app = choice
     try:
         if wb is None:
-            try:                                      # from the TN template: the styles come for free (saves ~11 s)
-                tpl_s = str(styling.ensure_template(app))
-                wb = com(lambda: app.Workbooks.Add(tpl_s))
-            except Exception:   # noqa: BLE001 - template unavailable: plain workbook, styles installed later
-                wb = com(lambda: app.Workbooks.Add())
-        _save_new(app, wb, title)
+            with stage("add from template"):
+                try:                                  # from the TN template: the styles come for free (saves ~11 s)
+                    tpl_s = str(styling.ensure_template(app))
+                    wb = com(lambda: app.Workbooks.Add(tpl_s))
+                except Exception:   # noqa: BLE001 - template unavailable: plain workbook, styles installed later
+                    wb = com(lambda: app.Workbooks.Add())
+        with stage("save as"):
+            _save_new(app, wb, title)
     except BaseException:
         _discard_new(app, wb, spawned)
         raise
