@@ -99,6 +99,8 @@ AxesIn = list[AxisIn] | dict[str, list[str] | str]
 
 def axes_in(x) -> list[AxisIn]:
     """rows/columns as [{dimension, members}] (documented) or {dimension: [members]} (what agents often send)."""
+    if isinstance(x, dict) and set(x) == {"dimension", "members"}:
+        x = [x]                                         # one axis object instead of a list of them
     if isinstance(x, dict):
         return [AxisIn(dimension=d, members=[m] if isinstance(m, str) else list(m)) for d, m in x.items()]
     return [a if isinstance(a, AxisIn) else AxisIn(**a) for a in x]
