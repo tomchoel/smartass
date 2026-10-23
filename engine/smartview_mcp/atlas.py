@@ -55,8 +55,26 @@ def status(db) -> dict:
         "built": [{"connection": c, "dimension": d, "members": n, "seconds": round(s or 0, 1), "error": e,
                    "built_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(b))} for c, d, b, n, s, e in rows],
         "oldest_age_days": round(age_days, 1) if age_days is not None else None,
-        "stale": age_days is None or age_days > 30,
+        "stale": age_days is None or age_days > MAX_AGE_DAYS,
     }
+
+
+MAX_AGE_DAYS = 30
+
+
+def usable(db, connection: str, dimension: str) -> bool:
+    """The dimension was built without error, has members and is at most MAX_AGE_DAYS old."""
+    r = db.execute("SELECT built_at, n, error FROM build WHERE connection=? AND dimension=?",
+                   (connection, dimension)).fetchone()
+    return bool(r and r[1] and not r[2] and (time.time() - r[0]) / 86400 <= MAX_AGE_DAYS)
+
+
+def has_member(db, connection: str, dimension: str, name: str) -> bool:
+    """Name (or, failing that, alias label) exists in the dimension; the dimension's own name is its top member."""
+    if name == dimension:
+        return True
+    sql = "SELECT 1 FROM member WHERE connection=? AND dimension=? AND {} = ? LIMIT 1"
+    return any(db.execute(sql.format(col), (connection, dimension, name)).fetchone() for col in ("name", "label"))
 
 
 def search(db, text: str, connection: str | None = None, dimension: str | None = None, limit: int = 25) -> list[dict]:

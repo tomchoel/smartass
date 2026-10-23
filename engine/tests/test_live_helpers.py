@@ -36,3 +36,12 @@ def test_expired_sso_restores_a_leftover_backup_first(cookies):
         assert not (cookies / "Cookies").exists()
     assert (cookies / "Cookies").read_text() == "real sign-in"
     assert not list(cookies.glob("*.matrix-bak"))
+
+
+def test_answer_ok_fails_on_error_cell_warnings():
+    import scenarios
+    out = {"checks": {"c": "OK"}, "warnings": [
+        "error cell 'Q6 FinMax recon'!B3 is #NoAccess: no read access or member not valid in this cube"]}
+    with pytest.raises(AssertionError, match="#NoAccess"):
+        scenarios._answer_ok(out, "actual_vs_plan.sy")
+    scenarios._answer_ok({"checks": {"c": "OK"}, "warnings": ["could not log Q1 in 'Kilder'"]}, "ok")

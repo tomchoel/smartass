@@ -99,17 +99,38 @@ def _label_of(p, row_members, default):
     return _clean(labs[-1]) if labs else default
 
 
-def _val(p, row_members, col_members):
-    """Parsed value from a pull (for ranking / key points; the sheet itself uses live formulas)."""
+def _raw(p, row_members, col_members):
+    """The parsed cell as is (a number, None or a label such as '#NoAccess')."""
     try:
         j = p.layout.col_tuples.index(tuple(col_members))
     except ValueError:
         return None
     for r in p.parsed.rows:
         if tuple(r[:p.layout.nr]) == tuple(row_members):
-            v = r[p.layout.nr + j]
-            return v if isinstance(v, (int, float)) else None
+            return r[p.layout.nr + j]
     return None
+
+
+def _val(p, row_members, col_members):
+    """Parsed value from a pull (for ranking / key points; the sheet itself uses live formulas)."""
+    v = _raw(p, row_members, col_members)
+    return v if isinstance(v, (int, float)) else None
+
+
+def _recon_point(ea, fm, entity: str | None, period: str, note: str | None) -> str:
+    """FinPlan vs FinMax EBITDA key point; says why when there is nothing to reconcile (never 'within n/a')."""
+    if fm is None:
+        why = (note or "no FinMax entity").rstrip(".").split(";")[0]
+        return f"FinMax reconciliation unavailable ({why[0].lower() + why[1:]})."
+    raw = _raw(fm, ["ac.EBITDA"], [period])
+    efm = raw if isinstance(raw, (int, float)) else None
+    if efm is None:
+        why = (f"FinMax returned {raw} for {entity} {period}: no read access or member not valid in this cube"
+               if isinstance(raw, str) and raw.startswith("#") else f"no FinMax EBITDA for {entity} {period}")
+        return f"FinMax reconciliation unavailable ({why})."
+    if ea is None:
+        return "FinMax reconciliation unavailable (no FinPlan Actual EBITDA)."
+    return f"FinPlan Actual vs FinMax EBITDA ({entity}): difference {_fmt(ea - efm)}."
 
 
 def member_label(connection: str, name: str) -> str:
@@ -138,6 +159,34 @@ def _dec(v: float | None) -> str:
 
 def _now() -> str:
     return dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+FINPLAN_TOP = {"BANORWAY"}                    # FinPlan's Telenor Norge total = FinMax 'un.SY'
+
+
+def map_finmax_entity(entity: str, explicit: str | None = None) -> tuple[str | None, str | None]:
+    """FinMax entity for a FinPlan entity ('2TEC Technology' -> 'un.SY.2TEC', 'BANORWAY' -> 'un.SY'), checked
+    against the atlas. Returns (member, None), or (None, note) when nothing matches. Without a usable FinMax atlas
+    the 'un.SY.<code>' guess is kept (the error-cell scan still flags it if it is wrong)."""
+    if explicit:
+        return explicit, None
+    code = entity.split(" ")[0]
+    guess = f"un.SY.{code}"
+    db = atlas.connect()
+    known = atlas.usable(db, "FinMax", "All Entities")
+    if known and atlas.has_member(db, "FinMax", "All Entities", guess):
+        return guess, None
+    if code in FINPLAN_TOP or entity in FINPLAN_TOP:
+        return "un.SY", None
+    if not known:
+        return guess, None
+    return None, f"No FinMax entity matches {entity}; pass finmax_entity to reconcile."
+
+
+def check_pulls(pulls: list[PullSpec]) -> None:
+    """Every member of every pull must exist in the atlas (ops.check_members) - before anything is pulled."""
+    for ps in pulls:
+        ops.check_members(ps.connection, ps.pov, ps.rows, ps.cols)
 
 
 # ------------------------------------------------------------------ A. division P&L
@@ -290,10 +339,11 @@ def cost_base(h: ExcelHost, parent: str = "un.SY", accounts: list[str] | None = 
                 for a in accounts]
         tot = _val(p, [parent], [main])
         topsum = sum(_val(p, [m], [main]) or 0 for _, m in ranked[:top])
+        share = f" ({topsum / tot * 100:.0f} % of the total)" if tot else ""
         kp = [f"{len(ranked)} cost centres (leaf level) under {member_label(connection, parent)}; total "
               f"{cols[accounts.index(main)]['header']} {_fmt(tot)} YTD {period}.",
-              f"The {min(top, len(ranked))} largest account for {_fmt(topsum)} "
-              f"({(topsum / tot * 100 if tot else 0):.0f} % of the total). The full tree is on the data sheet '{p.sheet}'."]
+              f"The {min(top, len(ranked))} largest account for {_fmt(topsum)}{share}. "
+              f"The full tree is on the data sheet '{p.sheet}'."]
         return {"title": f"Cost base per cost centre — {member_label(connection, parent)} — YTD {period}",
                 "subtitle": f"NOK · {connection} · Actual · Accumulated {period}",
                 "key_points": kp, "columns": cols,
@@ -385,16 +435,17 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
              PullSpec("plan", "FinPlan", [Axis("Account", accts)],
                       [Axis("Scenario", ["Target"] + ([forecast] if forecast else []))], {**base, "Version": "Final"},
                       title_suffix="plan")]
-    code = entity.split(" ")[0]
-    finmax_entity = finmax_entity or f"un.SY.{code}"
+    finmax_entity, recon_note = map_finmax_entity(entity, finmax_entity)
     fm_period = f"{month} {fyy:02d}"
-    pulls.append(PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.EBITDA"])], [Axis("All Time Periods", [fm_period])],
-                          {"All Entities": finmax_entity, "All Scenarios": "Actual", "All Currencies": "NOK",
-                           "All Balance Types": bal}, title_suffix="recon"))
+    if finmax_entity:
+        pulls.append(PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.EBITDA"])],
+                              [Axis("All Time Periods", [fm_period])],
+                              {"All Entities": finmax_entity, "All Scenarios": "Actual", "All Currencies": "NOK",
+                               "All Balance Types": bal}, title_suffix="recon"))
     what = "YTD " if basis == "ytd" else ""
 
     def answer(P):
-        a, pl, fm = P["act"], P["plan"], P["fm"]
+        a, pl, fm = P["act"], P["plan"], P.get("fm")
         lines = []
         for key, acct, kind in FP_PNL:
             cells = [{"pull": a.sheet, "row": [acct], "col": ["Actual"]},
@@ -406,27 +457,30 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
                 {"header": "Var. vs target", "kind": "heltall"}, {"header": "Var. %", "kind": "prosent1"}]
         if forecast:
             cols += [{"header": forecast, "kind": "heltall"}, {"header": "Var. vs forecast", "kind": "heltall"}]
-        recon = [{"key": "fm_ebitda", "label": f"EBITDA in FinMax ({finmax_entity})", "kind": "line",
-                  "cells": [{"pull": fm.sheet, "row": ["ac.EBITDA"], "col": [fm_period]}]},
-                 {"key": "fm_diff", "label": "Difference FinPlan − FinMax", "kind": "line",
-                  "cells": [{"expr": "ebitda-fm_ebitda"}]}]
+        sections = [{"title": "Profit and loss (FinPlan definitions)", "lines": lines}]
+        if fm is not None:
+            sections.append({"title": "Reconciliation to the ledger (FinMax)", "lines": [
+                {"key": "fm_ebitda", "label": f"EBITDA in FinMax ({finmax_entity})", "kind": "line",
+                 "cells": [{"pull": fm.sheet, "row": ["ac.EBITDA"], "col": [fm_period]}]},
+                {"key": "fm_diff", "label": "Difference FinPlan − FinMax", "kind": "line",
+                 "cells": [{"expr": "ebitda-fm_ebitda"}]}]})
         ea, et = _val(a, ["EBITDA"], ["Actual"]), _val(pl, ["EBITDA"], ["Target"])
         ef = _val(pl, ["EBITDA"], [forecast]) if forecast else None
-        efm = _val(fm, ["ac.EBITDA"], [fm_period])
         kp = [f"EBITDA {what}{month} {year}: actual {_fmt(ea)} vs target {_fmt(et)} "
               f"(variance {_fmt(None if ea is None or et is None else ea - et)}, {_pct(ea, et)})."]
         if forecast:
             kp.append(f"Against {forecast}: {_fmt(ef)} (variance {_fmt(None if ea is None or ef is None else ea - ef)}).")
-        kp.append(f"FinPlan Actual reconciles to FinMax EBITDA within {_fmt(None if ea is None or efm is None else ea - efm)}.")
+        kp.append(_recon_point(ea, fm, finmax_entity, fm_period, recon_note))
+        notes = ["Actual and plan both come from FinPlan so line definitions match (FinPlan groups accounts "
+                 "differently from FinMax; e.g. Technology revenue YTD Sep 26 is 59.8 MNOK in FinMax, 67.2 in FinPlan).",
+                 "Variance = actual − plan; costs are negative, so a positive variance is better."]
+        if recon_note:
+            notes.append(recon_note)
         return {"title": f"{entity} — actual vs budget/forecast {what}{month} {year}",
                 "subtitle": f"NOK · FinPlan · Actual (Working) vs Target and {forecast or 'no forecast'} (Final) · {bal}",
-                "key_points": kp, "columns": cols,
-                "sections": [{"title": "Profit and loss (FinPlan definitions)", "lines": lines},
-                             {"title": "Reconciliation to the ledger (FinMax)", "lines": recon}],
+                "key_points": kp, "columns": cols, "sections": sections,
                 "checks": [{"label": l, "expr": e, "columns": [0, 1]} for l, e in FP_CHECKS],
-                "notes": ["Actual and plan both come from FinPlan so line definitions match (FinPlan groups accounts "
-                          "differently from FinMax; e.g. Technology revenue YTD Sep 26 is 59.8 MNOK in FinMax, 67.2 in FinPlan).",
-                          "Variance = actual − plan; costs are negative, so a positive variance is better."],
+                "notes": notes,
                 "source": f"Source: Oracle EPM Cloud (FinPlan, FinMax) via Smart View, retrieved {_now()}."}
 
     return Plan(f"{entity} actual vs plan {month} {year}", pulls, answer)

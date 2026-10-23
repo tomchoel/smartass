@@ -81,7 +81,8 @@ def _result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> di
         "key_points": spec.get("key_points", []),
         "table": _answer_markdown(spec, res),
         "checks": res["checks"],
-        "warnings": warnings + res["warnings"] + [f"formula error on line '{k}'" for k in res["formula_errors"]],
+        "warnings": warnings + res["warnings"] + (res.get("error_warnings")
+                                                  or [f"formula error on line '{k}'" for k in res["formula_errors"]]),
         "style_lint": res["lint"],
         # tn-formelstil: 'block' findings must be fixed (spec_patch) before the answer is presented as done
         "formula_style": res.get("formula_style"),
@@ -130,7 +131,9 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
                       compare 'ly'|None, drivers bool
       cost_base:      parent ('un.SY.2TEC'), accounts (['ac.C50S','ac.C60','ac.C70','ac.STA20Y']), period, top (25)
       monthly_trend:  entity, accounts, through ('Sep 26')
-      actual_vs_plan: entity (FinPlan alias, e.g. '2TEC Technology'), month ('Sep'), year ('FY26'), basis, forecast
+      actual_vs_plan: entity (FinPlan alias, e.g. '2TEC Technology'), month ('Sep'), year ('FY26'), basis, forecast,
+                      finmax_entity (FinMax entity for the EBITDA reconciliation; default: mapped via the atlas,
+                      'BANORWAY' -> 'un.SY'; no match -> no reconciliation, with a note)
     Write the chat reply from the returned key_points/table/checks."""
     fn = templates.TEMPLATES[template]
 
@@ -138,6 +141,8 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
         tm = Timer.start()
         with stage("plan (template)"):
             plan = fn(h, **params)
+        with stage("check members (atlas)"):
+            templates.check_pulls(plan.pulls)
         with stage("open target"):
             t = userexcel.resolve_target(h, target, allow_archive, title=plan.title)
             qn = q or userexcel.next_question(t)

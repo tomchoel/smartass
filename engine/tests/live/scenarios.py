@@ -79,8 +79,13 @@ def _all_ok(checks: dict) -> bool:
     return all(v == "OK" for v in checks.values())
 
 
+ERROR_CODES = ("#NoAccess", "#No Access", "#Invalid", "#VALUE!", "#REF!", "#N/A", "#DIV/0!", "#NAME?")
+
+
 def _no_formula_errors(out: dict) -> list[str]:
-    return [w for w in out.get("warnings", []) if "formula error" in w]
+    """Formula errors and error cells (answer lines and data sheets: '#NoAccess', '#VALUE!' ...) in the build."""
+    return [w for w in out.get("warnings", [])
+            if "formula error" in w or "error cell" in w or any(c in w for c in ERROR_CODES)]
 
 
 # ================================================================== S1 lookups

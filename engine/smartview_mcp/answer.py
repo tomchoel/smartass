@@ -86,7 +86,9 @@ def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull]) -> dict:
         grid = com(lambda: ws.Range(ws.Cells(1, 1), ws.Cells(max(res["_r"], 2), FIRST_COL + res["_ncol"])).Value)
     cell = lambda row, col: grid[row - 1][col - 1] if row - 1 < len(grid) and col - 1 < len(grid[row - 1]) else None
     values = {k: [cell(row, FIRST_COL + j) for j in range(res["_ncol"])] for k, row in res["_rows_by_key"].items()}
-    errors = [k for k, vs in values.items() if any(isinstance(v, int) and v < -2146826000 for v in vs)]
+    errors = [k for k, vs in values.items() if any(error_code(v) for v in vs)]
+    with stage("scan error cells"):
+        error_warns = error_warnings(ws.Name, grid, res["_trace"], _pull_grids(t, pulls))
     status = {}
     from openpyxl.utils import column_index_from_string as CI
     for m in res["_rows_meta"]:
@@ -95,7 +97,122 @@ def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull]) -> dict:
     with stage("formula check (tn-formelstil)"):
         formula_style = fx.check(fx.sheet_formulas(ws, com))
     return {"sheet": ws.Name, "values": values, "checks": status, "warnings": res["warnings"], "lint": res["lint"],
-            "formula_errors": errors, "formula_style": formula_style}
+            "formula_errors": errors, "error_warnings": error_warns, "formula_style": formula_style}
+
+
+# ------------------------------------------------------------------ error cells (answer + its data sheets)
+XL_ERRORS = {-2146826281: "#DIV/0!", -2146826246: "#N/A", -2146826259: "#NAME?", -2146826288: "#NULL!",
+             -2146826252: "#NUM!", -2146826265: "#REF!", -2146826273: "#VALUE!", -2146826238: "#SPILL!",
+             -2146826229: "#CALC!"}             # CVErr codes as COM returns them (ints)
+ERROR_TEXTS = {"#NoAccess", "#No Access", "#Invalid", "#VALUE!", "#REF!", "#N/A", "#DIV/0!", "#NAME?"}
+_PULL_CAUSE = {"#NoAccess": "no read access or member not valid in this cube",
+               "#No Access": "no read access or member not valid in this cube",
+               "#Invalid": "member combination not valid in this cube"}
+
+
+def error_code(v) -> str | None:
+    """'#VALUE!' etc. for an Excel error (COM int) or a Smart View / Excel error label; None for anything else."""
+    if isinstance(v, int) and not isinstance(v, bool) and v in XL_ERRORS:
+        return XL_ERRORS[v]
+    if isinstance(v, str) and v.strip() in ERROR_TEXTS:
+        return v.strip()
+    return None
+
+
+def _addr(sheet: str, row: int, col: int) -> str:
+    return "'" + sheet.replace("'", "''") + f"'!{L(col)}{row}"
+
+
+def _error_cells(grid) -> list[tuple[int, int, str]]:
+    out = []
+    for i, r in enumerate(grid or ()):
+        for j, v in enumerate(r or ()):
+            code = error_code(v)
+            if code:
+                out.append((i + 1, j + 1, code))
+    return out
+
+
+def cell_trace(plan: list, rows_by_key: dict, pulls: dict, ncol: int) -> dict:
+    """(row, col) of every answer line cell -> {"key", "pull": "'sheet'!B3"} for pulled cells, or {"key", "deps":
+    [(row, col), ...]} for cells computed from other answer cells (to say what an error depends on)."""
+    out = {}
+    for kind, ln, row in plan:
+        if kind != "line" or not ln.get("key"):
+            continue
+        cells = ln.get("cells", [])
+        for j in range(min(ncol, len(cells))):
+            c, col = cells[j], FIRST_COL + j
+            if not isinstance(c, dict):
+                continue
+            ent: dict = {"key": ln["key"]}
+            try:
+                if "pull" in c and c["pull"] in pulls:
+                    p = pulls[c["pull"]]
+                    i = p.layout.row_tuples.index(tuple(c["row"]))
+                    k = p.layout.col_tuples.index(tuple(c["col"]))
+                    ent["pull"] = _addr(p.sheet, 2 + p.layout.nc + i, p.layout.nr + 1 + k)
+                elif "var" in c or "varpct" in c:
+                    ent["deps"] = [(row, FIRST_COL + k) for k in (c.get("var") or c.get("varpct"))]
+                elif "expr" in c:
+                    keys = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", c["expr"])
+                    ent["deps"] = [(rows_by_key[k], col) for k in keys if k in rows_by_key]
+                elif "sum" in c and isinstance(c["sum"], list):
+                    ent["deps"] = [(rows_by_key[k], col) for k in c["sum"] if k in rows_by_key]
+                elif "ref" in c and c["ref"].get("key") in rows_by_key:
+                    ent["deps"] = [(rows_by_key[c["ref"]["key"]], FIRST_COL + int(c["ref"].get("col", j)))]
+                elif "rowsum" in c:
+                    ent["deps"] = [(row, FIRST_COL + k) for k in c["rowsum"]]
+            except (ValueError, KeyError, TypeError):
+                pass                                    # untraceable: the error is still named, just without a cause
+            out[(row, col)] = ent
+    return out
+
+
+def error_warnings(sheet: str, grid, trace: dict, pull_grids: dict) -> list[str]:
+    """Warnings for every error cell in the answer sheet and its data sheets, with the likely cause: on a data sheet
+    '#NoAccess' = no read access / member not in this cube; on an answer line, the data-sheet cell it depends on."""
+    out = []
+    for name, g in pull_grids.items():
+        for r, c, code in _error_cells(g):
+            cause = _PULL_CAUSE.get(code)
+            out.append(f"error cell {_addr(name, r, c)} is {code}" + (f": {cause}" if cause else ""))
+    vals = {(r, c): code for r, c, code in _error_cells(grid)}
+
+    def sources(rc, seen) -> list[str]:
+        if rc in seen:
+            return []
+        seen.add(rc)
+        ent = trace.get(rc) or {}
+        if "pull" in ent:
+            return [ent["pull"]]
+        found = []
+        for d in ent.get("deps", []):
+            if d in vals:                               # follow only inputs that are errors themselves
+                found += [s for s in sources(d, seen) if s not in found]
+        return found
+
+    for (r, c), code in sorted(vals.items()):
+        ent = trace.get((r, c))
+        where = f"{_addr(sheet, r, c)} is {code}"
+        if ent is None:
+            out.append(f"error cell {where}")
+            continue
+        src = sources((r, c), set())
+        out.append(f"formula error on line '{ent['key']}': {where}" + (f" (depends on {', '.join(src)})" if src else ""))
+    return out
+
+
+def _pull_grids(t: Target, pulls: dict) -> dict:
+    """Values of the question's data sheets (same read as a pull: ops._used_values); unreadable sheets are skipped."""
+    from .ops import _used_values
+    out = {}
+    for name in pulls:
+        try:
+            out[name] = com(lambda: _used_values(t.wb.Worksheets(name)))
+        except Exception:   # noqa: BLE001 - the scan is advisory
+            pass
+    return out
 
 
 def _build(t: Target, q: int, spec: dict, pulls: dict) -> dict:
@@ -124,7 +241,7 @@ def _build(t: Target, q: int, spec: dict, pulls: dict) -> dict:
             except Exception as e:   # noqa: BLE001 - a chart must never break the answer
                 warnings.append(f"chart not created: {e}")
     return {"_ws_name": ws.Name, "_r": r, "_ncol": ncol, "_rows_by_key": rows_by_key, "_rows_meta": rows_meta,
-            "warnings": warnings, "lint": lint}
+            "_trace": cell_trace(plan, rows_by_key, pulls, ncol), "warnings": warnings, "lint": lint}
 
 
 def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
