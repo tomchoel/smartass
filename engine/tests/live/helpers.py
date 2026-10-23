@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from smartview_mcp.auditlib import is_engine_excel
+from smartview_mcp.auditlib import is_engine_excel, poll_kill, stale_suspended
 
 _IN_MATRIX = re.compile(r"[\\/]_matrix[\\/][^\\/]+$", re.IGNORECASE)
 BM_CLICK, WM_GETOBJECT, OBJID_NATIVEOM, SMTO_ABORTIFHUNG = 0x00F5, 0x003D, -16, 0x0002
@@ -20,15 +20,63 @@ DIALOG_CLASSES = ("#32770", "NUIDialog")
 
 
 # ================================================================== engine-owned Excel and the dialog watchdog
-def engine_excel_pids(scratch) -> set[int]:
-    """PIDs of the Excel processes the engine or the matrix owns (see auditlib.is_engine_excel)."""
+_CLIENTS: list = []          # the matrix's own MCP clients (ctx.client, S8.parallel's second): see matrix_owners()
+
+
+@contextlib.contextmanager
+def tracked(client):
+    """While inside, `client`'s child_server.py processes count as owners of engine Excels (matrix_owners)."""
+    _CLIENTS.append(client)
+    try:
+        yield client
+    finally:
+        _CLIENTS.remove(client)
+
+
+def matrix_owners() -> dict[int, float]:
+    """{pid: create time} of the child_server.py processes of the matrix's own clients (read fresh: the relay may
+    have restarted one)."""
     import psutil
 
+    out = {}
+    for c in list(_CLIENTS):
+        try:
+            pids = server_pids(c)
+        except (psutil.Error, AttributeError):
+            continue
+        for pid in pids:
+            try:
+                out[pid] = psutil.Process(pid).create_time()
+            except psutil.Error:
+                continue
+    return out
+
+
+def pid_registry() -> list[dict]:
+    """The engine's pids.json (written by host._PidRegistry: [{pid, ctime, owner, owner_ctime}])."""
+    import json
+
+    from smartview_mcp import config
+
+    try:
+        items = json.loads(Path(config.PID_FILE).read_text())
+    except (OSError, ValueError):
+        return []
+    return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+
+
+def engine_excel_pids(scratch) -> set[int]:
+    """PIDs of the Excel processes the matrix owns (see auditlib.is_engine_excel): the hidden Excels pids.json records
+    for the matrix's own servers, and our '/x <scratch workbook>' Excels."""
+    import psutil
+
+    registry, owners = pid_registry(), matrix_owners()
     out = set()
-    for p in psutil.process_iter(["name", "cmdline"]):
+    for p in psutil.process_iter(["name", "cmdline", "create_time"]):
         try:
             if (p.info["name"] or "").lower() == "excel.exe" and \
-                    is_engine_excel(subprocess.list2cmdline(p.info["cmdline"] or []), str(scratch)):
+                    is_engine_excel(subprocess.list2cmdline(p.info["cmdline"] or []), str(scratch), p.pid,
+                                    p.info["create_time"], registry, owners):
                 out.add(p.pid)
         except (psutil.Error, TypeError):
             continue
@@ -245,6 +293,12 @@ def kill_engine_edge() -> list[int]:
     return kill_our_chrome(config.DRILL_PROFILE)
 
 
+def kill_engine_edge_when_seen(done, timeout: float = 60, interval: float = 0.5) -> tuple[list[int], bool]:
+    """Poll for the drill Edge for up to `timeout` s and kill it the moment it appears; stops early once `done()`
+    (the call under test finished). Returns (killed pids, the call was still running at the kill)."""
+    return poll_kill(kill_engine_edge, done, timeout, interval, time.sleep, time.monotonic)
+
+
 def number(table: str, row: int = 0, col: int = -1) -> float | None:
     """A value from an sv_query markdown table ('1,858,190,823.29'): data row `row`, column `col`."""
     data = [ln for ln in table.splitlines()[2:] if ln.startswith("|")]
@@ -323,16 +377,24 @@ def restore_matrix_bak() -> list[str]:
 @contextlib.contextmanager
 def expired_sso():
     """The engine's drill Edge loses its sign-in: its cookie store is renamed to *.matrix-bak for the duration.
-    (The engine keeps no SSO token file of its own; Smart View's EPM session lives inside its Excel.)"""
+    (The engine keeps no SSO token file of its own; Smart View's EPM session lives inside its Excel.)
+    A leftover *.matrix-bak (an earlier run's backup of the REAL sign-in) is restored first; if one still remains,
+    Limit, and nothing is renamed, so a backup is never overwritten."""
+    restore_matrix_bak()
+    left = [str(b) for d in _cookie_dirs() for b in d.glob("*" + BAK)]
+    if left:
+        raise Limit(f"leftover cookie backup(s) could not be restored: {left}")
     kill_engine_edge()
     time.sleep(1)
     moved = []
     try:
         for d in _cookie_dirs():
             for name in COOKIE_FILES:
-                f = d / name
+                f, bak = d / name, d / (name + BAK)
                 if f.exists():
-                    f.replace(f.with_name(name + BAK))
+                    if bak.exists():
+                        raise Limit(f"{bak} appeared: not overwritten")
+                    f.rename(bak)                  # rename never replaces an existing file on Windows
                     moved.append(str(f))
         yield moved
     finally:
@@ -340,22 +402,18 @@ def expired_sso():
 
 
 def engine_hidden_excel_pid(pid: int) -> int:
-    """`pid` if it is the engine's hidden Excel (recorded in pids.json AND started '-Embedding'); else AssertionError."""
-    import json
-
+    """`pid` if it is the hidden Excel of one of the matrix's own servers (pids.json entry with a matching create
+    time, owned by a matrix child_server.py, started '-Embedding'); else AssertionError."""
     import psutil
-    from smartview_mcp import config
 
-    try:
-        owned = {i["pid"] for i in json.loads(Path(config.PID_FILE).read_text())}
-    except (OSError, ValueError, KeyError, TypeError):
-        owned = set()
-    if pid not in owned:
-        raise AssertionError(f"Excel pid {pid} is not in the engine's {config.PID_FILE.name} {sorted(owned)}")
-    cmd = " ".join(psutil.Process(pid).cmdline()).lower()
-    if "-embedding" not in cmd:
-        raise AssertionError(f"Excel pid {pid} is not an -Embedding Excel: {cmd[:120]}")
-    return pid
+    if pid in engine_excel_pids(_scratch_root()):
+        try:
+            if "-embedding" in " ".join(psutil.Process(pid).cmdline()).lower():
+                return pid
+        except psutil.Error:
+            pass
+    raise AssertionError(f"Excel pid {pid} is not the hidden Excel of a matrix server (pids.json "
+                         f"{[(i.get('pid'), i.get('owner')) for i in pid_registry()]}, owners {sorted(matrix_owners())})")
 
 
 def server_pids(client) -> list[int]:
@@ -372,14 +430,57 @@ def server_pids(client) -> list[int]:
     return out
 
 
-@contextlib.contextmanager
-def suspended(pids: list[int]):
+def _suspend_marker() -> Path:
+    from smartview_mcp import config
+
+    return Path(config.HOME) / "matrix-suspended.json"
+
+
+def resume_leftover_suspended() -> list[int]:
+    """A matrix run killed during S8.sleep left its servers suspended (holding drill_edge.lock etc.): resume every
+    PID in the marker that is still the same process (auditlib.stale_suspended), then delete the marker."""
+    import json
+
     import psutil
 
+    m = _suspend_marker()
+    if not m.exists():
+        return []
+    try:
+        marker = json.loads(m.read_text())
+    except (OSError, ValueError):
+        marker = []
+    running = {}
+    for i in marker if isinstance(marker, list) else []:
+        try:
+            running[i["pid"]] = psutil.Process(i["pid"]).create_time()
+        except (psutil.Error, KeyError, TypeError, ValueError):
+            continue
+    resumed = []
+    for pid in stale_suspended(marker if isinstance(marker, list) else [], running):
+        try:
+            psutil.Process(pid).resume()
+            resumed.append(pid)
+        except psutil.Error:
+            continue
+    m.unlink(missing_ok=True)
+    return resumed
+
+
+@contextlib.contextmanager
+def suspended(pids: list[int]):
+    """Suspend `pids`; a marker file ({pid, ctime}) lets the next matrix start resume them if this run dies."""
+    import json
+
+    import psutil
+
+    procs = [psutil.Process(pid) for pid in pids]
+    m = _suspend_marker()
+    m.parent.mkdir(parents=True, exist_ok=True)
+    m.write_text(json.dumps([{"pid": p.pid, "ctime": p.create_time()} for p in procs]))
     done = []
     try:
-        for pid in pids:
-            p = psutil.Process(pid)
+        for p in procs:
             p.suspend()
             done.append(p)
         yield done
@@ -389,6 +490,7 @@ def suspended(pids: list[int]):
                 p.resume()
             except psutil.Error:
                 pass
+        m.unlink(missing_ok=True)
 
 
 def app_of(pid: int, timeout_ms: int = 3000):

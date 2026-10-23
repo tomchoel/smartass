@@ -155,6 +155,9 @@ def main(argv: list[str] | None = None) -> int:
     restored = helpers.restore_matrix_bak()      # a crashed S8.sso run must not leave the drill Edge signed out
     if restored:
         print(f"restored leftover *.matrix-bak: {restored}", flush=True)
+    resumed = helpers.resume_leftover_suspended()   # a crashed S8.sleep run must not leave servers suspended
+    if resumed:
+        print(f"resumed leftover suspended server(s): {resumed}", flush=True)
     chosen = select(args.only, args.fresh)
     if not chosen:
         print("no scenarios match", file=sys.stderr)
@@ -168,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         client = McpClient(cwd=scratch)          # project '_matrix': target 'new' lands in the scratch folder
         ctx.client = client
+        helpers._CLIENTS.append(client)          # its servers own the engine Excels DialogWatch may touch
         atlas = atlas_age(client)
         for run in range(1, args.repeat + 1):
             for sc in chosen:
@@ -187,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             print(f"cleanup failed: {e}", file=sys.stderr)
         if client is not None:
+            helpers._CLIENTS.remove(client)
             client.close()
         base = write_report(args, started, atlas, results)
         print(f"report: {base.with_suffix('.md')}")

@@ -621,21 +621,22 @@ def s8_parallel(ctx):
 
     second = McpClient(cwd=ctx.scratch)
     try:
-        jobs = [(ctx.client, "MATRIX S8 parallel A WHS", WHS_POV, "1 858 190 823"),
-                (second, "MATRIX S8 parallel B BUS", {**BUS_POV, "All Balance Types": "Accumulated"}, BUS_YTD)]
-        threads = [_in_thread(_small_build, c, q, pov) for c, q, pov, _ in jobs]
-        outs, errs = [], []
-        for (t, box), (_, q, _, want) in zip(threads, jobs):
-            try:
-                out = _join(t, box, CALL_TIMEOUT + 10)
-                assert want in out["table"], f"{q}: {want} not in\n{out['table']}"
-                outs.append(out)
-            except Exception as e:
-                errs.append(f"{q}: {type(e).__name__}: {e}")
-        if any(e.split(": ", 2)[1] == "HANG" for e in errs):
-            raise HANG("; ".join(errs))
-        assert not errs, "; ".join(errs)
-        assert outs[0]["workbook"] != outs[1]["workbook"], f"both answers went to {outs[0]['workbook']}"
+        with helpers.tracked(second):            # its hidden Excel is the matrix's too (DialogWatch)
+            jobs = [(ctx.client, "MATRIX S8 parallel A WHS", WHS_POV, "1 858 190 823"),
+                    (second, "MATRIX S8 parallel B BUS", {**BUS_POV, "All Balance Types": "Accumulated"}, BUS_YTD)]
+            threads = [_in_thread(_small_build, c, q, pov) for c, q, pov, _ in jobs]
+            outs, errs = [], []
+            for (t, box), (_, q, _, want) in zip(threads, jobs):
+                try:
+                    out = _join(t, box, CALL_TIMEOUT + 10)
+                    assert want in out["table"], f"{q}: {want} not in\n{out['table']}"
+                    outs.append(out)
+                except Exception as e:
+                    errs.append(f"{q}: {type(e).__name__}: {e}")
+            if any(e.split(": ", 2)[1] == "HANG" for e in errs):
+                raise HANG("; ".join(errs))
+            assert not errs, "; ".join(errs)
+            assert outs[0]["workbook"] != outs[1]["workbook"], f"both answers went to {outs[0]['workbook']}"
     finally:
         second.close()
     return {"notes": f"{[Path(o['workbook']).name for o in outs]}; " + _followup(ctx)}
@@ -654,10 +655,16 @@ def s8_kill_excel(ctx):
              [{"dimension": "All Time Periods", "members": MONTHS}], {**BUS_POV, "All Balance Types": "Periodic"})
     t, box = _in_thread(_call, ctx.client, "sv_query", big)
     time.sleep(1.0)
-    alive_at_kill = t.is_alive()
-    psutil.Process(pid).kill()
+    if not t.is_alive():
+        _join(t, box, 5)
+        raise helpers.Limit("injection missed: the query finished before the kill")
+    try:
+        psutil.Process(pid).kill()
+    except psutil.Error as e:
+        _join(t, box, CALL_TIMEOUT + 10)
+        raise helpers.Limit(f"injection missed: Excel {pid} not killed ({type(e).__name__})")
     b, secs, err = _join(t, box, CALL_TIMEOUT + 10)
-    notes = [f"killed Excel {pid} ({'during' if alive_at_kill else 'after'} the query)"]
+    notes = [f"killed Excel {pid} during the query"]
     if err:
         if "sv_restart" in err:
             notes.append(f"error names sv_restart ({secs:.0f}s)")
@@ -675,11 +682,13 @@ def s8_kill_excel(ctx):
 def s8_kill_edge(ctx):
     args = {"question": "MATRIX S8 kill edge", "cell": CELL_12881, "target": "none"}
     t, box = _in_thread(_call, ctx.client, "sv_drill", args)
-    time.sleep(5)
-    alive_at_kill = t.is_alive()
-    killed = helpers.kill_engine_edge()
+    time.sleep(2)                                # the drill is under way (not just an idle Edge from before)
+    killed, running = helpers.kill_engine_edge_when_seen(lambda: not t.is_alive(), timeout=60)
     out, secs, err = _join(t, box, CALL_TIMEOUT + 10)
-    notes = [f"killed {len(killed)} engine Edge ({'during' if alive_at_kill else 'after'} the drill)"]
+    if not killed or not running:
+        raise helpers.Limit("injection missed: " + ("the drill finished before an engine Edge appeared"
+                                                    if not running else "no engine Edge appeared within 60s"))
+    notes = [f"killed {len(killed)} engine Edge during the drill"]
     if err:
         assert "next" in err.lower(), f"drill error without a next step ({secs:.0f}s): {err[:300]}"
         notes.append(f"error with a next step ({secs:.0f}s)")
