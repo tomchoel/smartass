@@ -299,7 +299,9 @@ class SmartViewBoxes:
 NOT_SIGNED_IN = ("Smart View in this Excel is not signed in correctly: EPM answers 'Empty response from provider' to "
                  "every connect, and Smart View shows no Login to click. Ask the user to sign in once in that Excel "
                  "(Smart View ribbon -> Panel -> connect FinMax, or close that Excel so the next call starts a fresh "
-                 "one), then ask again.")
+                 "one), then ask again. If every Excel does this and no Login appears anywhere, Smart View's shared "
+                 "sign-in is stale: close all Excels, rename the Cookies files in %APPDATA%\\Oracle\\SmartView\\WebView"
+                 "\\EBWebView\\Default\\Network, then retry (docs\\troubleshooting.md, Known limits).")
 
 
 RECOVER_SETTLE_S = 12         # after a login recovery: time for Smart View to reopen the login before we go on
