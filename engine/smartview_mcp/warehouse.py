@@ -39,7 +39,25 @@ CREATE TABLE IF NOT EXISTS fill (
   cells BIGINT, result VARCHAR, detail VARCHAR);
 CREATE TABLE IF NOT EXISTS state (key VARCHAR PRIMARY KEY, value VARCHAR);
 """
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 OPEN = "open"                                          # closed_month of a row read live at question time
+
+
+def _month_index(label: str) -> int | None:
+    """'Sep 26' -> 2026*12 + 9 (None for anything else, e.g. OPEN)."""
+    try:
+        return (2000 + int(label[4:6])) * 12 + _MONTHS.index(label[:3]) + 1
+    except (ValueError, IndexError):
+        return None
+
+
+def protects(old_period: str, old_closed: str) -> bool:
+    """A stored row is closed history - never replaced by a live (OPEN) read - when it was read as closed and its
+    period is on or before the month that was closed then. Plan months after it (forecast, target) stay replaceable."""
+    if old_closed == OPEN:
+        return False
+    p, c = _month_index(old_period), _month_index(old_closed)
+    return p is not None and c is not None and p <= c
 
 
 class WarehouseUnavailable(Exception):
@@ -90,11 +108,11 @@ class MemoryWarehouse:
     def put(self, rows: Iterable[Row]) -> int:
         n = 0
         for r in rows:
-            n += 1
             old = self.rows.get(r.key)
-            if r.closed_month == OPEN and old is not None and old.closed_month != OPEN:
+            if r.closed_month == OPEN and old is not None and protects(old.key[5], old.closed_month):
                 continue                                   # a live read never replaces closed history
             self.rows[r.key] = r
+            n += 1
         return n
 
     def get(self, cube: str, entities, accounts, periods, scenario: str, version: str, balance: str,
@@ -200,17 +218,22 @@ class Warehouse:
                 db.close()
 
     def put(self, rows: Iterable[Row]) -> int:
-        """Upsert; a key repeated in `rows` keeps its last row; an OPEN row never replaces a closed one. Returns the number of distinct keys written."""
+        """Upsert; a key repeated in `rows` keeps its last row; an OPEN row never replaces a stored row of a closed period. Returns the number of rows actually written."""
         recs = [r.record() for r in {r.key: r for r in rows}.values()]
         sel = ", ".join(f"unnest(${i + 1}::{t}[]) AS {c}" for i, (t, c) in enumerate(zip(TYPES, COLUMNS)))
         pk = " AND ".join(f"f.{c} = n.{c}" for c in COLUMNS[:7])
-        # one statement: ~0.3 s/6500 rows; an OPEN row never replaces an existing closed one
+        mi = ("(2000 + CAST(substr({c}, 5, 2) AS INTEGER)) * 12 + "
+              "list_position(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], "
+              "substr({c}, 1, 3))")
+        # one statement: ~0.3 s/6500 rows; an OPEN row never replaces a stored row of a closed period
         sql = (f"INSERT OR REPLACE INTO fact SELECT * FROM (SELECT {sel}) n WHERE NOT (n.closed_month = '{OPEN}' "
-               f"AND EXISTS (SELECT 1 FROM fact f WHERE {pk} AND f.closed_month <> '{OPEN}'))")
+               f"AND EXISTS (SELECT 1 FROM fact f WHERE {pk} AND f.closed_month <> '{OPEN}' "
+               f"AND {mi.format(c='f.period')} <= {mi.format(c='f.closed_month')})) RETURNING 1")
+        written = 0
         for i in range(0, len(recs), PUT_CHUNK):
             cols = [list(c) for c in zip(*recs[i:i + PUT_CHUNK])]
-            self._write(lambda db, cols=cols: db.execute(sql, cols))
-        return len(recs)
+            written += self._write(lambda db, cols=cols: len(db.execute(sql, cols).fetchall()))
+        return written
 
     def get(self, cube: str, entities, accounts, periods, scenario: str, version: str, balance: str,
             closed_only: bool = False) -> dict[WhKey, float | None]:

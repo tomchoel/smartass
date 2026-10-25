@@ -234,7 +234,7 @@ def fill(store, retrieve: Retrieve, cat: Catalog, grids: list[Grid], job: str, c
     """Read every grid, store the rows, reconcile them and record the job in `fill`. A grid that fails is named in
     the result (the others are still stored); a failed job leaves the refresh state as it was, so it is retried."""
     t0, started = time.monotonic(), now()
-    rows, errors, routes, transport = [], [], set(), False
+    rows, errors, warnings, routes, transport = [], [], [], set(), False
     for g in grids:
         try:
             lay, parsed, _secs, how = retrieve(g.conn, g.pov, g.rows, g.cols)
@@ -245,21 +245,25 @@ def fill(store, retrieve: Retrieve, cat: Catalog, grids: list[Grid], job: str, c
         routes.add(how)
         got, bad = to_rows(lay, parsed, g.conn, how, now(), closed_label or closed, atlas_build, closed)
         rows += got
-        errors += [f"{g.what}: {b}" for b in bad[:5]] + [f"{g.what}: {w}" for w in parsed.pov_problems]
-        errors += [f"{g.what}: unknown members {', '.join(parsed.unknown_members)}"] if parsed.unknown_members else []
-    detail = {"grids": len(grids), "routes": sorted(routes), "errors": errors[:20], "checks": 0, "problems": [],
-              "info": [], "content_only": bool(errors) and not transport}   # content_only: retrying cannot help
+        found = [f"{g.what}: {b}" for b in bad[:5]] + [f"{g.what}: {w}" for w in parsed.pov_problems]
+        found += [f"{g.what}: unknown members {', '.join(parsed.unknown_members)}"] if parsed.unknown_members else []
+        if got:
+            warnings += found                    # some cells were unusable, the grid's other cells were stored
+        else:
+            errors += found or [f"{g.what}: no cells returned"]            # the whole grid failed
+    detail = {"grids": len(grids), "routes": sorted(routes), "errors": errors[:20], "warnings": warnings[:20],
+              "checks": 0, "problems": [], "info": [], "refused": 0, "content_only": bool(errors) and not transport}   # content_only: retrying cannot help
     try:
-        store.put(rows)
+        written = store.put(rows)
     except WarehouseUnavailable as e:
         detail["errors"] = [f"warehouse unavailable, {len(rows)} cells not stored: {e}", *errors][:20]
         detail["content_only"] = False
         f = Fill(job, f"{len(grids)} grids", started, round(time.monotonic() - t0, 2), 0, "error", detail)
         return FillResult(f, [])
     n, problems, info = check_batch(cat, rows, closed, store) if rows else (0, [], [])
-    result = "error" if errors else ("warn" if problems else "ok")
-    detail.update(checks=n, problems=problems[:20], info=info)
-    f = Fill(job, f"{len(grids)} grids", started, round(time.monotonic() - t0, 2), len(rows), result, detail)
+    result = "error" if errors else ("warn" if problems or warnings else "ok")
+    detail.update(checks=n, problems=problems[:20], info=info, refused=len({r.key for r in rows}) - written)
+    f = Fill(job, f"{len(grids)} grids", started, round(time.monotonic() - t0, 2), written, result, detail)
     try:
         store.record_fill(f)
     except WarehouseUnavailable as e:

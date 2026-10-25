@@ -106,9 +106,11 @@ def test_a_valid_file_without_tables_is_unavailable_and_status_says_so(tmp_path)
     assert st["exists"] is True and "cannot read" in st["error"]
 
 
-def test_an_open_row_never_replaces_a_closed_one(store):
-    store.put([r(k(), 100.0, closed="Aug 26"), r(k(period="Aug 26"), 5.0, closed=OPEN)])
-    store.put([r(k(), 999.0, closed=OPEN), r(k(period="Aug 26"), 6.0, closed=OPEN), r(k(period="Oct 26"), 7.0, closed=OPEN)])
+def test_an_open_row_never_replaces_a_closed_period(store):
+    store.put([r(k(), 100.0, closed="Sep 26"), r(k(period="Aug 26"), 5.0, closed=OPEN)])
+    wrote = store.put([r(k(), 999.0, closed=OPEN), r(k(period="Aug 26"), 6.0, closed=OPEN),
+                       r(k(period="Oct 26"), 7.0, closed=OPEN)])
+    assert wrote == 2                                              # the refused row is not counted
     got = store.get("FinMax", ["un.SY.2WHS"], ["ac.C30"], ["Sep 26", "Aug 26", "Oct 26"], "Actual", "", "Periodic",
                     closed_only=True)
     assert got == {k(): 100.0}                                     # closed value and label kept
@@ -117,3 +119,11 @@ def test_an_open_row_never_replaces_a_closed_one(store):
     store.put([r(k(), 101.0, closed="Sep 26")])                    # a closed read replaces anything
     assert store.get("FinMax", ["un.SY.2WHS"], ["ac.C30"], ["Sep 26"], "Actual", "", "Periodic",
                      closed_only=True) == {k(): 101.0}
+
+
+def test_plan_months_after_the_closed_month_stay_replaceable(store):
+    plan = k(cube="FinPlan", scenario="Forecast Q326", version="Final", period="Dec 26")
+    store.put([r(plan, 100.0, closed="Sep 26")])                   # a forecast month read when Sep 26 was closed
+    assert store.put([r(plan, 777.0, closed=OPEN)]) == 1
+    assert store.get("FinPlan", ["un.SY.2WHS"], ["ac.C30"], ["Dec 26"], "Forecast Q326", "Final", "Periodic") == {
+        plan: 777.0}

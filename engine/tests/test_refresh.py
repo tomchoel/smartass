@@ -144,7 +144,8 @@ def test_top_up_reads_only_open_months_and_never_relabels_closed_history(retriev
     store = MemoryWarehouse()
     whs = next(e for e in CAT.entities if e.key == "wholesale")
     extract.fill(store, retrieve, CAT, extract.base_grids(CAT, "Sep 26", FC), "base", "Sep 26")
-    before = {k: r.closed_month for k, r in store.rows.items() if r.closed_month != OPEN}
+    from smartview_mcp.warehouse import protects
+    before = {k: r.closed_month for k, r in store.rows.items() if protects(k[5], r.closed_month)}
     assert set(before.values()) == {"Sep 26"} and len(before) > 1000
     # FinPlan carries blank actuals for the months after the closed one: not closed history
     assert store.rows[("FinPlan", "Actual", "Working", "2WHS Wholesale", "EBITDA", "Oct 26", "Periodic")
@@ -208,15 +209,16 @@ def test_rows_of_members_smart_view_did_not_recognise_are_not_stored(retrieve, m
         p.unknown_members.append("All Entities: un.SY.BAD")
         return lay, p, secs, how
     res = extract.fill(store, unknown, CAT, grids, "t", "Jan 26")
-    assert res.fill.result == "error" and "un.SY.BAD" in res.fill.detail["errors"][0]
+    assert res.fill.result == "warn" and "un.SY.BAD" in res.fill.detail["warnings"][0]    # the rest was usable
     assert not any(k[3] == "un.SY.BAD" for k in store.rows) and any(k[3] == "un.SY.2WHS" for k in store.rows)
-    assert res.fill.detail["content_only"] is True
+    assert res.fill.detail["errors"] == []
 
 
 def _content_error(real):
     def f(conn, pov, rows, cols):
         lay, p, secs, how = real(conn, pov, rows, cols)
-        p.rows[0][-1] = "#NoAccess"
+        for row in p.rows:
+            row[lay.nr:] = ["#NoAccess"] * (len(row) - lay.nr)                    # the whole grid is unusable
         return lay, p, secs, how
     return f
 
@@ -333,3 +335,47 @@ def test_a_big_grid_goes_straight_to_com(monkeypatch):
     big = r("FinMax", {}, [Axis("A", ["x"] * 100)], [Axis("T", ["m"] * 100)])          # 10 000 cells / 200 > 10 s
     assert small[3] == "http" and big[3] == "com" and calls[0] == "http" and calls[1][0] == "com"
     assert calls[1][1] >= 50
+
+
+def test_one_unusable_cell_is_a_warning_and_the_state_still_advances(retrieve, snap_db):
+    db, _, _ = snap_db
+    store = MemoryWarehouse()
+    real = retrieve
+
+    def one_cell(conn, pov, rows, cols):
+        lay, p, secs, how = real(conn, pov, rows, cols)
+        p.rows[0][-1] = "#NoAccess"
+        return lay, p, secs, how
+    res = refresh.refresh(store, one_cell, CAT, "Sep 26", db, FC, now=lambda: 5.0)
+    assert res[0].fill.result == "warn" and res[0].ok and res[0].fill.detail["warnings"]
+    assert store.state()["closed_month"] == "Sep 26" and float(store.state()["retry_after_base"]) == 0
+
+
+def test_cells_count_what_was_written_and_the_refused_are_in_the_detail(retrieve):
+    store = MemoryWarehouse()
+    grids = extract.finmax_grids(CAT, ["Jan 26"], ["un.SY.2WHS"])
+    first = extract.fill(store, retrieve, CAT, grids, "t", "Jan 26")
+    assert first.fill.cells == sum(g.cells for g in grids) and first.fill.detail["refused"] == 0
+    live = extract.fill(store, retrieve, CAT, grids, "top_up", "Jan 26", closed_label="open")   # closed period: refused
+    assert live.fill.cells == 0 and live.fill.detail["refused"] == first.fill.cells
+
+
+@pytest.mark.parametrize("kind", ["memory", "duckdb"])
+def test_a_live_forecast_top_up_replaces_the_stored_forecast(tmp_path, kind):
+    from smartview_mcp.warehouse import Warehouse
+    t = EchoTransport(value)
+    http = svhttp.SvHttp(t, home="https://plan1.example", db_path=atlas_with_dimensions(tmp_path / "a.db"))
+    retrieve = extract.route(http=http)
+    store = MemoryWarehouse() if kind == "memory" else Warehouse(tmp_path / "w.duckdb")
+    extract.fill(store, retrieve, CAT, extract.base_grids(CAT, "Sep 26", FC), "base", "Sep 26")
+    whs = next(e for e in CAT.entities if e.key == "wholesale")
+    key = ("FinPlan", "Forecast Q326", "Final", "2WHS Wholesale", "EBITDA", "Dec 26", "Periodic")
+    assert store.get("FinPlan", ["2WHS Wholesale"], ["EBITDA"], ["Dec 26"], "Forecast Q326", "Final", "Periodic")[
+        key] == 290.0
+    t.value = lambda rows, cols, pov: 777.0 if "Forecast Q326" in pov else value(rows, cols, pov)
+    res = refresh.top_up(store, retrieve, CAT, whs, "Oct 26", "Sep 26", "Forecast Q326", [])
+    assert res[0].fill.detail["refused"] > 0                          # the forecast months up to Sep 26 are history
+    got = store.get("FinPlan", ["2WHS Wholesale"], ["EBITDA"], ["Mar 26", "Dec 26"], "Forecast Q326", "Final",
+                    "Periodic")
+    assert got[key] == 777.0
+    assert got[key[:5] + ("Mar 26", "Periodic")] == 290.0             # a closed period keeps its value
