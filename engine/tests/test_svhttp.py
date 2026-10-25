@@ -191,6 +191,24 @@ def test_the_data_source_is_chosen_by_server_name_and_must_serve_the_app(db_path
         sv.retrieve("FinPlan", {}, [Axis("Account", ["Revenue"])], [Axis("Period", ["Sep"])], True, False)
 
 
+def _plus(sources, *servers):
+    extra = "".join(f'<Product id="HP"><Server name="{n}" appName="{a}" '
+                    f'context="{b}/HyperionPlanning/SmartView"/></Product>' for n, a, b in servers)
+    return sources.replace("</res_GetProvisionedDataSources>", extra + "</res_GetProvisionedDataSources>")
+
+
+def test_only_the_requested_server_name_can_be_ambiguous(db_path):
+    unrelated = _plus(SOURCES, ("TELCONS", "TELCONS", "https://t1.example"), ("TELCONS", "TELCONS", "https://t2.example"))
+    t = FakeTransport(answer(GRID), sources=(unrelated,))
+    _q(_sv(t, db_path))                                    # a duplicated other server does not block FinMax
+    assert t.sent[-1] == ("https://plan1.example", "ExecuteGrid")
+    clash = _plus(SOURCES, ("FinMax", "FinMax", "https://plan9.example"))
+    sv = _sv(FakeTransport(sources=(clash,)), db_path)
+    with pytest.raises(svhttp.SvHttpError, match="'FinMax' is listed with different pods.*plan9.example.*ambiguous"):
+        sv.base_for("FinMax", "FinMax")
+    assert sv.base_for("FinPlan_for_DataLoad", "FinPlan") == "https://strat.example"
+
+
 def test_the_test_pod_is_refused_unless_allowed(db_path, monkeypatch):
     t = FakeTransport(answer(GRID))
     sv = _sv(t, db_path)

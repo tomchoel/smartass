@@ -54,22 +54,25 @@ class SvHttp:
         self.t = transport
         self.home = (home or config.EPM_BASE).rstrip("/")
         self.db_path = db_path or config.ATLAS_DB
-        self._bases: dict[str, str] | None = None
+        self._bases: dict[str, list[tuple[str, str]]] | None = None
         self._sids: dict[str, str] = {}
         self._lock = threading.Lock()
 
     def base_for(self, server: str, app: str) -> str:
         """The pod of the data source named `server`, which must serve `app` and must not be a test pod (unless
         config allows it). The list is cached once it is non-empty; a name missing from it is looked up once more."""
-        entry = self._bases.get(server) if self._bases else None
-        if entry is None:
+        entries = self._bases.get(server) if self._bases else None
+        if not entries:
             bases = svxml.data_sources(self.t.post(self.home, svxml.provisioned_data_sources()))
             self._bases = bases or None
-            entry = bases.get(server)
-            if entry is None:
+            entries = bases.get(server)
+            if not entries:
                 raise SvHttpError(f"EPM lists no Smart View data source named {server!r} "
                                   f"(has: {', '.join(sorted(bases)) or 'none'}); set svhttp server names in config")
-        got_app, base = entry
+        if len(entries) > 1:                 # only the name we need matters; other duplicates are not our problem
+            raise SvHttpError(f"Smart View data source {server!r} is listed with different pods/apps "
+                              f"({', '.join(f'{a} at {b}' for a, b in entries)}): ambiguous")
+        got_app, base = entries[0]
         if got_app != app:
             raise SvHttpError(f"Smart View data source {server!r} serves app {got_app}, not {app}")
         if "-test" in (urlsplit(base).hostname or "") and not config.SVHTTP_ALLOW_TEST:

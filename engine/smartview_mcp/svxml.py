@@ -108,21 +108,20 @@ def sid_in(text: str) -> str | None:
     return (html.unescape(m.group(1)).strip() or None) if m else None
 
 
-def data_sources(text: str) -> dict[str, tuple[str, str]]:
-    """{server name: (app, pod base URL)} from res_GetProvisionedDataSources. Keyed by the Server's NAME: several
-    servers share an app (live: three are app FinMax - prod plan1, plan7 and the plan1-test pod). A name listed
-    twice with different pods is ambiguous (SvXmlError)."""
+def data_sources(text: str) -> dict[str, list[tuple[str, str]]]:
+    """{server name: [(app, pod base URL), ...]} from res_GetProvisionedDataSources, distinct entries in list order.
+    Keyed by the Server's NAME: several servers share an app (live: three are app FinMax - prod plan1, plan7 and the
+    plan1-test pod). A name with more than one entry is ambiguous; the caller decides, for the name it needs."""
     raise_for_exception(text)
-    out: dict[str, tuple[str, str]] = {}
+    out: dict[str, list[tuple[str, str]]] = {}
     for tag in re.findall(r"<Server\b[^>]*>", text):
         attrs = {k: html.unescape(v) for k, v in re.findall(r'(\w+)="([^"]*)"', tag)}
         if not (attrs.get("name") and attrs.get("context") and attrs.get("appName")):
             continue
-        name, entry = attrs["name"], (attrs["appName"], attrs["context"].split("/HyperionPlanning/")[0])
-        if name in out and out[name] != entry:
-            raise SvXmlError(f"Smart View data source {name!r} is listed twice with different pods/apps "
-                             f"({out[name][1]}, {entry[1]}): ambiguous")
-        out[name] = entry
+        entry = (attrs["appName"], attrs["context"].split("/HyperionPlanning/")[0])
+        entries = out.setdefault(attrs["name"], [])
+        if entry not in entries:
+            entries.append(entry)
     return out
 
 
