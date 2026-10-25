@@ -66,6 +66,7 @@ def _with(path, value):
     (_with(["materiality", "always"], ["nope"]), "nope"),
     (_with(["entity"], BASE["entity"] * 2), "duplicate"),
     (_with(["scenarios", "actual"], {"connection": "FinMax", "label": "A"}), "scenario or rule"),
+    (_with(["entity", 0, "successors"], ["nope"]), "successor 'nope'"),
 ])
 def test_parse_rejects_broken_catalogues(data, msg):
     with pytest.raises(catalog.CatalogError, match=msg):
@@ -88,3 +89,49 @@ def test_resolve_entity(text, key):
 @pytest.mark.parametrize("text", ["is it good?", "what about ei?", "something else entirely"])
 def test_resolve_entity_needs_a_real_match(text):
     assert catalog.resolve_entity(catalog.load(), text) is None
+
+
+@pytest.mark.parametrize("text, key", [
+    ("total opex for SSM", "ssm"),
+    ("Total for IT", "it"),
+    ("total opex for Telenor Norge", "company"),
+    ("Telenor Norge", "company"),
+    ("kostnader i IT", "it"),
+    ("kostnad per årsverk i IT", "it"),
+    ("hva bruker bedriftsmarked på konsulenter?", "business"),
+    ("EBITDA i grossistmarkedet", "wholesale"),
+    ("kostnader i administrasjonen", "adm"),
+    ("stabsenheter Q3", "adm"),
+    ("admin opex", "adm"),
+    ("tv & internett hittil i år", "ei"),
+    ("opex 2NRD_N Sep 26", "nordics"),
+    ("un.SY.2NRD_N", "nordics"),
+    ("Consumer Q3 mot i fjor", "consumer"),
+])
+def test_resolve_entity_in_a_sentence(text, key):
+    assert catalog.resolve_entity(catalog.load(), text).key == key
+
+
+@pytest.mark.parametrize("text", ["mobil", "mobilkostnader i fjor", "Wholesale vs Business"])
+def test_resolve_entity_none_when_not_one_area(text):
+    assert catalog.resolve_entity(catalog.load(), text) is None
+
+
+@pytest.mark.parametrize("text, keys", [
+    ("Wholesale vs Business", ("wholesale", "business")),
+    ("Business vs Wholesale vs Business", ("business", "wholesale")),
+    ("IT-divisjonen mot Technology", ("it", "technology")),
+    ("Security Solutions & Mobile og E&I", ("ssm", "ei")),
+    ("Total for IT og SSM", ("it", "ssm")),
+    ("total opex", ("company",)),
+    ("nothing here", ()),
+])
+def test_resolve_entities_in_order_of_appearance(text, keys):
+    assert tuple(e.key for e in catalog.resolve_entities(catalog.load(), text)) == keys
+
+
+def test_abolished_consumer_names_its_successors():
+    cat = catalog.load()
+    con = catalog.resolve_entity(cat, "privatmarkedet")
+    assert con.key == "consumer" and con.abolished == "2026-06-01" and con.successors == ("ssm", "ei")
+    assert {e.key: e.successors for e in cat.entities}["ig"] == ()

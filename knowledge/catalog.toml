@@ -54,8 +54,12 @@ pct = 0.10                            # a variance is material from 10 % of the 
 abs_nok = 5_000_000                   # ... and from NOK 5 million (both must hold)
 always = ["rev", "pers", "ebitda"]    # always commented, material or not
 
-# Business areas. Aliases are matched as whole words in a question; aliases shorter than 3 characters only when
-# they are the whole question. abolished = the date the area was emptied (history is restated to today's org).
+# Business areas. Aliases are matched as whole words in a question; aliases shorter than 3 characters (it, ig, ei,
+# tn) only when they are the whole question or written in UPPER CASE in it ("kostnader i IT"). The company only wins
+# when no other area is named ("total opex for SSM" is SSM). A question naming several areas resolves to none of them
+# (resolve_entities lists them). Mobile ("mobil") is a product across divisions, not an area, so it is no alias.
+# abolished = the date the area was emptied (history is restated to today's org); successors = the areas that took
+# over its business (the tools explain the 1 June 2026 split and query the successors instead).
 [[entity]]
 key = "company"
 label = "Telenor Norge (total)"
@@ -68,28 +72,29 @@ key = "wholesale"
 label = "Wholesale"
 finmax = "un.SY.2WHS"
 finplan = "2WHS Wholesale"
-aliases = ["wholesale", "grossist", "whs", "2whs"]
+aliases = ["wholesale", "grossist", "grossistmarkedet", "whs", "2whs"]
 
 [[entity]]
 key = "business"
 label = "Business"
 finmax = "un.SY.2BUS"
 finplan = "2BUS Business"
-aliases = ["business", "bedrift", "bedriftsmarkedet", "b2b", "2bus"]
+aliases = ["business", "bedrift", "bedriftsmarked", "bedriftsmarkedet", "b2b", "2bus"]
 
 [[entity]]
 key = "ssm"
 label = "Security Solutions & Mobile"
 finmax = "un.SY.2SSM"
 finplan = "2SSM Security Solutions & Mobile"
-aliases = ["security solutions & mobile", "security solutions and mobile", "ssm", "2ssm", "mobil"]
+aliases = ["security solutions & mobile", "security solutions and mobile", "ssm", "2ssm"]
 
 [[entity]]
 key = "ei"
 label = "Entertainment & Internet"
 finmax = "un.SY.2EI"
 finplan = "2EI Entertainment & Internet"
-aliases = ["entertainment & internet", "entertainment and internet", "tv og internett", "e&i", "2ei", "ei"]
+aliases = ["entertainment & internet", "entertainment and internet", "tv og internett", "tv & internett", "e&i", "2ei",
+           "ei"]
 
 [[entity]]
 key = "technology"
@@ -110,14 +115,15 @@ key = "adm"
 label = "Norway Adm"
 finmax = "un.SY.2ADM"
 finplan = "2ADM Norway Adm"
-aliases = ["norway adm", "administration", "administrasjon", "staff units", "stab", "2adm", "adm"]
+aliases = ["norway adm", "administration", "administrasjon", "administrasjonen", "staff units", "stab", "stabsenheter",
+           "2adm", "adm", "admin"]
 
 [[entity]]
 key = "nordics"
 label = "Nordics"
 finmax = "un.SY.2NRD_N"
 finplan = "2NRD_N Nordics"
-aliases = ["nordics", "norden", "2nrd"]
+aliases = ["nordics", "norden", "2nrd", "2nrd_n"]
 
 [[entity]]
 key = "ig"
@@ -126,6 +132,7 @@ finmax = "un.SY.2IG"
 finplan = "2IG Infrastructure Growth"
 aliases = ["infrastructure growth", "2ig", "ig"]
 abolished = "2026-06-01"
+successors = []    # not recorded: which areas took over IG's units is not known to the catalogue yet
 note = "Abolished in the 1 June 2026 reorg; history is restated to today's organisation."
 
 [[entity]]
@@ -134,6 +141,7 @@ label = "Consumer Norway"
 finmax = "un.SY.2CON"
 aliases = ["consumer", "privat", "privatmarkedet", "2con"]
 abolished = "2026-06-01"
+successors = ["ssm", "ei"]
 note = "Emptied into 2SSM and 2EI on 1 June 2026; history is restated, so 2CON shows no data."
 
 # KPIs: ratios of two P&L line keys of one cube (computed in the workbook, never by the model).

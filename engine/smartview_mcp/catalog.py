@@ -7,7 +7,7 @@ from __future__ import annotations
 import functools
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import config
@@ -54,6 +54,7 @@ class Entity:
     finmax: str | None = None
     finplan: str | None = None
     abolished: str | None = None
+    successors: tuple[str, ...] = ()
     note: str = ""
 
 
@@ -82,10 +83,33 @@ class Catalog:
     materiality: Materiality
     entities: tuple[Entity, ...]
     kpis: tuple[Kpi, ...]
+    _whole: dict[str, Entity] = field(default_factory=dict, repr=False, compare=False)
+    _patterns: tuple[tuple[re.Pattern, Entity], ...] = field(default=(), repr=False, compare=False)
+
+
+COMPANY = "company"   # the entity for the whole company: a generic word like "total" must not beat a named area
 
 
 def _norm(s: str) -> str:
     return re.sub(r"[^\w&]+", " ", s.casefold()).strip()
+
+
+def _patterns(entities: tuple[Entity, ...]) -> tuple[tuple[re.Pattern, Entity], ...]:
+    """Each alias and label as a regex over the original text: words in any case with any separators between them;
+    aliases under 3 characters only in UPPER CASE (so "it" in "is it good?" is not IT)."""
+    out = []
+    for e in entities:
+        for a in (*e.aliases, e.label):
+            words = _norm(a).split()
+            if not words:
+                continue
+            if len("".join(words)) < 3:
+                rx = re.compile(rf"(?<![\w&]){re.escape(a.upper())}(?![\w&])")
+            else:
+                body = r"[^\w&]+".join(re.escape(w) for w in words)
+                rx = re.compile(rf"(?<![\w&]){body}(?![\w&])", re.IGNORECASE)
+            out.append((rx, e))
+    return tuple(out)
 
 
 def _unique(keys, what: str) -> None:
@@ -103,7 +127,8 @@ def parse(data: dict) -> Catalog:
         scenarios = {k: Scenario(key=k, **v) for k, v in data["scenarios"].items()}
         materiality = Materiality(float(data["materiality"]["pct"]), float(data["materiality"]["abs_nok"]),
                                   tuple(data["materiality"]["always"]))
-        entities = tuple(Entity(**{**e, "aliases": tuple(e.get("aliases", ()))}) for e in data["entity"])
+        entities = tuple(Entity(**{**e, "aliases": tuple(e.get("aliases", ())),
+                                   "successors": tuple(e.get("successors", ()))}) for e in data["entity"])
         kpis = tuple(Kpi(**k) for k in data.get("kpi", ()))
     except (KeyError, TypeError) as e:
         raise CatalogError(f"missing or unknown field: {e}") from None
@@ -133,7 +158,17 @@ def parse(data: dict) -> Catalog:
             raise CatalogError(f"materiality.always: '{a}' is not a line key")
     _unique([e.key for e in entities], "entity key")
     _unique([_norm(a) for e in entities for a in e.aliases], "entity alias")
-    return Catalog(pnl, checks, scenarios, materiality, entities, kpis)
+    ekeys = {e.key for e in entities}
+    for e in entities:
+        for s in e.successors:
+            if s not in ekeys or s == e.key:
+                raise CatalogError(f"entity '{e.key}': successor '{s}' is not another entity key")
+    whole: dict[str, Entity] = {}
+    for e in entities:
+        for name in (e.finmax, e.finplan, e.label, *e.aliases):
+            if name:
+                whole.setdefault(_norm(name), e)
+    return Catalog(pnl, checks, scenarios, materiality, entities, kpis, whole, _patterns(entities))
 
 
 @functools.lru_cache(maxsize=4)
@@ -149,20 +184,27 @@ def load(path: Path | None = None) -> Catalog:
     return _load(str(path or config.knowledge_file("catalog.toml")))
 
 
+def resolve_entities(cat: Catalog, text: str) -> tuple[Entity, ...]:
+    """Every business area a question or member name refers to, in order of appearance. A member name (finmax/finplan),
+    alias or label as the whole text gives that area alone. Otherwise aliases are found as whole words, a match inside
+    a longer match is dropped ("IT" in "IT-divisjonen"), and the company only counts when no other area is named."""
+    whole = cat._whole.get(_norm(text))
+    if whole:
+        return (whole,)
+    spans = [(m.start(), m.end(), e) for rx, e in cat._patterns for m in rx.finditer(text)]
+    kept = [(a, b, e) for a, b, e in spans
+            if not any(a2 <= a and b <= b2 and (b2 - a2) > (b - a) for a2, b2, _ in spans)]
+    found: list[Entity] = []
+    for _, _, e in sorted(kept, key=lambda x: (x[0], -(x[1] - x[0]))):
+        if e not in found:
+            found.append(e)
+    if len(found) > 1:
+        found = [e for e in found if e.key != COMPANY]
+    return tuple(found)
+
+
 def resolve_entity(cat: Catalog, text: str) -> Entity | None:
-    """The business area a question or member name refers to: a member name (finmax/finplan) or the whole text as
-    an alias first, else the longest alias found as whole words (aliases under 3 characters only as the whole text)."""
-    n = _norm(text)
-    for e in cat.entities:
-        names = [x for x in (e.finmax, e.finplan) if x]
-        if n in {_norm(x) for x in names} or n in {_norm(a) for a in e.aliases} or n == _norm(e.label):
-            return e
-    best: tuple[int, Entity] | None = None
-    for e in cat.entities:
-        for a in (*e.aliases, e.label):
-            a = _norm(a)
-            if len(a) < 3:
-                continue
-            if re.search(rf"(?<![\w&]){re.escape(a)}(?![\w&])", n) and (best is None or len(a) > best[0]):
-                best = (len(a), e)
-    return best[1] if best else None
+    """The one business area a question or member name refers to (see resolve_entities), or None when it names none
+    or several. An abolished area is returned as such: callers check `abolished` and `successors`."""
+    found = resolve_entities(cat, text)
+    return found[0] if len(found) == 1 else None
