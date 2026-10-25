@@ -214,3 +214,17 @@ def test_members_parses_the_pipe_list():
     assert e.value.code == 4997
     with pytest.raises(svxml.SvXmlError, match="no member list"):
         svxml.members("<res_EnumMembers></res_EnumMembers>")
+
+
+def test_echo_transport_answers_a_retrieve_with_the_value_function(tmp_path):
+    from svxml_util import EchoTransport, atlas_with_dimensions, pnl_value
+
+    from smartview_mcp import svhttp
+    from smartview_mcp.grid import Axis
+    sv = svhttp.SvHttp(EchoTransport(pnl_value), home="https://plan1.example",
+                       db_path=atlas_with_dimensions(tmp_path / "a.db"))
+    lay, p, _ = sv.retrieve("FinMax", {"All Balance Types": "Accumulated"},
+                            [Axis("All Entities", ["un.SY.2WHS"]), Axis("All Accounts", ["ac.C30", "ac.STA20Y"])],
+                            [Axis("All Time Periods", ["Mar 26"])], False, False)
+    assert p.rows == [["un.SY.2WHS", "ac.C30", 3000.0], ["un.SY.2WHS", "ac.STA20Y", 10.0]]
+    assert sv.closed_month() == "Sep 26"
