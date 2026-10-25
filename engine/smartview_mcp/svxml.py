@@ -10,8 +10,7 @@ import re
 
 from .grid import Layout
 
-ALLOWED = frozenset({"ConnectToProvider", "GetProvisionedDataSources", "OpenApplication", "OpenCube", "ListCubes",
-                     "GetDefaultGrid", "ExecuteGrid"})
+ALLOWED = frozenset({"ConnectToProvider", "GetProvisionedDataSources", "OpenApplication", "OpenCube", "ExecuteGrid"})
 CLIENT_XML_VERSION = "4.2.5.7.3"
 _SPECIAL = {"#noaccess": "#NoAccess", "#no access": "#NoAccess", "#missing": "#Missing", "#invalid": "#Invalid"}
 
@@ -25,11 +24,13 @@ class SvXmlError(Exception):
 
 
 def check_read_only(body: str) -> None:
-    m = re.match(r"\s*<req_(\w+)>", body)
+    """The transport's last guard: the body must be exactly one allowed request element, retrieve-only."""
+    m = re.fullmatch(r"\s*<req_(\w+)>.*</req_\1>\s*", body, re.S)
     name = m.group(1) if m else body[:40]
-    if not m or name not in ALLOWED:
-        raise ValueError(f"refused: {name!r} is not a read-only Smart View request")
-    if name == "ExecuteGrid" and re.findall(r"<action>(.*?)</action>", body) != ["retrieve"]:
+    if not m or body.count("<req_") != 1 or name not in ALLOWED:
+        raise ValueError(f"refused: {name!r} is not a single read-only Smart View request")
+    if name == "ExecuteGrid" and (len(re.findall(r"<\s*action\b", body, re.I)) != 1
+                                  or "<action>retrieve</action>" not in body):
         raise ValueError("refused: ExecuteGrid is only sent with the 'retrieve' action")
 
 
@@ -77,7 +78,7 @@ def execute_grid(sid: str, cube: str, lay: Layout, alias: str = "Default") -> st
     m = lay.matrix()
     h, w = len(m), len(m[0])
     vals, types = grid_cells(lay)
-    prefs = (f'<preferences><aliasTableName val="{_x(alias)}"/><missingLabelText val="#Missing"/>'
+    prefs = (f'<preferences><aliasTableName val="{html.escape(alias, quote=True)}"/><missingLabelText val="#Missing"/>'
              '<noAccessText val="#NoAccess"/><repeatMemberLabels val="1"/></preferences>')
     return (f'<req_ExecuteGrid><sID>{_x(sid)}</sID><action>retrieve</action><ords></ords>{prefs}<grid>'
             f'<cube>{_x(cube)}</cube><gridType>1</gridType><dims/><slices><slice rows="{h}" cols="{w}"><data>'
@@ -86,7 +87,7 @@ def execute_grid(sid: str, cube: str, lay: Layout, alias: str = "Default") -> st
 
 
 def raise_for_exception(text: str) -> None:
-    m = re.search(r'<exception\s+errcode="(-?\d+)"[^>]*>\s*<desc>(.*?)</desc>', text, re.S)
+    m = re.search(r'<exception\b[^>]*\berrcode="(-?\d+)"[^>]*>.*?<desc>(.*?)</desc>', text, re.S)
     if m:
         raise SvXmlError(html.unescape(m.group(2)).strip(), int(m.group(1)))
     if "<res_" not in text:
@@ -98,15 +99,17 @@ def sid_of(text: str) -> str:
     m = re.search(r"<sID>(.*?)</sID>", text, re.S)
     if not m:
         raise SvXmlError("no session id (sID) in the provider answer")
-    return m.group(1)
+    return html.unescape(m.group(1)).strip()
 
 
 def data_sources(text: str) -> dict[str, str]:
     """{app: pod base URL} from res_GetProvisionedDataSources."""
     raise_for_exception(text)
     out = {}
-    for m in re.finditer(r'<Server\b[^>]*\bcontext="([^"]+)"[^>]*\bappName="([^"]+)"', text):
-        out[html.unescape(m.group(2))] = html.unescape(m.group(1)).split("/HyperionPlanning/")[0]
+    for tag in re.findall(r"<Server\b[^>]*>", text):
+        attrs = dict(re.findall(r'(\w+)="([^"]*)"', tag))
+        if attrs.get("context") and attrs.get("appName"):
+            out[html.unescape(attrs["appName"])] = html.unescape(attrs["context"]).split("/HyperionPlanning/")[0]
     return out
 
 
@@ -116,7 +119,7 @@ def _cell(v: str, t: str):
     special = _SPECIAL.get(v.strip().casefold())
     if special:
         return special
-    if t == "2":
+    if t not in ("0", "7"):
         try:
             return float(v)
         except ValueError:
@@ -133,9 +136,14 @@ def grid_values(text: str) -> list[list]:
     t = re.search(r"<types[^>]*>(.*?)</types>", text, re.S)
     if not (s and r and v and t):
         raise SvXmlError("no grid in the provider answer")
-    rows, cols, start = int(s.group(1)), int(s.group(2)), int(r.group(1))
+    if len(re.findall(r"<range\b", text)) > 1:
+        raise SvXmlError("grid answer has several ranges; not supported")
+    rows, cols, start, end = int(s.group(1)), int(s.group(2)), int(r.group(1)), int(r.group(2))
     vals = [html.unescape(x) for x in v.group(1).split("|")]
     types = t.group(1).split("|")
+    if not (len(vals) == len(types) == end - start + 1 and cols > 0 and start + len(vals) <= rows * cols):
+        raise SvXmlError(f"grid answer has {len(vals)} values and {len(types)} types for cells {start}..{end} "
+                         f"of a {rows}x{cols} slice")
     out: list[list] = [[None] * cols for _ in range(rows)]
     for i, (x, ty) in enumerate(zip(vals, types)):
         k = start + i
