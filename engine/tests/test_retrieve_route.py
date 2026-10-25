@@ -156,7 +156,7 @@ async def test_sv_query_http_route(monkeypatch):
     _route(monkeypatch, _Http(result=(_L(), _P(), 0.1)))
     r = await tools_query.sv_query("FinMax", _ROW, _ROW, _Ctx())
     assert r["route"] == "http" and not r["warnings"]
-    assert logged[-1]["route"] == "http"
+    assert logged[-1]["route"] == "http" and logged[-1]["http_note"] is None
 
 
 @pytest.mark.anyio
@@ -166,7 +166,7 @@ async def test_sv_query_generic_error_falls_back_and_notes(monkeypatch):
     _route(monkeypatch, _Http(exc=RuntimeError("boom")), com=(_L(), _P(), 1.0))
     r = await tools_query.sv_query("FinMax", _ROW, _ROW, _Ctx())
     assert r["route"] == "com" and "boom" in r["warnings"][-1]
-    assert logged[-1]["route"] == "com"
+    assert logged[-1]["route"] == "com" and "boom" in logged[-1]["http_note"]   # why HTTP was not used, for audit
 
 
 @pytest.mark.anyio

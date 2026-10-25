@@ -132,7 +132,8 @@ async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: C
     qlog.write({"tool": "sv_query", "connection": connection, "pov": dict(lay.pov),
                 "rows": [r.model_dump() for r in rows], "columns": [c.model_dump() for c in columns],
                 "route": route, "cells": lay.n_cells, "rows_returned": len(parsed.rows), "retrieve_s": round(secs, 2),
-                "total_s": round(time.monotonic() - t0, 2), "unknown": parsed.unknown_members, "saved": saved})
+                "total_s": round(time.monotonic() - t0, 2), "unknown": parsed.unknown_members, "saved": saved,
+                "http_note": http_note})
     warnings = parsed.pov_problems + ([f"{parsed.no_access_cells} cells are #NoAccess (no read access)"]
                                       if parsed.no_access_cells else [])
     if parsed.suppressed_rows:

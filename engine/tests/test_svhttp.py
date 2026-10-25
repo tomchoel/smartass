@@ -20,8 +20,9 @@ def test_atlas_dimensions_sorted_per_connection(tmp_path):
     db = atlas.connect(tmp_path / "a.db")
     _store(db, "FinMax", ["All Time Periods", "All Accounts"])
     _store(db, "FinPlan", ["Account"])
-    assert atlas.dimensions(db, "FinMax") == ["All Accounts", "All Time Periods"]
-    assert atlas.dimensions(db, "FinLite") == []
+    assert atlas.known_dimensions(db, "FinMax") == ["All Accounts", "All Time Periods"]
+    assert atlas.known_dimensions(db, "FinLite") == []
+    assert not hasattr(atlas, "dimensions")          # known_dimensions is the one list (it sees failed builds too)
 
 
 def _age(db, conn, days):
@@ -129,8 +130,27 @@ def test_a_shifted_grid_is_an_svhttp_error_so_com_is_used(db_path):
         _q(_sv(FakeTransport(answer(SHIFTED)), db_path))
 
 
+@pytest.mark.parametrize("matrix, msg", [
+    (GRID[:-1], "fewer rows"),                                               # a row went missing
+    ([r[:-1] for r in GRID], "fewer columns"),                               # a column went missing
+    ([GRID[0] + ["All Products"]] + [r + [None] for r in GRID[1:]], "appended POV members"),
+    ([*GRID[:2], ["C30 REVENUES (ac)", "abc", 110.0], GRID[3]], "non-numeric data"),
+])
+def test_a_grid_the_layout_cannot_trust_falls_back_to_com(db_path, matrix, msg):
+    with pytest.raises(svhttp.SvHttpError, match=msg):
+        _q(_sv(FakeTransport(answer(matrix)), db_path))
+
+
+def test_missing_and_no_access_labels_are_fine_data(db_path):
+    m = [*GRID[:2], ["C30 REVENUES (ac)", "#Missing", "#NoAccess"], GRID[3]]
+    _, p, _ = _q(_sv(FakeTransport(answer(m)), db_path))
+    assert p.rows[0] == ["ac.C30", None, "#NoAccess"]
+
+
 def test_session_is_reused_and_finplan_goes_to_its_pod(db_path):
-    t = FakeTransport(answer(GRID), answer(GRID), answer([[None, "x"], [None, "Sep"], ["Revenue", 1.0]]))
+    t = FakeTransport(answer(GRID), answer(GRID), answer([[None, "2WHS Wholesale", "Scenario", "Version", "Years"],
+                                                           [None, "Sep", None, None, None],
+                                                           ["Revenue", 1.0, None, None, None]]))
     sv = _sv(t, db_path)
     _q(sv)
     _q(sv)
@@ -250,7 +270,7 @@ def test_an_incomplete_or_stale_atlas_falls_back_to_com(db_path, tmp_path):
         _q(_sv(FakeTransport(), tmp_path / "empty.db"), "FinLite")
     db = atlas.connect(db_path)
     atlas.store(db, "FinMax", "All Scenarios", [], 0.1, "timed out")   # a failed rebuild, as sv_atlas_build writes it
-    assert "All Scenarios" not in atlas.dimensions(db, "FinMax")      # its members are gone ...
+    assert db.execute("SELECT count(*) FROM member WHERE dimension='All Scenarios'").fetchone()[0] == 0   # gone ...
     db.close()
     with pytest.raises(svhttp.SvHttpError, match="atlas is incomplete or stale for FinMax.*All Scenarios"):
         _q(sv)                                                        # ... but the build table still knows it
@@ -294,8 +314,8 @@ def test_a_busy_route_is_an_svhttp_error(db_path, monkeypatch):
 
 # ------------------------------------------------------------------ BrowserTransport with fake pages
 class _Page:
-    def __init__(self, replies=()):
-        self.replies, self.bodies, self.closed = list(replies), [], False
+    def __init__(self, replies=(), url="https://plan1.example/HyperionPlanning/"):
+        self.replies, self.bodies, self.args, self.closed, self.url = list(replies), [], [], False, url
 
     def is_closed(self):
         return self.closed
@@ -303,8 +323,9 @@ class _Page:
     def close(self):
         self.closed = True
 
-    def evaluate(self, js, body):
-        self.bodies.append(body)
+    def evaluate(self, js, arg):
+        self.args.append(arg)
+        self.bodies.append(arg[0])
         r = self.replies.pop(0)
         if isinstance(r, BaseException):
             raise r
@@ -326,6 +347,10 @@ class _Browser:
         self.ctx = ctx or object()
         self.s = type("S", (), {"page": page, "ctx": self.ctx, "ready": True, "deadline": 0})()
         self.logins, self.login_calls, self.login_errors, self.ensure_errors = 0, [], [], []
+        self.kills, self.login_url = 0, None          # login_url: where a sign-in leaves a tab (default: the pod)
+
+    def kill(self):
+        self.kills += 1
 
     def submit(self, fn):
         f = cf.Future()
@@ -341,11 +366,13 @@ class _Browser:
         if not s.ready:
             self.logins += 1
             s.ready = True
+            s.page.url = self.base + "/HyperionPlanning/"
 
     def _login_once(self, page, deadline, base=None):
         self.login_calls.append((page, base))
         if self.login_errors:
             raise self.login_errors.pop(0)
+        page.url = self.login_url or (base or self.base) + "/HyperionPlanning/"
 
 
 OK = [200, "<res_OpenCube></res_OpenCube>"]
@@ -417,7 +444,40 @@ def test_browser_failures_become_svhttp_errors(monkeypatch):
     b = _Fut(lambda: pending)
     with pytest.raises(svhttp.SvHttpError, match="did not answer within 0 s"):
         _bt(b).post(b.base, svxml.connect())
-    assert pending.cancelled()                             # a queued job does not run later for nobody
+    assert pending.cancelled() and b.kills == 0            # a queued job does not run later for nobody
+    running = cf.Future()
+    running.set_running_or_notify_cancel()                 # the job hangs inside the browser: cancel() is too late
+    b = _Fut(lambda: running)
+    with pytest.raises(svhttp.SvHttpError, match="did not answer within 0 s.*restarted"):
+        _bt(b).post(b.base, svxml.connect())
+    assert b.kills == 1                                    # later queries and drills do not queue behind it
+
+
+def test_the_fetch_aborts_itself_before_the_job_times_out():
+    page = _Page([OK])
+    b = _Browser(page)
+    _bt(b).post(b.base, svxml.connect())
+    body, ms = page.args[0]
+    assert body == svxml.connect() and isinstance(ms, int) and 0 < ms < config.SVHTTP_TIMEOUT_S * 1000
+    assert "AbortSignal.timeout(" in svhttp._JS
+
+
+def test_the_sid_is_never_posted_from_another_origin():
+    page = _Page([OK], url="https://login.microsoftonline.com/x/oauth2")   # the drill tab went to the sign-in page
+    b = _Browser(page)
+    assert _bt(b).post(b.base, svxml.connect()) == OK[1]
+    assert b.logins == 1 and len(page.bodies) == 1         # signed in again, then posted once, on the pod
+    tab1, tab2 = _Page([OK]), _Page([OK])
+    b = _Browser(_Page(), _Ctx(tab1, tab2))
+    t = _bt(b)
+    t.post(STRAT, svxml.connect())
+    tab1.url = "https://elsewhere.example/page"            # the other pod's tab navigated away
+    t.post(STRAT, svxml.connect())
+    assert tab1.closed and len(tab1.bodies) == 1 and len(tab2.bodies) == 1 and b.s.ready
+    b = _Browser(_Page(), _Ctx(_Page([OK]), _Page([OK])))
+    b.login_url = "https://elsewhere.example/"             # sign-in never lands on the pod
+    with pytest.raises(svhttp.SvHttpError, match="tab is on https://elsewhere.example, not https://strat.example"):
+        _bt(b).post(STRAT, svxml.connect())
 
 
 def test_an_evaluate_error_gets_one_fresh_try_then_an_svhttp_error():

@@ -102,12 +102,6 @@ def has_member(db, connection: str, dimension: str, name: str) -> bool:
     return canonical(db, connection, dimension, name) is not None
 
 
-def dimensions(db, connection: str) -> list[str]:
-    """The connection's dimension names (= their top members) that the atlas holds, sorted."""
-    return [r[0] for r in db.execute("SELECT DISTINCT dimension FROM member WHERE connection=? ORDER BY dimension",
-                                     (connection,))]
-
-
 def search(db, text: str, connection: str | None = None, dimension: str | None = None, limit: int = 25) -> list[dict]:
     """Case-insensitive search on member name and label; exact matches first."""
     q = f"%{text.lower()}%"

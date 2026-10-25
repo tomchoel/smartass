@@ -38,8 +38,10 @@ def test_repo_catalogue_has_areas_scenarios_kpis_materiality():
 
 BASE = {
     "pnl": {"FinMax": [{"key": "rev", "account": "ac.C30", "kind": "line", "label": "Revenue"},
-                       {"key": "ebitda", "account": "ac.EBITDA", "kind": "grand", "label": "EBITDA"}]},
-    "checks": {"FinMax": [{"label": "x", "expr": "rev-ebitda"}]},
+                       {"key": "ebitda", "account": "ac.EBITDA", "kind": "grand", "label": "EBITDA"}],
+            "FinPlan": [{"key": "rev", "account": "Revenue", "kind": "line", "label": "Revenue"},
+                        {"key": "gp", "account": "Gross_Profit", "kind": "grand", "label": "Gross profit"}]},
+    "checks": {"FinMax": [{"label": "x", "expr": "rev-ebitda"}], "FinPlan": [{"label": "y", "expr": "rev-gp"}]},
     "scenarios": {"actual": {"connection": "FinMax", "scenario": "Actual", "label": "Actual"}},
     "materiality": {"pct": 0.1, "abs_nok": 1, "always": ["rev"]},
     "entity": [{"key": "w", "label": "W", "finmax": "un.SY.2WHS", "aliases": ["wholesale"]}],
@@ -104,6 +106,11 @@ def _with(path, value):
     (_with(["kpi", 0, "annualise"], "yes"), "kpi 'm': annualise must be true or false"),
     (_with(["kpi", 0, "basis"], "average_stock"), "kpi 'm': basis average_stock needs a stock denominator"),
     (_with(["materiality", "rule"], "and"), "materiality: rule 'and'"),
+    (_with(["pnl", "Finmax"], BASE["pnl"]["FinMax"]), r"\[pnl\]: unknown cube 'Finmax'"),
+    (_with(["checks", "FinLite"], []), r"\[checks\]: unknown cube 'FinLite'"),
+    (_with(["pnl"], {"FinMax": BASE["pnl"]["FinMax"]}), r"\[pnl\]: missing cube 'FinPlan'"),
+    (_with(["checks"], {"FinPlan": BASE["checks"]["FinPlan"]}), r"\[checks\]: missing cube 'FinMax'"),
+    ({k: v for k, v in BASE.items() if k != "checks"}, r"\[checks\]: missing cube"),
 ])
 def test_parse_rejects_broken_catalogues(data, msg):
     with pytest.raises(catalog.CatalogError, match=msg):
@@ -274,7 +281,8 @@ def _atlas_with(tmp_path, members):
 def test_validate_names_missing_members_and_unchecked_dimensions(tmp_path):
     cat = catalog.parse(BASE)
     db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30"],
-                                ("FinMax", "All Entities"): ["un.SY.2WHS"]})
+                                ("FinMax", "All Entities"): ["un.SY.2WHS"],
+                                ("FinPlan", "Account"): ["Revenue", "Gross_Profit"]})
     problems, unchecked, notes = catalog.validate(cat, db)
     assert notes == [] and problems == ["FinMax line 'ebitda': 'ac.EBITDA' is not in FinMax / All Accounts"]
     assert unchecked == ["FinMax / All Scenarios"]
@@ -284,7 +292,8 @@ def test_validate_passes_a_complete_atlas(tmp_path):
     cat = catalog.parse(BASE)
     db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30", "ac.EBITDA"],
                                 ("FinMax", "All Entities"): ["un.SY.2WHS"],
-                                ("FinMax", "All Scenarios"): ["Actual"]})
+                                ("FinMax", "All Scenarios"): ["Actual"],
+                                ("FinPlan", "Account"): ["Revenue", "Gross_Profit"]})
     assert catalog.validate(cat, db) == ([], [], [])
 
 
@@ -292,7 +301,8 @@ def test_validate_reports_a_missing_entity_and_scenario(tmp_path):
     cat = catalog.parse(BASE)
     db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30", "ac.EBITDA"],
                                 ("FinMax", "All Entities"): ["un.SY.2BUS"],
-                                ("FinMax", "All Scenarios"): ["Budget"]})
+                                ("FinMax", "All Scenarios"): ["Budget"],
+                                ("FinPlan", "Account"): ["Revenue", "Gross_Profit"]})
     problems, _, _ = catalog.validate(cat, db)
     assert problems == ["entity 'w': 'un.SY.2WHS' is not in FinMax / All Entities",
                         "scenario 'actual': 'Actual' is not in FinMax / All Scenarios"]
@@ -340,7 +350,8 @@ def test_validate_notes_a_missing_member_of_an_abolished_area(tmp_path):
     cat = catalog.parse(_two_areas(abolished="2026-06-01"))
     db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30", "ac.EBITDA"],
                                 ("FinMax", "All Entities"): ["un.SY.2BUS"],
-                                ("FinMax", "All Scenarios"): ["Actual"]})
+                                ("FinMax", "All Scenarios"): ["Actual"],
+                                ("FinPlan", "Account"): ["Revenue", "Gross_Profit"]})
     assert catalog.validate(cat, db) == (
         [], [], ["w: 'un.SY.2WHS' no longer in FinMax / All Entities (abolished 2026-06-01)"])
 

@@ -23,6 +23,7 @@ UNITS = {"pct", "nok"}
 MEASURES = {"flow", "stock"}          # stock: a level (FTE); read Accumulated at period end, never sum Periodic months
 BASES = {"period", "average_stock"}   # average_stock: the denominator is the average month-end level over the period
 MATERIALITY_RULES = {"either", "both"}
+CUBES = ("FinMax", "FinPlan")         # exactly these in [pnl] and [checks]; any other name is a typo
 EXPR = re.compile(r"^[a-z_]\w*([+-][a-z_]\w*)*$")   # line keys joined by + and -
 
 
@@ -222,6 +223,13 @@ def parse(data: dict) -> Catalog:
     entities = tuple(dataclasses.replace(e, abolished=_iso_date(e.abolished, f"entity '{e.key}'")) for e in entities)
     kpis = tuple(_build(Kpi, k, f"kpi[{i}]") for i, k in enumerate(_section(data, "kpi", list, [])))
 
+    for section, table in (("pnl", pnl), ("checks", checks)):
+        for cube in table:
+            if cube not in CUBES:
+                raise CatalogError(f"[{section}]: unknown cube '{cube}' (the cubes are {', '.join(CUBES)})")
+        for cube in CUBES:
+            if cube not in table:
+                raise CatalogError(f"[{section}]: missing cube '{cube}'")
     keys = {cube: {x.key for x in lines} for cube, lines in pnl.items()}
     for cube, lines in pnl.items():
         _unique([x.key for x in lines], f"{cube} line key")

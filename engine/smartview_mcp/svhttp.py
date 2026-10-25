@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 from . import atlas, config, drill_browser, svxml
 from .drill_browser import DrillError
-from .grid import Axis, Layout, full_pov, parse, validate_axes, verify_labels
+from .grid import INVALID, MISSING, NOACCESS, Axis, Layout, full_pov, parse, validate_axes, verify_labels
 from .host import InputError
 
 log = logging.getLogger(__name__)
@@ -140,7 +140,12 @@ class SvHttp:
             values = self._execute(conn, lay)
         finally:
             self._lock.release()
-        bad = verify_labels(lay, parse(lay, values, False, False))
+        _check_grid(lay, values)
+        full = parse(lay, values, False, False)
+        if full.pov_problems:              # COM shows the same as a warning; here it means the layout is not the cube's
+            raise SvHttpError("the provider appended POV members; the atlas may lack a dimension ("
+                              + "; ".join(full.pov_problems) + ")")
+        bad = verify_labels(lay, full)
         if bad:
             raise SvHttpError("Smart View provider returned a different layout than requested (rows/columns "
                               "moved): " + "; ".join(bad[:5]))
@@ -164,8 +169,37 @@ class SvHttp:
         raise AssertionError("unreachable")
 
 
-_JS = """async (b) => { const r = await fetch('/HyperionPlanning/SmartView', {method: 'POST', credentials: 'include',
-    body: b, headers: {'Content-Type': 'text/xml'}}); return [r.status, await r.text()]; }"""
+def _check_grid(lay: Layout, values: list[list]) -> None:
+    """The returned slice must cover the requested layout (wider is fine: appended POV cells) and every data cell
+    must be a number, blank or a Smart View label (#Missing, #NoAccess, #Invalid); anything else is not data."""
+    m = lay.matrix()
+    h, w = len(m), len(m[0])
+    if len(values) < h:
+        raise SvHttpError(f"the provider returned fewer rows than requested ({len(values)} < {h})")
+    got_w = min((len(r) for r in values), default=0)
+    if got_w < w:
+        raise SvHttpError(f"the provider returned fewer columns than requested ({got_w} < {w})")
+    labels = MISSING | NOACCESS | INVALID
+    for r in range(1 + lay.nc, h):
+        for c in range(lay.nr, lay.nr + len(lay.col_tuples)):
+            v = values[r][c]
+            if isinstance(v, str) and v.strip() not in labels:
+                raise SvHttpError(f"non-numeric data in the provider grid (row {r + 1}, column {c + 1}: {v[:40]!r})")
+
+
+def _origin(url: str) -> str:
+    u = urlsplit(str(url or ""))
+    return f"{u.scheme}://{u.netloc}".lower()
+
+
+# The fetch aborts itself (AbortSignal) a little before the job's own time limit, so a hung request frees the worker.
+_JS = """async ([b, ms]) => { const r = await fetch('/HyperionPlanning/SmartView', {method: 'POST',
+    credentials: 'include', body: b, headers: {'Content-Type': 'text/xml'}, signal: AbortSignal.timeout(ms)});
+    return [r.status, await r.text()]; }"""
+
+
+def _fetch_ms() -> int:
+    return max(1, int(config.SVHTTP_TIMEOUT_S * 900))       # 90 % of the job's time limit, in ms
 
 
 def _close(page) -> None:
@@ -198,9 +232,15 @@ class BrowserTransport:
         except cf.CancelledError:
             raise SvHttpError("the drill browser job was cancelled (browser restarting or shutting down)") from None
         except cf.TimeoutError:
-            if fut is not None:
-                fut.cancel()                                      # still queued: do not run it for nobody
-            raise SvHttpError(f"the drill browser did not answer within {config.SVHTTP_TIMEOUT_S:.0f} s") from None
+            restarted = ""
+            if fut is not None and not fut.cancel() and not fut.done():   # still queued: cancelled, never runs
+                try:                         # running and hung: restart OUR browser (like sv_drill's hang guard), so
+                    b.kill()                 # later queries and drills do not queue behind a stuck worker
+                    restarted = "; the hidden browser was restarted"
+                except Exception as e:   # noqa: BLE001 - the fallback must still be offered
+                    log.warning("svhttp: killing the hung drill browser failed: %s", _first_line(e))
+            raise SvHttpError(f"the drill browser did not answer within {config.SVHTTP_TIMEOUT_S:.0f} s"
+                              f"{restarted}") from None
         except SvHttpError:                       # (a refused write raised above, before the job)
             raise
         except DrillError as e:                                   # includes DrillBusy
@@ -244,11 +284,18 @@ class BrowserTransport:
 
     def _post(self, b, s, base: str, body: str) -> str:
         s.deadline = time.monotonic() + config.SVHTTP_TIMEOUT_S
-        status = None
+        why = "no answer"
         for attempt in (1, 2):
             try:
                 b._ensure(s)
-                status, text = self._tab(b, s, base).evaluate(_JS, body)
+                page = self._tab(b, s, base)
+                here = _origin(page.url)
+                if here != _origin(base):       # never post the session id from another origin (e.g. the IdP page)
+                    why = f"the tab is on {drill_browser.redact(here)}, not {base}"
+                    log.warning("svhttp: %s; signing in again", why)
+                    self._drop(b, s, base)
+                    continue
+                status, text = page.evaluate(_JS, [body, _fetch_ms()])
             except (SvHttpError, DrillError):                    # sign-in already retried inside
                 raise
             except Exception as e:   # noqa: BLE001 - the tab navigated or the browser died: one fresh try
@@ -258,9 +305,10 @@ class BrowserTransport:
                 continue
             if isinstance(text, str) and ("<res_" in text or "<exception" in text):
                 return text                                       # provider XML, whatever the status: svxml judges
+            why = f"answered HTTP {status}"
             log.warning("svhttp: HTTP %s from %s; signing in again", status, base)
             self._drop(b, s, base)
-        raise SvHttpError(f"Smart View provider at {base} answered HTTP {status} twice (sign-in failed?)")
+        raise SvHttpError(f"Smart View provider at {base}: {why} twice (sign-in failed?)")
 
 
 _shared: SvHttp | None = None
