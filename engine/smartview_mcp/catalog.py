@@ -147,3 +147,22 @@ def _load(path: str) -> Catalog:
 
 def load(path: Path | None = None) -> Catalog:
     return _load(str(path or config.knowledge_file("catalog.toml")))
+
+
+def resolve_entity(cat: Catalog, text: str) -> Entity | None:
+    """The business area a question or member name refers to: a member name (finmax/finplan) or the whole text as
+    an alias first, else the longest alias found as whole words (aliases under 3 characters only as the whole text)."""
+    n = _norm(text)
+    for e in cat.entities:
+        names = [x for x in (e.finmax, e.finplan) if x]
+        if n in {_norm(x) for x in names} or n in {_norm(a) for a in e.aliases} or n == _norm(e.label):
+            return e
+    best: tuple[int, Entity] | None = None
+    for e in cat.entities:
+        for a in (*e.aliases, e.label):
+            a = _norm(a)
+            if len(a) < 3:
+                continue
+            if re.search(rf"(?<![\w&]){re.escape(a)}(?![\w&])", n) and (best is None or len(a) > best[0]):
+                best = (len(a), e)
+    return best[1] if best else None

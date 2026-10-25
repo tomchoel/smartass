@@ -70,3 +70,21 @@ def _with(path, value):
 def test_parse_rejects_broken_catalogues(data, msg):
     with pytest.raises(catalog.CatalogError, match=msg):
         catalog.parse(data)
+
+
+@pytest.mark.parametrize("text, key", [
+    ("P&L for Wholesale Sep 26", "wholesale"),
+    ("hvordan går det med bedriftsmarkedet?", "business"),
+    ("EBITDA i TV og internett hittil i år", "ei"),
+    ("un.SY.2TEC", "technology"),
+    ("2SSM Security Solutions & Mobile", "ssm"),
+    ("it", "it"),
+    ("Telenor Norge total", "company"),
+])
+def test_resolve_entity(text, key):
+    assert catalog.resolve_entity(catalog.load(), text).key == key
+
+
+@pytest.mark.parametrize("text", ["is it good?", "what about ei?", "something else entirely"])
+def test_resolve_entity_needs_a_real_match(text):
+    assert catalog.resolve_entity(catalog.load(), text) is None
