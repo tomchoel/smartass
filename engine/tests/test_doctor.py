@@ -67,6 +67,16 @@ def test_warehouse_check(monkeypatch, tmp_path):
     assert c.status == "WARN" and "provider down" in c.detail and "sv_warehouse" in c.fix
 
 
+def test_warehouse_check_older_schema_says_rebuild(monkeypatch, tmp_path):
+    from smartview_mcp import warehouse as wh
+    monkeypatch.setattr(config, "WAREHOUSE_DB", tmp_path / "w.duckdb")
+    monkeypatch.setattr(wh.Warehouse, "status", lambda self: {
+        "error": f"warehouse schema is older (unversioned, this smartass needs 2): {self.path}; run sv_warehouse "
+                 "rebuild"})
+    c = doctor._warehouse()
+    assert c.status == "WARN" and "rebuild" in c.fix and "another smartass process" not in c.fix.lower()
+
+
 def test_warehouse_check_names_missing_cells_of_a_warn_fill(monkeypatch, tmp_path):
     import time
 

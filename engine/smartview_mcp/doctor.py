@@ -133,6 +133,10 @@ def _warehouse(max_age_days: float = 35) -> Check:
     except WarehouseUnavailable as e:
         return Check("warehouse", "WARN", str(e), "Another smartass process is using it; run the doctor again.")
     if st.get("error"):                                  # status() reports a locked or damaged file instead of raising
+        if "schema is older" in st["error"]:
+            return Check("warehouse", "WARN", st["error"],
+                         "Call sv_warehouse(action='rebuild'): it deletes the file and refills it (about 10 s); "
+                         "until then fin_pnl answers from live pulls.")
         return Check("warehouse", "WARN", st["error"],
                      "If another smartass process holds it, run the doctor again; a damaged file can be deleted "
                      "(it refills on the next fin_pnl question).")

@@ -88,7 +88,12 @@ def main() -> int:
         cases["Forecast EBITDA YTD"] = ("fp.ebitda.forecast.ytd", "FinPlan", {**fp, "Version": "Final"},
                                         "Account", "EBITDA", "Scenario", fc)
     for name, (fid, conn, pov, rdim, rmem, cdim, cmem) in cases.items():
-        _, p, _ = http.retrieve(conn, pov, [Axis(rdim, [rmem])], [Axis(cdim, [cmem])], False, False)
+        try:
+            _, p, _ = http.retrieve(conn, pov, [Axis(rdim, [rmem])], [Axis(cdim, [cmem])], False, False)
+        except Exception as e:   # noqa: BLE001 - report and go on (e.g. one pod's sign-in expired)
+            bad += 1
+            print(f"FAIL  {name}: direct retrieve failed: {type(e).__name__}: {str(e).splitlines()[0][:120]}")
+            continue
         got = p.rows[0][1] if p.rows else None
         got = 0.0 if got is None else got
         ok = isinstance(got, float) and same(res.facts[fid].value, got)
