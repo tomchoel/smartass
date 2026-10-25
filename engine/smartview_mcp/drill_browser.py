@@ -433,9 +433,11 @@ class DrillBrowser:
             raise DrillError(f"Could not open {redact(url)}: {redact(str(e).splitlines()[0] if str(e) else e)}") \
                 from None
 
-    def _login_once(self, p, deadline: float):
-        """Open the EPM home (signs in via Telenor SSO if needed); the drill page needs its session state."""
-        home = self.base + "/HyperionPlanning/"
+    def _login_once(self, p, deadline: float, base: str | None = None):
+        """Open the EPM home of `base` (default: this browser's pod; signs in via Telenor SSO if needed). The drill
+        page needs its session state; the Smart View HTTP route signs in on other pods (FinPlan: stratmodel)."""
+        base = (base or self.base).rstrip("/")
+        home = base + "/HyperionPlanning/"
         self._goto(p, home, deadline)
         t0, clicked, nudged = time.monotonic(), False, False
         last, changed = None, t0
@@ -444,7 +446,7 @@ class DrillBrowser:
             url, now = p.url, time.monotonic()
             if url != last:
                 last, changed = url, now
-            act = login_action(url, self.base, now - t0, now - changed, clicked, nudged, deadline - now)
+            act = login_action(url, base, now - t0, now - changed, clicked, nudged, deadline - now)
             if act == "click":
                 b = p.get_by_role("button", name="Telenor SSO")
                 if b.count():
@@ -738,3 +740,17 @@ class DrillBrowser:
         except Exception:   # noqa: BLE001 - still hung or failed: replace the worker
             self._abandon_worker()
         return killed
+
+
+_shared: DrillBrowser | None = None
+_shared_lock = threading.Lock()
+
+
+def shared_browser() -> DrillBrowser:
+    """The process's one drill browser: sv_drill and the Smart View HTTP route (svhttp) share it, its worker thread
+    and its profile lock."""
+    global _shared
+    with _shared_lock:
+        if _shared is None:
+            _shared = DrillBrowser()
+        return _shared

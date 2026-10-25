@@ -45,17 +45,13 @@ def _drill_rows(workbook: str, q: int) -> dict[str, list[dict]]:
 
 
 # ---------------------------------------------------------------- sv_drill: ledger lines behind a FinLite cell
-_browser = None
 _drill_lock = None          # asyncio.Lock: one browser fetch at a time, so the hang budget starts when it runs
 _ALIAS = re.compile(r"^[A-Za-z]\w*$")
 
 
 def browser():
-    global _browser
-    if _browser is None:
-        from .drill_browser import DrillBrowser
-        _browser = DrillBrowser()
-    return _browser
+    from .drill_browser import shared_browser
+    return shared_browser()
 
 
 @contextmanager

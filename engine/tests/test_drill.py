@@ -1299,3 +1299,36 @@ def test_crash_while_paging_retries_with_a_fresh_deadline():
     b._fetch_once, b._alive, b._close = once, lambda s: False, lambda s: None
     assert b._fetch(db._Session(), "u", 10, None) == {"items": []}
     assert calls[1] > 60
+
+
+class _FakeLoginPage:
+    def __init__(self):
+        self.url = "about:blank"
+
+    def goto(self, url, wait_until=None, timeout=None):
+        self.url = url
+
+    def wait_for_load_state(self, *a, **k):
+        pass
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+def test_login_once_signs_in_on_another_pod(tmp_path):
+    from smartview_mcp import drill_browser as db
+    b = db.DrillBrowser(base="https://plan1.example", profile=tmp_path / "p")
+    p = _FakeLoginPage()
+    b._login_once(p, float("inf"), base="https://strat.example/")
+    assert p.url == "https://strat.example/HyperionPlanning/"
+    b._login_once(p, float("inf"))
+    assert p.url == "https://plan1.example/HyperionPlanning/"
+
+
+def test_shared_browser_is_one_instance(monkeypatch):
+    from smartview_mcp import drill_browser as db, tools_drill
+    monkeypatch.setattr(db, "_shared", None)
+    made = []
+    monkeypatch.setattr(db, "DrillBrowser", lambda: made.append(1) or object())
+    first = db.shared_browser()
+    assert db.shared_browser() is first and tools_drill.browser() is first and made == [1]

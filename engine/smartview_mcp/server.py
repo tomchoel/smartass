@@ -52,9 +52,9 @@ async def lifespan(_server):
             if _host is not None:
                 _host.shutdown()
         finally:
-            from . import tools_drill
-            if tools_drill._browser is not None:
-                tools_drill._browser.shutdown()
+            from . import drill_browser
+            if drill_browser._shared is not None:
+                drill_browser._shared.shutdown()
 
 
 INSTRUCTIONS = """Read-only access to Telenor Norge's Oracle EPM Cloud cubes (Smart View); answers are built as
