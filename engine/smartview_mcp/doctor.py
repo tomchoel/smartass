@@ -92,14 +92,14 @@ def _catalog() -> Check:
     try:
         cat = catalog.load()
     except catalog.CatalogError as e:
-        return Check("catalog", "FAIL", str(e), "Fix knowledge\catalog.toml (see the error), or update smartass.")
+        return Check("catalog", "FAIL", str(e), "Fix knowledge\\catalog.toml (see the error), or update smartass.")
     if not config.ATLAS_DB.exists():
         return Check("catalog", "WARN", "loaded; members not checked (no atlas)",
                      "Build the atlas with sv_atlas_build.")
     problems, unchecked = catalog.validate(cat, atlas.connect(config.ATLAS_DB))
     if problems:
         return Check("catalog", "WARN", f"{len(problems)} member(s) not in the cubes: " + "; ".join(problems[:5]),
-                     "Update knowledge\catalog.toml to the current members (a reorg or rename?).")
+                     "Update knowledge\\catalog.toml to the current members (a reorg or rename?).")
     detail = (f"{sum(len(v) for v in cat.pnl.values())} P&L lines and {len(cat.entities)} business areas match the "
               "atlas" + (f"; not checked: {', '.join(unchecked)}" if unchecked else ""))
     return Check("catalog", "OK", detail)
