@@ -21,3 +21,8 @@ def test_blocks_tokens_unless_marked():
     assert cs.problems("a.toml", ('secret = "' + "z" * 24 + '"').encode())
     assert not cs.problems("a.py", (tok + "  # allow-secret").encode())
     assert not cs.problems("a.toml", b'secret = "{secret}"')
+
+
+def test_blocks_the_duckdb_warehouse():
+    assert cs.problems("x/warehouse.duckdb", b"") and cs.problems("x/warehouse.duckdb.wal", b"")
+    assert not cs.problems("engine/smartview_mcp/warehouse.py", b"")

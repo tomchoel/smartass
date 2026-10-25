@@ -101,3 +101,9 @@ def test_shipped_defaults_parse_and_hold_org_values():
     assert err is None
     assert s["epm"]["base"].startswith("https://") and s["drill"]["channels"][0] == "msedge"
     assert s["label"]["id"] and s["http"]["port"] > 1024
+
+
+def test_the_warehouse_lives_in_the_home_folder_and_duckdb_is_installed():
+    import duckdb
+    assert config.WAREHOUSE_DB == config.HOME / "warehouse.duckdb" and config.WAREHOUSE_LOCK_WAIT_S > 0
+    assert duckdb.__version__ == "2.0.0"

@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-DB = re.compile(r"\.(db|sqlite3?|db-wal|db-shm)$", re.I)
+DB = re.compile(r"\.(db|sqlite3?|db-wal|db-shm|duckdb|duckdb\.wal)$", re.I)
 WORKBOOK = re.compile(r"\.(xlsx|xlsm|xlsb|xls)$", re.I)
 WORKBOOK_OK = ("knowledge/", "packs/")
 TOKENS = [
