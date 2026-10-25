@@ -8,8 +8,8 @@
 - fill: one row per extract job (what, when, cells, seconds, result, detail) - freshness and the doctor read it.
 - state: small key/value facts of the refresh logic (last closed month filled, atlas snapshot, forecast name).
 
-One writer per machine: writes hold an exclusive lock file (drill_browser.ProfileLock, freed when the process dies);
-every call opens and closes its own DuckDB connection, so other processes can read in between. A missing or locked
+One writer per machine: writes hold an exclusive lock file (drill_browser.ProfileLock, reused here as a plain file
+lock, freed when the process dies); put() writes in chunks of PUT_CHUNK rows - atomic per chunk, not per job; every call opens and closes its own DuckDB connection, so other processes can read in between. A missing or locked
 warehouse raises WarehouseUnavailable; callers then answer from live pulls and say so. MemoryWarehouse has the
 same API in plain Python (tests, and the live-pull fallback)."""
 from __future__ import annotations
@@ -24,13 +24,12 @@ from typing import Iterable
 from . import config
 
 WhKey = tuple[str, str, str, str, str, str, str]      # cube, scenario, version, entity, account, period, balance
-COLUMNS = ("cube", "scenario", "version", "entity", "account", "period", "balance", "value", "source", "fetched_at",
-           "closed_month", "atlas_build")
+PUT_CHUNK = 10_000                                     # rows per write: readers in other processes get in between
 TYPES = ("VARCHAR",) * 7 + ("DOUBLE", "VARCHAR", "DOUBLE", "VARCHAR", "VARCHAR")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS fact (
   cube VARCHAR, scenario VARCHAR, version VARCHAR, entity VARCHAR, account VARCHAR, period VARCHAR, balance VARCHAR,
-  value DOUBLE, source VARCHAR, fetched_at DOUBLE, closed_month VARCHAR, atlas_build VARCHAR,
+  value DOUBLE, source VARCHAR, fetched_at DOUBLE, closed_month VARCHAR NOT NULL, atlas_build VARCHAR,
   PRIMARY KEY (cube, scenario, version, entity, account, period, balance));
 CREATE SEQUENCE IF NOT EXISTS fill_id;
 CREATE TABLE IF NOT EXISTS fill (
@@ -128,6 +127,16 @@ def _freshness(n: int, stamps: list[float], open_rows: int, closed: set[str]) ->
             "open_rows": open_rows, "closed_months": sorted(closed)}
 
 
+def _lock_conflict(e: Exception) -> bool:
+    """Another connection or process holds the file (DuckDB 2.0, Windows: 'being used by another process' /
+    'File is already open in'; in-process: ConnectionException). Anything else is a bad file."""
+    import duckdb
+    if isinstance(e, duckdb.ConnectionException):
+        return True
+    m = str(e).lower()
+    return "used by another process" in m or "already open" in m or "conflicting lock" in m
+
+
 _mu = threading.RLock()                                # one DuckDB connection at a time in this process
 
 
@@ -137,13 +146,12 @@ class Warehouse:
     def __init__(self, path: Path | None = None):
         from .drill_browser import ProfileLock
         self.path = Path(path or config.WAREHOUSE_DB)
-        self._lock = ProfileLock(self.path)            # <path>.lock
+        self._lock = ProfileLock(self.path)            # <path>.lock; used as a plain file lock
 
-    def _connect(self, write: bool):
+    def _connect(self, write: bool, deadline: float):
         import duckdb
         if not write and not self.path.exists():
             raise WarehouseUnavailable(f"no warehouse yet ({self.path})")
-        deadline = time.monotonic() + config.WAREHOUSE_LOCK_WAIT_S
         while True:
             try:
                 if write:
@@ -153,19 +161,22 @@ class Warehouse:
                     return db
                 return duckdb.connect(str(self.path), read_only=True)
             except (duckdb.IOException, duckdb.ConnectionException) as e:
+                first = str(e).splitlines()[0] if str(e) else type(e).__name__
+                if not _lock_conflict(e):                  # a 0-byte or foreign file: retrying cannot help
+                    raise WarehouseUnavailable(f"cannot open {self.path}: {first}") from None
                 if time.monotonic() > deadline:
-                    raise WarehouseUnavailable(f"warehouse {self.path} is in use: {str(e).splitlines()[0]}") from None
+                    raise WarehouseUnavailable(f"warehouse {self.path} is in use: {first}") from None
                 time.sleep(0.1)
 
     def _write(self, fn):
         with _mu:
-            deadline = time.monotonic() + config.WAREHOUSE_LOCK_WAIT_S
+            deadline = time.monotonic() + config.WAREHOUSE_LOCK_WAIT_S     # one budget for lock file and connect
             while not self._lock.acquire():
                 if time.monotonic() > deadline:
                     raise WarehouseUnavailable(f"another smartass process is writing {self.path}")
                 time.sleep(0.1)
             try:
-                db = self._connect(True)
+                db = self._connect(True, deadline)
                 try:
                     return fn(db)
                 finally:
@@ -175,36 +186,32 @@ class Warehouse:
 
     def _read(self, fn):
         with _mu:
-            db = self._connect(False)
+            db = self._connect(False, time.monotonic() + config.WAREHOUSE_LOCK_WAIT_S)
             try:
                 return fn(db)
+            except Exception as e:                       # a damaged or foreign file: say so, never a silent gap
+                raise WarehouseUnavailable(f"cannot read {self.path}: {e}") from None
             finally:
                 db.close()
 
     def put(self, rows: Iterable[Row]) -> int:
-        recs = [r.record() for r in rows]
-        if not recs:
-            return 0
-        cols = [list(c) for c in zip(*recs)]
+        """Upsert; a key repeated in `rows` keeps its last row. Returns the number of distinct keys written."""
+        recs = [r.record() for r in {r.key: r for r in rows}.values()]
         sel = ", ".join(f"unnest(${i + 1}::{t}[])" for i, t in enumerate(TYPES))   # one statement: ~0.3 s/6500 rows
-
-        def go(db):
-            db.execute(f"INSERT OR REPLACE INTO fact SELECT {sel}", cols)
-            return len(recs)
-        return self._write(go)
+        for i in range(0, len(recs), PUT_CHUNK):
+            cols = [list(c) for c in zip(*recs[i:i + PUT_CHUNK])]
+            self._write(lambda db, cols=cols: db.execute(f"INSERT OR REPLACE INTO fact SELECT {sel}", cols))
+        return len(recs)
 
     def get(self, cube: str, entities, accounts, periods, scenario: str, version: str, balance: str,
             closed_only: bool = False) -> dict[WhKey, float | None]:
         sql = ("SELECT cube, scenario, version, entity, account, period, balance, value FROM fact WHERE cube=? AND "
                "scenario=? AND version=? AND balance=? AND list_contains(?, entity) AND list_contains(?, account) "
-               "AND list_contains(?, period)" + (" AND closed_month <> 'open'" if closed_only else ""))
+               "AND list_contains(?, period)" + (" AND closed_month <> ?" if closed_only else ""))
         args = [cube, scenario, version, balance, list(entities), list(accounts), list(periods)]
-        try:
-            return self._read(lambda db: {tuple(r[:7]): r[7] for r in db.execute(sql, args).fetchall()})
-        except WarehouseUnavailable:
-            raise
-        except Exception as e:                       # a damaged or foreign file: say so, never a silent gap
-            raise WarehouseUnavailable(f"cannot read {self.path}: {e}") from None
+        if closed_only:
+            args.append(OPEN)
+        return self._read(lambda db: {tuple(r[:7]): r[7] for r in db.execute(sql, args).fetchall()})
 
     def freshness(self, cube: str | None = None, entities=None) -> dict:
         where, args = ["1=1"], []
@@ -214,8 +221,9 @@ class Warehouse:
         if entities is not None:
             where.append("list_contains(?, entity)")
             args.append(list(entities))
-        sql = (f"SELECT count(*), min(fetched_at), max(fetched_at), count(*) FILTER (WHERE closed_month='open'), "
-               f"list(DISTINCT closed_month) FILTER (WHERE closed_month<>'open') FROM fact WHERE {' AND '.join(where)}")
+        sql = (f"SELECT count(*), min(fetched_at), max(fetched_at), count(*) FILTER (WHERE closed_month=?), "
+               f"list(DISTINCT closed_month) FILTER (WHERE closed_month<>?) FROM fact WHERE {' AND '.join(where)}")
+        args = [OPEN, OPEN, *args]
         n, lo, hi, op, closed = self._read(lambda db: db.execute(sql, args).fetchone())
         return {"rows": n, "oldest": lo, "newest": hi, "open_rows": op or 0, "closed_months": sorted(closed or [])}
 
@@ -248,5 +256,8 @@ class Warehouse:
     def status(self) -> dict:
         if not self.path.exists():
             return {"path": str(self.path), "exists": False, "rows": 0, "fills": [], "state": {}}
-        return {"path": str(self.path), "exists": True, "fills": self.last_fills(5), "state": self.state(),
-                **self.freshness()}
+        try:
+            return {"path": str(self.path), "exists": True, "fills": self.last_fills(5), "state": self.state(),
+                    **self.freshness()}
+        except WarehouseUnavailable as e:               # feeds the doctor: never throws
+            return {"path": str(self.path), "exists": True, "error": str(e), "rows": 0, "fills": [], "state": {}}

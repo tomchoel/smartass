@@ -68,3 +68,39 @@ def test_another_writer_makes_it_unavailable(tmp_path, monkeypatch):
     with pytest.raises(WarehouseUnavailable, match="another smartass process"):
         other.put([r(k(), 2.0)])
     assert w.get("FinMax", ["un.SY.2WHS"], ["ac.C30"], ["Sep 26"], "Actual", "", "Periodic") == {k(): 1.0}
+
+
+def test_duplicate_keys_in_one_put_last_wins(store):
+    assert store.put([r(k(), 1.0), r(k(), 2.0)]) in (1, 2)
+    assert store.get("FinMax", ["un.SY.2WHS"], ["ac.C30"], ["Sep 26"], "Actual", "", "Periodic") == {k(): 2.0}
+
+
+def test_put_in_chunks_keeps_every_row(store, monkeypatch):
+    monkeypatch.setattr(wh, "PUT_CHUNK", 3)
+    rows = [r(k(account=f"ac.{i}"), float(i)) for i in range(8)]
+    assert store.put(rows) == 8
+    got = store.get("FinMax", ["un.SY.2WHS"], [f"ac.{i}" for i in range(8)], ["Sep 26"], "Actual", "", "Periodic")
+    assert len(got) == 8 and got[k(account="ac.7")] == 7.0
+
+
+def test_a_foreign_file_is_unavailable_at_once_and_status_never_throws(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "WAREHOUSE_LOCK_WAIT_S", 30)       # a retry loop would blow the test's time
+    p = tmp_path / "bad.duckdb"
+    p.write_bytes(b"not a duckdb file" * 50)
+    w = Warehouse(p)
+    with pytest.raises(WarehouseUnavailable, match="cannot open"):
+        w.get("FinMax", [], [], [], "Actual", "", "Periodic")
+    st = w.status()
+    assert st["exists"] is True and "cannot open" in st["error"]
+
+
+def test_a_valid_file_without_tables_is_unavailable_and_status_says_so(tmp_path):
+    import duckdb
+    p = tmp_path / "empty.duckdb"
+    duckdb.connect(str(p)).close()
+    w = Warehouse(p)
+    for call in (lambda: w.get("FinMax", [], [], [], "Actual", "", "Periodic"), w.freshness, w.last_fills, w.state):
+        with pytest.raises(WarehouseUnavailable, match="cannot read"):
+            call()
+    st = w.status()
+    assert st["exists"] is True and "cannot read" in st["error"]
