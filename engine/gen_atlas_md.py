@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from smartview_mcp import config  # noqa: E402
 
 DB = str(config.ATLAS_DB)
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser(r"~\.claude\skills\smartview\reference\cubes.md")
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser(r"~\.claude\skills\smartass\reference\cubes.md")
 # extra depth for the dimensions people navigate most
 DEEP = {("FinMax", "All Entities"): "un.SY", ("FinLite", "All Entities"): "un.SY", ("FinMax", "All Accounts"): None,
         ("FinPlan", "Entity"): None, ("FinPlan", "Account"): None}

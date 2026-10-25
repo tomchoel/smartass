@@ -1,7 +1,7 @@
 # Operating the smartass MCP
 
 Code: the smartass repo, `engine\` (`<mcp>` below). Design and test history: `docs\DESIGN.md`.
-Registered with `claude mcp add --scope user smartview -- "%LOCALAPPDATA%\smartass\venv\Scripts\python.exe" "<mcp>\run_server.py"`.
+Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartass\venv\Scripts\python.exe" "<mcp>\run_server.py"`.
 
 ## Working in the user's Excel (analyses)
 

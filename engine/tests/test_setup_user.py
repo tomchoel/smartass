@@ -111,6 +111,20 @@ def test_link_skill_replaces_dir_and_old_junction(tmp_path):
     assert (dst / "SKILL.md").exists()
 
 
+def test_drop_legacy_skill_removes_link_keeps_target(tmp_path):
+    src, old, backup = tmp_path / "src", tmp_path / "skills" / "smartview", tmp_path / "backup"
+    src.mkdir()
+    (src / "SKILL.md").write_text("x", encoding="utf-8")
+    old.parent.mkdir()
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(old), str(src)], check=True, capture_output=True)
+    assert setup_user.drop_legacy_skill(old, backup) == "old link removed"
+    assert not old.exists() and (src / "SKILL.md").exists()
+    assert setup_user.drop_legacy_skill(old, backup) == "none"
+    old.mkdir()
+    assert setup_user.drop_legacy_skill(old, backup) == "old copy moved to backup"
+    assert not old.exists() and any(backup.iterdir())
+
+
 def test_make_shortcut_creates_missing_startup_folder(tmp_path):
     lnk = tmp_path / "Microsoft" / "Windows" / "Startup" / "x.lnk"
     setup_user.make_shortcut(lnk, "cmd.exe", "/c exit", str(tmp_path))

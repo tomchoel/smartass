@@ -38,7 +38,7 @@ docs\                        DESIGN, troubleshooting, release, specs, plans
 installer\install.ps1        per-user installer
 scripts\                     check_staged.py, publish_release.ps1
 knowledge\  packs\           business maps; pack-only inputs (packs\produktregnskap)
-skills\smartview\            master copy of the agent skill
+skills\smartass\             master copy of the agent skill
 engine\                      Python package smartview_mcp, defaults.toml, tests\ (tests\live = manual)
 ```
 

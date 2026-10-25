@@ -103,6 +103,19 @@ def link_skill(src: Path, dst: Path, backup_root: Path) -> str:
     return "linked" + note
 
 
+def drop_legacy_skill(dst: Path, backup_root: Path) -> str:
+    """Removes the skill under its old name ('smartview'), so agents do not load it twice. A link is just removed;
+    a real folder is moved to backup_root."""
+    if _is_junction(dst):
+        os.rmdir(dst)  # removes only the link, never the target's content
+        return "old link removed"
+    if dst.exists():
+        backup_root.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(dst), str(backup_root / f"{dst.name}-{time.strftime('%Y%m%d-%H%M%S')}"))
+        return "old copy moved to backup"
+    return "none"
+
+
 def make_shortcut(lnk: Path, target: str, args: str, workdir: str) -> None:
     import win32com.client
     lnk.parent.mkdir(parents=True, exist_ok=True)
@@ -227,10 +240,12 @@ def run() -> list[str]:
     e = mcp_entries(config.ENGINE_DIR / ".venv" / "Scripts" / "python.exe", config.ENGINE_DIR / "run_server.py")
     out.append(f"copilot mcp: {register_mcp(USER / '.copilot' / 'mcp-config.json', e['copilot'], create=True)}")
     out.append(f"claude mcp: {register_mcp(USER / '.claude.json', e['claude'])}")
-    skill_src = config.REPO_DIR / "skills" / "smartview"
+    skill_src = config.REPO_DIR / "skills" / "smartass"
     backup = config.HOME / "backup"
-    out.append(f"skill (claude): {link_skill(skill_src, USER / '.claude' / 'skills' / 'smartview', backup)}")
-    out.append(f"skill (agents): {link_skill(skill_src, USER / '.agents' / 'skills' / 'smartview', backup)}")
+    for agent in (".claude", ".agents"):
+        skills = USER / agent / "skills"
+        out.append(f"skill ({agent[1:]}): {link_skill(skill_src, skills / 'smartass', backup)}"
+                   f"; legacy smartview: {drop_legacy_skill(skills / 'smartview', backup)}")
     out += startup_entries()
     out.append(path_step())
     out.append(copy_atlas())

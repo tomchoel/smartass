@@ -1,11 +1,11 @@
 ---
-name: smartview
+name: smartass
 description: Pull Telenor Norge financial data from Oracle EPM Cloud (FinMax/FinLite actuals, FinPlan plan/forecast) through the read-only smartass MCP (sv_* tools) and answer with an analysis in the user's Excel - live Smart View data sheets plus a formatted answer sheet. Use for any number or analysis from FinMax, FinLite, FinPlan, Smart View, Hyperion or EPM - actuals, YTD, P&L, EBITDA, revenue/COGS, opex, depreciation, FTE/årsverk, cost base per cost centre (un.SY), monthly trend, actual vs budget/forecast, GL extract/uttrekk - for finding member names, and for refreshing a workbook's Smart View sheets.
 ---
 
 # Smart View analyses (FinMax · FinLite · FinPlan)
 
-The `smartview` MCP is read-only towards EPM. It works **inside the user's Excel**.
+The `smartass` MCP is read-only towards EPM. It works **inside the user's Excel**.
 - **Default target: the session file.** Every session (Claude Code or Copilot) keeps its own analysis workbook,
   `<analyser folder>\<project folder>\<date time> <first question>.xlsx`, where the analyser folder is `paths.analyser` in
   `%LOCALAPPDATA%\smartass\config.toml`. It is created on the session's first question,
