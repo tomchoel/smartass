@@ -215,8 +215,7 @@ def test_member_check_folds_norwegian_letters(fake_atlas):
     atlas.store(fake_atlas, "FinMax", "All Accounts", [_m("ac.STA20Y", "All Accounts") | {"label": "Årsverk"}], 1.0)
     assert atlas.canonical(fake_atlas, "FinMax", "All Accounts", "årsverk") == "ac.STA20Y"
 
-
-# ------------------------------------------------------------------ closed month: HTTP first, COM fallback, daily cache
+# ------------------------------------------------------------------ closed month: HTTP first, COM fallback, TTL cache
 class _Http:
     def __init__(self, answer):
         self.answer, self.calls = answer, 0
@@ -237,20 +236,86 @@ class _Host:
         return fn()
 
 
-def test_closed_month_reads_http_first_and_caches_per_day(tmp_path, monkeypatch):
+def _com(monkeypatch, month="08"):
+    monkeypatch.setattr(ops, "find_member", lambda h, c, n: {"info": {"ChildMbrName": f"[CurrRepMonth].[Y26M{month}]"}})
+
+
+def _setup(tmp_path, monkeypatch, http):
     from smartview_mcp import config, svhttp
     monkeypatch.setattr(config, "SVKIT", tmp_path)
-    http = _Http("Sep 26")
     monkeypatch.setattr(svhttp, "shared", lambda: http)
+    return tmp_path / "closed_month.json"
+
+
+def _write(path, **entry):
+    import json
+    path.write_text(json.dumps({"FinMax": entry}), encoding="utf-8")
+
+
+def test_closed_month_reads_http_first_and_reuses_it_within_the_ttl(tmp_path, monkeypatch):
+    http = _Http("Sep 26")
+    _setup(tmp_path, monkeypatch, http)
     h = _Host()
     assert templates.closed_month(h) == "Sep 26" and templates.closed_month(h) == "Sep 26"
     assert http.calls == 1 and h.calls == 0                       # second call from the cache, no Excel at all
 
 
-def test_closed_month_falls_back_to_com(tmp_path, monkeypatch):
-    from smartview_mcp import config, svhttp
-    monkeypatch.setattr(config, "SVKIT", tmp_path)
-    monkeypatch.setattr(svhttp, "shared", lambda: _Http(svhttp.SvHttpError("signed out")))
-    monkeypatch.setattr(ops, "find_member", lambda h, c, n: {"info": {"ChildMbrName": "[CurrRepMonth].[Y26M08]"}})
+def test_an_expired_http_entry_is_asked_again(tmp_path, monkeypatch):
+    import time
+    http = _Http("Sep 26")
+    path = _setup(tmp_path, monkeypatch, http)
+    _write(path, month="Aug 26", at=time.time() - 3600, source="http")
+    assert templates.closed_month(_Host()) == "Sep 26" and http.calls == 1
+
+
+def test_yesterdays_com_entry_is_asked_again_but_todays_is_kept(tmp_path, monkeypatch):
+    import time
+    http = _Http("Sep 26")
+    path = _setup(tmp_path, monkeypatch, http)
+    _write(path, month="Aug 26", at=time.time() - 2 * 86400, source="com")
+    assert templates.closed_month(_Host()) == "Sep 26" and http.calls == 1
+    _write(path, month="Aug 26", at=time.time(), source="com")    # slow COM answer: kept for the day
+    assert templates.closed_month(_Host()) == "Aug 26" and http.calls == 1
+
+
+def test_the_old_cache_format_is_tolerated(tmp_path, monkeypatch):
+    import datetime as dt
+    import json
+    http = _Http("Sep 26")
+    path = _setup(tmp_path, monkeypatch, http)
+    path.write_text(json.dumps({"date": dt.date.today().isoformat(), "FinMax": "Aug 26"}), encoding="utf-8")
+    assert templates.closed_month(_Host()) == "Aug 26" and http.calls == 0
+    path.write_text(json.dumps({"date": "2020-01-01", "FinMax": "Aug 20"}), encoding="utf-8")
+    assert templates.closed_month(_Host()) == "Sep 26"
+    path.write_text("[1, 2]", encoding="utf-8")                   # not even a dict
+    assert templates.closed_month(_Host()) == "Sep 26"
+
+
+def test_closed_month_falls_back_to_com_and_caches_it_for_the_day(tmp_path, monkeypatch):
+    import json
+    from smartview_mcp import svhttp
+    http = _Http(svhttp.SvHttpError("signed out"))
+    path = _setup(tmp_path, monkeypatch, http)
+    _com(monkeypatch)
     h = _Host()
-    assert templates.closed_month(h) == "Aug 26" and h.calls == 1
+    assert templates.closed_month(h) == "Aug 26" and h.calls == 1 and http.calls == 1
+    assert json.loads(path.read_text(encoding="utf-8"))["FinMax"]["source"] == "com"
+    assert templates.closed_month(h) == "Aug 26" and h.calls == 1 and http.calls == 1   # neither route again
+
+
+def test_http_and_com_both_failing_raises_and_caches_nothing(tmp_path, monkeypatch):
+    from smartview_mcp import svhttp
+    from smartview_mcp.host import HostError
+    path = _setup(tmp_path, monkeypatch, _Http(svhttp.SvHttpError("signed out")))
+    monkeypatch.setattr(ops, "find_member", lambda h, c, n: {"info": {}})
+    with pytest.raises(HostError) as e:
+        templates.closed_month(_Host())
+    assert e.value.__cause__ is None and not path.exists()
+
+
+def test_an_unexpected_http_error_is_logged_as_a_warning_then_com(tmp_path, monkeypatch, caplog):
+    _setup(tmp_path, monkeypatch, _Http(KeyError("boom")))
+    _com(monkeypatch)
+    with caplog.at_level("INFO"):
+        assert templates.closed_month(_Host()) == "Aug 26"
+    assert [r.levelname for r in caplog.records if "closed month" in r.getMessage()] == ["WARNING"]

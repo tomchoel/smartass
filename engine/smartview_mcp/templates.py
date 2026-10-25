@@ -45,31 +45,50 @@ class Plan:
 def closed_month(h: ExcelHost, connection: str = "FinMax") -> str:
     """'Current Reporting Month' -> e.g. 'Sep 26'. Smart View's HTTP protocol first (svhttp, ~0.2 s, no Excel); the
     COM route (FinMax member ChildMbrName '[CurrRepMonth].[Y26M09]' in the hidden server Excel, ~10 s + a login on a
-    fresh server) is the fallback. Cached per day on disk."""
+    fresh server) is the fallback. Cached on disk per connection as {month, at, source}: an HTTP answer is reused for
+    config.CLOSED_MONTH_TTL_S, a (slow) COM answer for the rest of the day. The old {date, <conn>: month} format is
+    read as a COM-sourced entry of that date."""
     import json
+    import os
+    import time
     from . import config, svhttp
     cache = config.SVKIT / "closed_month.json"
-    today = dt.date.today().isoformat()
+    now = time.time()
     try:
         c = json.loads(cache.read_text(encoding="utf-8"))
-        if c.get("date") == today and c.get(connection):
-            return c[connection]
     except (OSError, ValueError):
         c = {}
+    if not isinstance(c, dict):
+        c = {}
+    e = c.get(connection)
+    if isinstance(e, str) and c.get("date") == dt.date.today().isoformat():      # old format: valid for that day
+        return e
+    if isinstance(e, dict) and e.get("month") and isinstance(e.get("at"), (int, float)):
+        if e.get("source") == "http" and now - e["at"] < config.CLOSED_MONTH_TTL_S:
+            return e["month"]
+        if e.get("source") == "com" and dt.date.fromtimestamp(e["at"]) == dt.date.today():
+            return e["month"]
+    val, source = None, "http"
     try:
         val = svhttp.shared().closed_month(connection)
-    except Exception as e:   # noqa: BLE001 - any HTTP failure: the COM route
-        log.info("closed month over HTTP failed (%s); asking Smart View in Excel", e)
+    except (svhttp.SvHttpError, svhttp.DrillError) as ex:
+        log.info("closed month over HTTP failed (%s); asking Smart View in Excel", ex)
+    except Exception as ex:   # noqa: BLE001 - anything else is a bug worth seeing, but the COM route still answers
+        log.warning("closed month over HTTP failed unexpectedly (%s); asking Smart View in Excel", ex, exc_info=True)
+    if val is None:
+        source = "com"
         info = h.on_host(lambda: ops.find_member(h, connection, "Current Reporting Month")).get("info") or {}
         m = re.search(r"Y(\d\d)M(\d\d)", str(info.get("ChildMbrName", "")))
         if not m:
             raise HostError("Could not resolve 'Current Reporting Month' in FinMax; pass the period explicitly "
-                            "(e.g. 'Sep 26').") from None
+                            "(e.g. 'Sep 26').")
         val = f"{MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
     try:
-        c = c if c.get("date") == today else {"date": today}
-        c[connection] = val
-        cache.write_text(json.dumps(c), encoding="utf-8")
+        c.pop("date", None)
+        c[connection] = {"month": val, "at": now, "source": source}
+        tmp = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(c), encoding="utf-8")
+        os.replace(tmp, cache)
     except OSError:
         pass
     return val

@@ -11,6 +11,7 @@ on the drill browser's worker thread. Tests use a fake transport."""
 from __future__ import annotations
 
 import concurrent.futures as cf
+import datetime as dt
 import logging
 import re
 import threading
@@ -156,21 +157,29 @@ class SvHttp:
         return lay, parse(lay, values, suppress_missing, suppress_zeros), time.monotonic() - t0
 
     def closed_month(self, conn: str = "FinMax") -> str:
-        """The last closed month ('Current Reporting Month') as 'Sep 26': the child of member CurrRepMonth in provider
-        dimension TimePeriods, '[CurrRepMonth].[Y26M09]' (proven live 2026-10-25)."""
+        """The last closed month ('Current Reporting Month') as 'Sep 26': the one child of member CurrRepMonth in
+        provider dimension TimePeriods, '[CurrRepMonth].[Y26M09]' (proven live 2026-10-25, FinMax only: FinLite is
+        answered from the FinMax session). A month in the future or more than 3 months back is refused, so the
+        caller's COM route gives a second opinion instead of a silently wrong month."""
         if conn not in ("FinMax", "FinLite"):
             raise SvHttpError(f"{conn} has no Current Reporting Month")
         if not self._lock.acquire(timeout=config.SVHTTP_TIMEOUT_S):
             raise SvHttpError("the HTTP route is busy with another query")
         try:
-            names = self._enum(conn, "TimePeriods", "CurrRepMonth")
+            names = self._enum("FinMax", "TimePeriods", "CurrRepMonth")
         finally:
             self._lock.release()
-        for n in names:
-            m = re.search(r"Y(\d\d)M(\d\d)", n)
-            if m and 1 <= int(m.group(2)) <= 12:
-                return f"{_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
-        raise SvHttpError(f"Current Reporting Month not understood: {names[:3]}")
+        if len(names) != 1:
+            raise SvHttpError(f"CurrRepMonth should have exactly one child, got {len(names)}: {names[:5]}")
+        m = re.search(r"Y(\d\d)M(\d\d)", names[0])
+        if not m or not 1 <= int(m.group(2)) <= 12:
+            raise SvHttpError(f"Current Reporting Month not understood: {names[:3]}")
+        today = dt.date.today()
+        back = (today.year * 12 + today.month) - ((2000 + int(m.group(1))) * 12 + int(m.group(2)))
+        if not 0 <= back <= 3:
+            raise SvHttpError(f"Current Reporting Month {names[0]} is not plausible today "
+                              f"({'in the future' if back < 0 else f'{back} months back'})")
+        return f"{_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
 
     def _enum(self, conn: str, dim: str, member: str) -> list[str]:
         for attempt in (1, 2):

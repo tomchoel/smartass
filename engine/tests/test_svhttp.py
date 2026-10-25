@@ -570,27 +570,61 @@ def test_shared_is_one_instance_across_threads(monkeypatch):
         th.join()
     assert len({id(x) for x in got}) == 1
 
+def _enum_xml(*months):
+    body = "|".join(f"[CurrRepMonth].[Y{d.year % 100:02d}M{d.month:02d}]" for d in months)
+    return f'<res_EnumMembers><overflow>0</overflow><mbrs enc="1">{body}</mbrs></res_EnumMembers>'
 
-ENUM_SEP = ('<res_EnumMembers><overflow>0</overflow><mbrs enc="1">[CurrRepMonth].[Y26M09]</mbrs>'
-            '<atts enc="0">0</atts><mbrDesc enc="1">Y26M09</mbrDesc></res_EnumMembers>')
+
+def _ago(n):
+    import datetime as dt
+    t = dt.date.today()
+    k = t.year * 12 + t.month - 1 - n
+    return dt.date(k // 12, k % 12 + 1, 1)
+
+
+def _label(d):
+    return f"{svhttp._MONTHS[d.month - 1]} {d.year % 100:02d}"
 
 
 def test_closed_month_over_http(db_path):
-    t = FakeTransport(ENUM_SEP)
-    assert _sv(t, db_path).closed_month() == "Sep 26"
+    t = FakeTransport(_enum_xml(_ago(1)))
+    assert _sv(t, db_path).closed_month() == _label(_ago(1))
     assert t.tags() == ["GetProvisionedDataSources", "ConnectToProvider", "OpenApplication", "OpenCube", "EnumMembers"]
     assert "<dim>TimePeriods</dim>" in t.bodies[-1] and ">CurrRepMonth</arg>" in t.bodies[-1]
 
 
+def test_closed_month_always_asks_the_finmax_cube(db_path):
+    t = FakeTransport(_enum_xml(_ago(1)))
+    assert _sv(t, db_path).closed_month("FinLite") == _label(_ago(1))
+    assert "<cube>FinMax</cube>" in "".join(t.bodies) or "FinMax" in "".join(t.bodies)
+    assert "FinLite" not in "".join(t.bodies)
+
+
 def test_closed_month_reconnects_once_but_not_for_a_bad_name(db_path):
-    t = FakeTransport(EXPIRED, ENUM_SEP.replace("Y26M09", "Y26M12"))
-    assert _sv(t, db_path).closed_month() == "Dec 26" and t.tags().count("ConnectToProvider") == 2
+    t = FakeTransport(EXPIRED, _enum_xml(_ago(2)))
+    assert _sv(t, db_path).closed_month() == _label(_ago(2)) and t.tags().count("ConnectToProvider") == 2
     bad = '<exception errcode="4996" type="error"><desc>member invalid</desc></exception>'
-    t2 = FakeTransport(bad, ENUM_SEP)
+    t2 = FakeTransport(bad, _enum_xml(_ago(1)))
     with pytest.raises(svhttp.SvHttpError, match="member invalid"):
         _sv(t2, db_path).closed_month()
     assert t2.tags().count("ConnectToProvider") == 1
     with pytest.raises(svhttp.SvHttpError, match="not understood"):
-        _sv(FakeTransport(ENUM_SEP.replace("[CurrRepMonth].[Y26M09]", "x")), db_path).closed_month()
+        _sv(FakeTransport(_enum_xml(_ago(1)).replace("[CurrRepMonth].[Y", "x[")), db_path).closed_month()
     with pytest.raises(svhttp.SvHttpError, match="FinPlan has no Current Reporting Month"):
         _sv(FakeTransport(), db_path).closed_month("FinPlan")
+
+
+def test_closed_month_wants_exactly_one_child(db_path):
+    with pytest.raises(svhttp.SvHttpError, match="exactly one"):
+        _sv(FakeTransport(_enum_xml(_ago(1), _ago(2))), db_path).closed_month()
+    with pytest.raises(svhttp.SvHttpError, match="exactly one"):
+        _sv(FakeTransport('<res_EnumMembers><mbrs enc="1"></mbrs></res_EnumMembers>'), db_path).closed_month()
+
+
+def test_closed_month_must_be_plausible(db_path):
+    with pytest.raises(svhttp.SvHttpError, match="plausible|future"):
+        _sv(FakeTransport(_enum_xml(_ago(-1))), db_path).closed_month()          # next month: in the future
+    with pytest.raises(svhttp.SvHttpError, match="plausible|old"):
+        _sv(FakeTransport(_enum_xml(_ago(4))), db_path).closed_month()           # more than 3 months back
+    assert _sv(FakeTransport(_enum_xml(_ago(3))), db_path).closed_month() == _label(_ago(3))
+    assert _sv(FakeTransport(_enum_xml(_ago(0))), db_path).closed_month() == _label(_ago(0))
