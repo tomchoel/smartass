@@ -1,18 +1,21 @@
 """Year-end landing: YTD actual + the remaining months of the latest forecast; and a run-rate alternative, the YTD
 scaled by last year's seasonality (last year's YTD share of its full year, taken on EBITDA before other items - the
 caller passes ly_ytd and ly_fy for that line), or YTD / n x 12 when that share is unusable: missing, not positive, or
-outside 0.5x-1.5x of n/12. Both are shown with their gap to target. A forecast older than the closed month's
+outside 0.5x-1.5x of n/12 (cost units have a negative EBITDA before other items: a share of two negatives
+counts). Both are shown with their gap to target. A forecast older than the closed month's
 quarter is still shown, with a warning."""
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
+from ..templates import InputError
 from .facts import Fact, combine, missing
 from .frame import Frame
 from .measures import flow
+from .periods import split_period
 
-_MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+STALE_QUARTERS = 2                                    # a forecast this many quarters behind the closed month
 SHARE_BAND = (0.5, 1.5)                                # accepted share, as a multiple of n/12
 
 
@@ -42,12 +45,15 @@ def remaining_forecast(frame: Frame, entity: str, line: str, scenario: str, mont
 
 
 def _stale(name: str | None, closed: str | None) -> str | None:
+    """A warning when the forecast's quarter is STALE_QUARTERS or more behind the closed month's quarter."""
     f = re.search(r"Q(\d)(\d\d)\b", name or "")
-    c = re.fullmatch(r"(\w{3}) (\d\d)", (closed or "").strip())
-    if not f or not c or c.group(1).lower() not in _MONTHS:
+    if not f or not closed:
         return None
-    cq = _MONTHS.index(c.group(1).lower()) // 3 + 1
-    if (int(f.group(2)), int(f.group(1))) < (int(c.group(2)), cq):
+    try:
+        mo, yy = split_period(closed)
+    except InputError:
+        return None
+    if (yy * 4 + (mo - 1) // 3 + 1) - (int(f.group(2)) * 4 + int(f.group(1))) >= STALE_QUARTERS:
         return f"{name} is older than the closed month {closed}"
     return None
 
@@ -62,8 +68,8 @@ def landing(ytd_actual: Fact, remaining_forecast: Fact, target_fy: Fact, ly_ytd:
     share, why = None, None
     if ly_ytd.value is None or ly_fy.value is None:
         why = "last year's EBITDA before other items is missing"
-    elif ly_fy.value <= 0 or ly_ytd.value <= 0:
-        why = "last year's EBITDA before other items is not positive"
+    elif ly_fy.value == 0 or ly_ytd.value / ly_fy.value <= 0:
+        why = "last year's EBITDA before other items is zero or has opposite signs (YTD against full year)"
     else:
         share = ly_ytd.value / ly_fy.value
         if not lo <= share <= hi:

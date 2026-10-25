@@ -29,6 +29,12 @@ class Bridge:
             return None
         return self.end.value - self.start.value - sum(s.fact.value for s in self.steps)
 
+    @property
+    def unexplained(self) -> float:
+        """The walk's residual step when it is more than NOK 1 (a problem to report), else 0."""
+        step = next((x for x in self.steps if x.key == "unexplained"), None)
+        return step.fact.value if step is not None and step.fact.value is not None else 0.0
+
     def closes(self, tol: float = TOL) -> bool:
         r = self.residual()
         return r is not None and abs(r) <= tol
@@ -61,7 +67,7 @@ def components(checks, lines, total_key: str) -> list[tuple[int, str]]:
 def by_line(start: Fact, end: Fact, variances: dict[str, Variance], leaves: list[tuple[int, str]],
             labels: dict[str, str], id: str = "bridge") -> Bridge:
     """start -> end through the variance of each leaf line, plus a 'Rounding / unexplained' step for any residual,
-    so the walk always closes."""
+    so the walk always closes ('Unexplained' above NOK 1, else 'Rounding'; see Bridge.unexplained)."""
     steps = []
     for sign, key in leaves:
         v = variances.get(key)
@@ -72,9 +78,12 @@ def by_line(start: Fact, end: Fact, variances: dict[str, Variance], leaves: list
     b = Bridge(start, tuple(steps), end)
     r = b.residual()
     if r is not None and abs(r) >= 0.005:                      # what the identities do not explain: shown, never hidden
-        gap = Fact(f"{id}.rounding", r, start.unit, "end - start less the steps shown (rounding / unexplained)",
+        big = abs(r) > TOL
+        gap = Fact(f"{id}.{'unexplained' if big else 'rounding'}", r, start.unit,
+                   "end - start less the steps shown (" + ("unexplained: more than NOK 1" if big else "rounding") + ")",
                    tuple(dict.fromkeys(k for x in (start, end) for k in x.inputs)))
-        b = Bridge(start, b.steps + (Step("rounding", "Rounding / unexplained", gap),), end)
+        key, label = ("unexplained", "Unexplained") if big else ("rounding", "Rounding")
+        b = Bridge(start, b.steps + (Step(key, label, gap),), end)
     return b
 
 
@@ -94,6 +103,6 @@ def by_unit(start: Fact, end: Fact, units: list[tuple[str, str, Fact, Fact]], to
         other = replace(other, definition=f"{other.definition}; includes units with unknown variance: "
                                           + ", ".join(unknown))
     steps = tuple(Step(n, lab, f) for n, lab, f in top)
-    if other.value is None or abs(other.value) >= 0.005:       # a zero 'other' is left out
+    if unknown or other.value is None or abs(other.value) >= 0.005:   # a zero 'other' is left out - unless units are unknown
         steps += (Step("other", "Other units and eliminations", other),)
     return Bridge(start, steps, end)

@@ -1,6 +1,7 @@
 """Materiality, the catalogue rule (owner decisions 2026-10-25). On the YTD variance: material at pct of |comparison|
 when that variance is also at least pct_floor_nok, and/or (rule either | both) at abs_nok. A comparison below
-pct_floor_nok counts as zero (a small base makes a meaningless %): only the NOK amount counts. A single month whose
+pct_floor_nok counts as zero (a small base makes a meaningless %): there is no % test, so only the NOK amount
+counts under rule "either", and under rule "both" the YTD variance can never be material (the month swing still can). A single month whose
 variance reaches abs_nok is flagged too (basis 'month'). Lines in `always` are always commented. Only NOK amounts are
 judged (FTE is not an amount). On subtotals, flags() judges the leaf lines and the always-lines only."""
 from __future__ import annotations
@@ -20,7 +21,7 @@ class Flag:
     material: bool
     always: bool
     reason: str
-    size: float                       # |YTD variance| (0 when unknown): the ranking key
+    size: float                       # the larger of |YTD variance| and |month variance| (0 when unknown): the ranking key
     basis: str = ""                   # what made it material: 'ytd', 'month', 'ytd+month' or '' (not material)
 
     @property
@@ -62,7 +63,8 @@ def assess(v: Variance, m: Materiality, month: Variance | None = None) -> Flag:
     if not why:
         why.append("below the thresholds" + (f"; the comparison is under {_nok(m.pct_floor_nok)}: counts as zero, "
                                              "no %" if small_base else ""))
-    return Flag(v.line, material, always, "; ".join(why), size, basis)
+    rank = max(size, abs(swing)) if swing is not None else size
+    return Flag(v.line, material, always, "; ".join(why), rank, basis)
 
 
 def flags(variances: list[Variance], m: Materiality, months: Mapping[str, Variance] | None = None,

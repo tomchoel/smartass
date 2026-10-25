@@ -34,8 +34,8 @@ def test_line_bridge_closes_when_the_identities_hold():
     assert [s.key for s in b.steps] == ["rev", "cogs", "pers", "oth", "c73"] and b.steps[0].label == "Revenue"
     assert b.residual() == 0.0 and b.closes()
     broken = by_line(f("ly", 0.0), f("cur", 999.0), vs, [(1, "rev")], {})
-    assert broken.closes() and broken.steps[-1].key == "rounding"          # the gap is shown, not hidden
-    assert broken.steps[-1].label == "Rounding / unexplained"
+    assert broken.closes() and broken.steps[-1].key == "unexplained"       # the gap is shown, not hidden
+    assert broken.steps[-1].label == "Unexplained"
     assert broken.steps[-1].fact.value == 999.0 - vs["rev"].abs.value
     assert [x.key for x in b.steps] == ["rev", "cogs", "pers", "oth", "c73"]   # nothing to explain: no extra step
 
@@ -105,19 +105,47 @@ def test_landing_months_done_zero_has_no_run_rate():
     assert z.run_rate.value is None and not z.seasonal and z.forecast.value == 100.0
 
 
-def test_landing_names_the_forecast_and_warns_when_stale():
-    old = landing(f("ytd", 900.0), f("rem", 250.0), f("tgt", 1200.0), f("a", 750.0), f("b", 1000.0), 9,
-                  "Forecast Q226", "Sep 26")
-    assert old.stale and old.warning == "Forecast Q226 is older than the closed month Sep 26"
-    assert "Forecast Q226" in old.forecast.definition and "Forecast Q226" in old.method
+def _stale(name, closed):
+    return landing(f("ytd", 900.0), f("rem", 250.0), f("tgt", 1200.0), f("a", 750.0), f("b", 1000.0), 9,
+                   name, closed)
+
+
+def test_landing_names_the_forecast_and_warns_only_two_quarters_behind():
+    old = _stale("Forecast Q126", "Sep 26")                              # Q1 against a Q3 close: two behind
+    assert old.stale and old.warning == "Forecast Q126 is older than the closed month Sep 26"
+    assert "Forecast Q126" in old.forecast.definition and "Forecast Q126" in old.method
     assert old.run_rate.value is not None                                  # the run rate stays alongside
-    fresh = landing(f("ytd", 900.0), f("rem", 250.0), f("tgt", 1200.0), f("a", 750.0), f("b", 1000.0), 9,
-                    "Forecast Q326", "Sep 26")
-    assert not fresh.stale and fresh.warning is None
-    assert landing(f("ytd", 1.0), f("rem", 1.0), f("tgt", 1.0), f("a", 1.0), f("b", 1.0), 9,
-                   "Forecast Q126", "Jan 26").stale is False         # same quarter: fresh
-    assert landing(f("ytd", 1.0), f("rem", 1.0), f("tgt", 1.0), f("a", 1.0), f("b", 1.0), 9,
-                   "Forecast Q425", "Jan 26").stale                    # last year's forecast is older
+    assert not _stale("Forecast Q226", "Sep 26").stale                     # one behind is normal
+    assert not _stale("Forecast Q326", "Sep 26").stale and _stale("Forecast Q326", "Sep 26").warning is None
+    assert _stale("Forecast Q226", "Oct 26").stale                         # Q2 with October (Q4) closed
+    assert not _stale("Forecast Q326", "Oct 26").stale                     # Q3 with October closed is normal
+    assert not _stale("Forecast Q425", "Jan 26").stale and _stale("Forecast Q325", "Jan 26").stale
+    assert not _stale("not a forecast", "Sep 26").stale and not _stale("Forecast Q226", "nonsense").stale
+
+
+def test_landing_seasonal_share_for_cost_units_with_negative_ebitda():
+    ld = landing(f("ytd", -900.0), f("rem", -250.0), f("tgt", -1200.0), f("a", -750.0), f("b", -1000.0), 9)
+    assert ld.seasonal and ld.run_rate.value == pytest.approx(-1200.0)
+    mixed = landing(f("ytd", -900.0), f("rem", -250.0), f("tgt", -1200.0), f("a", 750.0), f("b", -1000.0), 9)
+    assert not mixed.seasonal and "sign" in mixed.method
+    zero = landing(f("ytd", 900.0), f("rem", 1.0), f("tgt", 1.0), f("a", 750.0), f("b", 0.0), 9)
+    assert not zero.seasonal
+    out = landing(f("ytd", -900.0), f("rem", -250.0), f("tgt", -1200.0), f("a", -1200.0), f("b", -1000.0), 9)
+    assert not out.seasonal and "outside" in out.method
+
+
+def test_bridge_unexplained_step_and_rounding_label():
+    big = by_line(f("s", 0.0), f("e", 10.0), {}, [], {})
+    assert big.steps[-1].key == "unexplained" and big.steps[-1].label == "Unexplained" and big.unexplained == 10.0
+    tiny = by_line(f("s", 0.0), f("e", 0.4), {}, [], {})
+    assert tiny.steps[-1].key == "rounding" and tiny.steps[-1].label == "Rounding" and tiny.unexplained == 0.0
+    assert by_line(f("s", 1.0), f("e", 1.0), {}, [], {}).steps == ()
+
+
+def test_unit_bridge_keeps_a_zero_other_when_some_units_are_unknown():
+    units = [("a", "A", f("ca", 5.0), f("pa", 0.0)), ("x", "X", missing("cx", "nok", "", "gone"), f("px", 1.0))]
+    b = by_unit(f("s", 0.0), f("e", 5.0), units)
+    assert [x.key for x in b.steps] == ["a", "other"] and b.steps[-1].fact.value == 0.0
 
 
 def test_remaining_forecast_blank_is_missing_not_zero():

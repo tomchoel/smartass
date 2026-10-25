@@ -71,6 +71,12 @@ def test_month_swing_flags_on_its_own():
     assert assess(v("oth", -6_000_000.0, -5_000_000.0), M, month).basis == "ytd+month"
 
 
+def test_flags_rank_material_by_the_larger_of_ytd_and_month():
+    months = {"rev": v("rev", 20e6, 0.0)}
+    fs = flags([v("rev", 101.0, 100.0), v("oth", -9e6, -1e6)], M, months)
+    assert [f.line for f in fs] == ["rev", "oth"] and fs[0].size == 20e6 and fs[0].basis == "month"
+
+
 def test_both_rule_zero_comparison_is_consistent():
     both = dataclasses.replace(M, rule="both")
     assert assess(v("oth", -50_000_000.0, 0.0), both).material is False        # no % possible: both cannot hold
