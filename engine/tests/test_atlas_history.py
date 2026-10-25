@@ -133,3 +133,12 @@ def test_snapshot_all_skips_errors(db, monkeypatch):
     assert len(res) == 1 and res[0]["new"] and res[0]["connection"] == C
     res2 = h.snapshot_all(db)
     assert res2[0]["new"] is False
+
+
+def test_latest_snapshot_and_diff_between_two_ids(db, monkeypatch):
+    assert h.latest_snapshot(db, C, DIM) is None
+    s1, s2 = two_snaps(db, monkeypatch)
+    assert h.latest_snapshot(db, C, DIM) == s2
+    d = h.diff_snapshots(db, s1, s2)
+    assert {m["name"] for m in d["moved"]} >= {"un.SY.4REV_W"}
+    assert [m["name"] for m in d["added"]] == ["un.SY.2SSM"] and h.diff_snapshots(db, s2, s2)["moved"] == []
