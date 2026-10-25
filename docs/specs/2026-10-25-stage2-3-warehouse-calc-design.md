@@ -177,3 +177,26 @@ correct by design.
 dropped those cells, so the warehouse had no FinPlan data for 5 areas and the FY27 budget (not yet entered) failed.
 Since `2730879`, flagged members are checked against the atlas, and only members the atlas does not have are
 dropped.
+
+## Matrix scenario S11 (Task 23, 2026-10-25)
+
+`S11.fin_pnl.wholesale`: `fin_pnl("Wholesale")` builds a workbook in the user's Excel. Report:
+`docs\audit\2026-10-25-stage2-3-s11.md`.
+
+- **All assertions pass.** 48 checks are OK, including the 5 "Warehouse = source sheet" checks; 4/4 values equal
+  `sv_query`; the warm call only does the live top-up.
+- **Verdict SLOW:** 273 s against a 240 s budget. The cold call took 193 s and the warm call 80 s, and a Smart View
+  Login dialog appeared once in Excel.
+- **Where the time goes:** in the existing Excel pipeline, not in the new engine.
+
+| Step | Cold | Warm |
+|---|---:|---:|
+| Warehouse refresh | 7.8 s | - |
+| Live top-up | 1.3 s | 1.2 s |
+| Closed month (incl. browser sign-in) | 10.2 s | cached |
+| New workbook | 68.8 s (incl. the Login dialog) | - |
+| Smart View pulls, 5 sheets | 67.4 s (connect 31 s) | 29.1 s |
+| Answer sheet | 26.2 s (styling 13.2 s) | 32.0 s (styling 16.6 s) |
+
+**Follow-up:** speed up the Excel build (connect, the check-colour styling pass, cell writes). This is a separate
+change from Stage 2+3.

@@ -1093,3 +1093,43 @@ def s10_http(ctx):
     assert none in (401, 403) and wrong in (401, 403), f"without/wrong secret: {none}/{wrong}"
     assert right == 200, f"with the secret: {right}"
     return {"notes": f"no secret {none}, wrong {wrong}, right {right}"}
+
+
+# ================================================================== S11 fin_pnl (Stage 2+3)
+def _fin_query(conn: str, pov: dict, row: tuple[str, str], col: tuple[str, str]) -> dict:
+    return _q([{"dimension": row[0], "members": [row[1]]}], [{"dimension": col[0], "members": [col[1]]}], pov, conn)
+
+
+@scenario("S11.fin_pnl.wholesale", ["fin"], budget=240)
+def s11_fin_pnl(ctx):
+    out, secs = ctx.client.must("fin_pnl", {"area": "Wholesale", "target": "new", "detail": "full"})
+    _answer_ok(out, "fin_pnl")
+    style = out.get("formula_style") or {}
+    assert not style or style.get("ok"), f"formula_style {style}"
+    recon = {k: v for k, v in out["checks"].items() if k.startswith("Warehouse = source sheet")}
+    assert len(recon) == 5 and _all_ok(recon), f"warehouse = sheet: {recon}"
+    facts = {f["id"]: f["value"] for f in out["facts"]}
+    p = out["period"]
+    ly = f"{p[:3]} {int(p[4:]) - 1:02d}"
+    fm = {"All Entities": "un.SY.2WHS", "All Scenarios": "Actual", "All Currencies": "NOK"}
+    fp = {"Entity": "2WHS Wholesale", "Years": f"FY{p[4:]}", "Period": p[:3], "All Balance Types": "Accumulated"}
+    cases = [("fm.ebitda.ytd.cur", "FinMax", {**fm, "All Balance Types": "Accumulated"},
+              ("All Accounts", "ac.EBITDA"), ("All Time Periods", p)),
+             ("fm.ebitda.ytd.ly", "FinMax", {**fm, "All Balance Types": "Accumulated"},
+              ("All Accounts", "ac.EBITDA"), ("All Time Periods", ly)),
+             ("fm.rev.m.cur", "FinMax", {**fm, "All Balance Types": "Periodic"},
+              ("All Accounts", "ac.C30"), ("All Time Periods", p)),
+             ("fp.ebitda.budget.ytd", "FinPlan", {**fp, "Version": "Final"}, ("Account", "EBITDA"),
+              ("Scenario", "Target"))]
+    bad = []
+    for fid, conn, pov, row, col in cases:
+        b, _ = ctx.client.must("sv_query", _fin_query(conn, pov, row, col))
+        v = helpers.number(b["table"])
+        if facts.get(fid) is None or not _close(v, facts[fid], 1.0):
+            bad.append(fid)
+    assert not bad, f"fin_pnl facts differ from sv_query: {bad}"
+    again, warm = ctx.client.must("fin_pnl", {"area": "Wholesale", "target": out["workbook"]})
+    _answer_ok(again, "fin_pnl warm")
+    assert all(f["job"] == "top_up" for f in again["fills"]), f"warm call refilled: {again['fills']}"
+    return {"notes": f"cold {secs:.0f}s, warm {warm:.0f}s; {len(out['checks'])} checks OK; "
+                     f"{len(cases)} values = sv_query; {len(out.get('warnings') or [])} warnings"}

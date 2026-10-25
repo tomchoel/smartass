@@ -30,6 +30,7 @@ uv run python tests\live\matrix.py
 | S8 | `inject` | SSO expiry, dialogs, edit mode, parallel calls, killed Excel/Edge, cold start, sleep |
 | S9 | `fresh` | install and first lookup as a new user (`--fresh`) |
 | S10 | `feature`, some `fresh` | bundle, setup, relay reload, update, text fixes, pack, style, cold Excel, options, HTTP |
+| S11 | `fin` | `fin_pnl` Wholesale: workbook checks incl. warehouse = sheet, facts = `sv_query`, warm call refills nothing |
 
 The doctor lines checked by S9 include `warehouse` (OK on a fresh install: "not filled yet").
 
