@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import config, ops
+from . import atlas, config, ops
 from .analytics import periods, reconcile
 from .analytics.frame import from_rows
 from .catalog import Catalog, Entity
@@ -66,7 +66,8 @@ def wh_key(conn: str, members: dict[str, str]) -> WhKey:
 
 
 def to_rows(lay: Layout, parsed: Parsed, conn: str, route: str, fetched_at: float, closed_label: str,
-            atlas_build: str = "", closed: str | None = None) -> tuple[list[Row], list[str]]:
+            atlas_build: str = "", closed: str | None = None,
+            unknown: set[str] | None = None) -> tuple[list[Row], list[str]]:
     """Warehouse rows for every data cell of a retrieved grid (parsed with suppression off), and the problems:
     cells that are not data (#NoAccess, #Invalid) are not stored. With `closed`, an Actual cell of a month after it
     is not closed history (FinPlan carries blank actuals for the rest of the year): it is labelled OPEN."""
@@ -74,7 +75,8 @@ def to_rows(lay: Layout, parsed: Parsed, conn: str, route: str, fetched_at: floa
     rows, problems = [], []
     if parsed.pov_problems:                      # a POV member Smart View did not know: every value would be wrong
         return rows, problems
-    unknown = set(parsed.unknown_members)        # 'Dimension: member' - their cells are comments, not data (not 0)
+    # 'Dimension: member' the atlas does not have (see really_unknown): their cells are comments, not data (not 0)
+    unknown = set(parsed.unknown_members) if unknown is None else unknown
     for r in parsed.rows:
         combo = r[:lay.nr]
         if any(f"{a.dimension}: {x}" in unknown for a, x in zip(lay.rows, combo)):
@@ -92,6 +94,18 @@ def to_rows(lay: Layout, parsed: Parsed, conn: str, route: str, fetched_at: floa
             label = OPEN if closed and key[1] == "Actual" and periods.after(key[5], closed) else closed_label
             rows.append(Row(key, None if v is None else float(v), route, fetched_at, label, atlas_build))
     return rows, problems
+
+
+def really_unknown(db, conn: str, flagged: list[str]) -> list[str]:
+    """The members grid.parse flagged as unknown that the atlas really lacks. The parser's heuristic misfires where
+    a member's name equals its label (FinPlan) and a row or column is empty; a member the atlas knows is kept (its
+    empty cells are stored as None). A dimension the atlas has not built cannot judge: its members are kept."""
+    out = []
+    for f in flagged:
+        dim, _, name = f.partition(": ")
+        if db is not None and atlas.built(db, conn, dim) and not atlas.has_member(db, conn, dim, name):
+            out.append(f)
+    return out
 
 
 def _chunks(xs: list, n: int) -> list[list]:
@@ -230,10 +244,21 @@ def check_batch(cat: Catalog, rows: list[Row], closed: str, store=None) -> tuple
 
 
 def fill(store, retrieve: Retrieve, cat: Catalog, grids: list[Grid], job: str, closed: str,
-         closed_label: str | None = None, atlas_build: str = "", now: Callable[[], float] = time.time) -> FillResult:
+         closed_label: str | None = None, atlas_build: str = "", now: Callable[[], float] = time.time,
+         atlas_db=None) -> FillResult:
     """Read every grid, store the rows, reconcile them and record the job in `fill`. A grid that fails is named in
     the result (the others are still stored); a failed job leaves the refresh state as it was, so it is retried."""
     t0, started = time.monotonic(), now()
+    own_db = atlas_db is None and config.ATLAS_DB.exists()
+    atlas_db = atlas.connect(config.ATLAS_DB) if own_db else atlas_db
+    try:
+        return _fill(store, retrieve, cat, grids, job, closed, closed_label, atlas_build, now, atlas_db, t0, started)
+    finally:
+        if own_db:
+            atlas_db.close()
+
+
+def _fill(store, retrieve, cat, grids, job, closed, closed_label, atlas_build, now, atlas_db, t0, started):
     rows, errors, warnings, routes, transport = [], [], [], set(), False
     for g in grids:
         try:
@@ -243,10 +268,12 @@ def fill(store, retrieve: Retrieve, cat: Catalog, grids: list[Grid], job: str, c
             errors.append(f"{g.what}: {type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}")
             continue
         routes.add(how)
-        got, bad = to_rows(lay, parsed, g.conn, how, now(), closed_label or closed, atlas_build, closed)
+        unknown = really_unknown(atlas_db, g.conn, parsed.unknown_members)
+        got, bad = to_rows(lay, parsed, g.conn, how, now(), closed_label or closed, atlas_build, closed,
+                           set(unknown))
         rows += got
         found = [f"{g.what}: {b}" for b in bad[:5]] + [f"{g.what}: {w}" for w in parsed.pov_problems]
-        found += [f"{g.what}: unknown members {', '.join(parsed.unknown_members)}"] if parsed.unknown_members else []
+        found += [f"{g.what}: unknown members {', '.join(unknown)}"] if unknown else []
         if got:
             warnings += found                    # some cells were unusable, the grid's other cells were stored
         else:

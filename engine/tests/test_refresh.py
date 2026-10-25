@@ -199,7 +199,7 @@ def test_a_year_roll_rereads_target_for_both_years_and_the_new_forecast():
     assert ("Forecast Q426", "FY26") not in plans and kinds(jobs) == ["new_month", "forecast"]
 
 
-def test_rows_of_members_smart_view_did_not_recognise_are_not_stored(retrieve, monkeypatch):
+def test_rows_of_members_smart_view_did_not_recognise_are_not_stored(retrieve, tmp_path):
     store = MemoryWarehouse()
     grids = extract.finmax_grids(CAT, ["Jan 26"], ["un.SY.2WHS", "un.SY.BAD"])
     real = retrieve
@@ -208,7 +208,12 @@ def test_rows_of_members_smart_view_did_not_recognise_are_not_stored(retrieve, m
         lay, p, secs, how = real(conn, pov, rows, cols)
         p.unknown_members.append("All Entities: un.SY.BAD")
         return lay, p, secs, how
-    res = extract.fill(store, unknown, CAT, grids, "t", "Jan 26")
+    adb = atlas.connect(tmp_path / "a.db")
+    atlas.store(adb, "FinMax", "All Entities", [{"name": "All Entities", "label": "", "parent": None, "depth": 0,
+                                                 "order": 0},
+                                                {"name": "un.SY.2WHS", "label": "", "parent": None, "depth": 1,
+                                                 "order": 1}], 0.1)
+    res = extract.fill(store, unknown, CAT, grids, "t", "Jan 26", atlas_db=adb)
     assert res.fill.result == "warn" and "un.SY.BAD" in res.fill.detail["warnings"][0]    # the rest was usable
     assert not any(k[3] == "un.SY.BAD" for k in store.rows) and any(k[3] == "un.SY.2WHS" for k in store.rows)
     assert res.fill.detail["errors"] == []
@@ -379,3 +384,41 @@ def test_a_live_forecast_top_up_replaces_the_stored_forecast(tmp_path, kind):
                     "Periodic")
     assert got[key] == 777.0
     assert got[key[:5] + ("Mar 26", "Periodic")] == 290.0             # a closed period keeps its value
+
+
+def _finplan_atlas(tmp_path, entity="2WHS Wholesale"):
+    db = atlas.connect(tmp_path / "fp.db")
+    for dim, names in (("Entity", [entity]), ("Account", ["EBITDA", "Total Other Items"]),
+                       ("Period", list(periods_MONTHS))):
+        atlas.store(db, "FinPlan", dim, [{"name": dim, "label": "", "parent": None, "depth": 0, "order": 0},
+                                         *[{"name": n, "label": n, "parent": dim, "depth": 1, "order": i + 1}
+                                           for i, n in enumerate(names)]], 0.1)
+    return db
+
+
+periods_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def test_members_the_atlas_knows_are_kept_when_the_parser_misflags_them(retrieve, tmp_path):
+    """FinPlan names equal their labels, so grid.parse flags a member with an empty row/column as unknown. The atlas
+    decides: known members keep their cells (None stays None); a member the atlas lacks is dropped."""
+    store = MemoryWarehouse()
+    grids = extract.finplan_grids(CAT, [("Target", "Final", 27)], ["2WHS Wholesale", "2NOPE Missing"])
+    real = retrieve
+
+    def misflag(conn, pov, rows, cols):
+        lay, p, secs, how = real(conn, pov, rows, cols)
+        for row in p.rows:                                             # an empty budget year: nothing but blanks
+            row[lay.nr:] = [None] * (len(row) - lay.nr)
+        p.unknown_members.extend(["Entity: 2WHS Wholesale", "Account: Total Other Items", "Period: Oct",
+                                  "Entity: 2NOPE Missing"])
+        return lay, p, secs, how
+    res = extract.fill(store, misflag, CAT, grids, "t", "Dec 26", atlas_db=_finplan_atlas(tmp_path))
+    assert res.fill.result == "warn" and res.fill.detail["errors"] == []
+    assert res.fill.detail["warnings"] == ["FinPlan Target/Final FY27: unknown members Entity: 2NOPE Missing"]
+    kept = {k: v for k, v in store.rows.items() if k[3] == "2WHS Wholesale"}
+    assert len(kept) == len(CAT.pnl["FinPlan"]) * 12 and all(r.value is None for r in kept.values())
+    assert not any(k[3] == "2NOPE Missing" for k in store.rows)
+    # no atlas dimension to judge with: nothing is dropped, nothing is reported
+    again = extract.fill(MemoryWarehouse(), misflag, CAT, grids, "t", "Dec 26", atlas_db=atlas.connect(tmp_path / "e.db"))
+    assert again.fill.result == "ok" and again.fill.cells == sum(g.cells for g in grids)

@@ -136,7 +136,8 @@ def _refresh(store, retrieve, cat, closed, db, forecast_of, now, notes) -> list[
         try:
             if job.grids:
                 res = fill(store, retrieve, cat, list(job.grids), job.kind, closed,
-                           atlas_build="" if snapshot is None else str(snapshot), now=now)
+                           atlas_build="" if snapshot is None else str(snapshot), now=now,
+                           atlas_db=db)
                 out.append(res)
                 if not res.ok:
                     if res.fill.detail.get("content_only"):
