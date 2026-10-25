@@ -4,16 +4,23 @@ scenarios, KPIs and materiality - the one place that says what finance words mea
 coming fin_* tools read it. parse() checks the structure; validate() checks every member against the atlas."""
 from __future__ import annotations
 
+import dataclasses
+import datetime
 import functools
 import re
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 
 from . import config
 
 KINDS = {"line", "sum", "grand"}
 RULES = {"latest_forecast"}
+BETTER = {"higher", "lower", "none"}
+UNITS = {"pct", "nok"}
+EXPR = re.compile(r"^[a-z_]\w*([+-][a-z_]\w*)*$")   # line keys joined by + and -
 
 
 class CatalogError(ValueError):
@@ -77,13 +84,13 @@ class Materiality:
 
 @dataclass(frozen=True)
 class Catalog:
-    pnl: dict[str, tuple[Line, ...]]
-    checks: dict[str, tuple[Check, ...]]
-    scenarios: dict[str, Scenario]
+    pnl: Mapping[str, tuple[Line, ...]]           # the three tables are read-only (MappingProxyType)
+    checks: Mapping[str, tuple[Check, ...]]
+    scenarios: Mapping[str, Scenario]
     materiality: Materiality
     entities: tuple[Entity, ...]
     kpis: tuple[Kpi, ...]
-    _whole: dict[str, Entity] = field(default_factory=dict, repr=False, compare=False)
+    _whole: Mapping[str, Entity] = field(default_factory=dict, repr=False, compare=False)
     _patterns: tuple[tuple[re.Pattern, Entity], ...] = field(default=(), repr=False, compare=False)
 
 
@@ -120,37 +127,123 @@ def _unique(keys, what: str) -> None:
         seen.add(k)
 
 
-def parse(data: dict) -> Catalog:
+def _strings(value, where: str, name: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or not all(isinstance(x, str) for x in value):
+        raise CatalogError(f"{where}: {name} must be a list of strings, not {type(value).__name__} {value!r}")
+    return tuple(value)
+
+
+def _build(cls, raw, where: str, lists: tuple[str, ...] = (), **extra):
+    """One catalogue entry as `cls`. A non-table, an unknown or missing field, or a plain string where a list belongs
+    is reported as "<where>: ..." so the broken entry can be found."""
+    if not isinstance(raw, dict):
+        raise CatalogError(f"{where}: expected a table, not {type(raw).__name__} {raw!r}")
+    fields = [f for f in dataclasses.fields(cls) if f.name not in extra]
+    for k in raw:
+        if k not in {f.name for f in fields}:
+            raise CatalogError(f"{where}: unknown field '{k}'")
+    for f in fields:
+        if f.name not in raw and f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING:
+            raise CatalogError(f"{where}: missing field '{f.name}'")
+    args = {**raw, **extra}
+    for name in lists:
+        if name in args:
+            args[name] = _strings(args[name], where, name)
+    return cls(**args)
+
+
+def _section(data: dict, name: str, kind: type, default=None):
+    value = data.get(name, default)
+    if value is None:
+        raise CatalogError(f"missing section [{name}]")
+    if not isinstance(value, kind):
+        raise CatalogError(f"[{name}]: expected a {'table' if kind is dict else 'list'}, not {type(value).__name__}")
+    return value
+
+
+def _number(raw: dict, name: str) -> float:
+    value = raw.get(name)
+    if isinstance(value, bool):
+        raise CatalogError(f"materiality: {name} {value!r} is not a number")
     try:
-        pnl = {cube: tuple(Line(**x) for x in lines) for cube, lines in data["pnl"].items()}
-        checks = {cube: tuple(Check(**x) for x in cs) for cube, cs in data.get("checks", {}).items()}
-        scenarios = {k: Scenario(key=k, **v) for k, v in data["scenarios"].items()}
-        materiality = Materiality(float(data["materiality"]["pct"]), float(data["materiality"]["abs_nok"]),
-                                  tuple(data["materiality"]["always"]))
-        entities = tuple(Entity(**{**e, "aliases": tuple(e.get("aliases", ())),
-                                   "successors": tuple(e.get("successors", ()))}) for e in data["entity"])
-        kpis = tuple(Kpi(**k) for k in data.get("kpi", ()))
-    except (KeyError, TypeError) as e:
-        raise CatalogError(f"missing or unknown field: {e}") from None
+        return float(value)
+    except (TypeError, ValueError):
+        raise CatalogError(f"materiality: {name} {value!r} is not a number") from None
+
+
+def _materiality(raw: dict) -> Materiality:
+    for k in raw:
+        if k not in {"pct", "abs_nok", "always"}:
+            raise CatalogError(f"materiality: unknown field '{k}'")
+    pct, abs_nok = _number(raw, "pct"), _number(raw, "abs_nok")
+    if not 0 < pct <= 1:
+        raise CatalogError(f"materiality: pct {pct} is not in (0, 1] (0.10 = 10 %)")
+    if abs_nok < 0:
+        raise CatalogError(f"materiality: abs_nok {abs_nok} is negative")
+    return Materiality(pct, abs_nok, _strings(raw.get("always", []), "materiality", "always"))
+
+
+def _iso_date(value, where: str) -> str | None:
+    """An ISO date as text; TOML may also hand a date value (abolished = 2026-06-01 without quotes)."""
+    if value is None:
+        return None
+    if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
+        return value.isoformat()
+    try:
+        return datetime.date.fromisoformat(value).isoformat()
+    except (TypeError, ValueError):
+        raise CatalogError(f"{where}: abolished {value!r} is not an ISO date (YYYY-MM-DD)") from None
+
+
+def parse(data: dict) -> Catalog:
+    pnl = {cube: tuple(_build(Line, x, f"pnl.{cube}[{i}]") for i, x in enumerate(lines))
+           for cube, lines in _section(data, "pnl", dict).items()}
+    checks = {cube: tuple(_build(Check, x, f"checks.{cube}[{i}]") for i, x in enumerate(cs))
+              for cube, cs in _section(data, "checks", dict, {}).items()}
+    scenarios = {k: _build(Scenario, v, f"scenarios[{k}]", key=k)
+                 for k, v in _section(data, "scenarios", dict).items()}
+    materiality = _materiality(_section(data, "materiality", dict))
+    entities = tuple(_build(Entity, e, f"entity[{i}]", ("aliases", "successors"))
+                     for i, e in enumerate(_section(data, "entity", list)))
+    entities = tuple(dataclasses.replace(e, abolished=_iso_date(e.abolished, f"entity '{e.key}'")) for e in entities)
+    kpis = tuple(_build(Kpi, k, f"kpi[{i}]") for i, k in enumerate(_section(data, "kpi", list, [])))
+
     keys = {cube: {x.key for x in lines} for cube, lines in pnl.items()}
     for cube, lines in pnl.items():
         _unique([x.key for x in lines], f"{cube} line key")
         for x in lines:
             if x.kind not in KINDS:
                 raise CatalogError(f"{cube} line '{x.key}': kind '{x.kind}' is not one of {sorted(KINDS)}")
+            if x.better not in BETTER:
+                raise CatalogError(f"{cube} line '{x.key}': better '{x.better}' is not one of {sorted(BETTER)}")
+        grands = [x.key for x in lines if x.kind == "grand"]
+        if len(grands) > 1:
+            raise CatalogError(f"{cube} has {len(grands)} grand lines ({', '.join(grands)}); at most one")
     for cube, cs in checks.items():
         for c in cs:
-            for tok in re.findall(r"[a-z_][a-z0-9_]*", c.expr):
+            if not EXPR.match(c.expr):
+                raise CatalogError(f"{cube} check '{c.label}': expression '{c.expr}' is not line keys joined by "
+                                   "+ and -")
+            for tok in re.findall(r"[a-z_]\w*", c.expr):
                 if tok not in keys.get(cube, set()):
                     raise CatalogError(f"{cube} check '{c.label}': '{tok}' is not a {cube} line key")
     for s in scenarios.values():
+        if s.connection not in pnl:
+            raise CatalogError(f"scenario '{s.key}': connection '{s.connection}' is not a pnl cube ({', '.join(pnl)})")
+        if s.scenario and s.rule:
+            raise CatalogError(f"scenario '{s.key}' has both scenario and rule; give one")
         if not s.scenario and not s.rule:
             raise CatalogError(f"scenario '{s.key}' needs a scenario or rule")
         if s.rule and s.rule not in RULES:
             raise CatalogError(f"scenario '{s.key}': rule '{s.rule}' is not one of {sorted(RULES)}")
+    _unique([k.key for k in kpis], "kpi key")
     for k in kpis:
+        if k.connection not in pnl:
+            raise CatalogError(f"kpi '{k.key}': unknown connection '{k.connection}' (not a pnl cube)")
+        if k.unit not in UNITS:
+            raise CatalogError(f"kpi '{k.key}': unit '{k.unit}' is not one of {sorted(UNITS)}")
         for part in (k.numerator, k.denominator):
-            if part not in keys.get(k.connection, set()):
+            if part not in keys[k.connection]:
                 raise CatalogError(f"kpi '{k.key}': '{part}' is not a {k.connection} line key")
     every = set().union(*keys.values())
     for a in materiality.always:
@@ -160,6 +253,8 @@ def parse(data: dict) -> Catalog:
     _unique([_norm(a) for e in entities for a in e.aliases], "entity alias")
     ekeys = {e.key for e in entities}
     for e in entities:
+        if not e.finmax and not e.finplan:
+            raise CatalogError(f"entity '{e.key}' needs finmax or finplan")
         for s in e.successors:
             if s not in ekeys or s == e.key:
                 raise CatalogError(f"entity '{e.key}': successor '{s}' is not another entity key")
@@ -168,7 +263,8 @@ def parse(data: dict) -> Catalog:
         for name in (e.finmax, e.finplan, e.label, *e.aliases):
             if name:
                 whole.setdefault(_norm(name), e)
-    return Catalog(pnl, checks, scenarios, materiality, entities, kpis, whole, _patterns(entities))
+    return Catalog(MappingProxyType(pnl), MappingProxyType(checks), MappingProxyType(scenarios), materiality,
+                   entities, kpis, MappingProxyType(whole), _patterns(entities))
 
 
 @functools.lru_cache(maxsize=4)
@@ -181,6 +277,8 @@ def _load(path: str) -> Catalog:
 
 
 def load(path: Path | None = None) -> Catalog:
+    """The parsed catalogue, cached per path for the life of the process: an edit to catalog.toml takes effect only
+    after the server (or Python) is restarted."""
     return _load(str(path or config.knowledge_file("catalog.toml")))
 
 

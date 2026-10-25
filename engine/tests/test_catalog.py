@@ -67,6 +67,33 @@ def _with(path, value):
     (_with(["entity"], BASE["entity"] * 2), "duplicate"),
     (_with(["scenarios", "actual"], {"connection": "FinMax", "label": "A"}), "scenario or rule"),
     (_with(["entity", 0, "successors"], ["nope"]), "successor 'nope'"),
+    (_with(["entity", 0, "aliases"], "wholesale"), r"entity\[0\]: aliases must be a list"),
+    (_with(["materiality", "always"], "rev"), "materiality: always must be a list"),
+    (_with(["scenarios", "actual", "connection"], "Nope"), "scenario 'actual': connection 'Nope' is not a pnl cube"),
+    (_with(["kpi", 0, "connection"], "Nope"), "kpi 'm': unknown connection 'Nope'"),
+    (_with(["kpi", 0, "unit"], "eur"), "kpi 'm': unit 'eur'"),
+    (_with(["kpi"], BASE["kpi"] * 2), "duplicate kpi key 'm'"),
+    (_with(["pnl", "FinMax", 0, "better"], "up"), "FinMax line 'rev': better 'up'"),
+    (_with(["entity", 0, "finmax"], None), "entity 'w' needs finmax or finplan"),
+    (_with(["entity", 0, "abolished"], "1 June 2026"), "entity 'w': abolished '1 June 2026' is not an ISO date"),
+    (_with(["pnl", "FinMax", 0, "kind"], "grand"), "FinMax has 2 grand lines"),
+    (_with(["scenarios", "actual", "rule"], "latest_forecast"), "scenario 'actual' has both scenario and rule"),
+    (_with(["materiality", "pct"], 0), r"materiality: pct 0.0 is not in \(0, 1\]"),
+    (_with(["materiality", "pct"], 10), r"materiality: pct 10.0 is not in \(0, 1\]"),
+    (_with(["materiality", "abs_nok"], -1), "materiality: abs_nok -1.0 is negative"),
+    (_with(["materiality", "pct"], "ten"), "materiality: pct 'ten' is not a number"),
+    (_with(["materiality", "abs_nok"], None), "materiality: abs_nok None is not a number"),
+    (_with(["pnl", "FinMax", 0, "acount"], "x"), r"pnl.FinMax\[0\]: unknown field 'acount'"),
+    (_with(["entity", 0, "alias"], ["x"]), r"entity\[0\]: unknown field 'alias'"),
+    (_with(["kpi", 0, "nominator"], "rev"), r"kpi\[0\]: unknown field 'nominator'"),
+    (_with(["scenarios", "actual", "versoin"], "x"), r"scenarios\[actual\]: unknown field 'versoin'"),
+    (_with(["checks", "FinMax", 0, "exp"], "x"), r"checks.FinMax\[0\]: unknown field 'exp'"),
+    (_with(["materiality", "pcts"], 1), "materiality: unknown field 'pcts'"),
+    (_with(["kpi", 0], {"key": "m"}), r"kpi\[0\]: missing field"),
+    (_with(["entity", 0], "w"), r"entity\[0\]: expected a table"),
+    (_with(["checks", "FinMax", 0, "expr"], "rev*ebitda"), "FinMax check 'x': expression 'rev\*ebitda'"),
+    (_with(["checks", "FinMax", 0, "expr"], "rev--ebitda"), "FinMax check 'x': expression"),
+    (_with(["checks", "FinMax", 0, "expr"], "rev+1"), "FinMax check 'x': expression"),
 ])
 def test_parse_rejects_broken_catalogues(data, msg):
     with pytest.raises(catalog.CatalogError, match=msg):
@@ -135,3 +162,20 @@ def test_abolished_consumer_names_its_successors():
     con = catalog.resolve_entity(cat, "privatmarkedet")
     assert con.key == "consumer" and con.abolished == "2026-06-01" and con.successors == ("ssm", "ei")
     assert {e.key: e.successors for e in cat.entities}["ig"] == ()
+
+
+def test_catalogue_tables_are_read_only():
+    cat = catalog.parse(BASE)
+    with pytest.raises(TypeError):
+        cat.pnl["FinMax"] = ()
+    with pytest.raises(TypeError):
+        cat.scenarios["x"] = cat.scenarios["actual"]
+    with pytest.raises(TypeError):
+        cat.checks["FinMax"] = ()
+
+
+def test_parse_accepts_the_base_and_a_toml_date():
+    assert catalog.parse(BASE).entities[0].key == "w"
+    import datetime
+    cat = catalog.parse(_with(["entity", 0, "abolished"], datetime.date(2026, 6, 1)))
+    assert cat.entities[0].abolished == "2026-06-01"
