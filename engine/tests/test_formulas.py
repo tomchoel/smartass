@@ -55,3 +55,12 @@ def test_generated_formulas_pass_checker():
     assert res["ok"] is True, res
     bad = fx.check([("Q1 Svar", "C1", "=C13+C14+C15")])
     assert bad["ok"] is False and bad["block"][0]["rule"] == "PLUS_CHAIN"
+
+
+def test_avg_rows_is_an_average_over_ranges_and_passes_the_checker():
+    assert fx.avg_rows("C", list(range(20, 30))) == "=AVERAGE(C20:C29)"
+    assert fx.avg_rows("D", [5, 7, 8]) == "=AVERAGE(D5,D7:D8)"
+    assert fx.check([("Q1 Svar", "C30", fx.avg_rows("C", list(range(20, 30))))])["ok"] is True
+    import pytest
+    with pytest.raises(ValueError):
+        fx.avg_rows("C", [])

@@ -7,7 +7,7 @@ Shorthands (all optional; a plain spec passes through unchanged):
                             Values are strings ("{v}") or dicts ("{name}"); "{i}" is the 0-based index. A pull cell
                             whose members are not in that pull (e.g. 'Oct 26' before October closes) becomes empty,
                             and var/varpct cells that depend on an empty cell are dropped too.
-  * {"sum": "m*"}         - every line key matching the pattern, in spec order.
+  * {"sum": "m*"}         - every line key matching the pattern, in spec order ({"avg": "f*"} likewise).
   * spec "auto_points"    - true (default): factual key points drafted from the numbers are put first; the spec's
                             own key_points (interpretation) follow. false: only the spec's own.
 """
@@ -83,8 +83,9 @@ def expand(spec: dict, sheets: dict[str, str], pulls: dict) -> dict:
                                          tuple(c.get("col", [])) not in p.col_labels)
             if missing and repeated:                 # e.g. 'Oct 26' in a Jan..Dec repeat: empty, not an error
                 return None
-        if isinstance(c.get("sum"), str):
-            c = {**c, "sum": [k for k in keys if fnmatch.fnmatchcase(k, c["sum"])]}
+        for agg in ("sum", "avg"):
+            if isinstance(c.get(agg), str):
+                c = {**c, agg: [k for k in keys if fnmatch.fnmatchcase(k, c[agg])]}
         return c
 
     for sec in s.get("sections", []):
@@ -168,6 +169,9 @@ def evaluate(spec: dict, pulls: dict, drills: dict[str, list[dict]] | None = Non
                     elif "sum" in c:
                         xs = [vals[k][j] for k in c["sum"] if k in vals]
                         row[j] = None if any(x is None for x in xs) else sum(xs)
+                    elif "avg" in c:
+                        xs = [vals[k][j] for k in c["avg"] if k in vals]
+                        row[j] = None if not xs or any(x is None for x in xs) else sum(xs) / len(xs)
                     elif "expr" in c:
                         env = {k: (v[j] if v[j] is not None else float("nan")) for k, v in vals.items()}
                         row[j] = eval(re.sub(r"[^\w+\-*/(). ]", "", c["expr"]), {"__builtins__": {}}, env)

@@ -244,7 +244,7 @@ SPEC_DOC = """Spec format (all numbers become live formulas):
        columns: [{header, kind: heltall|tall1|prosent1}],
        sections: [{title, lines: [{key, label, kind: line|sum|grand, num?: tall1,
                    cells: [{pull: '<pull id or sheet>', row: [...], col: [...]} | {var: [i, j]} | {varpct: [i, j]} |
-                           {expr: 'rev+cogs'} | {sum: [keys] | 'm*'} | {ref: {key, col}} | {rowsum: [cols]} |
+                           {expr: 'rev+cogs'} | {sum: [keys] | 'm*'} | {avg: [keys] | 'f*'} | {ref: {key, col}} | {rowsum: [cols]} |
                            {value} | null]}],
                    repeat: {over: ['Jan', ...] | 'months:Jan..Dec' | [{m: 'Jan', ...}, ...],
                             line: {key: 'm{i}', label: '{v}', cells: [{pull: 'a', row: [...], col: ['{v} 26']}, ...]}}}],

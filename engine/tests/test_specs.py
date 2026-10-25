@@ -83,3 +83,13 @@ def test_merge_patch():
     m = specs.merge(base, {"notes": ["y"], "chart": {"type": "bar"}, "title": None})
     assert m == {"notes": ["y"], "chart": {"type": "bar", "columns": [0, 1]}}
     assert base["notes"] == ["x"]
+
+
+def test_avg_pattern_expands_and_evaluates():
+    sess, ids = pulls()
+    spec = {"columns": [{"header": "FTE"}], "sections": [{"title": "levels", "repeat": {"over": ["Dec 25", "Jan 26"],
+            "line": {"key": "lv{i}", "label": "{v}", "cells": [{"pull": "m", "row": ["ac.EBITDA"], "col": ["{v}"]}]}},
+            "lines": [{"key": "favg", "label": "Average", "cells": [{"avg": "lv*"}]}]}]}
+    s = specs.expand(spec, ids, sess)
+    assert s["sections"][0]["lines"][-1]["cells"][0] == {"avg": ["lv0", "lv1"]}
+    assert specs.evaluate(s, sess)["favg"] == [(100.0 + 110.0) / 2]

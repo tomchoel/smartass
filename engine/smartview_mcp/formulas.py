@@ -42,6 +42,15 @@ def sum_rows(col: str, rows: list[int]) -> str:
     return f"=SUM({','.join(parts)})"
 
 
+def avg_rows(col: str, rows: list[int]) -> str:
+    """Average of one column over the given rows: '=AVERAGE(C13:C21)' / '=AVERAGE(C10,C20:C25)' (e.g. the FTE
+    average: the opening level and each month end)."""
+    if not rows:
+        raise ValueError("an average needs at least one line")
+    parts = [f"{col}{a}" if a == b else f"{col}{a}:{col}{b}" for a, b in _runs(sorted(rows))]
+    return f"=AVERAGE({','.join(parts)})"
+
+
 def sum_cols(row: int, cols: list[int]) -> str:
     """Sum of one row over the given column numbers (1-based)."""
     if not cols:
@@ -128,4 +137,4 @@ def sheet_formulas(ws, com) -> list[tuple[str, str, str]]:
     return out
 
 
-__all__ = ["sum_rows", "sum_cols", "variance", "variance_pct", "expr_keys_if_plain_sum", "check", "sheet_formulas"]
+__all__ = ["sum_rows", "avg_rows", "sum_cols", "variance", "variance_pct", "expr_keys_if_plain_sum", "check", "sheet_formulas"]

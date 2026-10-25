@@ -17,7 +17,7 @@ spec = {
                   {"var": [0, 1]},            # = col0 - col1 on this line
                   {"varpct": [0, 1]},         # = (col0 - col1) / |col1|
                   {"expr": "rev+cogs"},       # line keys, same column
-                  {"sum": ["rev", "cogs"]}, {"value": 123}, {"text": "n/a"}, null,
+                  {"sum": ["rev", "cogs"]}, {"avg": ["f0", "f1"]}, {"value": 123}, {"text": "n/a"}, null,
                   {"drill": "d", "where": {"JE_SOURCE": "Payables"}, "agg": "sum" | "count" | "debit" | "credit"}
                                               # sv_drill lines table Linjer_Q<n>[_alias], exact match per column
                 ]}]}],
@@ -159,6 +159,8 @@ def cell_trace(plan: list, rows_by_key: dict, pulls: dict, ncol: int) -> dict:
                     ent["deps"] = [(rows_by_key[k], col) for k in keys if k in rows_by_key]
                 elif "sum" in c and isinstance(c["sum"], list):
                     ent["deps"] = [(rows_by_key[k], col) for k in c["sum"] if k in rows_by_key]
+                elif "avg" in c and isinstance(c["avg"], list):
+                    ent["deps"] = [(rows_by_key[k], col) for k in c["avg"] if k in rows_by_key]
                 elif "ref" in c and c["ref"].get("key") in rows_by_key:
                     ent["deps"] = [(rows_by_key[c["ref"]["key"]], FIRST_COL + int(c["ref"].get("col", j)))]
                 elif "rowsum" in c:
@@ -354,6 +356,8 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
                          else _expr_to_formula(c["expr"], col, rows_by_key))
                 elif "sum" in c:
                     f = fx.sum_rows(col, [rows_by_key[k] for k in c["sum"]])
+                elif "avg" in c:                                   # {"avg": [keys]}: AVERAGE over those lines
+                    f = fx.avg_rows(col, [rows_by_key[k] for k in c["avg"]])
                 elif "ref" in c:                                   # another answer cell: {"ref": {"key":.., "col":..}}
                     f = f"={L(FIRST_COL + int(c['ref'].get('col', j)))}{rows_by_key[c['ref']['key']]}"
                 elif "rowsum" in c:                                # sum of other columns on this line
