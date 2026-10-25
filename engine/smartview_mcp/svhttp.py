@@ -95,8 +95,7 @@ class SvHttp:
         if not dims:
             raise SvHttpError(f"the atlas has no dimensions for {conn}: build it with sv_atlas_build")
         if stale:
-            raise SvHttpError(f"the atlas is incomplete or stale for {conn} (dimensions {', '.join(stale)}); "
-                              "Smart View in Excel will be used")
+            raise SvHttpError(f"the atlas is incomplete or stale for {conn} (dimensions {', '.join(stale)})")
         return dims
 
     def retrieve(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis],
@@ -115,8 +114,7 @@ class SvHttp:
         problems = validate_axes(dims, pov, rows, cols)
         unknown = [p for p in problems if p.startswith("unknown dimension")]
         if unknown:                       # the atlas may lack a dimension the cube has: let COM decide
-            raise SvHttpError(f"the atlas is incomplete or stale for {conn} ({'; '.join(unknown)}); "
-                              "Smart View in Excel will be used")
+            raise SvHttpError(f"the atlas is incomplete or stale for {conn} ({'; '.join(unknown)})")
         if problems:
             raise InputError("Invalid query: " + "; ".join(problems))
         lay = Layout(full_pov(dims, pov, rows, cols), rows, cols)

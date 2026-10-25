@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Literal
 
+import anyio.lowlevel
 import anyio.to_thread
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
@@ -30,27 +31,42 @@ async def sv_dimensions(connection: Connection) -> dict:
         raise _err(e)
 
 
-async def _retrieve(connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros, source: str, timeout: float):
+async def _retrieve(connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros, source: str, timeout: float,
+                    *, n_cells: int = 0, ctx=None):
     """(layout, parsed, seconds, route, note). Smart View's HTTP protocol first (no Excel) unless source='com'; with
-    source='auto' an HTTP failure that is not an input error falls back to Smart View in Excel (note says why)."""
+    source='auto' an HTTP failure that is not an input error falls back to Smart View in Excel (note says why), and a
+    grid too big for one HTTP request's time budget goes straight to Excel."""
+    from . import svhttp
     note = None
-    if source != "com":
-        from . import svhttp
+    if source == "com" or (source == "auto" and n_cells / 200 > config.SVHTTP_TIMEOUT_S):
+        pass
+    else:
         try:
             lay, parsed, secs = await anyio.to_thread.run_sync(lambda: svhttp.shared().retrieve(
-                connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros))
+                connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros), abandon_on_cancel=True)
             return lay, parsed, secs, "http", None
         except InputError as e:
             raise _err(e) from None
         except Exception as e:   # noqa: BLE001 - any HTTP-route failure: the Excel route, or a clear error for 'http'
-            msg = f"{type(e).__name__}: {logsetup.redact(e)}"
+            msg = f"{type(e).__name__}: {logsetup.redact(e)}"[:300]
             if source == "http":
                 raise ToolError(f"HTTP route failed - {msg}. Next step: call sv_query with source='com'.") from None
-            log.warning("svhttp failed, using Smart View in Excel: %s", msg)
+            log.warning("svhttp failed, using Smart View in Excel: %s", msg,
+                        exc_info=not isinstance(e, svhttp.SvHttpError))
             note = f"HTTP route failed ({msg}); the grid was read through Smart View in Excel instead."
-    lay, parsed, secs = await _call(
-        lambda h: ops.query(h, connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros),
-        timeout=timeout, what="sv_query")
+            if ctx is not None:
+                await ctx.report_progress(1, 3, "HTTP route failed; using Smart View in Excel")
+    await anyio.lowlevel.checkpoint()          # a pending cancel raises here, before any Excel job is submitted
+    try:
+        lay, parsed, secs = await _call(
+            lambda h: ops.query(h, connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros),
+            timeout=timeout, what="sv_query")
+    except ToolError as e:
+        if note is None:
+            raise
+        err = ToolError(f"{e} (HTTP route also failed: {msg})")
+        err.http_note = note
+        raise err from None
     return lay, parsed, secs, "com", note
 
 
@@ -89,10 +105,11 @@ async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: C
     try:
         lay, parsed, secs, route, http_note = await _retrieve(
             connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros, source,
-            timeout=max(config.CALL_TIMEOUT_S, n_cells / 200))
+            timeout=max(config.CALL_TIMEOUT_S, n_cells / 200), n_cells=n_cells, ctx=ctx)
     except (HostError, ToolError) as e:
         qlog.write({"tool": "sv_query", "connection": connection, "pov": pov, "rows": [r.model_dump() for r in rows],
-                    "columns": [c.model_dump() for c in columns], "source": source, "error": str(e)})
+                    "columns": [c.model_dump() for c in columns], "source": source, "error": str(e),
+                    "http_note": getattr(e, "http_note", None)})
         raise _err(e)
     await ctx.report_progress(2, 3, "parsed")
     saved = None
@@ -128,7 +145,7 @@ async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: C
         warnings.insert(0, "Unknown/unrecognised members (no data returned for them): "
                         + "; ".join(parsed.unknown_members) + ". Use sv_find_member to get the right names.")
     if http_note:
-        warnings.insert(0, http_note)
+        warnings.append(http_note)
     return {
         "connection": connection,
         "route": route,
