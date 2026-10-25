@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import atlas, ops
+from . import atlas, catalog, ops
 from .grid import Axis
 from .host import ExcelHost, HostError, InputError
 
@@ -192,14 +192,9 @@ def check_pulls(pulls: list[PullSpec], confirm=None) -> None:
 
 
 # ------------------------------------------------------------------ A. division P&L
-PNL = [  # key, FinMax account, kind, num
-    ("rev", "ac.C30", "line", None), ("cogs", "ac.C40S", "line", None), ("gm", "ac.C48", "sum", None),
-    ("pers", "ac.C50S", "line", None), ("oth", "ac.C60", "line", None), ("opex", "ac.C70", "sum", None),
-    ("boi", "ac.EBITDA_BOI", "sum", None), ("c73", "ac.C73", "line", None), ("ebitda", "ac.EBITDA", "grand", None),
-    ("da", "ac.C75", "line", None), ("fte", "ac.STA20Y", "line", "tall1"),
-]
-PNL_CHECKS = [("C30 + C40S = C48", "rev+cogs-gm"), ("C50S + C60 = C70", "pers+oth-opex"),
-              ("C48 + C70 = EBITDA_BOI", "gm+opex-boi"), ("EBITDA_BOI + C73 = EBITDA", "boi+c73-ebitda")]
+_CAT = catalog.load()
+PNL = [(x.key, x.account, x.kind, x.num) for x in _CAT.pnl["FinMax"]]       # key, FinMax account, kind, num
+PNL_CHECKS = [(c.label, c.expr) for c in _CAT.checks["FinMax"]]
 
 
 def division_pnl(h: ExcelHost, entity: str, period: str | None = None, basis: str = "ytd", compare: str = "ly",
@@ -402,11 +397,8 @@ def monthly_trend(h: ExcelHost, entity: str, accounts: list[str] | None = None, 
 
 # ------------------------------------------------------------------ D. actual vs budget / forecast (FinPlan)
 # Stops at EBITDA: Target (budget) carries no depreciation/write-downs/other items, so EBIT variances would mislead.
-FP_PNL = [("rev", "Revenue", "line"), ("cogs", "COGS", "line"), ("gp", "Gross_Profit", "sum"),
-          ("opex", "OPEX", "line"), ("boi", "EBITDA before Other Items", "sum"), ("oth", "Total Other Items", "line"),
-          ("ebitda", "EBITDA", "grand")]
-FP_CHECKS = [("Revenue + COGS = Gross profit", "rev+cogs-gp"), ("Gross profit + OPEX = EBITDA before other items", "gp+opex-boi"),
-             ("EBITDA before other items + Other items = EBITDA", "boi+oth-ebitda")]
+FP_PNL = [(x.key, x.account, x.kind) for x in _CAT.pnl["FinPlan"]]
+FP_CHECKS = [(c.label, c.expr) for c in _CAT.checks["FinPlan"]]
 
 
 def latest_forecast(year_yy: int) -> str | None:

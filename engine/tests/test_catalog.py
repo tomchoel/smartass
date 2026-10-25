@@ -304,3 +304,12 @@ def test_doctor_reports_catalogue_problems(monkeypatch, tmp_path):
     c = doctor._catalog()
     assert c.name == "catalog" and c.status == "WARN" and "no atlas" in c.detail
     assert "_catalog" in [f.__name__ for f in doctor.CHECKS]
+
+
+def test_templates_read_the_catalogue():
+    import inspect
+
+    from smartview_mcp import templates
+    assert templates.PNL == OLD_PNL and templates.PNL_CHECKS == OLD_PNL_CHECKS
+    assert templates.FP_PNL == OLD_FP_PNL and templates.FP_CHECKS == OLD_FP_CHECKS
+    assert '("rev", "ac.C30"' not in inspect.getsource(templates)   # no second copy of the list
