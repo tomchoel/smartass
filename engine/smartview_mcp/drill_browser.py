@@ -754,3 +754,13 @@ def shared_browser() -> DrillBrowser:
         if _shared is None:
             _shared = DrillBrowser()
         return _shared
+
+
+def shutdown_shared() -> None:
+    """Shut the process's shared drill browser down (if one was made) and forget it, so a later shared_browser()
+    builds a fresh one. Safe to call twice."""
+    global _shared
+    with _shared_lock:
+        b, _shared = _shared, None
+    if b is not None:
+        b.shutdown()

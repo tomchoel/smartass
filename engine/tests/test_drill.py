@@ -1302,8 +1302,9 @@ def test_crash_while_paging_retries_with_a_fresh_deadline():
 
 
 class _FakeLoginPage:
-    def __init__(self):
+    def __init__(self, clock):
         self.url = "about:blank"
+        self.clock = clock
 
     def goto(self, url, wait_until=None, timeout=None):
         self.url = url
@@ -1312,17 +1313,35 @@ class _FakeLoginPage:
         pass
 
     def wait_for_timeout(self, ms):
-        pass
+        self.clock[0] += ms / 1000
 
 
-def test_login_once_signs_in_on_another_pod(tmp_path):
+def test_login_once_signs_in_on_another_pod(tmp_path, monkeypatch):
     from smartview_mcp import drill_browser as db
+    clock = [0.0]                                   # fake clock: waiting advances it, so login_action's 3 s passes at once
+    monkeypatch.setattr(db.time, "monotonic", lambda: clock[0])
     b = db.DrillBrowser(base="https://plan1.example", profile=tmp_path / "p")
-    p = _FakeLoginPage()
+    p = _FakeLoginPage(clock)
     b._login_once(p, float("inf"), base="https://strat.example/")
     assert p.url == "https://strat.example/HyperionPlanning/"
     b._login_once(p, float("inf"))
     assert p.url == "https://plan1.example/HyperionPlanning/"
+    b.shutdown()
+
+
+def test_shutdown_shared_is_idempotent(monkeypatch):
+    from smartview_mcp import drill_browser as db
+    monkeypatch.setattr(db, "_shared", None)
+    class Fake:
+        shutdowns = 0
+        def shutdown(self):
+            Fake.shutdowns += 1
+    monkeypatch.setattr(db, "DrillBrowser", Fake)
+    first = db.shared_browser()
+    db.shutdown_shared()
+    db.shutdown_shared()
+    assert Fake.shutdowns == 1
+    assert db.shared_browser() is not first
 
 
 def test_shared_browser_is_one_instance(monkeypatch):
