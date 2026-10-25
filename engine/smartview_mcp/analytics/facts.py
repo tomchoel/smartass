@@ -1,0 +1,55 @@
+"""Facts: every number the calc engine produces, with what it means and which warehouse cells it came from, so any
+figure in an answer can be traced. A number that cannot be computed is a Fact with value None and a reason - never a
+silent gap, never a division by zero."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable, Iterable
+
+UNITS = ("nok", "fte", "pct", "nok_per_fte", "count")
+
+
+@dataclass(frozen=True)
+class Fact:
+    id: str
+    value: float | None
+    unit: str                         # one of UNITS; pct is a ratio (0.1 = 10 %)
+    definition: str
+    inputs: tuple[tuple, ...] = ()    # warehouse keys (cube, scenario, version, entity, account, period, balance)
+    reason: str | None = None         # why value is None
+
+    def as_dict(self, max_inputs: int = 40) -> dict:
+        out = {"id": self.id, "value": self.value, "unit": self.unit, "definition": self.definition,
+               "inputs": [list(k) for k in self.inputs[:max_inputs]]}
+        if len(self.inputs) > max_inputs:
+            out["inputs_more"] = len(self.inputs) - max_inputs
+        if self.reason:
+            out["reason"] = self.reason
+        return out
+
+
+def missing(id: str, unit: str, definition: str, reason: str, inputs: Iterable[tuple] = ()) -> Fact:
+    return Fact(id, None, unit, definition, tuple(inputs), reason)
+
+
+def _inputs(facts: Iterable[Fact]) -> tuple[tuple, ...]:
+    return tuple(dict.fromkeys(k for f in facts for k in f.inputs))
+
+
+def total(id: str, facts: list[Fact], unit: str, definition: str) -> Fact:
+    """The sum of facts (0 for none); missing if any part is."""
+    gone = next((f for f in facts if f.value is None), None)
+    if gone is not None:
+        return missing(id, unit, definition, f"{gone.id}: {gone.reason}", _inputs(facts))
+    return Fact(id, float(sum(f.value for f in facts)), unit, definition, _inputs(facts))
+
+
+def combine(id: str, unit: str, definition: str, fn: Callable[..., float], *facts: Fact) -> Fact:
+    """fn over the facts' values; missing when a part is missing or fn divides by zero."""
+    gone = next((f for f in facts if f.value is None), None)
+    if gone is not None:
+        return missing(id, unit, definition, f"{gone.id}: {gone.reason}", _inputs(facts))
+    try:
+        return Fact(id, float(fn(*(f.value for f in facts))), unit, definition, _inputs(facts))
+    except ZeroDivisionError:
+        return missing(id, unit, definition, "division by zero", _inputs(facts))
