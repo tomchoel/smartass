@@ -1,0 +1,170 @@
+# Semantic catalogue: what finance words mean in the cubes (Stage 1 of docs/specs/2026-10-25-finance-expert-design.md).
+# Hand-maintained. catalog.parse() checks the structure; catalog.validate() checks every member against the atlas
+# (`smartass doctor`). Sign convention as in FinMax: revenue positive, costs negative - so for every P&L line a
+# higher value is better (better = "none" where that does not hold).
+
+[pnl]
+# Report order. kind: line | sum | grand. num: number-format override (tall1 = one decimal).
+FinMax = [
+  { key = "rev",    account = "ac.C30",        kind = "line",  label = "Revenue" },
+  { key = "cogs",   account = "ac.C40S",       kind = "line",  label = "COGS" },
+  { key = "gm",     account = "ac.C48",        kind = "sum",   label = "Gross margin" },
+  { key = "pers",   account = "ac.C50S",       kind = "line",  label = "Personnel cost" },
+  { key = "oth",    account = "ac.C60",        kind = "line",  label = "Other opex" },
+  { key = "opex",   account = "ac.C70",        kind = "sum",   label = "Opex" },
+  { key = "boi",    account = "ac.EBITDA_BOI", kind = "sum",   label = "EBITDA before other items" },
+  { key = "c73",    account = "ac.C73",        kind = "line",  label = "Other items" },
+  { key = "ebitda", account = "ac.EBITDA",     kind = "grand", label = "EBITDA" },
+  { key = "da",     account = "ac.C75",        kind = "line",  label = "Depreciation and amortisation" },
+  { key = "fte",    account = "ac.STA20Y",     kind = "line",  label = "FTE", better = "none", num = "tall1" },
+]
+# FinPlan stops at EBITDA: Target carries no depreciation/write-downs/other items, so EBIT variances would mislead.
+FinPlan = [
+  { key = "rev",    account = "Revenue",                   kind = "line",  label = "Revenue" },
+  { key = "cogs",   account = "COGS",                      kind = "line",  label = "COGS" },
+  { key = "gp",     account = "Gross_Profit",              kind = "sum",   label = "Gross profit" },
+  { key = "opex",   account = "OPEX",                      kind = "line",  label = "Opex" },
+  { key = "boi",    account = "EBITDA before Other Items", kind = "sum",   label = "EBITDA before other items" },
+  { key = "oth",    account = "Total Other Items",         kind = "line",  label = "Other items" },
+  { key = "ebitda", account = "EBITDA",                    kind = "grand", label = "EBITDA" },
+]
+
+[checks]
+# Accounting identities, as expressions over line keys that must come to 0.
+FinMax = [
+  { label = "C30 + C40S = C48",          expr = "rev+cogs-gm" },
+  { label = "C50S + C60 = C70",          expr = "pers+oth-opex" },
+  { label = "C48 + C70 = EBITDA_BOI",    expr = "gm+opex-boi" },
+  { label = "EBITDA_BOI + C73 = EBITDA", expr = "boi+c73-ebitda" },
+]
+FinPlan = [
+  { label = "Revenue + COGS = Gross profit",                    expr = "rev+cogs-gp" },
+  { label = "Gross profit + OPEX = EBITDA before other items",  expr = "gp+opex-boi" },
+  { label = "EBITDA before other items + Other items = EBITDA", expr = "boi+oth-ebitda" },
+]
+
+[scenarios]
+actual         = { connection = "FinMax",  scenario = "Actual", label = "Actual (ledger)" }
+actual_finplan = { connection = "FinPlan", scenario = "Actual", version = "Working", label = "Actual (FinPlan)" }
+budget         = { connection = "FinPlan", scenario = "Target", version = "Final", label = "Target (budget)" }
+forecast       = { connection = "FinPlan", rule = "latest_forecast", version = "Final", label = "Latest forecast" }
+
+[materiality]
+pct = 0.10                            # a variance is material from 10 % of the comparison value ...
+abs_nok = 5_000_000                   # ... and from NOK 5 million (both must hold)
+always = ["rev", "pers", "ebitda"]    # always commented, material or not
+
+# Business areas. Aliases are matched as whole words in a question; aliases shorter than 3 characters only when
+# they are the whole question. abolished = the date the area was emptied (history is restated to today's org).
+[[entity]]
+key = "company"
+label = "Telenor Norge (total)"
+finmax = "un.SY"
+finplan = "BANORWAY"
+aliases = ["telenor norge", "total", "company", "selskapet", "tn"]
+
+[[entity]]
+key = "wholesale"
+label = "Wholesale"
+finmax = "un.SY.2WHS"
+finplan = "2WHS Wholesale"
+aliases = ["wholesale", "grossist", "whs", "2whs"]
+
+[[entity]]
+key = "business"
+label = "Business"
+finmax = "un.SY.2BUS"
+finplan = "2BUS Business"
+aliases = ["business", "bedrift", "bedriftsmarkedet", "b2b", "2bus"]
+
+[[entity]]
+key = "ssm"
+label = "Security Solutions & Mobile"
+finmax = "un.SY.2SSM"
+finplan = "2SSM Security Solutions & Mobile"
+aliases = ["security solutions & mobile", "security solutions and mobile", "ssm", "2ssm", "mobil"]
+
+[[entity]]
+key = "ei"
+label = "Entertainment & Internet"
+finmax = "un.SY.2EI"
+finplan = "2EI Entertainment & Internet"
+aliases = ["entertainment & internet", "entertainment and internet", "tv og internett", "e&i", "2ei", "ei"]
+
+[[entity]]
+key = "technology"
+label = "Technology"
+finmax = "un.SY.2TEC"
+finplan = "2TEC Technology"
+aliases = ["technology", "teknologi", "tech", "2tec"]
+
+[[entity]]
+key = "it"
+label = "IT"
+finmax = "un.SY.2IT"
+finplan = "2IT IT"
+aliases = ["it division", "it-divisjonen", "2it", "it"]
+
+[[entity]]
+key = "adm"
+label = "Norway Adm"
+finmax = "un.SY.2ADM"
+finplan = "2ADM Norway Adm"
+aliases = ["norway adm", "administration", "administrasjon", "staff units", "stab", "2adm", "adm"]
+
+[[entity]]
+key = "nordics"
+label = "Nordics"
+finmax = "un.SY.2NRD_N"
+finplan = "2NRD_N Nordics"
+aliases = ["nordics", "norden", "2nrd"]
+
+[[entity]]
+key = "ig"
+label = "Infrastructure Growth"
+finmax = "un.SY.2IG"
+finplan = "2IG Infrastructure Growth"
+aliases = ["infrastructure growth", "2ig", "ig"]
+abolished = "2026-06-01"
+note = "Abolished in the 1 June 2026 reorg; history is restated to today's organisation."
+
+[[entity]]
+key = "consumer"
+label = "Consumer Norway"
+finmax = "un.SY.2CON"
+aliases = ["consumer", "privat", "privatmarkedet", "2con"]
+abolished = "2026-06-01"
+note = "Emptied into 2SSM and 2EI on 1 June 2026; history is restated, so 2CON shows no data."
+
+# KPIs: ratios of two P&L line keys of one cube (computed in the workbook, never by the model).
+[[kpi]]
+key = "ebitda_margin"
+label = "EBITDA margin"
+connection = "FinMax"
+numerator = "ebitda"
+denominator = "rev"
+unit = "pct"
+
+[[kpi]]
+key = "gross_margin_pct"
+label = "Gross margin %"
+connection = "FinMax"
+numerator = "gm"
+denominator = "rev"
+unit = "pct"
+
+[[kpi]]
+key = "opex_per_fte"
+label = "Opex per FTE"
+connection = "FinMax"
+numerator = "opex"
+denominator = "fte"
+unit = "nok"
+
+[[kpi]]
+key = "personnel_per_fte"
+label = "Personnel cost per FTE"
+connection = "FinMax"
+numerator = "pers"
+denominator = "fte"
+unit = "nok"
