@@ -2,6 +2,7 @@
 a detail and the fix. Used by the CLI, sv_status and the HTTP /health endpoint."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import platform
@@ -96,12 +97,16 @@ def _catalog() -> Check:
     if not config.ATLAS_DB.exists():
         return Check("catalog", "WARN", "loaded; members not checked (no atlas)",
                      "Build the atlas with sv_atlas_build.")
-    problems, unchecked = catalog.validate(cat, atlas.connect(config.ATLAS_DB))
+    with contextlib.closing(atlas.connect(config.ATLAS_DB)) as db:
+        problems, unchecked, notes = catalog.validate(cat, db)
     if problems:
         return Check("catalog", "WARN", f"{len(problems)} member(s) not in the cubes: " + "; ".join(problems[:5]),
                      "Update knowledge\\catalog.toml to the current members (a reorg or rename?).")
     detail = (f"{sum(len(v) for v in cat.pnl.values())} P&L lines and {len(cat.entities)} business areas match the "
-              "atlas" + (f"; not checked: {', '.join(unchecked)}" if unchecked else ""))
+              "atlas" + (f"; {'; '.join(notes)}" if notes else ""))
+    if unchecked:
+        return Check("catalog", "WARN", f"{detail}; not checked: {', '.join(unchecked)}",
+                     "Build the missing dimensions with sv_atlas_build.")
     return Check("catalog", "OK", detail)
 
 

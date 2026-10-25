@@ -275,8 +275,8 @@ def test_validate_names_missing_members_and_unchecked_dimensions(tmp_path):
     cat = catalog.parse(BASE)
     db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30"],
                                 ("FinMax", "All Entities"): ["un.SY.2WHS"]})
-    problems, unchecked = catalog.validate(cat, db)
-    assert problems == ["FinMax line 'ebitda': 'ac.EBITDA' is not in FinMax / All Accounts"]
+    problems, unchecked, notes = catalog.validate(cat, db)
+    assert notes == [] and problems == ["FinMax line 'ebitda': 'ac.EBITDA' is not in FinMax / All Accounts"]
     assert unchecked == ["FinMax / All Scenarios"]
 
 
@@ -285,7 +285,7 @@ def test_validate_passes_a_complete_atlas(tmp_path):
     db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30", "ac.EBITDA"],
                                 ("FinMax", "All Entities"): ["un.SY.2WHS"],
                                 ("FinMax", "All Scenarios"): ["Actual"]})
-    assert catalog.validate(cat, db) == ([], [])
+    assert catalog.validate(cat, db) == ([], [], [])
 
 
 def test_validate_reports_a_missing_entity_and_scenario(tmp_path):
@@ -293,7 +293,7 @@ def test_validate_reports_a_missing_entity_and_scenario(tmp_path):
     db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30", "ac.EBITDA"],
                                 ("FinMax", "All Entities"): ["un.SY.2BUS"],
                                 ("FinMax", "All Scenarios"): ["Budget"]})
-    problems, _ = catalog.validate(cat, db)
+    problems, _, _ = catalog.validate(cat, db)
     assert problems == ["entity 'w': 'un.SY.2WHS' is not in FinMax / All Entities",
                         "scenario 'actual': 'Actual' is not in FinMax / All Scenarios"]
 
@@ -310,6 +310,44 @@ def test_templates_read_the_catalogue():
     import inspect
 
     from smartview_mcp import templates
-    assert templates.PNL == OLD_PNL and templates.PNL_CHECKS == OLD_PNL_CHECKS
-    assert templates.FP_PNL == OLD_FP_PNL and templates.FP_CHECKS == OLD_FP_CHECKS
+    assert templates.pnl_lines() == OLD_PNL and templates.pnl_checks() == OLD_PNL_CHECKS
+    assert templates.fp_lines() == OLD_FP_PNL and templates.fp_checks() == OLD_FP_CHECKS
     assert '("rev", "ac.C30"' not in inspect.getsource(templates)   # no second copy of the list
+
+
+def test_a_broken_catalogue_fails_only_the_pnl_templates(monkeypatch, tmp_path):
+    import importlib
+
+    from smartview_mcp import config, templates
+    (tmp_path / "catalog.toml").write_text("[materiality]\npct = 10\n", encoding="utf-8")
+    monkeypatch.setattr(config, "KNOWLEDGE_DIR", tmp_path)
+    monkeypatch.setattr(config, "PACKS", [])
+    catalog._load.cache_clear()
+    try:
+        importlib.reload(templates)                 # import must not read the catalogue
+        import smartview_mcp.server  # noqa: F401
+        with pytest.raises(catalog.CatalogError):
+            templates.pnl_lines()
+        with pytest.raises(catalog.CatalogError):
+            templates.fp_lines()
+    finally:
+        monkeypatch.undo()
+        catalog._load.cache_clear()
+        importlib.reload(templates)
+
+
+def test_validate_notes_a_missing_member_of_an_abolished_area(tmp_path):
+    cat = catalog.parse(_two_areas(abolished="2026-06-01"))
+    db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30", "ac.EBITDA"],
+                                ("FinMax", "All Entities"): ["un.SY.2BUS"],
+                                ("FinMax", "All Scenarios"): ["Actual"]})
+    assert catalog.validate(cat, db) == (
+        [], [], ["w: 'un.SY.2WHS' no longer in FinMax / All Entities (abolished 2026-06-01)"])
+
+
+def test_doctor_warns_when_a_dimension_is_unchecked(monkeypatch, tmp_path):
+    from smartview_mcp import atlas, doctor
+    atlas.connect(tmp_path / "a.db").close()
+    monkeypatch.setattr(doctor.config, "ATLAS_DB", tmp_path / "a.db")
+    c = doctor._catalog()
+    assert c.status == "WARN" and "not checked" in c.detail

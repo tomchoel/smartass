@@ -52,7 +52,7 @@ def _plan(monkeypatch, entity, **kw):
 
 
 def _fp_pulls(ebitda=100.0):
-    accts = [a for _, a, _ in templates.FP_PNL]
+    accts = [a for _, a, _ in templates.fp_lines()]
     act = fake_pull("Q6 FinPlan actual", accts, ["Actual"], [[ebitda]] * len(accts))
     plan = fake_pull("Q6 FinPlan plan", accts, ["Target"], [[90.0]] * len(accts))
     return {"act": act, "plan": plan}

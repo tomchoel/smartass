@@ -192,9 +192,15 @@ def check_pulls(pulls: list[PullSpec], confirm=None) -> None:
 
 
 # ------------------------------------------------------------------ A. division P&L
-_CAT = catalog.load()
-PNL = [(x.key, x.account, x.kind, x.num) for x in _CAT.pnl["FinMax"]]       # key, FinMax account, kind, num
-PNL_CHECKS = [(c.label, c.expr) for c in _CAT.checks["FinMax"]]
+# The lists come from knowledge/catalog.toml, read when a template runs (not at import): a broken catalogue then
+# fails only the P&L templates with a CatalogError, and the server still starts.
+def pnl_lines() -> list[tuple]:
+    """key, FinMax account, kind, num"""
+    return [(x.key, x.account, x.kind, x.num) for x in catalog.load().pnl["FinMax"]]
+
+
+def pnl_checks() -> list[tuple]:
+    return [(c.label, c.expr) for c in catalog.load().checks["FinMax"]]
 
 
 def division_pnl(h: ExcelHost, entity: str, period: str | None = None, basis: str = "ytd", compare: str = "ly",
@@ -205,7 +211,7 @@ def division_pnl(h: ExcelHost, entity: str, period: str | None = None, basis: st
     bal = "Accumulated" if basis == "ytd" else "Periodic"
     cols = [period] + ([cmp_p] if cmp_p else [])
     pov = {"All Entities": entity, "All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": bal}
-    pulls = [PullSpec("pnl", connection, [Axis("All Accounts", [a for _, a, _, _ in PNL])],
+    pulls = [PullSpec("pnl", connection, [Axis("All Accounts", [a for _, a, _, _ in pnl_lines()])],
                       [Axis("All Time Periods", cols)], pov)]
     kids = []
     if drivers and cmp_p:
@@ -223,7 +229,7 @@ def division_pnl(h: ExcelHost, entity: str, period: str | None = None, basis: st
     def answer(P):
         p = P["pnl"]
         lines = []
-        for key, acct, kind, num in PNL:
+        for key, acct, kind, num in pnl_lines():
             cells = [{"pull": p.sheet, "row": [acct], "col": [period]}]
             if cmp_p:
                 cells += [{"pull": p.sheet, "row": [acct], "col": [cmp_p]}, {"var": [0, 1]}, {"varpct": [0, 1]}]
@@ -280,7 +286,7 @@ def division_pnl(h: ExcelHost, entity: str, period: str | None = None, basis: st
                 chart = {"type": "waterfall", "lines": [b["key"] for b in bridge], "column": 0,
                          "title": f"EBITDA bridge {cmp_p} → {period}"}
                 kp.append(f"Largest driver: {dl[0]['label']}, variance {_fmt(top[0][2])} vs {cmp_p}.")
-        checks = [{"label": lab, "expr": ex, "columns": [0, 1] if cmp_p else [0]} for lab, ex in PNL_CHECKS]
+        checks = [{"label": lab, "expr": ex, "columns": [0, 1] if cmp_p else [0]} for lab, ex in pnl_checks()]
         checks.append({"label": "Period is closed", "static": "OK" if closed_ok else "DIFF",
                        "detail": f"{period} vs Current Reporting Month {closed}"})
         notes = ["Signs as in FinMax: costs are negative; variance = current − comparison (positive = better).",
@@ -397,8 +403,13 @@ def monthly_trend(h: ExcelHost, entity: str, accounts: list[str] | None = None, 
 
 # ------------------------------------------------------------------ D. actual vs budget / forecast (FinPlan)
 # Stops at EBITDA: Target (budget) carries no depreciation/write-downs/other items, so EBIT variances would mislead.
-FP_PNL = [(x.key, x.account, x.kind) for x in _CAT.pnl["FinPlan"]]
-FP_CHECKS = [(c.label, c.expr) for c in _CAT.checks["FinPlan"]]
+def fp_lines() -> list[tuple]:
+    """key, FinPlan account, kind"""
+    return [(x.key, x.account, x.kind) for x in catalog.load().pnl["FinPlan"]]
+
+
+def fp_checks() -> list[tuple]:
+    return [(c.label, c.expr) for c in catalog.load().checks["FinPlan"]]
 
 
 def latest_forecast(year_yy: int) -> str | None:
@@ -422,7 +433,7 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
     fyy = int(year[2:])
     forecast = forecast or latest_forecast(fyy)
     bal = "Accumulated" if basis == "ytd" else "Periodic"
-    accts = [a for _, a, _ in FP_PNL]
+    accts = [a for _, a, _ in fp_lines()]
     base = {"Entity": entity, "Years": year, "Period": month, "All Balance Types": bal}
     pulls = [PullSpec("act", "FinPlan", [Axis("Account", accts)], [Axis("Scenario", ["Actual"])],
                       {**base, "Version": "Working"}, title_suffix="actual"),
@@ -441,7 +452,7 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
     def answer(P):
         a, pl, fm = P["act"], P["plan"], P.get("fm")
         lines = []
-        for key, acct, kind in FP_PNL:
+        for key, acct, kind in fp_lines():
             cells = [{"pull": a.sheet, "row": [acct], "col": ["Actual"]},
                      {"pull": pl.sheet, "row": [acct], "col": ["Target"]}, {"var": [0, 1]}, {"varpct": [0, 1]}]
             if forecast:
@@ -473,7 +484,7 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
         return {"title": f"{entity} — actual vs budget/forecast {what}{month} {year}",
                 "subtitle": f"NOK · FinPlan · Actual (Working) vs Target and {forecast or 'no forecast'} (Final) · {bal}",
                 "key_points": kp, "columns": cols, "sections": sections,
-                "checks": [{"label": l, "expr": e, "columns": [0, 1]} for l, e in FP_CHECKS],
+                "checks": [{"label": l, "expr": e, "columns": [0, 1]} for l, e in fp_checks()],
                 "notes": notes,
                 "source": f"Source: Oracle EPM Cloud (FinPlan, FinMax) via Smart View, retrieved {_now()}."}
 

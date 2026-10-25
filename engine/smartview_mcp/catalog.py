@@ -343,40 +343,46 @@ def resolve_entity(cat: Catalog, text: str) -> Entity | None:
     return found[0] if len(found) == 1 else None
 
 
-ACCOUNT_DIM = {"FinMax": "All Accounts", "FinLite": "All Accounts", "FinPlan": "Account"}
+ACCOUNT_DIM = {"FinMax": "All Accounts", "FinPlan": "Account"}
 ENTITY_DIM = {"FinMax": "All Entities", "FinPlan": "Entity"}
 SCENARIO_DIM = {"FinMax": "All Scenarios", "FinPlan": "Scenario"}
 VERSION_DIM = {"FinPlan": "Version"}
 
 
-def validate(cat: Catalog, db) -> tuple[list[str], list[str]]:
-    """(problems, unchecked): catalogue members the atlas does not have, and dimensions not checked because the
-    atlas has not built them (or they are stale)."""
+def validate(cat: Catalog, db) -> tuple[list[str], list[str], list[str]]:
+    """(problems, unchecked, notes): catalogue members the atlas does not have; dimensions not checked because the
+    atlas has not built them; and members of abolished areas that are gone (expected after a reorg, so only a note).
+    The atlas's age is not judged here (the doctor's atlas check does that)."""
     from . import atlas
     problems: list[str] = []
     unchecked: list[str] = []
+    notes: list[str] = []
 
-    def check(conn: str, dim: str | None, name: str, what: str) -> None:
+    def check(conn: str, dim: str | None, name: str, what: str, abolished: str | None = None) -> None:
         if dim is None:
             return
-        if not atlas.usable(db, conn, dim):
+        if not atlas.built(db, conn, dim):
             if f"{conn} / {dim}" not in unchecked:
                 unchecked.append(f"{conn} / {dim}")
             return
         if not atlas.has_member(db, conn, dim, name):
-            problems.append(f"{what}: '{name}' is not in {conn} / {dim}")
+            if abolished:
+                notes.append(f"{what}: '{name}' no longer in {conn} / {dim} (abolished {abolished})")
+            else:
+                problems.append(f"{what}: '{name}' is not in {conn} / {dim}")
 
     for cube, lines in cat.pnl.items():
         for x in lines:
             check(cube, ACCOUNT_DIM.get(cube), x.account, f"{cube} line '{x.key}'")
     for e in cat.entities:
+        what = e.key if e.abolished else f"entity '{e.key}'"
         if e.finmax:
-            check("FinMax", ENTITY_DIM["FinMax"], e.finmax, f"entity '{e.key}'")
+            check("FinMax", ENTITY_DIM["FinMax"], e.finmax, what, e.abolished)
         if e.finplan:
-            check("FinPlan", ENTITY_DIM["FinPlan"], e.finplan, f"entity '{e.key}'")
+            check("FinPlan", ENTITY_DIM["FinPlan"], e.finplan, what, e.abolished)
     for s in cat.scenarios.values():
         if s.scenario:
             check(s.connection, SCENARIO_DIM.get(s.connection), s.scenario, f"scenario '{s.key}'")
         if s.version:
             check(s.connection, VERSION_DIM.get(s.connection), s.version, f"scenario '{s.key}' version")
-    return problems, unchecked
+    return problems, unchecked, notes
