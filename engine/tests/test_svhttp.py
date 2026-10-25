@@ -195,10 +195,16 @@ def test_an_incomplete_or_stale_atlas_falls_back_to_com(db_path, tmp_path):
     with pytest.raises(svhttp.SvHttpError, match="atlas has no dimensions"):
         _q(_sv(FakeTransport(), tmp_path / "empty.db"), "FinLite")
     db = atlas.connect(db_path)
-    _store(db, "FinMax", ["All Scenarios"], error="timed out")
+    atlas.store(db, "FinMax", "All Scenarios", [], 0.1, "timed out")   # a failed rebuild, as sv_atlas_build writes it
+    assert "All Scenarios" not in atlas.dimensions(db, "FinMax")      # its members are gone ...
     db.close()
     with pytest.raises(svhttp.SvHttpError, match="atlas is incomplete or stale for FinMax.*All Scenarios"):
-        _q(sv)
+        _q(sv)                                                        # ... but the build table still knows it
+    db = atlas.connect(db_path)
+    atlas.store(db, "FinPlan", "Version", [], 0.1)                    # built without error, but empty
+    db.close()
+    with pytest.raises(svhttp.SvHttpError, match="atlas is incomplete or stale for FinPlan.*Version"):
+        sv.retrieve("FinPlan", {}, [Axis("Account", ["Revenue"])], [Axis("Period", ["Sep"])], True, False)
 
 
 def test_an_old_atlas_still_serves_the_http_route(db_path):
@@ -346,7 +352,9 @@ def test_browser_failures_become_svhttp_errors(monkeypatch):
                        (_failed(drill_browser.DrillError("sign-in failed")), "sign-in failed"),
                        (_failed(RuntimeError("Target closed https://x/p?sso_token=SECRET\nCall log")),
                         r"browser error: Target closed https://x/p\?\.\.\.$"),
-                       (_failed(RuntimeError()), "browser error: RuntimeError")]:
+                       (_failed(RuntimeError()), "browser error: RuntimeError"),
+                       (_failed(RuntimeError("\n  \nreal line\nmore")), "browser error: real line$"),
+                       (_failed(ValueError("bad value ?sso_token=SECRET")), r"browser error: bad value \?\.\.\.$")]:
         b = _Fut(make)
         with pytest.raises(svhttp.SvHttpError, match=text):
             _bt(b).post(b.base, svxml.connect())

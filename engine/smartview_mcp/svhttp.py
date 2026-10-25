@@ -41,7 +41,7 @@ def _norm_dim(name: str) -> str:
 
 def _first_line(e: BaseException) -> str:
     """One redacted line of an exception (Playwright messages carry call logs and can quote sso_token URLs)."""
-    return drill_browser.redact(str(e).splitlines()[0] if str(e).strip() else type(e).__name__)[:200]
+    return drill_browser.redact(next((ln for ln in str(e).splitlines() if ln.strip()), type(e).__name__))[:200]
 
 
 class SvHttp:
@@ -88,7 +88,7 @@ class SvHttp:
         better."""
         db = atlas.connect(self.db_path)
         try:
-            dims = atlas.dimensions(db, conn)
+            dims = atlas.known_dimensions(db, conn)              # incl. failed builds (their members are deleted)
             stale = [d for d in dims if not atlas.built(db, conn, d)]
         finally:
             db.close()
@@ -187,7 +187,7 @@ class BrowserTransport:
             if fut is not None:
                 fut.cancel()                                      # still queued: do not run it for nobody
             raise SvHttpError(f"the drill browser did not answer within {config.SVHTTP_TIMEOUT_S:.0f} s") from None
-        except (SvHttpError, ValueError):
+        except SvHttpError:                       # (a refused write raised above, before the job)
             raise
         except DrillError as e:                                   # includes DrillBusy
             raise SvHttpError(str(e)) from None

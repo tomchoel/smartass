@@ -76,6 +76,14 @@ def built(db, connection: str, dimension: str) -> bool:
     return bool(r and r[0] and r[1] is None)
 
 
+def known_dimensions(db, connection: str) -> list[str]:
+    """Every dimension the atlas knows for the connection, sorted: those with members AND those with only a build
+    row (a failed rebuild deletes the members but records the build), so a failed dimension is not silently lost."""
+    return [r[0] for r in db.execute("SELECT dimension FROM member WHERE connection=? UNION "
+                                     "SELECT dimension FROM build WHERE connection=? ORDER BY 1",
+                                     (connection, connection))]
+
+
 def canonical(db, connection: str, dimension: str, name: str) -> str | None:
     """The atlas spelling of a member given by name (or, failing that, alias label), case-insensitive like Essbase;
     None if the dimension does not have it. The dimension's own name is its top member."""
