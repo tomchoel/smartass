@@ -220,6 +220,7 @@ DRILL_MAX_LINES = int(os.environ.get("SV_DRILL_MAX_LINES", "300000"))
 DRILL_XL_FULL = int(os.environ.get("SV_DRILL_XL_FULL", "50000"))   # above this: key columns only in Excel
 DRILL_KEEP_DAYS = 90
 DRILL_LOGIN_TIMEOUT_S = 60                         # per attempt; one retry in a fresh tab (spec §6)
+SVHTTP_TIMEOUT_S = float(os.environ.get("SV_HTTP_TIMEOUT", "120"))   # one Smart View HTTP request incl. a sign-in
 DRILL_CAPTURE_TIMEOUT_S = 45
 DRILL_RELOAD_WAIT_S = 25                           # after the one reload of a page that never asked for data
 DRILL_SETUP_S = 95                                 # sign-in + capture of one drill (S8: no call past 120 s)
