@@ -106,14 +106,14 @@ class MemoryWarehouse:
         self._state: dict[str, str] = {}
 
     def put(self, rows: Iterable[Row]) -> int:
-        n = 0
+        written = set()
         for r in rows:
             old = self.rows.get(r.key)
             if r.closed_month == OPEN and old is not None and protects(old.key[5], old.closed_month):
                 continue                                   # a live read never replaces closed history
             self.rows[r.key] = r
-            n += 1
-        return n
+            written.add(r.key)
+        return len(written)                                # distinct keys written, like Warehouse.put
 
     def get(self, cube: str, entities, accounts, periods, scenario: str, version: str, balance: str,
             closed_only: bool = False) -> dict[WhKey, float | None]:
@@ -222,7 +222,7 @@ class Warehouse:
         recs = [r.record() for r in {r.key: r for r in rows}.values()]
         sel = ", ".join(f"unnest(${i + 1}::{t}[]) AS {c}" for i, (t, c) in enumerate(zip(TYPES, COLUMNS)))
         pk = " AND ".join(f"f.{c} = n.{c}" for c in COLUMNS[:7])
-        mi = ("(2000 + CAST(substr({c}, 5, 2) AS INTEGER)) * 12 + "
+        mi = ("(2000 + TRY_CAST(substr({c}, 5, 2) AS INTEGER)) * 12 + "
               "list_position(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], "
               "substr({c}, 1, 3))")
         # one statement: ~0.3 s/6500 rows; an OPEN row never replaces a stored row of a closed period

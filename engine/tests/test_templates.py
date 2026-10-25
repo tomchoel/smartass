@@ -278,6 +278,60 @@ def test_yesterdays_com_entry_is_asked_again_but_todays_is_kept(tmp_path, monkey
     assert templates.closed_month(_Host()) == "Aug 26" and http.calls == 1
 
 
+def test_a_com_entry_is_reused_for_two_hours_only(tmp_path, monkeypatch):
+    import time
+    http = _Http("Sep 26")
+    path = _setup(tmp_path, monkeypatch, http)
+    _write(path, month="Aug 26", at=time.time() - 3 * 3600, source="com")
+    assert templates.closed_month(_Host()) == "Sep 26" and http.calls == 1
+    _write(path, month="Aug 26", at=time.time() - 3600, source="com")
+    assert templates.closed_month(_Host()) == "Aug 26" and http.calls == 1
+
+
+def test_com_month_outside_1_to_12_is_refused_and_not_cached(tmp_path, monkeypatch):
+    from smartview_mcp import svhttp
+    from smartview_mcp.host import HostError
+    path = _setup(tmp_path, monkeypatch, _Http(svhttp.SvHttpError("signed out")))
+    _com(monkeypatch, month="13")
+    with pytest.raises(HostError, match="13"):
+        templates.closed_month(_Host())
+    _com(monkeypatch, month="00")
+    with pytest.raises(HostError):
+        templates.closed_month(_Host())
+    assert not path.exists()
+
+
+def test_an_implausible_com_month_is_still_answered_but_warned(tmp_path, monkeypatch, caplog):
+    import datetime as dt
+    from smartview_mcp import svhttp
+    today = dt.date.today()
+    path = _setup(tmp_path, monkeypatch, _Http(svhttp.SvHttpError("signed out")))
+    monkeypatch.setattr(ops, "find_member", lambda h, c, n: {"info": {"ChildMbrName": "[CurrRepMonth].[Y%02dM%02d]" % (
+        (today.year + 1) % 100, today.month)}})                    # a year ahead: the future
+    with caplog.at_level("WARNING"):
+        templates.closed_month(_Host())
+    assert any("implausible" in x.getMessage() for x in caplog.records)
+    path.unlink()
+    caplog.clear()
+    ago = today.replace(day=1) - dt.timedelta(days=1)             # last month: plausible
+    monkeypatch.setattr(ops, "find_member", lambda h, c, n: {"info": {"ChildMbrName": "[CurrRepMonth].[Y%02dM%02d]" % (
+        ago.year % 100, ago.month)}})
+    with caplog.at_level("WARNING"):
+        templates.closed_month(_Host())
+    assert not any("implausible" in x.getMessage() for x in caplog.records)
+
+
+def test_a_failing_cache_replace_leaves_no_temp_file(tmp_path, monkeypatch):
+    import os
+    _setup(tmp_path, monkeypatch, _Http("Sep 26"))
+
+    def boom(a, b):
+        raise PermissionError("locked")
+    monkeypatch.setattr(os, "replace", boom)
+    assert templates.closed_month(_Host()) == "Sep 26"
+    assert list(tmp_path.glob("closed_month.json*")) == []
+
+
 def test_the_old_cache_format_is_tolerated(tmp_path, monkeypatch):
     import datetime as dt
     import json

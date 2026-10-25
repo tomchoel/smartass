@@ -71,7 +71,7 @@ def test_another_writer_makes_it_unavailable(tmp_path, monkeypatch):
 
 
 def test_duplicate_keys_in_one_put_last_wins(store):
-    assert store.put([r(k(), 1.0), r(k(), 2.0)]) in (1, 2)
+    assert store.put([r(k(), 1.0), r(k(), 2.0)]) == 1
     assert store.get("FinMax", ["un.SY.2WHS"], ["ac.C30"], ["Sep 26"], "Actual", "", "Periodic") == {k(): 2.0}
 
 

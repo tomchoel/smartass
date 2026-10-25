@@ -7,6 +7,7 @@ variance = current - comparison is positive when better.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import logging
 import re
@@ -42,11 +43,14 @@ class Plan:
 
 
 # ------------------------------------------------------------------ periods
+COM_CLOSED_MONTH_TTL_S = 2 * 3600       # a slow COM answer is reused this long (not the whole day)
+
+
 def closed_month(h: ExcelHost, connection: str = "FinMax") -> str:
     """'Current Reporting Month' -> e.g. 'Sep 26'. Smart View's HTTP protocol first (svhttp, ~0.2 s, no Excel); the
     COM route (FinMax member ChildMbrName '[CurrRepMonth].[Y26M09]' in the hidden server Excel, ~10 s + a login on a
     fresh server) is the fallback. Cached on disk per connection as {month, at, source}: an HTTP answer is reused for
-    config.CLOSED_MONTH_TTL_S, a (slow) COM answer for the rest of the day. The old {date, <conn>: month} format is
+    config.CLOSED_MONTH_TTL_S, a (slow) COM answer for COM_CLOSED_MONTH_TTL_S (2 h). The old {date, <conn>: month} format is
     read as a COM-sourced entry of that date."""
     import json
     import os
@@ -66,7 +70,7 @@ def closed_month(h: ExcelHost, connection: str = "FinMax") -> str:
     if isinstance(e, dict) and e.get("month") and isinstance(e.get("at"), (int, float)):
         if e.get("source") == "http" and now - e["at"] < config.CLOSED_MONTH_TTL_S:
             return e["month"]
-        if e.get("source") == "com" and dt.date.fromtimestamp(e["at"]) == dt.date.today():
+        if e.get("source") == "com" and now - e["at"] < COM_CLOSED_MONTH_TTL_S:
             return e["month"]
     val, source = None, "http"
     try:
@@ -82,15 +86,25 @@ def closed_month(h: ExcelHost, connection: str = "FinMax") -> str:
         if not m:
             raise HostError("Could not resolve 'Current Reporting Month' in FinMax; pass the period explicitly "
                             "(e.g. 'Sep 26').")
-        val = f"{MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
+        mo, yy = int(m.group(2)), int(m.group(1))
+        if not 1 <= mo <= 12:
+            raise HostError(f"Smart View in Excel returned the closed month '{m.group(0)}', which is not a month "
+                            "(1-12); pass the period explicitly (e.g. 'Sep 26').")
+        val = f"{MONTHS[mo - 1]} {yy:02d}"
+        today = dt.date.today()
+        back = (today.year - (2000 + yy)) * 12 + today.month - mo
+        if back < 0 or back > 3:
+            log.warning("closed month %s from Smart View in Excel looks implausible (%d months %s today); using it",
+                        val, abs(back), "ahead of" if back < 0 else "behind")
+    tmp = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
     try:
         c.pop("date", None)
         c[connection] = {"month": val, "at": now, "source": source}
-        tmp = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(c), encoding="utf-8")
         os.replace(tmp, cache)
     except OSError:
-        pass
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)                  # no stray temp files when the replace fails
     return val
 
 
