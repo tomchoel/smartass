@@ -38,9 +38,8 @@ async def _retrieve(connection, pov, rows_ax, cols_ax, suppress_missing, suppres
     grid too big for one HTTP request's time budget goes straight to Excel."""
     from . import svhttp
     note = None
-    if source == "com" or (source == "auto" and n_cells / 200 > config.SVHTTP_TIMEOUT_S):
-        pass
-    else:
+    too_big = source == "auto" and n_cells / 200 > config.SVHTTP_TIMEOUT_S
+    if source != "com" and not too_big:
         try:
             lay, parsed, secs = await anyio.to_thread.run_sync(lambda: svhttp.shared().retrieve(
                 connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros), abandon_on_cancel=True)
@@ -55,7 +54,7 @@ async def _retrieve(connection, pov, rows_ax, cols_ax, suppress_missing, suppres
                         exc_info=not isinstance(e, svhttp.SvHttpError))
             note = f"HTTP route failed ({msg}); the grid was read through Smart View in Excel instead."
             if ctx is not None:
-                await ctx.report_progress(1, 3, "HTTP route failed; using Smart View in Excel")
+                await ctx.report_progress(1.5, 3, "HTTP route failed; using Smart View in Excel")   # after 1 'retrieving'
     await anyio.lowlevel.checkpoint()          # a pending cancel raises here, before any Excel job is submitted
     try:
         lay, parsed, secs = await _call(
