@@ -330,10 +330,12 @@ async def sv_ws_answer(q: int, spec: dict | None = None, spec_patch: dict | None
 
 
 def _build_job(h, tm, question: str, pulls: list, spec: dict, target: str, allow_archive: bool, q: int | None,
-               replace: bool = False) -> dict:
-    """All pulls as live Smart View sheets, then the answer (shared by sv_ws_build and sv_concept).
+               replace: bool = False, before_answer=None) -> dict:
+    """All pulls as live Smart View sheets, then the answer (shared by sv_ws_build, sv_concept and fin_pnl).
     replace=True (a whole question re-run, e.g. sv_concept with q): the question's old data sheets are parked first
-    and deleted only after the new build succeeded (restored if it fails)."""
+    and deleted only after the new build succeeded (restored if it fails).
+    before_answer(spec, {pull id: Pull}) -> spec runs after the pulls and before the answer sheet (fin_pnl adds its
+    warehouse = source sheet checks there)."""
     with stage("open target"):
         t = userexcel.resolve_target(h, target, allow_archive, title=question[:50])
         qn = q or userexcel.next_question(t)
@@ -354,6 +356,8 @@ def _build_job(h, tm, question: str, pulls: list, spec: dict, target: str, allow
             ids[pi.id] = p.sheet
             warns += p.parsed.pov_problems + ([f"unknown members in {p.sheet}: {', '.join(p.parsed.unknown_members)}"]
                                               if p.parsed.unknown_members else [])
+        if before_answer is not None:
+            spec = before_answer(spec, {pi.id: sess[ids[pi.id]] for pi in pulls})
         out = _answer_job(t, qn, spec, ids, sess, tm, warns)
     except Exception as e:
         removed = userexcel.rollback(t)
