@@ -2,8 +2,8 @@
 scaled by last year's seasonality (last year's YTD share of its full year, taken on EBITDA before other items - the
 caller passes ly_ytd and ly_fy for that line), or YTD / n x 12 when that share is unusable: missing, not positive, or
 outside 0.5x-1.5x of n/12 (cost units have a negative EBITDA before other items: a share of two negatives
-counts). Both are shown with their gap to target. A forecast older than the closed month's
-quarter is still shown, with a warning."""
+counts). Both are shown with their gap to target. A forecast STALE_QUARTERS (2) or more quarters behind the closed
+month's quarter is still shown, with a warning."""
 from __future__ import annotations
 
 import re
@@ -28,7 +28,7 @@ class Landing:
     gap_run_rate: Fact
     seasonal: bool                    # True: the run rate uses last year's YTD share
     method: str
-    stale: bool = False               # the forecast is older than the closed month's quarter
+    stale: bool = False               # the forecast is STALE_QUARTERS or more quarters behind
     warning: str | None = None
 
 

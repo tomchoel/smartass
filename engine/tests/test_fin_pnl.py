@@ -113,7 +113,7 @@ def test_an_unexplained_bridge_residual_is_a_problem(tmp_path):
     r = store.rows[key]
     store.rows[key] = Row(key, r.value + 50, r.source, r.fetched_at, r.closed_month)
     res = fin_pnl.compute(CAT, scope, store)
-    assert res.line_bridge.steps[-1].key == "unexplained" and res.line_bridge.closes()
+    assert res.line_bridge.steps[-1].key == "unexplained" and res.line_bridge.unexplained == pytest.approx(50)
     assert res.problems and res.problems[0].startswith("Unexplained: ") and "NOK 50 " in res.problems[0]
 
 
