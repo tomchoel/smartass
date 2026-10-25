@@ -72,6 +72,11 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
 - Product / profitability / business-area questions: call sv_scope(question) FIRST (business map + concept library).
   If a concept matches (e.g. 'splitt', or a product family 'fam_*'), answer with sv_concept(concept) - it marks every line booked / estimated (with
   key) / attributed / not in FinMax. No concept: research, PROPOSE the blocks to the user, then save the concept.
+- P&L for a business area (month and YTD vs last year, budget, latest forecast; materiality; EBITDA bridge by line
+  and sub-unit; KPIs; year-end landing): ONE call - fin_pnl(area). It reads the local warehouse (refreshed by itself)
+  and builds the workbook with live source sheets; write the reply from its key_points, flags, facts, freshness.
+  Variance positive = better everywhere; cost per FTE is shown positive. Consumer and IG were abolished 1 June 2026:
+  fin_pnl explains where their figures went (never empty figures); pass that explanation on.
 - Analyses: ONE call - sv_ws_build(question, pulls, spec) (or sv_analyse for a template). Default target 'session' =
   this session's own workbook (the analyser folder\\<project>\\..., Q1, Q2 ...); 'active' only when the user asks
   for their open workbook. Follow-ups: sv_ws_answer(q, spec_patch=..., target=<workbook>). Add the same period last

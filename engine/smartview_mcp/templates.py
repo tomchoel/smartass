@@ -233,6 +233,8 @@ def pnl_checks() -> list[tuple]:
 
 def division_pnl(h: ExcelHost, entity: str, period: str | None = None, basis: str = "ytd", compare: str = "ly",
                  drivers: bool = True, connection: str = "FinMax") -> Plan:
+    """To be retired: fin_pnl (fin_pnl.py, Stage 2+3) answers the same question from the warehouse with budget,
+    forecast, materiality, bridges, KPIs and landing. Kept until fin_pnl has covered it in the live matrix."""
     closed = closed_month(h, "FinMax")
     period = period or closed
     cmp_p = same_period_ly(period) if compare == "ly" else None

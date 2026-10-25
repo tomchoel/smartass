@@ -9,6 +9,22 @@ Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartas
   Excel; signs in through the drill's hidden Edge) and falls back to Smart View in Excel. The answer's `route` says
   which was used. The first HTTP call in a session takes ~10-12 s, because it signs in first. Workbooks (sv_ws_*)
   still build live Smart View sheets in Excel.
+- fin_pnl(area) answers "P&L for <business area>" from the local warehouse (DuckDB,
+  `%LOCALAPPDATA%\smartass\warehouse.duckdb`): the first call fills it (about a minute), later calls refresh only
+  what changed (a new closed month, an atlas restatement, a new forecast) and read the open month and the latest
+  forecast live. If the warehouse is locked or missing it answers from live pulls and says so. `sv_warehouse(action='status')` shows the last fills
+  and their reconciliation; a job that keeps failing pauses (15 min, then daily) and `smartass doctor` names it with
+  its last error, and the cells a fill could not read.
+  - Rules in force (owner decisions): material = 10 % of |comparison| from NOK 500k, or NOK 5 million; a month swing
+    of NOK 5 million or more is flagged; |comparison| under NOK 500k counts as zero; revenue, personnel cost and
+    EBITDA are always commented. Variance = current - comparison, positive = better everywhere. Cost per FTE is
+    shown positive; personnel cost per FTE is the headline. FTE average = the month before the window + each month
+    end (YTD n+1 points, LTM 13).
+  - Landing = YTD actual + the remaining months of the latest forecast; the seasonal share comes from EBITDA before
+    other items when within 0.5-1.5 x n/12, otherwise YTD / n x 12. The forecast is called stale only when it is two
+    quarters or more behind.
+  - Abolished areas are explained, not shown: Consumer went to SSM and E&I; Infrastructure Growth to TEC, ADM, E&I,
+    SSM and BUS (1 June 2026; history is restated to today's organisation).
 
 - **Attach.** The MCP attaches through the Excel window (`AccessibleObjectFromWindow`). It never uses `GetObject(path)`, because that
   starts a hidden Excel when the file is not registered yet. It always waits until no EPM `Login` dialog is open in that Excel

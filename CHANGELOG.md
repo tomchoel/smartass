@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- `fin_pnl(area)`: a business area's P&L in one call - month and YTD against last year (FinMax), budget and the
+  latest forecast (FinPlan), materiality flags, an EBITDA bridge by line and by sub-unit, KPIs and the year-end
+  landing. The numbers come from a local DuckDB warehouse (`%LOCALAPPDATA%\smartass\warehouse.duckdb`,
+  `paths.warehouse`), refreshed by itself when a month closes or the atlas shows a restatement; the open month and
+  the latest forecast are read live and every answer has a freshness stamp. The workbook keeps live Smart View
+  source sheets, formulas only, and a "warehouse = source sheet" check per sheet.
+  - Materiality: a variance is material at 10 % of |comparison| (counted from NOK 500k) or at NOK 5 million; a
+    month swing of NOK 5 million or more is flagged; a comparison under NOK 500k counts as zero; revenue,
+    personnel cost and EBITDA are always commented.
+  - Variance = current - comparison, positive = better on every line. Cost per FTE is shown positive; personnel
+    cost per FTE is the headline KPI. FTE averages use the month before the window plus each month end (YTD n+1
+    points, LTM 13).
+  - Year-end landing = YTD actual + the remaining months of the latest forecast; the seasonal share is taken from
+    EBITDA before other items when it lies within 0.5-1.5 x n/12, otherwise the run rate YTD / n x 12. A forecast
+    counts as stale only when it is two quarters or more behind.
+  - Consumer (into SSM and E&I) and Infrastructure Growth (into TEC, ADM, E&I, SSM and BUS) were abolished
+    1 June 2026: asking for them gives an explanation and the successors, never empty figures.
+- `sv_warehouse(action='status'|'refresh')`; `smartass doctor` has a `warehouse` check (last fill, cells that were
+  missing, paused refresh jobs with their last error, age) and lists the duckdb version in `--bundle`.
+- The closed month is read over Smart View's HTTP protocol first (EnumMembers), with Smart View in Excel as the
+  fallback.
+- `sv_analyse` template `division_pnl` is to be retired in favour of `fin_pnl`.
+- New dependency: `duckdb==2.0.0`.
 - `sv_query` reads over Smart View's HTTP provider protocol first, from the drill's hidden Edge (no Excel):
   `source='auto'` (default) falls back to Smart View in Excel and says why in a warning; `'http'` never falls
   back; `'com'` forces Excel. The answer's `route` says which was used.

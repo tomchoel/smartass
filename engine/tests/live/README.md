@@ -31,6 +31,8 @@ uv run python tests\live\matrix.py
 | S9 | `fresh` | install and first lookup as a new user (`--fresh`) |
 | S10 | `feature`, some `fresh` | bundle, setup, relay reload, update, text fixes, pack, style, cold Excel, options, HTTP |
 
+The doctor lines checked by S9 include `warehouse` (OK on a fresh install: "not filled yet").
+
 `test_styling_live.py` is separate: it uses its own Excel (`SV_STYLING_LIVE=1` under pytest).
 
 ## Safety

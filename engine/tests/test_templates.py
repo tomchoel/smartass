@@ -319,3 +319,11 @@ def test_an_unexpected_http_error_is_logged_as_a_warning_then_com(tmp_path, monk
     with caplog.at_level("INFO"):
         assert templates.closed_month(_Host()) == "Aug 26"
     assert [r.levelname for r in caplog.records if "closed month" in r.getMessage()] == ["WARNING"]
+
+
+def test_fin_pnl_is_announced_and_division_pnl_marked_for_retirement():
+    from smartview_mcp import server, tools_ws
+    assert "fin_pnl(area)" in server.INSTRUCTIONS
+    assert "fin_pnl" in templates.division_pnl.__doc__ and "retired" in templates.division_pnl.__doc__
+    assert "to be retired: prefer fin_pnl" in tools_ws.sv_analyse.__doc__
+    assert "division_pnl" in templates.TEMPLATES                      # still works until the retirement
