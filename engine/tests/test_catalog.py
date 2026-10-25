@@ -68,7 +68,8 @@ def _with(path, value):
     (_with(["scenarios", "actual"], {"connection": "FinMax", "label": "A"}), "scenario or rule"),
     (_with(["entity", 0, "successors"], ["nope"]), "successor 'nope'"),
     (_with(["entity", 0, "generic_aliases"], "total"), r"entity\[0\]: generic_aliases must be a list"),
-    (_with(["entity", 0, "generic_aliases"], ["Wholesale"]), "duplicate entity alias 'wholesale'"),
+    (_with(["entity", 0, "generic_aliases"], ["  --  "]), r"entity 'w'.*empty"),
+    (_with(["entity", 0, "aliases"], ["wholesale", "!!"]), r"entity 'w'.*empty"),
     (_with(["entity", 0, "aliases"], "wholesale"), r"entity\[0\]: aliases must be a list"),
     (_with(["materiality", "always"], "rev"), "materiality: always must be a list"),
     (_with(["scenarios", "actual", "connection"], "Nope"), "scenario 'actual': connection 'Nope' is not a pnl cube"),
@@ -238,3 +239,68 @@ def test_only_generic_company_words_give_way():
     assert "telenor norge" in company.aliases and "total" not in company.aliases
     assert catalog.resolve_entity(catalog.load(), "total").key == "company"
     assert catalog.resolve_entity(catalog.load(), "selskapet hittil i år").key == "company"
+
+
+def _two_areas(**changes):
+    import copy
+    d = _with(["entity"], [*copy.deepcopy(BASE["entity"]), {"key": "b", "label": "B", "finmax": "un.SY.2BUS", "aliases": ["bedrift"]}])
+    d["entity"][0].update(changes)
+    return d
+
+
+def test_a_name_may_not_belong_to_two_areas():
+    with pytest.raises(catalog.CatalogError, match=r"'un sy 2bus'.*'w'.*'b'|'un sy 2bus'.*'b'.*'w'"):
+        catalog.parse(_two_areas(aliases=["wholesale", "un.SY.2BUS"]))
+    with pytest.raises(catalog.CatalogError, match="'bedrift'"):   # a generic alias, normalised
+        catalog.parse(_two_areas(generic_aliases=["Bedrift"]))
+    with pytest.raises(catalog.CatalogError, match="'b'"):         # an alias equal to another area's label
+        catalog.parse(_two_areas(aliases=["B"]))
+
+
+def test_a_name_may_repeat_within_one_area():
+    cat = catalog.parse(_two_areas(label="Wholesale", generic_aliases=["Wholesale"]))
+    assert cat.entities[0].key == "w"
+
+
+def _atlas_with(tmp_path, members):
+    from smartview_mcp import atlas
+    db = atlas.connect(tmp_path / "a.db")
+    for (conn, dim), names in members.items():
+        atlas.store(db, conn, dim, [{"name": n, "label": n, "parent": None, "depth": 1, "order": i}
+                                    for i, n in enumerate(names)], 0.1)
+    return db
+
+
+def test_validate_names_missing_members_and_unchecked_dimensions(tmp_path):
+    cat = catalog.parse(BASE)
+    db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30"],
+                                ("FinMax", "All Entities"): ["un.SY.2WHS"]})
+    problems, unchecked = catalog.validate(cat, db)
+    assert problems == ["FinMax line 'ebitda': 'ac.EBITDA' is not in FinMax / All Accounts"]
+    assert unchecked == ["FinMax / All Scenarios"]
+
+
+def test_validate_passes_a_complete_atlas(tmp_path):
+    cat = catalog.parse(BASE)
+    db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30", "ac.EBITDA"],
+                                ("FinMax", "All Entities"): ["un.SY.2WHS"],
+                                ("FinMax", "All Scenarios"): ["Actual"]})
+    assert catalog.validate(cat, db) == ([], [])
+
+
+def test_validate_reports_a_missing_entity_and_scenario(tmp_path):
+    cat = catalog.parse(BASE)
+    db = _atlas_with(tmp_path, {("FinMax", "All Accounts"): ["ac.C30", "ac.EBITDA"],
+                                ("FinMax", "All Entities"): ["un.SY.2BUS"],
+                                ("FinMax", "All Scenarios"): ["Budget"]})
+    problems, _ = catalog.validate(cat, db)
+    assert problems == ["entity 'w': 'un.SY.2WHS' is not in FinMax / All Entities",
+                        "scenario 'actual': 'Actual' is not in FinMax / All Scenarios"]
+
+
+def test_doctor_reports_catalogue_problems(monkeypatch, tmp_path):
+    from smartview_mcp import doctor
+    monkeypatch.setattr(doctor.config, "ATLAS_DB", tmp_path / "missing.db")
+    c = doctor._catalog()
+    assert c.name == "catalog" and c.status == "WARN" and "no atlas" in c.detail
+    assert "_catalog" in [f.__name__ for f in doctor.CHECKS]

@@ -275,7 +275,16 @@ def parse(data: dict) -> Catalog:
         if a not in every:
             raise CatalogError(f"materiality.always: '{a}' is not a line key")
     _unique([e.key for e in entities], "entity key")
-    _unique([_norm(a) for e in entities for a in (*e.aliases, *e.generic_aliases)], "entity alias")
+    for e in entities:
+        for a in (*e.aliases, *e.generic_aliases):
+            if not _norm(a):
+                raise CatalogError(f"entity '{e.key}': alias {a!r} is empty after normalising")
+    owner: dict[str, str] = {}      # normalised name -> the one area that uses it (one area may repeat a name)
+    for e in entities:
+        for name in (e.finmax, e.finplan, e.label, *e.aliases, *e.generic_aliases):
+            n = _norm(name) if name else ""
+            if n and owner.setdefault(n, e.key) != e.key:
+                raise CatalogError(f"name '{n}' belongs to two areas: '{owner[n]}' and '{e.key}'")
     ekeys = {e.key for e in entities}
     for e in entities:
         if not e.finmax and not e.finplan:
@@ -332,3 +341,42 @@ def resolve_entity(cat: Catalog, text: str) -> Entity | None:
     or several. An abolished area is returned as such: callers check `abolished` and `successors`."""
     found = resolve_entities(cat, text)
     return found[0] if len(found) == 1 else None
+
+
+ACCOUNT_DIM = {"FinMax": "All Accounts", "FinLite": "All Accounts", "FinPlan": "Account"}
+ENTITY_DIM = {"FinMax": "All Entities", "FinPlan": "Entity"}
+SCENARIO_DIM = {"FinMax": "All Scenarios", "FinPlan": "Scenario"}
+VERSION_DIM = {"FinPlan": "Version"}
+
+
+def validate(cat: Catalog, db) -> tuple[list[str], list[str]]:
+    """(problems, unchecked): catalogue members the atlas does not have, and dimensions not checked because the
+    atlas has not built them (or they are stale)."""
+    from . import atlas
+    problems: list[str] = []
+    unchecked: list[str] = []
+
+    def check(conn: str, dim: str | None, name: str, what: str) -> None:
+        if dim is None:
+            return
+        if not atlas.usable(db, conn, dim):
+            if f"{conn} / {dim}" not in unchecked:
+                unchecked.append(f"{conn} / {dim}")
+            return
+        if not atlas.has_member(db, conn, dim, name):
+            problems.append(f"{what}: '{name}' is not in {conn} / {dim}")
+
+    for cube, lines in cat.pnl.items():
+        for x in lines:
+            check(cube, ACCOUNT_DIM.get(cube), x.account, f"{cube} line '{x.key}'")
+    for e in cat.entities:
+        if e.finmax:
+            check("FinMax", ENTITY_DIM["FinMax"], e.finmax, f"entity '{e.key}'")
+        if e.finplan:
+            check("FinPlan", ENTITY_DIM["FinPlan"], e.finplan, f"entity '{e.key}'")
+    for s in cat.scenarios.values():
+        if s.scenario:
+            check(s.connection, SCENARIO_DIM.get(s.connection), s.scenario, f"scenario '{s.key}'")
+        if s.version:
+            check(s.connection, VERSION_DIM.get(s.connection), s.version, f"scenario '{s.key}' version")
+    return problems, unchecked

@@ -87,6 +87,24 @@ def _atlas(max_age_days: float = 35) -> Check:
                  "" if status == "OK" else "Re-run the installer after the monthly release, or call sv_atlas_build.")
 
 
+def _catalog() -> Check:
+    from . import atlas, catalog
+    try:
+        cat = catalog.load()
+    except catalog.CatalogError as e:
+        return Check("catalog", "FAIL", str(e), "Fix knowledge\catalog.toml (see the error), or update smartass.")
+    if not config.ATLAS_DB.exists():
+        return Check("catalog", "WARN", "loaded; members not checked (no atlas)",
+                     "Build the atlas with sv_atlas_build.")
+    problems, unchecked = catalog.validate(cat, atlas.connect(config.ATLAS_DB))
+    if problems:
+        return Check("catalog", "WARN", f"{len(problems)} member(s) not in the cubes: " + "; ".join(problems[:5]),
+                     "Update knowledge\catalog.toml to the current members (a reorg or rename?).")
+    detail = (f"{sum(len(v) for v in cat.pnl.values())} P&L lines and {len(cat.entities)} business areas match the "
+              "atlas" + (f"; not checked: {', '.join(unchecked)}" if unchecked else ""))
+    return Check("catalog", "OK", detail)
+
+
 def _output() -> Check:
     d = config.ANALYSER_DIR
     try:
@@ -125,7 +143,7 @@ def _update() -> Check:
     return Check("update", "OK", f"{r['current']} is current")
 
 
-CHECKS = (_config, _excel, _smartview, _epm, _drill_browser, _atlas, _output, _http, _update)
+CHECKS = (_config, _excel, _smartview, _epm, _drill_browser, _atlas, _catalog, _output, _http, _update)
 
 
 def run(include_http: bool = True) -> list[Check]:

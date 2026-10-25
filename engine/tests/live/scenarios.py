@@ -735,7 +735,7 @@ def s8_sleep(ctx):
 
 
 # ================================================================== S9 fresh install (only with --fresh)
-DOCTOR_CHECKS = {"config", "excel", "smartview", "epm", "drill_browser", "atlas", "output", "http_api", "update"}
+DOCTOR_CHECKS = {"config", "excel", "smartview", "epm", "drill_browser", "atlas", "catalog", "output", "http_api", "update"}
 
 
 def _fresh(ctx) -> dict:

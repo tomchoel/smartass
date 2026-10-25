@@ -68,7 +68,8 @@ always = ["rev", "pers", "ebitda"]    # revenue, personnel and EBITDA are always
 # Business areas. Aliases are matched as whole words in a question; aliases shorter than 3 characters (it, ig, ei,
 # tn) only when they are the whole question or written in UPPER CASE in it ("kostnader i IT"). generic_aliases
 # ("total", "selskapet") only count when no area is named: "total opex for SSM" is SSM, while a named "Telenor Norge"
-# or "TN" counts like any area. A question naming several areas resolves to none of them (resolve_entities lists them). Mobile ("mobil") is a product across divisions, not an area, so it is no alias.
+# or "TN" counts like any area. A question naming several areas resolves to none of them (resolve_entities lists
+# them). Mobile ("mobil") is a product across divisions, not an area, so it is no alias.
 # abolished = the date the area was emptied (history is restated to today's org); successors = the areas that took
 # over its business (the tools explain the 1 June 2026 split and query the successors instead).
 [[entity]]
