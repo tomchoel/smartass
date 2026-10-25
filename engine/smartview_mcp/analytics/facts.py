@@ -3,6 +3,7 @@ figure in an answer can be traced. A number that cannot be computed is a Fact wi
 silent gap, never a division by zero."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
@@ -17,6 +18,13 @@ class Fact:
     definition: str
     inputs: tuple[tuple, ...] = ()    # warehouse keys (cube, scenario, version, entity, account, period, balance)
     reason: str | None = None         # why value is None
+    parts: tuple["Fact", ...] = ()    # the facts this one was combined from (a KPI: numerator, denominator)
+
+    # Sign follows FinMax: costs are negative, so a cost per FTE is negative too.
+
+    def __post_init__(self):
+        if self.unit not in UNITS:
+            raise ValueError(f"fact '{self.id}': unit '{self.unit}' is not one of {UNITS}")
 
     def as_dict(self, max_inputs: int = 40) -> dict:
         out = {"id": self.id, "value": self.value, "unit": self.unit, "definition": self.definition,
@@ -48,8 +56,11 @@ def combine(id: str, unit: str, definition: str, fn: Callable[..., float], *fact
     """fn over the facts' values; missing when a part is missing or fn divides by zero."""
     gone = next((f for f in facts if f.value is None), None)
     if gone is not None:
-        return missing(id, unit, definition, f"{gone.id}: {gone.reason}", _inputs(facts))
+        return Fact(id, None, unit, definition, _inputs(facts), f"{gone.id}: {gone.reason}", tuple(facts))
     try:
-        return Fact(id, float(fn(*(f.value for f in facts))), unit, definition, _inputs(facts))
+        value = float(fn(*(f.value for f in facts)))
     except ZeroDivisionError:
-        return missing(id, unit, definition, "division by zero", _inputs(facts))
+        return Fact(id, None, unit, definition, _inputs(facts), "division by zero", tuple(facts))
+    if not math.isfinite(value):
+        return Fact(id, None, unit, definition, _inputs(facts), "non-finite value", tuple(facts))
+    return Fact(id, value, unit, definition, _inputs(facts), None, tuple(facts))

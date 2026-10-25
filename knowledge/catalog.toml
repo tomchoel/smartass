@@ -162,9 +162,12 @@ note = "Emptied into 2SSM and 2EI on 1 June 2026; history is restated, so 2CON s
 
 # KPIs: ratios of two P&L line keys of one cube (computed in the workbook, never by the model).
 # basis: period (default; both lines over the same period) | average_stock (the denominator is the average of the
-# opening level - the previous December - and each month-end level in the period, n+1 points (owner decision
+# opening level - the month before the window, i.e. the previous December for a YTD - and each month-end level, n+1 points (owner decision
 # 2026-10-25); needs a measure = "stock" line). annualise: scale a part-year numerator to twelve months
 # (YTD Sep cost x 12/9), so cost per FTE is comparable across periods.
+# unit: pct | nok | nok_per_fte. The cube sign follows FinMax (costs negative); sign = -1 shows a cost KPI positive
+# (cost per FTE, owner decision 2026-10-25). better: higher (default) | lower | none, as for a line, so a variance on
+# the KPI keeps "positive = better". headline = true: the KPI shown first for its cube (at most one per connection).
 [[kpi]]
 key = "ebitda_margin"
 label = "EBITDA margin"
@@ -187,9 +190,11 @@ label = "Opex per FTE"
 connection = "FinMax"
 numerator = "opex"
 denominator = "fte"
-unit = "nok"
+unit = "nok_per_fte"
 basis = "average_stock"
 annualise = true
+sign = -1
+better = "lower"
 
 [[kpi]]
 key = "personnel_per_fte"
@@ -197,6 +202,9 @@ label = "Personnel cost per FTE"
 connection = "FinMax"
 numerator = "pers"
 denominator = "fte"
-unit = "nok"
+unit = "nok_per_fte"
 basis = "average_stock"
 annualise = true
+sign = -1
+better = "lower"
+headline = true

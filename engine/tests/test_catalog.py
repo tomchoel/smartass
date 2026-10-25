@@ -369,3 +369,35 @@ def test_doctor_warns_when_a_dimension_is_unchecked(monkeypatch, tmp_path):
     monkeypatch.setattr(doctor.config, "ATLAS_DB", tmp_path / "a.db")
     c = doctor._catalog()
     assert c.status == "WARN" and "not checked" in c.detail
+
+
+def test_annualise_needs_a_flow_numerator_and_per_fte_unit_is_allowed():
+    kpi = {"key": "m", "label": "M", "connection": "FinMax", "numerator": "fte", "denominator": "rev",
+           "unit": "nok", "annualise": True}
+    d = _with(["pnl", "FinMax"], [*BASE["pnl"]["FinMax"], {"key": "fte", "account": "ac.F", "kind": "line",
+                                                           "label": "FTE", "measure": "stock"}])
+    d["kpi"] = [kpi]
+    with pytest.raises(catalog.CatalogError, match="annualise needs a flow numerator"):
+        catalog.parse(d)
+    d["kpi"] = [{**kpi, "numerator": "ebitda", "denominator": "fte", "unit": "nok_per_fte",
+                 "basis": "average_stock", "annualise": True}]
+    assert catalog.parse(d).kpis[0].unit == "nok_per_fte"
+    assert {k.key: k.unit for k in catalog.load().kpis}["opex_per_fte"] == "nok_per_fte"
+
+
+def test_kpi_sign_better_and_headline_are_validated():
+    def with_kpi(**changes):
+        d = _with(["kpi", 0], {**BASE["kpi"][0], **changes})
+        return d
+    assert catalog.parse(with_kpi(sign=-1, better="lower", headline=True)).kpis[0].headline is True
+    for bad, msg in ((dict(sign=2), "sign must be 1 or -1"), (dict(sign=True), "sign must be 1 or -1"),
+                     (dict(better="up"), "better 'up'"), (dict(headline="yes"), "headline must be true or false")):
+        with pytest.raises(catalog.CatalogError, match=msg):
+            catalog.parse(with_kpi(**bad))
+    two = _with(["kpi"], [{**BASE["kpi"][0], "headline": True}, {**BASE["kpi"][0], "key": "m2", "headline": True}])
+    with pytest.raises(catalog.CatalogError, match="at most one headline kpi per connection"):
+        catalog.parse(two)
+    cat = catalog.load()
+    assert [k.key for k in cat.kpis if k.headline] == ["personnel_per_fte"]
+    assert {k.key: (k.sign, k.better) for k in cat.kpis if k.sign == -1} == {
+        "opex_per_fte": (-1, "lower"), "personnel_per_fte": (-1, "lower")}

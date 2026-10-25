@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..catalog import Line
+from ..catalog import Kpi, Line
 from .facts import Fact, combine, missing
 
 
@@ -18,7 +18,7 @@ class Variance:
     favourable: bool | None           # None: unknown, zero, or the line has no better direction (FTE)
 
 
-def variance(line: Line, current: Fact, comparison: Fact, id: str) -> Variance:
+def variance(line: "Line | Kpi", current: Fact, comparison: Fact, id: str) -> Variance:
     a = combine(f"{id}.var", current.unit, f"{current.id} - {comparison.id}", lambda x, y: x - y,
                 current, comparison)
     if a.value is None:

@@ -32,7 +32,8 @@ class Frame:
         if k not in self.values:
             return None
         v = self.values[k]
-        return (0.0 if v is None else float(v)), self.sources.get(k, (self.cube, scenario, *k[:3]))
+        fallback = (self.cube, scenario, "", entity, self.line(line).account, period, balance_of(self.line(line)))
+        return (0.0 if v is None else float(v)), self.sources.get(k, fallback)
 
 
 def balance_of(line: Line) -> str:
@@ -43,6 +44,11 @@ def from_rows(cube: str, lines, rows: Mapping[WhKey, float | None], scenarios: M
     """Frame from warehouse rows. scenarios maps (scenario member, version) to a scenario key, e.g.
     {('Actual', ''): 'actual'} for FinMax or {('Target', 'Final'): 'budget'} for FinPlan; other rows are ignored."""
     by_account = {x.account: x for x in lines}
+    if len(by_account) != len(lines):
+        raise ValueError(f"{cube}: two catalogue lines share an account")
+    mapped = list(scenarios.values())
+    if len(set(mapped)) != len(mapped):
+        raise ValueError(f"{cube}: two scenario members both map to one scenario key {sorted(mapped)}")
     values, sources = {}, {}
     for key, v in rows.items():
         c, scen, ver, ent, account, period, bal = key
@@ -50,6 +56,8 @@ def from_rows(cube: str, lines, rows: Mapping[WhKey, float | None], scenarios: M
         s = scenarios.get((scen, ver))
         if c != cube or line is None or s is None or bal != balance_of(line):
             continue
+        if (ent, line.key, period, s) in values:
+            raise ValueError(f"{cube}: two warehouse rows both map to {(ent, line.key, period, s)}")
         values[(ent, line.key, period, s)] = v
         sources[(ent, line.key, period, s)] = key
     return Frame(cube, tuple(lines), values, sources)

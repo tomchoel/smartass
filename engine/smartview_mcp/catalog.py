@@ -19,7 +19,7 @@ from . import config
 KINDS = {"line", "sum", "grand"}
 RULES = {"latest_forecast"}
 BETTER = {"higher", "lower", "none"}
-UNITS = {"pct", "nok"}
+UNITS = {"pct", "nok", "nok_per_fte"}   # a KPI's unit; the sign follows FinMax (costs negative, so cost per FTE too)
 MEASURES = {"flow", "stock"}          # stock: a level (FTE); read Accumulated at period end, never sum Periodic months
 BASES = {"period", "average_stock"}   # average_stock: the denominator is the average month-end level over the period
 MATERIALITY_RULES = {"either", "both"}
@@ -82,6 +82,9 @@ class Kpi:
     unit: str
     basis: str = "period"         # period | average_stock (opening level + each month end, n+1 points)
     annualise: bool = False       # scale a part-year numerator to twelve months
+    sign: int = 1                 # 1, or -1 to show a FinMax-negative cost positive (cost per FTE)
+    better: str = "higher"        # higher | lower | none: the direction a variance on this KPI is judged by
+    headline: bool = False        # the one KPI shown first for its cube (at most one per connection)
 
 
 @dataclass(frozen=True)
@@ -275,13 +278,26 @@ def parse(data: dict) -> Catalog:
             raise CatalogError(f"kpi '{k.key}': basis '{k.basis}' is not one of {sorted(BASES)}")
         if not isinstance(k.annualise, bool):
             raise CatalogError(f"kpi '{k.key}': annualise must be true or false, not {k.annualise!r}")
+        if type(k.sign) is not int or k.sign not in (1, -1):
+            raise CatalogError(f"kpi '{k.key}': sign must be 1 or -1, not {k.sign!r}")
+        if k.better not in BETTER:
+            raise CatalogError(f"kpi '{k.key}': better '{k.better}' is not one of {sorted(BETTER)}")
+        if not isinstance(k.headline, bool):
+            raise CatalogError(f"kpi '{k.key}': headline must be true or false, not {k.headline!r}")
         for part in (k.numerator, k.denominator):
             if part not in keys[k.connection]:
                 raise CatalogError(f"kpi '{k.key}': '{part}' is not a {k.connection} line key")
+        num = next(x for x in pnl[k.connection] if x.key == k.numerator)
+        if k.annualise and num.measure != "flow":
+            raise CatalogError(f"kpi '{k.key}': annualise needs a flow numerator; "
+                               f"{k.connection} line '{num.key}' is measure '{num.measure}'")
         den = next(x for x in pnl[k.connection] if x.key == k.denominator)
         if k.basis == "average_stock" and den.measure != "stock":
             raise CatalogError(f"kpi '{k.key}': basis average_stock needs a stock denominator; "
                                f"{k.connection} line '{den.key}' is measure '{den.measure}'")
+    heads = [k.connection for k in kpis if k.headline]
+    if len(heads) != len(set(heads)):
+        raise CatalogError("at most one headline kpi per connection")
     every = set().union(*keys.values())
     for a in materiality.always:
         if a not in every:
