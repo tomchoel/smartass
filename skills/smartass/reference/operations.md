@@ -5,6 +5,10 @@ Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartas
 
 ## Working in the user's Excel (analyses)
 
+- sv_query reads over Smart View's HTTP protocol by default (`source='auto'`: ~0.2 s per grid once signed in, no
+  Excel; signs in through the drill's hidden Edge) and falls back to Smart View in Excel. The answer's `route` says
+  which was used. Workbooks (sv_ws_*) still build live Smart View sheets in Excel.
+
 - **Attach.** The MCP attaches through the Excel window (`AccessibleObjectFromWindow`). It never uses `GetObject(path)`, because that
   starts a hidden Excel when the file is not registered yet. It always waits until no EPM `Login` dialog is open in that Excel
   before any COM call: a COM call during the login deadlocks Excel.

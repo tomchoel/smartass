@@ -50,3 +50,28 @@ Reproduce: `scripts\probe_sv_http.py` (read-only; refuses any request containing
 - Session lifetime and re-login under load; large-grid limits (Essbase QUERYRESULTLIMIT); concurrency with an active
   `sv_drill` (they share the browser profile lock).
 - FinPlan lives on another pod (`stratmodel`): sign-in there is not yet tested.
+
+## Live comparison (Task 7, 2026-10-25)
+
+`engine\tests\live\svhttp_vs_com.py`: every grid read over HTTP equals the COM route cell for cell (labels included).
+Times are wall clock for this run. The first HTTP case includes starting the hidden browser and signing in; the
+FinPlan case includes signing in on the stratmodel pod. The first COM case includes starting Excel.
+
+| Case | Cells | HTTP | COM |
+|---|---:|---:|---:|
+| FinMax 2x2 periodic | 6 | 9.9 s | 28.3 s |
+| FinMax business areas x P&L x 9 months | 847 | 0.2 s | 2.7 s |
+| FinMax YTD | 22 | 0.2 s | 4.3 s |
+| FinLite cost base | 28 | 0.4 s | 3.6 s |
+| FinPlan actual vs target | 8 | 12.3 s | 4.2 s |
+
+Cell type codes seen in the answers: only 0 (member), 2 (data) and 7 (blank).
+
+**What the first run caught.** `GetProvisionedDataSources` lists three servers with `appName="FinMax"`:
+- `FinMax` (plan1, production)
+- `Plan 7 Prod` (plan7)
+- `plan1-test` (the test environment)
+
+Picking by app name read the **test pod**. svhttp now picks the data source by server name (`FinMax`,
+`FinPlan_for_DataLoad`; configurable under `[svhttp]` in `defaults.toml`), and refuses `-test` hosts unless
+`svhttp.allow_test` is set. The layout check (`grid.verify_labels`) stopped the wrong grid before any figure was used.
