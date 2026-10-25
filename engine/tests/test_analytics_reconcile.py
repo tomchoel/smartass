@@ -37,3 +37,16 @@ def test_areas_vs_total_is_information():
     info = reconcile.areas_vs_total(frame(values=v), ["A", "B"], "un.SY", "ebitda", "Sep 26", "actual")
     assert "less the 2 areas is 1 " in info
     assert reconcile.areas_vs_total(frame(values=v), ["A", "C"], "un.SY", "ebitda", "Sep 26", "actual") is None
+
+
+def test_months_vs_ytd_keeps_scenarios_apart():
+    def k(scen, ver, p, bal):
+        return ("FinPlan", scen, ver, E, "Revenue", p, bal)
+    periodic = {k("Actual", "Working", "Jan 26", "Periodic"): 10.0, k("Actual", "Working", "Feb 26", "Periodic"): 5.0,
+                k("Target", "Final", "Jan 26", "Periodic"): 100.0, k("Target", "Final", "Feb 26", "Periodic"): 50.0}
+    acc = {k("Actual", "Working", "Feb 26", "Accumulated"): 15.0, k("Target", "Final", "Feb 26", "Accumulated"): 150.0}
+    assert reconcile.months_vs_ytd(periodic, acc, ["Jan 26", "Feb 26"]) == (2, [])      # no double counting
+    acc[k("Target", "Final", "Feb 26", "Accumulated")] = 149.0
+    n, problems = reconcile.months_vs_ytd(periodic, acc, ["Jan 26", "Feb 26"])
+    assert n == 2 and len(problems) == 1 and "Target Final" in problems[0]
+    assert reconcile.months_vs_ytd(periodic, acc, []) == (0, [])

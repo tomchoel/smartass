@@ -41,21 +41,22 @@ def identities(frame: Frame, checks, tol: float = TOL) -> tuple[int, list[str]]:
 
 
 def months_vs_ytd(periodic: dict, accumulated: dict, months: list[str], tol: float = TOL) -> tuple[int, list[str]]:
-    """Accumulated at months[-1] = the sum of the Periodic months, per (entity, account). Both are warehouse rows
-    {key: value}; a pair without every month is not checked."""
-    sums: dict[tuple[str, str], list[float]] = {}
+    """Accumulated at months[-1] = the sum of the Periodic months, per (cube, scenario, version, entity, account).
+    Both are warehouse rows {key: value}; a series without every month is not checked."""
+    series: dict[tuple, dict[str, float]] = {}
     for k, v in periodic.items():
         if k[5] in months:
-            sums.setdefault((k[3], k[4]), []).append(0.0 if v is None else v)
+            series.setdefault(k[:5], {})[k[5]] = 0.0 if v is None else v
     n, problems = 0, []
     for k, v in sorted(accumulated.items()):
-        parts = sums.get((k[3], k[4]))
-        if k[5] != months[-1] or parts is None or len(parts) != len(months):
+        got = series.get(k[:5])
+        if not months or k[5] != months[-1] or got is None or any(m not in got for m in months):
             continue
         n += 1
-        d = (0.0 if v is None else v) - sum(parts)
+        d = (0.0 if v is None else v) - sum(got[m] for m in months)
         if abs(d) >= tol:
-            problems.append(f"{k[0]} {k[3]} {k[4]}: Accumulated {months[-1]} differs from the sum of "
+            who = " ".join(x for x in (k[0], k[1], k[2], k[3], k[4]) if x)
+            problems.append(f"{who}: Accumulated {months[-1]} differs from the sum of "
                             f"{months[0]}..{months[-1]} by {_n(d)}")
     return n, problems
 

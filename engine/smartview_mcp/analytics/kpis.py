@@ -1,6 +1,6 @@
 """Catalogue KPIs: numerator / denominator over one cube's lines. basis average_stock divides by the average level
 (the month before the window + each month end, n+1 points; for a YTD window that is the opening December); annualise
-scales a part-year numerator to twelve months. The sign follows FinMax: costs are negative, so cost per FTE is too."""
+scales a part-year numerator to twelve months. The cube sign is FinMax's (costs negative); a KPI with sign = -1 is shown positive (cost per FTE)."""
 from __future__ import annotations
 
 from ..catalog import Kpi
@@ -15,7 +15,9 @@ def _num(v: float | None) -> str:
 
 def kpi(frame: Frame, k: Kpi, entity: str, scenario: str, months: list[str], id: str | None = None) -> Fact:
     id = id or f"kpi.{k.key}.{scenario}.{entity}.{_span(months)}"
-    unit = k.unit if k.unit in UNITS else "nok"
+    if k.unit not in UNITS:
+        raise ValueError(f"kpi '{k.key}': unit '{k.unit}' is not one of {UNITS}")
+    unit = k.unit
     if not months:
         return missing(id, unit, f"{k.label}: no months", "no months")
     num = amount(frame, entity, k.numerator, scenario, months)

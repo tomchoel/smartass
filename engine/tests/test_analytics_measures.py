@@ -1,7 +1,14 @@
 """analytics.measures and analytics.kpis: flows sum, stocks take levels, the n+1 average, annualising."""
+import dataclasses
+import math
+
+import pytest
 from analytics_util import E, frame, months
 
 from smartview_mcp import catalog
+from smartview_mcp.analytics import periods
+from smartview_mcp.analytics.facts import Fact, total
+from smartview_mcp.analytics.frame import from_rows
 from smartview_mcp.analytics.kpis import kpi
 from smartview_mcp.analytics.measures import amount, average_level, flow, level
 
@@ -52,13 +59,6 @@ def test_blank_point_in_the_average_counts_as_zero_and_stays_a_point():
 
 
 # --- review fixes -----------------------------------------------------------------------------------------------
-import math  # noqa: E402
-
-import pytest  # noqa: E402
-
-from smartview_mcp.analytics import periods  # noqa: E402
-from smartview_mcp.analytics.facts import Fact  # noqa: E402
-from smartview_mcp.analytics.frame import from_rows  # noqa: E402
 
 
 def _kpis():
@@ -172,3 +172,16 @@ def test_ltm_per_fte_average_uses_13_points():
     months(v, "opex", "actual", "Oct 25", [-100.0] * 12)
     c = kpi(frame(values=v), _kpis()["opex_per_fte"], E, "actual", periods.ltm("Sep 26"))
     assert c.value == 1200.0 / 10.0 and "13 levels" in c.definition and len(c.parts[1].inputs) == 13
+
+
+def test_kpi_with_an_unknown_unit_raises():
+    k = dataclasses.replace(_kpis()["ebitda_margin"], unit="bogus")
+    with pytest.raises(ValueError, match="bogus"):
+        kpi(frame(), k, E, "actual", ["Jan 26"])
+
+
+def test_total_keeps_its_parts():
+    a, b = Fact("a", 1.0, "nok", ""), Fact("b", 2.0, "nok", "")
+    assert total("t", [a, b], "nok", "").parts == (a, b)
+    gone = Fact("g", None, "nok", "", (), "x")
+    assert total("t", [a, gone], "nok", "").parts == (a, gone)

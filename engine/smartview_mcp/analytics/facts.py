@@ -20,7 +20,7 @@ class Fact:
     reason: str | None = None         # why value is None
     parts: tuple["Fact", ...] = ()    # the facts this one was combined from (a KPI: numerator, denominator)
 
-    # Sign follows FinMax: costs are negative, so a cost per FTE is negative too.
+    # Cube values follow FinMax (costs are negative); a KPI with sign = -1 is shown positive (cost per FTE).
 
     def __post_init__(self):
         if self.unit not in UNITS:
@@ -48,8 +48,8 @@ def total(id: str, facts: list[Fact], unit: str, definition: str) -> Fact:
     """The sum of facts (0 for none); missing if any part is."""
     gone = next((f for f in facts if f.value is None), None)
     if gone is not None:
-        return missing(id, unit, definition, f"{gone.id}: {gone.reason}", _inputs(facts))
-    return Fact(id, float(sum(f.value for f in facts)), unit, definition, _inputs(facts))
+        return Fact(id, None, unit, definition, _inputs(facts), f"{gone.id}: {gone.reason}", tuple(facts))
+    return Fact(id, float(sum(f.value for f in facts)), unit, definition, _inputs(facts), None, tuple(facts))
 
 
 def combine(id: str, unit: str, definition: str, fn: Callable[..., float], *facts: Fact) -> Fact:

@@ -3,9 +3,10 @@ children by |variance| plus 'Other units' = the total variance less the top N, s
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .facts import Fact, combine, missing, total
+from .reconcile import TOL
 from .variance import Variance
 
 
@@ -28,7 +29,7 @@ class Bridge:
             return None
         return self.end.value - self.start.value - sum(s.fact.value for s in self.steps)
 
-    def closes(self, tol: float = 0.5) -> bool:
+    def closes(self, tol: float = TOL) -> bool:
         r = self.residual()
         return r is not None and abs(r) <= tol
 
@@ -58,8 +59,9 @@ def components(checks, lines, total_key: str) -> list[tuple[int, str]]:
 
 
 def by_line(start: Fact, end: Fact, variances: dict[str, Variance], leaves: list[tuple[int, str]],
-            labels: dict[str, str]) -> Bridge:
-    """start -> end through the variance of each leaf line."""
+            labels: dict[str, str], id: str = "bridge") -> Bridge:
+    """start -> end through the variance of each leaf line, plus a 'Rounding / unexplained' step for any residual,
+    so the walk always closes."""
     steps = []
     for sign, key in leaves:
         v = variances.get(key)
@@ -67,7 +69,13 @@ def by_line(start: Fact, end: Fact, variances: dict[str, Variance], leaves: list
         if sign < 0:
             f = combine(f.id + ".neg", f.unit, f"-({f.definition})", lambda x: -x, f)
         steps.append(Step(key, labels.get(key, key), f))
-    return Bridge(start, tuple(steps), end)
+    b = Bridge(start, tuple(steps), end)
+    r = b.residual()
+    if r is not None and abs(r) >= 0.005:                      # what the identities do not explain: shown, never hidden
+        gap = Fact(f"{id}.rounding", r, start.unit, "end - start less the steps shown (rounding / unexplained)",
+                   tuple(dict.fromkeys(k for x in (start, end) for k in x.inputs)))
+        b = Bridge(start, b.steps + (Step("rounding", "Rounding / unexplained", gap),), end)
+    return b
 
 
 def by_unit(start: Fact, end: Fact, units: list[tuple[str, str, Fact, Fact]], top_n: int = 5,
@@ -81,4 +89,11 @@ def by_unit(start: Fact, end: Fact, units: list[tuple[str, str, Fact, Fact]], to
     change = combine(f"{id}.total.var", "nok", f"{end.id} - {start.id}", lambda a, b: a - b, end, start)
     shown = total(f"{id}.top", [f for _, _, f in top], "nok", f"sum of the top {len(top)} units")
     other = combine(f"{id}.other", "nok", "total variance less the units shown", lambda a, b: a - b, change, shown)
-    return Bridge(start, tuple(Step(n, lab, f) for n, lab, f in top) + (Step("other", "Other units", other),), end)
+    unknown = [lab for _, lab, f in vs if f.value is None]
+    if unknown:
+        other = replace(other, definition=f"{other.definition}; includes units with unknown variance: "
+                                          + ", ".join(unknown))
+    steps = tuple(Step(n, lab, f) for n, lab, f in top)
+    if other.value is None or abs(other.value) >= 0.005:       # a zero 'other' is left out
+        steps += (Step("other", "Other units and eliminations", other),)
+    return Bridge(start, steps, end)

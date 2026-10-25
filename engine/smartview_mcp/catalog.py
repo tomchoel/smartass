@@ -19,7 +19,7 @@ from . import config
 KINDS = {"line", "sum", "grand"}
 RULES = {"latest_forecast"}
 BETTER = {"higher", "lower", "none"}
-UNITS = {"pct", "nok", "nok_per_fte"}   # a KPI's unit; the sign follows FinMax (costs negative, so cost per FTE too)
+UNITS = {"pct", "nok", "nok_per_fte"}   # a KPI's unit; the cube sign is FinMax's (costs negative), sign = -1 shows a cost KPI positive
 MEASURES = {"flow", "stock"}          # stock: a level (FTE); read Accumulated at period end, never sum Periodic months
 BASES = {"period", "average_stock"}   # average_stock: the denominator is the average month-end level over the period
 MATERIALITY_RULES = {"either", "both"}

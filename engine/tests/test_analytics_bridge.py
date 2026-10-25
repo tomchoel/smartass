@@ -1,10 +1,11 @@
 """analytics.bridge and analytics.landing: bridges close exactly; the landing and its run-rate alternative."""
 import pytest
+from analytics_util import E, frame
 
 from smartview_mcp import catalog
-from smartview_mcp.analytics.bridge import by_line, by_unit, components
+from smartview_mcp.analytics.bridge import Bridge, by_line, by_unit, components
 from smartview_mcp.analytics.facts import Fact, missing
-from smartview_mcp.analytics.landing import landing
+from smartview_mcp.analytics.landing import landing, remaining_forecast
 from smartview_mcp.analytics.variance import variance
 
 CAT = catalog.load()
@@ -33,7 +34,24 @@ def test_line_bridge_closes_when_the_identities_hold():
     assert [s.key for s in b.steps] == ["rev", "cogs", "pers", "oth", "c73"] and b.steps[0].label == "Revenue"
     assert b.residual() == 0.0 and b.closes()
     broken = by_line(f("ly", 0.0), f("cur", 999.0), vs, [(1, "rev")], {})
-    assert not broken.closes()
+    assert broken.closes() and broken.steps[-1].key == "rounding"          # the gap is shown, not hidden
+    assert broken.steps[-1].label == "Rounding / unexplained"
+    assert broken.steps[-1].fact.value == 999.0 - vs["rev"].abs.value
+    assert [x.key for x in b.steps] == ["rev", "cogs", "pers", "oth", "c73"]   # nothing to explain: no extra step
+
+
+def test_line_bridge_negative_leaf_and_missing_variance():
+    lines = {x.key: x for x in CAT.pnl["FinMax"]}
+    vs = {"rev": variance(lines["rev"], f("c", 10.0), f("p", 4.0), "rev")}
+    b = by_line(f("s", 0.0), f("e", 0.0), vs, [(-1, "rev"), (1, "cogs")], {})
+    assert b.steps[0].fact.value == -6.0 and b.steps[0].fact.definition.startswith("-(")     # the .neg path
+    assert b.steps[1].fact.value is None and b.residual() is None and not b.closes()
+
+
+def test_bridge_tolerance_is_one_nok():
+    assert by_line(f("s", 0.0), f("e", 10.0), {}, [], {}).closes()      # a 10 gap becomes the rounding step
+    assert Bridge(f("s", 0.0), (), f("e", 0.9)).closes()
+    assert not Bridge(f("s", 0.0), (), f("e", 1.1)).closes()
 
 
 def test_unit_bridge_top_n_plus_other_sums_exactly():
@@ -41,7 +59,8 @@ def test_unit_bridge_top_n_plus_other_sums_exactly():
              for i, (c, p) in enumerate([(10.0, 0.0), (-50.0, 0.0), (5.0, 4.0), (30.0, 0.0), (1.0, 1.0)])]
     units.append(("ux", "Unknown", missing("cx", "nok", "", "not read"), f("lx", 1.0)))
     b = by_unit(f("start", 100.0), f("end", 103.0), units, top_n=2)
-    assert [s.key for s in b.steps] == ["u1", "u3", "other"]
+    assert [s.key for s in b.steps] == ["u1", "u3", "other"] and b.steps[-1].label == "Other units and eliminations"
+    assert "Unknown" in b.steps[-1].fact.definition
     assert b.steps[-1].fact.value == 3.0 - (-50.0 + 30.0) and b.residual() == 0.0
     assert by_unit(missing("s", "nok", "", "x"), f("end", 1.0), units).steps[-1].fact.value is None
 
@@ -60,3 +79,53 @@ def test_landing_falls_back_to_a_plain_run_rate():
     assert not neg.seasonal                                       # a negative share is no seasonality profile
     gone = landing(missing("ytd", "nok", "", "not read"), f("rem", 1.0), f("tgt", 1.0), f("a", 1.0), f("b", 2.0), 9)
     assert gone.forecast.value is None and gone.run_rate.value is None and gone.gap_forecast.value is None
+
+
+def test_unit_bridge_omits_a_zero_other_step():
+    units = [("a", "A", f("ca", 5.0), f("pa", 0.0)), ("b", "B", f("cb", 2.0), f("pb", 0.0))]
+    b = by_unit(f("s", 0.0), f("e", 7.0), units, top_n=5)
+    assert [x.key for x in b.steps] == ["a", "b"] and b.closes()
+
+
+def test_landing_seasonal_share_is_bounded():
+    # n = 9: the accepted share lies in 0.375-1.125
+    over = landing(f("ytd", 900.0), f("rem", 250.0), f("tgt", 1200.0), f("a", 1200.0), f("b", 1000.0), 9)
+    assert not over.seasonal and over.run_rate.value == 1200.0 and "outside" in over.method
+    near0 = landing(f("ytd", 900.0), f("rem", 250.0), f("tgt", 1200.0), f("a", 10.0), f("b", 1000.0), 9)
+    assert not near0.seasonal and "1.0%" in near0.method
+    nofy = landing(f("ytd", 900.0), f("rem", 250.0), f("tgt", 1200.0), f("a", 750.0),
+                   missing("b", "nok", "", "not read"), 9)
+    assert not nofy.seasonal and "missing" in nofy.method and nofy.run_rate.value == 1200.0
+    edge = landing(f("ytd", 900.0), f("rem", 0.0), f("tgt", 1.0), f("a", 375.0), f("b", 1000.0), 9)
+    assert edge.seasonal                                                   # exactly 0.5 x 9/12 is accepted
+
+
+def test_landing_months_done_zero_has_no_run_rate():
+    z = landing(f("ytd", 0.0), f("rem", 100.0), f("tgt", 100.0), f("a", 1.0), f("b", 2.0), 0)
+    assert z.run_rate.value is None and not z.seasonal and z.forecast.value == 100.0
+
+
+def test_landing_names_the_forecast_and_warns_when_stale():
+    old = landing(f("ytd", 900.0), f("rem", 250.0), f("tgt", 1200.0), f("a", 750.0), f("b", 1000.0), 9,
+                  "Forecast Q226", "Sep 26")
+    assert old.stale and old.warning == "Forecast Q226 is older than the closed month Sep 26"
+    assert "Forecast Q226" in old.forecast.definition and "Forecast Q226" in old.method
+    assert old.run_rate.value is not None                                  # the run rate stays alongside
+    fresh = landing(f("ytd", 900.0), f("rem", 250.0), f("tgt", 1200.0), f("a", 750.0), f("b", 1000.0), 9,
+                    "Forecast Q326", "Sep 26")
+    assert not fresh.stale and fresh.warning is None
+    assert landing(f("ytd", 1.0), f("rem", 1.0), f("tgt", 1.0), f("a", 1.0), f("b", 1.0), 9,
+                   "Forecast Q126", "Jan 26").stale is False         # same quarter: fresh
+    assert landing(f("ytd", 1.0), f("rem", 1.0), f("tgt", 1.0), f("a", 1.0), f("b", 1.0), 9,
+                   "Forecast Q425", "Jan 26").stale                    # last year's forecast is older
+
+
+def test_remaining_forecast_blank_is_missing_not_zero():
+    months = ["Oct 26", "Nov 26", "Dec 26"]
+    blank = frame(values={(E, "ebitda", m, "forecast"): None for m in months})
+    assert remaining_forecast(blank, E, "ebitda", "forecast", months).value is None
+    part = frame(values={(E, "ebitda", "Oct 26", "forecast"): None, (E, "ebitda", "Nov 26", "forecast"): 5.0,
+                         (E, "ebitda", "Dec 26", "forecast"): 7.0})
+    assert remaining_forecast(part, E, "ebitda", "forecast", months).value == 12.0
+    assert remaining_forecast(blank, E, "ebitda", "forecast", []).value == 0.0
+    assert remaining_forecast(frame(), E, "ebitda", "forecast", months).value is None

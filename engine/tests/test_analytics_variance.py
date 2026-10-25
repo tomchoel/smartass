@@ -41,9 +41,55 @@ def test_zero_comparison_has_no_pct_and_missing_parts_are_explicit():
     (-104_000_000.0, -100_000_000.0, False),  # 4 % and NOK 4m: neither
     (-5_000_000.0, 0.0, True),              # zero comparison: only the NOK rule, and 5m is enough
     (-400_000.0, 0.0, False),
+    (-1_100_000.0, -1_000_000.0, False),    # 10 % of 1m but NOK 100k: under the floor
+    (-5_500_000.0, -5_000_000.0, True),     # exactly 10 % and exactly the NOK 500k floor
+    (-5_499_999.0, -5_000_000.0, False),    # one krone under both
+    (-7_000_000.0, -1_000_000.0, True),     # NOK 6m and 600 %
+    (-450_000.0, -300_000.0, False),        # base under NOK 500k counts as zero: NOK 150k, no %
+    (-5_300_000.0, -300_000.0, True),       # small base, but the NOK 5m rule still applies
 ])
 def test_materiality_rule_either_with_the_floor(cur, cmp, material):
     assert assess(v("oth", cur, cmp), M).material is material
+
+
+def test_boundaries_and_small_base_reason():
+    assert assess(v("oth", -105_000_000.0, -100_000_000.0), M).material is True       # exactly NOK 5m
+    assert assess(v("oth", -104_999_999.0, -100_000_000.0), M).material is False
+    small = assess(v("oth", -450_000.0, -300_000.0), M)
+    assert small.material is False and "counts as zero" in small.reason
+    pct_only = assess(v("oth", -6_000_000.0, -5_000_000.0), M)
+    assert "at least" not in pct_only.reason and "20% of the comparison" in pct_only.reason
+    nok_only = assess(v("oth", -106_000_000.0, -100_000_000.0), M)
+    assert "% of the comparison" not in nok_only.reason and nok_only.basis == "ytd"
+
+
+def test_month_swing_flags_on_its_own():
+    ytd, month = v("oth", -1_100_000.0, -1_000_000.0), v("oth", -5_000_000.0, 0.0)
+    f = assess(ytd, M, month)
+    assert f.material and f.basis == "month" and "single month" in f.reason
+    assert assess(ytd, M, v("oth", -4_999_999.0, 0.0)).material is False
+    assert assess(v("oth", -6_000_000.0, -5_000_000.0), M, month).basis == "ytd+month"
+
+
+def test_both_rule_zero_comparison_is_consistent():
+    both = dataclasses.replace(M, rule="both")
+    assert assess(v("oth", -50_000_000.0, 0.0), both).material is False        # no % possible: both cannot hold
+
+
+def test_flags_skip_subtotals_but_keep_always_lines():
+    vs = [v("gm", -9e6, -1e6), v("ebitda", 1.0, 0.0), v("boi", -9e6, -1e6), v("oth", -9e6, -1e6)]
+    kept = [f.line for f in flags(vs, M, lines=catalog.load().pnl["FinMax"])]
+    assert sorted(kept) == ["ebitda", "oth"]
+    assert {f.line for f in flags(vs, M)} == {"gm", "ebitda", "boi", "oth"}
+
+
+def test_lower_is_better_flips_the_variance():
+    kpi = next(k for k in catalog.load().kpis if k.better == "lower")
+    up = variance(kpi, Fact("c", 130.0, "nok_per_fte", ""), Fact("p", 120.0, "nok_per_fte", ""), "k")
+    assert up.abs.value == -10.0 and up.favourable is False and up.pct.value == pytest.approx(-10 / 120)
+    down = variance(kpi, Fact("c", 120.0, "nok_per_fte", ""), Fact("p", 130.0, "nok_per_fte", ""), "k")
+    assert down.abs.value == 10.0 and down.favourable is True
+    assert "comparison - current" in up.abs.definition
 
 
 def test_rule_both_needs_both_and_always_lines_are_commented():
