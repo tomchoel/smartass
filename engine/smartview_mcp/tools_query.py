@@ -2,18 +2,23 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import time
 from pathlib import Path
 from typing import Literal
 
+import anyio.to_thread
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import atlas, config, ops, qlog
+from . import atlas, config, logsetup, ops, qlog
 from .grid import Axis, to_markdown
 from .timing import Timer, stage
-from .host import HostError
+from .host import HostError, InputError
 from .server import LOCAL, READ, WRITE, AxesIn, Connection, axes_in, _call, _err, _safe_name, tool
+
+log = logging.getLogger(__name__)
+
 
 @tool(annotations=READ)
 async def sv_dimensions(connection: Connection) -> dict:
@@ -25,11 +30,36 @@ async def sv_dimensions(connection: Connection) -> dict:
         raise _err(e)
 
 
+async def _retrieve(connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros, source: str, timeout: float):
+    """(layout, parsed, seconds, route, note). Smart View's HTTP protocol first (no Excel) unless source='com'; with
+    source='auto' an HTTP failure that is not an input error falls back to Smart View in Excel (note says why)."""
+    note = None
+    if source != "com":
+        from . import svhttp
+        try:
+            lay, parsed, secs = await anyio.to_thread.run_sync(lambda: svhttp.shared().retrieve(
+                connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros))
+            return lay, parsed, secs, "http", None
+        except InputError as e:
+            raise _err(e) from None
+        except Exception as e:   # noqa: BLE001 - any HTTP-route failure: the Excel route, or a clear error for 'http'
+            msg = f"{type(e).__name__}: {logsetup.redact(e)}"
+            if source == "http":
+                raise ToolError(f"HTTP route failed - {msg}. Next step: call sv_query with source='com'.") from None
+            log.warning("svhttp failed, using Smart View in Excel: %s", msg)
+            note = f"HTTP route failed ({msg}); the grid was read through Smart View in Excel instead."
+    lay, parsed, secs = await _call(
+        lambda h: ops.query(h, connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros),
+        timeout=timeout, what="sv_query")
+    return lay, parsed, secs, "com", note
+
+
 @tool(annotations=WRITE)
 async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: Context,
                    pov: dict[str, str] | None = None, suppress_missing: bool = True, suppress_zeros: bool = False,
                    save_xlsx: bool = False, title: str | None = None, large: bool = False,
-                   max_preview_rows: int = config.PREVIEW_ROWS) -> dict:
+                   max_preview_rows: int = config.PREVIEW_ROWS,
+                   source: Literal["auto", "http", "com"] = "auto") -> dict:
     """Retrieve a data grid from a cube and return it as a table.
 
     rows/columns: one entry per dimension, each with explicit member names (cross product is built).
@@ -41,7 +71,9 @@ async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: C
                   'All Balance Types':'Accumulated'}.
     Unknown members are reported (Smart View silently ignores them) - fix with sv_find_member.
     save_xlsx writes the full result (with a POV/metadata sheet, label 'Internal') to the output folder.
-    Grids over 50,000 cells need large=true."""
+    Grids over 50,000 cells need large=true.
+    source: 'auto' (default) reads over Smart View's HTTP protocol (no Excel, ~1 s; signs in through the hidden
+    browser) and falls back to Smart View in Excel; 'com' forces Excel; 'http' never falls back."""
     rows, columns = axes_in(rows), axes_in(columns)
     rows_ax = [Axis(a.dimension, a.members) for a in rows]
     cols_ax = [Axis(a.dimension, a.members) for a in columns]
@@ -55,12 +87,12 @@ async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: C
     t0 = time.monotonic()
     await ctx.report_progress(1, 3, "retrieving")
     try:
-        lay, parsed, secs = await _call(
-            lambda h: ops.query(h, connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros),
-            timeout=max(config.CALL_TIMEOUT_S, n_cells / 200), what="sv_query")
+        lay, parsed, secs, route, http_note = await _retrieve(
+            connection, pov, rows_ax, cols_ax, suppress_missing, suppress_zeros, source,
+            timeout=max(config.CALL_TIMEOUT_S, n_cells / 200))
     except (HostError, ToolError) as e:
         qlog.write({"tool": "sv_query", "connection": connection, "pov": pov, "rows": [r.model_dump() for r in rows],
-                    "columns": [c.model_dump() for c in columns], "error": str(e)})
+                    "columns": [c.model_dump() for c in columns], "source": source, "error": str(e)})
         raise _err(e)
     await ctx.report_progress(2, 3, "parsed")
     saved = None
@@ -83,7 +115,7 @@ async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: C
     await ctx.report_progress(3, 3, "done")
     qlog.write({"tool": "sv_query", "connection": connection, "pov": dict(lay.pov),
                 "rows": [r.model_dump() for r in rows], "columns": [c.model_dump() for c in columns],
-                "cells": lay.n_cells, "rows_returned": len(parsed.rows), "retrieve_s": round(secs, 2),
+                "route": route, "cells": lay.n_cells, "rows_returned": len(parsed.rows), "retrieve_s": round(secs, 2),
                 "total_s": round(time.monotonic() - t0, 2), "unknown": parsed.unknown_members, "saved": saved})
     warnings = parsed.pov_problems + ([f"{parsed.no_access_cells} cells are #NoAccess (no read access)"]
                                       if parsed.no_access_cells else [])
@@ -95,8 +127,11 @@ async def sv_query(connection: Connection, rows: AxesIn, columns: AxesIn, ctx: C
     if parsed.unknown_members:
         warnings.insert(0, "Unknown/unrecognised members (no data returned for them): "
                         + "; ".join(parsed.unknown_members) + ". Use sv_find_member to get the right names.")
+    if http_note:
+        warnings.insert(0, http_note)
     return {
         "connection": connection,
+        "route": route,
         "pov": dict(lay.pov),
         "rows_returned": len(parsed.rows),
         "rows_requested": parsed.total_rows,
