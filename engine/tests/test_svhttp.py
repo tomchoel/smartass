@@ -117,3 +117,132 @@ def test_input_errors_and_missing_atlas(db_path, tmp_path):
     empty = svhttp.SvHttp(FakeTransport(), home="https://plan1.example", db_path=tmp_path / "empty.db")
     with pytest.raises(svhttp.SvHttpError, match="atlas has no dimensions"):
         _q(empty, "FinLite")
+
+
+class _Page:
+    def __init__(self, replies=()):
+        self.replies, self.bodies, self.closed = list(replies), [], False
+
+    def is_closed(self):
+        return self.closed
+
+    def close(self):
+        self.closed = True
+
+    def evaluate(self, js, body):
+        self.bodies.append(body)
+        return self.replies.pop(0)
+
+
+class _Ctx:
+    def __init__(self, *pages):
+        self.pages = list(pages)
+
+    def new_page(self):
+        return self.pages.pop(0)
+
+
+class _Browser:
+    base = "https://plan1.example"
+
+    def __init__(self, page, ctx=None):
+        self.ctx = ctx or object()
+        self.s = type("S", (), {"page": page, "ctx": self.ctx, "ready": True, "deadline": 0})()
+        self.logins, self.login_calls, self.login_errors = 0, [], []
+
+    def submit(self, fn):
+        import concurrent.futures as cf
+        f = cf.Future()
+        try:
+            f.set_result(fn(self.s))
+        except BaseException as e:   # noqa: BLE001 - like DrillBrowser's worker
+            f.set_exception(e)
+        return f
+
+    def _ensure(self, s):
+        if not s.ready:
+            self.logins += 1
+            s.ready = True
+
+    def _login_once(self, page, deadline, base=None):
+        self.login_calls.append((page, base))
+        if self.login_errors:
+            raise self.login_errors.pop(0)
+
+
+def test_browser_transport_refuses_writes_and_signs_in_again_once():
+    page = _Page([[401, "<html>login</html>"], [200, "<res_OpenCube></res_OpenCube>"]])
+    b = _Browser(page)
+    t = svhttp.BrowserTransport(b)
+    with pytest.raises(ValueError, match="refused"):
+        t.post(b.base, "<req_WriteBack/>")
+    assert page.bodies == []
+    assert t.post(b.base, svxml.open_cube("s", "FinMax", "FinMax")) == "<res_OpenCube></res_OpenCube>"
+    assert b.logins == 1
+
+
+def test_browser_transport_gives_up_after_two_bad_answers():
+    b = _Browser(_Page([[401, "x"], [401, "x"]]))
+    with pytest.raises(svhttp.SvHttpError, match="HTTP 401 twice"):
+        svhttp.BrowserTransport(b).post(b.base, svxml.connect())
+
+
+def test_browser_failures_become_svhttp_errors(monkeypatch):
+    import concurrent.futures as cf
+
+    from smartview_mcp import config, drill_browser
+
+    class Fut(_Browser):
+        def __init__(self, make):
+            super().__init__(_Page())
+            self.make = make
+
+        def submit(self, fn):
+            return self.make()
+
+    def cancelled():
+        f = cf.Future()
+        f.cancel()
+        return f
+
+    def failed(exc):
+        def make():
+            f = cf.Future()
+            f.set_exception(exc)
+            return f
+        return make
+
+    for make, text in [(cancelled, "cancel"), (failed(drill_browser.DrillBusy("drill browser busy")), "busy"),
+                       (failed(drill_browser.DrillError("sign-in failed")), "sign-in failed")]:
+        b = Fut(make)
+        with pytest.raises(svhttp.SvHttpError, match=text):
+            svhttp.BrowserTransport(b).post(b.base, svxml.connect())
+    monkeypatch.setattr(config, "SVHTTP_TIMEOUT_S", 0.01)
+    b = Fut(cf.Future)                                    # never answers
+    with pytest.raises(svhttp.SvHttpError, match="did not answer within 0 s"):
+        svhttp.BrowserTransport(b).post(b.base, svxml.connect())
+
+
+def test_other_pod_signs_in_once_more_in_a_fresh_tab():
+    from smartview_mcp import drill_browser
+    bad, good = _Page(), _Page([[200, "<res_OpenCube></res_OpenCube>"]])
+    b = _Browser(_Page(), _Ctx(bad, good))
+    b.login_errors = [drill_browser.DrillError("last page: x")]
+    out = svhttp.BrowserTransport(b).post("https://strat.example", svxml.open_cube("s", "FinPlan", "FinPlan"))
+    assert out == "<res_OpenCube></res_OpenCube>" and bad.closed
+    assert b.login_calls == [(bad, "https://strat.example"), (good, "https://strat.example")]
+
+
+def test_other_pod_sign_in_failing_twice_is_an_svhttp_error():
+    from smartview_mcp import drill_browser
+    b = _Browser(_Page(), _Ctx(_Page(), _Page()))
+    b.login_errors = [drill_browser.DrillError("one"), drill_browser.DrillError("two")]
+    with pytest.raises(svhttp.SvHttpError, match="sign-in on https://strat.example failed twice: two"):
+        svhttp.BrowserTransport(b).post("https://strat.example", svxml.connect())
+
+
+def test_shared_is_one_instance(monkeypatch):
+    from smartview_mcp import drill_browser
+    monkeypatch.setattr(svhttp, "_shared", None)
+    monkeypatch.setattr(drill_browser, "shared_browser", lambda: _Browser(_Page()))
+    assert svhttp.shared() is svhttp.shared()

@@ -6,6 +6,7 @@ The transport is BrowserTransport: it posts from inside the drill's hidden Edge 
 on the drill browser's worker thread. Tests use a fake transport."""
 from __future__ import annotations
 
+import concurrent.futures as cf
 import logging
 import threading
 import time
@@ -14,6 +15,7 @@ from typing import Protocol
 
 from . import atlas, config, svxml
 from .grid import Axis, Layout, full_pov, parse, validate_axes
+from .drill_browser import DrillError
 from .host import InputError
 
 log = logging.getLogger(__name__)
@@ -100,3 +102,88 @@ class SvHttp:
                     raise SvHttpError(f"Smart View provider: {e}") from None
                 log.info("svhttp %s: %s - reconnecting once", conn, e)
         raise AssertionError("unreachable")
+
+
+_JS = """async (b) => { const r = await fetch('/HyperionPlanning/SmartView', {method: 'POST', credentials: 'include',
+    body: b, headers: {'Content-Type': 'text/xml'}}); return [r.status, await r.text()]; }"""
+
+
+class BrowserTransport:
+    """Posts provider XML from a signed-in tab of the drill browser: its own tab for its pod (plan1) and one extra
+    tab per other pod (FinPlan: stratmodel), signed in once with the same SSO. All page work runs on the browser's
+    worker thread via submit(); _tabs is only touched there. Every failure to get an answer is an SvHttpError
+    (so sv_query can fall back); a refused write stays a ValueError."""
+
+    def __init__(self, browser):
+        self.b = browser
+        self._tabs: dict[str, tuple[object, object]] = {}       # pod base -> (browser context, page)
+
+    def post(self, base: str, body: str) -> str:
+        svxml.check_read_only(body)
+        try:
+            fut = self.b.submit(lambda s: self._post(s, base.rstrip("/"), body))
+            return fut.result(timeout=config.SVHTTP_TIMEOUT_S)
+        except cf.CancelledError:
+            raise SvHttpError("the drill browser job was cancelled (browser restarting or shutting down)") from None
+        except cf.TimeoutError:
+            raise SvHttpError(f"the drill browser did not answer within {config.SVHTTP_TIMEOUT_S:.0f} s") from None
+        except DrillError as e:                                   # includes DrillBusy
+            raise SvHttpError(str(e)) from None
+
+    def _tab(self, s, base: str):
+        if base == self.b.base.rstrip("/"):
+            return s.page
+        ctx, page = self._tabs.get(base, (None, None))
+        if ctx is not s.ctx or page is None or page.is_closed():
+            page = s.ctx.new_page()
+            try:
+                self.b._login_once(page, s.deadline, base=base)
+            except DrillError as first:
+                log.warning("svhttp: sign-in on %s failed (%s); retrying in a fresh tab", base, first)
+                try:
+                    page.close()
+                except Exception:   # noqa: BLE001 - the tab may already be gone
+                    pass
+                page = s.ctx.new_page()
+                try:
+                    self.b._login_once(page, s.deadline, base=base)
+                except DrillError as second:
+                    raise SvHttpError(f"sign-in on {base} failed twice: {second}") from None
+            self._tabs[base] = (s.ctx, page)
+        return page
+
+    def _post(self, s, base: str, body: str) -> str:
+        s.deadline = time.monotonic() + config.SVHTTP_TIMEOUT_S
+        status = None
+        for attempt in (1, 2):
+            self.b._ensure(s)
+            try:
+                status, text = self._tab(s, base).evaluate(_JS, body)
+            except SvHttpError:
+                raise
+            except Exception as e:   # noqa: BLE001 - the tab navigated or the browser died: one fresh try
+                if attempt == 2:
+                    raise SvHttpError(f"browser error at {base}: {str(e).splitlines()[0][:200]}") from None
+                s.ready = False
+                self._tabs.pop(base, None)
+                continue
+            if status == 200 and ("<res_" in text or "<exception" in text):
+                return text
+            log.warning("svhttp: HTTP %s from %s; signing in again", status, base)
+            s.ready = False
+            self._tabs.pop(base, None)
+        raise SvHttpError(f"Smart View provider at {base} answered HTTP {status} twice (sign-in failed?)")
+
+
+_shared: SvHttp | None = None
+_shared_lock = threading.Lock()
+
+
+def shared() -> SvHttp:
+    """The process's one HTTP route (on the shared drill browser)."""
+    global _shared
+    with _shared_lock:
+        if _shared is None:
+            from .drill_browser import shared_browser
+            _shared = SvHttp(BrowserTransport(shared_browser()))
+        return _shared
