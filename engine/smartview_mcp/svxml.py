@@ -10,7 +10,8 @@ import re
 
 from .grid import Layout
 
-ALLOWED = frozenset({"ConnectToProvider", "GetProvisionedDataSources", "OpenApplication", "OpenCube", "ExecuteGrid"})
+ALLOWED = frozenset({"ConnectToProvider", "GetProvisionedDataSources", "OpenApplication", "OpenCube", "ExecuteGrid",
+                     "EnumMembers"})
 CLIENT_XML_VERSION = "4.2.5.7.3"
 _SPECIAL = {"#noaccess": "#NoAccess", "#no access": "#NoAccess", "#missing": "#Missing", "#invalid": "#Invalid"}
 
@@ -55,6 +56,25 @@ def open_application(sid: str, app: str) -> str:
 def open_cube(sid: str, app: str, cube: str) -> str:
     return (f'<req_OpenCube><sID>{_x(sid)}</sID><srv>{_x(app)}</srv><app>{_x(app)}</app><cube>{_x(cube)}</cube>'
             '<type></type><url></url></req_OpenCube>')
+
+
+def enum_children(sid: str, dim: str, member: str) -> str:
+    """The children of `member` in provider dimension `dim` (read-only). Live 2026-10-25: the provider names
+    dimensions without 'All ' and spaces ('TimePeriods'; the atlas name 'All Time Periods' gives errcode 4997) and
+    wants the member NAME ('CurrRepMonth'; the alias 'Current Reporting Month' gives errcode 4996)."""
+    return (f'<req_EnumMembers><sID>{_x(sid)}</sID><dim>{_x(dim)}</dim><memberFilter><filter name="Children">'
+            f'<arg id="0">{_x(member)}</arg></filter></memberFilter><getAtts>0</getAtts><alsTbl>none</alsTbl>'
+            '<allGenerations>0</allGenerations><includeDescriptionInLabel>0</includeDescriptionInLabel>'
+            '</req_EnumMembers>')
+
+
+def members(text: str) -> list[str]:
+    """Member names from res_EnumMembers (<mbrs enc="1">a|b</mbrs>, pipe-separated); [] when there are none."""
+    raise_for_exception(text)
+    m = re.search(r"<mbrs[^>]*>(.*?)</mbrs>", text, re.S)
+    if m is None:
+        raise SvXmlError("no member list in the provider answer")
+    return [html.unescape(x) for x in m.group(1).split("|")] if m.group(1) else []
 
 
 def grid_cells(lay: Layout) -> tuple[list[str], list[str]]:

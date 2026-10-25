@@ -192,3 +192,25 @@ def test_grid_values_honour_range_start():
 def test_numbers_are_parsed_for_any_data_type():
     text = _ans(1, 3, 0, ["100", "1.2E7", "abc"], ["1", "3", "1"])
     assert svxml.grid_values(text) == [[100.0, 12000000.0, "abc"]]
+
+
+ENUM = ('<res_EnumMembers><overflow>0</overflow><mbrs enc="1">[CurrRepMonth].[Y26M09]</mbrs><atts enc="0">0</atts>'
+        '<mbrDesc enc="1">Y26M09</mbrDesc></res_EnumMembers>')
+
+
+def test_enum_children_is_read_only_and_names_the_provider_dimension():
+    body = svxml.enum_children("S1", "TimePeriods", "CurrRepMonth")
+    svxml.check_read_only(body)
+    assert body.startswith("<req_EnumMembers><sID>S1</sID><dim>TimePeriods</dim>")
+    assert '<filter name="Children"><arg id="0">CurrRepMonth</arg></filter>' in body
+
+
+def test_members_parses_the_pipe_list():
+    assert svxml.members(ENUM) == ["[CurrRepMonth].[Y26M09]"]
+    assert svxml.members(ENUM.replace("[CurrRepMonth].[Y26M09]", "a&amp;b|c")) == ["a&b", "c"]
+    assert svxml.members('<res_EnumMembers><mbrs enc="1"></mbrs></res_EnumMembers>') == []
+    with pytest.raises(svxml.SvXmlError) as e:
+        svxml.members('<exception errcode="4997" type="error"><desc>dimension invalid</desc></exception>')
+    assert e.value.code == 4997
+    with pytest.raises(svxml.SvXmlError, match="no member list"):
+        svxml.members("<res_EnumMembers></res_EnumMembers>")
