@@ -110,6 +110,71 @@ def _catalog() -> Check:
     return Check("catalog", "OK", detail)
 
 
+def _more(items: list, n: int = 3) -> str:
+    return "; ".join(str(x) for x in items[:n]) + (f"; +{len(items) - n} more" if len(items) > n else "")
+
+
+def _num(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _warehouse(max_age_days: float = 35) -> Check:
+    """The local warehouse behind fin_pnl: present, last fill, its result (missing cells and reconciliation problems
+    by name), paused refresh jobs and age. A fresh install has none yet - that is fine: it fills on the first fin_pnl
+    question."""
+    from .warehouse import Warehouse, WarehouseUnavailable
+    try:
+        st = Warehouse().status()
+    except ImportError as e:
+        return Check("warehouse", "FAIL", f"DuckDB is not installed ({e})", "Re-run installer\\install.ps1.")
+    except WarehouseUnavailable as e:
+        return Check("warehouse", "WARN", str(e), "Another smartass process is using it; run the doctor again.")
+    if st.get("error"):                                  # status() reports a locked or damaged file instead of raising
+        return Check("warehouse", "WARN", st["error"],
+                     "If another smartass process holds it, run the doctor again; a damaged file can be deleted "
+                     "(it refills on the next fin_pnl question).")
+    if not st["exists"]:
+        return Check("warehouse", "OK", f"not filled yet ({st['path']}); it fills on the first fin_pnl question")
+    last = st["fills"][0] if st["fills"] else None
+    state = st["state"]
+    closed = state.get("closed_month", "none")
+    if last is None:
+        return Check("warehouse", "WARN", f"{st['rows']} cells, no fill recorded",
+                     "Call sv_warehouse(action='refresh').")
+    when = time.strftime("%Y-%m-%d %H:%M", time.localtime(last["started_at"]))
+    detail = f"{st['rows']} cells, closed month {closed}, last fill {when} ({last['job']}: {last['result']})"
+    d = last["detail"] or {}
+    paused = []
+    for k, v in sorted(state.items()):
+        if k.startswith("retry_after_") and _num(v) > time.time():
+            job = k[len("retry_after_"):]
+            paused.append(f"{job} (failed {int(_num(state.get('fails_' + job)))}x): "
+                          f"{state.get('last_error_' + job) or '?'}")
+    pause_text = f"; paused refresh jobs: {'; '.join(paused)}" if paused else ""
+    if last["result"] == "error":
+        err = (d.get("errors") or ["?"])[0]
+        return Check("warehouse", "WARN", f"{detail}; {err}{pause_text}",
+                     "Call sv_warehouse(action='refresh'); answers use the older data and say so. " + BUNDLE_FIX)
+    if last["result"] == "warn":
+        found = []
+        if d.get("warnings"):
+            found.append(f"cells missing or unusable: {_more(d['warnings'])}")
+        if d.get("problems"):
+            found.append(f"reconciliation: {_more(d['problems'])}")
+        return Check("warehouse", "WARN", f"{detail}; {'; '.join(found) or 'no detail recorded'}{pause_text}",
+                     "Check the cube for those cells (sv_query); the warehouse holds what EPM returned.")
+    if paused:
+        return Check("warehouse", "WARN", detail + pause_text,
+                     "The job retries by itself after its pause; sv_warehouse(action='refresh') shows the state.")
+    if (time.time() - last["started_at"]) / 86400 > max_age_days:
+        return Check("warehouse", "WARN", f"{detail}; older than {max_age_days:.0f} days",
+                     "Call sv_warehouse(action='refresh').")
+    return Check("warehouse", "OK", detail)
+
+
 def _output() -> Check:
     d = config.ANALYSER_DIR
     try:
@@ -148,7 +213,7 @@ def _update() -> Check:
     return Check("update", "OK", f"{r['current']} is current")
 
 
-CHECKS = (_config, _excel, _smartview, _epm, _drill_browser, _atlas, _catalog, _output, _http, _update)
+CHECKS = (_config, _excel, _smartview, _epm, _drill_browser, _atlas, _catalog, _warehouse, _output, _http, _update)
 
 
 def run(include_http: bool = True) -> list[Check]:
@@ -185,7 +250,7 @@ def to_text(results: list[Check]) -> str:
 def _versions() -> dict:
     from importlib.metadata import PackageNotFoundError, version
     pk = {}
-    for name in ("mcp", "pydantic", "pywin32", "psutil", "openpyxl", "playwright"):
+    for name in ("mcp", "pydantic", "pywin32", "psutil", "openpyxl", "playwright", "duckdb"):
         try:
             pk[name] = version(name)
         except PackageNotFoundError:
