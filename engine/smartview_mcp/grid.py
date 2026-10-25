@@ -201,6 +201,23 @@ def parse(layout: Layout, values: tuple | list, suppress_missing: bool, suppress
                   len(layout.row_tuples), suppressed)
 
 
+def verify_labels(lay: Layout, parsed) -> list[str]:
+    """Each returned label must be the requested member (where Smart View's 'code alias (prefix)' display lets us
+    derive the name). A mismatch means rows/columns moved - never build formulas on that. Used by both routes
+    (COM and svhttp): `parsed` is parse(lay, values, False, False)."""
+    bad = []
+    for kind, tuples, labels in (("row", lay.row_tuples, parsed.row_labels),
+                                 ("column", lay.col_tuples, parsed.col_labels)):
+        for i, combo in enumerate(tuples):
+            labs = labels[i] if i < len(labels) else ()
+            for d, want in enumerate(combo):
+                got = labs[d] if d < len(labs) else None
+                name = name_from_label(got) if got else None
+                if name and name.lower() != want.lower() and str(got).strip().lower() != want.lower():
+                    bad.append(f"{kind} {i + 1}: asked {want}, grid shows {got}")
+    return bad
+
+
 def to_markdown(columns: list[str], rows: list[list], labels: list[list[str]] | None = None, limit: int = 60) -> str:
     def fmt(v):
         if v is None:

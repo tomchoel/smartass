@@ -102,6 +102,12 @@ def sid_of(text: str) -> str:
     return html.unescape(m.group(1)).strip()
 
 
+def sid_in(text: str) -> str | None:
+    """The answer's sID if it carries one (the provider may hand out a new one with any answer), else None."""
+    m = re.search(r"<sID>(.*?)</sID>", text, re.S) if isinstance(text, str) else None
+    return (html.unescape(m.group(1)).strip() or None) if m else None
+
+
 def data_sources(text: str) -> dict[str, str]:
     """{app: pod base URL} from res_GetProvisionedDataSources."""
     raise_for_exception(text)

@@ -40,6 +40,8 @@ def test_verify_labels_catches_shifted_rows():
     shifted = SimpleNamespace(row_labels=[["C40S Total Cost (ac)"], ["C48 Contribution (ac)"]], col_labels=[["Sep 26"]])
     assert _verify_labels(lay, ok) == []
     assert len(_verify_labels(lay, shifted)) == 2
+    from smartview_mcp.grid import verify_labels
+    assert verify_labels is _verify_labels           # one implementation, shared by the COM and HTTP routes
 
 
 def test_archive_guard_local_url_and_unsaved(monkeypatch, tmp_path):

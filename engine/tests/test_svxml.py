@@ -110,6 +110,13 @@ def test_sid_is_unescaped_and_stripped():
     assert svxml.sid_of("<res_X><sID> a&amp;b </sID></res_X>") == "a&b"
 
 
+def test_sid_in_is_none_when_absent_and_never_raises():
+    assert svxml.sid_in("<res_X><sID> a&amp;b </sID></res_X>") == "a&b"
+    assert svxml.sid_in("<res_OpenCube></res_OpenCube>") is None
+    assert svxml.sid_in("<res_X><sID>  </sID></res_X>") is None
+    assert svxml.sid_in('<exception errcode="1000"><desc>x</desc></exception>') is None
+
+
 def test_execute_grid_escapes_the_alias_attribute():
     body = svxml.execute_grid("S1", "FinMax", _lay(), alias='a"b')
     assert 'val="a&quot;b"' in body

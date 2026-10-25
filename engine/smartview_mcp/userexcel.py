@@ -33,6 +33,7 @@ import win32process
 
 from . import config
 from .grid import Axis, Layout, full_pov, parse
+from .grid import verify_labels as _verify_labels   # pure; moved to grid so the HTTP route (svhttp) uses it too
 from .host import ExcelHost, HostError, InputError
 
 WM_GETOBJECT, OBJID_NATIVEOM = 0x003D, -16
@@ -1046,28 +1047,6 @@ class Pull:
 # (the user's own defaults may suppress missing/zero/no-access rows - that would silently shift every label).
 DATA_SHEET_OPTIONS = {5: 0, 6: False, 7: False, 9: False, 41: False, 42: False, 43: False, 44: False,
                       13: "#NumericZero", 14: "#NoAccess", 30: True}
-
-
-def _verify_labels(lay: Layout, parsed) -> list[str]:
-    """Each returned label must be the requested member (where Smart View's 'code alias (prefix)' display lets us
-    derive the name). A mismatch means rows/columns moved - never build formulas on that."""
-    from .grid import name_from_label
-    bad = []
-    for i, combo in enumerate(lay.row_tuples):
-        labs = parsed.row_labels[i] if i < len(parsed.row_labels) else ()
-        for d, want in enumerate(combo):
-            got = labs[d] if d < len(labs) else None
-            name = name_from_label(got) if got else None
-            if name and name.lower() != want.lower() and str(got).strip().lower() != want.lower():
-                bad.append(f"row {i + 1}: asked {want}, grid shows {got}")
-    for j, combo in enumerate(lay.col_tuples):
-        labs = parsed.col_labels[j] if j < len(parsed.col_labels) else ()
-        for d, want in enumerate(combo):
-            got = labs[d] if d < len(labs) else None
-            name = name_from_label(got) if got else None
-            if name and name.lower() != want.lower() and str(got).strip().lower() != want.lower():
-                bad.append(f"column {j + 1}: asked {want}, grid shows {got}")
-    return bad
 
 
 META_SHEET = "_svmeta"

@@ -347,8 +347,8 @@ def _query_once(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list
     secs = time.monotonic() - t0
     vals = _used_values(ws)
     p = parse(lay, vals, suppress_missing, suppress_zeros)
-    from .userexcel import _verify_labels
-    bad = _verify_labels(lay, parse(lay, vals, False, False))
+    from .grid import verify_labels
+    bad = verify_labels(lay, parse(lay, vals, False, False))
     if bad:
         raise HostError("Smart View returned a different layout than requested (rows/columns moved): "
                         + "; ".join(bad[:5]))
