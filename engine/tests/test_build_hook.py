@@ -1,6 +1,8 @@
 """tools_ws._build_job: the before_answer hook sees the pulls by id and can change the spec (fin_pnl's checks)."""
 from types import SimpleNamespace as NS
 
+import pytest
+
 from smartview_mcp import tools_ws, userexcel
 
 
@@ -30,3 +32,48 @@ def test_before_answer_gets_the_pulls_by_id_and_its_spec_is_built(monkeypatch):
     assert set(seen) == {"m"} and seen["m"].sheet == "Q3 FinMax"
     assert built["spec"]["checks"] == [{"label": "warehouse = sheet", "static": "OK"}]
     assert built["ids"] == {"m": "Q3 FinMax"}
+
+
+def _stub(monkeypatch):
+    t = NS(path="C:/x/a.xlsx", created=False)
+    monkeypatch.setattr(userexcel, "resolve_target", lambda h, target, allow, title=None: t)
+    monkeypatch.setattr(userexcel, "next_question", lambda t: 3)
+    monkeypatch.setattr(userexcel, "pull", lambda h, t, q, conn, pov, rows, cols, title=None: NS(
+        sheet=title, parsed=NS(pov_problems=[], unknown_members=[])))
+    monkeypatch.setattr(userexcel, "log_source", lambda *a, **k: None)
+    monkeypatch.setattr(tools_ws, "_tidy", lambda *a, **k: None)
+    calls = {"rollback": 0, "answer": 0}
+
+    def rollback(t):
+        calls["rollback"] += 1
+        return []
+
+    def answer_job(*a):
+        calls["answer"] += 1
+        return {"answer_sheet": "Q3 Svar", "warnings": []}
+    monkeypatch.setattr(userexcel, "rollback", rollback)
+    monkeypatch.setattr(tools_ws, "_answer_job", answer_job)
+    return calls
+
+
+def _pull():
+    return tools_ws.PullIn(id="m", connection="FinMax", rows=[{"dimension": "All Accounts", "members": ["ac.C30"]}],
+                           columns=[{"dimension": "All Time Periods", "members": ["Sep 26"]}], title="Q3 FinMax")
+
+
+def test_a_failing_hook_rolls_back_and_skips_the_answer(monkeypatch):
+    calls = _stub(monkeypatch)
+
+    def hook(spec, pulls):
+        raise ValueError("boom")
+    with pytest.raises(Exception, match="boom"):
+        tools_ws._build_job(None, NS(summary=lambda: {}), "q", [_pull()], {}, "session", False, None, before_answer=hook)
+    assert calls == {"rollback": 1, "answer": 0}
+
+
+def test_a_hook_that_returns_no_spec_is_an_error(monkeypatch):
+    calls = _stub(monkeypatch)
+    with pytest.raises(Exception, match="before_answer must return the spec"):
+        tools_ws._build_job(None, NS(summary=lambda: {}), "q", [_pull()], {}, "session", False, None,
+                            before_answer=lambda spec, pulls: None)
+    assert calls == {"rollback": 1, "answer": 0}

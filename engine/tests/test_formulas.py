@@ -1,4 +1,6 @@
 """Readable formulas (skill tn-formelstil): builders and lookups pass the checker."""
+import pytest
+
 from smartview_mcp import formulas as fx
 from smartview_mcp.grid import Axis, Layout
 from smartview_mcp.userexcel import Pull, lookup_formula
@@ -58,9 +60,8 @@ def test_generated_formulas_pass_checker():
 
 
 def test_avg_rows_is_an_average_over_ranges_and_passes_the_checker():
-    assert fx.avg_rows("C", list(range(20, 30))) == "=AVERAGE(C20:C29)"
-    assert fx.avg_rows("D", [5, 7, 8]) == "=AVERAGE(D5,D7:D8)"
+    assert fx.avg_rows("C", list(range(20, 30))) == "=AVERAGEA(C20:C29)"
+    assert fx.avg_rows("D", [5, 7, 8]) == "=AVERAGEA(D5,D7:D8)"
     assert fx.check([("Q1 Svar", "C30", fx.avg_rows("C", list(range(20, 30))))])["ok"] is True
-    import pytest
     with pytest.raises(ValueError):
         fx.avg_rows("C", [])

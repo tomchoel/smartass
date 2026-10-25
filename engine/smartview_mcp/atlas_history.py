@@ -178,8 +178,17 @@ def latest_snapshot(db, connection: str, dimension: str) -> int | None:
 
 
 def diff_snapshots(db, old_id: int, new_id: int) -> dict:
-    """added / removed / moved / relabelled members between two snapshots (as in changes())."""
+    """added / removed / moved / relabelled members between two snapshots of the same dimension (as in changes()).
+    Raises ValueError for an unknown id or two snapshots of different (connection, dimension)."""
     ensure_schema(db)
+    ident = []
+    for sid in (old_id, new_id):
+        r = db.execute("SELECT connection, dimension FROM snapshot WHERE id=?", (sid,)).fetchone()
+        if r is None:
+            raise ValueError(f"unknown snapshot id {sid}")
+        ident.append(tuple(r))
+    if ident[0] != ident[1]:
+        raise ValueError(f"snapshots {old_id} and {new_id} are of different dimensions: {ident[0]} vs {ident[1]}")
     return _diff(_rows(db, old_id), _rows(db, new_id))
 
 

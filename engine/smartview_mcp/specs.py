@@ -170,7 +170,7 @@ def evaluate(spec: dict, pulls: dict, drills: dict[str, list[dict]] | None = Non
                         xs = [vals[k][j] for k in c["sum"] if k in vals]
                         row[j] = None if any(x is None for x in xs) else sum(xs)
                     elif "avg" in c:
-                        xs = [vals[k][j] for k in c["avg"] if k in vals]
+                        xs = [vals[k][j] if k in vals else None for k in c["avg"]]     # an unknown key blanks it
                         row[j] = None if not xs or any(x is None for x in xs) else sum(xs) / len(xs)
                     elif "expr" in c:
                         env = {k: (v[j] if v[j] is not None else float("nan")) for k, v in vals.items()}

@@ -43,12 +43,13 @@ def sum_rows(col: str, rows: list[int]) -> str:
 
 
 def avg_rows(col: str, rows: list[int]) -> str:
-    """Average of one column over the given rows: '=AVERAGE(C13:C21)' / '=AVERAGE(C10,C20:C25)' (e.g. the FTE
-    average: the opening level and each month end)."""
+    """Average of one column over the given rows: '=AVERAGEA(C13:C21)' / '=AVERAGEA(C10,C20:C25)' (e.g. the FTE
+    average: the opening level and each month end). AVERAGEA, not AVERAGE: Smart View writes #Missing as text, which
+    must count as 0 (no FTE = 0 FTE), like specs.evaluate does."""
     if not rows:
         raise ValueError("an average needs at least one line")
     parts = [f"{col}{a}" if a == b else f"{col}{a}:{col}{b}" for a, b in _runs(sorted(rows))]
-    return f"=AVERAGE({','.join(parts)})"
+    return f"=AVERAGEA({','.join(parts)})"
 
 
 def sum_cols(row: int, cols: list[int]) -> str:

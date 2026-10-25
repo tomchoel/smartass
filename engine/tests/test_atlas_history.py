@@ -142,3 +142,22 @@ def test_latest_snapshot_and_diff_between_two_ids(db, monkeypatch):
     d = h.diff_snapshots(db, s1, s2)
     assert {m["name"] for m in d["moved"]} >= {"un.SY.4REV_W"}
     assert [m["name"] for m in d["added"]] == ["un.SY.2SSM"] and h.diff_snapshots(db, s2, s2)["moved"] == []
+
+
+def test_diff_snapshots_removed_relabelled_and_exact_moved(db, monkeypatch):
+    s1, s2 = two_snaps(db, monkeypatch)
+    d = h.diff_snapshots(db, s1, s2)
+    assert {m["name"] for m in d["removed"]} == {"un.SY.2CON1", "un.SY.2CON2"}
+    assert [(r["name"], r["old"], r["new"]) for r in d["relabelled"]] == [("un.SY.OLD", "Old name", "New name")]
+    assert {m["name"] for m in d["moved"]} == {"un.SY.4REV_W", "un.SY.SHARED"}
+
+
+def test_diff_snapshots_rejects_unknown_ids_and_mixed_dimensions(db, monkeypatch):
+    s1, s2 = two_snaps(db, monkeypatch)
+    with pytest.raises(ValueError):
+        h.diff_snapshots(db, s1, 9999)
+    with pytest.raises(ValueError):
+        h.diff_snapshots(db, 9999, s2)
+    db.execute("UPDATE snapshot SET dimension='All Accounts' WHERE id=?", (s2,))
+    with pytest.raises(ValueError):
+        h.diff_snapshots(db, s1, s2)

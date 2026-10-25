@@ -93,3 +93,14 @@ def test_avg_pattern_expands_and_evaluates():
     s = specs.expand(spec, ids, sess)
     assert s["sections"][0]["lines"][-1]["cells"][0] == {"avg": ["lv0", "lv1"]}
     assert specs.evaluate(s, sess)["favg"] == [(100.0 + 110.0) / 2]
+
+
+def test_avg_counts_a_missing_level_as_zero_and_an_unknown_key_blanks_it():
+    p = fake_pull(["Dec 25", "Jan 26"], ["#Missing", 110.0])
+    spec = {"columns": [{"header": "FTE"}], "sections": [{"title": "levels", "lines": [
+        {"key": "a", "label": "a", "cells": [{"pull": "m", "row": ["ac.EBITDA"], "col": ["Dec 25"]}]},
+        {"key": "b", "label": "b", "cells": [{"pull": "m", "row": ["ac.EBITDA"], "col": ["Jan 26"]}]},
+        {"key": "avg", "label": "avg", "cells": [{"avg": ["a", "b"]}]},
+        {"key": "bad", "label": "bad", "cells": [{"avg": ["a", "zz"]}]}]}]}
+    v = specs.evaluate(spec, {"Q1 FinMax": p} | {"m": p})
+    assert v["avg"] == [55.0] and v["bad"] == [None]

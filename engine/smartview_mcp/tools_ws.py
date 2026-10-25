@@ -358,6 +358,8 @@ def _build_job(h, tm, question: str, pulls: list, spec: dict, target: str, allow
                                               if p.parsed.unknown_members else [])
         if before_answer is not None:
             spec = before_answer(spec, {pi.id: sess[ids[pi.id]] for pi in pulls})
+            if not isinstance(spec, dict):
+                raise InputError("before_answer must return the spec")
         out = _answer_job(t, qn, spec, ids, sess, tm, warns)
     except Exception as e:
         removed = userexcel.rollback(t)
