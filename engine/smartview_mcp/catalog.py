@@ -80,7 +80,7 @@ class Kpi:
     numerator: str
     denominator: str
     unit: str
-    basis: str = "period"         # period | average_stock
+    basis: str = "period"         # period | average_stock (opening level + each month end, n+1 points)
     annualise: bool = False       # scale a part-year numerator to twelve months
 
 
@@ -90,6 +90,7 @@ class Materiality:
     abs_nok: float
     always: tuple[str, ...]
     rule: str = "either"          # either: pct OR abs_nok makes a variance material; both: pct AND abs_nok
+    pct_floor_nok: float = 0      # the pct test only counts from this amount (keeps small lines quiet)
 
 
 @dataclass(frozen=True)
@@ -185,17 +186,20 @@ def _number(raw: dict, name: str) -> float:
 
 def _materiality(raw: dict) -> Materiality:
     for k in raw:
-        if k not in {"pct", "abs_nok", "always", "rule"}:
+        if k not in {"pct", "abs_nok", "always", "rule", "pct_floor_nok"}:
             raise CatalogError(f"materiality: unknown field '{k}'")
     pct, abs_nok = _number(raw, "pct"), _number(raw, "abs_nok")
     if not 0 < pct <= 1:
         raise CatalogError(f"materiality: pct {pct} is not in (0, 1] (0.10 = 10 %)")
     if abs_nok < 0:
         raise CatalogError(f"materiality: abs_nok {abs_nok} is negative")
+    floor = _number(raw, "pct_floor_nok") if "pct_floor_nok" in raw else 0.0
+    if floor < 0:
+        raise CatalogError(f"materiality: pct_floor_nok {floor} is negative")
     rule = raw.get("rule", "either")
     if rule not in MATERIALITY_RULES:
         raise CatalogError(f"materiality: rule {rule!r} is not one of {sorted(MATERIALITY_RULES)}")
-    return Materiality(pct, abs_nok, _strings(raw.get("always", []), "materiality", "always"), rule)
+    return Materiality(pct, abs_nok, _strings(raw.get("always", []), "materiality", "always"), rule, floor)
 
 
 def _iso_date(value, where: str) -> str | None:

@@ -86,6 +86,7 @@ def _with(path, value):
     (_with(["materiality", "pct"], 0), r"materiality: pct 0.0 is not in \(0, 1\]"),
     (_with(["materiality", "pct"], 10), r"materiality: pct 10.0 is not in \(0, 1\]"),
     (_with(["materiality", "abs_nok"], -1), "materiality: abs_nok -1.0 is negative"),
+    (_with(["materiality", "pct_floor_nok"], -1), "materiality: pct_floor_nok -1.0 is negative"),
     (_with(["materiality", "pct"], "ten"), "materiality: pct 'ten' is not a number"),
     (_with(["materiality", "abs_nok"], None), "materiality: abs_nok None is not a number"),
     (_with(["pnl", "FinMax", 0, "acount"], "x"), r"pnl.FinMax\[0\]: unknown field 'acount'"),
@@ -185,7 +186,6 @@ def test_abolished_consumer_names_its_successors():
     cat = catalog.load()
     con = catalog.resolve_entity(cat, "privatmarkedet")
     assert con.key == "consumer" and con.abolished == "2026-06-01" and con.successors == ("ssm", "ei")
-    assert {e.key: e.successors for e in cat.entities}["ig"] == ()
 
 
 def test_catalogue_tables_are_read_only():
@@ -228,6 +228,13 @@ def test_materiality_is_either_threshold():
     assert (m.pct, m.abs_nok, m.rule) == (0.10, 5_000_000, "either")
     assert m.always == ("rev", "pers", "ebitda")
     assert catalog.parse(BASE).materiality.rule == "either"   # the default
+    assert m.pct_floor_nok == 500_000                         # owner decision 2026-10-25
+    assert catalog.parse(BASE).materiality.pct_floor_nok == 0  # the default: no floor
+
+
+def test_ig_successors_are_the_five_destinations():
+    ig = next(e for e in catalog.load().entities if e.key == "ig")
+    assert ig.successors == ("technology", "adm", "ei", "ssm", "business")   # TEC first: the largest destination
 
 
 def test_fte_is_a_stock_and_per_fte_kpis_use_the_average_level():

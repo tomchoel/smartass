@@ -22,7 +22,7 @@ FinMax = [
   { key = "da",     account = "ac.C75",        kind = "line",  label = "Depreciation and amortisation", concept = "da" },
   # FTE (ac.STA20Y) is a stock booked as movements, measured live 2026-10-25: Periodic returns the monthly change,
   # Accumulated the month-end level. level = Accumulated at period end; never sum Periodic months; per-FTE ratios
-  # divide YTD cost by the average month-end level.
+  # divide YTD cost by the average level: the opening (previous December) plus each month end, n+1 points.
   { key = "fte",    account = "ac.STA20Y",     kind = "line",  label = "FTE", better = "none", num = "tall1", concept = "fte", measure = "stock" },
 ]
 # FinPlan stops at EBITDA: Target carries no depreciation/write-downs/other items, so EBIT variances would mislead.
@@ -57,10 +57,12 @@ budget         = { connection = "FinPlan", scenario = "Target", version = "Final
 forecast       = { connection = "FinPlan", rule = "latest_forecast", version = "Final", label = "Latest forecast" }
 
 [materiality]
-# Owner decision: a variance is material at 10 % OR NOK 5 million - either threshold is enough (rule = "both" would
-# need both). The percentage is taken of the absolute comparison value (costs are negative, so |budget| for a cost
-# line); a zero comparison value is material when the amount threshold is exceeded.
-pct = 0.10                            # 10 % of |comparison value|
+# Owner decisions (2026-10-25): a variance is material at 10 % (if it is at least NOK 500k) OR at NOK 5 million -
+# either threshold is enough (rule = "both" would need both). The percentage is taken of the absolute comparison
+# value (costs are negative, so |budget| for a cost line); a zero comparison value is material when the amount
+# threshold is exceeded. The NOK 500k floor keeps 10 % moves on small lines quiet.
+pct = 0.10                            # 10 % of |comparison value| ...
+pct_floor_nok = 500_000               # ... counted only from NOK 500k
 abs_nok = 5_000_000                   # NOK 5 million
 rule = "either"                       # either | both
 always = ["rev", "pers", "ebitda"]    # revenue, personnel and EBITDA are always commented, material or not
@@ -145,8 +147,9 @@ finmax = "un.SY.2IG"
 finplan = "2IG Infrastructure Growth"
 aliases = ["infrastructure growth", "2ig", "ig"]
 abolished = "2026-06-01"
-successors = []    # not recorded: which areas took over IG's units is not known to the catalogue yet
-note = "Abolished in the 1 June 2026 reorg; history is restated to today's organisation."
+# Its 36 units went to TEC (the largest destination), ADM, E&I, SSM and BUS (reorg mapping, hazards.md); one stays.
+successors = ["technology", "adm", "ei", "ssm", "business"]
+note = "Dissolved on 1 June 2026; its units went to TEC (most), ADM, E&I, SSM and BUS. History is restated."
 
 [[entity]]
 key = "consumer"
@@ -158,8 +161,9 @@ successors = ["ssm", "ei"]
 note = "Emptied into 2SSM and 2EI on 1 June 2026; history is restated, so 2CON shows no data."
 
 # KPIs: ratios of two P&L line keys of one cube (computed in the workbook, never by the model).
-# basis: period (default; both lines over the same period) | average_stock (the denominator is the average month-end
-# level over the period - needs a measure = "stock" line). annualise: scale a part-year numerator to twelve months
+# basis: period (default; both lines over the same period) | average_stock (the denominator is the average of the
+# opening level - the previous December - and each month-end level in the period, n+1 points (owner decision
+# 2026-10-25); needs a measure = "stock" line). annualise: scale a part-year numerator to twelve months
 # (YTD Sep cost x 12/9), so cost per FTE is comparable across periods.
 [[kpi]]
 key = "ebitda_margin"
