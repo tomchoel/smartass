@@ -214,3 +214,43 @@ def test_error_scan_groups_pull_cells_and_caps_answer_lines():
 def test_member_check_folds_norwegian_letters(fake_atlas):
     atlas.store(fake_atlas, "FinMax", "All Accounts", [_m("ac.STA20Y", "All Accounts") | {"label": "Årsverk"}], 1.0)
     assert atlas.canonical(fake_atlas, "FinMax", "All Accounts", "årsverk") == "ac.STA20Y"
+
+
+# ------------------------------------------------------------------ closed month: HTTP first, COM fallback, daily cache
+class _Http:
+    def __init__(self, answer):
+        self.answer, self.calls = answer, 0
+
+    def closed_month(self, conn="FinMax"):
+        self.calls += 1
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+class _Host:
+    def __init__(self):
+        self.calls = 0
+
+    def on_host(self, fn, timeout=None):
+        self.calls += 1
+        return fn()
+
+
+def test_closed_month_reads_http_first_and_caches_per_day(tmp_path, monkeypatch):
+    from smartview_mcp import config, svhttp
+    monkeypatch.setattr(config, "SVKIT", tmp_path)
+    http = _Http("Sep 26")
+    monkeypatch.setattr(svhttp, "shared", lambda: http)
+    h = _Host()
+    assert templates.closed_month(h) == "Sep 26" and templates.closed_month(h) == "Sep 26"
+    assert http.calls == 1 and h.calls == 0                       # second call from the cache, no Excel at all
+
+
+def test_closed_month_falls_back_to_com(tmp_path, monkeypatch):
+    from smartview_mcp import config, svhttp
+    monkeypatch.setattr(config, "SVKIT", tmp_path)
+    monkeypatch.setattr(svhttp, "shared", lambda: _Http(svhttp.SvHttpError("signed out")))
+    monkeypatch.setattr(ops, "find_member", lambda h, c, n: {"info": {"ChildMbrName": "[CurrRepMonth].[Y26M08]"}})
+    h = _Host()
+    assert templates.closed_month(h) == "Aug 26" and h.calls == 1

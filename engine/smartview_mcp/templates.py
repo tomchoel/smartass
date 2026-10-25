@@ -8,6 +8,7 @@ variance = current - comparison is positive when better.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Callable
@@ -15,6 +16,8 @@ from typing import Callable
 from . import atlas, catalog, ops
 from .grid import Axis
 from .host import ExcelHost, HostError, InputError
+
+log = logging.getLogger(__name__)
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -40,10 +43,11 @@ class Plan:
 
 # ------------------------------------------------------------------ periods
 def closed_month(h: ExcelHost, connection: str = "FinMax") -> str:
-    """'Current Reporting Month' -> e.g. 'Sep 26' (FinMax member ChildMbrName '[CurrRepMonth].[Y26M09]').
-    Cached per day on disk: the live lookup needs the hidden server Excel (~10 s + login on a fresh server)."""
+    """'Current Reporting Month' -> e.g. 'Sep 26'. Smart View's HTTP protocol first (svhttp, ~0.2 s, no Excel); the
+    COM route (FinMax member ChildMbrName '[CurrRepMonth].[Y26M09]' in the hidden server Excel, ~10 s + a login on a
+    fresh server) is the fallback. Cached per day on disk."""
     import json
-    from . import config
+    from . import config, svhttp
     cache = config.SVKIT / "closed_month.json"
     today = dt.date.today().isoformat()
     try:
@@ -52,11 +56,16 @@ def closed_month(h: ExcelHost, connection: str = "FinMax") -> str:
             return c[connection]
     except (OSError, ValueError):
         c = {}
-    info = h.on_host(lambda: ops.find_member(h, connection, "Current Reporting Month")).get("info") or {}
-    m = re.search(r"Y(\d\d)M(\d\d)", str(info.get("ChildMbrName", "")))
-    if not m:
-        raise HostError("Could not resolve 'Current Reporting Month' in FinMax; pass the period explicitly (e.g. 'Sep 26').")
-    val = f"{MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
+    try:
+        val = svhttp.shared().closed_month(connection)
+    except Exception as e:   # noqa: BLE001 - any HTTP failure: the COM route
+        log.info("closed month over HTTP failed (%s); asking Smart View in Excel", e)
+        info = h.on_host(lambda: ops.find_member(h, connection, "Current Reporting Month")).get("info") or {}
+        m = re.search(r"Y(\d\d)M(\d\d)", str(info.get("ChildMbrName", "")))
+        if not m:
+            raise HostError("Could not resolve 'Current Reporting Month' in FinMax; pass the period explicitly "
+                            "(e.g. 'Sep 26').") from None
+        val = f"{MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
     try:
         c = c if c.get("date") == today else {"date": today}
         c[connection] = val
