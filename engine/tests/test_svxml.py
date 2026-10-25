@@ -69,7 +69,36 @@ def test_data_sources_give_the_pod_per_app():
             '<Product id="HP"><Server name="FinPlan_for_DataLoad" '
             'context="https://strat.example/HyperionPlanning/SmartView" appName="FinPlan"/></Product>'
             '</res_GetProvisionedDataSources>')
-    assert svxml.data_sources(text) == {"FinMax": "https://plan1.example", "FinPlan": "https://strat.example"}
+    assert svxml.data_sources(text) == {"FinMax": ("FinMax", "https://plan1.example"),
+                                        "FinPlan_for_DataLoad": ("FinPlan", "https://strat.example")}
+
+
+# Shape of the live list (2026-10-25): three servers share appName FinMax - prod, plan7 and the TEST pod.
+THREE_FINMAX = ('<res_GetProvisionedDataSources>'
+                '<Product id="HP"><Server name="FinMax" context="https://plan1-x.example/HyperionPlanning/SmartView" '
+                'appName="FinMax"/></Product>'
+                '<Product id="HP"><Server appName="FinMax" name="Plan 7 Prod" '
+                'context="https://plan7-x.example/HyperionPlanning/SmartView"/></Product>'
+                '<Product id="HP"><Server context="https://plan1-test-x.example/HyperionPlanning/SmartView" '
+                'appName="FinMax" name="plan1-test"/></Product>'
+                '</res_GetProvisionedDataSources>')
+
+
+def test_data_sources_are_keyed_by_server_name_not_app():
+    assert svxml.data_sources(THREE_FINMAX) == {"FinMax": ("FinMax", "https://plan1-x.example"),
+                                                "Plan 7 Prod": ("FinMax", "https://plan7-x.example"),
+                                                "plan1-test": ("FinMax", "https://plan1-test-x.example")}
+
+
+def test_a_server_name_listed_twice_with_different_pods_is_ambiguous():
+    twice = THREE_FINMAX.replace('name="Plan 7 Prod"', 'name="FinMax"')
+    with pytest.raises(svxml.SvXmlError, match="'FinMax'.*ambiguous"):
+        svxml.data_sources(twice)
+    same = THREE_FINMAX.replace("</res_GetProvisionedDataSources>",
+                                '<Server name="FinMax" appName="FinMax" '
+                                'context="https://plan1-x.example/HyperionPlanning/SmartView"/>'
+                                "</res_GetProvisionedDataSources>")
+    assert svxml.data_sources(same)["FinMax"] == ("FinMax", "https://plan1-x.example")   # a repeat is fine
 
 
 def test_grid_values_round_trip_through_grid_parse():
@@ -125,8 +154,8 @@ def test_execute_grid_escapes_the_alias_attribute():
 def test_data_sources_ignore_attribute_order_and_skip_incomplete():
     text = ('<res_X><Server appName="FinMax" name="n" context="https://p.example/HyperionPlanning/SmartView"/>'
             '<Server name="x" appName="NoContext"/><Server name="y" context="https://q.example/HyperionPlanning/x"/>'
-            '</res_X>')
-    assert svxml.data_sources(text) == {"FinMax": "https://p.example"}
+            '<Server appName="NoName" context="https://r.example/HyperionPlanning/SmartView"/></res_X>')
+    assert svxml.data_sources(text) == {"n": ("FinMax", "https://p.example")}
 
 
 def _ans(rows, cols, start, vals, types):

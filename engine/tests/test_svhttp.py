@@ -41,10 +41,16 @@ def test_atlas_built_ignores_age_but_not_errors_or_empty_builds(tmp_path):
     assert not atlas.built(db, "FinMax", "All Bogus")
 
 
+# Like the live list: three servers with appName FinMax (prod, plan7, TEST - listed last, so keying by app picked it)
 SOURCES = ('<res_GetProvisionedDataSources><Product id="HP"><Server name="FinMax" '
            'context="https://plan1.example/HyperionPlanning/SmartView" appName="FinMax"/></Product>'
-           '<Product id="HP"><Server name="FinPlan_x" context="https://strat.example/HyperionPlanning/SmartView" '
-           'appName="FinPlan"/></Product></res_GetProvisionedDataSources>')
+           '<Product id="HP"><Server name="Plan 7 Prod" context="https://plan7.example/HyperionPlanning/SmartView" '
+           'appName="FinMax"/></Product>'
+           '<Product id="HP"><Server appName="FinMax" name="plan1-test" '
+           'context="https://plan1-test.example/HyperionPlanning/SmartView"/></Product>'
+           '<Product id="HP"><Server name="FinPlan_for_DataLoad" '
+           'context="https://strat.example/HyperionPlanning/SmartView" appName="FinPlan"/></Product>'
+           '</res_GetProvisionedDataSources>')
 ONLY_FINMAX = ('<res_GetProvisionedDataSources><Product id="HP"><Server name="FinMax" '
                'context="https://plan1.example/HyperionPlanning/SmartView" appName="FinMax"/></Product>'
                '</res_GetProvisionedDataSources>')
@@ -163,15 +169,45 @@ def test_a_deterministic_grid_error_does_not_spend_a_reconnect(db_path):
 def test_data_sources_are_not_cached_empty_and_refetched_once_for_a_missing_app(db_path):
     t = FakeTransport(answer(GRID), sources=(NO_SOURCES, ONLY_FINMAX, SOURCES))
     sv = _sv(t, db_path)
-    with pytest.raises(svhttp.SvHttpError, match="no Smart View data source for app FinMax"):
-        sv.base_for("FinMax")
-    assert sv.base_for("FinMax") == "https://plan1.example"                  # the empty list was not kept
-    assert sv.base_for("FinPlan") == "https://strat.example"                 # not listed: fetched once more
+    with pytest.raises(svhttp.SvHttpError, match="no Smart View data source named 'FinMax'"):
+        sv.base_for("FinMax", "FinMax")
+    assert sv.base_for("FinMax", "FinMax") == "https://plan1.example"        # the empty list was not kept
+    assert sv.base_for("FinPlan_for_DataLoad", "FinPlan") == "https://strat.example"   # not listed: fetched again
     assert t.tags().count("GetProvisionedDataSources") == 3
     t2 = FakeTransport(sources=(ONLY_FINMAX,))
-    with pytest.raises(svhttp.SvHttpError, match="app FinPlan"):
-        _sv(t2, db_path).base_for("FinPlan")
+    with pytest.raises(svhttp.SvHttpError, match="named 'FinPlan_for_DataLoad'"):
+        _sv(t2, db_path).base_for("FinPlan_for_DataLoad", "FinPlan")
     assert t2.tags().count("GetProvisionedDataSources") == 1
+
+
+def test_the_data_source_is_chosen_by_server_name_and_must_serve_the_app(db_path, monkeypatch):
+    sv = _sv(FakeTransport(), db_path)
+    assert sv.base_for("FinMax", "FinMax") == "https://plan1.example"        # not plan7, not the test pod
+    assert sv.base_for("Plan 7 Prod", "FinMax") == "https://plan7.example"
+    with pytest.raises(svhttp.SvHttpError, match="'FinPlan_for_DataLoad' serves app FinPlan, not FinMax"):
+        sv.base_for("FinPlan_for_DataLoad", "FinMax")
+    monkeypatch.setitem(svhttp.CUBES, "FinPlan", ("FinMax", "FinPlan", "FinPlan"))   # a mis-set server name
+    with pytest.raises(svhttp.SvHttpError, match="serves app FinMax, not FinPlan"):
+        sv.retrieve("FinPlan", {}, [Axis("Account", ["Revenue"])], [Axis("Period", ["Sep"])], True, False)
+
+
+def test_the_test_pod_is_refused_unless_allowed(db_path, monkeypatch):
+    t = FakeTransport(answer(GRID))
+    sv = _sv(t, db_path)
+    monkeypatch.setitem(svhttp.CUBES, "FinMax", ("plan1-test", "FinMax", "FinMax"))
+    with pytest.raises(svhttp.SvHttpError, match="refused.*test environment.*plan1-test.example"):
+        _q(sv)
+    assert "ConnectToProvider" not in t.tags()
+    monkeypatch.setattr(config, "SVHTTP_ALLOW_TEST", True)
+    _q(sv)
+    assert t.sent[-1] == ("https://plan1-test.example", "ExecuteGrid")
+
+
+def test_server_names_come_from_the_org_defaults():
+    assert config.get(config.ORG_SETTINGS, "svhttp.finmax_server") == "FinMax"
+    assert config.get(config.ORG_SETTINGS, "svhttp.finplan_server") == "FinPlan_for_DataLoad"
+    assert config.get(config.ORG_SETTINGS, "svhttp.allow_test") is False
+    assert [v[0] for v in svhttp.CUBES.values()] == [config.SVHTTP_FINMAX_SERVER] * 2 + [config.SVHTTP_FINPLAN_SERVER]
 
 
 def test_user_errors_stay_input_errors(db_path):

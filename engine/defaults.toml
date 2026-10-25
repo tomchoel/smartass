@@ -19,3 +19,8 @@ folder = ""
 
 [http]           # localhost-only API (the secret is per user, in config.toml)
 port = 47811
+
+[svhttp]         # Smart View HTTP route: data sources by Server name (several share app FinMax, one is the test pod)
+finmax_server = "FinMax"                  # plan1 prod (FinMax and FinLite)
+finplan_server = "FinPlan_for_DataLoad"   # stratmodel
+allow_test = false                        # true admits a pod whose host contains "-test"

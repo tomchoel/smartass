@@ -221,6 +221,12 @@ DRILL_XL_FULL = int(os.environ.get("SV_DRILL_XL_FULL", "50000"))   # above this:
 DRILL_KEEP_DAYS = 90
 DRILL_LOGIN_TIMEOUT_S = 60                         # per attempt; one retry in a fresh tab (spec §6)
 SVHTTP_TIMEOUT_S = float(os.environ.get("SV_HTTP_TIMEOUT", "120"))   # one Smart View HTTP request incl. a sign-in
+# Smart View HTTP route: the data source is chosen by Server NAME (several servers share app FinMax, one of them the
+# test pod). A pod whose host contains "-test" is refused unless allow_test is true.
+SVHTTP_FINMAX_SERVER = str(_pick("SV_HTTP_FINMAX_SERVER", "svhttp.finmax_server", "FinMax"))
+SVHTTP_FINPLAN_SERVER = str(_pick("SV_HTTP_FINPLAN_SERVER", "svhttp.finplan_server", "FinPlan_for_DataLoad"))
+_allow_test = _pick("SV_HTTP_ALLOW_TEST", "svhttp.allow_test", False)
+SVHTTP_ALLOW_TEST = _allow_test is True or str(_allow_test).strip().lower() in ("1", "true", "yes")
 DRILL_CAPTURE_TIMEOUT_S = 45
 DRILL_RELOAD_WAIT_S = 25                           # after the one reload of a page that never asked for data
 DRILL_SETUP_S = 95                                 # sign-in + capture of one drill (S8: no call past 120 s)

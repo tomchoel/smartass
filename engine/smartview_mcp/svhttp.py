@@ -16,6 +16,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Callable, Protocol
+from urllib.parse import urlsplit
 
 from . import atlas, config, drill_browser, svxml
 from .drill_browser import DrillError
@@ -24,7 +25,11 @@ from .host import InputError
 
 log = logging.getLogger(__name__)
 
-CUBES = {"FinMax": ("FinMax", "FinMax"), "FinLite": ("FinMax", "FinLite"), "FinPlan": ("FinPlan", "FinPlan")}
+# connection -> (Smart View data source = Server name, app, cube). By NAME: several servers share app FinMax
+# (prod plan1, plan7 and the plan1-test pod); names are set in defaults.toml [svhttp].
+CUBES = {"FinMax": (config.SVHTTP_FINMAX_SERVER, "FinMax", "FinMax"),
+         "FinLite": (config.SVHTTP_FINMAX_SERVER, "FinMax", "FinLite"),
+         "FinPlan": (config.SVHTTP_FINPLAN_SERVER, "FinPlan", "FinPlan")}
 
 
 class SvHttpError(Exception):
@@ -53,16 +58,24 @@ class SvHttp:
         self._sids: dict[str, str] = {}
         self._lock = threading.Lock()
 
-    def base_for(self, app: str) -> str:
-        """The app's pod. The list is cached once it is non-empty; an app missing from it is looked up once more."""
-        if self._bases and app in self._bases:
-            return self._bases[app]
-        bases = svxml.data_sources(self.t.post(self.home, svxml.provisioned_data_sources()))
-        self._bases = bases or None
-        if app not in bases:
-            raise SvHttpError(f"EPM lists no Smart View data source for app {app} "
-                              f"(has: {', '.join(sorted(bases)) or 'none'})")
-        return bases[app]
+    def base_for(self, server: str, app: str) -> str:
+        """The pod of the data source named `server`, which must serve `app` and must not be a test pod (unless
+        config allows it). The list is cached once it is non-empty; a name missing from it is looked up once more."""
+        entry = self._bases.get(server) if self._bases else None
+        if entry is None:
+            bases = svxml.data_sources(self.t.post(self.home, svxml.provisioned_data_sources()))
+            self._bases = bases or None
+            entry = bases.get(server)
+            if entry is None:
+                raise SvHttpError(f"EPM lists no Smart View data source named {server!r} "
+                                  f"(has: {', '.join(sorted(bases)) or 'none'}); set svhttp server names in config")
+        got_app, base = entry
+        if got_app != app:
+            raise SvHttpError(f"Smart View data source {server!r} serves app {got_app}, not {app}")
+        if "-test" in (urlsplit(base).hostname or "") and not config.SVHTTP_ALLOW_TEST:
+            raise SvHttpError(f"refused: data source {server!r} is on a test environment ({base}); "
+                              "set svhttp.allow_test = true to use it")
+        return base
 
     def _note_sid(self, conn: str, text: str) -> None:
         """Each answer may carry a new sID; the latest one is the session."""
@@ -71,8 +84,8 @@ class SvHttp:
             self._sids[conn] = sid
 
     def _session(self, conn: str) -> tuple[str, str, str]:
-        app, cube = CUBES[conn]
-        base = self.base_for(app)
+        server, app, cube = CUBES[conn]
+        base = self.base_for(server, app)
         if conn not in self._sids:
             sid = svxml.sid_of(self.t.post(base, svxml.connect()))
             sid = svxml.sid_of(self.t.post(base, svxml.open_application(sid, app)))
