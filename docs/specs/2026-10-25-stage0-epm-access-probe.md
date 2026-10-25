@@ -49,7 +49,7 @@ Reproduce: `scripts\probe_sv_http.py` (read-only; refuses any request containing
   the live matrix, and the COM fallback.
 - Session lifetime and re-login under load; large-grid limits (Essbase QUERYRESULTLIMIT); concurrency with an active
   `sv_drill` (they share the browser profile lock).
-- FinPlan lives on another pod (`stratmodel`): sign-in there is not yet tested.
+- FinPlan lives on another pod (`stratmodel`): sign-in there works silently in a second tab (tested live 2026-10-25).
 
 ## Live comparison (Task 7, 2026-10-25)
 
