@@ -7,7 +7,8 @@ Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartas
 
 - sv_query reads over Smart View's HTTP protocol by default (`source='auto'`: ~0.2 s per grid once signed in, no
   Excel; signs in through the drill's hidden Edge) and falls back to Smart View in Excel. The answer's `route` says
-  which was used. Workbooks (sv_ws_*) still build live Smart View sheets in Excel.
+  which was used. The first HTTP call in a session takes ~10-12 s, because it signs in first. Workbooks (sv_ws_*)
+  still build live Smart View sheets in Excel.
 
 - **Attach.** The MCP attaches through the Excel window (`AccessibleObjectFromWindow`). It never uses `GetObject(path)`, because that
   starts a hidden Excel when the file is not registered yet. It always waits until no EPM `Login` dialog is open in that Excel
@@ -112,6 +113,7 @@ Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartas
 | `did not respond within …s` + open windows | The watchdog killed a hang. Retry. The listed windows show which dialog blocked Excel. |
 | `Cannot connect to provider` plus an `<update>` extension manifest | EPM answered the connect with its extension list. This is transient, and connects are retried 3 times. |
 | "Smart View returned a different layout than requested" | Rows or columns moved (suppression, or an unknown or duplicate member). The numbers were NOT used. Check the members with `sv_find_member`. |
+| Warning `HTTP route failed (…); the grid was read through Smart View in Excel instead` | The grid WAS answered, through Excel; the warning only says why the faster HTTP route was not used. Likely causes: another session owns the drill browser profile (`DrillBusy`, wait or let it close after its idle minutes); the atlas is incomplete or a dimension build failed (run `sv_atlas_build`); the sign-in timed out (the first HTTP call takes ~10-12 s to sign in). No action needed for the answer itself. |
 | "Your Excel is in edit mode…" / "Excel is busy" | A cell is being typed in or a dialog is open. The user presses Enter or Esc, then you ask again. |
 | "…is in the Produktregnskapet archive" | Archive guard. Use `target='new'`, or `allow_archive=true` only when the user explicitly asks for it. |
 | Bare "Error executing tool …" with no reason | The server is running code from before the 13.10.2026 fix (the Excel was dead: `AttributeError: Excel.Application.Ready` in server.log). Run `sv_restart`, then ask the user to reconnect `smartass` with `/mcp`. |

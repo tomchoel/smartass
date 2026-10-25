@@ -33,7 +33,7 @@ The decisions come from the grilling session (memory: smartview-mcp-plan). This 
 **Primary:**
 - `sv_status` (connection health, version, pid)
 - `sv_connect`
-- `sv_query(connection, pov, rows, columns, suppress, save_xlsx)` → table
+- `sv_query(connection, pov, rows, columns, suppress, save_xlsx, source='auto'|'http'|'com')` → table (HTTP route first, Excel fallback; `route` in the answer)
 - `sv_find_member` (atlas)
 - `sv_refresh_workbook(copy_of_path)`
 - `sv_restart`

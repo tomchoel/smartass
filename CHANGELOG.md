@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- `sv_query` reads over Smart View's HTTP provider protocol first, from the drill's hidden Edge (no Excel):
+  `source='auto'` (default) falls back to Smart View in Excel and says why in a warning; `'http'` never falls
+  back; `'com'` forces Excel. The answer's `route` says which was used.
+- `[svhttp]` in `engine\defaults.toml`: the Smart View data source names (`finmax_server`, `finplan_server`) and
+  `allow_test` (a test pod is refused by default); environment variables `SV_HTTP_FINMAX_SERVER`,
+  `SV_HTTP_FINPLAN_SERVER`, `SV_HTTP_ALLOW_TEST`, `SV_HTTP_TIMEOUT`.
+- Semantic catalogue `knowledge\catalog.toml`: P&L lines and checks per cube, business areas with aliases,
+  scenarios, KPIs and materiality.
+- `smartass doctor`: catalogue check (structure, and members against the atlas).
+- The P&L templates read their lines and checks from the catalogue.
+
 ## 0.2.0
 
 - Repo layout: the smartview MCP moves to the git repo `smartass` (package `smartview_mcp` under `engine\`),
