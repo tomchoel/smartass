@@ -19,7 +19,7 @@ from .analytics.frame import from_rows
 from .catalog import Catalog, Entity
 from .grid import Axis, Layout, Parsed
 from .host import InputError
-from .warehouse import Fill, Row, WhKey
+from .warehouse import OPEN, Fill, Row, WarehouseUnavailable, WhKey
 
 log = logging.getLogger(__name__)
 
@@ -45,14 +45,6 @@ class Grid:
         return n
 
 
-def finplan_scenarios(forecast: str | None) -> dict[tuple[str, str], str]:
-    """(FinPlan scenario member, version) -> catalogue scenario key, for analytics.frame.from_rows."""
-    out = {("Actual", "Working"): "actual_finplan", ("Target", "Final"): "budget"}
-    if forecast:
-        out[(forecast, "Final")] = "forecast"
-    return out
-
-
 def areas(cat: Catalog, cube: str) -> list[Entity]:
     """The entities a base fill covers in `cube`: every area that is not abolished, the company total first."""
     attr = "finmax" if cube == "FinMax" else "finplan"
@@ -74,14 +66,22 @@ def wh_key(conn: str, members: dict[str, str]) -> WhKey:
 
 
 def to_rows(lay: Layout, parsed: Parsed, conn: str, route: str, fetched_at: float, closed_label: str,
-            atlas_build: str = "") -> tuple[list[Row], list[str]]:
+            atlas_build: str = "", closed: str | None = None) -> tuple[list[Row], list[str]]:
     """Warehouse rows for every data cell of a retrieved grid (parsed with suppression off), and the problems:
-    cells that are not data (#NoAccess, #Invalid) are not stored."""
+    cells that are not data (#NoAccess, #Invalid) are not stored. With `closed`, an Actual cell of a month after it
+    is not closed history (FinPlan carries blank actuals for the rest of the year): it is labelled OPEN."""
     pov = dict(lay.pov)
     rows, problems = [], []
+    if parsed.pov_problems:                      # a POV member Smart View did not know: every value would be wrong
+        return rows, problems
+    unknown = set(parsed.unknown_members)        # 'Dimension: member' - their cells are comments, not data (not 0)
     for r in parsed.rows:
         combo = r[:lay.nr]
+        if any(f"{a.dimension}: {x}" in unknown for a, x in zip(lay.rows, combo)):
+            continue
         for j, ctuple in enumerate(lay.col_tuples):
+            if any(f"{a.dimension}: {x}" in unknown for a, x in zip(lay.cols, ctuple)):
+                continue
             v = r[lay.nr + j]
             members = {**pov, **{a.dimension: x for a, x in zip(lay.rows, combo)},
                        **{a.dimension: x for a, x in zip(lay.cols, ctuple)}}
@@ -89,7 +89,8 @@ def to_rows(lay: Layout, parsed: Parsed, conn: str, route: str, fetched_at: floa
             if isinstance(v, str):
                 problems.append(f"{' / '.join(combo)} / {' / '.join(ctuple)}: {v}")
                 continue
-            rows.append(Row(key, None if v is None else float(v), route, fetched_at, closed_label, atlas_build))
+            label = OPEN if closed and key[1] == "Actual" and periods.after(key[5], closed) else closed_label
+            rows.append(Row(key, None if v is None else float(v), route, fetched_at, label, atlas_build))
     return rows, problems
 
 
@@ -97,7 +98,9 @@ def _chunks(xs: list, n: int) -> list[list]:
     return [xs[i:i + n] for i in range(0, len(xs), n)]
 
 
-def finmax_grids(cat: Catalog, months: list[str], entities: list[str], spot: str | None = None) -> list[Grid]:
+def finmax_grids(cat: Catalog, months: list[str], entities: list[str], spot: str | None = None,
+                 opening: bool = True) -> list[Grid]:
+    """opening=False leaves the opening December out of the stock levels (a live read of open months only)."""
     lines = cat.pnl["FinMax"]
     flows = [x.account for x in lines if x.measure == "flow"]
     stocks = [x.account for x in lines if x.measure == "stock"]
@@ -107,7 +110,7 @@ def finmax_grids(cat: Catalog, months: list[str], entities: list[str], spot: str
                         [Axis("All Entities", entities), Axis("All Accounts", flows)],
                         [Axis("All Time Periods", ch)], f"FinMax Actual {ch[0]}..{ch[-1]} Periodic"))
     if stocks:
-        levels = sorted(set(months) | {periods.opening(months[0])}, key=periods.index)
+        levels = sorted(set(months) | ({periods.opening(months[0])} if opening else set()), key=periods.index)
         out.append(Grid("FinMax", {**FINMAX_POV, "All Balance Types": "Accumulated"},
                         [Axis("All Entities", entities), Axis("All Accounts", stocks)],
                         [Axis("All Time Periods", levels)], f"FinMax Actual levels {levels[0]}..{levels[-1]}"))
@@ -118,12 +121,21 @@ def finmax_grids(cat: Catalog, months: list[str], entities: list[str], spot: str
     return out
 
 
-def finplan_grids(cat: Catalog, plans: list[tuple[str, str, int]], entities: list[str]) -> list[Grid]:
-    """plans: (scenario member, version, two-digit year); one grid of entities x lines x the 12 months each."""
+def finplan_grids(cat: Catalog, plans: list[tuple[str, str, int]], entities: list[str],
+                  months: list[str] | None = None) -> list[Grid]:
+    """plans: (scenario member, version, two-digit year); one grid of entities x lines x the 12 months each, or only
+    the given months ('Oct 26' labels) of that year - a plan whose year has none of them is left out."""
     accts = [x.account for x in cat.pnl["FinPlan"]]
-    return [Grid("FinPlan", {"Scenario": s, "Version": v, "Years": f"FY{yy:02d}", "All Balance Types": "Periodic"},
-                 [Axis("Entity", entities), Axis("Account", accts)], [Axis("Period", list(periods.MONTHS))],
-                 f"FinPlan {s}/{v} FY{yy:02d}") for s, v, yy in plans]
+    out = []
+    for s, v, yy in plans:
+        mo = list(periods.MONTHS) if months is None else [
+            periods.finplan(m)[0] for m in months if periods.split_period(m)[1] == yy]
+        if mo:
+            out.append(Grid("FinPlan", {"Scenario": s, "Version": v, "Years": f"FY{yy:02d}",
+                                        "All Balance Types": "Periodic"},
+                            [Axis("Entity", entities), Axis("Account", accts)], [Axis("Period", mo)],
+                            f"FinPlan {s}/{v} FY{yy:02d}" + ("" if months is None else f" {mo[0]}..{mo[-1]}")))
+    return out
 
 
 def base_plans(closed: str, forecast_of: Callable[[int], str | None]) -> list[tuple[str, str, int]]:
@@ -143,21 +155,27 @@ def base_grids(cat: Catalog, closed: str, forecast_of: Callable[[int], str | Non
 
 def route(http=None, host: Callable[[], object] | None = None) -> Retrieve:
     """Smart View's HTTP protocol first (svhttp.shared() unless `http` is given); on any failure that is not an input
-    error, the COM route through the hidden Excel when `host` (a function returning the ExcelHost) is given."""
+    error, the COM route through the hidden Excel when `host` (a function returning the ExcelHost) is given. A grid
+    too big for one HTTP request (cells / 200 > SVHTTP_TIMEOUT_S, like tools_query) goes straight to COM."""
     def retrieve(conn, pov, rows, cols):
         from . import svhttp
-        try:
-            lay, p, secs = (http or svhttp.shared()).retrieve(conn, pov, rows, cols, False, False)
-            return lay, p, secs, "http"
-        except InputError:
-            raise
-        except Exception as e:   # noqa: BLE001 - the HTTP route failed: Smart View in Excel, if we may
-            if host is None:
+        n_cells = 1
+        for a in [*rows, *cols]:
+            n_cells *= max(1, len(a.members))
+        too_big = host is not None and n_cells / 200 > config.SVHTTP_TIMEOUT_S
+        if not too_big:
+            try:
+                lay, p, secs = (http or svhttp.shared()).retrieve(conn, pov, rows, cols, False, False)
+                return lay, p, secs, "http"
+            except InputError:
                 raise
-            log.warning("warehouse extract: HTTP route failed (%s); using Smart View in Excel", e)
+            except Exception as e:   # noqa: BLE001 - the HTTP route failed: Smart View in Excel, if we may
+                if host is None:
+                    raise
+                log.warning("warehouse extract: HTTP route failed (%s); using Smart View in Excel", e)
         h = host()
         lay, p, secs = h.on_host(lambda: ops.query(h, conn, pov, rows, cols, False, False),
-                                 timeout=config.CALL_TIMEOUT_S)
+                                 timeout=max(config.CALL_TIMEOUT_S, n_cells / 200))
         return lay, p, secs, "com"
     return retrieve
 
@@ -172,9 +190,10 @@ class FillResult:
         return self.fill.result != "error"
 
 
-def check_batch(cat: Catalog, rows: list[Row], closed: str) -> tuple[int, list[str], list[str]]:
+def check_batch(cat: Catalog, rows: list[Row], closed: str, store=None) -> tuple[int, list[str], list[str]]:
     """(checks run, problems, information) over the rows of one fill: the identity checks per entity and month in
-    both cubes, the Periodic months against the Accumulated spot column, and the areas against the company total."""
+    both cubes, the Periodic months against the Accumulated spot column (the rest of the YTD months come from
+    `store`, when the fill read only the newest ones) and the areas of the batch against the company total."""
     data = {r.key: r.value for r in rows}
     n, problems, info = 0, [], []
     fm = from_rows("FinMax", cat.pnl["FinMax"], data, FINMAX_SCENARIOS)
@@ -185,14 +204,24 @@ def check_batch(cat: Catalog, rows: list[Row], closed: str) -> tuple[int, list[s
     for frame in (fm, fp):
         k, p = reconcile.identities(frame, cat.checks[frame.cube])
         n, problems = n + k, problems + p
+    flows = {x.account for x in cat.pnl["FinMax"] if x.measure == "flow"}
+    ytd = periods.ytd(closed)
     periodic = {k: v for k, v in data.items() if k[0] == "FinMax" and k[6] == "Periodic"}
     spot = {k: v for k, v in data.items() if k[0] == "FinMax" and k[6] == "Accumulated" and k[5] == closed
-            and k[4] in {x.account for x in cat.pnl["FinMax"] if x.measure == "flow"}}
-    k, p = reconcile.months_vs_ytd(periodic, spot, periods.ytd(closed))
+            and k[4] in flows}
+    if spot and store is not None:
+        try:
+            stored = store.get("FinMax", {k[3] for k in spot}, {k[4] for k in spot}, ytd, "Actual", "", "Periodic",
+                               closed_only=True)
+            periodic = {**stored, **periodic}
+        except WarehouseUnavailable:
+            pass
+    k, p = reconcile.months_vs_ytd(periodic, spot, ytd)
     n, problems = n + k, problems + p
     company = next((e for e in cat.entities if e.key == "company"), None)
-    others = [e.finmax for e in areas(cat, "FinMax") if e.key != "company"]
-    if company and company.finmax:
+    present = {k[3] for k in data if k[0] == "FinMax"}
+    others = [e.finmax for e in areas(cat, "FinMax") if e.key != "company" and e.finmax in present]
+    if company and company.finmax and others:
         line = next((x.key for x in cat.pnl["FinMax"] if x.kind == "grand"), None)
         text = reconcile.areas_vs_total(fm, others, company.finmax, line, closed, "actual") if line else None
         if text:
@@ -205,23 +234,34 @@ def fill(store, retrieve: Retrieve, cat: Catalog, grids: list[Grid], job: str, c
     """Read every grid, store the rows, reconcile them and record the job in `fill`. A grid that fails is named in
     the result (the others are still stored); a failed job leaves the refresh state as it was, so it is retried."""
     t0, started = time.monotonic(), now()
-    rows, errors, routes = [], [], set()
+    rows, errors, routes, transport = [], [], set(), False
     for g in grids:
         try:
             lay, parsed, _secs, how = retrieve(g.conn, g.pov, g.rows, g.cols)
         except Exception as e:   # noqa: BLE001 - one failed grid must not lose the others
+            transport = True
             errors.append(f"{g.what}: {type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}")
             continue
         routes.add(how)
-        got, bad = to_rows(lay, parsed, g.conn, how, now(), closed_label or closed, atlas_build)
+        got, bad = to_rows(lay, parsed, g.conn, how, now(), closed_label or closed, atlas_build, closed)
         rows += got
         errors += [f"{g.what}: {b}" for b in bad[:5]] + [f"{g.what}: {w}" for w in parsed.pov_problems]
         errors += [f"{g.what}: unknown members {', '.join(parsed.unknown_members)}"] if parsed.unknown_members else []
-    store.put(rows)
-    n, problems, info = check_batch(cat, rows, closed) if rows else (0, [], [])
+    detail = {"grids": len(grids), "routes": sorted(routes), "errors": errors[:20], "checks": 0, "problems": [],
+              "info": [], "content_only": bool(errors) and not transport}   # content_only: retrying cannot help
+    try:
+        store.put(rows)
+    except WarehouseUnavailable as e:
+        detail["errors"] = [f"warehouse unavailable, {len(rows)} cells not stored: {e}", *errors][:20]
+        detail["content_only"] = False
+        f = Fill(job, f"{len(grids)} grids", started, round(time.monotonic() - t0, 2), 0, "error", detail)
+        return FillResult(f, [])
+    n, problems, info = check_batch(cat, rows, closed, store) if rows else (0, [], [])
     result = "error" if errors else ("warn" if problems else "ok")
-    detail = {"grids": len(grids), "routes": sorted(routes), "errors": errors[:20], "checks": n,
-              "problems": problems[:20], "info": info}
+    detail.update(checks=n, problems=problems[:20], info=info)
     f = Fill(job, f"{len(grids)} grids", started, round(time.monotonic() - t0, 2), len(rows), result, detail)
-    store.record_fill(f)
+    try:
+        store.record_fill(f)
+    except WarehouseUnavailable as e:
+        log.warning("warehouse extract: the fill record was not stored: %s", e)
     return FillResult(f, rows)

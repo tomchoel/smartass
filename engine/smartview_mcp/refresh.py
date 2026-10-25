@@ -15,13 +15,15 @@ from dataclasses import dataclass
 from typing import Callable
 
 from . import atlas, atlas_history
+from .drill_browser import ProfileLock
 from .analytics import periods
 from .catalog import Catalog, Entity
 from .extract import FillResult, Grid, areas, base_grids, base_plans, fill, finmax_grids, finplan_grids
 from .grid import Axis
-from .warehouse import OPEN
+from .warehouse import OPEN, WarehouseUnavailable
 
 CLOSED, SNAPSHOT, FORECAST = "closed_month", "entities_snapshot", "forecast"
+RETRY_FIRST_S, RETRY_LATER_S = 15 * 60, 24 * 3600     # a permanent content error: retry after 15 min, then daily
 
 
 @dataclass(frozen=True)
@@ -49,8 +51,11 @@ def plan_refresh(cat: Catalog, state: dict[str, str], closed: str, snapshot: int
         fm = [e.finmax for e in areas(cat, "FinMax")]
         fp = [e.finplan for e in areas(cat, "FinPlan")]
         years = sorted({periods.split_period(m)[1] for m in months})
+        yy = periods.split_period(closed)[1]
+        plans = [("Actual", "Working", y) for y in years] + [("Target", "Final", y) for y in (yy, yy + 1)]
+        plans += [(fc, "Final", y) for y in (yy, yy + 1) if (fc := forecast_of(y))]    # year roll: FY+1 appears
         jobs.append(Job("new_month", tuple(finmax_grids(cat, months, fm, spot=closed)
-                                           + finplan_grids(cat, [("Actual", "Working", y) for y in years], fp)),
+                                           + finplan_grids(cat, list(dict.fromkeys(plans)), fp)),
                         f"closed month {last} -> {closed}", {CLOSED: closed}))
     if snap != state.get(SNAPSHOT, "") and touched:
         jobs.append(Job("restatement", tuple(base_grids(cat, closed, forecast_of, keys=touched | {"company"})),
@@ -86,6 +91,9 @@ def touched_areas(cat: Catalog, db, old: str | None, new: int | None) -> set[str
         names |= {m["name"], *m.get("from", []), *m.get("to", [])}
     names |= {m["name"] for m in d.get("relabelled", [])}
     out = set()
+    company = next((e for e in cat.entities if e.key == "company"), None)
+    if company and company.finmax in names:            # a change directly under the root: the company total only
+        out.add("company")
     for n in names:
         for x in [n, *atlas.ancestors(db, "FinMax", n)]:
             if x in by_member:
@@ -94,21 +102,54 @@ def touched_areas(cat: Catalog, db, old: str | None, new: int | None) -> set[str
 
 
 def refresh(store, retrieve, cat: Catalog, closed: str, db, forecast_of: Callable[[int], str | None],
-            now: Callable[[], float] = time.time) -> list[FillResult]:
-    """Run what plan_refresh asks for; each successful job updates its state keys."""
-    state = store.state()
+            now: Callable[[], float] = time.time, notes: list[str] | None = None) -> list[FillResult]:
+    """Run what plan_refresh asks for; each successful job updates its state keys. One refresh at a time per
+    warehouse (a non-blocking <db>.refresh.lock): when another process holds it, nothing runs and `notes` (if given)
+    says so, so the answer comes from the current data. A job that failed on content (#NoAccess, an unknown member)
+    is not retried for 15 minutes, then once a day; a transport error is retried on the next call."""
+    notes = notes if notes is not None else []
+    path = getattr(store, "path", None)
+    lock = ProfileLock(str(path) + ".refresh") if path else None
+    if lock is not None and not lock.acquire():
+        notes.append("warehouse refresh skipped: another smartass process is refreshing; answering from the "
+                     "current data")
+        return []
+    try:
+        return _refresh(store, retrieve, cat, closed, db, forecast_of, now, notes)
+    finally:
+        if lock is not None:
+            lock.release()
+
+
+def _refresh(store, retrieve, cat, closed, db, forecast_of, now, notes) -> list[FillResult]:
+    state = store.state()                                  # read after the lock: another process may just have run
     snapshot = atlas_history.latest_snapshot(db, "FinMax", "All Entities")
     forecast = forecast_of(periods.split_period(closed)[1])
     touched = touched_areas(cat, db, state.get(SNAPSHOT), snapshot)
     out = []
     for job in plan_refresh(cat, state, closed, snapshot, forecast, touched, forecast_of):
-        if job.grids:
-            res = fill(store, retrieve, cat, list(job.grids), job.kind, closed,
-                       atlas_build="" if snapshot is None else str(snapshot), now=now)
-            out.append(res)
-            if not res.ok:
-                continue
-        store.set_state(**job.state)
+        wait = float(state.get(f"retry_after_{job.kind}") or 0) - now()
+        if wait > 0 and job.grids:
+            notes.append(f"warehouse refresh '{job.kind}' paused for {max(1, round(wait / 60))} min after: "
+                         f"{state.get(f'last_error_{job.kind}', '')}")
+            continue
+        try:
+            if job.grids:
+                res = fill(store, retrieve, cat, list(job.grids), job.kind, closed,
+                           atlas_build="" if snapshot is None else str(snapshot), now=now)
+                out.append(res)
+                if not res.ok:
+                    if res.fill.detail.get("content_only"):
+                        fails = int(state.get(f"fails_{job.kind}") or 0) + 1
+                        store.set_state(**{f"retry_after_{job.kind}": now() + (RETRY_FIRST_S if fails == 1
+                                                                                 else RETRY_LATER_S),
+                                           f"fails_{job.kind}": fails,
+                                           f"last_error_{job.kind}": (res.fill.detail["errors"] or [""])[0][:300]})
+                    continue
+            store.set_state(**job.state, **{f"retry_after_{job.kind}": 0, f"fails_{job.kind}": 0,
+                                            f"last_error_{job.kind}": ""})
+        except WarehouseUnavailable as e:
+            notes.append(f"warehouse state not saved: {e}")
     return out
 
 
@@ -124,25 +165,31 @@ def sub_units(children: Callable[[str], list[str]], entity: str, limit: int = 40
 
 
 def top_up(store, retrieve, cat: Catalog, entity: Entity, period: str, closed: str, forecast: str | None,
-           units: list[str], ebitda: str = "ac.EBITDA", now: Callable[[], float] = time.time) -> list[FillResult]:
+           units: list[str], ebitda: str | None = None, now: Callable[[], float] = time.time) -> list[FillResult]:
     """Read live what one question needs and store it: the area's latest forecast and, when `period` is after the
-    closed month, its open months (both with closed_month 'open'); and the sub-units' YTD EBITDA now and last year
-    (closed history, stored as it comes)."""
+    closed month, ONLY its open months (all stored with closed_month 'open'; the warehouse never lets an open row
+    replace a closed one); and the sub-units' YTD on the catalogue's grand line now and last year (labelled open when
+    the period is open, else closed history)."""
     yy = periods.split_period(period)[1]
+    is_open = periods.after(period, closed)
     live: list[Grid] = []
     if forecast and entity.finplan:
         live += finplan_grids(cat, [(forecast, "Final", yy)], [entity.finplan])
-    if periods.after(period, closed):
+    if is_open:
+        opened = periods.between(closed, period)
         if entity.finmax:
-            live += finmax_grids(cat, periods.between(closed, period), [entity.finmax])
+            live += finmax_grids(cat, opened, [entity.finmax], opening=False)
         if entity.finplan:
-            live += finplan_grids(cat, [("Actual", "Working", yy)], [entity.finplan])
+            years = sorted({periods.split_period(m)[1] for m in opened})
+            live += finplan_grids(cat, [("Actual", "Working", y) for y in years], [entity.finplan], months=opened)
     out = []
     if live:
         out.append(fill(store, retrieve, cat, live, "top_up", closed, closed_label=OPEN, now=now))
     if units:
-        g = Grid("FinMax", {"All Scenarios": "Actual", "All Currencies": "NOK", "All Accounts": ebitda,
-                            "All Balance Types": "Accumulated"}, [Axis("All Entities", units)],
-                 [Axis("All Time Periods", [period, periods.ly(period)])], "FinMax sub-unit EBITDA YTD")
-        out.append(fill(store, retrieve, cat, [g], "top_up", closed, now=now))
+        account = ebitda or next(x.account for x in cat.pnl["FinMax"] if x.kind == "grand")
+        for p, label in ((period, OPEN if is_open else None), (periods.ly(period), None)):   # last year is history
+            g = Grid("FinMax", {"All Scenarios": "Actual", "All Currencies": "NOK", "All Accounts": account,
+                                "All Balance Types": "Accumulated"}, [Axis("All Entities", units)],
+                     [Axis("All Time Periods", [p])], f"FinMax sub-unit YTD {p}")
+            out.append(fill(store, retrieve, cat, [g], "top_up", closed, closed_label=label, now=now))
     return out

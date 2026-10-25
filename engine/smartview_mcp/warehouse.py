@@ -26,6 +26,8 @@ from . import config
 WhKey = tuple[str, str, str, str, str, str, str]      # cube, scenario, version, entity, account, period, balance
 PUT_CHUNK = 10_000                                     # rows per write: readers in other processes get in between
 TYPES = ("VARCHAR",) * 7 + ("DOUBLE", "VARCHAR", "DOUBLE", "VARCHAR", "VARCHAR")
+COLUMNS = ("cube", "scenario", "version", "entity", "account", "period", "balance", "value", "source", "fetched_at",
+           "closed_month", "atlas_build")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS fact (
   cube VARCHAR, scenario VARCHAR, version VARCHAR, entity VARCHAR, account VARCHAR, period VARCHAR, balance VARCHAR,
@@ -88,8 +90,11 @@ class MemoryWarehouse:
     def put(self, rows: Iterable[Row]) -> int:
         n = 0
         for r in rows:
-            self.rows[r.key] = r
             n += 1
+            old = self.rows.get(r.key)
+            if r.closed_month == OPEN and old is not None and old.closed_month != OPEN:
+                continue                                   # a live read never replaces closed history
+            self.rows[r.key] = r
         return n
 
     def get(self, cube: str, entities, accounts, periods, scenario: str, version: str, balance: str,
@@ -195,12 +200,16 @@ class Warehouse:
                 db.close()
 
     def put(self, rows: Iterable[Row]) -> int:
-        """Upsert; a key repeated in `rows` keeps its last row. Returns the number of distinct keys written."""
+        """Upsert; a key repeated in `rows` keeps its last row; an OPEN row never replaces a closed one. Returns the number of distinct keys written."""
         recs = [r.record() for r in {r.key: r for r in rows}.values()]
-        sel = ", ".join(f"unnest(${i + 1}::{t}[])" for i, t in enumerate(TYPES))   # one statement: ~0.3 s/6500 rows
+        sel = ", ".join(f"unnest(${i + 1}::{t}[]) AS {c}" for i, (t, c) in enumerate(zip(TYPES, COLUMNS)))
+        pk = " AND ".join(f"f.{c} = n.{c}" for c in COLUMNS[:7])
+        # one statement: ~0.3 s/6500 rows; an OPEN row never replaces an existing closed one
+        sql = (f"INSERT OR REPLACE INTO fact SELECT * FROM (SELECT {sel}) n WHERE NOT (n.closed_month = '{OPEN}' "
+               f"AND EXISTS (SELECT 1 FROM fact f WHERE {pk} AND f.closed_month <> '{OPEN}'))")
         for i in range(0, len(recs), PUT_CHUNK):
             cols = [list(c) for c in zip(*recs[i:i + PUT_CHUNK])]
-            self._write(lambda db, cols=cols: db.execute(f"INSERT OR REPLACE INTO fact SELECT {sel}", cols))
+            self._write(lambda db, cols=cols: db.execute(sql, cols))
         return len(recs)
 
     def get(self, cube: str, entities, accounts, periods, scenario: str, version: str, balance: str,

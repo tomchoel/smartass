@@ -57,7 +57,8 @@ class EchoTransport:
         r0, c0 = min(r for r, _ in data), min(c for _, c in data)          # 1 + column dims, row dims
         pov = tuple(v for v in cells[0][c0:] if v is not None)
         for r, c in data:
-            cells[r][c] = self.value(tuple(cells[r][:c0]), tuple(cells[d][c] for d in range(1, r0)), pov)
+            v = self.value(tuple(cells[r][:c0]), tuple(cells[d][c] for d in range(1, r0)), pov)
+            cells[r][c] = "#Missing" if v is None else v                       # blank, as the provider shows it
         self.grids.append((base, len(data)))
         return answer(cells)
 

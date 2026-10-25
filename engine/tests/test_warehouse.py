@@ -104,3 +104,16 @@ def test_a_valid_file_without_tables_is_unavailable_and_status_says_so(tmp_path)
             call()
     st = w.status()
     assert st["exists"] is True and "cannot read" in st["error"]
+
+
+def test_an_open_row_never_replaces_a_closed_one(store):
+    store.put([r(k(), 100.0, closed="Aug 26"), r(k(period="Aug 26"), 5.0, closed=OPEN)])
+    store.put([r(k(), 999.0, closed=OPEN), r(k(period="Aug 26"), 6.0, closed=OPEN), r(k(period="Oct 26"), 7.0, closed=OPEN)])
+    got = store.get("FinMax", ["un.SY.2WHS"], ["ac.C30"], ["Sep 26", "Aug 26", "Oct 26"], "Actual", "", "Periodic",
+                    closed_only=True)
+    assert got == {k(): 100.0}                                     # closed value and label kept
+    assert store.get("FinMax", ["un.SY.2WHS"], ["ac.C30"], ["Aug 26", "Oct 26"], "Actual", "", "Periodic") == {
+        k(period="Aug 26"): 6.0, k(period="Oct 26"): 7.0}          # open over open, and a new open key, are stored
+    store.put([r(k(), 101.0, closed="Sep 26")])                    # a closed read replaces anything
+    assert store.get("FinMax", ["un.SY.2WHS"], ["ac.C30"], ["Sep 26"], "Actual", "", "Periodic",
+                     closed_only=True) == {k(): 101.0}
