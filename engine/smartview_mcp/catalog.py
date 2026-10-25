@@ -20,6 +20,9 @@ KINDS = {"line", "sum", "grand"}
 RULES = {"latest_forecast"}
 BETTER = {"higher", "lower", "none"}
 UNITS = {"pct", "nok"}
+MEASURES = {"flow", "stock"}          # stock: a level (FTE); read Accumulated at period end, never sum Periodic months
+BASES = {"period", "average_stock"}   # average_stock: the denominator is the average month-end level over the period
+MATERIALITY_RULES = {"either", "both"}
 EXPR = re.compile(r"^[a-z_]\w*([+-][a-z_]\w*)*$")   # line keys joined by + and -
 
 
@@ -35,6 +38,8 @@ class Line:
     label: str
     better: str = "higher"
     num: str | None = None
+    concept: str | None = None    # the meaning across cubes: join actual vs budget on this, never on key
+    measure: str = "flow"         # flow | stock
 
 
 @dataclass(frozen=True)
@@ -73,6 +78,8 @@ class Kpi:
     numerator: str
     denominator: str
     unit: str
+    basis: str = "period"         # period | average_stock
+    annualise: bool = False       # scale a part-year numerator to twelve months
 
 
 @dataclass(frozen=True)
@@ -80,6 +87,7 @@ class Materiality:
     pct: float
     abs_nok: float
     always: tuple[str, ...]
+    rule: str = "either"          # either: pct OR abs_nok makes a variance material; both: pct AND abs_nok
 
 
 @dataclass(frozen=True)
@@ -92,6 +100,10 @@ class Catalog:
     kpis: tuple[Kpi, ...]
     _whole: Mapping[str, Entity] = field(default_factory=dict, repr=False, compare=False)
     _patterns: tuple[tuple[re.Pattern, Entity], ...] = field(default=(), repr=False, compare=False)
+
+    def line_by_concept(self, cube: str, concept: str) -> Line | None:
+        """The line of `cube` that carries `concept` (FinMax c73 and FinPlan oth are both other_items), or None."""
+        return next((x for x in self.pnl.get(cube, ()) if x.concept == concept), None)
 
 
 COMPANY = "company"   # the entity for the whole company: a generic word like "total" must not beat a named area
@@ -173,14 +185,17 @@ def _number(raw: dict, name: str) -> float:
 
 def _materiality(raw: dict) -> Materiality:
     for k in raw:
-        if k not in {"pct", "abs_nok", "always"}:
+        if k not in {"pct", "abs_nok", "always", "rule"}:
             raise CatalogError(f"materiality: unknown field '{k}'")
     pct, abs_nok = _number(raw, "pct"), _number(raw, "abs_nok")
     if not 0 < pct <= 1:
         raise CatalogError(f"materiality: pct {pct} is not in (0, 1] (0.10 = 10 %)")
     if abs_nok < 0:
         raise CatalogError(f"materiality: abs_nok {abs_nok} is negative")
-    return Materiality(pct, abs_nok, _strings(raw.get("always", []), "materiality", "always"))
+    rule = raw.get("rule", "either")
+    if rule not in MATERIALITY_RULES:
+        raise CatalogError(f"materiality: rule {rule!r} is not one of {sorted(MATERIALITY_RULES)}")
+    return Materiality(pct, abs_nok, _strings(raw.get("always", []), "materiality", "always"), rule)
 
 
 def _iso_date(value, where: str) -> str | None:
@@ -216,6 +231,9 @@ def parse(data: dict) -> Catalog:
                 raise CatalogError(f"{cube} line '{x.key}': kind '{x.kind}' is not one of {sorted(KINDS)}")
             if x.better not in BETTER:
                 raise CatalogError(f"{cube} line '{x.key}': better '{x.better}' is not one of {sorted(BETTER)}")
+            if x.measure not in MEASURES:
+                raise CatalogError(f"{cube} line '{x.key}': measure '{x.measure}' is not one of {sorted(MEASURES)}")
+        _unique([x.concept for x in lines if x.concept is not None], f"{cube} concept")
         grands = [x.key for x in lines if x.kind == "grand"]
         if len(grands) > 1:
             raise CatalogError(f"{cube} has {len(grands)} grand lines ({', '.join(grands)}); at most one")
@@ -242,9 +260,17 @@ def parse(data: dict) -> Catalog:
             raise CatalogError(f"kpi '{k.key}': unknown connection '{k.connection}' (not a pnl cube)")
         if k.unit not in UNITS:
             raise CatalogError(f"kpi '{k.key}': unit '{k.unit}' is not one of {sorted(UNITS)}")
+        if k.basis not in BASES:
+            raise CatalogError(f"kpi '{k.key}': basis '{k.basis}' is not one of {sorted(BASES)}")
+        if not isinstance(k.annualise, bool):
+            raise CatalogError(f"kpi '{k.key}': annualise must be true or false, not {k.annualise!r}")
         for part in (k.numerator, k.denominator):
             if part not in keys[k.connection]:
                 raise CatalogError(f"kpi '{k.key}': '{part}' is not a {k.connection} line key")
+        den = next(x for x in pnl[k.connection] if x.key == k.denominator)
+        if k.basis == "average_stock" and den.measure != "stock":
+            raise CatalogError(f"kpi '{k.key}': basis average_stock needs a stock denominator; "
+                               f"{k.connection} line '{den.key}' is measure '{den.measure}'")
     every = set().union(*keys.values())
     for a in materiality.always:
         if a not in every:

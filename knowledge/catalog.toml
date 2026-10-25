@@ -5,28 +5,35 @@
 
 [pnl]
 # Report order. kind: line | sum | grand. num: number-format override (tall1 = one decimal).
+# concept: what the line means across cubes, unique per cube. The same key can mean different things in the two cubes
+# (FinMax oth = Other opex C60, FinPlan oth = Total Other Items; FinMax gm vs FinPlan gp), so JOIN ACTUAL VS BUDGET ON
+# `concept`, NEVER ON `key`. A line without a concept has no counterpart in the other cube.
+# measure: flow (default; months add up) | stock (a level, see fte).
 FinMax = [
-  { key = "rev",    account = "ac.C30",        kind = "line",  label = "Revenue" },
-  { key = "cogs",   account = "ac.C40S",       kind = "line",  label = "COGS" },
-  { key = "gm",     account = "ac.C48",        kind = "sum",   label = "Gross margin" },
-  { key = "pers",   account = "ac.C50S",       kind = "line",  label = "Personnel cost" },
-  { key = "oth",    account = "ac.C60",        kind = "line",  label = "Other opex" },
-  { key = "opex",   account = "ac.C70",        kind = "sum",   label = "Opex" },
-  { key = "boi",    account = "ac.EBITDA_BOI", kind = "sum",   label = "EBITDA before other items" },
-  { key = "c73",    account = "ac.C73",        kind = "line",  label = "Other items" },
-  { key = "ebitda", account = "ac.EBITDA",     kind = "grand", label = "EBITDA" },
-  { key = "da",     account = "ac.C75",        kind = "line",  label = "Depreciation and amortisation" },
-  { key = "fte",    account = "ac.STA20Y",     kind = "line",  label = "FTE", better = "none", num = "tall1" },
+  { key = "rev",    account = "ac.C30",        kind = "line",  label = "Revenue",                   concept = "revenue" },
+  { key = "cogs",   account = "ac.C40S",       kind = "line",  label = "COGS",                      concept = "cogs" },
+  { key = "gm",     account = "ac.C48",        kind = "sum",   label = "Gross margin",              concept = "gross_margin" },
+  { key = "pers",   account = "ac.C50S",       kind = "line",  label = "Personnel cost",            concept = "personnel" },
+  { key = "oth",    account = "ac.C60",        kind = "line",  label = "Other opex",                concept = "other_opex" },
+  { key = "opex",   account = "ac.C70",        kind = "sum",   label = "Opex",                      concept = "opex" },
+  { key = "boi",    account = "ac.EBITDA_BOI", kind = "sum",   label = "EBITDA before other items", concept = "ebitda_boi" },
+  { key = "c73",    account = "ac.C73",        kind = "line",  label = "Other items",               concept = "other_items" },
+  { key = "ebitda", account = "ac.EBITDA",     kind = "grand", label = "EBITDA",                    concept = "ebitda" },
+  { key = "da",     account = "ac.C75",        kind = "line",  label = "Depreciation and amortisation", concept = "da" },
+  # FTE (ac.STA20Y) is a stock booked as movements, measured live 2026-10-25: Periodic returns the monthly change,
+  # Accumulated the month-end level. level = Accumulated at period end; never sum Periodic months; per-FTE ratios
+  # divide YTD cost by the average month-end level.
+  { key = "fte",    account = "ac.STA20Y",     kind = "line",  label = "FTE", better = "none", num = "tall1", concept = "fte", measure = "stock" },
 ]
 # FinPlan stops at EBITDA: Target carries no depreciation/write-downs/other items, so EBIT variances would mislead.
 FinPlan = [
-  { key = "rev",    account = "Revenue",                   kind = "line",  label = "Revenue" },
-  { key = "cogs",   account = "COGS",                      kind = "line",  label = "COGS" },
-  { key = "gp",     account = "Gross_Profit",              kind = "sum",   label = "Gross profit" },
-  { key = "opex",   account = "OPEX",                      kind = "line",  label = "Opex" },
-  { key = "boi",    account = "EBITDA before Other Items", kind = "sum",   label = "EBITDA before other items" },
-  { key = "oth",    account = "Total Other Items",         kind = "line",  label = "Other items" },
-  { key = "ebitda", account = "EBITDA",                    kind = "grand", label = "EBITDA" },
+  { key = "rev",    account = "Revenue",                   kind = "line",  label = "Revenue",      concept = "revenue" },
+  { key = "cogs",   account = "COGS",                      kind = "line",  label = "COGS",         concept = "cogs" },
+  { key = "gp",     account = "Gross_Profit",              kind = "sum",   label = "Gross profit", concept = "gross_margin" },
+  { key = "opex",   account = "OPEX",                      kind = "line",  label = "Opex",         concept = "opex" },
+  { key = "boi",    account = "EBITDA before Other Items", kind = "sum",   label = "EBITDA before other items", concept = "ebitda_boi" },
+  { key = "oth",    account = "Total Other Items",         kind = "line",  label = "Other items",  concept = "other_items" },
+  { key = "ebitda", account = "EBITDA",                    kind = "grand", label = "EBITDA",       concept = "ebitda" },
 ]
 
 [checks]
@@ -50,9 +57,13 @@ budget         = { connection = "FinPlan", scenario = "Target", version = "Final
 forecast       = { connection = "FinPlan", rule = "latest_forecast", version = "Final", label = "Latest forecast" }
 
 [materiality]
-pct = 0.10                            # a variance is material from 10 % of the comparison value ...
-abs_nok = 5_000_000                   # ... and from NOK 5 million (both must hold)
-always = ["rev", "pers", "ebitda"]    # always commented, material or not
+# Owner decision: a variance is material at 10 % OR NOK 5 million - either threshold is enough (rule = "both" would
+# need both). The percentage is taken of the absolute comparison value (costs are negative, so |budget| for a cost
+# line); a zero comparison value is material when the amount threshold is exceeded.
+pct = 0.10                            # 10 % of |comparison value|
+abs_nok = 5_000_000                   # NOK 5 million
+rule = "either"                       # either | both
+always = ["rev", "pers", "ebitda"]    # revenue, personnel and EBITDA are always commented, material or not
 
 # Business areas. Aliases are matched as whole words in a question; aliases shorter than 3 characters (it, ig, ei,
 # tn) only when they are the whole question or written in UPPER CASE in it ("kostnader i IT"). The company only wins
@@ -145,6 +156,9 @@ successors = ["ssm", "ei"]
 note = "Emptied into 2SSM and 2EI on 1 June 2026; history is restated, so 2CON shows no data."
 
 # KPIs: ratios of two P&L line keys of one cube (computed in the workbook, never by the model).
+# basis: period (default; both lines over the same period) | average_stock (the denominator is the average month-end
+# level over the period - needs a measure = "stock" line). annualise: scale a part-year numerator to twelve months
+# (YTD Sep cost x 12/9), so cost per FTE is comparable across periods.
 [[kpi]]
 key = "ebitda_margin"
 label = "EBITDA margin"
@@ -168,6 +182,8 @@ connection = "FinMax"
 numerator = "opex"
 denominator = "fte"
 unit = "nok"
+basis = "average_stock"
+annualise = true
 
 [[kpi]]
 key = "personnel_per_fte"
@@ -176,3 +192,5 @@ connection = "FinMax"
 numerator = "pers"
 denominator = "fte"
 unit = "nok"
+basis = "average_stock"
+annualise = true

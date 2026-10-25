@@ -91,9 +91,16 @@ def _with(path, value):
     (_with(["materiality", "pcts"], 1), "materiality: unknown field 'pcts'"),
     (_with(["kpi", 0], {"key": "m"}), r"kpi\[0\]: missing field"),
     (_with(["entity", 0], "w"), r"entity\[0\]: expected a table"),
-    (_with(["checks", "FinMax", 0, "expr"], "rev*ebitda"), "FinMax check 'x': expression 'rev\*ebitda'"),
+    (_with(["checks", "FinMax", 0, "expr"], "rev*ebitda"), r"FinMax check 'x': expression 'rev\*ebitda'"),
     (_with(["checks", "FinMax", 0, "expr"], "rev--ebitda"), "FinMax check 'x': expression"),
     (_with(["checks", "FinMax", 0, "expr"], "rev+1"), "FinMax check 'x': expression"),
+    (_with(["pnl", "FinMax"], [{**BASE["pnl"]["FinMax"][0], "concept": "x"},
+                              {**BASE["pnl"]["FinMax"][1], "concept": "x"}]), "duplicate FinMax concept 'x'"),
+    (_with(["pnl", "FinMax", 0, "measure"], "level"), "FinMax line 'rev': measure 'level'"),
+    (_with(["kpi", 0, "basis"], "avg"), "kpi 'm': basis 'avg'"),
+    (_with(["kpi", 0, "annualise"], "yes"), "kpi 'm': annualise must be true or false"),
+    (_with(["kpi", 0, "basis"], "average_stock"), "kpi 'm': basis average_stock needs a stock denominator"),
+    (_with(["materiality", "rule"], "and"), "materiality: rule 'and'"),
 ])
 def test_parse_rejects_broken_catalogues(data, msg):
     with pytest.raises(catalog.CatalogError, match=msg):
@@ -179,3 +186,38 @@ def test_parse_accepts_the_base_and_a_toml_date():
     import datetime
     cat = catalog.parse(_with(["entity", 0, "abolished"], datetime.date(2026, 6, 1)))
     assert cat.entities[0].abolished == "2026-06-01"
+
+
+CONCEPTS = {
+    "FinMax": {"rev": "revenue", "cogs": "cogs", "gm": "gross_margin", "pers": "personnel", "oth": "other_opex",
+               "opex": "opex", "boi": "ebitda_boi", "c73": "other_items", "ebitda": "ebitda", "da": "da", "fte": "fte"},
+    "FinPlan": {"rev": "revenue", "cogs": "cogs", "gp": "gross_margin", "opex": "opex", "boi": "ebitda_boi",
+                "oth": "other_items", "ebitda": "ebitda"},
+}
+
+
+def test_lines_carry_their_cross_cube_concept():
+    cat = catalog.load()
+    assert {cube: {x.key: x.concept for x in lines} for cube, lines in cat.pnl.items()} == CONCEPTS
+    assert cat.line_by_concept("FinMax", "other_items").key == "c73"
+    assert cat.line_by_concept("FinPlan", "other_items").key == "oth"
+    assert cat.line_by_concept("FinMax", "other_opex").key == "oth"
+    assert cat.line_by_concept("FinPlan", "gross_margin").key == "gp"
+    assert cat.line_by_concept("FinPlan", "fte") is None and cat.line_by_concept("Nope", "ebitda") is None
+
+
+def test_materiality_is_either_threshold():
+    m = catalog.load().materiality
+    assert (m.pct, m.abs_nok, m.rule) == (0.10, 5_000_000, "either")
+    assert m.always == ("rev", "pers", "ebitda")
+    assert catalog.parse(BASE).materiality.rule == "either"   # the default
+
+
+def test_fte_is_a_stock_and_per_fte_kpis_use_the_average_level():
+    cat = catalog.load()
+    assert {x.key: x.measure for x in cat.pnl["FinMax"]}["fte"] == "stock"
+    assert {x.measure for x in cat.pnl["FinMax"] if x.key != "fte"} == {"flow"}
+    kpis = {k.key: k for k in cat.kpis}
+    for key in ("opex_per_fte", "personnel_per_fte"):
+        assert (kpis[key].basis, kpis[key].annualise) == ("average_stock", True)
+    assert (kpis["ebitda_margin"].basis, kpis["ebitda_margin"].annualise) == ("period", False)
