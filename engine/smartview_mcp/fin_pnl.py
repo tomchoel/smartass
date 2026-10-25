@@ -4,15 +4,23 @@ bridge by line and by sub-unit, KPIs and the year-end landing - decided by the c
 milliseconds and without Excel. fin_spec.py turns the Result into the sv_ws_build request (live source sheets +
 formulas); the engine's numbers then reconcile the sheets. templates.division_pnl is this slice's predecessor.
 
+Owner decisions (2026-10-25): `compare` only decides which comparisons are flagged and commented - every answer shows
+last year, budget, forecast and the landing. An empty newest forecast member falls back to the newest one with data
+(the caller resolves it: Scope.forecast_note). A past full year (December of a year before the closed month's year)
+has no landing. An open period's flags are provisional (open month with reversals). The variance % is blank when
+|comparison| is under the catalogue's pct_floor_nok (as materiality counts it as zero).
+
 Fact ids (a contract with fin_spec.py and the live checks; unique within a Result):
 - FinMax: fm.<line>.m.cur|m.ly|ytd.cur|ytd.ly, variances fm.<line>.m|ytd .var/.pct; FTE levels fm.<line>.lvl.<month>.
-- FinPlan: fp.<line>.actual.m|ytd|ly_ytd|ly_fy, fp.<line>.budget|forecast.m|ytd|fy (+ .m/.ytd .var/.pct),
-  fp.<grand>.forecast.remaining.
-- Sub-units: unit.<member>.cur|ly; unit bridge steps units.<member>.var, units.other; line bridge bridge.rounding|unexplained.
+- FinPlan: fp.<line>.actual.m|ytd (+ ly_ytd|ly_fy on EBITDA before other items),
+  fp.<line>.budget|forecast.m|ytd|fy (+ .m/.ytd .var/.pct), fp.<grand>.forecast.remaining.
+- Sub-units: unit.<member>.cur|ly; unit bridge steps units.<member>.var, units.other; line bridge
+  bridge.rounding|unexplained.
 - KPIs: kpi.<key>.ytd.cur|ytd.ly (+ m.cur|m.ly for basis 'period'), variances kpi.<key>.ytd|m .var/.pct.
 - Landing: land.forecast|run_rate|gap_forecast|gap_run_rate."""
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 from dataclasses import dataclass, field
 
@@ -25,10 +33,13 @@ from .analytics.landing import Landing, landing, remaining_forecast
 from .analytics.materiality import Flag, flags
 from .analytics.measures import amount, average_level, flow, level
 from .analytics.variance import Variance, variance
-from .catalog import Catalog, Entity
+from .catalog import Catalog, Entity, Materiality
 from .extract import FINMAX_SCENARIOS
 
 COMPARISONS = ("ly", "budget", "forecast")
+CUBE = {"ly": "FinMax", "budget": "FinPlan", "forecast": "FinPlan"}     # the cube each comparison is read in
+NAMES = {"ly": "last year", "budget": "budget", "forecast": "forecast"}
+PROVISIONAL = "provisional (open month with reversals)"
 
 
 @dataclass(frozen=True)
@@ -36,9 +47,12 @@ class Scope:
     entity: Entity
     period: str                                     # 'Sep 26'
     closed: str                                     # the last closed month
-    forecast: str | None                            # the latest 'Forecast Q<q><yy>' for the period's year
+    forecast: str | None                            # the forecast used ('Forecast Q<q><yy>', the newest with data)
     units: tuple[tuple[str, str], ...] = ()         # (member, label) sub-units for the bridge
-    compare: tuple[str, ...] = COMPARISONS
+    compare: tuple[str, ...] = COMPARISONS          # which comparisons are flagged; all are always shown
+    labels: dict = field(default_factory=dict)      # {(cube, line key): label}; default: the catalogue label
+    forecast_note: str | None = None                # e.g. 'Forecast Q426 is empty; Forecast Q326 used'
+    notes: tuple[str, ...] = ()                     # scope notes (e.g. sub-units left out by the cap)
 
 
 @dataclass
@@ -47,6 +61,7 @@ class Result:
     ly: str
     ytd: list[str]
     ly_ytd: list[str]
+    cat_labels: dict = field(default_factory=dict)                        # {(cube, key): catalogue label}
     facts: dict[str, Fact] = field(default_factory=dict)
     fm: dict[str, dict[str, Variance]] = field(default_factory=dict)       # line -> {"m", "ytd"} vs last year
     budget: dict[str, dict[str, Variance]] = field(default_factory=dict)   # FinPlan line -> {"m", "ytd"}
@@ -60,6 +75,25 @@ class Result:
     landing: Landing | None = None
     freshness: dict = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)                     # e.g. an unexplained bridge residual
+    notes: list[str] = field(default_factory=list)                        # e.g. a past full year has no landing
+
+    @property
+    def provisional(self) -> bool:
+        """The period is after the closed month: an open month with reversals."""
+        return periods.after(self.scope.period, self.scope.closed)
+
+    @property
+    def past_year(self) -> bool:
+        """December of a year before the closed month's year: a finished year (actuals only, no landing)."""
+        mo, yy = periods.split_period(self.scope.period)
+        return mo == 12 and yy < periods.split_period(self.scope.closed)[1]
+
+    def label(self, cube: str, key: str) -> str:
+        """The line's label in `cube` (FinMax: alias + short name; FinPlan: its own name)."""
+        return self.scope.labels.get((cube, key)) or self.cat_labels.get((cube, key)) or key
+
+    def table_of(self, comparison: str) -> dict[str, dict[str, Variance]]:
+        return {"ly": self.fm, "budget": self.budget, "forecast": self.forecast}[comparison]
 
     def ranking(self) -> list[tuple[str, str, Flag]]:
         """(comparison, line, flag) for every line to comment (material or always), largest |variance| first."""
@@ -91,6 +125,55 @@ def grand(lines) -> str:
 def ordered_kpis(cat: Catalog, connection: str = "FinMax") -> list:
     """The cube's KPIs, the headline KPI first (catalogue order otherwise)."""
     return sorted((k for k in cat.kpis if k.connection == connection), key=lambda k: not k.headline)
+
+
+def line_labels(cat: Catalog, alias) -> dict[tuple[str, str], str]:
+    """{(cube, key): label}. FinMax: the account's alias + the catalogue's short name ('C30 REVENUES (Revenue)');
+    FinPlan: its own name (alias, else the catalogue label). alias(cube, account) -> cleaned label or None."""
+    out = {}
+    for cube, lines in cat.pnl.items():
+        for x in lines:
+            a = alias(cube, x.account)
+            if cube == "FinMax":
+                out[(cube, x.key)] = f"{a} ({x.label})" if a and a.casefold() != x.label.casefold() else x.label
+            else:
+                out[(cube, x.key)] = a or x.label
+    return out
+
+
+def forecast_has_data(store, cat: Catalog, entity: Entity, forecast: str, yy: int) -> bool:
+    """Whether the forecast member has any non-blank month of the year on FinPlan's grand line for the area."""
+    if not entity.finplan:
+        return True
+    acct = next(x.account for x in cat.pnl["FinPlan"] if x.kind == "grand")
+    rows = store.get("FinPlan", [entity.finplan], [acct], periods.year(yy), forecast, "Final", "Periodic")
+    return any(v is not None for v in rows.values())
+
+
+def shown_pct(v: Variance, m: Materiality) -> float | None:
+    """The variance % as the answer shows it: blank when |comparison| < pct_floor_nok (a NOK line; the base is
+    counted as zero, as in materiality) or when it cannot be computed."""
+    c = v.comparison.value
+    if v.pct.value is None or (v.abs.unit == "nok" and c is not None and abs(c) < m.pct_floor_nok):
+        return None
+    return v.pct.value
+
+
+def flag_text(res: Result, comparison: str, key: str) -> str | None:
+    """The 'Material' cell: material / material (month) / material (YTD + month) / comment / unknown, and
+    '- provisional' for an open period. None when the line is not judged or needs no comment."""
+    f = res.flags.get(comparison, {}).get(key)
+    if f is None:
+        return None
+    if f.reason.startswith("variance unknown"):
+        text = "unknown"
+    elif f.material:
+        text = {"month": "material (month)", "ytd+month": "material (YTD + month)"}.get(f.basis, "material")
+    elif f.always:
+        text = "comment"
+    else:
+        return None
+    return f"{text} - provisional" if res.provisional else text
 
 
 def _keep(res: Result, *facts: Fact) -> None:
@@ -162,9 +245,10 @@ def _finplan(cat: Catalog, s: Scope, store, res: Result) -> Frame | None:
     for x in lines:
         b = f"fp.{x.key}"
         a = {"m": flow(fp, ef, x.key, "actual_finplan", [s.period], f"{b}.actual.m"),
-             "ytd": flow(fp, ef, x.key, "actual_finplan", res.ytd, f"{b}.actual.ytd"),
-             "ly_ytd": flow(fp, ef, x.key, "actual_finplan", res.ly_ytd, f"{b}.actual.ly_ytd"),
-             "ly_fy": flow(fp, ef, x.key, "actual_finplan", last, f"{b}.actual.ly_fy")}
+             "ytd": flow(fp, ef, x.key, "actual_finplan", res.ytd, f"{b}.actual.ytd")}
+        if x.concept == "ebitda_boi":                         # last year only feeds the landing's seasonality
+            a["ly_ytd"] = flow(fp, ef, x.key, "actual_finplan", res.ly_ytd, f"{b}.actual.ly_ytd")
+            a["ly_fy"] = flow(fp, ef, x.key, "actual_finplan", last, f"{b}.actual.ly_fy")
         _keep(res, *a.values())
         for name, table in (("budget", res.budget), ("forecast", res.forecast)):
             if name == "forecast" and not s.forecast:
@@ -181,6 +265,9 @@ def _finplan(cat: Catalog, s: Scope, store, res: Result) -> Frame | None:
     if res.forecast:
         _flags(res, cat, "forecast", res.forecast, lines)
     g = grand(lines)
+    if res.past_year:                                         # a finished year: actuals only, no landing
+        res.notes.append(f"{periods.finplan(s.period)[1]} is a finished year: actuals only, no year-end landing.")
+        return fp
     rid = f"fp.{g}.forecast.remaining"
     rem = (remaining_forecast(fp, ef, g, "forecast", periods.remaining(s.period), rid) if s.forecast
            else missing(rid, "nok", "remaining months of the latest forecast", "no latest forecast for the year"))
@@ -191,6 +278,8 @@ def _finplan(cat: Catalog, s: Scope, store, res: Result) -> Frame | None:
         "fp.ebitda_boi.actual.ly_fy", "nok", "last year's EBITDA before other items", "no ebitda_boi line")
     res.landing = landing(res.facts[f"fp.{g}.actual.ytd"], rem, res.facts[f"fp.{g}.budget.fy"], ly_ytd, ly_fy,
                           len(res.ytd), forecast_name=s.forecast, closed_month=s.closed)
+    if s.forecast_note:                                       # an empty newest forecast: say which one was used
+        res.landing = dataclasses.replace(res.landing, method=f"{res.landing.method}; {s.forecast_note}")
     ld = res.landing
     _keep(res, rem, ld.forecast, ld.run_rate, ld.gap_forecast, ld.gap_run_rate)
     return fp
@@ -238,7 +327,9 @@ def compute(cat: Catalog, s: Scope, store) -> Result:
     if not s.entity.finmax:
         raise ValueError(f"{s.entity.label} has no FinMax entity")
     ly = periods.ly(s.period)
-    res = Result(s, ly, periods.ytd(s.period), periods.ytd(ly))
+    res = Result(s, ly, periods.ytd(s.period), periods.ytd(ly),
+                 cat_labels={(cube, x.key): x.label for cube, lines in cat.pnl.items() for x in lines})
+    res.notes += list(s.notes)
     fm = _finmax(cat, s, store, res)
     _finplan(cat, s, store, res)
     for c in COMPARISONS:
@@ -249,7 +340,7 @@ def compute(cat: Catalog, s: Scope, store) -> Result:
     total_ly, total_cur = res.facts[f"fm.{g}.ytd.ly"], res.facts[f"fm.{g}.ytd.cur"]
     leaves = components(cat.checks["FinMax"], lines, g)
     res.line_bridge = by_line(total_ly, total_cur, {k: v["ytd"] for k, v in res.fm.items()}, leaves,
-                              {x.key: x.label for x in lines})
+                              {x.key: res.label("FinMax", x.key) for x in lines})
     if s.units:
         _units(cat, s, store, res, total_ly, total_cur)
     for b in (res.line_bridge, res.unit_bridge):
@@ -281,22 +372,92 @@ def freshness_text(res: Result, mode: str, notes: list[str] | None = None) -> st
     return text
 
 
-def summary(res: Result, mode: str, fills: list, notes: list[str] | None = None) -> dict:
-    """What the agent writes the answer from: facts (ids, values, definitions), flags, missing facts with their
-    reasons, landing and freshness (with refresh()'s notes)."""
-    keep = ("fm.", "fp.", "kpi.", "land.", "units.", "unit.", "bridge.")
-    facts = [f.as_dict(max_inputs=3) for k, f in res.facts.items()
-             if k.startswith(keep) and ".lvl." not in k and not k.endswith(".pct")]
-    flagged = [{"comparison": c, "line": k, "material": f.material, "always": f.always, "basis": f.basis,
-                "reason": f.reason, "variance": f.size} for c, k, f in res.ranking()]
+def open_period_note(res: Result) -> str | None:
+    if not res.provisional:
+        return None
+    return (f"{res.scope.period} is after the Current Reporting Month ({res.scope.closed}): the period is still "
+            f"open; figures and flags are {PROVISIONAL}.")
+
+
+def landing_warnings(res: Result) -> list[str]:
+    """The empty-forecast fallback and the stale-forecast warning (the run rate is shown alongside)."""
+    out = []
+    if res.scope.forecast_note:
+        out.append(f"Warning: {res.scope.forecast_note}.")
+    ld = res.landing
+    if ld is not None and ld.warning:
+        out.append(f"Warning: {ld.warning} - the forecast landing may be out of date; the run-rate landing is "
+                   "shown alongside.")
+    return out
+
+
+def tool_warnings(res: Result, fills, notes: list[str] | None = None) -> list[str]:
+    """What the agent must pass on: the open period, the forecast warnings, problems, failed or warned warehouse
+    jobs (their errors / problems) and refresh()'s notes (skipped or paused refresh)."""
+    out = [w for w in [open_period_note(res)] if w] + landing_warnings(res) + list(res.problems)
+    for r in fills or []:
+        f = r.fill
+        if f.result == "error":
+            first = (f.detail.get("errors") or ["?"])[0]
+            out.append(f"Warehouse job '{f.job}' failed ({first[:160]}); figures it did not refresh come from the "
+                       "earlier read shown in the data line.")
+        elif f.result == "warn":
+            out.append(f"Warehouse job '{f.job}' stored its data with reconciliation problems: "
+                       + "; ".join(f.detail.get("problems", [])[:3]))
+    return list(dict.fromkeys(out + list(notes or [])))
+
+
+def _cells(v: Variance | None, m: Materiality) -> dict | None:
+    if v is None:
+        return None
+    return {"cur": v.current.value, "cmp": v.comparison.value, "var": v.abs.value, "pct": shown_pct(v, m)}
+
+
+def table(res: Result, cat: Catalog) -> list[dict]:
+    """The compact answer for the agent: one row per comparison and line (and per KPI vs last year), with the
+    label of that comparison's cube, month and YTD (cur, cmp, var, pct) and the Material text."""
+    m = cat.materiality
+    out = []
+    for c in COMPARISONS:
+        for key, vs in res.table_of(c).items():
+            out.append({"comparison": c, "line": key, "label": res.label(CUBE[c], key), "month": _cells(vs["m"], m),
+                        "ytd": _cells(vs["ytd"], m), "flag": flag_text(res, c, key)})
+    labels = {k.key: k.label + (" (annualised)" if k.annualise else "") for k in cat.kpis}
+    for key, vs in res.kpi_vars.items():
+        out.append({"comparison": "ly", "line": f"kpi.{key}", "label": labels.get(key, key),
+                    "month": _cells(vs.get("m"), m), "ytd": _cells(vs["ytd"], m), "flag": None})
+    return out
+
+
+def summary(res: Result, mode: str, fills: list, notes: list[str] | None = None, cat: Catalog | None = None,
+            detail: str = "compact") -> dict:
+    """What the agent writes the answer from: the compact table, flags (signed variances), the landing, missing
+    facts with their reasons, warnings and freshness. detail='full' adds every fact with its inputs."""
+    from .catalog import load
+    cat = cat or load()
+    flagged = []
+    for c, k, f in res.ranking():
+        vs = res.table_of(c).get(k, {})
+        y, mo = vs.get("ytd"), vs.get("m")
+        flagged.append({"comparison": c, "line": k, "label": res.label(CUBE[c], k), "material": f.material,
+                        "always": f.always, "basis": f.basis, "provisional": res.provisional, "reason": f.reason,
+                        "ytd_var": None if y is None else y.abs.value,
+                        "month_var": None if mo is None else mo.abs.value,
+                        "favourable": None if y is None else y.favourable})
+    gone = res.missing()
     out = {"area": res.scope.entity.label, "period": res.scope.period, "closed_month": res.scope.closed,
-           "forecast": res.scope.forecast, "freshness": freshness_text(res, mode, notes), "flags": flagged,
-           "headline_kpi": res.headline, "facts": facts,
-           "missing": [{"id": f.id, "reason": f.reason} for f in res.missing()][:40],
-           "problems": list(res.problems), "refresh_notes": list(notes or []),
+           "forecast": res.scope.forecast, "provisional": res.provisional,
+           "freshness": freshness_text(res, mode, notes), "flags": flagged, "headline_kpi": res.headline,
+           "table": table(res, cat), "missing_count": len(gone),
+           "missing": [{"id": f.id, "reason": f.reason} for f in gone][:20],
+           "problems": list(res.problems), "notes": list(res.notes), "refresh_notes": list(notes or []),
            "fills": [{"job": r.fill.job, "result": r.fill.result, "cells": r.fill.cells, "seconds": r.fill.seconds,
                       "errors": r.fill.detail.get("errors", [])[:3], "problems": r.fill.detail.get("problems", [])[:3]}
                      for r in fills]}
+    if detail == "full":
+        keep = ("fm.", "fp.", "kpi.", "land.", "units.", "unit.", "bridge.")
+        out["facts"] = [f.as_dict(max_inputs=3) for k, f in res.facts.items()
+                        if k.startswith(keep) and ".lvl." not in k]
     if res.landing is not None:
         ld = res.landing
         out["landing"] = {"forecast": ld.forecast.value, "run_rate": ld.run_rate.value, "target": ld.target.value,

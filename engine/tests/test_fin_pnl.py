@@ -2,7 +2,7 @@
 import dataclasses
 
 import pytest
-from fin_util import CAT, WHS, filled
+from fin_util import CAT, CAT0, FC, WHS, filled, make_value
 
 from smartview_mcp import fin_pnl
 from smartview_mcp.warehouse import Row
@@ -124,16 +124,72 @@ def test_an_abolished_area_is_refused(tmp_path):
         fin_pnl.compute(CAT, dataclasses.replace(scope, entity=con), store)
 
 
-def test_an_open_month_is_read_from_the_top_up(tmp_path):
+def test_an_open_month_is_read_from_the_top_up_and_its_flags_are_provisional(tmp_path):
     store, _, scope = filled(tmp_path, period="Oct 26")
     res = fin_pnl.compute(CAT, scope, store)
     assert res.fm["ebitda"]["m"].current.value == pytest.approx(290 * YR)
-    assert res.freshness["FinMax"]["open_rows"] > 0
+    assert res.freshness["FinMax"]["open_rows"] > 0 and res.provisional
     assert "open month read live" in fin_pnl.freshness_text(res, "warehouse")
-    s = fin_pnl.summary(res, "warehouse", [])
+    s = fin_pnl.summary(res, "warehouse", [], cat=CAT)
     assert s["area"] == "Wholesale" and s["landing"]["method"].startswith("seasonality")
-    assert all(not f["id"].endswith(".pct") for f in s["facts"]) and s["headline_kpi"] == "personnel_per_fte"
-    assert s["missing"] == [] and s["problems"] == []
+    assert "facts" not in s and s["headline_kpi"] == "personnel_per_fte" and s["missing_count"] == 0
+    assert s["provisional"] and all(f["provisional"] for f in s["flags"])
+    assert fin_pnl.flag_text(res, "ly", "rev") == "comment - provisional"
+    assert any("still open" in w for w in fin_pnl.tool_warnings(res, []))
+    full = fin_pnl.summary(res, "warehouse", [], cat=CAT, detail="full")
+    assert full["facts"] and any(f["id"].endswith(".pct") for f in full["facts"])
+
+
+def test_the_tool_output_is_compact_signed_and_labelled_per_cube(tmp_path):
+    store, _, scope = filled(tmp_path)
+    labels = fin_pnl.line_labels(CAT, lambda cube, acct: "C30 REVENUES" if acct == "ac.C30" else None)
+    assert labels[("FinMax", "rev")] == "C30 REVENUES (Revenue)" and labels[("FinPlan", "oth")] == "Other items"
+    res = fin_pnl.compute(CAT0, dataclasses.replace(scope, labels=labels), store)
+    s = fin_pnl.summary(res, "warehouse", [], cat=CAT0)
+    rev = next(f for f in s["flags"] if f["comparison"] == "ly" and f["line"] == "rev")
+    assert rev["label"] == "C30 REVENUES (Revenue)" and rev["ytd_var"] == pytest.approx(900)
+    assert rev["month_var"] == pytest.approx(100) and rev["favourable"] is True and "variance" not in rev
+    row = next(r for r in s["table"] if r["comparison"] == "forecast" and r["line"] == "oth")
+    assert row["label"] == "Other items" and row["ytd"]["pct"] == pytest.approx(
+        res.forecast["oth"]["ytd"].pct.value)
+    assert any(r["line"] == "kpi.personnel_per_fte" and r["label"].endswith("(annualised)") for r in s["table"])
+    assert res.line_bridge.steps[0].label == "C30 REVENUES (Revenue)"
+
+
+def test_the_variance_pct_is_blank_under_the_floor(tmp_path):
+    store, _, scope = filled(tmp_path)
+    res = fin_pnl.compute(CAT, scope, store)                       # invented figures: all far below NOK 500k
+    assert res.fm["rev"]["ytd"].pct.value is not None
+    assert fin_pnl.shown_pct(res.fm["rev"]["ytd"], CAT.materiality) is None
+    assert fin_pnl.shown_pct(res.fm["fte"]["ytd"], CAT.materiality) is not None    # FTE is not an amount
+    s = fin_pnl.summary(res, "warehouse", [], cat=CAT)
+    assert next(r for r in s["table"] if r["line"] == "rev")["ytd"]["pct"] is None
+
+
+def test_a_finished_year_has_no_landing(tmp_path):
+    store, _, scope = filled(tmp_path, period="Dec 25", forecast="Forecast Q325")
+    res = fin_pnl.compute(CAT, scope, store)
+    assert res.past_year and res.landing is None and not fin_pnl.landing_warnings(res)
+    assert res.budget["ebitda"]["ytd"].current.value == pytest.approx(290 * 12)
+    assert any("finished year" in n for n in res.notes) and not res.provisional
+
+
+def test_a_forecast_without_data_is_detected(tmp_path):
+    store, _, _ = filled(tmp_path, value_fn=make_value(empty=("Forecast Q426",)), forecast="Forecast Q426")
+    assert not fin_pnl.forecast_has_data(store, CAT, WHS, "Forecast Q426", 26)
+    store2, _, _ = filled(tmp_path / "b")
+    assert fin_pnl.forecast_has_data(store2, CAT, WHS, FC, 26)
+
+
+def test_warned_fills_and_refresh_notes_are_tool_warnings(tmp_path):
+    from smartview_mcp.extract import FillResult
+    from smartview_mcp.warehouse import Fill
+    store, _, scope = filled(tmp_path)
+    res = fin_pnl.compute(CAT, scope, store)
+    warn = FillResult(Fill("new_month", "x", 0.0, 0.1, 5, "warn", {"problems": ["C30 + C40S = C48 is off by 3"]}))
+    w = fin_pnl.tool_warnings(res, [warn], ["warehouse refresh skipped: another smartass process is refreshing"])
+    assert any("C30 + C40S = C48 is off by 3" in x for x in w) and w[-1].startswith("warehouse refresh skipped")
+
 
 
 def test_refresh_notes_are_in_the_freshness_line(tmp_path):

@@ -13,7 +13,7 @@ from . import fin_pnl as pnl                      # the tool below is called fin
 from .host import HostError
 from .server import WRITE, _call_user, _err, tool
 from .timing import Timer, stage
-from .warehouse import MemoryWarehouse, Warehouse, WarehouseUnavailable
+from .warehouse import OPEN, MemoryWarehouse, Warehouse, WarehouseUnavailable
 
 Comparison = Literal["ly", "budget", "forecast"]
 
@@ -50,16 +50,65 @@ def stale_note(fills) -> str | None:
             "that were not refreshed come from the earlier read shown in the data line.")
 
 
-def _units(db, entity: catalog.Entity) -> tuple[tuple[str, str], ...]:
-    """(member, label) of the area's sub-units from the atlas, for the sub-unit bridge."""
+UNIT_CAP = 40                                     # sub-units in the bridge (the largest 5 shown, the rest grouped)
+
+
+def _units(db, entity: catalog.Entity) -> tuple[tuple[tuple[str, str], ...], str | None]:
+    """((member, label) of the area's sub-units from the atlas, for the sub-unit bridge; a note when the cap left
+    some out)."""
     labels = {}
 
     def kids(m):
         rows = [r for r in atlas.children(db, "FinMax", m) if r["dimension"] == "All Entities"]
         labels.update({r["name"]: templates._clean(r["label"]) or r["name"] for r in rows})
         return [r["name"] for r in rows]
-    names = refresh.sub_units(kids, entity.finmax) if entity.finmax else []
-    return tuple((n, labels.get(n, n)) for n in names)
+    names = refresh.sub_units(kids, entity.finmax, limit=10_000) if entity.finmax else []
+    note = None
+    if len(names) > UNIT_CAP:
+        note = (f"{entity.label} has {len(names)} sub-units; the first {UNIT_CAP} are read for the sub-unit bridge, "
+                f"the other {len(names) - UNIT_CAP} are in 'Other units and eliminations'.")
+        names = names[:UNIT_CAP]
+    return tuple((n, labels.get(n, n)) for n in names), note
+
+
+def _aliases(db):
+    """alias(cube, account) -> the atlas label of the account, cleaned ('C30 REVENUES'), or None."""
+    def alias(cube, account):
+        try:
+            r = db.execute("SELECT label FROM member WHERE connection=? AND dimension=? AND name=? LIMIT 1",
+                           (cube, catalog.ACCOUNT_DIM.get(cube, ""), account)).fetchone()
+        except Exception:   # noqa: BLE001 - an atlas without the table: the catalogue labels
+            return None
+        return (templates._clean(r[0]) or None) if r and r[0] else None
+    return alias
+
+
+def _forecast(st, retrieve, cat, entity, p, closed, newest_first: list[str], fills: list):
+    """The forecast to use: the newest with data on FinPlan's grand line for the year (the newest is read by
+    top_up). An empty newest member (created, not filled in) falls back to the next one, read live: (name, note)."""
+    yy = templates.split_period(p)[1]
+    if not newest_first or not entity.finplan:
+        return (newest_first[0] if newest_first else None), None
+    newest = newest_first[0]
+    if pnl.forecast_has_data(st, cat, entity, newest, yy):
+        return newest, None
+    for older in newest_first[1:]:
+        grids = extract.finplan_grids(cat, [(older, "Final", yy)], [entity.finplan])
+        fills.append(extract.fill(st, retrieve, cat, grids, "top_up", closed, closed_label=OPEN))
+        if pnl.forecast_has_data(st, cat, entity, older, yy):
+            return older, f"{newest} is empty; {older} used"
+    return newest, f"{newest} is empty and no earlier forecast of FY{yy:02d} has data"
+
+
+def _open(store):
+    """The store to use: the given one, else the DuckDB warehouse (WarehouseUnavailable when DuckDB will not load)."""
+    if store is not None:
+        return store
+    try:
+        import duckdb  # noqa: F401 - the warehouse needs it; a broken install answers from live pulls
+        return Warehouse()
+    except ImportError as e:
+        raise WarehouseUnavailable(f"DuckDB will not load: {e}") from None
 
 
 def prepare(h, cat: catalog.Catalog, entity: catalog.Entity, period: str | None, compare: tuple[str, ...],
@@ -80,25 +129,29 @@ def _prepare(h, cat, entity, period, compare, store, retrieve, db):
     with stage("closed month"):
         closed = templates.closed_month(h)
     p = period or closed
-    templates.split_period(p)                                  # 'Sep 26' or a readable InputError
+    yy = templates.split_period(p)[1]                          # 'Sep 26' or a readable InputError
     retrieve = retrieve or extract.route(host=lambda: h)
-    forecast = templates.latest_forecast(templates.split_period(p)[1])
-    units = _units(db, entity)
-    scope = pnl.Scope(entity, p, closed, forecast, units, compare)
+    candidates = templates.forecasts(yy)
+    units, cap_note = _units(db, entity)
+    labels = pnl.line_labels(cat, _aliases(db))
     notes: list[str] = []
 
     def run(st, fills):
         with stage("top up (live)"):
-            fills += refresh.top_up(st, retrieve, cat, entity, p, closed, forecast, [u for u, _ in units])
+            fills += refresh.top_up(st, retrieve, cat, entity, p, closed, candidates[0] if candidates else None,
+                                    [u for u, _ in units])
+            forecast, fc_note = _forecast(st, retrieve, cat, entity, p, closed, candidates, fills)
+        scope = pnl.Scope(entity, p, closed, forecast, units, compare, labels=labels, forecast_note=fc_note,
+                          notes=(cap_note,) if cap_note else ())
         with stage("calc engine"):
             return pnl.compute(cat, scope, st), fills
     try:
-        st = store if store is not None else Warehouse()
+        st = _open(store)
         with stage("warehouse refresh"):
             fills = refresh.refresh(st, retrieve, cat, closed, db, templates.latest_forecast, notes=notes)
         res, fills = run(st, fills)
         return res, "warehouse", fills, notes
-    except (WarehouseUnavailable, ImportError) as e:
+    except WarehouseUnavailable as e:
         mem = MemoryWarehouse()
         with stage("live pulls (no warehouse)"):
             fills = [extract.fill(mem, retrieve, cat, extract.base_grids(cat, closed, templates.latest_forecast,
@@ -110,7 +163,7 @@ def _prepare(h, cat, entity, period, compare, store, retrieve, db):
 @tool(annotations=WRITE)
 async def fin_pnl(area: str, period: str | None = None, compare: list[Comparison] | None = None,
                   target: str = "session", allow_archive: bool = False, q: int | None = None,
-                  ctx: Context | None = None) -> dict:
+                  detail: Literal["compact", "full"] = "compact", ctx: Context | None = None) -> dict:
     """ONE call for 'P&L for <business area>': the month and YTD against last year (FinMax), budget and the latest
     forecast (FinPlan), materiality flags (catalogue rule), an EBITDA bridge by line and by sub-unit, KPIs (cost per
     FTE first, margins) and the year-end landing. The numbers come from the local warehouse (refreshed automatically
@@ -118,9 +171,13 @@ async def fin_pnl(area: str, period: str | None = None, compare: list[Comparison
     are delivered as an analysis in the session's workbook: live Smart View source sheets, every answer cell a
     formula, and checks that the warehouse equals each source sheet. area: e.g. 'Wholesale', 'Business', '2TEC'
     (Consumer and Infrastructure Growth were abolished on 1 June 2026: the tool names their successors);
-    period: 'Sep 26' (default: the last closed month); compare: any of 'ly', 'budget', 'forecast' (default all).
-    Write the reply from the returned key_points, flags, facts, missing and freshness - never compute a number
-    yourself."""
+    period: 'Sep 26' (default: the last closed month); compare: any of 'ly', 'budget', 'forecast' (default all) -
+    it ONLY decides which comparisons get flags and comments: the workbook and the table ALWAYS show last year,
+    budget, the forecast and the landing. An empty newest forecast falls back to the newest one with data (said in
+    warnings). A finished year (December of an earlier year) has no landing; an open period's flags are provisional.
+    detail: 'compact' (default: the per-line table, flags, landing, missing_count) | 'full' (adds every fact).
+    Write the reply from the returned key_points, table, flags, warnings and freshness - never compute a number
+    yourself; pass every warning on."""
     cat = catalog.load()
     entity = resolve_area(cat, area)
     cmp = tuple(compare or pnl.COMPARISONS)
@@ -136,10 +193,9 @@ async def fin_pnl(area: str, period: str | None = None, compare: list[Comparison
         pulls = [PullIn.model_validate(x) for x in req.pulls]
         out = _build_job(h, tm, req.question, pulls, req.spec, target, allow_archive, q, replace=bool(q),
                          before_answer=lambda spec, by_id: fin_spec.with_reconciliation(spec, req.expected, by_id))
-        warnings = ([stale] if stale else []) + list(notes) + list(res.problems)
-        if warnings:
-            out["warnings"] = warnings + list(out.get("warnings") or [])
-        return {**out, **pnl.summary(res, mode, fills, notes)}
+        warnings = pnl.tool_warnings(res, fills, notes)
+        out["warnings"] = list(dict.fromkeys(warnings + list(out.get("warnings") or [])))
+        return {**out, **pnl.summary(res, mode, fills, notes, cat=cat, detail=detail)}
     try:
         out = await _call_user(job, what="fin_pnl")
     except (HostError, ToolError, ValueError) as e:      # ValueError: InputError (a bad period) and engine errors
@@ -157,8 +213,8 @@ async def sv_warehouse(action: Literal["status", "refresh"] = "status") -> dict:
     only what changed), read-only against EPM."""
     if action == "status":
         try:
-            return Warehouse().status()
-        except (WarehouseUnavailable, ImportError) as e:
+            return _open(None).status()
+        except WarehouseUnavailable as e:
             raise ToolError(f"warehouse unavailable: {e}. Next step: retry in a minute (another smartass process "
                             "may be writing it); if it repeats, call sv_status.") from None
     cat = catalog.load()
@@ -169,7 +225,7 @@ async def sv_warehouse(action: Literal["status", "refresh"] = "status") -> dict:
             closed = templates.closed_month(h)
         notes: list[str] = []
         with stage("warehouse refresh"), contextlib.closing(atlas.connect()) as db:
-            fills = refresh.refresh(Warehouse(), extract.route(host=lambda: h), cat, closed, db,
+            fills = refresh.refresh(_open(None), extract.route(host=lambda: h), cat, closed, db,
                                     templates.latest_forecast, notes=notes)
         return {"closed_month": closed, "notes": notes,
                 "jobs": [{"job": r.fill.job, "result": r.fill.result, "cells": r.fill.cells,
@@ -177,5 +233,5 @@ async def sv_warehouse(action: Literal["status", "refresh"] = "status") -> dict:
                 or ("nothing ran: " + "; ".join(notes) if notes else "nothing to do: the warehouse is up to date")}
     try:
         return await _call_user(job, what="sv_warehouse refresh")
-    except (HostError, ToolError, WarehouseUnavailable, ImportError) as e:
+    except (HostError, ToolError, WarehouseUnavailable) as e:
         raise _err(e)

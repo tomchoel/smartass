@@ -24,7 +24,8 @@ def fake_atlas(tmp_path, monkeypatch):
     atlas.store(db, "FinMax", "All Accounts", [_m("ac.EBITDA", "All Accounts")], 1.0)
     atlas.store(db, "FinPlan", "Entity", [_m("BANORWAY+TIPO", "Entity"), _m("BANORWAY", "BANORWAY+TIPO", 2),
                                           _m("2TEC Technology", "BANORWAY", 3)], 1.0)
-    monkeypatch.setattr(atlas, "connect", lambda *a, **k: db)
+    real = atlas.connect                   # a fresh connection per call: callers may close theirs
+    monkeypatch.setattr(atlas, "connect", lambda *a, **k: real(tmp_path / "atlas.db"))
     return db
 
 
@@ -111,6 +112,7 @@ def test_known_members_and_missing_atlas_pass(fake_atlas):
 
 def test_stale_atlas_is_skipped(fake_atlas):
     fake_atlas.execute("UPDATE build SET built_at = built_at - 40 * 86400")
+    fake_atlas.commit()                    # the code under test opens its own connection
     assert ops.unknown_members("FinMax", {"All Entities": "un.SY.NOPE"}, [], []) == []
 
 

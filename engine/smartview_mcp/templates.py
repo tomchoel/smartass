@@ -456,16 +456,22 @@ def fp_checks() -> list[tuple]:
     return [(c.label, c.expr) for c in catalog.load().checks["FinPlan"]]
 
 
-def latest_forecast(year_yy: int) -> str | None:
-    db = atlas.connect()
-    names = [r[0] for r in db.execute("SELECT DISTINCT name FROM member WHERE connection='FinPlan' AND dimension='Scenario' "
-                                      "AND name LIKE 'Forecast Q%'")]
+def forecasts(year_yy: int) -> list[str]:
+    """The FinPlan 'Forecast Q<q><yy>' members of a year in the atlas, newest quarter first."""
+    with contextlib.closing(atlas.connect()) as db:
+        names = [r[0] for r in db.execute("SELECT DISTINCT name FROM member WHERE connection='FinPlan' AND "
+                                          "dimension='Scenario' AND name LIKE 'Forecast Q%'")]
     cands = []
     for n in names:
         m = re.fullmatch(r"Forecast Q(\d)(\d\d)", n)
         if m and int(m.group(2)) == year_yy:
             cands.append((int(m.group(1)), n))
-    return max(cands)[1] if cands else None
+    return [n for _, n in sorted(cands, reverse=True)]
+
+
+def latest_forecast(year_yy: int) -> str | None:
+    names = forecasts(year_yy)
+    return names[0] if names else None
 
 
 def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: str | None = None, basis: str = "ytd",
