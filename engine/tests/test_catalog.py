@@ -67,6 +67,8 @@ def _with(path, value):
     (_with(["entity"], BASE["entity"] * 2), "duplicate"),
     (_with(["scenarios", "actual"], {"connection": "FinMax", "label": "A"}), "scenario or rule"),
     (_with(["entity", 0, "successors"], ["nope"]), "successor 'nope'"),
+    (_with(["entity", 0, "generic_aliases"], "total"), r"entity\[0\]: generic_aliases must be a list"),
+    (_with(["entity", 0, "generic_aliases"], ["Wholesale"]), "duplicate entity alias 'wholesale'"),
     (_with(["entity", 0, "aliases"], "wholesale"), r"entity\[0\]: aliases must be a list"),
     (_with(["materiality", "always"], "rev"), "materiality: always must be a list"),
     (_with(["scenarios", "actual", "connection"], "Nope"), "scenario 'actual': connection 'Nope' is not a pnl cube"),
@@ -146,7 +148,8 @@ def test_resolve_entity_in_a_sentence(text, key):
     assert catalog.resolve_entity(catalog.load(), text).key == key
 
 
-@pytest.mark.parametrize("text", ["mobil", "mobilkostnader i fjor", "Wholesale vs Business"])
+@pytest.mark.parametrize("text", ["mobil", "mobilkostnader i fjor", "Wholesale vs Business",
+                                  "Telenor Norge vs Wholesale"])
 def test_resolve_entity_none_when_not_one_area(text):
     assert catalog.resolve_entity(catalog.load(), text) is None
 
@@ -157,6 +160,12 @@ def test_resolve_entity_none_when_not_one_area(text):
     ("IT-divisjonen mot Technology", ("it", "technology")),
     ("Security Solutions & Mobile og E&I", ("ssm", "ei")),
     ("Total for IT og SSM", ("it", "ssm")),
+    ("Telenor Norge vs Wholesale", ("company", "wholesale")),
+    ("Wholesale mot TN", ("wholesale", "company")),
+    ("telenor norge total mot Business", ("company", "business")),
+    ("selskapet og Wholesale", ("wholesale",)),
+    ("company total vs IT", ("it",)),
+    ("total opex for SSM", ("ssm",)),
     ("total opex", ("company",)),
     ("nothing here", ()),
 ])
@@ -221,3 +230,11 @@ def test_fte_is_a_stock_and_per_fte_kpis_use_the_average_level():
     for key in ("opex_per_fte", "personnel_per_fte"):
         assert (kpis[key].basis, kpis[key].annualise) == ("average_stock", True)
     assert (kpis["ebitda_margin"].basis, kpis["ebitda_margin"].annualise) == ("period", False)
+
+
+def test_only_generic_company_words_give_way():
+    company = {e.key: e for e in catalog.load().entities}["company"]
+    assert set(company.generic_aliases) == {"total", "company", "selskapet"}
+    assert "telenor norge" in company.aliases and "total" not in company.aliases
+    assert catalog.resolve_entity(catalog.load(), "total").key == "company"
+    assert catalog.resolve_entity(catalog.load(), "selskapet hittil i år").key == "company"

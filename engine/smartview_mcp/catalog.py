@@ -63,6 +63,7 @@ class Entity:
     key: str
     label: str
     aliases: tuple[str, ...]
+    generic_aliases: tuple[str, ...] = ()   # generic words ("total"): count only when no named area is matched
     finmax: str | None = None
     finplan: str | None = None
     abolished: str | None = None
@@ -99,26 +100,24 @@ class Catalog:
     entities: tuple[Entity, ...]
     kpis: tuple[Kpi, ...]
     _whole: Mapping[str, Entity] = field(default_factory=dict, repr=False, compare=False)
-    _patterns: tuple[tuple[re.Pattern, Entity], ...] = field(default=(), repr=False, compare=False)
+    _patterns: tuple[tuple[re.Pattern, Entity, bool], ...] = field(default=(), repr=False, compare=False)
 
     def line_by_concept(self, cube: str, concept: str) -> Line | None:
         """The line of `cube` that carries `concept` (FinMax c73 and FinPlan oth are both other_items), or None."""
         return next((x for x in self.pnl.get(cube, ()) if x.concept == concept), None)
 
 
-COMPANY = "company"   # the entity for the whole company: a generic word like "total" must not beat a named area
-
-
 def _norm(s: str) -> str:
     return re.sub(r"[^\w&]+", " ", s.casefold()).strip()
 
 
-def _patterns(entities: tuple[Entity, ...]) -> tuple[tuple[re.Pattern, Entity], ...]:
-    """Each alias and label as a regex over the original text: words in any case with any separators between them;
-    aliases under 3 characters only in UPPER CASE (so "it" in "is it good?" is not IT)."""
+def _patterns(entities: tuple[Entity, ...]) -> tuple[tuple[re.Pattern, Entity, bool], ...]:
+    """Each alias and label as (regex over the original text, entity, generic): words in any case with any separators
+    between them; aliases under 3 characters only in UPPER CASE (so "it" in "is it good?" is not IT)."""
     out = []
     for e in entities:
-        for a in (*e.aliases, e.label):
+        names = [(a, False) for a in (*e.aliases, e.label)] + [(a, True) for a in e.generic_aliases]
+        for a, generic in names:
             words = _norm(a).split()
             if not words:
                 continue
@@ -127,7 +126,7 @@ def _patterns(entities: tuple[Entity, ...]) -> tuple[tuple[re.Pattern, Entity], 
             else:
                 body = r"[^\w&]+".join(re.escape(w) for w in words)
                 rx = re.compile(rf"(?<![\w&]){body}(?![\w&])", re.IGNORECASE)
-            out.append((rx, e))
+            out.append((rx, e, generic))
     return tuple(out)
 
 
@@ -218,7 +217,7 @@ def parse(data: dict) -> Catalog:
     scenarios = {k: _build(Scenario, v, f"scenarios[{k}]", key=k)
                  for k, v in _section(data, "scenarios", dict).items()}
     materiality = _materiality(_section(data, "materiality", dict))
-    entities = tuple(_build(Entity, e, f"entity[{i}]", ("aliases", "successors"))
+    entities = tuple(_build(Entity, e, f"entity[{i}]", ("aliases", "generic_aliases", "successors"))
                      for i, e in enumerate(_section(data, "entity", list)))
     entities = tuple(dataclasses.replace(e, abolished=_iso_date(e.abolished, f"entity '{e.key}'")) for e in entities)
     kpis = tuple(_build(Kpi, k, f"kpi[{i}]") for i, k in enumerate(_section(data, "kpi", list, [])))
@@ -276,7 +275,7 @@ def parse(data: dict) -> Catalog:
         if a not in every:
             raise CatalogError(f"materiality.always: '{a}' is not a line key")
     _unique([e.key for e in entities], "entity key")
-    _unique([_norm(a) for e in entities for a in e.aliases], "entity alias")
+    _unique([_norm(a) for e in entities for a in (*e.aliases, *e.generic_aliases)], "entity alias")
     ekeys = {e.key for e in entities}
     for e in entities:
         if not e.finmax and not e.finplan:
@@ -286,7 +285,7 @@ def parse(data: dict) -> Catalog:
                 raise CatalogError(f"entity '{e.key}': successor '{s}' is not another entity key")
     whole: dict[str, Entity] = {}
     for e in entities:
-        for name in (e.finmax, e.finplan, e.label, *e.aliases):
+        for name in (e.finmax, e.finplan, e.label, *e.aliases, *e.generic_aliases):
             if name:
                 whole.setdefault(_norm(name), e)
     return Catalog(MappingProxyType(pnl), MappingProxyType(checks), MappingProxyType(scenarios), materiality,
@@ -311,19 +310,20 @@ def load(path: Path | None = None) -> Catalog:
 def resolve_entities(cat: Catalog, text: str) -> tuple[Entity, ...]:
     """Every business area a question or member name refers to, in order of appearance. A member name (finmax/finplan),
     alias or label as the whole text gives that area alone. Otherwise aliases are found as whole words, a match inside
-    a longer match is dropped ("IT" in "IT-divisjonen"), and the company only counts when no other area is named."""
+    a longer match is dropped ("IT" in "IT-divisjonen"), and a generic alias ("total", "selskapet") only counts when
+    nothing is named: "total opex for SSM" is SSM, but "Telenor Norge vs Wholesale" is both."""
     whole = cat._whole.get(_norm(text))
     if whole:
         return (whole,)
-    spans = [(m.start(), m.end(), e) for rx, e in cat._patterns for m in rx.finditer(text)]
-    kept = [(a, b, e) for a, b, e in spans
-            if not any(a2 <= a and b <= b2 and (b2 - a2) > (b - a) for a2, b2, _ in spans)]
+    spans = [(m.start(), m.end(), e, g) for rx, e, g in cat._patterns for m in rx.finditer(text)]
+    if any(not g for *_, g in spans):
+        spans = [x for x in spans if not x[3]]
+    kept = [(a, b, e) for a, b, e, _ in spans
+            if not any(a2 <= a and b <= b2 and (b2 - a2) > (b - a) for a2, b2, *_ in spans)]
     found: list[Entity] = []
     for _, _, e in sorted(kept, key=lambda x: (x[0], -(x[1] - x[0]))):
         if e not in found:
             found.append(e)
-    if len(found) > 1:
-        found = [e for e in found if e.key != COMPANY]
     return tuple(found)
 
 
