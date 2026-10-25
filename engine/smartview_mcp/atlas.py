@@ -69,6 +69,13 @@ def usable(db, connection: str, dimension: str) -> bool:
     return bool(r and r[1] and not r[2] and (time.time() - r[0]) / 86400 <= MAX_AGE_DAYS)
 
 
+def built(db, connection: str, dimension: str) -> bool:
+    """The dimension was built without error and has members, whatever its age (dimension names do not go stale;
+    the HTTP route needs only those)."""
+    r = db.execute("SELECT n, error FROM build WHERE connection=? AND dimension=?", (connection, dimension)).fetchone()
+    return bool(r and r[0] and r[1] is None)
+
+
 def canonical(db, connection: str, dimension: str, name: str) -> str | None:
     """The atlas spelling of a member given by name (or, failing that, alias label), case-insensitive like Essbase;
     None if the dimension does not have it. The dimension's own name is its top member."""

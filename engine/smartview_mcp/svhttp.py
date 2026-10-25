@@ -83,12 +83,13 @@ class SvHttp:
         return base, cube, self._sids[conn]
 
     def dimensions(self, conn: str) -> list[str]:
-        """The connection's dimensions from the atlas; SvHttpError if it has none or any of them is not usable
-        (failed or too old) - the grid would then be built on a wrong dimension list, COM knows better."""
+        """The connection's dimensions from the atlas; SvHttpError if it has none or any of them was not built
+        (failed or empty; age does not matter) - the grid would then be built on a wrong dimension list, COM knows
+        better."""
         db = atlas.connect(self.db_path)
         try:
             dims = atlas.dimensions(db, conn)
-            stale = [d for d in dims if not atlas.usable(db, conn, d)]
+            stale = [d for d in dims if not atlas.built(db, conn, d)]
         finally:
             db.close()
         if not dims:

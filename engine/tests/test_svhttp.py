@@ -24,6 +24,23 @@ def test_atlas_dimensions_sorted_per_connection(tmp_path):
     assert atlas.dimensions(db, "FinLite") == []
 
 
+def _age(db, conn, days):
+    with db:
+        db.execute("UPDATE build SET built_at = built_at - ? WHERE connection=?", (days * 86400, conn))
+
+
+def test_atlas_built_ignores_age_but_not_errors_or_empty_builds(tmp_path):
+    db = atlas.connect(tmp_path / "a.db")
+    _store(db, "FinMax", ["All Accounts"])
+    _store(db, "FinMax", ["All Entities"], error="timed out")
+    atlas.store(db, "FinMax", "All Scenarios", [], 0.1)
+    _age(db, "FinMax", 40)
+    assert atlas.built(db, "FinMax", "All Accounts") and not atlas.usable(db, "FinMax", "All Accounts")
+    assert not atlas.built(db, "FinMax", "All Entities")
+    assert not atlas.built(db, "FinMax", "All Scenarios")
+    assert not atlas.built(db, "FinMax", "All Bogus")
+
+
 SOURCES = ('<res_GetProvisionedDataSources><Product id="HP"><Server name="FinMax" '
            'context="https://plan1.example/HyperionPlanning/SmartView" appName="FinMax"/></Product>'
            '<Product id="HP"><Server name="FinPlan_x" context="https://strat.example/HyperionPlanning/SmartView" '
@@ -182,6 +199,13 @@ def test_an_incomplete_or_stale_atlas_falls_back_to_com(db_path, tmp_path):
     db.close()
     with pytest.raises(svhttp.SvHttpError, match="atlas is incomplete or stale for FinMax.*All Scenarios"):
         _q(sv)
+
+
+def test_an_old_atlas_still_serves_the_http_route(db_path):
+    db = atlas.connect(db_path)
+    _age(db, "FinMax", 40)                                  # dimension names do not go stale
+    db.close()
+    _q(_sv(FakeTransport(answer(GRID)), db_path))
 
 
 def test_the_atlas_connection_is_closed(db_path, monkeypatch):
