@@ -22,7 +22,9 @@ Decisions from the grilling session (Tom, 2026-10-25):
 - **Interface:** a chat pane inside Excel (add-in).
 - **Trust:** every number traceable to a cube cell or a workbook formula; the LLM never does arithmetic; automatic
   reconciliation before anything is shown.
-- **EPM REST access:** unknown → find out first, design for both paths.
+- **EPM access:** probed 2026-10-25. The Smart View provider over HTTP works with SSO (Stage 0 = GO).
+- **Report format:** the delivered workbook keeps live Smart View source sheets ("kilder") that colleagues can
+  refresh; HTTP does the fast work before that, and the two are reconciled.
 - **AI backend for colleagues:** unknown → engine stays model-neutral (MCP + HTTP); decide before the add-in stage.
 - **Data:** local warehouse first, shared later. Closed months snapshotted, open month/forecast refreshed on demand,
   freshness shown on every answer.
@@ -44,19 +46,15 @@ Decisions from the grilling session (Tom, 2026-10-25):
           │
    Warehouse (DuckDB, long fact table, freshness)                       (Stage 2)
           │
-   Sources:  RestSource (exportdataslice, if Stage 0 = go)  |  SmartViewSource (existing COM path, fallback + live sheets)
+   Sources:  SvHttpSource (Smart View provider over HTTP, primary)  |  SmartViewSource (COM: live source sheets + fallback)
 ```
 
 ## Stages
 
-**Stage 0: EPM REST access probe** (spike; runs in parallel with Stage 1)
-- Ask the EPM/IDCS admin for an OAuth client (device-code flow) for read-only access. Basic auth with SSO users
-  will fail.
-- Probe script `engine\smartview_mcp\epm_rest.py` (probe only): list applications, read substitution variables, one
-  `exportdataslice` on FinMax and FinPlan.
-- **Test the key risk:** Oracle documents that exportdataslice only returns cells the user can read *and write*.
-  Compare against `sv_query` for the same grid.
-- Output: go / no-go note in `docs\specs`. No-go means SmartViewSource stays the only source; nothing else blocks.
+**Stage 0: EPM access probe: DONE, GO** (see `2026-10-25-stage0-epm-access-probe.md`)
+- OAuth REST is closed to SSO sessions. The **Smart View provider over HTTP** works with the drill browser's SSO
+  session: about 0.2 s per retrieve, identical to the COM route to the øre. No admin needed.
+- Remaining checks (do them in Stage 2): sign-in on the FinPlan pod (`stratmodel`), large grids, session lifetime.
 
 **Stage 1: Semantic catalogue**
 - `knowledge\catalog\*.yaml`:
@@ -77,7 +75,9 @@ Decisions from the grilling session (Tom, 2026-10-25):
   `fact(cube, scenario, version, entity, account, period, view, currency, value, source, fetched_at)`.
 - `sources.py`:
   - `SmartViewSource` wraps the existing retrieve + bisect path (`ops.py`, `grid.py`, `host.py`, `modBridge.bas`).
-  - `RestSource` is added if Stage 0 = go.
+  - `SvHttpSource` (**primary**): provider XML over the drill browser's SSO session (`ExecuteGrid` retrieve,
+    `GetSubVar`, `EnumMembers`), built from `scripts\probe_sv_http.py`. SmartViewSource stays for the live source
+    sheets and as a fallback.
 - Extract jobs:
   - **Close snapshot:** business-area entities × catalogue accounts × 36 months, FinMax + FinPlan Target/Forecast.
   - **On-demand top-up** of the open month and the latest forecast.
@@ -150,8 +150,7 @@ spec → implementation plan → build cycle.
 
 ## First steps
 
-1. Draft the email/request to the EPM admin for the OAuth client (Stage 0). Tom sends it.
-2. Run the writing-plans skill for **Stage 1 (catalogue) + the Stage 0 probe script**.
+1. Run the writing-plans skill for **Stage 1 (catalogue) + the Stage 0 probe script**.
 
 ## Verification (per stage, and end to end)
 
@@ -164,11 +163,12 @@ spec → implementation plan → build cycle.
   - totals checked against `sv_query`;
   - a memo with an invented number must be rejected;
   - warm-warehouse answer time < 10 s.
-- Stage 0: the exportdataslice grid equals `sv_query` cell for cell, or the gap is documented.
+- SvHttpSource: every retrieve in the live matrix equals the COM route cell for cell.
 
 ## Risks / open questions
 
-- REST access and exportdataslice read-only gaps (Stage 0 settles this).
+- The Smart View provider protocol is undocumented and could change with Oracle updates → nightly live probe +
+  COM fallback.
 - Policy for keeping cube data on local disk (sensitivity label "Internal") → confirm with IT before Stage 2 ships to
   colleagues.
 - Which model the add-in uses (Stage 6 decision).
