@@ -13,14 +13,16 @@ Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartas
   `%LOCALAPPDATA%\smartass\warehouse.duckdb`): the first call fills it (about 8 s over HTTP, measured 2026-10-25:
   12 grids, ~9,000 cells), later calls refresh only what changed (a new closed month, an atlas restatement, a new
   forecast) and read the open month and the latest forecast live. If the warehouse is locked or missing it answers
-  from live pulls and says so. `sv_warehouse(action='status')` shows the last fills and their reconciliation. A job
+  from live pulls and says so. `sv_warehouse(action='status')` shows the last fills and their reconciliation;
+  `sv_warehouse('rebuild', area=<area>)` re-reads an area's 36 months (after a 'Warehouse = source sheet' DIFF),
+  `sv_warehouse('rebuild')` recreates the whole file (also the fix for 'warehouse schema is older'). A job
   that fails on content (#NoAccess, an unknown member) pauses (15 min, then daily); transport errors retry on the next
   call. `smartass doctor` names paused jobs with their last error, and the cells a fill could not read.
   - Rules in force (owner decisions): material = 10 % of |comparison| from NOK 500k, or NOK 5 million; a month swing
     of NOK 5 million or more is flagged; |comparison| under NOK 500k counts as zero; revenue, personnel cost and
     EBITDA are always commented. Variance = current - comparison, positive = better everywhere. Cost per FTE is
     shown positive; personnel cost per FTE is the headline. FTE average = the month before the window + each month
-    end (YTD n+1 points, LTM 13).
+    end (YTD n+1 points).
   - Landing = YTD actual + the remaining months of the latest forecast; the seasonal share comes from EBITDA before
     other items when within 0.5-1.5 x n/12, otherwise YTD / n x 12. The forecast is called stale only when it is two
     quarters or more behind.

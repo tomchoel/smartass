@@ -119,7 +119,7 @@ The input is a `Frame`: values keyed by (entity, line, period, scenario) with th
 ### 5. Ops
 
 - **`smartass doctor`:** a `warehouse` check (file present, last fill, freshness, reconciliation result).
-- **New tool `sv_warehouse(action='status'|'refresh')`** for manual control.
+- **New tool `sv_warehouse(action='status'|'refresh'|'rebuild', area=None)`** for manual control.
 - **Live matrix:** a scenario "fin_pnl Wholesale": every answer value equals a direct `sv_query`, and the
   reconciliation checks are OK.
 

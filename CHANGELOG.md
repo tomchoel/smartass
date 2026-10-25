@@ -13,13 +13,14 @@
     personnel cost and EBITDA are always commented.
   - Variance = current - comparison, positive = better on every line. Cost per FTE is shown positive; personnel
     cost per FTE is the headline KPI. FTE averages use the month before the window plus each month end (YTD n+1
-    points, LTM 13).
+    points).
   - Year-end landing = YTD actual + the remaining months of the latest forecast; the seasonal share is taken from
     EBITDA before other items when it lies within 0.5-1.5 x n/12, otherwise the run rate YTD / n x 12. A forecast
     counts as stale only when it is two quarters or more behind.
   - Consumer (into SSM and E&I) and Infrastructure Growth (into TEC, ADM, E&I, SSM and BUS) were abolished
     1 June 2026: asking for them gives an explanation and the successors, never empty figures.
-- `sv_warehouse(action='status'|'refresh')`; `smartass doctor` has a `warehouse` check (last fill, cells that were
+- `sv_warehouse(action='status'|'refresh'|'rebuild', area=None)` (rebuild re-reads an area's 36 months, or
+  recreates the whole file; the warehouse carries a schema version and an older file is never mixed in); `smartass doctor` has a `warehouse` check (last fill, cells that were
   missing, paused refresh jobs with their last error, age) and lists the duckdb version in `--bundle`.
 - The closed month is read over Smart View's HTTP protocol first (EnumMembers), with Smart View in Excel as the
   fallback.

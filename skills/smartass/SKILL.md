@@ -64,11 +64,18 @@ from the tool list, or `sv_status` lacks `behind_reload_proxy`, the server preda
    the `un.SY` tree (Telenor Norge AS); `un.NOR.*` is the management view with IFRS16 units. FinPlan uses aliases as
    shown (`2TEC Technology`, `FY26`, `Target 2025`).
 4. **Build the analysis.** Use a concept or a template when one fits:
+   - **Business-area P&L** ("P&L for Wholesale", "how is Business doing"): `fin_pnl(area)` FIRST - one call
+     gives month and YTD against last year, budget and the latest forecast, materiality flags, the EBITDA bridge by
+     line and sub-unit, KPIs and the year-end landing, from the local warehouse, with live source sheets and a
+     warehouse = sheet check. Consumer and IG (abolished 1 June 2026) are refused with their successors: tell the
+     user and ask which successor(s). Reply from its key_points, table, flags and warnings (facts with
+     `detail='full'`). The warehouse: `sv_warehouse(status|refresh|rebuild)`; a 'Warehouse = source sheet' DIFF
+     means `sv_warehouse('rebuild', area=<area>)`, then `fin_pnl` again.
    - `sv_analyse(question, template, params)`. `target` defaults to the session's workbook.
 
      | Template | Params | Delivers |
      |---|---|---|
-     | `division_pnl` | `entity`, `period?` (default: last closed), `basis` ytd/month | P&L vs the same period last year, checks, top-5 sub-unit variance drivers, EBITDA bridge (waterfall) |
+     | `division_pnl` (being retired: use `fin_pnl`) | `entity`, `period?` (default: last closed), `basis` ytd/month | P&L vs the same period last year, checks, top-5 sub-unit variance drivers, EBITDA bridge (waterfall) |
      | `monthly_trend` | `entity`, `accounts?`, `through?` | Jan→month periodic, a YTD column checked against Accumulated, line chart |
      | `actual_vs_plan` | `entity` (FinPlan alias), `month?`, `year?` | Actual vs Target and the latest forecast, FinMax reconciliation |
      | `cost_base` | `parent`, `accounts?`, `period?`, `top?` | Top-N leaf cost centres + "other" + total; the full tree is on the data sheet |
