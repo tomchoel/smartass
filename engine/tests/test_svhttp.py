@@ -569,3 +569,28 @@ def test_shared_is_one_instance_across_threads(monkeypatch):
     for th in ts:
         th.join()
     assert len({id(x) for x in got}) == 1
+
+
+ENUM_SEP = ('<res_EnumMembers><overflow>0</overflow><mbrs enc="1">[CurrRepMonth].[Y26M09]</mbrs>'
+            '<atts enc="0">0</atts><mbrDesc enc="1">Y26M09</mbrDesc></res_EnumMembers>')
+
+
+def test_closed_month_over_http(db_path):
+    t = FakeTransport(ENUM_SEP)
+    assert _sv(t, db_path).closed_month() == "Sep 26"
+    assert t.tags() == ["GetProvisionedDataSources", "ConnectToProvider", "OpenApplication", "OpenCube", "EnumMembers"]
+    assert "<dim>TimePeriods</dim>" in t.bodies[-1] and ">CurrRepMonth</arg>" in t.bodies[-1]
+
+
+def test_closed_month_reconnects_once_but_not_for_a_bad_name(db_path):
+    t = FakeTransport(EXPIRED, ENUM_SEP.replace("Y26M09", "Y26M12"))
+    assert _sv(t, db_path).closed_month() == "Dec 26" and t.tags().count("ConnectToProvider") == 2
+    bad = '<exception errcode="4996" type="error"><desc>member invalid</desc></exception>'
+    t2 = FakeTransport(bad, ENUM_SEP)
+    with pytest.raises(svhttp.SvHttpError, match="member invalid"):
+        _sv(t2, db_path).closed_month()
+    assert t2.tags().count("ConnectToProvider") == 1
+    with pytest.raises(svhttp.SvHttpError, match="not understood"):
+        _sv(FakeTransport(ENUM_SEP.replace("[CurrRepMonth].[Y26M09]", "x")), db_path).closed_month()
+    with pytest.raises(svhttp.SvHttpError, match="FinPlan has no Current Reporting Month"):
+        _sv(FakeTransport(), db_path).closed_month("FinPlan")

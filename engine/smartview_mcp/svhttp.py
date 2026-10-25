@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -30,6 +31,9 @@ log = logging.getLogger(__name__)
 CUBES = {"FinMax": (config.SVHTTP_FINMAX_SERVER, "FinMax", "FinMax"),
          "FinLite": (config.SVHTTP_FINMAX_SERVER, "FinMax", "FinLite"),
          "FinPlan": (config.SVHTTP_FINPLAN_SERVER, "FinPlan", "FinPlan")}
+
+
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 class SvHttpError(Exception):
@@ -150,6 +154,40 @@ class SvHttp:
             raise SvHttpError("Smart View provider returned a different layout than requested (rows/columns "
                               "moved): " + "; ".join(bad[:5]))
         return lay, parse(lay, values, suppress_missing, suppress_zeros), time.monotonic() - t0
+
+    def closed_month(self, conn: str = "FinMax") -> str:
+        """The last closed month ('Current Reporting Month') as 'Sep 26': the child of member CurrRepMonth in provider
+        dimension TimePeriods, '[CurrRepMonth].[Y26M09]' (proven live 2026-10-25)."""
+        if conn not in ("FinMax", "FinLite"):
+            raise SvHttpError(f"{conn} has no Current Reporting Month")
+        if not self._lock.acquire(timeout=config.SVHTTP_TIMEOUT_S):
+            raise SvHttpError("the HTTP route is busy with another query")
+        try:
+            names = self._enum(conn, "TimePeriods", "CurrRepMonth")
+        finally:
+            self._lock.release()
+        for n in names:
+            m = re.search(r"Y(\d\d)M(\d\d)", n)
+            if m and 1 <= int(m.group(2)) <= 12:
+                return f"{_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
+        raise SvHttpError(f"Current Reporting Month not understood: {names[:3]}")
+
+    def _enum(self, conn: str, dim: str, member: str) -> list[str]:
+        for attempt in (1, 2):
+            try:
+                base, _, sid = self._session(conn)
+                ans = self.t.post(base, svxml.enum_children(sid, dim, member))
+                self._note_sid(conn, ans)
+                return svxml.members(ans)
+            except svxml.SvXmlError as e:
+                if e.code in (4996, 4997):                 # unknown member or dimension: a new session won't help
+                    raise SvHttpError(f"Smart View provider: {e}") from None
+                self._sids.pop(conn, None)                 # maybe an expired session: reconnect once
+                self._bases = None
+                if attempt == 2:
+                    raise SvHttpError(f"Smart View provider: {e}") from None
+                log.info("svhttp %s: %s - reconnecting once", conn, e)
+        raise AssertionError("unreachable")
 
     def _execute(self, conn: str, lay: Layout) -> list[list]:
         for attempt in (1, 2):
