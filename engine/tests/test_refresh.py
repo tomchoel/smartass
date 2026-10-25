@@ -268,11 +268,13 @@ def test_a_second_process_holding_the_refresh_lock_means_no_refresh(retrieve, sn
     from smartview_mcp.drill_browser import ProfileLock
     db, _, _ = snap_db
     store, notes = PathStore(tmp_path / "w.duckdb"), []
+    store.set_state(closed_month="Aug 26")                                               # filled before
     other = ProfileLock(str(store.path) + ".refresh")
     assert other.acquire()
     try:
         assert refresh.refresh(store, retrieve, CAT, "Sep 26", db, FC, notes=notes) == []
-        assert "another smartass process is refreshing" in notes[0] and store.state() == {}
+        assert "another smartass process is refreshing" in notes[0]
+        assert store.state() == {"closed_month": "Aug 26"}
     finally:
         other.release()
     assert refresh.refresh(store, retrieve, CAT, "Sep 26", db, FC)[0].ok                  # lock released: runs
@@ -422,3 +424,41 @@ def test_members_the_atlas_knows_are_kept_when_the_parser_misflags_them(retrieve
     # no atlas dimension to judge with: nothing is dropped, nothing is reported
     again = extract.fill(MemoryWarehouse(), misflag, CAT, grids, "t", "Dec 26", atlas_db=atlas.connect(tmp_path / "e.db"))
     assert again.fill.result == "ok" and again.fill.cells == sum(g.cells for g in grids)
+
+
+def test_before_the_first_fill_a_held_refresh_lock_is_waited_for(retrieve, snap_db, tmp_path, monkeypatch):
+    import threading
+
+    from smartview_mcp import config
+    from smartview_mcp.drill_browser import ProfileLock
+    from smartview_mcp.warehouse import WarehouseUnavailable
+    db, _, _ = snap_db
+    monkeypatch.setattr(config, "WAREHOUSE_LOCK_WAIT_S", 0.1)
+    store = PathStore(tmp_path / "w.duckdb")
+    other = ProfileLock(str(store.path) + ".refresh")
+    assert other.acquire()
+    try:
+        with pytest.raises(WarehouseUnavailable, match="first warehouse fill is still running"):
+            refresh.refresh(store, retrieve, CAT, "Sep 26", db, FC)
+        threading.Timer(0.2, other.release).start()                  # the other process finishes its fill
+        monkeypatch.setattr(config, "WAREHOUSE_LOCK_WAIT_S", 2.0)
+        res = refresh.refresh(store, retrieve, CAT, "Sep 26", db, FC)
+        assert res[0].fill.job == "base" and res[0].ok
+    finally:
+        other.release()
+
+
+def test_a_rebuild_rereads_an_area_or_everything(retrieve, snap_db):
+    db, _, _ = snap_db
+    store = MemoryWarehouse()
+    refresh.refresh(store, retrieve, CAT, "Sep 26", db, FC)
+    assert refresh.refresh(store, retrieve, CAT, "Sep 26", db, FC) == []                  # up to date
+    assert refresh.request_rebuild(store, "wholesale").startswith("wholesale")
+    res = refresh.refresh(store, retrieve, CAT, "Sep 26", db, FC)
+    assert [r.fill.job for r in res] == ["rebuild"] and res[0].ok
+    ents = {k[3] for k in (r.key for r in res[0].rows)}
+    assert ents == {"un.SY", "un.SY.2WHS", "BANORWAY", "2WHS Wholesale"}
+    assert len({k[5] for k in (r.key for r in res[0].rows) if k[0] == "FinMax"}) >= 36
+    assert refresh.refresh(store, retrieve, CAT, "Sep 26", db, FC) == []                  # done once
+    refresh.request_rebuild(store)
+    assert [r.fill.job for r in refresh.refresh(store, retrieve, CAT, "Sep 26", db, FC)] == ["base"]

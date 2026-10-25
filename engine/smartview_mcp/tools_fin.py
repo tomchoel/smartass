@@ -10,7 +10,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from . import atlas, catalog, extract, fin_spec, qlog, refresh, templates
 from . import fin_pnl as pnl                      # the tool below is called fin_pnl
-from .host import HostError
+from .analytics import periods
+from .host import HostError, InputError
 from .server import WRITE, _call_user, _err, tool
 from .timing import Timer, stage
 from .warehouse import OPEN, MemoryWarehouse, Warehouse, WarehouseUnavailable
@@ -111,6 +112,20 @@ def _open(store):
         raise WarehouseUnavailable(f"DuckDB will not load: {e}") from None
 
 
+def check_period(p: str, closed: str) -> None:
+    """InputError for a period the warehouse cannot answer: after the open month (the month after the closed one),
+    or so old that last year's comparison (from its opening December) is outside the 36-month window."""
+    nxt = periods.shift(closed, 1)
+    if periods.after(p, nxt):
+        raise InputError(f"{p} is not available yet: the last closed month is {closed}; the open month is {nxt}.")
+    window = periods.window(closed)
+    need = periods.opening(periods.ly(p))
+    if periods.index(need) < periods.index(window[0]):
+        earliest = next(m for m in window if periods.index(periods.opening(periods.ly(m))) >= periods.index(window[0]))
+        raise InputError(f"{p} is older than the warehouse holds: it keeps the 36 months {window[0]}..{closed}, and "
+                         f"{p} against last year needs {need}. Ask for {earliest} or later.")
+
+
 def prepare(h, cat: catalog.Catalog, entity: catalog.Entity, period: str | None, compare: tuple[str, ...],
             store=None, retrieve=None, db=None):
     """Refresh check + top-up + calc engine: (Result, store mode, fills, refresh notes). The warehouse when it can
@@ -130,6 +145,7 @@ def _prepare(h, cat, entity, period, compare, store, retrieve, db):
         closed = templates.closed_month(h)
     p = period or closed
     yy = templates.split_period(p)[1]                          # 'Sep 26' or a readable InputError
+    check_period(p, closed)
     retrieve = retrieve or extract.route(host=lambda: h)
     candidates = templates.forecasts(yy)
     units, cap_note = _units(db, entity)
@@ -206,32 +222,53 @@ async def fin_pnl(area: str, period: str | None = None, compare: list[Comparison
     return out
 
 
+def warehouse_job(h, action: str, area: str | None = None, store=None, retrieve=None, db=None) -> dict:
+    """sv_warehouse refresh | rebuild (testable without the server). rebuild without an area: delete the file and
+    do a full base fill; with an area: re-read its 36 months and the company total."""
+    cat = catalog.load()
+    with stage("closed month"):
+        closed = templates.closed_month(h)
+    st = _open(store)
+    what = None
+    if action == "rebuild":
+        if area:
+            what = refresh.request_rebuild(st, resolve_area(cat, area).key)
+        else:
+            st.reset()
+            what = refresh.request_rebuild(st)
+    notes: list[str] = []
+    retrieve = retrieve or extract.route(host=lambda: h)
+    with stage("warehouse refresh"), contextlib.ExitStack() as stack:
+        adb = db if db is not None else stack.enter_context(contextlib.closing(atlas.connect()))
+        fills = refresh.refresh(st, retrieve, cat, closed, adb, templates.latest_forecast, notes=notes)
+    out = {"closed_month": closed, "notes": notes,
+           "jobs": [{"job": r.fill.job, "result": r.fill.result, "cells": r.fill.cells,
+                     "seconds": r.fill.seconds, **r.fill.detail} for r in fills]
+           or ("nothing ran: " + "; ".join(notes) if notes else "nothing to do: the warehouse is up to date")}
+    if what:
+        out["rebuild"] = what
+    return out
+
+
 @tool(annotations=WRITE)
-async def sv_warehouse(action: Literal["status", "refresh"] = "status") -> dict:
+async def sv_warehouse(action: Literal["status", "refresh", "rebuild"] = "status", area: str | None = None) -> dict:
     """The local warehouse behind fin_pnl. status: file, rows, closed month, last fills and their reconciliation
-    (cheap, no EPM). refresh: run the refresh check now (a base fill the first time, about a minute; afterwards
-    only what changed), read-only against EPM."""
+    (cheap, no EPM). refresh: run the refresh check now (a base fill the first time, about 10 s; afterwards only
+    what changed). rebuild: re-read from EPM - with `area` (e.g. 'Wholesale') that area's 36 months and the company
+    total; without, the whole file is recreated (a full base fill; also the fix for 'warehouse schema is older').
+    Use rebuild when a fin_pnl check 'Warehouse = source sheet' shows DIFF: call sv_warehouse('rebuild', area=<the
+    area>), then fin_pnl again. Read-only against EPM."""
     if action == "status":
         try:
             return _open(None).status()
         except WarehouseUnavailable as e:
             raise ToolError(f"warehouse unavailable: {e}. Next step: retry in a minute (another smartass process "
                             "may be writing it); if it repeats, call sv_status.") from None
-    cat = catalog.load()
 
     def job(h):
         Timer.start()
-        with stage("closed month"):
-            closed = templates.closed_month(h)
-        notes: list[str] = []
-        with stage("warehouse refresh"), contextlib.closing(atlas.connect()) as db:
-            fills = refresh.refresh(_open(None), extract.route(host=lambda: h), cat, closed, db,
-                                    templates.latest_forecast, notes=notes)
-        return {"closed_month": closed, "notes": notes,
-                "jobs": [{"job": r.fill.job, "result": r.fill.result, "cells": r.fill.cells,
-                          "seconds": r.fill.seconds, **r.fill.detail} for r in fills]
-                or ("nothing ran: " + "; ".join(notes) if notes else "nothing to do: the warehouse is up to date")}
+        return warehouse_job(h, action, area)
     try:
-        return await _call_user(job, what="sv_warehouse refresh")
+        return await _call_user(job, what=f"sv_warehouse {action}")
     except (HostError, ToolError, WarehouseUnavailable) as e:
         raise _err(e)

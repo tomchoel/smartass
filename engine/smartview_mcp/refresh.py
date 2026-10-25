@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from . import atlas, atlas_history
+from . import atlas, atlas_history, config
 from .drill_browser import ProfileLock
 from .analytics import periods
 from .catalog import Catalog, Entity
@@ -23,6 +23,8 @@ from .grid import Axis
 from .warehouse import OPEN, WarehouseUnavailable
 
 CLOSED, SNAPSHOT, FORECAST = "closed_month", "entities_snapshot", "forecast"
+REBUILD = "rebuild_areas"           # area keys to re-read in full (sv_warehouse rebuild <area>), comma-separated
+FIRST_FILL_WAITS = 6                # a first fill running elsewhere: wait up to this x WAREHOUSE_LOCK_WAIT_S
 RETRY_FIRST_S, RETRY_LATER_S = 15 * 60, 24 * 3600     # a permanent content error: retry after 15 min, then daily
 
 
@@ -43,6 +45,10 @@ def plan_refresh(cat: Catalog, state: dict[str, str], closed: str, snapshot: int
         return [Job("base", tuple(base_grids(cat, closed, forecast_of)), "no base fill yet",
                     {CLOSED: closed, SNAPSHOT: snap, FORECAST: forecast or ""})]
     jobs = []
+    rebuild = {k for k in (state.get(REBUILD) or "").split(",") if k}
+    if rebuild:
+        jobs.append(Job("rebuild", tuple(base_grids(cat, closed, forecast_of, keys=rebuild | {"company"})),
+                        f"rebuild requested for {', '.join(sorted(rebuild))}", {REBUILD: ""}))
     last = state[CLOSED]
     if last != closed:
         start = last if periods.after(closed, last) else closed
@@ -105,15 +111,24 @@ def refresh(store, retrieve, cat: Catalog, closed: str, db, forecast_of: Callabl
             now: Callable[[], float] = time.time, notes: list[str] | None = None) -> list[FillResult]:
     """Run what plan_refresh asks for; each successful job updates its state keys. One refresh at a time per
     warehouse (a non-blocking <db>.refresh.lock): when another process holds it, nothing runs and `notes` (if given)
-    says so, so the answer comes from the current data. A job that failed on content (#NoAccess, an unknown member)
-    is not retried for 15 minutes, then once a day; a transport error is retried on the next call."""
+    says so, so the answer comes from the current data - except before the first fill, when it waits for the other
+    process (up to FIRST_FILL_WAITS x WAREHOUSE_LOCK_WAIT_S) and then raises WarehouseUnavailable. A job that
+    failed on content (#NoAccess, an unknown member) is not retried for 15 minutes, then once a day; a transport
+    error is retried on the next call."""
     notes = notes if notes is not None else []
     path = getattr(store, "path", None)
     lock = ProfileLock(str(path) + ".refresh") if path else None
     if lock is not None and not lock.acquire():
-        notes.append("warehouse refresh skipped: another smartass process is refreshing; answering from the "
-                     "current data")
-        return []
+        if store.state().get(CLOSED):
+            notes.append("warehouse refresh skipped: another smartass process is refreshing; answering from the "
+                         "current data")
+            return []
+        # nothing filled yet: an answer from an empty warehouse would be all gaps - wait for that first fill
+        deadline = time.monotonic() + config.WAREHOUSE_LOCK_WAIT_S * FIRST_FILL_WAITS
+        while not lock.acquire():
+            if time.monotonic() > deadline:
+                raise WarehouseUnavailable("the first warehouse fill is still running in another smartass process")
+            time.sleep(0.2)
     try:
         return _refresh(store, retrieve, cat, closed, db, forecast_of, now, notes)
     finally:
@@ -194,3 +209,15 @@ def top_up(store, retrieve, cat: Catalog, entity: Entity, period: str, closed: s
                      [Axis("All Time Periods", [p])], f"FinMax sub-unit YTD {p}")
             out.append(fill(store, retrieve, cat, [g], "top_up", closed, closed_label=label, now=now))
     return out
+
+
+def request_rebuild(store, area: str | None = None) -> str:
+    """sv_warehouse rebuild: with an area key, its 36 months (and the company total) are re-read on the next refresh;
+    without, every state key is cleared so the next refresh is a full base fill (the caller resets the file first).
+    Returns what was requested."""
+    if area:
+        keys = {k for k in (store.state().get(REBUILD) or "").split(",") if k} | {area}
+        store.set_state(**{REBUILD: ",".join(sorted(keys)), "retry_after_rebuild": 0})
+        return f"{area} and the company total: all 36 months"
+    store.set_state(**{CLOSED: "", SNAPSHOT: "", FORECAST: "", REBUILD: "", "retry_after_base": 0})
+    return "every area: a full base fill"

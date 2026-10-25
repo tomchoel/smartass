@@ -127,3 +127,42 @@ def test_plan_months_after_the_closed_month_stay_replaceable(store):
     assert store.put([r(plan, 777.0, closed=OPEN)]) == 1
     assert store.get("FinPlan", ["un.SY.2WHS"], ["ac.C30"], ["Dec 26"], "Forecast Q326", "Final", "Periodic") == {
         plan: 777.0}
+
+
+def _old_file(p, rows: bool):
+    import duckdb
+    db = duckdb.connect(str(p))
+    db.execute("CREATE TABLE fact (cube VARCHAR, scenario VARCHAR, version VARCHAR, entity VARCHAR, account VARCHAR, "
+               "period VARCHAR, balance VARCHAR, value DOUBLE, source VARCHAR, fetched_at DOUBLE, atlas_build VARCHAR)")
+    if rows:
+        db.execute("INSERT INTO fact VALUES ('FinMax','Actual','','un.SY','ac.C30','Sep 26','Periodic',1,'http',1,'')")
+    db.close()
+
+
+def test_an_old_schema_file_with_data_is_unavailable_until_rebuilt(tmp_path):
+    p = tmp_path / "old.duckdb"
+    _old_file(p, rows=True)
+    w = Warehouse(p)
+    for call in (w.state, lambda: w.set_state(x="1"), lambda: w.get("FinMax", [], [], [], "Actual", "", "Periodic")):
+        with pytest.raises(WarehouseUnavailable, match="schema is older.*run sv_warehouse rebuild"):
+            call()
+    w.reset()
+    assert not p.exists() and w.state() == {}
+    w.put([r(k(), 1.0)])
+    assert w.get("FinMax", ["un.SY.2WHS"], ["ac.C30"], ["Sep 26"], "Actual", "", "Periodic") == {k(): 1.0}
+
+
+def test_an_old_schema_file_without_data_cannot_be_written(tmp_path):
+    p = tmp_path / "old.duckdb"
+    _old_file(p, rows=False)
+    with pytest.raises(WarehouseUnavailable, match="cannot write"):
+        Warehouse(p).put([r(k(), 1.0)])
+
+
+def test_another_schema_version_is_never_mixed(tmp_path, monkeypatch):
+    w = Warehouse(tmp_path / "w.duckdb")
+    w.put([r(k(), 1.0)])
+    assert "schema_version" not in w.state()
+    monkeypatch.setattr(wh, "SCHEMA_VERSION", "99")
+    with pytest.raises(WarehouseUnavailable, match=r"schema is older \(2, this smartass needs 99\)"):
+        w.state()

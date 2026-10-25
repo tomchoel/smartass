@@ -407,15 +407,17 @@ def tool_warnings(res: Result, fills, notes: list[str] | None = None) -> list[st
     return list(dict.fromkeys(out + list(notes or [])))
 
 
-def _cells(v: Variance | None, m: Materiality) -> dict | None:
+def _cells(v: Variance | None, m: Materiality, pct: bool = True) -> dict | None:
     if v is None:
         return None
-    return {"cur": v.current.value, "cmp": v.comparison.value, "var": v.abs.value, "pct": shown_pct(v, m)}
+    return {"cur": v.current.value, "cmp": v.comparison.value, "var": v.abs.value,
+            "pct": shown_pct(v, m) if pct else None}
 
 
 def table(res: Result, cat: Catalog) -> list[dict]:
     """The compact answer for the agent: one row per comparison and line (and per KPI vs last year), with the
-    label of that comparison's cube, month and YTD (cur, cmp, var, pct) and the Material text."""
+    label of that comparison's cube, month and YTD (cur, cmp, var, pct) and the Material text. KPI rows have no %
+    (as in the workbook)."""
     m = cat.materiality
     out = []
     for c in COMPARISONS:
@@ -425,7 +427,8 @@ def table(res: Result, cat: Catalog) -> list[dict]:
     labels = {k.key: k.label + (" (annualised)" if k.annualise else "") for k in cat.kpis}
     for key, vs in res.kpi_vars.items():
         out.append({"comparison": "ly", "line": f"kpi.{key}", "label": labels.get(key, key),
-                    "month": _cells(vs.get("m"), m), "ytd": _cells(vs["ytd"], m), "flag": None})
+                    "month": _cells(vs.get("m"), m, pct=False), "ytd": _cells(vs["ytd"], m, pct=False),
+                    "flag": None})                 # no KPI %: the workbook never shows one
     return out
 
 

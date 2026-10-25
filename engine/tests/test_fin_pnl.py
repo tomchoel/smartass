@@ -199,3 +199,11 @@ def test_refresh_notes_are_in_the_freshness_line(tmp_path):
     assert note in fin_pnl.freshness_text(res, "warehouse", [note])
     assert fin_pnl.summary(res, "warehouse", [], [note])["refresh_notes"] == [note]
     assert "skipped" not in fin_pnl.freshness_text(res, "warehouse")
+
+
+def test_kpi_rows_have_no_variance_pct(tmp_path):
+    store, _, scope = filled(tmp_path)
+    res = fin_pnl.compute(CAT0, scope, store)
+    rows = [r for r in fin_pnl.summary(res, "warehouse", [], cat=CAT0)["table"] if r["line"].startswith("kpi.")]
+    assert rows and all(r["ytd"]["pct"] is None and (r["month"] is None or r["month"]["pct"] is None) for r in rows)
+    assert res.kpi_vars["ebitda_margin"]["ytd"].pct.value is not None                 # the engine still has it

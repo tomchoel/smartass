@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS state (key VARCHAR PRIMARY KEY, value VARCHAR);
 """
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 OPEN = "open"                                          # closed_month of a row read live at question time
+SCHEMA_VERSION = "2"                                   # bump on any change to SCHEMA; older files need a rebuild
+VERSION_KEY = "schema_version"                         # in state; not part of state()
 
 
 def _month_index(label: str) -> int | None:
@@ -104,6 +106,10 @@ class MemoryWarehouse:
         self.rows: dict[WhKey, Row] = {}
         self.fills: list[Fill] = []
         self._state: dict[str, str] = {}
+
+    def reset(self) -> None:
+        """Forget everything (sv_warehouse rebuild)."""
+        self.rows, self.fills, self._state = {}, [], {}
 
     def put(self, rows: Iterable[Row]) -> int:
         written = set()
@@ -180,9 +186,20 @@ class Warehouse:
                 if write:
                     self.path.parent.mkdir(parents=True, exist_ok=True)
                     db = duckdb.connect(str(self.path))
-                    db.execute(SCHEMA)
+                    try:
+                        db.execute(SCHEMA)
+                        self._check_schema(db, write=True)
+                    except BaseException:
+                        db.close()
+                        raise
                     return db
-                return duckdb.connect(str(self.path), read_only=True)
+                db = duckdb.connect(str(self.path), read_only=True)
+                try:
+                    self._check_schema(db, write=False)
+                except BaseException:
+                    db.close()
+                    raise
+                return db
             except (duckdb.IOException, duckdb.ConnectionException) as e:
                 first = str(e).splitlines()[0] if str(e) else type(e).__name__
                 if not _lock_conflict(e):                  # a 0-byte or foreign file: retrying cannot help
@@ -191,7 +208,34 @@ class Warehouse:
                     raise WarehouseUnavailable(f"warehouse {self.path} is in use: {first}") from None
                 time.sleep(0.1)
 
+    def _check_schema(self, db, write: bool) -> None:
+        """The file's schema_version must be this code's: never mix schemas. A new (empty) file is stamped on its
+        first write; a file with data but no or another version needs `sv_warehouse rebuild`."""
+        import duckdb
+        try:
+            tables = {r[0] for r in db.execute("SELECT table_name FROM information_schema.tables").fetchall()}
+            rows = db.execute("SELECT count(*) FROM fact").fetchone()[0] if "fact" in tables else 0
+            if "state" not in tables:
+                if rows:
+                    raise WarehouseUnavailable(f"warehouse schema is older (unversioned, this smartass needs "
+                                               f"{SCHEMA_VERSION}): {self.path}; run sv_warehouse rebuild")
+                raise WarehouseUnavailable(f"cannot read {self.path}: the warehouse tables are missing")
+            row = db.execute("SELECT value FROM state WHERE key=?", [VERSION_KEY]).fetchone()
+        except duckdb.Error as e:
+            first = str(e).splitlines()[0] if str(e) else type(e).__name__
+            raise WarehouseUnavailable(f"cannot read {self.path}: {first}") from None
+        have = row[0] if row else None
+        if have == SCHEMA_VERSION:
+            return
+        if have is None and not rows:
+            if write:
+                db.execute("INSERT OR REPLACE INTO state VALUES (?, ?)", [VERSION_KEY, SCHEMA_VERSION])
+            return
+        raise WarehouseUnavailable(f"warehouse schema is older ({have or 'unversioned'}, this smartass needs "
+                                   f"{SCHEMA_VERSION}): {self.path}; run sv_warehouse rebuild")
+
     def _write(self, fn):
+        import duckdb
         with _mu:
             deadline = time.monotonic() + config.WAREHOUSE_LOCK_WAIT_S     # one budget for lock file and connect
             while not self._lock.acquire():
@@ -204,6 +248,9 @@ class Warehouse:
                     return fn(db)
                 finally:
                     db.close()
+            except duckdb.Error as e:                      # an old or damaged file: say so; callers answer live
+                first = str(e).splitlines()[0] if str(e) else type(e).__name__
+                raise WarehouseUnavailable(f"cannot write {self.path}: {first}") from None
             finally:
                 self._lock.release()
 
@@ -216,6 +263,23 @@ class Warehouse:
                 raise WarehouseUnavailable(f"cannot read {self.path}: {e}") from None
             finally:
                 db.close()
+
+    def reset(self) -> None:
+        """Delete the file (sv_warehouse rebuild): the next refresh is a base fill in this code's schema."""
+        with _mu:
+            deadline = time.monotonic() + config.WAREHOUSE_LOCK_WAIT_S
+            while not self._lock.acquire():
+                if time.monotonic() > deadline:
+                    raise WarehouseUnavailable(f"another smartass process is writing {self.path}")
+                time.sleep(0.1)
+            try:
+                for f in (self.path, self.path.with_name(self.path.name + ".wal")):
+                    try:
+                        f.unlink(missing_ok=True)
+                    except OSError as e:
+                        raise WarehouseUnavailable(f"cannot delete {f}: {e}") from None
+            finally:
+                self._lock.release()
 
     def put(self, rows: Iterable[Row]) -> int:
         """Upsert; a key repeated in `rows` keeps its last row; an OPEN row never replaces a stored row of a closed period. Returns the number of rows actually written."""
@@ -274,7 +338,8 @@ class Warehouse:
 
     def state(self) -> dict[str, str]:
         try:
-            return dict(self._read(lambda db: db.execute("SELECT key, value FROM state").fetchall()))
+            return dict(self._read(lambda db: db.execute("SELECT key, value FROM state WHERE key <> ?",
+                                                         [VERSION_KEY]).fetchall()))
         except WarehouseUnavailable:
             if self.path.exists():
                 raise

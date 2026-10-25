@@ -180,3 +180,75 @@ def test_a_failed_job_is_a_visible_warning():
     bad = FillResult(Fill("new_month", "x", 0.0, 0.1, 0, "error", {"errors": ["FinMax: provider down"]}))
     assert tools_fin.stale_note([ok]) is None
     assert "(new_month: FinMax: provider down)" in tools_fin.stale_note([ok, bad])
+
+
+@pytest.mark.parametrize("period, msg", [
+    ("Dec 26", "Dec 26 is not available yet: the last closed month is Sep 26; the open month is Oct 26."),
+    ("Dec 24", "Dec 24 is older than the warehouse holds: it keeps the 36 months Oct 23..Sep 26, and Dec 24 "
+               "against last year needs Dec 22. Ask for Jan 25 or later.")])
+def test_a_period_the_warehouse_cannot_answer_is_refused(env, period, msg):
+    from smartview_mcp.host import InputError
+    retrieve, db = env
+    with pytest.raises(InputError) as e:
+        tools_fin.prepare(None, CAT, WHS, period, ("ly",), store=MemoryWarehouse(), retrieve=retrieve, db=db)
+    assert str(e.value) == msg
+    tools_fin.check_period("Oct 26", "Sep 26")                                            # the open month is fine
+    tools_fin.check_period("Jan 25", "Sep 26")
+
+
+@pytest.mark.anyio
+async def test_the_tool_refuses_a_future_period_readably(env, monkeypatch, tmp_path):
+    retrieve, _ = env
+    _tool_env(monkeypatch, tmp_path, retrieve)
+    with pytest.raises(ToolError, match="not available yet"):
+        await tools_fin.fin_pnl("Wholesale", period="Dec 26")
+
+
+def test_an_old_schema_warehouse_falls_back_to_live_pulls(env, tmp_path):
+    import duckdb
+
+    from smartview_mcp.warehouse import Warehouse
+    p = tmp_path / "old.duckdb"
+    db0 = duckdb.connect(str(p))
+    db0.execute("CREATE TABLE fact (cube VARCHAR, scenario VARCHAR, version VARCHAR, entity VARCHAR, "
+                "account VARCHAR, period VARCHAR, balance VARCHAR, value DOUBLE, source VARCHAR, fetched_at DOUBLE, "
+                "atlas_build VARCHAR)")
+    db0.execute("INSERT INTO fact VALUES ('FinMax','Actual','','un.SY','ac.C30','Sep 26','Periodic',1,'http',1,'')")
+    db0.close()
+    retrieve, db = env
+    res, mode, fills, _ = tools_fin.prepare(None, CAT, WHS, None, ("ly",), store=Warehouse(p), retrieve=retrieve,
+                                            db=db)
+    assert mode.startswith("live pulls (the warehouse was unavailable: warehouse schema is older")
+    assert fills[0].fill.job == "live" and res.fm["ebitda"]["ytd"].current.value is not None
+
+
+def test_a_first_fill_running_elsewhere_means_live_pulls(env, tmp_path, monkeypatch):
+    from smartview_mcp import config
+    from smartview_mcp.drill_browser import ProfileLock
+    from smartview_mcp.warehouse import Warehouse
+    monkeypatch.setattr(config, "WAREHOUSE_LOCK_WAIT_S", 0.05)
+    retrieve, db = env
+    store = Warehouse(tmp_path / "w.duckdb")
+    other = ProfileLock(str(store.path) + ".refresh")
+    assert other.acquire()
+    try:
+        _, mode, _, _ = tools_fin.prepare(None, CAT, WHS, None, ("ly",), store=store, retrieve=retrieve, db=db)
+    finally:
+        other.release()
+    assert "first warehouse fill is still running" in mode and mode.startswith("live pulls")
+
+
+def test_sv_warehouse_rebuild_rereads_an_area_or_everything(env, monkeypatch):
+    retrieve, db = env
+    store = MemoryWarehouse()
+    first = tools_fin.warehouse_job(None, "refresh", store=store, retrieve=retrieve, db=db)
+    assert [j["job"] for j in first["jobs"]] == ["base"]
+    assert tools_fin.warehouse_job(None, "refresh", store=store, retrieve=retrieve, db=db)["jobs"].startswith(
+        "nothing to do")
+    one = tools_fin.warehouse_job(None, "rebuild", "Wholesale", store=store, retrieve=retrieve, db=db)
+    assert [j["job"] for j in one["jobs"]] == ["rebuild"] and one["rebuild"].startswith("wholesale")
+    n = len(store.rows)
+    every = tools_fin.warehouse_job(None, "rebuild", store=store, retrieve=retrieve, db=db)
+    assert [j["job"] for j in every["jobs"]] == ["base"] and len(store.rows) == n          # file reset, all re-read
+    with pytest.raises(ToolError, match="abolished"):
+        tools_fin.warehouse_job(None, "rebuild", "Consumer", store=store, retrieve=retrieve, db=db)
