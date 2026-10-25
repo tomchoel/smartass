@@ -154,3 +154,26 @@ The input is a `Frame`: values keyed by (entity, line, period, scenario) with th
 - The memo validator and the plan → run → memo tools in full (Stage 4).
 - Playbooks (Stage 5).
 - The add-in (Stage 6).
+
+## Stage 2+3 live check (Task 22, 2026-10-25)
+
+`engine\tests\live\warehouse_live.py`, run against the real cubes. No figures are recorded.
+
+| Check | Result |
+|---|---|
+| Closed month over HTTP (`EnumMembers` children of `CurrRepMonth`) | PASS, Sep 26 |
+| Base fill of a scratch warehouse | PASS: 12 grids, 8,955 cells, 7.8 s, route http, 3,654 reconciliation checks, 0 problems, 0 errors |
+| Warm refresh check | PASS: 0 jobs, 0.06 s |
+| Live top-up (forecast, open months, sub-units) | PASS: 41 cells, 1.2 s |
+| Engine = direct retrieve, Wholesale | PASS 7/7: EBITDA YTD, EBITDA YTD LY, revenue for the month, FTE month end, FinPlan actual / Target / Forecast EBITDA YTD |
+| Bridges | PASS: they close (10 sub-units), with no unexplained residual |
+| Calc engine | 469 ms |
+
+The missing facts left after the fill are all percentages on a zero comparison (Other items with no budget). They are
+correct by design.
+
+**What the first live run caught.** `grid.parse` reported real FinPlan members as unknown (`2WHS Wholesale`,
+`Period: Oct`, ...), because FinPlan names equal their labels and some rows or columns were empty. The extract
+dropped those cells, so the warehouse had no FinPlan data for 5 areas and the FY27 budget (not yet entered) failed.
+Since `2730879`, flagged members are checked against the atlas, and only members the atlas does not have are
+dropped.

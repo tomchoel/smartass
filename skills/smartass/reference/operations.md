@@ -10,11 +10,12 @@ Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartas
   which was used. The first HTTP call in a session takes ~10-12 s, because it signs in first. Workbooks (sv_ws_*)
   still build live Smart View sheets in Excel.
 - fin_pnl(area) answers "P&L for <business area>" from the local warehouse (DuckDB,
-  `%LOCALAPPDATA%\smartass\warehouse.duckdb`): the first call fills it (about a minute), later calls refresh only
-  what changed (a new closed month, an atlas restatement, a new forecast) and read the open month and the latest
-  forecast live. If the warehouse is locked or missing it answers from live pulls and says so. `sv_warehouse(action='status')` shows the last fills
-  and their reconciliation; a job that keeps failing pauses (15 min, then daily) and `smartass doctor` names it with
-  its last error, and the cells a fill could not read.
+  `%LOCALAPPDATA%\smartass\warehouse.duckdb`): the first call fills it (about 8 s over HTTP, measured 2026-10-25:
+  12 grids, ~9,000 cells), later calls refresh only what changed (a new closed month, an atlas restatement, a new
+  forecast) and read the open month and the latest forecast live. If the warehouse is locked or missing it answers
+  from live pulls and says so. `sv_warehouse(action='status')` shows the last fills and their reconciliation. A job
+  that fails on content (#NoAccess, an unknown member) pauses (15 min, then daily); transport errors retry on the next
+  call. `smartass doctor` names paused jobs with their last error, and the cells a fill could not read.
   - Rules in force (owner decisions): material = 10 % of |comparison| from NOK 500k, or NOK 5 million; a month swing
     of NOK 5 million or more is flagged; |comparison| under NOK 500k counts as zero; revenue, personnel cost and
     EBITDA are always commented. Variance = current - comparison, positive = better everywhere. Cost per FTE is
