@@ -109,7 +109,8 @@ on the answer sheet.
 - **New modules.**
   - `userexcel.py`: attach via the window, versioned bridge xlam, login wait, live data pulls, `_svmeta`, rollback, job generations.
   - `answer.py`: declarative answer spec → `Q<n> Svar` with live INDEX/MATCH formulas.
-  - `templates.py`: `division_pnl`, `monthly_trend`, `actual_vs_plan`, `cost_base`.
+  - `templates.py`: `monthly_trend`, `actual_vs_plan`, `cost_base` (and a division P&L template, since replaced
+    by `fin_pnl`).
   - `styling.py`: the tn-rapportstil engine applied to an *open* workbook (built by a sub-agent).
   - `atlas_history.py`: snapshots and a diff, giving `sv_atlas_changes`.
 - **New tools.** `sv_analyse`, `sv_ws_pull`, `sv_ws_answer`, `sv_atlas_changes`.

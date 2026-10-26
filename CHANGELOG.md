@@ -24,7 +24,11 @@
   missing, paused refresh jobs with their last error, age) and lists the duckdb version in `--bundle`.
 - The closed month is read over Smart View's HTTP protocol first (EnumMembers), with Smart View in Excel as the
   fallback.
-- `sv_analyse` template `division_pnl` is to be retired in favour of `fin_pnl`.
+- `fin_pnl` also takes a unit below a business area (any FinMax entity the atlas knows, e.g. `un.SY.5OK_W` or
+  `5OK_W`). A unit is always read live and never kept in the warehouse (its checks say "live read = source
+  sheet"); with no FinPlan member (most units) it is compared with last year only, and says so.
+  `sv_warehouse('rebuild')` still takes business areas only.
+- The `sv_analyse` template `division_pnl` is removed: use `fin_pnl`, which covers areas and units.
 - New dependency: `duckdb==2.0.0`.
 - Faster answer sheets: the answer cells are written as one block (a fin_pnl answer: 11 s -> 0.2 s) and the check
   colours are set once per run of check cells (7 s -> 0.2 s). A block Excel refuses is written cell by cell, so a

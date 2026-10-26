@@ -31,6 +31,7 @@ uv run python tests\live\matrix.py
 | S9 | `fresh` | install and first lookup as a new user (`--fresh`) |
 | S10 | `feature`, some `fresh` | bundle, setup, relay reload, update, text fixes, pack, style, cold Excel, options, HTTP |
 | S11 | `fin` | `fin_pnl` Wholesale: workbook checks incl. warehouse = sheet, facts = `sv_query`, warm call refills nothing |
+| S12 | `fin` | `fin_pnl` for the unit `un.SY.5OK_W` (no FinPlan member): read live, "compared with last year only" warning, live read = sheet and every check OK, EBITDA YTD = `sv_query` |
 
 The doctor lines checked by S9 include `warehouse` (OK on a fresh install: "not filled yet").
 

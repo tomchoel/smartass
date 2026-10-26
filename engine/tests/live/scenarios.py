@@ -283,14 +283,12 @@ def s2_plan(ctx):
 
 # ================================================================== S3 templates (live_analysis.py)
 TEMPLATES = {
-    "division_pnl": ({"entity": "un.SY.2TEC", "period": "Sep 26"}, {"entity": "un.SY", "period": "Sep 26"}),
     "monthly_trend": ({"entity": "un.SY.2TEC", "through": "Sep 26"}, {"entity": "un.SY", "through": "Sep 26"}),
     "actual_vs_plan": ({"entity": "2TEC Technology", "month": "Sep", "year": "FY26"},
                        {"entity": "BANORWAY", "month": "Sep", "year": "FY26"}),
     "cost_base": ({"parent": "un.SY.2TEC", "period": "Sep 26", "top": 15},
                   {"parent": "un.SY", "period": "Sep 26", "top": 15}),
 }
-TEC_PNL_EBITDA = "(1 112 834 010)"
 
 
 def _template(name: str, which: str):
@@ -302,8 +300,6 @@ def _template(name: str, which: str):
                                                 "params": params, "target": target})
         ctx.state["s3_wb"] = out["workbook"]
         _answer_ok(out, f"{name}.{which}", allow_empty_checks=name == "cost_base")
-        if name == "division_pnl" and which == "tec":
-            assert TEC_PNL_EBITDA in out["table"], f"{TEC_PNL_EBITDA} not in the TEC P&L:\n{out['table']}"
         return {"notes": out["answer_sheet"]}
     return run
 
@@ -1133,3 +1129,24 @@ def s11_fin_pnl(ctx):
     assert all(f["job"] == "top_up" for f in again["fills"]), f"warm call refilled: {again['fills']}"
     return {"notes": f"cold {secs:.0f}s, warm {warm:.0f}s; {len(out['checks'])} checks OK; "
                      f"{len(cases)} values = sv_query; {len(out.get('warnings') or [])} warnings"}
+
+
+# ================================================================== S12 fin_pnl for a unit below an area
+@scenario("S12.fin_pnl.unit", ["fin"], budget=180)
+def s12_fin_pnl_unit(ctx):
+    unit = "un.SY.5OK_W"                                    # below Wholesale; no FinPlan member
+    out, secs = ctx.client.must("fin_pnl", {"area": unit, "target": "new", "detail": "full"})
+    _answer_ok(out, "fin_pnl unit")
+    assert out["freshness"].startswith("Data: live pulls (sub-unit"), out["freshness"]
+    assert any("compared with last year only" in w for w in out.get("warnings") or []), out.get("warnings")
+    recon = {k: v for k, v in out["checks"].items() if k.startswith("Live read = source sheet")}
+    assert len(recon) >= 2 and _all_ok(recon), f"live read = sheet: {recon}"
+    assert not any(k.startswith("Warehouse = source sheet") for k in out["checks"]), out["checks"]
+    facts = {f["id"]: f["value"] for f in out["facts"]}
+    pov = {"All Entities": unit, "All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Accumulated"}
+    b, _ = ctx.client.must("sv_query", _fin_query("FinMax", pov, ("All Accounts", "ac.EBITDA"),
+                                                  ("All Time Periods", out["period"])))
+    v = helpers.number(b["table"])
+    assert facts.get("fm.ebitda.ytd.cur") is not None and _close(v, facts["fm.ebitda.ytd.cur"], 1.0), (v, facts)
+    return {"notes": f"{secs:.0f}s; {len(out['checks'])} checks OK; EBITDA YTD = sv_query; "
+                     f"{len(out.get('warnings') or [])} warnings"}

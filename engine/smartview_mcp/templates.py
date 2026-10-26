@@ -195,10 +195,6 @@ def _pct(a, b) -> str:
     return f"{(a - b) / abs(b) * 100:+.1f} %".replace(".", ",").replace("-", "−")
 
 
-def _dec(v: float | None) -> str:
-    return "n/a" if v is None else f"{v:,.1f}".replace(",", " ").replace(".", ",")
-
-
 def _now() -> str:
     return dt.datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -233,9 +229,10 @@ def check_pulls(pulls: list[PullSpec], confirm=None) -> None:
         ops.check_members(ps.connection, ps.pov, ps.rows, ps.cols, confirm)
 
 
-# ------------------------------------------------------------------ A. division P&L
-# The lists come from knowledge/catalog.toml, read when a template runs (not at import): a broken catalogue then
-# fails only the P&L templates with a CatalogError, and the server still starts.
+# ------------------------------------------------------------------ A. the catalogue's P&L lines
+# (the division P&L template that used them was replaced by fin_pnl.) The lists come from knowledge/catalog.toml,
+# read when called (not at import): a broken catalogue then fails only these with a CatalogError, and the server
+# still starts.
 def pnl_lines() -> list[tuple]:
     """key, FinMax account, kind, num"""
     return [(x.key, x.account, x.kind, x.num) for x in catalog.load().pnl["FinMax"]]
@@ -243,108 +240,6 @@ def pnl_lines() -> list[tuple]:
 
 def pnl_checks() -> list[tuple]:
     return [(c.label, c.expr) for c in catalog.load().checks["FinMax"]]
-
-
-def division_pnl(h: ExcelHost, entity: str, period: str | None = None, basis: str = "ytd", compare: str = "ly",
-                 drivers: bool = True, connection: str = "FinMax") -> Plan:
-    """To be retired: fin_pnl (fin_pnl.py, Stage 2+3) answers the same question from the warehouse with budget,
-    forecast, materiality, bridges, KPIs and landing. Kept until fin_pnl has covered it in the live matrix."""
-    closed = closed_month(h, "FinMax")
-    period = period or closed
-    cmp_p = same_period_ly(period) if compare == "ly" else None
-    bal = "Accumulated" if basis == "ytd" else "Periodic"
-    cols = [period] + ([cmp_p] if cmp_p else [])
-    pov = {"All Entities": entity, "All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": bal}
-    pulls = [PullSpec("pnl", connection, [Axis("All Accounts", [a for _, a, _, _ in pnl_lines()])],
-                      [Axis("All Time Periods", cols)], pov)]
-    kids = []
-    if drivers and cmp_p:
-        kids = [k["name"] for k in atlas.children(atlas.connect(), connection, entity)][:40]
-        if kids:
-            pulls.append(PullSpec("drv", connection, [Axis("All Entities", kids)], [Axis("All Time Periods", cols)],
-                                  {"All Accounts": "ac.EBITDA", "All Scenarios": "Actual", "All Currencies": "NOK",
-                                   "All Balance Types": bal}, title_suffix="drivers"))
-    mo, yy = split_period(period)
-    closed_ok = (yy, mo) <= tuple(reversed(split_period(closed)))
-    what = "YTD " if basis == "ytd" else ""
-
-    ent_label = member_label(connection, entity)
-
-    def answer(P):
-        p = P["pnl"]
-        lines = []
-        for key, acct, kind, num in pnl_lines():
-            cells = [{"pull": p.sheet, "row": [acct], "col": [period]}]
-            if cmp_p:
-                cells += [{"pull": p.sheet, "row": [acct], "col": [cmp_p]}, {"var": [0, 1]}, {"varpct": [0, 1]}]
-            ln = {"key": key, "label": _label_of(p, [acct], acct), "kind": kind, "cells": cells}
-            if num:
-                ln["num"] = num
-            lines.append(ln)
-        columns = [{"header": f"{what}{period}", "kind": "heltall"}]
-        if cmp_p:
-            columns += [{"header": f"{what}{cmp_p}", "kind": "heltall"}, {"header": "Variance", "kind": "heltall"},
-                        {"header": "Variance %", "kind": "prosent1"}]
-        sections = [{"title": "Profit and loss", "lines": lines}]
-        e_cur, e_cmp = _val(p, ["ac.EBITDA"], [period]), _val(p, ["ac.EBITDA"], [cmp_p]) if cmp_p else None
-        r_cur, r_cmp = _val(p, ["ac.C30"], [period]), _val(p, ["ac.C30"], [cmp_p]) if cmp_p else None
-        o_cur, o_cmp = _val(p, ["ac.C70"], [period]), _val(p, ["ac.C70"], [cmp_p]) if cmp_p else None
-        f_cur, f_cmp = _val(p, ["ac.STA20Y"], [period]), _val(p, ["ac.STA20Y"], [cmp_p]) if cmp_p else None
-        kp = [f"EBITDA {what}{period}: {_fmt(e_cur)}" + (f" vs {_fmt(e_cmp)} in {cmp_p} "
-                                                       f"(variance {_fmt(None if e_cur is None or e_cmp is None else e_cur - e_cmp)}, {_pct(e_cur, e_cmp)})." if cmp_p else ".")]
-        if cmp_p:
-            kp.append(f"Revenue {_fmt(r_cur)} ({_pct(r_cur, r_cmp)} vs {cmp_p}); total opex {_fmt(o_cur)} "
-                      f"({_pct(o_cur, o_cmp)}; costs are negative, so a negative variance means higher costs).")
-            if f_cur is not None:
-                kp.append(f"FTE at end of {period}: {_dec(f_cur)} vs {_dec(f_cmp)} in {cmp_p}.")
-        chart = None
-        if "drv" in P:
-            d = P["drv"]
-            ranked = []
-            for k in kids:
-                a, b = _val(d, [k], [period]), _val(d, [k], [cmp_p])
-                if a is not None or b is not None:
-                    ranked.append((abs((a or 0) - (b or 0)), k, (a or 0) - (b or 0)))
-            ranked.sort(reverse=True)
-            top = ranked[:5]
-            dl = []
-            for n, (_, k, var) in enumerate(top, 1):
-                dl.append({"key": f"d{n}", "label": _label_of(d, [k], k), "kind": "line",
-                           "cells": [{"pull": d.sheet, "row": [k], "col": [period]},
-                                     {"pull": d.sheet, "row": [k], "col": [cmp_p]}, {"var": [0, 1]}, {"varpct": [0, 1]}]})
-            if top:
-                rest = "ebitda-" + "-".join(f"d{n}" for n in range(1, len(top) + 1))
-                dl.append({"key": "drest", "label": "Other units", "kind": "line",
-                           "cells": [{"expr": rest}, {"expr": rest}, {"var": [0, 1]}, {"varpct": [0, 1]}]})
-                sections.append({"title": f"Largest EBITDA variance drivers vs {cmp_p} (sub-units)", "lines": dl})
-                bridge = [{"key": "b0", "label": f"EBITDA {what}{cmp_p}", "kind": "line",
-                           "cells": [{"ref": {"key": "ebitda", "col": 1}}]}]
-                for n in range(1, len(top) + 1):
-                    bridge.append({"key": f"b{n}", "label": dl[n - 1]["label"], "kind": "line",
-                                   "cells": [{"ref": {"key": f"d{n}", "col": 2}}]})
-                bridge.append({"key": "brest", "label": "Other units", "kind": "line",
-                               "cells": [{"ref": {"key": "drest", "col": 2}}]})
-                bridge.append({"key": "bend", "label": f"EBITDA {what}{period}", "kind": "sum",
-                               "cells": [{"ref": {"key": "ebitda", "col": 0}}]})
-                sections.append({"title": f"EBITDA bridge {cmp_p} → {period}", "lines": bridge})
-                chart = {"type": "waterfall", "lines": [b["key"] for b in bridge], "column": 0,
-                         "title": f"EBITDA bridge {cmp_p} → {period}"}
-                kp.append(f"Largest driver: {dl[0]['label']}, variance {_fmt(top[0][2])} vs {cmp_p}.")
-        checks = [{"label": lab, "expr": ex, "columns": [0, 1] if cmp_p else [0]} for lab, ex in pnl_checks()]
-        checks.append({"label": "Period is closed", "static": "OK" if closed_ok else "DIFF",
-                       "detail": f"{period} vs Current Reporting Month {closed}"})
-        notes = ["Signs as in FinMax: costs are negative; variance = current − comparison (positive = better).",
-                 "History is restated to today's organisation (e.g. the 1 June 2026 reorg); compare old extracts on "
-                 "leaf members or the company total."]
-        if not closed_ok:
-            notes.insert(0, f"{period} is after the Current Reporting Month ({closed}): the period is still open.")
-        return {"title": f"{ent_label} — P&L {what}{period}" + (f" vs {cmp_p}" if cmp_p else ""),
-                "subtitle": f"NOK · {connection} · Actual · {entity} · {bal}",
-                "key_points": kp, "columns": columns, "sections": sections, "checks": checks, "notes": notes,
-                "source": f"Source: Oracle EPM Cloud ({connection}) via Smart View, retrieved {_now()}.",
-                "chart": chart}
-
-    return Plan(f"{ent_label} P&L {what}{period}", pulls, answer)
 
 
 # ------------------------------------------------------------------ B. cost base per cost centre
@@ -541,5 +436,5 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
     return Plan(f"{entity} actual vs plan {month} {year}", pulls, answer)
 
 
-TEMPLATES = {"division_pnl": division_pnl, "cost_base": cost_base, "monthly_trend": monthly_trend,
+TEMPLATES = {"cost_base": cost_base, "monthly_trend": monthly_trend,
              "actual_vs_plan": actual_vs_plan}

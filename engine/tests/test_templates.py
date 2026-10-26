@@ -377,9 +377,12 @@ def test_an_unexpected_http_error_is_logged_as_a_warning_then_com(tmp_path, monk
     assert [r.levelname for r in caplog.records if "closed month" in r.getMessage()] == ["WARNING"]
 
 
-def test_fin_pnl_is_announced_and_division_pnl_marked_for_retirement():
-    from smartview_mcp import server, tools_ws
-    assert "fin_pnl(area)" in server.INSTRUCTIONS
-    assert "fin_pnl" in templates.division_pnl.__doc__ and "retired" in templates.division_pnl.__doc__
-    assert "to be retired: prefer fin_pnl" in tools_ws.sv_analyse.__doc__
-    assert "division_pnl" in templates.TEMPLATES                      # still works until the retirement
+def test_division_pnl_is_gone_and_fin_pnl_covers_units():
+    import typing
+
+    from smartview_mcp import server, tools_fin, tools_ws
+    assert "division_pnl" not in templates.TEMPLATES and not hasattr(templates, "division_pnl")
+    assert "division_pnl" not in typing.get_args(typing.get_type_hints(tools_ws.sv_analyse)["template"])
+    assert "division_pnl" not in tools_ws.sv_analyse.__doc__ and "division_pnl" not in server.INSTRUCTIONS
+    assert "fin_pnl(area)" in server.INSTRUCTIONS and "un.SY.5OK_W" in server.INSTRUCTIONS
+    assert "a unit below one, e.g. 'Wholesale'" in " ".join(tools_fin.fin_pnl.__doc__.split())

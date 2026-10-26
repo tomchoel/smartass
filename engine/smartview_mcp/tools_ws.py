@@ -118,7 +118,7 @@ def _finish(t, q: int, spec: dict, res: dict, saved_new: bool):
 
 
 @tool(annotations=WRITE)
-async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base", "monthly_trend", "actual_vs_plan"],
+async def sv_analyse(question: str, template: Literal["cost_base", "monthly_trend", "actual_vs_plan"],
                      params: dict, target: str = "session", allow_archive: bool = False, q: int | None = None,
                      ctx: Context | None = None) -> dict:
     """Answer a financial question as an analysis IN THE USER'S EXCEL: live Smart View data sheets ('Q<n> FinMax' ...),
@@ -129,9 +129,6 @@ async def sv_analyse(question: str, template: Literal["division_pnl", "cost_base
     'active' (the workbook the user is working in - only when they ask for it), 'new' (a new file that becomes the
     session's workbook), or a path. Archive files are refused unless allow_archive=true. q: extend an existing
     question number (follow-up), else the next free number. Templates and params:
-      division_pnl:   (to be retired: prefer fin_pnl) entity (e.g. 'un.SY.2TEC'), period ('Sep 26'; default last
-                      closed), basis 'ytd'|'month',
-                      compare 'ly'|None, drivers bool
       cost_base:      parent ('un.SY.2TEC'), accounts (['ac.C50S','ac.C60','ac.C70','ac.STA20Y']), period, top (25)
       monthly_trend:  entity, accounts, through ('Sep 26')
       actual_vs_plan: entity (FinPlan alias, e.g. '2TEC Technology'), month ('Sep'), year ('FY26'), basis, forecast,

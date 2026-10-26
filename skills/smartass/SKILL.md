@@ -70,12 +70,13 @@ from the tool list, or `sv_status` lacks `behind_reload_proxy`, the server preda
      warehouse = sheet check. Consumer and IG (abolished 1 June 2026) are refused with their successors: tell the
      user and ask which successor(s). Reply from its key_points, table, flags and warnings (facts with
      `detail='full'`). The warehouse: `sv_warehouse(status|refresh|rebuild)`; a 'Warehouse = source sheet' DIFF
-     means `sv_warehouse('rebuild', area=<area>)`, then `fin_pnl` again.
+     means `sv_warehouse('rebuild', area=<area>)`, then `fin_pnl` again. A **unit below an area** (e.g.
+     `fin_pnl('un.SY.5OK_W')`, or the bare code `5OK_W`) works the same way, read live and never stored; most
+     units have no FinPlan member, so they get last year only (pass the warning on).
    - `sv_analyse(question, template, params)`. `target` defaults to the session's workbook.
 
      | Template | Params | Delivers |
      |---|---|---|
-     | `division_pnl` (being retired: use `fin_pnl`) | `entity`, `period?` (default: last closed), `basis` ytd/month | P&L vs the same period last year, checks, top-5 sub-unit variance drivers, EBITDA bridge (waterfall) |
      | `monthly_trend` | `entity`, `accounts?`, `through?` | Jan→month periodic, a YTD column checked against Accumulated, line chart |
      | `actual_vs_plan` | `entity` (FinPlan alias), `month?`, `year?` | Actual vs Target and the latest forecast, FinMax reconciliation |
      | `cost_base` | `parent`, `accounts?`, `period?`, `top?` | Top-N leaf cost centres + "other" + total; the full tree is on the data sheet |
