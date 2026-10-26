@@ -200,3 +200,14 @@ dropped.
 
 **Follow-up:** speed up the Excel build (connect, the check-colour styling pass, cell writes). This is a separate
 change from Stage 2+3.
+
+## Re-check after the final-review fixes (2026-10-26)
+
+- **Live check (`warehouse_live.py`):** every line PASS. Base fill 12 grids / 8,955 cells in 9.8 s over HTTP, 0
+  problems; engine equals direct retrieves 7/7 (FinMax and FinPlan); bridges close; calc engine 766 ms. An earlier
+  attempt at 00:28 got HTTP 401 from the FinPlan pod for ~25 minutes (the pod was down: Smart View in Excel also said
+  "Cannot connect to provider"); FinMax answered throughout.
+- **S11:** all assertions pass (48 checks OK, 4/4 values = `sv_query`, the warm call only tops up), SLOW 255 s
+  (cold 176 s, warm 78 s) against 240 s. Run against a scratch warehouse (`SV_WAREHOUSE`): the user's real file
+  predates the schema version, so the first run fell back to live pulls on both calls, as designed (report
+  `2026-10-26-stage2-3-s11-rerun`). It needs one `sv_warehouse('rebuild')` after the merge.

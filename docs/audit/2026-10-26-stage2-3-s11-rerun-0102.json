@@ -1,0 +1,36 @@
+{
+ "date": "2026-10-26",
+ "out": "stage2-3-s11-rerun",
+ "time": "2026-10-26T01:02:53",
+ "version": "0.2.0",
+ "atlas_age": "12.2 days",
+ "repeat": 1,
+ "totals": {
+  "SLOW": 1
+ },
+ "options": {
+  "only": "fin",
+  "repeat": 1,
+  "fresh": false,
+  "keep": false
+ },
+ "before_file": "2026-10-23-matrix-rerun.json",
+ "results": [
+  {
+   "id": "S11.fin_pnl.wholesale",
+   "tags": [
+    "fin"
+   ],
+   "result": "SLOW",
+   "secs": 254.7,
+   "error": null,
+   "error_class": "",
+   "notes": "cold 176s, warm 78s; 48 checks OK; 4 values = sv_query; 0 warnings",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  }
+ ]
+}

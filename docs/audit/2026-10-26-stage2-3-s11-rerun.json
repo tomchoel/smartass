@@ -1,0 +1,36 @@
+{
+ "date": "2026-10-26",
+ "out": "stage2-3-s11-rerun",
+ "time": "2026-10-26T00:53:37",
+ "version": "0.2.0",
+ "atlas_age": "12.2 days",
+ "repeat": 1,
+ "totals": {
+  "FAIL": 1
+ },
+ "options": {
+  "only": "fin",
+  "repeat": 1,
+  "fresh": false,
+  "keep": false
+ },
+ "before_file": "2026-10-23-matrix-rerun.json",
+ "results": [
+  {
+   "id": "S11.fin_pnl.wholesale",
+   "tags": [
+    "fin"
+   ],
+   "result": "FAIL",
+   "secs": 224.2,
+   "error": "AssertionError: warm call refilled: [{'job': 'live', 'result': 'ok', 'cells': 995, 'seconds': 1.44, 'errors': [], 'problems': []}, {'job': 'top_up', 'result': 'ok', 'cells': 21, 'seconds': 0.09, 'errors': [], 'problems': []}, {'job': 'top_up', 'result': 'ok', 'cells': 10, 'seconds': 0.16, 'errors': [], 'problems': []}, {'job': 'top_up', 'result': 'ok', 'cells': 10, 'seconds': 0.19, 'errors': [], 'problems': []}]",
+   "error_class": "AssertionError: warm call refilled: [{'job': 'live', 'result': 'ok', 'cells': #, 'seconds': #.#, 'errors': [], 'problems': []}, {'job': 'top_up', 'result': 'ok'",
+   "notes": "",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  }
+ ]
+}
