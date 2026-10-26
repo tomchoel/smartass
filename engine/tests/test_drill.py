@@ -285,7 +285,25 @@ class _Sheet:
         self.cells = {}
 
     def Cells(self, r, c):
-        return self.cells.setdefault((r, c), _Cell())
+        cell = self.cells.setdefault((r, c), _Cell())
+        cell.rc = (r, c)
+        return cell
+
+    def Range(self, a, b):
+        return _Rect(self, a.rc, b.rc)
+
+
+class _Rect:
+    """A rectangle written in one go (answer._Cells): spread over the cells, formulas as Formula2, the rest Value."""
+    def __init__(self, ws, a, b):
+        self.__dict__.update(ws=ws, a=a)
+
+    def __setattr__(self, k, grid):
+        for i, row in enumerate(grid):
+            for j, v in enumerate(row):
+                if v != "":
+                    cell = self.ws.Cells(self.a[0] + i, self.a[1] + j)
+                    setattr(cell, "Formula2" if isinstance(v, str) and v.startswith("=") else "Value", v)
 
 
 class _Target:

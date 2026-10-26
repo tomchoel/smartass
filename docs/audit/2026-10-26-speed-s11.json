@@ -1,0 +1,43 @@
+{
+ "date": "2026-10-26",
+ "out": "speed-s11",
+ "time": "2026-10-26T07:44:16",
+ "version": "0.2.0",
+ "atlas_age": "12.5 days",
+ "repeat": 1,
+ "totals": {
+  "SLOW": 1
+ },
+ "options": {
+  "only": "fin",
+  "repeat": 1,
+  "fresh": false,
+  "keep": false
+ },
+ "before_file": "2026-10-23-matrix-rerun.json",
+ "results": [
+  {
+   "id": "S11.fin_pnl.wholesale",
+   "tags": [
+    "fin"
+   ],
+   "result": "SLOW",
+   "secs": 567.6,
+   "error": null,
+   "error_class": "",
+   "notes": "cold 470s, warm 76s; 48 checks OK; 4 values = sv_query; 0 warnings; DIALOG: Login: ",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [
+    {
+     "title": "Login",
+     "text": "",
+     "pid": 323836,
+     "seconds_into_scenario": 249.6
+    }
+   ],
+   "before": ""
+  }
+ ]
+}

@@ -265,6 +265,43 @@ def _build(t: Target, q: int, spec: dict, pulls: dict) -> dict:
             "_trace": cell_trace(plan, rows_by_key, pulls, ncol), "warnings": warnings, "lint": lint}
 
 
+class _Cells:
+    """The answer cells, buffered and written as one rectangle: one COM call instead of one per cell (a fin_pnl
+    answer took ~10 s cell by cell). Should Excel refuse the batch (one bad formula), the cells are written one by
+    one, so a bad cell costs only its own warning, as before."""
+
+    def __init__(self):
+        self.cells: dict[tuple[int, int], tuple[object, str]] = {}
+
+    def put(self, row: int, col: int, value, label: str = "") -> None:
+        self.cells[(row, col)] = (value, label)
+
+    def flush(self, ws, warnings: list[str]) -> None:
+        if not self.cells:
+            return
+        rows, cols = [r for r, _ in self.cells], [c for _, c in self.cells]
+        r0, c0 = min(rows), min(cols)
+        grid = [[""] * (max(cols) - c0 + 1) for _ in range(max(rows) - r0 + 1)]
+        for (r, c), (v, _) in self.cells.items():
+            grid[r - r0][c - c0] = v
+        rng = ws.Range(ws.Cells(r0, c0), ws.Cells(max(rows), max(cols)))
+        try:
+            com(lambda: setattr(rng, "Formula2", tuple(tuple(x) for x in grid)))
+            return
+        except HostError:
+            raise                                          # Excel busy: the whole answer has to wait, not one cell
+        except Exception:   # noqa: BLE001 - one bad formula refuses the batch: fall back to cell by cell
+            pass
+        for (r, c), (v, label) in sorted(self.cells.items()):
+            cell = ws.Cells(r, c)
+            try:
+                com(lambda: setattr(cell, "Formula2" if isinstance(v, str) and v.startswith("=") else "Value", v))
+            except HostError:
+                raise
+            except Exception as e:   # noqa: BLE001
+                warnings.append(f"{label or f'row {r}'}: {e}")
+
+
 def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
     """All answer cells (title, key points, lines, checks, notes); returns the layout for styling."""
     t.status(f"bygger svar-arket 'Q{q} Svar' ...")
@@ -275,12 +312,13 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
     last_col = L(FIRST_COL + ncol - 1)
     rows_meta: list[dict] = []
     r = 1
+    buf = _Cells()
 
     def put(row, col, value):
         # text is stored as text: Excel would otherwise turn 'Jan 26' into a date, '1/2' into a fraction ...
         if isinstance(value, str) and not value.startswith("="):
             value = "'" + value
-        com(lambda: setattr(ws.Cells(row, col), "Value", value))
+        buf.put(row, col, value)
 
     put(r, 2, spec.get("title", f"Q{q}")); rows_meta.append({"row": r, "kind": "title"}); r += 1
     put(r, 2, spec.get("subtitle", "NOK")); rows_meta.append({"row": r, "kind": "subtitle"}); r += 2
@@ -368,11 +406,7 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
                     f = "'" + str(c["text"])
                 else:
                     continue
-                cell = ws.Cells(row, FIRST_COL + j)
-                if isinstance(f, str) and f.startswith("="):
-                    com(lambda: setattr(cell, "Formula2", f))
-                else:
-                    com(lambda: setattr(cell, "Value", f))
+                buf.put(row, FIRST_COL + j, f, str(ln.get("label")))
             except Exception as e:   # noqa: BLE001 - one bad cell spec must not abort the whole answer
                 if isinstance(e, KeyError):
                     e = InputError(f"unknown line key {e} (known: {sorted(rows_by_key)})")
@@ -394,9 +428,10 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
                 put(r, 2, f"{ck['label']} — {cols[j].get('header', '')}")
                 try:
                     f = _expr_to_formula(ck["expr"], col, rows_by_key)
-                    com(lambda: setattr(ws.Cells(r, FIRST_COL), "Formula2", f))
-                    com(lambda: setattr(ws.Cells(r, FIRST_COL + 1), "Formula2",
-                                        f'=IF(ISNUMBER({L(FIRST_COL)}{r}),IF(ABS({L(FIRST_COL)}{r})<1,"OK","DIFF"),"DIFF")'))
+                    buf.put(r, FIRST_COL, f, f"check {ck['label']}")
+                    buf.put(r, FIRST_COL + 1,
+                            f'=IF(ISNUMBER({L(FIRST_COL)}{r}),IF(ABS({L(FIRST_COL)}{r})<1,"OK","DIFF"),"DIFF")',
+                            f"check {ck['label']}")
                 except (HostError, InputError) as e:
                     warnings.append(f"check {ck['label']}: {e}")
                 rows_meta.append({"row": r, "kind": "check", "num": {L(FIRST_COL): "heltall"},
@@ -409,6 +444,7 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
     if spec.get("source"):
         put(r, 2, spec["source"]); rows_meta.append({"row": r, "kind": "note"}); r += 1
 
+    buf.flush(ws, warnings)
     used = {m["row"] for m in rows_meta}
     for blank in range(1, r):
         if blank not in used:

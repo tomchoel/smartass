@@ -26,6 +26,9 @@
   fallback.
 - `sv_analyse` template `division_pnl` is to be retired in favour of `fin_pnl`.
 - New dependency: `duckdb==2.0.0`.
+- Faster answer sheets: the answer cells are written as one block (a fin_pnl answer: 11 s -> 0.2 s) and the check
+  colours are set once per run of check cells (7 s -> 0.2 s). A block Excel refuses is written cell by cell, so a
+  bad formula still costs only its own warning.
 - `sv_query` reads over Smart View's HTTP provider protocol first, from the drill's hidden Edge (no Excel):
   `source='auto'` (default) falls back to Smart View in Excel and says why in a warning; `'http'` never falls
   back; `'com'` forces Excel. The answer's `route` says which was used.

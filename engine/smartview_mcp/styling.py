@@ -101,6 +101,18 @@ def _rgb(c):
     return tn.rgb(c)
 
 
+def _check_ranges(cells: list[tuple[int, int]]) -> list[str]:
+    """The check status cells as runs of consecutive rows per column ('D10:D12'), so the check colours are set once
+    per run instead of once per cell."""
+    out: list[list[int]] = []                       # [col, first row, last row]
+    for r, c in sorted(set(cells), key=lambda x: (x[1], x[0])):
+        if out and out[-1][0] == c and out[-1][2] == r - 1:
+            out[-1][2] = r
+        else:
+            out.append([c, r, r])
+    return [f"{_cl(c)}{a}" if a == b else f"{_cl(c)}{a}:{_cl(c)}{b}" for c, a, b in out]
+
+
 GREEN = (0, 112, 60)
 GREY_TAB = (166, 166, 166)
 NUM_ALIAS = {"heltall": "heltall", "tall1": "tall1", "prosent1": "prosent1", "prosent": "prosent",
@@ -419,8 +431,8 @@ def apply_report(ws, roles: dict) -> list[str]:
             _set(_rng(ws, r, c, r, last), "Style", "TN Tekst")      # merge resets the hidden cells to Normal
             _set(_rng(ws, r, c), "VerticalAlignment", tn.V_TOP)
     with stage("E check colours"):
-        for r, c in checks:
-            cell = _rng(ws, r, c)
+        for chunk in tn._chunks(_check_ranges(checks), sep):          # one rule pair per chunk (was per cell: 7 s)
+            cell = _retry(lambda: ws.Range(chunk))
             _call(_get(cell, "FormatConditions"), "Delete")
             fc = _call(_get(cell, "FormatConditions"), "Add", 1, 3, '="OK"')      # cell value = "OK"
             _set(_get(fc, "Font"), "Color", _rgb(GREEN)); _set(_get(fc, "Font"), "Bold", True)
