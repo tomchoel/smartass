@@ -1,0 +1,117 @@
+{
+ "date": "2026-10-26",
+ "out": "subunits-s3",
+ "time": "2026-10-26T08:08:21",
+ "version": "0.2.0",
+ "atlas_age": "12.5 days",
+ "repeat": 1,
+ "totals": {
+  "SLOW": 5,
+  "PASS": 1
+ },
+ "options": {
+  "only": "template",
+  "repeat": 1,
+  "fresh": false,
+  "keep": false
+ },
+ "before_file": "2026-10-23-matrix-rerun.json",
+ "results": [
+  {
+   "id": "S3.monthly_trend.tec",
+   "tags": [
+    "template"
+   ],
+   "result": "SLOW",
+   "secs": 121.0,
+   "error": null,
+   "error_class": "",
+   "notes": "Q1 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  },
+  {
+   "id": "S3.monthly_trend.sy",
+   "tags": [
+    "template"
+   ],
+   "result": "PASS",
+   "secs": 41.9,
+   "error": null,
+   "error_class": "",
+   "notes": "Q2 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  },
+  {
+   "id": "S3.actual_vs_plan.tec",
+   "tags": [
+    "template"
+   ],
+   "result": "SLOW",
+   "secs": 76.2,
+   "error": null,
+   "error_class": "",
+   "notes": "Q3 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  },
+  {
+   "id": "S3.actual_vs_plan.sy",
+   "tags": [
+    "template"
+   ],
+   "result": "SLOW",
+   "secs": 72.1,
+   "error": null,
+   "error_class": "",
+   "notes": "Q4 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  },
+  {
+   "id": "S3.cost_base.tec",
+   "tags": [
+    "template"
+   ],
+   "result": "SLOW",
+   "secs": 63.5,
+   "error": null,
+   "error_class": "",
+   "notes": "Q5 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  },
+  {
+   "id": "S3.cost_base.sy",
+   "tags": [
+    "template"
+   ],
+   "result": "SLOW",
+   "secs": 103.8,
+   "error": null,
+   "error_class": "",
+   "notes": "Q6 Svar",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  }
+ ]
+}

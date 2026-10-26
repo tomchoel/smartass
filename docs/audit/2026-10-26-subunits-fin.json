@@ -1,0 +1,52 @@
+{
+ "date": "2026-10-26",
+ "out": "subunits-fin",
+ "time": "2026-10-26T08:03:32",
+ "version": "0.2.0",
+ "atlas_age": "12.5 days",
+ "repeat": 1,
+ "totals": {
+  "PASS": 2
+ },
+ "options": {
+  "only": "fin",
+  "repeat": 1,
+  "fresh": false,
+  "keep": false
+ },
+ "before_file": "2026-10-23-matrix-rerun.json",
+ "results": [
+  {
+   "id": "S11.fin_pnl.wholesale",
+   "tags": [
+    "fin"
+   ],
+   "result": "PASS",
+   "secs": 219.9,
+   "error": null,
+   "error_class": "",
+   "notes": "cold 154s, warm 66s; 48 checks OK; 4 values = sv_query; 0 warnings",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  },
+  {
+   "id": "S12.fin_pnl.unit",
+   "tags": [
+    "fin"
+   ],
+   "result": "PASS",
+   "secs": 46.1,
+   "error": null,
+   "error_class": "",
+   "notes": "46s; 22 checks OK; EBITDA YTD = sv_query; 1 warnings",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [],
+   "before": ""
+  }
+ ]
+}
