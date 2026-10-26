@@ -159,10 +159,14 @@ def base_plans(closed: str, forecast_of: Callable[[int], str | None]) -> list[tu
 
 
 def base_grids(cat: Catalog, closed: str, forecast_of: Callable[[int], str | None],
-               keys: set[str] | None = None) -> list[Grid]:
-    """The base fill (all areas, or the area keys in `keys`)."""
-    fm = [e.finmax for e in areas(cat, "FinMax") if keys is None or e.key in keys]
-    fp = [e.finplan for e in areas(cat, "FinPlan") if keys is None or e.key in keys]
+               keys: set[str] | None = None, entities: list[Entity] | None = None) -> list[Grid]:
+    """The base fill (all areas, or the area keys in `keys`); `entities` instead: exactly these (a sub-unit read
+    live, no catalogue area) with the same months and plans."""
+    if entities is not None:
+        fm, fp = [e.finmax for e in entities if e.finmax], [e.finplan for e in entities if e.finplan]
+    else:
+        fm = [e.finmax for e in areas(cat, "FinMax") if keys is None or e.key in keys]
+        fp = [e.finplan for e in areas(cat, "FinPlan") if keys is None or e.key in keys]
     out = finmax_grids(cat, periods.window(closed), fm, spot=closed) if fm else []
     return out + (finplan_grids(cat, base_plans(closed, forecast_of), fp) if fp else [])
 

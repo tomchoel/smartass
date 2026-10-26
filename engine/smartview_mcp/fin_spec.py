@@ -26,8 +26,8 @@ from .analytics import periods
 from .analytics.bridge import components
 from .analytics.reconcile import TOL
 from .catalog import Catalog
-from .fin_pnl import (NAMES, PROVISIONAL, Result, flag_text, freshness_text, grand, landing_warnings,
-                      open_period_note, ordered_kpis, shown_pct)
+from .fin_pnl import (NAMES, PROVISIONAL, Result, finplan_warnings, flag_text, freshness_text, grand,
+                      landing_warnings, open_period_note, ordered_kpis, shown_pct)
 from .templates import _fmt
 
 COLUMNS = ["{p}", "Comparison", "Variance", "Variance %", "YTD {p}", "Comparison YTD", "Variance YTD",
@@ -46,6 +46,13 @@ class Request:
     pulls: list[dict]                                        # PullIn fields: id, connection, rows, columns, pov
     spec: dict
     expected: dict[str, list[Expected]]                      # pull id -> (row, col, value, fact id, tolerance)
+    source: str = "Warehouse"                                # what the sheets are checked against (check labels)
+
+
+def check_source(mode: str) -> str:
+    """'Live read' when the facts come from live pulls (a sub-unit, or the warehouse was unavailable: a DIFF then
+    has no warehouse to rebuild), else 'Warehouse'."""
+    return "Live read" if mode.startswith("live") else "Warehouse"
 
 
 def _ax(dim: str, members: list[str]) -> dict:
@@ -80,6 +87,7 @@ class _Builder:
     checks: list[dict] = field(default_factory=list)
     method_notes: list[str] = field(default_factory=list)
     chart: dict | None = None
+    source: str = "Warehouse"                                 # check_source(mode)
 
     def __post_init__(self):
         s = self.res.scope
@@ -424,7 +432,8 @@ class _Builder:
         other = [f for f in gone if f.id not in on_sheet]
         out = []
         if sheet:
-            out.append(f"{len(sheet)} source figure(s) have no warehouse value; they show as DIFF in the warehouse = "
+            src = self.source.lower()
+            out.append(f"{len(sheet)} source figure(s) have no {src} value; they show as DIFF in the {src} = "
                        f"source sheet checks (first: {sheet[0].id}: {sheet[0].reason}).")
         if other:
             shown = "; ".join(f"{f.id}: {f.reason}" for f in other[:6])
@@ -435,10 +444,11 @@ class _Builder:
     def notes(self, mode: str, refresh_notes) -> list[str]:
         """Order: open period, forecast warnings, problems, missing figures, then the method notes."""
         res, m = self.res, self.m
+        where = self.source.lower()
 
         def nok(v):
             return f"NOK {v:,.0f}".replace(",", " ")
-        head = [n for n in [open_period_note(res)] if n] + landing_warnings(res)
+        head = [n for n in [open_period_note(res)] if n] + finplan_warnings(res) + landing_warnings(res)
         head += [f"Problem: {x}" for x in res.problems] + self.missing_notes()
         method = [freshness_text(res, mode, refresh_notes), *res.notes, *self.method_notes,
                   "Signs as in FinMax: costs are negative; variance = current − comparison (positive = better). Cost "
@@ -447,22 +457,22 @@ class _Builder:
                   f"a smaller comparison counts as zero) {'or' if m.rule == 'either' else 'and'} at {nok(m.abs_nok)}, "
                   f"or a single month moving at least {nok(m.abs_nok)}; detail lines only (subtotals are not flagged "
                   f"again). 'comment' = always commented ({', '.join(m.always)}); 'unknown' = could not be judged. "
-                  "The flags are set by smartass from the warehouse; they do not change when the sheets are "
+                  f"The flags are set by smartass from the {where}; they do not change when the sheets are "
                   "refreshed." + (f" Flags marked provisional: {PROVISIONAL}." if res.provisional else ""),
                   f"Variance % is left blank where |comparison| is under {nok(m.pct_floor_nok)}.",
-                  "The 'Warehouse = source sheet' checks are static: they compare the sheets as built with the "
-                  "warehouse and do not re-run when the sheets are refreshed.",
-                  "Last year, budget, forecast and the landing are always shown; the question's comparisons only "
-                  "decide which are flagged and commented.",
-                  "Actual vs budget and forecast is read entirely in FinPlan (its definitions differ from FinMax; the "
-                  "EBITDA difference line shows by how much).",
-                  "History is restated to today's organisation (e.g. the 1 June 2026 reorg)."]
-        return head + method
+                  f"The '{self.source} = source sheet' checks are static: they compare the sheets as built with the "
+                  f"{where} and do not re-run when the sheets are refreshed."]
+        if res.scope.entity.finplan:
+            method += ["Last year, budget, forecast and the landing are always shown; the question's comparisons "
+                       "only decide which are flagged and commented.",
+                       "Actual vs budget and forecast is read entirely in FinPlan (its definitions differ from FinMax; "
+                       "the EBITDA difference line shows by how much)."]
+        return head + method + ["History is restated to today's organisation (e.g. the 1 June 2026 reorg)."]
 
 
 def build(res: Result, cat: Catalog, now: str | None = None, mode: str = "warehouse",
           refresh_notes: list[str] | None = None) -> Request:
-    b = _Builder(res, cat)
+    b = _Builder(res, cat, source=check_source(mode))
     b.finmax()
     b.kpis()
     b.finplan()
@@ -473,15 +483,17 @@ def build(res: Result, cat: Catalog, now: str | None = None, mode: str = "wareho
     closed_ok = not periods.after(p, s.closed)
     b.checks.append({"label": "Period is closed", "static": "OK" if closed_ok else "DIFF",
                      "detail": f"{p} vs Current Reporting Month {s.closed}"})
-    spec = {"title": f"{s.entity.label} — P&L {p} and YTD vs last year, budget and forecast",
-            "subtitle": f"NOK · FinMax and FinPlan · {s.entity.finmax} / {s.entity.finplan or '-'}",
+    plan = bool(s.entity.finplan)                                 # most units below an area have no FinPlan member
+    spec = {"title": f"{s.entity.label} — P&L {p} and YTD vs last year" + (", budget and forecast" if plan else ""),
+            "subtitle": (f"NOK · FinMax and FinPlan · {s.entity.finmax} / {s.entity.finplan}" if plan
+                         else f"NOK · FinMax · {s.entity.finmax} (no FinPlan entity)"),
             "auto_points": False, "key_points": key_points(res, cat),
             "columns": [{"header": h.format(p=p), "kind": k} for h, k in zip(COLUMNS, KINDS)],
             "sections": b.sections, "checks": b.checks, "notes": b.notes(mode, refresh_notes),
-            "source": f"Source: Oracle EPM Cloud (FinMax, FinPlan) via Smart View, retrieved "
+            "source": f"Source: Oracle EPM Cloud ({'FinMax, FinPlan' if plan else 'FinMax'}) via Smart View, retrieved "
                       f"{now or dt.datetime.now().strftime('%Y-%m-%d %H:%M')}.",
             "chart": b.chart}
-    return Request(f"{s.entity.label} P&L {p}", b.pulls, spec, b.expected)
+    return Request(f"{s.entity.label} P&L {p}", b.pulls, spec, b.expected, b.source)
 
 
 def _kpi_text(v: float | None, unit: str) -> str:
@@ -560,9 +572,10 @@ def _sheet_value(p, row: list[str], col: list[str]):
     raise KeyError(tuple(row))
 
 
-def reconcile_pull(p, cells: list[Expected], tol: float = TOL) -> dict:
-    """The static check 'warehouse = source sheet' for one pull (each cell within its own tolerance: NOK 1, FTE
-    0.05). A figure the warehouse could not give is a DIFF."""
+def reconcile_pull(p, cells: list[Expected], tol: float = TOL, source: str = "Warehouse") -> dict:
+    """The static check '<source> = source sheet' for one pull (each cell within its own tolerance: NOK 1, FTE
+    0.05). A figure the warehouse (or the live read) could not give is a DIFF."""
+    src = source.lower()
     worst, bad = 0.0, []
     for cell in cells:
         row, col, want, fid = cell[:4]
@@ -574,7 +587,7 @@ def reconcile_pull(p, cells: list[Expected], tol: float = TOL) -> dict:
             bad.append(f"{where} not on the sheet")
             continue
         if want is None:
-            bad.append(f"{where}: no warehouse value ({fid})")
+            bad.append(f"{where}: no {src} value ({fid})")
             continue
         if not isinstance(got, (int, float)):
             bad.append(f"{where}: the sheet shows {got}")
@@ -582,15 +595,16 @@ def reconcile_pull(p, cells: list[Expected], tol: float = TOL) -> dict:
         d = abs(float(got) - want)
         worst = max(worst, d)
         if d > t:
-            bad.append(f"{where}: sheet {_fmt(got)}, warehouse {_fmt(want)}")
+            bad.append(f"{where}: sheet {_fmt(got)}, {src} {_fmt(want)}")
     detail = f"{len(cells)} cells, largest difference {worst:,.2f}".replace(",", " ")
     if bad:
         detail += f"; {len(bad)} off, first: {bad[0]}"
-    return {"label": f"Warehouse = source sheet '{p.sheet}'", "static": "DIFF" if bad else "OK", "detail": detail}
+    return {"label": f"{source} = source sheet '{p.sheet}'", "static": "DIFF" if bad else "OK", "detail": detail}
 
 
-def with_reconciliation(spec: dict, expected: dict, pulls_by_id: dict) -> dict:
-    """_build_job's before_answer hook: one 'warehouse = sheet' check per source sheet, after the others. Returns a
-    new spec dict (the hook must return the spec)."""
-    extra = [reconcile_pull(pulls_by_id[pid], cells) for pid, cells in expected.items() if pid in pulls_by_id]
+def with_reconciliation(spec: dict, expected: dict, pulls_by_id: dict, source: str = "Warehouse") -> dict:
+    """_build_job's before_answer hook: one '<source> = source sheet' check per source sheet (source:
+    Request.source), after the others. Returns a new spec dict (the hook must return the spec)."""
+    extra = [reconcile_pull(pulls_by_id[pid], cells, source=source) for pid, cells in expected.items()
+             if pid in pulls_by_id]
     return {**spec, "checks": list(spec.get("checks") or []) + extra}

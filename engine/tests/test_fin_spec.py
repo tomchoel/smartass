@@ -311,3 +311,34 @@ def test_material_key_points_use_each_cubes_label_and_the_basis(tmp_path):
     res.flags = {"budget": {"oth": Flag("oth", True, False, "a single month moved", 10.0, "month")}}
     kp = next(k for k in fin_spec.key_points(res, cat) if k.startswith("Material variances: "))
     assert kp.startswith("Material variances: Other items vs budget: the month ") and "single-month swing" in kp
+
+
+def test_a_unit_without_finplan_is_compared_with_last_year_only(tmp_path):
+    from fin_util import FC
+
+    from smartview_mcp import extract
+    from smartview_mcp.fin_pnl import Scope
+    from smartview_mcp.warehouse import MemoryWarehouse
+    unit = dataclasses.replace(WHS, key="unit:un.SY.U1", label="U1 Unit one", aliases=(), finmax="un.SY.U1",
+                               finplan=None)
+    store, retrieve = MemoryWarehouse(), extract.route(http=http(tmp_path))
+    grids = extract.base_grids(CAT, "Sep 26", {26: FC}.get, entities=[unit])
+    assert grids and all(g.conn == "FinMax" for g in grids)
+    extract.fill(store, retrieve, CAT, grids, "live", "Sep 26")
+    res = fin_pnl.compute(CAT0, Scope(unit, "Sep 26", "Sep 26", None), store)
+    assert not res.budget and not res.forecast and res.landing is None and not res.missing()
+    warn = ("Warning: no FinPlan entity for U1 Unit one (un.SY.U1): budget, forecast and landing are not "
+            "available; compared with last year only.")
+    assert warn in fin_pnl.tool_warnings(res, [])
+    req = fin_spec.build(res, CAT0, now="2026-10-25 12:00", mode="live pulls (sub-unit: not kept in the warehouse)")
+    assert [p["id"] for p in req.pulls] == ["pnl", "fte"] and req.spec["notes"][0] == warn
+    assert "budget" not in req.spec["title"] and req.spec["title"].endswith("vs last year")
+    pulls = sheets(tmp_path, req)
+    assert_sheet_is_engine(res, req, pulls)
+    spec = fin_spec.with_reconciliation(req.spec, req.expected, pulls, source=req.source)
+    recon = [c for c in spec["checks"] if c["label"].startswith("Live read = source sheet")]
+    assert req.source == "Live read" and len(recon) == 2 and all(c["static"] == "OK" for c in recon)
+    assert all(c["static"] == "OK" for c in spec["checks"] if "static" in c)
+    assert not any("Warehouse = source" in c["label"] for c in spec["checks"])
+    assert any("'Live read = source sheet' checks are static" in n for n in spec["notes"])
+    assert fin_spec.build(res, CAT0).source == "Warehouse"

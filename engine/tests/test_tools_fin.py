@@ -252,3 +252,79 @@ def test_sv_warehouse_rebuild_rereads_an_area_or_everything(env, monkeypatch):
     assert [j["job"] for j in every["jobs"]] == ["base"] and len(store.rows) == n          # file reset, all re-read
     with pytest.raises(ToolError, match="abolished"):
         tools_fin.warehouse_job(None, "rebuild", "Consumer", store=store, retrieve=retrieve, db=db)
+
+
+# ------------------------------------------------------------------ sub-units (any FinMax entity below an area)
+UNIT_MEMBERS = MEMBERS + [("FinMax", "All Entities", "un.SY.U1A", "U1A Unit one A (un.SY)", "un.SY.U1"),
+                          ("FinMax", "All Entities", "un.SY.U1B", "U1B Unit one B (un.SY)", "un.SY.U1"),
+                          ("FinMax", "All Entities", "un.SY.2CON", "2CON Consumer (un.SY)", "un.SY"),
+                          ("FinMax", "All Entities", "un.SY.C1", "C1 Old unit (un.SY)", "un.SY.2CON"),
+                          ("FinPlan", "Entity", "U1 Unit one", "U1 Unit one", "2WHS Wholesale"),
+                          ("FinPlan", "Entity", "U10 Unit ten", "U10 Unit ten", "2WHS Wholesale")]
+
+
+@pytest.fixture
+def uenv(tmp_path, monkeypatch):
+    return _env(tmp_path, monkeypatch, members=UNIT_MEMBERS)
+
+
+def test_a_unit_below_an_area_resolves_to_a_synthetic_entity(uenv):
+    _, db = uenv
+    u1 = tools_fin.resolve_scope(CAT, "un.SY.U1", db)
+    assert (u1.key, u1.label, u1.finmax, u1.finplan) == ("unit:un.SY.U1", "U1 Unit one", "un.SY.U1", "U1 Unit one")
+    assert tools_fin.is_unit(u1) and not tools_fin.is_unit(WHS) and "Wholesale (un.SY.2WHS)" in u1.note
+    u2 = tools_fin.resolve_scope(CAT, "u2", db)                     # the bare code, any case; no FinPlan member
+    assert (u2.finmax, u2.finplan) == ("un.SY.U2", None)
+    for text in ("un.SY.2WHS", "2whs", "Wholesale"):                # an area's own member is the area
+        assert tools_fin.resolve_scope(CAT, text, db) == WHS
+
+
+@pytest.mark.parametrize("text, msg", [("un.SY.C1", "below Consumer Norway .un.SY.2CON., abolished on 2026-06-01"),
+                                       ("XYZ_9", "sv_find_member"), ("Narnia", "names no business area")])
+def test_a_unit_that_cannot_be_answered_is_refused_readably(uenv, text, msg):
+    _, db = uenv
+    with pytest.raises(ToolError, match=msg):
+        tools_fin.resolve_scope(CAT, text, db)
+
+
+def test_a_unit_is_read_live_and_never_stored_in_the_warehouse(uenv):
+    retrieve, db = uenv
+    store = MemoryWarehouse()
+    u1 = tools_fin.resolve_scope(CAT, "un.SY.U1", db)
+    res, mode, fills, notes = tools_fin.prepare(None, CAT, u1, None, fin_pnl.COMPARISONS, store=store,
+                                                retrieve=retrieve, db=db)
+    assert mode == tools_fin.LIVE_UNIT == "live pulls (sub-unit: not kept in the warehouse)"
+    assert not store.rows and not store.state() and "unavailable" not in mode
+    assert fills[0].fill.job == "live" and all(f.ok for f in fills) and not res.missing()
+    assert res.scope.units == (("un.SY.U1A", "U1A Unit one A"), ("un.SY.U1B", "U1B Unit one B"))
+    assert res.unit_bridge.closes() and res.budget and res.landing is not None and res.scope.forecast == FC
+    assert any("unit below Wholesale" in n for n in res.notes)
+
+
+def test_a_leaf_unit_without_finplan_has_last_year_only_and_no_bridge(uenv):
+    retrieve, db = uenv
+    u2 = tools_fin.resolve_scope(CAT, "un.SY.U2", db)
+    res, mode, fills, notes = tools_fin.prepare(None, CAT, u2, None, fin_pnl.COMPARISONS, store=MemoryWarehouse(),
+                                                retrieve=retrieve, db=db)
+    assert res.scope.units == () and res.unit_bridge is None and res.scope.forecast is None
+    assert not res.budget and res.landing is None and not res.missing()
+    assert any("no sub-units" in n for n in res.notes)
+    assert any("compared with last year only" in w for w in fin_pnl.tool_warnings(res, fills, notes))
+
+
+def test_sv_warehouse_rebuild_refuses_a_unit(uenv, monkeypatch):
+    retrieve, db = uenv
+    with pytest.raises(ToolError, match="never kept in the warehouse"):
+        tools_fin.warehouse_job(None, "rebuild", "un.SY.U1", store=MemoryWarehouse(), retrieve=retrieve, db=db)
+
+
+@pytest.mark.anyio
+async def test_the_tool_answers_a_unit_from_live_pulls(uenv, monkeypatch, tmp_path):
+    retrieve, _ = uenv
+    seen = _tool_env(monkeypatch, tmp_path, retrieve)
+    out = await tools_fin.fin_pnl("U2")
+    assert seen["ids"] == ["pnl", "fte"] and out["area"] == "U2 Unit two"
+    assert seen["spec"]["notes"][0].startswith("Warning: no FinPlan entity for U2 Unit two (un.SY.U2)")
+    assert any(n.startswith("Data: live pulls (sub-unit: not kept in the warehouse);") for n in seen["spec"]["notes"])
+    assert any("compared with last year only" in w for w in out["warnings"])
+    assert out["freshness"].startswith("Data: live pulls (sub-unit")

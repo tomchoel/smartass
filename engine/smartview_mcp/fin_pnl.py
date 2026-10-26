@@ -2,7 +2,8 @@
 budget and the latest forecast (FinPlan: actual = version Working, plan = Final), with materiality flags, an EBITDA
 bridge by line and by sub-unit, KPIs and the year-end landing - decided by the calc engine from the warehouse, in
 milliseconds and without Excel. fin_spec.py turns the Result into the sv_ws_build request (live source sheets +
-formulas); the engine's numbers then reconcile the sheets. templates.division_pnl is this slice's predecessor.
+formulas); the engine's numbers then reconcile the sheets. The entity is a catalogue area or a unit below one (a
+synthetic Entity, tools_fin.resolve_scope; most units have no FinPlan member: last year only).
 
 Owner decisions (2026-10-25): `compare` only decides which comparisons are flagged and commented - every answer shows
 last year, budget, forecast and the landing. An empty newest forecast member falls back to the newest one with data
@@ -379,6 +380,15 @@ def open_period_note(res: Result) -> str | None:
             f"open; figures and flags are {PROVISIONAL}.")
 
 
+def finplan_warnings(res: Result) -> list[str]:
+    """An entity without a FinPlan member (most units below an area): FinMax against last year only."""
+    e = res.scope.entity
+    if e.finplan:
+        return []
+    return [f"Warning: no FinPlan entity for {e.label} ({e.finmax}): budget, forecast and landing are not "
+            "available; compared with last year only."]
+
+
 def landing_warnings(res: Result) -> list[str]:
     """The empty-forecast fallback and the stale-forecast warning (the run rate is shown alongside)."""
     out = []
@@ -394,7 +404,8 @@ def landing_warnings(res: Result) -> list[str]:
 def tool_warnings(res: Result, fills, notes: list[str] | None = None) -> list[str]:
     """What the agent must pass on: the open period, the forecast warnings, problems, failed or warned warehouse
     jobs (their errors / problems) and refresh()'s notes (skipped or paused refresh)."""
-    out = [w for w in [open_period_note(res)] if w] + landing_warnings(res) + list(res.problems)
+    out = [w for w in [open_period_note(res)] if w] + finplan_warnings(res) + landing_warnings(res)
+    out += list(res.problems)
     for r in fills or []:
         f = r.fill
         if f.result == "error":

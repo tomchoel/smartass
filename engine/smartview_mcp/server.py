@@ -76,7 +76,8 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
   and sub-unit; KPIs; year-end landing): ONE call - fin_pnl(area). It reads the local warehouse (refreshed by itself)
   and builds the workbook with live source sheets; write the reply from its key_points, table, flags, warnings
   and freshness (every fact with detail='full'). A 'Warehouse = source sheet' check showing DIFF: call
-  sv_warehouse('rebuild', area=<that area>), then fin_pnl again.
+  sv_warehouse('rebuild', area=<that area>), then fin_pnl again. area may also be a unit below an area
+  ('un.SY.5OK_W'): read live, never stored; without a FinPlan member it is compared with last year only.
   Variance positive = better everywhere; cost per FTE is shown positive. Consumer and IG were abolished 1 June 2026:
   fin_pnl explains where their figures went (never empty figures); pass that explanation on.
 - Analyses: ONE call - sv_ws_build(question, pulls, spec) (or sv_analyse for a template). Default target 'session' =
