@@ -1,4 +1,4 @@
-"""Spike executable: pulls data via HTTP (or fallback) and outputs a headless HsGetValue workbook."""
+"""Spike executable: generates a headless HsGetValue workbook with FinMax reference data."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from pathlib import Path
 ENGINE_DIR = Path(__file__).resolve().parents[1] / "engine"
 sys.path.insert(0, str(ENGINE_DIR))
 
-from smartview_mcp.headless_builder import HeadlessWorkbookBuilder  # noqa: E402
-from smartview_mcp.hsgetvalue import build_hsgetvalue_formula  # noqa: E402
+from smartview_mcp.headless_builder import HeadlessWorkbookBuilder
+from smartview_mcp.hsgetvalue import build_hsgetvalue_formula
 
 # Reference values for verification
 REF_DATA = [
