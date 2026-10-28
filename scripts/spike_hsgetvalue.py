@@ -43,19 +43,17 @@ def run_spike(output_file: Path | None = None) -> Path:
         f_aug = build_hsgetvalue_formula(
             "FinMax",
             {
-                "Accounts": "ac.EBITDA",
-                "Entities": item["entity"],
-                "Period": "Aug",
-                "Years": "FY26",
+                "All Accounts": "ac.EBITDA",
+                "All Entities": item["entity"],
+                "All Time Periods": "Aug 26",
             },
         )
         f_sep = build_hsgetvalue_formula(
             "FinMax",
             {
-                "Accounts": "ac.EBITDA",
-                "Entities": item["entity"],
-                "Period": "Sep",
-                "Years": "FY26",
+                "All Accounts": "ac.EBITDA",
+                "All Entities": item["entity"],
+                "All Time Periods": "Sep 26",
             },
         )
         builder.add_data_row(
@@ -66,7 +64,12 @@ def run_spike(output_file: Path | None = None) -> Path:
             sep_formula=f_sep,
         )
 
-    builder.save(output_file)
+    try:
+        builder.save(output_file)
+    except PermissionError:
+        output_file = output_file.with_stem(f"{output_file.stem}_v2")
+        builder.save(output_file)
+        print(f"Original file was open/locked; saved to new version: {output_file.name}")
     elapsed = time.perf_counter() - start_time
     print(f"Workbook generated headlessly in {elapsed:.4f} seconds -> {output_file}")
     return output_file
