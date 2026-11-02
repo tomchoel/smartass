@@ -392,3 +392,58 @@ def test_reply_result_names_every_sheet_written_and_the_key_values():
     spec = {"columns": [{"header": "Sep 26"}], "sections": [{"title": "S", "lines": [{"key": "e", "label": "E"}]}]}
     out = reply.result(t, 1, spec, res, [SimpleNamespace(sheet="Q1 FinMax m")], [])
     assert out["sheets"] == ["Q1 Answer", "Q1 FinMax m", "Sources"] and out["key_values"] == {"E": {"Sep 26": 1.0}}
+
+
+# ------------------------------------------------------------------ B3: topic sheets
+class _Cell:
+    def __init__(self):
+        self.Formula = None
+
+
+class _Ws:
+    def __init__(self, name, log):
+        self.Name, self.log, self.cells = name, log, {}
+
+    def Cells(self, r, c):
+        return self.cells.setdefault((r, c), _Cell())
+
+    def Move(self, before, after):
+        self.log.append(("move", self.Name, after.Name))
+
+    def Activate(self):
+        self.log.append(("activate", self.Name))
+
+
+def test_answer_links_to_topic_sheets_and_back(monkeypatch):
+    log = []
+    wss = {n: _Ws(n, log) for n in ("Q1 Answer", "Q1 By project")}
+    t = SimpleNamespace(wb=SimpleNamespace(Worksheets=lambda n: wss[n]))
+    monkeypatch.setattr(progress, "com", lambda call, *a, **k: call())
+    progress.link(t, 1, ["By project"])
+    assert wss["Q1 Answer"].cells[(3, 2)].Formula == '=HYPERLINK("#\'Q1 By project\'!A1","Q1 By project →")'
+    assert wss["Q1 By project"].cells[(3, 2)].Formula == '=HYPERLINK("#\'Q1 Answer\'!A1","← Q1 Answer")'
+    assert ("move", "Q1 By project", "Q1 Answer") in log and log[-1] == ("activate", "Q1 Answer")
+
+
+def test_pipeline_renders_each_extra_on_its_topic_sheet_and_reviews_its_checks(monkeypatch):
+    calls = []
+    _fake_run(monkeypatch, calls)
+    monkeypatch.setattr(pipeline.answer_mod, "build", lambda t, q, spec, sess, suffix, owned=None, **kw:
+                        calls.append(("build", suffix, kw.get("reserve"))) or
+                        {"sheet": f"Q3 {suffix}", "checks": {"c": "DIFF" if suffix != "Answer" else "OK"},
+                         "extent": {"rows": 20, "cols": 6}, "values": {"x": [1.0]}})
+    monkeypatch.setattr(pipeline.progress, "link", lambda t, q, topics: calls.append(("link", q, topics)))
+    extra = {"topic": "By project", "layout": {"title": "P", "columns": [{"header": "a"}],
+                                               "sections": [{"title": "S", "lines": []}]}}
+    r = pipeline.run(None, {**SPEC, "extras": [extra]})
+    assert ("build", "By project", None) in calls and ("link", 3, ["By project"]) in calls
+    assert r.res["checks"]["By project: c"] == "DIFF" and r.res["extra_sheets"] == ["Q3 By project"]
+    assert not r.review["ok"]
+
+
+def test_topic_sheet_is_ours_for_rollback_and_next_question():
+    names = ["Q1 Answer", "Q1 By project", "Q1 Lines d1", "Q7 Forecast", "Sources"]
+    assert [sheets.question_of(n, names) for n in names] == [1, 1, 1, None, None]
+    wb = SimpleNamespace(Worksheets=[SimpleNamespace(Name=n) for n in names + ["Q2 By project"]])
+    assert sheets.next_question(SimpleNamespace(wb=wb)) == 2
+    assert sheets.question_of("Q2 By project", names) is None                 # no Q2 Answer: the user's sheet

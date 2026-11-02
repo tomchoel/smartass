@@ -146,6 +146,16 @@ class Recipe(_Strict):
 
 
 # ------------------------------------------------------------------ the spec
+TOPIC = r"^[A-Z][A-Za-z0-9 &/-]{1,24}$"
+_RESERVED = ("Answer", "FinMax", "FinLite", "FinPlan", "Lines")
+
+
+class Extra(_Strict):
+    """A topic sheet 'Q<n> <topic>' next to the answer (e.g. 'By project'), rendered like the answer's layout."""
+    topic: str = Field(pattern=TOPIC)
+    layout: Layout
+
+
 class AnswerSpec(_Strict):
     version: Literal[1] = 1
     question: str = Field(min_length=1)
@@ -153,6 +163,7 @@ class AnswerSpec(_Strict):
     assumptions: list[str] = Field(default_factory=list)
     pulls: list[Pull] = Field(default_factory=list)
     layout: Layout | None = None
+    extras: list[Extra] = Field(default_factory=list)
     commentary: Commentary = Field(default_factory=Commentary)
     recipe: Recipe | None = None
     deviation: str | None = Field(default=None, max_length=300)   # the user's explicit request to depart (D4)
@@ -168,8 +179,14 @@ class AnswerSpec(_Strict):
         dup = sorted({i for i in ids if ids.count(i) > 1})
         if dup:
             raise ValueError(f"pull ids used twice: {', '.join(dup)}")
+        topics = [x.topic for x in self.extras]
+        bad = sorted({x for x in topics if topics.count(x) > 1 or x.split()[0] in _RESERVED})
+        if bad:
+            raise ValueError(f"extras: topic(s) used twice or reserved: {', '.join(bad)}")
         if self.layout:
             errs = _layout_refs(self.layout, set(ids), [d.line for d in self.commentary.drivers if d.line])
+            for x in self.extras:
+                errs += [f"extras '{x.topic}': {e}" for e in _layout_refs(x.layout, set(ids))]
             if errs:
                 raise ValueError("layout references: " + "; ".join(errs))
         elif any(d.line for d in self.commentary.drivers):
@@ -256,7 +273,7 @@ def validate(spec: dict) -> AnswerSpec:
     return AnswerSpec.model_validate(spec)
 
 
-_IDS = {"pulls": "id", "sections": "title", "lines": "key", "checks": "label"}
+_IDS = {"pulls": "id", "sections": "title", "lines": "key", "checks": "label", "extras": "topic"}
 
 
 def _merge_list(old: list, new, ident: str | None, where: str) -> list:
@@ -325,7 +342,8 @@ def outline(raw: dict) -> dict:
             "sections": [{"title": s.get("title"), "lines": [ln.get("key") for ln in s.get("lines") or []],
                           **({"repeat": (s["repeat"].get("line") or {}).get("key")} if s.get("repeat") else {})}
                          for s in lay.get("sections") or []],
-            "checks": [c["label"] for c in lay.get("checks") or []]}
+            "checks": [c["label"] for c in lay.get("checks") or []],
+            "extras": [x.get("topic") for x in raw.get("extras") or []]}
 
 
 # ------------------------------------------------------------------ English sheet text (D7)
@@ -356,6 +374,8 @@ def sheet_texts(raw: dict) -> list[tuple[str, str]]:
             out.extend((f"{at}.{name}[{i}].{key}", x[key]) for i, x in enumerate(lay.get(name) or [])
                        if isinstance(x, dict) and isinstance(x.get(key), str))
     layout(raw.get("layout") or {}, "layout")
+    for i, x in enumerate(raw.get("extras") or []):
+        layout((x or {}).get("layout") or {}, f"extras[{i}].layout")
     layout(((raw.get("recipe") or {}).get("overrides") or {}).get("layout") or {}, "recipe.overrides.layout")
     drivers = (raw.get("commentary") or {}).get("drivers") or []
     out.extend((f"commentary.drivers[{i}].text", d["text"]) for i, d in enumerate(drivers)

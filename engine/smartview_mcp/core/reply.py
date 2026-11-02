@@ -102,7 +102,7 @@ def result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> dic
     data = [p.sheet for p in pulls] + ["Sources"]
     return {
         "workbook": t.path, "question": f"Q{q}", "answer_sheet": res["sheet"],
-        "data_sheets": data, "sheets": [res["sheet"]] + data,
+        "data_sheets": data, "sheets": [res["sheet"]] + list(res.get("extra_sheets") or []) + data,
         "key_points": spec.get("key_points", []),
         "key_values": key_values(spec, res),
         "table": answer_markdown(spec, res),

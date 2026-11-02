@@ -181,3 +181,36 @@ def test_ranking_without_lines_is_a_valid_cube_only_draft_with_followups_filled(
     full = lines.lines_ranking(dict(PARAMS), _ctx())
     f = recipes.followups("lines_ranking", PARAMS, "YTD Sep 26", full.result["fill"])
     assert f[0] == "Show the invoice lines for KPMG AS" and len(f) == 3
+
+
+def test_initiative_is_booked_project_else_derived_and_marked():
+    rows = [{"PROJECT": "P123", "PROJECT_DESC": "5G rollout", "CC_DESC": "Radio", "AMOUNT": -1.0},
+            {"PROJECT": "P124", "PROJECT_DESC": "", "AMOUNT": -1.0},
+            {"PROJECT": "000000", "CC_DESC": "Core network", "AMOUNT": -1.0},
+            {"PROJECT": "", "GL_DESCRIPTION_LINE": "KPMG 123456 audit fee 2026 Q3 extra work and much more text here",
+             "AMOUNT": -1.0},
+            {"AMOUNT": -1.0}]
+    cols = lines.add_initiative(rows, ["AMOUNT"])
+    assert cols == ["AMOUNT", "INITIATIVE", "INITIATIVE_DERIVED"]
+    assert [(r["INITIATIVE"], r["INITIATIVE_DERIVED"]) for r in rows] == [
+        ("5G rollout", ""), ("P124", ""), ("", "Core network"),
+        ("", "KPMG audit fee Q3 extra work and much mo"), ("", lines.NO_DESC)]
+    d = lines.lines_ranking({**PARAMS, "projects": True}, _ctx())
+    titles = [s["title"] for s in d.extras[0]["layout"]["sections"]]
+    assert d.extras[0]["topic"] == "By project" and "Initiative (derived, not booked)" in titles
+
+
+def test_by_project_sheet_sums_to_lines_total():
+    rows = [dict(r, PROJECT="P1" if r["AP_CUSTOMER_NAME"] == "KPMG AS" else "000000",
+                 PROJECT_DESC="Audit", CC_DESC="Finance") for r in D1]
+    d = lines.lines_ranking({**PARAMS, "projects": True}, _ctx({"d1": rows, "d2": D2}))
+    contract.validate({"version": 1, "question": "q", "gate": {"outcome": "clear"}, "pulls": d.pulls,
+                       "layout": d.layout, "extras": d.extras})
+    lay = d.extras[0]["layout"]
+    v = specs.evaluate(lay, {}, {"d1": rows})
+    assert v["bp"][0] == pytest.approx(-30 * M) and v["bp1"][0] == pytest.approx(-30 * M)
+    assert v["bp"][0] + v["dp"][0] == pytest.approx(_lines_total(rows, NOW)) == pytest.approx(v["plines"][0])
+    chk = specs.evaluate({**lay, "sections": lay["sections"] + [
+        {"title": "c", "lines": [{"key": "chk", "cells": [{"expr": lay["checks"][0]["expr"]}]}]}]}, {}, {"d1": rows})
+    assert abs(chk["chk"][0]) < 1 and lay["checks"][0]["label"] == "By project = lines total"
+    assert not lines.lines_ranking(dict(PARAMS), _ctx()).extras

@@ -16,11 +16,21 @@ from ..host import InputError
 # ------------------------------------------------------------------ question numbering and sheets
 _Q = re.compile(r"^Q(\d+) (Answer|FinMax|FinLite|FinPlan|Lines)\b")   # our sheets only, not the user's "Q3 Forecast"
 _LINES = re.compile(r"^Q(\d+) Lines\b")
+_TOPIC = re.compile(r"^Q(\d+) [A-Z][A-Za-z0-9 &/-]{1,24}$")             # an answer's topic sheet ('Q3 By project')
+
+
+def question_of(name: str, names) -> int | None:
+    """The question number of one of our sheets: the fixed kinds, or a topic sheet next to its 'Q<n> Answer'."""
+    m = _Q.match(name)
+    if m is None:
+        m = _TOPIC.match(name)
+        m = m if m and f"Q{m.group(1)} Answer" in names else None
+    return int(m.group(1)) if m else None
 
 
 def next_question(t: target.Target) -> int:
-    nums = [int(m.group(1)) for s in t.wb.Worksheets if (m := _Q.match(s.Name))]
-    return max(nums, default=0) + 1
+    names = [s.Name for s in t.wb.Worksheets]
+    return max((n for x in names if (n := question_of(x, names)) is not None), default=0) + 1
 
 
 def pending_drill_question(t: target.Target) -> int | None:
@@ -107,7 +117,8 @@ def add_sheet(t: target.Target, name: str, after_q: int | None = None, color: in
     sheets = list(t.wb.Worksheets)
     anchor = None
     if after_q is not None:
-        group = [s for s in sheets if (m := _Q.match(s.Name)) and int(m.group(1)) == after_q]
+        names = [s.Name for s in sheets]
+        group = [s for s in sheets if question_of(s.Name, names) == after_q]
         anchor = group[-1] if group else None
     if anchor is None:
         others = [s for s in sheets if s.Name not in ("Sources", "Sources SV", META_SHEET)]

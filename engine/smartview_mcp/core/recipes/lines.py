@@ -94,6 +94,58 @@ def is_group(name: str, rows: list[dict], gc) -> bool:
     return any(re.search(p, name or "", re.I) for p in gc.patterns)
 
 
+INITIATIVE, DERIVED = "INITIATIVE", "INITIATIVE_DERIVED"
+NO_DESC = "(no description)"
+
+
+def add_initiative(rows: list[dict], columns: list[str] | None = None) -> list[str]:
+    """Mark each line's initiative (in place): INITIATIVE = the booked project (PROJECT_DESC, else PROJECT) when
+    PROJECT is filled and not 000000; otherwise INITIATIVE_DERIVED = the cost centre (CC_DESC), else the first 40
+    characters of the line text without number-only words. Exactly one of the two is filled. Returns the columns
+    with both added."""
+    for r in rows:
+        proj = str(r.get("PROJECT") or "").strip()
+        if proj and proj.strip("0"):
+            r[INITIATIVE], r[DERIVED] = str(r.get("PROJECT_DESC") or "").strip() or proj, ""
+        else:
+            text = " ".join(w for w in str(r.get("GL_DESCRIPTION_LINE") or "").split() if not w.isdigit())[:40]
+            r[INITIATIVE], r[DERIVED] = "", str(r.get("CC_DESC") or "").strip() or text.strip() or NO_DESC
+    cols = list(columns or [])
+    return cols + [c for c in (INITIATIVE, DERIVED) if c not in cols]
+
+
+def _by_project(rows: list[dict], now: list[str], head: str, top: int) -> dict:
+    """The 'By project' topic sheet: booked projects and derived initiatives (top + Other each), tied to the lines."""
+    def block(col: str, title: str, key: str, other: str, total: str) -> dict:
+        sums: dict[str, list] = {}
+        for r in rows:
+            v = str(r.get(col) or "")
+            if v:
+                e = sums.setdefault(v.casefold(), [v, 0.0])
+                e[1] += r["AMOUNT"] if isinstance(r.get("AMOUNT"), (int, float)) else 0.0
+        ranked = sorted(sums.values(), key=lambda e: e[1])[:top]
+        share = {"share": {"col": 0, "of": "plines"}}
+        out = [{"key": f"{key}{i}", "label": n, "kind": "line",
+                "cells": [{"drill": "d1", "where": {col: n, "Period": now}}, share]} for i, (n, _) in enumerate(ranked, 1)]
+        rest = f"{key}" + "".join(f"-{key}{i}" for i in range(1, len(ranked) + 1))
+        out += [{"key": f"{key}_other", "label": other, "kind": "line", "cells": [{"expr": rest}, share]},
+                {"key": key, "label": total, "kind": "sum",
+                 "cells": [{"drill": "d1", "where": {INITIATIVE if col == DERIVED else DERIVED: "", "Period": now}},
+                           share]}]
+        return {"title": title, "lines": out}
+    tot = {"title": "Total", "lines": [{"key": "plines", "label": "Total (ledger lines)", "kind": "grand",
+                                        "cells": [{"drill": "d1", "where": {"Period": now}}, {"value": 1}]}]}
+    return {"topic": "By project", "layout": {
+        "title": f"By project — {head}", "subtitle": "NOK · FinLite ledger lines · Actual",
+        "columns": [{"header": head, "kind": "heltall"}, {"header": "Share %", "kind": "prosent1"}],
+        "sections": [block(INITIATIVE, "Booked projects", "bp", "Other booked projects", "Total booked projects"),
+                     block(DERIVED, "Initiative (derived, not booked)", "dp", "Other derived initiatives",
+                           "Total derived (not booked)"), tot],
+        "checks": [{"label": "By project = lines total", "expr": "bp+dp-plines", "columns": [0]}],
+        "notes": ["Booked = the line carries a project (PROJECT not 000000). Derived = no project: the initiative is "
+                  "the cost centre, else the start of the line text; it is an estimate, not a booking."]}}
+
+
 def _accounts(params: dict) -> list[str]:
     acc = params.get("accounts") or []
     if not acc:
@@ -220,4 +272,8 @@ def lines_ranking(params: dict, ctx: RecipeContext) -> Draft:
     result = {"period": head, "fill": {"top1": external[0][0] if external else "the largest supplier",
                                        "measure": measure},
               "findings": [finding], "lines": {k: len(v or []) for k, v in got.items()}}
-    return Draft([pull_dict(pull)], lay, assumptions, warnings, result)
+    extras = []
+    if params.get("projects"):
+        add_initiative(d1)                   # idempotent; the runner adds it before writing the Lines sheet
+        extras.append(_by_project(d1, now, head, top))
+    return Draft([pull_dict(pull)], lay, assumptions, warnings, result, extras)

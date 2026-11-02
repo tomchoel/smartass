@@ -17,7 +17,7 @@ UTC_FIELDS = {"ATTR17"}          # GL posted date is a UTC timestamp -> Oslo wal
 KEY_LABELS = ["Period", "GL_POSTED_DATE", "BOOKING_DATE", "GL_VOUCHER_NUMBER", "Entity", "CC_DESC", "ACCOUNT",
               "ACCOUNT_NAME", "AMOUNT", "JE_SOURCE", "JE_CATEGORY_NAME", "AP_CUSTOMER_NAME", "AP_INVOICE_NUMBER",
               "GL_DESCRIPTION_LINE", "Products", "PRODUCT_DESC", "PROJECT", "PROJECT_DESC", "BATCH_NAME",
-              "JOURNAL_NAME"]
+              "JOURNAL_NAME", "INITIATIVE", "INITIATIVE_DERIVED"]     # the last two: recipe lines_ranking
 FACETS = {"supplier": "AP_CUSTOMER_NAME", "account": "ACCOUNT", "cost_centre": "Entity", "month": "Period",
           "je_source": "JE_SOURCE", "je_category": "JE_CATEGORY_NAME", "product": "Products",
           "invoice": "AP_INVOICE_NUMBER"}

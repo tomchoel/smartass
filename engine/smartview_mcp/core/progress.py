@@ -40,3 +40,25 @@ def set_status(t, q: int, text: str) -> None:
     ws = com(lambda: t.wb.Worksheets(f"Q{q} {ANSWER}"))
     com(lambda: setattr(ws.Cells(STATUS_ROW, 2), "Value", "'Status: " + text))
     t.status(text)
+
+
+LINK_ROW = 3                 # the free row under the subtitle of a rendered answer
+
+
+def hyperlink(sheet: str, text: str) -> str:
+    return f'=HYPERLINK("#\'{sheet}\'!A1","{text}")'
+
+
+def link(t, q: int, topics: list[str]) -> None:
+    """Topic sheets 'Q<q> <topic>' go right after 'Q<q> Answer'; the answer links to each (row 3, one per column)
+    and each links back."""
+    ans = com(lambda: t.wb.Worksheets(f"Q{q} {ANSWER}"))
+    after = ans
+    for i, topic in enumerate(topics):
+        name = f"Q{q} {topic}"
+        ws = com(lambda name=name: t.wb.Worksheets(name))
+        com(lambda ws=ws, after=after: ws.Move(None, after))
+        after = ws
+        com(lambda i=i, name=name: setattr(ans.Cells(LINK_ROW, 2 + i), "Formula", hyperlink(name, f"{name} →")))
+        com(lambda ws=ws: setattr(ws.Cells(LINK_ROW, 2), "Formula", hyperlink(f"Q{q} {ANSWER}", f"← Q{q} {ANSWER}")))
+    com(ans.Activate)

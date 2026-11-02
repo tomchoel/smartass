@@ -65,10 +65,11 @@ def answer_layout(raw_layout: dict, spec: contract.AnswerSpec) -> dict:
 
 
 def drill_aliases(spec) -> set[str]:
-    """The drill aliases of every drill cell in the spec's layout (lines and repeat templates)."""
+    """The drill aliases of every drill cell in the spec's layout and extras (lines and repeat templates)."""
     lay = spec.layout.model_dump() if getattr(spec, "layout", None) is not None else {}
+    lays = [lay] + [x.layout.model_dump() for x in getattr(spec, "extras", None) or []]
     out = set()
-    for sec in lay.get("sections") or []:
+    for sec in (s for lay in lays for s in lay.get("sections") or []):
         lines = list(sec.get("lines") or []) + ([sec["repeat"].get("line") or {}] if sec.get("repeat") else [])
         out |= {str(c["drill"]) for ln in lines for c in ln.get("cells") or [] if isinstance(c, dict) and "drill" in c}
     return out
@@ -210,7 +211,27 @@ def _draw(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, sess: dict
         prepared = specs.prepare(answer_layout(layout, spec), ids, sess)
     with stage("answer"):
         res = answer_mod.build(t, q, prepared, sess, suffix=progress.ANSWER, owned=owned, reserve=findings.RESERVE)
+    _extras(t, q, raw, ids, sess, res)
     return res, prepared
+
+
+def _extras(t, q: int, raw: dict, ids: dict, sess: dict, res: dict) -> None:
+    """Each extra as its own sheet 'Q<q> <topic>' (after the answer), linked both ways; its checks, formula errors
+    and warnings join the answer's (checks as '<topic>: <label>') so the review covers them."""
+    topics = []
+    for x in raw.get("extras") or []:
+        topic = x["topic"]
+        with stage(f"extra '{topic}'"):
+            prep = specs.prepare(x["layout"], ids, sess)
+            rx = answer_mod.build(t, q, prep, sess, suffix=topic)
+        res.setdefault("checks", {}).update({f"{topic}: {k}": v for k, v in (rx.get("checks") or {}).items()})
+        res.setdefault("formula_errors", []).extend(f"{topic}: {k}" for k in rx.get("formula_errors") or [])
+        res.setdefault("warnings", []).extend(rx.get("warnings") or [])
+        res.setdefault("extras", {})[topic] = {"sheet": rx["sheet"], "values": rx.get("values") or {}}
+        topics.append(topic)
+    if topics:
+        res["extra_sheets"] = [res["extras"][x]["sheet"] for x in topics]
+        progress.link(t, q, topics)
 
 
 def _finish(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, prepared: dict, res: dict, sources: list,

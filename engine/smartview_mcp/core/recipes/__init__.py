@@ -29,6 +29,7 @@ class Draft:
     assumptions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     result: dict = field(default_factory=dict)
+    extras: list[dict] = field(default_factory=list)     # topic sheets: [{"topic", "layout"}]
 
 
 def pull_dict(ps) -> dict:
@@ -136,6 +137,8 @@ def expand(raw: dict, ctx: RecipeContext) -> tuple[dict, dict]:
     have = list(raw.get("assumptions") or [])
     out = {**copy.deepcopy(raw), "pulls": d.pulls, "layout": d.layout,
            "assumptions": have + [a for a in d.assumptions if a not in have]}
+    if d.extras:
+        out["extras"] = d.extras
     if rec.get("overrides"):
         out = contract.patched({k: v for k, v in out.items() if k != "recipe"}, rec["overrides"]) | {"recipe": rec}
     return out, {**d.result, "warnings": list(d.warnings)}
