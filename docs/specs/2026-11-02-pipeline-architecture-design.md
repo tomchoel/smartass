@@ -89,7 +89,7 @@ Implemented (phase 4) in `core/scope.py`, exposed as the tool `sv_gate(question)
 
 Fetch through the Smart View HTTP provider (`svhttp.py`; transport = hidden Edge with Telenor SSO). Write each
 source sheet into the session workbook in **one block**. Source sheet form, decided after risk spike R1
-(`docs/audit/2026-11-02-risk-spikes.md`; HsGetValue formulas written into live Excel show `#NEED_REFRESH` until
+(`docs/archive/audit/2026-11-02-risk-spikes.md`; HsGetValue formulas written into live Excel show `#NEED_REFRESH` until
 Smart View refreshes them, so they cannot be pre-filled from the fetch):
 - **C (default):** value grid written from the HTTP fetch (0.02–0.4 s). No Excel Smart View login on the critical
   path. The pull spec is stored in the workbook; "refresh" = `pull` re-fetches over HTTP and rewrites the block.

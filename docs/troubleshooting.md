@@ -85,6 +85,20 @@ Startup entry `smartass-sso-watcher.lnk` and logs to `%LOCALAPPDATA%\smartass\lo
 - Restart it: double-click `smartass-sso-watcher.lnk` in the Startup folder (`Win+R`, `shell:startup`), or log off
   and on. If the entry is missing, re-run `installer\install.ps1`.
 
+## Sign-in messages (login hardening, 2026-11)
+
+The engine tells you what it is doing within seconds and never closes or restarts your Excel.
+
+| Message | Meaning | What to do |
+|---|---|---|
+| "Smart View's Login is open in your Excel; waiting for the automatic SSO click" (note, after about 5 s) | The Login dialog in your Excel is waiting for the SSO watcher. | Usually nothing; if it stays, click "Telenor SSO" yourself or check the watcher (above). |
+| "The Smart View Login window in your Excel is not responding; nothing was closed" (after about 10 s) | Windows marks the Login window "Not responding". | Close that Login window (or that Excel) yourself, then ask again. |
+| "Smart View's sign-in window stopped responding (Windows marks it 'Not responding')" | The hidden Excel's Login hung; it was restarted once. | Retry; if it repeats, `smartass doctor --bundle`. |
+| "EPM gave an empty response ...; retrying" (note) | A transient Smart View connect error. The hidden Excel retries, then restarts itself once; your Excel retries the pull once. | Nothing, unless the call then fails: ask again; if every connect fails see the cookie row under Known limits. |
+| "EPM kept answering 'Empty response from provider' after a restart of the engine's Excel" | The hidden Excel's Smart View session stayed broken after one restart. | Wait a minute and ask again; if it persists, sign in once in your Excel and run `smartass doctor --bundle`. |
+| "Smart View in this Excel is not signed in correctly" | Your Excel answers every connect with an empty response and shows no Login. | Sign in once in your Excel (Smart View ribbon → Panel → connect), then ask again. |
+| HTTP API `409 busy` | Another `/gate` or `/answer` is running. | Wait and resend. |
+
 ## "Smart View showed its sign-in window (WebView2 failed …)"
 
 Smart View's login page runs in WebView2. When WebView2 cannot start, Smart View says so ("WebView2 Runtime failed …
@@ -103,7 +117,7 @@ call once. If the second try fails the same way, you get this error.
 
 ## Known limits (accepted by the owner, 2026-10-23)
 
-These were investigated in the reliability audit (`docs\audit\2026-10-23-reliability-audit.md`) and accepted as they
+These were investigated in the reliability audit (`docs\archive\audit\2026-10-23-reliability-audit.md`) and accepted as they
 are. If one of these symptoms shows up, the cause below is already known; no new investigation is needed.
 
 | Symptom | Known cause | What to do |

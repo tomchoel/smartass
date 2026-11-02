@@ -1,5 +1,5 @@
-"""sv_answer: one question through the new pipeline (design 2026-11-02 §3) - the walking skeleton beside the old
-tools, which stay until the benchmarks reach parity."""
+"""The pipeline tools: sv_gate (scope), sv_remember (learned defaults) and sv_answer (one question, a follow-up or a
+recipe; design 2026-11-02 §3). gate() and answer() are also the HTTP API's POST /gate and /answer."""
 from __future__ import annotations
 
 import contextlib
@@ -38,7 +38,7 @@ async def _closed_month() -> tuple[str, str | None]:
 
 @tool(annotations=READ)
 async def sv_gate(question: str) -> dict:
-    """NEW PIPELINE step 1 - call FIRST for every finance question, before any pull (procedure:
+    """Pipeline step 1 - call FIRST for every finance question, before any pull (procedure:
     knowledge/advisor/gate.md). Runs the fixed scope checklist (period, scenario, entity, measure, currency/sign,
     granularity) against the catalog, the capability map and the user's learned defaults, and suggests one outcome:
     - clear: proceed; state every checklist item with source convention/learned (and each warning) as an assumption.
@@ -131,7 +131,7 @@ def _expand_recipe(h, spec: dict) -> tuple[dict, dict]:
 @tool(annotations=WRITE)
 async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: int | None = None,
                     target: str = "session", allow_archive: bool = False, ctx: Context | None = None) -> dict:
-    """NEW PIPELINE: answer ONE question from an answer spec v1 (core/contract.py) - or change the current answer
+    """Pipeline step 2: answer ONE question from an answer spec v1 (core/contract.py) - or change the current answer
     with a follow-up. Give exactly one of spec and followup.
     spec (a new question -> a new 'Q<n> Answer'): {version: 1, question, gate: {outcome: clear|ambiguous|infeasible,
     checklist: {period, scenario, entity, measure, currency_sign, granularity}, questions (ambiguous, 1-3), reason +
