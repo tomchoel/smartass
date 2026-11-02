@@ -85,3 +85,61 @@ def test_remember_rejects_unknown_item_or_value(tmp_path, monkeypatch):
     with pytest.raises(InputError):
         prefs.remember("period", "this year", "sometimes")
     assert not (tmp_path / "p.toml").exists()
+
+
+from smartview_mcp.core import scope  # noqa: E402
+
+GATE_CASES = [
+    ("B09", "What do we earn on mobile subscriptions?", "clear"),
+    ("B10", "EBITDA per product for Mobile Consumer", "infeasible"),
+    ("B11", "How are we doing on costs?", "ambiguous"),
+    ("B13", "EBITDA YTD for unit un.SY.5OK_W", "clear"),
+    ("B14", "Business full-year EBITDA: latest forecast vs budget", "clear"),
+    ("T01", "What's our budget for Business?", "ambiguous"),
+    ("T02", "Opex for Wholesale this year", "ambiguous"),
+    ("T03", "EBITDA margin per customer", "infeasible"),
+    ("T04", "Revenue in EUR for Technology", "infeasible"),
+    ("T05", "Profit per product", "infeasible"),
+    ("T06", "Business EBITDA Sep 26 vs Sep 25", "clear"),
+    ("T07", "Q3 numbers for Consumer", "ambiguous"),
+    ("T08", "Cost per FTE in IT", "clear"),
+    ("T09", "How much did we spend on consultants?", "clear"),
+    ("T10", "Forecast for October 26 actuals", "infeasible"),
+]
+_NONE = lambda i, p: None  # noqa: E731
+
+
+@pytest.mark.parametrize("cid,q,want", GATE_CASES, ids=[c[0] for c in GATE_CASES])
+def test_gate_outcome(cid, q, want):
+    """The advisor benchmark: if a case fails, fix the rule or capabilities.toml, never the expected outcome."""
+    g = scope.gate(q, "Sep 26", learned=_NONE)
+    assert g["suggested_outcome"] == want, g
+    scope.to_contract(g)                                       # always a valid contract Gate
+
+
+def test_gate_learned_default_turns_an_ask_into_a_stated_assumption():
+    d = {("measure", "costs"): "opex", ("period", "this year"): "ytd"}
+    g = scope.gate("How are we doing on costs this year?", "Sep 26", learned=lambda i, p: d.get((i, p)))
+    assert g["suggested_outcome"] == "clear"
+    assert g["checklist"]["measure"]["source"] == g["checklist"]["period"]["source"] == "learned"
+    assert g["checklist"]["period"]["value"] == "YTD Sep 26"
+
+
+def test_gate_details():
+    t02 = scope.gate("Opex for Wholesale this year", "Sep 26", learned=_NONE)
+    assert len(t02["questions"]) == 1 and "full year" in t02["questions"][0]
+    b13 = scope.gate("EBITDA YTD for unit un.SY.5OK_W", "Sep 26", learned=_NONE)
+    assert any("last year only" in w for w in b13["warnings"]) and b13["entities"][0]["finplan"] is None
+    t10 = scope.gate("Forecast for October 26 actuals", "Sep 26", learned=_NONE)
+    assert "Oct 26" in t10["reason"] and "forecast" in t10["proxy"]
+    t08 = scope.gate("Cost per FTE in IT", "Sep 26", learned=_NONE)
+    assert t08["checklist"]["measure"]["value"].startswith("Opex per FTE")     # the definition is stated
+    t09 = scope.gate("How much did we spend on consultants?", "Sep 26", learned=_NONE)
+    assert "C693" in t09["checklist"]["measure"]["value"] and "temporary" in t09["checklist"]["measure"]["value"]
+    b09 = scope.gate("What do we earn on mobile subscriptions?", "Sep 26", learned=_NONE)
+    assert b09["checklist"]["measure"]["source"] == "catalog" and b09["concepts"]
+    assert b09["checklist"]["entity"]["source"] == b09["checklist"]["period"]["source"] == "convention"
+    t06 = scope.gate("Business EBITDA Sep 26 vs Sep 25", "Sep 26", learned=_NONE)
+    assert "last year" in t06["checklist"]["scenario"]["value"]
+    b14 = scope.gate("Business full-year EBITDA: latest forecast vs budget", "Sep 26", learned=_NONE)
+    assert b14["checklist"]["scenario"]["value"] == "Latest forecast vs Target (budget)"
