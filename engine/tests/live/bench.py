@@ -165,6 +165,40 @@ def _run(out: dict, **kw) -> dict:
     return {"out": out, "workbook": out.get("workbook"), "sheet": out.get("answer_sheet"), **kw}
 
 
+def _critical(out: dict) -> list[str]:
+    return [f"{x['severity']}: {x['text']}" for x in out["review"]["findings"] if x["severity"] == "Critical"]
+
+
+def recipe_v1(case_id: str, name: str, params: dict, checklist: dict | None = None) -> dict:
+    """A new question on the core route as a recipe spec (the gate is clear: the bench questions are scoped)."""
+    ck = {"period": "the closed month (FinMax Current Reporting Month)", "scenario": "Actual (and plan)",
+          "entity": str(params.get("entity") or params.get("area") or params.get("parent") or "un.SY"),
+          "measure": "as the question", "currency_sign": "NOK, EPM signs", "granularity": "as the recipe",
+          **(checklist or {})}
+    return {"version": 1, "question": CASES[case_id].question, "gate": {"outcome": "clear", "checklist": ck},
+            "recipe": {"name": name, "params": params}}
+
+
+def _core(case_id: str, name: str, params: dict, keep: str | None = None, check=None, **run_kw):
+    def run(ctx):
+        out, _ = ctx.client.must("sv_answer", {"spec": recipe_v1(case_id, name, params), "target": "new"})
+        if keep:
+            ctx.state.update({f"{keep}_wb": out["workbook"], f"{keep}_q": int(str(out["question"]).lstrip("Q")),
+                              f"{keep}_out": out})
+        return _run(out, problems=_critical(out) + (check(out) if check else []),
+                    notes=f"period {out.get('period')}", **run_kw)
+    return run
+
+
+def _followup(state_key: str, patch_fn, texts=None, check=None):
+    def run(ctx):
+        out, _ = ctx.client.must("sv_answer", {"followup": patch_fn(ctx), "q": ctx.state[f"{state_key}_q"],
+                                               "target": ctx.state[f"{state_key}_wb"]})
+        problems = _critical(out) + (check(out) if check else [])
+        return _run(out, problems=problems, texts=texts or [], notes=f"reused {out.get('reused')}")
+    return run
+
+
 def _fin_oracle(entity: str, fp_entity: str | None, accounts=("ac.EBITDA",)):
     def oracle(ctx, run):
         p = run["out"]["period"]
@@ -181,6 +215,9 @@ def _fin_oracle(entity: str, fp_entity: str | None, accounts=("ac.EBITDA",)):
 def b01(ctx):
     out, _ = ctx.client.must("fin_pnl", {"area": "Wholesale", "target": "new"})
     return _run(out)
+
+
+CASES["B01"].core = _core("B01", "pnl", {"area": "Wholesale"})
 
 
 BUS_O = {"EBITDA YTD Sep 26": cell("FinMax", fm("un.SY.2BUS"), ("All Accounts", "ac.EBITDA"), ("All Time Periods", PERIOD)),
@@ -214,9 +251,8 @@ def b02_v1() -> dict:
 @core_route("B02")
 def b02_core(ctx):
     out, _ = ctx.client.must("sv_answer", {"spec": b02_v1(), "target": "new"})
-    ctx.state.update(b02_wb=out["workbook"], b02_q=int(str(out["question"]).lstrip("Q")))
-    problems = [f"{x['severity']}: {x['text']}" for x in out["review"]["findings"] if x["severity"] == "Critical"]
-    return _run(out, problems=problems, notes=f"routes {out['routes']}")
+    ctx.state.update(b02_wb=out["workbook"], b02_q=int(str(out["question"]).lstrip("Q")), b02_outline=out["outline"])
+    return _run(out, problems=_critical(out), notes=f"routes {out['routes']}")
 
 
 @case("B03", "Follow-up to B02: add FinPlan Actual EBITDA YTD", "followup", needs="B02",
@@ -233,6 +269,19 @@ def b03(ctx):
     return _run(out)
 
 
+def b03_patch(ctx) -> dict:
+    """B03 as a follow-up patch on B02: the FinPlan pull and one line in B02's second section (found by its title)."""
+    pull = {"id": "fp", "connection": "FinPlan", "rows": [{"dimension": "Account", "members": ["EBITDA"]}],
+            "columns": [{"dimension": "Scenario", "members": ["Actual"]}], "pov": S.FP_POV}
+    title = ctx.state["b02_outline"]["sections"][1]["title"]
+    line = {"key": "fp", "label": "EBITDA YTD Sep (FinPlan Actual)",
+            "cells": [{"pull": "fp", "row": ["EBITDA"], "col": ["Actual"]}, None, None, None]}
+    return {"pulls": [pull], "layout": {"sections": [{"title": title, "lines": [line]}]}}
+
+
+CASES["B03"].core = _followup("b02", b03_patch)
+
+
 B04_TITLE = "Business Norway EBITDA 2026 vs 2025 (bench B04)"
 
 
@@ -243,6 +292,12 @@ def b04(ctx):
     return _run(out, texts=[B04_TITLE, "Bench note B04."])
 
 
+CASES["B04"].core = _followup(
+    "b02", lambda ctx: {"layout": {"title": B04_TITLE, "notes": {"append": ["Bench note B04."]}}},
+    texts=[B04_TITLE, "Bench note B04."],
+    check=lambda out: [f"re-fetched {s} ({r})" for s, r in out["routes"].items() if r != "reused"])
+
+
 def _analyse(template: str, params: dict):
     def run(ctx):
         out, _ = ctx.client.must("sv_analyse", {"question": f"BENCH {template}", "template": template, "params": params,
@@ -251,22 +306,80 @@ def _analyse(template: str, params: dict):
     return run
 
 
-case("B05", "Technology actual vs plan, Sep 26",
-     oracle=lambda ctx, run: {
-         "EBITDA actual YTD": cell("FinPlan", fp("2TEC Technology", "Working"), ("Account", "EBITDA"), ("Scenario", "Actual")),
-         "EBITDA target YTD": cell("FinPlan", fp("2TEC Technology", "Final"), ("Account", "EBITDA"), ("Scenario", "Target"))})(
+def _period(run: dict) -> str:
+    """The recipe's closed month (route core); the baseline is pinned to PERIOD."""
+    return run["out"].get("period") or PERIOD
+
+
+def _b05_oracle(ctx, run):
+    p = _period(run)
+    return {"EBITDA actual YTD": cell("FinPlan", fp("2TEC Technology", "Working", p[:3], f"FY{p[4:]}"),
+                                      ("Account", "EBITDA"), ("Scenario", "Actual")),
+            "EBITDA target YTD": cell("FinPlan", fp("2TEC Technology", "Final", p[:3], f"FY{p[4:]}"),
+                                      ("Account", "EBITDA"), ("Scenario", "Target"))}
+
+
+def _b07_oracle(ctx, run):
+    p = _period(run)
+    return {f"C30 {p}": cell("FinMax", fm("un.SY", "Periodic"), ("All Accounts", "ac.C30"), ("All Time Periods", p)),
+            f"C30 Jan {p[4:]}": cell("FinMax", fm("un.SY", "Periodic"), ("All Accounts", "ac.C30"),
+                                     ("All Time Periods", f"Jan {p[4:]}")),
+            f"C30 YTD {p}": cell("FinMax", fm("un.SY"), ("All Accounts", "ac.C30"), ("All Time Periods", p))}
+
+
+case("B05", "Technology actual vs plan, Sep 26", oracle=_b05_oracle)(
     _analyse("actual_vs_plan", {"entity": "2TEC Technology", "month": "Sep", "year": "FY26"}))
+CASES["B05"].core = _core("B05", "actual_vs_plan", {"entity": "2TEC Technology"})
 case("B06", "Top 15 cost centres by opex under Technology, Sep 26",
      oracle=lambda ctx, run: {"C70 YTD un.SY.2TEC": cell("FinMax", fm("un.SY.2TEC"), ("All Accounts", "ac.C70"),
-                                                         ("All Time Periods", PERIOD))})(
+                                                         ("All Time Periods", _period(run)))})(
     _analyse("cost_base", {"parent": "un.SY.2TEC", "period": PERIOD, "top": 15}))
-case("B07", "Telenor Norge monthly revenue trend through Sep 26",
-     oracle=lambda ctx, run: {
-         "C30 Sep 26": cell("FinMax", fm("un.SY", "Periodic"), ("All Accounts", "ac.C30"), ("All Time Periods", PERIOD)),
-         "C30 Jan 26": cell("FinMax", fm("un.SY", "Periodic"), ("All Accounts", "ac.C30"), ("All Time Periods", "Jan 26")),
-         "C30 YTD Sep 26": cell("FinMax", fm("un.SY"), ("All Accounts", "ac.C30"), ("All Time Periods", PERIOD))})(
+CASES["B06"].core = _core("B06", "cost_base", {"parent": "un.SY.2TEC", "top": 15})
+case("B07", "Telenor Norge monthly revenue trend through Sep 26", oracle=_b07_oracle)(
     _analyse("monthly_trend", {"entity": "un.SY", "through": PERIOD}))
-CASES["B08"] = Case("B08", "Follow-up to B07: split by business area", "followup", needs="B07")
+CASES["B07"].core = _core("B07", "monthly_trend", {"entity": "un.SY", "accounts": ["ac.C30"]}, keep="b07")
+
+BA_KEYS = ("wholesale", "business", "ssm", "ei", "technology", "it", "adm", "nordics")
+
+
+def b08_followup(period: str) -> dict:
+    """Follow-up to B07 (C30 per month, un.SY): the same months per business area, the remainder as
+    'Other / eliminations', and a check that the split adds up to the trend line a0."""
+    from smartview_mcp import catalog, templates
+    months = templates.months_to(period)
+    bas = [e for e in catalog.load().entities if e.key in BA_KEYS and not e.abolished]
+    n = len(months)
+
+    def per_month(m: str) -> list:
+        return [{"pull": "ba", "row": [m], "col": [mo]} for mo in months] + [{"rowsum": list(range(n))}]
+    return {
+        "pulls": [{"id": "ba", "connection": "FinMax",
+                   "rows": [{"dimension": "All Entities", "members": [e.finmax for e in bas] + ["un.SY"]}],
+                   "columns": [{"dimension": "All Time Periods", "members": months}],
+                   "pov": {"All Accounts": "ac.C30", "All Scenarios": "Actual", "All Currencies": "NOK",
+                           "All Balance Types": "Periodic"}}],
+        "layout": {"sections": [{
+            "title": "By business area",
+            "repeat": {"over": [{"m": e.finmax, "label": e.label} for e in bas],
+                       "line": {"key": "ba{i}", "label": "{label}", "kind": "line", "cells": per_month("{m}")}},
+            "lines": [{"key": "split_sum", "label": "Sum of business areas", "aux": True,
+                       "cells": [{"sum": "ba[0-9]*"} for _ in range(n + 1)]},
+                      {"key": "split_other", "label": "Other / eliminations", "kind": "line",
+                       "cells": [{"expr": "split_tot-split_sum"} for _ in range(n + 1)]},
+                      {"key": "split_tot", "label": "Telenor Norge (un.SY)", "kind": "sum",
+                       "cells": per_month("un.SY")}]}],
+            "checks": [{"label": "Business areas + other = Telenor Norge (trend)", "expr": "split_tot-a0",
+                        "columns": list(range(n + 1))}]}}
+
+
+def _b08_oracle(ctx, run):
+    p = ctx.state["b07_out"]["period"]
+    return {f"C30 {p} {e}": cell("FinMax", fm(e, "Periodic"), ("All Accounts", "ac.C30"), ("All Time Periods", p))
+            for e in ("un.SY.2BUS", "un.SY.2TEC")}
+
+
+CASES["B08"] = Case("B08", "Follow-up to B07: split by business area", "followup", None, _b08_oracle, needs="B07")
+CASES["B08"].core = _followup("b07", lambda ctx: b08_followup(ctx.state["b07_out"]["period"]))
 
 
 @case("B09", "What do we earn on mobile subscriptions?")
@@ -277,6 +390,16 @@ def b09(ctx):
         raise AssertionError("sv_scope found no concept")
     out, _ = ctx.client.must("sv_concept", {"concept": ids[0], "period": PERIOD, "target": "new"})
     return _run(out, notes=f"concept {ids[0]}")
+
+
+@core_route("B09")
+def b09_core(ctx):
+    from smartview_mcp import concepts
+    ids = [c["id"] for c in concepts.find("what do we earn on mobile subscriptions")]
+    if not ids:
+        raise AssertionError("the concept library found no concept")
+    run = _core("B09", "concept", {"concept": ids[0]})(ctx)
+    return {**run, "notes": f"concept {ids[0]}; {run['notes']}"}
 
 
 CASES["B10"] = Case("B10", "EBITDA per product for Mobile Consumer", "infeasible", agent=True)
@@ -307,11 +430,21 @@ def b12(ctx):
     return _run(out, numbers=[rec["lines_sum"]], problems=problems, checks_required=False)
 
 
+CASES["B12"].core = b12          # the sv_drill utility stays (design §6); a v1 drill spec is phase 6
+
+
+def _last_year_only(out: dict) -> list[str]:
+    return [] if any("compared with last year only" in w for w in out.get("warnings") or []) else \
+        ["no last-year-only warning"]
+
+
 @case("B13", "EBITDA YTD for unit un.SY.5OK_W", oracle=_fin_oracle("un.SY.5OK_W", None))
 def b13(ctx):
     out, _ = ctx.client.must("fin_pnl", {"area": "un.SY.5OK_W", "target": "new", "detail": "full"})
-    warned = any("compared with last year only" in w for w in out.get("warnings") or [])
-    return _run(out, problems=[] if warned else ["no last-year-only warning"])
+    return _run(out, problems=_last_year_only(out))
+
+
+CASES["B13"].core = _core("B13", "pnl", {"area": "un.SY.5OK_W", "detail": "full"}, check=_last_year_only)
 
 
 def _b14_oracle(ctx, run):
@@ -326,6 +459,7 @@ def _b14_oracle(ctx, run):
 
 case("B14", "Business full-year EBITDA: latest forecast vs budget", oracle=_b14_oracle)(
     _analyse("actual_vs_plan", {"entity": "2BUS Business", "month": "Dec", "year": "FY26"}))
+CASES["B14"].core = _core("B14", "actual_vs_plan", {"entity": "2BUS Business", "month": "Dec", "year": "FY26"})
 
 
 @case("B15", "Wholesale full P&L (revenue, COGS, opex, EBITDA) actual vs budget vs last year, YTD",
@@ -333,6 +467,9 @@ case("B14", "Business full-year EBITDA: latest forecast vs budget", oracle=_b14_
 def b15(ctx):
     out, _ = ctx.client.must("fin_pnl", {"area": "Wholesale", "target": "new", "detail": "full"})
     return _run(out)
+
+
+CASES["B15"].core = _core("B15", "pnl", {"area": "Wholesale", "detail": "full"})
 
 
 # ================================================================== runner
@@ -375,7 +512,11 @@ def run_case(c: Case, ctx, route: str) -> dict:
         r["first_visible_s"] = fv.secs
         out = run["out"]
         checks = out.get("checks") or {}
-        r["checks_ok"] = S._all_ok(checks) and (bool(checks) or not run.get("checks_required", True))
+        review = out.get("review")
+        # route core: the review grades each check (a 'Warning' check may differ by design); baseline: all OK
+        ok = (not any(x["severity"] == "Critical" and x["text"].startswith("check '") for x in review["findings"])
+              if review is not None else S._all_ok(checks))
+        r["checks_ok"] = ok and (bool(checks) or not run.get("checks_required", True))
         r["formula_errors"] = S._no_formula_errors(out)
         r["problems"] = list(run.get("problems") or [])
         r["notes"] = run.get("notes") or f"{run.get('sheet')}"

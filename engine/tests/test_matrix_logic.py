@@ -154,3 +154,33 @@ def test_bench_gate_score_counts_false_go_and_needless_ask():
           {"gate": "clear", "gate_got": "ambiguous"}, {"gate": "clear", "gate_got": "clear"}, {"gate": "clear"}]
     assert b.gate_score(rs) == {"right": 2, "total": 4, "false_go": 1, "needless_ask": 1}
     assert {f"T{i:02d}" for i in range(1, 11)} <= set(b.CASES)
+
+
+def test_bench_core_recipe_specs_are_valid_once_expanded_shape():
+    b = _bench()
+    s = b.recipe_v1("B07", "monthly_trend", {"entity": "un.SY", "accounts": ["ac.C30"]})
+    assert s["recipe"]["name"] == "monthly_trend" and "layout" not in s and s["gate"]["outcome"] == "clear"
+    from smartview_mcp.core import contract
+    contract.Gate.model_validate(s["gate"])
+
+
+def test_bench_b08_follow_up_splits_c30_by_business_area_and_reconciles_to_the_trend():
+    b = _bench()
+    fu = b.b08_followup("Oct 26")
+    pull = fu["pulls"][0]
+    assert pull["id"] == "ba" and pull["pov"]["All Accounts"] == "ac.C30"
+    ents = pull["rows"][0]["members"]
+    assert "un.SY.2BUS" in ents and "un.SY.2TEC" in ents and ents[-1] == "un.SY"
+    assert pull["columns"][0]["members"][-1] == "Oct 26" and len(pull["columns"][0]["members"]) == 10
+    sec = fu["layout"]["sections"][0]
+    assert sec["repeat"]["line"]["key"] == "ba{i}" and [ln["key"] for ln in sec["lines"]] == \
+        ["split_sum", "split_other", "split_tot"]
+    assert fu["layout"]["checks"] == [{"label": "Business areas + other = Telenor Norge (trend)",
+                                       "expr": "split_tot-a0", "columns": list(range(11))}]
+
+
+def test_bench_core_routes_cover_the_phase_5_cases():
+    b = _bench()
+    assert {k for k, c in b.CASES.items() if c.core} >= {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08",
+                                                          "B09", "B12", "B13", "B14", "B15"}
+    assert b.CASES["B08"].oracle is not None and b.CASES["B08"].needs == "B07"
