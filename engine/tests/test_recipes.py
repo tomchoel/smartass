@@ -98,3 +98,34 @@ async def test_sv_answer_turns_a_recipe_error_into_a_tool_error(monkeypatch):
 
 async def _job(job):
     return job(None)
+
+
+# ------------------------------------------------------------------ specs: data-driven top-N repeat
+def _fake_pull(rows: dict[str, float], col=("ac.C70",), labels=None):
+    """A Pull-like object: rows member -> value in one column."""
+    names = list(rows)
+    return SimpleNamespace(sheet="Q1 FinMax cb", layout=SimpleNamespace(col_tuples=[tuple(col)], nr=1),
+                           parsed=SimpleNamespace(rows=[[m, rows[m]] for m in names]),
+                           row_labels={(m,): (labels or {}).get(m, (f"{m} Name (un)",)) for m in names},
+                           col_labels={tuple(col): tuple(col)})
+
+
+def test_a_top_repeat_ranks_members_by_absolute_value_among_the_given_set():
+    from smartview_mcp import specs
+    p = _fake_pull({"A": -50.0, "B": 10.0, "C": -300.0, "P": -360.0})
+    spec = {"sections": [{"title": "Top", "repeat": {
+        "over": {"top": 2, "pull": "cb", "by": ["ac.C70"], "among": ["A", "B", "C"], "abs": True},
+        "line": {"key": "c{i}", "label": "{label}", "cells": [{"pull": "cb", "row": ["{m}"], "col": ["ac.C70"]}]}},
+        "lines": [{"key": "tot", "label": "Total", "cells": [{"pull": "cb", "row": ["P"], "col": ["ac.C70"]}]}]}]}
+    out = specs.expand(spec, {"cb": "Q1 FinMax cb"}, {"Q1 FinMax cb": p})
+    lines = out["sections"][0]["lines"]
+    assert [ln["key"] for ln in lines] == ["c0", "c1", "tot"]
+    assert [ln["label"] for ln in lines[:2]] == ["C Name", "A Name"]
+    assert lines[0]["cells"][0] == {"pull": "Q1 FinMax cb", "row": ["C"], "col": ["ac.C70"]}
+
+
+def test_a_top_repeat_without_the_pull_yields_nothing():
+    from smartview_mcp import specs
+    spec = {"sections": [{"title": "Top", "repeat": {"over": {"top": 2, "pull": "cb", "by": ["x"]},
+                                                     "line": {"key": "c{i}", "cells": []}}, "lines": []}]}
+    assert specs.expand(spec, {}, {})["sections"][0]["lines"] == []
