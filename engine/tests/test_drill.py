@@ -294,7 +294,7 @@ class _Sheet:
 
 
 class _Rect:
-    """A rectangle written in one go (answer._Cells): spread over the cells, formulas as Formula2, the rest Value."""
+    """A rectangle written in one go (answer_write._Cells): spread over the cells, formulas as Formula2, the rest Value."""
     def __init__(self, ws, a, b):
         self.__dict__.update(ws=ws, a=a)
 
@@ -312,13 +312,13 @@ class _Target:
 
 
 def test_answer_writes_drill_formulas(monkeypatch):
-    from smartview_mcp import answer
-    monkeypatch.setattr(answer, "com", lambda call, *a, **k: call())
+    from smartview_mcp import answer_write
+    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
     ws = _Sheet()
-    out = answer._write(_Target(), 2, DRILL_SPEC, {}, ws)
+    out = answer_write._write(_Target(), 2, DRILL_SPEC, {}, ws)
     rows_by_key, warnings = out[2], out[-1]
     assert warnings == []
-    c = answer.FIRST_COL
+    c = answer_write.FIRST_COL
     assert ws.cells[(rows_by_key["pay"], c)].Formula2 == '=SUMIFS(Lines_Q2[AMOUNT],Lines_Q2[JE_SOURCE],"Payables")'
     assert ws.cells[(rows_by_key["pay"], c + 1)].Formula2 == '=COUNTIFS(Lines_Q2[JE_SOURCE],"Payables")'
     assert ws.cells[(rows_by_key["jul"], c)].Formula2 == \
@@ -326,7 +326,7 @@ def test_answer_writes_drill_formulas(monkeypatch):
     assert ws.cells[(rows_by_key["tot"], c)].Formula2 == "=SUM(Lines_Q2[AMOUNT])"
     other = {**DRILL_SPEC["sections"][0]["lines"][2], "key": "b", "cells": [{"drill": "b", "where": {}}]}
     ws2 = _Sheet()
-    out2 = answer._write(_Target(), 2, {**DRILL_SPEC, "sections": [{"title": "x", "lines": [other]}]}, {}, ws2)
+    out2 = answer_write._write(_Target(), 2, {**DRILL_SPEC, "sections": [{"title": "x", "lines": [other]}]}, {}, ws2)
     assert ws2.cells[(out2[2]["b"], c)].Formula2 == "=SUM(Lines_Q2_b[AMOUNT])"
 
 
@@ -350,22 +350,22 @@ def test_unknown_agg_is_rejected():
 
 
 def test_answer_reports_unknown_agg_as_warning(monkeypatch):
-    from smartview_mcp import answer
-    monkeypatch.setattr(answer, "com", lambda call, *a, **k: call())
+    from smartview_mcp import answer_write
+    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
     spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
         {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {}, "agg": "avg"}]}]}]}
-    warnings = answer._write(_Target(), 1, spec, {}, _Sheet())[-1]
+    warnings = answer_write._write(_Target(), 1, spec, {}, _Sheet())[-1]
     assert len(warnings) == 1 and "avg" in warnings[0]
 
 
 def test_answer_drill_wins_over_pull_like_specs(monkeypatch):
-    from smartview_mcp import answer
-    monkeypatch.setattr(answer, "com", lambda call, *a, **k: call())
+    from smartview_mcp import answer_write
+    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
     spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
         {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {}, "pull": "nope"}]}]}]}
     ws = _Sheet()
-    out = answer._write(_Target(), 1, spec, {}, ws)
-    assert out[-1] == [] and ws.cells[(out[2]["a"], answer.FIRST_COL)].Formula2 == "=SUM(Lines_Q1[AMOUNT])"
+    out = answer_write._write(_Target(), 1, spec, {}, ws)
+    assert out[-1] == [] and ws.cells[(out[2]["a"], answer_write.FIRST_COL)].Formula2 == "=SUM(Lines_Q1[AMOUNT])"
 
 
 # ------------------------------------------------------------------ drill_browser (no browser started)
@@ -763,18 +763,18 @@ def test_where_columns_checked_against_table():
 
 
 def test_answer_warns_on_where_column_missing_from_table(monkeypatch):
-    from smartview_mcp import answer
-    monkeypatch.setattr(answer, "com", lambda call, *a, **k: call())
-    monkeypatch.setattr(answer, "drill_table_columns", lambda wb, tn: ["Period", "AMOUNT", "JE_SOURCE"])
+    from smartview_mcp import answer_write
+    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
+    monkeypatch.setattr(answer_write, "drill_table_columns", lambda wb, tn: ["Period", "AMOUNT", "JE_SOURCE"])
     spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
         {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {"BATCH_ID": "7"}}]},
         {"key": "b", "label": "B", "cells": [{"drill": "d", "where": {"JE_SOURCE": "Payables"}}]}]}]}
     ws, t = _Sheet(), _Target()
     t.wb = None
-    out = answer._write(t, 1, spec, {}, ws)
+    out = answer_write._write(t, 1, spec, {}, ws)
     assert len(out[-1]) == 1 and "BATCH_ID" in out[-1][0]
-    assert (out[2]["a"], answer.FIRST_COL) not in ws.cells
-    assert ws.cells[(out[2]["b"], answer.FIRST_COL)].Formula2.startswith("=SUMIFS(")
+    assert (out[2]["a"], answer_write.FIRST_COL) not in ws.cells
+    assert ws.cells[(out[2]["b"], answer_write.FIRST_COL)].Formula2.startswith("=SUMIFS(")
 
 
 # ------------------------------------------------------------------ cross-process profile lock

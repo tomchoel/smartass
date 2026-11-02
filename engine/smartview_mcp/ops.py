@@ -362,21 +362,6 @@ def tree_from_labels(labels: list[str]) -> list[dict]:
     return out
 
 
-def _label(wb):
-    try:
-        cur = wb.SensitivityLabel.GetLabel()
-        if cur.LabelId:
-            return
-    except Exception:   # noqa: BLE001
-        pass
-    li = wb.SensitivityLabel.CreateLabelInfo()
-    li.LabelId = config.LABEL_ID
-    li.SiteId = config.LABEL_SITE
-    li.AssignmentMethod = 1
-    li.Justification = ""
-    wb.SensitivityLabel.SetLabel(li, li)
-
-
 DRILL_DEFAULTS = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}
 
 

@@ -6,7 +6,7 @@
     python -m smartview_mcp.xlcli workbooks
 
 Prints one JSON object on stdout: {"ok": true, "result": ...} or {"ok": false, "error": "..."}.
-Same engine, rules and snapshots as the MCP tools (livexl); takes the same per-Excel turn.
+Same engine, rules and snapshots as the MCP tools (workbench); takes the same per-Excel turn.
 """
 from __future__ import annotations
 
@@ -27,17 +27,17 @@ def main(argv=None) -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     import pythoncom
     pythoncom.CoInitialize()
-    from . import livexl
+    from .workbench import books, fmt, history
     from .excel import jobs
     try:
         if a.command == "check":
-            res = livexl.check(a.workbook, a.sheet)
+            res = fmt.check(a.workbook, a.sheet)
         elif a.command == "changes":
-            res = livexl.changes(a.workbook, a.limit)
+            res = history.changes(a.workbook, a.limit)
         elif a.command == "revert":
-            res = livexl.revert(a.id, a.workbook, a.force)
+            res = history.revert(a.id, a.workbook, a.force)
         else:
-            res = livexl.workbooks()
+            res = books.workbooks()
         print(json.dumps({"ok": True, "result": res}, ensure_ascii=False, default=str))
         return 0
     except Exception as e:   # noqa: BLE001 - the pane shows the message

@@ -182,14 +182,13 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None)
 def _save_new(app, wb, title: str) -> Path:
     """Name the first sheet 'Sources', label and SaveAs the new workbook under a file name that is free on disk and
     not the name of a workbook already open in that Excel (Excel refuses both with 0x800A03EC)."""
-    from ..ops import _label
     try:
         taken = {str(b.Name).lower() for b in jobs.com(lambda: app.Workbooks)}
     except Exception:   # noqa: BLE001
         taken = set()
     path = _new_path(title, taken)
     jobs.com(lambda: setattr(wb.Worksheets(1), "Name", "Sources"))
-    jobs.com(lambda: _label(wb))
+    jobs.com(lambda: instances._label(wb))
     try:
         jobs.com(lambda: wb.SaveAs(str(path), 51))
     except pywintypes.com_error as e:
@@ -358,11 +357,10 @@ def _new_analysis_file(h: ExcelHost, title: str) -> Path:
 
 
 def _new_analysis_file_host(h: ExcelHost, path: Path) -> Path:
-    from ..ops import _label
     wb = h.com(h.app.Workbooks.Add)
     try:
         wb.Worksheets(1).Name = "Sources"
-        _label(wb)
+        instances._label(wb)
         h.com(lambda: wb.SaveAs(str(path), 51))
     finally:
         h.com(lambda: wb.Close(False))

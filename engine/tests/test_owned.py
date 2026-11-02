@@ -1,7 +1,7 @@
 """The tool-owned range of an answer sheet: a redraw clears only what the tool drew; user content survives."""
 from types import SimpleNamespace
 
-from smartview_mcp import answer
+from smartview_mcp import answer_write
 from smartview_mcp.core import owned
 
 
@@ -63,15 +63,15 @@ class _Sheet:
 
 
 def test_room_is_made_for_the_extent_before_the_cells_are_written(monkeypatch):
-    monkeypatch.setattr(answer, "com", lambda call, *a, **k: call())
+    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
     log = []
     spec = {"title": "T", "columns": [{"header": "A"}, {"header": "B"}],
             "sections": [{"title": "s", "lines": [{"key": "a", "label": "A", "cells": [{"value": 1}, {"value": 2}]}]}],
             "notes": ["n"]}
-    out = answer._write(SimpleNamespace(status=lambda m: None), 1, spec, {}, _Sheet(log),
+    out = answer_write._write(SimpleNamespace(status=lambda m: None), 1, spec, {}, _Sheet(log),
                         make_room=lambda ext: log.append(("room", ext)))
     r = out[-2]
-    assert log[0] == ("room", {"rows": r - 1, "cols": answer.FIRST_COL + 1}) and log[1][0] == "write"
+    assert log[0] == ("room", {"rows": r - 1, "cols": answer_write.FIRST_COL + 1}) and log[1][0] == "write"
 
 
 def test_findings_rows_are_severity_then_text_capped_with_a_tail():

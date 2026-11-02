@@ -27,7 +27,8 @@ def run() -> None:
     import win32api
     import win32com.client
     import win32process
-    from smartview_mcp import ops, styling
+    from smartview_mcp import styling
+    from smartview_mcp.excel import instances
     from smartview_mcp import styling as st
     tn = st.tn
 
@@ -196,7 +197,7 @@ def run() -> None:
         w.Visible = True
 
         # ------------------------------------------------ save (sensitivity label first)
-        ops._label(wb)
+        instances._label(wb)
         out = WORK / "styling_test.xlsx"
         if out.exists():
             out.unlink()

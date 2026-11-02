@@ -54,7 +54,7 @@ def matrix_owners() -> dict[int, float]:
 
 
 def pid_registry() -> list[dict]:
-    """The engine's pids.json (written by host._PidRegistry: [{pid, ctime, owner, owner_ctime}])."""
+    """The engine's pids.json (written by hostproc._PidRegistry: [{pid, ctime, owner, owner_ctime}])."""
     import json
 
     from smartview_mcp import config

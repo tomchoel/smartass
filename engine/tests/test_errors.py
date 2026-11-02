@@ -125,11 +125,11 @@ async def test_drill_errors_keep_their_class_advice(monkeypatch):
 
 
 def test_answer_spec_errors_are_input_errors_not_host_errors():
-    from smartview_mcp import answer
+    from smartview_mcp import answer_write
     from smartview_mcp.host import HostError as RealHostError
     from smartview_mcp.host import InputError
     with pytest.raises(InputError) as e:
-        answer._expr_to_formula("rev + nope", "D", {"rev": 5})
+        answer_write._expr_to_formula("rev + nope", "D", {"rev": 5})
     assert not isinstance(e.value, RealHostError)
 
 

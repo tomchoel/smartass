@@ -73,7 +73,7 @@ def _app_from_window(ex7: int):
 
 def engine_excel_pids() -> set[int]:
     """The hidden automation Excels the smartass servers started (pids.json): never a user's Excel."""
-    from ..host import _PidRegistry
+    from ..hostproc import _PidRegistry
     return {int(i["pid"]) for i in _PidRegistry().load() if isinstance(i, dict) and i.get("pid")}
 
 
@@ -252,7 +252,6 @@ def ensure_bridge_file(h: ExcelHost) -> str:
 def _build_bridge(h: ExcelHost, ver: str, path: Path) -> str:
     if path.exists():                                # a parallel job built it meanwhile
         return ver
-    from ..ops import _label
     wb = h.com(h.app.Workbooks.Add)
     try:
         for p in config.BAS_FILES:
@@ -269,3 +268,18 @@ def _build_bridge(h: ExcelHost, ver: str, path: Path) -> str:
     if not path.exists():
         raise HostError("Could not build the Smart View bridge add-in (svbridge.xlam).")
     return ver
+
+
+def _label(wb):
+    try:
+        cur = wb.SensitivityLabel.GetLabel()
+        if cur.LabelId:
+            return
+    except Exception:   # noqa: BLE001
+        pass
+    li = wb.SensitivityLabel.CreateLabelInfo()
+    li.LabelId = config.LABEL_ID
+    li.SiteId = config.LABEL_SITE
+    li.AssignmentMethod = 1
+    li.Justification = ""
+    wb.SensitivityLabel.SetLabel(li, li)

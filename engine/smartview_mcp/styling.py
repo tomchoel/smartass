@@ -206,7 +206,7 @@ def ensure_template(xl) -> Path:
     try:
         _ensure_styles(wb)
         _mark(wb, ver)
-        from .ops import _label
+        from .excel.instances import _label
         _retry(lambda: _label(wb))
         _retry(lambda: wb.SaveAs(str(path), 54))           # xlOpenXMLTemplate
     finally:

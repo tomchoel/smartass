@@ -1,7 +1,7 @@
 """answer._Cells: the answer sheet is written in one rectangle, not one COM call per cell."""
 import pytest
 
-from smartview_mcp import answer
+from smartview_mcp import answer_write
 from smartview_mcp.host import HostError
 
 
@@ -41,9 +41,9 @@ class Sheet:
 
 
 def test_one_rectangle_for_all_cells(monkeypatch):
-    monkeypatch.setattr(answer, "com", lambda call, **kw: call())
+    monkeypatch.setattr(answer_write, "com", lambda call, **kw: call())
     ws, warnings = Sheet(), []
-    cells = answer._Cells()
+    cells = answer_write._Cells()
     cells.put(1, 2, "'Title")
     cells.put(3, 3, "=SUM(C1:C2)", "EBITDA")
     cells.put(2, 4, 5.0)
@@ -53,9 +53,9 @@ def test_one_rectangle_for_all_cells(monkeypatch):
 
 
 def test_a_refused_batch_falls_back_to_cells_and_warns_only_for_the_bad_one(monkeypatch):
-    monkeypatch.setattr(answer, "com", lambda call, **kw: call())
+    monkeypatch.setattr(answer_write, "com", lambda call, **kw: call())
     ws, warnings = Sheet(batch_fails=True, bad={(3, 3)}), []
-    cells = answer._Cells()
+    cells = answer_write._Cells()
     cells.put(1, 2, "'Title")
     cells.put(3, 3, "=BAD(", "EBITDA")
     cells.put(2, 4, 5.0)
@@ -67,8 +67,8 @@ def test_a_refused_batch_falls_back_to_cells_and_warns_only_for_the_bad_one(monk
 def test_excel_busy_is_not_swallowed(monkeypatch):
     def busy(call, **kw):
         raise HostError("Excel is busy")
-    monkeypatch.setattr(answer, "com", busy)
-    cells = answer._Cells()
+    monkeypatch.setattr(answer_write, "com", busy)
+    cells = answer_write._Cells()
     cells.put(1, 2, "'x")
     with pytest.raises(HostError):
         cells.flush(Sheet(), [])
@@ -76,7 +76,7 @@ def test_excel_busy_is_not_swallowed(monkeypatch):
 
 def test_nothing_to_write_is_no_call():
     ws = Sheet()
-    answer._Cells().flush(ws, [])
+    answer_write._Cells().flush(ws, [])
     assert ws.batches == [] and ws.cells == {}
 
 

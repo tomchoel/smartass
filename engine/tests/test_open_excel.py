@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 import pywintypes
 
-from smartview_mcp import config, dialogs, ops, session, styling
+from smartview_mcp import config, dialogs, session, styling
 from smartview_mcp.excel import instances, jobs, login, target
 from smartview_mcp.dialogs import Dialog
 from smartview_mcp.host import HostError
@@ -207,7 +207,7 @@ def test_locked_file_open_in_no_reachable_excel_is_named(tmp_path, monkeypatch, 
 def test_failed_saveas_of_a_new_workbook_closes_it_unsaved(tmp_path, monkeypatch, fast):
     monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
     monkeypatch.setattr(styling, "ensure_template", lambda app: tmp_path / "tn_template_x.xltx")
-    monkeypatch.setattr(ops, "_label", lambda wb: None)
+    monkeypatch.setattr(instances, "_label", lambda wb: None)
     new = NewWb(fail=True)
     app = FakeApp(Books([FakeWb(str(tmp_path / "mine.xlsx"))], add=lambda: new))
     with pytest.raises(HostError, match="could not save the new workbook"):
@@ -218,7 +218,7 @@ def test_failed_saveas_of_a_new_workbook_closes_it_unsaved(tmp_path, monkeypatch
 def test_new_workbook_never_reuses_a_file_name_from_the_same_minute(tmp_path, monkeypatch, fast):
     monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
     monkeypatch.setattr(styling, "ensure_template", lambda app: tmp_path / "tn_template_x.xltx")
-    monkeypatch.setattr(ops, "_label", lambda wb: None)
+    monkeypatch.setattr(instances, "_label", lambda wb: None)
     made = []
 
     def add():
