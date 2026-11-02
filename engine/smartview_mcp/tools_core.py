@@ -2,14 +2,63 @@
 tools, which stay until the benchmarks reach parity."""
 from __future__ import annotations
 
+from typing import Literal
+
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import tools_ws, userexcel
-from .core import pipeline, runlog
+from . import config, templates, tools_ws, userexcel
+from .core import pipeline, prefs, runlog, scope
+from .core import period as periods
 from .host import HostError, InputError
-from .server import WRITE, _call_user, _err, _is_our_analysis_file, tool
+from .server import LOCAL, READ, WRITE, _call, _call_user, _err, _is_our_analysis_file, tool
 from .timing import Timer, stage
+
+
+async def _closed_month() -> tuple[str, str | None]:
+    """(last closed month 'Sep 26', warning or None). HTTP first (cached); if EPM cannot be reached, the month before
+    today, with a warning, so the gate still answers (it pulls nothing)."""
+    try:
+        return await _call(lambda h: templates.closed_month(h), timeout=30, what="closed month"), None
+    except Exception as e:   # noqa: BLE001 - the gate must answer without EPM
+        import datetime as dt
+        d = dt.date.today().replace(day=1) - dt.timedelta(days=1)
+        return periods.label(d.year, d.month), f"closed month not read from EPM ({str(e)[:120]}); assumed last month"
+
+
+@tool(annotations=READ)
+async def sv_gate(question: str) -> dict:
+    """NEW PIPELINE step 1 - call FIRST for every finance question, before any pull (procedure:
+    knowledge/advisor/gate.md). Runs the fixed scope checklist (period, scenario, entity, measure, currency/sign,
+    granularity) against the catalog, the capability map and the user's learned defaults, and suggests one outcome:
+    - clear: proceed; state every checklist item with source convention/learned (and each warning) as an assumption.
+    - ambiguous: pull nothing; ask the returned questions (max 3) in ONE message, in English; then call sv_gate again
+      with the answers folded into the question and offer sv_remember to save an answer as the default.
+    - infeasible: say why (reason) in one or two sentences and offer the proxy; build it labelled as a proxy.
+    Copy the result into the answer spec's gate (outcome, checklist, questions/reason/proxy) and assumptions.
+    Returns {suggested_outcome, checklist{item: {value, source, gap, ask}}, questions, reason, proxy, warnings,
+    entities, measures, concepts, closed_month, next}."""
+    if not question or not question.strip():
+        raise _err(InputError("question is the user's question, as asked"))
+    closed, warn = await _closed_month()
+    g = scope.gate(question.strip(), closed)
+    if warn:
+        g["warnings"].append(warn)
+    return g
+
+
+@tool(annotations=LOCAL)
+async def sv_remember(item: Literal["measure", "period", "scenario", "entity"], phrase: str, value: str) -> dict:
+    """Save the user's answer to a clarifying question as their default, so sv_gate states it next time instead of
+    asking. ONLY after the user agreed ("Save 'costs = opex' as your default?"). item + phrase = the gap and the words
+    in the question (e.g. measure 'costs', period 'this year'); value = a measure key (sv_gate measures), ytd|fy, a
+    catalog scenario key (actual, budget, forecast, ...) or a catalog entity key. Replaces an earlier default for the
+    same phrase. Stored in the user's readable preferences.toml (edit or delete freely)."""
+    try:
+        entry = prefs.remember(item, phrase, value)
+    except InputError as e:
+        raise _err(e) from None
+    return {"saved": entry, "file": str(config.PREFERENCES)}
 
 
 @tool(annotations=WRITE)

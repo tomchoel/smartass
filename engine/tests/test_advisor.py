@@ -143,3 +143,39 @@ def test_gate_details():
     assert "last year" in t06["checklist"]["scenario"]["value"]
     b14 = scope.gate("Business full-year EBITDA: latest forecast vs budget", "Sep 26", learned=_NONE)
     assert b14["checklist"]["scenario"]["value"] == "Latest forecast vs Target (budget)"
+
+
+@pytest.mark.anyio
+async def test_sv_gate_tool_uses_the_closed_month(monkeypatch):
+    from smartview_mcp import tools_core
+
+    async def closed():
+        return "Sep 26", None
+    monkeypatch.setattr(tools_core, "_closed_month", closed)
+    monkeypatch.setattr(tools_core.prefs, "lookup", lambda i, p: None)
+    out = await tools_core.sv_gate("Forecast for October 26 actuals")
+    assert out["suggested_outcome"] == "infeasible" and out["closed_month"] == "Sep 26"
+
+
+@pytest.mark.anyio
+async def test_sv_gate_tool_falls_back_when_epm_is_down(monkeypatch):
+    from smartview_mcp import tools_core
+
+    async def down(*a, **k):
+        raise RuntimeError("no session")
+    monkeypatch.setattr(tools_core, "_call", down)
+    monkeypatch.setattr(tools_core.prefs, "lookup", lambda i, p: None)
+    out = await tools_core.sv_gate("Business EBITDA Sep 26 vs Sep 25")
+    assert out["suggested_outcome"] == "clear" and any("assumed last month" in w for w in out["warnings"])
+
+
+@pytest.mark.anyio
+async def test_sv_remember_tool(tmp_path, monkeypatch):
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from smartview_mcp import tools_core
+    monkeypatch.setattr(tools_core.config, "PREFERENCES", tmp_path / "p.toml")
+    out = await tools_core.sv_remember("measure", "costs", "opex")
+    assert out["saved"]["value"] == "opex" and out["file"].endswith("p.toml")
+    with pytest.raises(ToolError):
+        await tools_core.sv_remember("measure", "costs", "nonsense")
