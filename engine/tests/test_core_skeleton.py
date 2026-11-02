@@ -1,11 +1,12 @@
 """The new core's walking skeleton (docs/plans/2026-11-02-walking-skeleton.md)."""
 import datetime as dt
+import json
 from types import SimpleNamespace
 
 import pytest
 
-from smartview_mcp import svhttp, userexcel
-from smartview_mcp.core import contract, progress, source
+from smartview_mcp import config, svhttp, userexcel
+from smartview_mcp.core import check, contract, progress, runlog, source
 from smartview_mcp.grid import Axis, Layout
 from smartview_mcp.host import InputError
 
@@ -88,3 +89,44 @@ def test_skeleton_of_a_proxy_answer_says_what_is_answered_instead():
     spec = contract.validate({**SPEC, "gate": {"outcome": "infeasible", "reason": "no product dimension",
                                                "proxy": "contribution margin per segment"}})
     assert progress.skeleton(spec, "x")[-1] == "Answered instead: contribution margin per segment"
+
+
+def _src(mismatches=(), note=None, pov=(), unknown=()):
+    parsed = SimpleNamespace(pov_problems=list(pov), unknown_members=list(unknown))
+    return SimpleNamespace(pull=SimpleNamespace(sheet="Q1 FinMax", parsed=parsed), mismatches=list(mismatches),
+                           note=note, route="http")
+
+
+def test_all_green_is_ok_without_findings():
+    assert check.review({"checks": {"Sum = YTD": "OK"}, "warnings": [], "lint": []}, [_src()]) == \
+        {"ok": True, "findings": []}
+
+
+def test_a_failed_check_or_a_sheet_that_differs_from_the_fetch_is_critical():
+    r = check.review({"checks": {"Sum = YTD": "DIFF"}},
+                     [_src(mismatches=["row 3 column 2: fetched 1.0, sheet shows 2.0"])])
+    assert not r["ok"] and [f["severity"] for f in r["findings"]] == ["Critical", "Critical"]
+
+
+def test_fallback_rejected_members_and_missing_checks_are_warnings():
+    r = check.review({"checks": {}}, [_src(note="HTTP route failed (x)", pov=["Smart View rejected y"])])
+    assert r["ok"] and [f["severity"] for f in r["findings"]] == ["Warning"] * 3
+
+
+def test_formula_errors_are_critical_and_style_lint_is_info():
+    r = check.review({"checks": {"c": "OK"}, "formula_errors": ["ytd"], "lint": ["narrow column"]}, [])
+    assert [(f["severity"], f["text"]) for f in r["findings"]] == [
+        ("Critical", "formula error on line 'ytd'"), ("Info", "narrow column")]
+
+
+def test_entry_records_gate_pulls_routes_and_result(monkeypatch, tmp_path):
+    spec = contract.validate(SPEC)
+    src = SimpleNamespace(pull=SimpleNamespace(sheet="Q1 FinMax", seconds=0.234), route="http")
+    e = runlog.entry(spec, 1, [src], {"ok": True, "findings": []}, {"_total": 3.1}, workbook="C:/x/a.xlsx")
+    assert e["pulls"] == [{"id": "m", "cube": "FinMax", "sheet": "Q1 FinMax", "route": "http", "seconds": 0.23}]
+    assert (e["q"], e["gate"], e["ok"], e["error"]) == ("Q1", "clear", True, None)
+    row = runlog.sheet_row(e)
+    assert row[1:6] == ("Q1", "EBITDA Sep 26 for Business", "clear", "m=FinMax (http, 0.23 s)", "OK")
+    monkeypatch.setattr(config, "RUN_LOG", tmp_path / "logs" / "runs.jsonl")
+    runlog.append(e)
+    assert json.loads((tmp_path / "logs" / "runs.jsonl").read_text(encoding="utf-8"))["q"] == "Q1"
