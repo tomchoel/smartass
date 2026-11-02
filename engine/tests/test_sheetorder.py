@@ -146,3 +146,9 @@ def test_arrange_sheets_fake_com_active_keeps_user_kilder():
 def test_plan_moves_rejects_mismatch():
     with pytest.raises(ValueError):
         plan_moves(["a", "b"], ["a", "c"])
+
+def test_answer_sheets_rank_like_svar_and_count_as_questions():
+    from smartview_mcp.userexcel import _Q
+    names = ["Q2 FinMax", "Q2 Answer", "Q1 Svar"]
+    assert sheet_order(names, set(names)) == ["Q1 Svar", "Q2 Answer", "Q2 FinMax"]
+    assert _Q.match("Q3 Answer").group(1) == "3"

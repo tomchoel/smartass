@@ -951,7 +951,7 @@ def _new_analysis_file_host(h: ExcelHost, path: Path) -> Path:
 
 
 # ------------------------------------------------------------------ question numbering and sheets
-_Q = re.compile(r"^Q(\d+) (Svar|FinMax|FinLite|FinPlan|Linjer)\b")   # our sheets only, not the user's "Q3 Forecast"
+_Q = re.compile(r"^Q(\d+) (Svar|Answer|FinMax|FinLite|FinPlan|Linjer)\b")   # our sheets only, not the user's "Q3 Forecast"
 
 
 def next_question(t: Target) -> int:
@@ -964,7 +964,7 @@ def park_question_data(t: Target, q: int) -> dict[str, str]:
     pulls get the clean names. Returns {parked name: original name} for drop_parked / restore_parked."""
     return park_sheets(t, [s.Name for s in list(t.wb.Worksheets)
                            if (m := _Q.match(s.Name)) and int(m.group(1)) == q
-                           and m.group(2) not in ("Svar", "Linjer")])          # drill lines are kept
+                           and m.group(2) not in ("Svar", "Answer", "Linjer")])          # drill lines are kept
 
 
 def park_sheets(t: Target, names: list[str]) -> dict[str, str]:

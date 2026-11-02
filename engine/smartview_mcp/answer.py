@@ -44,9 +44,9 @@ NUM_KINDS = {"heltall", "tall1", "prosent1", "prosent", "faktor"}
 CHART_TYPES = {"column": 51, "bar": 57, "line": 4, "waterfall": 119}   # xlColumnClustered, xlBarClustered, xlLine, xlWaterfall
 
 
-def answer_sheet(t: Target, q: int):
-    """Create 'Q<n> Svar' before the question's data sheets, or clear it for a rebuild (follow-up)."""
-    name = f"Q{q} Svar"
+def answer_sheet(t: Target, q: int, suffix: str = "Svar"):
+    """Create 'Q<n> <suffix>' before the question's data sheets, or clear it for a rebuild (follow-up)."""
+    name = f"Q{q} {suffix}"
     for s in list(t.wb.Worksheets):
         if s.Name == name:
             com(lambda: s.Cells.Clear())
@@ -73,10 +73,10 @@ def _expr_to_formula(expr: str, col_letter: str, rows_by_key: dict) -> str:
     return "=" + re.sub(r"[A-Za-z_][A-Za-z0-9_]*", rep, expr)
 
 
-def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull]) -> dict:
+def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull], suffix: str = "Svar") -> dict:
     from .userexcel import fast_excel
     with fast_excel(t.app):
-        res = _build(t, q, spec, pulls)
+        res = _build(t, q, spec, pulls, suffix)
     from .userexcel import wait_calculated
     from .timing import stage
     with stage("calculate + read back"):
@@ -236,12 +236,12 @@ def _pull_grids(t: Target, pulls: dict) -> dict:
     return out
 
 
-def _build(t: Target, q: int, spec: dict, pulls: dict) -> dict:
+def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Svar") -> dict:
     """Write, style and chart the answer sheet (inside fast_excel: no redraw, manual calculation)."""
     from . import styling
     from .timing import stage
     with stage("prepare sheet"):
-        ws = answer_sheet(t, q)
+        ws = answer_sheet(t, q, suffix)
         com(ws.Activate)
     with stage("write cells"):
         out = _write(t, q, spec, pulls, ws)
@@ -250,7 +250,7 @@ def _build(t: Target, q: int, spec: dict, pulls: dict) -> dict:
                   [len(f"{c['label']} — {cols[0].get('header', '')}") for c in checks if "static" not in c] + [40])
     roles = {"last_col": last_col, "label_cols": ["B"], "freeze_rows": header_row,
              "col_widths": {"A": 2.5, "B": min(80, max(46, longest + 4)), f"C:{last_col}": 17}, "rows": rows_meta}
-    t.status(f"formaterer 'Q{q} Svar' i TN-rapportstil ...")
+    t.status(f"formaterer 'Q{q} {suffix}' i TN-rapportstil ...")
     with stage("style (tn-rapportstil)"):
         with stage("ensure styles (1st)"):
             styling.ensure_styles(t.wb)
@@ -304,7 +304,7 @@ class _Cells:
 
 def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
     """All answer cells (title, key points, lines, checks, notes); returns the layout for styling."""
-    t.status(f"bygger svar-arket 'Q{q} Svar' ...")
+    t.status(f"bygger svar-arket '{ws.Name}' ...")
     cols = spec.get("columns") or []
     if not cols:
         raise InputError("answer spec needs 'columns'")

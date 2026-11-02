@@ -19,7 +19,7 @@ import re
 
 log = logging.getLogger("smartview.sheetorder")
 
-_OURS = re.compile(r"^Q(\d+) (Svar|FinMax|FinLite|FinPlan|Linjer)(?: (.+))?$")
+_OURS = re.compile(r"^Q(\d+) (Svar|Answer|FinMax|FinLite|FinPlan|Linjer)(?: (.+))?$")
 _RANK = {"FinMax": 0, "FinLite": 1, "FinPlan": 2, "Linjer": 3}
 KILDER = ("Kilder", "Kilder SV")
 SVAR_TAB = 0x64381F          # TN navy (BGR of #1F3864), as answer.answer_sheet
@@ -40,7 +40,7 @@ def classify(name: str) -> tuple[str, tuple]:
     if not m:
         return "other", ()
     q, kind, sfx = int(m.group(1)), m.group(2), m.group(3)
-    if kind == "Svar":
+    if kind in ("Svar", "Answer"):
         return "svar", (q, *_suffix_key(sfx))
     return "data", (q, _RANK[kind], *_suffix_key(sfx))
 
