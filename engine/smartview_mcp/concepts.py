@@ -76,8 +76,9 @@ def _score(question: str, hay_words: set[str]) -> float:
     return s
 
 
-def find(text: str) -> list[dict]:
-    """Concepts whose id/title/names match the text (best first)."""
+def scored(text: str) -> list[tuple[float, dict]]:
+    """(score, concept) for every concept whose id/title/names match the text, best first. A name contained in the
+    text scores 10; otherwise one point per matching question word (_score)."""
     t = text.lower()
     hits = []
     for c in library():
@@ -85,7 +86,12 @@ def find(text: str) -> list[dict]:
         score = max([10 if n and len(n) > 3 and n.lower() in t else _score(text, _words(n)) for n in names] + [0])
         if score:
             hits.append((score, c))
-    return [c for _, c in sorted(hits, key=lambda x: -x[0])]
+    return sorted(hits, key=lambda x: -x[0])
+
+
+def find(text: str) -> list[dict]:
+    """Concepts whose id/title/names match the text (best first)."""
+    return [c for _, c in scored(text)]
 
 
 def get(concept: str) -> dict:

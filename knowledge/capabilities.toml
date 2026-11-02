@@ -1,0 +1,170 @@
+# Capability map (design §5, phase 4): which words mean which measure, and what can be answered at which grain.
+# Hand-maintained beside catalog.toml (line definitions, scenarios, materiality). semantic.problems() checks that every
+# concept/kpi named here exists in catalog.toml and that no synonym belongs to two measures.
+# Synonyms match whole words, case-insensitive; the longest match wins ("cost per fte" beats "cost").
+# Cube facts verified 2026-11-02 (atlas + live sv_members): no customer dimension in any cube; products in FinMax
+# (All Products, 19 755) and FinPlan (243); FinMax currencies NOK / Local / FX Rates (no EUR); FinPlan Entity holds
+# business areas and some units, not cost centres.
+
+# ------------------------------------------------------------------ measures
+# concept = a catalog [pnl] concept; kpi = a catalog [[kpi]] key; account = a FinMax member (no catalog line).
+# vague = the word does not say which measure: the gate asks, listing `options` (unless a learned default exists).
+# note = what the answer must state about the definition.
+
+[[measure]]
+key = "revenue"
+concept = "revenue"
+synonyms = ["revenue", "revenues", "sales", "turnover", "inntekt", "inntekter", "omsetning", "salgsinntekter"]
+
+[[measure]]
+key = "cogs"
+concept = "cogs"
+synonyms = ["cogs", "cost of goods sold", "cost of sales", "direct costs", "varekost", "varekostnad", "vareforbruk"]
+
+[[measure]]
+key = "gross_margin"
+concept = "gross_margin"
+synonyms = ["gross margin", "gross profit", "contribution margin", "bruttomargin", "bruttofortjeneste", "dekningsbidrag"]
+
+[[measure]]
+key = "personnel"
+concept = "personnel"
+synonyms = ["personnel cost", "personnel costs", "payroll", "salary costs", "personalkostnader", "personalkostnad",
+            "lønnskostnader", "lønnskostnad"]
+
+[[measure]]
+key = "other_opex"
+concept = "other_opex"
+synonyms = ["other opex", "other operating expenses", "andre driftskostnader"]
+
+[[measure]]
+key = "opex"
+concept = "opex"
+synonyms = ["opex", "operating expenses", "operating costs", "operating cost", "driftskostnader", "driftskostnad"]
+
+[[measure]]
+key = "ebitda_boi"
+concept = "ebitda_boi"
+synonyms = ["ebitda before other items", "ebitda boi", "ebitda før andre poster"]
+
+[[measure]]
+key = "other_items"
+concept = "other_items"
+synonyms = ["other items", "andre poster", "one-offs", "one offs", "engangsposter"]
+
+[[measure]]
+key = "ebitda"
+concept = "ebitda"
+synonyms = ["ebitda"]
+
+[[measure]]
+key = "profit"
+concept = "ebitda"
+synonyms = ["profit", "profits", "profitability", "earnings", "lønnsomhet", "resultat", "overskudd"]
+note = "profit is read as EBITDA (the cubes' bottom line for plan comparisons; FinPlan stops at EBITDA)"
+
+[[measure]]
+key = "da"
+concept = "da"
+synonyms = ["depreciation", "amortisation", "amortization", "d&a", "avskrivninger", "avskrivning"]
+
+[[measure]]
+key = "fte"
+concept = "fte"
+synonyms = ["fte", "ftes", "headcount", "employees", "årsverk", "ansatte"]
+note = "FTE is a level: the month-end value, never a sum of months"
+
+[[measure]]
+key = "ebitda_margin"
+kpi = "ebitda_margin"
+synonyms = ["ebitda margin", "ebitda-margin", "ebitda %"]
+
+[[measure]]
+key = "gross_margin_pct"
+kpi = "gross_margin_pct"
+synonyms = ["gross margin %", "gross margin percent", "gross margin percentage", "bruttomargin %"]
+
+[[measure]]
+key = "opex_per_fte"
+kpi = "opex_per_fte"
+synonyms = ["cost per fte", "costs per fte", "opex per fte", "cost per employee", "kostnad per årsverk",
+            "kostnader per årsverk"]
+note = "Opex per FTE = opex (C70) / average FTE (opening level + each month end), annualised, shown positive"
+
+[[measure]]
+key = "personnel_per_fte"
+kpi = "personnel_per_fte"
+synonyms = ["personnel cost per fte", "salary per fte", "payroll per fte", "lønnskostnad per årsverk"]
+note = "Personnel cost per FTE = C50S / average FTE (opening level + each month end), annualised, shown positive"
+
+[[measure]]
+key = "consultants"
+account = "ac.C693"
+label = "Consultancy and temporary contract workers (ac.C693)"
+synonyms = ["consultants", "consultant", "consultancy", "konsulenter", "konsulent", "innleie", "contractors"]
+note = "C693 includes temporary contract workers as well as consultancy"
+
+[[measure]]
+key = "costs"
+vague = true
+synonyms = ["costs", "cost", "kostnader", "kostnad", "spending", "spend", "spent", "expenses", "utgifter"]
+options = ["opex (C70: personnel + other opex)", "opex + COGS (all costs to EBITDA)", "personnel cost only (C50S)"]
+
+[[measure]]
+key = "numbers"
+vague = true
+synonyms = ["numbers", "figures", "results", "tall", "tallene", "resultater", "how are we doing", "how is it going",
+            "status", "performance"]
+options = ["P&L to EBITDA (revenue, COGS, opex, EBITDA)", "revenue and EBITDA", "opex"]
+
+# ------------------------------------------------------------------ grains
+# feasible = measure keys answerable at this grain ("*" = all). A measure outside the list makes the question
+# infeasible as asked; `proxy` is what is answered instead.
+
+[[grain]]
+key = "product"
+synonyms = ["per product", "by product", "per produkt", "product level", "per product line", "each product"]
+feasible = ["revenue", "cogs", "gross_margin", "gross_margin_pct"]
+proxy = "contribution margin (revenue - COGS) per product; opex is not allocated to products in FinMax (full cost per product only in Produktregnskapet, annually)"
+
+[[grain]]
+key = "customer"
+synonyms = ["per customer", "by customer", "per kunde", "customer level", "per client", "each customer"]
+feasible = []
+proxy = "the same measure per business area / segment; there is no customer dimension in FinMax or FinPlan"
+
+[[grain]]
+key = "cost_centre"
+synonyms = ["per cost centre", "per cost center", "by cost centre", "by cost center", "per kostnadssted",
+            "per department", "per avdeling"]
+feasible = ["*"]
+note = "FinMax only: FinPlan has business areas, not cost centres, so no budget per cost centre"
+
+[[grain]]
+key = "business_area"
+synonyms = ["per business area", "by business area", "per division", "by division", "per divisjon", "per segment",
+            "by segment", "per forretningsområde"]
+feasible = ["*"]
+
+[[grain]]
+key = "month"
+synonyms = ["per month", "by month", "monthly", "month by month", "per måned", "månedlig", "trend"]
+feasible = ["*"]
+
+# ------------------------------------------------------------------ currency
+[currency]
+reporting = ["NOK"]
+proxy = "the values in NOK (FinMax reports NOK and Local currency only; no EUR or other translation is loaded)"
+
+[currency.words]
+nok = "NOK"
+kroner = "NOK"
+eur = "EUR"
+euro = "EUR"
+euros = "EUR"
+usd = "USD"
+dollar = "USD"
+dollars = "USD"
+sek = "SEK"
+dkk = "DKK"
+gbp = "GBP"
