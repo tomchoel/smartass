@@ -350,7 +350,7 @@ async def _answer_with_drills(spec: dict, target: str, allow_archive: bool, job)
                 "stages": {f"first frame.{k}": round(v, 1) for k, v in {**tm.summary(), **ts}.items() if k != "_total"}}
     pre = await _call_user(frame_job, what="sv_answer")
     t1, _ = time.monotonic(), drilltime.take()     # drop what earlier drills (sv_drill) left
-    pre["results"], warnings, pre["failed"] = await drillstep.drill_all(pre.pop("plan"), closed=pre.get("closed"))
+    pre["results"], warnings, pre["failed"] = await drillstep.drill_all(pre.pop("plan"))
     pre["drill_s"] = round(time.monotonic() - t1, 1)
     pre["stages"].update({f"drills.{k}": v for k, v in drilltime.take().items()})
     if pre["failed"]:

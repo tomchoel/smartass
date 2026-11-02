@@ -71,30 +71,24 @@ def say(text: str) -> None:
 
 
 async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: int = config.DRILL_MAX_LINES,
-                split: str = "auto", closed: str | None = None) -> DrillResult:
+                split: str = "auto") -> DrillResult:
     """Drill a cell to its ledger lines: link (Smart View), lines (hidden browser), normalise, reconcile, profile.
-    One retry (with a note) when Smart View answers 'Empty response from provider'. With `closed` (the closed
-    month), a cell of a closed period is read from the drill cache once its cube value is re-checked (drillcache)."""
+    One retry (with a note) when Smart View answers 'Empty response from provider'. Always live: nothing is cached."""
     import asyncio
 
     from .. import drill_lines as dl
-    from . import drillcache
     t0, stages = time.monotonic(), {}
     cell, warnings = ops.drill_cell_defaults(cell)
     with timed(stages, "drill"):
-        hit = await _cached(connection, cell, closed)
-        if hit:
-            pieces, parent_cube = hit["pieces"], hit["parent"]
-        else:
-            try:
-                pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
-            except Exception as e:   # noqa: BLE001 - only the empty provider response is retried
-                if EMPTY_PROVIDER.lower() not in str(e).lower():
-                    raise
-                say(f"Smart View gave an empty response for the drill link of {' × '.join(cell.values())}; "
-                    "retrying once")
-                pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
-    source = SOURCE + drillcache.note(hit["saved"]) if hit else SOURCE
+        try:
+            pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
+        except Exception as e:   # noqa: BLE001 - only the empty provider response is retried
+            if EMPTY_PROVIDER.lower() not in str(e).lower():
+                raise
+            say(f"Smart View gave an empty response for the drill link of {' × '.join(cell.values())}; "
+                "retrying once")
+            pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
+    source = SOURCE
     view = next((p["view"] for p in pieces if p.get("view")), None)
     if view is None:                                # spec 6: no drill report -> cube value, 0 lines, the reason
         total = parent_cube if parent_cube is not None else sum(p["cube_value"] or 0.0 for p in pieces)
@@ -116,28 +110,9 @@ async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: 
         warnings.append(f"The split pieces' cube values differ from the cell by {L['split_check']:,.2f} NOK (the "
                         "atlas children may be capped, out of date or shared): the lines are reconciled to the cell "
                         "itself.")
-    if not hit and rec["status"] == "exact":
-        await asyncio.to_thread(drillcache.save, connection, cell, closed, pieces, parent_cube)
     return DrillResult(cell, L["rows"], L["cols"], rec.get("cube_value"), rec, L["profile"], source,
                        round(time.monotonic() - t0, 1), L["piece_recs"] if len(pieces) > 1 else [], stats,
                        L["split_check"], warnings, stages)
-
-
-async def _cached(connection: str, cell: dict, closed: str | None) -> dict | None:
-    """A cached closed-period drill whose parent cube value Smart View still gives, else None (drill it)."""
-    import asyncio
-
-    from . import drillcache
-    hit = await asyncio.to_thread(drillcache.load, connection, cell, closed)
-    if not hit:
-        return None
-    link = await _call(lambda h: drilltime.timed("excel drill link (cache check)", ops.drill_link, h, connection,
-                                                 cell), what="drill link")
-    now = link["cube_value"]
-    if now is None or round(float(now), 2) != round(float(hit["parent"]), 2):
-        log.info("drill cache of %s is stale (cube %s, cached %s): drilling again", cell, now, hit["parent"])
-        return None
-    return hit
 
 
 def combine(parts: list[DrillResult]) -> DrillResult:
@@ -157,19 +132,16 @@ def combine(parts: list[DrillResult]) -> DrillResult:
                        stages={"drill": round(sum(p.stages.get("drill", 0.0) for p in parts), 2)})
 
 
-async def drill_all(plan: list[dict], say=say, closed: str | None = None
-                    ) -> tuple[dict[str, DrillResult], list[str], str | None]:
+async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], list[str], str | None]:
     """A recipe's drills ([{alias, year, cells}], d1 first) -> ({alias: result}, warnings, why d1 failed or None).
-    Every drill runs at once (Excel links queue on the host; the pages load in parallel tabs); closed periods come
-    from the drill cache. A failed first drill drops the answer to the cube (no last year without this year); a
-    later failure is a warning."""
+    Every drill runs at once (Excel links queue on the host; the pages load in parallel tabs). A failed first drill
+    drops the answer to the cube (no last year without this year); a later failure is a warning."""
     import asyncio
 
     async def one(d: dict):
         t0 = time.monotonic()
-        res = combine(await _all(drill(cell, say=say, closed=closed) for cell in d["cells"]))
-        say(f"Drilled {len(res.rows):,} lines for 20{d['year']:02d} ({time.monotonic() - t0:.0f} s"
-            + (", from the drill cache" if "Cached" in res.source else "") + ")")
+        res = combine(await _all(drill(cell, say=say) for cell in d["cells"]))
+        say(f"Drilled {len(res.rows):,} lines for 20{d['year']:02d} ({time.monotonic() - t0:.0f} s)")
         return res
     tasks = [asyncio.ensure_future(one(d)) for d in plan]
     out, warnings = {}, []
@@ -210,9 +182,7 @@ def write(t, q: int, alias: str, result: DrillResult, title: str, question: str 
             layout = Layout([(d, m) for d, m in result.cell.items()], [], [])
         try:
             sheets.log_source(t, q, question or title, _Src,
-                              notes=f"drill {alias}: {rec.get('lines', 0)} lines, gap {rec.get('gap')}"
-                              + ("; lines from the drill cache (closed period, cube value re-checked)"
-                                 if "Cached" in result.source else ""))
+                              notes=f"drill {alias}: {rec.get('lines', 0)} lines, gap {rec.get('gap')}")
         except Exception:   # noqa: BLE001 - the source log must never undo a finished drill
             pass
     return info
