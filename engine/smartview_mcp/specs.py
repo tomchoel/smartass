@@ -2,11 +2,13 @@
 factual key points drafted from the pulled numbers.
 
 Shorthands (all optional; a plain spec passes through unchanged):
-  * {"pull": "<id>"}      - a pull id from sv_ws_build instead of the sheet name.
-  * section "repeat"      - one line per value: {"over": [...] | "months:Jan..Dec", "line": {<line template>}}.
-                            Values are strings ("{v}") or dicts ("{name}"); "{i}" is the 0-based index. A pull cell
-                            whose members are not in that pull (e.g. 'Oct 26' before October closes) becomes empty,
-                            and var/varpct cells that depend on an empty cell are dropped too.
+  * {"pull": "<id>"}      - a pull id instead of the sheet name.
+  * section "repeat"      - one line per value: {"over": [...] | "months:Jan..Dec" | {"top": N, "pull": id,
+                            "by": [col members], "among": [row members], "abs": true}, "line": {<line template>}}.
+                            Values are strings ("{v}") or dicts ("{name}"); "{i}" is the 0-based index. A "top" over
+                            ranks the pulled rows after the pull and yields {"m": member, "label": its label}. A pull
+                            cell whose members are not in that pull (e.g. 'Oct 26' before October closes) becomes
+                            empty, and var/varpct cells that depend on an empty cell are dropped too.
   * {"sum": "m*"}         - every line key matching the pattern, in spec order ({"avg": "f*"} likewise).
   * spec "auto_points"    - true (default): factual key points drafted from the numbers are put first; the spec's
                             own key_points (interpretation) follow. false: only the spec's own.
@@ -35,12 +37,28 @@ def merge(base: dict, patch: dict) -> dict:
 
 
 # ------------------------------------------------------------------ expansion
-def _over(spec_over) -> list:
+def _over(spec_over, sheets: dict | None = None, pulls: dict | None = None) -> list:
     if isinstance(spec_over, str) and spec_over.startswith("months:"):
         a, _, b = spec_over[7:].partition("..")
         i, j = MONTHS.index(a.strip()[:3].title()), MONTHS.index((b or a).strip()[:3].title())
         return MONTHS[i:j + 1]
+    if isinstance(spec_over, dict) and "top" in spec_over:
+        return _top(spec_over, sheets or {}, pulls or {})
     return list(spec_over or [])
+
+
+def _top(o: dict, sheets: dict, pulls: dict) -> list[dict]:
+    """{"top": N, "pull": id, "by": [col members], "among": [row members] (default: every row), "abs": true}
+    -> [{"m": member, "label": readable label}] for the N largest, ranked on the pulled values."""
+    from .templates import _clean                    # lazy: templates imports the atlas
+    p = pulls.get(sheets.get(o["pull"], o["pull"]))
+    if p is None:
+        return []
+    among = o.get("among") or [k[0] for k in p.row_labels]
+    vals = [(_pull_value(p, [m], o["by"]), m) for m in among]
+    key = abs if o.get("abs", True) else (lambda v: v)
+    ranked = sorted(((key(v), m) for v, m in vals if isinstance(v, (int, float))), reverse=True)[:int(o["top"])]
+    return [{"m": m, "label": _clean((p.row_labels.get((m,)) or (m,))[-1]) or m} for _, m in ranked]
 
 
 def _fill(obj, v, i):
@@ -68,7 +86,7 @@ def expand(spec: dict, sheets: dict[str, str], pulls: dict) -> dict:
             tmpl = rep.get("line", {})
             # repeated lines first, then the section's own lines (totals below the months)
             sec["lines"] = [{**_fill(tmpl, v, i), "_rep": True}
-                            for i, v in enumerate(_over(rep.get("over")))] + sec.get("lines", [])
+                            for i, v in enumerate(_over(rep.get("over"), sheets, pulls))] + sec.get("lines", [])
     keys = [ln.get("key") for sec in s.get("sections", []) for ln in sec.get("lines", []) if ln.get("key")]
 
     def fix_cell(c, repeated: bool):

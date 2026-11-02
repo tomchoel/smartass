@@ -101,3 +101,12 @@ def test_smart_view_boxes_and_the_not_signed_in_verdict():
     assert not dialogs.not_signed_in([["Empty response from provider."], ["other"]])
     assert dialogs.not_signed_in([["Empty response from provider."], [], ["Empty response from provider."]])
     assert dialogs.ok_only(["OK"]) and not dialogs.ok_only(["OK", "Cancel"]) and not dialogs.ok_only(["Yes", "No"])
+
+def test_a_hung_webview2_login_is_stuck_at_once():
+    d = Dialog(21, "#32770", "Login", "", "login", False, hung=True)
+    assert dialogs.blocking([d], {}, now=100.0, grace=30.0) is d
+
+
+def test_a_responsive_young_webview2_login_still_gets_the_grace():
+    d = Dialog(22, "#32770", "Login", "", "login", False)
+    assert dialogs.blocking([d], {}, now=100.0, grace=30.0) is None

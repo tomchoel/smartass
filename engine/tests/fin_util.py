@@ -1,13 +1,13 @@
-"""A synthetic Wholesale warehouse for the fin_pnl tests: a base fill and a top-up over EchoTransport (svhttp's fake
+"""A synthetic Wholesale fact store for the fin_pnl tests: a base read and a top-up over EchoTransport (svhttp's fake
 provider). Every figure is invented: the pnl_value P&L, x1.1 in 2026, Target x0.9, the forecast x1.05; `scale`
 multiplies the figures of a member (an entity or a scenario), `empty` scenarios are blank."""
 import dataclasses
 
 from svxml_util import EchoTransport, atlas_with_dimensions, pnl_value
 
-from smartview_mcp import catalog, extract, refresh, svhttp
+from smartview_mcp import catalog, extract, pnl_facts, svhttp
 from smartview_mcp.fin_pnl import Scope
-from smartview_mcp.warehouse import MemoryWarehouse
+from smartview_mcp.factstore import FactStore
 
 CAT = catalog.load()
 CAT0 = dataclasses.replace(CAT, materiality=dataclasses.replace(CAT.materiality, pct_floor_nok=0))  # % never blank
@@ -41,9 +41,9 @@ def http(tmp_path, value_fn=None):
 
 
 def filled(tmp_path, period="Sep 26", closed="Sep 26", forecast=FC, units=UNITS, value_fn=None):
-    """(store, retrieve, scope) after a base fill and the question's top-up."""
-    store, retrieve = MemoryWarehouse(), extract.route(http=http(tmp_path, value_fn))
+    """(store, retrieve, scope) after a base read and the question's top-up."""
+    store, retrieve = FactStore(), extract.route(http=http(tmp_path, value_fn))
     yy = int(period[-2:])
-    extract.fill(store, retrieve, CAT, extract.base_grids(CAT, closed, {yy: forecast}.get), "base", closed)
-    refresh.top_up(store, retrieve, CAT, WHS, period, closed, forecast, [u for u, _ in units])
+    extract.fill(store, retrieve, CAT, extract.base_grids(CAT, closed, {yy: forecast}.get), "live", closed)
+    pnl_facts.top_up(store, retrieve, CAT, WHS, period, closed, forecast, [u for u, _ in units])
     return store, retrieve, Scope(WHS, period, closed, forecast, tuple(units))

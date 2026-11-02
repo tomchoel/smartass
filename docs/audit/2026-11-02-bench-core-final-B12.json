@@ -1,0 +1,26 @@
+{
+ "started": "2026-11-02T17:40:01",
+ "route": "core",
+ "results": [
+  {
+   "id": "B12",
+   "question": "Lines behind account 12881, un.SY, Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 61.97,
+   "total_s": 81.62,
+   "oracle": {
+    "12881 un.SY Sep 26": true
+   },
+   "match": {
+    "12881 un.SY Sep 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "None",
+   "result": "PASS"
+  }
+ ]
+}

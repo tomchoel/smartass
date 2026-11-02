@@ -11,14 +11,14 @@ class HostError(Exception):
 
 
 def test_explain_names_tool_cause_and_next_step():
-    msg = server.explain("sv_query", HostError("Excel did not answer"))
-    assert msg.startswith("sv_query failed - HostError: Excel did not answer")
+    msg = server.explain("sv_answer", HostError("Excel did not answer"))
+    assert msg.startswith("sv_answer failed - HostError: Excel did not answer")
     assert "Next step:" in msg and "sv_restart" in msg
-    assert "Next step:" in server.explain("sv_query", ValueError("bad"))
+    assert "Next step:" in server.explain("sv_answer", ValueError("bad"))
 
 
 def test_explain_uses_the_advice_of_a_base_class():
-    assert "sv_restart" in server.explain("sv_query", HostTimeout("slow"))
+    assert "sv_restart" in server.explain("sv_answer", HostTimeout("slow"))
     assert "Narrow the cell" in server.explain("sv_drill", CellTooWide("too wide"))
 
 
@@ -89,10 +89,10 @@ async def test_a_message_with_its_own_advice_gets_no_second_advice(monkeypatch):
 
     grid = "Grid has 9 cells (> 1). Narrow the members, split the query, or pass large=true if you really need it."
 
-    async def sv_query():
+    async def sv_answer():
         raise ToolError(grid)
     with pytest.raises(ToolError) as e:
-        await server.guard(sv_query)()
+        await server.guard(sv_answer)()
     assert str(e.value) == grid
 
 
@@ -105,7 +105,7 @@ async def test_input_errors_never_suggest_a_restart(monkeypatch):
 
 
 def test_explain_gives_one_next_step_for_unknown_errors():
-    msg = server.explain("sv_query", ValueError("bad"))
+    msg = server.explain("sv_answer", ValueError("bad"))
     assert msg.count("Next step:") == 1 and "Retry once" in msg
 
 
@@ -125,11 +125,11 @@ async def test_drill_errors_keep_their_class_advice(monkeypatch):
 
 
 def test_answer_spec_errors_are_input_errors_not_host_errors():
-    from smartview_mcp import answer
+    from smartview_mcp import answer_write
     from smartview_mcp.host import HostError as RealHostError
     from smartview_mcp.host import InputError
     with pytest.raises(InputError) as e:
-        answer._expr_to_formula("rev + nope", "D", {"rev": 5})
+        answer_write._expr_to_formula("rev + nope", "D", {"rev": 5})
     assert not isinstance(e.value, RealHostError)
 
 
@@ -150,10 +150,10 @@ def test_connect_without_a_session_id_says_sign_in_and_retry():
 def test_login_dialog_message_asks_the_user_not_the_agent(monkeypatch):
     import pytest
 
-    from smartview_mcp import userexcel
+    from smartview_mcp.excel import login
     from smartview_mcp.host import HostError
-    monkeypatch.setattr(userexcel, "login_open", lambda pid: True)
-    monkeypatch.setattr(userexcel.time, "sleep", lambda s: None)
+    monkeypatch.setattr(login, "login_open", lambda pid: [1])
+    monkeypatch.setattr(login.time, "sleep", lambda s: None)
     with pytest.raises(HostError) as e:
-        userexcel.wait_login_cleared(1, limit=0.01)
+        login.wait_login_cleared(1, limit=0.01)
     assert "Ask the user" in str(e.value) and "PowerPoint" in str(e.value)

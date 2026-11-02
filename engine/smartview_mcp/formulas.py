@@ -3,19 +3,17 @@
 Rules, agreed with the user 2026-10-15:
 - sums: SUM over ranges (=SUM(C13:C21), =SUM(C10,C20:C25)); a plain '+' only for exactly two terms;
 - variance %: =IF(D13=0,"",(C13-D13)/ABS(D13)) - blank on a zero base, never 0;
-- lookups into Smart View data sheets: label-keyed XLOOKUP (see userexcel.lookup_formula).
+- lookups into Smart View data sheets: label-keyed XLOOKUP (see sheets.lookup_formula).
 """
 from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 
 from openpyxl.utils import get_column_letter as L
 
 log = logging.getLogger("smartview.formulas")
 
-CHECKER_PATH = Path(__file__).resolve().parent / "vendor" / "formelsjekk.py"   # pinned copy of tn-formelstil's checker
 _checker = None
 
 
@@ -136,6 +134,3 @@ def sheet_formulas(ws, com) -> list[tuple[str, str, str]]:
             if isinstance(v, str) and v.startswith("="):
                 out.append((name, f"{L(c0 + j)}{r0 + i}", v))
     return out
-
-
-__all__ = ["sum_rows", "avg_rows", "sum_cols", "variance", "variance_pct", "expr_keys_if_plain_sum", "check", "sheet_formulas"]

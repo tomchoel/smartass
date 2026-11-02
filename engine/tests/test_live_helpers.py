@@ -44,7 +44,7 @@ def test_answer_ok_fails_on_error_cell_warnings():
         "error cell 'Q6 FinMax recon'!B3 is #NoAccess: no read access or member not valid in this cube"]}
     with pytest.raises(AssertionError, match="#NoAccess"):
         scenarios._answer_ok(out, "actual_vs_plan.sy")
-    scenarios._answer_ok({"checks": {"c": "OK"}, "warnings": ["could not log Q1 in 'Kilder'"]}, "ok")
+    scenarios._answer_ok({"checks": {"c": "OK"}, "warnings": ["could not log Q1 in 'Sources'"]}, "ok")
 
 
 def test_only_empty_excels_the_run_started_are_quit():

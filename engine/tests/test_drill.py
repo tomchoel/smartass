@@ -178,14 +178,14 @@ from smartview_mcp import drill_xl as dx
 
 
 def test_table_name():
-    assert dx.table_name(1) == "Linjer_Q1" and dx.table_name(4, "b") == "Linjer_Q4_b"
+    assert dx.table_name(1) == "Lines_Q1" and dx.table_name(4, "b") == "Lines_Q4_b"
 
 
 def test_formula_sumifs_for_safe_keys():
-    f = dx.drill_formula("Linjer_Q1", {"JE_SOURCE": "Payables"})
-    assert f == '=SUMIFS(Linjer_Q1[AMOUNT],Linjer_Q1[JE_SOURCE],"Payables")'
-    assert dx.drill_formula("Linjer_Q1", {"JE_SOURCE": "Payables"}, "count") == \
-        '=COUNTIFS(Linjer_Q1[JE_SOURCE],"Payables")'
+    f = dx.drill_formula("Lines_Q1", {"JE_SOURCE": "Payables"})
+    assert f == '=SUMIFS(Lines_Q1[AMOUNT],Lines_Q1[JE_SOURCE],"Payables")'
+    assert dx.drill_formula("Lines_Q1", {"JE_SOURCE": "Payables"}, "count") == \
+        '=COUNTIFS(Lines_Q1[JE_SOURCE],"Payables")'
     assert dx.drill_formula("T", {"JE_SOURCE": "Payables"}, "credit") == \
         '=SUMIFS(T[AMOUNT],T[AMOUNT],">0",T[JE_SOURCE],"Payables")'
 
@@ -220,7 +220,7 @@ def test_formula_totals_debit_credit_and_blank():
 
 def test_formulas_pass_the_style_checker():
     from smartview_mcp import formulas
-    t = "Linjer_Q1"
+    t = "Lines_Q1"
     fs = [dx.drill_formula(t, {"JE_SOURCE": "Payables"}),
           dx.drill_formula(t, {"JE_SOURCE": "Payables", "AP_CUSTOMER_NAME": "SUPPLIER 037 AS"}, "count"),
           dx.drill_formula(t, {"Period": "Jul-26"}),
@@ -230,7 +230,7 @@ def test_formulas_pass_the_style_checker():
           dx.drill_formula(t, {}, "credit"),
           dx.drill_formula(t, {}),
           dx.drill_formula(t, {}, "count")]
-    res = formulas.check([("Q1 Svar", f"C{i}", f) for i, f in enumerate(fs, start=10)])
+    res = formulas.check([("Q1 Answer", f"C{i}", f) for i, f in enumerate(fs, start=10)])
     assert res["ok"] is True and res["block"] == [], res
 
 
@@ -294,7 +294,7 @@ class _Sheet:
 
 
 class _Rect:
-    """A rectangle written in one go (answer._Cells): spread over the cells, formulas as Formula2, the rest Value."""
+    """A rectangle written in one go (answer_write._Cells): spread over the cells, formulas as Formula2, the rest Value."""
     def __init__(self, ws, a, b):
         self.__dict__.update(ws=ws, a=a)
 
@@ -312,22 +312,22 @@ class _Target:
 
 
 def test_answer_writes_drill_formulas(monkeypatch):
-    from smartview_mcp import answer
-    monkeypatch.setattr(answer, "com", lambda call, *a, **k: call())
+    from smartview_mcp import answer_write
+    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
     ws = _Sheet()
-    out = answer._write(_Target(), 2, DRILL_SPEC, {}, ws)
+    out = answer_write._write(_Target(), 2, DRILL_SPEC, {}, ws)
     rows_by_key, warnings = out[2], out[-1]
     assert warnings == []
-    c = answer.FIRST_COL
-    assert ws.cells[(rows_by_key["pay"], c)].Formula2 == '=SUMIFS(Linjer_Q2[AMOUNT],Linjer_Q2[JE_SOURCE],"Payables")'
-    assert ws.cells[(rows_by_key["pay"], c + 1)].Formula2 == '=COUNTIFS(Linjer_Q2[JE_SOURCE],"Payables")'
+    c = answer_write.FIRST_COL
+    assert ws.cells[(rows_by_key["pay"], c)].Formula2 == '=SUMIFS(Lines_Q2[AMOUNT],Lines_Q2[JE_SOURCE],"Payables")'
+    assert ws.cells[(rows_by_key["pay"], c + 1)].Formula2 == '=COUNTIFS(Lines_Q2[JE_SOURCE],"Payables")'
     assert ws.cells[(rows_by_key["jul"], c)].Formula2 == \
-        '=SUM(FILTER(Linjer_Q2[AMOUNT],(Linjer_Q2[Period]="Jul-26")*(Linjer_Q2[AMOUNT]<0),0))'
-    assert ws.cells[(rows_by_key["tot"], c)].Formula2 == "=SUM(Linjer_Q2[AMOUNT])"
+        '=SUM(FILTER(Lines_Q2[AMOUNT],(Lines_Q2[Period]="Jul-26")*(Lines_Q2[AMOUNT]<0),0))'
+    assert ws.cells[(rows_by_key["tot"], c)].Formula2 == "=SUM(Lines_Q2[AMOUNT])"
     other = {**DRILL_SPEC["sections"][0]["lines"][2], "key": "b", "cells": [{"drill": "b", "where": {}}]}
     ws2 = _Sheet()
-    out2 = answer._write(_Target(), 2, {**DRILL_SPEC, "sections": [{"title": "x", "lines": [other]}]}, {}, ws2)
-    assert ws2.cells[(out2[2]["b"], c)].Formula2 == "=SUM(Linjer_Q2_b[AMOUNT])"
+    out2 = answer_write._write(_Target(), 2, {**DRILL_SPEC, "sections": [{"title": "x", "lines": [other]}]}, {}, ws2)
+    assert ws2.cells[(out2[2]["b"], c)].Formula2 == "=SUM(Lines_Q2_b[AMOUNT])"
 
 
 def test_drill_value_matches_like_excel_equals():
@@ -350,22 +350,22 @@ def test_unknown_agg_is_rejected():
 
 
 def test_answer_reports_unknown_agg_as_warning(monkeypatch):
-    from smartview_mcp import answer
-    monkeypatch.setattr(answer, "com", lambda call, *a, **k: call())
+    from smartview_mcp import answer_write
+    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
     spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
         {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {}, "agg": "avg"}]}]}]}
-    warnings = answer._write(_Target(), 1, spec, {}, _Sheet())[-1]
+    warnings = answer_write._write(_Target(), 1, spec, {}, _Sheet())[-1]
     assert len(warnings) == 1 and "avg" in warnings[0]
 
 
 def test_answer_drill_wins_over_pull_like_specs(monkeypatch):
-    from smartview_mcp import answer
-    monkeypatch.setattr(answer, "com", lambda call, *a, **k: call())
+    from smartview_mcp import answer_write
+    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
     spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
         {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {}, "pull": "nope"}]}]}]}
     ws = _Sheet()
-    out = answer._write(_Target(), 1, spec, {}, ws)
-    assert out[-1] == [] and ws.cells[(out[2]["a"], answer.FIRST_COL)].Formula2 == "=SUM(Linjer_Q1[AMOUNT])"
+    out = answer_write._write(_Target(), 1, spec, {}, ws)
+    assert out[-1] == [] and ws.cells[(out[2]["a"], answer_write.FIRST_COL)].Formula2 == "=SUM(Lines_Q1[AMOUNT])"
 
 
 # ------------------------------------------------------------------ drill_browser (no browser started)
@@ -730,26 +730,24 @@ def _target(names):
 
 
 @pytest.mark.parametrize("names, after_q, expect", [
-    (["Kilder"], 1, ["X", "Kilder"]),                                              # new workbook: before Kilder
-    (["Kilder", "_svmeta"], None, ["X", "Kilder", "_svmeta"]),
-    (["Q1 FinLite", "Q1 Linjer", "Kilder", "_svmeta"], 1, ["Q1 FinLite", "Q1 Linjer", "X", "Kilder", "_svmeta"]),
-    (["Q1 Svar", "Q1 FinMax", "Q2 FinLite", "Kilder"], 1, ["Q1 Svar", "Q1 FinMax", "X", "Q2 FinLite", "Kilder"]),
-    (["Q1 Svar", "Q1 FinMax", "Kilder"], 2, ["Q1 Svar", "Q1 FinMax", "X", "Kilder"]),
+    (["Sources"], 1, ["X", "Sources"]),                                              # new workbook: before Sources
+    (["Sources", "_svmeta"], None, ["X", "Sources", "_svmeta"]),
+    (["Q1 FinLite", "Q1 Lines", "Sources", "_svmeta"], 1, ["Q1 FinLite", "Q1 Lines", "X", "Sources", "_svmeta"]),
+    (["Q1 Answer", "Q1 FinMax", "Q2 FinLite", "Sources"], 1, ["Q1 Answer", "Q1 FinMax", "X", "Q2 FinLite", "Sources"]),
+    (["Q1 Answer", "Q1 FinMax", "Sources"], 2, ["Q1 Answer", "Q1 FinMax", "X", "Sources"]),
 ])
 def test_add_sheet_anchor(names, after_q, expect):
-    from smartview_mcp import userexcel
+    from smartview_mcp.excel import sheets
     t = _target(names)
-    userexcel.add_sheet(t, "X", after_q=after_q)
+    sheets.add_sheet(t, "X", after_q=after_q)
     assert [s.Name for s in t.wb.Worksheets] == expect and t.sheets_added == ["X"]
 
 
-def test_question_grouping_includes_linjer_but_never_parks_it(monkeypatch):
-    from smartview_mcp import userexcel
-    assert userexcel._Q.match("Q3 Linjer b") and not userexcel._Q.match("Q3 Forecast")
-    t = _target(["Q2 Svar", "Q2 FinLite", "Q2 Linjer", "Kilder"])
-    assert userexcel.next_question(t) == 3
-    parked = userexcel.park_question_data(t, 2)
-    assert list(parked.values()) == ["Q2 FinLite"]
+def test_question_grouping_includes_lines(monkeypatch):
+    from smartview_mcp.excel import sheets
+    assert sheets._Q.match("Q3 Lines b") and not sheets._Q.match("Q3 Forecast")
+    t = _target(["Q2 Answer", "Q2 FinLite", "Q2 Lines", "Sources"])
+    assert sheets.next_question(t) == 3
 
 
 def test_redrill_clear_ranges():
@@ -765,18 +763,18 @@ def test_where_columns_checked_against_table():
 
 
 def test_answer_warns_on_where_column_missing_from_table(monkeypatch):
-    from smartview_mcp import answer
-    monkeypatch.setattr(answer, "com", lambda call, *a, **k: call())
-    monkeypatch.setattr(answer, "drill_table_columns", lambda wb, tn: ["Period", "AMOUNT", "JE_SOURCE"])
+    from smartview_mcp import answer_write
+    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
+    monkeypatch.setattr(answer_write, "drill_table_columns", lambda wb, tn: ["Period", "AMOUNT", "JE_SOURCE"])
     spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
         {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {"BATCH_ID": "7"}}]},
         {"key": "b", "label": "B", "cells": [{"drill": "d", "where": {"JE_SOURCE": "Payables"}}]}]}]}
     ws, t = _Sheet(), _Target()
     t.wb = None
-    out = answer._write(t, 1, spec, {}, ws)
+    out = answer_write._write(t, 1, spec, {}, ws)
     assert len(out[-1]) == 1 and "BATCH_ID" in out[-1][0]
-    assert (out[2]["a"], answer.FIRST_COL) not in ws.cells
-    assert ws.cells[(out[2]["b"], answer.FIRST_COL)].Formula2.startswith("=SUMIFS(")
+    assert (out[2]["a"], answer_write.FIRST_COL) not in ws.cells
+    assert ws.cells[(out[2]["b"], answer_write.FIRST_COL)].Formula2.startswith("=SUMIFS(")
 
 
 # ------------------------------------------------------------------ cross-process profile lock
@@ -846,10 +844,8 @@ def test_server_lines_of_normalises_each_piece_once(monkeypatch):
     assert isinstance(L["stats"]["unfixed"], list) and L["cols"][0] == "Scenario"
 
 
-def test_server_drill_helpers():
+def test_drill_alias_syntax():
     from smartview_mcp import tools_drill as server
-    assert server._has_drill_cells({"sections": [{"lines": [{"cells": [None, {"drill": "d", "where": {}}]}]}]})
-    assert not server._has_drill_cells({"sections": [{"lines": [{"cells": [{"pull": "a"}]}]}]})
     assert server._ALIAS.match("d") and server._ALIAS.match("b2_x")
     for bad in ("", "2b", "a-b", "a b", "a]"):
         assert not server._ALIAS.match(bad)
@@ -1210,18 +1206,6 @@ def test_profile_shares_for_no_supplier_and_untagged(whs):
     for k in ("no_supplier", "untagged_product"):
         assert 0 <= p[k]["share_lines"] <= 1 and "share_amount" in p[k]
     assert p["no_supplier"]["share_lines"] == round(p["no_supplier"]["lines"] / len(rows), 4)
-
-
-def test_drill_rows_follow_the_excel_columns(monkeypatch, tmp_path):
-    from smartview_mcp import drill_store, tools_drill as server
-    db = drill_store.connect(tmp_path / "d.db")
-    drill_store.save(db, connection="FinLite", cell={}, rec={"excel_columns": ["Period", "AMOUNT"]},
-                     columns=["Period", "AMOUNT", "BATCH_ID"], rows=[{"Period": "Jul-26", "AMOUNT": -1.0,
-                                                                     "BATCH_ID": "7"}],
-                     workbook="w.xlsx", q=1, alias="d")
-    db.close()
-    monkeypatch.setattr(drill_store, "connect", lambda path=None: drill_store.sqlite3.connect(tmp_path / "d.db"))
-    assert server._drill_rows("w.xlsx", 1) == {"d": [{"Period": "Jul-26", "AMOUNT": -1.0}]}
 
 
 # ------------------------------------------------------------------ reliability audit (Task 11)

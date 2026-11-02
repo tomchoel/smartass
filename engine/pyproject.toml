@@ -10,11 +10,16 @@ dependencies = [
     "psutil==7.2.2",
     "openpyxl",
     "playwright==1.64.0",
-    "duckdb==2.0.0",
 ]
 
 [dependency-groups]
-dev = ["pytest", "anyio", "ruff"]
+dev = [
+    "pytest",
+    "anyio",
+    "ruff",
+    "formulas>=1.3.4",
+    "pytest-cov>=7.1.0",
+]
 
 [project.scripts]
 smartview-mcp = "smartview_mcp.server:main"

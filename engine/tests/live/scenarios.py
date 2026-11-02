@@ -28,7 +28,7 @@ class Ctx:
     client: object           # McpClient
     scratch: object          # Path to <analyser>\_matrix
     keep: bool
-    state: dict = field(default_factory=dict)   # shared between scenarios (e.g. S2's workbook for S7)
+    state: dict = field(default_factory=dict)   # shared between scenarios (e.g. S8's scratch workbook)
     watch: object = None     # the running helpers.DialogWatch (matrix.py sets it around each scenario)
 
 
@@ -46,21 +46,11 @@ def s0(ctx):
 
 
 # ================================================================== shared specs and expected values
-WHS_POV = {"All Entities": "un.SY.2WHS", "All Scenarios": "Actual", "All Currencies": "NOK",
-           "All Balance Types": "Accumulated"}
-EBITDA_WHS_YTD = 1858190823.29            # FinMax ac.EBITDA x un.SY.2WHS x Sep 26, Accumulated
+WHS_POV = helpers.WHS_POV
+WHS_YTD = "1 858 190 823"                  # FinMax ac.EBITDA x un.SY.2WHS x Sep 26, Accumulated, as the answer table
 CELL_12881 = {"All Accounts": "ac.12881", "All Entities": "un.SY", "All Time Periods": "Sep 26"}
 SUM_12881 = -161233427.84                 # FinLite, Periodic; the drill gives 95 lines
 LINES_12881 = 95
-
-
-def _q(rows, cols, pov, connection="FinMax", **kw) -> dict:
-    return {"connection": connection, "rows": rows, "columns": cols, "pov": pov, **kw}
-
-
-def _ebitda_q(pov=None, rows=None) -> dict:
-    return _q(rows or [{"dimension": "All Accounts", "members": ["ac.EBITDA"]}],
-              [{"dimension": "All Time Periods", "members": ["Sep 26"]}], pov or WHS_POV)
 
 
 def _close(a: float | None, b: float, tol: float = 0.01) -> bool:
@@ -108,82 +98,13 @@ def s1_find(ctx):
     assert not bad, "; ".join(bad)
 
 
-@scenario("S1.query.finmax", ["lookup"], budget=5)
-def s1_finmax(ctx):
-    b, _ = ctx.client.must("sv_query", _ebitda_q())
-    v = helpers.number(b["table"])
-    assert _close(v, EBITDA_WHS_YTD), f"EBITDA WHS YTD Sep 26 = {v}, expected {EBITDA_WHS_YTD}"
-
-
-@scenario("S1.query.finlite", ["lookup"], budget=5)
-def s1_finlite(ctx):
-    b, _ = ctx.client.must("sv_query", _q([{"dimension": "All Accounts", "members": ["ac.12881"]}],
-                                          [{"dimension": "All Time Periods", "members": ["Sep 26"]}],
-                                          {"All Entities": "un.SY", "All Scenarios": "Actual",
-                                           "All Currencies": "NOK", "All Balance Types": "Periodic"}, "FinLite"))
-    v = helpers.number(b["table"])
-    assert _close(v, SUM_12881), f"FinLite 12881 un.SY Sep 26 = {v}, expected {SUM_12881}"
-
-
-@scenario("S1.query.finplan", ["lookup"], budget=8)
-def s1_finplan(ctx):
-    b, _ = ctx.client.must("sv_query", _q([{"dimension": "Account", "members": ["EBITDA"]}],
-                                          [{"dimension": "Scenario", "members": ["Actual"]}],
-                                          {"Entity": "BANORWAY", "Years": "FY26", "Period": "Sep",
-                                           "Version": "Working", "All Balance Types": "Accumulated"}, "FinPlan"))
-    v = helpers.number(b["table"])
-    assert v is not None, f"no number: {b['table']} {b['warnings']}"
-    real = [w for w in b["warnings"] if not w.startswith("HTTP route failed")]   # a fallback note is not a data warning
-    assert not real, real
-
-
-def _corrected_or_named(ctx, args: dict, name: str):
-    """Bad input passes: corrected with a warning naming `name`, or rejected with a message naming it."""
-    b, _, err = ctx.client.call("sv_query", args)
-    if err:
-        assert name in err, f"rejected without naming '{name}': {err[:300]}"
-        return {"notes": "rejected, names " + name}
-    warned = [w for w in b.get("warnings", []) if name in w]
-    assert warned, f"accepted without a warning naming '{name}': warnings={b.get('warnings')}"
-    assert _close(helpers.number(b["table"]), EBITDA_WHS_YTD), f"corrected, but wrong value: {b['table']}"
-    return {"notes": "corrected with a warning"}
-
-
-@scenario("S1.bad.balance", ["lookup", "input"], budget=5)
-def s1_bad_balance(ctx):
-    pov = {k: v for k, v in WHS_POV.items() if k != "All Balance Types"} | {"Balance": "Accumulated"}
-    return _corrected_or_named(ctx, _ebitda_q(pov), "All Balance Types")
-
-
-@scenario("S1.bad.quoted", ["lookup", "input"], budget=5)
-def s1_bad_quoted(ctx):
-    pov = {k: v for k, v in WHS_POV.items() if k != "All Balance Types"} | {"'All Balance Types'": "Accumulated"}
-    return _corrected_or_named(ctx, _ebitda_q(pov), "All Balance Types")
-
-
-@scenario("S1.bad.dictrows", ["lookup", "input"], budget=5)
-def s1_bad_dictrows(ctx):
-    args = _ebitda_q()
-    args["rows"] = {"All Accounts": ["ac.EBITDA"]}
-    b, _ = ctx.client.must("sv_query", args)
-    assert _close(helpers.number(b["table"]), EBITDA_WHS_YTD), b["table"]
-
-
-@scenario("S1.bad.member", ["lookup", "input"], budget=5)
-def s1_bad_member(ctx):
-    b, _, err = ctx.client.call("sv_query", _ebitda_q(rows=[{"dimension": "All Accounts",
-                                                             "members": ["ac.EBITDA", "ac.NOPE"]}]))
-    text = err or " ".join(b.get("warnings", []))
-    assert "ac.NOPE" in text and "sv_find_member" in text, f"error/warning does not name ac.NOPE + sv_find_member: {text}"
-
-
-# ================================================================== S2 free-form build (live_build.py's BUS spec)
+# ================================================================== shared answer specs (bench B02/B03; S8)
 E = ["ac.EBITDA"]
 BUS_ACC = ["ac.C30", "ac.C40S", "ac.C70", "ac.C73", "ac.EBITDA"]
 BUS_POV = {"All Entities": "un.SY.2BUS", "All Scenarios": "Actual", "All Currencies": "NOK"}
 MONTHS = [f"{m} 25" for m in "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()] + \
          [f"{m} 26" for m in "Jan Feb Mar Apr May Jun Jul Aug Sep".split()]
-BUS_YTD, BUS_VAR = "3 496 062 985", "89 346 421"     # sv_query 23.10: 3,496,062,984.87 (live_build.py had 3 495 317 868)
+BUS_YTD, BUS_VAR = "3 496 062 985", "89 346 421"     # query tool 23.10: 3,496,062,984.87 (live_build.py had 3 495 317 868)
 FP_POV = {"Entity": "2BUS Business", "Years": "FY26", "Period": "Sep", "Version": "Working",
           "All Balance Types": "Accumulated"}
 
@@ -232,97 +153,6 @@ def _answer_ok(out: dict, what: str, allow_empty_checks: bool = False) -> None:
     assert not errs, f"{what}: {errs}"
 
 
-@scenario("S2.build", ["build"], budget=30)
-def s2_build(ctx):
-    out, _ = ctx.client.must("sv_ws_build", {"question": "MATRIX S2 BUS EBITDA monthly", "pulls": _bus_pulls(),
-                                             "spec": _bus_spec(), "target": "new"})
-    _answer_ok(out, "build")
-    assert out["formula_style"].get("ok"), f"formula_style {out['formula_style']}"
-    assert BUS_YTD in out["table"] and BUS_VAR in out["table"], f"{BUS_YTD} / {BUS_VAR} not in table:\n{out['table']}"
-    ctx.state.update(wb=out["workbook"], q=int(str(out["question"]).lstrip("Q")),
-                     answer_sheet=out["answer_sheet"], data_sheets=out["data_sheets"])
-    return {"notes": f"{out['answer_sheet']} + {out['data_sheets']}"}
-
-
-@scenario("S2.patch", ["build"], budget=15)
-def s2_patch(ctx):
-    wb = _need(ctx, "wb", "S2.build")
-    out, _ = ctx.client.must("sv_ws_answer", {"q": ctx.state["q"], "target": wb,
-                                              "spec_patch": {"notes": ["Patched follow-up."]}})
-    _answer_ok(out, "patch")
-    assert BUS_YTD in out["table"], f"{BUS_YTD} gone after the patch:\n{out['table']}"
-
-
-@scenario("S2.plan", ["build"], budget=45)
-def s2_plan(ctx):
-    """Same Q again with a FinPlan pull added; the FinMax pulls stay (their sheets are referenced by name)."""
-    wb, q = _need(ctx, "wb", "S2.build"), ctx.state["q"]
-    spec = _bus_spec(f"Q{q} FinMax", f"Q{q} FinMax YTD")
-    spec["sections"][1]["lines"].append(
-        {"key": "fp", "label": "EBITDA YTD Sep (FinPlan Actual)",
-         "cells": [{"pull": "fp", "row": ["EBITDA"], "col": ["Actual"]}, None, None, None]})
-    pulls = [{"id": "fp", "connection": "FinPlan", "rows": [{"dimension": "Account", "members": ["EBITDA"]}],
-              "columns": [{"dimension": "Scenario", "members": ["Actual"]}], "pov": FP_POV,
-              "title": f"Q{q} FinPlan"}]
-    out, _ = ctx.client.must("sv_ws_build", {"question": "MATRIX S2 BUS EBITDA monthly + FinPlan", "pulls": pulls,
-                                             "spec": spec, "target": wb, "q": q})
-    _answer_ok(out, "plan")
-    ov, _ = ctx.client.must("xl_overview", {"workbook": wb, "preview_rows": 0})
-    names = [s["name"] for s in ov["sheets"]]
-    ans = out["answer_sheet"]
-    data = [n for n in names if n.startswith(f"Q{q} ") and n != ans]
-    used = next(s["used"] for s in ov["sheets"] if s["name"] == ans)
-    f = helpers.values(ctx.client, wb, ans, used.split("!")[-1].replace("$", ""), "formulas")["formulas"]
-    text = " ".join(f.values())
-    orphans = [n for n in data if f"'{n}'!" not in text and f"{n}!" not in text]
-    assert not orphans, f"data sheets not referenced by {ans}: {orphans} (sheets {names})"
-    late = [n for n in data if names.index(n) < names.index(ans)]
-    assert not late, f"data sheets before the answer {ans}: {late} (order {names})"
-    return {"notes": f"sheets {names}"}
-
-
-# ================================================================== S3 templates (live_analysis.py)
-TEMPLATES = {
-    "monthly_trend": ({"entity": "un.SY.2TEC", "through": "Sep 26"}, {"entity": "un.SY", "through": "Sep 26"}),
-    "actual_vs_plan": ({"entity": "2TEC Technology", "month": "Sep", "year": "FY26"},
-                       {"entity": "BANORWAY", "month": "Sep", "year": "FY26"}),
-    "cost_base": ({"parent": "un.SY.2TEC", "period": "Sep 26", "top": 15},
-                  {"parent": "un.SY", "period": "Sep 26", "top": 15}),
-}
-
-
-def _template(name: str, which: str):
-    params = TEMPLATES[name][0 if which == "tec" else 1]
-
-    def run(ctx):
-        target = ctx.state.get("s3_wb") or "new"
-        out, _ = ctx.client.must("sv_analyse", {"question": f"MATRIX S3 {name} {which}", "template": name,
-                                                "params": params, "target": target})
-        ctx.state["s3_wb"] = out["workbook"]
-        _answer_ok(out, f"{name}.{which}", allow_empty_checks=name == "cost_base")
-        return {"notes": out["answer_sheet"]}
-    return run
-
-
-for _t in TEMPLATES:
-    for _w in ("tec", "sy"):
-        scenario(f"S3.{_t}.{_w}", ["template"], budget=60)(_template(_t, _w))
-
-
-# ================================================================== S4 concepts
-@scenario("S4.scope", ["concept"], budget=20)
-def s4_scope(ctx):
-    sc, _ = ctx.client.must("sv_scope", {"text": "hva tjener vi på mobilabonnement"})
-    ids = [c["id"] for c in sc.get("concepts", [])]
-    assert ids and ids[0].startswith("fam_"), f"no fam_* concept first: {ids}"
-    out, _ = ctx.client.must("sv_concept", {"concept": ids[0], "period": "Sep 26", "target": "new"})
-    _answer_ok(out, ids[0])
-    assert out["checks"], f"{ids[0]}: no checks (expected rev+cogs+opex = EBITDA before other items)"
-    out2, _ = ctx.client.must("sv_concept", {"concept": "splitt", "period": "Sep 26", "target": out["workbook"]})
-    _answer_ok(out2, "splitt")
-    return {"notes": f"{ids[0]}: {list(out['checks'])}"}
-
-
 # ================================================================== S5 drill (FinLite 12881 x un.SY x Sep 26)
 def _drill(ctx, cell: dict, target: str = "none", **kw) -> dict:
     out, _ = ctx.client.must("sv_drill", {"question": "MATRIX S5 drill " + " x ".join(cell.values()),
@@ -360,29 +190,6 @@ def s5_quarter(ctx):
     return {"notes": f"{rec['lines']} lines, {len(out.get('pieces') or [])} pieces"}
 
 
-@scenario("S5.drill.report", ["drill"], budget=90)
-def s5_report(ctx):
-    wb = _need(ctx, "wb", "S2.build")
-    d = _drill(ctx, CELL_12881, target=wb)
-    _exact(d)
-    cp = d["cube_pull"]
-    spec = {"title": "Account 12881 un.SY Sep 26 – drill-through", "subtitle": "FinLite · Periodic · NOK",
-            "columns": [{"header": "NOK"}, {"header": "Lines"}],
-            "sections": [{"title": "Reconciliation", "lines": [
-                {"key": "cube", "label": "Cube value", "cells": [{"pull": cp["sheet"], "row": cp["row_keys"][0],
-                                                                  "col": cp["col_keys"][0]}, None]},
-                {"key": "sum", "label": "Sum of lines", "cells": [{"drill": "d", "where": {}},
-                                                                  {"drill": "d", "where": {}, "agg": "count"}]},
-                {"key": "gap", "label": "Gap", "kind": "grand", "cells": [{"expr": "cube-sum"}, None]},
-                {"key": "debit", "label": "Debit", "cells": [{"drill": "d", "where": {}, "agg": "debit"}, None]},
-                {"key": "credit", "label": "Credit", "cells": [{"drill": "d", "where": {}, "agg": "credit"}, None]}]}],
-            "checks": [{"label": "Gap is zero", "expr": "gap", "columns": [0]},
-                       {"label": "Debit + credit = sum", "expr": "debit+credit-sum", "columns": [0]}]}
-    out, _ = ctx.client.must("sv_ws_answer", {"q": d["q"], "spec": spec, "target": wb})
-    _answer_ok(out, "drill report")
-    return {"notes": f"Q{d['q']} {out['answer_sheet']}"}
-
-
 # ================================================================== S6 xl_* round trip
 def _formats_per_cell(c, wb: str, sheet: str, rng: str) -> dict[str, tuple]:
     """{address: (number format, style name)} read one cell at a time (the per-cell truth the revert is held to)."""
@@ -400,10 +207,8 @@ def _formats_per_cell(c, wb: str, sheet: str, rng: str) -> dict[str, tuple]:
 @scenario("S6.xl", ["xl"], budget=60)
 def s6_xl(ctx):
     c = ctx.client
-    p, _ = c.must("sv_ws_pull", {"question": "MATRIX S6 xl test book", "connection": "FinMax", "target": "new",
-                                 "rows": [{"dimension": "All Accounts", "members": ["ac.EBITDA"]}],
-                                 "columns": [{"dimension": "All Time Periods", "members": ["Sep 26"]}],
-                                 "pov": WHS_POV})
+    p, _, err = helpers.tiny_answer(c, spec=helpers.tiny_spec("MATRIX S6 xl test book"))
+    assert not err, f"sv_answer: {err[:300]}"
     wb = p["workbook"]
     path = Path(wb)
     mtime = path.stat().st_mtime if path.exists() else None
@@ -448,40 +253,6 @@ def s6_xl(ctx):
     if mtime is not None:
         assert path.stat().st_mtime == mtime, "the workbook file was saved by an xl_* call"
     return {"notes": f"xl_check {ck.get('counts', ck.get('ok'))}"}
-
-
-# ================================================================== S7 refresh of S2's workbook
-@scenario("S7.refresh", ["refresh"], budget=90)
-def s7_refresh(ctx):
-    import openpyxl
-
-    wb = _need(ctx, "wb", "S2.build")
-    ans = ctx.state["answer_sheet"]
-    ov, _ = ctx.client.must("xl_overview", {"workbook": wb, "sheet": ans, "preview_rows": 0})
-    used = ov["sheets"][0]["used"].split("!")[-1].replace("$", "")
-    before = helpers.values(ctx.client, wb, ans, used)["values"]
-    assert helpers.close_scratch_book(wb, save=True), f"could not close {wb} (needs it open in Excel, in _matrix)"
-    ctx.state.pop("wb", None)              # closed now: later scenarios must not target it
-    out, _, err = ctx.client.call("sv_refresh_workbook", {"path": wb, "output_name": "matrix_s7"})
-    assert not err, err
-    ctx.state.setdefault("files", []).append(out["output"])
-    assert "Call was rejected" not in str(out), f"'Call was rejected' in the result: {out}"
-    book = openpyxl.load_workbook(out["output"], data_only=True, read_only=True)
-    try:
-        after = [list(r) for r in book[ans].iter_rows(min_row=1, values_only=True)]
-    finally:
-        book.close()               # read-only keeps the file open; cleanup must be able to delete it
-    r0 = int(re.match(r"[A-Z]+(\d+)", used).group(1))
-    c0 = _col(re.match(r"([A-Z]+)", used).group(1))
-    diff = []
-    for i, row in enumerate(before):
-        for j, v in enumerate(row):
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                got = after[r0 - 1 + i][c0 - 1 + j] if r0 - 1 + i < len(after) else None
-                if not isinstance(got, (int, float)) or abs(got - v) > 0.01:
-                    diff.append((r0 + i, c0 + j, v, got))
-    assert not diff, f"{len(diff)} numbers changed by the refresh, first {diff[:5]}"
-    return {"notes": out["output"]}
 
 
 def _col(letters: str) -> int:
@@ -540,28 +311,25 @@ def _join(t: threading.Thread, box: dict, timeout: float):
     return box["out"]
 
 
+def _tiny(question: str = "MATRIX tiny answer", pov: dict | None = None, **kw) -> dict:
+    """sv_answer args for the smallest pipeline answer (helpers.tiny_spec) into a new scratch workbook."""
+    return {"spec": helpers.tiny_spec(question, pov, **kw), "target": "new"}
+
+
 def _followup(ctx) -> str:
-    """The S1.query.finmax check: the engine still answers afterwards."""
-    b, secs, err = _call(ctx.client, "sv_query", _ebitda_q())
-    assert not err, f"follow-up sv_query failed: {err[:300]}"
-    v = helpers.number(b["table"])
-    assert _close(v, EBITDA_WHS_YTD), f"follow-up EBITDA WHS YTD Sep 26 = {v}, expected {EBITDA_WHS_YTD}"
+    """The engine still answers afterwards: one tiny sv_answer with the known Wholesale EBITDA YTD Sep 26."""
+    b, secs, err = _call(ctx.client, "sv_answer", _tiny("MATRIX follow-up"))
+    assert not err, f"follow-up sv_answer failed: {err[:300]}"
+    assert WHS_YTD in b["table"], f"follow-up EBITDA WHS YTD Sep 26: {WHS_YTD} not in\n{b['table']}"
     return f"follow-up {secs:.0f}s"
 
 
 def _small_build(client, question: str, pov: dict | None = None, hang: float = HANG_S,
                  timeout: float = CALL_TIMEOUT) -> dict:
-    """A one-line sv_ws_build into a new scratch workbook (EBITDA YTD Sep 26 of the given entity)."""
-    pull = {"id": "p", "connection": "FinMax", "rows": [{"dimension": "All Accounts", "members": E}],
-            "columns": [{"dimension": "All Time Periods", "members": ["Sep 26"]}], "pov": pov or WHS_POV}
-    spec = {"title": question, "subtitle": "NOK · FinMax · Actual", "columns": [{"header": "YTD Sep 26"}],
-            "sections": [{"title": "EBITDA", "lines": [{"key": "e", "label": "EBITDA YTD",
-                                                       "cells": [{"pull": "p", "row": E, "col": ["Sep 26"]}]}]}],
-            "checks": [{"label": "Line equals itself", "expr": "e-e", "columns": [0]}]}
-    out, _, err = _call(client, "sv_ws_build", {"question": question, "pulls": [pull], "spec": spec, "target": "new"},
-                        hang, timeout)
-    assert not err, f"sv_ws_build '{question}': {err[:300]}"
-    _answer_ok(out, question)
+    """A one-line sv_answer into a new scratch workbook (EBITDA YTD Sep 26 of the given entity)."""
+    out, _, err = _call(client, "sv_answer", _tiny(question, pov), hang, timeout)
+    assert not err, f"sv_answer '{question}': {err[:300]}"
+    _answer_ok(out, question, allow_empty_checks=True)
     return out
 
 
@@ -583,9 +351,9 @@ def s8_sso(ctx):
     notes = []
     with helpers.expired_sso() as moved:
         notes.append(f"moved {len(moved)} cookie file(s)")
-        b, secs, err = _call(ctx.client, "sv_query", _ebitda_q())
-        assert not err or _names_dialog(err, "login", "sign in", "sso"), f"sv_query: {err[:300]}"
-        notes.append(f"sv_query {secs:.0f}s " + ("ok" if not err else "names login"))
+        b, secs, err = _call(ctx.client, "sv_answer", _tiny("MATRIX S8 sso"))
+        assert not err or _names_dialog(err, "login", "sign in", "sso"), f"sv_answer: {err[:300]}"
+        notes.append(f"sv_answer {secs:.0f}s " + ("ok" if not err else "names login"))
         d, secs, err = _call(ctx.client, "sv_drill", {"question": "MATRIX S8 sso drill", "cell": CELL_12881,
                                                       "target": "none"})
         assert not err or _names_dialog(err, "login", "sign in", "sso"), f"sv_drill without cookies: {err[:300]}"
@@ -598,11 +366,11 @@ def _blocked_answer(ctx, inject, words: tuple[str, ...]):
     bk = _s8_book(ctx)
     with helpers.scratch_excel(bk["wb"], ctx.watch) as pid:
         with inject(pid, bk) as st:
-            b, secs, err = _call(ctx.client, "sv_ws_answer", {"q": bk["q"], "target": bk["wb"],
-                                                              "spec_patch": {"notes": ["S8 injection."]}})
-        assert err, f"sv_ws_answer passed ({secs:.0f}s) although Excel was blocked ({st})"
-        assert _names_dialog(err, *words), f"sv_ws_answer ({secs:.0f}s) does not name {words}: {err[:300]}"
-        note = f"pid {pid}; {st}; sv_ws_answer {secs:.0f}s: {err.splitlines()[0][:120]}"
+            b, secs, err = _call(ctx.client, "sv_answer", {"q": bk["q"], "target": bk["wb"], "followup": {
+                "layout": {"notes": {"append": ["S8 injection."]}}}})
+        assert err, f"sv_answer passed ({secs:.0f}s) although Excel was blocked ({st})"
+        assert _names_dialog(err, *words), f"sv_answer ({secs:.0f}s) does not name {words}: {err[:300]}"
+        note = f"pid {pid}; {st}; sv_answer {secs:.0f}s: {err.splitlines()[0][:120]}"
     return {"notes": note + "; " + _followup(ctx)}
 
 
@@ -623,7 +391,7 @@ def s8_parallel(ctx):
     second = McpClient(cwd=ctx.scratch)
     try:
         with helpers.tracked(second):            # its hidden Excel is the matrix's too (DialogWatch)
-            jobs = [(ctx.client, "MATRIX S8 parallel A WHS", WHS_POV, "1 858 190 823"),
+            jobs = [(ctx.client, "MATRIX S8 parallel A WHS", WHS_POV, WHS_YTD),
                     (second, "MATRIX S8 parallel B BUS", {**BUS_POV, "All Balance Types": "Accumulated"}, BUS_YTD)]
             threads = [_in_thread(_small_build, c, q, pov) for c, q, pov, _ in jobs]
             outs, errs = [], []
@@ -652,9 +420,8 @@ def s8_kill_excel(ctx):
         st, _, _ = _call(ctx.client, "sv_status", {})
     pid = helpers.engine_hidden_excel_pid(st["pid"])
     import psutil
-    big = _q([{"dimension": "All Accounts", "members": BUS_ACC}],
-             [{"dimension": "All Time Periods", "members": MONTHS}], {**BUS_POV, "All Balance Types": "Periodic"})
-    t, box = _in_thread(_call, ctx.client, "sv_query", big)
+    big = _tiny("MATRIX S8 kill excel", {**BUS_POV, "All Balance Types": "Periodic"}, accounts=BUS_ACC, months=MONTHS)
+    t, box = _in_thread(_call, ctx.client, "sv_answer", big)
     time.sleep(1.0)
     if not t.is_alive():
         _join(t, box, 5)
@@ -670,7 +437,7 @@ def s8_kill_excel(ctx):
         if "sv_restart" in err:
             notes.append(f"error names sv_restart ({secs:.0f}s)")
         else:
-            b2, secs2, err2 = _call(ctx.client, "sv_query", big)
+            b2, secs2, err2 = _call(ctx.client, "sv_answer", big)
             assert not err2, f"error without sv_restart ({err[:200]}) and the retry failed too: {err2[:200]}"
             notes.append(f"error without sv_restart, retry ok in {secs2:.0f}s: {err.splitlines()[0][:100]}")
     else:
@@ -702,7 +469,7 @@ def s8_kill_edge(ctx):
 
 @scenario("S8.cold", ["inject"], budget=240)
 def s8_cold(ctx):
-    wb = ctx.state.pop("wb", None)               # S2's workbook when S2 ran; closed below, so S2's users stop here
+    wb = ctx.state.pop("wb", None)               # an earlier scenario's workbook if any; closed below
     if not wb:
         wb = _small_build(ctx.client, "MATRIX S8 cold")["workbook"]
     assert helpers.close_scratch_book(wb, save=True), f"could not close {wb}"
@@ -717,21 +484,21 @@ def s8_cold(ctx):
 def s8_sleep(ctx):
     pids = helpers.server_pids(ctx.client)
     assert pids, "no child_server.py process under the relay"
-    t, box = _in_thread(_call, ctx.client, "sv_query", _ebitda_q(), 90 + HANG_S, 90 + CALL_TIMEOUT)
+    t, box = _in_thread(_call, ctx.client, "sv_answer", _tiny("MATRIX S8 sleep"), 90 + HANG_S, 90 + CALL_TIMEOUT)
     time.sleep(0.2)
     with helpers.suspended(pids):
         time.sleep(90)
     resumed = time.monotonic()
     b, secs, err = _join(t, box, CALL_TIMEOUT + 10)
     after = time.monotonic() - resumed
-    assert after < HANG_S, f"sv_query answered {after:.0f}s after the resume"
-    assert not err, f"sv_query after the resume ({after:.0f}s): {err[:300]}"
-    assert _close(helpers.number(b["table"]), EBITDA_WHS_YTD), b["table"]
+    assert after < HANG_S, f"sv_answer answered {after:.0f}s after the resume"
+    assert not err, f"sv_answer after the resume ({after:.0f}s): {err[:300]}"
+    assert WHS_YTD in b["table"], b["table"]
     return {"notes": f"suspended {pids} 90s; answered {after:.0f}s after the resume; " + _followup(ctx)}
 
 
 # ================================================================== S9 fresh install (only with --fresh)
-DOCTOR_CHECKS = {"config", "excel", "smartview", "epm", "drill_browser", "atlas", "catalog", "warehouse", "output", "http_api", "update"}
+DOCTOR_CHECKS = {"config", "excel", "smartview", "epm", "drill_browser", "atlas", "catalog", "output", "http_api", "update"}
 
 
 def _fresh(ctx) -> dict:
@@ -1091,62 +858,3 @@ def s10_http(ctx):
     return {"notes": f"no secret {none}, wrong {wrong}, right {right}"}
 
 
-# ================================================================== S11 fin_pnl (Stage 2+3)
-def _fin_query(conn: str, pov: dict, row: tuple[str, str], col: tuple[str, str]) -> dict:
-    return _q([{"dimension": row[0], "members": [row[1]]}], [{"dimension": col[0], "members": [col[1]]}], pov, conn)
-
-
-@scenario("S11.fin_pnl.wholesale", ["fin"], budget=240)
-def s11_fin_pnl(ctx):
-    out, secs = ctx.client.must("fin_pnl", {"area": "Wholesale", "target": "new", "detail": "full"})
-    _answer_ok(out, "fin_pnl")
-    style = out.get("formula_style") or {}
-    assert not style or style.get("ok"), f"formula_style {style}"
-    recon = {k: v for k, v in out["checks"].items() if k.startswith("Warehouse = source sheet")}
-    assert len(recon) == 5 and _all_ok(recon), f"warehouse = sheet: {recon}"
-    facts = {f["id"]: f["value"] for f in out["facts"]}
-    p = out["period"]
-    ly = f"{p[:3]} {int(p[4:]) - 1:02d}"
-    fm = {"All Entities": "un.SY.2WHS", "All Scenarios": "Actual", "All Currencies": "NOK"}
-    fp = {"Entity": "2WHS Wholesale", "Years": f"FY{p[4:]}", "Period": p[:3], "All Balance Types": "Accumulated"}
-    cases = [("fm.ebitda.ytd.cur", "FinMax", {**fm, "All Balance Types": "Accumulated"},
-              ("All Accounts", "ac.EBITDA"), ("All Time Periods", p)),
-             ("fm.ebitda.ytd.ly", "FinMax", {**fm, "All Balance Types": "Accumulated"},
-              ("All Accounts", "ac.EBITDA"), ("All Time Periods", ly)),
-             ("fm.rev.m.cur", "FinMax", {**fm, "All Balance Types": "Periodic"},
-              ("All Accounts", "ac.C30"), ("All Time Periods", p)),
-             ("fp.ebitda.budget.ytd", "FinPlan", {**fp, "Version": "Final"}, ("Account", "EBITDA"),
-              ("Scenario", "Target"))]
-    bad = []
-    for fid, conn, pov, row, col in cases:
-        b, _ = ctx.client.must("sv_query", _fin_query(conn, pov, row, col))
-        v = helpers.number(b["table"])
-        if facts.get(fid) is None or not _close(v, facts[fid], 1.0):
-            bad.append(fid)
-    assert not bad, f"fin_pnl facts differ from sv_query: {bad}"
-    again, warm = ctx.client.must("fin_pnl", {"area": "Wholesale", "target": out["workbook"]})
-    _answer_ok(again, "fin_pnl warm")
-    assert all(f["job"] == "top_up" for f in again["fills"]), f"warm call refilled: {again['fills']}"
-    return {"notes": f"cold {secs:.0f}s, warm {warm:.0f}s; {len(out['checks'])} checks OK; "
-                     f"{len(cases)} values = sv_query; {len(out.get('warnings') or [])} warnings"}
-
-
-# ================================================================== S12 fin_pnl for a unit below an area
-@scenario("S12.fin_pnl.unit", ["fin"], budget=180)
-def s12_fin_pnl_unit(ctx):
-    unit = "un.SY.5OK_W"                                    # below Wholesale; no FinPlan member
-    out, secs = ctx.client.must("fin_pnl", {"area": unit, "target": "new", "detail": "full"})
-    _answer_ok(out, "fin_pnl unit")
-    assert out["freshness"].startswith("Data: live pulls (sub-unit"), out["freshness"]
-    assert any("compared with last year only" in w for w in out.get("warnings") or []), out.get("warnings")
-    recon = {k: v for k, v in out["checks"].items() if k.startswith("Live read = source sheet")}
-    assert len(recon) >= 2 and _all_ok(recon), f"live read = sheet: {recon}"
-    assert not any(k.startswith("Warehouse = source sheet") for k in out["checks"]), out["checks"]
-    facts = {f["id"]: f["value"] for f in out["facts"]}
-    pov = {"All Entities": unit, "All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Accumulated"}
-    b, _ = ctx.client.must("sv_query", _fin_query("FinMax", pov, ("All Accounts", "ac.EBITDA"),
-                                                  ("All Time Periods", out["period"])))
-    v = helpers.number(b["table"])
-    assert facts.get("fm.ebitda.ytd.cur") is not None and _close(v, facts["fm.ebitda.ytd.cur"], 1.0), (v, facts)
-    return {"notes": f"{secs:.0f}s; {len(out['checks'])} checks OK; EBITDA YTD = sv_query; "
-                     f"{len(out.get('warnings') or [])} warnings"}

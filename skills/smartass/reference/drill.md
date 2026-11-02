@@ -1,7 +1,8 @@
 # Drill-through (sv_drill): glossary, report rules, text repair
 
-Spec: `docs\specs\2026-10-15-sv-drill-design.md` in the smartass repo. Plan: `docs\plans\2026-10-15-sv-drill.md`.
-The lines come from the FinLite drill page (view `DrillFilter`, 45 columns). **Key** = used in most reports.
+Spec: `docs\archive\specs\2026-10-15-sv-drill-design.md` in the smartass repo. Plan: `docs\archive\plans\2026-10-15-sv-drill.md`.
+The lines come from the FinLite drill page (view `DrillFilter`, 45 columns), written to `Q<n> Lines` (Excel table
+`Lines_Q<n>`); the report is an `sv_answer` spec with `{"drill": "d", "where": {...}}` cells. **Key** = used in most reports.
 
 ## Column glossary (45 columns, in page order)
 
@@ -60,8 +61,8 @@ The lines come from the FinLite drill page (view `DrillFilter`, 45 columns). **K
 - **No share of total when signs are mixed** (`signs_mixed`). Purchases (−123 M) and allocations (+106 M) offset
   each other and gave 498 %. Shares only when every line in the block has the same sign; otherwise show gross debit
   and gross credit columns.
-- **Criteria Excel would coerce.** Default is `SUMIFS` over `Linjer_Q<n>`. Use the exact-match form
-  `=SUM(FILTER(Linjer_Q1[AMOUNT],Linjer_Q1[Period]=$B30,0))` (the builder picks it by itself) when the key is:
+- **Criteria Excel would coerce.** Default is `SUMIFS` over `Lines_Q<n>`. Use the exact-match form
+  `=SUM(FILTER(Lines_Q1[AMOUNT],Lines_Q1[Period]=$B30,0))` (the builder picks it by itself) when the key is:
   - date-like (`Jul-26`);
   - a digit string over 15 characters (rounded to a number);
   - containing wildcards `* ? ~`;

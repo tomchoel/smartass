@@ -16,9 +16,9 @@ from typing import Literal
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
 
-from . import config, logsetup, userexcel
+from . import config, logsetup
+from .excel import instances
 from .host import ExcelHost, HostError, InputError
 
 logsetup.configure(config.SERVER_LOG)
@@ -58,6 +58,12 @@ async def lifespan(_server):
 
 INSTRUCTIONS = """Read-only access to Telenor Norge's Oracle EPM Cloud cubes (Smart View); answers are built as
 analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, ...):
+- Every finance question: 1. sv_gate(question) FIRST (clear: state its assumptions; ambiguous: ask its questions in
+  ONE message, pull nothing, offer sv_remember; infeasible: say why, offer its proxy). 2. sv_answer(spec): pulls +
+  layout, or a recipe (pnl, actual_vs_plan, monthly_trend, cost_base, concept); follow-ups on the same answer:
+  sv_answer(followup=<patch>, q=<n>). 3. Write the commentary from the returned checks, findings and material lines,
+  never figures from memory. 4. Utilities: sv_find_member / sv_members / sv_member_info / sv_dimensions to write
+  specs; sv_drill for GL lines; xl_* for edits; sv_status / sv_restart for health.
 - Cubes: FinMax = actuals incl. FTE (ac.STA20Y); FinLite = lighter actuals; FinPlan = budget/forecast. Actual vs
   budget/forecast is done entirely in FinPlan (Actual = version Working; Target and the latest 'Forecast Q<q><yy>' =
   version Final) with a reconciliation line to FinMax EBITDA. FinPlan KPIs (volumes, ARPU, %) are read Periodic per
@@ -65,54 +71,27 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
 - A 'Smart View rejected these members' warning means those lines were left out (the rest was retrieved): say so.
 - Members: entities 'un.SY.<code>' (un.SY.2WHS Wholesale, 2BUS Business, 2SSM, 2EI, 2TEC ...), accounts 'ac.<code>'
   (ac.C30 revenue, ac.C40S COGS, ac.C70 opex, ac.EBITDA), periods 'Sep 26', balance 'Periodic' | 'Accumulated' (=
-  YTD), scenario 'Actual', currency 'NOK'. Resolve names with sv_find_member / sv_members (local atlas, instant).
-  P&L chain: C30 + C40S = C48; C50S + C60 = C70; C48 + C70 = EBITDA_BOI; + C73 = EBITDA.
+  YTD), scenario 'Actual', currency 'NOK' (sv_find_member / sv_members: local atlas, instant). P&L chain: C30 + C40S = C48; C50S + C60 = C70; C48 + C70 = EBITDA_BOI; + C73 = EBITDA.
 - Use the last CLOSED month (the next one is open, with reversals). History is restated to today's organisation
   (the 1 June 2026 reorg emptied 2CON Consumer into 2SSM + 2EI).
-- Product / profitability / business-area questions: call sv_scope(question) FIRST (business map + concept library).
-  If a concept matches (e.g. 'splitt', or a product family 'fam_*'), answer with sv_concept(concept) - it marks every line booked / estimated (with
-  key) / attributed / not in FinMax. No concept: research, PROPOSE the blocks to the user, then save the concept.
-- P&L for a business area (month and YTD vs last year, budget, latest forecast; materiality; EBITDA bridge by line
-  and sub-unit; KPIs; year-end landing): ONE call - fin_pnl(area). It reads the local warehouse (refreshed by itself)
-  and builds the workbook with live source sheets; write the reply from its key_points, table, flags, warnings
-  and freshness (every fact with detail='full'). A 'Warehouse = source sheet' check showing DIFF: call
-  sv_warehouse('rebuild', area=<that area>), then fin_pnl again. area may also be a unit below an area
-  ('un.SY.5OK_W'): read live, never stored; without a FinPlan member it is compared with last year only.
-  Variance positive = better everywhere; cost per FTE is shown positive. Consumer and IG were abolished 1 June 2026:
-  fin_pnl explains where their figures went (never empty figures); pass that explanation on.
-- Analyses: ONE call - sv_ws_build(question, pulls, spec) (or sv_analyse for a template). Default target 'session' =
-  this session's own workbook (the analyser folder\\<project>\\..., Q1, Q2 ...); 'active' only when the user asks
-  for their open workbook. Follow-ups: sv_ws_answer(q, spec_patch=..., target=<workbook>). Add the same period last
-  year by default. Write key_points only for interpretation - factual points are drafted from the numbers.
+- Product / profitability / business-area questions: check the business map + concept library (knowledge\\) first.
+  If a concept matches (e.g. 'splitt', or a product family 'fam_*'), answer with sv_answer (recipe 'concept').
+  No concept: research, PROPOSE the blocks to the user, then save the concept.
+- P&L for a business area or a unit below one ('un.SY.5OK_W'): sv_answer with recipe 'pnl' (month and YTD vs last
+  year, budget, latest forecast; materiality; EBITDA bridge; KPIs; year-end landing). Variance positive = better
+  everywhere; cost per FTE is shown positive. Consumer and IG were abolished 1 June 2026: pass the explanation on.
+- Default target 'session' = this session's own workbook (analyser folder\\<project>\\..., Q1, Q2 ...); 'active'
+  only when the user asks for their open workbook. Sheets: 'Q<n> Answer', a source sheet per pull ('Q<n> FinMax'),
+  'Sources'. Add the same period last year by default.
 - Format: full NOK 1 000 000, negatives (1 000 000) in tables and with a minus sign in text; costs negative;
-  variance = current - comparison (positive = better). Line labels in English as FinMax shows them.
-- Quick single numbers: sv_query. The Produktregnskapet archive folders are never written to.
-- Invoice / journal-line detail behind any FinLite number: sv_drill(question, cell) (hidden headless browser,
-  reconciled to the cube), then sv_ws_answer with {drill: 'd', where: {...}} cells. Never Smart View's own
-  drill-through execute: it opens the user's browser.
-- Any workbook the user has OPEN (no Smart View needed): xl_* tools - xl_workbooks / xl_overview / xl_read to look,
-  xl_write / xl_rows / xl_add_sheet / xl_format / xl_format_sheet to change (each snapshotted; xl_revert undoes),
-  xl_trace / xl_check to explain and audit formulas. Never saved by the tools: the user saves. Closed files: the
-  separate Excel MCP. Formulas follow skill tn-formelstil (SUM over ranges, XLOOKUP, no guessed ranges)."""
+  variance = current - comparison. Labels in English as FinMax shows them. Never write to Produktregnskapet archives.
+- Invoice / journal-line detail behind any FinLite number: sv_drill(question, cell) (hidden browser, reconciled to the
+  cube), then sv_answer with {drill: 'd', where: {...}} cells. Never Smart View's drill-through: it opens a browser.
+- Any workbook the user has OPEN: xl_workbooks / xl_overview / xl_read to look, xl_write / xl_rows / xl_add_sheet /
+  xl_format / xl_format_sheet to change (snapshotted; xl_revert undoes), xl_trace / xl_check to audit formulas; never
+  saved (the user saves). Formulas follow skill tn-formelstil (SUM over ranges, XLOOKUP, no guessed ranges)."""
 
 mcp = MCPServer("smartass", instructions=INSTRUCTIONS, lifespan=lifespan)
-
-
-class AxisIn(BaseModel):
-    dimension: str = Field(description="Dimension name, e.g. 'All Accounts', 'All Entities', 'All Time Periods'")
-    members: list[str] = Field(description="Member names in order, e.g. ['ac.C30','ac.EBITDA'] or ['Aug 26','Sep 26']")
-
-
-AxesIn = list[AxisIn] | dict[str, list[str] | str]
-
-
-def axes_in(x) -> list[AxisIn]:
-    """rows/columns as [{dimension, members}] (documented) or {dimension: [members]} (what agents often send)."""
-    if isinstance(x, dict) and set(x) == {"dimension", "members"}:
-        x = [x]                                         # one axis object instead of a list of them
-    if isinstance(x, dict):
-        return [AxisIn(dimension=d, members=[m] if isinstance(m, str) else list(m)) for d, m in x.items()]
-    return [a if isinstance(a, AxisIn) else AxisIn(**a) for a in x]
 
 
 def _err(e: Exception) -> ToolError:
@@ -230,10 +209,6 @@ async def _call(fn, timeout: float | None = None, what: str = "call"):
         raise _err(e) from None
 
 
-def _safe_name(s: str) -> str:
-    return re.sub(r"[^\w\-. ]+", "_", s).strip()[:80] or "query"
-
-
 def _doc(extra: str):
     """Append shared reference text to a tool's docstring (applied before @tool reads it)."""
     def deco(fn):
@@ -246,7 +221,7 @@ def _is_our_analysis_file(path: str) -> bool:
     """A file the MCP itself created in the analyser folder (config.ANALYSER_DIR; never a user's or an archive workbook)."""
     try:
         parent, root = Path(path).resolve().parent, config.ANALYSER_DIR.resolve()
-        return (parent == root or parent.parent == root) and not userexcel.is_archive(path)   # analyser\[<project>\]
+        return (parent == root or parent.parent == root) and not instances.is_archive(path)   # analyser\[<project>\]
     except (OSError, ValueError):
         return False
 
@@ -263,10 +238,9 @@ async def _call_user(fn, what: str):
 # Order = order the model sees the tools in (status, query, ws, drill, xl - as before the split).
 from . import tools_status  # noqa: E402,F401,I001
 from . import tools_query  # noqa: E402,F401
-from . import tools_ws  # noqa: E402,F401
-from . import tools_fin  # noqa: E402,F401
 from . import tools_drill  # noqa: E402,F401
 from . import tools_xl  # noqa: E402,F401
+from . import tools_core  # noqa: E402,F401
 
 
 def main():

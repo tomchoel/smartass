@@ -1,0 +1,288 @@
+{
+ "version": 1,
+ "question": "Business Norway EBITDA per month 2026 vs 2025, reconciled to accumulated YTD",
+ "gate": {
+  "outcome": "clear",
+  "checklist": {
+   "period": "Jan 25..Sep 26 periodic; YTD Sep 26 and Sep 25 accumulated",
+   "scenario": "Actual",
+   "entity": "un.SY.2BUS (Business Norway)",
+   "measure": "ac.EBITDA",
+   "currency_sign": "NOK, FinMax signs",
+   "granularity": "FinMax month x entity: available"
+  }
+ },
+ "assumptions": [
+  "Actual, NOK, FinMax.",
+  "2026 = Jan?Sep (last closed month Sep 26)."
+ ],
+ "pulls": [
+  {
+   "id": "m",
+   "connection": "FinMax",
+   "rows": [
+    {
+     "dimension": "All Accounts",
+     "members": [
+      "ac.C30",
+      "ac.C40S",
+      "ac.C70",
+      "ac.C73",
+      "ac.EBITDA"
+     ]
+    }
+   ],
+   "columns": [
+    {
+     "dimension": "All Time Periods",
+     "members": [
+      "Jan 25",
+      "Feb 25",
+      "Mar 25",
+      "Apr 25",
+      "May 25",
+      "Jun 25",
+      "Jul 25",
+      "Aug 25",
+      "Sep 25",
+      "Oct 25",
+      "Nov 25",
+      "Dec 25",
+      "Jan 26",
+      "Feb 26",
+      "Mar 26",
+      "Apr 26",
+      "May 26",
+      "Jun 26",
+      "Jul 26",
+      "Aug 26",
+      "Sep 26"
+     ]
+    }
+   ],
+   "pov": {
+    "All Entities": "un.SY.2BUS",
+    "All Scenarios": "Actual",
+    "All Currencies": "NOK",
+    "All Balance Types": "Periodic"
+   }
+  },
+  {
+   "id": "ytd",
+   "connection": "FinMax",
+   "rows": [
+    {
+     "dimension": "All Accounts",
+     "members": [
+      "ac.C30",
+      "ac.C40S",
+      "ac.C70",
+      "ac.C73",
+      "ac.EBITDA"
+     ]
+    }
+   ],
+   "columns": [
+    {
+     "dimension": "All Time Periods",
+     "members": [
+      "Sep 26",
+      "Sep 25",
+      "Dec 25"
+     ]
+    }
+   ],
+   "pov": {
+    "All Entities": "un.SY.2BUS",
+    "All Scenarios": "Actual",
+    "All Currencies": "NOK",
+    "All Balance Types": "Accumulated"
+   }
+  }
+ ],
+ "layout": {
+  "title": "Business Norway — EBITDA per month 2026 vs 2025",
+  "subtitle": "NOK · FinMax · Actual · un.SY.2BUS",
+  "key_points": [
+   "June carries the year (one-off low opex)."
+  ],
+  "columns": [
+   {
+    "header": "Actual 2026"
+   },
+   {
+    "header": "Actual 2025"
+   },
+   {
+    "header": "Variance"
+   },
+   {
+    "header": "Variance %",
+    "kind": "prosent1"
+   }
+  ],
+  "sections": [
+   {
+    "title": "EBITDA per month (Periodic)",
+    "repeat": {
+     "over": "months:Jan..Dec",
+     "line": {
+      "key": "m{i}",
+      "label": "{v}",
+      "cells": [
+       {
+        "pull": "m",
+        "row": [
+         "ac.EBITDA"
+        ],
+        "col": [
+         "{v} 26"
+        ]
+       },
+       {
+        "pull": "m",
+        "row": [
+         "ac.EBITDA"
+        ],
+        "col": [
+         "{v} 25"
+        ]
+       },
+       {
+        "var": [
+         0,
+         1
+        ]
+       },
+       {
+        "varpct": [
+         0,
+         1
+        ]
+       }
+      ]
+     }
+    },
+    "lines": [
+     {
+      "key": "ytd",
+      "label": "YTD Jan–Sep",
+      "kind": "grand",
+      "cells": [
+       {
+        "sum": "m[0-8]"
+       },
+       {
+        "sum": "m[0-8]"
+       },
+       {
+        "var": [
+         0,
+         1
+        ]
+       },
+       {
+        "varpct": [
+         0,
+         1
+        ]
+       }
+      ]
+     },
+     {
+      "key": "fy",
+      "label": "Full year 2025",
+      "kind": "sum",
+      "cells": [
+       null,
+       {
+        "sum": "m*"
+       },
+       null,
+       null
+      ]
+     }
+    ]
+   },
+   {
+    "title": "Reconciliation (Accumulated)",
+    "lines": [
+     {
+      "key": "eacc",
+      "label": "EBITDA YTD Sep",
+      "cells": [
+       {
+        "pull": "ytd",
+        "row": [
+         "ac.EBITDA"
+        ],
+        "col": [
+         "Sep 26"
+        ]
+       },
+       {
+        "pull": "ytd",
+        "row": [
+         "ac.EBITDA"
+        ],
+        "col": [
+         "Sep 25"
+        ]
+       },
+       null,
+       null
+      ]
+     },
+     {
+      "key": "fyacc",
+      "label": "EBITDA Dec 25",
+      "cells": [
+       null,
+       {
+        "pull": "ytd",
+        "row": [
+         "ac.EBITDA"
+        ],
+        "col": [
+         "Dec 25"
+        ]
+       },
+       null,
+       null
+      ]
+     }
+    ]
+   }
+  ],
+  "checks": [
+   {
+    "label": "Sum of months = Accumulated YTD",
+    "expr": "ytd-eacc",
+    "columns": [
+     0,
+     1
+    ]
+   },
+   {
+    "label": "Sum of 2025 months = Accumulated Dec 25",
+    "expr": "fy-fyacc",
+    "columns": [
+     1
+    ]
+   }
+  ],
+  "notes": [
+   "Live matrix build."
+  ],
+  "source": "Source: Oracle EPM Cloud (FinMax) via Smart View.",
+  "chart": {
+   "type": "column",
+   "lines": "m*",
+   "columns": [
+    0,
+    1
+   ],
+   "title": "EBITDA per month"
+  }
+ }
+}

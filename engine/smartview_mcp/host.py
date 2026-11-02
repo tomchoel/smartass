@@ -7,28 +7,22 @@ COM call return with an RPC error. The next call starts a fresh Excel. Other Exc
 """
 from __future__ import annotations
 
-import concurrent.futures as cf
-import json
 import logging
-import queue
 import re
 import threading
 import time
 from typing import Any, Callable
 
 import psutil
-import pythoncom
 import pywintypes
-import win32api
-import win32con
 import win32com.client as wc
 import win32process
 
 from . import config, dialogs, sso
+from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy, kill_ours, windows_of
 
 log = logging.getLogger("smartview.host")
 
-RETRY_HRESULTS = {-2147418111, -2147417846}        # RPC_E_CALL_REJECTED, RPC_E_SERVERCALL_RETRYLATER
 DEAD_HRESULTS = {-2147023174, -2147023170, -2147417848}   # RPC unavailable, call failed, object disconnected
 
 
@@ -49,10 +43,26 @@ class SignInBlocked(HostError):
         self.dialog, self.pid = dialog, pid
 
 
+class ProviderEmpty(HostError):
+    """EPM kept answering 'Empty response from provider' (rc=752/57704) after the in-place retry: the Smart View
+    session of the engine's hidden Excel (pid) is broken. notify = the job's progress callback, kept for call()."""
+
+    def __init__(self, msg: str, pid: int | None, notify=None):
+        super().__init__(msg)
+        self.pid, self.notify = pid, notify
+
+
+PROVIDER_EMPTY = ("EPM kept answering 'Empty response from provider' after a restart of the engine's Excel. This "
+                  "usually clears within a minute: wait, then ask again. If it persists, sign in to Smart View once in "
+                  "your own Excel (Smart View ribbon -> Panel -> FinMax) and run `smartass doctor --bundle`.")
+
+
 def signin_message(d: dialogs.Dialog, again: bool, holders: list[str]) -> str:
     if d.kind == "webview2_fallback" or d.ie:
         cause = ("Smart View showed its sign-in window (WebView2 failed and it fell back to Internet Explorer, whose "
                  "Oracle login page doesn't work)")
+    elif d.hung:
+        cause = "Smart View's sign-in window stopped responding (Windows marks it 'Not responding')"
     else:
         cause = (f"Smart View's sign-in window stayed open for more than {config.LOGIN_GRACE_S:.0f}s (the automatic "
                  "SSO click did not complete)")
@@ -74,136 +84,7 @@ def rewrap(e: Exception, msg: str) -> Exception:
     return InputError(msg) if isinstance(e, InputError) else HostError(msg)
 
 
-def _excel_pids() -> set[int]:
-    return {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == "excel.exe"}
-
-
-def _is_ours(pid: int, ctime: float) -> bool:
-    try:
-        p = psutil.Process(pid)
-        return abs(p.create_time() - ctime) < 1.0 and "-embedding" in " ".join(p.cmdline()).lower()
-    except psutil.Error:
-        return False
-
-
-def windows_of(pid: int) -> list[str]:
-    """Visible top-level windows of a process ('title [class]') - tells us which dialog blocked Excel."""
-    import win32gui
-    found: list[str] = []
-
-    def cb(hwnd, _):
-        try:
-            if win32gui.IsWindowVisible(hwnd) and win32process.GetWindowThreadProcessId(hwnd)[1] == pid:
-                found.append(f"{win32gui.GetWindowText(hwnd)!r} [{win32gui.GetClassName(hwnd)}]")
-        except pywintypes.error:
-            pass
-        return True
-    try:
-        win32gui.EnumWindows(cb, None)
-    except pywintypes.error:
-        pass
-    return found
-
-
-def kill_ours(pid: int, ctime: float) -> bool:
-    if not _is_ours(pid, ctime):
-        return False
-    try:
-        h = win32api.OpenProcess(win32con.PROCESS_TERMINATE, False, pid)
-        win32api.TerminateProcess(h, 1)
-        win32api.CloseHandle(h)
-        return True
-    except pywintypes.error:
-        return False
-
-
-class _PidRegistry:
-    """Persist the Excel PIDs we started, with the owning server process, so a restarted server cleans up only
-    orphans whose owner is gone - never the live Excel of another running server (e.g. a test harness)."""
-
-    def __init__(self, path=config.PID_FILE):
-        self.path = path
-
-    def load(self) -> list[dict]:
-        try:
-            return json.loads(self.path.read_text())
-        except (OSError, ValueError):
-            return []
-
-    def save(self, items: list[dict]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(items))
-
-    @staticmethod
-    def _owner_alive(item: dict) -> bool:
-        owner, octime = item.get("owner"), item.get("owner_ctime")
-        if not owner:
-            return False
-        try:
-            return abs(psutil.Process(owner).create_time() - octime) < 1.0
-        except psutil.Error:
-            return False
-
-    def add(self, pid: int, ctime: float) -> None:
-        me = psutil.Process()
-        keep = [i for i in self.load() if psutil.pid_exists(i["pid"])]
-        self.save(keep + [{"pid": pid, "ctime": ctime, "owner": me.pid, "owner_ctime": me.create_time()}])
-
-    def remove(self, pid: int) -> None:
-        self.save([i for i in self.load() if i["pid"] != pid])
-
-    def sweep(self) -> list[int]:
-        killed, keep = [], []
-        for i in self.load():
-            if self._owner_alive(i):
-                keep.append(i)                     # belongs to another live server process
-            elif kill_ours(i["pid"], i["ctime"]):
-                killed.append(i["pid"])
-        self.save(keep)
-        return killed
-
-
-class ComThread(threading.Thread):
-    """Single STA thread that executes callables in order and pumps messages while idle."""
-
-    def __init__(self, name: str = "excel-com"):
-        super().__init__(daemon=True, name=name)
-        self.q: queue.Queue = queue.Queue()
-        self.busy_since: float | None = None
-        self.job_no = 0                           # counts started jobs: tells a reset that the blocked job has ended
-        self.waiting_reset = False                # the current job sits in ExcelHost._wait_reset (not blocked)
-
-    def run(self):
-        pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)
-        try:
-            while True:
-                try:
-                    fn, fut = self.q.get(timeout=0.05)
-                except queue.Empty:
-                    pythoncom.PumpWaitingMessages()
-                    continue
-                if fn is None:
-                    break
-                if not fut.set_running_or_notify_cancel():
-                    continue
-                self.job_no += 1
-                self.busy_since = time.monotonic()
-                try:
-                    fut.set_result(fn())
-                except BaseException as e:   # noqa: BLE001 - forwarded to the awaiting coroutine
-                    fut.set_exception(e)
-                finally:
-                    self.busy_since = None
-        finally:
-            pythoncom.CoUninitialize()
-
-    def submit(self, fn: Callable[[], Any]) -> cf.Future:
-        fut: cf.Future = cf.Future()
-        self.q.put((fn, fut))
-        return fut
-
-
-class ExcelHost:
+class ExcelHost(HiddenExcel):
     def __init__(self, visible: bool = False):
         self.visible = visible
         self.thread = ComThread()
@@ -234,11 +115,24 @@ class ExcelHost:
                    user_excel: bool = False):
         """Run fn on the COM thread. user_excel=True: fn also drives the USER's Excel, which is never killed - on a
         timeout the blocked COM thread is abandoned instead (and our own hidden Excel restarted with a fresh thread).
-        A stuck Smart View sign-in in our hidden Excel (SignInBlocked) kills that Excel; the call is retried once."""
+        A stuck Smart View sign-in in our hidden Excel (SignInBlocked) kills that Excel; the call is retried once.
+        ProviderEmpty restarts only the hidden Excel, with a note to the user, and retries once (a user-Excel job is
+        not retried: the caller is asked to ask again)."""
         import asyncio
+
+        from .timing import _send
         for attempt in (1, 2):
             try:
                 return await self._call_once(fn, timeout, what, user_excel)
+            except ProviderEmpty as e:
+                _send(e.notify, "EPM gave no response; restarting the engine's hidden Excel (yours is untouched)")
+                await asyncio.to_thread(self._hard_reset, f"{what}: Empty response from provider", e.pid)
+                if user_excel:
+                    raise HostError("EPM answered 'Empty response from provider'; the engine restarted its own "
+                                    "hidden Excel (yours is untouched) - ask again.") from None
+                if attempt == 2:
+                    raise HostError(PROVIDER_EMPTY) from None
+                log.warning("Empty response from provider during %s; restarted the hidden Excel, retrying once", what)
             except SignInBlocked as e:
                 d, pid = e.dialog, e.pid
                 await asyncio.to_thread(self._hard_reset, f"{what}: Smart View sign-in stuck at {dialogs.describe(d)}",
@@ -251,14 +145,14 @@ class ExcelHost:
 
     async def _call_once(self, fn: Callable[["ExcelHost"], Any], timeout: float | None, what: str, user_excel: bool):
         import asyncio
-        from . import userexcel
+        from .excel import jobs
         timeout = timeout or (config.USER_CALL_TIMEOUT_S if user_excel else config.CALL_TIMEOUT_S)
         started = threading.Event()
-        token = userexcel.JobToken()
+        token = jobs.JobToken()
 
         def job():
             started.set()
-            userexcel.bind_job(token)             # an abandoned job stops at its next COM call (token check)
+            jobs.bind_job(token)             # an abandoned job stops at its next COM call (token check)
             if not user_excel:                    # jobs in the user's Excel start the hidden one only on demand
                 self._wait_reset()
                 self._ensure_started()            # (h.on_host): it costs ~10 s + an SSO login per server start
@@ -266,11 +160,11 @@ class ExcelHost:
             try:
                 return fn(self)
             finally:
-                userexcel.release_turns()         # the per-Excel turns taken while resolving the target
+                jobs.release_turns()         # the per-Excel turns taken while resolving the target
 
         if user_excel:
             # its own STA thread per job: parallel tool calls (e.g. subagents of one session) run at the same time
-            # in different Excels; work in ONE Excel still takes turns (userexcel.Turn)
+            # in different Excels; work in ONE Excel still takes turns (jobs.Turn)
             worker = ComThread(name=f"user-job-{what}")
             worker.start()
             fut = worker.submit(job)
@@ -308,8 +202,7 @@ class ExcelHost:
                 raise HostError("The Smart View Excel process died during the call; it will restart on the next "
                                 "call. Retry.") from None
             log.warning("COM error during %s", what, exc_info=True)
-            inner = e.excepinfo[5] if e.excepinfo and len(e.excepinfo) > 5 else None
-            if e.hresult in RETRY_HRESULTS or -2146777998 in (e.hresult, inner):    # 0x800AC472 VBA_E_IGNORE
+            if is_busy(e):
                 dlg = "" if user_excel else await asyncio.to_thread(self._open_dialog_note)
                 raise HostError(f"Excel was busy during {what}{dlg or ' - probably a cell is being edited or a dialog is open'}"
                                 ". Press Enter or Esc in Excel and ask again.") from None
@@ -378,38 +271,6 @@ class ExcelHost:
                 me.waiting_reset = False
 
     # ---------------- worker-thread side ----------------
-    def ensure(self) -> "ExcelHost":
-        """Start the hidden server Excel if it is not running. Only valid ON the host COM thread; user-Excel jobs run
-        on their own threads and must use on_host() for anything that touches the hidden Excel."""
-        self._ensure_started()
-        return self
-
-    def on_host(self, fn: Callable[[], Any], timeout: float | None = None):
-        """Run fn on the host COM thread (where the hidden Excel's COM objects live), starting that Excel if needed.
-        Called from a user-Excel job thread, it waits for the result; on the host thread it just runs."""
-        if threading.current_thread() is self.thread:
-            self._ensure_started()
-            return fn()
-
-        def job():
-            self._wait_reset()
-            self._ensure_started()
-            return fn()
-        return self.thread.submit(job).result(timeout or config.CALL_TIMEOUT_S)
-
-    def _ensure_started(self):
-        if self.app is not None:
-            alive = self.pid is not None and self.ctime is not None and _is_ours(self.pid, self.ctime)
-            try:
-                if alive:
-                    _ = self.app.Hwnd
-                    return
-            except Exception:   # noqa: BLE001 - a dead proxy raises com_error or AttributeError
-                pass
-            self._mark_dead("Excel was gone before the call (killed or crashed); restarting")
-            self._drop_refs()
-        self._start()
-
     def _start(self):
         t0 = time.monotonic()
         before = _excel_pids()
@@ -439,73 +300,6 @@ class ExcelHost:
         self.connected.clear()
         log.info("Excel started pid=%s in %.1fs", pid, time.monotonic() - t0)
 
-    def _load_bridge(self, wb):
-        for path in config.BAS_FILES:
-            mod = wb.VBProject.VBComponents.Add(1)
-            mod.Name = "SmartViewVBA" if path.stem == "smartview_body" else path.stem
-            mod.CodeModule.AddFromString(path.read_text(encoding="cp1252"))
-
-    def _apply_global_options(self):
-        """The user's own values are recorded ONCE in a file before we change them, so a crash (no clean shutdown)
-        never turns our settings into the 'originals' of the next run. While the old svkit engine may still have its
-        own values applied, its file holds the real originals: copy them (the legacy file stays for that engine)."""
-        orig_file = config.SVKIT / "smartview_options_original.json"
-        legacy = config.LEGACY_HOME / "smartview_options_original.json" if config.LEGACY_HOME else None
-        saved, src = None, None
-        for f in [p for p in (orig_file, legacy) if p]:
-            try:
-                saved, src = {int(k): v for k, v in json.loads(f.read_text()).items()}, f
-                break
-            except (OSError, ValueError):
-                pass
-        if saved is None:
-            saved = {}
-            for k in config.GLOBAL_OPTIONS:
-                got = self._run("B_GetOption", k, "")
-                if got and got[0] == "OK":
-                    saved[k] = got[1]
-        if src != orig_file:
-            orig_file.parent.mkdir(parents=True, exist_ok=True)
-            orig_file.write_text(json.dumps({str(k): v for k, v in saved.items()}))
-        self.saved_options = saved
-        for k, v in config.GLOBAL_OPTIONS.items():
-            self._run("B_SetOption", k, v, "")
-
-    def _restore_global_options(self):
-        ok = True
-        for k, v in self.saved_options.items():
-            try:
-                self._run("B_SetOption", k, v, "")
-            except pywintypes.com_error:
-                ok = False
-        if ok:
-            try:
-                (config.SVKIT / "smartview_options_original.json").unlink()
-            except OSError:
-                pass
-
-    def _run(self, fn: str, *args):
-        """Application.Run on the bridge, with retry on 'call rejected'."""
-        return self.com(lambda: self.app.Run(f"'{self.wb.Name}'!modBridge.{fn}", *args), limit_s=60)
-
-    @staticmethod
-    def com(call: Callable[[], Any], limit_s: float = 120):
-        """Run any COM call, retrying while Excel answers 'call rejected / retry later' (busy opening,
-        recalculating). pywin32 has no IMessageFilter, so this is the retry loop instead."""
-        delay, t0 = 0.1, time.monotonic()
-        while True:
-            try:
-                return call()
-            except pywintypes.com_error as e:
-                inner = e.excepinfo[5] if e.excepinfo and len(e.excepinfo) > 5 else None
-                busy = e.hresult in RETRY_HRESULTS or -2146777998 in (e.hresult, inner)   # 0x800AC472 VBA_E_IGNORE
-                if busy and time.monotonic() - t0 < limit_s:
-                    pythoncom.PumpWaitingMessages()
-                    time.sleep(delay)
-                    delay = min(delay * 2, 2.0)
-                    continue
-                raise
-
     def run(self, fn: str, *args):
         """Run a bridge function and raise HostError on an ERR| status string."""
         r = self._run(fn, *args)
@@ -513,29 +307,6 @@ class ExcelHost:
         if isinstance(status, str) and status.startswith("ERR|"):
             raise HostError(_explain(fn, status))
         return r
-
-    def sheet(self, name: str, fresh: bool = False):
-        ws = None
-        for s in self.wb.Worksheets:
-            if s.Name == name:
-                ws = s
-                break
-        if ws is not None and fresh:
-            self.app.DisplayAlerts = False
-            ws.Delete()
-            self.connected.pop(name, None)
-            ws = None
-        if ws is None:
-            ws = self.wb.Worksheets.Add()
-            ws.Name = name
-        return ws
-
-    def connect_sheet(self, name: str, connection: str):
-        if self.connected.get(name) == connection:
-            return
-        self.wb.Worksheets(name).Activate()
-        self.run("B_Connect", name, connection)
-        self.connected[name] = connection
 
     def shutdown(self):
         def job():
@@ -562,45 +333,7 @@ class ExcelHost:
                 kill_ours(self.pid, self.ctime)
         self.thread.q.put((None, None))
 
-    def status(self) -> dict:
-        return {
-            "excel_running": self.app is not None,
-            "pid": self.pid,
-            "visible": self.visible,
-            "started_at": self.started_at,
-            "connected_sheets": dict(self.connected),
-            "restarts": self.restarts,
-            "smartview_version": self.sv_version,
-            "last_error": self.last_error,
-        }
-
     # ---------------- recovery ----------------
-    def _drop_refs(self):
-        self.app = self.wb = None
-        self.connected.clear()
-
-    def _mark_dead(self, why: str):
-        self.last_error = why
-        self.restarts += 1
-        log.warning("Excel marked dead: %s", why)
-
-    def _abandon_thread(self, why: str):
-        """The COM thread is stuck inside the USER's Excel: leave it, kill only our own hidden Excel (its proxies
-        belong to the stuck apartment), and start a fresh COM thread."""
-        from . import userexcel
-        userexcel.abort_running_jobs()            # the stuck job stops (and rolls back) when the user's Excel frees up
-        self._mark_dead(why)
-        pid, ctime = self.pid, self.ctime
-        if pid and ctime and kill_ours(pid, ctime):
-            self.registry.remove(pid)
-        old = self.thread
-        old.q.put((None, None))                   # sentinel: the old thread exits once its blocked call returns
-        self.thread = ComThread()
-        self.thread.start()
-        self.app = self.wb = None
-        self.connected.clear()
-        self.pid = self.ctime = None
-
     def _hard_reset(self, why: str, expected_pid: int | None = None):
         """Called from the event-loop thread while the COM thread is blocked. expected_pid: the Excel the caller saw
         stuck - if another reset already replaced it, there is nothing to do. One reset at a time; jobs queued behind

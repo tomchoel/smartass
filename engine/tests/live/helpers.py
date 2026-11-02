@@ -11,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-from smartview_mcp.auditlib import is_engine_excel, poll_kill, stale_suspended
+from auditlib import is_engine_excel, poll_kill, stale_suspended
 
 _IN_MATRIX = re.compile(r"[\\/]_matrix[\\/][^\\/]+$", re.IGNORECASE)
 BM_CLICK, WM_GETOBJECT, OBJID_NATIVEOM, SMTO_ABORTIFHUNG = 0x00F5, 0x003D, -16, 0x0002
@@ -54,7 +54,7 @@ def matrix_owners() -> dict[int, float]:
 
 
 def pid_registry() -> list[dict]:
-    """The engine's pids.json (written by host._PidRegistry: [{pid, ctime, owner, owner_ctime}])."""
+    """The engine's pids.json (written by hostproc._PidRegistry: [{pid, ctime, owner, owner_ctime}])."""
     import json
 
     from smartview_mcp import config
@@ -333,16 +333,50 @@ def kill_engine_edge_when_seen(done, timeout: float = 60, interval: float = 0.5)
     return poll_kill(kill_engine_edge, done, timeout, interval, time.sleep, time.monotonic)
 
 
-def number(table: str, row: int = 0, col: int = -1) -> float | None:
-    """A value from an sv_query markdown table ('1,858,190,823.29'): data row `row`, column `col`."""
-    data = [ln for ln in table.splitlines()[2:] if ln.startswith("|")]
-    if row >= len(data):
-        return None
-    cell = [c.strip() for c in data[row].strip("|").split("|")][col]
-    try:
-        return float(cell.replace(",", "").replace(" ", ""))
-    except ValueError:
-        return None
+def oracle_cell(lay, values: list[list]) -> float | None:
+    """The single data cell of a one-row, one-column provider grid (row 1 = POV, then the column headers, then the
+    data rows; the data starts after the row-label columns). None for #Missing/#NoAccess or a blank."""
+    v = values[1 + lay.nc][lay.nr]
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def oracle_value(connection: str, pov: dict, row: tuple[str, str], col: tuple[str, str]) -> float | None:
+    """One cube cell over the Smart View HTTP provider, in THIS process (bench.oracle_pass runs it after the MCP
+    server exited, so its hidden Edge is free to start on the drill profile)."""
+    from smartview_mcp import svhttp
+    from smartview_mcp.grid import Axis
+    f = svhttp.shared().fetch(connection, pov, [Axis(row[0], [row[1]])], [Axis(col[0], [col[1]])])
+    return oracle_cell(f.layout, f.values)
+
+
+WHS_POV = {"All Entities": "un.SY.2WHS", "All Scenarios": "Actual", "All Currencies": "NOK",
+           "All Balance Types": "Accumulated"}
+
+
+def tiny_spec(question: str = "LIVE CHECK: EBITDA un.SY.2WHS YTD Sep 26", pov: dict | None = None,
+              accounts: list[str] | None = None, months: list[str] | None = None) -> dict:
+    """The smallest answer spec v1 (one pull, one line per account x month); `pov` defaults to Wholesale YTD."""
+    pov = pov or WHS_POV
+    accounts, months = accounts or ["ac.EBITDA"], months or ["Sep 26"]
+    return {"version": 1, "question": question,
+            "gate": {"outcome": "clear", "checklist": {
+                "period": ", ".join(months), "scenario": "Actual", "entity": pov.get("All Entities", ""),
+                "measure": ", ".join(accounts), "currency_sign": "NOK, EPM signs", "granularity": "one cell each"}},
+            "pulls": [{"id": "p", "connection": "FinMax",
+                       "rows": [{"dimension": "All Accounts", "members": accounts}],
+                       "columns": [{"dimension": "All Time Periods", "members": months}], "pov": pov}],
+            "layout": {"title": question, "columns": [{"header": m} for m in months],
+                       "sections": [{"title": "Lines", "lines": [
+                           {"key": f"a{i}", "label": a, "cells": [{"pull": "p", "row": [a], "col": [m]} for m in months]}
+                           for i, a in enumerate(accounts)]}]}}
+
+
+TINY_SPEC = tiny_spec()
+
+
+def tiny_answer(client, target: str = "new", timeout: float = 600, spec: dict | None = None):
+    """The smallest pipeline call (one pull, one line) - what the matrix used the old query tool for: (body, secs, err)."""
+    return client.call("sv_answer", {"spec": spec or TINY_SPEC, "target": target}, timeout=timeout)
 
 
 def values(client, wb: str, sheet: str, rng: str, what: str = "values") -> dict:
@@ -352,9 +386,12 @@ def values(client, wb: str, sheet: str, rng: str, what: str = "values") -> dict:
 
 
 def cleanup(ctx) -> None:
-    """Stop the fresh install's processes (S9) always; then, unless --keep: close the scratch workbooks unsaved,
-    delete the extra files the run made elsewhere (ctx.state['files'], e.g. sv_refresh_workbook's output), the
+    """Stop the fresh install's processes (S9) always; then, unless --keep: close the scratch workbooks unsaved, the
     _matrix folder and the fresh profile."""
+    import pythoncom
+
+    # COM may so far only have been initialised on worker threads (bench's FirstVisible); the COM calls below run here
+    pythoncom.CoInitialize()
     fresh = ctx.state.get("fresh") or {}
     if fresh.get("owners"):
         kill_fresh_excels(fresh["owners"])
@@ -368,11 +405,6 @@ def cleanup(ctx) -> None:
         left = quit_leftover_excels(ctx.state["excels_before"])
         if left:
             print(f"cleanup: quit the empty Excel(s) this run started: {left}")
-    for f in ctx.state.get("files", []):
-        try:
-            Path(f).unlink(missing_ok=True)
-        except OSError as e:                     # e.g. still open in an Excel: say so, do not leave it silently
-            print(f"cleanup: could not delete {f}: {e}")
     shutil.rmtree(ctx.scratch, ignore_errors=True)
 
 
@@ -1138,3 +1170,25 @@ def quit_owned_excel(pid: int, scratch) -> None:
     if pid not in engine_excel_pids(scratch):
         raise AssertionError(f"Excel {pid} is not owned by the matrix")
     _quit_scratch_excel(_PsProc(pid))
+
+
+def close_scratch(t) -> None:
+    """Spike cleanup: close the scratch workbook, quit its Excel if nothing but add-ins is left open (an Excel the
+    spike started; a user's Excel always has their own books), then delete the file (retried: Excel/OneDrive let go
+    of it a moment after the close)."""
+    from smartview_mcp.excel.jobs import com
+    path = Path(str(t.path))
+    app = t.app
+    com(lambda: t.wb.Close(False))
+    try:
+        if all(com(lambda: wb.IsAddin) for wb in com(lambda: list(app.Workbooks))):
+            com(app.Quit)
+    except Exception:   # noqa: BLE001 - Excel may already be gone
+        pass
+    for _ in range(20):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            time.sleep(0.5)
+    print(f"cleanup: could not delete {path.name}")

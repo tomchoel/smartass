@@ -1,4 +1,4 @@
-"""Reconciliation of warehouse values (pure): the catalogue's identity checks per entity and month, the sum of the
+"""Reconciliation of cube values (pure): the catalogue's identity checks per entity and month, the sum of the
 Periodic months against Accumulated, and the areas against the company total (information only: eliminations and
 units outside the areas exist)."""
 from __future__ import annotations
@@ -42,7 +42,7 @@ def identities(frame: Frame, checks, tol: float = TOL) -> tuple[int, list[str]]:
 
 def months_vs_ytd(periodic: dict, accumulated: dict, months: list[str], tol: float = TOL) -> tuple[int, list[str]]:
     """Accumulated at months[-1] = the sum of the Periodic months, per (cube, scenario, version, entity, account).
-    Both are warehouse rows {key: value}; a series without every month is not checked."""
+    Both are fact rows {key: value}; a series without every month is not checked."""
     series: dict[tuple, dict[str, float]] = {}
     for k, v in periodic.items():
         if k[5] in months:

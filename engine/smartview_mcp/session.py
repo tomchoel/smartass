@@ -46,7 +46,7 @@ def _cwd(p) -> str | None:
 
 
 def safe_name(s: str) -> str:
-    return re.sub(r'[\\/:*?"<>|]+', "_", s).strip()[:60] or "Analyse"
+    return re.sub(r'[\\/:*?"<>|]+', "_", s).strip()[:60] or "Analysis"
 
 
 def project_dir() -> Path:

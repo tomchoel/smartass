@@ -25,11 +25,6 @@ class Timer:
     @staticmethod
     def start() -> "Timer":
         _local.timer = Timer()
-        waited = getattr(_local, "pending_wait", None)        # set by the host before the job starts
-        if waited:
-            _local.timer.stages["wait for your Excel (another agent)"] = round(waited, 2)
-            _local.timer.t0 -= waited
-        _local.pending_wait = None
         _local.timer.notify, _local.pending_notify = getattr(_local, "pending_notify", None), None
         return _local.timer
 
@@ -59,17 +54,10 @@ class Timer:
             if self._tick is not me or not self.stack:
                 return                            # stopped (or restarted) meanwhile
             text = f"still working: {'.'.join(self.stack)} ({time.monotonic() - self.t0:.0f}s)"
-        try:
-            self.notify(text)
-        except Exception:   # noqa: BLE001 - a progress note must never break the job
-            log.debug("progress note failed", exc_info=True)
+        _send(self.notify, text)
         with self._lock:
             if self._tick is me:
                 self._arm()
-
-    @staticmethod
-    def note_wait(seconds: float) -> None:
-        _local.pending_wait = seconds
 
     @staticmethod
     def current() -> "Timer | None":
@@ -79,6 +67,21 @@ class Timer:
         out = {k: round(v, 2) for k, v in sorted(self.stages.items(), key=lambda kv: -kv[1])}
         out["_total"] = round(time.monotonic() - self.t0, 2)
         return out
+
+
+def _send(notify, text: str) -> None:
+    try:
+        if notify is not None:
+            notify(text)
+    except Exception:   # noqa: BLE001 - a progress note must never break the job
+        log.debug("progress note failed", exc_info=True)
+
+
+def say(text: str) -> None:
+    """A progress note to the user of the running job (if any), and the log. Never raises."""
+    log.info("note: %s", text)
+    t = Timer.current()
+    _send(t and t.notify, text)
 
 
 @contextlib.contextmanager

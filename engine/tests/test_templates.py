@@ -1,4 +1,4 @@
-"""templates.py / ops / answer: FinMax entity mapping via the atlas, pull-member validation, error-cell scan."""
+"""templates.py / ops / answer: FinMax entity mapping via the atlas, closed month, error-cell scan."""
 import sys
 from types import SimpleNamespace as NS
 
@@ -6,8 +6,6 @@ import pytest
 
 sys.path.insert(0, __file__.rsplit("\\tests", 1)[0])
 from smartview_mcp import answer, atlas, ops, templates  # noqa: E402
-from smartview_mcp.grid import Axis  # noqa: E402
-from smartview_mcp.host import InputError  # noqa: E402
 
 VALUE_ERR = -2146826273                       # Excel #VALUE! as COM returns it
 
@@ -83,39 +81,6 @@ def test_recon_key_point_without_finmax_value_never_says_na(fake_atlas, monkeypa
     assert "FinMax reconciliation unavailable (" in kp and "#NoAccess" in kp
 
 
-def test_cost_base_share_not_claimed_without_total(fake_atlas, monkeypatch):
-    monkeypatch.setattr(templates, "closed_month", lambda h, c="FinMax": "Sep 26")
-    plan = templates.cost_base(None, parent="un.SY", accounts=["ac.C70"], period="Sep 26", top=1)
-    p = fake_pull("Q1 FinMax", ["un.SY.2TEC", "un.SY"], ["ac.C70"], [[-5.0], ["#NoAccess"]])
-    kp = " ".join(plan.answer({"cb": p})["key_points"])
-    assert "% of the total" not in kp
-
-
-# ------------------------------------------------------------------ pull member validation
-def test_unknown_pull_member_raises_input_error(fake_atlas):
-    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.EBITDA"])],
-                            [Axis("All Time Periods", ["Sep 26"])],          # dimension not in the atlas: skipped
-                            {"All Entities": "un.SY.BANORWAY"})
-    with pytest.raises(InputError) as e:
-        templates.check_pulls([ps])
-    msg = str(e.value)
-    assert "un.SY.BANORWAY" in msg and "FinMax" in msg and "All Entities" in msg and "sv_find_member" in msg
-
-
-def test_known_members_and_missing_atlas_pass(fake_atlas):
-    ok = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.EBITDA"])],
-                            [Axis("All Time Periods", ["Sep 26"])], {"All Entities": "un.SY.2TEC"})
-    no_atlas = templates.PullSpec("x", "FinLite", [Axis("All Accounts", ["ac.NOPE"])],
-                                  [Axis("All Time Periods", ["Sep 26"])], {})
-    templates.check_pulls([ok, no_atlas])
-
-
-def test_stale_atlas_is_skipped(fake_atlas):
-    fake_atlas.execute("UPDATE build SET built_at = built_at - 40 * 86400")
-    fake_atlas.commit()                    # the code under test opens its own connection
-    assert ops.unknown_members("FinMax", {"All Entities": "un.SY.NOPE"}, [], []) == []
-
-
 # ------------------------------------------------------------------ error-cell scan
 def test_trace_maps_pull_cells_and_dependencies():
     fm = fake_pull("Q6 FinMax recon", ["ac.EBITDA"], ["Sep 26"], [[None]])
@@ -133,72 +98,15 @@ def test_scan_flags_noaccess_pull_and_value_error_on_answer_line():
     trace = {(19, 3): {"key": "ebitda"}, (20, 3): {"key": "fm_ebitda", "pull": "'Q6 FinMax recon'!B3"},
              (21, 3): {"key": "fm_diff", "deps": [(19, 3), (20, 3)]}}
     pull_grid = ((None, "All Entities"), (None, "Sep 26"), ("EBITDA", "#NoAccess"))
-    w = answer.error_warnings("Q6 Svar", ans, trace, {"Q6 FinMax recon": pull_grid})
+    w = answer.error_warnings("Q6 Answer", ans, trace, {"Q6 FinMax recon": pull_grid})
     text = "\n".join(w)
     assert "'Q6 FinMax recon'!B3 is #NoAccess: no read access or member not valid in this cube" in text
-    assert "formula error on line 'fm_diff': 'Q6 Svar'!C21 is #VALUE! (depends on 'Q6 FinMax recon'!B3)" in text
-    assert "formula error on line 'fm_ebitda': 'Q6 Svar'!C20 is #NoAccess" in text
+    assert "formula error on line 'fm_diff': 'Q6 Answer'!C21 is #VALUE! (depends on 'Q6 FinMax recon'!B3)" in text
+    assert "formula error on line 'fm_ebitda': 'Q6 Answer'!C20 is #NoAccess" in text
     assert not any("line 'ebitda'" in x for x in w)
 
 
 # ------------------------------------------------------------------ review of 4c9ca14
-def test_member_check_is_case_insensitive_and_pov_gets_atlas_spelling(fake_atlas):
-    assert atlas.has_member(fake_atlas, "FinMax", "All Entities", "un.sy.2tec")
-    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["AC.ebitda"])],
-                            [Axis("All Time Periods", ["Sep 26"])], {"All Entities": "UN.SY.2TEC"})
-    templates.check_pulls([ps])
-    assert ps.pov["All Entities"] == "un.SY.2TEC"
-
-
-def test_atlas_miss_is_confirmed_live_before_rejecting(fake_atlas):
-    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])],
-                            [Axis("All Time Periods", ["Jan 27"])], {"All Entities": "un.SY.NOPE"})
-    asked = []
-
-    def confirm(conn, dim, member):
-        asked.append((conn, dim, member))
-        return member == "ac.NEW1"               # new account exists in the cube, the entity does not
-    with pytest.raises(InputError) as e:
-        templates.check_pulls([ps], confirm=confirm)
-    assert "un.SY.NOPE" in str(e.value) and "ac.NEW1" not in str(e.value)
-    assert set(asked) == {("FinMax", "All Entities", "un.SY.NOPE"), ("FinMax", "All Accounts", "ac.NEW1")}
-    ok = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])], [Axis("All Time Periods", ["x"])], {})
-    templates.check_pulls([ok], confirm=lambda c, d, m: True)
-
-
-def test_failed_live_confirmation_does_not_reject(fake_atlas):
-    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])], [Axis("All Time Periods", ["x"])], {})
-
-    def broken(conn, dim, member):
-        raise RuntimeError("Smart View busy")
-    templates.check_pulls([ps], confirm=broken)  # unverified, not rejected: the error-cell scan still runs
-
-
-class FakeFind:
-    """ops.live_dimension stand-in: {member: dimension}; everything else is not found."""
-    def __init__(self, known):
-        self.known, self.calls = known, []
-
-    def __call__(self, h, conn, member):
-        self.calls.append(member)
-        return self.known.get(member)
-
-
-def test_live_confirm_checks_dimension_and_that_the_check_works(fake_atlas, monkeypatch):
-    find = FakeFind({"ac.NEW1": "All Accounts", "All Entities": "All Entities", "un.SY.2TEC": "All Entities"})
-    monkeypatch.setattr(ops, "live_dimension", find)
-    confirm = ops.live_confirm(None)
-    assert confirm("FinMax", "All Accounts", "ac.NEW1")
-    assert not confirm("FinMax", "All Accounts", "un.SY.2TEC")          # exists, but in another dimension
-    assert not confirm("FinMax", "All Entities", "un.SY.NOPE")          # probe (atlas top) found: a real miss
-    assert find.calls[-1] == "All Entities"
-    find.known.clear()                                                  # session broke: nothing is found now
-    with pytest.raises(Exception):
-        confirm("FinMax", "All Entities", "Jan 27")                     # probed again, not trusted from cache
-    find.known["All Entities"] = "All Entities"                         # works again
-    assert not confirm("FinMax", "All Entities", "un.SY.NOPE")
-
-
 def test_error_scan_groups_pull_cells_and_caps_answer_lines():
     pull = [[None, "Sep 26"]] + [[f"cc{i}", "#NoAccess"] for i in range(400)]
     ans = [[None] * 3 for _ in range(60)]
@@ -206,11 +114,11 @@ def test_error_scan_groups_pull_cells_and_caps_answer_lines():
     for r in range(10, 60):
         ans[r - 1][2] = VALUE_ERR
         trace[(r, 3)] = {"key": f"k{r}"}
-    w = answer.error_warnings("Q6 Svar", ans, trace, {"Q6 FinMax cb": pull})
+    w = answer.error_warnings("Q6 Answer", ans, trace, {"Q6 FinMax cb": pull})
     assert w[0] == ("error cells on 'Q6 FinMax cb': 400 x #NoAccess (first: B2, B3, B4, ...): "
                     "no read access or member not valid in this cube")
     assert len(w) <= 1 + answer.MAX_LINE_WARNINGS + 1
-    assert w[-1] == f"... and {50 - answer.MAX_LINE_WARNINGS} more answer lines with error cells on 'Q6 Svar'"
+    assert w[-1] == f"... and {50 - answer.MAX_LINE_WARNINGS} more answer lines with error cells on 'Q6 Answer'"
 
 
 def test_member_check_folds_norwegian_letters(fake_atlas):
@@ -378,11 +286,7 @@ def test_an_unexpected_http_error_is_logged_as_a_warning_then_com(tmp_path, monk
 
 
 def test_division_pnl_is_gone_and_fin_pnl_covers_units():
-    import typing
 
-    from smartview_mcp import server, tools_fin, tools_ws
-    assert "division_pnl" not in templates.TEMPLATES and not hasattr(templates, "division_pnl")
-    assert "division_pnl" not in typing.get_args(typing.get_type_hints(tools_ws.sv_analyse)["template"])
-    assert "division_pnl" not in tools_ws.sv_analyse.__doc__ and "division_pnl" not in server.INSTRUCTIONS
-    assert "fin_pnl(area)" in server.INSTRUCTIONS and "un.SY.5OK_W" in server.INSTRUCTIONS
-    assert "a unit below one, e.g. 'Wholesale'" in " ".join(tools_fin.fin_pnl.__doc__.split())
+    from smartview_mcp import server
+    assert not hasattr(templates, "division_pnl")
+    assert "division_pnl" not in server.INSTRUCTIONS and "un.SY.5OK_W" in server.INSTRUCTIONS

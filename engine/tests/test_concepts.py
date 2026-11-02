@@ -38,11 +38,8 @@ def test_splitt_plan_is_consistent():
     assert spec["checks"][0]["expr"] == "hw_rev-chk0"
 
 
-def test_find_and_scope():
+def test_find():
     assert concepts.find("hva er lønnsomheten til Splitt?")[0]["id"] == "splitt"
-    sc = concepts.scope("Splitt lønnsomhet")
-    assert sc["concepts"][0]["id"] == "splitt"
-    assert "advice" in concepts.scope("noe helt ukjent xyz")
 
 
 def test_expand_passes_through():

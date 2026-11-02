@@ -1,0 +1,43 @@
+{
+ "date": "2026-11-02",
+ "out": "matrix-s8-kill-final",
+ "time": "2026-11-02T17:42:44",
+ "version": "0.2.0",
+ "atlas_age": "19.9 days",
+ "repeat": 1,
+ "totals": {
+  "PASS": 1
+ },
+ "options": {
+  "only": "S8.kill.excel",
+  "repeat": 1,
+  "fresh": false,
+  "keep": false
+ },
+ "before_file": null,
+ "results": [
+  {
+   "id": "S8.kill.excel",
+   "tags": [
+    "inject"
+   ],
+   "result": "PASS",
+   "secs": 71.5,
+   "error": null,
+   "error_class": "",
+   "notes": "killed Excel 86924 during the query; query ok in 9s; follow-up 8s; DIALOG: Login: ",
+   "limit": null,
+   "flaky": false,
+   "run": 1,
+   "dialogs": [
+    {
+     "title": "Login",
+     "text": "",
+     "pid": 86924,
+     "seconds_into_scenario": 24.9
+    }
+   ],
+   "before": ""
+  }
+ ]
+}

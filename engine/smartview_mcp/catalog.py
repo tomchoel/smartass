@@ -364,13 +364,6 @@ def resolve_entities(cat: Catalog, text: str) -> tuple[Entity, ...]:
     return tuple(found)
 
 
-def resolve_entity(cat: Catalog, text: str) -> Entity | None:
-    """The one business area a question or member name refers to (see resolve_entities), or None when it names none
-    or several. An abolished area is returned as such: callers check `abolished` and `successors`."""
-    found = resolve_entities(cat, text)
-    return found[0] if len(found) == 1 else None
-
-
 ACCOUNT_DIM = {"FinMax": "All Accounts", "FinPlan": "Account"}
 ENTITY_DIM = {"FinMax": "All Entities", "FinPlan": "Entity"}
 SCENARIO_DIM = {"FinMax": "All Scenarios", "FinPlan": "Scenario"}

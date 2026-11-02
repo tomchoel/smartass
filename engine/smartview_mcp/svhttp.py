@@ -1,8 +1,8 @@
 """Grids over the Smart View provider's HTTP protocol - no Excel, no COM (Stage 0, 2026-10-25:
 docs/specs/2026-10-25-stage0-epm-access-probe.md). retrieve() returns what ops._query_once returns,
-(Layout, Parsed, seconds), so sv_query can use either route; the COM route stays the fallback.
+(Layout, Parsed, seconds), so extract.route can use either route; the COM route stays the fallback.
 
-Error contract for sv_query(source='auto'): InputError only for a query that is wrong whatever the route (a dimension
+Error contract for extract.route: InputError only for a query that is wrong whatever the route (a dimension
 used twice, no members, no row/column axis); everything else - including an incomplete or stale atlas, which COM
 does not need - is SvHttpError, so the caller falls back to Smart View in Excel.
 
@@ -16,6 +16,7 @@ import logging
 import re
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import urlsplit
@@ -38,7 +39,7 @@ _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
 
 
 class SvHttpError(Exception):
-    """The HTTP route could not answer; sv_query(source='auto') then uses Smart View in Excel."""
+    """The HTTP route could not answer; extract.route then uses Smart View in Excel."""
 
 
 class Transport(Protocol):
@@ -52,6 +53,14 @@ def _norm_dim(name: str) -> str:
 def _first_line(e: BaseException) -> str:
     """One redacted line of an exception (Playwright messages carry call logs and can quote sso_token URLs)."""
     return drill_browser.redact(next((ln for ln in str(e).splitlines() if ln.strip()), type(e).__name__))[:200]
+
+
+@dataclass
+class Fetched:
+    """A provider grid as fetched: Smart View's own shape from A1 (POV row, column headers, row labels, data)."""
+    layout: Layout
+    values: list[list]
+    seconds: float
 
 
 class SvHttp:
@@ -121,6 +130,11 @@ class SvHttp:
 
     def retrieve(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis],
                  suppress_missing: bool, suppress_zeros: bool):
+        f = self.fetch(conn, pov, rows, cols)
+        return f.layout, parse(f.layout, f.values, suppress_missing, suppress_zeros), f.seconds
+
+    def fetch(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis]) -> "Fetched":
+        """The checked provider grid, unparsed: what a source sheet is written from (core/source.py)."""
         if conn not in CUBES:
             raise SvHttpError(f"no HTTP route for connection {conn}")
         t0 = time.monotonic()
@@ -154,7 +168,7 @@ class SvHttp:
         if bad:
             raise SvHttpError("Smart View provider returned a different layout than requested (rows/columns "
                               "moved): " + "; ".join(bad[:5]))
-        return lay, parse(lay, values, suppress_missing, suppress_zeros), time.monotonic() - t0
+        return Fetched(lay, values, time.monotonic() - t0)
 
     def closed_month(self, conn: str = "FinMax") -> str:
         """The last closed month ('Current Reporting Month') as 'Sep 26': the one child of member CurrRepMonth in
@@ -181,39 +195,31 @@ class SvHttp:
                               f"({'in the future' if back < 0 else f'{back} months back'})")
         return f"{_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
 
-    def _enum(self, conn: str, dim: str, member: str) -> list[str]:
+    def _ask(self, conn: str, body, read, fatal) -> list:
+        """POST body(sid, cube) to conn's provider and read(answer). An error fatal(e) does not rule out (maybe an
+        expired session) reconnects once."""
         for attempt in (1, 2):
             try:
-                base, _, sid = self._session(conn)
-                ans = self.t.post(base, svxml.enum_children(sid, dim, member))
+                base, cube, sid = self._session(conn)
+                ans = self.t.post(base, body(sid, cube))
                 self._note_sid(conn, ans)
-                return svxml.members(ans)
+                return read(ans)
             except svxml.SvXmlError as e:
-                if e.code in (4996, 4997):                 # unknown member or dimension: a new session won't help
-                    raise SvHttpError(f"Smart View provider: {e}") from None
-                self._sids.pop(conn, None)                 # maybe an expired session: reconnect once
-                self._bases = None
-                if attempt == 2:
+                if not fatal(e):
+                    self._sids.pop(conn, None)
+                    self._bases = None                      # ... and re-read where the apps live
+                if fatal(e) or attempt == 2:
                     raise SvHttpError(f"Smart View provider: {e}") from None
                 log.info("svhttp %s: %s - reconnecting once", conn, e)
         raise AssertionError("unreachable")
 
+    def _enum(self, conn: str, dim: str, member: str) -> list[str]:
+        return self._ask(conn, lambda sid, cube: svxml.enum_children(sid, dim, member), svxml.members,
+                         lambda e: e.code in (4996, 4997))  # unknown member or dimension: a new session won't help
+
     def _execute(self, conn: str, lay: Layout) -> list[list]:
-        for attempt in (1, 2):
-            try:
-                base, cube, sid = self._session(conn)
-                ans = self.t.post(base, svxml.execute_grid(sid, cube, lay))
-                self._note_sid(conn, ans)
-                return svxml.grid_values(ans)
-            except svxml.SvXmlError as e:
-                if "Grid is Invalid" in str(e):           # unknown member: deterministic, a new session won't help
-                    raise SvHttpError(f"Smart View provider: {e}") from None
-                self._sids.pop(conn, None)                  # maybe an expired session: reconnect once
-                self._bases = None                          # ... and re-read where the apps live
-                if attempt == 2:
-                    raise SvHttpError(f"Smart View provider: {e}") from None
-                log.info("svhttp %s: %s - reconnecting once", conn, e)
-        raise AssertionError("unreachable")
+        return self._ask(conn, lambda sid, cube: svxml.execute_grid(sid, cube, lay), svxml.grid_values,
+                         lambda e: "Grid is Invalid" in str(e))   # unknown member: deterministic
 
 
 def _check_grid(lay: Layout, values: list[list]) -> None:
@@ -260,7 +266,7 @@ class BrowserTransport:
     """Posts provider XML from a signed-in tab of the drill browser: its own tab for its pod (plan1) and one extra
     tab per other pod (FinPlan: stratmodel), signed in once with the same SSO. All page work runs on the browser's
     worker thread via submit(); _tabs is only touched there. Every failure to get an answer is an SvHttpError
-    (so sv_query can fall back); a refused write stays a ValueError.
+    (so extract.route can fall back); a refused write stays a ValueError.
 
     `browser` is a callable returning the drill browser, resolved on every post: after
     drill_browser.shutdown_shared() the next post uses the new shared browser, not the shut one."""
@@ -292,7 +298,7 @@ class BrowserTransport:
             raise
         except DrillError as e:                                   # includes DrillBusy
             raise SvHttpError(str(e)) from None
-        except Exception as e:   # noqa: BLE001 - e.g. a raw Playwright error: never hand it to sv_query
+        except Exception as e:   # noqa: BLE001 - e.g. a raw Playwright error: never hand it to the caller
             raise SvHttpError(f"browser error: {_first_line(e)}") from None
 
     @staticmethod

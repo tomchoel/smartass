@@ -26,13 +26,13 @@ def check_contiguous(months: list[str]) -> None:
 
 
 def _values(frame: Frame, entity: str, line: str, scenario: str, months: list[str], id: str, definition: str):
-    """((values, warehouse keys), None), or (None, a missing Fact naming the first cell never read)."""
+    """((values, fact keys), None), or (None, a missing Fact naming the first cell never read)."""
     vals, keys = [], []
     for m in months:
         got = frame.get(entity, line, m, scenario)
         if got is None:
             return None, missing(id, _unit(frame, line), definition,
-                                 f"no warehouse value for {entity} {line} {m} ({scenario})", keys)
+                                 f"no value read for {entity} {line} {m} ({scenario})", keys)
         if not math.isfinite(got[0]):
             return None, missing(id, _unit(frame, line), definition,
                                  f"non-finite value for {entity} {line} {m} ({scenario})", keys)

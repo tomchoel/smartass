@@ -61,10 +61,6 @@ class Layout:
     def nc(self) -> int:
         return len(self.cols)
 
-    @property
-    def n_cells(self) -> int:
-        return len(self.row_tuples) * len(self.col_tuples)
-
     def writes(self) -> list[tuple[int, int, str]]:
         """(row, col, text) cell writes, 1-based."""
         w = [(1, self.nr + 1 + j, m) for j, (_, m) in enumerate(self.pov)]
@@ -120,7 +116,6 @@ class Parsed:
     unknown_members: list[str]
     pov_problems: list[str]
     no_access_cells: int
-    total_rows: int
     suppressed_rows: list[str] = field(default_factory=list)   # known members whose row was all #Missing
 
 
@@ -197,8 +192,7 @@ def parse(layout: Layout, values: tuple | list, suppress_missing: bool, suppress
                 if all(v is None for v in col_vals):
                     unknown.add(f"{layout.cols[d].dimension}: {combo[d]}")
     columns = [a.dimension for a in layout.rows] + [" / ".join(c) for c in layout.col_tuples]
-    return Parsed(columns, out_rows, row_labels, col_labels, sorted(unknown), pov_problems, no_access,
-                  len(layout.row_tuples), suppressed)
+    return Parsed(columns, out_rows, row_labels, col_labels, sorted(unknown), pov_problems, no_access, suppressed)
 
 
 def verify_labels(lay: Layout, parsed) -> list[str]:
@@ -218,22 +212,3 @@ def verify_labels(lay: Layout, parsed) -> list[str]:
     return bad
 
 
-def to_markdown(columns: list[str], rows: list[list], labels: list[list[str]] | None = None, limit: int = 60) -> str:
-    def fmt(v):
-        if v is None:
-            return ""
-        if isinstance(v, float):
-            return f"{v:,.2f}"
-        return str(v).replace("|", "/")
-    head = [str(c).replace("|", "/") for c in columns]
-    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
-    for i, r in enumerate(rows[:limit]):
-        cells = [fmt(v) for v in r]
-        if labels:
-            for d, lab in enumerate(labels[i]):
-                if lab and lab != r[d]:
-                    cells[d] = f"{r[d]} ({lab})"
-        lines.append("| " + " | ".join(cells) + " |")
-    if len(rows) > limit:
-        lines.append(f"\n_{len(rows) - limit} more rows not shown; use save_xlsx for the full result._")
-    return "\n".join(lines)

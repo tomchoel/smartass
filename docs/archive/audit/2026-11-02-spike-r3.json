@@ -1,0 +1,40 @@
+{
+ "spike": "R3",
+ "when": "2026-11-02T10:38:34",
+ "cases": {
+  "baseline": {
+   "write_s": 0.36,
+   "error": null,
+   "landed": true,
+   "user_book_still_active": true,
+   "user_book_untouched": true
+  },
+  "other_active": {
+   "write_s": 0.02,
+   "error": null,
+   "landed": true,
+   "user_book_still_active": true,
+   "user_book_untouched": true
+  },
+  "busy": {
+   "write_s": 7.03,
+   "error": null,
+   "landed": true,
+   "user_book_still_active": true,
+   "user_book_untouched": true
+  },
+  "edit_mode": {
+   "write_s": 7.12,
+   "error": null,
+   "landed": true,
+   "user_book_still_active": true,
+   "user_book_untouched": true
+  }
+ },
+ "edit_mode_detected": true,
+ "go": {
+  "all_landed": true,
+  "user_book_safe": true,
+  "no_errors": true
+ }
+}

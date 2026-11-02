@@ -74,7 +74,7 @@ async def test_login_dialog_hang_restarts_excel_and_retries_once(monkeypatch):
     def fn(h):
         return "ok" if h.pid == 1002 else xl.hang(h)
 
-    assert await xl.h.call(fn, timeout=5, what="sv_query") == "ok"
+    assert await xl.h.call(fn, timeout=5, what="sv_answer") == "ok"
     assert xl.killed == [1001] and len(xl.starts) == 2
 
 
@@ -82,7 +82,7 @@ async def test_login_dialog_hang_restarts_excel_and_retries_once(monkeypatch):
 async def test_login_dialog_twice_raises_the_cause_and_next_step(monkeypatch):
     xl = FakeExcel(monkeypatch, [[LOGIN_IE], [LOGIN_IE]])
     with pytest.raises(HostError) as e:
-        await xl.h.call(xl.hang, timeout=5, what="sv_query")
+        await xl.h.call(xl.hang, timeout=5, what="sv_answer")
     msg = str(e.value)
     assert "sign-in window" in msg and "Internet Explorer" in msg
     assert "restarted Excel once; it happened again" in msg
@@ -95,7 +95,7 @@ async def test_login_dialog_twice_raises_the_cause_and_next_step(monkeypatch):
 async def test_message_dialog_is_named_in_the_timeout_error(monkeypatch):
     xl = FakeExcel(monkeypatch, [[MESSAGE]])
     with pytest.raises(HostTimeout) as e:
-        await xl.h.call(xl.hang, timeout=0.5, what="sv_query")
+        await xl.h.call(xl.hang, timeout=0.5, what="sv_answer")
     assert "a dialog is open in the hidden Excel: 'Oracle Smart View for Office: Empty response from provider'" \
         in str(e.value)
     assert xl.killed == [1001] and len(xl.starts) == 1
@@ -109,7 +109,7 @@ async def test_young_webview2_login_is_left_to_the_sso_watcher(monkeypatch):
         time.sleep(0.4)                       # the SSO watcher clicks 'Telenor SSO' meanwhile
         return "ok"
 
-    assert await xl.h.call(fn, timeout=5, what="sv_query") == "ok"
+    assert await xl.h.call(fn, timeout=5, what="sv_answer") == "ok"
     assert xl.killed == []
 
 
@@ -123,7 +123,7 @@ async def test_sign_in_blocked_raised_by_the_job_restarts_and_retries(monkeypatc
             raise AssertionError("check_signin should have raised")
         return "ok"
 
-    assert await xl.h.call(fn, timeout=5, what="sv_query") == "ok"
+    assert await xl.h.call(fn, timeout=5, what="sv_answer") == "ok"
     assert xl.killed == [1001]
 
 
@@ -141,7 +141,7 @@ async def test_a_call_queued_behind_a_sign_in_reset_does_not_orphan_an_excel(mon
         await asyncio.sleep(0.02)             # queued while A is blocked by the Login window
         return await xl.h.call(lambda h: "b", timeout=5, what="sv_members")
 
-    assert await asyncio.gather(xl.h.call(a, timeout=5, what="sv_query"), b()) == ["a", "b"]
+    assert await asyncio.gather(xl.h.call(a, timeout=5, what="sv_answer"), b()) == ["a", "b"]
     started = list(range(1001, 1001 + len(xl.starts)))
     assert all(p in xl.killed or p == xl.h.pid for p in started), (started, xl.killed, xl.h.pid)
     assert xl.killed == [1001] and xl.h.reset_gen == 1
@@ -202,3 +202,57 @@ def test_check_signin_ignores_plain_messages():
     h.detect = lambda pid: [LOGIN_IE]
     with pytest.raises(SignInBlocked):
         h.check_signin()
+
+
+@pytest.mark.anyio
+async def test_hung_login_restarts_excel_and_names_the_cause(monkeypatch):
+    hung = Dialog(13, "#32770", "Login", "", "login", False, hung=True)
+    xl = FakeExcel(monkeypatch, [[hung], [hung]])
+    with pytest.raises(SignInBlocked) as e:
+        await xl.h.call(xl.hang, timeout=5, what="sv_answer")
+    assert "stopped responding" in str(e.value)
+    assert xl.killed == [1001, 1002]
+
+
+@pytest.mark.anyio
+async def test_provider_empty_restarts_the_hidden_excel_once_and_says_so(monkeypatch):
+    xl = FakeExcel(monkeypatch, [[], []])
+    notes = []
+
+    def fn(h):
+        if h.pid == 1001:
+            raise host.ProviderEmpty("rc=752 Empty response from provider", pid=1001, notify=notes.append)
+        return "ok"
+
+    assert await xl.h.call(fn, timeout=5, what="sv_answer") == "ok"
+    assert xl.killed == [1001]
+    assert any("yours is untouched" in n for n in notes)
+
+
+@pytest.mark.anyio
+async def test_provider_empty_twice_gives_the_next_step(monkeypatch):
+    xl = FakeExcel(monkeypatch, [[], []])
+
+    def fn(h):
+        raise host.ProviderEmpty("rc=752 Empty response from provider", pid=h.pid, notify=None)
+
+    with pytest.raises(HostError) as e:
+        await xl.h.call(fn, timeout=5, what="sv_answer")
+    assert "Empty response from provider" in str(e.value) and "smartass doctor --bundle" in str(e.value)
+    assert xl.killed == [1001, 1002]
+
+
+@pytest.mark.anyio
+async def test_provider_empty_in_a_user_excel_job_restarts_only_ours_and_does_not_retry(monkeypatch):
+    xl = FakeExcel(monkeypatch, [[]])
+    xl.h._ensure_started()                    # the hidden Excel exists (pid 1001)
+    runs = []
+
+    def fn(h):
+        runs.append(1)
+        raise host.ProviderEmpty("rc=752 Empty response from provider", pid=1001, notify=None)
+
+    with pytest.raises(HostError) as e:
+        await xl.h.call(fn, timeout=5, what="sv_answer", user_excel=True)
+    assert len(runs) == 1 and xl.killed == [1001]
+    assert "ask again" in str(e.value)

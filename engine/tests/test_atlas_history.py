@@ -93,6 +93,14 @@ def test_duplicate_suppressed_and_order_ignored(db, monkeypatch):
     assert len(h.list_snapshots(db, C, DIM)) == 2
 
 
+def test_search_and_snapshot_lists_filter_only_when_asked(db, monkeypatch):
+    two_snaps(db, monkeypatch)
+    assert len(h.list_snapshots(db)) == len(h.list_snapshots(db, C, "")) == 2
+    assert h.list_snapshots(db, "FinLite") == []
+    assert {r["name"] for r in atlas.search(db, "whs", C, "")} == {"un.SY.3WHS_C", "un.SY.3WHS_W"}
+    assert atlas.search(db, "whs", dimension="Account") == []
+
+
 def test_single_snapshot_message(db, monkeypatch):
     load(db, BEFORE)
     at(monkeypatch, D1)
@@ -133,31 +141,3 @@ def test_snapshot_all_skips_errors(db, monkeypatch):
     assert len(res) == 1 and res[0]["new"] and res[0]["connection"] == C
     res2 = h.snapshot_all(db)
     assert res2[0]["new"] is False
-
-
-def test_latest_snapshot_and_diff_between_two_ids(db, monkeypatch):
-    assert h.latest_snapshot(db, C, DIM) is None
-    s1, s2 = two_snaps(db, monkeypatch)
-    assert h.latest_snapshot(db, C, DIM) == s2
-    d = h.diff_snapshots(db, s1, s2)
-    assert {m["name"] for m in d["moved"]} >= {"un.SY.4REV_W"}
-    assert [m["name"] for m in d["added"]] == ["un.SY.2SSM"] and h.diff_snapshots(db, s2, s2)["moved"] == []
-
-
-def test_diff_snapshots_removed_relabelled_and_exact_moved(db, monkeypatch):
-    s1, s2 = two_snaps(db, monkeypatch)
-    d = h.diff_snapshots(db, s1, s2)
-    assert {m["name"] for m in d["removed"]} == {"un.SY.2CON1", "un.SY.2CON2"}
-    assert [(r["name"], r["old"], r["new"]) for r in d["relabelled"]] == [("un.SY.OLD", "Old name", "New name")]
-    assert {m["name"] for m in d["moved"]} == {"un.SY.4REV_W", "un.SY.SHARED"}
-
-
-def test_diff_snapshots_rejects_unknown_ids_and_mixed_dimensions(db, monkeypatch):
-    s1, s2 = two_snaps(db, monkeypatch)
-    with pytest.raises(ValueError):
-        h.diff_snapshots(db, s1, 9999)
-    with pytest.raises(ValueError):
-        h.diff_snapshots(db, 9999, s2)
-    db.execute("UPDATE snapshot SET dimension='All Accounts' WHERE id=?", (s2,))
-    with pytest.raises(ValueError):
-        h.diff_snapshots(db, s1, s2)

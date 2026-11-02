@@ -1,4 +1,9 @@
-from smartview_mcp.auditlib import error_class, is_engine_excel, merge_before, poll_kill, stale_suspended, verdict
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "live"))
+
+from auditlib import error_class, is_engine_excel, merge_before, poll_kill, stale_suspended, verdict  # noqa: E402
 
 
 def test_error_class_normalises_digits_and_keeps_first_line():
@@ -100,9 +105,7 @@ def test_poll_kill_misses_when_call_finishes_or_times_out():
 
 def test_before_file_compares_like_with_like(tmp_path, monkeypatch):
     import json
-    import os
-    import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "live"))
+
     import matrix
     monkeypatch.setattr(matrix, "AUDIT", tmp_path)
     for i, name in enumerate(("2026-10-23-matrix-baseline", "2026-10-23-matrix-baseline-fresh")):
@@ -112,3 +115,91 @@ def test_before_file_compares_like_with_like(tmp_path, monkeypatch):
     assert matrix.previous(fresh=False)[0].name == "2026-10-23-matrix-baseline.json"
     assert matrix.previous(fresh=True)[0].name == "2026-10-23-matrix-baseline-fresh.json"
     assert matrix.previous(fresh=True, name="2026-10-23-matrix-baseline")[0].name == "2026-10-23-matrix-baseline.json"
+
+
+def _bench():
+    import bench
+    return bench
+
+
+def test_bench_oracle_match_tolerates_sign_and_display_unit_but_not_a_wrong_number():
+    b = _bench()
+    sheet = [1858190823.29, -161233427.84, 3496.1, 89346]
+    assert b.found(1858190823.0, sheet) == "exact"                  # within 1 NOK
+    assert b.found(161233427.84, sheet) == "exact"                  # costs shown with the other sign
+    assert b.found(3496062985.0, sheet) == "MNOK"                   # =x/1e6 rounded to 0.1
+    assert b.found(89346421.0, sheet) == "kNOK"
+    assert b.found(1858190900.0, sheet) is None                     # 77 NOK off: not the oracle's number
+    assert b.found(400.0, [0.0004]) is None                         # small values never match a scaled one
+
+
+def test_bench_verdict_needs_every_oracle_value_checks_and_no_problems():
+    b = _bench()
+    ok = {"error": None, "oracle": {"a": True}, "checks_ok": True, "formula_errors": [], "problems": []}
+    assert b.verdict(ok) == "PASS"
+    assert b.verdict({**ok, "oracle": {"a": True, "b": False}}) == "FAIL"
+    assert b.verdict({**ok, "problems": ["text missing"]}) == "FAIL"
+    assert b.verdict({**ok, "error": "ToolFailed"}) == "ERROR"
+
+
+def test_bench_verdict_scores_a_gate_case_by_the_gate_alone():
+    b = _bench()
+    gate = {"error": None, "oracle": {}, "checks_ok": False, "formula_errors": [], "problems": [], "gate": "clear"}
+    assert b.verdict({**gate, "gate_got": "clear"}) == "PASS"
+    assert b.verdict({**gate, "gate_got": "ambiguous"}) == "FAIL"
+
+
+def test_bench_b02_core_spec_is_a_valid_answer_spec_v1():
+    from smartview_mcp.core import contract
+    spec = contract.validate(_bench().b02_v1())
+    assert [p.id for p in spec.pulls] == ["m", "ytd"] and all(p.title is None for p in spec.pulls)
+
+
+def test_bench_gate_score_counts_false_go_and_needless_ask():
+    b = _bench()
+    rs = [{"gate": "ambiguous", "gate_got": "clear"}, {"gate": "infeasible", "gate_got": "infeasible"},
+          {"gate": "clear", "gate_got": "ambiguous"}, {"gate": "clear", "gate_got": "clear"}, {"gate": "clear"}]
+    assert b.gate_score(rs) == {"right": 2, "total": 4, "false_go": 1, "needless_ask": 1}
+    assert {f"T{i:02d}" for i in range(1, 11)} <= set(b.CASES)
+
+
+def test_bench_core_recipe_specs_are_valid_once_expanded_shape():
+    b = _bench()
+    s = b.recipe_v1("B07", "monthly_trend", {"entity": "un.SY", "accounts": ["ac.C30"]})
+    assert s["recipe"]["name"] == "monthly_trend" and "layout" not in s and s["gate"]["outcome"] == "clear"
+    from smartview_mcp.core import contract
+    contract.Gate.model_validate(s["gate"])
+
+
+def test_bench_b08_follow_up_splits_c30_by_business_area_and_reconciles_to_the_trend():
+    b = _bench()
+    fu = b.b08_followup("Oct 26")
+    pull = fu["pulls"][0]
+    assert pull["id"] == "ba" and pull["pov"]["All Accounts"] == "ac.C30"
+    ents = pull["rows"][0]["members"]
+    assert "un.SY.2BUS" in ents and "un.SY.2TEC" in ents and ents[-1] == "un.SY"
+    assert pull["columns"][0]["members"][-1] == "Oct 26" and len(pull["columns"][0]["members"]) == 10
+    sec = fu["layout"]["sections"][0]
+    assert sec["repeat"]["line"]["key"] == "ba{i}" and [ln["key"] for ln in sec["lines"]] == \
+        ["split_sum", "split_other", "split_tot"]
+    assert fu["layout"]["checks"] == [{"label": "Business areas + other = Telenor Norge (trend)",
+                                       "expr": "split_tot-a0", "columns": list(range(11))}]
+
+
+def test_bench_core_routes_cover_the_phase_5_cases():
+    b = _bench()
+    assert {k for k, c in b.CASES.items() if c.run} >= {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08",
+                                                         "B09", "B12", "B13", "B14", "B15"}
+    assert b.CASES["B08"].oracle is not None and b.CASES["B08"].needs == "B07"
+
+
+def test_oracle_cell_reads_the_one_data_cell_of_a_provider_grid():
+    import helpers
+    from smartview_mcp.grid import Axis, Layout
+
+    lay = Layout([("Entity", "un.SY")], [Axis("Account", ["ac.EBITDA"])], [Axis("Period", ["Sep 26"])])
+    values = [list(r) for r in lay.matrix()]
+    values[1 + lay.nc][lay.nr] = 1234.5
+    assert helpers.oracle_cell(lay, values) == 1234.5
+    values[1 + lay.nc][lay.nr] = "#Missing"
+    assert helpers.oracle_cell(lay, values) is None

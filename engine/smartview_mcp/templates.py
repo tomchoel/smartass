@@ -11,7 +11,7 @@ import contextlib
 import datetime as dt
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 from . import atlas, catalog, ops
@@ -30,16 +30,12 @@ class PullSpec:
     rows: list[Axis]
     cols: list[Axis]
     pov: dict
-    title_suffix: str = ""
 
 
 @dataclass
 class Plan:
-    title: str
     pulls: list[PullSpec]
-    answer: Callable[[dict], dict]            # {pull id: userexcel.Pull} -> answer spec
-    followups: list[Callable] = field(default_factory=list)
-    summary: Callable[[dict], dict] | None = None
+    answer: Callable[[dict], dict]            # {pull id: sheets.Pull} -> answer spec
 
 
 # ------------------------------------------------------------------ periods
@@ -221,81 +217,13 @@ def map_finmax_entity(entity: str, explicit: str | None = None) -> tuple[str | N
     return None, f"No FinMax entity matches {entity}; pass finmax_entity to reconcile."
 
 
-def check_pulls(pulls: list[PullSpec], confirm=None) -> None:
-    """Every member of every pull must exist - before anything is pulled (ops.check_members: atlas, then atlas misses
-    confirmed live with confirm(connection, dimension, member)). POV members get the atlas spelling."""
-    for ps in pulls:
-        ps.pov = ops.canonical_pov(ps.connection, ps.pov)
-        ops.check_members(ps.connection, ps.pov, ps.rows, ps.cols, confirm)
-
-
-# ------------------------------------------------------------------ A. the catalogue's P&L lines
-# (the division P&L template that used them was replaced by fin_pnl.) The lists come from knowledge/catalog.toml,
-# read when called (not at import): a broken catalogue then fails only these with a CatalogError, and the server
-# still starts.
-def pnl_lines() -> list[tuple]:
-    """key, FinMax account, kind, num"""
-    return [(x.key, x.account, x.kind, x.num) for x in catalog.load().pnl["FinMax"]]
-
-
-def pnl_checks() -> list[tuple]:
-    return [(c.label, c.expr) for c in catalog.load().checks["FinMax"]]
-
-
 # ------------------------------------------------------------------ B. cost base per cost centre
-def cost_base(h: ExcelHost, parent: str = "un.SY", accounts: list[str] | None = None, period: str | None = None,
-              top: int = 25, connection: str = "FinMax") -> Plan:
-    """All descendants are pulled (the data sheet shows the full tree), but only LEAF cost centres are ranked,
-    so parents are not double counted in the top list."""
-    period = period or closed_month(h, "FinMax")
-    accounts = accounts or ["ac.C50S", "ac.C60", "ac.C70", "ac.STA20Y"]
+def cost_base_members(connection: str, parent: str) -> tuple[list[str], set[str]]:
+    """(descendants + the parent, in tree order, de-duplicated; the leaf set) from the atlas."""
     db = atlas.connect()
     ents = [e["name"] for e in atlas.descendants(db, connection, parent, limit=3000) if e["dimension"] == "All Entities"]
     leaves = {e["name"] for e in atlas.descendants(db, connection, parent, leaves_only=True, limit=3000)}
-    seen, members = set(), []
-    for e in ents + [parent]:
-        if e not in seen:
-            seen.add(e)
-            members.append(e)
-    if len(members) * len(accounts) > 50000:
-        raise InputError(f"{len(members)} cost centres × {len(accounts)} accounts is too large; narrow 'parent'.")
-    pov = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Time Periods": period,
-           "All Balance Types": "Accumulated"}
-    pulls = [PullSpec("cb", connection, [Axis("All Entities", members)], [Axis("All Accounts", accounts)], pov)]
-    main = "ac.C70" if "ac.C70" in accounts else accounts[0]
-
-    def answer(P):
-        p = P["cb"]
-        ranked = sorted(((abs(_val(p, [m], [main]) or 0), m) for m in members if m in leaves), reverse=True)
-        lines = []
-        for n, (_, m) in enumerate(ranked[:top], 1):
-            lines.append({"key": f"c{n}", "label": _label_of(p, [m], m), "kind": "line",
-                          "cells": [{"pull": p.sheet, "row": [m], "col": [a]} for a in accounts]})
-        if ranked[top:]:
-            rest = "tot-" + "-".join(f"c{n}" for n in range(1, min(top, len(ranked)) + 1))
-            lines.append({"key": "rest", "label": f"Other {len(ranked) - top} cost centres", "kind": "line",
-                          "cells": [{"expr": rest} for _ in accounts]})
-        lines.append({"key": "tot", "label": f"Total {_label_of(p, [parent], parent)}", "kind": "grand",
-                      "cells": [{"pull": p.sheet, "row": [parent], "col": [a]} for a in accounts]})
-        cols = [{"header": _clean(p.col_labels.get((a,), (a,))[-1]), "kind": "tall1" if "STA" in a else "heltall"}
-                for a in accounts]
-        tot = _val(p, [parent], [main])
-        topsum = sum(_val(p, [m], [main]) or 0 for _, m in ranked[:top])
-        share = f" ({topsum / tot * 100:.0f} % of the total)" if tot else ""
-        kp = [f"{len(ranked)} cost centres (leaf level) under {member_label(connection, parent)}; total "
-              f"{cols[accounts.index(main)]['header']} {_fmt(tot)} YTD {period}.",
-              f"The {min(top, len(ranked))} largest account for {_fmt(topsum)}{share}. "
-              f"The full tree is on the data sheet '{p.sheet}'."]
-        return {"title": f"Cost base per cost centre — {member_label(connection, parent)} — YTD {period}",
-                "subtitle": f"NOK · {connection} · Actual · Accumulated {period}",
-                "key_points": kp, "columns": cols,
-                "sections": [{"title": f"Top {min(top, len(ranked))} cost centres by {cols[accounts.index(main)]['header']}",
-                              "lines": lines}],
-                "notes": ["FTE (STA20Y) is the end-of-period headcount.",
-                          "Parent nodes are restated to today's organisation."],
-                "source": f"Source: Oracle EPM Cloud ({connection}) via Smart View, retrieved {_now()}."}
-
-    return Plan(f"{member_label(connection, parent)} cost base {period}", pulls, answer)
+    return list(dict.fromkeys(ents + [parent])), leaves
 
 
 # ------------------------------------------------------------------ C. monthly trend
@@ -307,7 +235,7 @@ def monthly_trend(h: ExcelHost, entity: str, accounts: list[str] | None = None, 
     pov = {"All Entities": entity, "All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}
     pulls = [PullSpec("tr", connection, [Axis("All Accounts", accounts)], [Axis("All Time Periods", months)], pov),
              PullSpec("ytd", connection, [Axis("All Accounts", accounts)], [Axis("All Time Periods", [through])],
-                      {**pov, "All Balance Types": "Accumulated"}, title_suffix="YTD")]
+                      {**pov, "All Balance Types": "Accumulated"})]
     ytd_col = len(months)
 
     def answer(P):
@@ -337,7 +265,7 @@ def monthly_trend(h: ExcelHost, entity: str, accounts: list[str] | None = None, 
                 "chart": {"type": "line", "row": f"a{len(accounts) - 1}", "columns": list(range(len(months))),
                           "title": f"{_label_of(p, [accounts[-1]], accounts[-1])} per month"}}
 
-    return Plan(f"{member_label(connection, entity)} trend {through}", pulls, answer)
+    return Plan(pulls, answer)
 
 
 # ------------------------------------------------------------------ D. actual vs budget / forecast (FinPlan)
@@ -370,8 +298,8 @@ def latest_forecast(year_yy: int) -> str | None:
 
 
 def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: str | None = None, basis: str = "ytd",
-                   forecast: str | None = None, finmax_entity: str | None = None) -> Plan:
-    closed = closed_month(h, "FinMax")
+                   forecast: str | None = None, finmax_entity: str | None = None, closed: str | None = None) -> Plan:
+    closed = closed or closed_month(h, "FinMax")
     mo, yy = split_period(closed)
     month = month or MONTHS[mo - 1]
     year = year or f"FY{yy:02d}"
@@ -381,17 +309,16 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
     accts = [a for _, a, _ in fp_lines()]
     base = {"Entity": entity, "Years": year, "Period": month, "All Balance Types": bal}
     pulls = [PullSpec("act", "FinPlan", [Axis("Account", accts)], [Axis("Scenario", ["Actual"])],
-                      {**base, "Version": "Working"}, title_suffix="actual"),
+                      {**base, "Version": "Working"}),
              PullSpec("plan", "FinPlan", [Axis("Account", accts)],
-                      [Axis("Scenario", ["Target"] + ([forecast] if forecast else []))], {**base, "Version": "Final"},
-                      title_suffix="plan")]
+                      [Axis("Scenario", ["Target"] + ([forecast] if forecast else []))], {**base, "Version": "Final"})]
     finmax_entity, recon_note = map_finmax_entity(entity, finmax_entity)
     fm_period = f"{month} {fyy:02d}"
     if finmax_entity:
         pulls.append(PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.EBITDA"])],
                               [Axis("All Time Periods", [fm_period])],
                               {"All Entities": finmax_entity, "All Scenarios": "Actual", "All Currencies": "NOK",
-                               "All Balance Types": bal}, title_suffix="recon"))
+                               "All Balance Types": bal}))
     what = "YTD " if basis == "ytd" else ""
 
     def answer(P):
@@ -433,8 +360,4 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
                 "notes": notes,
                 "source": f"Source: Oracle EPM Cloud (FinPlan, FinMax) via Smart View, retrieved {_now()}."}
 
-    return Plan(f"{entity} actual vs plan {month} {year}", pulls, answer)
-
-
-TEMPLATES = {"cost_base": cost_base, "monthly_trend": monthly_trend,
-             "actual_vs_plan": actual_vs_plan}
+    return Plan(pulls, answer)

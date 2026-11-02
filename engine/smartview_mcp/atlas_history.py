@@ -64,16 +64,10 @@ def snapshot_all(db) -> list[dict]:
 
 def list_snapshots(db, connection=None, dimension=None) -> list[dict]:
     ensure_schema(db)
-    sql, args = "SELECT id, connection, dimension, taken_at, n FROM snapshot WHERE 1=1", []
-    if connection:
-        sql += " AND connection=?"
-        args.append(connection)
-    if dimension:
-        sql += " AND dimension=?"
-        args.append(dimension)
-    sql += " ORDER BY connection, dimension, taken_at"
+    sql = ("SELECT id, connection, dimension, taken_at, n FROM snapshot WHERE coalesce(?, connection)=connection "
+           "AND coalesce(?, dimension)=dimension ORDER BY connection, dimension, taken_at")
     return [{"id": i, "connection": c, "dimension": d, "taken_at": _iso(t), "ts": t, "members": n}
-            for i, c, d, t, n in db.execute(sql, args)]
+            for i, c, d, t, n in db.execute(sql, [connection or None, dimension or None])]
 
 
 def _to_ts(v, end: bool) -> float | None:
@@ -167,29 +161,6 @@ def changes(db, connection: str, dimension: str | None = None, since=None, until
     summary = "; ".join(summaries + msgs) or "No changes."
     return {"connection": connection, "dimensions": res, "summary": summary,
             "message": " ".join(msgs) if msgs and not summaries else None}
-
-
-def latest_snapshot(db, connection: str, dimension: str) -> int | None:
-    """The id of the newest snapshot of a dimension (a new id only when the hierarchy changed), or None."""
-    ensure_schema(db)
-    r = db.execute("SELECT id FROM snapshot WHERE connection=? AND dimension=? ORDER BY taken_at DESC, id DESC LIMIT 1",
-                   (connection, dimension)).fetchone()
-    return r[0] if r else None
-
-
-def diff_snapshots(db, old_id: int, new_id: int) -> dict:
-    """added / removed / moved / relabelled members between two snapshots of the same dimension (as in changes()).
-    Raises ValueError for an unknown id or two snapshots of different (connection, dimension)."""
-    ensure_schema(db)
-    ident = []
-    for sid in (old_id, new_id):
-        r = db.execute("SELECT connection, dimension FROM snapshot WHERE id=?", (sid,)).fetchone()
-        if r is None:
-            raise ValueError(f"unknown snapshot id {sid}")
-        ident.append(tuple(r))
-    if ident[0] != ident[1]:
-        raise ValueError(f"snapshots {old_id} and {new_id} are of different dimensions: {ident[0]} vs {ident[1]}")
-    return _diff(_rows(db, old_id), _rows(db, new_id))
 
 
 def _lab(label) -> str:

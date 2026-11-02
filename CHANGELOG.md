@@ -2,47 +2,53 @@
 
 ## Unreleased
 
-- `fin_pnl(area)`: a business area's P&L in one call - month and YTD against last year (FinMax), budget and the
-  latest forecast (FinPlan), materiality flags, an EBITDA bridge by line and by sub-unit, KPIs and the year-end
-  landing. The numbers come from a local DuckDB warehouse (`%LOCALAPPDATA%\smartass\warehouse.duckdb`,
-  `paths.warehouse`), refreshed by itself when a month closes or the atlas shows a restatement; the open month and
-  the latest forecast are read live and every answer has a freshness stamp. The workbook keeps live Smart View
-  source sheets, formulas only, and a "warehouse = source sheet" check per sheet.
-  - Materiality: a variance is material at 10 % of |comparison| (counted from NOK 500k) or at NOK 5 million; a
-    month swing of NOK 5 million or more is flagged; a comparison under NOK 500k counts as zero; revenue,
-    personnel cost and EBITDA are always commented.
-  - Variance = current - comparison, positive = better on every line. Cost per FTE is shown positive; personnel
-    cost per FTE is the headline KPI. FTE averages use the month before the window plus each month end (YTD n+1
-    points).
-  - Year-end landing = YTD actual + the remaining months of the latest forecast; the seasonal share is taken from
-    EBITDA before other items when it lies within 0.5-1.5 x n/12, otherwise the run rate YTD / n x 12. A forecast
-    counts as stale only when it is two quarters or more behind.
-  - Consumer (into SSM and E&I) and Infrastructure Growth (into TEC, ADM, E&I, SSM and BUS) were abolished
-    1 June 2026: asking for them gives an explanation and the successors, never empty figures.
-- `sv_warehouse(action='status'|'refresh'|'rebuild', area=None)` (rebuild re-reads an area's 36 months, or
-  recreates the whole file; the warehouse carries a schema version and an older file is never mixed in); `smartass doctor` has a `warehouse` check (last fill, cells that were
-  missing, paused refresh jobs with their last error, age) and lists the duckdb version in `--bundle`.
-- The closed month is read over Smart View's HTTP protocol first (EnumMembers), with Smart View in Excel as the
-  fallback.
-- `fin_pnl` also takes a unit below a business area (any FinMax entity the atlas knows, e.g. `un.SY.5OK_W` or
-  `5OK_W`). A unit is always read live and never kept in the warehouse (its checks say "live read = source
-  sheet"); with no FinPlan member (most units) it is compared with last year only, and says so.
-  `sv_warehouse('rebuild')` still takes business areas only.
-- The `sv_analyse` template `division_pnl` is removed: use `fin_pnl`, which covers areas and units.
-- New dependency: `duckdb==2.0.0`.
-- Faster answer sheets: the answer cells are written as one block (a fin_pnl answer: 11 s -> 0.2 s) and the check
-  colours are set once per run of check cells (7 s -> 0.2 s). A block Excel refuses is written cell by cell, so a
-  bad formula still costs only its own warning.
-- `sv_query` reads over Smart View's HTTP provider protocol first, from the drill's hidden Edge (no Excel):
-  `source='auto'` (default) falls back to Smart View in Excel and says why in a warning; `'http'` never falls
-  back; `'com'` forces Excel. The answer's `route` says which was used.
-- `[svhttp]` in `engine\defaults.toml`: the Smart View data source names (`finmax_server`, `finplan_server`) and
-  `allow_test` (a test pod is refused by default); environment variables `SV_HTTP_FINMAX_SERVER`,
-  `SV_HTTP_FINPLAN_SERVER`, `SV_HTTP_ALLOW_TEST`, `SV_HTTP_TIMEOUT`.
-- Semantic catalogue `knowledge\catalog.toml`: P&L lines and checks per cube, business areas with aliases,
-  scenarios, KPIs and materiality.
-- `smartass doctor`: catalogue check (structure, and members against the atlas).
-- The P&L templates read their lines and checks from the catalogue.
+One pipeline: every question goes `sv_gate` -> `sv_answer` (design `docs/specs/2026-11-02-pipeline-architecture-design.md`).
+
+### Added
+
+- `sv_gate`: the advisor gate. A fixed checklist (period, scenario, entity, measure, currency/sign, granularity)
+  against the semantic catalogue, the capability map and the user's learned defaults; `clear`, `ambiguous` (1-3
+  questions) or `infeasible` (reason + proxy). It never pulls. `sv_remember` saves a gate answer as a default.
+- `sv_answer`: one question from an answer spec v1 (`core/contract.py`): pulls over Smart View's HTTP provider
+  (Smart View in Excel as the fallback), `Q<n> Answer` shown first, live formulas, checks, a findings table
+  (Critical / Warning / Info), material lines and commentary drivers (data with evidence, or a hypothesis).
+  - Follow-ups patch the stored spec (`followup=`): unchanged pulls are reused, the answer is redrawn inside the
+    tool-owned range, a hidden backup restores it if the redraw fails.
+  - Recipes draft the spec server-side: `pnl` (area or unit P&L, month and YTD vs last year, budget, forecast,
+    bridges, KPIs, landing), `actual_vs_plan`, `monthly_trend`, `cost_base`, `concept`.
+  - Run log: one JSON line per answer in `runs.jsonl` and a row in the workbook's hidden `_runlog` sheet.
+- Recipe `pnl` reads its facts live on every call into an in-memory store; its check "Live read = source sheet"
+  compares them with the source sheets. Materiality: 10 % of |comparison| (counted from NOK 500k) or NOK 5 million;
+  a month swing of NOK 5 million is flagged; revenue, personnel cost and EBITDA are always commented. Consumer and
+  Infrastructure Growth (abolished 1 June 2026) are refused with their successors.
+- Login hardening: a Smart View Login that Windows reports as not responding counts as stuck at once (hidden Excel:
+  restarted once; your Excel: "not responding; nothing was closed" after 10 s, never closed); a note after 5 s of
+  an open Login; "Empty response from provider" is retried with a progress note, and in the hidden Excel a second
+  one restarts only that Excel and retries once. Progress notes during every long stage.
+- HTTP API: `POST /gate` and `POST /answer` beside `GET /health` (same calls as the MCP tools; 400 / 401 / 409 busy
+  / 413 / 503).
+- `[svhttp]` in `engine\defaults.toml`: the data source names and `allow_test`; environment variables
+  `SV_HTTP_FINMAX_SERVER`, `SV_HTTP_FINPLAN_SERVER`, `SV_HTTP_ALLOW_TEST`, `SV_HTTP_TIMEOUT`.
+- Semantic catalogue `knowledge\catalog.toml` (P&L lines and checks per cube, business areas, scenarios, KPIs,
+  materiality) with a `smartass doctor` check.
+- Faster answer sheets: answer cells written as one block, check colours set once per run of cells.
+
+### Changed
+
+- The SSO grace for the hidden Excel's sign-in (`LOGIN_GRACE_S`, env `SV_LOGIN_GRACE`) defaults to 30 s.
+- Engine modules reorganised: packages `excel/` (the user's Excel) and `workbench/` (xl_* tools), `answer` +
+  `answer_write`, `host` + `hostproc`.
+- Tool count 35 -> 25.
+
+### Removed (breaking)
+
+- Tools `sv_query`, `sv_ws_pull`, `sv_ws_build`, `sv_ws_answer`, `sv_analyse`, `sv_concept`, `fin_pnl`,
+  `sv_scope`, `sv_warehouse`, `sv_refresh_workbook`: use `sv_gate` + `sv_answer` (recipes for P&L, plan, trend,
+  cost base and concepts); refresh an old workbook in Excel with Smart View's Refresh.
+- The DuckDB warehouse (`warehouse.duckdb`, `paths.warehouse`, the doctor's warehouse check) and the `duckdb`
+  dependency.
+- Norwegian sheet names: sheets are `Q<n> Answer`, `Q<n> <cube>`, `Q<n> Lines` and `Sources`; old `Svar` /
+  `Kilder` / `Linjer` sheets are no longer recognised as answers.
 
 ## 0.2.0
 

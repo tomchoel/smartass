@@ -1,0 +1,502 @@
+{
+ "started": "2026-11-02T17:33:44",
+ "route": "core",
+ "results": [
+  {
+   "id": "B01",
+   "question": "Wholesale EBITDA YTD Sep 26 vs last year and budget",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 49.91,
+   "total_s": 74.27,
+   "oracle": {
+    "ac.EBITDA YTD": true,
+    "EBITDA YTD LY": true,
+    "EBITDA budget YTD": true
+   },
+   "match": {
+    "ac.EBITDA YTD": "exact",
+    "EBITDA YTD LY": "exact",
+    "EBITDA budget YTD": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B02",
+   "question": "Business Norway EBITDA per month 2026 vs 2025, reconciled to accumulated YTD",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 0.94,
+   "total_s": 7.91,
+   "oracle": {
+    "EBITDA YTD Sep 26": true,
+    "EBITDA YTD Sep 25": true,
+    "EBITDA Jun 26": true
+   },
+   "match": {
+    "EBITDA YTD Sep 26": "exact",
+    "EBITDA YTD Sep 25": "exact",
+    "EBITDA Jun 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "routes {'Q1 FinMax': 'http', 'Q1 FinMax ytd': 'http'}",
+   "result": "PASS"
+  },
+  {
+   "id": "B03",
+   "question": "Follow-up to B02: add FinPlan Actual EBITDA YTD",
+   "gate": "followup",
+   "route": "core",
+   "first_visible_s": 1.44,
+   "total_s": 5.61,
+   "oracle": {
+    "EBITDA YTD Sep 26": true,
+    "EBITDA YTD Sep 25": true,
+    "EBITDA Jun 26": true,
+    "FinPlan Actual EBITDA YTD": true
+   },
+   "match": {
+    "EBITDA YTD Sep 26": "exact",
+    "EBITDA YTD Sep 25": "exact",
+    "EBITDA Jun 26": "exact",
+    "FinPlan Actual EBITDA YTD": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "reused ['m', 'ytd']",
+   "result": "PASS"
+  },
+  {
+   "id": "B04",
+   "question": "Follow-up to B02: add a note and change the title",
+   "gate": "followup",
+   "route": "core",
+   "first_visible_s": 1.34,
+   "total_s": 4.42,
+   "oracle": {
+    "EBITDA YTD Sep 26": true,
+    "EBITDA YTD Sep 25": true,
+    "EBITDA Jun 26": true
+   },
+   "match": {
+    "EBITDA YTD Sep 26": "exact",
+    "EBITDA YTD Sep 25": "exact",
+    "EBITDA Jun 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "reused ['m', 'ytd', 'fp']",
+   "result": "PASS"
+  },
+  {
+   "id": "B05",
+   "question": "Technology actual vs plan, Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 2.53,
+   "total_s": 10.97,
+   "oracle": {
+    "EBITDA actual YTD": true,
+    "EBITDA target YTD": true
+   },
+   "match": {
+    "EBITDA actual YTD": "exact",
+    "EBITDA target YTD": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B06",
+   "question": "Top 15 cost centres by opex under Technology, Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 4.83,
+   "total_s": 9.75,
+   "oracle": {
+    "C70 YTD un.SY.2TEC": true
+   },
+   "match": {
+    "C70 YTD un.SY.2TEC": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B07",
+   "question": "Telenor Norge monthly revenue trend through Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 3.36,
+   "total_s": 10.7,
+   "oracle": {
+    "C30 Oct 26": true,
+    "C30 Jan 26": true,
+    "C30 YTD Oct 26": true
+   },
+   "match": {
+    "C30 Oct 26": "exact",
+    "C30 Jan 26": "exact",
+    "C30 YTD Oct 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B08",
+   "question": "Follow-up to B07: split by business area",
+   "gate": "followup",
+   "route": "core",
+   "first_visible_s": 1.24,
+   "total_s": 7.69,
+   "oracle": {
+    "C30 Oct 26 un.SY.2BUS": true,
+    "C30 Oct 26 un.SY.2TEC": true
+   },
+   "match": {
+    "C30 Oct 26 un.SY.2BUS": "exact",
+    "C30 Oct 26 un.SY.2TEC": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "reused ['tr', 'ytd']",
+   "result": "PASS"
+  },
+  {
+   "id": "B09",
+   "question": "What do we earn on mobile subscriptions?",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 3.62,
+   "total_s": 9.92,
+   "oracle": {},
+   "match": {},
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "concept fam_mobil_own_subscriptions_mobile_consumer; period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B10",
+   "question": "EBITDA per product for Mobile Consumer",
+   "gate": "infeasible",
+   "route": "core",
+   "first_visible_s": 0.01,
+   "total_s": 0.01,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate infeasible: EBITDA is not available per product",
+   "gate_got": "infeasible",
+   "result": "FAIL"
+  },
+  {
+   "id": "B11",
+   "question": "How are we doing on costs?",
+   "gate": "ambiguous",
+   "route": "core",
+   "first_visible_s": 0.0,
+   "total_s": 0.0,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate ambiguous / asks 1",
+   "gate_got": "ambiguous",
+   "result": "FAIL"
+  },
+  {
+   "id": "B12",
+   "question": "Lines behind account 12881, un.SY, Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": null,
+   "total_s": null,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": "ToolFailed: sv_drill: Error executing tool sv_drill: Smart View in this Excel is not signed in correctly: EPM answers 'Empty response from provider' to every connect, and Smart View shows no Login to click. Ask the user to sign in once in that Excel (Smart View ribbon -> Panel -> connect FinMax, or close that Excel so the next call starts a fresh one), then ask again. If every Excel does this and ",
+   "notes": "",
+   "result": "ERROR"
+  },
+  {
+   "id": "B13",
+   "question": "EBITDA YTD for unit un.SY.5OK_W",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 4.17,
+   "total_s": 19.06,
+   "oracle": {
+    "ac.EBITDA YTD": true,
+    "EBITDA YTD LY": true
+   },
+   "match": {
+    "ac.EBITDA YTD": "exact",
+    "EBITDA YTD LY": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B14",
+   "question": "Business full-year EBITDA: latest forecast vs budget",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 3.86,
+   "total_s": 18.55,
+   "oracle": {
+    "EBITDA target FY": true,
+    "EBITDA Forecast Q326 FY": true
+   },
+   "match": {
+    "EBITDA target FY": "exact",
+    "EBITDA Forecast Q326 FY": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Dec 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B15",
+   "question": "Wholesale full P&L (revenue, COGS, opex, EBITDA) actual vs budget vs last year, YTD",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 4.66,
+   "total_s": 28.67,
+   "oracle": {
+    "ac.C30 YTD": true,
+    "ac.C40S YTD": true,
+    "ac.C70 YTD": true,
+    "ac.EBITDA YTD": true,
+    "EBITDA YTD LY": true,
+    "EBITDA budget YTD": true
+   },
+   "match": {
+    "ac.C30 YTD": "exact",
+    "ac.C40S YTD": "exact",
+    "ac.C70 YTD": "exact",
+    "ac.EBITDA YTD": "exact",
+    "EBITDA YTD LY": "exact",
+    "EBITDA budget YTD": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "T01",
+   "question": "What's our budget for Business?",
+   "gate": "ambiguous",
+   "route": "core",
+   "first_visible_s": 0.01,
+   "total_s": 0.01,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate ambiguous / asks 1",
+   "gate_got": "ambiguous",
+   "result": "FAIL"
+  },
+  {
+   "id": "T02",
+   "question": "Opex for Wholesale this year",
+   "gate": "ambiguous",
+   "route": "core",
+   "first_visible_s": 0.0,
+   "total_s": 0.0,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate ambiguous / asks 1",
+   "gate_got": "ambiguous",
+   "result": "FAIL"
+  },
+  {
+   "id": "T03",
+   "question": "EBITDA margin per customer",
+   "gate": "infeasible",
+   "route": "core",
+   "first_visible_s": 0.02,
+   "total_s": 0.02,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate infeasible: EBITDA margin is not available per customer",
+   "gate_got": "infeasible",
+   "result": "FAIL"
+  },
+  {
+   "id": "T04",
+   "question": "Revenue in EUR for Technology",
+   "gate": "infeasible",
+   "route": "core",
+   "first_visible_s": 0.0,
+   "total_s": 0.0,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate infeasible: the cubes hold no EUR values (FinMax reports NOK and local currency only)",
+   "gate_got": "infeasible",
+   "result": "FAIL"
+  },
+  {
+   "id": "T05",
+   "question": "Profit per product",
+   "gate": "infeasible",
+   "route": "core",
+   "first_visible_s": 0.02,
+   "total_s": 0.02,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate infeasible: Profit is not available per product",
+   "gate_got": "infeasible",
+   "result": "FAIL"
+  },
+  {
+   "id": "T06",
+   "question": "Business EBITDA Sep 26 vs Sep 25",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 0.01,
+   "total_s": 0.01,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate clear",
+   "gate_got": "clear",
+   "result": "FAIL"
+  },
+  {
+   "id": "T07",
+   "question": "Q3 numbers for Consumer",
+   "gate": "ambiguous",
+   "route": "core",
+   "first_visible_s": 0.0,
+   "total_s": 0.0,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate ambiguous / asks 1",
+   "gate_got": "ambiguous",
+   "result": "FAIL"
+  },
+  {
+   "id": "T08",
+   "question": "Cost per FTE in IT",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 0.02,
+   "total_s": 0.02,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate clear",
+   "gate_got": "clear",
+   "result": "FAIL"
+  },
+  {
+   "id": "T09",
+   "question": "How much did we spend on consultants?",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 0.0,
+   "total_s": 0.0,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate clear",
+   "gate_got": "clear",
+   "result": "FAIL"
+  },
+  {
+   "id": "T10",
+   "question": "Forecast for December 27 actuals",
+   "gate": "infeasible",
+   "route": "core",
+   "first_visible_s": 0.01,
+   "total_s": 0.01,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "gate infeasible: actuals for Dec 27 do not exist yet (last closed month Oct 26)",
+   "gate_got": "infeasible",
+   "result": "FAIL"
+  }
+ ]
+}

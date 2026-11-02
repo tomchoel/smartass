@@ -9,40 +9,13 @@ from typing import Literal
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import config, ops, qlog, userexcel
-from . import tools_ws as ws                      # module ref: tools_ws never imports tools_drill at module level
+from . import config, ops, qlog
+from .excel import adhoc, jobs, sheets, target as xltarget
+from .core import reply
 from .grid import Axis
 from .host import HostError, rewrap
 from .server import WRITE, _call, _call_user, _err, _is_our_analysis_file, tool, with_next_step
 from .timing import Timer, stage
-
-def _has_drill_cells(spec) -> bool:
-    if isinstance(spec, dict):
-        return "drill" in spec or any(_has_drill_cells(v) for v in spec.values())
-    if isinstance(spec, list):
-        return any(_has_drill_cells(v) for v in spec)
-    return False
-
-
-def _drill_rows(workbook: str, q: int) -> dict[str, list[dict]]:
-    """alias -> cached drill rows for this question (drafted key points evaluate drill cells from these)."""
-    from . import drill_store
-    try:
-        db = drill_store.connect()
-        try:
-            out = {}
-            for a, i in drill_store.find(db, workbook, q).items():
-                meta, rows = drill_store.load(db, i)
-                ec = (meta.get("rec") or {}).get("excel_columns")
-                if ec and len(ec) < len(meta["columns"]):   # key columns only in Excel: evaluate like the sheet
-                    rows = [{k: r.get(k) for k in ec} for r in rows]
-                out[a] = rows
-            return out
-        finally:
-            db.close()
-    except Exception:   # noqa: BLE001 - drafted points are best effort
-        return {}
-
 
 # ---------------------------------------------------------------- sv_drill: ledger lines behind a FinLite cell
 _drill_lock = None          # asyncio.Lock: one browser fetch at a time, so the hang budget starts when it runs
@@ -273,10 +246,10 @@ async def sv_drill(question: str, cell: dict[str, str], connection: Literal["Fin
     through a hidden headless browser (Data Integration drill-through; nothing opens on screen).
     cell: {'All Accounts': 'ac.C40S', 'All Entities': 'un.SY.2WHS', 'All Time Periods': 'Q3 26', ...} - parents
     allowed; other dimensions default to Actual / NOK / Periodic / top member. Cells over 20 000 lines are split
-    automatically (months, then cost centres). Writes a live FinLite grid of the cell + 'Q<n> Linjer' (Excel table
-    Linjer_Q<n>) to the session workbook (target 'none' = cache only) and returns the reconciliation (cube vs
+    automatically (months, then cost centres). Writes a live FinLite grid of the cell + 'Q<n> Lines' (Excel table
+    Lines_Q<n>) to the session workbook (target 'none' = cache only) and returns the reconciliation (cube vs
     lines), a profile (top suppliers/accounts/months/journals, signs_mixed) and text repairs. Then build the report
-    with sv_ws_answer(q, spec, target=<workbook>) using {drill: 'd', where: {...}} cells. id: alias of this drill
+    with sv_answer using {drill: 'd', where: {...}} cells. id: alias of this drill
     in the question (letters/digits/_; default 'd'). Re-drilling the same q and id refreshes its table in place."""
     if not _ALIAS.match(id or ""):
         raise ToolError(f"id '{id}' must start with a letter and contain only letters, digits and _ (e.g. 'd', 'b2').")
@@ -332,8 +305,8 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
         def job(h):
             jt = Timer.start()                      # the job runs on the host thread (thread-local timer)
             with stage("open target"):
-                t = userexcel.resolve_target(h, target, allow_archive, title=question[:50])
-                qn = q or userexcel.next_question(t)
+                t = xltarget.resolve_target(h, target, allow_archive, title=question[:50])
+                qn = q or sheets.next_question(t)
             pov = {**ops.DRILL_DEFAULTS, **{d: m for d, m in cell.items()
                                            if d not in ("All Accounts", "All Time Periods")}}
             periods = list(dict.fromkeys([cell["All Time Periods"]] + [pc["cell"]["All Time Periods"]
@@ -341,26 +314,26 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
             key = _grid_key(connection, pov, cell["All Accounts"], periods)
             prev = _prev_drill(t.path, qn, id)                 # the earlier drill of this q/alias, if any
             prev_grid = ((prev or {}).get("rec") or {}).get("grid") or {}
-            sess, notes, parked, info = ws._load_session(t, qn), [], {}, None
+            sess, notes, parked, info = reply.load_session(t, qn), [], {}, None
             had_table = drill_xl.table_columns(t.wb, drill_xl.table_name(qn, id)) is not None
             lines_started = False
             try:
                 with stage("cube grid"):
                     old = prev_grid.get("sheet")
                     if old and prev_grid.get("key") == key and old in sess:
-                        p = userexcel.refresh_pull(t, sess[old])           # same grid: refresh in place
+                        p = adhoc.refresh_pull(t, sess[old])           # same grid: refresh in place
                         notes.append(f"grid {old} refreshed in place")
                     else:
-                        parked = userexcel.park_sheets(t, [old]) if old else {}
+                        parked = sheets.park_sheets(t, [old]) if old else {}
                         for o in parked.values():
-                            ws._session(t.path, qn).pop(o, None)
-                        p = userexcel.pull(h, t, qn, connection, pov,
+                            reply.session(t.path, qn).pop(o, None)
+                        p = adhoc.pull(h, t, qn, connection, pov,
                                            [Axis("All Accounts", [cell["All Accounts"]])],
                                            [Axis("All Time Periods", periods)], title=f"Q{qn} {connection}")
                         if parked:
-                            notes.append(f"the cell changed: grid {p.sheet} rebuilt - re-run sv_ws_answer for Q{qn} "
+                            notes.append(f"the cell changed: grid {p.sheet} rebuilt - re-run sv_answer for Q{qn} "
                                          "if its formulas used the old grid")
-                ws._session(t.path, qn)[p.sheet] = p
+                reply.session(t.path, qn)[p.sheet] = p
                 lines_started = True
                 with stage("lines sheet"):
                     if rows:
@@ -368,33 +341,33 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
                     else:                           # 0 lines: empty an existing table so Excel matches drill.db
                         info = drill_xl.clear_lines(t, qn, title=title, source=source, alias=id)
             except Exception as e:
-                removed = userexcel.rollback(t)
+                removed = sheets.rollback(t)
                 for name in removed:
-                    ws._session(t.path, qn).pop(name, None)
+                    reply.session(t.path, qn).pop(name, None)
                 if parked:
-                    userexcel.restore_parked(t, parked)
-                    ws._sessions.get(t.path.lower(), {}).pop(qn, None)     # reload the restored grid from the workbook
+                    sheets.restore_parked(t, parked)
+                    reply.forget(t.path, qn)     # reload the restored grid from the workbook
                 extra = ""
                 if had_table and lines_started:     # the reused table may be half written: put the old lines back
                     extra = "; " + _restore_lines(t, qn, id, prev, source)
                 raise rewrap(e, f"{e} (removed the partial sheets: {', '.join(removed) or 'none'}{extra})") from None
             if parked:
                 with stage("drop old grid"):
-                    userexcel.drop_parked(t, parked)
-            with stage("log Kilder"):
+                    sheets.drop_parked(t, parked)
+            with stage("log Sources"):
                 try:
-                    userexcel.log_source(t, qn, question, p, notes=f"drill: {rec['lines']} linjer, avvik {rec['gap']}"
-                                         + (f"; ark {info['sheet']}" if info else "; ingen linjer"))
+                    sheets.log_source(t, qn, question, p, notes=f"drill: {rec['lines']} lines, gap {rec['gap']}"
+                                         + (f"; sheet {info['sheet']}" if info else "; no lines"))
                 except Exception:   # noqa: BLE001 - the source log must never undo a finished drill
                     pass
             t.status(None)
             t.created = t.created or _is_our_analysis_file(t.path)     # the session's own workbook: ours to save
-            ws._tidy(t, info["sheet"] if info else p.sheet)
+            reply.tidy(t, info["sheet"] if info else p.sheet)
             if t.created:
                 with stage("save"):
-                    userexcel.com(t.wb.Save)
+                    jobs.com(t.wb.Save)
             if info and info.get("columns_changed"):
-                notes.append(f"columns changed – re-run sv_ws_answer for Q{qn}")
+                notes.append(f"columns changed – re-run sv_answer for Q{qn}")
             elif info and info.get("reused") and rows:
                 notes.append(f"re-drill: table {info['table']} refreshed in place (answer formulas stay valid)")
             if info and len(info["columns"]) < len(cols) and rows:

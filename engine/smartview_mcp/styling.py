@@ -15,7 +15,6 @@ Nothing here saves a workbook, attaches to a running Excel or clears cell conten
 """
 from __future__ import annotations
 
-import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -23,42 +22,13 @@ from pathlib import Path
 from .vendor import tn_rapportstil as tn
 
 # ---------------------------------------------------------------- COM retry
-_BUSY = {-2147418111, -2147417846}      # RPC_E_CALL_REJECTED, RPC_E_SERVERCALL_RETRYLATER
 RETRY_LIMIT_S = 30.0
 
 
-VBA_E_IGNORE = -2146777998               # 0x800AC472: Excel busy (often while recalculating), inside DISP_E_EXCEPTION
-
-
-def _hresult(exc) -> int | None:
-    hr = getattr(exc, "hresult", None)
-    if hr is None and getattr(exc, "args", None) and isinstance(exc.args[0], int):
-        hr = exc.args[0]
-    return hr
-
-
-def _is_busy(exc) -> bool:
-    hr = _hresult(exc)
-    info = getattr(exc, "excepinfo", None)
-    inner = info[5] if info and len(info) > 5 else None
-    return hr in _BUSY or VBA_E_IGNORE in (hr, inner)
-
-
 def _retry(fn, limit_s: float = RETRY_LIMIT_S):
-    """Call fn(); when Excel rejects the call because it is busy, back off (0.2 s doubling to 3 s) up to limit_s."""
-    t0, delay = time.monotonic(), 0.2
-    while True:
-        try:
-            return fn()
-        except Exception as exc:   # noqa: BLE001
-            if not _is_busy(exc):
-                raise
-            if time.monotonic() - t0 > limit_s:   # same readable message as userexcel.com, not a raw COM code
-                from .host import HostError
-                raise HostError("Excel is busy - probably a cell is being edited or a dialog is open. Press Enter "
-                                "or Esc in Excel and ask again.") from None
-            time.sleep(delay)
-            delay = min(delay * 2, 3.0)
+    """Call fn(); while Excel is busy it is retried up to limit_s, then a readable HostError (as jobs.com)."""
+    from .excel import jobs
+    return jobs.com(fn, limit_s, check=False)
 
 
 def _get(obj, *path):
@@ -206,7 +176,7 @@ def ensure_template(xl) -> Path:
     try:
         _ensure_styles(wb)
         _mark(wb, ver)
-        from .ops import _label
+        from .excel.instances import _label
         _retry(lambda: _label(wb))
         _retry(lambda: wb.SaveAs(str(path), 54))           # xlOpenXMLTemplate
     finally:
@@ -258,7 +228,7 @@ def _visible_window(wb):
         return None
 
 
-def _freeze(ws, rows: int, cols: int, gridlines_off: bool = True) -> bool:
+def _freeze(ws, rows: int, cols: int) -> bool:
     """Freeze panes below `rows` and right of `cols` and hide gridlines; only if the workbook window is visible."""
     wb = _get(ws, "Parent")
     win = _visible_window(wb)
@@ -271,8 +241,7 @@ def _freeze(ws, rows: int, cols: int, gridlines_off: bool = True) -> bool:
             _set(win, "FreezePanes", False)
             _set(win, "ScrollRow", 1)
             _set(win, "ScrollColumn", 1)
-            if gridlines_off:
-                _set(win, "DisplayGridlines", False)
+            _set(win, "DisplayGridlines", False)
             if rows or cols:
                 _set(win, "SplitColumn", cols)
                 _set(win, "SplitRow", rows)
@@ -322,7 +291,10 @@ def apply_report(ws, roles: dict) -> list[str]:
     widths.update({c: w for c, w in _parse_widths(roles.get("col_widths", {})).items() if c <= last})
     rows = {int(r["row"]): r for r in roles["rows"]}
     ur = _get(ws, "UsedRange")
-    last_row = max(max(rows), _get(ur, "Row") + _get(ur, "Rows", "Count") - 1)
+    if roles.get("last_row"):              # the tool-owned block: never re-style the user's rows below it
+        last_row = max(max(rows), int(roles["last_row"]))
+    else:
+        last_row = max(max(rows), _get(ur, "Row") + _get(ur, "Rows", "Count") - 1)
 
     raw = _get(_rng(ws, 1, 1, last_row, last), "Value2")
     if not isinstance(raw, tuple):
@@ -461,15 +433,15 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
     area = _rng(ws, 1, 1, max(ur_last_r, last_row), max(ur_last_c, last))
     fname = _get(_get(area, "Font"), "Name")
     if fname != tn.FONT:
-        errs.append(f"flere fonter i bruk eller ikke Arial (Font.Name={fname!r})")
-    for edge, label in ((7, "venstre"), (10, "høyre"), (11, "innvendig")):
+        errs.append(f"more than one font, or not Arial (Font.Name={fname!r})")
+    for edge, label in ((7, "left"), (10, "right"), (11, "inside")):
         try:
             if _get(_call(area, "Borders", edge), "LineStyle") != tn.NONE:
-                errs.append(f"loddrett strek ({label}) i arket (ikke tillatt i rapportstil)")
+                errs.append(f"vertical border ({label}) on the sheet (not allowed in the report style)")
         except Exception:   # noqa: BLE001
             continue
     if ur_last_c > last:
-        errs.append(f"innhold utenfor tabellbredden (til {roles['last_col']})")
+        errs.append(f"content outside the table width (up to {roles['last_col']})")
     defs = tn.style_defs()
     merged = {(r, c) for r, c in merges}
     for r in range(1, min(len(raw), last_row) + 1):
@@ -485,7 +457,7 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
                 lines = tn.wrap_lines(v, w, size, bold)
                 h = heights.get(r, 15)
                 if lines is None or lines * (size + 3) > h + 1:
-                    errs.append(f"{a}: teksten får ikke plass ({lines or 'ord for langt'} linjer, {h:.0f} pt)")
+                    errs.append(f"{a}: text does not fit ({lines or 'word too long'} lines, {h:.0f} pt)")
             elif p.get("h", -4131) != tn.H_RIGHT and not p.get("wrap"):
                 avail = widths.get(c, 8.43)
                 for k in range(c + 1, last + 1):
@@ -494,7 +466,7 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
                     avail += widths.get(k, 8.43)
                 need = tn.text_units(v, size, bold)
                 if need > avail:
-                    errs.append(f"{a}: teksten kuttes eller renner ut (~{need:.0f} > {avail:.0f} tegn)")
+                    errs.append(f"{a}: text is cut off or spills over (~{need:.0f} > {avail:.0f} chars)")
     return errs
 
 
@@ -533,84 +505,6 @@ def _page_setup_props(ws, xl, last_row, last, roles):
         pass
 
 
-# ---------------------------------------------------------------- lint (COM based subset of tn_rapportstil.lint)
-def _lint(ws, roles, raw, last, last_row, widths, labels, cell_cap: int = 3000) -> list[str]:
-    errs: list[str] = []
-    ur = _get(ws, "UsedRange")
-    ur_last_c = _get(ur, "Column") + _get(ur, "Columns", "Count") - 1
-    ur_last_r = _get(ur, "Row") + _get(ur, "Rows", "Count") - 1
-    area = _rng(ws, 1, 1, max(ur_last_r, last_row), max(ur_last_c, last))
-    # fonts
-    fname = _get(_get(area, "Font"), "Name")
-    if fname != tn.FONT:
-        bad = []
-        for r in range(1, min(max(ur_last_r, last_row), 200) + 1):
-            for c in range(1, max(ur_last_c, last) + 1):
-                if _get(_get(_rng(ws, r, c), "Font"), "Name") != tn.FONT:
-                    bad.append(f"{_cl(c)}{r}")
-                    break
-            if len(bad) >= 3:
-                break
-        errs.append(f"flere fonter i bruk eller ikke Arial (Font.Name={fname!r}; f.eks. {', '.join(bad)})")
-    # vertical borders (left, right, inside vertical)
-    for edge, label in ((7, "venstre"), (10, "høyre"), (11, "innvendig")):
-        try:
-            ls = _get(_call(area, "Borders", edge), "LineStyle")
-        except Exception:   # noqa: BLE001
-            continue
-        if ls != tn.NONE:
-            errs.append(f"loddrett strek ({label}) i arket (ikke tillatt i rapportstil)")
-    if max(ur_last_c, 0) > last:
-        errs.append(f"innhold utenfor tabellbredden (til {roles['last_col']})")
-    n = 0
-    for r in range(1, min(len(raw), last_row) + 1):
-        for c in range(1, min(len(raw[0]), last) + 1):
-            v = raw[r - 1][c - 1]
-            if v is None or v == "":
-                continue
-            n += 1
-            if n > cell_cap:
-                return errs + [f"lint avbrutt etter {cell_cap} celler"]
-            a = f"{_cl(c)}{r}"
-            cell = _rng(ws, r, c)
-            st = _get(_get(cell, "Style"), "Name")
-            if not str(st).startswith("TN "):
-                errs.append(f"{a}: mangler TN-stil (har '{st}')")
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                if _get(cell, "NumberFormat") in ("General", "Standard"):
-                    errs.append(f"{a}: tall uten tallformat")
-            elif isinstance(v, str):
-                if v.startswith("=") and not _get(cell, "HasFormula"):
-                    errs.append(f"{a}: formel lagret som tekst ('{v[:30]}')")
-                _lint_text(ws, cell, a, v, r, c, raw, last, widths, errs)
-    return errs
-
-
-def _lint_text(ws, cell, a, v, r, c, raw, last, widths, errs):
-    size = _get(_get(cell, "Font"), "Size") or 10
-    bold = bool(_get(_get(cell, "Font"), "Bold"))
-    merged = _get(cell, "MergeCells")
-    if merged:
-        area = _get(cell, "MergeArea")
-        w = sum(widths[k] for k in range(_get(area, "Column"), _get(area, "Column") + _get(area, "Columns", "Count")) if k in widths)
-    else:
-        w = widths.get(c, 8.43)
-    if _get(cell, "WrapText"):
-        h = _get(_get(cell, "EntireRow"), "RowHeight")
-        lines = tn.wrap_lines(v, w, size, bold)
-        if lines is None or lines * (size + 3) > h + 1:
-            errs.append(f"{a}: teksten får ikke plass ({lines or 'ord for langt'} linjer, {h:.0f} pt)")
-    elif _get(cell, "HorizontalAlignment") != tn.H_RIGHT:
-        need = tn.text_units(v, size, bold)
-        avail = w
-        for k in range(c + 1, last + 1):
-            if raw[r - 1][k - 1] not in (None, ""):
-                break
-            avail += widths.get(k, 8.43)
-        if need > avail:
-            errs.append(f"{a}: teksten kuttes eller renner ut (~{need:.0f} > {avail:.0f} tegn)")
-
-
 # ---------------------------------------------------------------- apply_data_sheet
 def _numeric_cells(rng):
     """Union of numeric constants and numeric formula results in rng, or None."""
@@ -618,8 +512,9 @@ def _numeric_cells(rng):
     for kind in (2, -4123):          # xlCellTypeConstants, xlCellTypeFormulas
         try:
             parts.append(_retry(lambda k=kind: rng.SpecialCells(k, 1)))   # xlNumbers
-        except Exception as exc:   # noqa: BLE001
-            if _hresult(exc) in _BUSY:
+        except Exception as exc:   # noqa: BLE001 - no such cells; a busy Excel (HostError from _retry) is raised
+            from .host import HostError
+            if isinstance(exc, HostError):
                 raise
     return parts
 

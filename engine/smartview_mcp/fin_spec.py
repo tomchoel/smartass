@@ -1,6 +1,6 @@
-"""The workbook for fin_pnl: the sv_ws_build request (live Smart View source sheets + an answer spec whose every
+"""The workbook for fin_pnl: the build request (live Smart View source sheets + an answer spec whose every
 number is a formula over them) and the expected value of every source cell the answer uses, from the calc engine's
-facts - so the build can prove warehouse = sheet (with_reconciliation, run as _build_job's before_answer hook).
+facts - so the build can prove live read = sheet (reconcile_pull, run after the pull).
 
 Answer columns (one set for every section; the section title says what the comparison is):
   0 month | 1 comparison month | 2 variance | 3 variance % | 4 YTD | 5 comparison YTD | 6 variance | 7 variance % |
@@ -12,7 +12,7 @@ The sheet follows the engine's rules exactly (specs.evaluate gives the engine's 
 - a KPI with sign = -1 is multiplied by the labelled input cell 'Sign' (-1), so cost per FTE is shown positive;
 - no constants in formulas (tn-formelstil): months in a year / in the period and the sign are labelled inputs;
 - averages of a stock (FTE) are AVERAGEA over the opening level + each month end (n+1 points);
-- the variance % is left blank where |comparison| < the catalogue's pct_floor_nok (decided from the warehouse,
+- the variance % is left blank where |comparison| < the catalogue's pct_floor_nok (decided from the facts,
   like the Material column);
 - every comparison shows the labels of its own cube (FinMax: alias + short name; FinPlan: its own names).
 Every section (last year, budget, forecast, bridges, landing) is always shown; `compare` only limits the flags."""
@@ -34,8 +34,7 @@ COLUMNS = ["{p}", "Comparison", "Variance", "Variance %", "YTD {p}", "Comparison
            "Variance % YTD", "Material (YTD)"]
 KINDS = ["heltall", "heltall", "heltall", "prosent1", "heltall", "heltall", "heltall", "prosent1", "heltall"]
 VALUE_COLS = (0, 1, 4, 5)
-INPUT_KEYS = ("months_year", "months_ytd", "kpi_sign")      # the only lines with typed values (labelled inputs)
-FTE_TOL = 0.05                                             # FTE: warehouse = sheet within 0.05 FTE
+FTE_TOL = 0.05                                             # FTE: live read = sheet within 0.05 FTE
 
 Expected = tuple   # (row, col, value, fact id, tolerance)
 
@@ -43,16 +42,10 @@ Expected = tuple   # (row, col, value, fact id, tolerance)
 @dataclass
 class Request:
     question: str
-    pulls: list[dict]                                        # PullIn fields: id, connection, rows, columns, pov
+    pulls: list[dict]                                        # pull fields: id, connection, rows, columns, pov
     spec: dict
     expected: dict[str, list[Expected]]                      # pull id -> (row, col, value, fact id, tolerance)
-    source: str = "Warehouse"                                # what the sheets are checked against (check labels)
-
-
-def check_source(mode: str) -> str:
-    """'Live read' when the facts come from live pulls (a sub-unit, or the warehouse was unavailable: a DIFF then
-    has no warehouse to rebuild), else 'Warehouse'."""
-    return "Live read" if mode.startswith("live") else "Warehouse"
+    source: str = "Live read"                                # what the sheets are checked against (check labels)
 
 
 def _ax(dim: str, members: list[str]) -> dict:
@@ -87,7 +80,7 @@ class _Builder:
     checks: list[dict] = field(default_factory=list)
     method_notes: list[str] = field(default_factory=list)
     chart: dict | None = None
-    source: str = "Warehouse"                                 # check_source(mode)
+    source: str = "Live read"
 
     def __post_init__(self):
         s = self.res.scope
@@ -424,7 +417,7 @@ class _Builder:
 
     # -------------------------------------------------------------- notes
     def missing_notes(self) -> list[str]:
-        """Missing figures: those on a source sheet show as DIFF in the warehouse = sheet checks (counted); the
+        """Missing figures: those on a source sheet show as DIFF in the live read = sheet checks (counted); the
         others (derived) are listed with their reasons."""
         on_sheet = {e[3] for cells in self.expected.values() for e in cells}
         gone = self.res.missing()
@@ -470,9 +463,9 @@ class _Builder:
         return head + method + ["History is restated to today's organisation (e.g. the 1 June 2026 reorg)."]
 
 
-def build(res: Result, cat: Catalog, now: str | None = None, mode: str = "warehouse",
+def build(res: Result, cat: Catalog, now: str | None = None, mode: str = "live read",
           refresh_notes: list[str] | None = None) -> Request:
-    b = _Builder(res, cat, source=check_source(mode))
+    b = _Builder(res, cat)
     b.finmax()
     b.kpis()
     b.finplan()
@@ -572,9 +565,9 @@ def _sheet_value(p, row: list[str], col: list[str]):
     raise KeyError(tuple(row))
 
 
-def reconcile_pull(p, cells: list[Expected], tol: float = TOL, source: str = "Warehouse") -> dict:
+def reconcile_pull(p, cells: list[Expected], tol: float = TOL, source: str = "Live read") -> dict:
     """The static check '<source> = source sheet' for one pull (each cell within its own tolerance: NOK 1, FTE
-    0.05). A figure the warehouse (or the live read) could not give is a DIFF."""
+    0.05). A figure the live read could not give is a DIFF."""
     src = source.lower()
     worst, bad = 0.0, []
     for cell in cells:
@@ -600,11 +593,3 @@ def reconcile_pull(p, cells: list[Expected], tol: float = TOL, source: str = "Wa
     if bad:
         detail += f"; {len(bad)} off, first: {bad[0]}"
     return {"label": f"{source} = source sheet '{p.sheet}'", "static": "DIFF" if bad else "OK", "detail": detail}
-
-
-def with_reconciliation(spec: dict, expected: dict, pulls_by_id: dict, source: str = "Warehouse") -> dict:
-    """_build_job's before_answer hook: one '<source> = source sheet' check per source sheet (source:
-    Request.source), after the others. Returns a new spec dict (the hook must return the spec)."""
-    extra = [reconcile_pull(pulls_by_id[pid], cells, source=source) for pid, cells in expected.items()
-             if pid in pulls_by_id]
-    return {**spec, "checks": list(spec.get("checks") or []) + extra}

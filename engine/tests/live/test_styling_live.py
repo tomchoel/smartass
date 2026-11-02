@@ -27,7 +27,8 @@ def run() -> None:
     import win32api
     import win32com.client
     import win32process
-    from smartview_mcp import ops, styling
+    from smartview_mcp import styling
+    from smartview_mcp.excel import instances
     from smartview_mcp import styling as st
     tn = st.tn
 
@@ -47,7 +48,7 @@ def run() -> None:
         xl.WindowState = -4137     # xlMaximized: a fresh DispatchEx window has no usable client area for FreezePanes
         wb = xl.Workbooks.Add()
         ws = wb.Worksheets(1)
-        ws.Name = "Svar"
+        ws.Name = "Answer"
 
         # ------------------------------------------------ answer layout (content only)
         put = lambda a, v: setattr(ws.Range(a), "Value2", v)
@@ -132,19 +133,11 @@ def run() -> None:
         if ":" not in win.VisibleRange.Address:
             # a DispatchEx Excel started from a console can have a window without a laid-out grid (VisibleRange is
             # one cell, even maximised and in the foreground): Excel then refuses FreezePanes, and _freeze leaves no
-            # half split behind. Answers in a real Excel window do freeze (checked 2026-10-26 on the Svar sheets).
+            # half split behind. Answers in a real Excel window do freeze (checked 2026-10-26 on the answer sheets).
             print("SKIP freeze panes: this Excel's window has no grid area (VisibleRange", win.VisibleRange.Address + ")")
             assert not win.FreezePanes and win.SplitRow == 0, "no half split may be left behind"
         else:
             assert win.FreezePanes and win.SplitRow == 3, (win.FreezePanes, win.SplitRow, win.Visible)
-        # lint must catch problems
-        ws.Range("B20").Value2 = "'=SUM(C8:C11)"
-        ws.Range("C20").Value2 = 5
-        raw = ws.Range("A1:F20").Value2
-        bad = st._lint(ws, roles, raw, 6, 20, {1: 2.5, 2: 46, 3: 16, 4: 16, 5: 16, 6: 16}, [2])
-        print("lint negative control:", bad)
-        assert any("TN-stil" in b for b in bad) and any("tall uten tallformat" in b for b in bad)
-        ws.Range("B20:C20").Clear()
 
         # ------------------------------------------------ PDF export + save
         pdf = WORK / "styling_test.pdf"
@@ -204,7 +197,7 @@ def run() -> None:
         w.Visible = True
 
         # ------------------------------------------------ save (sensitivity label first)
-        ops._label(wb)
+        instances._label(wb)
         out = WORK / "styling_test.xlsx"
         if out.exists():
             out.unlink()

@@ -1,220 +1,250 @@
 ---
 name: smartass
-description: Pull Telenor Norge financial data from Oracle EPM Cloud (FinMax/FinLite actuals, FinPlan plan/forecast) through the read-only smartass MCP (sv_* tools) and answer with an analysis in the user's Excel - live Smart View data sheets plus a formatted answer sheet. Use for any number or analysis from FinMax, FinLite, FinPlan, Smart View, Hyperion or EPM - actuals, YTD, P&L, EBITDA, revenue/COGS, opex, depreciation, FTE/årsverk, cost base per cost centre (un.SY), monthly trend, actual vs budget/forecast, GL extract/uttrekk - for finding member names, and for refreshing a workbook's Smart View sheets.
+description: Pull Telenor Norge financial data from Oracle EPM Cloud (FinMax/FinLite actuals, FinPlan plan/forecast) through the read-only smartass MCP (sv_* tools) and answer with an analysis in the user's Excel - source data sheets plus a formatted answer sheet with live formulas. Use for any number or analysis from FinMax, FinLite, FinPlan, Smart View, Hyperion or EPM - actuals, YTD, P&L, EBITDA, revenue/COGS, opex, depreciation, FTE/årsverk, cost base per cost centre (un.SY), monthly trend, actual vs budget/forecast, GL extract/uttrekk, invoice/journal lines behind a number - and for finding member names.
 ---
 
 # Smart View analyses (FinMax · FinLite · FinPlan)
 
-The `smartass` MCP is read-only towards EPM. It works **inside the user's Excel**.
-- **Default target: the session file.** Every session (Claude Code or Copilot) keeps its own analysis workbook,
-  `<analyser folder>\<project folder>\<date time> <first question>.xlsx`, where the analyser folder is `paths.analyser` in
-  `%LOCALAPPDATA%\smartass\config.toml`. It is created on the session's first question,
-  and every later question of that session goes into it as Q2, Q3 and so on. If it was closed, it is reopened.
-- **Other targets.** Use `target='active'` only when the user says to put it in *their* open workbook; `target='new'` for an explicitly separate file.
-- **Parallel sessions.** Sessions run in parallel. Only writing in the same Excel window takes turns, and a second window opens when that one is busy.
+## 1. When to use
 
-Per question it builds:
+Any number, table or analysis from EPM (FinMax, FinLite, FinPlan), a member name lookup, or the ledger lines behind a
+FinLite cell. The `smartass` MCP is read-only towards EPM and works **inside the user's Excel**. Call the
+`mcp__smartass__*` tools directly, never a side script that imports the package. Code changes reload by themselves
+on the next call; if `sv_gate` or `sv_answer` is missing from the tool list, ask the user to type `/mcp` →
+smartass → Reconnect once.
 
-- **`Q<n> Svar`**: the answer in TN report style (key points, P&L, checks, notes, source, chart when useful). All
-  numbers are live formulas.
-- **`Q<n> FinMax` / `Q<n> FinPlan` …**: one live Smart View grid per pull. The user can press Refresh, and the answer
-  updates.
-- **`Kilder`**: one row per pull (time, question, cube, POV, link).
-- **Sheet order** is fixed automatically after every build/pull/answer/drill: all `Q<n> Svar` (Q1, Q2 … Q10), then
-  other sheets, then data per question (FinMax, FinLite, FinPlan, `Linjer`), `Kilder` last, hidden sheets after.
-  In the user's own workbook only these sheets are reordered among themselves. Do not reorder by hand.
+- **Default target: the session file.** Every session keeps its own workbook,
+  `<analyser folder>\<project folder>\<date time> <first question>.xlsx` (`paths.analyser` in
+  `%LOCALAPPDATA%\smartass\config.toml`). The first question creates it; later questions become Q2, Q3 … in it. If
+  it was closed, it is reopened.
+- **Other targets.** `target='active'` only when the user says to put it in *their* open workbook; `target='new'`
+  for an explicitly separate file.
+- **Parallel sessions** are fine: only writing in the same Excel window takes turns.
 
-**Call the `mcp__smartass__sv_*` tools directly** (server `smartass`, formerly `smartview`). That is how the user wants Smart View used: never a side script that
-imports the package. Code changes reload by themselves on the next call. If `sv_analyse` / `sv_ws_pull` are missing
-from the tool list, or `sv_status` lacks `behind_reload_proxy`, the server predates the reload relay. Ask the user to type
-`/mcp` → smartass → Reconnect once, then continue with the tools.
+## 2. The pipeline: gate → answer → follow-ups → commentary
 
-## Pick the cube (decided with the user)
+### 2.1 Gate (always first)
 
-- **Actuals only** come from **FinMax**: the ledger, finest detail, FTE (`ac.STA20Y`). FinLite is a lighter actuals cube with no
-  FTE and no Functions/Projects/Reserves/Systems.
+`sv_gate(question)` runs the fixed scope checklist (period, scenario, entity, measure, currency/sign, granularity)
+against the catalogue, the capability map and the user's learned defaults. Procedure: `knowledge/advisor/gate.md`.
+
+| Outcome | Do |
+|---|---|
+| `clear` | Proceed. State every item with source convention/learned (and each warning) as an assumption. |
+| `ambiguous` | Pull nothing. Ask its questions (1–3) in ONE message. Call `sv_gate` again with the answers folded in, and offer `sv_remember(item, phrase, value)` to save an answer as the user's default. |
+| `infeasible` | Say why in one or two sentences, offer the proxy, and build it labelled as a proxy. |
+
+Copy the result into the spec's `gate` (`outcome`, `checklist`, `questions` / `reason` + `proxy`) and
+`assumptions`. Use the gate's `closed_month`: the month after it is open and carries reversals.
+
+### 2.2 Answer (one call)
+
+`sv_answer(spec)` writes `Q<n> Answer` first (question, assumptions, a status line), fetches each pull over HTTP
+(Smart View ad hoc grid in Excel if HTTP fails) into a source sheet, renders the answer with live formulas and checks
+it. Spec v1 (`engine/smartview_mcp/core/contract.py`):
+`{version: 1, question, gate, assumptions, pulls: [{id, connection, rows, columns, pov, title?}], layout: {title,
+subtitle?, columns, sections, checks, key_points?, notes?, source?, chart?}, commentary?}`.
+
+Worked example (bench B02: Business EBITDA per month 2026 vs 2025, with a reconciliation to Accumulated):
+
+```json
+{"version": 1, "question": "EBITDA per month for Business 2026 vs 2025",
+ "gate": {"outcome": "clear", "checklist": {"period": "Jan-Sep 26 vs Jan-Sep 25", "scenario": "Actual",
+          "entity": "un.SY.2BUS", "measure": "ac.EBITDA", "currency_sign": "NOK, FinMax signs",
+          "granularity": "month"}},
+ "assumptions": ["Closed month Sep 26."],
+ "pulls": [
+  {"id": "m", "connection": "FinMax",
+   "rows": [{"dimension": "All Accounts", "members": ["ac.C30", "ac.C40S", "ac.C70", "ac.C73", "ac.EBITDA"]}],
+   "columns": [{"dimension": "All Time Periods", "members": ["Jan 25", "…", "Dec 25", "Jan 26", "…", "Sep 26"]}],
+   "pov": {"All Entities": "un.SY.2BUS", "All Scenarios": "Actual", "All Currencies": "NOK",
+           "All Balance Types": "Periodic"}},
+  {"id": "ytd", "connection": "FinMax", "title": "Q1 FinMax YTD",
+   "rows": [{"dimension": "All Accounts", "members": ["ac.EBITDA"]}],
+   "columns": [{"dimension": "All Time Periods", "members": ["Sep 26", "Sep 25", "Dec 25"]}],
+   "pov": {"All Entities": "un.SY.2BUS", "All Scenarios": "Actual", "All Currencies": "NOK",
+           "All Balance Types": "Accumulated"}}],
+ "layout": {
+  "title": "Business Norway — EBITDA per month 2026 vs 2025", "subtitle": "NOK · FinMax · Actual · un.SY.2BUS",
+  "columns": [{"header": "Actual 2026"}, {"header": "Actual 2025"}, {"header": "Variance"},
+              {"header": "Variance %", "kind": "prosent1"}],
+  "sections": [
+   {"title": "EBITDA per month (Periodic)",
+    "repeat": {"over": "months:Jan..Dec", "line": {"key": "m{i}", "label": "{v}", "cells": [
+      {"pull": "m", "row": ["ac.EBITDA"], "col": ["{v} 26"]}, {"pull": "m", "row": ["ac.EBITDA"], "col": ["{v} 25"]},
+      {"var": [0, 1]}, {"varpct": [0, 1]}]}},
+    "lines": [{"key": "ytd", "label": "YTD Jan–Sep", "kind": "grand",
+               "cells": [{"sum": "m[0-8]"}, {"sum": "m[0-8]"}, {"var": [0, 1]}, {"varpct": [0, 1]}]},
+              {"key": "fy", "label": "Full year 2025", "kind": "sum", "cells": [null, {"sum": "m*"}, null, null]}]},
+   {"title": "Reconciliation (Accumulated)", "lines": [
+     {"key": "eacc", "label": "EBITDA YTD Sep", "cells": [{"pull": "ytd", "row": ["ac.EBITDA"], "col": ["Sep 26"]},
+                                                         {"pull": "ytd", "row": ["ac.EBITDA"], "col": ["Sep 25"]},
+                                                         null, null]},
+     {"key": "fyacc", "label": "EBITDA Dec 25",
+      "cells": [null, {"pull": "ytd", "row": ["ac.EBITDA"], "col": ["Dec 25"]}, null, null]}]}],
+  "checks": [{"label": "Sum of months = Accumulated YTD", "expr": "ytd-eacc", "columns": [0, 1]},
+             {"label": "Sum of 2025 months = Accumulated Dec 25", "expr": "fy-fyacc", "columns": [1]}],
+  "source": "Source: Oracle EPM Cloud (FinMax) via Smart View.",
+  "chart": {"type": "column", "lines": "m*", "columns": [0, 1], "title": "EBITDA per month"}}}
+```
+
+- **Cells:** `pull` (+ `row`/`col` members), `var`, `varpct`, `sum` (a key pattern such as `m*` or `m[0-8]`), `avg`,
+  `expr`, `ref`, `rowsum`, `value`, `text`, `drill`. `repeat` makes one line per month or member; months not
+  pulled stay empty.
+- **Plan the pulls yourself** (this year + last year, FinMax + FinPlan) and add the same period last year to P&L and
+  cost questions by default.
+- **Input shapes.** `rows`/`columns` are `[{dimension, members}]`.
+- The result carries `checks`, `review` (findings), `material`, `outline`, `routes` (HTTP or Smart View per
+  source sheet), `timings` (seconds per stage: mention an unusually slow one) and `formula_style` (skill
+  `tn-formelstil`; if `ok` is false, a `value`/`expr` you wrote broke a rule: fix it with a follow-up).
+
+### 2.3 Follow-ups
+
+`sv_answer(followup=<patch>, q=<n>)` changes the current answer (default: the active `Q<n> Answer`, else the
+latest): same sheet, unchanged pulls not fetched again, the user's cells and charts outside the answer block kept.
+Ask a new question only when the user does. Address parts by the `outline` of the last result (pull ids, column
+headers, section titles, line keys, check labels). Patch semantics: [reference/operations.md](reference/operations.md)
+"Recipes and follow-ups".
+
+- Add a month: re-send the pull with the longer member list:
+  `{"pulls": [{"id": "m", "columns": [{"dimension": "All Time Periods", "members": ["Jan 25", "…", "Oct 26"]}]}]}`.
+- Swap a scenario: `{"pulls": [{"id": "fp", "pov": {"Scenario": "Forecast Q326"}}]}`.
+- Text: `{"layout": {"title": "Business EBITDA 2026", "notes": {"append": ["Excludes one-offs."]}}}`.
+- Drop a line: `{"layout": {"sections": [{"title": "Per month", "lines": [{"key": "a1", "drop": true}]}]}}`.
+
+### 2.4 Recipes
+
+Instead of `pulls` + `layout`, give `{"recipe": {"name", "params", "overrides"?}}` (with `version`, `question`,
+`gate`). The server drafts the spec; the period defaults to the closed month (returned as `period`). `overrides` is a
+follow-up-shaped patch on the draft; `params` cannot change in a follow-up (ask a new question).
+
+| Recipe | Params | Delivers |
+|---|---|---|
+| `pnl` | `area`, `period?`, `compare?`, `detail?` (`compact`/`full`) | Month and YTD vs last year, budget and the latest forecast; materiality; EBITDA bridge by line and sub-unit; KPIs; year-end landing. Read live; check "Live read = source sheet". |
+| `actual_vs_plan` | `entity` (FinPlan alias), `month?`, `year?`, `basis?`, `forecast?`, `finmax_entity?` | Actual vs Target and the latest forecast in FinPlan, with a FinMax EBITDA reconciliation |
+| `monthly_trend` | `entity?`, `accounts?`, `through?`, `connection?` | Jan→month periodic, a YTD column checked against Accumulated, line chart |
+| `cost_base` | `parent?`, `accounts?`, `period?`, `top?`, `connection?` | Top-N leaf cost centres + other + total |
+| `concept` | `concept`, `period?`, `compare?`, `entity?` | A concept from the library: every block, keys, FinMax basis |
+
+- **`pnl` area:** a business area by name (Wholesale, Business, Technology …) or any FinMax unit below one
+  (`un.SY.5OK_W`, or the bare code `5OK_W`). Consumer and IG (abolished 1 June 2026) are refused with their
+  successors: tell the user and ask which successor(s). Most units have no FinPlan member, so they get last year
+  only (pass the warning on).
+- **Product / profitability questions:** check the business map and concept library (below). A matching concept →
+  recipe `concept`; several family concepts → one answer per family, plus their sum in the reply. No concept:
+  research the members, PROPOSE the blocks (included / estimated with key / left out), save the concept in
+  `knowledge\concepts.json` once the user confirms, then run it.
+
+### 2.5 Checks, findings and commentary
+
+- Report every `checks` value that is not OK and every warning. A `Warning`-severity DIFF is a known definitional
+  difference (FinPlan vs FinMax), not a wrong number.
+- `review` lists findings (Critical / Warning / Info; `knowledge/advisor/findings.md`). Pass Critical ones on first.
+- `material` lists the lines that need a driver. Explain them in `commentary.drivers` (`knowledge/advisor/
+  variance-commentary.md`): `basis: data` with the pull/drill cell as `evidence`, otherwise `basis: hypothesis`,
+  said as "Hypothesis — not verified in data". Never figures from memory.
+- **Report in chat:** the key points; a compact table of the headline lines; cube · POV · period on one line; the
+  checks and findings above; the sheet names; that the user's workbook was **not saved** (session and new files are
+  the MCP's own and are saved).
+
+## 3. Utilities
+
+- **Members:** `sv_find_member(text)`, `sv_members(connection, member, relation)`, `sv_member_info(connection,
+  member)`, `sv_dimensions(connection)` (local atlas of all three cubes, instant). FinMax names are prefix + code:
+  `un.SY.2TEC`, `ac.C30`, `pd.SY.P56`. Entities default to the `un.SY` tree; `un.NOR.*` is the management view.
+  FinPlan uses aliases as shown (`2TEC Technology`, `FY26`, `Target 2025`).
+- **Drill (invoice / journal lines, FinLite only):** `sv_drill(question, cell={'All Accounts': .., 'All Entities':
+  .., 'All Time Periods': ..})`. Hidden browser, never Smart View's own drill-through. One drill at a time across
+  sessions; 60–90 s with the silent sign-in; big cells split themselves. Read `reconciliation` (must be `exact`, or
+  explain the gap) and `profile`, then build the report with `sv_answer` using `{"drill": "d", "where": {...}}`
+  cells. Details: [reference/drill.md](reference/drill.md).
+- **The xl workbench** (any open workbook, no Smart View): `xl_workbooks`, `xl_overview`, `xl_read` to look;
+  `xl_write`, `xl_rows`, `xl_add_sheet`, `xl_format`, `xl_format_sheet` to change (each snapshotted; `xl_changes`,
+  `xl_revert` undo); `xl_trace`, `xl_check` to explain and audit formulas. Never saved by the tools.
+- **Health:** `sv_status` (engine, atlas, sign-in, drill browser), `sv_restart` (restarts only the hidden Excel),
+  `sv_atlas_build` / `sv_atlas_status` / `sv_atlas_changes` (atlas older than 30 days, or after a reorg).
+
+## 4. Sheets it writes
+
+- **`Q<n> Answer`**: the answer in TN report style (key points, table, checks, findings, notes, source, chart).
+  All numbers are live formulas on the source sheets.
+- **`Q<n> FinMax` / `Q<n> FinPlan` / `Q<n> FinLite`**: one source sheet per pull (a value grid; a follow-up
+  re-fetches).
+- **`Q<n> Lines`**: drill lines (Excel table `Lines_Q<n>`).
+- **`Sources`**: one row per pull (fetched, question, cube, POV, route). A user's own unrelated `Sources` sheet
+  pushes ours to `Sources SV`.
+- **Order** is fixed after every answer and drill: all `Q<n> Answer`, the user's other sheets, data per question,
+  `Sources` last. Do not reorder by hand.
+
+## 5. Errors
+
+Every error names one next step. The table of messages (sign-in, hung Login window, `Empty response from provider`,
+busy, rejected members, drill) is in [reference/operations.md](reference/operations.md).
+
+- **Sign-in.** A Login window in the user's Excel needs the user (or the SSO watcher) to click 'Telenor SSO'; the
+  engine says so within about 5 s and never closes the user's Excel. A hung Login window in the engine's own hidden
+  Excel is restarted automatically.
+- **Long calls** send progress notes (`still working: <stage> (n s)`): wait for them, do not call again.
+
+## 6. Rules
+
+### Pick the cube (decided with the user)
+
+- **Actuals only** come from **FinMax** (the ledger, finest detail, FTE `ac.STA20Y`). FinLite is lighter: no FTE and
+  no Functions/Projects/Reserves/Systems.
 - **Budget or forecast only** comes from **FinPlan**.
-- **Actual vs budget/forecast** is done **entirely in FinPlan**, so line definitions match: Actual = version `Working`;
-  Target and the latest `Forecast Q<q><yy>` = version `Final`. Add a reconciliation line to FinMax EBITDA. FinPlan groups
-  accounts differently, for example Technology revenue YTD Sep 26 is 59.8 MNOK in FinMax and 67.2 MNOK in FinPlan, and
-  EBITDA 2025 is 14.16 bn in FinPlan `BANORWAY` against 12.40 bn in FinMax `un.SY` (COGS alone differs by 2.3 bn).
+- **Actual vs budget/forecast** is done **entirely in FinPlan** (Actual = version `Working`; Target and the latest
+  `Forecast Q<q><yy>` = version `Final`), with a reconciliation line to FinMax EBITDA. FinPlan groups accounts
+  differently (Technology revenue YTD Sep 26: 59.8 MNOK FinMax, 67.2 MNOK FinPlan).
 
-## Steps
+### Financial format (sheet and chat)
 
-1. **Classify the request.**
-   - A *lookup* (a member name, status, one number) stays in chat: `sv_find_member`, `sv_members`, `sv_query`.
-   - Anything with a table of numbers is an *analysis*: continue with step 2.
-2. **Scope it.** Do this for product, profitability, business-area and "what does X earn or cost" questions. Call
-   `sv_scope(question)` FIRST. It searches the business map (forretningskart) and the concept library and returns:
-   - matching **concepts**, with their blocks marked booked / estimated (with key) / attributed / not in FinMax;
-   - matching account and product groups, with their booking pattern (product-tagged? reserve? which division?) and pitfalls.
+- **Tables:** full NOK `1 000 000`; negatives `(1 000 000)`; zero `–`; FTE and % with 1 decimal.
+- **Running text:** a minus sign, `−151 328 997`, never double parentheses.
+- **Signs:** keep FinMax signs; costs are negative. Variance = current − comparison (positive = better, for costs
+  too). Variance % = variance / |comparison|. Cost per FTE is shown positive.
+- **Line labels** in English as FinMax shows them (`C30 REVENUES`, `C70 Total Operating Expenses`).
 
-   Then act on what it found:
-   - **A concept matches:** answer with `sv_concept(concept)`. That is one call: every block, the keys and the FinMax basis. Report
-     what was included, what was estimated (and the key used) and what is not in FinMax.
-   - **Several family concepts match** (e.g. "mobilabonnement" = Consumer and Business subscriptions): run `sv_concept`
-     once per family on the same workbook (`target=<workbook>`; each gets its own Q), and give each family plus their
-     sum in the reply. Ask first only if the question clearly means one segment.
-   - **No concept matches:** research the members, using the map hits plus `sv_find_member` / `sv_members` and the archive's
-     revenue/COGS files. PROPOSE the blocks to the user (included / estimated with key / left out). Once they confirm, add the
-     concept to `knowledge\concepts.json` and run `sv_concept`.
-   - **Lookups** (one account, one entity) skip scoping.
-3. **Resolve members** with `sv_find_member` / `sv_members` (atlas of all three cubes). Done when every member came from them.
-   FinMax names are prefix + code: `un.SY.2TEC` (the entity shown as `2TEC Technology (un.SY)`), `ac.C30`, `pd.SY.P56`. Entities default to
-   the `un.SY` tree (Telenor Norge AS); `un.NOR.*` is the management view with IFRS16 units. FinPlan uses aliases as
-   shown (`2TEC Technology`, `FY26`, `Target 2025`).
-4. **Build the analysis.** Use a concept or a template when one fits:
-   - **Business-area P&L** ("P&L for Wholesale", "how is Business doing"): `fin_pnl(area)` FIRST - one call
-     gives month and YTD against last year, budget and the latest forecast, materiality flags, the EBITDA bridge by
-     line and sub-unit, KPIs and the year-end landing, from the local warehouse, with live source sheets and a
-     warehouse = sheet check. Consumer and IG (abolished 1 June 2026) are refused with their successors: tell the
-     user and ask which successor(s). Reply from its key_points, table, flags and warnings (facts with
-     `detail='full'`). The warehouse: `sv_warehouse(status|refresh|rebuild)`; a 'Warehouse = source sheet' DIFF
-     means `sv_warehouse('rebuild', area=<area>)`, then `fin_pnl` again. A **unit below an area** (e.g.
-     `fin_pnl('un.SY.5OK_W')`, or the bare code `5OK_W`) works the same way, read live and never stored; most
-     units have no FinPlan member, so they get last year only (pass the warning on).
-   - `sv_analyse(question, template, params)`. `target` defaults to the session's workbook.
+### P&L chain
 
-     | Template | Params | Delivers |
-     |---|---|---|
-     | `monthly_trend` | `entity`, `accounts?`, `through?` | Jan→month periodic, a YTD column checked against Accumulated, line chart |
-     | `actual_vs_plan` | `entity` (FinPlan alias), `month?`, `year?` | Actual vs Target and the latest forecast, FinMax reconciliation |
-     | `cost_base` | `parent`, `accounts?`, `period?`, `top?` | Top-N leaf cost centres + "other" + total; the full tree is on the data sheet |
+FinMax: C30 + C40S = `C48`; C50S + C60 = `C70`; C48 + C70 = `EBITDA_BOI`; + `C73` = **`EBITDA`**. `C75` is
+depreciation. FTE is `STA20Y` (end-of-period stock: `Accumulated` = level, `Periodic` = the month's change).
+FinPlan: Revenue + COGS = Gross_Profit; + OPEX = EBITDA before Other Items; + Total Other Items = EBITDA. Target
+carries no depreciation.
 
-   - Otherwise build it free-form in **one call**: `sv_ws_build(question, pulls=[{id, connection, rows, columns,
-     pov}], spec)`. Pull cells in the spec use the pull `id`.
-     1. Keep the spec short with shorthands:
-        - `repeat` for one line per month or member: `{"over": "months:Jan..Dec", "line": {"key": "m{i}",
-          "label": "{v}", "cells": [{"pull": "m", "row": [..], "col": ["{v} 26"]}, ...]}}`. Months not pulled yet
-          stay empty.
-        - `{"sum": "m*"}` and chart `"lines": "m*"`.
-     2. Write `key_points` only for interpretation: why it moved, what to check. The server drafts the factual
-        points from the numbers (totals vs comparison, largest increase and decrease) and puts them first.
-        `auto_points: false` turns that off.
-     3. Plan several pulls yourself (this year + last year, FinMax + FinPlan) and explain them afterwards.
-     4. Add the same period last year to P&L and cost questions by default. Ask only when it is genuinely ambiguous, for example which forecast.
-   - A follow-up ("legg til budsjett", "vis også i fjor") extends the same `q`.
-     - For text or layout changes: `sv_ws_answer(q, spec_patch={...}, target=<workbook>)` sends only the change
-       (about 4 s).
-     - For new data: `sv_ws_build(..., q=<q>, target=<workbook>)`.
-   - `sv_ws_pull` + `sv_ws_answer(q, spec)` still work for step-by-step building.
-   - Every result carries `timings` (seconds per stage). Mention an unusually slow stage when you report.
-   - Every result carries `formula_style` (skill `tn-formelstil`). The builder writes SUM over ranges,
-     label-keyed XLOOKUPs and a variance % that is blank when the base is 0. If `formula_style.ok` is false, a
-     `value`/`expr` you put in the spec broke a rule: fix it with `spec_patch` before reporting. LONG_FORMULA
-     warnings on lookups with long FinMax labels are acceptable.
-   - Editing an existing open workbook outside a Smart View answer (fix a formula, add a line, format a sheet,
-     explain a number): use the `xl_*` tools on the same server (`xl_read`, `xl_write`, `xl_trace`, `xl_check`,
-     `xl_format_sheet`, `xl_revert`). They are snapshotted and never save.
-5. **Report in chat.** Done when everything below is written:
-   - the returned key points;
-   - a compact table of the headline lines in financial format;
-   - cube · POV · period on one line;
-   - every `checks` value that is not OK, and every warning;
-   - the sheet names;
-   - that the user's workbook was **not saved**. New analysis files (`target='new'` / `'session'`) are the MCP's own
-     and ARE saved, in the analyser folder (`paths.analyser` in `%LOCALAPPDATA%\smartass\config.toml`).
+### Traps
 
-## Drill-through (invoice / journal lines)
-
-For "what is behind this number" (suppliers, invoices, accruals, allocations) on any FinLite cell, P&L or balance
-sheet account alike (`un.SY` is a valid entity). FinLite only.
-1. `sv_drill(question, cell={'All Accounts': .., 'All Entities': .., 'All Time Periods': ..})` (account and period
-   required; without an entity the top member is drilled, with a warning). Parents and
-   quarters are fine, and big cells (over 20 000 lines) split themselves into months, entities, accounts. It runs
-   in a hidden browser: nothing opens on screen. NEVER use Smart View's own drill execute.
-   - **One drill at a time across sessions.** A lock serialises them; a second session gets "try again": wait and retry.
-   - **Time.** About 60–90 s per drill including the silent SSO login. The headless browser closes after 5 idle
-     minutes, so the next drill pays the login again. Sign-in and page load are capped (about 95 s); the errors then
-     name the next step (see the error table in [reference/operations.md](reference/operations.md)).
-   - **Re-drill.** The same `q` and `id` refreshes the lines table in place. If the result says columns or grid
-     changed, re-run `sv_ws_answer` for that q.
-   - `target='none'` = cache only (no sheets in a workbook).
-   - In the lines table, `Entity` is the cost centre (`un.SY.<cc>`), not the division; per-division totals are in
-     `pieces` when the cell split. Use the column names the drill result returns in `where`.
-2. Read `reconciliation` (must be `exact`, or explain the gap) and `profile`. If `no_supplier` is ~100 % (e.g. asset or
-   accrual journals, `JE_SOURCE` Assets), say there are no suppliers and what the journals are instead. The profile has the top suppliers,
-   accounts, months and journals without a supplier, plus `signs_mixed`.
-3. Build the report with `sv_ws_answer(q, spec, target=<workbook>)` using `{drill: 'd', where: {...}}` cells and
-   a reconciliation block that reads the live `cube_pull`. Pick the sections that answer the question. If
-   `signs_mixed`, use no share column; show gross debit and credit instead.
-4. Report `text_repairs.unfixed` (letters lost in EPM) and offer to add them to `%LOCALAPPDATA%\smartass\text_fixes.json`.
-
-Column glossary, report rules, text repair, timings and a worked example: [reference/drill.md](reference/drill.md).
-
-## Financial format (sheet and chat)
-
-- **Tables:** full NOK `1 000 000`; negatives in parentheses `(1 000 000)`; zero `–`; FTE with 1 decimal; % with 1 decimal.
-- **Running text** (key points, sentences): a minus sign, `−151 328 997`, never double parentheses.
-- **Signs:** keep FinMax signs. Costs are negative. Variance = current − comparison, so positive = better and negative = worse
-  for costs too. Variance % = variance / |comparison|.
-- **Line labels** are in English as FinMax shows them (`C30 REVENUES`, `C70 Total Operating Expenses`).
-
-## P&L chain (FinMax accounts) for checks
-
-C30 + C40S = `C48`. C50S + C60 = `C70`. C48 + C70 = `EBITDA_BOI`. EBITDA_BOI + `C73` = **`EBITDA`**. `C75` is depreciation. FTE is
-`STA20Y`, the end-of-period stock: `Accumulated` gives the level and `Periodic` gives the month's change. Search FTE as "man-years".
-
-FinPlan: Revenue + COGS = Gross_Profit. + OPEX = EBITDA before Other Items. + Total Other Items = EBITDA. Target carries
-no depreciation, so stop at EBITDA.
-
-## Traps
-
-- **History is restated to today's organisation.** The 1 June 2026 reorg emptied `2CON`, `2CWK` and `3WHS_C`, and moved
-  `4REV_W` to `3WHS_W`. Old extracts match on leaves and on the `un.SY` total, not on division splits. `sv_atlas_changes` lists
-  moved, added and removed members between atlas builds.
-- **Use the last closed month.** `Current Reporting Month` resolves to it (Sep 26 on 13.10.2026). The month after it is open
-  and carries reversals.
+- **History is restated to today's organisation.** The 1 June 2026 reorg emptied `2CON`, `2CWK` and `3WHS_C` and
+  moved `4REV_W` to `3WHS_W`. Old extracts match on leaves and the `un.SY` total, not on division splits.
 - **A `Yr` member before year-end is year-to-date.** The January Dec cut is preliminary.
-- **Archive `GL` sheets are pasted values**, so rebuild them instead of refreshing.
-- **The archive is protected.** Files in `Analyse (Telenor Norge AS) - Produktregnskapet\<year>\` are refused unless the user
-  explicitly allows it for that request (`allow_archive=true`).
-- **Wrong layout.** If Smart View returns a layout that differs from the request (moved rows), the pull fails loudly. Never
-  work around that with fixed cell references.
-- **Rejected members.** One member Smart View rejects (rc=1000) no longer sinks a pull: the engine isolates it, leaves it
-  out and says so in `warnings`. Report those lines as missing.
-- **Error cells.** Answers are scanned for `#NoAccess`, `#Invalid`, `#VALUE!` and the like, on the answer sheet and its
-  data sheets. A warning such as `error cells on 'Q3 FinMax': 12 x #NoAccess (first: B7, ...)` or `formula error on line
-  'x'` means those numbers are not usable: say so, never report them as zero. `sv_analyse` checks every template
-  member against the atlas (and live for members the atlas lacks) before it pulls, and names a wrong one.
-- **Input shapes.** `rows`/`columns` may be `[{dimension, members}]` or `{dimension: [members]}`.
-- **Sign-in.** If a tool says the EPM login dialog is open or Smart View is not signed in, the USER has to click
-  'Telenor SSO' in their Excel (you cannot): tell them, then retry once. Repeated login prompts usually mean another
-  Office app (often PowerPoint) holds Smart View's WebView2: ask them to close it.
-- **Member details:** `sv_member_info(connection, member)`.
-- **Long calls** send progress notes (`still working: <stage> (n s)`) every 10 s: wait for them, do not call again.
-- **FinPlan KPIs.** Read volumes, ARPU and percentages as `Periodic` per month; `Accumulated` sums the months for many
-  of them (Mobile Subscriptions YTD Sep = 78 M against a stock of 8.7 M). Actual volumes are not in FinPlan for
-  `BANORWAY`, only Target and forecast.
+- **The archive is protected.** Files under `Analyse (Telenor Norge AS) - Produktregnskapet\<year>\` are refused
+  unless the user explicitly allows it for that request (`allow_archive=true`). Archive `GL` sheets are pasted values.
+- **Rejected members.** A member Smart View rejects is left out and named in `warnings`: report those lines as
+  missing. An unknown member: find the right name with `sv_find_member`.
+- **Error cells** (`#NoAccess`, `#Invalid`, `#VALUE!`) are reported as warnings: those numbers are missing, never
+  zero.
+- **FinPlan KPIs** (volumes, ARPU, %) are read `Periodic` per month; `Accumulated` sums the months for many of them.
+  Actual volumes are not in FinPlan for `BANORWAY`.
 
-## Business map (forretningskart)
+### Business map (forretningskart)
 
-The repo's `knowledge\` folder (plus `packs\<pack>\knowledge\` for enabled packs) holds what the business MEANS in FinMax and FinPlan. Each area is an Excel review
-sheet and a JSON copy that `sv_scope` reads:
+The repo's `knowledge\` folder (plus `packs\<pack>\knowledge\`) holds what the business MEANS in FinMax and FinPlan;
+the gate reads it.
 
 | Area | File | Contents |
 |---|---|---|
-| 1. Accounts and bookings | `accounts_map.json` | 234 P&L groups: meaning, product/reserve tagging, division, pitfalls |
-| 2. Products | `products_map.json` | 496 pd.SY groups: P&L, selling division, Produktregnskap codes and family |
-| 3. Organisation | `org_map.json` | All un.SY entities: division 2026 vs 2025 (reorg), cost base, FTE, pitfalls |
-| 4. FinPlan | `finplan_map.json` | 654 P&L, KPI and ratio lines: actual, Target, forecast, FinMax equivalent, reading rules |
-| Concepts | `concepts.json` | `splitt` (hand-made, with keys) + 22 product families `fam_*` (direct contribution, booked only) |
+| Accounts and bookings | `accounts_map.json` | 234 P&L groups: meaning, product/reserve tagging, division, pitfalls |
+| Products | `products_map.json` | 496 pd.SY groups: P&L, selling division, Produktregnskap codes and family |
+| Organisation | `org_map.json` | All un.SY entities: division 2026 vs 2025 (reorg), cost base, FTE, pitfalls |
+| FinPlan | `finplan_map.json` | 654 P&L, KPI and ratio lines: actual, Target, forecast, FinMax equivalent |
+| Concepts | `concepts.json` | `splitt` (hand-made, with keys) + 22 product families `fam_*` (booked only) |
 
-- **Review state.** All four maps were approved by the user on 15.10.2026 (`review_status.json`). A rebuild flags only
-  members added since then ("Ny siden godkjenning – ikke gjennomgått"); ask the user about those. Record a new approval with
-  `python review.py approve <accounts|products|org|finplan> "<comment>"`.
-- **Rebuilds.** Regenerate with `knowledge\build_*_map.py` after the monthly atlas refresh, then `build_family_concepts.py`
-  (rewrites only `source: auto-familie` concepts). List new or moved members for the user.
-- **Family concepts.** Each `fam_*` uses the highest pd.SY nodes whose groups all belong to that family (no double
-  counting; 91 % of FY25 revenue covered) and checks revenue + COGS + opex = EBITDA before other items. Re-running
-  `sv_concept` with `q=` replaces that question's data sheets.
-- **Key facts from the map.**
-  - Revenue is product-tagged; salaries (C50S) are never product-tagged.
-  - Depreciation is about 30 % product-tagged, mostly in Technology.
-  - Consumer fixed broadband/TV has no fixed Produktregnskap code (it is split with FinPlan keys).
-  - The Functions dimension is unused in Telenor Norge.
+- Revenue is product-tagged; salaries (C50S) are never; depreciation about 30 %, mostly in Technology. Consumer
+  fixed broadband/TV has no fixed Produktregnskap code. The Functions dimension is unused.
+- Rebuild the maps with `knowledge\build_*_map.py` after the monthly atlas refresh, then
+  `build_family_concepts.py`. Members added since the user's approval are flagged: ask the user about those, and
+  record approval with `python review.py approve <accounts|products|org|finplan> "<comment>"`.
 
-Recipes for the team's recurring extracts (GL extract, revenue/COGS, depreciation control, FinLite special costs), each
-reconciled against the 2025 archive, are in [reference/recipes.md](reference/recipes.md). Top levels of every dimension
-are in [reference/cubes.md](reference/cubes.md). Errors, SSO, the watchdog, files and logs, and tests are in
-[reference/operations.md](reference/operations.md).
+The team's recurring extracts (GL extract, revenue/COGS, depreciation control, FinLite special costs) as pull specs:
+[reference/recipes.md](reference/recipes.md). Top levels of every dimension: [reference/cubes.md](reference/cubes.md).
+Operations, files, logs and errors: [reference/operations.md](reference/operations.md).
