@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from smartview_mcp import svhttp, userexcel
-from smartview_mcp.core import contract, source
+from smartview_mcp.core import contract, progress, source
 from smartview_mcp.grid import Axis, Layout
 from smartview_mcp.host import InputError
 
@@ -65,3 +65,26 @@ def test_http_success_writes_the_sheet_and_names_later_pulls_by_id(monkeypatch):
     monkeypatch.setattr(source.svhttp, "shared", lambda: SimpleNamespace(fetch=lambda *a: f))
     monkeypatch.setattr(source, "write", lambda t, q, title, pin, fetched: (title, fetched))
     assert source.pull(None, None, 2, 1, PIN) == ("Q2 FinMax m", f)
+
+
+SPEC = {"version": 1, "question": "EBITDA Sep 26 for Business", "gate": {"outcome": "clear"},
+        "assumptions": ["Actual, NOK"],
+        "pulls": [{"id": "m", "connection": "FinMax",
+                   "rows": [{"dimension": "All Accounts", "members": ["ac.EBITDA"]}],
+                   "columns": [{"dimension": "All Time Periods", "members": ["Sep 26"]}]}],
+        "layout": {"title": "Business — EBITDA", "columns": [{"header": "Sep 26"}],
+                   "sections": [{"lines": [{"key": "e", "label": "EBITDA",
+                                            "cells": [{"pull": "m", "row": ["ac.EBITDA"], "col": ["Sep 26"]}]}]}]}}
+
+
+def test_skeleton_shows_title_question_status_and_assumptions():
+    rows = progress.skeleton(contract.validate(SPEC), "fetching 1 source grid ...")
+    assert rows[0] == "Business — EBITDA" and rows[1] == "Question: EBITDA Sep 26 for Business"
+    assert rows[progress.STATUS_ROW - 1] == "Status: fetching 1 source grid ..."
+    assert rows[-2:] == ["Assumptions", "•  Actual, NOK"]
+
+
+def test_skeleton_of_a_proxy_answer_says_what_is_answered_instead():
+    spec = contract.validate({**SPEC, "gate": {"outcome": "infeasible", "reason": "no product dimension",
+                                               "proxy": "contribution margin per segment"}})
+    assert progress.skeleton(spec, "x")[-1] == "Answered instead: contribution margin per segment"
