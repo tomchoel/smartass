@@ -69,6 +69,22 @@ Outcomes:
 Answers to clarifying questions may be saved as **learned defaults** in a readable `preferences.toml`, so the
 gate asks once.
 
+Implemented (phase 4) in `core/scope.py`, exposed as the tool `sv_gate(question)`; the procedure the agent follows is
+`knowledge/advisor/gate.md`.
+- **Balanced policy:** ask only when the gap changes the number and has no safe convention; otherwise proceed and
+  state the convention as an assumption (no period → YTD to the last closed month; no entity → Telenor Norge; no
+  scenario → actual, or forecast for a full year; NOK and FinMax signs). At most 3 questions, in checklist order.
+- **Infeasible beats ambiguous:** actuals for an open month, a non-NOK currency, or a measure at a grain the
+  capability map rejects (e.g. EBITDA per product) → infeasible with a reason and a proxy.
+- Warnings, not questions: abolished entities (with successors) and units with no FinPlan member (last year only).
+- The closed month comes from the cache or HTTP only; the gate never starts Excel (≤ 0.05 s per call).
+- **Learned defaults:** `sv_remember(item, phrase, value)` writes `%LOCALAPPDATA%\smartass\preferences.toml`
+  (`paths.preferences`; one file per user, readable, editable by hand; promotion to the team catalog later). Items:
+  measure, period ("this year" → ytd / fy), scenario, entity; values are validated against the catalog.
+- English questions, assumptions and sheets; Norwegian synonyms are understood.
+- Measured on the gate benchmark (B10, B11, T01–T10): 12/12, false-go 0, needless-ask 0
+  (`docs/audit/2026-11-02-bench-core-gate.md`).
+
 ### 3.2 pull
 
 Fetch through the Smart View HTTP provider (`svhttp.py`; transport = hidden Edge with Telenor SSO). Write each
@@ -120,6 +136,17 @@ step 2; `core/pipeline.py` stores the raw spec (step 3). Tool: `sv_answer` (`too
   pulled data (drill to sub-accounts/cost centres) first; informed hypotheses are allowed but labelled
   "Hypothesis — not verified in data".
 
+Implemented (phase 4) in `core/commentary.py`; vendored text in `knowledge/advisor/` (`variance-commentary.md`,
+`findings.md`, `NOTICE.md`):
+- **The engine flags, the agent explains.** `pipeline.run` returns `material` (the flagged lines with value,
+  comparison, delta, pct); the agent writes `commentary.drivers` (`line`, `text`, `basis` = data | hypothesis), and
+  the drivers appear in the answer's key points.
+- A line is material when the first `var` cell passes the catalog threshold (pct with a NOK floor, and/or absolute,
+  per `rule`). Stock lines (FTE) are tested on pct only; aux lines are skipped; a zero comparison is material only
+  on the absolute threshold.
+- Findings: a material line without a driver → **Warning**; an always-comment line (revenue, EBITDA, FTE) without a
+  driver → **Info**. `Driver.line` must name a layout line (validated in `contract.py`).
+
 ## 4. The contract: answer spec v1
 
 The answer spec is the single contract that the agent writes, recipes produce, follow-ups patch, recurring reports
@@ -146,6 +173,18 @@ Defined as pydantic models in `engine/smartview_mcp/core/contract.py`; the JSON 
 One place for meaning: `knowledge/catalog.toml` (metrics, areas, scenarios, KPIs, materiality) extended with a
 capability map — which measures exist at which granularity in which cube, Norwegian + English synonyms, and proxy
 rules for infeasible asks.
+
+Implemented (phase 4): `knowledge/capabilities.toml` (measures with EN/NO synonyms, vague measures with their
+options, grains with the measures they support and the proxy, currency words) read by `core/semantic.py`; periods
+by `core/period.py`; entities, scenarios and materiality stay in `catalog.toml`; concept matches via
+`concepts.scored()`. The map encodes these verified cube facts (atlas 2026-10-13, live `sv_members` 2026-11-02):
+- No customer dimension in any cube.
+- Products: FinMax `All Products` (19 755 members), FinPlan `All Products` (243). Opex is not allocated to
+  products; the full cost per product exists only in Produktregnskapet (annual).
+- Currency: FinMax `All Currencies` has NOK, Local and FX Rates; no EUR reporting member.
+- FinPlan Entity has 337 members (business areas and some units); units below them have no FinPlan member.
+- FinMax scenarios: Actual, Target, ForecastQ1–Q4, Act v Tgt, Act Dev Last Yr / Last Per, Act v FCQ1–Q4.
+  FinPlan scenarios: Actual, Target, Forecast Qnyy, Forecast Running; version Final / Working.
 
 ## 6. What is reused, frozen, dropped
 

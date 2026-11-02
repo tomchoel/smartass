@@ -98,6 +98,7 @@ Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartas
 | Results (`save_xlsx`, refreshed copies) | the output folder (`paths.output` in `%LOCALAPPDATA%\smartass\config.toml`) |
 | Query log (audit trail, JSONL) | `%LOCALAPPDATA%\smartass\logs\queries.jsonl` (`paths.query_log`) |
 | Run log (one line per `sv_answer`, JSONL; also the workbook's hidden `_runlog` sheet) | `%LOCALAPPDATA%\smartass\logs\runs.jsonl` (`paths.run_log`) |
+| Learned defaults (written by `sv_remember`, read by `sv_gate`; readable TOML, edit or delete by hand) | `%LOCALAPPDATA%\smartass\preferences.toml` (`paths.preferences`) |
 | Server log | `%LOCALAPPDATA%\smartass\logs\server.log` |
 | SSO watcher log | `%LOCALAPPDATA%\smartass\logs\sso_watcher.log` |
 | Atlas | `%LOCALAPPDATA%\smartass\atlas.db` |

@@ -29,6 +29,14 @@ imports the package. Code changes reload by themselves on the next call. If `sv_
 from the tool list, or `sv_status` lacks `behind_reload_proxy`, the server predates the reload relay. Ask the user to type
 `/mcp` → smartass → Reconnect once, then continue with the tools.
 
+## New pipeline (in rework, beside the tools below)
+
+`sv_gate(question)` → `sv_answer(spec)`. Call `sv_gate` first: it runs the fixed scope checklist and returns
+`clear` (proceed; state its assumptions), `ambiguous` (ask its 1–3 questions in one message, pull nothing; offer
+`sv_remember` for the answers) or `infeasible` (say why, offer its proxy). Follow its `next` text and
+`knowledge/advisor/gate.md`. `sv_answer` returns `material` lines; explain them as `commentary.drivers` (data first,
+otherwise "Hypothesis — not verified in data"). The full skill rewrite comes later; until then the steps below apply.
+
 ## Pick the cube (decided with the user)
 
 - **Actuals only** come from **FinMax**: the ledger, finest detail, FTE (`ac.STA20Y`). FinLite is a lighter actuals cube with no
