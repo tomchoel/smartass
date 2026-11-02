@@ -44,14 +44,14 @@ NUM_KINDS = {"heltall", "tall1", "prosent1", "prosent", "faktor"}
 CHART_TYPES = {"column": 51, "bar": 57, "line": 4, "waterfall": 119}   # xlColumnClustered, xlBarClustered, xlLine, xlWaterfall
 
 
-def answer_sheet(t: Target, q: int, suffix: str = "Svar"):
-    """Create 'Q<n> <suffix>' before the question's data sheets, or clear it for a rebuild (follow-up)."""
+def answer_sheet(t: Target, q: int, suffix: str = "Svar", owned: dict | None = None):
+    """Create 'Q<n> <suffix>' before the question's data sheets, or clear it for a rebuild (follow-up): only the
+    tool-owned block `owned` ({"rows", "cols"}) and smartass charts, or everything when no block is stored."""
+    from .core import owned as owned_mod
     name = f"Q{q} {suffix}"
     for s in list(t.wb.Worksheets):
         if s.Name == name:
-            com(lambda: s.Cells.Clear())
-            for co in list(com(lambda: s.ChartObjects())):
-                com(co.Delete)
+            owned_mod.clear(s, owned)
             return s
     group = [s for s in t.wb.Worksheets if s.Name.startswith(f"Q{q} ")]
     if group:
@@ -73,10 +73,11 @@ def _expr_to_formula(expr: str, col_letter: str, rows_by_key: dict) -> str:
     return "=" + re.sub(r"[A-Za-z_][A-Za-z0-9_]*", rep, expr)
 
 
-def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull], suffix: str = "Svar") -> dict:
+def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull], suffix: str = "Svar",
+          owned: dict | None = None) -> dict:
     from .userexcel import fast_excel
     with fast_excel(t.app):
-        res = _build(t, q, spec, pulls, suffix)
+        res = _build(t, q, spec, pulls, suffix, owned)
     from .userexcel import wait_calculated
     from .timing import stage
     with stage("calculate + read back"):
@@ -97,7 +98,8 @@ def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull], suffix: str = "
     with stage("formula check (tn-formelstil)"):
         formula_style = fx.check(fx.sheet_formulas(ws, com))
     return {"sheet": ws.Name, "values": values, "checks": status, "warnings": res["warnings"], "lint": res["lint"],
-            "formula_errors": errors, "error_warnings": error_warns, "formula_style": formula_style}
+            "formula_errors": errors, "error_warnings": error_warns, "formula_style": formula_style,
+            "extent": res["_extent"]}
 
 
 # ------------------------------------------------------------------ error cells (answer + its data sheets)
@@ -236,19 +238,32 @@ def _pull_grids(t: Target, pulls: dict) -> dict:
     return out
 
 
-def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Svar") -> dict:
+CHART_COLS = 10         # a chart sits one column right of the table and is 480-520 pt (~8 standard columns) wide
+
+
+def _extent(r: int, ncol: int, chart: bool) -> dict:
+    """The tool-owned block: A1 to the last written row (r - 1) and the last value column, plus the chart's columns
+    when there is one, so user content is not put under a chart that a redraw deletes."""
+    return {"rows": r - 1, "cols": FIRST_COL + ncol - 1 + (CHART_COLS if chart else 0)}
+
+
+def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Svar", owned: dict | None = None) -> dict:
     """Write, style and chart the answer sheet (inside fast_excel: no redraw, manual calculation)."""
     from . import styling
+    from .core import owned as owned_mod
     from .timing import stage
+    chart = bool(spec.get("chart"))
     with stage("prepare sheet"):
-        ws = answer_sheet(t, q, suffix)
+        ws = answer_sheet(t, q, suffix, owned)
         com(ws.Activate)
     with stage("write cells"):
-        out = _write(t, q, spec, pulls, ws, suffix)
+        out = _write(t, q, spec, pulls, ws, suffix, make_room=lambda new: owned_mod.make_room(
+            ws, owned, {"rows": new["rows"], "cols": new["cols"] + (CHART_COLS if chart else 0)}))
     rows_meta, plan, rows_by_key, checks, cols, ncol, last_col, header_row, r, warnings = out
+    extent = _extent(r, ncol, chart)
     longest = max([len(str(ln.get("label", ""))) for _, ln, _ in plan if isinstance(ln, dict) and "cells" in ln] +
                   [len(f"{c['label']} — {cols[0].get('header', '')}") for c in checks if "static" not in c] + [40])
-    roles = {"last_col": last_col, "label_cols": ["B"], "freeze_rows": header_row,
+    roles = {"last_col": last_col, "label_cols": ["B"], "freeze_rows": header_row, "last_row": extent["rows"],
              "col_widths": {"A": 2.5, "B": min(80, max(46, longest + 4)), f"C:{last_col}": 17}, "rows": rows_meta}
     t.status(f"formaterer 'Q{q} {suffix}' i TN-rapportstil ...")
     with stage("style (tn-rapportstil)"):
@@ -262,7 +277,8 @@ def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Svar") -> 
             except Exception as e:   # noqa: BLE001 - a chart must never break the answer
                 warnings.append(f"chart not created: {e}")
     return {"_ws_name": ws.Name, "_r": r, "_ncol": ncol, "_rows_by_key": rows_by_key, "_rows_meta": rows_meta,
-            "_trace": cell_trace(plan, rows_by_key, pulls, ncol), "warnings": warnings, "lint": lint}
+            "_trace": cell_trace(plan, rows_by_key, pulls, ncol), "warnings": warnings, "lint": lint,
+            "_extent": extent}
 
 
 class _Cells:
@@ -302,8 +318,9 @@ class _Cells:
                 warnings.append(f"{label or f'row {r}'}: {e}")
 
 
-def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Svar"):
-    """All answer cells (title, key points, lines, checks, notes); returns the layout for styling."""
+def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Svar", make_room=None):
+    """All answer cells (title, key points, lines, checks, notes); returns the layout for styling. make_room(extent)
+    is called with the block about to be written ({"rows", "cols"}) just before the cells go to the sheet."""
     t.status(f"bygger svar-arket 'Q{q} {suffix}' ...")
     cols = spec.get("columns") or []
     if not cols:
@@ -444,6 +461,8 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Svar")
     if spec.get("source"):
         put(r, 2, spec["source"]); rows_meta.append({"row": r, "kind": "note"}); r += 1
 
+    if make_room:
+        make_room({"rows": r - 1, "cols": FIRST_COL + ncol - 1})
     buf.flush(ws, warnings)
     used = {m["row"] for m in rows_meta}
     for blank in range(1, r):
@@ -451,6 +470,16 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Svar")
             rows_meta.append({"row": blank, "kind": "blank"})
     rows_meta.sort(key=lambda m: m["row"])
     return rows_meta, plan, rows_by_key, checks, cols, ncol, last_col, header_row, r, warnings
+
+
+def _named(shape):
+    """Name the chart so a redraw deletes it and only it (owned.drop_charts); user charts keep their names."""
+    from .core.owned import CHART_NAME
+    try:
+        shape.Name = CHART_NAME
+    except Exception:   # noqa: BLE001 - an unnamed chart is only deleted by a full clear
+        pass
+    return shape
 
 
 def _chart(ws, ch: dict, rows_by_key: dict, header_row: int, ncol: int):
@@ -484,7 +513,7 @@ def _chart(ws, ch: dict, rows_by_key: dict, header_row: int, ncol: int):
     left = ws.Cells(header_row, FIRST_COL + ncol + 1).Left
     top = ws.Cells(header_row, 2).Top
     try:
-        shape = ws.Shapes.AddChart2(-1, xl_type, left, top, 480, 300)
+        shape = _named(ws.Shapes.AddChart2(-1, xl_type, left, top, 480, 300))
         if xl_type == 119:
             shape.Chart.SetSourceData(ws.Range(f"{xvalues},{values}") if ":" in values else ws.Range(values))
             chart = shape.Chart
@@ -504,7 +533,7 @@ def _chart(ws, ch: dict, rows_by_key: dict, header_row: int, ncol: int):
             shape.Delete()
         except Exception:   # noqa: BLE001
             pass
-        shape = ws.Shapes.AddChart2(-1, 51, left, top, 480, 300)
+        shape = _named(ws.Shapes.AddChart2(-1, 51, left, top, 480, 300))
     chart = shape.Chart
     while chart.SeriesCollection().Count:
         chart.SeriesCollection(1).Delete()
@@ -540,7 +569,7 @@ def _multi_chart(ws, ch: dict, rows_by_key: dict, header_row: int, ncol: int, xl
     xvalues = ref("B")
     left = ws.Cells(header_row, FIRST_COL + ncol + 1).Left
     top = ws.Cells(header_row, 2).Top
-    shape = ws.Shapes.AddChart2(-1, 51 if xl_type == 119 else xl_type, left, top, 520, 300)
+    shape = _named(ws.Shapes.AddChart2(-1, 51 if xl_type == 119 else xl_type, left, top, 520, 300))
     chart = shape.Chart
     while chart.SeriesCollection().Count:
         chart.SeriesCollection(1).Delete()

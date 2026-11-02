@@ -322,7 +322,10 @@ def apply_report(ws, roles: dict) -> list[str]:
     widths.update({c: w for c, w in _parse_widths(roles.get("col_widths", {})).items() if c <= last})
     rows = {int(r["row"]): r for r in roles["rows"]}
     ur = _get(ws, "UsedRange")
-    last_row = max(max(rows), _get(ur, "Row") + _get(ur, "Rows", "Count") - 1)
+    if roles.get("last_row"):              # the tool-owned block: never re-style the user's rows below it
+        last_row = max(max(rows), int(roles["last_row"]))
+    else:
+        last_row = max(max(rows), _get(ur, "Row") + _get(ur, "Rows", "Count") - 1)
 
     raw = _get(_rng(ws, 1, 1, last_row, last), "Value2")
     if not isinstance(raw, tuple):
