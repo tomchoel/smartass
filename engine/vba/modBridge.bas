@@ -130,6 +130,17 @@ fail:
     B_RetrieveRange = VbaErr("RetrieveRange")
 End Function
 
+' Smart View's Refresh on ONE sheet (the active one): recalculates its HsGetValue functions, or retrieves its ad hoc
+' grid. Read-only, like the Refresh button.
+Public Function B_RefreshSheet(ByVal sheetName As String) As String
+    On Error GoTo fail
+    Ws(sheetName).Activate
+    B_RefreshSheet = St(HypMenuVRefresh())
+    Exit Function
+fail:
+    B_RefreshSheet = VbaErr("RefreshSheet")
+End Function
+
 Public Function B_ZoomIn(ByVal sheetName As String, ByVal addr As String, ByVal level As Long, ByVal across As Boolean) As String
     On Error GoTo fail
     B_ZoomIn = St(HypZoomIn(sheetName, Ws(sheetName).Range(addr), level, across))

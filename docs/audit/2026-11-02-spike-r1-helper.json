@@ -1,0 +1,52 @@
+{
+ "spike": "R1",
+ "when": "2026-11-02T10:36:04",
+ "http_s": 7.62,
+ "dims_not_in_formula": [],
+ "formula_dims_not_in_cube": [],
+ "cells": 490,
+ "open_workbook_s": 57.91,
+ "write_s": 0.98,
+ "before_refresh": {
+  "text '#NEED_REFRESH'": 490
+ },
+ "connect_mode": "helper",
+ "connect": {
+  "sheet": "_sv",
+  "status": "OK",
+  "attempts": 1,
+  "s": 0.19,
+  "dialogs": []
+ },
+ "refresh_1": {
+  "status": "OK",
+  "s": 1.27,
+  "dialogs": [],
+  "kinds": {
+   "number": 490
+  },
+  "cells_differing": 0
+ },
+ "refresh_2": {
+  "status": "OK",
+  "s": 0.74,
+  "dialogs": [],
+  "kinds": {
+   "number": 490
+  },
+  "cells_differing": 0
+ },
+ "reopen": {
+  "s": 1.69,
+  "kinds": {
+   "number": 490
+  },
+  "cells_differing": 0
+ },
+ "go": {
+  "refresh_lt_15s": true,
+  "equals_http": true,
+  "no_dialogs": true,
+  "status_ok": true
+ }
+}

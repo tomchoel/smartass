@@ -1,0 +1,46 @@
+{
+ "spike": "R2",
+ "when": "2026-11-02T10:20:40",
+ "pulls": {
+  "pnl": {
+   "connection": "FinMax",
+   "cells": 55,
+   "cold_s": 7.31
+  },
+  "fpa": {
+   "connection": "FinPlan",
+   "cells": 63,
+   "cold_s": 5.11
+  },
+  "fpp": {
+   "connection": "FinPlan",
+   "cells": 35,
+   "cold_s": 0.08
+  },
+  "fte": {
+   "connection": "FinMax",
+   "cells": 21,
+   "cold_s": 0.11
+  },
+  "stress": {
+   "connection": "FinMax",
+   "cells": 1610,
+   "cold_s": 0.17
+  }
+ },
+ "cold_s": 12.78,
+ "warm_s": [
+  0.56,
+  0.55,
+  0.56
+ ],
+ "warm_median_s": 0.56,
+ "parallel_s": 0.49,
+ "parallel_same": true,
+ "total_cells": 1784,
+ "go": {
+  "warm_lt_10s": true,
+  "parallel_safe": true,
+  "idle_ok": null
+ }
+}

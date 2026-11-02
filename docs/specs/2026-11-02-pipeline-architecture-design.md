@@ -36,8 +36,8 @@ Principles, in priority order:
 question ─► scope ─────────────► pull ─────────────────► answer ─────────────► check
             fixed checklist       svhttp fetch            answer spec (stored)   reconciliation
             capability map        → source sheet          skeleton first         formula errors
-            clear │ ask │ proxy     (HsGetValue grid,     one-block render       sheet = fetch
-            assumptions             values pre-filled)    formulas only          findings table
+            clear │ ask │ proxy     (value grid +         one-block render       sheet = fetch
+            assumptions             provenance header)    formulas only          findings table
             draft answer spec     one-block write         follow-up = patch      variance commentary
 ```
 
@@ -72,13 +72,21 @@ gate asks once.
 ### 3.2 pull
 
 Fetch through the Smart View HTTP provider (`svhttp.py`; transport = hidden Edge with Telenor SSO). Write each
-source sheet into the session workbook in **one block**. Source sheet form, decided by risk spike R1:
-- **B (preferred):** HsGetValue formula grid with values pre-filled from the fetch. Every cell carries its exact POV;
-  Smart View refresh keeps it live.
-- **A (fallback):** Smart View ad-hoc grid via COM.
+source sheet into the session workbook in **one block**. Source sheet form, decided after risk spike R1
+(`docs/audit/2026-11-02-risk-spikes.md`; HsGetValue formulas written into live Excel show `#NEED_REFRESH` until
+Smart View refreshes them, so they cannot be pre-filled from the fetch):
+- **C (default):** value grid written from the HTTP fetch (0.02–0.4 s). No Excel Smart View login on the critical
+  path. The pull spec is stored in the workbook; "refresh" = `pull` re-fetches over HTTP and rewrites the block.
+- **B (on demand):** "make Smart View-refreshable" converts a source sheet to an HsGetValue formula grid (about
+  2.3 s) when Excel's own Smart View is signed in; the engine connects the private connection on a hidden helper
+  sheet first, because Smart View Refresh does not connect.
+- **A (fallback):** Smart View ad-hoc grid via COM, only when svhttp fails.
 
-Each source sheet has a provenance header: cube, POV, fetch time, route. COM retrieve stays the fallback when
-svhttp fails.
+Each source sheet has a provenance header: cube, POV, fetch time, route (HTTP / HsGetValue / ad hoc).
+
+**Excel login hardening** (applies to B and A): detect a stuck or unresponsive Smart View Login window or the
+"Empty response from provider" state within seconds, tell the user, and restart only the engine's own Excel —
+never the user's.
 
 ### 3.3 answer
 

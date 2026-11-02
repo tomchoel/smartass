@@ -1138,3 +1138,25 @@ def quit_owned_excel(pid: int, scratch) -> None:
     if pid not in engine_excel_pids(scratch):
         raise AssertionError(f"Excel {pid} is not owned by the matrix")
     _quit_scratch_excel(_PsProc(pid))
+
+
+def close_scratch(t) -> None:
+    """Spike cleanup: close the scratch workbook, quit its Excel if nothing but add-ins is left open (an Excel the
+    spike started; a user's Excel always has their own books), then delete the file (retried: Excel/OneDrive let go
+    of it a moment after the close)."""
+    from smartview_mcp.userexcel import com
+    path = Path(str(t.path))
+    app = t.app
+    com(lambda: t.wb.Close(False))
+    try:
+        if all(com(lambda: wb.IsAddin) for wb in com(lambda: list(app.Workbooks))):
+            com(app.Quit)
+    except Exception:   # noqa: BLE001 - Excel may already be gone
+        pass
+    for _ in range(20):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            time.sleep(0.5)
+    print(f"cleanup: could not delete {path.name}")
