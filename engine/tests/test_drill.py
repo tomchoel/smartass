@@ -447,6 +447,25 @@ def test_page_through_safety_cap_when_has_more_never_ends(monkeypatch):
     assert len(items) == 81 + 10 and len(calls) == 11
 
 
+def test_a_piece_up_to_the_split_size_is_one_getdata_call():
+    """EPM's offset pages have no stable order: a 623-line cell paged by 500 came back with duplicates and a
+    different sum each time (measured 02.11.2026). So any piece the split allows is fetched in ONE call."""
+    from urllib.parse import parse_qs, urlsplit
+
+    from smartview_mcp import config
+    from smartview_mcp.drill_browser import _page_url, page_through
+    n, offsets = config.DRILL_SPLIT_AT, []
+
+    def post(off):
+        limit = int(parse_qs(urlsplit(_page_url("https://x/aif/getData?limit=50&offset=0&q=1", off)).query)["limit"][0])
+        offsets.append(off)
+        got = min(limit, n - off)
+        return 200, json.dumps({"responsePayload": {"items": [{"AMOUNTX": "-1"}] * got, "totalResults": n,
+                                                    "hasMore": off + got < n}})
+    items, total = page_through(post, config.DRILL_MAX_LINES)
+    assert len(items) == n and offsets == [0]
+
+
 def test_page_through_limit_holds_without_total():
     from smartview_mcp.drill_browser import TooManyLines, page_through
     post, _ = _pages(None, [500] * 10, has_more_always=True, include_total=False)
@@ -1356,10 +1375,11 @@ def test_sv_drill_error_text_is_redacted(monkeypatch):
 
 def test_page_url_replaces_only_limit_and_offset():
     from urllib.parse import parse_qs, urlsplit
+    from smartview_mcp import config
     from smartview_mcp import drill_browser as db
     u = db._page_url("https://epm/aif/ui/model/drilldown/getData?limit=25&offset=0&locale=nb&x=a%20b", 1500)
     assert u.startswith("https://epm/aif/ui/model/drilldown/getData?")
-    assert parse_qs(urlsplit(u).query) == {"limit": ["500"], "offset": ["1500"], "locale": ["nb"], "x": ["a b"]}
+    assert parse_qs(urlsplit(u).query) == {"limit": [str(config.DRILL_PAGE)], "offset": ["1500"], "locale": ["nb"], "x": ["a b"]}
 
 
 def test_drill_link_reports_a_failed_status(monkeypatch):

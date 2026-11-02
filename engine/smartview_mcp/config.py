@@ -205,8 +205,10 @@ DRILL_CHANNELS = tuple(c.strip() for c in (_ch.split(",") if _ch else _checked(a
 DRILL_PROFILE = SVKIT / "drill_edge"              # Edge profile + lock anchor; other channels: drill_edge_<channel>
 DRILL_LAUNCH_TRIES = 2                             # per channel
 DRILL_DB = SVKIT / "drill.db"
-DRILL_PAGE = 500                                   # rows per getData call (the page's own size)
-DRILL_SPLIT_AT = int(os.environ.get("SV_DRILL_SPLIT_AT", "20000"))
+DRILL_PAGE = 5000                                  # rows per getData call: EPM's offset pages have no stable order
+                                                   # (a 623-line cell paged by 500 gave duplicates and a different sum
+                                                   # each time, 02.11.2026), so a piece must fit in ONE call
+DRILL_SPLIT_AT = min(DRILL_PAGE, int(os.environ.get("SV_DRILL_SPLIT_AT", str(DRILL_PAGE))))
 DRILL_MAX_LINES = int(os.environ.get("SV_DRILL_MAX_LINES", "300000"))
 DRILL_XL_FULL = int(os.environ.get("SV_DRILL_XL_FULL", "50000"))   # above this: key columns only in Excel
 DRILL_KEEP_DAYS = 90
