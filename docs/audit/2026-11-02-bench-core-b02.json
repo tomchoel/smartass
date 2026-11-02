@@ -1,0 +1,30 @@
+{
+ "started": "2026-11-02T12:54:46",
+ "route": "core",
+ "results": [
+  {
+   "id": "B02",
+   "question": "Business Norway EBITDA per month 2026 vs 2025, reconciled to accumulated YTD",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 28.06,
+   "total_s": 56.22,
+   "oracle": {
+    "EBITDA YTD Sep 26": true,
+    "EBITDA YTD Sep 25": true,
+    "EBITDA Jun 26": true
+   },
+   "match": {
+    "EBITDA YTD Sep 26": "exact",
+    "EBITDA YTD Sep 25": "exact",
+    "EBITDA Jun 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "routes {'Q1 FinMax': 'http', 'Q1 FinMax ytd': 'http'}",
+   "result": "PASS"
+  }
+ ]
+}
