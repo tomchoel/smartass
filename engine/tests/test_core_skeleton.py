@@ -4,11 +4,12 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
-from smartview_mcp import config, svhttp, userexcel
-from smartview_mcp.core import check, contract, progress, runlog, source
+from smartview_mcp import config, svhttp, tools_core, userexcel
+from smartview_mcp.core import check, contract, pipeline, progress, runlog, source
 from smartview_mcp.grid import Axis, Layout
-from smartview_mcp.host import InputError
+from smartview_mcp.host import HostError, InputError
 
 
 def test_fte_rows_are_the_sheet_rows_of_man_year_lines():
@@ -130,3 +131,67 @@ def test_entry_records_gate_pulls_routes_and_result(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "RUN_LOG", tmp_path / "logs" / "runs.jsonl")
     runlog.append(e)
     assert json.loads((tmp_path / "logs" / "runs.jsonl").read_text(encoding="utf-8"))["q"] == "Q1"
+
+
+def test_assumptions_and_the_question_lead_the_notes_and_the_raw_layout_is_untouched():
+    raw = {**SPEC, "layout": {**SPEC["layout"], "notes": ["n"]}}
+    out = pipeline.answer_layout(raw["layout"], contract.validate(raw))
+    assert out["notes"] == ["Question: EBITDA Sep 26 for Business", "Assumption: Actual, NOK", "n"]
+    assert raw["layout"]["notes"] == ["n"]
+
+
+def _fake_run(monkeypatch, calls, pull_fails=False):
+    t = SimpleNamespace(path="C:/x/a.xlsx")
+    pull = SimpleNamespace(sheet="Q3 FinMax", seconds=0.2, parsed=SimpleNamespace(pov_problems=[], unknown_members=[]))
+    monkeypatch.setattr(pipeline.userexcel, "resolve_target", lambda h, target, allow, title: t)
+    monkeypatch.setattr(pipeline.userexcel, "next_question", lambda t: 3)
+    monkeypatch.setattr(pipeline.userexcel, "rollback", lambda t: ["Q3 Answer"])
+    monkeypatch.setattr(pipeline.userexcel, "save_spec", lambda t, q, raw, ids: calls.append(("save_spec", q)))
+    monkeypatch.setattr(pipeline.progress, "show", lambda t, q, spec, status: calls.append(("show", q)))
+    monkeypatch.setattr(pipeline.progress, "set_status", lambda t, q, text: calls.append(("status", text)))
+
+    def pull_(h, t, q, i, pin):
+        calls.append(("pull", pin.id))
+        if pull_fails:
+            raise HostError("Retrieve failed")
+        return source.Source(pull, "http", [])
+    monkeypatch.setattr(pipeline.source, "pull", pull_)
+    monkeypatch.setattr(pipeline.specs, "prepare", lambda layout, ids, sess: calls.append(("prepare", ids)) or layout)
+    monkeypatch.setattr(pipeline.answer_mod, "build", lambda t, q, spec, sess, suffix: calls.append(("build", suffix))
+                        or {"sheet": "Q3 Answer", "checks": {"c": "OK"}})
+
+
+def test_run_shows_the_answer_sheet_first_then_pulls_then_renders(monkeypatch):
+    calls = []
+    _fake_run(monkeypatch, calls)
+    r = pipeline.run(None, SPEC)
+    assert [c[0] for c in calls] == ["show", "status", "pull", "status", "prepare", "build", "save_spec"]
+    assert ("prepare", {"m": "Q3 FinMax"}) in calls and ("build", "Answer") in calls
+    assert r.q == 3 and r.review == {"ok": True, "findings": []}
+
+
+def test_a_failed_pull_removes_the_partial_sheets(monkeypatch):
+    calls = []
+    _fake_run(monkeypatch, calls, pull_fails=True)
+    with pytest.raises(HostError, match="removed the partial sheets: Q3 Answer"):
+        pipeline.run(None, SPEC)
+
+
+@pytest.mark.anyio
+async def test_an_ambiguous_question_returns_its_questions_and_touches_no_excel(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
+
+    async def no_excel(*a, **k):
+        raise AssertionError("Excel was touched")
+    monkeypatch.setattr(tools_core, "_call_user", no_excel)
+    spec = {"version": 1, "question": "How are we doing on costs?",
+            "gate": {"outcome": "ambiguous", "questions": ["Which unit?", "Which period?"]}}
+    out = await tools_core.sv_answer(spec)
+    assert out["gate"] == "ambiguous" and out["questions"] == ["Which unit?", "Which period?"]
+    assert json.loads((tmp_path / "runs.jsonl").read_text(encoding="utf-8"))["gate"] == "ambiguous"
+
+
+@pytest.mark.anyio
+async def test_an_invalid_spec_is_a_readable_error():
+    with pytest.raises(ToolError, match="not a valid answer spec v1"):
+        await tools_core.sv_answer({"question": "x"})

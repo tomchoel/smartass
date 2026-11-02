@@ -111,8 +111,9 @@ def test_answer_sheets_rank_like_svar_and_count_as_questions():
     `m.group(2) not in ("Svar", "Answer", "Linjer")`.
   - `answer.answer_sheet(t, q, suffix: str = "Svar")` with `name = f"Q{q} {suffix}"`;
     `build(t, q, spec, pulls, suffix: str = "Svar")` passes it to `_build(t, q, spec, pulls, suffix)`, which calls
-    `answer_sheet(t, q, suffix)`; `_build`'s status line uses `f"formaterer 'Q{q} {suffix}' ..."` and `_write`'s
-    status line `f"bygger svar-arket '{ws.Name}' ..."`.
+    `answer_sheet(t, q, suffix)`; `_build`'s status line uses `f"formaterer 'Q{q} {suffix}' ..."`, and `_build`
+    passes `suffix` on to `_write(t, q, spec, pulls, ws, suffix="Svar")` for its status line (not `ws.Name`: the
+    test fakes have no Name).
 - [ ] **Step 4:** `uv run pytest tests/test_sheetorder.py tests/test_answer_write.py -q` → PASS.
 - [ ] **Step 5:** `git commit -am "Q<n> Answer sheets alongside Q<n> Svar"`
 

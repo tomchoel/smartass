@@ -267,6 +267,7 @@ from . import tools_ws  # noqa: E402,F401
 from . import tools_fin  # noqa: E402,F401
 from . import tools_drill  # noqa: E402,F401
 from . import tools_xl  # noqa: E402,F401
+from . import tools_core  # noqa: E402,F401
 
 
 def main():

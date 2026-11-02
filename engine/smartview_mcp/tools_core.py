@@ -1,0 +1,64 @@
+"""sv_answer: one question through the new pipeline (design 2026-11-02 §3) - the walking skeleton beside the old
+tools, which stay until the benchmarks reach parity."""
+from __future__ import annotations
+
+from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.exceptions import ToolError
+
+from . import tools_ws, userexcel
+from .core import pipeline, runlog
+from .host import HostError, InputError
+from .server import WRITE, _call_user, _err, _is_our_analysis_file, tool
+from .timing import Timer, stage
+
+
+@tool(annotations=WRITE)
+async def sv_answer(spec: dict, target: str = "session", allow_archive: bool = False,
+                    ctx: Context | None = None) -> dict:
+    """NEW PIPELINE (walking skeleton): answer ONE question from an answer spec v1 (core/contract.py):
+    {version: 1, question, gate: {outcome: clear|ambiguous|infeasible, checklist: {period, scenario, entity, measure,
+    currency_sign, granularity}, questions (ambiguous, 1-3), reason + proxy (infeasible)}, assumptions: [...],
+    pulls: [{id, connection, rows, columns, pov, title?}], layout: {title, columns, sections, checks, ...} (the
+    sv_ws_build spec grammar; pull cells use the pull ids)}.
+    ambiguous -> returns the questions, pulls nothing. Otherwise: the answer sheet 'Q<n> Answer' appears first with
+    the question, assumptions and a status line; each pull is fetched over HTTP and written as a source sheet in one
+    block (Smart View ad hoc grid if HTTP fails); then the answer is rendered (live formulas) and checked.
+    Returns the answer table, checks, review findings (Critical/Warning/Info), routes and timings."""
+    try:
+        parsed = pipeline.parse_spec(spec)
+    except InputError as e:
+        raise _err(e) from None
+    early = pipeline.gate_reply(parsed)
+    if early is not None:
+        runlog.append(runlog.entry(parsed, None, [], None, {}))
+        return early
+
+    def job(h):
+        tm = Timer.start()
+        try:
+            r = pipeline.run(h, spec, target, allow_archive)
+        except Exception as e:
+            runlog.append(runlog.entry(parsed, None, [], None, tm.summary(), error=str(e)[:500]))
+            raise
+        r.t.created = r.t.created or _is_our_analysis_file(r.t.path)
+        with stage("log sources"):
+            for s in r.sources:
+                try:
+                    userexcel.log_source(r.t, r.q, parsed.question, s.pull, notes=s.note or s.route)
+                except Exception as e:   # noqa: BLE001 - the source log must never undo a finished answer
+                    r.res["warnings"].append(f"could not log {s.pull.sheet} in 'Kilder': {e}")
+        e = runlog.entry(parsed, r.q, r.sources, r.review, tm.summary(), workbook=r.t.path)
+        try:
+            runlog.write_sheet(r.t, e)
+        except Exception as ex:   # noqa: BLE001
+            r.res["warnings"].append(f"run log sheet not written: {ex}")
+        runlog.append(e)
+        with stage("save + activate"):
+            tools_ws._finish(r.t, r.q, r.prepared, r.res, saved_new=r.t.created)
+        out = tools_ws._result(r.t, r.q, r.prepared, r.res, [s.pull for s in r.sources], [])
+        return {**out, "gate": parsed.gate.outcome, "routes": {s.pull.sheet: s.route for s in r.sources},
+                "review": r.review, "timings": tm.summary()}
+    try:
+        return await _call_user(job, what="sv_answer")
+    except (HostError, ToolError) as e:
+        raise _err(e)

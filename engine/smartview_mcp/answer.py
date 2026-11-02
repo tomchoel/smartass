@@ -244,7 +244,7 @@ def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Svar") -> 
         ws = answer_sheet(t, q, suffix)
         com(ws.Activate)
     with stage("write cells"):
-        out = _write(t, q, spec, pulls, ws)
+        out = _write(t, q, spec, pulls, ws, suffix)
     rows_meta, plan, rows_by_key, checks, cols, ncol, last_col, header_row, r, warnings = out
     longest = max([len(str(ln.get("label", ""))) for _, ln, _ in plan if isinstance(ln, dict) and "cells" in ln] +
                   [len(f"{c['label']} — {cols[0].get('header', '')}") for c in checks if "static" not in c] + [40])
@@ -302,9 +302,9 @@ class _Cells:
                 warnings.append(f"{label or f'row {r}'}: {e}")
 
 
-def _write(t: Target, q: int, spec: dict, pulls: dict, ws):
+def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Svar"):
     """All answer cells (title, key points, lines, checks, notes); returns the layout for styling."""
-    t.status(f"bygger svar-arket '{ws.Name}' ...")
+    t.status(f"bygger svar-arket 'Q{q} {suffix}' ...")
     cols = spec.get("columns") or []
     if not cols:
         raise InputError("answer spec needs 'columns'")
