@@ -221,6 +221,21 @@ class SvHttp:
         return {"cube_value": val if isinstance(val, float) else None,
                 "url": got[1] if got else None, "report": got[0] if got else None}
 
+    def child_values(self, conn: str, parts: list[dict]) -> list | None:
+        """drill_split.child_values_on over HTTP: the parts differ in one dimension - one column retrieve,
+        float or None per part (None for the whole list when they differ in nothing)."""
+        from .ops import DRILL_DEFAULTS
+        first = parts[0]
+        dim = next((k for k in first if any(p.get(k) != first[k] for p in parts)), None)
+        if dim is None:
+            return None
+        col = "All Time Periods" if dim != "All Time Periods" else "All Accounts"
+        pov = {**DRILL_DEFAULTS, **{k: v for k, v in first.items() if k not in (dim, col)}}
+        f = self.fetch(conn, pov, [Axis(dim, [p[dim] for p in parts])], [Axis(col, [first[col]])])
+        lay = f.layout
+        return [v if isinstance(v, float) else None
+                for v in (f.values[1 + lay.nc + i][lay.nr] for i in range(len(parts)))]
+
     def _ask(self, conn: str, body, read, fatal) -> object:
         """POST body(sid, cube) to conn's provider and read(answer). An error fatal(e) does not rule out (maybe an
         expired session) reconnects once."""

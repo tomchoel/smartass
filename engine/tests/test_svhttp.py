@@ -689,3 +689,19 @@ def test_drill_link_reconnects_once_on_an_expired_session(lite_db):
     t = FakeTransport(answer(ONE_CELL), EXPIRED, DRILL_ANS)
     assert _sv(t, lite_db).drill_link("FinLite", CELL)["url"]
     assert t.tags().count("ConnectToProvider") == 2
+
+
+PARTS = [{"All Accounts": "ac.C60080", "All Entities": e, "All Time Periods": "Sep 26"}
+         for e in ("un.SY.2TEC", "un.SY.2BUS")]
+
+
+def test_child_values_one_column(lite_db):
+    grid = [[None, "C60080 Consultancy IS/IT (ac)", "Periodic", "NOK", "Actual"], [None, "Sep 26", None, None, None],
+            ["2TEC Technology (un.SY)", -3.0, None, None, None], ["2BUS Business (un.SY)", None, None, None, None]]
+    t = FakeTransport(answer(grid))
+    assert _sv(t, lite_db).child_values("FinLite", PARTS) == [-3.0, None]
+    assert t.tags().count("ExecuteGrid") == 1
+
+
+def test_child_values_none_when_parts_do_not_differ(lite_db):
+    assert _sv(FakeTransport(), lite_db).child_values("FinLite", [PARTS[0], dict(PARTS[0])]) is None
