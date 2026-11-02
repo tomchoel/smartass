@@ -6,14 +6,13 @@ specs.py / answer.py (title, columns, sections, lines, cells, checks, chart) and
 layouts pass unchanged; validate() adds the cross-reference checks that grammar never had."""
 from __future__ import annotations
 
+import copy
 import fnmatch
 import json
 import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from ..specs import merge
 
 CELL_KINDS = ("pull", "var", "varpct", "sum", "avg", "expr", "ref", "rowsum", "value", "text", "drill")
 CHECKLIST = ("period", "scenario", "entity", "measure", "currency_sign", "granularity")
@@ -94,8 +93,16 @@ class Section(_Open):
 
 class Check(_Open):
     label: str
-    expr: str
+    expr: str | None = None
+    static: Literal["OK", "DIFF"] | None = None      # a check computed by smartass (e.g. warehouse = sheet)
+    detail: str | None = None
     columns: list[int] | None = None
+
+    @model_validator(mode="after")
+    def _one(self) -> "Check":
+        if (self.expr is None) == (self.static is None):
+            raise ValueError(f"check '{self.label}': exactly one of expr or static")
+        return self
 
 
 class Layout(_Open):
@@ -130,6 +137,13 @@ class Commentary(_Strict):
     drivers: list[Driver] = Field(default_factory=list)
 
 
+# ------------------------------------------------------------------ recipe provenance
+class Recipe(_Strict):
+    name: str = Field(pattern=r"^[a-z_]+$")
+    params: dict[str, Any] = Field(default_factory=dict)
+    overrides: dict[str, Any] = Field(default_factory=dict)   # a follow-up-shaped patch on the draft
+
+
 # ------------------------------------------------------------------ the spec
 class AnswerSpec(_Strict):
     version: Literal[1] = 1
@@ -139,6 +153,7 @@ class AnswerSpec(_Strict):
     pulls: list[Pull] = Field(default_factory=list)
     layout: Layout | None = None
     commentary: Commentary = Field(default_factory=Commentary)
+    recipe: Recipe | None = None
 
     @model_validator(mode="after")
     def _shape(self) -> "AnswerSpec":
@@ -217,8 +232,9 @@ def _layout_refs(layout: Layout, pull_ids: set[str], driver_lines: list[str] = (
                 errs += [f"{where}[{j}]: expr uses unknown line '{x}'"
                          for x in re.findall(r"[A-Za-z_]\w*", str(v)) if not is_key(x)]
     for ch in layout.checks:
-        errs += [f"check '{ch.label}': unknown line '{x}'"
-                 for x in re.findall(r"[A-Za-z_]\w*", ch.expr) if not is_key(x)]
+        if ch.expr is not None:
+            errs += [f"check '{ch.label}': unknown line '{x}'"
+                     for x in re.findall(r"[A-Za-z_]\w*", ch.expr) if not is_key(x)]
         if ch.columns and any(not 0 <= i < ncol for i in ch.columns):
             errs.append(f"check '{ch.label}': column outside 0..{ncol - 1}")
     errs += [f"commentary driver of unknown line '{x}'" for x in driver_lines if not is_key(x)]
@@ -231,22 +247,76 @@ def validate(spec: dict) -> AnswerSpec:
     return AnswerSpec.model_validate(spec)
 
 
+_IDS = {"pulls": "id", "sections": "title", "lines": "key", "checks": "label"}
+
+
+def _merge_list(old: list, new, ident: str | None, where: str) -> list:
+    if isinstance(new, dict) and set(new) == {"append"}:
+        return list(old) + copy.deepcopy(list(new["append"]))
+    if ident is None or not isinstance(new, list):
+        return copy.deepcopy(new)
+    out = copy.deepcopy(list(old))
+    for item in new:
+        k = item.get(ident) if isinstance(item, dict) else None
+        if k is None:
+            out.append(copy.deepcopy(item))
+            continue
+        hits = [i for i, x in enumerate(out) if isinstance(x, dict) and x.get(ident) == k]
+        if len(hits) > 1:
+            raise ValueError(f"{where}: {ident} '{k}' is used twice; the patch cannot tell which one")
+        if item.get("drop"):
+            if hits:
+                out.pop(hits[0])
+            continue
+        if hits:
+            out[hits[0]] = _merge(out[hits[0]], item, where)
+        else:
+            out.append(copy.deepcopy(item))
+    return out
+
+
+def _merge(base: dict, fu: dict, where: str = "spec") -> dict:
+    """specs.merge (dicts merge, None deletes, lists replace) plus identity merges for _IDS lists and
+    {"append": [...]}."""
+    out = copy.deepcopy(base)
+    for k, v in fu.items():
+        if v is None:
+            out.pop(k, None)
+        elif isinstance(out.get(k), list) or (isinstance(v, dict) and set(v) == {"append"}):
+            out[k] = _merge_list(out.get(k) or [], v, _IDS.get(k), f"{where}.{k}")
+        elif isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _merge(out[k], v, f"{where}.{k}")
+        else:
+            out[k] = copy.deepcopy(v)
+    return out
+
+
+def patched(spec: dict, follow_up: dict) -> dict:
+    """The follow-up applied to a stored spec (raw dict, validated). Dicts merge, None deletes; pulls merge by id,
+    layout.sections by title, lines by key, layout.checks by label ({..., "drop": true} removes; unmatched items
+    are appended); {"append": [...]} appends to any list; any other list replaces."""
+    if (follow_up.get("recipe") or {}).get("params") is not None:
+        raise ValueError("recipe parameters cannot be patched: ask it as a new question, or patch pulls/layout")
+    out = _merge(spec, follow_up)
+    validate(out)
+    return out
+
+
 def patch(spec: dict, follow_up: dict) -> AnswerSpec:
-    """A follow-up: deep-merge (specs.merge: dicts merge, lists replace, None deletes) and re-validate.
-    `pulls` merge by id, so a follow-up adds or replaces one pull ({"id": .., "drop": true} removes it)
-    without restating the rest."""
-    fu = dict(follow_up)
-    new_pulls = fu.pop("pulls", None)
-    out = merge(spec, fu)
-    if new_pulls is not None:
-        by_id = {p["id"]: p for p in out.get("pulls", [])}
-        for p in new_pulls:
-            if p.get("drop"):
-                by_id.pop(p["id"], None)
-            else:
-                by_id[p["id"]] = p
-        out["pulls"] = list(by_id.values())
-    return validate(out)
+    """patched() as a validated model."""
+    return validate(patched(spec, follow_up))
+
+
+def outline(raw: dict) -> dict:
+    """What a follow-up needs to address parts of an answer, without the full spec."""
+    lay = raw.get("layout") or {}
+    return {"recipe": (raw.get("recipe") or {}).get("name"),
+            "pulls": [{"id": p["id"], "connection": p["connection"]} for p in raw.get("pulls") or []],
+            "columns": [c.get("header", "") for c in lay.get("columns") or []],
+            "sections": [{"title": s.get("title"), "lines": [ln.get("key") for ln in s.get("lines") or []],
+                          **({"repeat": (s["repeat"].get("line") or {}).get("key")} if s.get("repeat") else {})}
+                         for s in lay.get("sections") or []],
+            "checks": [c["label"] for c in lay.get("checks") or []]}
 
 
 def json_schema() -> str:

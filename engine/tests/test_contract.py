@@ -94,3 +94,80 @@ def test_follow_up_merges_pulls_by_id_and_revalidates():
     assert out.layout.sections == contract.validate(spec()).layout.sections          # untouched parts stay
     with pytest.raises(ValidationError, match="unknown pull 'm'"):
         contract.patch(spec(), {"pulls": [{"id": "m", "drop": True}]})                # still referenced
+
+
+def test_a_static_check_needs_no_expr_and_exactly_one_of_the_two():
+    s = spec()
+    s["layout"]["checks"] = [{"label": "Period is closed", "static": "OK", "detail": "Sep 26 vs Oct 26"}]
+    assert contract.validate(s).layout.checks[0].static == "OK"
+    s["layout"]["checks"] = [{"label": "both", "static": "OK", "expr": "ytd-eacc"}]
+    assert "exactly one of expr or static" in errors(s)
+    s["layout"]["checks"] = [{"label": "neither"}]
+    assert "exactly one of expr or static" in errors(s)
+
+
+def _sec_titles(raw):
+    return [x["title"] for x in raw["layout"]["sections"]]
+
+
+def test_patch_adds_a_line_to_a_section_by_title_and_a_pull_by_id():
+    base = spec()
+    title = base["layout"]["sections"][1]["title"]
+    fp = {"id": "fp", "connection": "FinPlan", "rows": [{"dimension": "Account", "members": ["EBITDA"]}],
+          "columns": [{"dimension": "Scenario", "members": ["Actual"]}]}
+    out = contract.patched(base, {"pulls": [fp], "layout": {"sections": [
+        {"title": title, "lines": [{"key": "fp", "label": "EBITDA YTD (FinPlan)",
+                                    "cells": [{"pull": "fp", "row": ["EBITDA"], "col": ["Actual"]}]}]}]}})
+    sec = out["layout"]["sections"][1]
+    assert sec["lines"][-1]["key"] == "fp" and len(sec["lines"]) == len(base["layout"]["sections"][1]["lines"]) + 1
+    assert _sec_titles(out) == _sec_titles(base) and [p["id"] for p in out["pulls"]] == ["m", "ytd", "fp"]
+    contract.validate(out)
+
+
+def test_patch_appends_notes_replaces_title_and_drops_by_identity():
+    base = spec()
+    base["layout"]["notes"] = ["first"]
+    k = base["layout"]["sections"][1]["lines"][0]["key"]
+    out = contract.patched(base, {"layout": {"title": "New", "notes": {"append": ["second"]},
+                                             "checks": [{"label": base["layout"]["checks"][0]["label"], "drop": True}],
+                                             "sections": [{"title": base["layout"]["sections"][1]["title"],
+                                                           "lines": [{"key": k, "drop": True}]}]}})
+    assert out["layout"]["title"] == "New" and out["layout"]["notes"] == ["first", "second"]
+    assert k not in [ln["key"] for ln in out["layout"]["sections"][1]["lines"]]
+    out2 = contract.patched(base, {"layout": {"notes": ["only"]}})
+    assert out2["layout"]["notes"] == ["only"]                                  # a plain list replaces
+
+
+def test_patch_appends_a_new_section_and_merges_checks_by_label():
+    base = spec()
+    base["layout"]["checks"] = [{"label": "c1", "expr": "eacc"}]
+    out = contract.patched(base, {"layout": {"sections": [{"title": "By business area", "lines": []}],
+                                             "checks": [{"label": "c1", "columns": [0]},
+                                                        {"label": "c2", "static": "OK"}]}})
+    assert _sec_titles(out)[-1] == "By business area"
+    assert out["layout"]["checks"] == [{"label": "c1", "expr": "eacc", "columns": [0]},
+                                       {"label": "c2", "static": "OK"}]
+
+
+def test_patch_on_a_title_used_twice_is_refused():
+    base = spec()
+    base["layout"]["sections"][1]["title"] = base["layout"]["sections"][0]["title"]
+    with pytest.raises(ValueError, match="used twice"):
+        contract.patched(base, {"layout": {"sections": [{"title": base["layout"]["sections"][0]["title"],
+                                                         "lines": []}]}})
+
+
+def test_patch_cannot_change_recipe_params():
+    base = {**spec(), "recipe": {"name": "monthly_trend", "params": {"entity": "un.SY"}}}
+    with pytest.raises(ValueError, match="recipe parameters cannot be patched"):
+        contract.patched(base, {"recipe": {"params": {"entity": "un.SY.2BUS"}}})
+
+
+def test_recipe_field_and_outline():
+    s = {**spec(), "recipe": {"name": "monthly_trend", "params": {"entity": "un.SY"}}}
+    assert contract.validate(s).recipe.name == "monthly_trend"
+    o = contract.outline(s)
+    assert o["pulls"] == [{"id": "m", "connection": "FinMax"}, {"id": "ytd", "connection": "FinMax"}]
+    assert o["sections"][0]["title"] == s["layout"]["sections"][0]["title"]
+    assert o["columns"] == [c.get("header", "") for c in s["layout"]["columns"]]
+    assert o["recipe"] == "monthly_trend"
