@@ -2,13 +2,15 @@
 tools, which stay until the benchmarks reach parity."""
 from __future__ import annotations
 
+import datetime as dt
 from typing import Literal
 
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import ValidationError
 
-from . import config, templates, tools_ws, userexcel
-from .core import contract, pipeline, prefs, runlog, scope
+from . import catalog, config, templates, tools_ws, userexcel
+from .core import contract, pipeline, prefs, recipes, runlog, scope
 from .core import followup as followup_mod
 from .core import period as periods
 from .host import HostError, InputError
@@ -85,6 +87,28 @@ def _followup_spec(t, patch: dict, q: int | None) -> tuple[int, dict, dict]:
     return q, old, raw
 
 
+def _check_recipe_spec(spec: dict) -> None:
+    """The early check of a recipe spec (no pulls/layout yet): the gate and the recipe field."""
+    try:
+        contract.Gate.model_validate(spec.get("gate") or {})
+        contract.Recipe.model_validate(spec["recipe"])
+    except ValidationError as e:
+        raise InputError("This is not a valid answer spec v1: " + "; ".join(
+            f"{'.'.join(map(str, x['loc'])) or 'spec'}: {x['msg']}" for x in e.errors()[:8])) from None
+
+
+def _expand_recipe(h, spec: dict) -> tuple[dict, dict]:
+    """(the full spec, extra result keys) for a recipe spec; runs inside the Excel job (closed month, warehouse)."""
+    ctx = recipes.RecipeContext(closed=templates.closed_month(h), cat=catalog.load(), label=templates.member_label,
+                                pnl_facts=None, now=dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+    try:
+        return recipes.expand(spec, ctx)
+    except InputError:
+        raise
+    except ValueError as e:          # pydantic ValidationError is a ValueError
+        raise InputError(f"The recipe does not give a valid answer spec: {e}") from None
+
+
 @tool(annotations=WRITE)
 async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: int | None = None,
                     target: str = "session", allow_archive: bool = False, ctx: Context | None = None) -> dict:
@@ -97,6 +121,12 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
     ambiguous -> returns the questions, pulls nothing. Otherwise: the answer sheet 'Q<n> Answer' appears first with
     the question, assumptions and a status line; each pull is fetched over HTTP and written as a source sheet in one
     block (Smart View ad hoc grid if HTTP fails); then the answer is rendered (live formulas) and checked.
+    A recipe drafts pulls + layout server-side: spec = {version: 1, question, gate, assumptions?, recipe: {name,
+    params, overrides?}} without pulls/layout. Recipes: pnl {area, period?, compare?}; actual_vs_plan {entity
+    (FinPlan), month?, year?, basis?, forecast?, finmax_entity?}; monthly_trend {entity?, accounts?, through?};
+    cost_base {parent?, accounts?, period?, top?}; concept {concept, period?, compare?, entity?}. The period
+    defaults to the closed month (returned as period). overrides = a follow-up-shaped patch on the draft; recipe
+    params cannot be changed by a follow-up (ask a new question).
     followup: a patch on the current answer (the active Q<n> Answer, else the latest; or answer q). Use it unless
     the user asks a new question. Dicts merge, null deletes; pulls merge by id, layout.sections by title, lines by
     key, checks by label ({..., "drop": true} removes; new ones are appended); {"append": [...]} adds to a list
@@ -110,12 +140,16 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
         raise _err(InputError("Give exactly one of spec or followup: spec = new question, followup = change the "
                               "current answer."))
     parsed = None
+    recipe = spec is not None and bool(spec.get("recipe")) and not spec.get("layout")
     if spec is not None:
         try:
-            parsed = pipeline.parse_spec(spec)
+            if recipe and (spec.get("gate") or {}).get("outcome") != "ambiguous":
+                _check_recipe_spec(spec)            # pulls + layout come from the recipe, inside the Excel job
+            else:
+                parsed = pipeline.parse_spec(spec)
         except InputError as e:
             raise _err(e) from None
-        early = pipeline.gate_reply(parsed)
+        early = pipeline.gate_reply(parsed) if parsed is not None else None
         if early is not None:
             runlog.append(runlog.entry(parsed, None, [], None, {}))
             return early
@@ -123,8 +157,13 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
     def job(h):
         tm = Timer.start()
         p = parsed
+        extra = {}
         try:
-            if followup is None:
+            if followup is None and recipe:
+                raw, extra = _expand_recipe(h, spec)
+                p = pipeline.parse_spec(raw)
+                r = pipeline.run(h, raw, target, allow_archive)
+            elif followup is None:
                 r = pipeline.run(h, spec, target, allow_archive)
             else:
                 with stage("open target"):
@@ -162,8 +201,11 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
                "timings": tm.summary()}
         if followup is not None:
             out.update(followup_of=r.q, reused=r.reused)
+        if extra:
+            warn = list(dict.fromkeys(list(extra.get("warnings") or []) + list(out.get("warnings") or [])))
+            out = {**out, **{k: v for k, v in extra.items() if k != "warnings"}, "warnings": warn}
         return out
     try:
         return await _call_user(job, what="sv_answer")
-    except (HostError, ToolError) as e:
+    except (HostError, ToolError, InputError) as e:
         raise _err(e)
