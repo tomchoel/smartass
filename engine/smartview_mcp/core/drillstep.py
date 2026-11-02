@@ -189,6 +189,27 @@ def write(t, q: int, alias: str, result: DrillResult, title: str, question: str 
 
 
 async def _drill_fetch(url: str, max_lines: int) -> dict:
+    """Lines of one drill piece: from the warm tab (drill_direct, two requests) first; the page route (a page per
+    piece, tab pump) when the direct route fails. No data at this cell -> an empty piece with EPM's note."""
+    import asyncio
+
+    from .. import drill_direct
+    from ..drill_browser import CellTooWide, TooManyLines
+    if config.DRILL_DIRECT:
+        try:
+            with drilltime.span("direct drill"):
+                return await asyncio.wait_for(asyncio.wrap_future(drill_direct.shared_direct().fetch(url, max_lines)),
+                                              300)
+        except drill_direct.NoDrillData as e:
+            return {"items": [], "total": 0, "view": None, "secs": 0, "note": str(e)}
+        except (CellTooWide, TooManyLines):
+            raise
+        except Exception as e:   # noqa: BLE001 - the page route takes over for this piece
+            log.warning("direct drill failed (%s); using the page route", e)
+    return await _page_fetch(url, max_lines)
+
+
+async def _page_fetch(url: str, max_lines: int) -> dict:
     """One drill page through the tab pump (several at once, drill_tabs), with a hang guard: past the budget every
     running drill is stopped, only OUR headless browser is killed (the next drill starts a fresh one) and the tool
     fails readably instead of waiting forever."""
@@ -253,6 +274,33 @@ class _KnownTooWide(Exception):
         return "EPMFDM-140373 earlier in this session"
 
 
+def _http_link(connection: str, cell: dict) -> dict:
+    from .. import svhttp
+    return svhttp.shared().drill_link(connection, cell)
+
+
+def _http_off() -> bool:
+    import os
+    return os.environ.get("SV_TEST_NO_HTTP_DRILL") == "1"
+
+
+async def _link(connection: str, cell: dict) -> dict:
+    """The drill link over HTTP (no Excel); Smart View in the hidden Excel only if the HTTP route fails (logged)."""
+    import asyncio
+
+    from ..host import InputError
+    if not _http_off():
+        try:
+            with drilltime.span("http drill link"):
+                return await asyncio.to_thread(_http_link, connection, cell)
+        except InputError:
+            raise
+        except Exception as e:   # noqa: BLE001 - SvHttpError or anything else: the Excel route answers
+            log.warning("drill link: HTTP failed (%s); using Smart View in Excel", e)
+    return await _call(lambda h: drilltime.timed("excel drill link", ops.drill_link, h, connection, cell),
+                       what="drill link")
+
+
 async def _drill_cell(connection: str, cell: dict, max_lines: int, split: str) -> tuple[list[dict], float | None]:
     """Drill a cell (split into child cells when too big). Returns (pieces, the cell's own cube value)."""
     state = {"left": max_lines, "cube": None}
@@ -267,8 +315,7 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
     that fails with its size BEFORE any split (spec 4). Returns pieces: [{cell, cube_value, items, view, secs}]."""
     from .. import drill_split
     from ..drill_browser import CellTooWide, TooManyLines
-    link = await _call(lambda h: drilltime.timed("excel drill link", ops.drill_link, h, connection, cell),
-                       what="drill link")
+    link = await _link(connection, cell)
     if depth == 0:
         state["cube"] = link["cube_value"]
     elif link["cube_value"] is None:                # an empty (#Missing) child of a split: nothing to drill
@@ -329,7 +376,14 @@ async def _children(connection: str, parts: list[dict], max_lines: int, split: s
 
 async def _child_values(connection: str, parts: list[dict]) -> list | None:
     """The split children's cube values in one host job, or None (then every child is linked as before)."""
-    from .. import drill_split
+    import asyncio
+
+    from .. import drill_split, svhttp
+    if not _http_off():
+        try:
+            return await asyncio.to_thread(lambda: svhttp.shared().child_values(connection, parts))
+        except Exception as e:   # noqa: BLE001 - fall back to Smart View in Excel
+            log.warning("split values: HTTP failed (%s); using Smart View in Excel", e)
     try:
         return await _call(lambda h: drill_split.child_values_on(h, connection, parts), what="split values")
     except Exception as e:   # noqa: BLE001 - only an optimisation

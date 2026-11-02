@@ -1583,3 +1583,74 @@ def test_shared_browser_is_one_instance(monkeypatch):
     monkeypatch.setattr(db, "DrillBrowser", lambda: made.append(1) or object())
     first = db.shared_browser()
     assert db.shared_browser() is first and drillstep.browser() is first and made == [1]
+
+
+def test_drill_link_uses_http_and_never_excel(monkeypatch):
+    import asyncio
+    from smartview_mcp.core import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+    monkeypatch.setattr(server, "_http_link", lambda conn, cell: {"url": "u", "cube_value": -1.0, "report": "r"})
+
+    async def no_excel(fn, what="call"):
+        raise AssertionError("Excel was used")
+    monkeypatch.setattr(server, "_call", no_excel)
+    assert asyncio.run(server._link("FinLite", _CELL)) == {"url": "u", "cube_value": -1.0, "report": "r"}
+
+
+def test_drill_link_falls_back_to_excel_and_logs(monkeypatch, caplog):
+    import asyncio
+    from smartview_mcp import ops, svhttp
+    from smartview_mcp.core import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+
+    def broken(conn, cell):
+        raise svhttp.SvHttpError("session gone")
+    monkeypatch.setattr(server, "_http_link", broken)
+    monkeypatch.setattr(ops, "drill_link", lambda h, conn, cell: {"url": "x", "cube_value": -2.0, "report": "r"})
+
+    async def fake_call(fn, what="call"):
+        return fn(None)
+    monkeypatch.setattr(server, "_call", fake_call)
+    with caplog.at_level("WARNING"):
+        assert asyncio.run(server._link("FinLite", _CELL))["url"] == "x"
+    assert "using Smart View in Excel" in caplog.text
+
+
+def test_drill_fetch_direct_first_then_pages(monkeypatch, caplog):
+    import asyncio
+    import concurrent.futures as cf
+    from smartview_mcp import config, drill_direct
+    from smartview_mcp.core import drillstep as server
+    from smartview_mcp.drill_browser import DrillError
+    monkeypatch.setattr(config, "DRILL_DIRECT", True)
+
+    class Direct:
+        def fetch(self, url, max_lines):
+            f = cf.Future()
+            f.set_exception(DrillError("warm page never asked"))
+            return f
+    monkeypatch.setattr(drill_direct, "shared_direct", lambda: Direct())
+
+    async def pages(url, max_lines):
+        return {"items": [1], "total": 1, "view": {}, "secs": 0}
+    monkeypatch.setattr(server, "_page_fetch", pages)
+    with caplog.at_level("WARNING"):
+        assert asyncio.run(server._drill_fetch("u", 10))["items"] == [1]
+    assert "page route" in caplog.text
+
+
+def test_drill_fetch_no_data_is_an_empty_piece_with_epms_note(monkeypatch):
+    import asyncio
+    import concurrent.futures as cf
+    from smartview_mcp import config, drill_direct
+    from smartview_mcp.core import drillstep as server
+    monkeypatch.setattr(config, "DRILL_DIRECT", True)
+
+    class Direct:
+        def fetch(self, url, max_lines):
+            f = cf.Future()
+            f.set_exception(drill_direct.NoDrillData("Drill query does not return any data."))
+            return f
+    monkeypatch.setattr(drill_direct, "shared_direct", lambda: Direct())
+    res = asyncio.run(server._drill_fetch("u", 10))
+    assert res["items"] == [] and "does not return any data" in res["note"]
