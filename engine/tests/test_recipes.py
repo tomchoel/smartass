@@ -188,3 +188,34 @@ def test_templates_cost_base_uses_the_extracted_members(monkeypatch):
     monkeypatch.setattr(templates, "cost_base_members", lambda conn, parent: (["A", parent], {"A"}))
     plan = templates.cost_base(None, period="Oct 26")
     assert plan.pulls[0].rows[0].members == ["A", "un.SY"]
+
+
+# ------------------------------------------------------------------ actual_vs_plan
+def test_actual_vs_plan_uses_the_given_closed_month_and_checks_the_finmax_recon(monkeypatch):
+    from smartview_mcp import templates
+    monkeypatch.setattr(templates, "closed_month", lambda *a, **k: pytest.fail("must use ctx.closed"))
+    monkeypatch.setattr(templates, "latest_forecast", lambda yy: "Forecast Q326")
+    monkeypatch.setattr(templates, "map_finmax_entity", lambda e, x=None: ("un.SY.2TEC", None))
+    raw = {"version": 1, "question": "Technology actual vs plan", "gate": GATE,
+           "recipe": {"name": "actual_vs_plan", "params": {"entity": "2TEC Technology"}}}
+    out, extra = recipes.expand(raw, ctx())
+    contract.validate(out)
+    assert [p["id"] for p in out["pulls"]] == ["act", "plan", "fm"]
+    assert out["pulls"][0]["pov"]["Period"] == "Oct" and out["pulls"][0]["pov"]["Years"] == "FY26"
+    assert out["layout"]["sections"][0]["lines"][0]["cells"][0]["pull"] == "act"
+    labels = [c["label"] for c in out["layout"]["checks"]]
+    assert "EBITDA FinPlan = FinMax" in labels and len(labels) >= 2
+    assert "key_points" not in out["layout"]
+    assert extra == {"period": "Oct 26", "warnings": []}
+
+
+def test_actual_vs_plan_without_a_finmax_entity_has_no_recon_check_and_says_why(monkeypatch):
+    from smartview_mcp import templates
+    monkeypatch.setattr(templates, "latest_forecast", lambda yy: None)
+    monkeypatch.setattr(templates, "map_finmax_entity", lambda e, x=None: (None, "No FinMax entity matches X."))
+    raw = {"version": 1, "question": "X vs plan", "gate": GATE,
+           "recipe": {"name": "actual_vs_plan", "params": {"entity": "X", "month": "Dec", "year": "FY26"}}}
+    out, extra = recipes.expand(raw, ctx())
+    contract.validate(out)
+    assert "EBITDA FinPlan = FinMax" not in [c["label"] for c in out["layout"]["checks"]]
+    assert extra["warnings"] == ["No FinMax entity matches X."] and extra["period"] == "Dec 26"

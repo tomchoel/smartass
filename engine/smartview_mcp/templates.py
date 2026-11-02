@@ -371,8 +371,8 @@ def latest_forecast(year_yy: int) -> str | None:
 
 
 def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: str | None = None, basis: str = "ytd",
-                   forecast: str | None = None, finmax_entity: str | None = None) -> Plan:
-    closed = closed_month(h, "FinMax")
+                   forecast: str | None = None, finmax_entity: str | None = None, closed: str | None = None) -> Plan:
+    closed = closed or closed_month(h, "FinMax")
     mo, yy = split_period(closed)
     month = month or MONTHS[mo - 1]
     year = year or f"FY{yy:02d}"
