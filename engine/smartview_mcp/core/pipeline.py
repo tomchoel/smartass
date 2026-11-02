@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from .. import answer as answer_mod
-from .. import catalog, fin_spec, specs
+from .. import catalog, drill_xl, fin_spec, specs
 from ..excel import jobs, sheets, target as xltarget
 from ..host import InputError, rewrap
 from ..timing import stage
@@ -62,6 +62,45 @@ def answer_layout(raw_layout: dict, spec: contract.AnswerSpec) -> dict:
     return lay
 
 
+def drill_aliases(spec) -> set[str]:
+    """The drill aliases of every drill cell in the spec's layout (lines and repeat templates)."""
+    lay = spec.layout.model_dump() if getattr(spec, "layout", None) is not None else {}
+    out = set()
+    for sec in lay.get("sections") or []:
+        lines = list(sec.get("lines") or []) + ([sec["repeat"].get("line") or {}] if sec.get("repeat") else [])
+        out |= {str(c["drill"]) for ln in lines for c in ln.get("cells") or [] if isinstance(c, dict) and "drill" in c}
+    return out
+
+
+def question_for(t, spec) -> int:
+    """A new spec with drill cells answers the pending drill (Lines sheets without an Answer); otherwise the next q."""
+    if drill_aliases(spec):
+        pending = sheets.pending_drill_question(t)
+        if pending is not None:
+            return pending
+    return sheets.next_question(t)
+
+
+def check_drill_tables(t, q: int, spec) -> None:
+    """Refuse drill cells whose Lines table is missing before anything is written: Excel rejects the formula
+    (0x800A03EC). Tables that cannot be read are not checked."""
+    aliases = drill_aliases(spec)
+    if not aliases:
+        return
+    try:
+        have = drill_xl.lines_tables(t.wb)
+    except InputError:
+        raise
+    except Exception:   # noqa: BLE001 - cannot check: the formulas are written as before
+        return
+    known = {h.lower() for h in have}
+    missing = [n for n in (drill_xl.table_name(q, a) for a in sorted(aliases)) if n.lower() not in known]
+    if missing:
+        raise InputError(f"The drill table(s) {', '.join(missing)} do not exist in this workbook (Lines tables here: "
+                         f"{', '.join(have) or 'none'}). Drill first with sv_drill(q={q}, id='<alias>'), or use the "
+                         "recipe the gate named (lines_ranking drills itself).")
+
+
 def run(h, raw: dict, target: str = "session", allow_archive: bool = False, *,
         q: int | None = None, old: dict | None = None, t=None) -> Run:
     """A new question (old None) -> a new Q<n> Answer; a follow-up (q + old = sheets.load_answer, raw already
@@ -72,7 +111,8 @@ def run(h, raw: dict, target: str = "session", allow_archive: bool = False, *,
     with stage("open target"):
         t = t or xltarget.resolve_target(h, target, allow_archive, title=spec.question[:50])
         if old is None:
-            q = sheets.next_question(t)
+            q = question_for(t, spec)
+    check_drill_tables(t, q, spec)
     if old is None:
         return _new(h, t, q, raw, spec)
     return _follow(h, t, q, raw, spec, old)

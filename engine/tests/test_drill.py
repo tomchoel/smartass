@@ -777,6 +777,88 @@ def test_answer_warns_on_where_column_missing_from_table(monkeypatch):
     assert ws.cells[(out[2]["b"], answer_write.FIRST_COL)].Formula2.startswith("=SUMIFS(")
 
 
+# ------------------------------------------------------------------ missing Lines table / wrong q (0x800A03EC)
+def _drill_cell(alias, where):
+    return {"drill": alias, "where": where}
+
+
+def _spec(cell):
+    from smartview_mcp.core import contract
+    return contract.validate({"version": 1, "question": "Top suppliers", "gate": {"outcome": "clear"},
+                              "layout": {"title": "t", "columns": [{"header": "NOK"}], "sections": [
+                                  {"title": "s", "lines": [{"key": "a", "label": "KPMG AS", "cells": [cell]}]}]}})
+
+
+def _spec_without_drill():
+    return _spec({"value": 1})
+
+
+def _lo_sheet(name, tables=()):
+    from types import SimpleNamespace
+    return SimpleNamespace(Name=name, ListObjects=[SimpleNamespace(Name=tn) for tn in tables])
+
+
+def _target_with_tables(tables):
+    from types import SimpleNamespace
+    return SimpleNamespace(wb=SimpleNamespace(Worksheets=[_lo_sheet(f"S{i}", [tn]) for i, tn in enumerate(tables)]))
+
+
+def _target_with_sheets(names):
+    from types import SimpleNamespace
+    return SimpleNamespace(wb=SimpleNamespace(Worksheets=[_lo_sheet(n) for n in names]))
+
+
+RAISES = object()
+
+
+def _render_drill_cell(monkeypatch, tables):
+    from smartview_mcp import answer_write
+
+    def cols(wb, tn):
+        if tables is RAISES:
+            raise RuntimeError("COM error")
+        return tables.get(tn)
+    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
+    monkeypatch.setattr(answer_write, "drill_table_columns", cols)
+    spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
+        {"key": "a", "label": "KPMG AS", "cells": [_drill_cell("d2", {"AP_CUSTOMER_NAME": "KPMG AS"})]}]}]}
+    ws, t = _Sheet(), _Target()
+    t.wb = None
+    warnings = answer_write._write(t, 2, spec, {}, ws)[-1]
+    return [c.Formula2 or c.Value for c in ws.cells.values()], warnings
+
+
+def test_answer_refuses_drill_cell_whose_table_is_missing_and_names_existing_tables():
+    from smartview_mcp.core import pipeline
+    from smartview_mcp.host import InputError
+    t = _target_with_tables(["Lines_Q1_d1", "Lines_Q1_d2"])
+    with pytest.raises(InputError) as e:
+        pipeline.check_drill_tables(t, 2, _spec(_drill_cell("d2", {"AP_CUSTOMER_NAME": "KPMG AS"})))
+    assert all(s in str(e.value) for s in ("Lines_Q2_d2", "Lines_Q1_d2", "sv_drill", "q=2"))
+    pipeline.check_drill_tables(t, 1, _spec(_drill_cell("d2", {})))           # the table exists: no error
+
+
+def test_answer_write_marks_missing_table_as_cell_error_not_formula(monkeypatch):
+    written, warnings = _render_drill_cell(monkeypatch, tables={})            # find_table -> None
+    assert not any("SUMIFS(" in str(v) for v in written)
+    assert any("Lines_Q2_d2 not found" in w for w in warnings)
+    assert any("Lines_Q2_d2 not found" in str(v) for v in written)
+
+
+def test_answer_write_keeps_cannot_check_path_when_tables_unreadable(monkeypatch):
+    written, _ = _render_drill_cell(monkeypatch, tables=RAISES)             # today's behaviour: formula written
+    assert any("SUMIFS(" in str(v) for v in written)
+
+
+def test_new_spec_with_drill_cells_takes_the_pending_drill_q():
+    from smartview_mcp.core import pipeline
+    from smartview_mcp.excel import sheets
+    t = _target_with_sheets(["Q1 Lines d1", "Q1 Lines d2"])               # the live case
+    assert pipeline.question_for(t, _spec(_drill_cell("d2", {}))) == 1
+    assert pipeline.question_for(t, _spec_without_drill()) == 2
+    assert sheets.pending_drill_question(_target_with_sheets(["Q1 Answer", "Q1 Lines d1"])) is None
+
+
 # ------------------------------------------------------------------ cross-process profile lock
 def test_profile_lock_is_exclusive_and_reusable(tmp_path):
     from smartview_mcp import drill_browser as db

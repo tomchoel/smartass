@@ -107,7 +107,8 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Answer
             plan.append(("line", ln, rr)); rr += 1
         rr += 1
     warnings = []
-    table_cols: dict[str, list[str] | None] = {}          # drill tables: name -> header (None = not found)
+    table_cols: dict[str, list[str] | None | bool] = {}   # drill tables: name -> header (None = not found,
+    #                                                       False = unreadable: write the formula, no column check)
     for kind, item, row in plan:
         if kind == "section":
             put(row, 2, item.get("title", "")); rows_meta.append({"row": row, "kind": "section"})
@@ -133,9 +134,12 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Answer
                     if tn_ not in table_cols:
                         try:
                             table_cols[tn_] = drill_table_columns(t.wb, tn_)
-                        except Exception:   # noqa: BLE001 - unknown table: write the formula, no column check
-                            table_cols[tn_] = None
-                    miss = missing_columns(table_cols[tn_], c.get("where") or {})
+                        except Exception:   # noqa: BLE001 - tables unreadable: write the formula, no column check
+                            table_cols[tn_] = False
+                    if table_cols[tn_] is None:                    # Excel rejects a reference to a missing table
+                        buf.put(row, FIRST_COL + j, f"'#n/a: {tn_} not found", str(ln.get("label")))
+                        raise InputError(f"the lines table {tn_} not found: drill it first (sv_drill q={q})")
+                    miss = missing_columns(table_cols[tn_] or None, c.get("where") or {})
                     if miss:                                       # e.g. a detail column left out above 50 000 lines
                         raise InputError(f"the lines table {tn_} has no column {', '.join(miss)} (cell left empty)")
                     f = drill_formula(tn_, c.get("where") or {}, c.get("agg", "sum"))

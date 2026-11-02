@@ -121,10 +121,17 @@ def find_table(wb, tname: str):
 
 
 def table_columns(wb, tname: str) -> list[str] | None:
+    """The table's header; None only when no table has that name (a COM error propagates: 'cannot check')."""
     _, lo = com(lambda: find_table(wb, tname))
     if lo is None:
         return None
     return [str(v) for v in com(lambda: lo.HeaderRowRange.Value)[0]]
+
+
+def lines_tables(wb) -> list[str]:
+    """Names of the drill tables (Lines_*) in the workbook."""
+    return com(lambda: [str(lo.Name) for ws in wb.Worksheets for lo in ws.ListObjects
+                        if str(lo.Name).lower().startswith("lines_")])
 
 
 def _stale_ranges(hdr: int, old_end: int, old_ncol: int, new_end: int, new_ncol: int) -> list[str]:

@@ -15,11 +15,21 @@ from ..host import InputError
 
 # ------------------------------------------------------------------ question numbering and sheets
 _Q = re.compile(r"^Q(\d+) (Answer|FinMax|FinLite|FinPlan|Lines)\b")   # our sheets only, not the user's "Q3 Forecast"
+_LINES = re.compile(r"^Q(\d+) Lines\b")
 
 
 def next_question(t: target.Target) -> int:
     nums = [int(m.group(1)) for s in t.wb.Worksheets if (m := _Q.match(s.Name))]
     return max(nums, default=0) + 1
+
+
+def pending_drill_question(t: target.Target) -> int | None:
+    """The highest q that has drilled 'Q<q> Lines…' sheets but no 'Q<q> Answer' yet (sv_drill ran before sv_answer),
+    else None."""
+    names = [s.Name for s in t.wb.Worksheets]
+    drilled = {int(m.group(1)) for n in names if (m := _LINES.match(n))}
+    pending = [q for q in drilled if f"Q{q} Answer" not in names]
+    return max(pending, default=None)
 
 
 def rollback(t: target.Target) -> list[str]:
