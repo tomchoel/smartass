@@ -133,10 +133,10 @@ The lines recipe (Batch B) drills inside `sv_answer`, so its q always matches.
 | D3 | **Finance defaults are in each recipe, in code:** same period LY; budget/forecast when FinPlan has the entity; reconciliation to the cube total; rankings top 10 + Other + total + share %; group companies separate. | Each recipe module has `DEFAULTS` (a dict). Existing recipes already compare (pnl `COMPARISONS`, concept LY, actual_vs_plan). Task A5 adds LY + top 10/share to `cost_base` and an LY series to `monthly_trend`. |
 | D4 | **Deviations are written on the sheet.** Using another recipe than the gate's, or a param that switches off a default (`compare=[]`, `top≠10`, `group_separate=false`, …), needs `spec.deviation` = the user's explicit request. | `tools_core.answer` compares the spec with `scope.gate(...)["recipe"]` and the recipe's `DEFAULTS`. Without a deviation it raises `InputError` listing the departures. With one, the skeleton writes "Deviation from the standard analysis (user's request): …" under the assumptions, and `runs.jsonl` logs it. |
 | D5 | **No pull while the gate is ambiguous and unanswered.** | `answer()` re-runs `scope.gate(spec.question, closed, answers=spec.gate.answers)` before any Excel job; it is cheap and local. If the outcome is still ambiguous, it returns the questions and pulls nothing, whatever `spec.gate.outcome` claims. `answers` is new on `contract.Gate` and on `sv_gate`, so the agent resolves asks without rewording the question. |
-| D6 | **First frame before the drill.** | A recipe whose draft needs drills runs as job A (`progress.show`: question, assumptions, "Drilling ledger lines (about 60 s) …"), then async drills with `timing.say` notes, then job B. Non-drill recipes draw the frame before `_expand_recipe`. Target: ≤ 2 s after the workbook is open (a cold open of 19–23 s is not counted; risk R2). |
+| D6 | **First frame before the drill: ≤ 2 s after the workbook is open** (owner-accepted; a cold open of 19–23 s is not counted). | A recipe whose draft needs drills runs as job A (`progress.show`: question, assumptions, "Drilling ledger lines (about 60 s) …"), then async drills with `timing.say` notes, then job B. Non-drill recipes draw the frame before `_expand_recipe`. |
 | D7 | **English-only sheet text; chat in the user's language.** | `contract.non_english(text)` is a Norwegian-marker heuristic: ≥ 2 Norwegian function words, or æ/ø/å outside quoted names and member tokens. `answer()` checks assumptions, title/subtitle/notes/key points, section titles, column headers, check labels, drivers, extras and the deviation. It raises `InputError` listing the strings, and the agent translates. Exempt: line labels and data names (suppliers, members). The question is shown as "Question (as asked)". gate.md/SKILL.md change from "ask in English" to "ask in the user's language". |
 | D8 | **The lines/ranking recipe is one `sv_answer` call:** `lines_ranking` drills internally. | Batch B. `sv_drill` stays as a workbench utility. |
-| D9 | **Rankings rank invoiced amounts** (`AP_CUSTOMER_NAME`, costs negative, biggest cost first). Rows without a supplier (accruals, reversals, spreadsheet journals) form the reconciling line "Accruals / reversals / journals without supplier", so the total ties to the cube. | Checks: "Lines total = cube" and "Blocks = lines total". |
+| D9 | **Rankings rank invoiced amounts** (`AP_CUSTOMER_NAME`, costs negative, biggest cost first). Rows without a supplier (accruals, reversals, spreadsheet journals) form the reconciling line "Accruals / reversals / journals without supplier", so the total ties to the cube. | Checks: "Blocks = lines total" and "Total = cube" (which holds by construction, see D20). |
 | D10 | **Group companies go in their own block** and are never counted in the top 10. | `catalog.toml [group_companies]`: a lines column naming the counterparty if the drill has one, else regex patterns (initially `^Telenor\b`, `\bTSS\b`, `Shared Services`, `Towers`). They are verified live in Task B4. |
 | D11 | **Initiative/project:** the booked `PROJECT_DESC` when `PROJECT` ≠ `000000`; otherwise derived from `CC_DESC` or line text, in a column headed "Initiative (derived, not booked)". | `lines.add_initiative(rows)` adds `INITIATIVE` / `INITIATIVE_DERIVED` key columns to the Lines rows. |
 | D12 | **Topic sheets** are named "Q1 Answer" + "Q1 <topic>" (e.g. "Q1 By project") and hyperlinked both ways. | `contract.AnswerSpec.extras: [{topic, layout}]`, merged by topic in follow-ups. `answer.build(..., suffix=topic)`. `sheets._Q` recognises stored topics as ours. Links use `=HYPERLINK("#'Q1 By project'!A1", …)`. |
@@ -147,6 +147,9 @@ The lines recipe (Batch B) drills inside `sv_answer`, so its q always matches.
 | D17 | **LY per supplier comes from a second drill** (FinLite, same accounts and entity, previous year). It is filtered to the LY months with a list-valued `where` on `Period` (an OR via `FILTER/ISNUMBER(MATCH())`). If the LY drill fails, LY is shown at total level only (cube pull), with a warning. | Task B2. This keeps the answer whole when the second drill fails (risk R1). |
 | D18 | **Budget for rankings is at total level only,** when FinPlan maps the measure; otherwise a note says so. | FinPlan has no supplier or project grain. |
 | D19 | **Live re-run of the consultant question, added to the bench** as B16, with gate cases T11/T12. | Batch C. |
+| D20 | **No automatic re-drill** (owner). An unexplained difference between the ledger lines and the cube is shown as its own reconciling line, "Unexplained gap (ledger lines vs cube)" = cube − lines total, and it is flagged as a finding. | The recipe passes `check.review(extra=[...])` a **Warning** finding: "Ledger lines differ from the cube by <amount> (<lines> lines); shown as 'Unexplained gap'. Ask again to re-drill if needed." No finding is raised when the gap is \|gap\| ≤ 1 NOK. The status line says "lines do not fully reconcile". |
+| D21 | **Legal** (owner): a combined measure `legal` (fees 67410/67420 + disputes C60400) is the default for the word "legal"; `legal_fees` and `legal_disputes` stay as separate measures for the specific phrases. | The longest synonym wins (`semantic._find`): "legal fees" → `legal_fees`, "legal disputes" → `legal_disputes`, "legal" / "legal costs" / "juridiske kostnader" → `legal`. |
+| D22 | **Top 10 + Other everywhere** (owner), including `cost_base` (top 25 → 10) and any recipe or free-form ranking: top 10, "Other", total and share %. | `DEFAULTS["top"] = 10` in `cost_base` and `lines_ranking`. Another N is a departure (D4). |
 
 ---
 
@@ -235,6 +238,7 @@ names. The tree is `ac.C609` → `ac.C693` (consultancy + temps) and `ac.C694` (
 | `consultants` | `ac.C60080`, `ac.C60090` | 67600/67610 IT advisory; 67099, 67100/67110 audit, 67200, 67300, 67410/67420 legal fees, 67500/67501, 67700 | consultants, consultant, consultancy, consultancies, consulting, consulting firms, consulting companies; konsulent, konsulenter, konsulentselskap, konsulentselskaper, konsulentfirma, konsulentfirmaer, konsulenthonorar, rådgivning |
 | `consultants_and_temps` | `ac.C693` (the old mapping) | C60080 + C60090 + C60110 + C60095 | consultants and temps, consultancy and temporary workers, konsulenter og innleie |
 | `contractors` | `ac.C60110` | 67800/67810 temps, 67910 security, 67920, 67930, 67940 innleie, 67970, 67989, 67990 | contractors, temporary workers, temps, hired staff; innleie, innleid, innleide, vikar, vikarer, fremmedtjenester |
+| `legal` (default for "legal", D21) | `ac.67410`, `ac.67420`, `ac.C60400` | fees + disputes | legal, legal costs, legal expenses; juridisk, juridiske kostnader, juridiske utgifter |
 | `legal_fees` | `ac.67410`, `ac.67420` | inside C60090 | legal fees, lawyers, legal advice; advokat, advokater, advokatkostnader, juridisk bistand |
 | `legal_disputes` | `ac.C60400` | – | legal disputes, litigation; rettstvister, tvister |
 | `audit_fees` | `ac.67100`, `ac.67110` | inside C60090 | audit fees, auditor; revisjon, revisor, revisjonshonorar |
@@ -267,7 +271,8 @@ convention. "This year" stays an ask (T02 is unchanged).
     ("Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026?", "consultants"),
     ("Which consulting firms invoiced us most this year?", "consultants"),
     ("Hvor mye brukte vi på innleie i september?", "contractors"),
-    ("Travel costs YTD for Business", "travel"), ("advokatkostnader 2026", "legal_fees")])
+    ("Travel costs YTD for Business", "travel"), ("advokatkostnader 2026", "legal_fees"),
+    ("Legal costs this year", "legal"), ("legal fees 2026", "legal_fees"), ("legal disputes Q3", "legal_disputes")])
 def test_cost_type_measures_match_en_and_no(q, key): assert semantic.measures(q)[0].key == key
 
 def test_consultants_sum_c60080_and_c60090():
@@ -370,10 +375,12 @@ def non_english(s: str) -> bool:
 `test_recipes.py`, `test_core_skeleton.py`, `test_vendor.py`.
 
 - `cost_base`:
-  - default `top` 25 → **10**;
+  - default `top` 25 → **10** + "Other cost centres" + total (D22: top 10 + Other everywhere);
   - add "Share %" (line / total) and an LY column (the same pull with the LY period in the columns);
   - the existing check "Top + other = total" stays, and a check "Total = cube parent" is added.
   - Deviation: `top ≠ 10`.
+- Free-form specs: a `repeat.over.top` section with `top ≠ 10`, or with no "Other" line, is a departure. It is
+  refused without `deviation`; with one, the deviation is written on the sheet (D4, D22).
 - `monthly_trend`: add an LY series (the same months last year), unless `compare=[]` (a departure).
 - `pnl`, `concept`, `actual_vs_plan` already carry LY/plan. Their `DEFAULTS` just declare it (`compare` must
   include LY; budget when FinPlan has the entity, which pnl already handles with the "last year only" warning).
@@ -382,7 +389,8 @@ def non_english(s: str) -> bool:
 - `sv_answer` returns `key_values`, `followups` (the recipe's `FOLLOWUPS`, at most 3, formatted with the entity
   and period; for free-form specs `[]`) and `sheets` (every sheet written).
 - [ ] **Step 1: failing tests**
-  - `test_cost_base_defaults_top10_share_and_ly`;
+  - `test_cost_base_defaults_top10_other_share_and_ly`;
+  - `test_freeform_ranking_above_top10_without_deviation_is_refused`;
   - `test_trend_has_ly_series_by_default`;
   - `test_departures_flags_switched_off_defaults`;
   - `test_reply_key_values_are_the_sheet_values_after_calc`;
@@ -440,10 +448,14 @@ def non_english(s: str) -> bool:
   - **Section "Reconciliation"**:
     - "Accruals / reversals / journals without supplier" (where `AP_CUSTOMER_NAME` = "");
     - "Total (ledger lines)";
+    - "Unexplained gap (ledger lines vs cube)" = cube − lines total (D20; no automatic re-drill);
     - "Total (cube)" = the pull.
   - **Checks:**
-    - "Lines total = cube" (tolerance 1 NOK);
-    - "Blocks = lines total" (ext + group + no-supplier − lines).
+    - "Blocks = lines total" (ext + group + no-supplier − lines);
+    - "Total = cube" (lines + gap − cube; it holds by construction).
+  - **Finding:** when |gap| > 1 NOK, `Draft.result["findings"]` carries a Warning that `check.review(extra=...)`
+    reports: "Ledger lines differ from the cube by <amount> (<n> lines); shown as 'Unexplained gap'". The status
+    line then says "lines do not fully reconcile".
   - **Assumptions** (English):
     - the accounts + entity;
     - "Ranking = invoiced amounts per supplier (AP lines); accruals, reversals and spreadsheet journals have no
@@ -470,6 +482,9 @@ form. An empty list is an `InputError`.
   - `test_ranking_top10_excludes_group_and_orders_by_cost`
   - `test_ranking_has_other_external_group_and_reconciling_lines`
   - `test_ranking_checks_tie_blocks_to_lines_and_lines_to_cube`
+  - `test_ranking_unexplained_gap_is_a_reconciling_line_and_a_warning_finding` (fixture cube 11.2 M above the
+    lines → the gap line is 11.2 M, one Warning finding, no re-drill call)
+  - `test_ranking_no_gap_finding_within_1_nok`
   - `test_ranking_ly_cells_use_a_list_where_on_ly_months`
   - `test_ranking_without_ly_drill_falls_back_to_total_ly`
   - `test_ranking_assumptions_pass_the_english_check`
@@ -547,7 +562,7 @@ Non-drill recipes: one job, with `progress.show` called before `_expand_recipe`.
   2. `sv_answer(spec={version:1, question, gate, recipe}, target="new")`.
   3. Record:
      - the first-frame time and the total time;
-     - the line counts, and whether lines = cube;
+     - the line counts, and the unexplained gap (it should be 0; otherwise a gap line + a Warning finding, D20);
      - whether the `Yr 25` drill works (R1);
      - the group-company supplier strings, and whether a counterparty column exists. Edit `[group_companies]` to
        match; that is a data-only commit.
@@ -643,6 +658,7 @@ measures and grains), `docs/specs/2026-11-02-benchmarks.md` (B16, T11, T12); tes
 | (9) live re-run + bench case | B4 step 6, C2, C3 |
 | deviations written on the sheet | A4 |
 | vendored advisor text unchanged | A5 (sha256 test) |
+| owner decisions 2026-11-02: gap line + finding, combined legal, top 10 everywhere | B2 (D20), A2 (D21), A5 (D22) |
 
 **12 tasks:** A 5, B 4, C 3. LIVE steps: B4 step 6 and C3. Everything else is offline.
 
@@ -650,17 +666,16 @@ measures and grains), `docs/specs/2026-11-02-benchmarks.md` (B16, T11, T12); tes
 
 - **R1 — LY drill.** It is unverified whether FinLite drills the previous year for these accounts. The fallback is
   LY at total level (D17). This is measured in B4.
-- **R2 — first frame vs a cold open.** Opening a closed workbook takes 19–23 s, so the ≤ 2 s target counts from
-  "workbook open". The owner should confirm that.
-- **R3 — gate dodging.** The re-gate in `answer()` uses `spec.question`, so the agent could reword the question.
+- **R2 — gate dodging.** The re-gate in `answer()` uses `spec.question`, so the agent could reword the question.
   `answers=` removes the reason to do so, and the runs log question + answers. The engine never sees the user's
   message.
-- **R4 — group-company names.** The patterns are a first guess, fixed in B4 step 6.
-- **R5 — drill inconsistency.** One live drill returned 227 lines with an 11.2 M gap; the re-drill returned 56
-  lines and no gap. The check catches it. The plan does **not** auto-re-drill (that adds ~60 s). Owner: should it?
-- **R6 — `consultants` changes meaning.** It was C693 and becomes C60080 + C60090; C693 stays as
-  `consultants_and_temps`. Learned defaults that say `consultants` get the narrower definition.
-- **R7 — legal.** It is split into `legal_fees` (67410/67420, inside C60090) and `legal_disputes` (C60400). The
-  owner may want one combined measure.
-- **R8 — `cost_base` default top 25 → 10** changes B06's sheet (the bench oracle is on the total, so it should
-  still pass). Older answers re-drawn by a follow-up keep their stored spec.
+- **R3 — group-company names.** The patterns are a first guess, fixed in B4 step 6.
+- **R4 — B06 sheet changes.** The `cost_base` top 10 (D22) changes B06's sheet. The bench oracle is on the total,
+  so it should still pass. Older answers re-drawn by a follow-up keep their stored spec.
+
+Settled by the owner on 2026-11-02 (no longer open):
+- first frame ≤ 2 s after the workbook is open (D6);
+- no auto re-drill; the gap is a reconciling line plus a finding (D20);
+- `consultants` = C60080 + C60090, with C693 kept as `consultants_and_temps` (A2);
+- a combined `legal` measure plus fees and disputes (D21);
+- top 10 + Other everywhere (D22).
