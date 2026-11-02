@@ -83,7 +83,7 @@ Implemented (phase 4) in `core/scope.py`, exposed as the tool `sv_gate(question)
   measure, period ("this year" → ytd / fy), scenario, entity; values are validated against the catalog.
 - English questions, assumptions and sheets; Norwegian synonyms are understood.
 - Measured on the gate benchmark (B10, B11, T01–T10): 12/12, false-go 0, needless-ask 0
-  (`docs/audit/2026-11-02-bench-core-gate.md`).
+  (`docs/audit/2026-11-02-bench-core-final-gate.md`).
 
 ### 3.2 pull
 

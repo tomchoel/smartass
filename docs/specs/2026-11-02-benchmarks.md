@@ -67,4 +67,5 @@ The closed month is FinMax's Current Reporting Month (Oct 26 at phase 5); the dy
 `period`. B08's oracle: C30 Periodic for un.SY.2BUS and un.SY.2TEC in B07's month. On route core the review grades
 the checks: a check with `severity: "Warning"` (actual_vs_plan's FinPlan = FinMax) may differ without failing the
 case. Gate cases (B10, B11, T01–T10) are scored by `sv_gate`. Results: `docs/audit/2026-11-02-bench-core-widen.md`,
-`docs/audit/2026-11-02-bench-core-gate-p5.md`.
+`docs/audit/2026-11-02-bench-core-gate-p5.md`; final (phase 6):
+`docs/audit/2026-11-02-bench-core-final.md`, `docs/audit/2026-11-02-bench-core-final-gate.md`.

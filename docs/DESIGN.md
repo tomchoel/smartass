@@ -116,7 +116,7 @@ the lines to the cube, repairs text, caches lines in `drill.db` and writes `Q<n>
 
 Localhost only, per-user secret header, one request at a time: `GET /health`, `POST /gate` and `POST /answer`, which
 call the same `tools_core.gate()` / `tools_core.answer()` as the MCP tools. 400 for bad input, 409 when busy, 413
-for a body over 1 MB, 503 for an Excel/EPM error. `/answer` in the `serve` process uses its own hidden Excel.
+for a body over 1 MB, 503 for an Excel/EPM error, 500 (logged) for anything else.
 
 ## Process model
 
