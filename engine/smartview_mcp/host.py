@@ -47,6 +47,8 @@ def signin_message(d: dialogs.Dialog, again: bool, holders: list[str]) -> str:
     if d.kind == "webview2_fallback" or d.ie:
         cause = ("Smart View showed its sign-in window (WebView2 failed and it fell back to Internet Explorer, whose "
                  "Oracle login page doesn't work)")
+    elif d.hung:
+        cause = "Smart View's sign-in window stopped responding (Windows marks it 'Not responding')"
     else:
         cause = (f"Smart View's sign-in window stayed open for more than {config.LOGIN_GRACE_S:.0f}s (the automatic "
                  "SSO click did not complete)")

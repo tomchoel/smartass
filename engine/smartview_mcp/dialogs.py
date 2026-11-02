@@ -27,6 +27,16 @@ class Dialog:
     text: str
     kind: str              # 'login' | 'webview2_fallback' | 'message'
     ie: bool = False       # a Login window rendered by Internet Explorer (WebView2 already failed)
+    hung: bool = False     # Windows reports the window as not responding
+
+
+def is_hung(hwnd: int) -> bool:
+    """Windows' own 'Not responding' test (no input processed for 5 s)."""
+    import ctypes
+    try:
+        return bool(ctypes.windll.user32.IsHungAppWindow(hwnd))
+    except OSError:
+        return False
 
 
 def classify(cls: str, title: str, text: str) -> str | None:
@@ -41,12 +51,13 @@ def classify(cls: str, title: str, text: str) -> str | None:
 
 
 def blocking(found: list[Dialog], first_seen: dict[int, float], now: float, grace: float) -> Dialog | None:
-    """The dialog that means the sign-in is stuck, or None. A WebView2 Login gets `grace` s for the SSO watcher;
-    an Internet Explorer Login or a WebView2-fallback box is stuck at once. first_seen ({hwnd: time}) is updated."""
+    """The dialog that means the sign-in is stuck, or None. A responsive WebView2 Login gets `grace` s for the SSO
+    watcher; a hung or Internet Explorer Login or a WebView2-fallback box is stuck at once. first_seen is updated."""
     for d in found:
         first_seen.setdefault(d.hwnd, now)
     for d in found:
-        if d.kind == "webview2_fallback" or (d.kind == "login" and (d.ie or now - first_seen[d.hwnd] >= grace)):
+        if d.kind == "webview2_fallback" or (d.kind == "login" and (d.ie or d.hung
+                                                                     or now - first_seen[d.hwnd] >= grace)):
             return d
     return None
 
@@ -74,7 +85,8 @@ def scan(pid: int) -> list[Dialog]:
             text = " ".join(t.strip() for c, t in kids if c == "Static" and t.strip())[:300]
             kind = classify(cls, title, text)
             if kind:
-                out.append(Dialog(hwnd, cls, title, text, kind, any(c == IE_CLASS for c, _t in kids)))
+                out.append(Dialog(hwnd, cls, title, text, kind, any(c == IE_CLASS for c, _t in kids),
+                                  kind == "login" and is_hung(hwnd)))
         except pywintypes.error:
             pass
         return True
@@ -180,8 +192,8 @@ def stale_sv_webview2_from(rows: list[tuple[int, int, str]], excel_pid: int, ali
     return out
 
 
-def end_stale_sv_webview2(excel_pid: int) -> list[int]:
-    """End the stale Smart View WebView2 browser processes (with their child processes); returns their pids."""
+def _webview2_rows() -> list[tuple[int, int, str]]:
+    """[(pid, parent pid, command line)] of every msedgewebview2.exe."""
     import psutil
 
     rows = []
@@ -191,8 +203,15 @@ def end_stale_sv_webview2(excel_pid: int) -> list[int]:
                 rows.append((p.pid, p.info["ppid"], " ".join(p.info["cmdline"] or [])))
         except psutil.Error:
             continue
+    return rows
+
+
+def end_stale_sv_webview2(excel_pid: int) -> list[int]:
+    """End the stale Smart View WebView2 browser processes (with their child processes); returns their pids."""
+    import psutil
+
     ended = []
-    for pid in stale_sv_webview2_from(rows, excel_pid, psutil.pid_exists):
+    for pid in stale_sv_webview2_from(_webview2_rows(), excel_pid, psutil.pid_exists):
         try:
             p = psutil.Process(pid)
             for k in p.children(recursive=True) + [p]:
@@ -216,13 +235,4 @@ def close(hwnds: list[int]) -> None:
 
 
 def webview2_holders(exclude_parent: int | None) -> list[str]:
-    import psutil
-
-    rows = []
-    for p in psutil.process_iter(["name", "ppid", "cmdline"]):
-        try:
-            if (p.info["name"] or "").lower() == "msedgewebview2.exe":
-                rows.append((p.pid, p.info["ppid"], " ".join(p.info["cmdline"] or [])))
-        except psutil.Error:
-            continue
-    return webview2_holders_from(rows, exclude_parent)
+    return webview2_holders_from(_webview2_rows(), exclude_parent)

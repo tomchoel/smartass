@@ -179,25 +179,17 @@ def is_transient(msg) -> bool:
     return re.search(r"(?:rc=|ERR\|)(752|57704)(?!\d)", s) is not None or "empty response from provider" in s.lower()
 
 
-def _rejected_members(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis]) -> list[tuple[str, str]]:
-    """After an rc=1000 'Unsupported Error': bisect each multi-member axis to find the members Smart View rejects
-    (e.g. a name used twice in one dimension, like FinPlan Account 'Other'). Returns [(dimension, member)]."""
+def isolate_rejected(axes: list[Axis], ok_grid, too_many: str) -> list[tuple[str, str]]:
+    """After an rc=1000 'Unsupported Error': bisect each multi-member axis (the others cut to their first member) to
+    find the members Smart View rejects (e.g. a name used twice in one dimension, like FinPlan Account 'Other').
+    ok_grid(trial axes) -> whether that grid retrieves. Returns [(dimension, member)]."""
     budget = [MAX_BISECT_RETRIEVES]
-    axes = rows + cols
 
     def ok(i: int, members: list[str]) -> bool:
         if budget[0] <= 0:
-            raise HostError("Smart View rejected the grid (rc=1000) and the bad member could not be isolated within "
-                            f"{MAX_BISECT_RETRIEVES} test retrieves; split the query and retry.")
+            raise HostError(too_many)
         budget[0] -= 1
-        trial = [Axis(a.dimension, members if j == i else a.members[:1]) for j, a in enumerate(axes)]
-        try:
-            _query_once(h, conn, pov, trial[:len(rows)], trial[len(rows):], True, False, _retried=True)
-            return True
-        except HostError as e:
-            if is_rc1000(e):
-                return False
-            raise
+        return ok_grid([Axis(a.dimension, members if j == i else a.members[:1]) for j, a in enumerate(axes)])
 
     def bad(i: int, members: list[str]) -> list[str]:
         if len(axes[i].members) <= 1 or ok(i, members):
@@ -206,11 +198,31 @@ def _rejected_members(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols
             return members
         mid = len(members) // 2
         return bad(i, members[:mid]) + bad(i, members[mid:])
+    return [(a.dimension, m) for i, a in enumerate(axes) for m in bad(i, list(a.members))]
 
-    out = []
-    for i, a in enumerate(axes):
-        out += [(a.dimension, m) for m in bad(i, list(a.members))]
-    return out
+
+def without(axes: list[Axis], rej: list[tuple[str, str]]) -> list[Axis]:
+    drop = set(rej)
+    return [Axis(a.dimension, [m for m in a.members if (a.dimension, m) not in drop]) for a in axes]
+
+
+def _rejected_members(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis]) -> list[tuple[str, str]]:
+    def ok(trial: list[Axis]) -> bool:
+        try:
+            _query_once(h, conn, pov, trial[:len(rows)], trial[len(rows):], True, False, _retried=True)
+            return True
+        except HostError as e:
+            if is_rc1000(e):
+                return False
+            raise
+    return isolate_rejected(rows + cols, ok, "Smart View rejected the grid (rc=1000) and the bad member could not be "
+                            f"isolated within {MAX_BISECT_RETRIEVES} test retrieves; split the query and retry.")
+
+
+def rejected_note(conn: str, rej: list[tuple[str, str]]) -> str:
+    return ("Smart View rejected these members (rc=1000), so they were left out: "
+            + "; ".join(_explain_reject(conn, d, m) for d, m in rej)
+            + ". Pick a more specific member with sv_find_member / sv_members.")
 
 
 def _explain_reject(conn: str, dim: str, member: str) -> str:
@@ -245,17 +257,13 @@ def query(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis]
     rej = _rejected_members(h, conn, pov, rows, cols)
     if not rej:
         raise err
-    drop = set(rej)
-    rows2 = [Axis(a.dimension, [m for m in a.members if (a.dimension, m) not in drop]) for a in rows]
-    cols2 = [Axis(a.dimension, [m for m in a.members if (a.dimension, m) not in drop]) for a in cols]
+    rows2, cols2 = without(rows, rej), without(cols, rej)
     if any(not a.members for a in rows2 + cols2):
         raise InputError("Smart View rejects every member on an axis: "
                          + "; ".join(_explain_reject(conn, d, m) for d, m in rej)
                          + ". Next step: pick valid members with sv_find_member / sv_members.")
     lay, p, secs = _query_once(h, conn, pov, rows2, cols2, suppress_missing, suppress_zeros)
-    p.pov_problems.insert(0, "Smart View rejected these members (rc=1000), so they were left out: "
-                          + "; ".join(_explain_reject(conn, d, m) for d, m in rej)
-                          + ". Pick a more specific member with sv_find_member / sv_members.")
+    p.pov_problems.insert(0, rejected_note(conn, rej))
     return lay, p, secs
 
 

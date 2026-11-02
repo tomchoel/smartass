@@ -93,10 +93,8 @@ def _pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, ro
         raise HostError("Smart View returned a different layout than requested, so the numbers cannot be mapped "
                         "safely: " + "; ".join(bad[:5]) + (" ..." if len(bad) > 5 else ""))
     if rejected:
-        from ..ops import _explain_reject
-        parsed.pov_problems.insert(0, "Smart View rejected these members (rc=1000), so they were left out: "
-                                   + "; ".join(_explain_reject(connection, d, m_) for d, m_ in rejected)
-                                   + ". Pick a more specific member with sv_find_member / sv_members.")
+        from ..ops import rejected_note
+        parsed.pov_problems.insert(0, rejected_note(connection, rejected))
     fte = sheets.fte_rows(lay, parsed)
     t.status(f"formatting '{name}' ...")
     p = sheets._make_pull(name, connection, lay, parsed, secs)
@@ -154,33 +152,19 @@ def _write_and_retrieve(t: target.Target, ws, name: str, lay: Layout) -> tuple[s
 def _drop_rejected(t: target.Target, ws, name: str, lay: Layout, connection: str) -> tuple[Layout, list[tuple[str, str]]]:
     """rc=1000: bisect each axis on this sheet to find the members Smart View rejects; return the layout without
     them (unchanged + [] if none could be isolated or an axis would be empty)."""
-    from ..ops import MAX_BISECT_RETRIEVES, is_rc1000
+    from ..ops import MAX_BISECT_RETRIEVES, is_rc1000, isolate_rejected, without
     axes = lay.rows + lay.cols
-    budget = [MAX_BISECT_RETRIEVES]
 
-    def ok(i, members):
-        if budget[0] <= 0:
-            raise HostError(f"Retrieve on '{name}' was rejected (rc=1000) and the bad member could not be isolated "
-                            f"within {MAX_BISECT_RETRIEVES} test retrieves; split the pull.")
-        budget[0] -= 1
-        trial = [Axis(a.dimension, members if j == i else a.members[:1]) for j, a in enumerate(axes)]
+    def ok(trial):
         lt = Layout(lay.pov, trial[:len(lay.rows)], trial[len(lay.rows):])
         st, _ = _write_and_retrieve(t, ws, name, lt)
         if st != "OK" and not is_rc1000(st):
             raise HostError(f"Retrieve on '{name}' failed: {st}")
         return st == "OK"
 
-    def bad(i, members):
-        if len(axes[i].members) <= 1 or ok(i, members):
-            return []
-        if len(members) == 1:
-            return members
-        mid = len(members) // 2
-        return bad(i, members[:mid]) + bad(i, members[mid:])
-
-    rej = [(a.dimension, m) for i, a in enumerate(axes) for m in bad(i, list(a.members))]
-    drop = set(rej)
-    new = [Axis(a.dimension, [m for m in a.members if (a.dimension, m) not in drop]) for a in axes]
+    rej = isolate_rejected(axes, ok, f"Retrieve on '{name}' was rejected (rc=1000) and the bad member could not be "
+                           f"isolated within {MAX_BISECT_RETRIEVES} test retrieves; split the pull.")
+    new = without(axes, rej)
     if not rej or any(not a.members for a in new):
         return lay, []
     return Layout(lay.pov, new[:len(lay.rows)], new[len(lay.rows):]), rej

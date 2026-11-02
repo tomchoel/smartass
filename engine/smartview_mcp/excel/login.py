@@ -4,22 +4,14 @@ from __future__ import annotations
 import threading
 import time
 
-import win32gui
-import win32process
-
 from . import jobs
 from ..host import HostError
 
-def login_open(pid: int) -> bool:
-    found = []
 
-    def cb(h, _):
-        if (win32gui.IsWindowVisible(h) and win32gui.GetClassName(h) == "#32770"
-                and win32gui.GetWindowText(h) == "Login" and win32process.GetWindowThreadProcessId(h)[1] == pid):
-            found.append(h)
-        return True
-    win32gui.EnumWindows(cb, None)
-    return bool(found)
+def login_open(pid: int) -> list[int]:
+    """The Smart View Login windows open in Excel `pid` (empty = none)."""
+    from .. import dialogs
+    return [d.hwnd for d in dialogs.scan(pid) if d.kind == "login" and d.cls == "#32770" and d.title == "Login"]
 
 
 BOX_POLL_S = 0.5

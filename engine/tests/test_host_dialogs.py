@@ -202,3 +202,13 @@ def test_check_signin_ignores_plain_messages():
     h.detect = lambda pid: [LOGIN_IE]
     with pytest.raises(SignInBlocked):
         h.check_signin()
+
+
+@pytest.mark.anyio
+async def test_hung_login_restarts_excel_and_names_the_cause(monkeypatch):
+    hung = Dialog(13, "#32770", "Login", "", "login", False, hung=True)
+    xl = FakeExcel(monkeypatch, [[hung], [hung]])
+    with pytest.raises(SignInBlocked) as e:
+        await xl.h.call(xl.hang, timeout=5, what="sv_answer")
+    assert "stopped responding" in str(e.value)
+    assert xl.killed == [1001, 1002]
