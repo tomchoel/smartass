@@ -326,8 +326,8 @@ async def test_failed_drill_leaves_a_cube_only_answer(monkeypatch, tmp_path):
     calls = []
     out = await _gate_and_answer(_answer_env(monkeypatch, tmp_path, calls, fail="link timed out"))
     assert ("status", "Drill failed: link timed out; cube totals only") in calls
-    assert [c[1:] for c in calls if c[0] == "drill"] == [("ac.C60080", "Yr 26")]      # no LY drill after a failure
-    assert not [c for c in calls if c[0] in ("write", "rollback")]
+    assert ("ac.C60080", "Yr 26") in [c[1:] for c in calls if c[0] == "drill"]   # the plan runs at once; a
+    assert not [c for c in calls if c[0] in ("write", "rollback")]                  # failed d1 drops every drill
     assert out["checks"] == {"Accounts = total": "OK"} and "Total (cube)" in out["key_values"]
     assert any("link timed out" in w for w in out["warnings"]) and any("cube total only" in w for w in out["warnings"])
 

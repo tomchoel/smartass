@@ -223,5 +223,7 @@ DRILL_CAPTURE_TIMEOUT_S = 45
 DRILL_RELOAD_WAIT_S = 25                           # after the one reload of a page that never asked for data
 DRILL_SETUP_S = 95                                 # sign-in + capture of one drill (S8: no call past 120 s)
 DRILL_IDLE_S = int(os.environ.get("SV_DRILL_IDLE_S", "300"))   # close the hidden browser (and free the profile) when idle
+DRILL_TABS = int(os.environ.get("SV_DRILL_TABS", "4"))         # drill pages loading at once (drill_tabs)
+DRILL_CACHE_DAYS = 7                               # drilled lines of a closed period are reused this long (drillcache)
 TEXT_FIXES = KNOWLEDGE_DIR / "text_fixes.json"              # shipped; replaced by every update
 USER_TEXT_FIXES = HOME / "text_fixes.json"                 # the user's own corrections; win over the shipped list

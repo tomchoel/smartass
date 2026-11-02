@@ -15,7 +15,8 @@ from .. import config, ops
 log = logging.getLogger("smartview")
 SOURCE = "Kilde: Data Integration drill-through (FinLite)."
 EMPTY_PROVIDER = "Empty response from provider"
-_drill_lock = None          # asyncio.Lock: one browser fetch at a time, so the hang budget starts when it runs
+_ticks: list = []           # drill pages in flight (event loop only)
+_tick = None                # their one 'still working' progress task
 
 
 @dataclass
@@ -129,23 +130,34 @@ def combine(parts: list[DrillResult]) -> DrillResult:
 
 async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], list[str], str | None]:
     """A recipe's drills ([{alias, year, cells}], d1 first) -> ({alias: result}, warnings, why d1 failed or None).
-    A failed first drill stops (no last year without this year); a later failure is a warning."""
-    out, warnings, failed = {}, [], None
-    for i, d in enumerate(plan):
-        try:
-            parts = [await drill(cell, say=say) for cell in d["cells"]]
-        except Exception as e:   # noqa: BLE001 - the answer falls back to the cube (D21)
-            why = str(e)[:300]
-            if i == 0:
-                failed = why
-                break
-            warnings.append(f"The drill of 20{d['year']:02d} ({d['alias']}) failed: {why}")
-            continue
-        res = out[d["alias"]] = combine(parts)
-        warnings += res.warnings
-        say(f"Drilled {len(res.rows):,} lines for 20{d['year']:02d} ({res.secs:.0f} s)"
-            + ("; now last year ..." if i + 1 < len(plan) else ""))
-    return out, warnings, failed
+    Every drill runs at once (Excel links queue on the host; the pages load in parallel tabs). A failed first
+    drill drops the answer to the cube (no last year without this year); a later failure is a warning."""
+    import asyncio
+
+    async def one(d: dict):
+        t0 = time.monotonic()
+        res = combine(await _all(drill(cell, say=say) for cell in d["cells"]))
+        say(f"Drilled {len(res.rows):,} lines for 20{d['year']:02d} ({time.monotonic() - t0:.0f} s)")
+        return res
+    tasks = [asyncio.ensure_future(one(d)) for d in plan]
+    out, warnings = {}, []
+    try:
+        for i, (d, t) in enumerate(zip(plan, tasks)):
+            try:
+                res = await t
+            except Exception as e:   # noqa: BLE001 - the answer falls back to the cube (D21)
+                why = str(e)[:300]
+                if i == 0:
+                    return {}, [], why
+                warnings.append(f"The drill of 20{d['year']:02d} ({d['alias']}) failed: {why}")
+                continue
+            out[d["alias"]] = res
+            warnings += res.warnings
+    finally:
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    return out, warnings, None
 
 
 def write(t, q: int, alias: str, result: DrillResult, title: str, question: str = "", log: bool = True) -> dict:
@@ -173,29 +185,43 @@ def write(t, q: int, alias: str, result: DrillResult, title: str, question: str 
 
 
 async def _drill_fetch(url: str, max_lines: int) -> dict:
-    """browser().fetch, one at a time in this server, with a hang guard: past the budget only OUR headless Chrome
-    is killed (the next drill starts a fresh one) and the tool fails readably instead of waiting forever."""
+    """One drill page through the tab pump (several at once, drill_tabs), with a hang guard: past the budget every
+    running drill is stopped, only OUR headless browser is killed (the next drill starts a fresh one) and the tool
+    fails readably instead of waiting forever."""
     import asyncio
     import math
 
     from ..drill_browser import DrillBusy
-    global _drill_lock
-    if _drill_lock is None:
-        _drill_lock = asyncio.Lock()
+    from ..drill_tabs import shared_pump
     budget = 300 + 10 * math.ceil(max_lines / config.DRILL_PAGE)      # login + capture (+ one browser restart),
                                                                        # then ~10 s per page
-    async with _drill_lock:
-        tick = asyncio.create_task(_progress("drill (hidden browser: sign-in, drill page, lines)"))
-        try:
-            return await asyncio.wait_for(asyncio.wrap_future(browser().fetch(url, max_lines=max_lines)), budget)
-        except asyncio.TimeoutError:
-            await asyncio.to_thread(browser().kill)
-            raise ToolError(f"The drill page did not finish within {budget} s; the hidden browser was restarted. "
-                            "Try again, or narrow the cell.") from None
-        except DrillBusy as e:
-            raise ToolError(str(e)) from None
-        finally:
-            tick.cancel()
+    global _tick
+    if _tick is None or _tick.done():               # one 'still working' note for all the drills running at once
+        _tick = asyncio.create_task(_progress("drill (hidden browser: sign-in, drill pages, lines)"))
+    _ticks.append(1)
+    try:
+        return await asyncio.wait_for(asyncio.wrap_future(shared_pump().fetch(url, max_lines)), budget)
+    except asyncio.TimeoutError:
+        shared_pump().cancel_all(f"a drill page did not finish within {budget} s")
+        await asyncio.to_thread(browser().kill)
+        raise ToolError(f"The drill page did not finish within {budget} s; the hidden browser was restarted. "
+                        "Try again, or narrow the cell.") from None
+    except DrillBusy as e:
+        raise ToolError(str(e)) from None
+    finally:
+        _ticks.pop()
+
+
+async def _all(coros) -> list:
+    """Run coroutines at once, results in order; the first failure cancels the rest and is raised as it is."""
+    import asyncio
+    tasks = []
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(c) for c in coros]
+    except BaseExceptionGroup as eg:   # noqa: F821 - builtin since Python 3.11
+        raise eg.exceptions[0] from None
+    return [t.result() for t in tasks]
 
 
 async def _progress(what: str) -> None:
@@ -209,6 +235,8 @@ async def _progress(what: str) -> None:
         return
     while True:
         await asyncio.sleep(timing.PROGRESS_AFTER_S)
+        if not _ticks:                              # every drill page has finished
+            return
         try:
             await ctx.report_progress(progress_secs(), None, f"still working: {what} ({progress_secs():.0f}s)")
         except Exception:   # noqa: BLE001 - a progress note must never break the drill
@@ -266,23 +294,30 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
             raise ToolError(f"EPM refused the drill on {cell} as too wide ({e}). Choose a lower entity or "
                             "account.") from None
         _too_wide.add(_too_wide_key(connection, cell))
-        out = []
-        for pc in parts:
-            out += await _drill_piece(connection, pc, max_lines, split, state, depth + 1)
-        return out
+        return await _children(connection, parts, max_lines, split, state, depth)
     except TooManyLines as e:
         if e.total > left:
             raise ToolError(f"{cell} holds {e.total} lines, more than the {left} still allowed "
                             f"(max_lines={max_lines}). Narrow the cell or raise max_lines.") from None
         parts = drill_split.plan_split(cell, drill_split.atlas_children(connection)) if can_split else None
         if parts:                                   # too big: drill each child cell instead (recursively)
-            out = []
-            for pc in parts:
-                out += await _drill_piece(connection, pc, max_lines, split, state, depth + 1)
-            return out
+            return await _children(connection, parts, max_lines, split, state, depth)
         res = await _drill_fetch(link["url"], left)                       # leaf: page it all
     state["left"] -= len(res["items"])
     return [{"cell": cell, "cube_value": link["cube_value"], **res}]
+
+
+async def _children(connection: str, parts: list[dict], max_lines: int, split: str, state: dict,
+                    depth: int) -> list[dict]:
+    """The split children drilled at once (their pages load in parallel tabs), pieces in the plan's order. Each
+    starts with the budget free at that moment, so the total is checked again at the end (spec 4)."""
+    done = await _all(_drill_piece(connection, pc, max_lines, split, state, depth + 1) for pc in parts)
+    out = [p for ps in done for p in ps]
+    if state["left"] < 0:
+        n = sum(len(p.get("items") or []) for p in out)
+        raise ToolError(f"The split pieces hold {n}+ lines, more than allowed (max_lines={max_lines}). Narrow the "
+                        "cell or raise max_lines.")
+    return out
 
 
 def _lines_of(pieces: list[dict], view: dict, parent_cube: float | None = None) -> dict:

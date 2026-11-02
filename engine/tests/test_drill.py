@@ -1121,6 +1121,43 @@ def test_drill_cell_passes_the_remaining_budget_down(monkeypatch):
         asyncio.run(server._drill_cell("FinLite", _CELL, 1000, "auto"))     # 400 + 400 + 431 > 1000
 
 
+def test_drill_cell_fetches_the_children_at_once_in_order(monkeypatch):
+    """The split children's drill pages load concurrently (the tab pump); the pieces keep the plan's order."""
+    import asyncio
+    from smartview_mcp.core import drillstep as server
+    _drill_fakes(monkeypatch, _LINKS, {"q3": 1231, "jul": 400, "aug": 400, "sep": 431}, _KIDS)
+    real, live = server._drill_fetch, {"now": 0, "peak": 0}
+
+    async def slow(url, max_lines):
+        live["now"] += 1
+        live["peak"] = max(live["peak"], live["now"])
+        await asyncio.sleep(0.01 if url != "jul" else 0.03)      # the first child finishes last
+        live["now"] -= 1
+        return await real(url, max_lines)
+    monkeypatch.setattr(server, "_drill_fetch", slow)
+    pieces, _ = asyncio.run(server._drill_cell("FinLite", _CELL, 300000, "auto"))
+    assert live["peak"] == 3 and [p["cell"]["All Time Periods"] for p in pieces] == ["Jul 26", "Aug 26", "Sep 26"]
+
+
+def test_drill_all_runs_the_plan_at_once(monkeypatch):
+    import asyncio
+    from smartview_mcp.core import drillstep as server
+    live = {"now": 0, "peak": 0}
+
+    async def fake_drill(cell, say=None):
+        live["now"] += 1
+        live["peak"] = max(live["peak"], live["now"])
+        await asyncio.sleep(0.01)
+        live["now"] -= 1
+        return server.DrillResult(cell, [{"x": 1}], ["x"], -1.0, {"lines": 1, "gap": 0.0}, None, server.SOURCE, 1.0)
+    monkeypatch.setattr(server, "drill", fake_drill)
+    plan = [{"alias": "d1", "year": 26, "cells": [{"a": 1}, {"a": 2}]}, {"alias": "d2", "year": 25, "cells": [{"a": 3}]}]
+    notes = []
+    out, warnings, failed = asyncio.run(server.drill_all(plan, say=notes.append))
+    assert live["peak"] == 3 and failed is None and list(out) == ["d1", "d2"] and len(out["d1"].rows) == 2
+    assert notes[0].startswith("Drilled 2 lines for 2026")
+
+
 def test_drill_cell_mixed_piece_without_drill_report(monkeypatch):
     import asyncio
     from smartview_mcp.core import drillstep as server
