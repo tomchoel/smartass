@@ -910,7 +910,7 @@ def test_idle_worker_closes_browser_and_frees_lock(monkeypatch, tmp_path):
 
 # ------------------------------------------------------------------ server helpers (no Excel, no browser)
 def test_server_lines_of_normalises_each_piece_once(monkeypatch):
-    from smartview_mcp import tools_drill as server
+    from smartview_mcp.core import drillstep as server
     items = _items("whs_c40s_q326_items.json")
     view = json.loads((FIX / "view_definition.json").read_text(encoding="utf-8"))
     calls = []
@@ -1056,7 +1056,8 @@ def test_dead_browser_is_restarted_and_the_drill_retried_once(monkeypatch):
 # ------------------------------------------------------------------ final review round
 def _drill_fakes(monkeypatch, links: dict, totals: dict, kids: dict, split_at: int = 600):
     """Fake Smart View links, a fake browser and a fake atlas for server._drill_cell."""
-    from smartview_mcp import config, drill_split, ops, tools_drill as server
+    from smartview_mcp import config, drill_split, ops
+    from smartview_mcp.core import drillstep as server
     from smartview_mcp.drill_browser import TooManyLines
     asked = []
 
@@ -1088,7 +1089,7 @@ _CELL = {"All Accounts": "ac.C40S", "All Entities": "un.SY.2WHS", "All Time Peri
 
 def test_drill_cell_splits_and_keeps_the_parent_cube(monkeypatch):
     import asyncio
-    from smartview_mcp import tools_drill as server
+    from smartview_mcp.core import drillstep as server
     _drill_fakes(monkeypatch, _LINKS, {"q3": 1231, "jul": 400, "aug": 400, "sep": 431}, _KIDS)
     pieces, parent = asyncio.run(server._drill_cell("FinLite", _CELL, 300000, "auto"))
     assert [p["cell"]["All Time Periods"] for p in pieces] == ["Jul 26", "Aug 26", "Sep 26"]
@@ -1097,7 +1098,7 @@ def test_drill_cell_splits_and_keeps_the_parent_cube(monkeypatch):
 
 def test_drill_cell_max_lines_guard_before_splitting(monkeypatch):
     import asyncio
-    from smartview_mcp import tools_drill as server
+    from smartview_mcp.core import drillstep as server
     asked = _drill_fakes(monkeypatch, _LINKS, {"q3": 1231, "jul": 400, "aug": 400, "sep": 431}, _KIDS)
     with pytest.raises(server.ToolError, match="1231 lines"):
         asyncio.run(server._drill_cell("FinLite", _CELL, 1000, "auto"))
@@ -1106,7 +1107,7 @@ def test_drill_cell_max_lines_guard_before_splitting(monkeypatch):
 
 def test_drill_cell_passes_the_remaining_budget_down(monkeypatch):
     import asyncio
-    from smartview_mcp import tools_drill as server
+    from smartview_mcp.core import drillstep as server
     from smartview_mcp.drill_browser import TooManyLines
     _drill_fakes(monkeypatch, _LINKS, {"q3": 1231, "jul": 400, "aug": 400, "sep": 431}, _KIDS)
     real = server._drill_fetch
@@ -1122,7 +1123,7 @@ def test_drill_cell_passes_the_remaining_budget_down(monkeypatch):
 
 def test_drill_cell_mixed_piece_without_drill_report(monkeypatch):
     import asyncio
-    from smartview_mcp import tools_drill as server
+    from smartview_mcp.core import drillstep as server
     links = {**_LINKS, "Sep 26": {"url": None, "cube_value": -431.0}}
     _drill_fakes(monkeypatch, links, {"q3": 1231, "jul": 400, "aug": 400}, _KIDS)
     pieces, parent = asyncio.run(server._drill_cell("FinLite", _CELL, 300000, "auto"))
@@ -1132,7 +1133,8 @@ def test_drill_cell_mixed_piece_without_drill_report(monkeypatch):
 def test_drill_cell_too_wide_splits_by_entity_and_skips_empty(monkeypatch):
     """EPMFDM-140373 on a top entity: drill its child entities (not periods); #Missing children are skipped."""
     import asyncio
-    from smartview_mcp import drill_split, ops, tools_drill as server
+    from smartview_mcp import drill_split, ops
+    from smartview_mcp.core import drillstep as server
     from smartview_mcp.drill_browser import CellTooWide
     links = {"un.SY": {"url": "sy", "cube_value": -161.0}, "un.SY.2SSM": {"url": "ssm", "cube_value": -98.0},
              "un.SY.2I15": {"url": "i15", "cube_value": -63.0}, "un.SY.2CON": {"url": "con", "cube_value": None}}
@@ -1164,7 +1166,8 @@ def test_drill_cell_too_wide_splits_by_entity_and_skips_empty(monkeypatch):
 
 def test_drill_cell_too_wide_on_a_leaf_is_a_readable_error(monkeypatch):
     import asyncio
-    from smartview_mcp import drill_split, ops, tools_drill as server
+    from smartview_mcp import drill_split, ops
+    from smartview_mcp.core import drillstep as server
     from smartview_mcp.drill_browser import CellTooWide
 
     async def fake_call(fn, timeout=None, what="call"):
@@ -1182,7 +1185,7 @@ def test_drill_cell_too_wide_on_a_leaf_is_a_readable_error(monkeypatch):
 
 
 def test_lines_of_reconciles_against_the_parent_and_checks_the_split():
-    from smartview_mcp import tools_drill as server
+    from smartview_mcp.core import drillstep as server
     items = _items("whs_c40s_q326_items.json")
     view = json.loads((FIX / "view_definition.json").read_text(encoding="utf-8"))
     half = len(items) // 2
@@ -1195,9 +1198,44 @@ def test_lines_of_reconciles_against_the_parent_and_checks_the_split():
 
 
 def test_gap_warning_shows_share_of_cell():
-    from smartview_mcp import tools_drill as server
+    from smartview_mcp.core import drillstep as server
     w = server._gap_warning({"gap": -250.0, "cube_value": -1000.0})
     assert "-250.00" in w and "25.0 %" in w
+
+
+def test_drill_retries_once_on_empty_provider_response(monkeypatch):
+    import asyncio
+    from smartview_mcp.core import drillstep
+    tries, notes = [], []
+
+    async def flaky(conn, cell, max_lines, split):
+        tries.append(1)
+        if len(tries) == 1:
+            raise drillstep.ToolError("Smart View error: Empty response from provider")
+        return [{"cell": cell, "cube_value": -5.0, "items": [], "view": None, "secs": 0, "note": "no report"}], -5.0
+    monkeypatch.setattr(drillstep, "_drill_cell", flaky)
+    res = asyncio.run(drillstep.drill(_CELL, say=notes.append))
+    assert len(tries) == 2 and len(notes) == 1 and "retrying" in notes[0]
+    assert res.cell_value == -5.0 and res.rows == []
+
+    tries.clear()
+
+    async def always(conn, cell, max_lines, split):
+        tries.append(1)
+        raise drillstep.ToolError("Empty response from provider")
+    monkeypatch.setattr(drillstep, "_drill_cell", always)
+    with pytest.raises(drillstep.ToolError):
+        asyncio.run(drillstep.drill(_CELL, say=notes.append))
+    assert len(tries) == 2                                      # one retry only
+
+    async def other(conn, cell, max_lines, split):
+        tries.append(1)
+        raise drillstep.ToolError("EPM refused")
+    tries.clear()
+    monkeypatch.setattr(drillstep, "_drill_cell", other)
+    with pytest.raises(drillstep.ToolError, match="refused"):
+        asyncio.run(drillstep.drill(_CELL, say=notes.append))
+    assert len(tries) == 1
 
 
 def test_fetch_never_leaks_the_sso_token():
@@ -1429,9 +1467,10 @@ def test_shutdown_shared_is_idempotent(monkeypatch):
 
 
 def test_shared_browser_is_one_instance(monkeypatch):
-    from smartview_mcp import drill_browser as db, tools_drill
+    from smartview_mcp import drill_browser as db
+    from smartview_mcp.core import drillstep
     monkeypatch.setattr(db, "_shared", None)
     made = []
     monkeypatch.setattr(db, "DrillBrowser", lambda: made.append(1) or object())
     first = db.shared_browser()
-    assert db.shared_browser() is first and tools_drill.browser() is first and made == [1]
+    assert db.shared_browser() is first and drillstep.browser() is first and made == [1]
