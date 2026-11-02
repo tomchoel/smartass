@@ -228,3 +228,45 @@ def test_echo_transport_answers_a_retrieve_with_the_value_function(tmp_path):
                             [Axis("All Time Periods", ["Mar 26"])], False, False)
     assert p.rows == [["un.SY.2WHS", "ac.C30", 3000.0], ["un.SY.2WHS", "ac.STA20Y", 10.0]]
     assert sv.closed_month() == "Sep 26"
+
+
+def test_drill_reports_body_is_smart_views_own_shape():
+    body = svxml.drill_reports("S1", "FinLite", 19, [("All Time Periods", "col", "Sep 26"),
+                                                     ("All Accounts", "row", "C60080 Consultancy IS/IT (ac)"),
+                                                     ("All Entities", "pov", "SY Telenor Norge AS (un)")])
+    assert body == ('<req_GetDrillThroughReports><sID>S1</sID><usr></usr><pwd></pwd><rowGov></rowGov>'
+                    '<timeGov></timeGov><cube>FinLite</cube><ords>19</ords><alsTbl>Default</alsTbl><pov/><cells>'
+                    '<dim name="All Time Periods" col="0" enc="0">Sep 26</dim>'
+                    '<dim name="All Accounts" row="0" enc="0">C60080 Consultancy IS/IT (ac)</dim>'
+                    '<dim name="All Entities" pov="pov" enc="0">SY Telenor Norge AS (un)</dim>'
+                    '</cells></req_GetDrillThroughReports>')
+    svxml.check_read_only(body)                       # allowed: it only lists the reports
+
+
+def test_drill_reports_escapes_labels():
+    body = svxml.drill_reports("S", "FinLite", 3, [("All Entities", "pov", "R&D <x>")])
+    assert "R&amp;D &lt;x&gt;" in body
+
+
+def test_execute_drill_through_report_stays_refused():
+    with pytest.raises(ValueError, match="ExecuteDrillThroughReport"):
+        svxml.check_read_only("<req_ExecuteDrillThroughReport><sID>S</sID></req_ExecuteDrillThroughReport>")
+
+
+def test_drill_url_unescapes_the_first_report():
+    text = ('<?xml version="1.0"?><res_GetDrillThroughReports><authRequired>false</authRequired>'
+            '<drillThroughURL name="Drill Through to source" type="post" launchType="both" urlenc="1">'
+            './aif/x/FdmeeMain.jsp?module=aif.drilldown&amp;DRILLURL=Drill&amp;attribute=Accounts.id.ac.C1'
+            '</drillThroughURL></res_GetDrillThroughReports>')
+    assert svxml.drill_url(text) == ("Drill Through to source",
+                                     "aif/x/FdmeeMain.jsp?module=aif.drilldown&DRILLURL=Drill&attribute=Accounts.id.ac.C1")
+
+
+def test_drill_url_none_without_a_report():
+    assert svxml.drill_url("<res_GetDrillThroughReports><authRequired>false</authRequired>"
+                           "</res_GetDrillThroughReports>") is None
+
+
+def test_drill_url_raises_provider_exceptions():
+    with pytest.raises(svxml.SvXmlError, match="not valid"):
+        svxml.drill_url('<exception errcode="1000" type="error"><desc>Your session is not valid.</desc></exception>')
