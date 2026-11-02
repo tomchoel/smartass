@@ -1144,7 +1144,7 @@ def test_drill_all_runs_the_plan_at_once(monkeypatch):
     from smartview_mcp.core import drillstep as server
     live = {"now": 0, "peak": 0}
 
-    async def fake_drill(cell, say=None):
+    async def fake_drill(cell, say=None, **kw):
         live["now"] += 1
         live["peak"] = max(live["peak"], live["now"])
         await asyncio.sleep(0.01)
@@ -1188,7 +1188,7 @@ def test_drill_cell_too_wide_splits_by_entity_and_skips_empty(monkeypatch):
     monkeypatch.setattr(server, "_call", fake_call)
     monkeypatch.setattr(ops, "drill_link", lambda h, conn, cell: links[cell["All Entities"]])
     monkeypatch.setattr(server, "_drill_fetch", fake_fetch)
-    monkeypatch.setattr(server, "_too_wide", set())
+    monkeypatch.setattr(drill_split, "_too_wide", set())
     kids = {"Q3 26": ["Sep 26"], "un.SY": ["un.SY.2SSM", "un.SY.2I15", "un.SY.2CON"]}
     monkeypatch.setattr(drill_split, "atlas_children", lambda conn: lambda dim, m: kids.get(m, []))
     cell = {"All Accounts": "ac.12881", "All Entities": "un.SY", "All Time Periods": "Q3 26"}
@@ -1203,14 +1203,14 @@ def test_drill_cell_too_wide_splits_by_entity_and_skips_empty(monkeypatch):
 
 def test_too_wide_memo_survives_a_server_restart(monkeypatch, tmp_path):
     from smartview_mcp import config
-    from smartview_mcp.core import drillstep as server
+    from smartview_mcp import drill_split
     monkeypatch.setattr(config, "SVKIT", tmp_path)
-    monkeypatch.setattr(server, "_too_wide", None)
-    key = server._too_wide_key("FinLite", {"All Entities": "un.SY", "All Time Periods": "Yr 26"})
-    assert key not in server._wide()
-    server._remember_wide(key)
-    monkeypatch.setattr(server, "_too_wide", None)              # a new server process
-    assert key in server._wide()
+    monkeypatch.setattr(drill_split, "_too_wide", None)
+    key = drill_split.too_wide_key("FinLite", {"All Entities": "un.SY", "All Time Periods": "Yr 26"})
+    assert key not in drill_split.known_too_wide()
+    drill_split.remember_too_wide(key)
+    monkeypatch.setattr(drill_split, "_too_wide", None)              # a new server process
+    assert key in drill_split.known_too_wide()
 
 
 def test_split_links_only_the_children_with_a_value(monkeypatch):
@@ -1232,8 +1232,7 @@ def test_split_links_only_the_children_with_a_value(monkeypatch):
 def test_child_values_reads_one_retrieve_in_order():
     from types import SimpleNamespace
 
-    from smartview_mcp import ops
-    from smartview_mcp.core import drillstep as server
+    from smartview_mcp import drill_split, ops
     seen = {}
 
     def query(h, conn, pov, rows, cols, sm, sz):
@@ -1247,7 +1246,7 @@ def test_child_values_reads_one_retrieve_in_order():
     mp.setattr(ops, "query", query)
     mp.setattr(ops, "ensure_grid_sheet", lambda h, conn: "g")
     try:
-        assert server.child_values_on(h, "FinLite", parts) == [-1.5, None, 0.0]
+        assert drill_split.child_values_on(h, "FinLite", parts) == [-1.5, None, 0.0]
     finally:
         mp.undo()
     assert seen["rows"] == ("All Time Periods", ["Jul 26", "Aug 26", "Sep 26"])

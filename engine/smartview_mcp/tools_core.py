@@ -336,14 +336,15 @@ async def _answer_with_drills(spec: dict, target: str, allow_archive: bool, job)
     t0, rec = time.monotonic(), spec["recipe"]
 
     def frame_job(h):
-        plan = recipes.drills(rec.get("name"), rec.get("params") or {}, _recipe_ctx(h))
+        ctx = _recipe_ctx(h)
+        plan = recipes.drills(rec.get("name"), rec.get("params") or {}, ctx)
         accounts = ", ".join(dict.fromkeys(str(c.get("All Accounts")) for d in plan for c in d["cells"]))
         t, q = _frame(h, spec, target, allow_archive, f"Drilling ledger lines for {accounts} (about 60 s) ...")
         return {"target": t.path if os.path.isabs(str(t.path)) else "active", "created": bool(t.created),
-                "added": list(t.sheets_added), "q": q, "plan": plan}
+                "added": list(t.sheets_added), "q": q, "plan": plan, "closed": ctx.closed}
     pre = await _call_user(frame_job, what="sv_answer")
     pre["frame_s"], t1 = round(time.monotonic() - t0, 1), time.monotonic()
-    pre["results"], warnings, pre["failed"] = await drillstep.drill_all(pre.pop("plan"))
+    pre["results"], warnings, pre["failed"] = await drillstep.drill_all(pre.pop("plan"), closed=pre.get("closed"))
     pre["drill_s"] = round(time.monotonic() - t1, 1)
     if pre["failed"]:
         warnings.append(f"Drill failed: {pre['failed']}")

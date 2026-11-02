@@ -70,22 +70,30 @@ def say(text: str) -> None:
 
 
 async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: int = config.DRILL_MAX_LINES,
-                split: str = "auto") -> DrillResult:
+                split: str = "auto", closed: str | None = None) -> DrillResult:
     """Drill a cell to its ledger lines: link (Smart View), lines (hidden browser), normalise, reconcile, profile.
-    One retry (with a note) when Smart View answers 'Empty response from provider'."""
+    One retry (with a note) when Smart View answers 'Empty response from provider'. With `closed` (the closed
+    month), a cell of a closed period is read from the drill cache once its cube value is re-checked (drillcache)."""
     import asyncio
 
     from .. import drill_lines as dl
+    from . import drillcache
     t0, stages = time.monotonic(), {}
     cell, warnings = ops.drill_cell_defaults(cell)
     with timed(stages, "drill"):
-        try:
-            pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
-        except Exception as e:   # noqa: BLE001 - only the empty provider response is retried
-            if EMPTY_PROVIDER.lower() not in str(e).lower():
-                raise
-            say(f"Smart View gave an empty response for the drill link of {' × '.join(cell.values())}; retrying once")
-            pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
+        hit = await _cached(connection, cell, closed)
+        if hit:
+            pieces, parent_cube = hit["pieces"], hit["parent"]
+        else:
+            try:
+                pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
+            except Exception as e:   # noqa: BLE001 - only the empty provider response is retried
+                if EMPTY_PROVIDER.lower() not in str(e).lower():
+                    raise
+                say(f"Smart View gave an empty response for the drill link of {' × '.join(cell.values())}; "
+                    "retrying once")
+                pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
+    source = SOURCE + drillcache.note(hit["saved"]) if hit else SOURCE
     view = next((p["view"] for p in pieces if p.get("view")), None)
     if view is None:                                # spec 6: no drill report -> cube value, 0 lines, the reason
         total = parent_cube if parent_cube is not None else sum(p["cube_value"] or 0.0 for p in pieces)
@@ -107,9 +115,27 @@ async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: 
         warnings.append(f"The split pieces' cube values differ from the cell by {L['split_check']:,.2f} NOK (the "
                         "atlas children may be capped, out of date or shared): the lines are reconciled to the cell "
                         "itself.")
-    return DrillResult(cell, L["rows"], L["cols"], rec.get("cube_value"), rec, L["profile"], SOURCE,
+    if not hit and rec["status"] == "exact":
+        await asyncio.to_thread(drillcache.save, connection, cell, closed, pieces, parent_cube)
+    return DrillResult(cell, L["rows"], L["cols"], rec.get("cube_value"), rec, L["profile"], source,
                        round(time.monotonic() - t0, 1), L["piece_recs"] if len(pieces) > 1 else [], stats,
                        L["split_check"], warnings, stages)
+
+
+async def _cached(connection: str, cell: dict, closed: str | None) -> dict | None:
+    """A cached closed-period drill whose parent cube value Smart View still gives, else None (drill it)."""
+    import asyncio
+
+    from . import drillcache
+    hit = await asyncio.to_thread(drillcache.load, connection, cell, closed)
+    if not hit:
+        return None
+    link = await _call(lambda h: ops.drill_link(h, connection, cell), what="drill link")
+    now = link["cube_value"]
+    if now is None or round(float(now), 2) != round(float(hit["parent"]), 2):
+        log.info("drill cache of %s is stale (cube %s, cached %s): drilling again", cell, now, hit["parent"])
+        return None
+    return hit
 
 
 def combine(parts: list[DrillResult]) -> DrillResult:
@@ -121,23 +147,27 @@ def combine(parts: list[DrillResult]) -> DrillResult:
     vals = [p.cell_value for p in parts]
     gaps = [p.reconciliation.get("gap") for p in parts]
     cell = {**parts[0].cell, "All Accounts": ", ".join(str(p.cell.get("All Accounts")) for p in parts)}
+    notes = list(dict.fromkeys(p.source.removeprefix(SOURCE) for p in parts if p.source != SOURCE))
     return DrillResult(cell, rows, cols, None if None in vals else sum(vals),
-                       {"lines": len(rows), "gap": None if None in gaps else sum(gaps)}, None, SOURCE,
-                       round(sum(p.secs for p in parts), 1),
+                       {"lines": len(rows), "gap": None if None in gaps else sum(gaps)}, None,
+                       SOURCE + "".join(notes), round(sum(p.secs for p in parts), 1),
                        warnings=[w for p in parts for w in p.warnings],
                        stages={"drill": round(sum(p.stages.get("drill", 0.0) for p in parts), 2)})
 
 
-async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], list[str], str | None]:
+async def drill_all(plan: list[dict], say=say, closed: str | None = None
+                    ) -> tuple[dict[str, DrillResult], list[str], str | None]:
     """A recipe's drills ([{alias, year, cells}], d1 first) -> ({alias: result}, warnings, why d1 failed or None).
-    Every drill runs at once (Excel links queue on the host; the pages load in parallel tabs). A failed first
-    drill drops the answer to the cube (no last year without this year); a later failure is a warning."""
+    Every drill runs at once (Excel links queue on the host; the pages load in parallel tabs); closed periods come
+    from the drill cache. A failed first drill drops the answer to the cube (no last year without this year); a
+    later failure is a warning."""
     import asyncio
 
     async def one(d: dict):
         t0 = time.monotonic()
-        res = combine(await _all(drill(cell, say=say) for cell in d["cells"]))
-        say(f"Drilled {len(res.rows):,} lines for 20{d['year']:02d} ({time.monotonic() - t0:.0f} s)")
+        res = combine(await _all(drill(cell, say=say, closed=closed) for cell in d["cells"]))
+        say(f"Drilled {len(res.rows):,} lines for 20{d['year']:02d} ({time.monotonic() - t0:.0f} s"
+            + (", from the drill cache" if "Cached" in res.source else "") + ")")
         return res
     tasks = [asyncio.ensure_future(one(d)) for d in plan]
     out, warnings = {}, []
@@ -178,7 +208,9 @@ def write(t, q: int, alias: str, result: DrillResult, title: str, question: str 
             layout = Layout([(d, m) for d, m in result.cell.items()], [], [])
         try:
             sheets.log_source(t, q, question or title, _Src,
-                              notes=f"drill {alias}: {rec.get('lines', 0)} lines, gap {rec.get('gap')}")
+                              notes=f"drill {alias}: {rec.get('lines', 0)} lines, gap {rec.get('gap')}"
+                              + ("; lines from the drill cache (closed period, cube value re-checked)"
+                                 if "Cached" in result.source else ""))
         except Exception:   # noqa: BLE001 - the source log must never undo a finished drill
             pass
     return info
@@ -243,38 +275,9 @@ async def _progress(what: str) -> None:
             return
 
 
-_too_wide: set | None = None    # cells EPM refused as too wide (EPMFDM-140373): split them right away (kept on disk)
-
-
-def _wide() -> set:
-    global _too_wide
-    if _too_wide is None:
-        import json
-        try:
-            raw = json.loads((config.SVKIT / "drill_too_wide.json").read_text(encoding="utf-8"))
-            _too_wide = {(c, tuple(tuple(kv) for kv in cell)) for c, cell in raw}
-        except Exception:   # noqa: BLE001 - none yet or unreadable: learn again
-            _too_wide = set()
-    return _too_wide
-
-
-def _remember_wide(key: tuple) -> None:
-    import json
-    _wide().add(key)
-    try:
-        config.SVKIT.mkdir(parents=True, exist_ok=True)
-        (config.SVKIT / "drill_too_wide.json").write_text(json.dumps(sorted(_too_wide)), encoding="utf-8")
-    except Exception as e:   # noqa: BLE001 - only an optimisation
-        log.info("too-wide memo not saved: %s", e)
-
-
 class _KnownTooWide(Exception):
     def __str__(self):
         return "EPMFDM-140373 earlier in this session"
-
-
-def _too_wide_key(connection: str, cell: dict) -> tuple:
-    return (connection, tuple(sorted(cell.items())))
 
 
 async def _drill_cell(connection: str, cell: dict, max_lines: int, split: str) -> tuple[list[dict], float | None]:
@@ -305,7 +308,7 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
     left = state["left"]
     limit = min(config.DRILL_SPLIT_AT, left) if can_split else left
     try:
-        if _too_wide_key(connection, cell) in _wide() and can_split:
+        if drill_split.too_wide_key(connection, cell) in drill_split.known_too_wide() and can_split:
             raise _KnownTooWide()                   # seen before: skip the ~20 s round trip to EPM's refusal
         res = await _drill_fetch(link["url"], limit)
     except (CellTooWide, _KnownTooWide) as e:
@@ -315,7 +318,7 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
         if not parts:
             raise ToolError(f"EPM refused the drill on {cell} as too wide ({e}). Choose a lower entity or "
                             "account.") from None
-        _remember_wide(_too_wide_key(connection, cell))
+        drill_split.remember_too_wide(drill_split.too_wide_key(connection, cell))
         return await _children(connection, parts, max_lines, split, state, depth)
     except TooManyLines as e:
         if e.total > left:
@@ -352,33 +355,12 @@ async def _children(connection: str, parts: list[dict], max_lines: int, split: s
 
 async def _child_values(connection: str, parts: list[dict]) -> list | None:
     """The split children's cube values in one host job, or None (then every child is linked as before)."""
+    from .. import drill_split
     try:
-        return await _call(lambda h: child_values_on(h, connection, parts), what="split values")
+        return await _call(lambda h: drill_split.child_values_on(h, connection, parts), what="split values")
     except Exception as e:   # noqa: BLE001 - only an optimisation
         log.info("split values not read (%s); linking every child", e)
         return None
-
-
-def child_values_on(h, connection: str, parts: list[dict]) -> list | None:
-    """Host job: the cells of a split differ in one dimension - retrieve them as one column (#Missing -> None)."""
-    from ..grid import Axis
-    first = parts[0]
-    dim = next((k for k in first if any(p.get(k) != first[k] for p in parts)), None)
-    if dim is None:
-        return None
-    col = "All Time Periods" if dim != "All Time Periods" else "All Accounts"
-    pov = {**ops.DRILL_DEFAULTS, **{k: v for k, v in first.items() if k not in (dim, col)}}
-    lay, p, _ = ops.query(h, connection, pov, [Axis(dim, [pc[dim] for pc in parts])], [Axis(col, [first[col]])],
-                          False, False)
-    if p is not None and p.pov_problems:              # a member was dropped: rows no longer line up
-        return None
-    ws = h.wb.Worksheets(ops.ensure_grid_sheet(h, connection))
-    c = chr(ord("A") + lay.nr)
-    out = []
-    for i in range(len(parts)):
-        v = ws.Range(f"${c}${2 + lay.nc + i}").Value
-        out.append(v if isinstance(v, float) else None)
-    return out
 
 
 def _lines_of(pieces: list[dict], view: dict, parent_cube: float | None = None) -> dict:
