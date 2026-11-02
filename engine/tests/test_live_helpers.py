@@ -51,14 +51,16 @@ def test_b16_problems_flag_missing_sheets_and_slow_frame():
     import bench
     good = {"sheets": ["Q3 Answer", "Q3 By project", "Q3 Lines d1", "Q3 Lines d2", "Q3 FinLite cube"],
             "checks": {"Blocks = lines total": "OK", "Total = cube": "OK"},
-            "key_values": {"Total (cube)": {"YTD Oct 26": -1.5e8}}}
-    assert bench.b16_problems(good, 1.4) == []
-    bad = {"sheets": ["Q3 Lines d1"], "checks": {"Total = cube": "DIFF 12"}, "key_values": {"Other": {}}}
+            "key_values": {"Total (cube)": {"YTD Oct 26": -1.5e8}},
+            "timings": {"first frame": 2.6, "open target": 0.64}}           # 1.96 s after the workbook opened
+    assert bench.b16_problems(good, 5.2) == []
+    bad = {"sheets": ["Q3 Lines d1"], "checks": {"Total = cube": "DIFF 12"}, "key_values": {"Other": {}},
+           "timings": {"first frame": 3.7, "open target": 0.6}}
     got = " | ".join(bench.b16_problems(bad, 3.1))
     for must in ("Answer", "By project", "Total = cube", "Total (cube)", "3.1"):
         assert must in got, must
     assert bench.b16_problems({**good, "checks": {}}, 1.0)                  # no checks at all is a problem
-    assert bench.b16_problems(good, None)                                   # no visible frame measured
+    assert bench.b16_problems({**good, "timings": {}}, 1.0)                 # no first frame from the engine
 
 
 def test_bench_pins_its_recipe_with_a_deviation_only_when_it_departs():

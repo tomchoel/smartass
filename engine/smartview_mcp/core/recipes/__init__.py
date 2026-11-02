@@ -87,7 +87,9 @@ def layout_departures(layout: dict | None) -> list[str]:
     """A free-form ranking departs from the standard (D22) when it is not the top 10 + an 'Other' line."""
     out = []
     for sec in (layout or {}).get("sections") or []:
-        top = ((sec.get("repeat") or {}).get("over") or {}).get("top")
+        rep = sec.get("repeat") if isinstance(sec, dict) else None
+        over = rep.get("over") if isinstance(rep, dict) else None
+        top = over.get("top") if isinstance(over, dict) else None       # 'over' may also name a member list
         if top is None:
             continue
         if top != 10:

@@ -438,8 +438,12 @@ def b16_problems(out: dict, first_visible_s: float | None) -> list[str]:
     problems += [f"check {k}: {v}" for k, v in checks.items() if v != "OK"] or ([] if checks else ["no checks"])
     if "Total (cube)" not in (out.get("key_values") or {}):
         problems.append("'Total (cube)' missing from key_values")
-    if first_visible_s is None or first_visible_s > FRAME_LIMIT_S:
-        problems.append(f"first frame {_s(first_visible_s, 'never')} s > {FRAME_LIMIT_S} s")
+    t = out.get("timings") or {}
+    frame = t.get("first frame")
+    after_open = None if frame is None else round(frame - (t.get("open target") or 0.0), 2)
+    if after_open is None or after_open > FRAME_LIMIT_S:      # the owner's target: <= 2 s after the workbook is open
+        problems.append(f"first frame {_s(after_open, 'never')} s after the workbook opened > {FRAME_LIMIT_S} s"
+                        f" (seen in Excel at {_s(first_visible_s, 'never')} s)")
     return problems
 
 

@@ -355,3 +355,10 @@ def test_every_data_recipe_has_a_check(name, monkeypatch):
     out, _ = recipes.expand({"version": 1, "question": "q", "gate": GATE,
                              "recipe": {"name": name, "params": params}}, ctx())
     assert out["layout"]["checks"]
+
+
+def test_layout_departures_tolerates_a_non_dict_repeat_over():
+    from smartview_mcp.core import recipes
+    layout = {"sections": [{"repeat": {"over": "Jan 26:Sep 26", "line": {"key": "m{n}"}}, "lines": []},
+                           {"repeat": {"over": {"top": 5}}, "lines": [{"label": "Other"}]}]}
+    assert recipes.layout_departures(layout) == ["a top-5 ranking (the standard is the top 10 + Other)"]
