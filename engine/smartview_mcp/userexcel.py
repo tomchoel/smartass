@@ -1052,7 +1052,7 @@ DATA_SHEET_OPTIONS = {5: 0, 6: False, 7: False, 9: False, 41: False, 42: False, 
 META_SHEET = "_svmeta"
 
 
-def save_meta(t: Target, p: "Pull") -> None:
+def save_meta(t: Target, p: "Pull", extra: dict | None = None) -> None:
     """Persist the pull's layout in a hidden sheet, so answers can be (re)built after a server restart."""
     if not _sheet_exists(t, META_SHEET):
         ws = com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))   # positional: see add_sheet
@@ -1062,7 +1062,8 @@ def save_meta(t: Target, p: "Pull") -> None:
     blob = json.dumps({"connection": p.connection, "pov": p.layout.pov,
                        "rows": [[a.dimension, a.members] for a in p.layout.rows],
                        "cols": [[a.dimension, a.members] for a in p.layout.cols],
-                       "warnings": [w for w in p.parsed.pov_problems if w.startswith("Smart View rejected")]},
+                       "warnings": [w for w in p.parsed.pov_problems if w.startswith("Smart View rejected")],
+                       **(extra or {})},
                       ensure_ascii=False)
     chunks = [blob[i:i + 30000] for i in range(0, len(blob), 30000)]   # a cell holds max 32 767 characters
     r = com(lambda: ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1
@@ -1122,6 +1123,12 @@ def load_pulls(t: Target, q: int) -> dict:
         parsed.pov_problems[:0] = meta.get("warnings", [])
         out[sheet] = _make_pull(sheet, meta["connection"], lay, parsed, 0.0)
     return out
+
+
+def fte_rows(lay: Layout, parsed) -> list[int]:
+    """Sheet rows (1-based) of FTE / man-year lines: they are styled as decimals, not NOK."""
+    return [2 + lay.nc + i for i, labs in enumerate(parsed.row_labels)
+            if any(isinstance(x, str) and ("STA" in x or "man-years" in x.lower()) for x in labs)]
 
 
 def _make_pull(name, connection, lay, parsed, secs) -> "Pull":
@@ -1223,13 +1230,12 @@ def _pull(h: ExcelHost, t: Target, q: int, connection: str, pov: dict, rows: lis
         parsed.pov_problems.insert(0, "Smart View rejected these members (rc=1000), so they were left out: "
                                    + "; ".join(_explain_reject(connection, d, m_) for d, m_ in rejected)
                                    + ". Pick a more specific member with sv_find_member / sv_members.")
-    fte_rows = [2 + lay.nc + i for i, labs in enumerate(parsed.row_labels)
-                if any(isinstance(x, str) and ("STA" in x or "man-years" in x.lower()) for x in labs)]
+    fte = fte_rows(lay, parsed)
     t.status(f"formaterer '{name}' ...")
     p = _make_pull(name, connection, lay, parsed, secs)
     with fast_excel(t.app):
         with stage("style data sheet"):
-            styling.apply_data_sheet(ws, header_rows=1 + lay.nc, label_cols=lay.nr, fte_rows=fte_rows)
+            styling.apply_data_sheet(ws, header_rows=1 + lay.nc, label_cols=lay.nr, fte_rows=fte)
         with stage("save meta"):
             try:
                 save_meta(t, p)
