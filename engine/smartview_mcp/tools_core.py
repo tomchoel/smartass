@@ -10,8 +10,8 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 
-from . import catalog, config, templates, tools_ws, userexcel
-from .core import contract, pipeline, prefs, recipes, runlog, scope
+from . import catalog, config, templates, userexcel
+from .core import contract, pipeline, prefs, recipes, reply, runlog, scope
 from .core import followup as followup_mod
 from .core import period as periods
 from .host import HostError, InputError
@@ -206,8 +206,8 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
             r.res["warnings"].append(f"run log sheet not written: {ex}")
         runlog.append(e)
         with stage("save + activate"):
-            tools_ws._finish(r.t, r.q, r.prepared, r.res, saved_new=r.t.created)
-        out = tools_ws._result(r.t, r.q, r.prepared, r.res, [s.pull for s in r.sources], [])
+            reply.finish(r.t, r.q, r.prepared, r.res, saved_new=r.t.created)
+        out = reply.result(r.t, r.q, r.prepared, r.res, [s.pull for s in r.sources], [])
         out = {**out, "gate": p.gate.outcome, "routes": {s.pull.sheet: s.route for s in r.sources},
                "review": r.review, "material": r.material or [], "outline": contract.outline(r.raw or {}),
                "timings": tm.summary()}

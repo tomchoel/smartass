@@ -10,7 +10,7 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import config, ops, qlog, userexcel
-from . import tools_ws as ws                      # module ref: tools_ws never imports tools_drill at module level
+from .core import reply
 from .grid import Axis
 from .host import HostError, rewrap
 from .server import WRITE, _call, _call_user, _err, _is_our_analysis_file, tool, with_next_step
@@ -341,7 +341,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
             key = _grid_key(connection, pov, cell["All Accounts"], periods)
             prev = _prev_drill(t.path, qn, id)                 # the earlier drill of this q/alias, if any
             prev_grid = ((prev or {}).get("rec") or {}).get("grid") or {}
-            sess, notes, parked, info = ws._load_session(t, qn), [], {}, None
+            sess, notes, parked, info = reply.load_session(t, qn), [], {}, None
             had_table = drill_xl.table_columns(t.wb, drill_xl.table_name(qn, id)) is not None
             lines_started = False
             try:
@@ -353,14 +353,14 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
                     else:
                         parked = userexcel.park_sheets(t, [old]) if old else {}
                         for o in parked.values():
-                            ws._session(t.path, qn).pop(o, None)
+                            reply.session(t.path, qn).pop(o, None)
                         p = userexcel.pull(h, t, qn, connection, pov,
                                            [Axis("All Accounts", [cell["All Accounts"]])],
                                            [Axis("All Time Periods", periods)], title=f"Q{qn} {connection}")
                         if parked:
                             notes.append(f"the cell changed: grid {p.sheet} rebuilt - re-run sv_ws_answer for Q{qn} "
                                          "if its formulas used the old grid")
-                ws._session(t.path, qn)[p.sheet] = p
+                reply.session(t.path, qn)[p.sheet] = p
                 lines_started = True
                 with stage("lines sheet"):
                     if rows:
@@ -370,10 +370,10 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
             except Exception as e:
                 removed = userexcel.rollback(t)
                 for name in removed:
-                    ws._session(t.path, qn).pop(name, None)
+                    reply.session(t.path, qn).pop(name, None)
                 if parked:
                     userexcel.restore_parked(t, parked)
-                    ws._sessions.get(t.path.lower(), {}).pop(qn, None)     # reload the restored grid from the workbook
+                    reply.forget(t.path, qn)     # reload the restored grid from the workbook
                 extra = ""
                 if had_table and lines_started:     # the reused table may be half written: put the old lines back
                     extra = "; " + _restore_lines(t, qn, id, prev, source)
@@ -389,7 +389,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
                     pass
             t.status(None)
             t.created = t.created or _is_our_analysis_file(t.path)     # the session's own workbook: ours to save
-            ws._tidy(t, info["sheet"] if info else p.sheet)
+            reply.tidy(t, info["sheet"] if info else p.sheet)
             if t.created:
                 with stage("save"):
                     userexcel.com(t.wb.Save)

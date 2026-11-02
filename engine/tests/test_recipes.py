@@ -76,8 +76,8 @@ async def test_sv_answer_expands_a_recipe_in_the_excel_job_and_returns_its_perio
                                        {"ok": True, "findings": []}, [], raw=raw)
     monkeypatch.setattr(tools_core.pipeline, "run", run)
     monkeypatch.setattr(tools_core.runlog, "write_sheet", lambda t, e: None)
-    monkeypatch.setattr(tools_core.tools_ws, "_finish", lambda *a, **k: None)
-    monkeypatch.setattr(tools_core.tools_ws, "_result", lambda *a, **k: {"sheet": "Q1 Answer", "warnings": ["w"]})
+    monkeypatch.setattr(tools_core.reply, "finish", lambda *a, **k: None)
+    monkeypatch.setattr(tools_core.reply, "result", lambda *a, **k: {"sheet": "Q1 Answer", "warnings": ["w"]})
     out = await tools_core.sv_answer({"version": 1, "question": "q", "gate": GATE,
                                       "recipe": {"name": "echo", "params": {"n": 2}}})
     assert seen["raw"]["layout"]["title"] == "Echo 2" and seen["raw"]["recipe"]["name"] == "echo"

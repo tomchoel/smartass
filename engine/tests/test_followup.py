@@ -259,8 +259,8 @@ async def test_sv_answer_follow_up_redraws_the_answer_and_returns_the_outline(mo
     monkeypatch.setattr(tools_core.pipeline, "run", run)
     monkeypatch.setattr(tools_core.userexcel, "log_source", lambda *a, **k: logged.append(a))
     monkeypatch.setattr(tools_core.runlog, "write_sheet", lambda t, e: None)
-    monkeypatch.setattr(tools_core.tools_ws, "_finish", lambda *a, **k: None)
-    monkeypatch.setattr(tools_core.tools_ws, "_result", lambda *a, **k: {"sheet": "Q2 Answer"})
+    monkeypatch.setattr(tools_core.reply, "finish", lambda *a, **k: None)
+    monkeypatch.setattr(tools_core.reply, "result", lambda *a, **k: {"sheet": "Q2 Answer"})
     out = await tools_core.sv_answer(followup={"layout": {"title": "New"}})
     assert seen["q"] == 2 and seen["t"] is t and seen["raw"]["layout"]["title"] == "New"
     assert out["followup_of"] == 2 and out["reused"] == ["m"] and logged == []          # reused sources not re-logged

@@ -10,111 +10,22 @@ from pydantic import BaseModel, Field, field_validator
 from . import qlog
 from .grid import Axis, to_markdown
 from .host import HostError, InputError, rewrap
-from .server import WRITE, AxesIn, AxisIn, Connection, axes_in, _call_user, _doc, _err, _is_our_analysis_file, log, tool
+from .server import WRITE, AxesIn, AxisIn, Connection, axes_in, _call_user, _doc, _err, _is_our_analysis_file, tool
 
 # ---------------------------------------------------------------- analysis in the user's workbook
 from . import answer as answer_mod            # noqa: E402
 from . import ops, templates, userexcel   # noqa: E402
 from .timing import Timer, stage                    # noqa: E402
 
+from .core.reply import _sessions, fin  # noqa: E402,F401
+from .core.reply import answer_markdown as _answer_markdown  # noqa: E402,F401
+from .core.reply import finish as _finish  # noqa: E402
+from .core.reply import load_session as _load_session  # noqa: E402
+from .core.reply import result as _result  # noqa: E402
+from .core.reply import session as _session  # noqa: E402
+from .core.reply import tidy as _tidy  # noqa: E402
+
 Target = Literal["active", "new"] | str
-_sessions: dict[str, dict[int, dict[str, "userexcel.Pull"]]] = {}   # workbook path -> q -> sheet -> Pull
-
-
-def _session(path: str, q: int) -> dict:
-    return _sessions.setdefault(path.lower(), {}).setdefault(q, {})
-
-
-def fin(v, kind: str = "heltall") -> str:
-    """Financial text for chat, matching the sheet: 1 000 000 / (1 000 000) / – ; % with sign; FTE 1 decimal."""
-    if v is None or v == "":
-        return ""
-    if not isinstance(v, (int, float)):
-        return str(v)
-    if kind.startswith("prosent"):
-        return "–" if abs(v) < 5e-5 else f"{v * 100:+.1f} %".replace(".", ",")
-    if abs(v) < 0.5 and kind != "tall1":
-        return "–"
-    s = f"{abs(v):,.1f}" if kind == "tall1" else f"{abs(v):,.0f}"
-    s = s.replace(",", " ").replace(".", ",")
-    return f"({s})" if v < 0 else s
-
-
-def _answer_markdown(spec: dict, res: dict) -> str:
-    cols = spec.get("columns", [])
-    head = ["Line"] + [c.get("header", "") for c in cols]
-    out = ["| " + " | ".join(h.replace("|", "/") for h in head) + " |", "|---|" + "---:|" * len(cols)]
-    n = 0
-    for sec in spec.get("sections", []):
-        out.append(f"| **{sec.get('title', '')}** |" + " |" * len(cols))
-        for ln in sec.get("lines", []):
-            k = ln.get("key")
-            if not k or k not in res["values"]:
-                continue
-            vals = res["values"][k]
-            cells = []
-            for j, v in enumerate(vals):
-                kind = ln.get("num") or cols[j].get("kind") or "heltall"
-                if j < len(ln.get("cells", [])) and isinstance(ln["cells"][j], dict) and "varpct" in ln["cells"][j]:
-                    kind = "prosent1"
-                cells.append(fin(v, kind))
-            label = ln.get("label", k)
-            if ln.get("kind") in ("sum", "grand"):
-                label = f"**{label}**"
-            out.append("| " + label + " | " + " | ".join(cells) + " |")
-            n += 1
-            if n >= 45:
-                out.append("| … see the answer sheet for the rest |" + " |" * len(cols))
-                return "\n".join(out)
-    return "\n".join(out)
-
-
-def _result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> dict:
-    try:
-        if userexcel.com(lambda: t.wb.ReadOnly, limit=10):
-            warnings = [f"'{t.name}' is open READ-ONLY (someone or something else holds the file) - the analysis "
-                        "is built but cannot be saved under this name."] + warnings
-    except Exception:   # noqa: BLE001 - informational only
-        pass
-    return {
-        "workbook": t.path, "question": f"Q{q}", "answer_sheet": res["sheet"],
-        "data_sheets": [p.sheet for p in pulls] + ["Kilder"],
-        "key_points": spec.get("key_points", []),
-        "table": _answer_markdown(spec, res),
-        "checks": res["checks"],
-        "warnings": warnings + res["warnings"] + (res.get("error_warnings")
-                                                  or [f"formula error on line '{k}'" for k in res["formula_errors"]]),
-        "style_lint": res["lint"],
-        # tn-formelstil: 'block' findings must be fixed (spec_patch) before the answer is presented as done
-        "formula_style": res.get("formula_style"),
-        "note": "Your workbook was NOT saved - review and save it yourself." if not t.created
-        else f"New analysis workbook saved: {t.path}",
-    }
-
-
-def _tidy(t, sheet: str | None = None) -> None:
-    """Fixed, neat sheet order (sheetorder: Svar first, other sheets, data per question, Kilder, hidden) and land
-    on `sheet`. Our own analysis files get the full order; in a user's own workbook only our sheets are reordered
-    among themselves. Cosmetic: never fails the tool."""
-    from . import sheetorder
-    try:
-        with stage("arrange sheets"):
-            mode = "full" if (t.created or _is_our_analysis_file(t.path)) else "active"
-            sheetorder.arrange_sheets(t.wb, mode, activate=sheet)
-    except Exception as e:   # noqa: BLE001
-        log.warning("arrange sheets failed in %s: %s", t.name, e)
-        if sheet:
-            try:
-                userexcel.com(t.wb.Worksheets(sheet).Activate)
-            except Exception:   # noqa: BLE001
-                pass
-
-
-def _finish(t, q: int, spec: dict, res: dict, saved_new: bool):
-    _tidy(t, res["sheet"])
-    t.status(None)
-    if saved_new:
-        userexcel.com(t.wb.Save)
 
 
 @tool(annotations=WRITE)
@@ -257,16 +168,6 @@ SPEC_DOC += """
     sums the question's Linjer table (SUMIFS; an exact-match FILTER where Excel would coerce the key). where {} =
     all lines. Reconcile against the drill's live grid: {pull: '<cube_pull sheet>', row: [...], col: [...]}.
     Mixed signs (profile.signs_mixed): no share-of-total column; show debit and credit instead."""
-
-
-def _load_session(t, q: int) -> dict:
-    sess = _sessions.get(t.path.lower(), {}).get(q)
-    if not sess:                                       # e.g. after a server restart: rebuild from the workbook
-        with stage("reload pulls from workbook"):
-            sess = userexcel.load_pulls(t, q)
-        if sess:
-            _sessions.setdefault(t.path.lower(), {})[q] = sess
-    return sess or {}
 
 
 def _answer_job(t, q: int, raw_spec: dict, ids: dict, sess: dict, tm, extra_warnings: list | None = None) -> dict:

@@ -254,3 +254,8 @@ def test_the_pipeline_turns_expectations_into_static_checks(monkeypatch):
     out = pipeline.expect_checks(lay, {"pnl": SimpleNamespace(sheet="Q1 FinMax pnl")})
     assert "expect" not in out and out["checks"][-1] == {"label": "Warehouse = Q1 FinMax pnl", "static": "OK",
                                                           "detail": "1 cells"}
+
+
+def test_reply_helpers_live_in_core_reply():
+    from smartview_mcp.core import reply
+    assert callable(reply.finish) and callable(reply.result)
