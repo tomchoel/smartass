@@ -4,8 +4,29 @@ from __future__ import annotations
 import time
 
 from . import jobs, login, sheets, target
-from ..grid import Axis, full_pov, Layout, parse, verify_labels as _verify_labels
+from .. import config, ops, timing
+from ..grid import Axis, full_pov, Layout, parse, validate_axes, verify_labels as _verify_labels
 from ..host import ExcelHost, HostError, InputError
+
+
+def retrieve_with_retry(do, say, wait=time.sleep):
+    """Run a retrieve in the user's Excel; a transient 'Empty response' (rc=752/57704) is retried once after
+    TRANSIENT_RETRY_WAIT_S, and the user is told. The user's Excel is never restarted."""
+    try:
+        return do()
+    except HostError as e:
+        if not ops.is_transient(e):
+            raise
+        say("EPM gave an empty response in your Excel; retrying once")
+        wait(config.TRANSIENT_RETRY_WAIT_S)
+        return do()
+
+
+def _raise_transient(res: tuple[str, float], name: str) -> tuple[str, float]:
+    if ops.is_transient(res[0]):
+        raise HostError(f"Retrieve on '{name}' failed: {res[0]}")
+    return res
+
 
 def pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, rows: list[Axis], cols: list[Axis],
          title: str | None = None) -> sheets.Pull:
@@ -18,7 +39,6 @@ def pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, row
 def _pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, rows: list[Axis], cols: list[Axis],
           title: str | None, boxes: "login.SmartViewBoxes") -> sheets.Pull:
     from .. import styling                         # provided by the styling adapter
-    from ..grid import validate_axes
     from ..ops import _dims_cache, _grid_labels, _used_values, canon_dim, dims_known, is_rc1000, learn_dims
     from ..timing import stage
 
@@ -55,6 +75,8 @@ def _pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, ro
             if attempt == 2:
                 from ..host import _explain
                 raise HostError(_explain("Connect", st))
+            if attempt == 0 and "Empty response" in str(st) + " ".join(failed[-1]):
+                timing.say("connecting in your Excel: EPM gave an empty response; trying again")
             time.sleep(4 * (attempt + 1))
     # Always let Smart View open its own default grid first (1-2 s). Skipping it was tried on 2026-10-14 and was
     # followed by a 752 error and two Excel crashes (HsAddin.dll access violation) - not worth the time.
@@ -74,7 +96,8 @@ def _pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, ro
     rejected: list[tuple[str, str]] = []
     for attempt in range(2):
         with stage("write layout + retrieve"):
-            st, secs = _write_and_retrieve(t, ws, name, lay)
+            st, secs = retrieve_with_retry(lambda: _raise_transient(_write_and_retrieve(t, ws, name, lay), name),
+                                           timing.say)
         if st != "OK" and is_rc1000(st) and not rejected:
             with stage("isolate rejected members"):
                 lay, rejected = _drop_rejected(t, ws, name, lay, connection)
@@ -93,8 +116,7 @@ def _pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, ro
         raise HostError("Smart View returned a different layout than requested, so the numbers cannot be mapped "
                         "safely: " + "; ".join(bad[:5]) + (" ..." if len(bad) > 5 else ""))
     if rejected:
-        from ..ops import rejected_note
-        parsed.pov_problems.insert(0, rejected_note(connection, rejected))
+        parsed.pov_problems.insert(0, ops.rejected_note(connection, rejected))
     fte = sheets.fte_rows(lay, parsed)
     t.status(f"formatting '{name}' ...")
     p = sheets._make_pull(name, connection, lay, parsed, secs)
@@ -117,18 +139,16 @@ def refresh_pull(t: target.Target, p: sheets.Pull) -> sheets.Pull:
 
 
 def _refresh_pull(t: target.Target, p: sheets.Pull) -> sheets.Pull:
-    from ..ops import _used_values
-    from ..timing import stage
     ws = jobs.com(lambda: t.wb.Worksheets(p.sheet))
     t.status(f"refreshing '{p.sheet}' ...")
-    with stage("retrieve in place"):
+    with timing.stage("retrieve in place"):
         t0 = time.monotonic()
         st = t.run("B_Retrieve", p.sheet)
         secs = time.monotonic() - t0
     if st != "OK":
         raise HostError(f"Retrieve on '{p.sheet}' failed: {st}")
-    with stage("read + verify"):
-        parsed = parse(p.layout, jobs.com(lambda: _used_values(ws)), suppress_missing=False, suppress_zeros=False)
+    with timing.stage("read + verify"):
+        parsed = parse(p.layout, jobs.com(lambda: ops._used_values(ws)), suppress_missing=False, suppress_zeros=False)
         bad = _verify_labels(p.layout, parsed)
     if bad:
         raise HostError(f"'{p.sheet}' no longer has the expected layout: " + "; ".join(bad[:5])

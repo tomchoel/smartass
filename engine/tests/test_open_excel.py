@@ -106,7 +106,7 @@ def _excels(monkeypatch, windows: dict, apps: dict, engine=()):
                                  for pid, caps in windows.items()])
     monkeypatch.setattr(instances, "_app_from_window", lambda ex7: apps.get(ex7 // 100))
     monkeypatch.setattr(instances, "_is_embedding", lambda pid: False)
-    monkeypatch.setattr(login, "login_open", lambda pid: False)
+    monkeypatch.setattr(login, "login_open", lambda pid: [])
 
 
 def test_target_open_in_the_second_excel_is_used_there(tmp_path, monkeypatch, fast):

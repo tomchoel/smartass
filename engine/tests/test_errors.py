@@ -152,7 +152,7 @@ def test_login_dialog_message_asks_the_user_not_the_agent(monkeypatch):
 
     from smartview_mcp.excel import login
     from smartview_mcp.host import HostError
-    monkeypatch.setattr(login, "login_open", lambda pid: True)
+    monkeypatch.setattr(login, "login_open", lambda pid: [1])
     monkeypatch.setattr(login.time, "sleep", lambda s: None)
     with pytest.raises(HostError) as e:
         login.wait_login_cleared(1, limit=0.01)

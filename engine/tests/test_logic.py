@@ -113,7 +113,7 @@ def test_wait_login_recovers_an_ie_fallback_login_by_itself(monkeypatch):
         return {"ended": [10], "closed": hwnds}
     monkeypatch.setattr(dialogs, "scan", scan)
     monkeypatch.setattr(login, "recover_ie_login", recover)
-    monkeypatch.setattr(login, "login_open", lambda pid: state["ie"])
+    monkeypatch.setattr(login, "login_open", lambda pid: [2] if state["ie"] else [])
     monkeypatch.setattr(login.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
     login.wait_login_cleared(1, limit=60)
     assert state["recovered"] == 1
@@ -128,7 +128,7 @@ def test_wait_login_after_recovery_waits_for_the_new_login_and_spaces_retries(mo
     monkeypatch.setattr(login.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
     # IE login until 1 s; then nothing for 5 s (Smart View has not reopened yet); a new login 6-9 s; then signed in
     def login_at(t):
-        return t < 1 or 6 <= t < 9
+        return [2] if t < 1 or 6 <= t < 9 else []
     monkeypatch.setattr(login, "login_open", lambda pid: login_at(clock["t"]))
     monkeypatch.setattr(dialogs, "scan", lambda pid: [Dialog(2, "#32770", "Login", "", "login", ie=True)]
                         if clock["t"] < 1 else [])
