@@ -1,4 +1,9 @@
-from smartview_mcp.auditlib import error_class, is_engine_excel, merge_before, poll_kill, stale_suspended, verdict
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "live"))
+
+from auditlib import error_class, is_engine_excel, merge_before, poll_kill, stale_suspended, verdict  # noqa: E402
 
 
 def test_error_class_normalises_digits_and_keeps_first_line():
@@ -100,9 +105,7 @@ def test_poll_kill_misses_when_call_finishes_or_times_out():
 
 def test_before_file_compares_like_with_like(tmp_path, monkeypatch):
     import json
-    import os
-    import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "live"))
+
     import matrix
     monkeypatch.setattr(matrix, "AUDIT", tmp_path)
     for i, name in enumerate(("2026-10-23-matrix-baseline", "2026-10-23-matrix-baseline-fresh")):
@@ -115,9 +118,6 @@ def test_before_file_compares_like_with_like(tmp_path, monkeypatch):
 
 
 def _bench():
-    import os
-    import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "live"))
     import bench
     return bench
 
@@ -181,6 +181,18 @@ def test_bench_b08_follow_up_splits_c30_by_business_area_and_reconciles_to_the_t
 
 def test_bench_core_routes_cover_the_phase_5_cases():
     b = _bench()
-    assert {k for k, c in b.CASES.items() if c.core} >= {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08",
-                                                          "B09", "B12", "B13", "B14", "B15"}
+    assert {k for k, c in b.CASES.items() if c.run} >= {"B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08",
+                                                         "B09", "B12", "B13", "B14", "B15"}
     assert b.CASES["B08"].oracle is not None and b.CASES["B08"].needs == "B07"
+
+
+def test_oracle_cell_reads_the_one_data_cell_of_a_provider_grid():
+    import helpers
+    from smartview_mcp.grid import Axis, Layout
+
+    lay = Layout([("Entity", "un.SY")], [Axis("Account", ["ac.EBITDA"])], [Axis("Period", ["Sep 26"])])
+    values = [list(r) for r in lay.matrix()]
+    values[1 + lay.nc][lay.nr] = 1234.5
+    assert helpers.oracle_cell(lay, values) == 1234.5
+    values[1 + lay.nc][lay.nr] = "#Missing"
+    assert helpers.oracle_cell(lay, values) is None

@@ -15,10 +15,10 @@ from pathlib import Path
 
 import helpers
 import scenarios
+from auditlib import error_class, merge_before, verdict
 from mcpclient import ENGINE, McpClient
 
 from smartview_mcp import __version__, config
-from smartview_mcp.auditlib import error_class, merge_before, verdict
 
 AUDIT = ENGINE.parent / "docs" / "audit"
 

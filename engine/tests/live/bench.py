@@ -1,16 +1,17 @@
-"""Benchmarks B01-B15 (docs/specs/2026-11-02-benchmarks.md) over stdio MCP.
+"""Benchmarks B01-B15 (docs/specs/2026-11-02-benchmarks.md) over stdio MCP, on the one route: the pipeline
+(sv_gate -> sv_answer, follow-ups and recipes; B12 uses the sv_drill utility).
 
-Each case runs on a route ('baseline' = today's tools; the new pipeline adds its route) and is scored on:
-- correct: every oracle value (an independent single-cell sv_query, run after the route so it cannot warm it)
-  appears on the answer sheet within 1 NOK (or as MNOK/kNOK rounded), every check OK, no formula errors;
+Each case is scored on:
+- correct: every oracle value (an independent single-cell HTTP fetch in the bench process, run after the MCP server
+  exited, so it can neither warm the route nor share its browser) appears on the answer sheet within 1 NOK (or as
+  MNOK/kNOK rounded), every check OK, no formula errors;
 - first_visible_s: first new sheet in a visible Excel, polled from the side;
 - total_s: the route's tool calls.
-Cases without a baseline tool are UNSUPPORTED. Gate cases (B10, B11) and the trap questions T01-T10 are AGENT on the
-baseline; on route core they are scored by sv_gate (suggested outcome = expected; the report adds false-go and
-needless-ask counts). Prints no figures.
+Gate cases (B10, B11) and the trap questions T01-T10 are scored by sv_gate (suggested outcome = expected; the report
+adds false-go and needless-ask counts). Prints no figures.
 
-Usage (from engine): uv run python tests\\live\\bench.py [--only B01,B02] [--route baseline|core] [--keep] [--out NAME]
-Writes docs\\audit\\<date>-<out>.json and .md.
+Usage (from engine): uv run python tests\\live\\bench.py [--only B01,B02] [--keep] [--out NAME]
+Writes docs\\audit\\<date>-<out>.json and .md (--out defaults to bench-core).
 """
 from __future__ import annotations
 
@@ -117,7 +118,8 @@ class FirstVisible(threading.Thread):
 
 # ================================================================== cases
 def cell(conn: str, pov: dict, row: tuple[str, str], col: tuple[str, str]) -> dict:
-    return S._q([{"dimension": row[0], "members": [row[1]]}], [{"dimension": col[0], "members": [col[1]]}], pov, conn)
+    """One oracle cell: the keyword arguments of helpers.oracle_value."""
+    return {"connection": conn, "pov": pov, "row": row, "col": col}
 
 
 def fm(entity: str, bal: str = "Accumulated") -> dict:
@@ -137,11 +139,10 @@ class Case:
     id: str
     question: str
     gate: str                                        # clear | ambiguous | infeasible | followup
-    baseline: Callable | None = None                 # fn(ctx) -> Run dict; None = no tool today
-    oracle: Callable | None = None                   # fn(ctx, run) -> {label: sv_query args}
-    agent: bool = False                              # needs an agent run (gate quality), not a script
+    run: Callable | None = None                      # fn(ctx) -> Run dict on the pipeline
+    oracle: Callable | None = None                   # fn(ctx, run) -> {label: cell(...)}
+    agent: bool = False                              # scored by sv_gate (gate quality), not a script
     needs: str | None = None                         # a case whose state this follow-up edits
-    core: Callable | None = None                     # fn(ctx) -> Run dict on the new pipeline (sv_answer)
 
 
 CASES: dict[str, Case] = {}
@@ -150,13 +151,6 @@ CASES: dict[str, Case] = {}
 def case(id: str, question: str, gate: str = "clear", oracle=None, needs=None, agent=False):
     def deco(fn):
         CASES[id] = Case(id, question, gate, fn, oracle, agent, needs)
-        return fn
-    return deco
-
-
-def core_route(id: str):
-    def deco(fn):
-        CASES[id].core = fn
         return fn
     return deco
 
@@ -211,13 +205,8 @@ def _fin_oracle(entity: str, fp_entity: str | None, accounts=("ac.EBITDA",)):
     return oracle
 
 
-@case("B01", "Wholesale EBITDA YTD Sep 26 vs last year and budget", oracle=_fin_oracle("un.SY.2WHS", "2WHS Wholesale"))
-def b01(ctx):
-    out, _ = ctx.client.must("fin_pnl", {"area": "Wholesale", "target": "new"})
-    return _run(out)
-
-
-CASES["B01"].core = _core("B01", "pnl", {"area": "Wholesale"})
+case("B01", "Wholesale EBITDA YTD Sep 26 vs last year and budget", oracle=_fin_oracle("un.SY.2WHS", "2WHS Wholesale"))(
+    _core("B01", "pnl", {"area": "Wholesale"}))
 
 
 BUS_O = {"EBITDA YTD Sep 26": cell("FinMax", fm("un.SY.2BUS"), ("All Accounts", "ac.EBITDA"), ("All Time Periods", PERIOD)),
@@ -226,17 +215,8 @@ BUS_O = {"EBITDA YTD Sep 26": cell("FinMax", fm("un.SY.2BUS"), ("All Accounts", 
                                ("All Time Periods", "Jun 26"))}
 
 
-@case("B02", "Business Norway EBITDA per month 2026 vs 2025, reconciled to accumulated YTD",
-      oracle=lambda ctx, run: BUS_O)
-def b02(ctx):
-    out, _ = ctx.client.must("sv_ws_build", {"question": "BENCH B02", "pulls": S._bus_pulls(), "spec": S._bus_spec(),
-                                             "target": "new"})
-    ctx.state.update(b02_wb=out["workbook"], b02_q=int(str(out["question"]).lstrip("Q")))
-    return _run(out)
-
-
 def b02_v1() -> dict:
-    """B02 as an answer spec v1 for sv_answer (the same pulls and layout as the baseline)."""
+    """B02 as an answer spec v1 for sv_answer."""
     pulls = S._bus_pulls()
     pulls[1].pop("title", None)                     # sheet names come from the pipeline
     return {"version": 1, "question": CASES["B02"].question,
@@ -248,25 +228,12 @@ def b02_v1() -> dict:
             "pulls": pulls, "layout": S._bus_spec()}
 
 
-@core_route("B02")
-def b02_core(ctx):
+@case("B02", "Business Norway EBITDA per month 2026 vs 2025, reconciled to accumulated YTD",
+      oracle=lambda ctx, run: BUS_O)
+def b02(ctx):
     out, _ = ctx.client.must("sv_answer", {"spec": b02_v1(), "target": "new"})
     ctx.state.update(b02_wb=out["workbook"], b02_q=int(str(out["question"]).lstrip("Q")), b02_outline=out["outline"])
     return _run(out, problems=_critical(out), notes=f"routes {out['routes']}")
-
-
-@case("B03", "Follow-up to B02: add FinPlan Actual EBITDA YTD", "followup", needs="B02",
-      oracle=lambda ctx, run: {**BUS_O, "FinPlan Actual EBITDA YTD": cell("FinPlan", S.FP_POV, ("Account", "EBITDA"),
-                                                                          ("Scenario", "Actual"))})
-def b03(ctx):
-    wb, q = ctx.state["b02_wb"], ctx.state["b02_q"]
-    spec = S._bus_spec(f"Q{q} FinMax", f"Q{q} FinMax YTD")
-    spec["sections"][1]["lines"].append({"key": "fp", "label": "EBITDA YTD Sep (FinPlan Actual)",
-                                         "cells": [{"pull": "fp", "row": ["EBITDA"], "col": ["Actual"]}, None, None, None]})
-    pulls = [{"id": "fp", "connection": "FinPlan", "rows": [{"dimension": "Account", "members": ["EBITDA"]}],
-              "columns": [{"dimension": "Scenario", "members": ["Actual"]}], "pov": S.FP_POV, "title": f"Q{q} FinPlan"}]
-    out, _ = ctx.client.must("sv_ws_build", {"question": "BENCH B03", "pulls": pulls, "spec": spec, "target": wb, "q": q})
-    return _run(out)
 
 
 def b03_patch(ctx) -> dict:
@@ -279,35 +246,24 @@ def b03_patch(ctx) -> dict:
     return {"pulls": [pull], "layout": {"sections": [{"title": title, "lines": [line]}]}}
 
 
-CASES["B03"].core = _followup("b02", b03_patch)
+case("B03", "Follow-up to B02: add FinPlan Actual EBITDA YTD", "followup", needs="B02",
+     oracle=lambda ctx, run: {**BUS_O, "FinPlan Actual EBITDA YTD": cell("FinPlan", S.FP_POV, ("Account", "EBITDA"),
+                                                                         ("Scenario", "Actual"))})(
+    _followup("b02", b03_patch))
 
 
 B04_TITLE = "Business Norway EBITDA 2026 vs 2025 (bench B04)"
 
 
-@case("B04", "Follow-up to B02: add a note and change the title", "followup", needs="B02", oracle=lambda ctx, run: BUS_O)
-def b04(ctx):
-    out, _ = ctx.client.must("sv_ws_answer", {"q": ctx.state["b02_q"], "target": ctx.state["b02_wb"],
-                                              "spec_patch": {"title": B04_TITLE, "notes": ["Bench note B04."]}})
-    return _run(out, texts=[B04_TITLE, "Bench note B04."])
-
-
-CASES["B04"].core = _followup(
-    "b02", lambda ctx: {"layout": {"title": B04_TITLE, "notes": {"append": ["Bench note B04."]}}},
-    texts=[B04_TITLE, "Bench note B04."],
-    check=lambda out: [f"re-fetched {s} ({r})" for s, r in out["routes"].items() if r != "reused"])
-
-
-def _analyse(template: str, params: dict):
-    def run(ctx):
-        out, _ = ctx.client.must("sv_analyse", {"question": f"BENCH {template}", "template": template, "params": params,
-                                                "target": "new"})
-        return _run(out, checks_required=template != "cost_base")      # cost_base has no checks (matrix S3)
-    return run
+case("B04", "Follow-up to B02: add a note and change the title", "followup", needs="B02",
+     oracle=lambda ctx, run: BUS_O)(_followup(
+         "b02", lambda ctx: {"layout": {"title": B04_TITLE, "notes": {"append": ["Bench note B04."]}}},
+         texts=[B04_TITLE, "Bench note B04."],
+         check=lambda out: [f"re-fetched {s} ({r})" for s, r in out["routes"].items() if r != "reused"]))
 
 
 def _period(run: dict) -> str:
-    """The recipe's closed month (route core); the baseline is pinned to PERIOD."""
+    """The recipe's closed month."""
     return run["out"].get("period") or PERIOD
 
 
@@ -328,16 +284,13 @@ def _b07_oracle(ctx, run):
 
 
 case("B05", "Technology actual vs plan, Sep 26", oracle=_b05_oracle)(
-    _analyse("actual_vs_plan", {"entity": "2TEC Technology", "month": "Sep", "year": "FY26"}))
-CASES["B05"].core = _core("B05", "actual_vs_plan", {"entity": "2TEC Technology"})
+    _core("B05", "actual_vs_plan", {"entity": "2TEC Technology"}))
 case("B06", "Top 15 cost centres by opex under Technology, Sep 26",
      oracle=lambda ctx, run: {"C70 YTD un.SY.2TEC": cell("FinMax", fm("un.SY.2TEC"), ("All Accounts", "ac.C70"),
                                                          ("All Time Periods", _period(run)))})(
-    _analyse("cost_base", {"parent": "un.SY.2TEC", "period": PERIOD, "top": 15}))
-CASES["B06"].core = _core("B06", "cost_base", {"parent": "un.SY.2TEC", "top": 15})
+    _core("B06", "cost_base", {"parent": "un.SY.2TEC", "top": 15}))
 case("B07", "Telenor Norge monthly revenue trend through Sep 26", oracle=_b07_oracle)(
-    _analyse("monthly_trend", {"entity": "un.SY", "through": PERIOD}))
-CASES["B07"].core = _core("B07", "monthly_trend", {"entity": "un.SY", "accounts": ["ac.C30"]}, keep="b07")
+    _core("B07", "monthly_trend", {"entity": "un.SY", "accounts": ["ac.C30"]}, keep="b07"))
 
 BA_KEYS = ("wholesale", "business", "ssm", "ei", "technology", "it", "adm", "nordics")
 
@@ -378,22 +331,12 @@ def _b08_oracle(ctx, run):
             for e in ("un.SY.2BUS", "un.SY.2TEC")}
 
 
-CASES["B08"] = Case("B08", "Follow-up to B07: split by business area", "followup", None, _b08_oracle, needs="B07")
-CASES["B08"].core = _followup("b07", lambda ctx: b08_followup(ctx.state["b07_out"]["period"]))
+case("B08", "Follow-up to B07: split by business area", "followup", oracle=_b08_oracle, needs="B07")(
+    _followup("b07", lambda ctx: b08_followup(ctx.state["b07_out"]["period"])))
 
 
 @case("B09", "What do we earn on mobile subscriptions?")
 def b09(ctx):
-    sc, _ = ctx.client.must("sv_scope", {"text": "what do we earn on mobile subscriptions"})
-    ids = [c["id"] for c in sc.get("concepts", [])]
-    if not ids:
-        raise AssertionError("sv_scope found no concept")
-    out, _ = ctx.client.must("sv_concept", {"concept": ids[0], "period": PERIOD, "target": "new"})
-    return _run(out, notes=f"concept {ids[0]}")
-
-
-@core_route("B09")
-def b09_core(ctx):
     from smartview_mcp import concepts
     ids = [c["id"] for c in concepts.find("what do we earn on mobile subscriptions")]
     if not ids:
@@ -430,21 +373,13 @@ def b12(ctx):
     return _run(out, numbers=[rec["lines_sum"]], problems=problems, checks_required=False)
 
 
-CASES["B12"].core = b12          # the sv_drill utility stays (design §6); a v1 drill spec is phase 6
-
-
 def _last_year_only(out: dict) -> list[str]:
     return [] if any("compared with last year only" in w for w in out.get("warnings") or []) else \
         ["no last-year-only warning"]
 
 
-@case("B13", "EBITDA YTD for unit un.SY.5OK_W", oracle=_fin_oracle("un.SY.5OK_W", None))
-def b13(ctx):
-    out, _ = ctx.client.must("fin_pnl", {"area": "un.SY.5OK_W", "target": "new", "detail": "full"})
-    return _run(out, problems=_last_year_only(out))
-
-
-CASES["B13"].core = _core("B13", "pnl", {"area": "un.SY.5OK_W", "detail": "full"}, check=_last_year_only)
+case("B13", "EBITDA YTD for unit un.SY.5OK_W", oracle=_fin_oracle("un.SY.5OK_W", None))(
+    _core("B13", "pnl", {"area": "un.SY.5OK_W", "detail": "full"}, check=_last_year_only))
 
 
 def _b14_oracle(ctx, run):
@@ -458,18 +393,10 @@ def _b14_oracle(ctx, run):
 
 
 case("B14", "Business full-year EBITDA: latest forecast vs budget", oracle=_b14_oracle)(
-    _analyse("actual_vs_plan", {"entity": "2BUS Business", "month": "Dec", "year": "FY26"}))
-CASES["B14"].core = _core("B14", "actual_vs_plan", {"entity": "2BUS Business", "month": "Dec", "year": "FY26"})
-
-
-@case("B15", "Wholesale full P&L (revenue, COGS, opex, EBITDA) actual vs budget vs last year, YTD",
-      oracle=_fin_oracle("un.SY.2WHS", "2WHS Wholesale", ("ac.C30", "ac.C40S", "ac.C70", "ac.EBITDA")))
-def b15(ctx):
-    out, _ = ctx.client.must("fin_pnl", {"area": "Wholesale", "target": "new", "detail": "full"})
-    return _run(out)
-
-
-CASES["B15"].core = _core("B15", "pnl", {"area": "Wholesale", "detail": "full"})
+    _core("B14", "actual_vs_plan", {"entity": "2BUS Business", "month": "Dec", "year": "FY26"}))
+case("B15", "Wholesale full P&L (revenue, COGS, opex, EBITDA) actual vs budget vs last year, YTD",
+     oracle=_fin_oracle("un.SY.2WHS", "2WHS Wholesale", ("ac.C30", "ac.C40S", "ac.C70", "ac.EBITDA")))(
+    _core("B15", "pnl", {"area": "Wholesale", "detail": "full"}))
 
 
 # ================================================================== runner
@@ -481,12 +408,13 @@ def sheet_values(client, wb: str, sheet: str) -> list[list]:
     return body["values"]
 
 
-def run_case(c: Case, ctx, route: str) -> dict:
-    r = {"id": c.id, "question": c.question, "gate": c.gate, "route": route, "first_visible_s": None, "total_s": None,
-         "oracle": {}, "match": {}, "checks_ok": False, "formula_errors": [], "problems": [], "error": None, "notes": ""}
+def run_case(c: Case, ctx) -> dict:
+    """Run one case on the pipeline. The oracle cells are only recorded here (`_oracle_q`, with the sheet's numbers
+    in `_nums`); oracle_pass fetches and scores them after the server exited. The provisional result ignores them."""
+    r = {"id": c.id, "question": c.question, "gate": c.gate, "route": "core", "first_visible_s": None,
+         "total_s": None, "oracle": {}, "match": {}, "checks_ok": False, "formula_errors": [], "problems": [],
+         "error": None, "notes": ""}
     if c.agent:
-        if route != "core":
-            return {**r, "result": "AGENT", "notes": "gate quality: needs an agent run"}
         try:
             t0 = time.monotonic()
             out, _ = ctx.client.must("sv_gate", {"question": c.question})
@@ -498,22 +426,20 @@ def run_case(c: Case, ctx, route: str) -> dict:
         except Exception as e:  # noqa: BLE001
             r["error"], r["result"] = f"{type(e).__name__}: {e}"[:400], "ERROR"
         return r
-    fn = c.baseline if route == "baseline" else c.core
-    if fn is None:
-        return {**r, "result": "UNSUPPORTED", "notes": "no tool for this today" if route == "baseline"
-                else f"no {route} route yet"}
+    if c.run is None:
+        return {**r, "result": "UNSUPPORTED", "notes": "no route for this case"}
     if c.needs and c.needs not in ctx.state.setdefault("passed", set()):
         return {**r, "result": "SKIP", "notes": f"needs {c.needs} to pass in the same run"}
     try:
         t0 = time.monotonic()
         with FirstVisible() as fv:
-            run = fn(ctx)
+            run = c.run(ctx)
         r["total_s"] = round(time.monotonic() - t0, 2)
         r["first_visible_s"] = fv.secs
         out = run["out"]
         checks = out.get("checks") or {}
         review = out.get("review")
-        # route core: the review grades each check (a 'Warning' check may differ by design); baseline: all OK
+        # the review grades each check (a 'Warning' check may differ by design); sv_drill has no review
         ok = (not any(x["severity"] == "Critical" and x["text"].startswith("check '") for x in review["findings"])
               if review is not None else S._all_ok(checks))
         r["checks_ok"] = ok and (bool(checks) or not run.get("checks_required", True))
@@ -528,11 +454,8 @@ def run_case(c: Case, ctx, route: str) -> dict:
         for t in run.get("texts") or []:
             if not any(t in s for s in texts):
                 r["problems"].append(f"text missing: {t!r}")
-        for label, q in (c.oracle(ctx, run) if c.oracle else {}).items():
-            b, _ = ctx.client.must("sv_query", q)
-            v = helpers.number(b["table"])
-            how = found(v, nums) if v is not None else None
-            r["oracle"][label], r["match"][label] = how is not None, how or ("no oracle value" if v is None else "missing")
+        r["_oracle_q"] = c.oracle(ctx, run) if c.oracle else {}
+        r["_nums"] = nums
     except Exception as e:  # noqa: BLE001 - one case must not stop the run
         r["error"] = f"{type(e).__name__}: {e}"[:400]
         traceback.print_exc()
@@ -540,6 +463,28 @@ def run_case(c: Case, ctx, route: str) -> dict:
     if r["result"] == "PASS":
         ctx.state.setdefault("passed", set()).add(c.id)
     return r
+
+
+def oracle_pass(results: list[dict]) -> None:
+    """Score the oracle cells after the MCP server has exited (its hidden Edge freed the drill profile): one
+    in-process HTTP fetch per cell, so the oracle never warms the route it checks. Re-scores every result."""
+    from smartview_mcp import drill_browser
+    try:
+        for r in results:
+            nums = r.pop("_nums", None) or []
+            for label, q in (r.pop("_oracle_q", None) or {}).items():
+                try:
+                    v = helpers.oracle_value(**q)
+                except Exception as e:  # noqa: BLE001 - one bad oracle cell must not stop the scoring
+                    r["oracle"][label], r["match"][label] = False, f"oracle failed: {str(e)[:120]}"
+                    continue
+                how = found(v, nums) if v is not None else None
+                r["oracle"][label] = how is not None
+                r["match"][label] = how or ("no oracle value" if v is None else "missing")
+            if r["result"] in ("PASS", "FAIL"):
+                r["result"] = verdict(r)
+    finally:
+        drill_browser.shutdown_shared()
 
 
 def _s(v, none="-"):
@@ -555,14 +500,14 @@ def gate_score(results: list[dict]) -> dict:
             "needless_ask": sum(r["gate"] == "clear" and r["gate_got"] == "ambiguous" for r in scored)}
 
 
-def write_report(name: str, started: datetime, route: str, results: list[dict]) -> Path:
+def write_report(name: str, started: datetime, results: list[dict]) -> Path:
     AUDIT.mkdir(parents=True, exist_ok=True)
     base = AUDIT / f"{started:%Y-%m-%d}-{name}"
     if base.with_suffix(".json").exists():
         base = AUDIT / f"{started:%Y-%m-%d}-{name}-{started:%H%M}"
-    base.with_suffix(".json").write_text(json.dumps({"started": started.isoformat(timespec="seconds"), "route": route,
+    base.with_suffix(".json").write_text(json.dumps({"started": started.isoformat(timespec="seconds"), "route": "core",
                                                       "results": results}, indent=1), encoding="utf-8")
-    lines = [f"# Benchmarks — route `{route}` ({started:%Y-%m-%d %H:%M})", "",
+    lines = [f"# Benchmarks — route `core` ({started:%Y-%m-%d %H:%M})", "",
              "| ID | Result | First visible s | Total s | Oracle | Notes |", "|---|---|---|---|---|---|"]
     for r in results:
         orc = f"{sum(r['oracle'].values())}/{len(r['oracle'])}" if r["oracle"] else "—"
@@ -581,11 +526,9 @@ def write_report(name: str, started: datetime, route: str, results: list[dict]) 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Benchmarks B01-B15")
     ap.add_argument("--only", default="", help="comma-separated case ids")
-    ap.add_argument("--route", default="baseline", choices=["baseline", "core"])
     ap.add_argument("--keep", action="store_true", help="leave the scratch workbooks and _bench folder")
-    ap.add_argument("--out", default=None, help="report name (default bench-<route>)")
+    ap.add_argument("--out", default="bench-core", help="report name")
     a = ap.parse_args(argv)
-    a.out = a.out or f"bench-{a.route}"
     only = {s.strip().upper() for s in a.only.split(",") if s.strip()}
     chosen = [c for c in CASES.values() if not only or c.id in only]
     scratch = Path(config.ANALYSER_DIR) / "_matrix"     # helpers.cleanup closes workbooks in a _matrix folder only
@@ -598,10 +541,9 @@ def main(argv: list[str] | None = None) -> int:
         ctx.client = client
         helpers._CLIENTS.append(client)
         for c in sorted(chosen, key=lambda c: c.id):
-            r = run_case(c, ctx, a.route)
+            r = run_case(c, ctx)
             results.append(r)
-            print(f"{r['result']:11} {c.id}  first {_s(r['first_visible_s'])}s  total {_s(r['total_s'])}s"
-                  + (f"  {r['error']}" if r["error"] else ""), flush=True)
+            print(f"ran {c.id} ({r['result']} before oracle)", flush=True)
     finally:
         try:
             helpers.cleanup(ctx)
@@ -610,7 +552,13 @@ def main(argv: list[str] | None = None) -> int:
         if client is not None:
             helpers._CLIENTS.remove(client)
             client.close()
-        print(f"report: {write_report(a.out, started, a.route, results).with_suffix('.md')}")
+    try:
+        oracle_pass(results)
+    finally:
+        for r in results:
+            print(f"{r['result']:11} {r['id']}  first {_s(r['first_visible_s'])}s  total {_s(r['total_s'])}s"
+                  + (f"  {r['error']}" if r["error"] else ""), flush=True)
+        print(f"report: {write_report(a.out, started, results).with_suffix('.md')}")
     return 1 if any(r["result"] in ("FAIL", "ERROR") for r in results) else 0
 
 
