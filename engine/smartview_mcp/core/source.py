@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass
 
 from .. import config, svhttp, userexcel
-from ..grid import Axis, Layout, parse
+from ..grid import MISSING, Axis, Layout, parse
 from ..timing import stage
 from .contract import Pull as PullSpec
 
@@ -27,14 +27,20 @@ class Source:
     note: str | None = None             # why the fallback was used
 
 
-def cells(values: list[list]) -> tuple[tuple, ...]:
-    """The fetched grid as Excel values: text stays text ('Jan 26' would become a date), blanks stay empty."""
-    def one(v):
+def cells(values: list[list], data_from: tuple[int, int] | None = None) -> tuple[tuple, ...]:
+    """The fetched grid as Excel values: text stays text ('Jan 26' would become a date), blanks stay empty. In the
+    data block (rows/columns from `data_from`, 0-based) a missing cell is 0, as Smart View's #NumericZero writes it
+    on ad hoc sheets: a '#Missing' text would make every var/sum formula on that line #VALUE!."""
+    r0, c0 = data_from or (len(values), 0)
+
+    def one(v, r, c):
+        if r >= r0 and c >= c0 and v in MISSING:
+            return 0
         if v is None or v == "":
             return ""
         return "'" + v if isinstance(v, str) else v
     w = max(len(r) for r in values)
-    return tuple(tuple(one(r[c]) if c < len(r) else "" for c in range(w)) for r in values)
+    return tuple(tuple(one(row[c], r, c) if c < len(row) else "" for c in range(w)) for r, row in enumerate(values))
 
 
 def provenance(connection: str, lay: Layout, route: str, fetched: dt.datetime) -> list[tuple[str, str]]:
@@ -68,7 +74,7 @@ def write(t, q: int, title: str, pin: PullSpec, f: svhttp.Fetched) -> Source:
     com, lay = userexcel.com, f.layout
     name = userexcel.unique_sheet_name(t, title)
     ws = userexcel.add_sheet(t, name, after_q=q, color=0xA6A6A6)
-    grid = cells(f.values)
+    grid = cells(f.values, data_from=(1 + lay.nc, lay.nr))
     h, w = len(grid), len(grid[0])
     parsed = parse(lay, f.values, False, False)
     p = userexcel._make_pull(name, pin.connection, lay, parsed, f.seconds)

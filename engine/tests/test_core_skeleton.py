@@ -26,6 +26,13 @@ def test_cells_keep_text_as_text_and_blanks_empty():
     assert source.cells([[None, "Jan 26"], ["EBITDA (ac)", 1.5, "x"]]) == (("", "'Jan 26", ""), ("'EBITDA (ac)", 1.5, "'x"))
 
 
+def test_cells_write_missing_data_as_zero_like_smart_views_numericzero():
+    # a #Missing text cell would make var/sum formulas on that line #VALUE!; labels and #NoAccess stay text
+    vals = [[None, "Sep 26", "Sep 25"], ["EBITDA (ac)", "#Missing", 2.0], ["#Missing", "#NoAccess", None]]
+    assert source.cells(vals, data_from=(1, 1)) == (("", "'Sep 26", "'Sep 25"), ("'EBITDA (ac)", 0, 2.0),
+                                                     ("'#Missing", "'#NoAccess", 0))
+
+
 def test_provenance_names_cube_pov_time_and_route():
     lay = Layout([("All Entities", "un.SY.2BUS"), ("All Scenarios", "All Scenarios")], [], [])
     p = dict(source.provenance("FinMax", lay, "http", dt.datetime(2026, 11, 2, 10, 5)))
@@ -195,3 +202,18 @@ async def test_an_ambiguous_question_returns_its_questions_and_touches_no_excel(
 async def test_an_invalid_spec_is_a_readable_error():
     with pytest.raises(ToolError, match="not a valid answer spec v1"):
         await tools_core.sv_answer({"question": "x"})
+
+@pytest.mark.anyio
+async def test_old_follow_up_tool_refuses_a_v1_spec_before_touching_the_workbook(monkeypatch):
+    from smartview_mcp import tools_ws
+    monkeypatch.setattr(tools_ws, "_call_user", lambda job, what: _run_job(job))
+    monkeypatch.setattr(userexcel, "resolve_target", lambda h, target, allow_archive: SimpleNamespace(name="wb"))
+    monkeypatch.setattr(tools_ws, "_load_session", lambda t, q: {"Q1 FinMax": object()})
+    monkeypatch.setattr(userexcel, "load_spec", lambda t, q: ({"version": 1, "question": "x", "layout": {}}, {}))
+    monkeypatch.setattr(tools_ws, "_answer_job", lambda *a: pytest.fail("must not render"))
+    with pytest.raises(ToolError, match="sv_answer"):
+        await tools_ws.sv_ws_answer(1, spec_patch={"notes": ["n"]})
+
+
+async def _run_job(job):
+    return job(None)

@@ -313,6 +313,10 @@ async def sv_ws_answer(q: int, spec: dict | None = None, spec_patch: dict | None
         if not sess:
             raise InputError(f"No pulls for Q{q} in '{t.name}'. Run sv_ws_pull first with the same target.")
         stored = userexcel.load_spec(t, q)
+        if stored and stored[0].get("version") == 1:
+            raise InputError(f"Q{q} was answered by sv_answer (answer spec v1); sv_ws_answer cannot patch it. Call "
+                             f"sv_answer again with the changed spec (follow-ups on v1 answers come with the new "
+                             f"pipeline).")
         ids = stored[1] if stored else {}
         if spec is None:
             if not stored:
