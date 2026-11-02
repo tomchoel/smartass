@@ -7,7 +7,6 @@ import datetime as dt
 from typing import Literal
 
 from mcp.server.mcpserver import Context
-from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 
 from . import catalog, config, templates
@@ -16,7 +15,7 @@ from .core import contract, pipeline, prefs, recipes, reply, runlog, scope
 from .core import followup as followup_mod
 from .core import period as periods
 from .host import HostError, InputError
-from .server import LOCAL, READ, WRITE, _call_user, _err, _is_our_analysis_file, tool
+from .server import LOCAL, READ, WRITE, _err, _is_our_analysis_file, _with_progress, host, tool
 from .timing import Timer, stage
 
 
@@ -33,7 +32,6 @@ async def _closed_month() -> tuple[str, str | None]:
     try:
         return await asyncio.wait_for(asyncio.to_thread(templates.closed_month, _NoExcel()), 30), None
     except Exception as e:   # noqa: BLE001 - the gate must answer without EPM
-        import datetime as dt
         d = dt.date.today().replace(day=1) - dt.timedelta(days=1)
         return periods.label(d.year, d.month), f"closed month not read from EPM ({str(e)[:120]}); assumed last month"
 
@@ -50,8 +48,16 @@ async def sv_gate(question: str) -> dict:
     Copy the result into the answer spec's gate (outcome, checklist, questions/reason/proxy) and assumptions.
     Returns {suggested_outcome, checklist{item: {value, source, gap, ask}}, questions, reason, proxy, warnings,
     entities, measures, concepts, closed_month, next}."""
+    try:
+        return await gate(question)
+    except InputError as e:
+        raise _err(e) from None
+
+
+async def gate(question: str) -> dict:
+    """sv_gate without the MCP wrapper (also POST /gate); raises InputError."""
     if not question or not question.strip():
-        raise _err(InputError("question is the user's question, as asked"))
+        raise InputError("question is the user's question, as asked")
     closed, warn = await _closed_month()
     g = scope.gate(question.strip(), closed)
     if warn:
@@ -149,19 +155,25 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
     material lines that need a driver in commentary.drivers (knowledge/advisor/variance-commentary.md), routes,
     timings and an outline (pull ids, columns, section titles, line keys, check labels) to address follow-ups.
     Call sv_gate first for a new question (knowledge/advisor/gate.md)."""
+    try:
+        return await answer(spec, followup, q, target, allow_archive)
+    except (HostError, InputError) as e:
+        raise _err(e) from None
+
+
+async def answer(spec: dict | None = None, followup: dict | None = None, q: int | None = None,
+                 target: str = "session", allow_archive: bool = False) -> dict:
+    """sv_answer without the MCP wrapper (also POST /answer); raises InputError / HostError."""
     if (spec is None) == (followup is None):
-        raise _err(InputError("Give exactly one of spec or followup: spec = new question, followup = change the "
-                              "current answer."))
+        raise InputError("Give exactly one of spec or followup: spec = new question, followup = change the current "
+                         "answer.")
     parsed = None
     recipe = spec is not None and bool(spec.get("recipe")) and not spec.get("layout")
     if spec is not None:
-        try:
-            if recipe and (spec.get("gate") or {}).get("outcome") != "ambiguous":
-                _check_recipe_spec(spec)            # pulls + layout come from the recipe, inside the Excel job
-            else:
-                parsed = pipeline.parse_spec(spec)
-        except InputError as e:
-            raise _err(e) from None
+        if recipe and (spec.get("gate") or {}).get("outcome") != "ambiguous":
+            _check_recipe_spec(spec)            # pulls + layout come from the recipe, inside the Excel job
+        else:
+            parsed = pipeline.parse_spec(spec)
         early = pipeline.gate_reply(parsed) if parsed is not None else None
         if early is not None:
             runlog.append(runlog.entry(parsed, None, [], None, {}))
@@ -218,7 +230,9 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
             warn = list(dict.fromkeys(list(extra.get("warnings") or []) + list(out.get("warnings") or [])))
             out = {**out, **{k: v for k, v in extra.items() if k != "warnings"}, "warnings": warn}
         return out
-    try:
-        return await _call_user(job, what="sv_answer")
-    except (HostError, ToolError, InputError) as e:
-        raise _err(e)
+    return await _call_user(job, what="sv_answer")
+
+
+async def _call_user(fn, what: str):
+    """server._call_user without the MCP error mapping: HTTP needs InputError/HostError as they are."""
+    return await host().call(_with_progress(fn), what=what, user_excel=True)

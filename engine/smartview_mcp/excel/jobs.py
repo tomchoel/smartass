@@ -6,19 +6,18 @@ import logging
 import threading
 import time
 
-import pythoncom
 import pywintypes
 
 from .. import config
 from ..host import HostError
+from ..hostproc import is_busy, retry_busy
 
-RETRY = {-2147418111, -2147417846}            # call rejected / retry later (edit mode, busy)
 EDIT_WAIT_S = 30
+BUSY = "Excel is busy - probably a cell is being edited or a dialog is open. Press Enter or Esc in Excel and ask again."
 
 log = logging.getLogger("smartview.excel")
 
 # ------------------------------------------------------------------ low level
-VBA_E_IGNORE = -2146777998                   # 0x800AC472: Excel busy, delivered inside DISP_E_EXCEPTION
 
 # Every user-Excel job runs on its own STA thread with its own token. When the server abandons a job stuck in the
 # user's Excel, only that job's token is aborted: its next COM call raises (so it rolls back instead of silently
@@ -46,28 +45,16 @@ def _check_alive():
         raise JobAborted("This request was abandoned after a timeout; its partial sheets are being removed.")
 
 
-def _busy(e: pywintypes.com_error) -> bool:
-    inner = e.excepinfo[5] if e.excepinfo and len(e.excepinfo) > 5 else None
-    return e.hresult in RETRY or e.hresult == VBA_E_IGNORE or inner == VBA_E_IGNORE
-
-
 def com(call, limit: float = 60.0, check: bool = True):
+    """A COM call in the user's Excel, retried while Excel is busy; then a readable HostError (BUSY)."""
     if check:
         _check_alive()
-    t0, d = time.monotonic(), 0.1
-    while True:
-        try:
-            return call()
-        except pywintypes.com_error as e:
-            if _busy(e) and time.monotonic() - t0 < limit:
-                pythoncom.PumpWaitingMessages()
-                time.sleep(d)
-                d = min(d * 2, 2.0)
-                continue
-            if _busy(e):
-                raise HostError("Excel is busy - probably a cell is being edited or a dialog is open. Press Enter or "
-                                "Esc in Excel and ask again.") from None
-            raise
+    try:
+        return retry_busy(call, limit)
+    except pywintypes.com_error as e:
+        if is_busy(e):
+            raise HostError(BUSY) from None
+        raise
 
 
 TURN_WAIT_S = 600

@@ -152,3 +152,28 @@ def test_smart_view_box_guard_dismisses_each_box_once_and_keeps_its_text(monkeyp
     with login.SmartViewBoxes(1) as g:
         _t.sleep(0.1)
     assert pressed == [5] and g.texts == ["Empty response from provider."]
+
+
+def test_com_retries_a_busy_excel_then_says_so_in_words(monkeypatch):
+    import pytest
+    import pywintypes
+
+    from smartview_mcp import hostproc
+    from smartview_mcp.excel import jobs
+    from smartview_mcp.host import HostError
+    monkeypatch.setattr(hostproc.time, "sleep", lambda s: None)
+    rejected = pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+    recalc = pywintypes.com_error(-2147352567, "Exception occurred.", (0, None, None, None, 0, -2146777998), None)
+    answers = [rejected, recalc, "ok"]
+
+    def call():
+        a = answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        return a
+    assert jobs.com(call, check=False) == "ok"
+    with pytest.raises(HostError, match="Excel is busy"):
+        jobs.com(lambda: (_ for _ in ()).throw(rejected), limit=0, check=False)
+    other = pywintypes.com_error(-2147352567, "Exception occurred.", (0, None, "Bad", None, 0, -2146827284), None)
+    with pytest.raises(pywintypes.com_error):
+        jobs.com(lambda: (_ for _ in ()).throw(other), check=False)

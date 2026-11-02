@@ -1,17 +1,24 @@
-"""Localhost-only HTTP API for the future Excel add-in. Sub-project 1 ships only GET /health, behind a per-user
-shared secret (header X-Smartass-Secret). Never binds anything but 127.0.0.1."""
+"""Localhost-only HTTP API for the Excel add-in: GET /health, POST /gate, POST /answer (the same pipeline calls as the
+MCP tools sv_gate/sv_answer; JSON body = their arguments), behind a per-user shared secret (header
+X-Smartass-Secret), one request at a time. Never binds anything but 127.0.0.1."""
 from __future__ import annotations
 
+import asyncio
 import errno
 import hmac
 import json
 import logging
 import socket
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import import_module
 
 from . import config
+from .host import HostError, InputError
 
 log = logging.getLogger("smartass.http")
+MAX_BODY = 1_000_000
+_FIELDS = {"/gate": {"question"}, "/answer": {"spec", "followup", "q", "target", "allow_archive"}}
 
 
 class _ExclusiveServer(ThreadingHTTPServer):
@@ -30,27 +37,64 @@ def _default_health() -> dict:
     return doctor.as_dict(doctor.run(include_http=False))
 
 
-def make_server(port: int, secret: str, health=None) -> ThreadingHTTPServer:
+def make_server(port: int, secret: str, health=None, gate=None, answer=None) -> ThreadingHTTPServer:
+    """gate/answer default to tools_core.gate/answer (imported on the first POST: it loads the MCP tools)."""
     health = health or _default_health
+    routes = {"/gate": gate, "/answer": answer}
+    busy = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "smartass"
 
         def _send(self, code: int, body: dict):
-            data = json.dumps(body).encode()
+            data = json.dumps(body, default=str).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
 
+        def _authorised(self) -> bool:
+            ok = hmac.compare_digest(self.headers.get("X-Smartass-Secret", "").encode(), secret.encode())
+            return ok or self._send(401, {"error": "missing or wrong X-Smartass-Secret"})
+
         def do_GET(self):  # noqa: N802
-            given = self.headers.get("X-Smartass-Secret", "")
-            if not hmac.compare_digest(given.encode(), secret.encode()):
-                return self._send(401, {"error": "missing or wrong X-Smartass-Secret"})
+            if not self._authorised():
+                return
             if self.path.split("?")[0] != "/health":
                 return self._send(404, {"error": "unknown path"})
             return self._send(200, health())
+
+        def do_POST(self):  # noqa: N802
+            path = self.path.split("?")[0]
+            if not self._authorised():
+                return
+            if path not in routes:
+                return self._send(404, {"error": "unknown path"})
+            size = int(self.headers.get("Content-Length") or 0)
+            if size > MAX_BODY:
+                return self._send(413, {"error": f"body larger than {MAX_BODY} bytes"})
+            try:
+                body = json.loads(self.rfile.read(size) or b"{}")
+            except ValueError:
+                return self._send(400, {"error": "body is not JSON"})
+            if not isinstance(body, dict) or set(body) - _FIELDS[path]:
+                extra = sorted(set(body) - _FIELDS[path]) if isinstance(body, dict) else "not an object"
+                return self._send(400, {"error": f"unknown fields: {extra}; allowed: {sorted(_FIELDS[path])}"})
+            if not busy.acquire(blocking=False):
+                return self._send(409, {"error": "busy: one request at a time"})
+            try:
+                fn = routes[path] or getattr(import_module(".tools_core", __package__), path[1:])
+                self._send(200, asyncio.run(fn(**body)))
+            except InputError as e:
+                self._send(400, {"error": str(e)})
+            except HostError as e:
+                self._send(503, {"error": str(e)})
+            except Exception:   # noqa: BLE001 - the client gets a short answer, the log the traceback
+                log.exception("POST %s failed", path)
+                self._send(500, {"error": "internal error; see server.log"})
+            finally:
+                busy.release()
 
         def log_message(self, fmt, *args):
             log.info("%s %s", self.address_string(), fmt % args)

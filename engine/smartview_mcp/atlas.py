@@ -106,14 +106,9 @@ def search(db, text: str, connection: str | None = None, dimension: str | None =
     """Case-insensitive search on member name and label; exact matches first."""
     q = f"%{text.lower()}%"
     sql = ("SELECT connection, dimension, name, label, group_concat(DISTINCT parent), min(depth) FROM member "
-           "WHERE (lower(name) LIKE ? OR lower(label) LIKE ?)")
-    args: list = [q, q]
-    if connection:
-        sql += " AND connection=?"
-        args.append(connection)
-    if dimension:
-        sql += " AND dimension=?"
-        args.append(dimension)
+           "WHERE (lower(name) LIKE ? OR lower(label) LIKE ?) "
+           "AND coalesce(?, connection)=connection AND coalesce(?, dimension)=dimension")
+    args: list = [q, q, connection or None, dimension or None]
     sql += (" GROUP BY connection, dimension, name"
             " ORDER BY (lower(name)=?) DESC, (lower(label) LIKE ?) DESC, min(depth), length(name) LIMIT ?")
     args += [text.lower(), f"{text.lower()}%", limit]

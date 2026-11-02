@@ -195,39 +195,31 @@ class SvHttp:
                               f"({'in the future' if back < 0 else f'{back} months back'})")
         return f"{_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
 
-    def _enum(self, conn: str, dim: str, member: str) -> list[str]:
+    def _ask(self, conn: str, body, read, fatal) -> list:
+        """POST body(sid, cube) to conn's provider and read(answer). An error fatal(e) does not rule out (maybe an
+        expired session) reconnects once."""
         for attempt in (1, 2):
             try:
-                base, _, sid = self._session(conn)
-                ans = self.t.post(base, svxml.enum_children(sid, dim, member))
+                base, cube, sid = self._session(conn)
+                ans = self.t.post(base, body(sid, cube))
                 self._note_sid(conn, ans)
-                return svxml.members(ans)
+                return read(ans)
             except svxml.SvXmlError as e:
-                if e.code in (4996, 4997):                 # unknown member or dimension: a new session won't help
-                    raise SvHttpError(f"Smart View provider: {e}") from None
-                self._sids.pop(conn, None)                 # maybe an expired session: reconnect once
-                self._bases = None
-                if attempt == 2:
+                if not fatal(e):
+                    self._sids.pop(conn, None)
+                    self._bases = None                      # ... and re-read where the apps live
+                if fatal(e) or attempt == 2:
                     raise SvHttpError(f"Smart View provider: {e}") from None
                 log.info("svhttp %s: %s - reconnecting once", conn, e)
         raise AssertionError("unreachable")
 
+    def _enum(self, conn: str, dim: str, member: str) -> list[str]:
+        return self._ask(conn, lambda sid, cube: svxml.enum_children(sid, dim, member), svxml.members,
+                         lambda e: e.code in (4996, 4997))  # unknown member or dimension: a new session won't help
+
     def _execute(self, conn: str, lay: Layout) -> list[list]:
-        for attempt in (1, 2):
-            try:
-                base, cube, sid = self._session(conn)
-                ans = self.t.post(base, svxml.execute_grid(sid, cube, lay))
-                self._note_sid(conn, ans)
-                return svxml.grid_values(ans)
-            except svxml.SvXmlError as e:
-                if "Grid is Invalid" in str(e):           # unknown member: deterministic, a new session won't help
-                    raise SvHttpError(f"Smart View provider: {e}") from None
-                self._sids.pop(conn, None)                  # maybe an expired session: reconnect once
-                self._bases = None                          # ... and re-read where the apps live
-                if attempt == 2:
-                    raise SvHttpError(f"Smart View provider: {e}") from None
-                log.info("svhttp %s: %s - reconnecting once", conn, e)
-        raise AssertionError("unreachable")
+        return self._ask(conn, lambda sid, cube: svxml.execute_grid(sid, cube, lay), svxml.grid_values,
+                         lambda e: "Grid is Invalid" in str(e))   # unknown member: deterministic
 
 
 def _check_grid(lay: Layout, values: list[list]) -> None:

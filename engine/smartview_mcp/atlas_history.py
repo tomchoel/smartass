@@ -64,16 +64,10 @@ def snapshot_all(db) -> list[dict]:
 
 def list_snapshots(db, connection=None, dimension=None) -> list[dict]:
     ensure_schema(db)
-    sql, args = "SELECT id, connection, dimension, taken_at, n FROM snapshot WHERE 1=1", []
-    if connection:
-        sql += " AND connection=?"
-        args.append(connection)
-    if dimension:
-        sql += " AND dimension=?"
-        args.append(dimension)
-    sql += " ORDER BY connection, dimension, taken_at"
+    sql = ("SELECT id, connection, dimension, taken_at, n FROM snapshot WHERE coalesce(?, connection)=connection "
+           "AND coalesce(?, dimension)=dimension ORDER BY connection, dimension, taken_at")
     return [{"id": i, "connection": c, "dimension": d, "taken_at": _iso(t), "ts": t, "members": n}
-            for i, c, d, t, n in db.execute(sql, args)]
+            for i, c, d, t, n in db.execute(sql, [connection or None, dimension or None])]
 
 
 def _to_ts(v, end: bool) -> float | None:

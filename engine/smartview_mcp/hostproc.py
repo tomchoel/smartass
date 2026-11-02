@@ -19,6 +19,28 @@ from . import config
 
 log = logging.getLogger("smartview.host")
 RETRY_HRESULTS = {-2147418111, -2147417846}        # RPC_E_CALL_REJECTED, RPC_E_SERVERCALL_RETRYLATER
+VBA_E_IGNORE = -2146777998                         # 0x800AC472: Excel busy (recalculating), inside DISP_E_EXCEPTION
+
+
+def is_busy(e: BaseException) -> bool:
+    """Excel answered 'call rejected / retry later' (busy opening, recalculating, a cell in edit mode)."""
+    hr, info = getattr(e, "hresult", None), getattr(e, "excepinfo", None)
+    return hr in RETRY_HRESULTS or VBA_E_IGNORE in (hr, info[5] if info and len(info) > 5 else None)
+
+
+def retry_busy(call: Callable[[], Any], limit_s: float = 120):
+    """Run any COM call, retrying while Excel is busy (is_busy) for up to limit_s; then the COM error is raised.
+    pywin32 has no IMessageFilter, so this is the retry loop instead."""
+    delay, t0 = 0.1, time.monotonic()
+    while True:
+        try:
+            return call()
+        except pywintypes.com_error as e:
+            if not is_busy(e) or time.monotonic() - t0 >= limit_s:
+                raise
+            pythoncom.PumpWaitingMessages()
+            time.sleep(delay)
+            delay = min(delay * 2, 2.0)
 
 
 def _excel_pids() -> set[int]:
@@ -215,23 +237,7 @@ class HiddenExcel:
         """Application.Run on the bridge, with retry on 'call rejected'."""
         return self.com(lambda: self.app.Run(f"'{self.wb.Name}'!modBridge.{fn}", *args), limit_s=60)
 
-    @staticmethod
-    def com(call: Callable[[], Any], limit_s: float = 120):
-        """Run any COM call, retrying while Excel answers 'call rejected / retry later' (busy opening,
-        recalculating). pywin32 has no IMessageFilter, so this is the retry loop instead."""
-        delay, t0 = 0.1, time.monotonic()
-        while True:
-            try:
-                return call()
-            except pywintypes.com_error as e:
-                inner = e.excepinfo[5] if e.excepinfo and len(e.excepinfo) > 5 else None
-                busy = e.hresult in RETRY_HRESULTS or -2146777998 in (e.hresult, inner)   # 0x800AC472 VBA_E_IGNORE
-                if busy and time.monotonic() - t0 < limit_s:
-                    pythoncom.PumpWaitingMessages()
-                    time.sleep(delay)
-                    delay = min(delay * 2, 2.0)
-                    continue
-                raise
+    com = staticmethod(retry_busy)
 
     def sheet(self, name: str, fresh: bool = False):
         ws = None

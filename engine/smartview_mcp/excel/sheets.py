@@ -317,6 +317,6 @@ def wait_calculated(app, limit: float = 60.0) -> None:
             if app.CalculationState == 0:
                 return
         except pywintypes.com_error as e:
-            if not jobs._busy(e):
+            if not jobs.is_busy(e):
                 raise
         time.sleep(0.3)

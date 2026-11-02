@@ -93,6 +93,14 @@ def test_duplicate_suppressed_and_order_ignored(db, monkeypatch):
     assert len(h.list_snapshots(db, C, DIM)) == 2
 
 
+def test_search_and_snapshot_lists_filter_only_when_asked(db, monkeypatch):
+    two_snaps(db, monkeypatch)
+    assert len(h.list_snapshots(db)) == len(h.list_snapshots(db, C, "")) == 2
+    assert h.list_snapshots(db, "FinLite") == []
+    assert {r["name"] for r in atlas.search(db, "whs", C, "")} == {"un.SY.3WHS_C", "un.SY.3WHS_W"}
+    assert atlas.search(db, "whs", dimension="Account") == []
+
+
 def test_single_snapshot_message(db, monkeypatch):
     load(db, BEFORE)
     at(monkeypatch, D1)

@@ -64,7 +64,7 @@ def _wait_ready(app, limit: float = jobs.EDIT_WAIT_S, pid: int | None = None, na
             if app.Ready:
                 return
         except pywintypes.com_error as e:
-            if not jobs._busy(e):
+            if not jobs.is_busy(e):
                 raise
         time.sleep(0.5)
     if pid:

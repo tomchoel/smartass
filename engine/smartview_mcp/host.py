@@ -19,7 +19,7 @@ import win32com.client as wc
 import win32process
 
 from . import config, dialogs, sso
-from .hostproc import RETRY_HRESULTS, HiddenExcel, _excel_pids, _PidRegistry, ComThread, kill_ours, windows_of
+from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy, kill_ours, windows_of
 
 log = logging.getLogger("smartview.host")
 
@@ -202,8 +202,7 @@ class ExcelHost(HiddenExcel):
                 raise HostError("The Smart View Excel process died during the call; it will restart on the next "
                                 "call. Retry.") from None
             log.warning("COM error during %s", what, exc_info=True)
-            inner = e.excepinfo[5] if e.excepinfo and len(e.excepinfo) > 5 else None
-            if e.hresult in RETRY_HRESULTS or -2146777998 in (e.hresult, inner):    # 0x800AC472 VBA_E_IGNORE
+            if is_busy(e):
                 dlg = "" if user_excel else await asyncio.to_thread(self._open_dialog_note)
                 raise HostError(f"Excel was busy during {what}{dlg or ' - probably a cell is being edited or a dialog is open'}"
                                 ". Press Enter or Esc in Excel and ask again.") from None

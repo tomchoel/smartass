@@ -15,7 +15,6 @@ Nothing here saves a workbook, attaches to a running Excel or clears cell conten
 """
 from __future__ import annotations
 
-import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -23,42 +22,13 @@ from pathlib import Path
 from .vendor import tn_rapportstil as tn
 
 # ---------------------------------------------------------------- COM retry
-_BUSY = {-2147418111, -2147417846}      # RPC_E_CALL_REJECTED, RPC_E_SERVERCALL_RETRYLATER
 RETRY_LIMIT_S = 30.0
 
 
-VBA_E_IGNORE = -2146777998               # 0x800AC472: Excel busy (often while recalculating), inside DISP_E_EXCEPTION
-
-
-def _hresult(exc) -> int | None:
-    hr = getattr(exc, "hresult", None)
-    if hr is None and getattr(exc, "args", None) and isinstance(exc.args[0], int):
-        hr = exc.args[0]
-    return hr
-
-
-def _is_busy(exc) -> bool:
-    hr = _hresult(exc)
-    info = getattr(exc, "excepinfo", None)
-    inner = info[5] if info and len(info) > 5 else None
-    return hr in _BUSY or VBA_E_IGNORE in (hr, inner)
-
-
 def _retry(fn, limit_s: float = RETRY_LIMIT_S):
-    """Call fn(); when Excel rejects the call because it is busy, back off (0.2 s doubling to 3 s) up to limit_s."""
-    t0, delay = time.monotonic(), 0.2
-    while True:
-        try:
-            return fn()
-        except Exception as exc:   # noqa: BLE001
-            if not _is_busy(exc):
-                raise
-            if time.monotonic() - t0 > limit_s:   # same readable message as jobs.com, not a raw COM code
-                from .host import HostError
-                raise HostError("Excel is busy - probably a cell is being edited or a dialog is open. Press Enter "
-                                "or Esc in Excel and ask again.") from None
-            time.sleep(delay)
-            delay = min(delay * 2, 3.0)
+    """Call fn(); while Excel is busy it is retried up to limit_s, then a readable HostError (as jobs.com)."""
+    from .excel import jobs
+    return jobs.com(fn, limit_s, check=False)
 
 
 def _get(obj, *path):
@@ -542,8 +512,9 @@ def _numeric_cells(rng):
     for kind in (2, -4123):          # xlCellTypeConstants, xlCellTypeFormulas
         try:
             parts.append(_retry(lambda k=kind: rng.SpecialCells(k, 1)))   # xlNumbers
-        except Exception as exc:   # noqa: BLE001
-            if _hresult(exc) in _BUSY:
+        except Exception as exc:   # noqa: BLE001 - no such cells; a busy Excel (HostError from _retry) is raised
+            from .host import HostError
+            if isinstance(exc, HostError):
                 raise
     return parts
 
