@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from pydantic import ValidationError
 
 from .. import answer as answer_mod
-from .. import specs, userexcel
+from .. import catalog, specs, userexcel
 from ..host import InputError, rewrap
 from ..timing import stage
-from . import check, contract, progress, source
+from . import check, commentary, contract, progress, source
 
 
 @dataclass
@@ -24,6 +24,7 @@ class Run:
     res: dict
     sources: list
     review: dict
+    material: list = None
 
 
 def parse_spec(raw: dict) -> contract.AnswerSpec:
@@ -50,6 +51,9 @@ def answer_layout(raw_layout: dict, spec: contract.AnswerSpec) -> dict:
     if spec.gate.outcome == "infeasible":
         lead.append(f"Not answerable as asked ({spec.gate.reason}); answered instead: {spec.gate.proxy}")
     lay["notes"] = lead + list(lay.get("notes") or [])
+    drivers = commentary.sheet_lines([d.model_dump() for d in spec.commentary.drivers])
+    if drivers:
+        lay["key_points"] = list(lay.get("key_points") or []) + drivers
     return lay
 
 
@@ -78,9 +82,11 @@ def run(h, raw: dict, target: str = "session", allow_archive: bool = False) -> R
         removed = userexcel.rollback(t)
         raise rewrap(e, f"{e} (the answer was not completed; removed the partial sheets: "
                      f"{', '.join(removed) or 'none'})") from None
-    review = check.review(res, sources)
+    flagged = commentary.material(prepared, res.get("values") or {}, catalog.load())
+    review = check.review(res, sources, extra=commentary.findings(
+        flagged, [d.model_dump() for d in spec.commentary.drivers]))
     try:
         userexcel.save_spec(t, q, raw, ids)
     except Exception:   # noqa: BLE001 - only needed for follow-ups
         pass
-    return Run(t, q, spec, prepared, res, sources, review)
+    return Run(t, q, spec, prepared, res, sources, review, flagged)

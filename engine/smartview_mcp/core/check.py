@@ -6,8 +6,8 @@ from __future__ import annotations
 ORDER = {"Critical": 0, "Warning": 1, "Info": 2}
 
 
-def review(res: dict, sources: list) -> dict:
-    f: list[tuple[str, str]] = []
+def review(res: dict, sources: list, extra: list[dict] | None = None) -> dict:
+    f: list[tuple[str, str]] = [(x["severity"], x["text"]) for x in extra or []]
     checks = res.get("checks") or {}
     f += [("Critical", f"check '{k}' is {v}") for k, v in checks.items() if v != "OK"]
     f += [("Critical", w) for w in (res.get("error_warnings")

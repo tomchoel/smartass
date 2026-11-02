@@ -179,3 +179,60 @@ async def test_sv_remember_tool(tmp_path, monkeypatch):
     assert out["saved"]["value"] == "opex" and out["file"].endswith("p.toml")
     with pytest.raises(ToolError):
         await tools_core.sv_remember("measure", "costs", "nonsense")
+
+
+from smartview_mcp import catalog  # noqa: E402
+from smartview_mcp.core import commentary, contract  # noqa: E402
+
+PREP = {"columns": [{"header": "Sep 26"}, {"header": "Sep 25"}, {"header": "Var"}],
+        "sections": [{"lines": [
+            {"key": "rev", "label": "Revenue", "cells": [{"pull": "m"}, {"pull": "m"}, {"var": [0, 1]}]},
+            {"key": "small", "label": "Small", "cells": [{"pull": "m"}, {"pull": "m"}, {"var": [0, 1]}]},
+            {"key": "big", "label": "Big cost", "cells": [{"pull": "m"}, {"pull": "m"}, {"var": [0, 1]}]},
+            {"key": "fte", "label": "FTE", "cells": [{"pull": "m"}, {"pull": "m"}, {"var": [0, 1]}]},
+            {"key": "basis", "aux": True, "cells": [{"pull": "m"}, {"pull": "m"}, {"var": [0, 1]}]}]}]}
+VALUES = {"rev": [100.0, 99.0, 1.0], "small": [1_000.0, 2_000.0, -1_000.0], "big": [-20e6, -10e6, -10e6],
+          "fte": [900.0, 1000.0, -100.0], "basis": [-9e9, 0.0, -9e9]}
+
+
+def test_material_uses_catalog_thresholds_and_always_list():
+    flagged = commentary.material(PREP, VALUES, catalog.load())
+    # rev: always list; big: >= NOK 5m; small: under the 500k floor; fte: a level, 10 % without NOK floor; aux skipped
+    assert [f["line"] for f in flagged] == ["rev", "big", "fte"]
+    assert not flagged[0]["material"] and flagged[0]["always"]
+    assert flagged[1]["delta"] == -10e6 and flagged[1]["pct"] == pytest.approx(-1.0)
+
+
+def test_material_line_without_driver_is_a_warning_always_line_is_info():
+    flagged = commentary.material(PREP, VALUES, catalog.load())
+    f = commentary.findings(flagged, [{"line": "big", "text": "x", "basis": "hypothesis"}])
+    assert [(x["severity"], x["text"].split("'")[1]) for x in f] == [("Info", "Revenue"), ("Warning", "FTE")]
+
+
+def test_driver_lines_label_hypotheses():
+    out = commentary.sheet_lines([{"line": "big", "text": "More licences", "basis": "data", "evidence": "Q1 FinMax C60"},
+                                  {"line": "rev", "text": "Price rise", "basis": "hypothesis"}])
+    assert out == ["Driver: More licences (data: Q1 FinMax C60)", "Hypothesis — not verified in data: Price rise"]
+
+
+_SPEC = {"version": 1, "question": "EBITDA Sep 26", "gate": {"outcome": "clear"},
+         "pulls": [{"id": "m", "connection": "FinMax", "rows": [{"dimension": "All Accounts", "members": ["ac.EBITDA"]}],
+                    "columns": [{"dimension": "All Time Periods", "members": ["Sep 26"]}]}],
+         "layout": {"title": "t", "columns": [{"header": "Sep 26"}],
+                    "sections": [{"lines": [{"key": "e", "label": "EBITDA",
+                                             "cells": [{"pull": "m", "row": ["ac.EBITDA"], "col": ["Sep 26"]}]}]}]}}
+
+
+def test_contract_driver_line_must_be_a_layout_line():
+    ok = {**_SPEC, "commentary": {"drivers": [{"line": "e", "text": "x", "basis": "hypothesis"}]}}
+    contract.validate(ok)
+    bad = {**_SPEC, "commentary": {"drivers": [{"line": "nope", "text": "x", "basis": "hypothesis"}]}}
+    with pytest.raises(Exception, match="unknown line 'nope'"):
+        contract.validate(bad)
+
+
+def test_drivers_join_the_key_points_on_the_sheet():
+    from smartview_mcp.core import pipeline
+    s = {**_SPEC, "commentary": {"drivers": [{"line": "e", "text": "Lower churn", "basis": "hypothesis"}]}}
+    out = pipeline.answer_layout(s["layout"], contract.validate(s))
+    assert out["key_points"] == ["Hypothesis — not verified in data: Lower churn"]

@@ -106,7 +106,7 @@ async def sv_answer(spec: dict, target: str = "session", allow_archive: bool = F
             tools_ws._finish(r.t, r.q, r.prepared, r.res, saved_new=r.t.created)
         out = tools_ws._result(r.t, r.q, r.prepared, r.res, [s.pull for s in r.sources], [])
         return {**out, "gate": parsed.gate.outcome, "routes": {s.pull.sheet: s.route for s in r.sources},
-                "review": r.review, "timings": tm.summary()}
+                "review": r.review, "material": r.material or [], "timings": tm.summary()}
     try:
         return await _call_user(job, what="sv_answer")
     except (HostError, ToolError) as e:

@@ -115,6 +115,7 @@ class Driver(_Strict):
     text: str
     basis: Literal["data", "hypothesis"]
     evidence: str | None = None                      # data: the pull/drill cell it rests on
+    line: str | None = None                          # the layout line key it explains (material-variance check)
 
     @model_validator(mode="after")
     def _evidence(self) -> "Driver":
@@ -151,13 +152,15 @@ class AnswerSpec(_Strict):
         if dup:
             raise ValueError(f"pull ids used twice: {', '.join(dup)}")
         if self.layout:
-            errs = _layout_refs(self.layout, set(ids))
+            errs = _layout_refs(self.layout, set(ids), [d.line for d in self.commentary.drivers if d.line])
             if errs:
                 raise ValueError("layout references: " + "; ".join(errs))
+        elif any(d.line for d in self.commentary.drivers):
+            raise ValueError("a driver names a line, but there is no layout")
         return self
 
 
-def _layout_refs(layout: Layout, pull_ids: set[str]) -> list[str]:
+def _layout_refs(layout: Layout, pull_ids: set[str], driver_lines: list[str] = ()) -> list[str]:
     """Cross-references the layout grammar cannot check by itself. Repeat-template keys ('m{i}') count as the
     lines they will expand to."""
     ncol = len(layout.columns)
@@ -218,6 +221,7 @@ def _layout_refs(layout: Layout, pull_ids: set[str]) -> list[str]:
                  for x in re.findall(r"[A-Za-z_]\w*", ch.expr) if not is_key(x)]
         if ch.columns and any(not 0 <= i < ncol for i in ch.columns):
             errs.append(f"check '{ch.label}': column outside 0..{ncol - 1}")
+    errs += [f"commentary driver of unknown line '{x}'" for x in driver_lines if not is_key(x)]
     return errs
 
 
