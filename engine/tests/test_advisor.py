@@ -211,17 +211,21 @@ def test_gate_supplier_question_states_definition_grain_and_ytd():
     ("Business full-year EBITDA: latest forecast vs budget", "actual_vs_plan"),
     ("How much did we spend on consultants?", "cost_base"),
     ("What do we earn on mobile subscriptions?", "concept"),
-    ("How are we doing on costs?", None)])
+    ("How are we doing on costs?", None),
+    ("Technology actual vs plan, Sep 26", "actual_vs_plan")])
 def test_gate_names_recipe(q, name):
     g = scope.gate(q, "Sep 26", learned=_NONE)
     assert (g["recipe"] or {}).get("name") == name, g["recipe"]
+    if q.startswith("Technology"):          # no measure named + vs plan: the recipe shows the P&L, by convention
+        assert g["suggested_outcome"] == "clear" and g["checklist"]["measure"]["source"] == "convention"
+        assert g["recipe"]["params"]["entity"] == "2TEC Technology"
     if name == "lines_ranking":
         p = g["recipe"]["params"]
         assert p["accounts"] == ["ac.C60080", "ac.C60090"] and p["entity"] == "un.SY" and p["projects"] is True
         assert "lines_ranking" in g["next"] and "Never ask whether to build a sheet" in g["next"]
     if name == "monthly_trend":
         assert g["recipe"]["params"] == {"entity": "un.SY", "accounts": ["ac.C30"], "through": "Sep 26"}
-    if name == "actual_vs_plan":
+    if name == "actual_vs_plan" and q.startswith("Business"):
         assert g["recipe"]["params"]["entity"] == "2BUS Business" and g["recipe"]["params"]["month"] == "Dec"
     if name == "cost_base":
         assert g["recipe"]["params"]["top"] == 10

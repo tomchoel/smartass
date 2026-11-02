@@ -95,8 +95,11 @@ def _measure(question: str, learned: Learned) -> tuple[dict, list[semantic.Measu
     hits = [c for s, c in concepts.scored(question) if s >= CONCEPT_MIN_SCORE][:3]
     if hits:
         return _item(hits[0].get("title") or hits[0]["id"], "catalog"), [], [c["id"] for c in hits]
-    q = "Which measure: revenue, opex, EBITDA, or the P&L to EBITDA?"
+    q = _NO_MEASURE
     return _item(None, "question", gap=q, ask=True), [], []
+
+
+_NO_MEASURE = "Which measure: revenue, opex, EBITDA, or the P&L to EBITDA?"
 
 
 def _scenario(cat, question: str, p: periods.Period) -> tuple[dict, list[str]]:
@@ -167,6 +170,10 @@ def gate(question: str, closed: str, learned: Learned | None = None, answers: di
         checklist["measure"], found, concept_ids = _measure(question, learned)
     if not concept_ids:
         concept_ids = [c["id"] for s, c in concepts.scored(question) if s >= CONCEPT_MIN_SCORE][:3]
+    if checklist["measure"]["gap"] == _NO_MEASURE and "actual" in scen and {"budget", "forecast"} & set(scen) \
+            and any(e.get("finplan") for e in ents):
+        # nothing named, compared with plan: actual_vs_plan shows the P&L to EBITDA, so asking changes nothing
+        checklist["measure"] = _item("the P&L to EBITDA (actual vs plan shows every line)", "convention")
 
     # currency / sign ---------------------------------------------------------
     code, ok = semantic.currency(answers.get("currency_sign") or question)
