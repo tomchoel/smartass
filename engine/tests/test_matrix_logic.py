@@ -142,6 +142,13 @@ def test_bench_verdict_needs_every_oracle_value_checks_and_no_problems():
     assert b.verdict({**ok, "error": "ToolFailed"}) == "ERROR"
 
 
+def test_bench_verdict_scores_a_gate_case_by_the_gate_alone():
+    b = _bench()
+    gate = {"error": None, "oracle": {}, "checks_ok": False, "formula_errors": [], "problems": [], "gate": "clear"}
+    assert b.verdict({**gate, "gate_got": "clear"}) == "PASS"
+    assert b.verdict({**gate, "gate_got": "ambiguous"}) == "FAIL"
+
+
 def test_bench_b02_core_spec_is_a_valid_answer_spec_v1():
     from smartview_mcp.core import contract
     spec = contract.validate(_bench().b02_v1())

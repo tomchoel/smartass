@@ -57,6 +57,8 @@ def numbers_of(grid: list[list]) -> list[float]:
 def verdict(r: dict) -> str:
     if r.get("error"):
         return "ERROR"
+    if "gate_got" in r:     # a gate case is scored by sv_gate's suggested outcome only (oracle_pass re-scores all)
+        return "PASS" if r["gate_got"] == r["gate"] else "FAIL"
     ok = all(r["oracle"].values()) and r["checks_ok"] and not r["formula_errors"] and not r["problems"]
     return "PASS" if ok else "FAIL"
 
