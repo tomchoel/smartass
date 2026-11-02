@@ -243,20 +243,21 @@ def pnl_checks() -> list[tuple]:
 
 
 # ------------------------------------------------------------------ B. cost base per cost centre
+def cost_base_members(connection: str, parent: str) -> tuple[list[str], set[str]]:
+    """(descendants + the parent, in tree order, de-duplicated; the leaf set) from the atlas."""
+    db = atlas.connect()
+    ents = [e["name"] for e in atlas.descendants(db, connection, parent, limit=3000) if e["dimension"] == "All Entities"]
+    leaves = {e["name"] for e in atlas.descendants(db, connection, parent, leaves_only=True, limit=3000)}
+    return list(dict.fromkeys(ents + [parent])), leaves
+
+
 def cost_base(h: ExcelHost, parent: str = "un.SY", accounts: list[str] | None = None, period: str | None = None,
               top: int = 25, connection: str = "FinMax") -> Plan:
     """All descendants are pulled (the data sheet shows the full tree), but only LEAF cost centres are ranked,
     so parents are not double counted in the top list."""
     period = period or closed_month(h, "FinMax")
     accounts = accounts or ["ac.C50S", "ac.C60", "ac.C70", "ac.STA20Y"]
-    db = atlas.connect()
-    ents = [e["name"] for e in atlas.descendants(db, connection, parent, limit=3000) if e["dimension"] == "All Entities"]
-    leaves = {e["name"] for e in atlas.descendants(db, connection, parent, leaves_only=True, limit=3000)}
-    seen, members = set(), []
-    for e in ents + [parent]:
-        if e not in seen:
-            seen.add(e)
-            members.append(e)
+    members, leaves = cost_base_members(connection, parent)
     if len(members) * len(accounts) > 50000:
         raise InputError(f"{len(members)} cost centres × {len(accounts)} accounts is too large; narrow 'parent'.")
     pov = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Time Periods": period,

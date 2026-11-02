@@ -148,3 +148,43 @@ def test_monthly_trend_is_the_template_on_pull_ids_with_a_recon_check(monkeypatc
     assert out["layout"]["checks"][0] == {"label": "Sum of months = YTD: <ac.C30>", "expr": "a0-y0", "columns": [10]}
     assert out["layout"]["chart"]["title"] == "<ac.C30> per month"
     assert "key_points" not in out["layout"] and extra["period"] == "Oct 26"
+
+
+# ------------------------------------------------------------------ cost_base
+def test_cost_base_ranks_after_the_pull_and_checks_top_plus_other_equals_total(monkeypatch):
+    from smartview_mcp import templates
+    monkeypatch.setattr(templates, "cost_base_members", lambda conn, parent: (["un.SY.A", "un.SY.B", "un.SY"],
+                                                                             {"un.SY.A", "un.SY.B"}))
+    raw = {"version": 1, "question": "Cost base per cost centre", "gate": GATE,
+           "recipe": {"name": "cost_base", "params": {"top": 1}}}
+    out, extra = recipes.expand(raw, ctx())
+    contract.validate(out)
+    sec = out["layout"]["sections"][0]
+    assert sec["repeat"]["over"] == {"top": 1, "pull": "cb", "by": ["ac.C70"], "among": ["un.SY.A", "un.SY.B"],
+                                     "abs": True}
+    assert [ln["key"] for ln in sec["lines"]] == ["topsum", "rest", "tot"]
+    assert out["layout"]["checks"] == [{"label": "Top + other = total", "expr": "topsum+rest-tot",
+                                        "columns": [0, 1, 2, 3]}]
+    assert out["layout"]["title"] == "Cost base per cost centre — <un.SY> — YTD Oct 26"
+    assert out["pulls"][0]["pov"]["All Time Periods"] == "Oct 26" and extra["period"] == "Oct 26"
+
+
+def test_the_cost_base_draft_expands_to_the_ranked_lines_after_the_pull(monkeypatch):
+    from smartview_mcp import specs, templates
+    monkeypatch.setattr(templates, "cost_base_members", lambda conn, parent: (["A", "B", "un.SY"], {"A", "B"}))
+    out, _ = recipes.expand({"version": 1, "question": "q", "gate": GATE,
+                             "recipe": {"name": "cost_base", "params": {"top": 1, "accounts": ["ac.C70"]}}}, ctx())
+    p = _fake_pull({"A": -50.0, "B": -80.0, "un.SY": -130.0})
+    s = specs.expand(out["layout"], {"cb": p.sheet}, {p.sheet: p})
+    lines = s["sections"][0]["lines"]
+    assert [ln["key"] for ln in lines] == ["c0", "topsum", "rest", "tot"] and lines[0]["label"] == "B Name"
+    assert lines[1]["cells"] == [{"sum": ["c0"]}]
+    v = specs.evaluate(s, {p.sheet: p})
+    assert v["topsum"] == [-80.0] and v["rest"] == [-50.0]
+
+
+def test_templates_cost_base_uses_the_extracted_members(monkeypatch):
+    from smartview_mcp import templates
+    monkeypatch.setattr(templates, "cost_base_members", lambda conn, parent: (["A", parent], {"A"}))
+    plan = templates.cost_base(None, period="Oct 26")
+    assert plan.pulls[0].rows[0].members == ["A", "un.SY"]
