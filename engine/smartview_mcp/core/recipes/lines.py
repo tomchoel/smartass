@@ -18,6 +18,8 @@ SUPPLIER = "AP_CUSTOMER_NAME"
 CONN = "FinLite"
 NO_SUPPLIER = "Accruals / reversals / journals without supplier"
 GAP = "Unexplained gap (ledger lines vs cube)"
+# commentary: only Total (cube) and the 3 largest supplier changes need a driver; subtotals/reconciliation never
+TOP_DRIVERS = {"top": 3, "rest": "supplier changes"}
 DEFAULTS = {"top": (lambda v: str(v).strip() == str(TOP), "the standard ranking is the top 10 + Other"),
             "compare": (lambda v: list(v or []) == ["ly"], "a ranking is compared with the same months last year"),
             "group_separate": (True, "group companies are internal costs, not suppliers to rank")}
@@ -252,20 +254,23 @@ def lines_ranking(params: dict, ctx: RecipeContext) -> Draft:
     group = [s for s in ranked if is_group(s[0], s[2], gc)] if params.get("group_separate", True) else []
     gnames = {s[0] for s in group}
     external = [s for s in ranked if s[0] not in gnames][:top]
-    sup = [{"key": f"s{i}", "label": n, "kind": "line", "cells": cells({SUPPLIER: n}, {SUPPLIER: n})}
-           for i, (n, _, _) in enumerate(external, 1)]
+    sup = [{"key": f"s{i}", "label": n, "kind": "line", "driver": TOP_DRIVERS,
+            "cells": cells({SUPPLIER: n}, {SUPPLIER: n})} for i, (n, _, _) in enumerate(external, 1)]
     others = "ext" + "".join(f"-s{i}" for i in range(1, len(external) + 1))
-    sup += [{"key": "other", "label": "Other external suppliers", "kind": "line", "cells": calc(others)},
-            {"key": "ext", "label": "Total external suppliers", "kind": "sum", "cells": calc("lines-grp-nosupp")}]
-    grp = [{"key": f"grp{i}", "label": n, "kind": "line", "cells": cells({SUPPLIER: n}, {SUPPLIER: n})}
-           for i, (n, _, _) in enumerate(group, 1)]
+    sup += [{"key": "other", "label": "Other external suppliers", "kind": "line", "driver": "never",
+             "cells": calc(others)},
+            {"key": "ext", "label": "Total external suppliers", "kind": "sum", "driver": "never",
+             "cells": calc("lines-grp-nosupp")}]
+    grp = [{"key": f"grp{i}", "label": n, "kind": "line", "driver": TOP_DRIVERS,
+            "cells": cells({SUPPLIER: n}, {SUPPLIER: n})} for i, (n, _, _) in enumerate(group, 1)]
     gkeys = [g["key"] for g in grp]
     gtot = [{"sum": gkeys}, {"sum": gkeys} if has_ly else None, var if has_ly else None, pct if has_ly else None,
             {"share": {"col": 0, "of": "cube"}}] if gkeys else [{"value": 0}, {"value": 0} if has_ly else None]
-    grp.append({"key": "grp", "label": "Total group companies", "kind": "sum", "cells": gtot})
-    recon = [{"key": "nosupp", "label": NO_SUPPLIER, "kind": "line", "cells": cells({SUPPLIER: ""}, {SUPPLIER: ""})},
-             {"key": "lines", "label": "Total (ledger lines)", "kind": "sum", "cells": cells({}, {})},
-             {"key": "gap", "label": GAP, "kind": "line", "cells": calc("cube-lines")}] + cube_lines
+    grp.append({"key": "grp", "label": "Total group companies", "kind": "sum", "driver": "never", "cells": gtot})
+    recon = [{"key": "nosupp", "label": NO_SUPPLIER, "kind": "line", "driver": "never",
+              "cells": cells({SUPPLIER: ""}, {SUPPLIER: ""})},
+             {"key": "lines", "label": "Total (ledger lines)", "kind": "sum", "driver": "never", "cells": cells({}, {})},
+             {"key": "gap", "label": GAP, "kind": "line", "driver": "never", "cells": calc("cube-lines")}] + cube_lines
     lay["sections"] = [{"title": f"Invoiced by supplier — {head}", "lines": sup},
                        {"title": "Group companies", "lines": grp},
                        {"title": "Reconciliation", "lines": recon}]

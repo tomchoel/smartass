@@ -20,14 +20,17 @@ def _always(cat) -> set[str]:
 
 def material(prepared: dict, values: dict, cat) -> list[dict]:
     """Lines whose first variance cell is material, or which are always commented. Each:
-    {line, label, cur, cmp, delta, pct, material, always}. Order = the answer's line order."""
+    {line, label, cur, cmp, delta, pct, material, always}. Order = the answer's line order.
+    A line may limit this (a recipe's choice): driver='never' (subtotals, reconciling lines) is never flagged;
+    driver={'top': n, 'rest': 'supplier changes'} flags only the n largest material changes of all lines sharing
+    that rest text - the others come back with optional=True (one Info in the review, no driver needed)."""
     m = cat.materiality
     always = _always(cat)
     out = []
     for sec in prepared.get("sections", []):
         for ln in sec.get("lines", []):
             key = ln.get("key")
-            if not key or ln.get("aux"):
+            if not key or ln.get("aux") or ln.get("driver") == "never":
                 continue
             var = next((c["var"] for c in ln.get("cells", []) if isinstance(c, dict) and "var" in c), None)
             v = values.get(key) or []
@@ -44,9 +47,28 @@ def material(prepared: dict, values: dict, cat) -> list[dict]:
             is_material = (pct_hit or abs_hit) if m.rule == "either" else (pct_hit and abs_hit)
             is_always = key in always or ln.get("concept") in always
             if is_material or is_always:
-                out.append({"line": key, "label": ln.get("label") or key, "cur": cur, "cmp": cmp, "delta": delta,
-                            "pct": pct, "material": is_material, "always": is_always})
-    return out
+                f = {"line": key, "label": ln.get("label") or key, "cur": cur, "cmp": cmp, "delta": delta,
+                     "pct": pct, "material": is_material, "always": is_always}
+                if isinstance(ln.get("driver"), dict):
+                    f["_top"] = ln["driver"]
+                out.append(f)
+    return _top_only(out)
+
+
+def _top_only(flagged: list[dict]) -> list[dict]:
+    """Per driver={'top', 'rest'} group: the n largest material changes stay; the rest become optional."""
+    groups: dict[str, list[dict]] = {}
+    for f in flagged:
+        top = f.get("_top")
+        if top and f["material"] and not f["always"]:
+            groups.setdefault(str(top.get("rest") or "line changes"), []).append(f)
+    for rest, fs in groups.items():
+        n = int(fs[0]["_top"].get("top", 3))
+        for f in sorted(fs, key=lambda x: -abs(x["delta"]))[n:]:
+            f.update(optional=True, rest=rest)
+    for f in flagged:
+        f.pop("_top", None)
+    return flagged
 
 
 def _amount(f: dict) -> str:
@@ -57,11 +79,13 @@ def _amount(f: dict) -> str:
 def findings(flagged: list[dict], drivers: list[dict]) -> list[dict]:
     """Review findings for flagged lines that no driver explains. drivers: [{line, text, basis, evidence?}]."""
     explained = {d.get("line") for d in drivers if d.get("line")}
-    out = []
+    out, rest = [], {}
     for f in flagged:
         if f["line"] in explained:
             continue
-        if f["material"]:
+        if f.get("optional"):
+            rest[f["rest"]] = rest.get(f["rest"], 0) + 1
+        elif f["material"]:
             out.append({"severity": "Warning",
                         "text": f"material variance on '{f['label']}' ({_amount(f)}) has no driver - write one "
                                 f"(data-backed with evidence, or a labelled hypothesis) or 'driver unclear - flag "
@@ -69,6 +93,7 @@ def findings(flagged: list[dict], drivers: list[dict]) -> list[dict]:
         else:
             out.append({"severity": "Info", "text": f"always-commented line '{f['label']}' ({_amount(f)}) has no "
                                                     f"driver"})
+    out += [{"severity": "Info", "text": f"{n} other {what} above materiality — see sheet"} for what, n in rest.items()]
     return out
 
 

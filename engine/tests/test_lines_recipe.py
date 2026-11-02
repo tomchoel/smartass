@@ -119,6 +119,26 @@ def test_ranking_check_formulas_pass_the_formula_style_check():
     assert answer_write._expr_to_formula("a-b+c+d", "C", {"a": 1, "b": 2, "c": 3, "d": 4}) == "=C1-C2+C3+C4"
 
 
+def test_ranking_drivers_only_for_total_cube_and_three_largest_supplier_changes():
+    """17 'material variance ... has no driver' Warnings for one supplier ranking was noise: subtotals and
+    reconciling lines never need a driver; suppliers only the 3 largest changes, the rest one Info line."""
+    from smartview_mcp.core import commentary
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    v = _values(d, _lines_total(D1, NOW), _lines_total(D2, LY))
+    flagged = commentary.material(d.layout, v, catalog.load())
+    f = commentary.findings(flagged, [])
+    warned = [x["text"].split("'")[1] for x in f if x["severity"] == "Warning"]
+    assert warned[-1] == "Total (cube)" and len(warned) == 4
+    assert set(warned[:3]) == {"TSS - Telenor Shared Services AS", "Sopra Steria AS", "Telenor ASA"}
+    info = [x["text"] for x in f if x["severity"] == "Info"]
+    assert len(info) == 1 and info[0].endswith("other supplier changes above materiality — see sheet")
+    n = sum(1 for x in flagged if x.get("optional"))
+    assert n >= 2 and info[0].startswith(f"{n} other")
+    assert not {x["line"] for x in flagged} & {"other", "ext", "grp", "nosupp", "lines", "gap"}
+    plain = [{k: v for k, v in ln.items() if k != "driver"} for s in d.layout["sections"] for ln in s["lines"]]
+    assert len(commentary.material({"sections": [{"lines": plain}]}, v, catalog.load())) > len(flagged)
+
+
 def test_ranking_unexplained_gap_is_a_reconciling_line_and_a_warning_finding():
     d = lines.lines_ranking(dict(PARAMS), _ctx())
     total = _lines_total(D1, NOW)
