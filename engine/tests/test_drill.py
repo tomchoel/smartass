@@ -1652,5 +1652,9 @@ def test_drill_fetch_no_data_is_an_empty_piece_with_epms_note(monkeypatch):
             f.set_exception(drill_direct.NoDrillData("Drill query does not return any data."))
             return f
     monkeypatch.setattr(drill_direct, "shared_direct", lambda: Direct())
+
+    async def no_pages(url, max_lines):
+        raise AssertionError("the page route must not run for a cell without data")
+    monkeypatch.setattr(server, "_page_fetch", no_pages)      # also keeps a broken build away from the live browser
     res = asyncio.run(server._drill_fetch("u", 10))
     assert res["items"] == [] and "does not return any data" in res["note"]
