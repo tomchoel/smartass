@@ -111,8 +111,14 @@ def main() -> int:
             t0 = time.monotonic()
             try:
                 t, got = round_seq(http, pulls)
+                # new cube sessions in the same browser: if they agree with the reconnected ones, a 'differs' is
+                # the cube's data moving (month-end loads), not a stale or wrong reconnect
+                fresh_http = svhttp.SvHttp(svhttp.BrowserTransport(lambda: drill_browser.shared_browser()))
+                _, fresh = round_seq(fresh_http, pulls)
                 rep["after_idle"] = {"idle_s": a.idle, "ok": True, "s": round(t, 2),
-                                     "same": all(got[k][0] == ref[k][0] for k in pulls)}
+                                     "same": all(got[k][0] == ref[k][0] for k in pulls),
+                                     "differs": [k for k in pulls if got[k][0] != ref[k][0]],
+                                     "matches_fresh_session": all(got[k][0] == fresh[k][0] for k in pulls)}
             except Exception as e:  # noqa: BLE001 - the spike records the failure
                 rep["after_idle"] = {"idle_s": a.idle, "ok": False, "s": round(time.monotonic() - t0, 2),
                                      "error": str(e)[:300]}
