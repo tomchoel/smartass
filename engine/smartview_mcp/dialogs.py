@@ -67,50 +67,40 @@ def describe(d: Dialog) -> str:
 
 
 def scan(pid: int) -> list[Dialog]:
-    """Visible top-level dialogs of process `pid` (EnumWindows + GetWindowThreadProcessId)."""
+    """Visible top-level dialogs of process `pid`."""
+    out: list[Dialog] = []
+    for hwnd, cls, title in windows(pid=pid):
+        if classify(cls, title, "") is None:
+            continue
+        kids = [(c, t) for _h, c, t in windows(parent=hwnd)]
+        text = " ".join(t.strip() for c, t in kids if c == "Static" and t.strip())[:300]
+        kind = classify(cls, title, text)
+        if kind:
+            out.append(Dialog(hwnd, cls, title, text, kind, any(c == IE_CLASS for c, _t in kids),
+                              kind == "login" and is_hung(hwnd)))
+    return out
+
+
+def windows(pid: int | None = None, parent: int | None = None) -> list[tuple[int, str, str]]:
+    """(hwnd, class, title) of the visible top-level windows of process `pid`, or of all child windows of `parent`."""
     import pywintypes
     import win32gui
     import win32process
 
-    out: list[Dialog] = []
-
-    def cb(hwnd, _):
-        try:
-            if not win32gui.IsWindowVisible(hwnd) or win32process.GetWindowThreadProcessId(hwnd)[1] != pid:
-                return True
-            cls, title = win32gui.GetClassName(hwnd), win32gui.GetWindowText(hwnd)
-            if classify(cls, title, "") is None:
-                return True
-            kids = _children(hwnd)
-            text = " ".join(t.strip() for c, t in kids if c == "Static" and t.strip())[:300]
-            kind = classify(cls, title, text)
-            if kind:
-                out.append(Dialog(hwnd, cls, title, text, kind, any(c == IE_CLASS for c, _t in kids),
-                                  kind == "login" and is_hung(hwnd)))
-        except pywintypes.error:
-            pass
-        return True
-    try:
-        win32gui.EnumWindows(cb, None)
-    except pywintypes.error:
-        pass
-    return out
-
-
-def _children(hwnd: int) -> list[tuple[str, str]]:
-    import pywintypes
-    import win32gui
-
-    out: list[tuple[str, str]] = []
+    out: list[tuple[int, str, str]] = []
 
     def cb(h, _):
         try:
-            out.append((win32gui.GetClassName(h), win32gui.GetWindowText(h)))
+            if parent or (win32gui.IsWindowVisible(h) and win32process.GetWindowThreadProcessId(h)[1] == pid):
+                out.append((h, win32gui.GetClassName(h), win32gui.GetWindowText(h)))
         except pywintypes.error:
             pass
         return True
     try:
-        win32gui.EnumChildWindows(hwnd, cb, None)
+        if parent:
+            win32gui.EnumChildWindows(parent, cb, None)
+        else:
+            win32gui.EnumWindows(cb, None)
     except pywintypes.error:
         pass
     return out
@@ -153,7 +143,7 @@ def ok_only(buttons: list[str]) -> bool:
 
 
 def buttons(hwnd: int) -> list[str]:
-    return [t for c, t in _children(hwnd) if c == "Button"]
+    return [t for _h, c, t in windows(parent=hwnd) if c == "Button"]
 
 
 def press_ok(hwnd: int) -> bool:

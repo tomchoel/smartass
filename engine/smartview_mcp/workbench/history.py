@@ -280,6 +280,15 @@ def _has_content(app, ws) -> bool:
     return int(com(lambda: app.WorksheetFunction.CountA(ws.Cells))) > 0 or int(com(lambda: ws.Shapes.Count)) > 0
 
 
+def delete_sheet(app, ws) -> None:
+    alerts = com(lambda: app.DisplayAlerts)
+    com(lambda: setattr(app, "DisplayAlerts", False))
+    try:
+        com(lambda: ws.Delete())
+    finally:
+        com(lambda: setattr(app, "DisplayAlerts", alerts))
+
+
 def revert(change_id: str | None, workbook: str | None, force: bool = False) -> dict:
     if not change_id:
         b0 = books.find_book(workbook)
@@ -306,12 +315,7 @@ def revert(change_id: str | None, workbook: str | None, force: bool = False) -> 
         ws = b.sheet(ch["extra"]["name"])
         if _has_content(b.app, ws) and not force:
             raise InputError(f"Sheet '{ch['extra']['name']}' has content now; pass force=true to delete it anyway.")
-        alerts = com(lambda: b.app.DisplayAlerts)
-        com(lambda: setattr(b.app, "DisplayAlerts", False))
-        try:
-            com(lambda: ws.Delete())
-        finally:
-            com(lambda: setattr(b.app, "DisplayAlerts", alerts))
+        delete_sheet(b.app, ws)
     else:
         if not any(str(x.Name) == ch["sheet"] for x in com(lambda: b.wb.Worksheets)):
             ch["reverted"] = "obsolete: sheet no longer exists"

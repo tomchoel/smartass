@@ -185,28 +185,33 @@ def trace(workbook, sheet, cell: str, direction: str = "precedents", max_items: 
     except pywintypes.com_error:
         pass
     row, col = com(lambda: c.Row), com(lambda: c.Column)
+    for name, a, fo, (c1, r1, c2, r2) in refs_into(b, me, own=False):
+        if len(deps) >= max_items:
+            break
+        if (c1 or 1) <= col <= (c2 or 16384) and (r1 or 1) <= row <= (r2 or 1048576) \
+                and not any(d["sheet"] == name and d["address"] == a for d in deps):
+            deps.append({"sheet": name, "address": a, "formula": fo[:160]})
+    out["dependents"] = deps[:max_items]
+    return out
+
+
+def refs_into(b: books.Book, me: str, own: bool):
+    """(sheet, cell, formula, (c1, r1, c2, r2)) per reference to sheet `me` in the workbook's formulas; own: also
+    the formulas on `me` (whose local references carry no sheet name)."""
     for wso in com(lambda: b.wb.Worksheets):
         name = com(lambda: wso.Name)
-        if name == me:
+        if name == me and not own:
             continue
         for _s, a, fo in fx.sheet_formulas(wso, com):
-            if me.lower() not in fo.lower():
+            if name != me and me.lower() not in fo.lower():
                 continue
             for ref in _refs_in(fo):
                 sh, ra = _split(ref, name)
-                if sh.lower() != me.lower():
-                    continue
-                try:
-                    c1, r1, c2, r2 = range_boundaries(ra.replace("$", "").replace(".", ""))
-                except ValueError:
-                    continue
-                if (c1 or 1) <= col <= (c2 or 16384) and (r1 or 1) <= row <= (r2 or 1048576):
-                    deps.append({"sheet": name, "address": a, "formula": fo[:160]})
-                    break
-            if len(deps) >= max_items:
-                break
-    out["dependents"] = deps[:max_items]
-    return out
+                if sh.lower() == me.lower():
+                    try:
+                        yield name, a, fo, range_boundaries(ra.replace("$", "").replace(".", ""))
+                    except ValueError:
+                        continue
 
 
 def check(workbook, sheet=None) -> dict:

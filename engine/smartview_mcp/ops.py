@@ -6,9 +6,9 @@ import logging
 import re
 import time
 
-from . import config
+from . import config, timing
 from .grid import Axis, Layout, full_pov, indent_of, name_from_label, parse
-from .host import ExcelHost, HostError, InputError
+from .host import ExcelHost, HostError, InputError, ProviderEmpty
 
 log = logging.getLogger("smartview.ops")
 
@@ -49,10 +49,19 @@ def _connect_with_retry(h: ExcelHost, sheet: str, conn: str, attempts: int = 3):
         except HostError as e:
             transient = any(x in str(e) for x in ("752", "Empty response", "Not Connected", "-4", "Cannot connect",
                                                   "did not accept the connection"))
+            if i == attempts - 1 and is_transient(e):
+                raise _provider_empty(h, e) from e
             if i == attempts - 1 or not transient:
                 raise
             h.check_signin()                      # a stuck sign-in: no point retrying in this Excel
+            if i == 0 and is_transient(e):
+                timing.say(f"connecting to {conn}: EPM gave an empty response; retrying")
             time.sleep(4 * (i + 1))
+
+
+def _provider_empty(h: ExcelHost, e: Exception) -> ProviderEmpty:
+    t = timing.Timer.current()
+    return ProviderEmpty(str(e), getattr(h, "pid", None), t.notify if t else None)
 
 
 def _grid_labels(vals, types: list[int]) -> list[str] | None:
@@ -240,17 +249,23 @@ def query(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis]
           suppress_missing: bool, suppress_zeros: bool):
     """Retrieve a grid. If Smart View rejects it (rc=1000), find the rejected members by bisection, drop them,
     retrieve again and report them in parsed.pov_problems, so one bad member does not sink a large pull.
-    A transient rc=752 / rc=57704 is retried once on a fresh grid sheet - after a restart if Smart View's sign-in
-    is stuck (h.check_signin raises SignInBlocked; ExcelHost.call restarts Excel and runs the query again)."""
+    A transient rc=752 / rc=57704 is retried once on a fresh grid sheet (a second one raises ProviderEmpty) - after a
+    restart if Smart View's sign-in is stuck (h.check_signin raises SignInBlocked; ExcelHost.call restarts Excel)."""
     try:
         return _query_once(h, conn, pov, rows, cols, suppress_missing, suppress_zeros)
     except HostError as e:
         if is_transient(e):
             log.warning("transient Smart View error on %s, retrying once: %s", conn, e)
             h.check_signin()
+            timing.say(f"EPM gave an empty response on {conn}; retrying in {config.TRANSIENT_RETRY_WAIT_S:.0f} s")
             time.sleep(config.TRANSIENT_RETRY_WAIT_S)
             ensure_grid_sheet(h, conn, fresh=True)
-            return _query_once(h, conn, pov, rows, cols, suppress_missing, suppress_zeros)
+            try:
+                return _query_once(h, conn, pov, rows, cols, suppress_missing, suppress_zeros)
+            except HostError as e2:
+                if is_transient(e2):
+                    raise _provider_empty(h, e2) from e2
+                raise
         if not is_rc1000(e) or all(len(a.members) <= 1 for a in rows + cols):
             raise
         err = e

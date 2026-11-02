@@ -139,30 +139,15 @@ def _dependents_outside(b: books.Book, ws, area: str, rows_mode: bool) -> list[s
     me = com(lambda: ws.Name)
     ac1, ar1, ac2, ar2 = range_boundaries(area.replace("$", ""))
     out = []
-    for wso in com(lambda: b.wb.Worksheets):
-        name = com(lambda: wso.Name)
-        for _s, a, fo in fx.sheet_formulas(wso, com):
-            if name == me:
-                c, r = range_boundaries(a)[:2]
-                if _inside(area, (c, r)):
-                    continue
-            elif me.lower() not in fo.lower():
-                continue
-            for ref in fmt._refs_in(fo):
-                sh, ra = fmt._split(ref, name)
-                if sh.lower() != me.lower():
-                    continue
-                try:
-                    c1, r1, c2, r2 = range_boundaries(ra.replace("$", "").replace(".", ""))
-                except ValueError:
-                    continue
-                if rows_mode:
-                    broken = r1 is not None and r2 is not None and ar1 <= r1 and r2 <= ar2
-                else:
-                    broken = c1 is not None and c2 is not None and ac1 <= c1 and c2 <= ac2
-                if broken:
-                    out.append(f"{name}!{a}")
-                    break
+    for name, a, _fo, (c1, r1, c2, r2) in fmt.refs_into(b, me, own=True):
+        if f"{name}!{a}" in out or (name == me and _inside(area, range_boundaries(a)[:2])):
+            continue
+        if rows_mode:
+            broken = r1 is not None and r2 is not None and ar1 <= r1 and r2 <= ar2
+        else:
+            broken = c1 is not None and c2 is not None and ac1 <= c1 and c2 <= ac2
+        if broken:
+            out.append(f"{name}!{a}")
     return out
 
 
@@ -180,12 +165,7 @@ def add_sheet(workbook, name: str, after: str | None = None, allow_archive=False
     try:
         com(lambda: setattr(ws, "Name", name))
     except Exception:
-        alerts = com(lambda: b.app.DisplayAlerts)
-        com(lambda: setattr(b.app, "DisplayAlerts", False))
-        try:
-            com(lambda: ws.Delete())
-        finally:
-            com(lambda: setattr(b.app, "DisplayAlerts", alerts))
+        history.delete_sheet(b.app, ws)
         raise
     ch = history._new_change(b, ws, "add_sheet", "A1", None, extra={"name": com(lambda: ws.Name)})
     ch["state"] = "applied"

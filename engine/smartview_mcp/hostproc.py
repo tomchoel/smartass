@@ -14,7 +14,6 @@ import pythoncom
 import pywintypes
 import win32api
 import win32con
-import win32process
 
 from . import config
 
@@ -36,21 +35,8 @@ def _is_ours(pid: int, ctime: float) -> bool:
 
 def windows_of(pid: int) -> list[str]:
     """Visible top-level windows of a process ('title [class]') - tells us which dialog blocked Excel."""
-    import win32gui
-    found: list[str] = []
-
-    def cb(hwnd, _):
-        try:
-            if win32gui.IsWindowVisible(hwnd) and win32process.GetWindowThreadProcessId(hwnd)[1] == pid:
-                found.append(f"{win32gui.GetWindowText(hwnd)!r} [{win32gui.GetClassName(hwnd)}]")
-        except pywintypes.error:
-            pass
-        return True
-    try:
-        win32gui.EnumWindows(cb, None)
-    except pywintypes.error:
-        pass
-    return found
+    from .dialogs import windows
+    return [f"{title!r} [{cls}]" for _h, cls, title in windows(pid=pid)]
 
 
 def kill_ours(pid: int, ctime: float) -> bool:

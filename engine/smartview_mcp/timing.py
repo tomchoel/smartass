@@ -54,10 +54,7 @@ class Timer:
             if self._tick is not me or not self.stack:
                 return                            # stopped (or restarted) meanwhile
             text = f"still working: {'.'.join(self.stack)} ({time.monotonic() - self.t0:.0f}s)"
-        try:
-            self.notify(text)
-        except Exception:   # noqa: BLE001 - a progress note must never break the job
-            log.debug("progress note failed", exc_info=True)
+        _send(self.notify, text)
         with self._lock:
             if self._tick is me:
                 self._arm()
@@ -70,6 +67,21 @@ class Timer:
         out = {k: round(v, 2) for k, v in sorted(self.stages.items(), key=lambda kv: -kv[1])}
         out["_total"] = round(time.monotonic() - self.t0, 2)
         return out
+
+
+def _send(notify, text: str) -> None:
+    try:
+        if notify is not None:
+            notify(text)
+    except Exception:   # noqa: BLE001 - a progress note must never break the job
+        log.debug("progress note failed", exc_info=True)
+
+
+def say(text: str) -> None:
+    """A progress note to the user of the running job (if any), and the log. Never raises."""
+    log.info("note: %s", text)
+    t = Timer.current()
+    _send(t and t.notify, text)
 
 
 @contextlib.contextmanager

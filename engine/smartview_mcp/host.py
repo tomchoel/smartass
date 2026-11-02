@@ -43,6 +43,20 @@ class SignInBlocked(HostError):
         self.dialog, self.pid = dialog, pid
 
 
+class ProviderEmpty(HostError):
+    """EPM kept answering 'Empty response from provider' (rc=752/57704) after the in-place retry: the Smart View
+    session of the engine's hidden Excel (pid) is broken. notify = the job's progress callback, kept for call()."""
+
+    def __init__(self, msg: str, pid: int | None, notify=None):
+        super().__init__(msg)
+        self.pid, self.notify = pid, notify
+
+
+PROVIDER_EMPTY = ("EPM kept answering 'Empty response from provider' after a restart of the engine's Excel. This "
+                  "usually clears within a minute: wait, then ask again. If it persists, sign in to Smart View once in "
+                  "your own Excel (Smart View ribbon -> Panel -> FinMax) and run `smartass doctor --bundle`.")
+
+
 def signin_message(d: dialogs.Dialog, again: bool, holders: list[str]) -> str:
     if d.kind == "webview2_fallback" or d.ie:
         cause = ("Smart View showed its sign-in window (WebView2 failed and it fell back to Internet Explorer, whose "
@@ -101,11 +115,24 @@ class ExcelHost(HiddenExcel):
                    user_excel: bool = False):
         """Run fn on the COM thread. user_excel=True: fn also drives the USER's Excel, which is never killed - on a
         timeout the blocked COM thread is abandoned instead (and our own hidden Excel restarted with a fresh thread).
-        A stuck Smart View sign-in in our hidden Excel (SignInBlocked) kills that Excel; the call is retried once."""
+        A stuck Smart View sign-in in our hidden Excel (SignInBlocked) kills that Excel; the call is retried once.
+        ProviderEmpty restarts only the hidden Excel, with a note to the user, and retries once (a user-Excel job is
+        not retried: the caller is asked to ask again)."""
         import asyncio
+
+        from .timing import _send
         for attempt in (1, 2):
             try:
                 return await self._call_once(fn, timeout, what, user_excel)
+            except ProviderEmpty as e:
+                _send(e.notify, "EPM gave no response; restarting the engine's hidden Excel (yours is untouched)")
+                await asyncio.to_thread(self._hard_reset, f"{what}: Empty response from provider", e.pid)
+                if user_excel:
+                    raise HostError("EPM answered 'Empty response from provider'; the engine restarted its own "
+                                    "hidden Excel (yours is untouched) - ask again.") from None
+                if attempt == 2:
+                    raise HostError(PROVIDER_EMPTY) from None
+                log.warning("Empty response from provider during %s; restarted the hidden Excel, retrying once", what)
             except SignInBlocked as e:
                 d, pid = e.dialog, e.pid
                 await asyncio.to_thread(self._hard_reset, f"{what}: Smart View sign-in stuck at {dialogs.describe(d)}",
