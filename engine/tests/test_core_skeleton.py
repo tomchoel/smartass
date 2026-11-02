@@ -331,3 +331,64 @@ def test_question_is_shown_as_asked_and_not_checked():
     assert progress.skeleton(spec, "x")[1] == "Question (as asked): Hva er EBITDA for Business i september?"
     assert pipeline.answer_layout(SPEC["layout"], spec)["notes"][0].startswith("Question (as asked): Hva")
     assert all(path != "question" for path, _ in contract.sheet_texts(spec.model_dump()))
+
+
+# ------------------------------------------------------------------ A5: finance defaults, read-back, follow-ups
+def _ranking_spec(top: int, other: bool, **extra) -> dict:
+    cell = {"pull": "cb", "row": ["{m}"], "col": ["ac.C70"]}
+    lines = [{"key": "tot", "label": "Total", "cells": [{"pull": "cb", "row": ["un.SY"], "col": ["ac.C70"]}]}]
+    if other:
+        lines.insert(0, {"key": "rest", "label": "Other cost centres", "cells": [{"expr": "tot-c0"}]})
+    return {"version": 1, "question": "Which cost centres cost the most?", "gate": {"outcome": "clear"},
+            "pulls": [{"id": "cb", "connection": "FinMax",
+                       "rows": [{"dimension": "All Entities", "members": ["un.SY"]}],
+                       "columns": [{"dimension": "All Accounts", "members": ["ac.C70"]}]}],
+            "layout": {"title": "Top cost centres", "columns": [{"header": "Costs"}],
+                       "sections": [{"title": "Top", "repeat": {"over": {"top": top, "pull": "cb", "by": ["ac.C70"]},
+                                                               "line": {"key": "c{i}", "label": "{label}",
+                                                                        "cells": [cell]}},
+                                     "lines": lines}]}, **extra}
+
+
+@pytest.mark.anyio
+async def test_freeform_ranking_above_top10_without_deviation_is_refused(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    monkeypatch.setattr(tools_core.scope, "gate", lambda q, closed, answers=None: {"suggested_outcome": "clear",
+                                                                                   "recipe": None})
+    with pytest.raises(InputError, match=r"departs from the standard analysis: a top-25 ranking \(the standard is "
+                                         r"the top 10 \+ Other\); a top-25 ranking without an 'Other' line"):
+        await tools_core.answer(_ranking_spec(25, other=False))
+    assert calls == []
+    await tools_core.answer(_ranking_spec(10, other=True))
+    await tools_core.answer(_ranking_spec(25, other=True, deviation="The user asked for the top 25"))
+    assert calls == ["sv_answer", "sv_answer"]
+
+
+def test_reply_key_values_are_the_sheet_values_after_calc():
+    from smartview_mcp.core import reply
+    prepared = {"columns": [{"header": "Sep 26"}, {"header": "Sep 25"}],
+                "sections": [{"title": "S", "lines": [{"key": "e", "label": "EBITDA"}, {"label": "no key"},
+                                                      {"key": "r", "label": "Revenue"}]}]}
+    res = {"values": {"e": [10.0, None], "r": [3.0, 4.0]}}
+    assert reply.key_values(prepared, res) == {"EBITDA": {"Sep 26": 10.0}, "Revenue": {"Sep 26": 3.0, "Sep 25": 4.0}}
+    assert list(reply.key_values(prepared, res, limit=1)) == ["EBITDA"]
+
+
+def test_reply_has_at_most_three_followups():
+    from smartview_mcp.core import recipes
+    for name in ("pnl", "actual_vs_plan", "monthly_trend", "cost_base", "concept"):
+        ups = recipes.followups(name, {"entity": "un.SY.2BUS", "area": "un.SY.2BUS"}, "Sep 26")
+        assert 1 <= len(ups) <= 3 and all("{" not in u for u in ups), (name, ups)
+    assert any("Sep 26" in u for u in recipes.followups("cost_base", {"parent": "un.SY"}, "Sep 26"))
+    assert recipes.followups(None, {}, "Sep 26") == [] and recipes.followups("echo", {}, "Sep 26") == []
+
+
+def test_reply_result_names_every_sheet_written_and_the_key_values():
+    from smartview_mcp.core import reply
+    t = SimpleNamespace(path="C:/x/a.xlsx", name="a.xlsx", created=True, wb=SimpleNamespace(ReadOnly=False))
+    res = {"sheet": "Q1 Answer", "values": {"e": [1.0]}, "checks": [], "warnings": [], "lint": [],
+           "formula_errors": []}
+    spec = {"columns": [{"header": "Sep 26"}], "sections": [{"title": "S", "lines": [{"key": "e", "label": "E"}]}]}
+    out = reply.result(t, 1, spec, res, [SimpleNamespace(sheet="Q1 FinMax m")], [])
+    assert out["sheets"] == ["Q1 Answer", "Q1 FinMax m", "Sources"] and out["key_values"] == {"E": {"Sep 26": 1.0}}

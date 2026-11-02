@@ -195,6 +195,10 @@ def evaluate(spec: dict, pulls: dict, drills: dict[str, list[dict]] | None = Non
                         row[j] = eval(re.sub(r"[^\w+\-*/(). ]", "", c["expr"]), {"__builtins__": {}}, env)
                     elif "ref" in c:
                         row[j] = vals.get(c["ref"]["key"], [None] * ncol)[int(c["ref"].get("col", j))]
+                    elif "share" in c:
+                        k = int(c["share"]["col"])
+                        a, tot = row[k], vals.get(c["share"]["of"], [None] * ncol)[k]
+                        row[j] = None if a is None or not tot else a / tot
                     elif "rowsum" in c:
                         xs = [row[k] for k in c["rowsum"]]
                         row[j] = None if any(x is None for x in xs) else sum(xs)

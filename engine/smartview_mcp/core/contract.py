@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CELL_KINDS = ("pull", "var", "varpct", "sum", "avg", "expr", "ref", "rowsum", "value", "text", "drill")
+CELL_KINDS = ("pull", "var", "varpct", "sum", "avg", "expr", "ref", "rowsum", "value", "text", "drill", "share")
 CHECKLIST = ("period", "scenario", "entity", "measure", "currency_sign", "granularity")
 
 
@@ -230,6 +230,10 @@ def _layout_refs(layout: Layout, pull_ids: set[str], driver_lines: list[str] = (
                     errs += [f"{where}[{j}]: {k} of unknown line '{x}'" for x in v if not is_key(x)]
             elif k == "ref" and not is_key(str((v or {}).get("key", ""))):
                 errs.append(f"{where}[{j}]: ref to unknown line")
+            elif k == "share":                          # {"share": {"col": k, "of": line}}: this line / that line
+                v = v if isinstance(v, dict) else {}
+                if not isinstance(v.get("col"), int) or not 0 <= v["col"] < ncol or not is_key(str(v.get("of", ""))):
+                    errs.append(f"{where}[{j}]: share needs col within 0..{ncol - 1} and of = a line key")
             elif k == "expr":
                 errs += [f"{where}[{j}]: expr uses unknown line '{x}'"
                          for x in re.findall(r"[A-Za-z_]\w*", str(v)) if not is_key(x)]

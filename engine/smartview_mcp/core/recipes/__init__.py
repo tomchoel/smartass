@@ -64,17 +64,42 @@ def _registry() -> dict:
 RECIPES: dict[str, Callable] = {}
 
 
+def _module(name: str | None):
+    from . import concept, cost, plan, pnl, trend
+    return {"pnl": pnl, "actual_vs_plan": plan, "monthly_trend": trend, "cost_base": cost,
+            "concept": concept}.get(name or "")
+
+
 def departures(name: str | None, params: dict) -> list[str]:
     """The finance defaults a recipe's params switch off (D3/D4). Each recipe module's DEFAULTS maps a param to
     (the default value, or a test the value must pass; why it is the default)."""
-    from . import concept, cost, plan, pnl, trend
-    mod = {"pnl": pnl, "actual_vs_plan": plan, "monthly_trend": trend, "cost_base": cost, "concept": concept}.get(name)
-    rules = getattr(mod, "DEFAULTS", {}) if mod else {}
+    rules = getattr(_module(name), "DEFAULTS", {})
     out = []
     for key, (ok, why) in rules.items():
         if key in params and not (ok(params[key]) if callable(ok) else params[key] == ok):
             out.append(f"{name} {key}={params[key]!r} ({why})")
     return out
+
+
+def layout_departures(layout: dict | None) -> list[str]:
+    """A free-form ranking departs from the standard (D22) when it is not the top 10 + an 'Other' line."""
+    out = []
+    for sec in (layout or {}).get("sections") or []:
+        top = ((sec.get("repeat") or {}).get("over") or {}).get("top")
+        if top is None:
+            continue
+        if top != 10:
+            out.append(f"a top-{top} ranking (the standard is the top 10 + Other)")
+        if not any("other" in str(ln.get("label", "")).lower() for ln in sec.get("lines") or []):
+            out.append(f"a top-{top} ranking without an 'Other' line")
+    return out
+
+
+def followups(name: str | None, params: dict, period: str | None) -> list[str]:
+    """At most three natural next questions for a recipe's answer (free-form specs: none)."""
+    entity = next((params[k] for k in ("entity", "area", "parent", "concept") if params.get(k)), "the same unit")
+    return [f.format(entity=entity, period=period or "the same period")
+            for f in getattr(_module(name), "FOLLOWUPS", [])][:3]
 
 
 def expand(raw: dict, ctx: RecipeContext) -> tuple[dict, dict]:

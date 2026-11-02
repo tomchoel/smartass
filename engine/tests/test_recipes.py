@@ -91,6 +91,7 @@ async def test_sv_answer_expands_a_recipe_in_the_excel_job_and_returns_its_perio
                                       "recipe": {"name": "echo", "params": {"n": 2}}})
     assert seen["raw"]["layout"]["title"] == "Echo 2" and seen["raw"]["recipe"]["name"] == "echo"
     assert out["period"] == "Oct 26" and out["warnings"] == ["w"] and out["outline"]["recipe"] == "echo"
+    assert out["followups"] == []
 
 
 @pytest.mark.anyio
@@ -149,7 +150,7 @@ def test_monthly_trend_is_the_template_on_pull_ids_with_a_recon_check(monkeypatc
            "recipe": {"name": "monthly_trend", "params": {"entity": "un.SY", "accounts": ["ac.C30"]}}}
     out, extra = recipes.expand(raw, ctx())
     s = contract.validate(out)
-    assert [p.id for p in s.pulls] == ["tr", "ytd"]
+    assert [p.id for p in s.pulls] == ["tr", "ytd", "ly"]
     assert s.pulls[0].columns[0].members == ["Jan 26", "Feb 26", "Mar 26", "Apr 26", "May 26", "Jun 26",
                                              "Jul 26", "Aug 26", "Sep 26", "Oct 26"]
     line = out["layout"]["sections"][0]["lines"][0]
@@ -174,7 +175,7 @@ def test_cost_base_ranks_after_the_pull_and_checks_top_plus_other_equals_total(m
                                      "abs": True}
     assert [ln["key"] for ln in sec["lines"]] == ["topsum", "rest", "tot"]
     assert out["layout"]["checks"] == [{"label": "Top + other = total", "expr": "topsum+rest-tot",
-                                        "columns": [0, 1, 2, 3]}]
+                                        "columns": [0, 1, 2, 3, 4]}]
     assert out["layout"]["title"] == "Cost base per cost centre — <un.SY> — YTD Oct 26"
     assert out["pulls"][0]["pov"]["All Time Periods"] == "Oct 26" and extra["period"] == "Oct 26"
 
@@ -188,9 +189,67 @@ def test_the_cost_base_draft_expands_to_the_ranked_lines_after_the_pull(monkeypa
     s = specs.expand(out["layout"], {"cb": p.sheet}, {p.sheet: p})
     lines = s["sections"][0]["lines"]
     assert [ln["key"] for ln in lines] == ["c0", "topsum", "rest", "tot"] and lines[0]["label"] == "B Name"
-    assert lines[1]["cells"] == [{"sum": ["c0"]}]
+    assert lines[1]["cells"][0] == {"sum": ["c0"]}
     v = specs.evaluate(s, {p.sheet: p})
-    assert v["topsum"] == [-80.0] and v["rest"] == [-50.0]
+    assert v["topsum"][0] == -80.0 and v["rest"][0] == -50.0
+
+
+def test_cost_base_defaults_top10_other_share_and_ly(monkeypatch):
+    from smartview_mcp import specs, templates
+    leaves = [f"L{i:02d}" for i in range(12)]
+    monkeypatch.setattr(templates, "cost_base_members", lambda conn, parent: (leaves + ["un.SY"], set(leaves)))
+    out, _ = recipes.expand({"version": 1, "question": "q", "gate": GATE,
+                             "recipe": {"name": "cost_base", "params": {"accounts": ["ac.C70"]}}}, ctx())
+    contract.validate(out)
+    lay = out["layout"]
+    assert lay["sections"][0]["repeat"]["over"]["top"] == 10
+    assert [c["header"] for c in lay["columns"]] == ["<ac.C70>", "<ac.C70> Oct 25", "Share %"]
+    assert lay["columns"][2]["kind"] == "prosent1"
+    assert {p["id"]: p["pov"]["All Time Periods"] for p in out["pulls"]} == {"cb": "Oct 26", "ly": "Oct 25"}
+    cur = _fake_pull({**{m: -10.0 * (i + 1) for i, m in enumerate(leaves)}, "un.SY": -780.0})
+    ly = _fake_pull({**{m: -5.0 for m in leaves}, "un.SY": -60.0})
+    ly.sheet = "Q1 FinMax ly"
+    pulls = {cur.sheet: cur, ly.sheet: ly}
+    s = specs.expand(lay, {"cb": cur.sheet, "ly": ly.sheet}, pulls)
+    lines = s["sections"][0]["lines"]
+    assert [ln["key"] for ln in lines] == [f"c{i}" for i in range(10)] + ["topsum", "rest", "tot"]
+    assert lines[11]["label"] == "Other cost centres"
+    v = specs.evaluate(s, pulls)
+    assert v["c0"] == [-120.0, -5.0, pytest.approx(120 / 780)]
+    assert v["rest"] == [-30.0, -10.0, pytest.approx(30 / 780)] and v["tot"][2] == 1.0
+    assert lay["checks"][0]["columns"] == [0, 1]
+
+
+def test_departures_flags_switched_off_defaults():
+    assert recipes.departures("cost_base", {"top": 25}) == [
+        "cost_base top=25 (the standard ranking is the top 10 + Other)"]
+    assert recipes.departures("cost_base", {"top": 10, "parent": "un.SY"}) == []
+    assert recipes.departures("monthly_trend", {"compare": []})
+    assert recipes.departures("monthly_trend", {"compare": ["ly"]}) == []
+    assert recipes.departures("pnl", {"compare": ["budget"]})
+    assert recipes.departures("pnl", {"compare": ["ly", "budget"]}) == []
+    assert recipes.departures("concept", {"compare": ""})
+    assert recipes.departures(None, {"top": 25}) == []
+
+
+def test_trend_has_ly_series_by_default(monkeypatch):
+    from smartview_mcp import templates
+    monkeypatch.setattr(templates, "member_label", lambda c, n: f"<{n}>")
+    raw = {"version": 1, "question": "C30 per month", "gate": GATE,
+           "recipe": {"name": "monthly_trend", "params": {"entity": "un.SY", "accounts": ["ac.C30"]}}}
+    out, _ = recipes.expand(raw, ctx())
+    contract.validate(out)
+    ly = next(p for p in out["pulls"] if p["id"] == "ly")
+    assert ly["columns"][0]["members"] == [f"{m} 25" for m in ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
+                                                               "Aug", "Sep", "Oct")]
+    assert ly["pov"]["All Balance Types"] == "Periodic"
+    sec = out["layout"]["sections"][-1]
+    assert sec["title"] == "Same months last year" and sec["lines"][0]["label"] == "<ac.C30> — last year"
+    assert sec["lines"][0]["cells"][0] == {"pull": "ly", "row": ["ac.C30"], "col": ["Jan 25"]}
+    assert sec["lines"][0]["cells"][10] == {"rowsum": list(range(10))}
+    raw["recipe"]["params"]["compare"] = []
+    out, _ = recipes.expand(raw, ctx())
+    assert [p["id"] for p in out["pulls"]] == ["tr", "ytd"]
 
 
 # ------------------------------------------------------------------ actual_vs_plan

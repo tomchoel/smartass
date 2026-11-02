@@ -164,6 +164,9 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Answer
                     f = fx.avg_rows(col, [rows_by_key[k] for k in c["avg"]])
                 elif "ref" in c:                                   # another answer cell: {"ref": {"key":.., "col":..}}
                     f = f"={L(FIRST_COL + int(c['ref'].get('col', j)))}{rows_by_key[c['ref']['key']]}"
+                elif "share" in c:                                 # {"share": {"col", "of"}}: this line / line 'of'
+                    a = L(FIRST_COL + int(c["share"]["col"]))
+                    f = fx.share(f"{a}{row}", f"{a}{rows_by_key[c['share']['of']]}")
                 elif "rowsum" in c:                                # sum of other columns on this line
                     f = fx.sum_cols(row, [FIRST_COL + k for k in c["rowsum"]])
                 elif "value" in c:

@@ -169,6 +169,7 @@ def _precheck(spec: dict) -> dict | None:
         dep.append(f"recipe {rec.get('name')} instead of {named}")
     if rec:
         dep += recipes.departures(rec.get("name"), rec.get("params") or {})
+    dep += recipes.layout_departures(spec.get("layout"))
     if dep and not spec.get("deviation"):
         raise InputError("This departs from the standard analysis: " + "; ".join(dep) + ". Use the recipe and "
                          "defaults sv_gate named, or pass deviation='<the user's explicit request>' (it is written "
@@ -195,8 +196,9 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
     block (Smart View ad hoc grid if HTTP fails); then the answer is rendered (live formulas) and checked.
     A recipe drafts pulls + layout server-side: spec = {version: 1, question, gate, assumptions?, recipe: {name,
     params, overrides?}} without pulls/layout. Recipes: pnl {area, period?, compare?}; actual_vs_plan {entity
-    (FinPlan), month?, year?, basis?, forecast?, finmax_entity?}; monthly_trend {entity?, accounts?, through?};
-    cost_base {parent?, accounts?, period?, top?}; concept {concept, period?, compare?, entity?}. The period
+    (FinPlan), month?, year?, basis?, forecast?, finmax_entity?}; monthly_trend {entity?, accounts?, through?,
+    compare? (default with last year)}; cost_base {parent?, accounts?, period?, top? (10 + Other)}; concept {concept,
+    period?, compare?, entity?}. The period
     defaults to the closed month (returned as period). overrides = a follow-up-shaped patch on the draft; recipe
     params cannot be changed by a follow-up (ask a new question).
     followup: a patch on the current answer (the active Q<n> Answer, else the latest; or answer q). Use it unless
@@ -206,7 +208,9 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
     block, so the user's cells and charts outside it survive.
     Returns the answer table, checks, review findings (Critical/Warning/Info: knowledge/advisor/findings.md),
     material lines that need a driver in commentary.drivers (knowledge/advisor/variance-commentary.md), routes,
-    timings and an outline (pull ids, columns, section titles, line keys, check labels) to address follow-ups.
+    timings and an outline (pull ids, columns, section titles, line keys, check labels) to address follow-ups;
+    key_values (line -> column -> value as the sheet calculated them: quote these), followups (at most 3 next
+    questions of the recipe) and sheets (every sheet written).
     Call sv_gate first for a new question (knowledge/advisor/gate.md)."""
     try:
         return await answer(spec, followup, q, target, allow_archive)
@@ -285,6 +289,9 @@ async def answer(spec: dict | None = None, followup: dict | None = None, q: int 
         if extra:
             warn = list(dict.fromkeys(list(extra.get("warnings") or []) + list(out.get("warnings") or [])))
             out = {**out, **{k: v for k, v in extra.items() if k != "warnings"}, "warnings": warn}
+        rec = (r.raw or {}).get("recipe") or {}
+        params = rec.get("params") or {}
+        out["followups"] = recipes.followups(rec.get("name"), params, out.get("period") or params.get("period"))
         return out
     return await _call_user(job, what="sv_answer")
 

@@ -6,6 +6,9 @@ from ... import concepts, templates
 from ...host import InputError
 from . import Draft, RecipeContext
 
+DEFAULTS = {"compare": (lambda v: bool(v), "the standard comparison is the same period last year")}
+FOLLOWUPS = ["Monthly trend through {period}", "Actual vs budget, YTD {period}"]
+
 
 def concept(params: dict, ctx: RecipeContext) -> Draft:
     if not params.get("concept"):
