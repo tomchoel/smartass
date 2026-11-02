@@ -15,3 +15,6 @@ output/
 .matrix-fresh/
 *.duckdb
 *.duckdb.wal
+
+# PowerShell module-analysis cache created when PS runs with engine/ as LOCALAPPDATA-relative cwd
+engine/Microsoft/

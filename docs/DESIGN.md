@@ -1,5 +1,10 @@
 # Smart View MCP: design brief (2026-10-13)
 
+> **2026-11-02 — rework in progress.** The target architecture (one pipeline: scope → pull → answer → check) is
+> in [`specs/2026-11-02-pipeline-architecture-design.md`](specs/2026-11-02-pipeline-architecture-design.md), and
+> its acceptance set is in [`specs/2026-11-02-benchmarks.md`](specs/2026-11-02-benchmarks.md). Until the
+> benchmarks reach parity, the engine described below is frozen: bug fixes only, no new tools.
+
 The decisions come from the grilling session (memory: smartview-mcp-plan). This file records what the research changed or confirmed.
 
 ## Architecture
