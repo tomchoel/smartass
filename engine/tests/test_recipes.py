@@ -219,3 +219,30 @@ def test_actual_vs_plan_without_a_finmax_entity_has_no_recon_check_and_says_why(
     contract.validate(out)
     assert "EBITDA FinPlan = FinMax" not in [c["label"] for c in out["layout"]["checks"]]
     assert extra["warnings"] == ["No FinMax entity matches X."] and extra["period"] == "Dec 26"
+
+
+# ------------------------------------------------------------------ concept
+def test_concept_wraps_concepts_plan_in_english(monkeypatch):
+    from smartview_mcp import concepts
+    monkeypatch.setattr(concepts, "_label", lambda m: m)
+    c = concepts.get("splitt")
+    raw = {"version": 1, "question": "What do we earn on Splitt?", "gate": GATE,
+           "recipe": {"name": "concept", "params": {"concept": c["id"]}}}
+    out, extra = recipes.expand(raw, ctx())
+    contract.validate(out)
+    hdr = [col["header"] for col in out["layout"]["columns"]]
+    assert hdr == ["YTD Oct 26", "YTD Oct 25", "Change", "Change %"]
+    assert all("title" not in p for p in out["pulls"])                       # None titles are dropped
+    assert out["layout"]["source"].startswith("Source:") and extra == {"period": "Oct 26", "concept": "splitt",
+                                                                       "warnings": []}
+    titles = [s["title"] for s in out["layout"]["sections"]]
+    assert "Allocation keys and checks" in titles and "Basis from FinMax (member · account)" in titles
+    assert out["layout"]["checks"] and "YTD Oct 26 vs Oct 25" in out["layout"]["title"]
+
+
+def test_concept_unknown_id_lists_the_known_ones(monkeypatch):
+    from smartview_mcp import concepts
+    monkeypatch.setattr(concepts, "find", lambda text: [])
+    raw = {"version": 1, "question": "q", "gate": GATE, "recipe": {"name": "concept", "params": {"concept": "nope"}}}
+    with pytest.raises(ValueError, match="Unknown concept 'nope'"):
+        recipes.expand(raw, ctx())

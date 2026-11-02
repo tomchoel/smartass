@@ -1,9 +1,9 @@
 """Business concepts (knowledge\\concepts.json) -> FinMax pulls + answer spec, and scoping lookups.
 
 A concept is blocks of items. Item kinds:
-  booked      account x products|entities, tagged to the concept in FinMax       label suffix "(bokført)"
-  attributed  not tagged, but belongs to the concept in full                      "(henført 100 %)"
-  estimated   shared base x key (num/den, or the key of another item)             "(estimert)"
+  booked      account x products|entities, tagged to the concept in FinMax       label suffix "(booked)"
+  attributed  not tagged, but belongs to the concept in full                      "(attributed 100 %)"
+  estimated   shared base x key (num/den, or the key of another item)             "(estimated)"
   sum         sum of other items
   missing     not visible in FinMax - shown as a text line, not in the total
 The answer shows every item for the period YTD vs the same period last year, then the total, the keys (base, numerator,
@@ -15,7 +15,7 @@ import re
 
 from . import atlas, config
 
-SUFFIX = {"booked": " (bokført)", "attributed": " (henført 100 %)", "estimated": " (estimert)"}
+SUFFIX = {"booked": " (booked)", "attributed": " (attributed 100 %)", "estimated": " (estimated)"}
 
 
 def _load(name: str) -> dict:
@@ -162,7 +162,7 @@ def plan(c: dict, period: str, last_year: str, entity: str | None = None) -> tup
                 lines.append({"key": k, "label": label, "kind": "sum", "cells": two(lambda j, o=it["of"]: {"sum": o})})
             elif kind == "estimated":
                 base = f"{k}_base"
-                key_lines.append({"key": base, "aux": True, "label": f"{it['label']}: grunnlag – {it['base']['label']}",
+                key_lines.append({"key": base, "aux": True, "label": f"{it['label']}: base – {it['base']['label']}",
                                   "cells": two(lambda j, ks=src_keys(it["base"]): {"sum": ks})})
                 if it.get("key_same_as"):
                     kk = key_of[it["key_same_as"]]
@@ -176,24 +176,24 @@ def plan(c: dict, period: str, last_year: str, entity: str | None = None) -> tup
                             cells = two(lambda j, r=s["ref"]: {"ref": {"key": r, "col": j}})
                         else:
                             cells = two(lambda j, ks=src_keys(s): {"sum": ks})
-                        key_lines.append({"key": lk, "aux": True, "label": f"{it['label']}: nøkkel – {s.get('label', lk)}",
+                        key_lines.append({"key": lk, "aux": True, "label": f"{it['label']}: key – {s.get('label', lk)}",
                                           "cells": cells})
                     key_lines.append({"key": kk, "aux": True, "num": "prosent1",
-                                      "label": f"{it['label']}: nøkkel = {it.get('key_text', 'andel')}",
+                                      "label": f"{it['label']}: key = {it.get('key_text', 'share')}",
                                       "cells": [{"expr": f"{num}/{den}"}, {"expr": f"{num}/{den}"}, None, None]})
                 key_of[k] = kk
                 lines.append({"key": k, "label": label, "cells": two(lambda j, b=base, kk=kk: {"expr": f"{b}*{kk}"})})
             elif kind == "missing":
-                lines.append({"key": k, "label": f"{it.get('label', k)} (ikke i FinMax)",
-                              "cells": [{"text": "ikke med"}, None, None, None]})
-                missing_notes.append(f"{it.get('label', k)}: {it.get('note', 'ikke i FinMax')}")
+                lines.append({"key": k, "label": f"{it.get('label', k)} (not in FinMax)",
+                              "cells": [{"text": "not included"}, None, None, None]})
+                missing_notes.append(f"{it.get('label', k)}: {it.get('note', 'not in FinMax')}")
             else:
                 raise ValueError(f"unknown item kind '{kind}' in concept {c.get('id')}")
         sections.append({"title": blk["title"], "lines": lines})
     checks = []
     for i, ch in enumerate(c.get("checks", [])):
         ref = f"chk{i}"
-        key_lines.append({"key": ref, "aux": True, "label": f"Kontroll: {ch['label']}",
+        key_lines.append({"key": ref, "aux": True, "label": f"Check: {ch['label']}",
                           "cells": two(lambda j, ks=src_keys(ch["source"]): {"sum": ks})})
         checks.append({"label": ch["label"], "expr": ch["expr"].replace("$src", ref), "columns": [0, 1]})
     tot = c.get("total")
@@ -201,8 +201,8 @@ def plan(c: dict, period: str, last_year: str, entity: str | None = None) -> tup
         sections.append({"title": "Sum", "lines": [{"key": "total", "label": tot["label"], "kind": "grand",
                                                      "cells": two(lambda j: {"sum": tot["of"]})}]})
     if key_lines:
-        sections.append({"title": "Fordelingsnøkler og kontroller", "lines": key_lines})
-    sections.append({"title": "Grunnlag fra FinMax (medlem · konto)", "lines": detail_lines})
+        sections.append({"title": "Allocation keys and checks", "lines": key_lines})
+    sections.append({"title": "Basis from FinMax (member · account)", "lines": detail_lines})
 
     pulls = []
     pov = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Accumulated"}
@@ -218,13 +218,13 @@ def plan(c: dict, period: str, last_year: str, entity: str | None = None) -> tup
                       "pov": pov, "title": None})
     est = [it for b in c.get("blocks", []) for it in b.get("items", []) if it.get("kind") == "estimated"]
     notes = list(c.get("notes", [])) + missing_notes + [
-        f"{it['label']}: estimert = grunnlag ({it['base']['label']}) × nøkkel ({it.get('key_text', '')})." for it in est]
-    spec = {"title": f"{c.get('title', c.get('id'))} — hittil {period} mot {last_year}",
+        f"{it['label']}: estimated = base ({it['base']['label']}) × key ({it.get('key_text', '')})." for it in est]
+    spec = {"title": f"{c.get('title', c.get('id'))} — YTD {period} vs {last_year}",
             "subtitle": f"NOK · FinMax · Actual · {entity} · Accumulated",
-            "columns": [{"header": f"Hittil {period}"}, {"header": f"Hittil {last_year}"}, {"header": "Endring"},
-                        {"header": "Endring %", "kind": "prosent1"}],
+            "columns": [{"header": f"YTD {period}"}, {"header": f"YTD {last_year}"}, {"header": "Change"},
+                        {"header": "Change %", "kind": "prosent1"}],
             "sections": sections, "checks": checks, "notes": notes,
-            "source": "Kilde: Oracle EPM Cloud (FinMax) via Smart View; definisjon fra knowledge\\concepts.json."}
+            "source": "Source: Oracle EPM Cloud (FinMax) via Smart View; definition from knowledge\\concepts.json."}
     return pulls, spec
 
 
