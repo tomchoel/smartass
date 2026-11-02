@@ -15,16 +15,17 @@ B02 = json.loads((Path(__file__).parent / "fixtures" / "b02_answer_spec.json").r
 
 
 class Meta:
-    """A fake _svmeta sheet: rows of cell values (column A = key)."""
+    """A fake _svmeta sheet: rows of cell values (column A = key). Like Excel, End(xlUp) on an empty column gives
+    row 1 (so the first row written is row 2) and UsedRange starts at the first used row."""
     def __init__(self):
         self.rows: dict[int, dict[int, str]] = {}
 
     @property
     def UsedRange(self):
-        n = max(self.rows, default=1)
+        first, n = min(self.rows, default=1), max(self.rows, default=1)
         w = max((max(r) for r in self.rows.values() if r), default=1)
-        return SimpleNamespace(Value=tuple(tuple(self.rows.get(r, {}).get(c) for c in range(1, w + 1))
-                                           for r in range(1, n + 1)))
+        return SimpleNamespace(Row=first, Value=tuple(tuple(self.rows.get(r, {}).get(c) for c in range(1, w + 1))
+                                                      for r in range(first, n + 1)))
 
     def Cells(self, r, c):
         meta = self
@@ -35,7 +36,7 @@ class Meta:
 
             @property
             def End(self):
-                return lambda d: SimpleNamespace(Row=max(meta.rows, default=0))
+                return lambda d: SimpleNamespace(Row=max(meta.rows, default=1))
         return C()
 
     def Rows(self, r):
@@ -68,6 +69,16 @@ def test_stored_questions_lists_only_v1_answer_specs(monkeypatch):
     userexcel.save_spec(t, 2, B02, {}, owned={"rows": 5, "cols": 3})
     userexcel.save_spec(t, 3, B02, {"m": "Q3 FinMax"})                       # overwrites its row
     assert userexcel.stored_questions(t) == [2, 3]
+
+
+def test_saving_a_spec_again_overwrites_its_own_row_and_keeps_the_pull_rows_above(monkeypatch):
+    t, ws = _meta_target(monkeypatch)
+    ws.Cells(2, 1).Value, ws.Cells(2, 2).Value = "'Q1 FinMax ytd", "'{}"      # save_meta's first row is row 2
+    userexcel.save_spec(t, 1, B02, {"m": "Q1 FinMax"})
+    userexcel.save_spec(t, 1, {**B02, "question": "patched"}, {"m": "Q1 FinMax"})
+    assert ws.rows[2] == {1: "Q1 FinMax ytd", 2: "{}"}
+    assert [r[1] for r in ws.rows.values()].count("SPEC Q1") == 1
+    assert userexcel.load_answer(t, 1)["spec"]["question"] == "patched"
 
 
 def _pull(pid, members=("EBITDA",), conn="FinMax"):

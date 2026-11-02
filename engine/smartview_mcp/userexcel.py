@@ -1079,9 +1079,11 @@ def save_spec(t: Target, q: int, spec: dict, ids: dict[str, str] | None = None, 
         return
     ws = com(lambda: t.wb.Worksheets(META_SHEET))
     key = f"SPEC Q{q}"
-    vals = com(lambda: ws.UsedRange.Value)
+    used = com(lambda: ws.UsedRange)
+    vals = com(lambda: used.Value)
     vals = vals if isinstance(vals, tuple) else ((vals,),)
-    r = next((i + 1 for i, row in enumerate(vals) if row and row[0] == key), None)
+    top = int(com(lambda: used.Row))                   # UsedRange starts at the first used row (save_meta: row 2)
+    r = next((top + i for i, row in enumerate(vals) if row and row[0] == key), None)
     if r is None:
         r = com(lambda: ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1
     else:
