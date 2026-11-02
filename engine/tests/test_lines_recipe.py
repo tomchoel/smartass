@@ -139,6 +139,16 @@ def test_ranking_drivers_only_for_total_cube_and_three_largest_supplier_changes(
     assert len(commentary.material({"sections": [{"lines": plain}]}, v, catalog.load())) > len(flagged)
 
 
+def test_ranking_title_is_short_english_not_the_question():
+    """style_lint flagged B1 (~161 chars) as spilling over: the title is the measure, accounts and period."""
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    assert d.layout["title"] == "Consultancy (C60080 + C60090) — invoiced by supplier, YTD Sep 26"
+    assert "un.SY" in d.layout["subtitle"]
+    other = lines.lines_ranking({**PARAMS, "accounts": ["ac.C60110", "ac.C60095"]}, _ctx())
+    assert other.layout["title"] == "Accounts C60110 + C60095 — invoiced by supplier, YTD Sep 26"
+    assert not contract.non_english(d.layout["title"])
+
+
 def test_ranking_unexplained_gap_is_a_reconciling_line_and_a_warning_finding():
     d = lines.lines_ranking(dict(PARAMS), _ctx())
     total = _lines_total(D1, NOW)

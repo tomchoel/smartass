@@ -172,6 +172,17 @@ def _suppliers(rows: list[dict]) -> list[tuple[str, float, list[dict]]]:
     return sorted((tuple(e) for e in acc.values()), key=lambda e: e[1])
 
 
+def _title(accounts: list[str], head: str) -> str:
+    """A short English title (the question has its own row): 'Consultancy (C60080 + C60090) — invoiced by
+    supplier, YTD Oct 26'; the measure's label from capabilities.toml when it names exactly these accounts."""
+    from .. import semantic
+    m = next((x for x in semantic.all_measures() if x.label and set(x.accounts) == set(accounts)), None)
+    codes = [a.removeprefix("ac.") for a in accounts]
+    what = " + ".join(codes) if len(codes) <= 3 else f"{len(codes)} accounts"
+    lead = f"{m.label} ({what})" if m else f"Accounts {what}"
+    return f"{lead} — invoiced by supplier, {head}"
+
+
 def lines_ranking(params: dict, ctx: RecipeContext) -> Draft:
     sp = span(params.get("period"), ctx.closed)
     accounts, entity = _accounts(params), params.get("entity") or "un.SY"
@@ -226,8 +237,8 @@ def lines_ranking(params: dict, ctx: RecipeContext) -> Draft:
                {"header": "Change", "kind": "heltall"}, {"header": "Change %", "kind": "prosent1"},
                {"header": "Share %", "kind": "prosent1"}]
     name = ctx.label(CONN, entity)
-    lay = {"title": f"Suppliers on '{measure}' — '{name}' — {head}",
-           "subtitle": f"NOK · {CONN} ledger lines and cube · Actual · {head} vs {head_ly}",
+    lay = {"title": _title(accounts, head),
+           "subtitle": f"NOK · {name} · {CONN} ledger lines and cube · Actual · {head} vs {head_ly}",
            "columns": columns, "sections": [],
            "notes": ["Budget per supplier: FinPlan has no supplier grain, so the plan is not compared here.",
                      "Share % = the line's amount / Total (cube) this year."],
