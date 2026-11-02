@@ -204,6 +204,40 @@ def test_gate_supplier_question_states_definition_grain_and_ytd():
     assert last["checklist"]["period"]["value"] == "2025"
 
 
+@pytest.mark.parametrize("q,name", [
+    (GATE_CASES[-2][1], "lines_ranking"),
+    ("EBITDA September", "pnl"),
+    ("Telenor Norge monthly revenue trend through Sep 26", "monthly_trend"),
+    ("Business full-year EBITDA: latest forecast vs budget", "actual_vs_plan"),
+    ("How much did we spend on consultants?", "cost_base"),
+    ("What do we earn on mobile subscriptions?", "concept"),
+    ("How are we doing on costs?", None)])
+def test_gate_names_recipe(q, name):
+    g = scope.gate(q, "Sep 26", learned=_NONE)
+    assert (g["recipe"] or {}).get("name") == name, g["recipe"]
+    if name == "lines_ranking":
+        p = g["recipe"]["params"]
+        assert p["accounts"] == ["ac.C60080", "ac.C60090"] and p["entity"] == "un.SY" and p["projects"] is True
+        assert "lines_ranking" in g["next"] and "Never ask whether to build a sheet" in g["next"]
+    if name == "monthly_trend":
+        assert g["recipe"]["params"] == {"entity": "un.SY", "accounts": ["ac.C30"], "through": "Sep 26"}
+    if name == "actual_vs_plan":
+        assert g["recipe"]["params"]["entity"] == "2BUS Business" and g["recipe"]["params"]["month"] == "Dec"
+    if name == "cost_base":
+        assert g["recipe"]["params"]["top"] == 10
+    if name is None:
+        assert "sv_gate again" in g["next"] and "answers=" in g["next"]
+
+
+def test_gate_answers_resolve_the_asks():
+    g = scope.gate("How are we doing on costs?", "Sep 26", learned=_NONE, answers={"measure": "opex"})
+    assert g["suggested_outcome"] == "clear" and g["recipe"]["name"] == "pnl"
+    assert g["checklist"]["measure"]["source"] == "user" and not g["checklist"]["measure"]["ask"]
+    t02 = scope.gate("Opex for Wholesale this year", "Sep 26", learned=_NONE, answers={"period": "ytd"})
+    assert t02["suggested_outcome"] == "clear" and t02["checklist"]["period"]["value"] == "YTD Sep 26"
+    assert t02["checklist"]["period"]["source"] == "user"
+
+
 @pytest.mark.anyio
 async def test_sv_gate_tool_uses_the_closed_month(monkeypatch):
     from smartview_mcp import tools_core

@@ -18,7 +18,7 @@ from .host import HostError, InputError
 
 log = logging.getLogger("smartass.http")
 MAX_BODY = 1_000_000
-_FIELDS = {"/gate": {"question"}, "/answer": {"spec", "followup", "q", "target", "allow_archive"}}
+_FIELDS = {"/gate": {"question", "answers"}, "/answer": {"spec", "followup", "q", "target", "allow_archive"}}
 
 
 class _ExclusiveServer(ThreadingHTTPServer):

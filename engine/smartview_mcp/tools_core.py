@@ -37,29 +37,33 @@ async def _closed_month() -> tuple[str, str | None]:
 
 
 @tool(annotations=READ)
-async def sv_gate(question: str) -> dict:
+async def sv_gate(question: str, answers: dict[str, str] | None = None) -> dict:
     """Pipeline step 1 - call FIRST for every finance question, before any pull (procedure:
     knowledge/advisor/gate.md). Runs the fixed scope checklist (period, scenario, entity, measure, currency/sign,
     granularity) against the catalog, the capability map and the user's learned defaults, and suggests one outcome:
-    - clear: proceed; state every checklist item with source convention/learned (and each warning) as an assumption.
-    - ambiguous: pull nothing; ask the returned questions (max 3) in ONE message, in English; then call sv_gate again
-      with the answers folded into the question and offer sv_remember to save an answer as the default.
+    - clear: proceed; state every checklist item with source convention/learned (and each warning) as an assumption,
+      then call sv_answer with the named recipe (+ params) now; never ask whether to build a sheet.
+    - ambiguous: pull nothing; ask the returned questions (max 3) in ONE message, in the user's language; then call
+      sv_gate again with the same question and answers={item: answer} (e.g. {"measure": "opex"}) and offer
+      sv_remember to save an answer as the default.
     - infeasible: say why (reason) in one or two sentences and offer the proxy; build it labelled as a proxy.
     Copy the result into the answer spec's gate (outcome, checklist, questions/reason/proxy) and assumptions.
     Returns {suggested_outcome, checklist{item: {value, source, gap, ask}}, questions, reason, proxy, warnings,
-    entities, measures, concepts, closed_month, next}."""
+    entities, measures, concepts, closed_month, recipe: {name, params} | None (None: a free-form spec), next}."""
     try:
-        return await gate(question)
+        return await gate(question, answers)
     except InputError as e:
         raise _err(e) from None
 
 
-async def gate(question: str) -> dict:
+async def gate(question: str, answers: dict | None = None) -> dict:
     """sv_gate without the MCP wrapper (also POST /gate); raises InputError."""
     if not question or not question.strip():
         raise InputError("question is the user's question, as asked")
+    if answers is not None and not isinstance(answers, dict):
+        raise InputError("answers is {checklist item: the user's answer}, e.g. {\"measure\": \"opex\"}")
     closed, warn = await _closed_month()
-    g = scope.gate(question.strip(), closed)
+    g = scope.gate(question.strip(), closed, answers=answers)
     if warn:
         g["warnings"].append(warn)
     return g
