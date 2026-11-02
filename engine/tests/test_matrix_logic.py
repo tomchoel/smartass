@@ -112,3 +112,31 @@ def test_before_file_compares_like_with_like(tmp_path, monkeypatch):
     assert matrix.previous(fresh=False)[0].name == "2026-10-23-matrix-baseline.json"
     assert matrix.previous(fresh=True)[0].name == "2026-10-23-matrix-baseline-fresh.json"
     assert matrix.previous(fresh=True, name="2026-10-23-matrix-baseline")[0].name == "2026-10-23-matrix-baseline.json"
+
+
+def _bench():
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "live"))
+    import bench
+    return bench
+
+
+def test_bench_oracle_match_tolerates_sign_and_display_unit_but_not_a_wrong_number():
+    b = _bench()
+    sheet = [1858190823.29, -161233427.84, 3496.1, 89346]
+    assert b.found(1858190823.0, sheet) == "exact"                  # within 1 NOK
+    assert b.found(161233427.84, sheet) == "exact"                  # costs shown with the other sign
+    assert b.found(3496062985.0, sheet) == "MNOK"                   # =x/1e6 rounded to 0.1
+    assert b.found(89346421.0, sheet) == "kNOK"
+    assert b.found(1858190900.0, sheet) is None                     # 77 NOK off: not the oracle's number
+    assert b.found(400.0, [0.0004]) is None                         # small values never match a scaled one
+
+
+def test_bench_verdict_needs_every_oracle_value_checks_and_no_problems():
+    b = _bench()
+    ok = {"error": None, "oracle": {"a": True}, "checks_ok": True, "formula_errors": [], "problems": []}
+    assert b.verdict(ok) == "PASS"
+    assert b.verdict({**ok, "oracle": {"a": True, "b": False}}) == "FAIL"
+    assert b.verdict({**ok, "problems": ["text missing"]}) == "FAIL"
+    assert b.verdict({**ok, "error": "ToolFailed"}) == "ERROR"

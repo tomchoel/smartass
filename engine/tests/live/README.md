@@ -37,6 +37,25 @@ The doctor lines checked by S9 include `warehouse` (OK on a fresh install: "not 
 
 `test_styling_live.py` is separate: it uses its own Excel (`SV_STYLING_LIVE=1` under pytest).
 
+## Benchmarks (pipeline rework)
+
+`bench.py` runs the acceptance set B01–B15 (`docs/specs/2026-11-02-benchmarks.md`):
+
+```
+uv run python tests\live\bench.py [--only B01,B02] [--route baseline] [--keep] [--out NAME]
+```
+
+- A case passes when every oracle value appears on the answer sheet, every check is OK, and there are no formula
+  errors.
+  - The oracle is independent single-cell `sv_query` calls, run after the route.
+  - Matching allows 1 NOK, or the value rounded to kNOK/MNOK; sign is ignored.
+- Each case records time to first visible output (the first new sheet in a visible Excel, polled through its
+  windows) and total time.
+- Some cases are not scored by the script:
+  - B08 is `UNSUPPORTED` on the baseline (no tool for it today).
+  - B10, B11 and the traps T01–T10 are `AGENT`, because gate quality needs an agent run.
+- Reports go to `docs\audit\<date>-<out>.json/.md`.
+
 ## Safety
 
 - It drives the real Excel and needs SSO. **Warn the owner of the PC first.**
