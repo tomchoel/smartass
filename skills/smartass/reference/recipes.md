@@ -1,11 +1,14 @@
 # Recipes — Produktregnskapet extracts
 
-Each recipe is the grid the team builds in Smart View, written as an `sv_query` call. "Verified" means the recipe
-was run against FY2025 and reconciled cell by cell with the archived workbook (2026-10-13, Smart View 25.100).
+Each recipe is the grid the team builds in Smart View, written as a pull of an `sv_answer` spec
+(`{id, connection, rows, columns, pov, title?}`; see `SKILL.md` §2.2). Put it in `pulls`, add a layout that reads the
+lines the user asked about, and the full grid lands on its own source sheet (`Q<n> FinMax`). "Verified" means the
+grid was run against FY2025 and reconciled cell by cell with the archived workbook (2026-10-13, Smart View 25.100).
 Every difference was explained; the explanations are the traps listed in `SKILL.md`.
 
-For grids larger than the 60-row preview, pass `save_xlsx: true` and read the saved file. It holds a `Data` sheet
-(member names plus label columns) and a `POV` sheet (source, time, full POV, axes).
+These are extracts, not the server-side recipes of `sv_answer` (`pnl`, `actual_vs_plan`, `monthly_trend`,
+`cost_base`, `concept`: see [operations.md](operations.md) "Recipes and follow-ups"). Recipe `pnl` reconciles its
+live facts with the source sheets ("Live read = source sheet").
 
 ## 1. GL extract — cost base per cost centre (FinMax)
 
@@ -14,19 +17,18 @@ This is the `GL` sheet of the interview and input workbooks (`2 Input\22 Arsverk
 early January: Dec of the model year, **Accumulated**, with FTE.
 
 ```json
-{"connection": "FinMax",
+{"id": "gl", "connection": "FinMax", "title": "GL Dec 25",
  "rows":    [{"dimension": "All Entities", "members": ["un.SY.QT11", "un.SY.K570", "…", "un.SY"]}],
  "columns": [{"dimension": "All Accounts", "members": ["ac.C50S", "ac.C60", "ac.C70", "ac.C50100", "ac.C50200", "…", "ac.STA20Y"]}],
- "pov": {"All Scenarios": "Actual", "All Currencies": "NOK", "All Time Periods": "Dec 25", "All Balance Types": "Accumulated"},
- "suppress_missing": false, "save_xlsx": true, "title": "GL Dec 25"}
+ "pov": {"All Scenarios": "Actual", "All Currencies": "NOK", "All Time Periods": "Dec 25", "All Balance Types": "Accumulated"}}
 ```
 
 - **Rows.** Take the cost-centre list from the workbook's own `GL` sheet: column A holds the member names. Alternatively use
   `sv_members(FinMax, un.SY, descendants)`. The archive sheet has about 480 entities.
 - **Columns.** The account names are in row 6 of the `GL` sheet, shown as labels such as `C50100 Salaries and Holiday Pay (ac)`, which is the member `ac.C50100`.
 - **FTE.** FTE is account `ac.STA20Y` ("Total number of man-years - EoP"). It exists only in **FinMax**, not in FinLite.
-- **Archive copies.** The archive `GL` sheets hold *pasted values*, not live Smart View grids, so `sv_refresh_workbook` changes
-  nothing on them. Rebuild with `sv_query`.
+- **Archive copies.** The archive `GL` sheets hold *pasted values*, not live Smart View grids, so a Smart View Refresh
+  changes nothing on them. Rebuild the grid with this pull.
 - **Verified** against `2025\2 Input\22 Arsverkfordeling\2IFRS15\2025_INPUT_Aktivitet_G916_CP.xlsm` (extract dated 07.01.2026,
   482 entities × 50 Dec 25 Accumulated accounts). 24,100 cells were compared and **95.5 % are identical**. The retrieve took 11 s.
   - The total `un.SY` agrees within 0.03 %. Pension `C50500` is the exception at 2.8 %: Dec 25 postings were made after 07.01.
@@ -39,7 +41,7 @@ early January: Dec of the model year, **Accumulated**, with FTE.
 This is the grid behind `2 Input\20 Inntekt-varekost\<division>\<year>_Inntekt og varekost *.xlsx`.
 
 ```json
-{"connection": "FinMax",
+{"id": "rc", "connection": "FinMax",
  "rows":    [{"dimension": "All Entities", "members": ["un.SY.4REV_W"]},
              {"dimension": "All Products", "members": ["pd.SY.N5Z00", "pd.SY.N6800", "pd.SY.P56"]}],
  "columns": [{"dimension": "All Accounts", "members": ["ac.C30"]},
@@ -60,7 +62,7 @@ This is the grid behind `2 Input\20 Inntekt-varekost\<division>\<year>_Inntekt o
 This is the grid behind `2 Input\21 Costbase\211_Avskrivning\<year>_Avskrivningkost kontroll.xlsx`. Accounts are on the rows, and the divisions × year are on the columns.
 
 ```json
-{"connection": "FinMax",
+{"id": "dep", "connection": "FinMax",
  "rows":    [{"dimension": "All Accounts", "members": ["ac.EBITDA", "ac.60120", "ac.C75130", "ac.60100", "ac.C75110",
                                                       "ac.60300", "ac.C75120", "ac.C75", "ac.C76S", "ac.EBIT"]}],
  "columns": [{"dimension": "All Entities", "members": ["un.SY.2IT", "un.SY.2I16", "un.SY.2TEC", "un.SY.2ADM", "un.SY.2BUS", "un.SY"]},
@@ -81,7 +83,7 @@ This is the grid behind `2 Input\22 Arsverkfordeling\<division>\<year>_*særkost
 grids, and the pivot sheets are built on top of them.
 
 ```json
-{"connection": "FinLite",
+{"id": "sk", "connection": "FinLite",
  "rows":    [{"dimension": "All Entities", "members": ["un.SY.K570", "un.SY.E257", "un.SY.3SEC_C"]}],
  "columns": [{"dimension": "All Accounts", "members": ["ac.C50S", "ac.C60", "ac.C70", "ac.C50100", "ac.C50200", "ac.C50300"]}],
  "pov": {"All Scenarios": "Actual", "All Currencies": "NOK", "All Time Periods": "Yr 25", "All Balance Types": "Periodic"}}
@@ -107,7 +109,7 @@ FinPlan's grid shows *aliases*, and the atlas stores those aliases (`BANORWAY`, 
 `sv_member_info` gives the real name.
 
 ```json
-{"connection": "FinPlan",
+{"id": "fp", "connection": "FinPlan",
  "rows":    [{"dimension": "Entity", "members": ["BANORWAY"]}],
  "columns": [{"dimension": "Years", "members": ["FY25", "FY26"]}, {"dimension": "Period", "members": ["TotalYear"]}],
  "pov": {"Scenario": "Target 2025", "Version": "Final"}}

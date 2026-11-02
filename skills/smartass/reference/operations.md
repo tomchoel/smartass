@@ -5,19 +5,13 @@ Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartas
 
 ## Working in the user's Excel (analyses)
 
-- sv_query reads over Smart View's HTTP protocol by default (`source='auto'`: ~0.2 s per grid once signed in, no
-  Excel; signs in through the drill's hidden Edge) and falls back to Smart View in Excel. The answer's `route` says
-  which was used. The first HTTP call in a session takes ~10-12 s, because it signs in first. Workbooks (sv_ws_*)
-  still build live Smart View sheets in Excel.
-- fin_pnl(area) answers "P&L for <business area>" from the local warehouse (DuckDB,
-  `%LOCALAPPDATA%\smartass\warehouse.duckdb`): the first call fills it (about 8 s over HTTP, measured 2026-10-25:
-  12 grids, ~9,000 cells), later calls refresh only what changed (a new closed month, an atlas restatement, a new
-  forecast) and read the open month and the latest forecast live. If the warehouse is locked or missing it answers
-  from live pulls and says so. `sv_warehouse(action='status')` shows the last fills and their reconciliation;
-  `sv_warehouse('rebuild', area=<area>)` re-reads an area's 36 months (after a 'Warehouse = source sheet' DIFF),
-  `sv_warehouse('rebuild')` recreates the whole file (also the fix for 'warehouse schema is older'). A job
-  that fails on content (#NoAccess, an unknown member) pauses (15 min, then daily); transport errors retry on the next
-  call. `smartass doctor` names paused jobs with their last error, and the cells a fill could not read.
+- **Pulls.** `sv_answer` reads each pull over Smart View's HTTP provider protocol (~0.2 s per grid once signed in,
+  no Excel; signs in through the drill's hidden Edge) and falls back to a Smart View ad hoc grid in Excel. The
+  result's `routes` say which was used per source sheet. The first HTTP call in a session takes ~10-12 s, because
+  it signs in first.
+- **Recipe `pnl`** reads its facts live for every call (the area's 36 months, the open month and the latest
+  forecast) into an in-memory fact store; nothing is kept between calls. Its check "Live read = source sheet"
+  compares those facts with the source sheets the answer reads.
   - Rules in force (owner decisions): material = 10 % of |comparison| from NOK 500k, or NOK 5 million; a month swing
     of NOK 5 million or more is flagged; |comparison| under NOK 500k counts as zero; revenue, personnel cost and
     EBITDA are always commented. Variance = current - comparison, positive = better everywhere. Cost per FTE is
@@ -35,16 +29,17 @@ Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartas
 - **Bridge.** A hidden add-in `%LOCALAPPDATA%\smartass\svbridge_<hash>.xlam` is loaded into the user's Excel. The file name is
   versioned, so a new build never collides with one still loaded. Old builds are pruned when free. Smart View acts on the
   ACTIVE sheet, so every bridge call activates our target sheet first, and the user's view jumps to it.
-- **Data sheets.** Suppression is forced OFF and the missing label is set to `#NumericZero`. Excel formatting is kept on
-  refresh (option 30). Every returned label is verified against the requested member, and a moved row fails the pull.
-- **State.** Layouts are stored in the hidden sheet `_svmeta`, so `sv_ws_answer` works after a server restart.
+- **Data sheets (Smart View fallback route).** Suppression is forced OFF and the missing label is set to `#NumericZero`.
+  Every returned label is verified against the requested member, and a moved row fails the pull.
+- **State.** Answer specs are stored in the hidden sheet `_svmeta`, so `sv_answer(followup=...)` works after a server
+  restart.
 - **Failures.** A failed analysis rolls back the sheets it added.
 - **Timeouts.** A call stuck in the USER's Excel is never resolved by killing it. The COM thread is abandoned and that job
   stops at its next call. The user's workbook is never saved by the MCP. New analysis files are saved, with the Internal label.
 - **Double-clicks.** The MCP's hidden Excel sets `IgnoreRemoteRequests`, so files the user double-clicks open in their own Excel. The
   setting is per instance and does not persist (verified).
 
-## New pipeline: `sv_answer` recipes and follow-ups (phase 5)
+## Recipes and follow-ups
 
 A spec `{"version": 1, "question", "gate", "recipe": {"name", "params", "overrides"?}}` (no `pulls`/`layout`) is
 expanded server-side inside the Excel job; the closed month is FinMax's Current Reporting Month. The result carries
@@ -52,7 +47,7 @@ expanded server-side inside the Excel job; the closed month is FinMax's Current 
 
 | Recipe | Params | Defaults | Checks |
 |---|---|---|---|
-| `pnl` | `area` (business area or unit, as `fin_pnl`), `period`, `compare`, `detail` (`compact`/`full`) | closed month; all comparisons | warehouse = source sheet (`layout.expect` → static checks), period closed, line bridge |
+| `pnl` | `area` (a business area by name, or a FinMax unit below one: `un.SY.5OK_W` or `5OK_W`; abolished areas are refused with their successors), `period`, `compare`, `detail` (`compact`/`full`) | closed month; all comparisons | Live read = source sheet (`layout.expect` → static checks), period closed, line bridge |
 | `actual_vs_plan` | `entity` (FinPlan entity), `month`, `year`, `basis` (`ytd`/`month`), `forecast`, `finmax_entity` | closed month, YTD, latest forecast, FinMax entity mapped | FinPlan line checks; EBITDA FinPlan = FinMax (`severity` Warning) |
 | `monthly_trend` | `entity`, `accounts`, `through`, `connection` | `un.SY`; C30, C40S, C70, EBITDA; closed month; FinMax | sum of months = YTD (Accumulated) |
 | `cost_base` | `parent`, `accounts`, `period`, `top`, `connection` | `un.SY`; C50S, C60, C70, STA20Y; closed month; 25; FinMax | top + other = total |
@@ -74,9 +69,10 @@ again, the answer sheet is backed up (`~Q<n> Answer`, hidden) and restored if th
 charts the user added outside the block are kept; only charts named `smartass chart*` are replaced. The findings
 table (Critical / Warning / Info) sits below the notes.
 
-## Speed (benchmarked 2026-10-14; details in DESIGN.md "Performance pass")
+## Speed (bench route `core`, 2026-11-02; details in `docs/audit/`)
 
-- **Typical times.** A pull takes 6-8 s, an answer 4-7 s, a one-call `sv_ws_build` analysis 20-30 s, and a `spec_patch` follow-up about 4 s.
+- **Typical times.** A new `sv_answer` shows its answer sheet in 1-5 s and finishes in 5-35 s (an HTTP pull is
+  ~0.2 s once signed in); a follow-up that reuses its pulls finishes in about 5-7 s; a drill takes 60-90 s.
 - **Outliers outside our code.**
   - Smart View asks for an SSO re-login about hourly per Excel, and the grid waits up to about 70 s until EPM shows
     the dialog. The watcher clicks within 1 s.
@@ -125,7 +121,6 @@ table (Critical / Warning / Info) sits below the notes.
 
 | What | Where |
 |---|---|
-| Results (`save_xlsx`, refreshed copies) | the output folder (`paths.output` in `%LOCALAPPDATA%\smartass\config.toml`) |
 | Query log (audit trail, JSONL) | `%LOCALAPPDATA%\smartass\logs\queries.jsonl` (`paths.query_log`) |
 | Run log (one line per `sv_answer`, JSONL; also the workbook's hidden `_runlog` sheet) | `%LOCALAPPDATA%\smartass\logs\runs.jsonl` (`paths.run_log`) |
 | Learned defaults (written by `sv_remember`, read by `sv_gate`; readable TOML, edit or delete by hand) | `%LOCALAPPDATA%\smartass\preferences.toml` (`paths.preferences`) |
@@ -155,21 +150,27 @@ table (Critical / Warning / Info) sits below the notes.
 | Symptom | Meaning / action |
 |---|---|
 | `rc=1000 … Server says: Member X is out of place` | The grid layout was rejected. Check that the dimension names and member names are right. |
-| `rc=1000 … Unsupported Error` on a refreshed workbook sheet | The sheet references members that no longer exist (often after a reorg). Rebuild it with `sv_query`. |
-| Warning `Smart View rejected these members (rc=1000), so they were left out: …` | On a pull or query, the engine bisected the grid (at most 40 test retrieves), dropped the rejected members and retrieved the rest. Typical cause: a name that occurs twice in one dimension (FinPlan Account `Other`), or a member Smart View cannot place (`SDx Revenue`). Tell the user which lines are missing and pick a more specific member. |
+| Warning `Smart View rejected these members (rc=1000), so they were left out: …` | On a pull, the engine bisected the grid (at most 40 test retrieves), dropped the rejected members and retrieved the rest. Typical cause: a name that occurs twice in one dimension (FinPlan Account `Other`), or a member Smart View cannot place (`SDx Revenue`). Tell the user which lines are missing and pick a more specific member. |
 | `rc=57704 … missing tag: mbrs` | `GetChildren`, `GetParent` and `QueryMembers` are unsupported on EPM Cloud Planning. Use `sv_members` (atlas) instead. |
-| `rc=752 Empty response from provider` | A transient EPM or session issue. The MCP retries the connect three times. If it persists, run `sv_restart`. |
+| Progress `EPM gave an empty response …; retrying` | `rc=752 Empty response from provider` (or 57704) on a connect or retrieve in the engine's hidden Excel. It is retried in place once. If it persists, the engine says so, restarts **only its own hidden Excel** once and retries. |
+| `EPM kept answering 'Empty response from provider' after a restart of the engine's Excel …` | The restart did not clear it. Wait a minute and ask again; if it persists, the user signs in to Smart View once in their own Excel, then run `smartass doctor --bundle`. |
+| Progress `EPM gave an empty response in your Excel; retrying once` / `… trying again` | The same in the user's Excel (Smart View fallback route): retried once; the user's Excel is never restarted. |
+| `Smart View in this Excel is not signed in correctly: EPM answers 'Empty response from provider' to every connect …` | The user's Excel has a broken Smart View session and no Login to click. The user signs in once in that Excel (Smart View ribbon → Panel → connect FinMax) or closes that Excel, then you ask again. |
+| `Smart View's sign-in window stopped responding (Windows marks it 'Not responding') … The engine restarted its hidden Excel; retry.` | A hung Login window in the engine's own Excel is detected within about 5-7 s, and that Excel is restarted. Retry. `… it happened again`: the user signs in once in their own Excel, then retry. |
+| `Smart View's sign-in window stayed open for more than 30s (the automatic SSO click did not complete)` | The SSO watcher did not click (`LOGIN_GRACE_S`, default 30 s). The engine restarted its hidden Excel; retry. If the message names an app holding WebView2 (often PowerPoint), ask the user to close it. |
+| Progress `Smart View's Login is open in your Excel; waiting for the automatic SSO click` | Sent after 5 s of an open Login in the user's Excel. Wait; the watcher (or the user) clicks 'Telenor SSO'. |
+| `The Smart View Login window in your Excel is not responding; nothing was closed. …` | A Login in the user's Excel hung for 10 s. The user closes that Login window (or that Excel), then you ask again. The engine never closes the user's Excel. |
+| HTTP `409 {"error": "busy: one request at a time"}` | `smartass serve`: `POST /gate` or `/answer` while another request runs. Retry when it has finished. |
 | "non-standard ad hoc mode" | FinMax was opened once in "Ad hoc" mode with alias table `none` and no POV row. The MCP retries with alias `Default`, then reconnects. If it persists, run `sv_restart`. |
 | `Call was rejected by callee` | Excel is busy (opening or recalculating a large file). It is retried automatically. |
-| `did not respond within …s` + open windows | The watchdog killed a hang. Retry. The listed windows show which dialog blocked Excel. |
+| `did not respond within …s` + open windows | The watchdog killed a hang in the engine's Excel. Retry. The listed windows show which dialog blocked Excel. |
 | `Cannot connect to provider` plus an `<update>` extension manifest | EPM answered the connect with its extension list. This is transient, and connects are retried 3 times. |
 | "Smart View returned a different layout than requested" | Rows or columns moved (suppression, or an unknown or duplicate member). The numbers were NOT used. Check the members with `sv_find_member`. |
-| Warning `HTTP route failed (…); the grid was read through Smart View in Excel instead` | The grid WAS answered, through Excel; the warning only says why the faster HTTP route was not used. Likely causes: another session owns the drill browser profile (`DrillBusy`, wait or let it close after its idle minutes); the atlas is incomplete or a dimension build failed (run `sv_atlas_build`); the sign-in timed out (the first HTTP call takes ~10-12 s to sign in). No action needed for the answer itself. |
+| Warning `HTTP route failed (…); the grid was read through Smart View in Excel instead` | The pull WAS answered, through Excel; the warning only says why the faster HTTP route was not used. Likely causes: another session owns the drill browser profile (`DrillBusy`, wait or let it close after its idle minutes); the atlas is incomplete or a dimension build failed (run `sv_atlas_build`); the sign-in timed out (the first HTTP call takes ~10-12 s to sign in). No action needed for the answer itself. |
 | "Your Excel is in edit mode…" / "Excel is busy" | A cell is being typed in or a dialog is open. The user presses Enter or Esc, then you ask again. |
 | "…is in the Produktregnskapet archive" | Archive guard. Use `target='new'`, or `allow_archive=true` only when the user explicitly asks for it. |
-| Bare "Error executing tool …" with no reason | The server is running code from before the 13.10.2026 fix (the Excel was dead: `AttributeError: Excel.Application.Ready` in server.log). Run `sv_restart`, then ask the user to reconnect `smartass` with `/mcp`. |
-| Unknown-member warning | Smart View turned the text into a comment. Find the right name with `sv_find_member`. |
-| `Invalid query: unknown member 'X' (FinMax / All Entities)` from `sv_analyse` | The template member is not in the atlas and EPM confirmed live that it does not exist in that dimension. Fix the param (for `actual_vs_plan`, pass `finmax_entity`). If the live check itself fails, the member is pulled unverified instead. |
+| `Q<n> Answer was not drawn by sv_answer, so it has no answer spec to patch` / `There is no answer to follow up` | A follow-up needs an answer drawn by `sv_answer` in the target workbook. Ask it as a new question with `spec=`. |
+| Finding `Q<n> FinMax: unknown members X, Y` | Smart View turned those members into comments: their lines are empty. Find the right names with `sv_find_member` and send a follow-up with the corrected pull. |
 | Warning `error cells on '<sheet>': N x #NoAccess (first: …)` / `formula error on line 'k'` | No read access, or a member not valid in that cube, on a data sheet; the answer lines that depend on it are errors. Tell the user these numbers are missing; never report them as zero. |
 | `Sign-in to EPM did not complete - open EPM once in Edge and log in, then retry sv_drill` | The drill's silent SSO login stalled (the browser nudges a hung `/oauth2/callback` once). The user opens EPM in Edge once, then you retry. |
 | `The drill page loaded but never requested data (also after one reload)` | The Oracle drill page stayed blank. Retry once; if it repeats, the page has changed (screenshot path in the error). |

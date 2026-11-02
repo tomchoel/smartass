@@ -58,6 +58,12 @@ async def lifespan(_server):
 
 INSTRUCTIONS = """Read-only access to Telenor Norge's Oracle EPM Cloud cubes (Smart View); answers are built as
 analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, ...):
+- Every finance question: 1. sv_gate(question) FIRST (clear: state its assumptions; ambiguous: ask its questions in
+  ONE message, pull nothing, offer sv_remember; infeasible: say why, offer its proxy). 2. sv_answer(spec): pulls +
+  layout, or a recipe (pnl, actual_vs_plan, monthly_trend, cost_base, concept); follow-ups on the same answer:
+  sv_answer(followup=<patch>, q=<n>). 3. Write the commentary from the returned checks, findings and material lines,
+  never figures from memory. 4. Utilities: sv_find_member / sv_members / sv_member_info / sv_dimensions to write
+  specs; sv_drill for GL lines; xl_* for edits; sv_status / sv_restart for health.
 - Cubes: FinMax = actuals incl. FTE (ac.STA20Y); FinLite = lighter actuals; FinPlan = budget/forecast. Actual vs
   budget/forecast is done entirely in FinPlan (Actual = version Working; Target and the latest 'Forecast Q<q><yy>' =
   version Final) with a reconciliation line to FinMax EBITDA. FinPlan KPIs (volumes, ARPU, %) are read Periodic per
@@ -65,8 +71,7 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
 - A 'Smart View rejected these members' warning means those lines were left out (the rest was retrieved): say so.
 - Members: entities 'un.SY.<code>' (un.SY.2WHS Wholesale, 2BUS Business, 2SSM, 2EI, 2TEC ...), accounts 'ac.<code>'
   (ac.C30 revenue, ac.C40S COGS, ac.C70 opex, ac.EBITDA), periods 'Sep 26', balance 'Periodic' | 'Accumulated' (=
-  YTD), scenario 'Actual', currency 'NOK'. Resolve names with sv_find_member / sv_members (local atlas, instant).
-  P&L chain: C30 + C40S = C48; C50S + C60 = C70; C48 + C70 = EBITDA_BOI; + C73 = EBITDA.
+  YTD), scenario 'Actual', currency 'NOK' (sv_find_member / sv_members: local atlas, instant). P&L chain: C30 + C40S = C48; C50S + C60 = C70; C48 + C70 = EBITDA_BOI; + C73 = EBITDA.
 - Use the last CLOSED month (the next one is open, with reversals). History is restated to today's organisation
   (the 1 June 2026 reorg emptied 2CON Consumer into 2SSM + 2EI).
 - Product / profitability / business-area questions: check the business map + concept library (knowledge\\) first.
@@ -75,19 +80,17 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
 - P&L for a business area or a unit below one ('un.SY.5OK_W'): sv_answer with recipe 'pnl' (month and YTD vs last
   year, budget, latest forecast; materiality; EBITDA bridge; KPIs; year-end landing). Variance positive = better
   everywhere; cost per FTE is shown positive. Consumer and IG were abolished 1 June 2026: pass the explanation on.
-- Analyses: ONE call - sv_answer(spec). Default target 'session' = this session's own workbook (the
-  analyser folder\\<project>\\..., Q1, Q2 ...); 'active' only when the user asks for their open workbook. Follow-ups:
-  sv_answer(followup=...). Add the same period last year by default.
+- Default target 'session' = this session's own workbook (analyser folder\\<project>\\..., Q1, Q2 ...); 'active'
+  only when the user asks for their open workbook. Sheets: 'Q<n> Answer', a source sheet per pull ('Q<n> FinMax'),
+  'Sources'. Add the same period last year by default.
 - Format: full NOK 1 000 000, negatives (1 000 000) in tables and with a minus sign in text; costs negative;
   variance = current - comparison (positive = better). Line labels in English as FinMax shows them.
 - The Produktregnskapet archive folders are never written to.
-- Invoice / journal-line detail behind any FinLite number: sv_drill(question, cell) (hidden headless browser,
-  reconciled to the cube), then sv_answer with {drill: 'd', where: {...}} cells. Never Smart View's own
-  drill-through execute: it opens the user's browser.
-- Any workbook the user has OPEN (no Smart View needed): xl_* tools - xl_workbooks / xl_overview / xl_read to look,
-  xl_write / xl_rows / xl_add_sheet / xl_format / xl_format_sheet to change (each snapshotted; xl_revert undoes),
-  xl_trace / xl_check to explain and audit formulas. Never saved by the tools: the user saves. Closed files: the
-  separate Excel MCP. Formulas follow skill tn-formelstil (SUM over ranges, XLOOKUP, no guessed ranges)."""
+- Invoice / journal-line detail behind any FinLite number: sv_drill(question, cell) (hidden browser, reconciled to the
+  cube), then sv_answer with {drill: 'd', where: {...}} cells. Never Smart View's drill-through: it opens a browser.
+- Any workbook the user has OPEN: xl_workbooks / xl_overview / xl_read to look, xl_write / xl_rows / xl_add_sheet /
+  xl_format / xl_format_sheet to change (snapshotted; xl_revert undoes), xl_trace / xl_check to audit formulas; never
+  saved (the user saves). Formulas follow skill tn-formelstil (SUM over ranges, XLOOKUP, no guessed ranges)."""
 
 mcp = MCPServer("smartass", instructions=INSTRUCTIONS, lifespan=lifespan)
 
