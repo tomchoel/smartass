@@ -43,4 +43,4 @@ clear).
 | T07 | "Q3 numbers for Consumer" | ambiguous | which measures |
 | T08 | "Cost per FTE in IT" | clear with stated definition | FTE measure exists; cost definition must be stated |
 | T09 | "How much did we spend on consultants?" | clear or ambiguous | account mapping must come from the catalogue, not a guess |
-| T10 | "Forecast for October 26 actuals" | infeasible | actuals for an open month do not exist; offer forecast |
+| T10 | "Forecast for December 27 actuals" | infeasible | actuals for an open month do not exist; offer forecast (live case: pick a month after the closed month; the unit test pins closed = Sep 26) |

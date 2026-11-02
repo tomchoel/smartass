@@ -146,3 +146,11 @@ def test_bench_b02_core_spec_is_a_valid_answer_spec_v1():
     from smartview_mcp.core import contract
     spec = contract.validate(_bench().b02_v1())
     assert [p.id for p in spec.pulls] == ["m", "ytd"] and all(p.title is None for p in spec.pulls)
+
+
+def test_bench_gate_score_counts_false_go_and_needless_ask():
+    b = _bench()
+    rs = [{"gate": "ambiguous", "gate_got": "clear"}, {"gate": "infeasible", "gate_got": "infeasible"},
+          {"gate": "clear", "gate_got": "ambiguous"}, {"gate": "clear", "gate_got": "clear"}, {"gate": "clear"}]
+    assert b.gate_score(rs) == {"right": 2, "total": 4, "false_go": 1, "needless_ask": 1}
+    assert {f"T{i:02d}" for i in range(1, 11)} <= set(b.CASES)

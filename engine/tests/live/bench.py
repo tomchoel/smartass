@@ -5,8 +5,9 @@ Each case runs on a route ('baseline' = today's tools; the new pipeline adds its
   appears on the answer sheet within 1 NOK (or as MNOK/kNOK rounded), every check OK, no formula errors;
 - first_visible_s: first new sheet in a visible Excel, polled from the side;
 - total_s: the route's tool calls.
-Cases without a baseline tool are UNSUPPORTED; gate cases (B10, B11) and the trap questions T01-T10 need an agent
-and are AGENT here. Prints no figures.
+Cases without a baseline tool are UNSUPPORTED. Gate cases (B10, B11) and the trap questions T01-T10 are AGENT on the
+baseline; on route core they are scored by sv_gate (suggested outcome = expected; the report adds false-go and
+needless-ask counts). Prints no figures.
 
 Usage (from engine): uv run python tests\\live\\bench.py [--only B01,B02] [--route baseline|core] [--keep] [--out NAME]
 Writes docs\\audit\\<date>-<out>.json and .md.
@@ -281,6 +282,20 @@ def b09(ctx):
 CASES["B10"] = Case("B10", "EBITDA per product for Mobile Consumer", "infeasible", agent=True)
 CASES["B11"] = Case("B11", "How are we doing on costs?", "ambiguous", agent=True)
 
+# Trap questions (docs/specs/2026-11-02-benchmarks.md): gate quality only. Expected outcomes are owner decisions.
+for _id, _q, _g in [
+        ("T01", "What's our budget for Business?", "ambiguous"),
+        ("T02", "Opex for Wholesale this year", "ambiguous"),
+        ("T03", "EBITDA margin per customer", "infeasible"),
+        ("T04", "Revenue in EUR for Technology", "infeasible"),
+        ("T05", "Profit per product", "infeasible"),
+        ("T06", "Business EBITDA Sep 26 vs Sep 25", "clear"),
+        ("T07", "Q3 numbers for Consumer", "ambiguous"),
+        ("T08", "Cost per FTE in IT", "clear"),
+        ("T09", "How much did we spend on consultants?", "clear"),
+        ("T10", "Forecast for December 27 actuals", "infeasible")]:
+    CASES[_id] = Case(_id, _q, _g, agent=True)
+
 
 @case("B12", "Lines behind account 12881, un.SY, Sep 26",
       oracle=lambda ctx, run: {"12881 un.SY Sep 26": cell("FinLite", fm("un.SY", "Periodic"),
@@ -333,7 +348,19 @@ def run_case(c: Case, ctx, route: str) -> dict:
     r = {"id": c.id, "question": c.question, "gate": c.gate, "route": route, "first_visible_s": None, "total_s": None,
          "oracle": {}, "match": {}, "checks_ok": False, "formula_errors": [], "problems": [], "error": None, "notes": ""}
     if c.agent:
-        return {**r, "result": "AGENT", "notes": "gate quality: needs an agent run"}
+        if route != "core":
+            return {**r, "result": "AGENT", "notes": "gate quality: needs an agent run"}
+        try:
+            t0 = time.monotonic()
+            out, _ = ctx.client.must("sv_gate", {"question": c.question})
+            r["total_s"] = r["first_visible_s"] = round(time.monotonic() - t0, 2)
+            r["gate_got"] = out["suggested_outcome"]
+            r["notes"] = f"gate {r['gate_got']}" + (f": {out['reason']}" if out.get("reason") else "") + (
+                f" / asks {len(out['questions'])}" if out.get("questions") else "")
+            r["result"] = "PASS" if r["gate_got"] == c.gate else "FAIL"
+        except Exception as e:  # noqa: BLE001
+            r["error"], r["result"] = f"{type(e).__name__}: {e}"[:400], "ERROR"
+        return r
     fn = c.baseline if route == "baseline" else c.core
     if fn is None:
         return {**r, "result": "UNSUPPORTED", "notes": "no tool for this today" if route == "baseline"
@@ -374,6 +401,19 @@ def run_case(c: Case, ctx, route: str) -> dict:
     return r
 
 
+def _s(v, none="-"):
+    return none if v is None else v
+
+
+def gate_score(results: list[dict]) -> dict:
+    """Advisor quality over the gate cases scored by sv_gate. false-go = should have asked or refused, but went ahead
+    (clear); needless-ask = was clear, but asked."""
+    scored = [r for r in results if r.get("gate_got")]
+    return {"right": sum(r["gate_got"] == r["gate"] for r in scored), "total": len(scored),
+            "false_go": sum(r["gate"] in ("ambiguous", "infeasible") and r["gate_got"] == "clear" for r in scored),
+            "needless_ask": sum(r["gate"] == "clear" and r["gate_got"] == "ambiguous" for r in scored)}
+
+
 def write_report(name: str, started: datetime, route: str, results: list[dict]) -> Path:
     AUDIT.mkdir(parents=True, exist_ok=True)
     base = AUDIT / f"{started:%Y-%m-%d}-{name}"
@@ -387,8 +427,12 @@ def write_report(name: str, started: datetime, route: str, results: list[dict]) 
         orc = f"{sum(r['oracle'].values())}/{len(r['oracle'])}" if r["oracle"] else "—"
         why = r["error"] or "; ".join(r["problems"] + [f"{k}: {v}" for k, v in r["match"].items() if v not in
                                                         ("exact", "kNOK", "MNOK")]) or r["notes"]
-        lines.append(f"| {r['id']} | {r['result']} | {r['first_visible_s'] or '—'} | {r['total_s'] or '—'} | {orc} | "
+        lines.append(f"| {r['id']} | {r['result']} | {_s(r['first_visible_s'], '—')} | {_s(r['total_s'], '—')} | {orc} | "
                      f"{why.replace('|', '/')} |")
+    g = gate_score(results)
+    if g["total"]:
+        lines += ["", f"Gate: {g['right']}/{g['total']} right; false-go {g['false_go']} (should have asked or refused, "
+                      f"went ahead); needless-ask {g['needless_ask']} (clear, but asked)."]
     base.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return base
 
@@ -415,7 +459,7 @@ def main(argv: list[str] | None = None) -> int:
         for c in sorted(chosen, key=lambda c: c.id):
             r = run_case(c, ctx, a.route)
             results.append(r)
-            print(f"{r['result']:11} {c.id}  first {r['first_visible_s'] or '-'}s  total {r['total_s'] or '-'}s"
+            print(f"{r['result']:11} {c.id}  first {_s(r['first_visible_s'])}s  total {_s(r['total_s'])}s"
                   + (f"  {r['error']}" if r["error"] else ""), flush=True)
     finally:
         try:
