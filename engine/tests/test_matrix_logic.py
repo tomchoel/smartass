@@ -140,3 +140,9 @@ def test_bench_verdict_needs_every_oracle_value_checks_and_no_problems():
     assert b.verdict({**ok, "oracle": {"a": True, "b": False}}) == "FAIL"
     assert b.verdict({**ok, "problems": ["text missing"]}) == "FAIL"
     assert b.verdict({**ok, "error": "ToolFailed"}) == "ERROR"
+
+
+def test_bench_b02_core_spec_is_a_valid_answer_spec_v1():
+    from smartview_mcp.core import contract
+    spec = contract.validate(_bench().b02_v1())
+    assert [p.id for p in spec.pulls] == ["m", "ytd"] and all(p.title is None for p in spec.pulls)

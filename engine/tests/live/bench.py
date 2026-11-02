@@ -8,7 +8,7 @@ Each case runs on a route ('baseline' = today's tools; the new pipeline adds its
 Cases without a baseline tool are UNSUPPORTED; gate cases (B10, B11) and the trap questions T01-T10 need an agent
 and are AGENT here. Prints no figures.
 
-Usage (from engine): uv run python tests\\live\\bench.py [--only B01,B02] [--route baseline] [--keep] [--out NAME]
+Usage (from engine): uv run python tests\\live\\bench.py [--only B01,B02] [--route baseline|core] [--keep] [--out NAME]
 Writes docs\\audit\\<date>-<out>.json and .md.
 """
 from __future__ import annotations
@@ -140,6 +140,7 @@ class Case:
     oracle: Callable | None = None                   # fn(ctx, run) -> {label: sv_query args}
     agent: bool = False                              # needs an agent run (gate quality), not a script
     needs: str | None = None                         # a case whose state this follow-up edits
+    core: Callable | None = None                     # fn(ctx) -> Run dict on the new pipeline (sv_answer)
 
 
 CASES: dict[str, Case] = {}
@@ -148,6 +149,13 @@ CASES: dict[str, Case] = {}
 def case(id: str, question: str, gate: str = "clear", oracle=None, needs=None, agent=False):
     def deco(fn):
         CASES[id] = Case(id, question, gate, fn, oracle, agent, needs)
+        return fn
+    return deco
+
+
+def core_route(id: str):
+    def deco(fn):
+        CASES[id].core = fn
         return fn
     return deco
 
@@ -187,6 +195,27 @@ def b02(ctx):
                                              "target": "new"})
     ctx.state.update(b02_wb=out["workbook"], b02_q=int(str(out["question"]).lstrip("Q")))
     return _run(out)
+
+
+def b02_v1() -> dict:
+    """B02 as an answer spec v1 for sv_answer (the same pulls and layout as the baseline)."""
+    pulls = S._bus_pulls()
+    pulls[1].pop("title", None)                     # sheet names come from the pipeline
+    return {"version": 1, "question": CASES["B02"].question,
+            "gate": {"outcome": "clear", "checklist": {
+                "period": "Jan-Dec 2026 and 2025 (closed months), YTD Sep", "scenario": "Actual",
+                "entity": "un.SY.2BUS Business Norway", "measure": "EBITDA (ac.EBITDA)",
+                "currency_sign": "NOK, FinMax signs", "granularity": "month (Periodic) + Accumulated YTD"}},
+            "assumptions": ["Actual, NOK; months are Periodic; the reconciliation uses Accumulated YTD Sep"],
+            "pulls": pulls, "layout": S._bus_spec()}
+
+
+@core_route("B02")
+def b02_core(ctx):
+    out, _ = ctx.client.must("sv_answer", {"spec": b02_v1(), "target": "new"})
+    ctx.state.update(b02_wb=out["workbook"], b02_q=int(str(out["question"]).lstrip("Q")))
+    problems = [f"{x['severity']}: {x['text']}" for x in out["review"]["findings"] if x["severity"] == "Critical"]
+    return _run(out, problems=problems, notes=f"routes {out['routes']}")
 
 
 @case("B03", "Follow-up to B02: add FinPlan Actual EBITDA YTD", "followup", needs="B02",
@@ -305,14 +334,16 @@ def run_case(c: Case, ctx, route: str) -> dict:
          "oracle": {}, "match": {}, "checks_ok": False, "formula_errors": [], "problems": [], "error": None, "notes": ""}
     if c.agent:
         return {**r, "result": "AGENT", "notes": "gate quality: needs an agent run"}
-    if c.baseline is None:
-        return {**r, "result": "UNSUPPORTED", "notes": "no tool for this today"}
+    fn = c.baseline if route == "baseline" else c.core
+    if fn is None:
+        return {**r, "result": "UNSUPPORTED", "notes": "no tool for this today" if route == "baseline"
+                else f"no {route} route yet"}
     if c.needs and c.needs not in ctx.state.setdefault("passed", set()):
         return {**r, "result": "SKIP", "notes": f"needs {c.needs} to pass in the same run"}
     try:
         t0 = time.monotonic()
         with FirstVisible() as fv:
-            run = c.baseline(ctx)
+            run = fn(ctx)
         r["total_s"] = round(time.monotonic() - t0, 2)
         r["first_visible_s"] = fv.secs
         out = run["out"]
@@ -365,10 +396,11 @@ def write_report(name: str, started: datetime, route: str, results: list[dict]) 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Benchmarks B01-B15")
     ap.add_argument("--only", default="", help="comma-separated case ids")
-    ap.add_argument("--route", default="baseline", choices=["baseline"])
+    ap.add_argument("--route", default="baseline", choices=["baseline", "core"])
     ap.add_argument("--keep", action="store_true", help="leave the scratch workbooks and _bench folder")
-    ap.add_argument("--out", default="bench-baseline")
+    ap.add_argument("--out", default=None, help="report name (default bench-<route>)")
     a = ap.parse_args(argv)
+    a.out = a.out or f"bench-{a.route}"
     only = {s.strip().upper() for s in a.only.split(",") if s.strip()}
     chosen = [c for c in CASES.values() if not only or c.id in only]
     scratch = Path(config.ANALYSER_DIR) / "_matrix"     # helpers.cleanup closes workbooks in a _matrix folder only
