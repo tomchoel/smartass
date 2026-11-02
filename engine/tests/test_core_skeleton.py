@@ -166,18 +166,31 @@ def _fake_run(monkeypatch, calls, pull_fails=False):
     monkeypatch.setattr(pipeline.source, "pull", pull_)
     monkeypatch.setattr(pipeline.specs, "prepare", lambda layout, ids, sess: calls.append(("prepare", ids)) or layout)
     monkeypatch.setattr(pipeline.answer_mod, "build", lambda t, q, spec, sess, suffix, owned=None, **kw:
-                        calls.append(("build", suffix)) or
+                        calls.append(("build", suffix, kw.get("reserve"))) or
                         {"sheet": "Q3 Answer", "checks": {"c": "OK"}, "extent": {"rows": 20, "cols": 6}})
+    t.wb = SimpleNamespace(Worksheets=lambda name: name)
+    monkeypatch.setattr(pipeline.userexcel, "com", lambda call, *a, **k: call())
+    monkeypatch.setattr(pipeline.findings, "render",
+                        lambda ws, row, fs: calls.append(("findings", ws, row)) or row + len(fs) + 1)
 
 
 def test_run_shows_the_answer_sheet_first_then_pulls_then_renders(monkeypatch):
     calls = []
     _fake_run(monkeypatch, calls)
     r = pipeline.run(None, SPEC)
-    assert [c[0] for c in calls] == ["show", "status", "pull", "status", "prepare", "build", "save_spec"]
-    assert ("prepare", {"m": "Q3 FinMax"}) in calls and ("build", "Answer") in calls
-    assert ("save_spec", 3, {"rows": 20, "cols": 6}) in calls and r.raw is SPEC
+    assert [c[0] for c in calls] == ["show", "status", "pull", "status", "prepare", "build", "findings", "save_spec"]
+    assert ("prepare", {"m": "Q3 FinMax"}) in calls and ("build", "Answer", pipeline.findings.RESERVE) in calls
+    assert ("findings", "Q3 Answer", 22) in calls
+    assert ("save_spec", 3, {"rows": 23, "cols": 6}) in calls and r.raw is SPEC and r.owned == {"rows": 23, "cols": 6}
     assert r.q == 3 and r.review == {"ok": True, "findings": []}
+
+
+def test_a_failed_findings_table_is_a_warning_not_a_failed_answer(monkeypatch):
+    calls = []
+    _fake_run(monkeypatch, calls)
+    monkeypatch.setattr(pipeline.findings, "render", lambda ws, row, fs: (_ for _ in ()).throw(RuntimeError("busy")))
+    r = pipeline.run(None, SPEC)
+    assert r.owned == {"rows": 20, "cols": 6} and any("findings" in w for w in r.res["warnings"])
 
 
 def test_a_failed_pull_removes_the_partial_sheets(monkeypatch):

@@ -12,7 +12,7 @@ from .. import answer as answer_mod
 from .. import catalog, specs, userexcel
 from ..host import InputError, rewrap
 from ..timing import stage
-from . import check, commentary, contract, followup, progress, source
+from . import check, commentary, contract, findings, followup, progress, source
 from . import owned as owned_mod
 
 
@@ -154,7 +154,7 @@ def _draw(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, sess: dict
     with stage("prepare spec"):
         prepared = specs.prepare(answer_layout(layout, spec), ids, sess)
     with stage("answer"):
-        res = answer_mod.build(t, q, prepared, sess, suffix=progress.ANSWER, owned=owned)
+        res = answer_mod.build(t, q, prepared, sess, suffix=progress.ANSWER, owned=owned, reserve=findings.RESERVE)
     return res, prepared
 
 
@@ -164,6 +164,13 @@ def _finish(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, prepared
     review = check.review(res, sources, extra=commentary.findings(
         flagged, [d.model_dump() for d in spec.commentary.drivers]))
     ext = res.get("extent")
+    if ext:
+        try:
+            with stage("findings table"):
+                ws = userexcel.com(lambda: t.wb.Worksheets(res["sheet"]))
+                ext = {**ext, "rows": findings.render(ws, ext["rows"] + 2, review["findings"])}
+        except Exception as e:   # noqa: BLE001 - the table never undoes a finished answer
+            res.setdefault("warnings", []).append(f"findings table not written on the sheet: {e}")
     try:
         userexcel.save_spec(t, q, raw, ids, owned=ext)
     except Exception:   # noqa: BLE001 - only needed for follow-ups

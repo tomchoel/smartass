@@ -145,9 +145,9 @@ def test_a_follow_up_reuses_unchanged_pulls_and_redraws_the_same_answer(monkeypa
     names = [c[0] for c in calls]
     assert "pull" not in names and "show" not in names and "status" not in names   # no re-fetch, no skeleton
     assert ("backup", "Q2 Answer") in calls and ("delete", ("~Q2 Answer",)) in calls
-    assert r.q == 2 and sorted(r.reused) == ["m", "ytd"] and r.owned == {"rows": 20, "cols": 6}
+    assert r.q == 2 and sorted(r.reused) == ["m", "ytd"] and r.owned == {"rows": 23, "cols": 6}   # + findings
     assert [s.route for s in r.sources] == ["reused", "reused"] and r.raw["layout"]["title"] == "Changed"
-    assert ("save_spec", 2, {"rows": 20, "cols": 6}) in calls
+    assert ("save_spec", 2, {"rows": 23, "cols": 6}) in calls
 
 
 def test_a_follow_up_that_adds_a_pull_fetches_only_that_pull(monkeypatch):

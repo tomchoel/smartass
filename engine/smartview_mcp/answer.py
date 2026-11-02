@@ -74,10 +74,10 @@ def _expr_to_formula(expr: str, col_letter: str, rows_by_key: dict) -> str:
 
 
 def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull], suffix: str = "Svar",
-          owned: dict | None = None) -> dict:
+          owned: dict | None = None, reserve: int = 0) -> dict:
     from .userexcel import fast_excel
     with fast_excel(t.app):
-        res = _build(t, q, spec, pulls, suffix, owned)
+        res = _build(t, q, spec, pulls, suffix, owned, reserve)
     from .userexcel import wait_calculated
     from .timing import stage
     with stage("calculate + read back"):
@@ -247,8 +247,10 @@ def _extent(r: int, ncol: int, chart: bool) -> dict:
     return {"rows": r - 1, "cols": FIRST_COL + ncol - 1 + (CHART_COLS if chart else 0)}
 
 
-def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Svar", owned: dict | None = None) -> dict:
-    """Write, style and chart the answer sheet (inside fast_excel: no redraw, manual calculation)."""
+def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Svar", owned: dict | None = None,
+           reserve: int = 0) -> dict:
+    """Write, style and chart the answer sheet (inside fast_excel: no redraw, manual calculation). reserve: rows
+    below the answer to make room for (the findings table, written after the build)."""
     from . import styling
     from .core import owned as owned_mod
     from .timing import stage
@@ -258,7 +260,7 @@ def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Svar", own
         com(ws.Activate)
     with stage("write cells"):
         out = _write(t, q, spec, pulls, ws, suffix, make_room=lambda new: owned_mod.make_room(
-            ws, owned, {"rows": new["rows"], "cols": new["cols"] + (CHART_COLS if chart else 0)}))
+            ws, owned, {"rows": new["rows"] + reserve, "cols": new["cols"] + (CHART_COLS if chart else 0)}))
     rows_meta, plan, rows_by_key, checks, cols, ncol, last_col, header_row, r, warnings = out
     extent = _extent(r, ncol, chart)
     longest = max([len(str(ln.get("label", ""))) for _, ln, _ in plan if isinstance(ln, dict) and "cells" in ln] +
