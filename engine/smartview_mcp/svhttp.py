@@ -195,7 +195,33 @@ class SvHttp:
                               f"({'in the future' if back < 0 else f'{back} months back'})")
         return f"{_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
 
-    def _ask(self, conn: str, body, read, fatal) -> list:
+    def drill_link(self, conn: str, cell: dict[str, str]) -> dict:
+        """ops.drill_link over HTTP: {cube_value, url (relative to the EPM base), report}. One 1x1 retrieve gives
+        the value and the Default-alias labels Smart View sends; then GetDrillThroughReports (read-only)."""
+        from .ops import DRILL_DEFAULTS, drill_cell_defaults
+        cell, _ = drill_cell_defaults(cell)
+        if cell.get("All Balance Types", "Periodic") != "Periodic":
+            raise InputError("Drill-through works on Periodic data only; use a period member (quarter/year) "
+                             "instead of Accumulated.")
+        pov = {**DRILL_DEFAULTS, **{d: m for d, m in cell.items() if d not in ("All Accounts", "All Time Periods")}}
+        f = self.fetch(conn, pov, [Axis("All Accounts", [cell["All Accounts"]])],
+                       [Axis("All Time Periods", [cell["All Time Periods"]])])
+        lay, v = f.layout, f.values
+        cells = [("All Time Periods", "col", str(v[1][lay.nr])), ("All Accounts", "row", str(v[1 + lay.nc][0]))]
+        cells += [(d, "pov", str(v[0][lay.nr + j])) for j, (d, _) in enumerate(lay.pov)]
+        ords = (1 + lay.nc) * len(v[0]) + lay.nr
+        val = v[1 + lay.nc][lay.nr]
+        if not self._lock.acquire(timeout=config.SVHTTP_TIMEOUT_S):
+            raise SvHttpError("the HTTP route is busy with another query")
+        try:
+            got = self._ask(conn, lambda sid, cube: svxml.drill_reports(sid, cube, ords, cells), svxml.drill_url,
+                            lambda e: False)
+        finally:
+            self._lock.release()
+        return {"cube_value": val if isinstance(val, float) else None,
+                "url": got[1] if got else None, "report": got[0] if got else None}
+
+    def _ask(self, conn: str, body, read, fatal) -> object:
         """POST body(sid, cube) to conn's provider and read(answer). An error fatal(e) does not rule out (maybe an
         expired session) reconnects once."""
         for attempt in (1, 2):

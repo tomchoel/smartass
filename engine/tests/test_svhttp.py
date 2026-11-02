@@ -635,3 +635,57 @@ def test_fetch_returns_the_raw_grid_a_source_sheet_is_written_from(db_path):
         [Axis("All Accounts", ["ac.C30", "ac.EBITDA"])], [Axis("All Time Periods", ["Aug 26", "Sep 26"])])
     assert [list(r[:3]) for r in f.values] == GRID
     assert f.layout.pov == [("All Entities", "un.SY.2WHS"), ("All Scenarios", "Actual")] and f.seconds >= 0
+
+
+FINLITE_DIMS = ["All Accounts", "All Balance Types", "All Currencies", "All Entities", "All Scenarios",
+                "All Time Periods"]                 # ops.DRILL_DEFAULTS sets All Currencies, so FinLite needs it
+DRILL_ANS = ('<res_GetDrillThroughReports><authRequired>false</authRequired><drillThroughURL name="Drill Through '
+             'to source" type="post">./aif/FdmeeMain.jsp?module=aif.drilldown&amp;attribute=Entities.id.un.SY'
+             '</drillThroughURL></res_GetDrillThroughReports>')
+ONE_CELL = [[None, "Periodic", "NOK", "SY Telenor Norge AS (un)", "Actual"], [None, "Sep 26", None, None, None],
+            ["C60080 Consultancy IS/IT (ac)", -12.5, None, None, None]]
+CELL = {"All Accounts": "ac.C60080", "All Entities": "un.SY", "All Time Periods": "Sep 26"}
+
+
+@pytest.fixture
+def lite_db(db_path):
+    db = atlas.connect(db_path)
+    _store(db, "FinLite", FINLITE_DIMS)
+    db.close()
+    return db_path
+
+
+def test_drill_link_over_http_returns_the_ops_contract(lite_db):
+    t = FakeTransport(answer(ONE_CELL), DRILL_ANS)
+    got = _sv(t, lite_db).drill_link("FinLite", CELL)
+    assert got == {"cube_value": -12.5, "url": "aif/FdmeeMain.jsp?module=aif.drilldown&attribute=Entities.id.un.SY",
+                   "report": "Drill Through to source"}
+    body = t.bodies[-1]
+    assert "<ords>11</ords>" in body                    # (1 + nc) * width + nr = 2 * 5 + 1
+    assert '<dim name="All Time Periods" col="0" enc="0">Sep 26</dim>' in body
+    assert '<dim name="All Accounts" row="0" enc="0">C60080 Consultancy IS/IT (ac)</dim>' in body
+    assert '<dim name="All Entities" pov="pov" enc="0">SY Telenor Norge AS (un)</dim>' in body
+    assert "<cube>FinLite</cube>" in body
+
+
+def test_drill_link_empty_cell_has_no_cube_value(lite_db):
+    empty = [r[:] for r in ONE_CELL]
+    empty[2][1] = None
+    got = _sv(FakeTransport(answer(empty), DRILL_ANS), lite_db).drill_link("FinLite", CELL)
+    assert got["cube_value"] is None and got["url"]
+
+
+def test_drill_link_without_report(lite_db):
+    t = FakeTransport(answer(ONE_CELL), "<res_GetDrillThroughReports></res_GetDrillThroughReports>")
+    assert _sv(t, lite_db).drill_link("FinLite", CELL) == {"cube_value": -12.5, "url": None, "report": None}
+
+
+def test_drill_link_refuses_accumulated(lite_db):
+    with pytest.raises(InputError, match="Periodic"):
+        _sv(FakeTransport(), lite_db).drill_link("FinLite", {**CELL, "All Balance Types": "Accumulated"})
+
+
+def test_drill_link_reconnects_once_on_an_expired_session(lite_db):
+    t = FakeTransport(answer(ONE_CELL), EXPIRED, DRILL_ANS)
+    assert _sv(t, lite_db).drill_link("FinLite", CELL)["url"]
+    assert t.tags().count("ConnectToProvider") == 2
