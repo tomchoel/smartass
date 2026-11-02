@@ -4,6 +4,12 @@ Spec: `docs\archive\specs\2026-10-15-sv-drill-design.md` in the smartass repo. P
 The lines come from the FinLite drill page (view `DrillFilter`, 45 columns), written to `Q<n> Lines` (Excel table
 `Lines_Q<n>`); the report is an `sv_answer` spec with `{"drill": "d", "where": {...}}` cells. **Key** = used in most reports.
 
+**`sv_drill` is a workbench utility.** "Which suppliers / consultancies invoiced most (on which projects)" is the
+recipe `lines_ranking` (one `sv_answer` call that drills itself, ranks and reconciles; [recipes.md](recipes.md)
+"Server-side recipes"), not `sv_drill` plus your own sums. Use `sv_drill` for other line-level reports. A new spec
+with drill cells takes the `Q<n>` of the pending drill (Lines sheets without an Answer); drill cells whose
+`Lines_*` table does not exist are refused before anything is written.
+
 ## Column glossary (45 columns, in page order)
 
 | # | Label | Meaning |

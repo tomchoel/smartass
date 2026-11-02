@@ -49,9 +49,13 @@ expanded server-side inside the Excel job; the closed month is FinMax's Current 
 |---|---|---|---|
 | `pnl` | `area` (a business area by name, or a FinMax unit below one: `un.SY.5OK_W` or `5OK_W`; abolished areas are refused with their successors), `period`, `compare`, `detail` (`compact`/`full`) | closed month; all comparisons | Live read = source sheet (`layout.expect` → static checks), period closed, line bridge |
 | `actual_vs_plan` | `entity` (FinPlan entity), `month`, `year`, `basis` (`ytd`/`month`), `forecast`, `finmax_entity` | closed month, YTD, latest forecast, FinMax entity mapped | FinPlan line checks; EBITDA FinPlan = FinMax (`severity` Warning) |
-| `monthly_trend` | `entity`, `accounts`, `through`, `connection` | `un.SY`; C30, C40S, C70, EBITDA; closed month; FinMax | sum of months = YTD (Accumulated) |
-| `cost_base` | `parent`, `accounts`, `period`, `top`, `connection` | `un.SY`; C50S, C60, C70, STA20Y; closed month; 25; FinMax | top + other = total |
+| `monthly_trend` | `entity`, `accounts`, `through`, `compare`, `connection` | `un.SY`; C30, C40S, C70, EBITDA; closed month; with last year; FinMax | sum of months = YTD (Accumulated) |
+| `cost_base` | `parent`, `accounts`, `period`, `top`, `connection` | `un.SY`; C50S, C60, C70, STA20Y; closed month; top 10 + Other, share %, last year; FinMax | top + other = total |
 | `concept` | `concept` (id from the library), `period`, `compare`, `entity` | closed month vs same month last year | the concept's own checks |
+| `lines_ranking` | `accounts`, `entity`, `period`, `by`, `projects`, `top`, `compare`, `group_separate` | `un.SY`; YTD closed month; top 10 + Other; last year (`["ly"]`); group companies separate; FinLite | Blocks = lines total; Total = cube; By project = lines total |
+
+The finance defaults, which recipe the gate names, and what `lines_ranking` draws:
+[recipes.md](recipes.md) "Server-side recipes".
 
 `recipe.params` cannot change in a follow-up (ask a new question); `overrides` and follow-ups are patches.
 
@@ -170,6 +174,12 @@ table (Critical / Warning / Info) sits below the notes.
 | "Your Excel is in edit mode…" / "Excel is busy" | A cell is being typed in or a dialog is open. The user presses Enter or Esc, then you ask again. |
 | "…is in the Produktregnskapet archive" | Archive guard. Use `target='new'`, or `allow_archive=true` only when the user explicitly asks for it. |
 | `Q<n> Answer was not drawn by sv_answer, so it has no answer spec to patch` / `There is no answer to follow up` | A follow-up needs an answer drawn by `sv_answer` in the target workbook. Ask it as a new question with `spec=`. |
+| `sv_answer` returns `gate: "ambiguous"` with `questions` and "Nothing was pulled: the gate is still ambiguous for this question" | `sv_answer` re-ran the gate on `spec.question` with `spec.gate.answers`. Ask the questions in the user's language, call `sv_gate(question, answers={item: answer})` with the same question, and pass the same `answers` as `spec.gate.answers`. Rewording the question is not the fix. |
+| `This departs from the standard analysis: … Use the recipe and defaults sv_gate named, or pass deviation='<the user's explicit request>'` | Another recipe than the gate's, a free-form spec where the gate named a recipe, a param that switches off a default (`top` ≠ 10, `compare` without last year, `group_separate: false`), or a free-form ranking that is not top 10 + Other. Use the gate's recipe; only if the user asked for the departure, add `deviation` (it is written on the sheet and in the run log). |
+| `Sheet text that is not English: …` / "Write sheet text in English" | Norwegian words or æ/ø/å in a title, note, header, check label, assumption, driver or deviation. Translate those strings; supplier, project and member names may stay as they are. The chat stays in the user's language. |
+| `The drill table(s) Lines_Q<n>_<alias> do not exist in this workbook (Lines tables here: …)` | Drill cells point at a Lines table of another question. Cause (0x800A03EC, 2026-11-02): `sv_drill` wrote `Q1 Lines`, then a new spec took Q2 and its drill cells named `Lines_Q2_*`, which did not exist; Excel rejects such a formula. A new spec with drill cells now takes the q of the pending drill (Lines sheets without an Answer). Fix: drill with `sv_drill(q=<n>, id='<alias>')` first, or use the recipe the gate named (`lines_ranking` drills itself). |
+| Warning `The ledger lines could not be drilled, so this shows the cube total only` / `Drill failed: …` | `lines_ranking`'s drill failed: `Q<n> Answer` shows the cube total per account. Ask again to rank the suppliers. If only last year's drill failed, the last-year columns show the cube total. |
+| Finding (Warning) `Ledger lines differ from the cube by … NOK (… lines); shown as 'Unexplained gap'` | `lines_ranking`'s lines do not tie to the cube by more than 1 NOK; the difference is its own line. Ask again to re-drill if needed (there is no automatic re-drill). |
 | Finding `Q<n> FinMax: unknown members X, Y` | Smart View turned those members into comments: their lines are empty. Find the right names with `sv_find_member` and send a follow-up with the corrected pull. |
 | Warning `error cells on '<sheet>': N x #NoAccess (first: …)` / `formula error on line 'k'` | No read access, or a member not valid in that cube, on a data sheet; the answer lines that depend on it are errors. Tell the user these numbers are missing; never report them as zero. |
 | `Sign-in to EPM did not complete - open EPM once in Edge and log in, then retry sv_drill` | The drill's silent SSO login stalled (the browser nudges a hung `/oauth2/callback` once). The user opens EPM in Edge once, then you retry. |

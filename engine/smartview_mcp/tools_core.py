@@ -204,7 +204,9 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
     params, overrides?}} without pulls/layout. Recipes: pnl {area, period?, compare?}; actual_vs_plan {entity
     (FinPlan), month?, year?, basis?, forecast?, finmax_entity?}; monthly_trend {entity?, accounts?, through?,
     compare? (default with last year)}; cost_base {parent?, accounts?, period?, top? (10 + Other)}; concept {concept,
-    period?, compare?, entity?}. The period
+    period?, compare?, entity?}; lines_ranking {accounts, entity?, period?, by, projects?, top?, compare?,
+    group_separate?} (drills the ledger lines itself). Use the recipe + params sv_gate named; a departure needs
+    spec.deviation = the user's explicit request (written on the sheet). Sheet text must be English. The period
     defaults to the closed month (returned as period). overrides = a follow-up-shaped patch on the draft; recipe
     params cannot be changed by a follow-up (ask a new question).
     followup: a patch on the current answer (the active Q<n> Answer, else the latest; or answer q). Use it unless

@@ -7,8 +7,9 @@ grid was run against FY2025 and reconciled cell by cell with the archived workbo
 Every difference was explained; the explanations are the traps listed in `SKILL.md`.
 
 These are extracts, not the server-side recipes of `sv_answer` (`pnl`, `actual_vs_plan`, `monthly_trend`,
-`cost_base`, `concept`: see [operations.md](operations.md) "Recipes and follow-ups"). Recipe `pnl` reconciles its
-live facts with the source sheets ("Live read = source sheet").
+`cost_base`, `concept`, `lines_ranking`: see "Server-side recipes" at the end, and [operations.md](operations.md)
+"Recipes and follow-ups"). Recipe `pnl` reconciles its live facts with the source sheets ("Live read = source
+sheet").
 
 ## 1. GL extract — cost base per cost centre (FinMax)
 
@@ -117,3 +118,60 @@ FinPlan's grid shows *aliases*, and the atlas stores those aliases (`BANORWAY`, 
 
 This was smoke-tested on 2026-10-13: BANORWAY, Target 2025, Final, FY25 TotalYear returned 7,518,989,026.37 at the top Account level.
 No FinPlan recipe has been reconciled against an archive file yet.
+
+## Server-side recipes (sv_answer)
+
+### Which recipe the gate names
+
+`sv_gate` returns `recipe: {name, params}` for a clear question: the first matching rule of `core/scope.py`
+`_recipe`. Use it as given; anything else is a departure (`deviation`, below).
+
+| # | When | Recipe | Params from the gate |
+|---|---|---|---|
+| 1 | grain supplier or project, and a cost-type measure with accounts (consultants, contractors, legal, travel …) | `lines_ranking` | `accounts`, `entity`, `period`, `by: supplier`, `projects` (true when projects/initiatives are asked) |
+| 2 | grain month, or "trend" / "utvikling" | `monthly_trend` | `entity`, `accounts`, `through` |
+| 3 | grain cost centre | `cost_base` | `parent`, `accounts`, `period` |
+| 4 | budget or forecast named, and the entity has a FinPlan member | `actual_vs_plan` | `entity` (FinPlan), `month`, `year` |
+| 5 | a P&L measure (concept or KPI) | `pnl` | `area`, `period` |
+| 6 | a concept from the library | `concept` | `concept`, `period`, `entity` |
+| 7 | a measure with accounts only | `cost_base` | `parent`, `accounts`, `period`, `top: 10` |
+| — | none of these | `null` | write a free-form spec (`pulls` + `layout`) |
+
+### Finance defaults (each recipe's `DEFAULTS`)
+
+| Recipe | Default | Departs when |
+|---|---|---|
+| `pnl` | compare with last year (plus budget and the latest forecast when FinPlan has the entity) | `compare` without `ly` |
+| `actual_vs_plan` | Target and the latest forecast are always shown | — |
+| `monthly_trend` | the same months last year | `compare` without `ly` |
+| `cost_base` | top 10 + Other + total + share %, last year | `top` ≠ 10 |
+| `concept` | the same period last year | `compare` empty |
+| `lines_ranking` | top 10 + Other; last year (`compare: ["ly"]`); group companies separate | `top` ≠ 10, `compare` ≠ `["ly"]`, `group_separate: false` |
+| free-form | a ranking (`repeat.over.top`) is the top 10 with an "Other" line | another N, or no "Other" line |
+
+A departure is allowed only on the user's explicit request: `spec.deviation = "<the request>"`. `sv_answer` refuses
+it otherwise and lists the departures; with it, the sheet says "Deviation from the standard analysis (user's
+request): …" under the assumptions. Budget is compared at total level only, where FinPlan maps the measure (FinPlan
+has no supplier or project grain).
+
+### `lines_ranking`
+
+One `sv_answer` call: it draws `Q<n> Answer` (question, assumptions, "Drilling ledger lines …") before any drill,
+drills the FinLite ledger lines of each account (d1 = this year, d2 = the same months last year; about 60 s each,
+with progress notes), writes `Q<n> Lines d1` / `Q<n> Lines d2`, then renders:
+
+- **Invoiced by supplier:** the top 10 external suppliers by `AP_CUSTOMER_NAME` (costs negative, biggest cost
+  first), "Other external suppliers", "Total external suppliers"; columns this year, last year, Change, Change %,
+  Share % (of the cube total).
+- **Group companies:** own block, never in the top 10 (`knowledge/catalog.toml` `[group_companies]`: a counterparty
+  column or name patterns).
+- **Reconciliation:** "Accruals / reversals / journals without supplier" (lines without a supplier), "Total (ledger
+  lines)", "Unexplained gap (ledger lines vs cube)" = cube − lines, and "Total (cube)" from a FinLite pull. Checks
+  "Blocks = lines total" and "Total = cube". A gap over 1 NOK is a Warning finding; there is no automatic re-drill.
+- **`projects: true` → `Q<n> By project`**, hyperlinked both ways: booked projects (`PROJECT_DESC` when `PROJECT`
+  ≠ 000000) and "Initiative (derived, not booked)" (the cost centre `CC_DESC`, else the start of the line text),
+  top 10 + Other each, check "By project = lines total".
+- **Fallbacks:** this year's drill fails → the cube total per account only, with a warning; last year's drill fails →
+  the last-year columns show the cube total only.
+- `key_values` carries "Total (cube)"; `followups` suggest the invoice lines of the largest supplier, the monthly
+  trend and contractors.

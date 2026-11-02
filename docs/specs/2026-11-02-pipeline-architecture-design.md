@@ -81,9 +81,19 @@ Implemented (phase 4) in `core/scope.py`, exposed as the tool `sv_gate(question)
 - **Learned defaults:** `sv_remember(item, phrase, value)` writes `%LOCALAPPDATA%\smartass\preferences.toml`
   (`paths.preferences`; one file per user, readable, editable by hand; promotion to the team catalog later). Items:
   measure, period ("this year" → ytd / fy), scenario, entity; values are validated against the catalog.
-- English questions, assumptions and sheets; Norwegian synonyms are understood.
+- English sheets; Norwegian synonyms are understood.
 - Measured on the gate benchmark (B10, B11, T01–T10): 12/12, false-go 0, needless-ask 0
   (`docs/audit/2026-11-02-bench-core-final-gate.md`).
+
+Implemented (advisor plans, `docs/plans/2026-11-02-advisor-plans.md`):
+- **The gate names the recipe:** `gate()` returns `recipe: {name, params}` for a clear question, from a rule table
+  in code (`scope._recipe`: supplier/project grain + cost-type accounts → `lines_ranking`; month/trend →
+  `monthly_trend`; cost centre → `cost_base`; budget/forecast with a FinPlan entity → `actual_vs_plan`; P&L measure
+  → `pnl`; concept → `concept`; accounts only → `cost_base`), else `None` (a free-form spec). `next` says to call
+  `sv_answer` now and never ask whether to build a sheet. No playbooks, no plan object.
+- **`answers`:** `sv_gate(question, answers={item: value})` resolves the asked items (source `user`) without
+  rewording the question; `contract.Gate.answers` carries them into the spec.
+- Questions are asked in the user's language; sheet text stays English.
 
 ### 3.2 pull
 
@@ -149,6 +159,26 @@ Implemented (phase 5, `docs/plans/2026-11-02-widen.md`):
   pull through `repeat.over.top`), `concept`. `sv_answer` returns `period` and an `outline` (pull ids, columns,
   section titles, line keys, check labels) to address follow-ups.
 
+Implemented (advisor plans):
+- **Enforcement before any Excel job** (`tools_core._precheck`): the gate is re-run on `spec.question` with
+  `spec.gate.answers`; still ambiguous → the questions, nothing pulled. A recipe other than the gate's, a free-form
+  spec where the gate named one, a param that switches off a recipe's `DEFAULTS`, or a free-form ranking that is not
+  top 10 + Other → `InputError`, unless `spec.deviation` holds the user's request (written under the assumptions and
+  in the run log). `contract.non_english` (a Norwegian-marker heuristic) refuses non-English sheet text; names and
+  member labels are exempt, the question is shown as asked.
+- **Finance defaults in each recipe** (`DEFAULTS`, `FOLLOWUPS`): the same period last year; budget/forecast where
+  FinPlan has the entity; reconciliation to the cube; rankings top 10 + Other + total + share % (`cost_base` too);
+  group companies separate.
+- **Read-back:** the reply carries `key_values` (line → column → the value the sheet calculated, ≤ 40 lines),
+  `followups` (≤ 3, from the recipe) and `sheets` (every sheet written).
+- **First frame before drills:** a drilling recipe runs as job A (the `Q<n> Answer` frame: question, assumptions,
+  "Drilling ledger lines …"), the drills on the event loop (no Excel held, progress notes), then job B (Lines
+  sheets, recipe draft, pull, render, checks); `timings` adds `first frame` and `drills`.
+- **Topic sheets:** `spec.extras = [{topic, layout}]` renders `Q<n> <topic>` (e.g. `Q<n> By project`), hyperlinked
+  both ways with `Q<n> Answer`.
+- **Where-cell fix (COM 0x800A03EC):** drill cells whose `Lines_*` table is missing are refused before anything is
+  written; a new spec with drill cells takes the q of the pending drill.
+
 ### 3.4 check
 
 - Reconciliation checks from the spec (e.g. sum of months = accumulated YTD), formula errors, sheet value = fetched
@@ -179,6 +209,14 @@ Implemented (phase 5):
   a finding to show, not an untrustworthy number), the concept's own checks, and for `pnl` the warehouse = source
   sheet reconciliation carried as `layout.expect` and turned into static checks after the pull (D9).
 - `Check.severity` (`Critical` default | `Warning`) decides how a DIFF is graded in the review.
+
+Implemented (advisor plans): **`lines_ranking` drills inside `sv_answer`** (`core/drillstep.py`, moved from
+`tools_drill.py`; `core/recipes/lines.py`). It ranks invoiced amounts per supplier (top 10 + Other), shows group
+companies as their own block, puts lines without a supplier on a reconciling line and ties the total to a FinLite
+cube pull (checks "Blocks = lines total", "Total = cube"). An unexplained difference is its own line, "Unexplained
+gap (ledger lines vs cube)", and a Warning finding above 1 NOK (no automatic re-drill). Last year comes from a
+second drill; if it fails, last year is shown at cube level only; if this year's drill fails, the answer is the cube
+total only. The vendored advisor text is unchanged (sha256 pinned in `test_vendor.py`).
 
 ## 4. The contract: answer spec v1
 
@@ -218,6 +256,12 @@ by `core/period.py`; entities, scenarios and materiality stay in `catalog.toml`;
 - FinPlan Entity has 337 members (business areas and some units); units below them have no FinPlan member.
 - FinMax scenarios: Actual, Target, ForecastQ1–Q4, Act v Tgt, Act Dev Last Yr / Last Per, Act v FCQ1–Q4.
   FinPlan scenarios: Actual, Target, Forecast Qnyy, Forecast Running; version Final / Working.
+
+Implemented (advisor plans): **account-list measures** — `Measure.accounts` sums FinLite/FinMax accounts for cost
+types (consultants = C60080 + C60090; consultants and temps = C693; contractors = C60110; legal = 67410 + 67420 +
+C60400, with `legal_fees` and `legal_disputes` for the specific phrases; audit fees, travel, management fee, licence
+fees, energy, shared services), English and Norwegian synonyms, the longest synonym wins. New grains `supplier` and
+`project` (FinLite ledger lines). A bare current year ("i 2026") with actuals = YTD through the closed month.
 
 ## 6. What is reused, frozen, dropped
 

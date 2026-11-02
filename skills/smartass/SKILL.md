@@ -30,12 +30,25 @@ against the catalogue, the capability map and the user's learned defaults. Proce
 
 | Outcome | Do |
 |---|---|
-| `clear` | Proceed. State every item with source convention/learned (and each warning) as an assumption. |
-| `ambiguous` | Pull nothing. Ask its questions (1–3) in ONE message. Call `sv_gate` again with the answers folded in, and offer `sv_remember(item, phrase, value)` to save an answer as the user's default. |
+| `clear` | Proceed. State every item with source convention/learned (and each warning) as an assumption. Call `sv_answer` now with the gate's `recipe` (`{name, params}`); `recipe: null` → a free-form spec. |
+| `ambiguous` | Pull nothing. Ask its questions (1–3) in ONE message, in the user's language. Then call `sv_gate(question, answers={item: answer})` with the SAME question (e.g. `{"measure": "opex"}`), pass the same `answers` as `spec.gate.answers`, and offer `sv_remember(item, phrase, value)` to save an answer as the user's default. |
 | `infeasible` | Say why in one or two sentences, offer the proxy, and build it labelled as a proxy. |
 
-Copy the result into the spec's `gate` (`outcome`, `checklist`, `questions` / `reason` + `proxy`) and
+Copy the result into the spec's `gate` (`outcome`, `checklist`, `questions` / `reason` + `proxy`, `answers`) and
 `assumptions`. Use the gate's `closed_month`: the month after it is open and carries reversals.
+
+**Always build sheets.** Every number question ends in answer sheets built by `sv_answer`: never ask whether to
+build a sheet, and never answer with a table in chat only. Several sheets per request are fine (`Q<n> Answer`, a
+topic sheet such as `Q<n> By project`, source and Lines sheets).
+
+**Departures need the user.** Use the recipe and params the gate named. Another recipe, a free-form spec where the
+gate named one, or a param that switches off a finance default (`top` ≠ 10, `compare` without last year,
+`group_separate: false` …) only when the user explicitly asked for it: pass `deviation="<the user's request>"` in the
+spec; it is written on the sheet ("Deviation from the standard analysis (user's request): …") and in the run log.
+
+**Language:** the chat is in the user's language; sheet text is English (title, subtitle, notes, key points,
+section titles, column headers, check labels, assumptions, drivers, deviation). Supplier, project and member names
+stay as they are; the question is shown as asked.
 
 ### 2.2 Answer (one call)
 
@@ -95,8 +108,14 @@ Worked example (bench B02: Business EBITDA per month 2026 vs 2025, with a reconc
   cost questions by default.
 - **Input shapes.** `rows`/`columns` are `[{dimension, members}]`.
 - The result carries `checks`, `review` (findings), `material`, `outline`, `routes` (HTTP or Smart View per
-  source sheet), `timings` (seconds per stage: mention an unusually slow one) and `formula_style` (skill
-  `tn-formelstil`; if `ok` is false, a `value`/`expr` you wrote broke a rule: fix it with a follow-up).
+  source sheet), `timings` (seconds per stage: mention an unusually slow one; a drilling recipe adds `first frame`
+  and `drills`), `formula_style` (skill `tn-formelstil`; if `ok` is false, a `value`/`expr` you wrote broke a rule:
+  fix it with a follow-up), `key_values` (line label → column header → the value the sheet calculated, at most 40
+  lines), `followups` (at most 3 next questions) and `sheets` (every sheet written).
+- **Enforced before anything is pulled** (each refusal names the fix; [reference/operations.md](reference/operations.md)
+  "Errors"): the gate is re-run on `spec.question` with `spec.gate.answers` and a still-ambiguous question returns
+  its questions instead; a departure from the gate's recipe or a recipe default needs `deviation`; sheet text must
+  be English.
 
 ### 2.3 Follow-ups
 
@@ -122,9 +141,18 @@ follow-up-shaped patch on the draft; `params` cannot change in a follow-up (ask 
 |---|---|---|
 | `pnl` | `area`, `period?`, `compare?`, `detail?` (`compact`/`full`) | Month and YTD vs last year, budget and the latest forecast; materiality; EBITDA bridge by line and sub-unit; KPIs; year-end landing. Read live; check "Live read = source sheet". |
 | `actual_vs_plan` | `entity` (FinPlan alias), `month?`, `year?`, `basis?`, `forecast?`, `finmax_entity?` | Actual vs Target and the latest forecast in FinPlan, with a FinMax EBITDA reconciliation |
-| `monthly_trend` | `entity?`, `accounts?`, `through?`, `connection?` | Jan→month periodic, a YTD column checked against Accumulated, line chart |
-| `cost_base` | `parent?`, `accounts?`, `period?`, `top?`, `connection?` | Top-N leaf cost centres + other + total |
+| `monthly_trend` | `entity?`, `accounts?`, `through?`, `compare?`, `connection?` | Jan→month periodic with the same months last year, a YTD column checked against Accumulated, line chart |
+| `cost_base` | `parent?`, `accounts?`, `period?`, `top?`, `connection?` | Top 10 leaf cost centres + Other + total, share %, last year |
 | `concept` | `concept`, `period?`, `compare?`, `entity?` | A concept from the library: every block, keys, FinMax basis |
+| `lines_ranking` | `accounts`, `entity?`, `period?`, `by` (`supplier`), `projects?`, `top?`, `compare?`, `group_separate?` | Drills the FinLite ledger lines itself (this year + last year) and ranks invoiced amounts per supplier: top 10 + Other, group companies as their own block, a reconciling line for lines without a supplier, an "Unexplained gap" line, tied to the cube; `projects: true` adds `Q<n> By project` |
+
+- **Finance defaults are in each recipe** (same period last year, top 10 + Other + total + share %, group
+  companies separate, reconciliation to the cube); turning one off is a departure (`deviation`, §2.1). The gate's
+  recipe table and every default: [reference/recipes.md](reference/recipes.md).
+- **Line-level questions** ("which suppliers / consultancies invoiced most, on which projects") use
+  `lines_ranking` in ONE `sv_answer` call: it draws the first frame, drills (about 60 s per year, with progress
+  notes) and builds `Q<n> Answer` (+ `Q<n> By project`, `Q<n> Lines d1` / `d2`). Never `sv_drill` plus your own
+  sums. If the drill fails, the answer shows the cube total only, with a warning.
 
 - **`pnl` area:** a business area by name (Wholesale, Business, Technology …) or any FinMax unit below one
   (`un.SY.5OK_W`, or the bare code `5OK_W`). Consumer and IG (abolished 1 June 2026) are refused with their
@@ -143,9 +171,12 @@ follow-up-shaped patch on the draft; `params` cannot change in a follow-up (ask 
 - `material` lists the lines that need a driver. Explain them in `commentary.drivers` (`knowledge/advisor/
   variance-commentary.md`): `basis: data` with the pull/drill cell as `evidence`, otherwise `basis: hypothesis`,
   said as "Hypothesis — not verified in data". Never figures from memory.
-- **Report in chat:** the key points; a compact table of the headline lines; cube · POV · period on one line; the
-  checks and findings above; the sheet names; that the user's workbook was **not saved** (session and new files are
-  the MCP's own and are saved).
+- **Report in chat, in the user's language, as a full summary:** the key points; a compact table of the headline
+  lines; cube · POV · period on one line; the checks and findings above; the sheet names (`sheets`); the
+  `followups` (at most 3) as suggestions; that the user's workbook was **not saved** (session and new files are the
+  MCP's own and are saved).
+- **Numbers in chat:** quote `key_values` (the values the sheet calculated). Never compute numbers yourself (no
+  sums, differences or shares of your own); a number not in `key_values` is read with `xl_read`.
 
 ## 3. Utilities
 
@@ -153,11 +184,13 @@ follow-up-shaped patch on the draft; `params` cannot change in a follow-up (ask 
   member)`, `sv_dimensions(connection)` (local atlas of all three cubes, instant). FinMax names are prefix + code:
   `un.SY.2TEC`, `ac.C30`, `pd.SY.P56`. Entities default to the `un.SY` tree; `un.NOR.*` is the management view.
   FinPlan uses aliases as shown (`2TEC Technology`, `FY26`, `Target 2025`).
-- **Drill (invoice / journal lines, FinLite only):** `sv_drill(question, cell={'All Accounts': .., 'All Entities':
-  .., 'All Time Periods': ..})`. Hidden browser, never Smart View's own drill-through. One drill at a time across
-  sessions; 60–90 s with the silent sign-in; big cells split themselves. Read `reconciliation` (must be `exact`, or
-  explain the gap) and `profile`, then build the report with `sv_answer` using `{"drill": "d", "where": {...}}`
-  cells. Details: [reference/drill.md](reference/drill.md).
+- **Drill (invoice / journal lines, FinLite only), a workbench utility:** rankings by supplier or project use the
+  recipe `lines_ranking` (§2.4). For other line-level reports: `sv_drill(question, cell={'All Accounts': ..,
+  'All Entities': .., 'All Time Periods': ..})`. Hidden browser, never Smart View's own drill-through. One drill at
+  a time across sessions; 60–90 s with the silent sign-in; big cells split themselves. Read `reconciliation` (must
+  be `exact`, or explain the gap) and `profile`, then build the report with `sv_answer` using `{"drill": "d",
+  "where": {...}}` cells (a new spec with drill cells answers the pending drill's `Q<n>`). Details:
+  [reference/drill.md](reference/drill.md).
 - **The xl workbench** (any open workbook, no Smart View): `xl_workbooks`, `xl_overview`, `xl_read` to look;
   `xl_write`, `xl_rows`, `xl_add_sheet`, `xl_format`, `xl_format_sheet` to change (each snapshotted; `xl_changes`,
   `xl_revert` undo); `xl_trace`, `xl_check` to explain and audit formulas. Never saved by the tools.
@@ -170,7 +203,9 @@ follow-up-shaped patch on the draft; `params` cannot change in a follow-up (ask 
   All numbers are live formulas on the source sheets.
 - **`Q<n> FinMax` / `Q<n> FinPlan` / `Q<n> FinLite`**: one source sheet per pull (a value grid; a follow-up
   re-fetches).
-- **`Q<n> Lines`**: drill lines (Excel table `Lines_Q<n>`).
+- **`Q<n> <topic>`** (e.g. `Q<n> By project`): a recipe's topic sheet, hyperlinked to and from `Q<n> Answer`.
+- **`Q<n> Lines`**: drill lines (Excel table `Lines_Q<n>`); `lines_ranking` writes `Q<n> Lines d1` (this year) and
+  `Q<n> Lines d2` (last year), tables `Lines_Q<n>_d1` / `_d2`.
 - **`Sources`**: one row per pull (fetched, question, cube, POV, route). A user's own unrelated `Sources` sheet
   pushes ours to `Sources SV`.
 - **Order** is fixed after every answer and drill: all `Q<n> Answer`, the user's other sheets, data per question,
