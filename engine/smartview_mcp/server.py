@@ -206,10 +206,6 @@ async def _call(fn, timeout: float | None = None, what: str = "call"):
         raise _err(e) from None
 
 
-def _safe_name(s: str) -> str:
-    return re.sub(r"[^\w\-. ]+", "_", s).strip()[:80] or "query"
-
-
 def _doc(extra: str):
     """Append shared reference text to a tool's docstring (applied before @tool reads it)."""
     def deco(fn):

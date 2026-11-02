@@ -96,8 +96,14 @@ def assert_sheet_is_engine(res, req, pulls):
     return v
 
 
+def with_reconciliation(spec, expected, pulls_by_id, source="Live read"):
+    extra = [fin_spec.reconcile_pull(pulls_by_id[pid], cells, source=source) for pid, cells in expected.items()
+             if pid in pulls_by_id]
+    return {**spec, "checks": list(spec.get("checks") or []) + extra}
+
+
 def reconciled(req, pulls):
-    spec = fin_spec.with_reconciliation(req.spec, req.expected, pulls)
+    spec = with_reconciliation(req.spec, req.expected, pulls)
     return [c for c in spec["checks"] if c["label"].startswith("Live read = source sheet")]
 
 
@@ -121,7 +127,7 @@ def test_the_request_has_the_five_source_sheets_and_formula_cells_only(built):
     assert titles[0].startswith("P&L vs last year (FinMax)") and any(t.startswith("Year-end landing") for t in titles)
     for ln, c in _all_cells(req.spec):
         if isinstance(c, dict) and "value" in c:                      # only the labelled inputs hold typed numbers
-            assert ln["key"] in fin_spec.INPUT_KEYS
+            assert ln["key"] in ("months_year", "months_ytd", "kpi_sign")
         if isinstance(c, dict) and "expr" in c:                       # no constants inside formulas
             assert not re.search(r"(?<![\w])\d", c["expr"]), c["expr"]
     labels = [c["label"] for c in req.spec["checks"]]
@@ -335,7 +341,7 @@ def test_a_unit_without_finplan_is_compared_with_last_year_only(tmp_path):
     assert "budget" not in req.spec["title"] and req.spec["title"].endswith("vs last year")
     pulls = sheets(tmp_path, req)
     assert_sheet_is_engine(res, req, pulls)
-    spec = fin_spec.with_reconciliation(req.spec, req.expected, pulls, source=req.source)
+    spec = with_reconciliation(req.spec, req.expected, pulls, source=req.source)
     recon = [c for c in spec["checks"] if c["label"].startswith("Live read = source sheet")]
     assert req.source == "Live read" and len(recon) == 2 and all(c["static"] == "OK" for c in recon)
     assert all(c["static"] == "OK" for c in spec["checks"] if "static" in c)

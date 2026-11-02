@@ -844,10 +844,8 @@ def test_server_lines_of_normalises_each_piece_once(monkeypatch):
     assert isinstance(L["stats"]["unfixed"], list) and L["cols"][0] == "Scenario"
 
 
-def test_server_drill_helpers():
+def test_drill_alias_syntax():
     from smartview_mcp import tools_drill as server
-    assert server._has_drill_cells({"sections": [{"lines": [{"cells": [None, {"drill": "d", "where": {}}]}]}]})
-    assert not server._has_drill_cells({"sections": [{"lines": [{"cells": [{"pull": "a"}]}]}]})
     assert server._ALIAS.match("d") and server._ALIAS.match("b2_x")
     for bad in ("", "2b", "a-b", "a b", "a]"):
         assert not server._ALIAS.match(bad)
@@ -1208,18 +1206,6 @@ def test_profile_shares_for_no_supplier_and_untagged(whs):
     for k in ("no_supplier", "untagged_product"):
         assert 0 <= p[k]["share_lines"] <= 1 and "share_amount" in p[k]
     assert p["no_supplier"]["share_lines"] == round(p["no_supplier"]["lines"] / len(rows), 4)
-
-
-def test_drill_rows_follow_the_excel_columns(monkeypatch, tmp_path):
-    from smartview_mcp import drill_store, tools_drill as server
-    db = drill_store.connect(tmp_path / "d.db")
-    drill_store.save(db, connection="FinLite", cell={}, rec={"excel_columns": ["Period", "AMOUNT"]},
-                     columns=["Period", "AMOUNT", "BATCH_ID"], rows=[{"Period": "Jul-26", "AMOUNT": -1.0,
-                                                                     "BATCH_ID": "7"}],
-                     workbook="w.xlsx", q=1, alias="d")
-    db.close()
-    monkeypatch.setattr(drill_store, "connect", lambda path=None: drill_store.sqlite3.connect(tmp_path / "d.db"))
-    assert server._drill_rows("w.xlsx", 1) == {"d": [{"Period": "Jul-26", "AMOUNT": -1.0}]}
 
 
 # ------------------------------------------------------------------ reliability audit (Task 11)

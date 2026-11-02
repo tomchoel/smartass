@@ -10,7 +10,6 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parent
 ENGINE_DIR = PKG.parent
 REPO_DIR = ENGINE_DIR.parent
-MCP_DIR = ENGINE_DIR                                       # old name, kept for callers
 DEFAULTS_FILE = ENGINE_DIR / "defaults.toml"
 PACKS_DIR = REPO_DIR / "packs"
 BAS_FILES = [ENGINE_DIR / "vba" / "smartview_body.bas", ENGINE_DIR / "vba" / "modBridge.bas"]
@@ -127,11 +126,9 @@ def _path(v) -> Path:
 
 ONEDRIVE = Path(os.environ.get("OneDriveCommercial") or os.environ.get("OneDrive") or Path.home())
 
-WORK_DIR = HOME / "work"                                   # copies of workbooks being refreshed
 PID_FILE = HOME / "pids.json"                              # PIDs this server started (never kill others)
 ATLAS_DB = HOME / "atlas.db"
 SERVER_LOG = HOME / "logs" / "server.log"
-BRIDGE_XLAM = HOME / "svbridge.xlam"                       # bridge add-in loaded into the user's Excel
 
 ANALYSER_DIR = _path(_pick("SV_ANALYSER_DIR", "paths.analyser", ONEDRIVE / "smartass" / "analyser"))
 OUT_DIR = _path(_pick("SV_OUT_DIR", "paths.output", ONEDRIVE / "smartass" / "output"))
@@ -178,12 +175,6 @@ HTTP_PORT = _checked(as_int(_pick("SMARTASS_HTTP_PORT", "http.port", 47811), "ht
                      "SMARTASS_HTTP_PORT" if os.environ.get("SMARTASS_HTTP_PORT") else "config.toml")
 HTTP_SECRET = _pick("SMARTASS_HTTP_SECRET", "http.secret")
 
-CONNECTIONS = {
-    "FinMax": "Actuals incl. FTE (app FinMax, cube FinMax, pod plan1)",
-    "FinLite": "Actuals without FTE, lighter/faster (app FinMax, cube FinLite, pod plan1)",
-    "FinPlan": "Plan/forecast (app FinPlan, pod stratmodel). Different dimensions: Scenario/Version/Years/Period",
-}
-
 # Global Smart View options set while the server runs and restored on shutdown (they are user prefs).
 GLOBAL_OPTIONS = {104: 3, 109: False, 110: False}         # messages: none; no home panel; no comment dialog
 # Sheet options for our own grids.
@@ -193,7 +184,6 @@ SHEET_OPTIONS = {5: 0, 6: False, 7: False, 9: False, 41: False, 42: False, 43: F
                  13: "#Missing", 14: "#NoAccess", 17: "#Invalid"}
 
 CALL_TIMEOUT_S = float(os.environ.get("SV_CALL_TIMEOUT", "180"))
-START_TIMEOUT_S = float(os.environ.get("SV_START_TIMEOUT", "120"))
 # While a hidden-Excel call runs, look for Smart View dialogs (dialogs.py) after DIALOG_CHECK_AFTER_S, every
 # DIALOG_POLL_S. A WebView2 Login window gets LOGIN_GRACE_S for the SSO watcher (it once needed 18 s).
 DIALOG_CHECK_AFTER_S = 5.0
@@ -201,8 +191,6 @@ DIALOG_POLL_S = 2.0
 LOGIN_GRACE_S = float(os.environ.get("SV_LOGIN_GRACE", "45"))
 TRANSIENT_RETRY_WAIT_S = 3.0                        # before the one retry after rc=752 / rc=57704
 RESET_WAIT_S = 10.0                                 # after killing our Excel, wait this long for the COM call to return
-MAX_CELLS = int(os.environ.get("SV_MAX_CELLS", "50000"))
-PREVIEW_ROWS = 60
 
 # ---------------------------------------------------------------- drill-through (sv_drill)
 EPM_BASE = _pick("SV_EPM_BASE", "epm.base")

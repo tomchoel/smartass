@@ -33,10 +33,6 @@ def ly(p: str) -> str:
     return same_period_ly(p)
 
 
-def ltm(p: str) -> list[str]:
-    return [shift(p, -k) for k in range(11, -1, -1)]
-
-
 def year(yy: int) -> list[str]:
     return [label(m, yy) for m in range(1, 13)]
 

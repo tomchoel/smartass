@@ -67,7 +67,7 @@ def _kpis():
 
 def test_average_opens_at_the_month_before_the_window():
     v = months({}, "fte", "actual", "Sep 25", [float(i) for i in range(13)])     # Sep 25 .. Sep 26
-    ltm = periods.ltm("Sep 26")
+    ltm = periods.window("Sep 26", 12)
     avg = average_level(frame(values=v), E, "fte", "actual", ltm)
     assert len(ltm) == 12 and len(avg.inputs) == 13 and avg.value == sum(range(13)) / 13
     assert "Sep 25 opening + 12 month ends" in avg.definition
@@ -77,8 +77,8 @@ def test_average_opens_at_the_month_before_the_window():
 
 
 def test_ltm_membership():
-    assert len(periods.ltm("Sep 26")) == 12
-    assert periods.ltm("Dec 26") == periods.year(26)
+    assert len(periods.window("Sep 26", 12)) == 12
+    assert periods.window("Dec 26", 12) == periods.year(26)
 
 
 def test_kpi_factors_by_window():
@@ -91,7 +91,7 @@ def test_kpi_factors_by_window():
     fr = frame(values=v)
     assert kpi(fr, k["opex_per_fte"], E, "actual", ["Jan 26"]).value == 100.0 / 10.0 * 12
     assert kpi(fr, k["opex_per_fte"], E, "actual", periods.ytd("Dec 26")).value == 1200.0 / 10.0
-    assert kpi(fr, k["opex_per_fte"], E, "actual", periods.ltm("Dec 26")).value == 1200.0 / 10.0
+    assert kpi(fr, k["opex_per_fte"], E, "actual", periods.window("Dec 26", 12)).value == 1200.0 / 10.0
 
 
 def test_kpi_carries_parts_unit_and_values_in_its_definition():
@@ -170,7 +170,7 @@ def test_cost_per_fte_is_shown_positive_and_keeps_better_semantics():
 def test_ltm_per_fte_average_uses_13_points():
     v = months({}, "fte", "actual", "Sep 25", [10.0] * 13)
     months(v, "opex", "actual", "Oct 25", [-100.0] * 12)
-    c = kpi(frame(values=v), _kpis()["opex_per_fte"], E, "actual", periods.ltm("Sep 26"))
+    c = kpi(frame(values=v), _kpis()["opex_per_fte"], E, "actual", periods.window("Sep 26", 12))
     assert c.value == 1200.0 / 10.0 and "13 levels" in c.definition and len(c.parts[1].inputs) == 13
 
 

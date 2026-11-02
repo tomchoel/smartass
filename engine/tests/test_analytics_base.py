@@ -26,7 +26,7 @@ def test_periods():
     assert periods.shift("Jan 26", -1) == "Dec 25" and periods.shift("Nov 26", 3) == "Feb 27"
     assert periods.ytd("Mar 26") == ["Jan 26", "Feb 26", "Mar 26"]
     assert periods.ly("Sep 26") == "Sep 25" and periods.opening("Sep 26") == "Dec 25"
-    assert periods.ltm("Sep 26")[0] == "Oct 25" and periods.ltm("Sep 26")[-1] == "Sep 26"
+    assert periods.window("Sep 26", 12)[0] == "Oct 25" and periods.window("Sep 26", 12)[-1] == "Sep 26"
     assert periods.remaining("Sep 26") == ["Oct 26", "Nov 26", "Dec 26"] and periods.remaining("Dec 26") == []
     w = periods.window("Sep 26")
     assert len(w) == 36 and w[0] == "Oct 23" and w[-1] == "Sep 26"

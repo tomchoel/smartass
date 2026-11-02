@@ -1,6 +1,7 @@
 # Vendored style helpers
 
-Pinned, unmodified copies of two skill modules:
+Pinned copies of two skill modules (`tn_rapportstil.py` is trimmed to the parts `styling.py` uses: tokens,
+cell styles, number-format syntax, text widths; the skill's roles, apply, lint and PDF export are left out):
 
 | File | Source skill |
 |---|---|
@@ -13,7 +14,7 @@ Both modules need only openpyxl and the standard library.
 
 ## Refresh
 
-1. Copy the files byte-for-byte from the skill folders, for example from `engine`:
+1. Copy the files from the skill folders (then trim `tn_rapportstil.py` again), for example from `engine`:
 
    ```powershell
    Copy-Item "$env:USERPROFILE\.claude\skills\tn-rapportstil\tn_rapportstil.py" smartview_mcp\vendor\
@@ -23,4 +24,4 @@ Both modules need only openpyxl and the standard library.
 2. Run the tests: `uv run pytest -q` and `uv run python ..\scripts\check_staged.py --all`.
 3. Commit the new copies together with any engine changes they need.
 
-Do not edit the copies here; change the skill and copy again. Ruff skips this folder (`pyproject.toml`).
+Do not edit the copies here beyond the trim; change the skill and copy again. Ruff skips this folder (`pyproject.toml`).

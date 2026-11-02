@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import copy
 import fnmatch
-import json
 import re
 from typing import Any, Literal
 
@@ -318,7 +317,3 @@ def outline(raw: dict) -> dict:
                           **({"repeat": (s["repeat"].get("line") or {}).get("key")} if s.get("repeat") else {})}
                          for s in lay.get("sections") or []],
             "checks": [c["label"] for c in lay.get("checks") or []]}
-
-
-def json_schema() -> str:
-    return json.dumps(AnswerSpec.model_json_schema(), indent=2)

@@ -9,13 +9,11 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 
 from openpyxl.utils import get_column_letter as L
 
 log = logging.getLogger("smartview.formulas")
 
-CHECKER_PATH = Path(__file__).resolve().parent / "vendor" / "formelsjekk.py"   # pinned copy of tn-formelstil's checker
 _checker = None
 
 

@@ -169,29 +169,6 @@ def changes(db, connection: str, dimension: str | None = None, since=None, until
             "message": " ".join(msgs) if msgs and not summaries else None}
 
 
-def latest_snapshot(db, connection: str, dimension: str) -> int | None:
-    """The id of the newest snapshot of a dimension (a new id only when the hierarchy changed), or None."""
-    ensure_schema(db)
-    r = db.execute("SELECT id FROM snapshot WHERE connection=? AND dimension=? ORDER BY taken_at DESC, id DESC LIMIT 1",
-                   (connection, dimension)).fetchone()
-    return r[0] if r else None
-
-
-def diff_snapshots(db, old_id: int, new_id: int) -> dict:
-    """added / removed / moved / relabelled members between two snapshots of the same dimension (as in changes()).
-    Raises ValueError for an unknown id or two snapshots of different (connection, dimension)."""
-    ensure_schema(db)
-    ident = []
-    for sid in (old_id, new_id):
-        r = db.execute("SELECT connection, dimension FROM snapshot WHERE id=?", (sid,)).fetchone()
-        if r is None:
-            raise ValueError(f"unknown snapshot id {sid}")
-        ident.append(tuple(r))
-    if ident[0] != ident[1]:
-        raise ValueError(f"snapshots {old_id} and {new_id} are of different dimensions: {ident[0]} vs {ident[1]}")
-    return _diff(_rows(db, old_id), _rows(db, new_id))
-
-
 def _lab(label) -> str:
     return f" {label}" if label else ""
 

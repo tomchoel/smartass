@@ -16,34 +16,6 @@ from .host import HostError, rewrap
 from .server import WRITE, _call, _call_user, _err, _is_our_analysis_file, tool, with_next_step
 from .timing import Timer, stage
 
-def _has_drill_cells(spec) -> bool:
-    if isinstance(spec, dict):
-        return "drill" in spec or any(_has_drill_cells(v) for v in spec.values())
-    if isinstance(spec, list):
-        return any(_has_drill_cells(v) for v in spec)
-    return False
-
-
-def _drill_rows(workbook: str, q: int) -> dict[str, list[dict]]:
-    """alias -> cached drill rows for this question (drafted key points evaluate drill cells from these)."""
-    from . import drill_store
-    try:
-        db = drill_store.connect()
-        try:
-            out = {}
-            for a, i in drill_store.find(db, workbook, q).items():
-                meta, rows = drill_store.load(db, i)
-                ec = (meta.get("rec") or {}).get("excel_columns")
-                if ec and len(ec) < len(meta["columns"]):   # key columns only in Excel: evaluate like the sheet
-                    rows = [{k: r.get(k) for k in ec} for r in rows]
-                out[a] = rows
-            return out
-        finally:
-            db.close()
-    except Exception:   # noqa: BLE001 - drafted points are best effort
-        return {}
-
-
 # ---------------------------------------------------------------- sv_drill: ledger lines behind a FinLite cell
 _drill_lock = None          # asyncio.Lock: one browser fetch at a time, so the hang budget starts when it runs
 _ALIAS = re.compile(r"^[A-Za-z]\w*$")

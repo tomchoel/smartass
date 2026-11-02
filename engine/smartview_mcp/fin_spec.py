@@ -34,7 +34,6 @@ COLUMNS = ["{p}", "Comparison", "Variance", "Variance %", "YTD {p}", "Comparison
            "Variance % YTD", "Material (YTD)"]
 KINDS = ["heltall", "heltall", "heltall", "prosent1", "heltall", "heltall", "heltall", "prosent1", "heltall"]
 VALUE_COLS = (0, 1, 4, 5)
-INPUT_KEYS = ("months_year", "months_ytd", "kpi_sign")      # the only lines with typed values (labelled inputs)
 FTE_TOL = 0.05                                             # FTE: live read = sheet within 0.05 FTE
 
 Expected = tuple   # (row, col, value, fact id, tolerance)
@@ -594,11 +593,3 @@ def reconcile_pull(p, cells: list[Expected], tol: float = TOL, source: str = "Li
     if bad:
         detail += f"; {len(bad)} off, first: {bad[0]}"
     return {"label": f"{source} = source sheet '{p.sheet}'", "static": "DIFF" if bad else "OK", "detail": detail}
-
-
-def with_reconciliation(spec: dict, expected: dict, pulls_by_id: dict, source: str = "Live read") -> dict:
-    """The before-answer hook: one '<source> = source sheet' check per source sheet (source:
-    Request.source), after the others. Returns a new spec dict (the hook must return the spec)."""
-    extra = [reconcile_pull(pulls_by_id[pid], cells, source=source) for pid, cells in expected.items()
-             if pid in pulls_by_id]
-    return {**spec, "checks": list(spec.get("checks") or []) + extra}
