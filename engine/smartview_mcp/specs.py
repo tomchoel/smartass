@@ -141,8 +141,9 @@ def _drill_value(rows: list[dict], where: dict, agg: str):
         raise ValueError(f"unknown drill agg '{agg}'")
     key = lambda x: "" if x is None else str(x).casefold()
     names = {str(c).casefold(): c for c in rows[0]} if rows else {}     # column names: case-insensitive
-    want = {names.get(str(k).casefold(), k): key(v) for k, v in where.items()}
-    hit = [r for r in rows if all(key(r.get(k)) == v for k, v in want.items())]
+    want = {names.get(str(k).casefold(), k): ({key(x) for x in v} if isinstance(v, list) else {key(v)})
+            for k, v in where.items()}                                  # a list = any of its values
+    hit = [r for r in rows if all(key(r.get(k)) in v for k, v in want.items())]
     amts = [r["AMOUNT"] for r in hit if isinstance(r.get("AMOUNT"), float)]
     if agg == "count":
         return len(hit)

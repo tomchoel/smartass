@@ -19,6 +19,7 @@ class RecipeContext:
     label: Callable[[str, str], str]             # (connection, member) -> readable label (templates.member_label)
     pnl_facts: Callable | None = None            # (area, period, compare) -> (res, mode, fills, notes, entity)
     now: str = ""
+    lines: dict[str, list[dict]] | None = None   # drilled ledger lines by alias (lines_ranking: d1 this year, d2 LY)
 
 
 @dataclass
@@ -56,18 +57,18 @@ def relabel(lines: list[dict], connection: str, ctx: RecipeContext) -> None:
 
 
 def _registry() -> dict:
-    from . import concept, cost, plan, pnl, trend
+    from . import concept, cost, lines, plan, pnl, trend
     return {"pnl": pnl.pnl, "actual_vs_plan": plan.actual_vs_plan, "monthly_trend": trend.monthly_trend,
-            "cost_base": cost.cost_base, "concept": concept.concept}
+            "cost_base": cost.cost_base, "concept": concept.concept, "lines_ranking": lines.lines_ranking}
 
 
 RECIPES: dict[str, Callable] = {}
 
 
 def _module(name: str | None):
-    from . import concept, cost, plan, pnl, trend
+    from . import concept, cost, lines, plan, pnl, trend
     return {"pnl": pnl, "actual_vs_plan": plan, "monthly_trend": trend, "cost_base": cost,
-            "concept": concept}.get(name or "")
+            "concept": concept, "lines_ranking": lines}.get(name or "")
 
 
 def departures(name: str | None, params: dict) -> list[str]:
@@ -95,11 +96,30 @@ def layout_departures(layout: dict | None) -> list[str]:
     return out
 
 
-def followups(name: str | None, params: dict, period: str | None) -> list[str]:
-    """At most three natural next questions for a recipe's answer (free-form specs: none)."""
+def followups(name: str | None, params: dict, period: str | None, fill: dict | None = None) -> list[str]:
+    """At most three natural next questions for a recipe's answer (free-form specs: none). fill: extra
+    {placeholders} from the recipe's result; a question whose placeholder is unknown is left out."""
     entity = next((params[k] for k in ("entity", "area", "parent", "concept") if params.get(k)), "the same unit")
-    return [f.format(entity=entity, period=period or "the same period")
-            for f in getattr(_module(name), "FOLLOWUPS", [])][:3]
+    keys = {**(fill or {}), "entity": entity, "period": period or "the same period"}
+    out = []
+    for f in getattr(_module(name), "FOLLOWUPS", []):
+        try:
+            out.append(f.format_map(keys))
+        except (KeyError, IndexError):
+            continue
+    return out[:3]
+
+
+def value_findings(findings: list[dict] | None, values: dict[str, list]) -> list[dict]:
+    """A recipe's value findings ({severity, line, col, above, text with {value}}) -> the review's extra findings
+    for the values the sheet calculated: only where |value| > above."""
+    out = []
+    for f in findings or []:
+        row = values.get(f["line"]) or []
+        v = row[f.get("col", 0)] if f.get("col", 0) < len(row) else None
+        if isinstance(v, (int, float)) and abs(v) > f.get("above", 0):
+            out.append({"severity": f.get("severity", "Warning"), "text": f["text"].format(value=v)})
+    return out
 
 
 def expand(raw: dict, ctx: RecipeContext) -> tuple[dict, dict]:

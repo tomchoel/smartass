@@ -230,6 +230,9 @@ def _layout_refs(layout: Layout, pull_ids: set[str], driver_lines: list[str] = (
                     errs += [f"{where}[{j}]: {k} of unknown line '{x}'" for x in v if not is_key(x)]
             elif k == "ref" and not is_key(str((v or {}).get("key", ""))):
                 errs.append(f"{where}[{j}]: ref to unknown line")
+            elif k == "drill" and any(isinstance(x, list) and (not x or not all(isinstance(y, str) for y in x))
+                                      for x in (c.get("where") or {}).values()):
+                errs.append(f"{where}[{j}]: a drill where value is a text or a non-empty list of texts")
             elif k == "share":                          # {"share": {"col": k, "of": line}}: this line / that line
                 v = v if isinstance(v, dict) else {}
                 if not isinstance(v.get("col"), int) or not 0 <= v["col"] < ncol or not is_key(str(v.get("of", ""))):

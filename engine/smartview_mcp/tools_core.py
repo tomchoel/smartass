@@ -286,12 +286,14 @@ async def answer(spec: dict | None = None, followup: dict | None = None, q: int 
                "timings": tm.summary()}
         if followup is not None:
             out.update(followup_of=r.q, reused=r.reused)
+        fill = extra.pop("fill", None) if extra else None
+        extra.pop("findings", None)          # wired into the review in B4
         if extra:
             warn = list(dict.fromkeys(list(extra.get("warnings") or []) + list(out.get("warnings") or [])))
             out = {**out, **{k: v for k, v in extra.items() if k != "warnings"}, "warnings": warn}
         rec = (r.raw or {}).get("recipe") or {}
         params = rec.get("params") or {}
-        out["followups"] = recipes.followups(rec.get("name"), params, out.get("period") or params.get("period"))
+        out["followups"] = recipes.followups(rec.get("name"), params, out.get("period") or params.get("period"), fill)
         return out
     return await _call_user(job, what="sv_answer")
 

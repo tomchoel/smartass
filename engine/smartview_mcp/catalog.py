@@ -97,6 +97,12 @@ class Materiality:
 
 
 @dataclass(frozen=True)
+class GroupCompanies:
+    column: str = ""              # a lines column naming the counterparty, if the drill has one
+    patterns: tuple[str, ...] = ()   # else: supplier-name regexes (case-insensitive)
+
+
+@dataclass(frozen=True)
 class Catalog:
     pnl: Mapping[str, tuple[Line, ...]]           # the three tables are read-only (MappingProxyType)
     checks: Mapping[str, tuple[Check, ...]]
@@ -106,6 +112,7 @@ class Catalog:
     kpis: tuple[Kpi, ...]
     _whole: Mapping[str, Entity] = field(default_factory=dict, repr=False, compare=False)
     _patterns: tuple[tuple[re.Pattern, Entity, bool], ...] = field(default=(), repr=False, compare=False)
+    group_companies: GroupCompanies = GroupCompanies()
 
     def line_by_concept(self, cube: str, concept: str) -> Line | None:
         """The line of `cube` that carries `concept` (FinMax c73 and FinPlan oth are both other_items), or None."""
@@ -325,8 +332,15 @@ def parse(data: dict) -> Catalog:
         for name in (e.finmax, e.finplan, e.label, *e.aliases, *e.generic_aliases):
             if name:
                 whole.setdefault(_norm(name), e)
+    gc = _section(data, "group_companies", dict, {})
+    group = GroupCompanies(str(gc.get("column") or ""), tuple(str(p) for p in gc.get("patterns") or ()))
+    for p in group.patterns:
+        try:
+            re.compile(p)
+        except re.error as e:
+            raise CatalogError(f"[group_companies]: pattern {p!r} is not a regex ({e})") from None
     return Catalog(MappingProxyType(pnl), MappingProxyType(checks), MappingProxyType(scenarios), materiality,
-                   entities, kpis, MappingProxyType(whole), _patterns(entities))
+                   entities, kpis, MappingProxyType(whole), _patterns(entities), group)
 
 
 @functools.lru_cache(maxsize=4)

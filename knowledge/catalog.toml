@@ -67,6 +67,14 @@ abs_nok = 5_000_000                   # NOK 5 million
 rule = "either"                       # either | both
 always = ["rev", "pers", "ebitda"]    # revenue, personnel and EBITDA are always commented, material or not
 
+[group_companies]
+# Group companies are shown in their own block of a supplier ranking (recipe lines_ranking) and never in its top 10.
+# column = a drill-lines column naming the counterparty, if the drill has one (a non-blank value that does not say
+# "external" makes the supplier a group company); else the supplier name is matched against these regexes
+# (case-insensitive). To be verified live on the consultant question (plan 2026-11-02 Task B4).
+column = ""
+patterns = ['^Telenor\b', '\bTSS\b', 'Shared Services', 'Towers']
+
 # Business areas. Aliases are matched as whole words in a question; aliases shorter than 3 characters (it, ig, ei,
 # tn) only when they are the whole question or written in UPPER CASE in it ("kostnader i IT"). generic_aliases
 # ("total", "selskapet") only count when no area is named: "total opex for SSM" is SSM, while a named "Telenor Norge"
