@@ -355,6 +355,10 @@ def cleanup(ctx) -> None:
     """Stop the fresh install's processes (S9) always; then, unless --keep: close the scratch workbooks unsaved,
     delete the extra files the run made elsewhere (ctx.state['files'], e.g. sv_refresh_workbook's output), the
     _matrix folder and the fresh profile."""
+    import pythoncom
+
+    # COM may so far only have been initialised on worker threads (bench's FirstVisible); the COM calls below run here
+    pythoncom.CoInitialize()
     fresh = ctx.state.get("fresh") or {}
     if fresh.get("owners"):
         kill_fresh_excels(fresh["owners"])
