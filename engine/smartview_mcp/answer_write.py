@@ -17,13 +17,24 @@ NUM_KINDS = {"heltall", "tall1", "prosent1", "prosent", "faktor"}
 CHART_TYPES = {"column": 51, "bar": 57, "line": 4, "waterfall": 119}   # xlColumnClustered, xlBarClustered, xlLine, xlWaterfall
 
 
+_LEAD_SUM = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*\+\s*[A-Za-z_][A-Za-z0-9_]*){2,})\s*(?=-|$)")
+
+
 def _expr_to_formula(expr: str, col_letter: str, rows_by_key: dict) -> str:
+    """Line keys -> cells. A leading run of 3+ keys added with + becomes SUM(...) (tn-formelstil blocks + chains):
+    'a+b+c-d' -> '=SUM(C1,C5,C9)-C12'."""
     def rep(m):
         k = m.group(0)
         if k not in rows_by_key:
             raise InputError(f"Unknown line key '{k}' in expression '{expr}'. Known: {sorted(rows_by_key)}")
         return f"{col_letter}{rows_by_key[k]}"
-    return "=" + re.sub(r"[A-Za-z_][A-Za-z0-9_]*", rep, expr)
+    head, rest = "", expr
+    m = _LEAD_SUM.match(expr)
+    if m:
+        keys = re.split(r"\s*\+\s*", m.group(1))
+        cells = [rep(re.match(r".+", k)) for k in keys]
+        head, rest = "SUM(" + ",".join(cells) + ")", expr[m.end():]
+    return "=" + head + re.sub(r"[A-Za-z_][A-Za-z0-9_]*", rep, rest)
 
 
 class _Cells:

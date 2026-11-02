@@ -103,6 +103,22 @@ def test_ranking_checks_tie_blocks_to_lines_and_lines_to_cube():
     assert v["cube"][0] == pytest.approx(-170 * M)
 
 
+def test_ranking_check_formulas_pass_the_formula_style_check():
+    """'ext+grp+nosupp-lines' was written as =C21+C29+C32-C33, which tn-formelstil blocks (PLUS_CHAIN)."""
+    from smartview_mcp import answer_write
+    from smartview_mcp import formulas as fx
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    keys = [ln["key"] for s in d.layout["sections"] for ln in s["lines"] if ln.get("key")]
+    rows = {k: 10 + i for i, k in enumerate(keys)}
+    fs = [("Q1 Answer", f"{col}{60 + i}", answer_write._expr_to_formula(c["expr"], col, rows))
+          for i, c in enumerate(d.layout["checks"]) for col in "CD"]
+    res = fx.check(fs)
+    assert res["ok"] is True and not res.get("block"), res
+    blocks = next(f for _, cell, f in fs if cell == "C60")
+    assert blocks == f"=SUM(C{rows['ext']},C{rows['grp']},C{rows['nosupp']})-C{rows['lines']}"
+    assert answer_write._expr_to_formula("a-b+c+d", "C", {"a": 1, "b": 2, "c": 3, "d": 4}) == "=C1-C2+C3+C4"
+
+
 def test_ranking_unexplained_gap_is_a_reconciling_line_and_a_warning_finding():
     d = lines.lines_ranking(dict(PARAMS), _ctx())
     total = _lines_total(D1, NOW)
