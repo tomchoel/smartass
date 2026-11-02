@@ -1,0 +1,118 @@
+{
+ "started": "2026-11-02T21:03:54",
+ "route": "core",
+ "results": [
+  {
+   "id": "B02",
+   "question": "Business Norway EBITDA per month 2026 vs 2025, reconciled to accumulated YTD",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 1.03,
+   "total_s": 15.88,
+   "oracle": {
+    "EBITDA YTD Sep 26": true,
+    "EBITDA YTD Sep 25": true,
+    "EBITDA Jun 26": true
+   },
+   "match": {
+    "EBITDA YTD Sep 26": "exact",
+    "EBITDA YTD Sep 25": "exact",
+    "EBITDA Jun 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "bench pins recipe free-form (gate named monthly_trend); routes {'Q1 FinMax': 'http', 'Q1 FinMax ytd': 'http'}",
+   "result": "PASS"
+  },
+  {
+   "id": "B03",
+   "question": "Follow-up to B02: add FinPlan Actual EBITDA YTD",
+   "gate": "followup",
+   "route": "core",
+   "first_visible_s": 4.89,
+   "total_s": 9.7,
+   "oracle": {
+    "EBITDA YTD Sep 26": true,
+    "EBITDA YTD Sep 25": true,
+    "EBITDA Jun 26": true,
+    "FinPlan Actual EBITDA YTD": true
+   },
+   "match": {
+    "EBITDA YTD Sep 26": "exact",
+    "EBITDA YTD Sep 25": "exact",
+    "EBITDA Jun 26": "exact",
+    "FinPlan Actual EBITDA YTD": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "reused ['m', 'ytd']",
+   "result": "PASS"
+  },
+  {
+   "id": "B04",
+   "question": "Follow-up to B02: add a note and change the title",
+   "gate": "followup",
+   "route": "core",
+   "first_visible_s": 1.38,
+   "total_s": 4.61,
+   "oracle": {
+    "EBITDA YTD Sep 26": true,
+    "EBITDA YTD Sep 25": true,
+    "EBITDA Jun 26": true
+   },
+   "match": {
+    "EBITDA YTD Sep 26": "exact",
+    "EBITDA YTD Sep 25": "exact",
+    "EBITDA Jun 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "reused ['m', 'ytd', 'fp']",
+   "result": "PASS"
+  },
+  {
+   "id": "B12",
+   "question": "Lines behind account 12881, un.SY, Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": null,
+   "total_s": null,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": "ToolFailed: sv_drill: Error executing tool sv_drill: Smart View in this Excel is not signed in correctly: EPM answers 'Empty response from provider' to every connect, and Smart View shows no Login to click. Ask the user to sign in once in that Excel (Smart View ribbon -> Panel -> connect FinMax, or close that Excel so the next call starts a fresh one), then ask again. If every Excel does this and ",
+   "notes": "",
+   "result": "ERROR"
+  },
+  {
+   "id": "B16",
+   "question": "Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026? og p\u00e5 hvilke initiativer / prosjekt",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 3.23,
+   "total_s": 71.81,
+   "oracle": {
+    "consultants YTD Oct 26": true
+   },
+   "match": {
+    "consultants YTD Oct 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [
+    "first frame 2.94 s after the workbook opened > 2.5 s (seen in Excel at 3.23 s)"
+   ],
+   "error": null,
+   "notes": "recipe lines_ranking; period YTD Oct 26; timings {'answer': 2.78, \"extra 'By project'\": 2.52, 'answer.style (tn-rapportstil)': 2.25, 'write lines d1': 1.95, \"extra 'By project'.style (tn-rapportstil)\": 1.88, 'write lines d2': 1.86, 'answer.style (tn-rapportstil).G page setup': 1.39, \"extra 'By project'.style (tn-rapportstil).G page setup\": 1.14, 'findings table': 0.98, 'write source sheet': 0.97, 'save + activate': 0.88, 'save + activate.arrange sheets': 0.58, 'answer.style (tn-rapportstil).H lint': 0.31, \"extra 'By project'.style (tn-rapportstil).H lint\": 0.3, 'log sources': 0.27, 'fetch (HTTP)': 0.22, 'answer.write cells': 0.19, 'answer.calculate + read back': 0.17, 'prepare spec': 0.17, \"extra 'By project'.calculate + read back\": 0.17, 'open target': 0.16, 'answer.style (tn-rapportstil).F tab + freeze': 0.16, \"extra 'By project'.prepare sheet\": 0.14, \"extra 'By project'.style (tn-rapportstil).F tab + freeze\": 0.14, \"extra 'By project'.write cells\": 0.12, \"extra 'By project'.style (tn-rapportstil).B cell styles\": 0.11, 'answer.style (tn-rapportstil).B cell styles': 0.11, 'answer.style (tn-rapportstil).C widths + heights': 0.09, \"extra 'By project'.style (tn-rapportstil).C widths + heights\": 0.08, 'answer.style (tn-rapportstil).E check colours': 0.06, 'answer.style (tn-rapportstil).D merges': 0.06, \"extra 'By project'.style (tn-rapportstil).E check colours\": 0.05, 'open target.open workbook': 0.05, 'answer.prepare sheet': 0.05, 'answer.scan error cells': 0.05, \"extra 'By project'.scan error cells\": 0.05, 'open target.find Excel windows': 0.03, 'answer.style (tn-rapportstil).A ensure styles': 0.03, 'answer.formula check (tn-formelstil)': 0.03, \"extra 'By project'.style (tn-rapportstil).ensure styles (1st)\": 0.02, \"extra 'By project'.formula check (tn-formelstil)\": 0.02, 'open target.ready + bridge': 0.01, \"extra 'By project'.style (tn-rapportstil).A ensure styles\": 0.01, \"extra 'By project'.style (tn-rapportstil).A2 clear + base\": 0.01, 'open target.open workbook.wait for that Excel (another agent)': 0.0, 'answer.style (tn-rapportstil).ensure styles (1st)': 0.0, 'answer.style (tn-rapportstil).A2 clear + base': 0.0, \"extra 'By project'.style (tn-rapportstil).D merges\": 0.0, '_total': 14.14, 'first frame': 3.1, 'drills': 54.4}",
+   "result": "FAIL"
+  }
+ ]
+}
