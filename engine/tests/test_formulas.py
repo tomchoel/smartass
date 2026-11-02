@@ -53,15 +53,15 @@ def test_generated_formulas_pass_checker():
     p = _pull([Axis("Account", ["ac.C30"])], [Axis("Period", ["Sep 26"])], [("C30 REVENUES (ac)",)], [("Sep 26",)])
     fs = [lookup_formula(p, ["ac.C30"], ["Sep 26"]), fx.sum_rows("C", list(range(13, 22))), fx.sum_rows("C", [30, 40]),
           fx.variance("C13", "D13"), fx.variance_pct("C13", "D13"), fx.sum_cols(6, list(range(3, 12)))]
-    res = fx.check([("Q1 Svar", f"C{i + 1}", f) for i, f in enumerate(fs)])
+    res = fx.check([("Q1 Answer", f"C{i + 1}", f) for i, f in enumerate(fs)])
     assert res["ok"] is True, res
-    bad = fx.check([("Q1 Svar", "C1", "=C13+C14+C15")])
+    bad = fx.check([("Q1 Answer", "C1", "=C13+C14+C15")])
     assert bad["ok"] is False and bad["block"][0]["rule"] == "PLUS_CHAIN"
 
 
 def test_avg_rows_is_an_average_over_ranges_and_passes_the_checker():
     assert fx.avg_rows("C", list(range(20, 30))) == "=AVERAGEA(C20:C29)"
     assert fx.avg_rows("D", [5, 7, 8]) == "=AVERAGEA(D5,D7:D8)"
-    assert fx.check([("Q1 Svar", "C30", fx.avg_rows("C", list(range(20, 30))))])["ok"] is True
+    assert fx.check([("Q1 Answer", "C30", fx.avg_rows("C", list(range(20, 30))))])["ok"] is True
     with pytest.raises(ValueError):
         fx.avg_rows("C", [])

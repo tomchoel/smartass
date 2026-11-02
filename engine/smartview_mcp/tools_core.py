@@ -198,7 +198,7 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
                 try:
                     userexcel.log_source(r.t, r.q, p.question, s.pull, notes=s.note or s.route)
                 except Exception as e:   # noqa: BLE001 - the source log must never undo a finished answer
-                    r.res["warnings"].append(f"could not log {s.pull.sheet} in 'Kilder': {e}")
+                    r.res["warnings"].append(f"could not log {s.pull.sheet} in 'Sources': {e}")
         e = runlog.entry(p, r.q, r.sources, r.review, tm.summary(), workbook=r.t.path)
         try:
             runlog.write_sheet(r.t, e)

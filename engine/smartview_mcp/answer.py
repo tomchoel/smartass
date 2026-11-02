@@ -1,4 +1,4 @@
-"""Build a 'Q<n> Svar' answer sheet in the user's workbook from a declarative spec.
+"""Build a 'Q<n> Answer' answer sheet in the user's workbook from a declarative spec.
 
 Every number is a live formula: pulled cells are XLOOKUPs into the Smart View data sheets (by the labels Smart View
 shows), derived cells are readable formulas over other answer cells (SUM over ranges, skill tn-formelstil). Refreshing
@@ -19,7 +19,7 @@ spec = {
                   {"expr": "rev+cogs"},       # line keys, same column
                   {"sum": ["rev", "cogs"]}, {"avg": ["f0", "f1"]}, {"value": 123}, {"text": "n/a"}, null,
                   {"drill": "d", "where": {"JE_SOURCE": "Payables"}, "agg": "sum" | "count" | "debit" | "credit"}
-                                              # sv_drill lines table Linjer_Q<n>[_alias], exact match per column
+                                              # sv_drill lines table Lines_Q<n>[_alias], exact match per column
                 ]}]}],
   "checks": [{"label": "C30 + C40S = C48", "expr": "rev+cogs-gm", "columns": [0, 1]},
              {"label": "Period is closed", "static": "OK" | "DIFF", "detail": "Sep 26 <= Current Reporting Month Sep 26"}],
@@ -44,7 +44,7 @@ NUM_KINDS = {"heltall", "tall1", "prosent1", "prosent", "faktor"}
 CHART_TYPES = {"column": 51, "bar": 57, "line": 4, "waterfall": 119}   # xlColumnClustered, xlBarClustered, xlLine, xlWaterfall
 
 
-def answer_sheet(t: Target, q: int, suffix: str = "Svar", owned: dict | None = None):
+def answer_sheet(t: Target, q: int, suffix: str = "Answer", owned: dict | None = None):
     """Create 'Q<n> <suffix>' before the question's data sheets, or clear it for a rebuild (follow-up): only the
     tool-owned block `owned` ({"rows", "cols"}) and smartass charts, or everything when no block is stored."""
     from .core import owned as owned_mod
@@ -73,7 +73,7 @@ def _expr_to_formula(expr: str, col_letter: str, rows_by_key: dict) -> str:
     return "=" + re.sub(r"[A-Za-z_][A-Za-z0-9_]*", rep, expr)
 
 
-def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull], suffix: str = "Svar",
+def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull], suffix: str = "Answer",
           owned: dict | None = None, reserve: int = 0) -> dict:
     from .userexcel import fast_excel
     with fast_excel(t.app):
@@ -247,7 +247,7 @@ def _extent(r: int, ncol: int, chart: bool) -> dict:
     return {"rows": r - 1, "cols": FIRST_COL + ncol - 1 + (CHART_COLS if chart else 0)}
 
 
-def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Svar", owned: dict | None = None,
+def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Answer", owned: dict | None = None,
            reserve: int = 0) -> dict:
     """Write, style and chart the answer sheet (inside fast_excel: no redraw, manual calculation). reserve: rows
     below the answer to make room for (the findings table, written after the build)."""
@@ -267,7 +267,7 @@ def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Svar", own
                   [len(f"{c['label']} — {cols[0].get('header', '')}") for c in checks if "static" not in c] + [40])
     roles = {"last_col": last_col, "label_cols": ["B"], "freeze_rows": header_row, "last_row": extent["rows"],
              "col_widths": {"A": 2.5, "B": min(80, max(46, longest + 4)), f"C:{last_col}": 17}, "rows": rows_meta}
-    t.status(f"formaterer 'Q{q} {suffix}' i TN-rapportstil ...")
+    t.status(f"formatting 'Q{q} {suffix}' in TN report style ...")
     with stage("style (tn-rapportstil)"):
         with stage("ensure styles (1st)"):
             styling.ensure_styles(t.wb)
@@ -320,10 +320,10 @@ class _Cells:
                 warnings.append(f"{label or f'row {r}'}: {e}")
 
 
-def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Svar", make_room=None):
+def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Answer", make_room=None):
     """All answer cells (title, key points, lines, checks, notes); returns the layout for styling. make_room(extent)
     is called with the block about to be written ({"rows", "cols"}) just before the cells go to the sheet."""
-    t.status(f"bygger svar-arket 'Q{q} {suffix}' ...")
+    t.status(f"building the answer sheet 'Q{q} {suffix}' ...")
     cols = spec.get("columns") or []
     if not cols:
         raise InputError("answer spec needs 'columns'")

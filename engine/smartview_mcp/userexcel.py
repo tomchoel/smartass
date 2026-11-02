@@ -707,7 +707,7 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
         target = "new"                                # nothing open: fall back to a new analysis workbook
     if target == "new":
         with stage("new workbook"):
-            t = _new_target(h, title or "Analyse", excels, {i.pid for i in instances})
+            t = _new_target(h, title or "Analysis", excels, {i.pid for i in instances})
         with stage("ready + bridge"):
             t = _finish_target(h, t, allow_archive)
         session.set_workbook(t.path)                  # a new file becomes this session's workbook
@@ -759,7 +759,7 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None)
 
 
 def _save_new(app, wb, title: str) -> Path:
-    """Name the first sheet 'Kilder', label and SaveAs the new workbook under a file name that is free on disk and
+    """Name the first sheet 'Sources', label and SaveAs the new workbook under a file name that is free on disk and
     not the name of a workbook already open in that Excel (Excel refuses both with 0x800A03EC)."""
     from .ops import _label
     try:
@@ -767,7 +767,7 @@ def _save_new(app, wb, title: str) -> Path:
     except Exception:   # noqa: BLE001
         taken = set()
     path = _new_path(title, taken)
-    com(lambda: setattr(wb.Worksheets(1), "Name", "Kilder"))
+    com(lambda: setattr(wb.Worksheets(1), "Name", "Sources"))
     com(lambda: _label(wb))
     try:
         com(lambda: wb.SaveAs(str(path), 51))
@@ -920,7 +920,7 @@ def _new_path(title: str, taken: set[str] | frozenset = frozenset()) -> Path:
     """analyser\\<project of this session>\\<date time> <title>.xlsx, with ' (2)', ' (3)' ... when that file exists
     (the same question again within the minute, e.g. a retry) or its name is in `taken` (open workbooks, lower case)."""
     from . import session
-    safe = re.sub(r'[\\/:*?"<>|]+', "_", title).strip()[:60] or "Analyse"   # only characters Windows forbids
+    safe = re.sub(r'[\\/:*?"<>|]+', "_", title).strip()[:60] or "Analysis"   # only characters Windows forbids
     stem = f"{dt.datetime.now():%Y-%m-%d_%H%M} {safe}"
     folder = session.project_dir()
     n = 1
@@ -940,7 +940,7 @@ def _new_analysis_file_host(h: ExcelHost, path: Path) -> Path:
     from .ops import _label
     wb = h.com(h.app.Workbooks.Add)
     try:
-        wb.Worksheets(1).Name = "Kilder"
+        wb.Worksheets(1).Name = "Sources"
         _label(wb)
         h.com(lambda: wb.SaveAs(str(path), 51))
     finally:
@@ -951,7 +951,7 @@ def _new_analysis_file_host(h: ExcelHost, path: Path) -> Path:
 
 
 # ------------------------------------------------------------------ question numbering and sheets
-_Q = re.compile(r"^Q(\d+) (Svar|Answer|FinMax|FinLite|FinPlan|Linjer)\b")   # our sheets only, not the user's "Q3 Forecast"
+_Q = re.compile(r"^Q(\d+) (Answer|FinMax|FinLite|FinPlan|Lines)\b")   # our sheets only, not the user's "Q3 Forecast"
 
 
 def next_question(t: Target) -> int:
@@ -1003,17 +1003,17 @@ def unique_sheet_name(t: Target, base: str) -> str:
 
 
 def add_sheet(t: Target, name: str, after_q: int | None = None, color: int | None = None):
-    """Add a sheet after the last sheet of question `after_q` (or at the end, before 'Kilder')."""
+    """Add a sheet after the last sheet of question `after_q` (or at the end, before 'Sources')."""
     sheets = list(t.wb.Worksheets)
     anchor = None
     if after_q is not None:
         group = [s for s in sheets if (m := _Q.match(s.Name)) and int(m.group(1)) == after_q]
         anchor = group[-1] if group else None
     if anchor is None:
-        non_kilder = [s for s in sheets if s.Name not in ("Kilder", "Kilder SV", META_SHEET)]
-        anchor = non_kilder[-1] if non_kilder else None
+        others = [s for s in sheets if s.Name not in ("Sources", "Sources SV", META_SHEET)]
+        anchor = others[-1] if others else None
     # positional (Before, After): the keyword After= is silently ignored through late-bound COM here (measured
-    # 15.10.2026: the sheet landed before the ACTIVE sheet instead). Only 'Kilder'/meta sheets yet: go first.
+    # 15.10.2026: the sheet landed before the ACTIVE sheet instead). Only 'Sources'/meta sheets yet: go first.
     ws = com(lambda: t.wb.Worksheets.Add(None, anchor) if anchor is not None else t.wb.Worksheets.Add(sheets[0]))
     t.sheets_added.append(name)
     com(lambda: setattr(ws, "Name", name))
@@ -1177,7 +1177,7 @@ def _pull(h: ExcelHost, t: Target, q: int, connection: str, pov: dict, rows: lis
     # hidden server Excel (a second Excel + login, and a connect there once hung a pull for minutes)
     lay = layout() if dims_known(connection) else None
     name = unique_sheet_name(t, title or f"Q{q} {connection}")
-    t.status(f"henter {connection} til arket '{name}' ...")
+    t.status(f"fetching {connection} into the sheet '{name}' ...")
     with stage("add sheet"):
         com(t.wb.Activate)
         ws = add_sheet(t, name, after_q=q, color=0xA6A6A6)
@@ -1239,7 +1239,7 @@ def _pull(h: ExcelHost, t: Target, q: int, connection: str, pov: dict, rows: lis
                                    + "; ".join(_explain_reject(connection, d, m_) for d, m_ in rejected)
                                    + ". Pick a more specific member with sv_find_member / sv_members.")
     fte = fte_rows(lay, parsed)
-    t.status(f"formaterer '{name}' ...")
+    t.status(f"formatting '{name}' ...")
     p = _make_pull(name, connection, lay, parsed, secs)
     with fast_excel(t.app):
         with stage("style data sheet"):
@@ -1263,7 +1263,7 @@ def _refresh_pull(t: Target, p: Pull) -> Pull:
     from .ops import _used_values
     from .timing import stage
     ws = com(lambda: t.wb.Worksheets(p.sheet))
-    t.status(f"oppdaterer '{p.sheet}' ...")
+    t.status(f"refreshing '{p.sheet}' ...")
     with stage("retrieve in place"):
         t0 = time.monotonic()
         st = t.run("B_Retrieve", p.sheet)
@@ -1387,14 +1387,14 @@ def lookup_formula(p: Pull, row_members: list[str], col_members: list[str]) -> s
     return f"=INDEX({s}$A:${W},{row_match},{col_match})"
 
 
-def _kilder_name(t: Target) -> str:
-    """'Kilder', unless the user already has their own sheet with that name - then 'Kilder SV'."""
-    if _sheet_exists(t, "Kilder"):
-        a1 = com(lambda: t.wb.Worksheets("Kilder").Range("A1").Value)
-        used = com(lambda: t.wb.Worksheets("Kilder").UsedRange.Address)
-        if a1 != "Hentet" and used not in ("$A$1",):
-            return "Kilder SV"
-    return "Kilder"
+def _sources_name(t: Target) -> str:
+    """'Sources', unless the user already has their own sheet with that name - then 'Sources SV'."""
+    if _sheet_exists(t, "Sources"):
+        a1 = com(lambda: t.wb.Worksheets("Sources").Range("A1").Value)
+        used = com(lambda: t.wb.Worksheets("Sources").UsedRange.Address)
+        if a1 != "Fetched" and used not in ("$A$1",):
+            return "Sources SV"
+    return "Sources"
 
 
 def log_source(t: Target, q: int, question: str, p: Pull, notes: str = "") -> None:
@@ -1404,14 +1404,14 @@ def log_source(t: Target, q: int, question: str, p: Pull, notes: str = "") -> No
 
 
 def _log_source(t: Target, q: int, question: str, p: Pull, notes: str) -> None:
-    kname = _kilder_name(t)
+    kname = _sources_name(t)
     if not _sheet_exists(t, kname):
         ws = com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))   # positional: see add_sheet
         com(lambda: setattr(ws, "Name", kname))
     ws = com(lambda: t.wb.Worksheets(kname))
-    if com(lambda: ws.Range("A1").Value) != "Hentet":
-        com(lambda: setattr(ws.Range("A1:H1"), "Value", (("Hentet", "Spørsmål nr", "Spørsmål", "Kube", "POV",
-                                                          "Rader × kolonner", "Merknader", "Ark"),)))
+    if com(lambda: ws.Range("A1").Value) != "Fetched":
+        com(lambda: setattr(ws.Range("A1:H1"), "Value", (("Fetched", "Question no", "Question", "Cube", "POV",
+                                                          "Rows × columns", "Notes", "Sheet"),)))
         com(lambda: setattr(ws.Range("A1:H1").Font, "Bold", True))
         com(lambda: setattr(ws.Range("A1:H1").Font, "Color", 0x64381F))
     r = com(lambda: ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1

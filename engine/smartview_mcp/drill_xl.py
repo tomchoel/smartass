@@ -1,4 +1,4 @@
-"""sv_drill in the user's workbook: the lines table ('Q<n> Linjer', Excel table Linjer_Q<n>) and the formulas
+"""sv_drill in the user's workbook: the lines table ('Q<n> Lines', Excel table Lines_Q<n>) and the formulas
 answer cells use over it. Formula rules (tn-formelstil): SUMIFS by default; an exact-match FILTER form where SUMIFS
 would not match the key literally ('Jul-26' -> a date, digit strings over 15 characters -> a rounded number,
 '0123' -> 123, * ? ~ -> wildcards, a leading < > = -> a comparison, '12:30' -> a time, '50%' -> 0.5, 'TRUE' -> a
@@ -22,7 +22,7 @@ AGGS = ("sum", "count", "debit", "credit")
 
 
 def table_name(q: int, alias: str = "d") -> str:
-    return f"Linjer_Q{q}" if alias == "d" else f"Linjer_Q{q}_{alias}"
+    return f"Lines_Q{q}" if alias == "d" else f"Lines_Q{q}_{alias}"
 
 
 def _lit(v) -> str:
@@ -136,8 +136,8 @@ def _stale_ranges(hdr: int, old_end: int, old_ncol: int, new_end: int, new_ncol:
 
 
 def _source_text(source: str) -> str:
-    return (f"{source} Uttrekk {dt.datetime.now():%d.%m.%Y %H:%M}. AMOUNT har FinMax-fortegn (kostnad negativ). "
-            "Øyeblikksbilde: kjør sv_drill på nytt for å oppdatere.")
+    return (f"{source} Extract {dt.datetime.now():%d.%m.%Y %H:%M}. AMOUNT has the FinMax sign (cost negative). "
+            "Snapshot: run sv_drill again to update.")
 
 
 def same_header(old, new) -> bool:
@@ -148,7 +148,7 @@ def same_header(old, new) -> bool:
 
 def write_lines(t: Target, q: int, rows: list[dict], columns: list[str], title: str, source: str,
                 alias: str = "d") -> dict:
-    """'Q<n> Linjer' (+ ' <alias>'): title, source, then the Excel table Linjer_Q<n>. Above DRILL_XL_FULL lines only
+    """'Q<n> Lines' (+ ' <alias>'): title, source, then the Excel table Lines_Q<n>. Above DRILL_XL_FULL lines only
     the key columns go to Excel (full detail stays in drill.db). A re-drill of the same question/alias with the SAME
     columns reuses the table in place (cleared, rewritten, ListObject.Resize), so the answer's formulas stay valid;
     with other columns the old table is removed and a new one with the same name is built (columns_changed).
@@ -178,7 +178,7 @@ def write_lines(t: Target, q: int, rows: list[dict], columns: list[str], title: 
                 com(lambda: ws.Range(f"A{hdr}:{get_column_letter(old_ncol)}{old_end}").Clear())
                 lo = None
         else:
-            name = unique_sheet_name(t, f"Q{q} Linjer" + ("" if alias == "d" else f" {alias}"))
+            name = unique_sheet_name(t, f"Q{q} Lines" + ("" if alias == "d" else f" {alias}"))
             ws = add_sheet(t, name, after_q=q, color=0xA6A6A6)
             hdr = 4
         end = hdr + len(rows)
@@ -229,7 +229,7 @@ def clear_lines(t: Target, q: int, title: str, source: str, alias: str = "d") ->
         if body is not None:
             com(body.Delete)
         com(lambda: setattr(ws.Range("A1"), "Value", title))
-        com(lambda: setattr(ws.Range("A2"), "Value", _source_text(source) + " 0 linjer."))
+        com(lambda: setattr(ws.Range("A2"), "Value", _source_text(source) + " 0 lines."))
     return {"sheet": com(lambda: ws.Name), "table": tname, "columns": [], "rows": 0, "reused": True,
             "columns_changed": False}
 

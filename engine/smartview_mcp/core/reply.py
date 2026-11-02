@@ -83,7 +83,7 @@ def result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> dic
         pass
     return {
         "workbook": t.path, "question": f"Q{q}", "answer_sheet": res["sheet"],
-        "data_sheets": [p.sheet for p in pulls] + ["Kilder"],
+        "data_sheets": [p.sheet for p in pulls] + ["Sources"],
         "key_points": spec.get("key_points", []),
         "table": answer_markdown(spec, res),
         "checks": res["checks"],
@@ -98,7 +98,7 @@ def result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> dic
 
 
 def tidy(t, sheet: str | None = None) -> None:
-    """Fixed, neat sheet order (sheetorder: Svar first, other sheets, data per question, Kilder, hidden) and land
+    """Fixed, neat sheet order (sheetorder: Answer first, other sheets, data per question, Sources, hidden) and land
     on `sheet`. Our own analysis files get the full order; in a user's own workbook only our sheets are reordered
     among themselves. Cosmetic: never fails the tool."""
     from .. import sheetorder

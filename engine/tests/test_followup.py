@@ -120,7 +120,7 @@ def test_the_current_question_is_the_active_answer_sheet_else_the_latest_stored(
     monkeypatch.setattr(followup, "_active_sheet", lambda t: "Q3 Answer")
     monkeypatch.setattr(userexcel, "stored_questions", lambda t: [1, 3, 5])
     assert followup.current_question(t) == 3
-    monkeypatch.setattr(followup, "_active_sheet", lambda t: "Kilder")
+    monkeypatch.setattr(followup, "_active_sheet", lambda t: "Sources")
     monkeypatch.setattr(userexcel, "stored_questions", lambda t: [1, 4])
     assert followup.current_question(t) == 4
     monkeypatch.setattr(userexcel, "stored_questions", lambda t: [])

@@ -113,11 +113,11 @@ def test_scan_flags_noaccess_pull_and_value_error_on_answer_line():
     trace = {(19, 3): {"key": "ebitda"}, (20, 3): {"key": "fm_ebitda", "pull": "'Q6 FinMax recon'!B3"},
              (21, 3): {"key": "fm_diff", "deps": [(19, 3), (20, 3)]}}
     pull_grid = ((None, "All Entities"), (None, "Sep 26"), ("EBITDA", "#NoAccess"))
-    w = answer.error_warnings("Q6 Svar", ans, trace, {"Q6 FinMax recon": pull_grid})
+    w = answer.error_warnings("Q6 Answer", ans, trace, {"Q6 FinMax recon": pull_grid})
     text = "\n".join(w)
     assert "'Q6 FinMax recon'!B3 is #NoAccess: no read access or member not valid in this cube" in text
-    assert "formula error on line 'fm_diff': 'Q6 Svar'!C21 is #VALUE! (depends on 'Q6 FinMax recon'!B3)" in text
-    assert "formula error on line 'fm_ebitda': 'Q6 Svar'!C20 is #NoAccess" in text
+    assert "formula error on line 'fm_diff': 'Q6 Answer'!C21 is #VALUE! (depends on 'Q6 FinMax recon'!B3)" in text
+    assert "formula error on line 'fm_ebitda': 'Q6 Answer'!C20 is #NoAccess" in text
     assert not any("line 'ebitda'" in x for x in w)
 
 
@@ -129,11 +129,11 @@ def test_error_scan_groups_pull_cells_and_caps_answer_lines():
     for r in range(10, 60):
         ans[r - 1][2] = VALUE_ERR
         trace[(r, 3)] = {"key": f"k{r}"}
-    w = answer.error_warnings("Q6 Svar", ans, trace, {"Q6 FinMax cb": pull})
+    w = answer.error_warnings("Q6 Answer", ans, trace, {"Q6 FinMax cb": pull})
     assert w[0] == ("error cells on 'Q6 FinMax cb': 400 x #NoAccess (first: B2, B3, B4, ...): "
                     "no read access or member not valid in this cube")
     assert len(w) <= 1 + answer.MAX_LINE_WARNINGS + 1
-    assert w[-1] == f"... and {50 - answer.MAX_LINE_WARNINGS} more answer lines with error cells on 'Q6 Svar'"
+    assert w[-1] == f"... and {50 - answer.MAX_LINE_WARNINGS} more answer lines with error cells on 'Q6 Answer'"
 
 
 def test_member_check_folds_norwegian_letters(fake_atlas):

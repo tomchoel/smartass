@@ -273,8 +273,8 @@ async def sv_drill(question: str, cell: dict[str, str], connection: Literal["Fin
     through a hidden headless browser (Data Integration drill-through; nothing opens on screen).
     cell: {'All Accounts': 'ac.C40S', 'All Entities': 'un.SY.2WHS', 'All Time Periods': 'Q3 26', ...} - parents
     allowed; other dimensions default to Actual / NOK / Periodic / top member. Cells over 20 000 lines are split
-    automatically (months, then cost centres). Writes a live FinLite grid of the cell + 'Q<n> Linjer' (Excel table
-    Linjer_Q<n>) to the session workbook (target 'none' = cache only) and returns the reconciliation (cube vs
+    automatically (months, then cost centres). Writes a live FinLite grid of the cell + 'Q<n> Lines' (Excel table
+    Lines_Q<n>) to the session workbook (target 'none' = cache only) and returns the reconciliation (cube vs
     lines), a profile (top suppliers/accounts/months/journals, signs_mixed) and text repairs. Then build the report
     with sv_answer using {drill: 'd', where: {...}} cells. id: alias of this drill
     in the question (letters/digits/_; default 'd'). Re-drilling the same q and id refreshes its table in place."""
@@ -381,10 +381,10 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
             if parked:
                 with stage("drop old grid"):
                     userexcel.drop_parked(t, parked)
-            with stage("log Kilder"):
+            with stage("log Sources"):
                 try:
-                    userexcel.log_source(t, qn, question, p, notes=f"drill: {rec['lines']} linjer, avvik {rec['gap']}"
-                                         + (f"; ark {info['sheet']}" if info else "; ingen linjer"))
+                    userexcel.log_source(t, qn, question, p, notes=f"drill: {rec['lines']} lines, gap {rec['gap']}"
+                                         + (f"; sheet {info['sheet']}" if info else "; no lines"))
                 except Exception:   # noqa: BLE001 - the source log must never undo a finished drill
                     pass
             t.status(None)

@@ -464,15 +464,15 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
     area = _rng(ws, 1, 1, max(ur_last_r, last_row), max(ur_last_c, last))
     fname = _get(_get(area, "Font"), "Name")
     if fname != tn.FONT:
-        errs.append(f"flere fonter i bruk eller ikke Arial (Font.Name={fname!r})")
-    for edge, label in ((7, "venstre"), (10, "høyre"), (11, "innvendig")):
+        errs.append(f"more than one font, or not Arial (Font.Name={fname!r})")
+    for edge, label in ((7, "left"), (10, "right"), (11, "inside")):
         try:
             if _get(_call(area, "Borders", edge), "LineStyle") != tn.NONE:
-                errs.append(f"loddrett strek ({label}) i arket (ikke tillatt i rapportstil)")
+                errs.append(f"vertical border ({label}) on the sheet (not allowed in the report style)")
         except Exception:   # noqa: BLE001
             continue
     if ur_last_c > last:
-        errs.append(f"innhold utenfor tabellbredden (til {roles['last_col']})")
+        errs.append(f"content outside the table width (up to {roles['last_col']})")
     defs = tn.style_defs()
     merged = {(r, c) for r, c in merges}
     for r in range(1, min(len(raw), last_row) + 1):
@@ -488,7 +488,7 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
                 lines = tn.wrap_lines(v, w, size, bold)
                 h = heights.get(r, 15)
                 if lines is None or lines * (size + 3) > h + 1:
-                    errs.append(f"{a}: teksten får ikke plass ({lines or 'ord for langt'} linjer, {h:.0f} pt)")
+                    errs.append(f"{a}: text does not fit ({lines or 'word too long'} lines, {h:.0f} pt)")
             elif p.get("h", -4131) != tn.H_RIGHT and not p.get("wrap"):
                 avail = widths.get(c, 8.43)
                 for k in range(c + 1, last + 1):
@@ -497,7 +497,7 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
                     avail += widths.get(k, 8.43)
                 need = tn.text_units(v, size, bold)
                 if need > avail:
-                    errs.append(f"{a}: teksten kuttes eller renner ut (~{need:.0f} > {avail:.0f} tegn)")
+                    errs.append(f"{a}: text is cut off or spills over (~{need:.0f} > {avail:.0f} chars)")
     return errs
 
 
@@ -534,84 +534,6 @@ def _page_setup_props(ws, xl, last_row, last, roles):
         _set(ps, "LeftFooter", '&"Arial"&8&F')
     except Exception:   # noqa: BLE001  (no printer installed etc.)
         pass
-
-
-# ---------------------------------------------------------------- lint (COM based subset of tn_rapportstil.lint)
-def _lint(ws, roles, raw, last, last_row, widths, labels, cell_cap: int = 3000) -> list[str]:
-    errs: list[str] = []
-    ur = _get(ws, "UsedRange")
-    ur_last_c = _get(ur, "Column") + _get(ur, "Columns", "Count") - 1
-    ur_last_r = _get(ur, "Row") + _get(ur, "Rows", "Count") - 1
-    area = _rng(ws, 1, 1, max(ur_last_r, last_row), max(ur_last_c, last))
-    # fonts
-    fname = _get(_get(area, "Font"), "Name")
-    if fname != tn.FONT:
-        bad = []
-        for r in range(1, min(max(ur_last_r, last_row), 200) + 1):
-            for c in range(1, max(ur_last_c, last) + 1):
-                if _get(_get(_rng(ws, r, c), "Font"), "Name") != tn.FONT:
-                    bad.append(f"{_cl(c)}{r}")
-                    break
-            if len(bad) >= 3:
-                break
-        errs.append(f"flere fonter i bruk eller ikke Arial (Font.Name={fname!r}; f.eks. {', '.join(bad)})")
-    # vertical borders (left, right, inside vertical)
-    for edge, label in ((7, "venstre"), (10, "høyre"), (11, "innvendig")):
-        try:
-            ls = _get(_call(area, "Borders", edge), "LineStyle")
-        except Exception:   # noqa: BLE001
-            continue
-        if ls != tn.NONE:
-            errs.append(f"loddrett strek ({label}) i arket (ikke tillatt i rapportstil)")
-    if max(ur_last_c, 0) > last:
-        errs.append(f"innhold utenfor tabellbredden (til {roles['last_col']})")
-    n = 0
-    for r in range(1, min(len(raw), last_row) + 1):
-        for c in range(1, min(len(raw[0]), last) + 1):
-            v = raw[r - 1][c - 1]
-            if v is None or v == "":
-                continue
-            n += 1
-            if n > cell_cap:
-                return errs + [f"lint avbrutt etter {cell_cap} celler"]
-            a = f"{_cl(c)}{r}"
-            cell = _rng(ws, r, c)
-            st = _get(_get(cell, "Style"), "Name")
-            if not str(st).startswith("TN "):
-                errs.append(f"{a}: mangler TN-stil (har '{st}')")
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                if _get(cell, "NumberFormat") in ("General", "Standard"):
-                    errs.append(f"{a}: tall uten tallformat")
-            elif isinstance(v, str):
-                if v.startswith("=") and not _get(cell, "HasFormula"):
-                    errs.append(f"{a}: formel lagret som tekst ('{v[:30]}')")
-                _lint_text(ws, cell, a, v, r, c, raw, last, widths, errs)
-    return errs
-
-
-def _lint_text(ws, cell, a, v, r, c, raw, last, widths, errs):
-    size = _get(_get(cell, "Font"), "Size") or 10
-    bold = bool(_get(_get(cell, "Font"), "Bold"))
-    merged = _get(cell, "MergeCells")
-    if merged:
-        area = _get(cell, "MergeArea")
-        w = sum(widths[k] for k in range(_get(area, "Column"), _get(area, "Column") + _get(area, "Columns", "Count")) if k in widths)
-    else:
-        w = widths.get(c, 8.43)
-    if _get(cell, "WrapText"):
-        h = _get(_get(cell, "EntireRow"), "RowHeight")
-        lines = tn.wrap_lines(v, w, size, bold)
-        if lines is None or lines * (size + 3) > h + 1:
-            errs.append(f"{a}: teksten får ikke plass ({lines or 'ord for langt'} linjer, {h:.0f} pt)")
-    elif _get(cell, "HorizontalAlignment") != tn.H_RIGHT:
-        need = tn.text_units(v, size, bold)
-        avail = w
-        for k in range(c + 1, last + 1):
-            if raw[r - 1][k - 1] not in (None, ""):
-                break
-            avail += widths.get(k, 8.43)
-        if need > avail:
-            errs.append(f"{a}: teksten kuttes eller renner ut (~{need:.0f} > {avail:.0f} tegn)")
 
 
 # ---------------------------------------------------------------- apply_data_sheet

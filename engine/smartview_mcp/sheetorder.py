@@ -1,12 +1,12 @@
 """A neat, fixed sheet order for analysis workbooks (applied at the end of every tool that adds or rebuilds sheets).
 
 Full mode (our own analysis workbook):
-  1. 'Q<n> Svar' by question number (numeric: Q10 after Q9)
+  1. 'Q<n> Answer' by question number (numeric: Q10 after Q9)
   2. other visible sheets (the user's own, e.g. 'Intervjuguide'), in their current relative order
-  3. data sheets per question: FinMax, FinLite, FinPlan pulls (plain name first, then suffixes), then 'Q<n> Linjer*'
-  4. 'Kilder' (and 'Kilder SV')
+  3. data sheets per question: FinMax, FinLite, FinPlan pulls (plain name first, then suffixes), then 'Q<n> Lines*'
+  4. 'Sources' (and 'Sources SV')
   5. hidden sheets ('_svmeta', parked) - never moved, they end up last
-Active mode (the user's own workbook): only our sheets (Svar, data, Kilder) are reordered among the slots they
+Active mode (the user's own workbook): only our sheets (Answer, data, Sources) are reordered among the slots they
 already occupy; every other sheet stays exactly where it is.
 
 Moves are planned so that as few sheets as possible move (a weighted longest increasing subsequence keeps the rest);
@@ -19,10 +19,10 @@ import re
 
 log = logging.getLogger("smartview.sheetorder")
 
-_OURS = re.compile(r"^Q(\d+) (Svar|Answer|FinMax|FinLite|FinPlan|Linjer)(?: (.+))?$")
-_RANK = {"FinMax": 0, "FinLite": 1, "FinPlan": 2, "Linjer": 3}
-KILDER = ("Kilder", "Kilder SV")
-SVAR_TAB = 0x64381F          # TN navy (BGR of #1F3864), as answer.answer_sheet
+_OURS = re.compile(r"^Q(\d+) (Answer|FinMax|FinLite|FinPlan|Lines)(?: (.+))?$")
+_RANK = {"FinMax": 0, "FinLite": 1, "FinPlan": 2, "Lines": 3}
+SOURCES = ("Sources", "Sources SV")
+ANSWER_TAB = 0x64381F          # TN navy (BGR of #1F3864), as answer.answer_sheet
 DATA_TAB = 0xA6A6A6          # grey, as add_sheet(color=...) / styling.GREY_TAB
 
 
@@ -35,13 +35,13 @@ def _suffix_key(sfx: str | None) -> tuple[int, int]:
 
 
 def classify(name: str) -> tuple[str, tuple]:
-    """('svar' | 'data', sort key) for our sheets, ('other', ()) otherwise."""
+    """('answer' | 'data', sort key) for our sheets, ('other', ()) otherwise."""
     m = _OURS.match(name)
     if not m:
         return "other", ()
     q, kind, sfx = int(m.group(1)), m.group(2), m.group(3)
-    if kind in ("Svar", "Answer"):
-        return "svar", (q, *_suffix_key(sfx))
+    if kind == "Answer":
+        return "answer", (q, *_suffix_key(sfx))
     return "data", (q, _RANK[kind], *_suffix_key(sfx))
 
 
@@ -51,35 +51,35 @@ def _is_visible(name: str, visible) -> bool:
     return name in visible
 
 
-def default_kilder(names: list[str], mode: str) -> set[str]:
+def default_sources(names: list[str], mode: str) -> set[str]:
     if mode == "full":
-        return set(KILDER)
-    return {"Kilder SV"} if "Kilder SV" in names else {"Kilder"}   # a user's own 'Kilder' pushed ours to 'Kilder SV'
+        return set(SOURCES)
+    return {"Sources SV"} if "Sources SV" in names else {"Sources"}   # a user's own 'Sources' pushed ours to 'Sources SV'
 
 
-def sheet_order(names: list[str], visible, mode: str = "full", kilder: set[str] | None = None) -> list[str]:
+def sheet_order(names: list[str], visible, mode: str = "full", sources: set[str] | None = None) -> list[str]:
     """Target order of the sheets `names` (current order). visible: {name: bool} or a set of visible names.
     mode 'full' (our analysis workbook) or 'active' (the user's own workbook: only our sheets move, within the
     slots they already occupy)."""
-    kilder = default_kilder(names, mode) if kilder is None else set(kilder)
-    svar, data, kild, other, hidden = [], [], [], [], []
+    sources = default_sources(names, mode) if sources is None else set(sources)
+    answers, data, srcs, other, hidden = [], [], [], [], []
     for i, n in enumerate(names):
         if not _is_visible(n, visible):
             hidden.append(n)
             continue
         kind, key = classify(n)
-        if kind == "svar":
-            svar.append((key, i, n))
+        if kind == "answer":
+            answers.append((key, i, n))
         elif kind == "data":
             data.append((key, i, n))
-        elif n in kilder:
-            kild.append(((KILDER.index(n) if n in KILDER else 9,), i, n))
+        elif n in sources:
+            srcs.append(((SOURCES.index(n) if n in SOURCES else 9,), i, n))
         else:
             other.append(n)
-    ours = [n for _, _, n in sorted(svar)] + [n for _, _, n in sorted(data)] + [n for _, _, n in sorted(kild)]
+    ours = [n for _, _, n in sorted(answers)] + [n for _, _, n in sorted(data)] + [n for _, _, n in sorted(srcs)]
     if mode == "full":
-        return [n for _, _, n in sorted(svar)] + other + [n for _, _, n in sorted(data)] + \
-            [n for _, _, n in sorted(kild)] + hidden
+        return [n for _, _, n in sorted(answers)] + other + [n for _, _, n in sorted(data)] + \
+            [n for _, _, n in sorted(srcs)] + hidden
     if mode != "active":
         raise ValueError(f"mode must be 'full' or 'active', got {mode!r}")
     mine = set(ours)
@@ -87,12 +87,12 @@ def sheet_order(names: list[str], visible, mode: str = "full", kilder: set[str] 
     return [next(it) if n in mine else n for n in names]          # our sheets refill our own slots, in order
 
 
-def pinned_sheets(names: list[str], visible, mode: str = "full", kilder: set[str] | None = None) -> set[str]:
+def pinned_sheets(names: list[str], visible, mode: str = "full", sources: set[str] | None = None) -> set[str]:
     """Sheets that must never move: hidden ones; in active mode also every sheet that is not ours."""
-    kilder = default_kilder(names, mode) if kilder is None else set(kilder)
+    sources = default_sources(names, mode) if sources is None else set(sources)
     pins = {n for n in names if not _is_visible(n, visible)}
     if mode == "active":
-        pins |= {n for n in names if classify(n)[0] == "other" and n not in kilder}
+        pins |= {n for n in names if classify(n)[0] == "other" and n not in sources}
     return pins
 
 
@@ -142,21 +142,21 @@ def simulate(order: list[str], moves) -> list[str]:
 # ------------------------------------------------------------------ COM
 def arrange_sheets(wb, mode: str = "full", activate: str | None = None, colors: bool = True) -> dict:
     """Put the workbook's sheets in the fixed order (see module doc) with positional Move (keyword Before=/After= are
-    ignored through late-bound COM), set the Svar/data tab colours, and activate `activate` (else the sheet that was
+    ignored through late-bound COM), set the Answer/data tab colours, and activate `activate` (else the sheet that was
     active). Returns {'moved': [...], 'order': [...]}; raises only if Excel refuses a move."""
     from .userexcel import com, fast_excel
     sheets = list(com(lambda: wb.Worksheets))
     names = [str(com(lambda s=s: s.Name)) for s in sheets]
     visible = {n: com(lambda s=s: s.Visible) == -1 for n, s in zip(names, sheets)}   # xlSheetVisible
-    kilder = None
-    if mode == "active" and "Kilder" in names and "Kilder SV" not in names:
-        try:                                            # a user's own 'Kilder' (not our log) is not ours to move
-            a1 = com(lambda: wb.Worksheets("Kilder").Range("A1").Value)
+    sources = None
+    if mode == "active" and "Sources" in names and "Sources SV" not in names:
+        try:                                            # a user's own 'Sources' (not our log) is not ours to move
+            a1 = com(lambda: wb.Worksheets("Sources").Range("A1").Value)
         except Exception:   # noqa: BLE001
             a1 = None
-        kilder = {"Kilder"} if a1 == "Hentet" else set()
-    target = sheet_order(names, visible, mode, kilder)
-    moves = plan_moves(names, target, pinned_sheets(names, visible, mode, kilder))
+        sources = {"Sources"} if a1 == "Fetched" else set()
+    target = sheet_order(names, visible, mode, sources)
+    moves = plan_moves(names, target, pinned_sheets(names, visible, mode, sources))
     try:
         prev_active = str(com(lambda: wb.ActiveSheet.Name))
     except Exception:   # noqa: BLE001 - e.g. a chart sheet or no window
@@ -175,7 +175,7 @@ def arrange_sheets(wb, mode: str = "full", activate: str | None = None, colors: 
     if colors:
         for n in target:
             kind = classify(n)[0] if visible.get(n) else "other"
-            want = SVAR_TAB if kind == "svar" else DATA_TAB if kind == "data" else None
+            want = ANSWER_TAB if kind == "answer" else DATA_TAB if kind == "data" else None
             if want is None:
                 continue
             try:

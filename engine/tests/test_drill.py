@@ -178,14 +178,14 @@ from smartview_mcp import drill_xl as dx
 
 
 def test_table_name():
-    assert dx.table_name(1) == "Linjer_Q1" and dx.table_name(4, "b") == "Linjer_Q4_b"
+    assert dx.table_name(1) == "Lines_Q1" and dx.table_name(4, "b") == "Lines_Q4_b"
 
 
 def test_formula_sumifs_for_safe_keys():
-    f = dx.drill_formula("Linjer_Q1", {"JE_SOURCE": "Payables"})
-    assert f == '=SUMIFS(Linjer_Q1[AMOUNT],Linjer_Q1[JE_SOURCE],"Payables")'
-    assert dx.drill_formula("Linjer_Q1", {"JE_SOURCE": "Payables"}, "count") == \
-        '=COUNTIFS(Linjer_Q1[JE_SOURCE],"Payables")'
+    f = dx.drill_formula("Lines_Q1", {"JE_SOURCE": "Payables"})
+    assert f == '=SUMIFS(Lines_Q1[AMOUNT],Lines_Q1[JE_SOURCE],"Payables")'
+    assert dx.drill_formula("Lines_Q1", {"JE_SOURCE": "Payables"}, "count") == \
+        '=COUNTIFS(Lines_Q1[JE_SOURCE],"Payables")'
     assert dx.drill_formula("T", {"JE_SOURCE": "Payables"}, "credit") == \
         '=SUMIFS(T[AMOUNT],T[AMOUNT],">0",T[JE_SOURCE],"Payables")'
 
@@ -220,7 +220,7 @@ def test_formula_totals_debit_credit_and_blank():
 
 def test_formulas_pass_the_style_checker():
     from smartview_mcp import formulas
-    t = "Linjer_Q1"
+    t = "Lines_Q1"
     fs = [dx.drill_formula(t, {"JE_SOURCE": "Payables"}),
           dx.drill_formula(t, {"JE_SOURCE": "Payables", "AP_CUSTOMER_NAME": "SUPPLIER 037 AS"}, "count"),
           dx.drill_formula(t, {"Period": "Jul-26"}),
@@ -230,7 +230,7 @@ def test_formulas_pass_the_style_checker():
           dx.drill_formula(t, {}, "credit"),
           dx.drill_formula(t, {}),
           dx.drill_formula(t, {}, "count")]
-    res = formulas.check([("Q1 Svar", f"C{i}", f) for i, f in enumerate(fs, start=10)])
+    res = formulas.check([("Q1 Answer", f"C{i}", f) for i, f in enumerate(fs, start=10)])
     assert res["ok"] is True and res["block"] == [], res
 
 
@@ -319,15 +319,15 @@ def test_answer_writes_drill_formulas(monkeypatch):
     rows_by_key, warnings = out[2], out[-1]
     assert warnings == []
     c = answer.FIRST_COL
-    assert ws.cells[(rows_by_key["pay"], c)].Formula2 == '=SUMIFS(Linjer_Q2[AMOUNT],Linjer_Q2[JE_SOURCE],"Payables")'
-    assert ws.cells[(rows_by_key["pay"], c + 1)].Formula2 == '=COUNTIFS(Linjer_Q2[JE_SOURCE],"Payables")'
+    assert ws.cells[(rows_by_key["pay"], c)].Formula2 == '=SUMIFS(Lines_Q2[AMOUNT],Lines_Q2[JE_SOURCE],"Payables")'
+    assert ws.cells[(rows_by_key["pay"], c + 1)].Formula2 == '=COUNTIFS(Lines_Q2[JE_SOURCE],"Payables")'
     assert ws.cells[(rows_by_key["jul"], c)].Formula2 == \
-        '=SUM(FILTER(Linjer_Q2[AMOUNT],(Linjer_Q2[Period]="Jul-26")*(Linjer_Q2[AMOUNT]<0),0))'
-    assert ws.cells[(rows_by_key["tot"], c)].Formula2 == "=SUM(Linjer_Q2[AMOUNT])"
+        '=SUM(FILTER(Lines_Q2[AMOUNT],(Lines_Q2[Period]="Jul-26")*(Lines_Q2[AMOUNT]<0),0))'
+    assert ws.cells[(rows_by_key["tot"], c)].Formula2 == "=SUM(Lines_Q2[AMOUNT])"
     other = {**DRILL_SPEC["sections"][0]["lines"][2], "key": "b", "cells": [{"drill": "b", "where": {}}]}
     ws2 = _Sheet()
     out2 = answer._write(_Target(), 2, {**DRILL_SPEC, "sections": [{"title": "x", "lines": [other]}]}, {}, ws2)
-    assert ws2.cells[(out2[2]["b"], c)].Formula2 == "=SUM(Linjer_Q2_b[AMOUNT])"
+    assert ws2.cells[(out2[2]["b"], c)].Formula2 == "=SUM(Lines_Q2_b[AMOUNT])"
 
 
 def test_drill_value_matches_like_excel_equals():
@@ -365,7 +365,7 @@ def test_answer_drill_wins_over_pull_like_specs(monkeypatch):
         {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {}, "pull": "nope"}]}]}]}
     ws = _Sheet()
     out = answer._write(_Target(), 1, spec, {}, ws)
-    assert out[-1] == [] and ws.cells[(out[2]["a"], answer.FIRST_COL)].Formula2 == "=SUM(Linjer_Q1[AMOUNT])"
+    assert out[-1] == [] and ws.cells[(out[2]["a"], answer.FIRST_COL)].Formula2 == "=SUM(Lines_Q1[AMOUNT])"
 
 
 # ------------------------------------------------------------------ drill_browser (no browser started)
@@ -730,11 +730,11 @@ def _target(names):
 
 
 @pytest.mark.parametrize("names, after_q, expect", [
-    (["Kilder"], 1, ["X", "Kilder"]),                                              # new workbook: before Kilder
-    (["Kilder", "_svmeta"], None, ["X", "Kilder", "_svmeta"]),
-    (["Q1 FinLite", "Q1 Linjer", "Kilder", "_svmeta"], 1, ["Q1 FinLite", "Q1 Linjer", "X", "Kilder", "_svmeta"]),
-    (["Q1 Svar", "Q1 FinMax", "Q2 FinLite", "Kilder"], 1, ["Q1 Svar", "Q1 FinMax", "X", "Q2 FinLite", "Kilder"]),
-    (["Q1 Svar", "Q1 FinMax", "Kilder"], 2, ["Q1 Svar", "Q1 FinMax", "X", "Kilder"]),
+    (["Sources"], 1, ["X", "Sources"]),                                              # new workbook: before Sources
+    (["Sources", "_svmeta"], None, ["X", "Sources", "_svmeta"]),
+    (["Q1 FinLite", "Q1 Lines", "Sources", "_svmeta"], 1, ["Q1 FinLite", "Q1 Lines", "X", "Sources", "_svmeta"]),
+    (["Q1 Answer", "Q1 FinMax", "Q2 FinLite", "Sources"], 1, ["Q1 Answer", "Q1 FinMax", "X", "Q2 FinLite", "Sources"]),
+    (["Q1 Answer", "Q1 FinMax", "Sources"], 2, ["Q1 Answer", "Q1 FinMax", "X", "Sources"]),
 ])
 def test_add_sheet_anchor(names, after_q, expect):
     from smartview_mcp import userexcel
@@ -745,8 +745,8 @@ def test_add_sheet_anchor(names, after_q, expect):
 
 def test_question_grouping_includes_linjer(monkeypatch):
     from smartview_mcp import userexcel
-    assert userexcel._Q.match("Q3 Linjer b") and not userexcel._Q.match("Q3 Forecast")
-    t = _target(["Q2 Svar", "Q2 FinLite", "Q2 Linjer", "Kilder"])
+    assert userexcel._Q.match("Q3 Lines b") and not userexcel._Q.match("Q3 Forecast")
+    t = _target(["Q2 Answer", "Q2 FinLite", "Q2 Lines", "Sources"])
     assert userexcel.next_question(t) == 3
 
 
