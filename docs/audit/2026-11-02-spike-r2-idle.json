@@ -1,0 +1,54 @@
+{
+ "spike": "R2",
+ "when": "2026-11-02T11:53:31",
+ "pulls": {
+  "pnl": {
+   "connection": "FinMax",
+   "cells": 55,
+   "cold_s": 6.94
+  },
+  "fpa": {
+   "connection": "FinPlan",
+   "cells": 63,
+   "cold_s": 4.14
+  },
+  "fpp": {
+   "connection": "FinPlan",
+   "cells": 35,
+   "cold_s": 0.06
+  },
+  "fte": {
+   "connection": "FinMax",
+   "cells": 21,
+   "cold_s": 0.09
+  },
+  "stress": {
+   "connection": "FinMax",
+   "cells": 1610,
+   "cold_s": 0.14
+  }
+ },
+ "cold_s": 11.38,
+ "warm_s": [
+  0.55
+ ],
+ "warm_median_s": 0.55,
+ "parallel_s": 0.38,
+ "parallel_same": true,
+ "after_idle": {
+  "idle_s": 3600.0,
+  "ok": true,
+  "s": 12.0,
+  "same": false,
+  "differs": [
+   "fpa"
+  ],
+  "matches_fresh_session": true
+ },
+ "total_cells": 1784,
+ "go": {
+  "warm_lt_10s": true,
+  "parallel_safe": true,
+  "idle_ok": true
+ }
+}

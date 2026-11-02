@@ -8,7 +8,7 @@ Scripts are in `engine/tests/live/spike_r*.py`; raw results are in the JSON file
 | Spike | Question | Result | Verdict |
 |---|---|---|---|
 | R1 | Can a source sheet be a grid of HsGetValue formulas in the user's Excel? | 490 cells written in 1.0 s, refreshed in 1.3 s (0.7 s warm), equal to HTTP in every cell, values survive save and reopen | **Go, with a condition:** only when Excel's own Smart View is signed in and connected (see findings) |
-| R2 | Can the Smart View HTTP provider fetch B15 fast, in parallel, after idle? | B15 (4 pulls, 174 cells) warm in 0.4 s; a 1 610-cell grid in 0.19 s; parallel = sequential; cold start 13–26 s (browser + SSO) | **Go** (idle result: see below) |
+| R2 | Can the Smart View HTTP provider fetch B15 fast, in parallel, after idle? | B15 (4 pulls, 174 cells) warm in 0.4 s; a 1 610-cell grid in 0.19 s; parallel = sequential; cold start 13–26 s (browser + SSO); after 1 h idle reconnects in 12–14 s and returns current data | **Go** |
 | R3 | Is a one-block write into the open workbook safe while the user works? | 630 cells in 0.02–0.36 s with the user's book active; waits ~7 s while Excel is busy or a cell is edited, then lands; user's book stays active and untouched | **Go** |
 | R4 | Is there a supported alternative to the undocumented provider? | Official REST needs an OAuth client registered by an IDCS admin; the SSO session gets 401; `exportdataslice` exports only read-write cells | **Keep svhttp**; ask the EPM admin for an OAuth client as the supported fallback |
 
@@ -46,7 +46,17 @@ Findings:
 | Stress grid 7 BA × 10 lines × 21 months = 1 610 cells | 0.17–0.19 s |
 | Same five pulls on five threads | 0.28–0.49 s, every cell equal to sequential (the client serialises on one lock) |
 | Cold (hidden Edge start + SSO + three cube sessions) | 12.8 s and 26.0 s in two runs |
-| Fetch after 1 h idle | _pending — `2026-11-02-spike-r2-idle.json`_ |
+| Fetch after 1 h idle | **ok in 12–14 s**, but one pull (`fpa`, FinPlan Actual) changed; the reconnected values equal a brand-new session (two runs below) |
+
+**Idle reconnect (two runs, 1 h idle each).** The three cube sessions were left idle for 3600 s, then all five pulls
+re-fetched. Both runs reconnected (`ok`) in 13.7 s (run 1) and 12.0 s (run 2) — a reconnect, not a fresh cold start.
+In both runs the re-fetched values were **not** identical to the pre-idle fetch (`same: false`); the differing pull
+was `fpa` (FinPlan Actual) in run 2 (run 1 did not record which). Run 2 then fetched the same pulls on a *brand-new*
+Edge session and compared: the reconnected values **equalled the fresh session** (`matches_fresh_session: true`). So
+the change is live data movement during the idle hour (FinPlan "Working" actuals move intraday), not a stale or wrong
+reconnect. **Verdict: Go.** The session survives an idle hour and returns current data; source sheets must always show
+their fetch time (they do — provenance panel) so a refreshed number is expected to move. Raw:
+`2026-11-02-spike-r2-idle-run1.json`, `2026-11-02-spike-r2-idle.json`.
 
 ## R3 — Live write
 
