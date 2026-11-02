@@ -44,3 +44,27 @@ clear).
 | T08 | "Cost per FTE in IT" | clear with stated definition | FTE measure exists; cost definition must be stated |
 | T09 | "How much did we spend on consultants?" | clear or ambiguous | account mapping must come from the catalogue, not a guess |
 | T10 | "Forecast for December 27 actuals" | infeasible | actuals for an open month do not exist; offer forecast (live case: pick a month after the closed month; the unit test pins closed = Sep 26) |
+
+## Route `core` (phase 5)
+
+`engine/tests/live/bench.py --route core` runs every answer case on the new pipeline (`sv_answer`):
+
+| Case | Core route | Period |
+|---|---|---|
+| B01, B13, B15 | recipe `pnl` (`area` Wholesale / un.SY.5OK_W, `detail` full for B13, B15) | closed month (dynamic) |
+| B02 | free-form answer spec v1 | pinned Sep 26 |
+| B03 | follow-up on B02: pull `fp` + one line in B02's second section (by title) | pinned Sep 26 |
+| B04 | follow-up on B02: title + `notes.append`; must fetch nothing (every route `reused`) | pinned Sep 26 |
+| B05 | recipe `actual_vs_plan` (2TEC Technology) | closed month (dynamic) |
+| B06 | recipe `cost_base` (un.SY.2TEC, top 15) | closed month (dynamic) |
+| B07 | recipe `monthly_trend` (un.SY, ac.C30) | closed month (dynamic) |
+| B08 | follow-up on B07: C30 per business area per month + "Other / eliminations"; check split = trend | B07's month |
+| B09 | recipe `concept` (the library's first match for the question; no `sv_scope`) | closed month (dynamic) |
+| B12 | the `sv_drill` utility, unchanged (a v1 drill spec is phase 6) | pinned Sep 26 |
+| B14 | recipe `actual_vs_plan` (2BUS Business, Dec FY26) | pinned FY26 Dec |
+
+The closed month is FinMax's Current Reporting Month (Oct 26 at phase 5); the dynamic oracles read the answer's
+`period`. B08's oracle: C30 Periodic for un.SY.2BUS and un.SY.2TEC in B07's month. On route core the review grades
+the checks: a check with `severity: "Warning"` (actual_vs_plan's FinPlan = FinMax) may differ without failing the
+case. Gate cases (B10, B11, T01–T10) are scored by `sv_gate`. Results: `docs/audit/2026-11-02-bench-core-widen.md`,
+`docs/audit/2026-11-02-bench-core-gate-p5.md`.

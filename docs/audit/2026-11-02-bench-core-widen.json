@@ -1,0 +1,302 @@
+{
+ "started": "2026-11-02T14:39:24",
+ "route": "core",
+ "results": [
+  {
+   "id": "B01",
+   "question": "Wholesale EBITDA YTD Sep 26 vs last year and budget",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 27.74,
+   "total_s": 53.14,
+   "oracle": {
+    "ac.EBITDA YTD": true,
+    "EBITDA YTD LY": true,
+    "EBITDA budget YTD": true
+   },
+   "match": {
+    "ac.EBITDA YTD": "exact",
+    "EBITDA YTD LY": "exact",
+    "EBITDA budget YTD": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B02",
+   "question": "Business Norway EBITDA per month 2026 vs 2025, reconciled to accumulated YTD",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 0.92,
+   "total_s": 9.06,
+   "oracle": {
+    "EBITDA YTD Sep 26": true,
+    "EBITDA YTD Sep 25": true,
+    "EBITDA Jun 26": true
+   },
+   "match": {
+    "EBITDA YTD Sep 26": "exact",
+    "EBITDA YTD Sep 25": "exact",
+    "EBITDA Jun 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "routes {'Q1 FinMax': 'http', 'Q1 FinMax ytd': 'http'}",
+   "result": "PASS"
+  },
+  {
+   "id": "B03",
+   "question": "Follow-up to B02: add FinPlan Actual EBITDA YTD",
+   "gate": "followup",
+   "route": "core",
+   "first_visible_s": 0.81,
+   "total_s": 5.69,
+   "oracle": {
+    "EBITDA YTD Sep 26": true,
+    "EBITDA YTD Sep 25": true,
+    "EBITDA Jun 26": true,
+    "FinPlan Actual EBITDA YTD": true
+   },
+   "match": {
+    "EBITDA YTD Sep 26": "exact",
+    "EBITDA YTD Sep 25": "exact",
+    "EBITDA Jun 26": "exact",
+    "FinPlan Actual EBITDA YTD": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "reused ['m', 'ytd']",
+   "result": "PASS"
+  },
+  {
+   "id": "B04",
+   "question": "Follow-up to B02: add a note and change the title",
+   "gate": "followup",
+   "route": "core",
+   "first_visible_s": 1.53,
+   "total_s": 4.97,
+   "oracle": {
+    "EBITDA YTD Sep 26": true,
+    "EBITDA YTD Sep 25": true,
+    "EBITDA Jun 26": true
+   },
+   "match": {
+    "EBITDA YTD Sep 26": "exact",
+    "EBITDA YTD Sep 25": "exact",
+    "EBITDA Jun 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "reused ['m', 'ytd', 'fp']",
+   "result": "PASS"
+  },
+  {
+   "id": "B05",
+   "question": "Technology actual vs plan, Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 2.66,
+   "total_s": 11.56,
+   "oracle": {
+    "EBITDA actual YTD": true,
+    "EBITDA target YTD": true
+   },
+   "match": {
+    "EBITDA actual YTD": "exact",
+    "EBITDA target YTD": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B06",
+   "question": "Top 15 cost centres by opex under Technology, Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 4.34,
+   "total_s": 9.48,
+   "oracle": {
+    "C70 YTD un.SY.2TEC": true
+   },
+   "match": {
+    "C70 YTD un.SY.2TEC": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B07",
+   "question": "Telenor Norge monthly revenue trend through Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 3.83,
+   "total_s": 10.8,
+   "oracle": {
+    "C30 Oct 26": true,
+    "C30 Jan 26": true,
+    "C30 YTD Oct 26": true
+   },
+   "match": {
+    "C30 Oct 26": "exact",
+    "C30 Jan 26": "exact",
+    "C30 YTD Oct 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B08",
+   "question": "Follow-up to B07: split by business area",
+   "gate": "followup",
+   "route": "core",
+   "first_visible_s": 1.38,
+   "total_s": 7.02,
+   "oracle": {
+    "C30 Oct 26 un.SY.2BUS": true,
+    "C30 Oct 26 un.SY.2TEC": true
+   },
+   "match": {
+    "C30 Oct 26 un.SY.2BUS": "exact",
+    "C30 Oct 26 un.SY.2TEC": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "reused ['tr', 'ytd']",
+   "result": "PASS"
+  },
+  {
+   "id": "B09",
+   "question": "What do we earn on mobile subscriptions?",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 4.03,
+   "total_s": 9.88,
+   "oracle": {},
+   "match": {},
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "concept fam_mobil_own_subscriptions_mobile_consumer; period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B12",
+   "question": "Lines behind account 12881, un.SY, Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 61.59,
+   "total_s": 68.39,
+   "oracle": {
+    "12881 un.SY Sep 26": true
+   },
+   "match": {
+    "12881 un.SY Sep 26": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "None",
+   "result": "PASS"
+  },
+  {
+   "id": "B13",
+   "question": "EBITDA YTD for unit un.SY.5OK_W",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 5.38,
+   "total_s": 25.83,
+   "oracle": {
+    "ac.EBITDA YTD": true,
+    "EBITDA YTD LY": true
+   },
+   "match": {
+    "ac.EBITDA YTD": "exact",
+    "EBITDA YTD LY": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B14",
+   "question": "Business full-year EBITDA: latest forecast vs budget",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 3.17,
+   "total_s": 18.47,
+   "oracle": {
+    "EBITDA target FY": true,
+    "EBITDA Forecast Q326 FY": true
+   },
+   "match": {
+    "EBITDA target FY": "exact",
+    "EBITDA Forecast Q326 FY": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Dec 26",
+   "result": "PASS"
+  },
+  {
+   "id": "B15",
+   "question": "Wholesale full P&L (revenue, COGS, opex, EBITDA) actual vs budget vs last year, YTD",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": 5.39,
+   "total_s": 33.39,
+   "oracle": {
+    "ac.C30 YTD": true,
+    "ac.C40S YTD": true,
+    "ac.C70 YTD": true,
+    "ac.EBITDA YTD": true,
+    "EBITDA YTD LY": true,
+    "EBITDA budget YTD": true
+   },
+   "match": {
+    "ac.C30 YTD": "exact",
+    "ac.C40S YTD": "exact",
+    "ac.C70 YTD": "exact",
+    "ac.EBITDA YTD": "exact",
+    "EBITDA YTD LY": "exact",
+    "EBITDA budget YTD": "exact"
+   },
+   "checks_ok": true,
+   "formula_errors": [],
+   "problems": [],
+   "error": null,
+   "notes": "period Oct 26",
+   "result": "PASS"
+  }
+ ]
+}

@@ -125,6 +125,30 @@ Walking skeleton (B02): `core/progress.py` writes step 1 (title, question, statu
 pull and updates the status line per pull; `answer.build(..., suffix="Answer")` then clears the sheet and renders
 step 2; `core/pipeline.py` stores the raw spec (step 3). Tool: `sv_answer` (`tools_core.py`), beside the old tools.
 
+Implemented (phase 5, `docs/plans/2026-11-02-widen.md`):
+- **Follow-up** = `sv_answer(followup=<patch>, q=None)`; `spec` and `followup` are exclusive. `q` defaults to the
+  active `Q<n> Answer`, else the latest stored v1 answer. `contract.patched` (D2): dicts merge and `null` deletes;
+  `pulls` merge by `id`, `layout.sections` by `title`, `lines` by `key`, `checks` by `label`; `{..., "drop": true}`
+  removes an item, unmatched items are appended; `{"append": [...]}` adds to a list (notes, key points); any other
+  list replaces. `recipe.params` cannot be patched (a new question). A follow-up never re-runs the gate.
+- **Source reuse** (D3, `core/followup.py`): an unchanged pull (same normalised `contract.Pull`) keeps its sheet,
+  read back from `_svmeta`, with no fetch; a changed pull's sheet is parked (`~name`) and fetched fresh, then dropped
+  on success or restored on failure; a removed pull's sheet is deleted after success; `layout.expect` of a re-fetched
+  pull is dropped.
+- **Tool-owned range** (D4, `core/owned.py`): `A1:<last col><last row>` of what the tool drew (table, checks, notes,
+  findings) is stored with the spec (`owned`). A redraw clears only that block and deletes only charts named
+  `smartass chart*`; rows/columns are inserted first if a taller/wider answer would hit user cells;
+  `styling.apply_report` stops at `roles["last_row"]`. Answers drawn before phase 5 have no `owned` and are cleared
+  in full as before.
+- **Backup** (D5): the answer sheet is copied to a hidden `~Q<n> Answer` before the redraw and restored if the redraw
+  fails; follow-up status goes to Excel's status bar only.
+- **Recipes** (D6–D8, `core/recipes/`): `spec.recipe = {name, params, overrides}` without `pulls`/`layout`;
+  `sv_answer` expands it inside the Excel job (closed month, catalog, member labels, P&L facts in a
+  `RecipeContext`), applies `overrides` as a patch, validates, and stores the expanded spec with the `recipe` field.
+  Recipes: `pnl` (wraps `fin_spec.build`), `actual_vs_plan`, `monthly_trend`, `cost_base` (top-N ranked after the
+  pull through `repeat.over.top`), `concept`. `sv_answer` returns `period` and an `outline` (pull ids, columns,
+  section titles, line keys, check labels) to address follow-ups.
+
 ### 3.4 check
 
 - Reconciliation checks from the spec (e.g. sum of months = accumulated YTD), formula errors, sheet value = fetched
@@ -146,6 +170,15 @@ Implemented (phase 4) in `core/commentary.py`; vendored text in `knowledge/advis
   on the absolute threshold.
 - Findings: a material line without a driver → **Warning**; an always-comment line (revenue, EBITDA, FTE) without a
   driver → **Info**. `Driver.line` must name a layout line (validated in `contract.py`).
+
+Implemented (phase 5):
+- **Findings block on the sheet** (D10, `core/findings.py`): after the build and the review, a "Findings" table
+  (severity, text; at most 15 lines plus "and N more") is written below the notes, inside the owned range.
+- **Recon checks per recipe**: sum of months = YTD (`monthly_trend`), top + other = total (`cost_base`), FinPlan
+  EBITDA = FinMax (`actual_vs_plan`, `severity: "Warning"`: the cubes group accounts differently, so a difference is
+  a finding to show, not an untrustworthy number), the concept's own checks, and for `pnl` the warehouse = source
+  sheet reconciliation carried as `layout.expect` and turned into static checks after the pull (D9).
+- `Check.severity` (`Critical` default | `Warning`) decides how a DIFF is graded in the review.
 
 ## 4. The contract: answer spec v1
 
@@ -200,6 +233,11 @@ by `core/period.py`; entities, scenarios and materiality stay in `catalog.toml`;
 | `warehouse.py` (DuckDB) | frozen; after R2: delete, or hidden closed-month cache; never a sheet source |
 
 Old engine: bug fixes only during the rework. Target ≥ 40 % fewer engine lines at parity; modules ≤ ~400 lines.
+
+Implemented (phase 5): `fin_spec.py`, `templates.py` and `concepts.py` are reused unchanged in logic by the recipes
+(`templates.cost_base_members` extracted; concept strings in English). Still on the old tools until the phase 6
+parity deletion: `sv_drill` (B12; drill cells in a v1 spec are phase 6) and every tool in the "deleted after parity"
+row, which stay registered (35 tools).
 
 ## 7. Risks, tested first (go/no-go)
 

@@ -44,6 +44,36 @@ Registered with `claude mcp add --scope user smartass -- "%LOCALAPPDATA%\smartas
 - **Double-clicks.** The MCP's hidden Excel sets `IgnoreRemoteRequests`, so files the user double-clicks open in their own Excel. The
   setting is per instance and does not persist (verified).
 
+## New pipeline: `sv_answer` recipes and follow-ups (phase 5)
+
+A spec `{"version": 1, "question", "gate", "recipe": {"name", "params", "overrides"?}}` (no `pulls`/`layout`) is
+expanded server-side inside the Excel job; the closed month is FinMax's Current Reporting Month. The result carries
+`period` and an `outline` (pull ids, column headers, section titles, line keys, check labels).
+
+| Recipe | Params | Defaults | Checks |
+|---|---|---|---|
+| `pnl` | `area` (business area or unit, as `fin_pnl`), `period`, `compare`, `detail` (`compact`/`full`) | closed month; all comparisons | warehouse = source sheet (`layout.expect` → static checks), period closed, line bridge |
+| `actual_vs_plan` | `entity` (FinPlan entity), `month`, `year`, `basis` (`ytd`/`month`), `forecast`, `finmax_entity` | closed month, YTD, latest forecast, FinMax entity mapped | FinPlan line checks; EBITDA FinPlan = FinMax (`severity` Warning) |
+| `monthly_trend` | `entity`, `accounts`, `through`, `connection` | `un.SY`; C30, C40S, C70, EBITDA; closed month; FinMax | sum of months = YTD (Accumulated) |
+| `cost_base` | `parent`, `accounts`, `period`, `top`, `connection` | `un.SY`; C50S, C60, C70, STA20Y; closed month; 25; FinMax | top + other = total |
+| `concept` | `concept` (id from the library), `period`, `compare`, `entity` | closed month vs same month last year | the concept's own checks |
+
+`recipe.params` cannot change in a follow-up (ask a new question); `overrides` and follow-ups are patches.
+
+**Patch semantics** (`followup=` and `overrides`): dicts merge and `null` deletes; `pulls` merge by `id`,
+`layout.sections` by `title`, `lines` by `key`, `checks` by `label`; `{..., "drop": true}` removes an item; unmatched
+items are appended; `{"append": [...]}` adds to a list; any other list replaces. Examples:
+- add a line to a section by its title:
+  `{"layout": {"sections": [{"title": "Year to date", "lines": [{"key": "fp", "label": "EBITDA (FinPlan)",
+  "cells": [{"pull": "fp", "row": ["EBITDA"], "col": ["Actual"]}]}]}]}}` (plus the new pull `fp` in `pulls`);
+- append a note: `{"layout": {"notes": {"append": ["Excludes one-offs."]}}}`;
+- drop a line: `{"layout": {"sections": [{"title": "Per month", "lines": [{"key": "a1", "drop": true}]}]}}`.
+
+A follow-up redraws `Q<n> Answer` in its own block: unchanged pulls are reused (no fetch), changed ones are fetched
+again, the answer sheet is backed up (`~Q<n> Answer`, hidden) and restored if the redraw fails. Cells, formats and
+charts the user added outside the block are kept; only charts named `smartass chart*` are replaced. The findings
+table (Critical / Warning / Info) sits below the notes.
+
 ## Speed (benchmarked 2026-10-14; details in DESIGN.md "Performance pass")
 
 - **Typical times.** A pull takes 6-8 s, an answer 4-7 s, a one-call `sv_ws_build` analysis 20-30 s, and a `spec_patch` follow-up about 4 s.

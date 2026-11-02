@@ -37,6 +37,21 @@ from the tool list, or `sv_status` lacks `behind_reload_proxy`, the server preda
 `knowledge/advisor/gate.md`. `sv_answer` returns `material` lines; explain them as `commentary.drivers` (data first,
 otherwise "Hypothesis — not verified in data"). The full skill rewrite comes later; until then the steps below apply.
 
+- **Follow-ups:** `sv_answer(followup=…)` edits the current answer (same sheet, unchanged pulls not fetched again,
+  your own cells outside the answer block are kept). Ask for a new question only when the user says so. Address
+  parts by the `outline` the last `sv_answer` returned (pull ids, section titles, line keys, check labels). Example:
+  `sv_answer(followup={"layout": {"title": "Business EBITDA 2026", "notes": {"append": ["Excludes one-offs."]}}})`.
+- **Recipes:** `{"recipe": {"name": …, "params": …}}` instead of `pulls` + `layout`, for P&L (`pnl`), actual vs
+  plan (`actual_vs_plan`), monthly trend (`monthly_trend`), cost base (`cost_base`) and concepts (`concept`); the
+  period defaults to the closed month (returned as `period`). Tweak with `overrides` (a follow-up-shaped patch), then
+  follow-ups. Parameters: `reference/operations.md` "New pipeline". Examples (each inside a spec with `version`,
+  `question`, `gate`):
+  - `{"name": "pnl", "params": {"area": "Wholesale", "detail": "full"}}`
+  - `{"name": "actual_vs_plan", "params": {"entity": "2TEC Technology"}}`
+  - `{"name": "monthly_trend", "params": {"entity": "un.SY", "accounts": ["ac.C30"]}}`
+  - `{"name": "cost_base", "params": {"parent": "un.SY.2TEC", "top": 15}}`
+  - `{"name": "concept", "params": {"concept": "<id from the concept library>"}}`
+
 ## Pick the cube (decided with the user)
 
 - **Actuals only** come from **FinMax**: the ledger, finest detail, FTE (`ac.STA20Y`). FinLite is a lighter actuals cube with no
