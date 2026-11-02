@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from mcp.server.mcpserver.exceptions import ToolError
 
 from .. import config, ops
+from . import drilltime
 
 log = logging.getLogger("smartview")
 SOURCE = "Kilde: Data Integration drill-through (FinLite)."
@@ -130,7 +131,8 @@ async def _cached(connection: str, cell: dict, closed: str | None) -> dict | Non
     hit = await asyncio.to_thread(drillcache.load, connection, cell, closed)
     if not hit:
         return None
-    link = await _call(lambda h: ops.drill_link(h, connection, cell), what="drill link")
+    link = await _call(lambda h: drilltime.timed("excel drill link (cache check)", ops.drill_link, h, connection,
+                                                 cell), what="drill link")
     now = link["cube_value"]
     if now is None or round(float(now), 2) != round(float(hit["parent"]), 2):
         log.info("drill cache of %s is stale (cube %s, cached %s): drilling again", cell, now, hit["parent"])
@@ -232,7 +234,8 @@ async def _drill_fetch(url: str, max_lines: int) -> dict:
         _tick = asyncio.create_task(_progress("drill (hidden browser: sign-in, drill pages, lines)"))
     _ticks.append(1)
     try:
-        return await asyncio.wait_for(asyncio.wrap_future(shared_pump().fetch(url, max_lines)), budget)
+        with drilltime.span("browser page"):
+            return await asyncio.wait_for(asyncio.wrap_future(shared_pump().fetch(url, max_lines)), budget)
     except asyncio.TimeoutError:
         shared_pump().cancel_all(f"a drill page did not finish within {budget} s")
         await asyncio.to_thread(browser().kill)
@@ -294,7 +297,8 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
     that fails with its size BEFORE any split (spec 4). Returns pieces: [{cell, cube_value, items, view, secs}]."""
     from .. import drill_split
     from ..drill_browser import CellTooWide, TooManyLines
-    link = await _call(lambda h: ops.drill_link(h, connection, cell), what="drill link")
+    link = await _call(lambda h: drilltime.timed("excel drill link", ops.drill_link, h, connection, cell),
+                       what="drill link")
     if depth == 0:
         state["cube"] = link["cube_value"]
     elif link["cube_value"] is None:                # an empty (#Missing) child of a split: nothing to drill

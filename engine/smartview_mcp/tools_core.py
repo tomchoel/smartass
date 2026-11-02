@@ -6,6 +6,7 @@ import contextlib
 import datetime as dt
 import json
 import os
+import time
 from typing import Literal
 
 from mcp.server.mcpserver import Context
@@ -13,7 +14,7 @@ from pydantic import ValidationError
 
 from . import catalog, config, templates
 from .excel import sheets, target as xltarget
-from .core import contract, drillstep, pipeline, prefs, progress, recipes, reply, runlog, scope
+from .core import contract, drillstep, drilltime, pipeline, prefs, progress, recipes, reply, runlog, scope
 from .core import followup as followup_mod
 from .core import period as periods
 from .host import HostError, InputError
@@ -315,7 +316,8 @@ async def answer(spec: dict | None = None, followup: dict | None = None, q: int 
             out["sheets"] = out["sheets"][:n] + drawn + out["sheets"][n:]
             out["data_sheets"] = drawn + out["data_sheets"]
         if pre:
-            out["timings"] = {**out["timings"], "first frame": pre["frame_s"], "drills": pre["drill_s"]}
+            out["timings"] = {**out["timings"], "first frame": pre["frame_s"], "drills": pre["drill_s"],
+                              **pre.get("stages", {})}
         fill = extra.pop("fill", None) if extra else None
         if extra:
             warn = list(dict.fromkeys(list(extra.get("warnings") or []) + list(out.get("warnings") or [])))
@@ -332,33 +334,43 @@ async def answer(spec: dict | None = None, followup: dict | None = None, q: int 
 async def _answer_with_drills(spec: dict, target: str, allow_archive: bool, job) -> dict:
     """A recipe that drills (lines_ranking, D21): job A draws the first frame, the drills run on the event loop
     (no Excel held), job B writes the Lines sheets and renders the answer - a cube-only answer if d1 failed."""
-    import time
     t0, rec = time.monotonic(), spec["recipe"]
 
     def frame_job(h):
+        # the frame first: the closed month (EPM, or an Excel fallback) and the plan are not needed to draw it
+        ts, tm = {"wait for Excel": time.monotonic() - t0}, Timer.start()     # job A's stages in the log + timings
+        accounts = ", ".join(str(a) for a in (rec.get("params") or {}).get("accounts") or []) or "the accounts"
+        t, q = _frame(h, spec, target, allow_archive, f"Drilling ledger lines for {accounts} (about 60 s) ...", ts)
+        frame_s = time.monotonic() - t0
         ctx = _recipe_ctx(h)
         plan = recipes.drills(rec.get("name"), rec.get("params") or {}, ctx)
-        accounts = ", ".join(dict.fromkeys(str(c.get("All Accounts")) for d in plan for c in d["cells"]))
-        t, q = _frame(h, spec, target, allow_archive, f"Drilling ledger lines for {accounts} (about 60 s) ...")
+        ts["closed month + plan"] = time.monotonic() - t0 - frame_s
         return {"target": t.path if os.path.isabs(str(t.path)) else "active", "created": bool(t.created),
-                "added": list(t.sheets_added), "q": q, "plan": plan, "closed": ctx.closed}
+                "added": list(t.sheets_added), "q": q, "plan": plan, "closed": ctx.closed, "frame_s": round(frame_s, 1),
+                "stages": {f"first frame.{k}": round(v, 1) for k, v in {**tm.summary(), **ts}.items() if k != "_total"}}
     pre = await _call_user(frame_job, what="sv_answer")
-    pre["frame_s"], t1 = round(time.monotonic() - t0, 1), time.monotonic()
+    t1, _ = time.monotonic(), drilltime.take()     # drop what earlier drills (sv_drill) left
     pre["results"], warnings, pre["failed"] = await drillstep.drill_all(pre.pop("plan"), closed=pre.get("closed"))
     pre["drill_s"] = round(time.monotonic() - t1, 1)
+    pre["stages"].update({f"drills.{k}": v for k, v in drilltime.take().items()})
     if pre["failed"]:
         warnings.append(f"Drill failed: {pre['failed']}")
     pre["warnings"] = warnings
     return await _call_user(lambda h: job(h, pre), what="sv_answer")
 
 
-def _frame(h, spec: dict, target: str, allow_archive: bool, status: str):
-    """(t, q): open the target and draw the first frame of 'Q<q> Answer' before the recipe drafts or drills."""
+def _frame(h, spec: dict, target: str, allow_archive: bool, status: str, ts: dict | None = None):
+    """(t, q): open the target and draw the first frame of 'Q<q> Answer' before the recipe drafts or drills (ts gets
+    'open workbook' and 'draw frame', seconds)."""
+    t0 = time.monotonic()
     with stage("open target"):
         t = xltarget.resolve_target(h, target, allow_archive, title=str(spec.get("question") or "")[:50])
         q = sheets.next_question(t)
+    t1 = time.monotonic()
     with stage("answer skeleton"):
         progress.show(t, q, progress.frame(spec), status)
+    if ts is not None:
+        ts.update({"open workbook": t1 - t0, "draw frame": time.monotonic() - t1})
     return t, q
 
 

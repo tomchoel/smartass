@@ -34,6 +34,7 @@ from typing import Callable
 import psutil
 
 from . import config
+from .core import drilltime
 
 try:
     from playwright.sync_api import Error as PwError
@@ -495,9 +496,11 @@ class DrillBrowser:
             log.warning("drill browser was dead; restarting it")
             self._close(s)
         if s.ctx is None:
-            self._start(s)
+            with drilltime.span("browser start"):
+                self._start(s)
         if not s.ready:
-            self._login(s)
+            with drilltime.span("browser sign-in"):
+                self._login(s)
 
     # ------------------------------------------------------------ one drill
     def _capture(self, s: _Session, url: str) -> dict:

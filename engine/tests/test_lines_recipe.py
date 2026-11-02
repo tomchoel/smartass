@@ -368,6 +368,20 @@ async def test_drill_recipe_draws_the_frame_before_any_drill(monkeypatch, tmp_pa
 
 
 @pytest.mark.anyio
+async def test_drill_recipe_frame_does_not_wait_for_the_closed_month(monkeypatch, tmp_path):
+    """The closed month (EPM, or the slow Excel fallback) and the drill plan come after the first frame."""
+    from smartview_mcp import templates
+    calls = []
+    tc = _answer_env(monkeypatch, tmp_path, calls)
+    monkeypatch.setattr(templates, "closed_month", lambda h: calls.append(("closed",)) or "Sep 26")
+    out = await _gate_and_answer(tc)
+    kinds = [c[0] for c in calls]
+    assert kinds.index("target") < kinds.index("show") < kinds.index("closed") < kinds.index("drill")
+    assert {"first frame", "first frame.open workbook", "first frame.draw frame",
+            "first frame.closed month + plan"} <= set(out["timings"])
+
+
+@pytest.mark.anyio
 async def test_failed_drill_leaves_a_cube_only_answer(monkeypatch, tmp_path):
     calls = []
     out = await _gate_and_answer(_answer_env(monkeypatch, tmp_path, calls, fail="link timed out"))
