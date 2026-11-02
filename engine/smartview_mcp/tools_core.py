@@ -11,15 +11,22 @@ from . import config, templates, tools_ws, userexcel
 from .core import pipeline, prefs, runlog, scope
 from .core import period as periods
 from .host import HostError, InputError
-from .server import LOCAL, READ, WRITE, _call, _call_user, _err, _is_our_analysis_file, tool
+from .server import LOCAL, READ, WRITE, _call_user, _err, _is_our_analysis_file, tool
 from .timing import Timer, stage
 
 
+class _NoExcel:
+    """A host stand-in for templates.closed_month: the gate never starts Excel, so the COM fallback fails fast."""
+    def on_host(self, fn):
+        raise HostError("Smart View HTTP route unavailable (the gate does not start Excel)")
+
+
 async def _closed_month() -> tuple[str, str | None]:
-    """(last closed month 'Sep 26', warning or None). HTTP first (cached); if EPM cannot be reached, the month before
-    today, with a warning, so the gate still answers (it pulls nothing)."""
+    """(last closed month 'Sep 26', warning or None): the cached or HTTP answer (~0.2 s), never Excel. If EPM cannot
+    be reached, the month before today, with a warning, so the gate still answers (it pulls nothing)."""
+    import asyncio
     try:
-        return await _call(lambda h: templates.closed_month(h), timeout=30, what="closed month"), None
+        return await asyncio.wait_for(asyncio.to_thread(templates.closed_month, _NoExcel()), 30), None
     except Exception as e:   # noqa: BLE001 - the gate must answer without EPM
         import datetime as dt
         d = dt.date.today().replace(day=1) - dt.timedelta(days=1)

@@ -161,9 +161,9 @@ async def test_sv_gate_tool_uses_the_closed_month(monkeypatch):
 async def test_sv_gate_tool_falls_back_when_epm_is_down(monkeypatch):
     from smartview_mcp import tools_core
 
-    async def down(*a, **k):
+    def down(h):
         raise RuntimeError("no session")
-    monkeypatch.setattr(tools_core, "_call", down)
+    monkeypatch.setattr(tools_core.templates, "closed_month", down)
     monkeypatch.setattr(tools_core.prefs, "lookup", lambda i, p: None)
     out = await tools_core.sv_gate("Business EBITDA Sep 26 vs Sep 25")
     assert out["suggested_outcome"] == "clear" and any("assumed last month" in w for w in out["warnings"])
