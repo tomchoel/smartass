@@ -61,10 +61,6 @@ class Layout:
     def nc(self) -> int:
         return len(self.cols)
 
-    @property
-    def n_cells(self) -> int:
-        return len(self.row_tuples) * len(self.col_tuples)
-
     def writes(self) -> list[tuple[int, int, str]]:
         """(row, col, text) cell writes, 1-based."""
         w = [(1, self.nr + 1 + j, m) for j, (_, m) in enumerate(self.pov)]
@@ -120,7 +116,6 @@ class Parsed:
     unknown_members: list[str]
     pov_problems: list[str]
     no_access_cells: int
-    total_rows: int
     suppressed_rows: list[str] = field(default_factory=list)   # known members whose row was all #Missing
 
 
@@ -197,8 +192,7 @@ def parse(layout: Layout, values: tuple | list, suppress_missing: bool, suppress
                 if all(v is None for v in col_vals):
                     unknown.add(f"{layout.cols[d].dimension}: {combo[d]}")
     columns = [a.dimension for a in layout.rows] + [" / ".join(c) for c in layout.col_tuples]
-    return Parsed(columns, out_rows, row_labels, col_labels, sorted(unknown), pov_problems, no_access,
-                  len(layout.row_tuples), suppressed)
+    return Parsed(columns, out_rows, row_labels, col_labels, sorted(unknown), pov_problems, no_access, suppressed)
 
 
 def verify_labels(lay: Layout, parsed) -> list[str]:

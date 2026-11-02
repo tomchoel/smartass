@@ -52,7 +52,7 @@ def test_unknown_recipe_names_the_known_ones():
 
 def test_pull_dict_converts_a_template_pullspec():
     ps = PullSpec("tr", "FinMax", [Axis("All Accounts", ["ac.C30"])], [Axis("All Time Periods", ["Oct 26"])],
-                  {"All Entities": "un.SY"}, title_suffix="YTD")
+                  {"All Entities": "un.SY"})
     assert recipes.pull_dict(ps) == {"id": "tr", "connection": "FinMax",
                                      "rows": [{"dimension": "All Accounts", "members": ["ac.C30"]}],
                                      "columns": [{"dimension": "All Time Periods", "members": ["Oct 26"]}],

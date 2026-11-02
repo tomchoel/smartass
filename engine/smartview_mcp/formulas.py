@@ -134,6 +134,3 @@ def sheet_formulas(ws, com) -> list[tuple[str, str, str]]:
             if isinstance(v, str) and v.startswith("="):
                 out.append((name, f"{L(c0 + j)}{r0 + i}", v))
     return out
-
-
-__all__ = ["sum_rows", "avg_rows", "sum_cols", "variance", "variance_pct", "expr_keys_if_plain_sum", "check", "sheet_formulas"]

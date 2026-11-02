@@ -4,6 +4,7 @@ import importlib.util
 import sqlite3
 
 import pytest
+from analytics_util import closes
 from fin_util import CAT, FC, WHS, http, make_value
 from mcp.server.mcpserver.exceptions import ToolError
 from svxml_util import EchoTransport, atlas_with_dimensions, pnl_value as value
@@ -62,7 +63,7 @@ def test_prepare_never_touches_a_warehouse(env):
     assert importlib.util.find_spec("smartview_mcp.warehouse") is None
     assert [f.fill.job for f in fills] == ["live", "top_up", "top_up", "top_up"] and all(f.ok for f in fills)
     assert res.scope.units == (("un.SY.U1", "U1 Unit one"), ("un.SY.U2", "U2 Unit two"))
-    assert res.unit_bridge.closes() and res.scope.forecast == FC and notes == [] and not res.missing()
+    assert closes(res.unit_bridge) and res.scope.forecast == FC and notes == [] and not res.missing()
     assert res.label("FinMax", "rev") == "C30 REVENUES (Revenue)" and res.label("FinPlan", "oth") == "Other items"
 
 
@@ -216,7 +217,7 @@ def test_a_unit_is_read_live(uenv):
     assert mode == pnl_facts.LIVE_UNIT == "live read (sub-unit)"
     assert fills[0].fill.job == "live" and all(f.ok for f in fills) and not res.missing()
     assert res.scope.units == (("un.SY.U1A", "U1A Unit one A"), ("un.SY.U1B", "U1B Unit one B"))
-    assert res.unit_bridge.closes() and res.budget and res.landing is not None and res.scope.forecast == FC
+    assert closes(res.unit_bridge) and res.budget and res.landing is not None and res.scope.forecast == FC
     assert any("unit below Wholesale" in n for n in res.notes)
 
 

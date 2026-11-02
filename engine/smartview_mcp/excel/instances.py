@@ -125,14 +125,13 @@ def busy_holder(instances: list[XlInstance], name: str) -> XlInstance | None:
     return next((i for i in instances if i.app is None and any(_caption_book(c) == want for c in i.captions)), None)
 
 
-def busy_error(pid: int, name: str, found: list | None = None) -> HostError:
+def busy_error(pid: int, name: str) -> HostError:
     """Name what blocks the Excel holding `name`: a dialog (dialogs.scan) or else cell edit mode."""
     from .. import dialogs
-    if found is None:
-        try:
-            found = dialogs.scan(pid)
-        except Exception:   # noqa: BLE001
-            found = []
+    try:
+        found = dialogs.scan(pid)
+    except Exception:   # noqa: BLE001
+        found = []
     if found:
         return HostError(f"'{name}' is open in an Excel (pid {pid}) that has a dialog open "
                          f"({dialogs.describe(found[0])}). Close that dialog in Excel, then ask again.")

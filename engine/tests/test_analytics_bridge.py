@@ -1,6 +1,6 @@
 """analytics.bridge and analytics.landing: bridges close exactly; the landing and its run-rate alternative."""
 import pytest
-from analytics_util import E, frame
+from analytics_util import E, closes, frame
 
 from smartview_mcp import catalog
 from smartview_mcp.analytics.bridge import Bridge, by_line, by_unit, components
@@ -32,9 +32,9 @@ def test_line_bridge_closes_when_the_identities_hold():
     b = by_line(f("ly", sum(ly.values())), f("cur", sum(cur.values())), vs,
                 components(CAT.checks["FinMax"], CAT.pnl["FinMax"], "ebitda"), {"rev": "Revenue"})
     assert [s.key for s in b.steps] == ["rev", "cogs", "pers", "oth", "c73"] and b.steps[0].label == "Revenue"
-    assert b.residual() == 0.0 and b.closes()
+    assert b.residual() == 0.0 and closes(b)
     broken = by_line(f("ly", 0.0), f("cur", 999.0), vs, [(1, "rev")], {})
-    assert broken.closes() and broken.steps[-1].key == "unexplained"       # the gap is shown, not hidden
+    assert closes(broken) and broken.steps[-1].key == "unexplained"       # the gap is shown, not hidden
     assert broken.steps[-1].label == "Unexplained"
     assert broken.steps[-1].fact.value == 999.0 - vs["rev"].abs.value
     assert [x.key for x in b.steps] == ["rev", "cogs", "pers", "oth", "c73"]   # nothing to explain: no extra step
@@ -45,13 +45,13 @@ def test_line_bridge_negative_leaf_and_missing_variance():
     vs = {"rev": variance(lines["rev"], f("c", 10.0), f("p", 4.0), "rev")}
     b = by_line(f("s", 0.0), f("e", 0.0), vs, [(-1, "rev"), (1, "cogs")], {})
     assert b.steps[0].fact.value == -6.0 and b.steps[0].fact.definition.startswith("-(")     # the .neg path
-    assert b.steps[1].fact.value is None and b.residual() is None and not b.closes()
+    assert b.steps[1].fact.value is None and b.residual() is None and not closes(b)
 
 
 def test_bridge_tolerance_is_one_nok():
-    assert by_line(f("s", 0.0), f("e", 10.0), {}, [], {}).closes()      # a 10 gap becomes the rounding step
-    assert Bridge(f("s", 0.0), (), f("e", 0.9)).closes()
-    assert not Bridge(f("s", 0.0), (), f("e", 1.1)).closes()
+    assert closes(by_line(f("s", 0.0), f("e", 10.0), {}, [], {}))      # a 10 gap becomes the rounding step
+    assert closes(Bridge(f("s", 0.0), (), f("e", 0.9)))
+    assert not closes(Bridge(f("s", 0.0), (), f("e", 1.1)))
 
 
 def test_unit_bridge_top_n_plus_other_sums_exactly():
@@ -84,7 +84,7 @@ def test_landing_falls_back_to_a_plain_run_rate():
 def test_unit_bridge_omits_a_zero_other_step():
     units = [("a", "A", f("ca", 5.0), f("pa", 0.0)), ("b", "B", f("cb", 2.0), f("pb", 0.0))]
     b = by_unit(f("s", 0.0), f("e", 7.0), units, top_n=5)
-    assert [x.key for x in b.steps] == ["a", "b"] and b.closes()
+    assert [x.key for x in b.steps] == ["a", "b"] and closes(b)
 
 
 def test_landing_seasonal_share_is_bounded():

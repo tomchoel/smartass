@@ -258,7 +258,7 @@ def _visible_window(wb):
         return None
 
 
-def _freeze(ws, rows: int, cols: int, gridlines_off: bool = True) -> bool:
+def _freeze(ws, rows: int, cols: int) -> bool:
     """Freeze panes below `rows` and right of `cols` and hide gridlines; only if the workbook window is visible."""
     wb = _get(ws, "Parent")
     win = _visible_window(wb)
@@ -271,8 +271,7 @@ def _freeze(ws, rows: int, cols: int, gridlines_off: bool = True) -> bool:
             _set(win, "FreezePanes", False)
             _set(win, "ScrollRow", 1)
             _set(win, "ScrollColumn", 1)
-            if gridlines_off:
-                _set(win, "DisplayGridlines", False)
+            _set(win, "DisplayGridlines", False)
             if rows or cols:
                 _set(win, "SplitColumn", cols)
                 _set(win, "SplitRow", rows)

@@ -121,32 +121,3 @@ def describe(m: Measure) -> str:
         base = f"{line.label} ({line.account})" if line else m.concept
         return f"{base}; {m.note}" if m.note else base
     return f"{m.label or m.key}; {m.note}" if m.note else (m.label or m.key)
-
-
-def problems() -> list[str]:
-    """Broken references in capabilities.toml: unknown catalog concept/KPI, a synonym used by two measures, a grain
-    naming an unknown measure, a vague measure without options."""
-    cat = catalog.load()
-    concepts = {ln.concept for lines in cat.pnl.values() for ln in lines if ln.concept}
-    kpis = {k.key for k in cat.kpis}
-    out: list[str] = []
-    owner: dict[str, str] = {}
-    keys = {m.key for m in all_measures()}
-    for m in all_measures():
-        if sum(x is not None for x in (m.concept, m.kpi, m.account)) != (0 if m.vague else 1):
-            out.append(f"measure {m.key}: exactly one of concept/kpi/account (none when vague)")
-        if m.concept and m.concept not in concepts:
-            out.append(f"measure {m.key}: unknown catalog concept {m.concept}")
-        if m.kpi and m.kpi not in kpis:
-            out.append(f"measure {m.key}: unknown catalog kpi {m.kpi}")
-        if m.vague and not m.options:
-            out.append(f"measure {m.key}: a vague measure lists options")
-        for s in m.synonyms:
-            if s.lower() in owner:
-                out.append(f"synonym '{s}' used by {owner[s.lower()]} and {m.key}")
-            owner[s.lower()] = m.key
-    for g in all_grains():
-        out += [f"grain {g.key}: unknown measure {k}" for k in g.feasible if k != "*" and k not in keys]
-        if "*" not in g.feasible and not g.proxy:
-            out.append(f"grain {g.key}: a restricted grain names its proxy")
-    return out

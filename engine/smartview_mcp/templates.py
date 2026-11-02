@@ -11,7 +11,7 @@ import contextlib
 import datetime as dt
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 from . import atlas, catalog, ops
@@ -30,16 +30,12 @@ class PullSpec:
     rows: list[Axis]
     cols: list[Axis]
     pov: dict
-    title_suffix: str = ""
 
 
 @dataclass
 class Plan:
-    title: str
     pulls: list[PullSpec]
     answer: Callable[[dict], dict]            # {pull id: sheets.Pull} -> answer spec
-    followups: list[Callable] = field(default_factory=list)
-    summary: Callable[[dict], dict] | None = None
 
 
 # ------------------------------------------------------------------ periods
@@ -239,7 +235,7 @@ def monthly_trend(h: ExcelHost, entity: str, accounts: list[str] | None = None, 
     pov = {"All Entities": entity, "All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}
     pulls = [PullSpec("tr", connection, [Axis("All Accounts", accounts)], [Axis("All Time Periods", months)], pov),
              PullSpec("ytd", connection, [Axis("All Accounts", accounts)], [Axis("All Time Periods", [through])],
-                      {**pov, "All Balance Types": "Accumulated"}, title_suffix="YTD")]
+                      {**pov, "All Balance Types": "Accumulated"})]
     ytd_col = len(months)
 
     def answer(P):
@@ -269,7 +265,7 @@ def monthly_trend(h: ExcelHost, entity: str, accounts: list[str] | None = None, 
                 "chart": {"type": "line", "row": f"a{len(accounts) - 1}", "columns": list(range(len(months))),
                           "title": f"{_label_of(p, [accounts[-1]], accounts[-1])} per month"}}
 
-    return Plan(f"{member_label(connection, entity)} trend {through}", pulls, answer)
+    return Plan(pulls, answer)
 
 
 # ------------------------------------------------------------------ D. actual vs budget / forecast (FinPlan)
@@ -313,17 +309,16 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
     accts = [a for _, a, _ in fp_lines()]
     base = {"Entity": entity, "Years": year, "Period": month, "All Balance Types": bal}
     pulls = [PullSpec("act", "FinPlan", [Axis("Account", accts)], [Axis("Scenario", ["Actual"])],
-                      {**base, "Version": "Working"}, title_suffix="actual"),
+                      {**base, "Version": "Working"}),
              PullSpec("plan", "FinPlan", [Axis("Account", accts)],
-                      [Axis("Scenario", ["Target"] + ([forecast] if forecast else []))], {**base, "Version": "Final"},
-                      title_suffix="plan")]
+                      [Axis("Scenario", ["Target"] + ([forecast] if forecast else []))], {**base, "Version": "Final"})]
     finmax_entity, recon_note = map_finmax_entity(entity, finmax_entity)
     fm_period = f"{month} {fyy:02d}"
     if finmax_entity:
         pulls.append(PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.EBITDA"])],
                               [Axis("All Time Periods", [fm_period])],
                               {"All Entities": finmax_entity, "All Scenarios": "Actual", "All Currencies": "NOK",
-                               "All Balance Types": bal}, title_suffix="recon"))
+                               "All Balance Types": bal}))
     what = "YTD " if basis == "ytd" else ""
 
     def answer(P):
@@ -365,4 +360,4 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
                 "notes": notes,
                 "source": f"Source: Oracle EPM Cloud (FinPlan, FinMax) via Smart View, retrieved {_now()}."}
 
-    return Plan(f"{entity} actual vs plan {month} {year}", pulls, answer)
+    return Plan(pulls, answer)

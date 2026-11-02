@@ -5,6 +5,7 @@ import dataclasses
 import re
 
 import pytest
+from analytics_util import closes
 from fin_util import CAT, CAT0, WHS, filled, http, make_value
 
 from smartview_mcp import fin_pnl, fin_spec, specs
@@ -71,7 +72,7 @@ def assert_sheet_is_engine(res, req, pulls):
                 assert row[j] == pytest.approx(f[part].value), (key, part)
         if f["ytd.cur"].value is not None and f["ytd.ly"].value is not None:
             assert row[6] == pytest.approx(res.kpi_vars[key]["ytd"].abs.value), key
-    if res.line_bridge is not None and res.line_bridge.closes():
+    if res.line_bridge is not None and closes(res.line_bridge):
         for st in res.line_bridge.steps:
             assert same(v[f"lb_{st.key}"][4], st.fact.value), st.key
         assert v["lb_sum"][4] == pytest.approx(v["lb_end"][4])

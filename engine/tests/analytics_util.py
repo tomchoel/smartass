@@ -2,6 +2,7 @@
 from smartview_mcp import catalog
 from smartview_mcp.analytics import periods
 from smartview_mcp.analytics.frame import Frame
+from smartview_mcp.analytics.reconcile import TOL
 
 E = "un.SY.2WHS"
 
@@ -15,3 +16,9 @@ def months(values: dict, line: str, scenario: str, start: str, amounts: list, en
     for i, v in enumerate(amounts):
         values[(entity, line, periods.shift(start, i), scenario)] = v
     return values
+
+
+def closes(bridge, tol: float = TOL) -> bool:
+    """The walk adds up: end - start - steps is within tol."""
+    r = bridge.residual()
+    return r is not None and abs(r) <= tol

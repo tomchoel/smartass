@@ -35,10 +35,6 @@ class Bridge:
         step = next((x for x in self.steps if x.key == "unexplained"), None)
         return step.fact.value if step is not None and step.fact.value is not None else 0.0
 
-    def closes(self, tol: float = TOL) -> bool:
-        r = self.residual()
-        return r is not None and abs(r) <= tol
-
 
 def _terms(expr: str) -> list[tuple[int, str]]:
     return [(-1 if s == "-" else 1, k) for s, k in re.findall(r"([+-]?)\s*([a-z_]\w*)", expr)]

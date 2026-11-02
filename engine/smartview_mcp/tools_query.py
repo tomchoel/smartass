@@ -1,7 +1,6 @@
 """Member lookups for writing answer specs: sv_dimensions, sv_find_member, sv_members, sv_member_info. Registered on the shared `mcp` object by importing this module (see server.py)."""
 from __future__ import annotations
 
-import logging
 from typing import Literal
 
 from mcp.server.mcpserver.exceptions import ToolError
@@ -9,8 +8,6 @@ from mcp.server.mcpserver.exceptions import ToolError
 from . import atlas, ops
 from .host import HostError
 from .server import LOCAL, READ, Connection, _call, _err, tool
-
-log = logging.getLogger(__name__)
 
 
 @tool(annotations=READ)

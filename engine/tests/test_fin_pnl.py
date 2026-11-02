@@ -2,6 +2,7 @@
 import dataclasses
 
 import pytest
+from analytics_util import closes
 from fin_util import CAT, CAT0, FC, WHS, filled, make_value
 
 from smartview_mcp import fin_pnl
@@ -62,9 +63,9 @@ def test_flags_judge_leaf_and_always_lines_with_month_swings(tmp_path):
 def test_bridges_close(tmp_path):
     store, _, scope = filled(tmp_path)
     res = fin_pnl.compute(CAT, scope, store)
-    assert res.line_bridge.closes() and [s.key for s in res.line_bridge.steps] == ["rev", "cogs", "pers", "oth", "c73"]
+    assert closes(res.line_bridge) and [s.key for s in res.line_bridge.steps] == ["rev", "cogs", "pers", "oth", "c73"]
     ub = res.unit_bridge
-    assert ub.closes() and [s.key for s in ub.steps] == ["un.SY.U1", "un.SY.U2", "other"]
+    assert closes(ub) and [s.key for s in ub.steps] == ["un.SY.U1", "un.SY.U2", "other"]
     assert ub.steps[-1].label == "Other units and eliminations"
     assert ub.steps[-1].fact.value == pytest.approx(261 - 2 * 261)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+from smartview_mcp import catalog
 from smartview_mcp.core import semantic
 
 
@@ -28,8 +29,37 @@ def test_currency_only_nok():
     assert semantic.currency("Revenue for Technology") == ("NOK", True)
 
 
+def _capability_problems() -> list[str]:
+    """Broken references in capabilities.toml: unknown catalog concept/KPI, a synonym used by two measures, a grain
+    naming an unknown measure, a vague measure without options."""
+    cat = catalog.load()
+    concepts = {ln.concept for lines in cat.pnl.values() for ln in lines if ln.concept}
+    kpis = {k.key for k in cat.kpis}
+    out: list[str] = []
+    owner: dict[str, str] = {}
+    keys = {m.key for m in semantic.all_measures()}
+    for m in semantic.all_measures():
+        if sum(x is not None for x in (m.concept, m.kpi, m.account)) != (0 if m.vague else 1):
+            out.append(f"measure {m.key}: exactly one of concept/kpi/account (none when vague)")
+        if m.concept and m.concept not in concepts:
+            out.append(f"measure {m.key}: unknown catalog concept {m.concept}")
+        if m.kpi and m.kpi not in kpis:
+            out.append(f"measure {m.key}: unknown catalog kpi {m.kpi}")
+        if m.vague and not m.options:
+            out.append(f"measure {m.key}: a vague measure lists options")
+        for s in m.synonyms:
+            if s.lower() in owner:
+                out.append(f"synonym '{s}' used by {owner[s.lower()]} and {m.key}")
+            owner[s.lower()] = m.key
+    for g in semantic.all_grains():
+        out += [f"grain {g.key}: unknown measure {k}" for k in g.feasible if k != "*" and k not in keys]
+        if "*" not in g.feasible and not g.proxy:
+            out.append(f"grain {g.key}: a restricted grain names its proxy")
+    return out
+
+
 def test_capabilities_reference_only_known_concepts():
-    assert semantic.problems() == []
+    assert _capability_problems() == []
 
 
 def test_describe_states_the_definition():
@@ -180,7 +210,6 @@ async def test_sv_remember_tool(tmp_path, monkeypatch):
         await tools_core.sv_remember("measure", "costs", "nonsense")
 
 
-from smartview_mcp import catalog  # noqa: E402
 from smartview_mcp.core import commentary, contract  # noqa: E402
 
 PREP = {"columns": [{"header": "Sep 26"}, {"header": "Sep 25"}, {"header": "Var"}],

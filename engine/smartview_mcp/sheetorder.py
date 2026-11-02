@@ -140,7 +140,7 @@ def simulate(order: list[str], moves) -> list[str]:
 
 
 # ------------------------------------------------------------------ COM
-def arrange_sheets(wb, mode: str = "full", activate: str | None = None, colors: bool = True) -> dict:
+def arrange_sheets(wb, mode: str = "full", activate: str | None = None) -> dict:
     """Put the workbook's sheets in the fixed order (see module doc) with positional Move (keyword Before=/After= are
     ignored through late-bound COM), set the Answer/data tab colours, and activate `activate` (else the sheet that was
     active). Returns {'moved': [...], 'order': [...]}; raises only if Excel refuses a move."""
@@ -172,18 +172,17 @@ def arrange_sheets(wb, mode: str = "full", activate: str | None = None, colors: 
         got = [str(com(lambda s=s: s.Name)) for s in com(lambda: wb.Worksheets)]
         if got != target:
             log.warning("sheet order after moves %s != target %s", got, target)
-    if colors:
-        for n in target:
-            kind = classify(n)[0] if visible.get(n) else "other"
-            want = ANSWER_TAB if kind == "answer" else DATA_TAB if kind == "data" else None
-            if want is None:
-                continue
-            try:
-                tab = com(lambda n=n: wb.Worksheets(n).Tab)
-                if com(lambda: tab.Color) != want:
-                    com(lambda: setattr(tab, "Color", want))
-            except Exception:   # noqa: BLE001 - cosmetic
-                pass
+    for n in target:
+        kind = classify(n)[0] if visible.get(n) else "other"
+        want = ANSWER_TAB if kind == "answer" else DATA_TAB if kind == "data" else None
+        if want is None:
+            continue
+        try:
+            tab = com(lambda n=n: wb.Worksheets(n).Tab)
+            if com(lambda: tab.Color) != want:
+                com(lambda: setattr(tab, "Color", want))
+        except Exception:   # noqa: BLE001 - cosmetic
+            pass
     show = activate or prev_active
     if show:
         try:
