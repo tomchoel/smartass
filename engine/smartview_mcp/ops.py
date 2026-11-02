@@ -3,11 +3,8 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import os
 import re
-import shutil
 import time
-from pathlib import Path
 
 from . import config
 from .grid import Axis, Layout, full_pov, indent_of, name_from_label, parse
@@ -247,39 +244,6 @@ def unknown_members(conn: str, pov: dict, rows: list[Axis], cols: list[Axis]) ->
     return out
 
 
-def canonical_pov(conn: str, pov: dict) -> dict:
-    """pov with each member in the atlas spelling (Essbase ignores case; the sheets then show the real name)."""
-    from . import atlas
-    try:
-        db = atlas.connect()
-    except Exception:       # noqa: BLE001 - no atlas: keep the given spelling
-        return dict(pov)
-    out = {}
-    for d, m in pov.items():
-        out[d] = (atlas.canonical(db, conn, canon_dim(conn, d), m) or m) if isinstance(m, str) else m
-    return out
-
-
-def check_members(conn: str, pov: dict, rows: list[Axis], cols: list[Axis], confirm=None) -> None:
-    """InputError naming every member the atlas does not know in conn (see unknown_members). The atlas can predate a
-    new period or account, so each miss is first confirmed live with confirm(conn, dim, member) -> bool (live_confirm); a
-    member is rejected only when the live check says it does not exist (a failed check leaves it unverified)."""
-    bad = unknown_members(conn, pov, rows, cols)
-    if confirm:
-        bad = [(d, m) for d, m in bad if _missing_live(confirm, conn, d, m)]
-    if bad:
-        raise InputError("Invalid query: unknown member " + "; ".join(f"'{m}' ({conn} / {d})" for d, m in bad)
-                         + ". Find the right name with sv_find_member / sv_members.")
-
-
-def _missing_live(confirm, conn: str, dim: str, member: str) -> bool:
-    try:
-        return not confirm(conn, dim, member)
-    except Exception as e:  # noqa: BLE001 - unverified: let the pull and the error-cell scan decide
-        log.warning("live member check of %s / %s failed: %s", conn, member, e)
-        return False
-
-
 def query(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis],
           suppress_missing: bool, suppress_zeros: bool):
     """Retrieve a grid. If Smart View rejects it (rc=1000), find the rejected members by bisection, drop them,
@@ -355,43 +319,6 @@ def _query_once(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list
     return lay, p, secs
 
 
-def live_dimension(h: ExcelHost, conn: str, member: str) -> str | None:
-    """Dimension of an exact member name, asked live (B_FindMember only); None when EPM does not return it. Smart View
-    gives the same kind of error for 'no such member' and a broken session - live_confirm tells them apart."""
-    r = h._run("B_FindMember", ensure_grid_sheet(h, conn), member, "Default")
-    if isinstance(r, tuple) and r[0] == "OK":
-        return str(r[1])
-    status = str(r[0] if isinstance(r, tuple) else r)
-    if status.startswith("ERR|VBA"):
-        raise HostError(f"live member check failed: {status}")
-    return None
-
-
-def live_confirm(h: ExcelHost):
-    """confirm(conn, dim, member) for check_members: the member exists live in that dimension. A miss counts only
-    when the check itself works right then - a member the atlas has at the top of that dimension is found (asked
-    again on every miss: misses are rare); otherwise HostError, so the member stays unverified, not rejected."""
-    def confirm(conn: str, dim: str, member: str) -> bool:
-        d = live_dimension(h, conn, member)
-        if d is not None:
-            return canon_dim(conn, d).casefold() == canon_dim(conn, dim).casefold()
-        probe = _atlas_top(conn, dim) or dim
-        if live_dimension(h, conn, probe) is None:
-            raise HostError(f"live member check on {conn} does not work now (even '{probe}' is not found)")
-        return False
-    return confirm
-
-
-def _atlas_top(conn: str, dim: str) -> str | None:
-    from . import atlas
-    try:
-        r = atlas.connect().execute("SELECT name FROM member WHERE connection=? AND dimension=? ORDER BY depth, ord "
-                                    "LIMIT 1", (conn, dim)).fetchone()
-    except Exception:       # noqa: BLE001 - no atlas: probe the dimension name
-        return None
-    return r[0] if r else None
-
-
 def find_member(h: ExcelHost, conn: str, member: str) -> dict:
     sheet = ensure_grid_sheet(h, conn)
     r = h._run("B_FindMember", sheet, member, "Default")
@@ -455,50 +382,6 @@ def tree_from_labels(labels: list[str]) -> list[dict]:
     return out
 
 
-def save_table(h: ExcelHost, path: Path, sheets: list[tuple[str, list[list]]]) -> Path:
-    """Write tables into a new workbook, apply the default sensitivity label, SaveAs xlsx (Excel cancels
-    unlabelled saves silently, so the label is mandatory)."""
-    wb = h.com(h.app.Workbooks.Add)
-    try:
-        first = True
-        for name, rows in sheets:
-            ws = wb.Worksheets(1) if first else wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
-            first = False
-            ws.Name = re.sub(r"[\[\]:*?/\\]", "_", name)[:31]
-            if rows:
-                width = max(len(r) for r in rows)
-                data = [list(r) + [None] * (width - len(r)) for r in rows]
-                ws.Range(ws.Cells(1, 1), ws.Cells(len(data), width)).Value = data
-        _label(wb)
-        from .userexcel import is_archive
-        if is_archive(path):
-            raise InputError("Refusing to save into the archive.")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():
-            path.unlink()
-        h.com(lambda: wb.SaveAs(str(path), 51))
-        if not path.exists():
-            raise HostError(f"Excel did not save {path} (sensitivity label rejected?)")
-        return path
-    finally:
-        _close_quietly(h, wb)
-
-
-def _close_quietly(h: ExcelHost, wb) -> None:
-    """Close a workbook of ours without saving. Right after a large SaveAs to OneDrive, Close can fail once with
-    0x800A03EC while Excel is still busy with the file - retry, then mark it saved and try again; never let a
-    failed close undo a finished save."""
-    for attempt in range(4):
-        try:
-            if attempt >= 2:
-                wb.Saved = True
-            h.com(lambda: wb.Close(False))
-            return
-        except Exception:   # noqa: BLE001
-            time.sleep(1.5 * (attempt + 1))
-    log.warning("could not close a saved workbook; it stays open in the hidden Excel until restart")
-
-
 def _label(wb):
     try:
         cur = wb.SensitivityLabel.GetLabel()
@@ -512,73 +395,6 @@ def _label(wb):
     li.AssignmentMethod = 1
     li.Justification = ""
     wb.SensitivityLabel.SetLabel(li, li)
-
-
-def refresh_workbook(h: ExcelHost, src: Path, out: Path) -> dict:
-    """Copy `src` to the work dir, refresh every Smart View sheet, save the result to `out` (never the source)."""
-    config.WORK_DIR.mkdir(parents=True, exist_ok=True)
-    work = config.WORK_DIR / f"{dt.datetime.now():%Y%m%d_%H%M%S}{src.suffix}"
-    shutil.copyfile(src, work)
-    com = h.com
-    from .userexcel import is_archive
-    if is_archive(out):
-        raise InputError("Refusing to save a refreshed copy into the archive.")
-    # Macros in the user's workbook must not run in our Excel (an event macro could call a Smart View submit).
-    prev_sec = h.app.AutomationSecurity
-    h.app.AutomationSecurity = 3                  # msoAutomationSecurityForceDisable, only for this Open
-    try:
-        wb = com(lambda: h.app.Workbooks.Open(str(work), 0, False), limit_s=300)
-    finally:
-        h.app.AutomationSecurity = prev_sec
-    results, pivots = [], 0
-    try:
-        # Smart View VBA functions act on the active workbook's sheets by name
-        com(wb.Activate)
-        for ws in list(wb.Worksheets):
-            name = ws.Name
-            com(ws.Activate)
-            r = h._run("B_SheetInfo", name)
-            meta = dict(zip(r[1], r[2])) if isinstance(r, tuple) and r[0] == "OK" else None
-            conn = (meta or {}).get("Friendly Name") or (meta or {}).get("Cube")
-            if not conn:
-                results.append({"sheet": name, "smartview": False})
-                continue
-            t0 = time.monotonic()
-            rr = h._run("B_Retrieve", name)
-            if isinstance(rr, str) and rr.startswith("ERR|"):
-                h._run("B_Connect", name, conn)
-                rr = h._run("B_Retrieve", name)
-            results.append({"sheet": name, "smartview": True, "connection": conn, "cube": meta.get("Cube"),
-                            "result": rr if rr == "OK" else _explain_status(rr),
-                            "seconds": round(time.monotonic() - t0, 1)})
-        # Excel pivot tables built on the refreshed grids (no EPM access involved)
-        for pc in list(wb.PivotCaches()):
-            try:
-                com(pc.Refresh)
-                pivots += 1
-            except Exception:   # noqa: BLE001 - a broken pivot must not block the refresh
-                pass
-        com(h.app.CalculateFull)
-        _label(wb)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        if out.exists():
-            out.unlink()
-        com(lambda: wb.SaveAs(str(out), 52 if out.suffix.lower() == ".xlsm" else 51), limit_s=300)
-        saved = out.exists()
-    finally:
-        com(lambda: wb.Close(False))
-        com(h.wb.Activate)
-        try:
-            os.remove(work)
-        except OSError:
-            pass
-    return {"source": str(src), "output": str(out), "saved": saved, "pivot_caches_refreshed": pivots,
-            "sheets": results}
-
-
-def _explain_status(status) -> str:
-    from .host import _explain
-    return _explain("Retrieve", status) if isinstance(status, str) else str(status)
 
 
 DRILL_DEFAULTS = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}

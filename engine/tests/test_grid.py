@@ -77,16 +77,13 @@ def test_grid_labels_standard_and_odd_mode():
     assert _grid_labels(((None, "TimePeriods"), ("BalanceTypes", "#No Access")), [2, 2, 0, 1]) is None
 
 
-def test_markdown_two_column_dims_is_well_formed():
-    from smartview_mcp.grid import to_markdown
+def test_two_column_dims_join_their_headers():
     rows = [Axis("Entity", ["BANORWAY"])]
     cols = [Axis("Years", ["FY25", "FY26"]), Axis("Period", ["TotalYear"])]
     lay = Layout([("Scenario", "Target 2025")], rows, cols)
     vals = ((None, "Target 2025"), (None, "FY25", "FY26"), (None, "TotalYear", "TotalYear"), ("BANORWAY", 1.0, 2.0))
     p = parse(lay, vals, False, False)
-    md = to_markdown(p.columns, p.rows).splitlines()
     assert p.columns == ["Entity", "FY25 / TotalYear", "FY26 / TotalYear"]
-    assert md[0].count("|") == md[1].count("|") == md[2].count("|")
 
 
 def test_tree_bottom_up():

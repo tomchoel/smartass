@@ -9,7 +9,7 @@ from . import Draft, RecipeContext
 
 def concept(params: dict, ctx: RecipeContext) -> Draft:
     if not params.get("concept"):
-        raise InputError("recipe concept needs params.concept: a concept id from sv_scope / knowledge\\concepts.json.")
+        raise InputError("recipe concept needs params.concept: a concept id from knowledge\\concepts.json.")
     c = concepts.get(params["concept"])                 # ValueError naming the known concepts for an unknown id
     period = params.get("period") or ctx.closed
     ly = params.get("compare") or templates.same_period_ly(period)

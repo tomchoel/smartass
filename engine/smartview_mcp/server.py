@@ -16,7 +16,6 @@ from typing import Literal
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
 
 from . import config, logsetup, userexcel
 from .host import ExcelHost, HostError, InputError
@@ -69,7 +68,7 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
   P&L chain: C30 + C40S = C48; C50S + C60 = C70; C48 + C70 = EBITDA_BOI; + C73 = EBITDA.
 - Use the last CLOSED month (the next one is open, with reversals). History is restated to today's organisation
   (the 1 June 2026 reorg emptied 2CON Consumer into 2SSM + 2EI).
-- Product / profitability / business-area questions: call sv_scope(question) FIRST (business map + concept library).
+- Product / profitability / business-area questions: check the business map + concept library (knowledge\\) first.
   If a concept matches (e.g. 'splitt', or a product family 'fam_*'), answer with sv_answer (recipe 'concept').
   No concept: research, PROPOSE the blocks to the user, then save the concept.
 - P&L for a business area or a unit below one ('un.SY.5OK_W'): sv_answer with recipe 'pnl' (month and YTD vs last
@@ -80,7 +79,7 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
   sv_answer(followup=...). Add the same period last year by default.
 - Format: full NOK 1 000 000, negatives (1 000 000) in tables and with a minus sign in text; costs negative;
   variance = current - comparison (positive = better). Line labels in English as FinMax shows them.
-- Quick single numbers: sv_query. The Produktregnskapet archive folders are never written to.
+- The Produktregnskapet archive folders are never written to.
 - Invoice / journal-line detail behind any FinLite number: sv_drill(question, cell) (hidden headless browser,
   reconciled to the cube), then sv_answer with {drill: 'd', where: {...}} cells. Never Smart View's own
   drill-through execute: it opens the user's browser.
@@ -90,23 +89,6 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
   separate Excel MCP. Formulas follow skill tn-formelstil (SUM over ranges, XLOOKUP, no guessed ranges)."""
 
 mcp = MCPServer("smartass", instructions=INSTRUCTIONS, lifespan=lifespan)
-
-
-class AxisIn(BaseModel):
-    dimension: str = Field(description="Dimension name, e.g. 'All Accounts', 'All Entities', 'All Time Periods'")
-    members: list[str] = Field(description="Member names in order, e.g. ['ac.C30','ac.EBITDA'] or ['Aug 26','Sep 26']")
-
-
-AxesIn = list[AxisIn] | dict[str, list[str] | str]
-
-
-def axes_in(x) -> list[AxisIn]:
-    """rows/columns as [{dimension, members}] (documented) or {dimension: [members]} (what agents often send)."""
-    if isinstance(x, dict) and set(x) == {"dimension", "members"}:
-        x = [x]                                         # one axis object instead of a list of them
-    if isinstance(x, dict):
-        return [AxisIn(dimension=d, members=[m] if isinstance(m, str) else list(m)) for d, m in x.items()]
-    return [a if isinstance(a, AxisIn) else AxisIn(**a) for a in x]
 
 
 def _err(e: Exception) -> ToolError:

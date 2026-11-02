@@ -114,7 +114,6 @@ def test_gate_outcome(cid, q, want):
     """The advisor benchmark: if a case fails, fix the rule or capabilities.toml, never the expected outcome."""
     g = scope.gate(q, "Sep 26", learned=_NONE)
     assert g["suggested_outcome"] == want, g
-    scope.to_contract(g)                                       # always a valid contract Gate
 
 
 def test_gate_learned_default_turns_an_ask_into_a_stated_assumption():

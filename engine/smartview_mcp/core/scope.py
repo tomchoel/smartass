@@ -15,7 +15,7 @@ from typing import Callable
 from .. import catalog, concepts
 from . import period as periods
 from . import prefs, semantic
-from .contract import CHECKLIST, Gate
+from .contract import CHECKLIST
 
 Learned = Callable[[str, str], "str | None"]
 
@@ -185,9 +185,3 @@ def gate(question: str, closed: str, learned: Learned | None = None) -> dict:
     }
 
 
-def to_contract(g: dict) -> Gate:
-    """The gate result as the answer spec's Gate (checklist values as text, gaps marked)."""
-    return Gate(outcome=g["suggested_outcome"],
-                checklist={k: (v["value"] or f"GAP: {v['gap']}") + (f" [{v['source']}]" if v["value"] else "")
-                           for k, v in g["checklist"].items()},
-                questions=g["questions"], reason=g["reason"], proxy=g["proxy"])

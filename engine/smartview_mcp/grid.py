@@ -218,22 +218,3 @@ def verify_labels(lay: Layout, parsed) -> list[str]:
     return bad
 
 
-def to_markdown(columns: list[str], rows: list[list], labels: list[list[str]] | None = None, limit: int = 60) -> str:
-    def fmt(v):
-        if v is None:
-            return ""
-        if isinstance(v, float):
-            return f"{v:,.2f}"
-        return str(v).replace("|", "/")
-    head = [str(c).replace("|", "/") for c in columns]
-    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
-    for i, r in enumerate(rows[:limit]):
-        cells = [fmt(v) for v in r]
-        if labels:
-            for d, lab in enumerate(labels[i]):
-                if lab and lab != r[d]:
-                    cells[d] = f"{r[d]} ({lab})"
-        lines.append("| " + " | ".join(cells) + " |")
-    if len(rows) > limit:
-        lines.append(f"\n_{len(rows) - limit} more rows not shown; use save_xlsx for the full result._")
-    return "\n".join(lines)

@@ -122,31 +122,6 @@ def test_scan_flags_noaccess_pull_and_value_error_on_answer_line():
 
 
 # ------------------------------------------------------------------ review of 4c9ca14
-class FakeFind:
-    """ops.live_dimension stand-in: {member: dimension}; everything else is not found."""
-    def __init__(self, known):
-        self.known, self.calls = known, []
-
-    def __call__(self, h, conn, member):
-        self.calls.append(member)
-        return self.known.get(member)
-
-
-def test_live_confirm_checks_dimension_and_that_the_check_works(fake_atlas, monkeypatch):
-    find = FakeFind({"ac.NEW1": "All Accounts", "All Entities": "All Entities", "un.SY.2TEC": "All Entities"})
-    monkeypatch.setattr(ops, "live_dimension", find)
-    confirm = ops.live_confirm(None)
-    assert confirm("FinMax", "All Accounts", "ac.NEW1")
-    assert not confirm("FinMax", "All Accounts", "un.SY.2TEC")          # exists, but in another dimension
-    assert not confirm("FinMax", "All Entities", "un.SY.NOPE")          # probe (atlas top) found: a real miss
-    assert find.calls[-1] == "All Entities"
-    find.known.clear()                                                  # session broke: nothing is found now
-    with pytest.raises(Exception):
-        confirm("FinMax", "All Entities", "Jan 27")                     # probed again, not trusted from cache
-    find.known["All Entities"] = "All Entities"                         # works again
-    assert not confirm("FinMax", "All Entities", "un.SY.NOPE")
-
-
 def test_error_scan_groups_pull_cells_and_caps_answer_lines():
     pull = [[None, "Sep 26"]] + [[f"cc{i}", "#NoAccess"] for i in range(400)]
     ans = [[None] * 3 for _ in range(60)]

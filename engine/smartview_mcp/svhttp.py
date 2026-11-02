@@ -1,8 +1,8 @@
 """Grids over the Smart View provider's HTTP protocol - no Excel, no COM (Stage 0, 2026-10-25:
 docs/specs/2026-10-25-stage0-epm-access-probe.md). retrieve() returns what ops._query_once returns,
-(Layout, Parsed, seconds), so sv_query can use either route; the COM route stays the fallback.
+(Layout, Parsed, seconds), so extract.route can use either route; the COM route stays the fallback.
 
-Error contract for sv_query(source='auto'): InputError only for a query that is wrong whatever the route (a dimension
+Error contract for extract.route: InputError only for a query that is wrong whatever the route (a dimension
 used twice, no members, no row/column axis); everything else - including an incomplete or stale atlas, which COM
 does not need - is SvHttpError, so the caller falls back to Smart View in Excel.
 
@@ -39,7 +39,7 @@ _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
 
 
 class SvHttpError(Exception):
-    """The HTTP route could not answer; sv_query(source='auto') then uses Smart View in Excel."""
+    """The HTTP route could not answer; extract.route then uses Smart View in Excel."""
 
 
 class Transport(Protocol):
@@ -274,7 +274,7 @@ class BrowserTransport:
     """Posts provider XML from a signed-in tab of the drill browser: its own tab for its pod (plan1) and one extra
     tab per other pod (FinPlan: stratmodel), signed in once with the same SSO. All page work runs on the browser's
     worker thread via submit(); _tabs is only touched there. Every failure to get an answer is an SvHttpError
-    (so sv_query can fall back); a refused write stays a ValueError.
+    (so extract.route can fall back); a refused write stays a ValueError.
 
     `browser` is a callable returning the drill browser, resolved on every post: after
     drill_browser.shutdown_shared() the next post uses the new shared browser, not the shut one."""
@@ -306,7 +306,7 @@ class BrowserTransport:
             raise
         except DrillError as e:                                   # includes DrillBusy
             raise SvHttpError(str(e)) from None
-        except Exception as e:   # noqa: BLE001 - e.g. a raw Playwright error: never hand it to sv_query
+        except Exception as e:   # noqa: BLE001 - e.g. a raw Playwright error: never hand it to the caller
             raise SvHttpError(f"browser error: {_first_line(e)}") from None
 
     @staticmethod

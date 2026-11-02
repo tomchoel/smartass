@@ -228,36 +228,3 @@ def plan(c: dict, period: str, last_year: str, entity: str | None = None) -> tup
     return pulls, spec
 
 
-# ------------------------------------------------------------------ scoping
-def scope(text: str, limit: int = 8) -> dict:
-    """What belongs to a question: matching concepts (with their blocks) and the account groups / product groups whose
-    name or meaning matches, with booking pattern and pitfalls from the business map."""
-    out = {"concepts": [], "accounts": [], "products": [], "organisation": [], "finplan": []}
-    for c in find(text)[:3]:
-        out["concepts"].append({"id": c["id"], "title": c.get("title"), "description": c.get("description"),
-                                "blocks": [{"title": b["title"], "items": [f"{i.get('label')} [{i.get('kind')}]"
-                                                                           for i in b.get("items", [])]}
-                                           for b in c.get("blocks", [])]})
-    sources = (("accounts_map.json", "accounts", "accounts"), ("products_map.json", "products", "products"),
-               ("org_map.json", "entities", "organisation"), ("finplan_map.json", "accounts", "finplan"))
-    keep = ("member", "label", "meaning", "booking_pattern", "pitfalls", "family", "prodreg_codes", "division_2026",
-            "moved", "kind", "finmax_equivalent", "fy2025_nok", "fy2025_c30", "fy2025_c50s", "fte_dec25", "actual_fy25",
-            "target_fy26", "forecast_q326_fy26")
-    for name, field, key in sources:
-        rows = _load(name).get(field, [])
-        scored = []
-        for r in rows:
-            hay = " ".join(str(r.get(x, "")) for x in ("member", "code", "label", "meaning", "family", "prodreg_codes",
-                                                       "division_2026"))
-            s = _score(text, _words(hay))
-            if s >= 0.75:
-                size = (r.get("fy2025_nok") or r.get("fy2025_c30") or r.get("fy2025_c50s") or r.get("actual_fy25")
-                        or r.get("target_fy26") or r.get("forecast_q326_fy26") or 0)
-                scored.append((s, abs(size), r))
-        for _, _, r in sorted(scored, key=lambda x: (-x[0], -x[1]))[:limit]:
-            out[key].append({k: r.get(k) for k in keep if r.get(k) not in (None, "", 0)})
-    if not out["concepts"]:
-        out["advice"] = ("No concept defined for this question. Research the members (sv_find_member/sv_members, the "
-                         "business map below, archive revenue files), PROPOSE the blocks to the user, and after they "
-                         "confirm add the concept to knowledge\\concepts.json.")
-    return out

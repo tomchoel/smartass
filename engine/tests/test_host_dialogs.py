@@ -74,7 +74,7 @@ async def test_login_dialog_hang_restarts_excel_and_retries_once(monkeypatch):
     def fn(h):
         return "ok" if h.pid == 1002 else xl.hang(h)
 
-    assert await xl.h.call(fn, timeout=5, what="sv_query") == "ok"
+    assert await xl.h.call(fn, timeout=5, what="sv_answer") == "ok"
     assert xl.killed == [1001] and len(xl.starts) == 2
 
 
@@ -82,7 +82,7 @@ async def test_login_dialog_hang_restarts_excel_and_retries_once(monkeypatch):
 async def test_login_dialog_twice_raises_the_cause_and_next_step(monkeypatch):
     xl = FakeExcel(monkeypatch, [[LOGIN_IE], [LOGIN_IE]])
     with pytest.raises(HostError) as e:
-        await xl.h.call(xl.hang, timeout=5, what="sv_query")
+        await xl.h.call(xl.hang, timeout=5, what="sv_answer")
     msg = str(e.value)
     assert "sign-in window" in msg and "Internet Explorer" in msg
     assert "restarted Excel once; it happened again" in msg
@@ -95,7 +95,7 @@ async def test_login_dialog_twice_raises_the_cause_and_next_step(monkeypatch):
 async def test_message_dialog_is_named_in_the_timeout_error(monkeypatch):
     xl = FakeExcel(monkeypatch, [[MESSAGE]])
     with pytest.raises(HostTimeout) as e:
-        await xl.h.call(xl.hang, timeout=0.5, what="sv_query")
+        await xl.h.call(xl.hang, timeout=0.5, what="sv_answer")
     assert "a dialog is open in the hidden Excel: 'Oracle Smart View for Office: Empty response from provider'" \
         in str(e.value)
     assert xl.killed == [1001] and len(xl.starts) == 1
@@ -109,7 +109,7 @@ async def test_young_webview2_login_is_left_to_the_sso_watcher(monkeypatch):
         time.sleep(0.4)                       # the SSO watcher clicks 'Telenor SSO' meanwhile
         return "ok"
 
-    assert await xl.h.call(fn, timeout=5, what="sv_query") == "ok"
+    assert await xl.h.call(fn, timeout=5, what="sv_answer") == "ok"
     assert xl.killed == []
 
 
@@ -123,7 +123,7 @@ async def test_sign_in_blocked_raised_by_the_job_restarts_and_retries(monkeypatc
             raise AssertionError("check_signin should have raised")
         return "ok"
 
-    assert await xl.h.call(fn, timeout=5, what="sv_query") == "ok"
+    assert await xl.h.call(fn, timeout=5, what="sv_answer") == "ok"
     assert xl.killed == [1001]
 
 
@@ -141,7 +141,7 @@ async def test_a_call_queued_behind_a_sign_in_reset_does_not_orphan_an_excel(mon
         await asyncio.sleep(0.02)             # queued while A is blocked by the Login window
         return await xl.h.call(lambda h: "b", timeout=5, what="sv_members")
 
-    assert await asyncio.gather(xl.h.call(a, timeout=5, what="sv_query"), b()) == ["a", "b"]
+    assert await asyncio.gather(xl.h.call(a, timeout=5, what="sv_answer"), b()) == ["a", "b"]
     started = list(range(1001, 1001 + len(xl.starts)))
     assert all(p in xl.killed or p == xl.h.pid for p in started), (started, xl.killed, xl.h.pid)
     assert xl.killed == [1001] and xl.h.reset_gen == 1

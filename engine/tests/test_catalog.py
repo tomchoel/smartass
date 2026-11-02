@@ -3,6 +3,12 @@ import pytest
 
 from smartview_mcp import catalog
 
+
+def _entity(cat, text):
+    found = catalog.resolve_entities(cat, text)
+    return found[0] if len(found) == 1 else None
+
+
 OLD_PNL = [
     ("rev", "ac.C30", "line", None), ("cogs", "ac.C40S", "line", None), ("gm", "ac.C48", "sum", None),
     ("pers", "ac.C50S", "line", None), ("oth", "ac.C60", "line", None), ("opex", "ac.C70", "sum", None),
@@ -128,12 +134,12 @@ def test_parse_rejects_broken_catalogues(data, msg):
     ("Telenor Norge total", "company"),
 ])
 def test_resolve_entity(text, key):
-    assert catalog.resolve_entity(catalog.load(), text).key == key
+    assert _entity(catalog.load(), text).key == key
 
 
 @pytest.mark.parametrize("text", ["is it good?", "what about ei?", "something else entirely"])
 def test_resolve_entity_needs_a_real_match(text):
-    assert catalog.resolve_entity(catalog.load(), text) is None
+    assert _entity(catalog.load(), text) is None
 
 
 @pytest.mark.parametrize("text, key", [
@@ -154,13 +160,13 @@ def test_resolve_entity_needs_a_real_match(text):
     ("Consumer Q3 mot i fjor", "consumer"),
 ])
 def test_resolve_entity_in_a_sentence(text, key):
-    assert catalog.resolve_entity(catalog.load(), text).key == key
+    assert _entity(catalog.load(), text).key == key
 
 
 @pytest.mark.parametrize("text", ["mobil", "mobilkostnader i fjor", "Wholesale vs Business",
                                   "Telenor Norge vs Wholesale"])
 def test_resolve_entity_none_when_not_one_area(text):
-    assert catalog.resolve_entity(catalog.load(), text) is None
+    assert _entity(catalog.load(), text) is None
 
 
 @pytest.mark.parametrize("text, keys", [
@@ -184,7 +190,7 @@ def test_resolve_entities_in_order_of_appearance(text, keys):
 
 def test_abolished_consumer_names_its_successors():
     cat = catalog.load()
-    con = catalog.resolve_entity(cat, "privatmarkedet")
+    con = _entity(cat, "privatmarkedet")
     assert con.key == "consumer" and con.abolished == "2026-06-01" and con.successors == ("ssm", "ei")
 
 
@@ -251,8 +257,8 @@ def test_only_generic_company_words_give_way():
     company = {e.key: e for e in catalog.load().entities}["company"]
     assert set(company.generic_aliases) == {"total", "company", "selskapet"}
     assert "telenor norge" in company.aliases and "total" not in company.aliases
-    assert catalog.resolve_entity(catalog.load(), "total").key == "company"
-    assert catalog.resolve_entity(catalog.load(), "selskapet hittil i år").key == "company"
+    assert _entity(catalog.load(), "total").key == "company"
+    assert _entity(catalog.load(), "selskapet hittil i år").key == "company"
 
 
 def _two_areas(**changes):
