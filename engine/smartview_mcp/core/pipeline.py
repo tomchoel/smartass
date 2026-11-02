@@ -1,10 +1,10 @@
 """One question through the new core (design §3): scope -> pull -> answer -> check. The scope gate's verdict
 arrives in the answer spec (the agent applies the checklist); ambiguous questions stop in tools_core before any
-Excel work. Walking skeleton: new questions only (follow-ups are phase 5)."""
+Excel work. A follow-up (phase 5) patches the stored spec and redraws the same answer in its block."""
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
@@ -12,7 +12,8 @@ from .. import answer as answer_mod
 from .. import catalog, specs, userexcel
 from ..host import InputError, rewrap
 from ..timing import stage
-from . import check, commentary, contract, progress, source
+from . import check, commentary, contract, followup, progress, source
+from . import owned as owned_mod
 
 
 @dataclass
@@ -25,6 +26,9 @@ class Run:
     sources: list
     review: dict
     material: list = None
+    raw: dict = None                                   # the stored spec (what a follow-up patches)
+    owned: dict | None = None                          # the tool-owned block of the answer sheet
+    reused: list[str] = field(default_factory=list)    # follow-up: pull ids whose sheets were kept
 
 
 def parse_spec(raw: dict) -> contract.AnswerSpec:
@@ -57,13 +61,23 @@ def answer_layout(raw_layout: dict, spec: contract.AnswerSpec) -> dict:
     return lay
 
 
-def run(h, raw: dict, target: str = "session", allow_archive: bool = False) -> Run:
+def run(h, raw: dict, target: str = "session", allow_archive: bool = False, *,
+        q: int | None = None, old: dict | None = None, t=None) -> Run:
+    """A new question (old None) -> a new Q<n> Answer; a follow-up (q + old = userexcel.load_answer, raw already
+    patched) -> the same Q<q> Answer redrawn in its block, unchanged pulls not fetched again."""
     spec = parse_spec(raw)
     if spec.gate.outcome == "ambiguous":
         raise InputError("An ambiguous question pulls nothing: ask its questions first.")
     with stage("open target"):
-        t = userexcel.resolve_target(h, target, allow_archive, title=spec.question[:50])
-        q = userexcel.next_question(t)
+        t = t or userexcel.resolve_target(h, target, allow_archive, title=spec.question[:50])
+        if old is None:
+            q = userexcel.next_question(t)
+    if old is None:
+        return _new(h, t, q, raw, spec)
+    return _follow(h, t, q, raw, spec, old)
+
+
+def _new(h, t, q: int, raw: dict, spec: contract.AnswerSpec) -> Run:
     sources: list[source.Source] = []
     try:
         with stage("answer skeleton"):
@@ -74,19 +88,84 @@ def run(h, raw: dict, target: str = "session", allow_archive: bool = False) -> R
         progress.set_status(t, q, "building the answer ...")
         ids = {pin.id: s.pull.sheet for pin, s in zip(spec.pulls, sources)}
         sess = {s.pull.sheet: s.pull for s in sources}
-        with stage("prepare spec"):
-            prepared = specs.prepare(answer_layout(raw["layout"], spec), ids, sess)
-        with stage("answer"):
-            res = answer_mod.build(t, q, prepared, sess, suffix=progress.ANSWER)
+        res, prepared = _draw(t, q, raw, spec, ids, sess, owned=None)
     except Exception as e:
         removed = userexcel.rollback(t)
         raise rewrap(e, f"{e} (the answer was not completed; removed the partial sheets: "
                      f"{', '.join(removed) or 'none'})") from None
+    return _finish(t, q, raw, spec, ids, prepared, res, sources)
+
+
+def _exists(t, name: str) -> bool:
+    return userexcel._sheet_exists(t, name)
+
+
+def _delete(t, names: list[str]) -> None:
+    if names:
+        userexcel.drop_parked(t, {n: n for n in names})
+
+
+def _follow(h, t, q: int, raw: dict, spec: contract.AnswerSpec, old: dict) -> Run:
+    """Design §3.3 follow-up: reuse the sheets of unchanged pulls, park + refetch changed ones, redraw Q<q> Answer
+    over its own block (a hidden backup restores it if the redraw fails), drop the sheets of removed pulls.
+    The status goes to Excel's status bar only: the skeleton would clear the user's sheet."""
+    plan = followup.plan_sources(old["spec"], old["ids"], raw, exists=lambda s: _exists(t, s))
+    stored = userexcel.load_pulls(t, q) if plan.reuse else {}
+    for pid, sheet in list(plan.reuse.items()):
+        if stored.get(sheet) is None:                       # no meta row (sheet copied by hand): fetch it again
+            del plan.reuse[pid]
+            plan.replace[pid] = sheet
+    raw = {**raw, "layout": followup.drop_stale_expect(raw["layout"], list(plan.replace))}
+    name = f"Q{q} {progress.ANSWER}"
+    parked, bname, sources, ids, sess = {}, None, [], {}, {}
+    try:
+        if plan.replace:
+            parked = userexcel.park_sheets(t, list(plan.replace.values()))
+        fresh = [p for p in spec.pulls if p.id not in plan.reuse]
+        for i, pin in enumerate(spec.pulls):
+            if pin.id in plan.reuse:
+                sheet = plan.reuse[pin.id]
+                src = source.Source(stored[sheet], "reused", [])
+            else:
+                t.status(f"fetching {pin.connection} '{pin.id}' ({fresh.index(pin) + 1}/{len(fresh)}) ...")
+                src = source.pull(h, t, q, i, pin)
+                sheet = src.pull.sheet
+            sources.append(src)
+            ids[pin.id], sess[sheet] = sheet, src.pull
+        t.status("redrawing the answer ...")
+        if _exists(t, name):
+            bname = owned_mod.backup(t, name)
+        res, prepared = _draw(t, q, raw, spec, ids, sess, owned=old.get("owned"))
+    except Exception as e:
+        userexcel.rollback(t)                               # removes freshly added source sheets
+        if parked:
+            userexcel.restore_parked(t, parked)
+        if bname:
+            owned_mod.restore(t, name, bname)
+        raise rewrap(e, f"{e} (the follow-up was not applied; {name} and its sources are unchanged)") from None
+    _delete(t, [n for n in [bname, *plan.drop] if n])
+    if parked:
+        userexcel.drop_parked(t, parked)
+    return _finish(t, q, raw, spec, ids, prepared, res, sources, reused=list(plan.reuse))
+
+
+def _draw(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, sess: dict, owned: dict | None):
+    layout = {k: v for k, v in raw["layout"].items() if k != "expect"}
+    with stage("prepare spec"):
+        prepared = specs.prepare(answer_layout(layout, spec), ids, sess)
+    with stage("answer"):
+        res = answer_mod.build(t, q, prepared, sess, suffix=progress.ANSWER, owned=owned)
+    return res, prepared
+
+
+def _finish(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, prepared: dict, res: dict, sources: list,
+            reused: list[str] | None = None) -> Run:
     flagged = commentary.material(prepared, res.get("values") or {}, catalog.load())
     review = check.review(res, sources, extra=commentary.findings(
         flagged, [d.model_dump() for d in spec.commentary.drivers]))
+    ext = res.get("extent")
     try:
-        userexcel.save_spec(t, q, raw, ids)
+        userexcel.save_spec(t, q, raw, ids, owned=ext)
     except Exception:   # noqa: BLE001 - only needed for follow-ups
         pass
-    return Run(t, q, spec, prepared, res, sources, review, flagged)
+    return Run(t, q, spec, prepared, res, sources, review, flagged, raw=raw, owned=ext, reused=reused or [])

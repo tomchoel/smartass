@@ -1,10 +1,14 @@
 """Phase 5 follow-ups: stored spec + owned range, source plan, follow-up pipeline, sv_answer(followup=...)."""
+import copy
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+from test_core_skeleton import _fake_run          # tests/ is on sys.path (rootdir import)
+
 from smartview_mcp import userexcel
-from smartview_mcp.core import followup
+from smartview_mcp.core import contract, followup, pipeline
 
 B02 = json.loads((Path(__file__).parent / "fixtures" / "b02_answer_spec.json").read_text(encoding="utf-8"))
 
@@ -110,3 +114,77 @@ def test_the_current_question_is_the_active_answer_sheet_else_the_latest_stored(
     assert followup.current_question(t) == 4
     monkeypatch.setattr(userexcel, "stored_questions", lambda t: [])
     assert followup.current_question(t) is None
+
+
+def _old(raw):
+    return {"spec": raw, "ids": {"m": "Q2 FinMax", "ytd": "Q2 FinMax ytd"}, "owned": {"rows": 30, "cols": 7}}
+
+
+def _stored(*sheets):
+    parsed = SimpleNamespace(pov_problems=[], unknown_members=[])
+    return {s: SimpleNamespace(sheet=s, seconds=0.0, parsed=parsed) for s in sheets}
+
+
+def _follow_env(monkeypatch, calls, stored):
+    _fake_run(monkeypatch, calls)
+    monkeypatch.setattr(userexcel, "load_pulls", lambda t, q: stored)
+    monkeypatch.setattr(pipeline, "_exists", lambda t, s: True)
+    monkeypatch.setattr(pipeline.owned_mod, "backup", lambda t, name: calls.append(("backup", name)) or "~" + name)
+    monkeypatch.setattr(pipeline, "_delete", lambda t, names: calls.append(("delete", tuple(names))))
+    monkeypatch.setattr(userexcel, "park_sheets", lambda t, names: {"~" + n: n for n in names})
+    monkeypatch.setattr(userexcel, "drop_parked", lambda t, p: calls.append(("drop_parked", tuple(p.values()))))
+
+
+def test_a_follow_up_reuses_unchanged_pulls_and_redraws_the_same_answer(monkeypatch):
+    calls = []
+    _follow_env(monkeypatch, calls, _stored("Q2 FinMax", "Q2 FinMax ytd"))
+    raw = copy.deepcopy(B02)
+    raw["layout"]["title"] = "Changed"
+    r = pipeline.run(None, raw, "session", False, q=2, old=_old(B02))
+    names = [c[0] for c in calls]
+    assert "pull" not in names and "show" not in names and "status" not in names   # no re-fetch, no skeleton
+    assert ("backup", "Q2 Answer") in calls and ("delete", ("~Q2 Answer",)) in calls
+    assert r.q == 2 and sorted(r.reused) == ["m", "ytd"] and r.owned == {"rows": 20, "cols": 6}
+    assert [s.route for s in r.sources] == ["reused", "reused"] and r.raw["layout"]["title"] == "Changed"
+    assert ("save_spec", 2, {"rows": 20, "cols": 6}) in calls
+
+
+def test_a_follow_up_that_adds_a_pull_fetches_only_that_pull(monkeypatch):
+    calls = []
+    _follow_env(monkeypatch, calls, _stored("Q2 FinMax", "Q2 FinMax ytd"))
+    fp = {"id": "fp", "connection": "FinPlan", "rows": [{"dimension": "Account", "members": ["EBITDA"]}],
+          "columns": [{"dimension": "Scenario", "members": ["Actual"]}]}
+    raw = contract.patched(B02, {"pulls": [fp]})
+    r = pipeline.run(None, raw, "session", False, q=2, old=_old(B02))
+    pulled = [c[1] for c in calls if c[0] == "pull"]
+    assert pulled == ["fp"] and [s.route for s in r.sources] == ["reused", "reused", "http"]
+
+
+def test_a_changed_pull_is_parked_refetched_and_its_old_sheet_dropped(monkeypatch):
+    calls = []
+    _follow_env(monkeypatch, calls, _stored("Q2 FinMax", "Q2 FinMax ytd"))
+    raw = contract.patched(B02, {"pulls": [{"id": "ytd", "title": "changed"}]})
+    pipeline.run(None, raw, "session", False, q=2, old=_old(B02))
+    assert [c[1] for c in calls if c[0] == "pull"] == ["ytd"]
+    assert ("drop_parked", ("Q2 FinMax ytd",)) in calls
+
+
+def test_a_reused_sheet_without_its_meta_row_is_fetched_again(monkeypatch):
+    calls = []
+    _follow_env(monkeypatch, calls, _stored("Q2 FinMax"))
+    r = pipeline.run(None, copy.deepcopy(B02), "session", False, q=2, old=_old(B02))
+    assert [c[1] for c in calls if c[0] == "pull"] == ["ytd"] and r.reused == ["m"]
+
+
+def test_a_failed_redraw_restores_the_answer_and_the_parked_sources(monkeypatch):
+    calls = []
+    _follow_env(monkeypatch, calls, {})
+    monkeypatch.setattr(pipeline.owned_mod, "restore", lambda t, n, b: calls.append(("restore", n, b)))
+    monkeypatch.setattr(userexcel, "restore_parked", lambda t, p: calls.append(("unpark", tuple(p.values()))))
+    monkeypatch.setattr(pipeline.answer_mod, "build", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    raw = contract.patched(B02, {"pulls": [{"id": "ytd", "title": "changed"}]})
+    with pytest.raises(Exception, match="follow-up was not applied"):
+        pipeline.run(None, raw, "session", False, q=2, old=_old(B02))
+    assert ("restore", "Q2 Answer", "~Q2 Answer") in calls
+    assert sorted(next(c[1] for c in calls if c[0] == "unpark")) == ["Q2 FinMax", "Q2 FinMax ytd"]
+    assert not any(c[0] in ("delete", "drop_parked") for c in calls)

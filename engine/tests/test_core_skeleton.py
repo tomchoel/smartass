@@ -148,12 +148,13 @@ def test_assumptions_and_the_question_lead_the_notes_and_the_raw_layout_is_untou
 
 
 def _fake_run(monkeypatch, calls, pull_fails=False):
-    t = SimpleNamespace(path="C:/x/a.xlsx")
+    t = SimpleNamespace(path="C:/x/a.xlsx", status=lambda text: calls.append(("bar", text)))
     pull = SimpleNamespace(sheet="Q3 FinMax", seconds=0.2, parsed=SimpleNamespace(pov_problems=[], unknown_members=[]))
     monkeypatch.setattr(pipeline.userexcel, "resolve_target", lambda h, target, allow, title: t)
     monkeypatch.setattr(pipeline.userexcel, "next_question", lambda t: 3)
     monkeypatch.setattr(pipeline.userexcel, "rollback", lambda t: ["Q3 Answer"])
-    monkeypatch.setattr(pipeline.userexcel, "save_spec", lambda t, q, raw, ids: calls.append(("save_spec", q)))
+    monkeypatch.setattr(pipeline.userexcel, "save_spec",
+                        lambda t, q, raw, ids, owned=None: calls.append(("save_spec", q, owned)))
     monkeypatch.setattr(pipeline.progress, "show", lambda t, q, spec, status: calls.append(("show", q)))
     monkeypatch.setattr(pipeline.progress, "set_status", lambda t, q, text: calls.append(("status", text)))
 
@@ -164,8 +165,9 @@ def _fake_run(monkeypatch, calls, pull_fails=False):
         return source.Source(pull, "http", [])
     monkeypatch.setattr(pipeline.source, "pull", pull_)
     monkeypatch.setattr(pipeline.specs, "prepare", lambda layout, ids, sess: calls.append(("prepare", ids)) or layout)
-    monkeypatch.setattr(pipeline.answer_mod, "build", lambda t, q, spec, sess, suffix: calls.append(("build", suffix))
-                        or {"sheet": "Q3 Answer", "checks": {"c": "OK"}})
+    monkeypatch.setattr(pipeline.answer_mod, "build", lambda t, q, spec, sess, suffix, owned=None, **kw:
+                        calls.append(("build", suffix)) or
+                        {"sheet": "Q3 Answer", "checks": {"c": "OK"}, "extent": {"rows": 20, "cols": 6}})
 
 
 def test_run_shows_the_answer_sheet_first_then_pulls_then_renders(monkeypatch):
@@ -174,6 +176,7 @@ def test_run_shows_the_answer_sheet_first_then_pulls_then_renders(monkeypatch):
     r = pipeline.run(None, SPEC)
     assert [c[0] for c in calls] == ["show", "status", "pull", "status", "prepare", "build", "save_spec"]
     assert ("prepare", {"m": "Q3 FinMax"}) in calls and ("build", "Answer") in calls
+    assert ("save_spec", 3, {"rows": 20, "cols": 6}) in calls and r.raw is SPEC
     assert r.q == 3 and r.review == {"ok": True, "findings": []}
 
 
