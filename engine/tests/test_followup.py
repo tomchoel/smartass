@@ -5,9 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 from test_core_skeleton import _fake_run          # tests/ is on sys.path (rootdir import)
 
-from smartview_mcp import userexcel
+from smartview_mcp import tools_core, userexcel
 from smartview_mcp.core import contract, followup, pipeline
 
 B02 = json.loads((Path(__file__).parent / "fixtures" / "b02_answer_spec.json").read_text(encoding="utf-8"))
@@ -188,3 +189,72 @@ def test_a_failed_redraw_restores_the_answer_and_the_parked_sources(monkeypatch)
     assert ("restore", "Q2 Answer", "~Q2 Answer") in calls
     assert sorted(next(c[1] for c in calls if c[0] == "unpark")) == ["Q2 FinMax", "Q2 FinMax ytd"]
     assert not any(c[0] in ("delete", "drop_parked") for c in calls)
+
+
+# ------------------------------------------------------------------ sv_answer(followup=...)
+def test_a_follow_up_patches_the_current_answer(monkeypatch):
+    monkeypatch.setattr(tools_core.followup_mod, "current_question", lambda t: 2)
+    monkeypatch.setattr(tools_core.userexcel, "load_answer", lambda t, q: {"spec": B02, "ids": {}, "owned": None})
+    q, old, raw = tools_core._followup_spec(SimpleNamespace(), {"layout": {"title": "New title",
+                                                                          "notes": {"append": ["n"]}}}, None)
+    assert q == 2 and old["spec"] is B02 and raw["layout"]["title"] == "New title"
+    assert raw["layout"]["notes"][-1] == "n"
+
+
+def test_a_follow_up_without_a_stored_answer_says_ask_a_new_question(monkeypatch):
+    monkeypatch.setattr(tools_core.followup_mod, "current_question", lambda t: None)
+    with pytest.raises(tools_core.InputError, match="no answer to follow up"):
+        tools_core._followup_spec(SimpleNamespace(), {"layout": {"title": "x"}}, None)
+
+
+def test_a_follow_up_on_an_old_answer_is_refused(monkeypatch):
+    monkeypatch.setattr(tools_core.userexcel, "load_answer",
+                        lambda t, q: {"spec": {"question": "old sv_ws_build spec"}, "ids": {}, "owned": None})
+    with pytest.raises(tools_core.InputError, match="Q4 Answer was not drawn by sv_answer"):
+        tools_core._followup_spec(SimpleNamespace(), {"layout": {"title": "x"}}, 4)
+
+
+def test_an_invalid_follow_up_is_an_input_error(monkeypatch):
+    monkeypatch.setattr(tools_core.userexcel, "load_answer", lambda t, q: {"spec": B02, "ids": {}, "owned": None})
+    with pytest.raises(tools_core.InputError, match="does not give a valid answer spec"):
+        tools_core._followup_spec(SimpleNamespace(), {"pulls": [{"id": "m", "drop": True}]}, 2)
+
+
+@pytest.mark.anyio
+async def test_sv_answer_needs_exactly_one_of_spec_and_followup():
+    with pytest.raises(ToolError, match="exactly one of spec or followup"):
+        await tools_core.sv_answer()
+    with pytest.raises(ToolError, match="exactly one of spec or followup"):
+        await tools_core.sv_answer(spec=B02, followup={"layout": {"title": "x"}})
+
+
+@pytest.mark.anyio
+async def test_sv_answer_follow_up_redraws_the_answer_and_returns_the_outline(monkeypatch, tmp_path):
+    from smartview_mcp import config
+    monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
+    t = SimpleNamespace(path="C:/x/a.xlsx", created=False)
+    monkeypatch.setattr(tools_core, "_call_user", lambda job, what: _job(job))
+    monkeypatch.setattr(tools_core.userexcel, "resolve_target", lambda h, target, allow: t)
+    monkeypatch.setattr(tools_core.followup_mod, "current_question", lambda t: 2)
+    monkeypatch.setattr(tools_core.userexcel, "load_answer",
+                        lambda t, q: {"spec": B02, "ids": {"m": "Q2 FinMax"}, "owned": None})
+    seen, logged = {}, []
+    reused = SimpleNamespace(pull=SimpleNamespace(sheet="Q2 FinMax", seconds=0.0), route="reused", note=None)
+
+    def run(h, raw, target, allow, **kw):
+        seen.update(kw, raw=raw)
+        return pipeline.Run(t, 2, contract.validate(raw), {}, {"warnings": []}, [reused], {"ok": True, "findings": []},
+                            [], raw=raw, reused=["m"])
+    monkeypatch.setattr(tools_core.pipeline, "run", run)
+    monkeypatch.setattr(tools_core.userexcel, "log_source", lambda *a, **k: logged.append(a))
+    monkeypatch.setattr(tools_core.runlog, "write_sheet", lambda t, e: None)
+    monkeypatch.setattr(tools_core.tools_ws, "_finish", lambda *a, **k: None)
+    monkeypatch.setattr(tools_core.tools_ws, "_result", lambda *a, **k: {"sheet": "Q2 Answer"})
+    out = await tools_core.sv_answer(followup={"layout": {"title": "New"}})
+    assert seen["q"] == 2 and seen["t"] is t and seen["raw"]["layout"]["title"] == "New"
+    assert out["followup_of"] == 2 and out["reused"] == ["m"] and logged == []          # reused sources not re-logged
+    assert out["outline"]["pulls"][0] == {"id": "m", "connection": "FinMax"}
+
+
+async def _job(job):
+    return job(None)

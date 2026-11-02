@@ -8,7 +8,8 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import config, templates, tools_ws, userexcel
-from .core import pipeline, prefs, runlog, scope
+from .core import contract, pipeline, prefs, runlog, scope
+from .core import followup as followup_mod
 from .core import period as periods
 from .host import HostError, InputError
 from .server import LOCAL, READ, WRITE, _call_user, _err, _is_our_analysis_file, tool
@@ -68,44 +69,86 @@ async def sv_remember(item: Literal["measure", "period", "scenario", "entity"], 
     return {"saved": entry, "file": str(config.PREFERENCES)}
 
 
+def _followup_spec(t, patch: dict, q: int | None) -> tuple[int, dict, dict]:
+    """(q, stored answer, patched spec) for a follow-up on answer q (default: the current answer)."""
+    q = q or followup_mod.current_question(t)
+    if q is None:
+        raise InputError("There is no answer to follow up in this workbook: ask it as a new question with spec=...")
+    old = userexcel.load_answer(t, q)
+    if old is None or old["spec"].get("version") != 1:
+        raise InputError(f"Q{q} Answer was not drawn by sv_answer, so it has no answer spec to patch: ask it as a "
+                         "new question with spec=..., or use sv_ws_answer for answers drawn by sv_ws_build.")
+    try:
+        raw = contract.patched(old["spec"], patch)
+    except ValueError as e:          # pydantic ValidationError is a ValueError
+        raise InputError(f"The follow-up does not give a valid answer spec: {e}") from None
+    return q, old, raw
+
+
 @tool(annotations=WRITE)
-async def sv_answer(spec: dict, target: str = "session", allow_archive: bool = False,
-                    ctx: Context | None = None) -> dict:
-    """NEW PIPELINE (walking skeleton): answer ONE question from an answer spec v1 (core/contract.py):
-    {version: 1, question, gate: {outcome: clear|ambiguous|infeasible, checklist: {period, scenario, entity, measure,
-    currency_sign, granularity}, questions (ambiguous, 1-3), reason + proxy (infeasible)}, assumptions: [...],
-    pulls: [{id, connection, rows, columns, pov, title?}], layout: {title, columns, sections, checks, ...} (the
-    sv_ws_build spec grammar; pull cells use the pull ids)}.
+async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: int | None = None,
+                    target: str = "session", allow_archive: bool = False, ctx: Context | None = None) -> dict:
+    """NEW PIPELINE: answer ONE question from an answer spec v1 (core/contract.py) - or change the current answer
+    with a follow-up. Give exactly one of spec and followup.
+    spec (a new question -> a new 'Q<n> Answer'): {version: 1, question, gate: {outcome: clear|ambiguous|infeasible,
+    checklist: {period, scenario, entity, measure, currency_sign, granularity}, questions (ambiguous, 1-3), reason +
+    proxy (infeasible)}, assumptions: [...], pulls: [{id, connection, rows, columns, pov, title?}], layout: {title,
+    columns, sections, checks, ...} (the sv_ws_build spec grammar; pull cells use the pull ids)}.
     ambiguous -> returns the questions, pulls nothing. Otherwise: the answer sheet 'Q<n> Answer' appears first with
     the question, assumptions and a status line; each pull is fetched over HTTP and written as a source sheet in one
     block (Smart View ad hoc grid if HTTP fails); then the answer is rendered (live formulas) and checked.
+    followup: a patch on the current answer (the active Q<n> Answer, else the latest; or answer q). Use it unless
+    the user asks a new question. Dicts merge, null deletes; pulls merge by id, layout.sections by title, lines by
+    key, checks by label ({..., "drop": true} removes; new ones are appended); {"append": [...]} adds to a list
+    (e.g. notes); any other list replaces. Unchanged pulls are not fetched again; the answer is redrawn in its own
+    block, so the user's cells and charts outside it survive.
     Returns the answer table, checks, review findings (Critical/Warning/Info: knowledge/advisor/findings.md),
-    material lines that need a driver in commentary.drivers (knowledge/advisor/variance-commentary.md), routes and
-    timings. Call sv_gate first (knowledge/advisor/gate.md)."""
-    try:
-        parsed = pipeline.parse_spec(spec)
-    except InputError as e:
-        raise _err(e) from None
-    early = pipeline.gate_reply(parsed)
-    if early is not None:
-        runlog.append(runlog.entry(parsed, None, [], None, {}))
-        return early
+    material lines that need a driver in commentary.drivers (knowledge/advisor/variance-commentary.md), routes,
+    timings and an outline (pull ids, columns, section titles, line keys, check labels) to address follow-ups.
+    Call sv_gate first for a new question (knowledge/advisor/gate.md)."""
+    if (spec is None) == (followup is None):
+        raise _err(InputError("Give exactly one of spec or followup: spec = new question, followup = change the "
+                              "current answer."))
+    parsed = None
+    if spec is not None:
+        try:
+            parsed = pipeline.parse_spec(spec)
+        except InputError as e:
+            raise _err(e) from None
+        early = pipeline.gate_reply(parsed)
+        if early is not None:
+            runlog.append(runlog.entry(parsed, None, [], None, {}))
+            return early
 
     def job(h):
         tm = Timer.start()
+        p = parsed
         try:
-            r = pipeline.run(h, spec, target, allow_archive)
+            if followup is None:
+                r = pipeline.run(h, spec, target, allow_archive)
+            else:
+                with stage("open target"):
+                    t = userexcel.resolve_target(h, target, allow_archive)
+                fq, old, raw = _followup_spec(t, followup, q)
+                p = pipeline.parse_spec(raw)
+                early = pipeline.gate_reply(p)
+                if early is not None:
+                    return early
+                r = pipeline.run(h, raw, target, allow_archive, q=fq, old=old, t=t)
         except Exception as e:
-            runlog.append(runlog.entry(parsed, None, [], None, tm.summary(), error=str(e)[:500]))
+            if p is not None:
+                runlog.append(runlog.entry(p, None, [], None, tm.summary(), error=str(e)[:500]))
             raise
         r.t.created = r.t.created or _is_our_analysis_file(r.t.path)
         with stage("log sources"):
             for s in r.sources:
+                if s.route == "reused":
+                    continue
                 try:
-                    userexcel.log_source(r.t, r.q, parsed.question, s.pull, notes=s.note or s.route)
+                    userexcel.log_source(r.t, r.q, p.question, s.pull, notes=s.note or s.route)
                 except Exception as e:   # noqa: BLE001 - the source log must never undo a finished answer
                     r.res["warnings"].append(f"could not log {s.pull.sheet} in 'Kilder': {e}")
-        e = runlog.entry(parsed, r.q, r.sources, r.review, tm.summary(), workbook=r.t.path)
+        e = runlog.entry(p, r.q, r.sources, r.review, tm.summary(), workbook=r.t.path)
         try:
             runlog.write_sheet(r.t, e)
         except Exception as ex:   # noqa: BLE001
@@ -114,8 +157,12 @@ async def sv_answer(spec: dict, target: str = "session", allow_archive: bool = F
         with stage("save + activate"):
             tools_ws._finish(r.t, r.q, r.prepared, r.res, saved_new=r.t.created)
         out = tools_ws._result(r.t, r.q, r.prepared, r.res, [s.pull for s in r.sources], [])
-        return {**out, "gate": parsed.gate.outcome, "routes": {s.pull.sheet: s.route for s in r.sources},
-                "review": r.review, "material": r.material or [], "timings": tm.summary()}
+        out = {**out, "gate": p.gate.outcome, "routes": {s.pull.sheet: s.route for s in r.sources},
+               "review": r.review, "material": r.material or [], "outline": contract.outline(r.raw or {}),
+               "timings": tm.summary()}
+        if followup is not None:
+            out.update(followup_of=r.q, reused=r.reused)
+        return out
     try:
         return await _call_user(job, what="sv_answer")
     except (HostError, ToolError) as e:
