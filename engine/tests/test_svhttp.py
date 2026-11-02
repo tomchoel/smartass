@@ -628,3 +628,10 @@ def test_closed_month_must_be_plausible(db_path):
         _sv(FakeTransport(_enum_xml(_ago(4))), db_path).closed_month()           # more than 3 months back
     assert _sv(FakeTransport(_enum_xml(_ago(3))), db_path).closed_month() == _label(_ago(3))
     assert _sv(FakeTransport(_enum_xml(_ago(0))), db_path).closed_month() == _label(_ago(0))
+
+def test_fetch_returns_the_raw_grid_a_source_sheet_is_written_from(db_path):
+    f = _sv(FakeTransport(answer(GRID)), db_path).fetch(
+        "FinMax", {"Entities": "un.SY.2WHS", "All Scenarios": "Actual"},
+        [Axis("All Accounts", ["ac.C30", "ac.EBITDA"])], [Axis("All Time Periods", ["Aug 26", "Sep 26"])])
+    assert [list(r[:3]) for r in f.values] == GRID
+    assert f.layout.pov == [("All Entities", "un.SY.2WHS"), ("All Scenarios", "Actual")] and f.seconds >= 0

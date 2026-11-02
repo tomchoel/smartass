@@ -16,6 +16,7 @@ import logging
 import re
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import urlsplit
@@ -52,6 +53,14 @@ def _norm_dim(name: str) -> str:
 def _first_line(e: BaseException) -> str:
     """One redacted line of an exception (Playwright messages carry call logs and can quote sso_token URLs)."""
     return drill_browser.redact(next((ln for ln in str(e).splitlines() if ln.strip()), type(e).__name__))[:200]
+
+
+@dataclass
+class Fetched:
+    """A provider grid as fetched: Smart View's own shape from A1 (POV row, column headers, row labels, data)."""
+    layout: Layout
+    values: list[list]
+    seconds: float
 
 
 class SvHttp:
@@ -121,6 +130,11 @@ class SvHttp:
 
     def retrieve(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis],
                  suppress_missing: bool, suppress_zeros: bool):
+        f = self.fetch(conn, pov, rows, cols)
+        return f.layout, parse(f.layout, f.values, suppress_missing, suppress_zeros), f.seconds
+
+    def fetch(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis]) -> "Fetched":
+        """The checked provider grid, unparsed: what a source sheet is written from (core/source.py)."""
         if conn not in CUBES:
             raise SvHttpError(f"no HTTP route for connection {conn}")
         t0 = time.monotonic()
@@ -154,7 +168,7 @@ class SvHttp:
         if bad:
             raise SvHttpError("Smart View provider returned a different layout than requested (rows/columns "
                               "moved): " + "; ".join(bad[:5]))
-        return lay, parse(lay, values, suppress_missing, suppress_zeros), time.monotonic() - t0
+        return Fetched(lay, values, time.monotonic() - t0)
 
     def closed_month(self, conn: str = "FinMax") -> str:
         """The last closed month ('Current Reporting Month') as 'Sep 26': the one child of member CurrRepMonth in
