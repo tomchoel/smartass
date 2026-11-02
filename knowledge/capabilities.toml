@@ -7,7 +7,8 @@
 # business areas and some units, not cost centres.
 
 # ------------------------------------------------------------------ measures
-# concept = a catalog [pnl] concept; kpi = a catalog [[kpi]] key; account = a FinMax member (no catalog line).
+# concept = a catalog [pnl] concept; kpi = a catalog [[kpi]] key; accounts = FinMax/FinLite members summed (no
+# catalog line).
 # vague = the word does not say which measure: the gate asks, listing `options` (unless a learned default exists).
 # note = what the answer must state about the definition.
 
@@ -97,12 +98,87 @@ kpi = "personnel_per_fte"
 synonyms = ["personnel cost per fte", "salary per fte", "payroll per fte", "lønnskostnad per årsverk"]
 note = "Personnel cost per FTE = C50S / average FTE (opening level + each month end), annualised, shown positive"
 
+# accounts = FinLite/FinMax account members summed (same names in both cubes; looked up 2026-11-02 with
+# sv_find_member/sv_members). Tree: ac.C609 -> ac.C693 (consultancy + temps) and ac.C694 (other expenses).
+# finplan = the FinPlan account for a total-level budget, when one maps (none verified yet).
 [[measure]]
 key = "consultants"
-account = "ac.C693"
-label = "Consultancy and temporary contract workers (ac.C693)"
-synonyms = ["consultants", "consultant", "consultancy", "konsulenter", "konsulent", "innleie", "contractors"]
-note = "C693 includes temporary contract workers as well as consultancy"
+accounts = ["ac.C60080", "ac.C60090"]
+label = "Consultancy"
+synonyms = ["consultants", "consultant", "consultancy", "consultancies", "consulting", "consulting firms",
+            "consulting companies", "konsulent", "konsulenter", "konsulentselskap", "konsulentselskaper",
+            "konsulentfirma", "konsulentfirmaer", "konsulenthonorar", "rådgivning"]
+note = "C60080 + C60090; temporary contract workers (C60110) are 'contractors'"
+
+[[measure]]
+key = "consultants_and_temps"
+accounts = ["ac.C693"]
+label = "Consultancy and temporary contract workers"
+synonyms = ["consultants and temps", "consultancy and temporary workers", "konsulenter og innleie"]
+note = "C693 = C60080 + C60090 + C60110 + C60095"
+
+[[measure]]
+key = "contractors"
+accounts = ["ac.C60110"]
+label = "Temporary contract workers (contractors)"
+synonyms = ["contractors", "temporary workers", "temps", "hired staff", "innleie", "innleid", "innleide", "vikar",
+            "vikarer", "fremmedtjenester"]
+
+[[measure]]
+key = "legal"
+accounts = ["ac.67410", "ac.67420", "ac.C60400"]
+label = "Legal costs (fees + disputes)"
+synonyms = ["legal", "legal costs", "legal expenses", "juridisk", "juridiske kostnader", "juridiske utgifter"]
+
+[[measure]]
+key = "legal_fees"
+accounts = ["ac.67410", "ac.67420"]
+label = "Legal fees"
+synonyms = ["legal fees", "lawyers", "legal advice", "advokat", "advokater", "advokatkostnader", "juridisk bistand"]
+note = "inside C60090"
+
+[[measure]]
+key = "legal_disputes"
+accounts = ["ac.C60400"]
+label = "Legal disputes"
+synonyms = ["legal disputes", "litigation", "rettstvister", "tvister"]
+
+[[measure]]
+key = "audit_fees"
+accounts = ["ac.67100", "ac.67110"]
+label = "Audit fees"
+synonyms = ["audit fees", "auditor", "revisjon", "revisor", "revisjonshonorar"]
+note = "inside C60090"
+
+[[measure]]
+key = "travel"
+accounts = ["ac.C60130"]
+label = "Travel"
+synonyms = ["travel", "travel costs", "travel expenses", "per diem", "reise", "reiser", "reisekostnader", "diett"]
+
+[[measure]]
+key = "management_fee"
+accounts = ["ac.C60170"]
+label = "Management fee"
+synonyms = ["management fee", "management fees"]
+
+[[measure]]
+key = "licence_fees"
+accounts = ["ac.C60180"]
+label = "Licence fees"
+synonyms = ["licence fees", "license fees", "lisenser", "lisenskostnader"]
+
+[[measure]]
+key = "energy"
+accounts = ["ac.C60025"]
+label = "Energy"
+synonyms = ["energy", "electricity", "energi", "strøm", "strømkostnader"]
+
+[[measure]]
+key = "shared_services"
+accounts = ["ac.C60910"]
+label = "Shared services charges"
+synonyms = ["shared services charges", "shared service centre"]
 
 [[measure]]
 key = "costs"
@@ -145,6 +221,25 @@ key = "business_area"
 synonyms = ["per business area", "by business area", "per division", "by division", "per divisjon", "per segment",
             "by segment", "per forretningsområde"]
 feasible = ["*"]
+
+[[grain]]
+key = "supplier"
+synonyms = ["per supplier", "by supplier", "which suppliers", "which companies", "who invoiced", "invoiced most",
+            "top suppliers", "biggest suppliers", "per leverandør", "hvilke leverandører", "hvilke selskaper",
+            "fakturerte mest", "største leverandører"]
+feasible = ["consultants", "consultants_and_temps", "contractors", "legal", "legal_fees", "legal_disputes",
+            "audit_fees", "travel", "management_fee", "licence_fees", "energy", "shared_services"]
+proxy = "the same measure per cost centre; supplier detail exists only in the ledger lines of account-level cost types"
+note = "from ledger lines (FinLite drill)"
+
+[[grain]]
+key = "project"
+synonyms = ["per project", "by project", "which projects", "initiatives", "per prosjekt", "hvilke prosjekter",
+            "initiativer"]
+feasible = ["consultants", "consultants_and_temps", "contractors", "legal", "legal_fees", "legal_disputes",
+            "audit_fees", "travel", "management_fee", "licence_fees", "energy", "shared_services"]
+proxy = "the same measure per cost centre; project detail exists only in the ledger lines of account-level cost types"
+note = "from ledger lines (FinLite drill)"
 
 [[grain]]
 key = "month"

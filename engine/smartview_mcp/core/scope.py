@@ -125,6 +125,12 @@ def gate(question: str, closed: str, learned: Learned | None = None) -> dict:
             checklist["period"] = _item(None, "question", gap=p.gap, ask=True)
     else:
         checklist["period"] = _item(p.label, "convention" if p.convention else "question")
+    cy = periods.parse_month(closed)[0]
+    if p.kind == "year" and p.end and p.end[0] == cy and not _SCENARIO_RX["forecast"].search(question) \
+            and not _SCENARIO_RX["budget"].search(question) and len(set(periods._BARE_YEAR_RX.findall(question))) == 1:
+        # a bare current year ('i 2026') with actuals = year to date through the closed month, by convention
+        p = periods.Period("ytd", f"YTD {closed}", convention=True, end=periods.parse_month(closed))
+        checklist["period"] = _item(f"YTD {closed} ({cy} to date)", "convention")
 
     # scenario ----------------------------------------------------------------
     checklist["scenario"], scen = _scenario(cat, question, p)
@@ -178,7 +184,7 @@ def gate(question: str, closed: str, learned: Learned | None = None) -> dict:
         "warnings": list(dict.fromkeys(warnings)),
         "entities": ents,
         "measures": [{"key": m.key, "concept": m.concept, "kpi": m.kpi, "account": m.account,
-                      "definition": semantic.describe(m)} for m in found],
+                      "accounts": list(m.accounts), "definition": semantic.describe(m)} for m in found],
         "concepts": concept_ids,
         "closed_month": closed,
         "next": NEXT[outcome],
