@@ -42,9 +42,11 @@ The doctor lines checked by S9 include `warehouse` (OK on a fresh install: "not 
 `bench.py` runs the acceptance set B01–B15 (`docs/specs/2026-11-02-benchmarks.md`):
 
 ```
-uv run python tests\live\bench.py [--only B01,B02] [--route baseline] [--keep] [--out NAME]
+uv run python tests\live\bench.py [--only B01,B02] [--route baseline|core] [--keep] [--out NAME]
 ```
 
+- `--route baseline` runs today's tools; `--route core` runs the new pipeline (`sv_answer`, answer spec v1). Cases
+  without a core route yet report `UNSUPPORTED` ("no core route yet"). `--out` defaults to `bench-<route>`.
 - A case passes when every oracle value appears on the answer sheet, every check is OK, and there are no formula
   errors.
   - The oracle is independent single-cell `sv_query` calls, run after the route.

@@ -82,7 +82,12 @@ Smart View refreshes them, so they cannot be pre-filled from the fetch):
   sheet first, because Smart View Refresh does not connect.
 - **A (fallback):** Smart View ad-hoc grid via COM, only when svhttp fails.
 
-Each source sheet has a provenance header: cube, POV, fetch time, route (HTTP / HsGetValue / ad hoc).
+Each source sheet has a provenance panel: cube, POV, fetch time, route (HTTP / HsGetValue / ad hoc). It sits to
+the **right** of the grid (two columns after the last grid column, from row 2), not above it: the grid starts at A1
+in Smart View's own shape (row 1 = POV, then column headers, then row labels), so `grid.parse`, `load_pulls` and the
+label-keyed lookups of `answer.py` work unchanged on HTTP and ad hoc sheets alike. A header above the grid would
+shift every label those lookups read, and extra cells in row 1 would be read as appended POV members.
+Implemented in `core/source.py` (walking skeleton, B02).
 
 **Excel login hardening** (applies to B and A): detect a stuck or unresponsive Smart View Login window or the
 "Empty response from provider" state within seconds, tell the user, and restart only the engine's own Excel —
@@ -99,6 +104,10 @@ never the user's.
 
 Workbook model: one session workbook; a new question = a new answer sheet (`Q<n> Answer`); a follow-up edits the
 current answer unless the user says "new question"; source sheets are shared across answers. English everywhere.
+
+Walking skeleton (B02): `core/progress.py` writes step 1 (title, question, status line, assumptions) before any
+pull and updates the status line per pull; `answer.build(..., suffix="Answer")` then clears the sheet and renders
+step 2; `core/pipeline.py` stores the raw spec (step 3). Tool: `sv_answer` (`tools_core.py`), beside the old tools.
 
 ### 3.4 check
 
