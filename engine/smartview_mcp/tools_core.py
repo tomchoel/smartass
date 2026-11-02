@@ -2,6 +2,7 @@
 tools, which stay until the benchmarks reach parity."""
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 from typing import Literal
 
@@ -97,10 +98,21 @@ def _check_recipe_spec(spec: dict) -> None:
             f"{'.'.join(map(str, x['loc'])) or 'spec'}: {x['msg']}" for x in e.errors()[:8])) from None
 
 
+def _pnl_facts(h, area: str, period: str | None, compare: tuple[str, ...]):
+    """(res, mode, fills, notes, entity) for recipe pnl: the warehouse facts, exactly as fin_pnl gets them."""
+    from . import atlas, tools_fin   # tools_fin is a tool module too: import it when the recipe runs
+    cat = catalog.load()
+    with contextlib.closing(atlas.connect()) as adb:
+        entity = tools_fin.resolve_scope(cat, area, adb)
+    res, mode, fills, notes = tools_fin.prepare(h, cat, entity, period, compare)
+    return res, mode, fills, notes, entity
+
+
 def _expand_recipe(h, spec: dict) -> tuple[dict, dict]:
     """(the full spec, extra result keys) for a recipe spec; runs inside the Excel job (closed month, warehouse)."""
     ctx = recipes.RecipeContext(closed=templates.closed_month(h), cat=catalog.load(), label=templates.member_label,
-                                pnl_facts=None, now=dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+                                pnl_facts=lambda area, period, compare: _pnl_facts(h, area, period, compare),
+                                now=dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
     try:
         return recipes.expand(spec, ctx)
     except InputError:

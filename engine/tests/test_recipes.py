@@ -246,3 +246,41 @@ def test_concept_unknown_id_lists_the_known_ones(monkeypatch):
     raw = {"version": 1, "question": "q", "gate": GATE, "recipe": {"name": "concept", "params": {"concept": "nope"}}}
     with pytest.raises(ValueError, match="Unknown concept 'nope'"):
         recipes.expand(raw, ctx())
+
+
+def test_pnl_is_fin_spec_on_pull_ids_with_the_warehouse_expectation(tmp_path):
+    from fin_util import CAT0
+    from test_fin_spec import build as fs_build                # (res, req, sheets) for a filled warehouse
+    res, req, _ = fs_build(tmp_path)
+    facts = lambda area, period, compare: (res, "warehouse", [], [], res.scope.entity)  # noqa: E731
+    out, extra = recipes.expand({"version": 1, "question": "Wholesale P&L", "gate": GATE,
+                                 "recipe": {"name": "pnl", "params": {"area": "Wholesale"}}},
+                                ctx(cat=CAT0, pnl_facts=facts))
+    contract.validate(out)
+    assert [p["id"] for p in out["pulls"]] == [p["id"] for p in req.pulls]
+    assert out["layout"]["expect"]["source"] == req.source
+    assert set(out["layout"]["expect"]["cells"]) == set(req.expected)
+    assert any(c.get("static") for c in out["layout"]["checks"])           # 'Period is closed'
+    assert extra["period"] == res.scope.period
+
+
+def test_pnl_needs_the_warehouse_and_an_area():
+    raw = {"version": 1, "question": "q", "gate": GATE, "recipe": {"name": "pnl", "params": {"area": "Wholesale"}}}
+    with pytest.raises(ValueError, match="warehouse"):
+        recipes.expand(raw, ctx())
+    raw["recipe"]["params"] = {}
+    with pytest.raises(ValueError, match="area"):
+        recipes.expand(raw, ctx(pnl_facts=lambda *a: None))
+
+
+@pytest.mark.parametrize("name", ["monthly_trend", "cost_base", "actual_vs_plan"])
+def test_every_data_recipe_has_a_check(name, monkeypatch):
+    from smartview_mcp import templates
+    monkeypatch.setattr(templates, "member_label", lambda c, n: n)
+    monkeypatch.setattr(templates, "cost_base_members", lambda c, p: (["a", p], {"a"}))
+    monkeypatch.setattr(templates, "latest_forecast", lambda yy: None)
+    monkeypatch.setattr(templates, "map_finmax_entity", lambda e, x=None: ("un.SY", None))
+    params = {"monthly_trend": {}, "cost_base": {}, "actual_vs_plan": {"entity": "BANORWAY"}}[name]
+    out, _ = recipes.expand({"version": 1, "question": "q", "gate": GATE,
+                             "recipe": {"name": name, "params": params}}, ctx())
+    assert out["layout"]["checks"]

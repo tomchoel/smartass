@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from .. import answer as answer_mod
-from .. import catalog, specs, userexcel
+from .. import catalog, fin_spec, specs, userexcel
 from ..host import InputError, rewrap
 from ..timing import stage
 from . import check, commentary, contract, findings, followup, progress, source
@@ -149,8 +149,20 @@ def _follow(h, t, q: int, raw: dict, spec: contract.AnswerSpec, old: dict) -> Ru
     return _finish(t, q, raw, spec, ids, prepared, res, sources, reused=list(plan.reuse))
 
 
+def expect_checks(layout: dict, by_id: dict) -> dict:
+    """layout.expect (recipe pnl) -> one static '<source> = source sheet' check per pulled source; expect removed."""
+    exp = layout.get("expect")
+    if not exp:
+        return layout
+    out = {k: v for k, v in layout.items() if k != "expect"}
+    extra = [fin_spec.reconcile_pull(by_id[pid], [tuple(c) for c in cells], source=exp["source"])
+             for pid, cells in (exp.get("cells") or {}).items() if pid in by_id]
+    return {**out, "checks": list(out.get("checks") or []) + extra}
+
+
 def _draw(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, sess: dict, owned: dict | None):
-    layout = {k: v for k, v in raw["layout"].items() if k != "expect"}
+    by_id = {pid: sess[sheet] for pid, sheet in ids.items() if sheet in sess}
+    layout = {k: v for k, v in expect_checks(raw["layout"], by_id).items() if k != "expect"}
     with stage("prepare spec"):
         prepared = specs.prepare(answer_layout(layout, spec), ids, sess)
     with stage("answer"):

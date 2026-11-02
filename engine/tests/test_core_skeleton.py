@@ -233,3 +233,14 @@ async def test_old_follow_up_tool_refuses_a_v1_spec_before_touching_the_workbook
 
 async def _run_job(job):
     return job(None)
+
+
+def test_the_pipeline_turns_expectations_into_static_checks(monkeypatch):
+    from smartview_mcp import fin_spec
+    lay = {"title": "t", "columns": [{"header": "a"}], "sections": [], "checks": [],
+           "expect": {"source": "Warehouse", "cells": {"pnl": [[["ac.C30"], ["Sep 26"], 5.0, "f1", 0.5]]}}}
+    monkeypatch.setattr(fin_spec, "reconcile_pull", lambda p, cells, source: {"label": f"{source} = {p.sheet}",
+                                                                             "static": "OK", "detail": "1 cells"})
+    out = pipeline.expect_checks(lay, {"pnl": SimpleNamespace(sheet="Q1 FinMax pnl")})
+    assert "expect" not in out and out["checks"][-1] == {"label": "Warehouse = Q1 FinMax pnl", "static": "OK",
+                                                          "detail": "1 cells"}
