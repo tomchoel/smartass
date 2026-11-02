@@ -3,7 +3,7 @@ answer.build later clears it and renders the full answer in one block."""
 from __future__ import annotations
 
 from .. import answer as answer_mod
-from ..userexcel import com
+from ..excel.jobs import com
 from .contract import AnswerSpec
 
 ANSWER = "Answer"            # sheet 'Q<n> Answer'

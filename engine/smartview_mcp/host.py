@@ -251,14 +251,14 @@ class ExcelHost:
 
     async def _call_once(self, fn: Callable[["ExcelHost"], Any], timeout: float | None, what: str, user_excel: bool):
         import asyncio
-        from . import userexcel
+        from .excel import jobs
         timeout = timeout or (config.USER_CALL_TIMEOUT_S if user_excel else config.CALL_TIMEOUT_S)
         started = threading.Event()
-        token = userexcel.JobToken()
+        token = jobs.JobToken()
 
         def job():
             started.set()
-            userexcel.bind_job(token)             # an abandoned job stops at its next COM call (token check)
+            jobs.bind_job(token)             # an abandoned job stops at its next COM call (token check)
             if not user_excel:                    # jobs in the user's Excel start the hidden one only on demand
                 self._wait_reset()
                 self._ensure_started()            # (h.on_host): it costs ~10 s + an SSO login per server start
@@ -266,11 +266,11 @@ class ExcelHost:
             try:
                 return fn(self)
             finally:
-                userexcel.release_turns()         # the per-Excel turns taken while resolving the target
+                jobs.release_turns()         # the per-Excel turns taken while resolving the target
 
         if user_excel:
             # its own STA thread per job: parallel tool calls (e.g. subagents of one session) run at the same time
-            # in different Excels; work in ONE Excel still takes turns (userexcel.Turn)
+            # in different Excels; work in ONE Excel still takes turns (jobs.Turn)
             worker = ComThread(name=f"user-job-{what}")
             worker.start()
             fut = worker.submit(job)

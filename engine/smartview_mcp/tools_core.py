@@ -10,7 +10,8 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 
-from . import catalog, config, templates, userexcel
+from . import catalog, config, templates
+from .excel import sheets, target as xltarget
 from .core import contract, pipeline, prefs, recipes, reply, runlog, scope
 from .core import followup as followup_mod
 from .core import period as periods
@@ -77,7 +78,7 @@ def _followup_spec(t, patch: dict, q: int | None) -> tuple[int, dict, dict]:
     q = q or followup_mod.current_question(t)
     if q is None:
         raise InputError("There is no answer to follow up in this workbook: ask it as a new question with spec=...")
-    old = userexcel.load_answer(t, q)
+    old = sheets.load_answer(t, q)
     if old is None or old["spec"].get("version") != 1:
         raise InputError(f"Q{q} Answer was not drawn by sv_answer, so it has no answer spec to patch: ask it as a "
                          "new question with spec=...")
@@ -179,7 +180,7 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
                 r = pipeline.run(h, spec, target, allow_archive)
             else:
                 with stage("open target"):
-                    t = userexcel.resolve_target(h, target, allow_archive)
+                    t = xltarget.resolve_target(h, target, allow_archive)
                 fq, old, raw = _followup_spec(t, followup, q)
                 p = pipeline.parse_spec(raw)
                 early = pipeline.gate_reply(p)
@@ -196,7 +197,7 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
                 if s.route == "reused":
                     continue
                 try:
-                    userexcel.log_source(r.t, r.q, p.question, s.pull, notes=s.note or s.route)
+                    sheets.log_source(r.t, r.q, p.question, s.pull, notes=s.note or s.route)
                 except Exception as e:   # noqa: BLE001 - the source log must never undo a finished answer
                     r.res["warnings"].append(f"could not log {s.pull.sheet} in 'Sources': {e}")
         e = runlog.entry(p, r.q, r.sources, r.review, tm.summary(), workbook=r.t.path)

@@ -5,7 +5,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 
-from .. import config, userexcel
+from .. import config
+from ..excel import jobs, sheets
 
 SHEET = "_runlog"
 HEADER = ("When", "Question no", "Question", "Gate", "Pulls", "Result", "Details")
@@ -40,8 +41,8 @@ def append(e: dict) -> None:
 
 
 def write_sheet(t, e: dict) -> None:
-    com = userexcel.com
-    if not userexcel._sheet_exists(t, SHEET):
+    com = jobs.com
+    if not sheets._sheet_exists(t, SHEET):
         ws = com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))
         com(lambda: setattr(ws, "Name", SHEET))
         com(lambda: setattr(ws, "Visible", 0))                 # xlSheetHidden

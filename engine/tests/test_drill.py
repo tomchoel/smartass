@@ -737,17 +737,17 @@ def _target(names):
     (["Q1 Answer", "Q1 FinMax", "Sources"], 2, ["Q1 Answer", "Q1 FinMax", "X", "Sources"]),
 ])
 def test_add_sheet_anchor(names, after_q, expect):
-    from smartview_mcp import userexcel
+    from smartview_mcp.excel import sheets
     t = _target(names)
-    userexcel.add_sheet(t, "X", after_q=after_q)
+    sheets.add_sheet(t, "X", after_q=after_q)
     assert [s.Name for s in t.wb.Worksheets] == expect and t.sheets_added == ["X"]
 
 
 def test_question_grouping_includes_linjer(monkeypatch):
-    from smartview_mcp import userexcel
-    assert userexcel._Q.match("Q3 Lines b") and not userexcel._Q.match("Q3 Forecast")
+    from smartview_mcp.excel import sheets
+    assert sheets._Q.match("Q3 Lines b") and not sheets._Q.match("Q3 Forecast")
     t = _target(["Q2 Answer", "Q2 FinLite", "Q2 Lines", "Sources"])
-    assert userexcel.next_question(t) == 3
+    assert sheets.next_question(t) == 3
 
 
 def test_redrill_clear_ranges():

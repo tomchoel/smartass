@@ -37,7 +37,7 @@ class PullSpec:
 class Plan:
     title: str
     pulls: list[PullSpec]
-    answer: Callable[[dict], dict]            # {pull id: userexcel.Pull} -> answer spec
+    answer: Callable[[dict], dict]            # {pull id: sheets.Pull} -> answer spec
     followups: list[Callable] = field(default_factory=list)
     summary: Callable[[dict], dict] | None = None
 

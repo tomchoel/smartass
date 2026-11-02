@@ -6,7 +6,8 @@ from types import SimpleNamespace
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from smartview_mcp import config, svhttp, tools_core, userexcel
+from smartview_mcp import config, svhttp, tools_core
+from smartview_mcp.excel import adhoc, jobs, sheets, target
 from smartview_mcp.core import check, contract, pipeline, progress, runlog, source
 from smartview_mcp.grid import Axis, Layout
 from smartview_mcp.host import HostError, InputError
@@ -15,7 +16,7 @@ from smartview_mcp.host import HostError, InputError
 def test_fte_rows_are_the_sheet_rows_of_man_year_lines():
     lay = Layout([], [Axis("All Accounts", ["ac.C30", "ac.STA20Y"])], [Axis("All Time Periods", ["Sep 26"])])
     parsed = SimpleNamespace(row_labels=[["C30 REVENUES (ac)"], ["STA20Y Man-years (ac)"]])
-    assert userexcel.fte_rows(lay, parsed) == [4]
+    assert sheets.fte_rows(lay, parsed) == [4]
 
 PIN = contract.Pull.model_validate({"id": "m", "connection": "FinMax",
                                     "rows": [{"dimension": "All Accounts", "members": ["ac.EBITDA"]}],
@@ -47,7 +48,7 @@ def test_mismatches_compare_only_the_fetched_numbers():
 
 def _adhoc(monkeypatch, seen):
     pull = SimpleNamespace(sheet="Q1 FinMax")
-    monkeypatch.setattr(source.userexcel, "pull", lambda h, t, q, conn, pov, rows, cols, title: seen.append(title) or pull)
+    monkeypatch.setattr(adhoc, "pull", lambda h, t, q, conn, pov, rows, cols, title: seen.append(title) or pull)
     return pull
 
 
@@ -160,10 +161,10 @@ def test_assumptions_and_the_question_lead_the_notes_and_the_raw_layout_is_untou
 def _fake_run(monkeypatch, calls, pull_fails=False):
     t = SimpleNamespace(path="C:/x/a.xlsx", status=lambda text: calls.append(("bar", text)))
     pull = SimpleNamespace(sheet="Q3 FinMax", seconds=0.2, parsed=SimpleNamespace(pov_problems=[], unknown_members=[]))
-    monkeypatch.setattr(pipeline.userexcel, "resolve_target", lambda h, target, allow, title: t)
-    monkeypatch.setattr(pipeline.userexcel, "next_question", lambda t: 3)
-    monkeypatch.setattr(pipeline.userexcel, "rollback", lambda t: ["Q3 Answer"])
-    monkeypatch.setattr(pipeline.userexcel, "save_spec",
+    monkeypatch.setattr(target, "resolve_target", lambda h, target, allow, title: t)
+    monkeypatch.setattr(sheets, "next_question", lambda t: 3)
+    monkeypatch.setattr(sheets, "rollback", lambda t: ["Q3 Answer"])
+    monkeypatch.setattr(sheets, "save_spec",
                         lambda t, q, raw, ids, owned=None: calls.append(("save_spec", q, owned)))
     monkeypatch.setattr(pipeline.progress, "show", lambda t, q, spec, status: calls.append(("show", q)))
     monkeypatch.setattr(pipeline.progress, "set_status", lambda t, q, text: calls.append(("status", text)))
@@ -179,7 +180,7 @@ def _fake_run(monkeypatch, calls, pull_fails=False):
                         calls.append(("build", suffix, kw.get("reserve"))) or
                         {"sheet": "Q3 Answer", "checks": {"c": "OK"}, "extent": {"rows": 20, "cols": 6}})
     t.wb = SimpleNamespace(Worksheets=lambda name: name)
-    monkeypatch.setattr(pipeline.userexcel, "com", lambda call, *a, **k: call())
+    monkeypatch.setattr(jobs, "com", lambda call, *a, **k: call())
     monkeypatch.setattr(pipeline.findings, "render",
                         lambda ws, row, fs: calls.append(("findings", ws, row)) or row + len(fs) + 1)
 

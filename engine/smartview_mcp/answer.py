@@ -37,7 +37,9 @@ from . import formulas as fx
 from .drill_xl import drill_formula, missing_columns, table_name
 from .drill_xl import table_columns as drill_table_columns
 from .host import HostError, InputError
-from .userexcel import Pull, Target, add_sheet, com, lookup_formula
+from .excel.jobs import com
+from .excel.sheets import Pull, add_sheet, lookup_formula
+from .excel.target import Target
 
 FIRST_COL = 3            # column C: first value column; B = labels, A = margin
 NUM_KINDS = {"heltall", "tall1", "prosent1", "prosent", "faktor"}
@@ -55,7 +57,7 @@ def answer_sheet(t: Target, q: int, suffix: str = "Answer", owned: dict | None =
             return s
     group = [s for s in t.wb.Worksheets if s.Name.startswith(f"Q{q} ")]
     if group:
-        ws = com(lambda: t.wb.Worksheets.Add(group[0]))     # positional Before (see userexcel.add_sheet)
+        ws = com(lambda: t.wb.Worksheets.Add(group[0]))     # positional Before (see sheets.add_sheet)
         t.sheets_added.append(name)
         com(lambda: setattr(ws, "Name", name))
     else:
@@ -75,10 +77,10 @@ def _expr_to_formula(expr: str, col_letter: str, rows_by_key: dict) -> str:
 
 def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull], suffix: str = "Answer",
           owned: dict | None = None, reserve: int = 0) -> dict:
-    from .userexcel import fast_excel
+    from .excel.jobs import fast_excel
     with fast_excel(t.app):
         res = _build(t, q, spec, pulls, suffix, owned, reserve)
-    from .userexcel import wait_calculated
+    from .excel.sheets import wait_calculated
     from .timing import stage
     with stage("calculate + read back"):
         ws = t.wb.Worksheets(res.pop("_ws_name"))

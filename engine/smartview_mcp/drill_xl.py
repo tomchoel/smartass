@@ -12,7 +12,9 @@ from openpyxl.utils import get_column_letter
 
 from . import config
 from .drill_lines import KEY_LABELS
-from .userexcel import Target, add_sheet, com, fast_excel, unique_sheet_name
+from .excel.jobs import com, fast_excel
+from .excel.sheets import add_sheet, unique_sheet_name
+from .excel.target import Target
 
 _DATE_LIKE = re.compile(r"^\s*(\d{1,4}[-./]\d{1,2}([-./]\d{1,4})?|[A-Za-z]{3,9}[-./ ]\d{1,4}"
                         r"|\d{1,2}[-./ ][A-Za-z]{3,9}([-./ ]\d{1,4})?)\s*$")

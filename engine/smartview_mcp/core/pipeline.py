@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from .. import answer as answer_mod
-from .. import catalog, fin_spec, specs, userexcel
+from .. import catalog, fin_spec, specs
+from ..excel import jobs, sheets, target as xltarget
 from ..host import InputError, rewrap
 from ..timing import stage
 from . import check, commentary, contract, findings, followup, progress, source
@@ -63,15 +64,15 @@ def answer_layout(raw_layout: dict, spec: contract.AnswerSpec) -> dict:
 
 def run(h, raw: dict, target: str = "session", allow_archive: bool = False, *,
         q: int | None = None, old: dict | None = None, t=None) -> Run:
-    """A new question (old None) -> a new Q<n> Answer; a follow-up (q + old = userexcel.load_answer, raw already
+    """A new question (old None) -> a new Q<n> Answer; a follow-up (q + old = sheets.load_answer, raw already
     patched) -> the same Q<q> Answer redrawn in its block, unchanged pulls not fetched again."""
     spec = parse_spec(raw)
     if spec.gate.outcome == "ambiguous":
         raise InputError("An ambiguous question pulls nothing: ask its questions first.")
     with stage("open target"):
-        t = t or userexcel.resolve_target(h, target, allow_archive, title=spec.question[:50])
+        t = t or xltarget.resolve_target(h, target, allow_archive, title=spec.question[:50])
         if old is None:
-            q = userexcel.next_question(t)
+            q = sheets.next_question(t)
     if old is None:
         return _new(h, t, q, raw, spec)
     return _follow(h, t, q, raw, spec, old)
@@ -90,19 +91,19 @@ def _new(h, t, q: int, raw: dict, spec: contract.AnswerSpec) -> Run:
         sess = {s.pull.sheet: s.pull for s in sources}
         res, prepared = _draw(t, q, raw, spec, ids, sess, owned=None)
     except Exception as e:
-        removed = userexcel.rollback(t)
+        removed = sheets.rollback(t)
         raise rewrap(e, f"{e} (the answer was not completed; removed the partial sheets: "
                      f"{', '.join(removed) or 'none'})") from None
     return _finish(t, q, raw, spec, ids, prepared, res, sources)
 
 
 def _exists(t, name: str) -> bool:
-    return userexcel._sheet_exists(t, name)
+    return sheets._sheet_exists(t, name)
 
 
 def _delete(t, names: list[str]) -> None:
     if names:
-        userexcel.drop_parked(t, {n: n for n in names})
+        sheets.drop_parked(t, {n: n for n in names})
 
 
 def _follow(h, t, q: int, raw: dict, spec: contract.AnswerSpec, old: dict) -> Run:
@@ -110,7 +111,7 @@ def _follow(h, t, q: int, raw: dict, spec: contract.AnswerSpec, old: dict) -> Ru
     over its own block (a hidden backup restores it if the redraw fails), drop the sheets of removed pulls.
     The status goes to Excel's status bar only: the skeleton would clear the user's sheet."""
     plan = followup.plan_sources(old["spec"], old["ids"], raw, exists=lambda s: _exists(t, s))
-    stored = userexcel.load_pulls(t, q) if plan.reuse else {}
+    stored = sheets.load_pulls(t, q) if plan.reuse else {}
     for pid, sheet in list(plan.reuse.items()):
         if stored.get(sheet) is None:                       # no meta row (sheet copied by hand): fetch it again
             del plan.reuse[pid]
@@ -120,7 +121,7 @@ def _follow(h, t, q: int, raw: dict, spec: contract.AnswerSpec, old: dict) -> Ru
     parked, bname, sources, ids, sess = {}, None, [], {}, {}
     try:
         if plan.replace:
-            parked = userexcel.park_sheets(t, list(plan.replace.values()))
+            parked = sheets.park_sheets(t, list(plan.replace.values()))
         fresh = [p for p in spec.pulls if p.id not in plan.reuse]
         for i, pin in enumerate(spec.pulls):
             if pin.id in plan.reuse:
@@ -137,15 +138,15 @@ def _follow(h, t, q: int, raw: dict, spec: contract.AnswerSpec, old: dict) -> Ru
             bname = owned_mod.backup(t, name)
         res, prepared = _draw(t, q, raw, spec, ids, sess, owned=old.get("owned"))
     except Exception as e:
-        userexcel.rollback(t)                               # removes freshly added source sheets
+        sheets.rollback(t)                               # removes freshly added source sheets
         if parked:
-            userexcel.restore_parked(t, parked)
+            sheets.restore_parked(t, parked)
         if bname:
             owned_mod.restore(t, name, bname)
         raise rewrap(e, f"{e} (the follow-up was not applied; {name} and its sources are unchanged)") from None
     _delete(t, [n for n in [bname, *plan.drop] if n])
     if parked:
-        userexcel.drop_parked(t, parked)
+        sheets.drop_parked(t, parked)
     return _finish(t, q, raw, spec, ids, prepared, res, sources, reused=list(plan.reuse))
 
 
@@ -180,12 +181,12 @@ def _finish(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, prepared
     if ext:
         try:
             with stage("findings table"):
-                ws = userexcel.com(lambda: t.wb.Worksheets(res["sheet"]))
+                ws = jobs.com(lambda: t.wb.Worksheets(res["sheet"]))
                 ext = {**ext, "rows": findings.render(ws, ext["rows"] + 2, review["findings"])}
         except Exception as e:   # noqa: BLE001 - the table never undoes a finished answer
             res.setdefault("warnings", []).append(f"findings table not written on the sheet: {e}")
     try:
-        userexcel.save_spec(t, q, raw, ids, owned=ext)
+        sheets.save_spec(t, q, raw, ids, owned=ext)
     except Exception:   # noqa: BLE001 - only needed for follow-ups
         pass
     return Run(t, q, spec, prepared, res, sources, review, flagged, raw=raw, owned=ext, reused=reused or [])

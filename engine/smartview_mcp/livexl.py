@@ -27,19 +27,10 @@ from openpyxl.utils.cell import range_boundaries
 
 from . import config
 from . import formulas as fx
+from .excel.instances import busy_error, busy_holder, excel_instances, interactive_excels, is_archive, local_path
+from .excel.jobs import com, fast_excel, hold_turn
+from .excel.target import _wait_ready
 from .host import HostError, InputError
-from .userexcel import (
-    _wait_ready,
-    busy_error,
-    busy_holder,
-    com,
-    excel_instances,
-    fast_excel,
-    hold_turn,
-    interactive_excels,
-    is_archive,
-    local_path,
-)
 
 log = logging.getLogger("smartview.livexl")
 

@@ -17,7 +17,8 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import config, logsetup, userexcel
+from . import config, logsetup
+from .excel import instances
 from .host import ExcelHost, HostError, InputError
 
 logsetup.configure(config.SERVER_LOG)
@@ -218,7 +219,7 @@ def _is_our_analysis_file(path: str) -> bool:
     """A file the MCP itself created in the analyser folder (config.ANALYSER_DIR; never a user's or an archive workbook)."""
     try:
         parent, root = Path(path).resolve().parent, config.ANALYSER_DIR.resolve()
-        return (parent == root or parent.parent == root) and not userexcel.is_archive(path)   # analyser\[<project>\]
+        return (parent == root or parent.parent == root) and not instances.is_archive(path)   # analyser\[<project>\]
     except (OSError, ValueError):
         return False
 

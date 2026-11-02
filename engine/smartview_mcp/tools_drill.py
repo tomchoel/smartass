@@ -9,7 +9,8 @@ from typing import Literal
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import config, ops, qlog, userexcel
+from . import config, ops, qlog
+from .excel import adhoc, jobs, sheets, target as xltarget
 from .core import reply
 from .grid import Axis
 from .host import HostError, rewrap
@@ -304,8 +305,8 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
         def job(h):
             jt = Timer.start()                      # the job runs on the host thread (thread-local timer)
             with stage("open target"):
-                t = userexcel.resolve_target(h, target, allow_archive, title=question[:50])
-                qn = q or userexcel.next_question(t)
+                t = xltarget.resolve_target(h, target, allow_archive, title=question[:50])
+                qn = q or sheets.next_question(t)
             pov = {**ops.DRILL_DEFAULTS, **{d: m for d, m in cell.items()
                                            if d not in ("All Accounts", "All Time Periods")}}
             periods = list(dict.fromkeys([cell["All Time Periods"]] + [pc["cell"]["All Time Periods"]
@@ -320,13 +321,13 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
                 with stage("cube grid"):
                     old = prev_grid.get("sheet")
                     if old and prev_grid.get("key") == key and old in sess:
-                        p = userexcel.refresh_pull(t, sess[old])           # same grid: refresh in place
+                        p = adhoc.refresh_pull(t, sess[old])           # same grid: refresh in place
                         notes.append(f"grid {old} refreshed in place")
                     else:
-                        parked = userexcel.park_sheets(t, [old]) if old else {}
+                        parked = sheets.park_sheets(t, [old]) if old else {}
                         for o in parked.values():
                             reply.session(t.path, qn).pop(o, None)
-                        p = userexcel.pull(h, t, qn, connection, pov,
+                        p = adhoc.pull(h, t, qn, connection, pov,
                                            [Axis("All Accounts", [cell["All Accounts"]])],
                                            [Axis("All Time Periods", periods)], title=f"Q{qn} {connection}")
                         if parked:
@@ -340,11 +341,11 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
                     else:                           # 0 lines: empty an existing table so Excel matches drill.db
                         info = drill_xl.clear_lines(t, qn, title=title, source=source, alias=id)
             except Exception as e:
-                removed = userexcel.rollback(t)
+                removed = sheets.rollback(t)
                 for name in removed:
                     reply.session(t.path, qn).pop(name, None)
                 if parked:
-                    userexcel.restore_parked(t, parked)
+                    sheets.restore_parked(t, parked)
                     reply.forget(t.path, qn)     # reload the restored grid from the workbook
                 extra = ""
                 if had_table and lines_started:     # the reused table may be half written: put the old lines back
@@ -352,10 +353,10 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
                 raise rewrap(e, f"{e} (removed the partial sheets: {', '.join(removed) or 'none'}{extra})") from None
             if parked:
                 with stage("drop old grid"):
-                    userexcel.drop_parked(t, parked)
+                    sheets.drop_parked(t, parked)
             with stage("log Sources"):
                 try:
-                    userexcel.log_source(t, qn, question, p, notes=f"drill: {rec['lines']} lines, gap {rec['gap']}"
+                    sheets.log_source(t, qn, question, p, notes=f"drill: {rec['lines']} lines, gap {rec['gap']}"
                                          + (f"; sheet {info['sheet']}" if info else "; no lines"))
                 except Exception:   # noqa: BLE001 - the source log must never undo a finished drill
                     pass
@@ -364,7 +365,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
             reply.tidy(t, info["sheet"] if info else p.sheet)
             if t.created:
                 with stage("save"):
-                    userexcel.com(t.wb.Save)
+                    jobs.com(t.wb.Save)
             if info and info.get("columns_changed"):
                 notes.append(f"columns changed – re-run sv_answer for Q{qn}")
             elif info and info.get("reused") and rows:

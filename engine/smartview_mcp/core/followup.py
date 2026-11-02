@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .. import userexcel
+from ..excel import jobs, sheets
 from . import contract
 
 _ANSWER = re.compile(r"^Q(\d+) Answer$")
@@ -55,12 +55,12 @@ def drop_stale_expect(layout: dict, changed: list[str]) -> dict:
 
 
 def _active_sheet(t) -> str:
-    return str(userexcel.com(lambda: t.wb.Application.ActiveSheet.Name))
+    return str(jobs.com(lambda: t.wb.Application.ActiveSheet.Name))
 
 
 def current_question(t) -> int | None:
     """The answer a follow-up edits: the active Q<n> Answer sheet if it has a stored v1 spec, else the latest one."""
-    stored = userexcel.stored_questions(t)
+    stored = sheets.stored_questions(t)
     m = _ANSWER.match(_active_sheet(t))
     if m and int(m.group(1)) in stored:
         return int(m.group(1))

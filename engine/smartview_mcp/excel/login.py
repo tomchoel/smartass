@@ -1,0 +1,112 @@
+"""Smart View login state in the user's Excel: the Login dialog, the SSO box watcher, IE-login recovery."""
+from __future__ import annotations
+
+import threading
+import time
+
+import win32gui
+import win32process
+
+from . import jobs
+from ..host import HostError
+
+def login_open(pid: int) -> bool:
+    found = []
+
+    def cb(h, _):
+        if (win32gui.IsWindowVisible(h) and win32gui.GetClassName(h) == "#32770"
+                and win32gui.GetWindowText(h) == "Login" and win32process.GetWindowThreadProcessId(h)[1] == pid):
+            found.append(h)
+        return True
+    win32gui.EnumWindows(cb, None)
+    return bool(found)
+
+
+BOX_POLL_S = 0.5
+
+
+class SmartViewBoxes:
+    """While the engine drives Smart View in a visible Excel: a thread clicks OK on Smart View's modal message boxes
+    in that Excel (they would block the call until the user clicks) and keeps their texts for the caller."""
+
+    def __init__(self, pid: int):
+        self.pid, self.texts = pid, []
+        self._stop, self._seen = threading.Event(), set()
+        self._thread = threading.Thread(target=self._run, name=f"sv-boxes-{pid}", daemon=True)
+
+    def _run(self):
+        from .. import dialogs
+        while not self._stop.wait(BOX_POLL_S):
+            try:
+                boxes = dialogs.sv_boxes(dialogs.scan(self.pid))
+                self._seen &= {d.hwnd for d in boxes}     # a reused window handle is a new box
+                for d in boxes:
+                    if d.hwnd not in self._seen:
+                        self._seen.add(d.hwnd)
+                        if dialogs.press_ok(d.hwnd):      # information boxes only, never a question
+                            self.texts.append(d.text)
+                            jobs.log.warning("Smart View message in Excel pid %s dismissed: %s", self.pid, d.text)
+            except Exception:   # noqa: BLE001 - the guard must never break the pull
+                jobs.log.debug("Smart View box guard failed", exc_info=True)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        self._thread.join(timeout=2)
+
+
+NOT_SIGNED_IN = ("Smart View in this Excel is not signed in correctly: EPM answers 'Empty response from provider' to "
+                 "every connect, and Smart View shows no Login to click. Ask the user to sign in once in that Excel "
+                 "(Smart View ribbon -> Panel -> connect FinMax, or close that Excel so the next call starts a fresh "
+                 "one), then ask again. If every Excel does this and no Login appears anywhere, Smart View's shared "
+                 "sign-in is stale: close all Excels, rename the Cookies files in %APPDATA%\\Oracle\\SmartView\\WebView"
+                 "\\EBWebView\\Default\\Network, then retry (docs\\troubleshooting.md, Known limits).")
+
+
+RECOVER_SETTLE_S = 12         # after a login recovery: time for Smart View to reopen the login before we go on
+
+
+def recover_ie_login(pid: int, hwnds: list[int]) -> dict:
+    """The login in Excel `pid` is on the Internet Explorer fallback because an earlier, unfinished WebView2 login
+    still holds Smart View's WebView2 folder. End that stale WebView2 (this Excel's own, or an orphan - never another
+    app's) and close the broken IE windows; Smart View then opens a new login in WebView2. Excel itself is untouched."""
+    from .. import dialogs
+    ended = dialogs.end_stale_sv_webview2(pid)
+    dialogs.close(hwnds)
+    return {"ended": ended, "closed": hwnds}
+
+
+def wait_login_cleared(pid: int, appear_grace: float = 0.0, limit: float = 90.0) -> None:
+    """Block until no Smart View Login dialog is open in `pid` (the global SSO watcher clicks it). A login that fell
+    back to Internet Explorer ('Script Error') never completes: it is recovered (recover_ie_login), at most twice."""
+    from .. import dialogs
+    t0 = time.monotonic()
+    seen = False
+    recoveries, t_rec = 0, None
+    while time.monotonic() - t0 < limit:
+        now = time.monotonic()
+        if login_open(pid):
+            broken = dialogs.ie_fallback(dialogs.scan(pid))
+            if not broken:                        # a real (WebView2) login: the watcher clicks it
+                seen = True
+            # a second recovery only after RECOVER_SETTLE_S: a new WebView2 login of this Excel must not be ended
+            elif recoveries < 2 and (t_rec is None or now - t_rec >= RECOVER_SETTLE_S):
+                recoveries += 1
+                res = recover_ie_login(pid, broken)
+                jobs.log.warning("Smart View login in Excel pid %s fell back to Internet Explorer; ended stale WebView2 %s "
+                            "and closed %s so it can sign in again", pid, res["ended"], res["closed"])
+                seen, t_rec = False, time.monotonic()   # Smart View reopens the login (in WebView2): wait for it
+                continue
+        elif t_rec is not None:
+            if seen or now - t_rec >= RECOVER_SETTLE_S:   # the new login came and went, or none came back
+                return
+        elif seen or now - t0 >= appear_grace:
+            return
+        time.sleep(0.5)
+    raise HostError("The Oracle EPM login dialog is still open in your Excel and the automatic SSO click did not "
+                    "complete. Ask the user to click 'Telenor SSO' in it, then ask again. If it keeps coming back, "
+                    "Smart View's WebView2 may be held by another Office app (often an old PowerPoint): closing that "
+                    "app usually fixes it.")

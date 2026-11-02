@@ -4,7 +4,8 @@ from types import SimpleNamespace
 from smartview_mcp.grid import Axis, Layout
 from smartview_mcp.core.reply import fin
 from smartview_mcp.templates import _clean, _fmt, _pct, months_to, same_period_ly, split_period
-from smartview_mcp.userexcel import _verify_labels, is_archive, local_path
+from smartview_mcp.excel.adhoc import _verify_labels
+from smartview_mcp.excel.instances import is_archive, local_path
 
 
 def test_fin_matches_sheet_format():
@@ -55,8 +56,8 @@ def test_archive_guard_local_url_and_unsaved(monkeypatch, tmp_path):
 
 
 def test_local_path_maps_personal_onedrive(monkeypatch):
-    from smartview_mcp import userexcel
-    monkeypatch.setattr(userexcel, "_onedrive_mounts",
+    from smartview_mcp.excel import instances
+    monkeypatch.setattr(instances, "_onedrive_mounts",
                         lambda: [("https://contoso-my.sharepoint.com/personal/a_b/Documents/", r"C:\OD")])
     url = "https://contoso-my.sharepoint.com/personal/a_b/Documents/smartass/analyser/a%20b.xlsx"
     assert local_path(url) == r"C:\OD\smartass\analyser\a b.xlsx"
@@ -96,11 +97,12 @@ def test_progress_job_clears_its_notify_after_the_job():
 
 
 def test_wait_login_recovers_an_ie_fallback_login_by_itself(monkeypatch):
-    from smartview_mcp import dialogs, userexcel
+    from smartview_mcp import dialogs
+    from smartview_mcp.excel import login
     from smartview_mcp.dialogs import Dialog
     state = {"ie": True, "recovered": 0}
     clock = {"t": 0.0}
-    monkeypatch.setattr(userexcel.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(login.time, "monotonic", lambda: clock["t"])
 
     def scan(pid):
         return [Dialog(2, "#32770", "Login", "", "login", ie=True)] if state["ie"] else []
@@ -110,41 +112,43 @@ def test_wait_login_recovers_an_ie_fallback_login_by_itself(monkeypatch):
         state["ie"] = False                       # Smart View reopens the login in WebView2; the watcher clicks it
         return {"ended": [10], "closed": hwnds}
     monkeypatch.setattr(dialogs, "scan", scan)
-    monkeypatch.setattr(userexcel, "recover_ie_login", recover)
-    monkeypatch.setattr(userexcel, "login_open", lambda pid: state["ie"])
-    monkeypatch.setattr(userexcel.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
-    userexcel.wait_login_cleared(1, limit=60)
+    monkeypatch.setattr(login, "recover_ie_login", recover)
+    monkeypatch.setattr(login, "login_open", lambda pid: state["ie"])
+    monkeypatch.setattr(login.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    login.wait_login_cleared(1, limit=60)
     assert state["recovered"] == 1
 
 
 def test_wait_login_after_recovery_waits_for_the_new_login_and_spaces_retries(monkeypatch):
-    from smartview_mcp import dialogs, userexcel
+    from smartview_mcp import dialogs
+    from smartview_mcp.excel import login
     from smartview_mcp.dialogs import Dialog
     clock = {"t": 0.0}
-    monkeypatch.setattr(userexcel.time, "monotonic", lambda: clock["t"])
-    monkeypatch.setattr(userexcel.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    monkeypatch.setattr(login.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(login.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
     # IE login until 1 s; then nothing for 5 s (Smart View has not reopened yet); a new login 6-9 s; then signed in
     def login_at(t):
         return t < 1 or 6 <= t < 9
-    monkeypatch.setattr(userexcel, "login_open", lambda pid: login_at(clock["t"]))
+    monkeypatch.setattr(login, "login_open", lambda pid: login_at(clock["t"]))
     monkeypatch.setattr(dialogs, "scan", lambda pid: [Dialog(2, "#32770", "Login", "", "login", ie=True)]
                         if clock["t"] < 1 else [])
     rec = []
-    monkeypatch.setattr(userexcel, "recover_ie_login", lambda pid, h: rec.append(clock["t"]) or {"ended": [], "closed": h})
-    userexcel.wait_login_cleared(1, limit=60)
+    monkeypatch.setattr(login, "recover_ie_login", lambda pid, h: rec.append(clock["t"]) or {"ended": [], "closed": h})
+    login.wait_login_cleared(1, limit=60)
     assert clock["t"] >= 9 and len(rec) == 1      # did not return in the gap before the new login
 
 
 def test_smart_view_box_guard_dismisses_each_box_once_and_keeps_its_text(monkeypatch):
     import time as _t
 
-    from smartview_mcp import dialogs, userexcel
+    from smartview_mcp import dialogs
+    from smartview_mcp.excel import login
     from smartview_mcp.dialogs import Dialog
     box = Dialog(5, "#32770", "Oracle Smart View for Office", "Empty response from provider.", "message")
     pressed = []
     monkeypatch.setattr(dialogs, "scan", lambda pid: [box] if 5 not in pressed else [])
     monkeypatch.setattr(dialogs, "press_ok", lambda h: pressed.append(h) or True)
-    monkeypatch.setattr(userexcel, "BOX_POLL_S", 0.01)
-    with userexcel.SmartViewBoxes(1) as g:
+    monkeypatch.setattr(login, "BOX_POLL_S", 0.01)
+    with login.SmartViewBoxes(1) as g:
         _t.sleep(0.1)
     assert pressed == [5] and g.texts == ["Empty response from provider."]

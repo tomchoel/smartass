@@ -27,7 +27,8 @@ def main(argv=None) -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     import pythoncom
     pythoncom.CoInitialize()
-    from . import livexl, userexcel
+    from . import livexl
+    from .excel import jobs
     try:
         if a.command == "check":
             res = livexl.check(a.workbook, a.sheet)
@@ -43,7 +44,7 @@ def main(argv=None) -> int:
         print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
         return 1
     finally:
-        userexcel.release_turns()
+        jobs.release_turns()
 
 
 if __name__ == "__main__":

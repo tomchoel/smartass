@@ -150,10 +150,10 @@ def test_connect_without_a_session_id_says_sign_in_and_retry():
 def test_login_dialog_message_asks_the_user_not_the_agent(monkeypatch):
     import pytest
 
-    from smartview_mcp import userexcel
+    from smartview_mcp.excel import login
     from smartview_mcp.host import HostError
-    monkeypatch.setattr(userexcel, "login_open", lambda pid: True)
-    monkeypatch.setattr(userexcel.time, "sleep", lambda s: None)
+    monkeypatch.setattr(login, "login_open", lambda pid: True)
+    monkeypatch.setattr(login.time, "sleep", lambda s: None)
     with pytest.raises(HostError) as e:
-        userexcel.wait_login_cleared(1, limit=0.01)
+        login.wait_login_cleared(1, limit=0.01)
     assert "Ask the user" in str(e.value) and "PowerPoint" in str(e.value)

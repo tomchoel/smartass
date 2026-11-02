@@ -53,7 +53,7 @@ def _retry(fn, limit_s: float = RETRY_LIMIT_S):
         except Exception as exc:   # noqa: BLE001
             if not _is_busy(exc):
                 raise
-            if time.monotonic() - t0 > limit_s:   # same readable message as userexcel.com, not a raw COM code
+            if time.monotonic() - t0 > limit_s:   # same readable message as jobs.com, not a raw COM code
                 from .host import HostError
                 raise HostError("Excel is busy - probably a cell is being edited or a dialog is open. Press Enter "
                                 "or Esc in Excel and ask again.") from None

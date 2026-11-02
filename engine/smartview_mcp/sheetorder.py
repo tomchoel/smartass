@@ -144,7 +144,7 @@ def arrange_sheets(wb, mode: str = "full", activate: str | None = None, colors: 
     """Put the workbook's sheets in the fixed order (see module doc) with positional Move (keyword Before=/After= are
     ignored through late-bound COM), set the Answer/data tab colours, and activate `activate` (else the sheet that was
     active). Returns {'moved': [...], 'order': [...]}; raises only if Excel refuses a move."""
-    from .userexcel import com, fast_excel
+    from .excel.jobs import com, fast_excel
     sheets = list(com(lambda: wb.Worksheets))
     names = [str(com(lambda s=s: s.Name)) for s in sheets]
     visible = {n: com(lambda s=s: s.Visible) == -1 for n, s in zip(names, sheets)}   # xlSheetVisible

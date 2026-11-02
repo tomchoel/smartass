@@ -3,8 +3,8 @@ row of the table, checks, notes and findings - is stored with the spec. A redraw
 charts named CHART_NAME, and makes room (inserts rows/columns) when a larger answer would overwrite user content."""
 from __future__ import annotations
 
-from .. import userexcel
-from ..userexcel import com as _com
+from ..excel import sheets
+from ..excel.jobs import com as _com
 
 CHART_NAME = "smartass chart"
 
@@ -56,9 +56,9 @@ def drop_charts(ws, com=_com, everything: bool = False) -> None:
 def backup(t, name: str, com=_com) -> str:
     """Hidden copy of the answer sheet before a follow-up redraw; returns its name."""
     ws = com(lambda: t.wb.Worksheets(name))
-    com(lambda: ws.Copy(None, ws))                                  # positional After (see userexcel.add_sheet)
+    com(lambda: ws.Copy(None, ws))                                  # positional After (see sheets.add_sheet)
     copy_ = com(lambda: t.wb.Worksheets(ws.Index + 1))
-    bname = userexcel.unique_sheet_name(t, ("~" + name)[:31])
+    bname = sheets.unique_sheet_name(t, ("~" + name)[:31])
     com(lambda: setattr(copy_, "Name", bname))
     com(lambda: setattr(copy_, "Visible", 0))                      # xlSheetHidden
     return bname
@@ -66,7 +66,7 @@ def backup(t, name: str, com=_com) -> str:
 
 def restore(t, name: str, bname: str, com=_com) -> None:
     """The redraw failed: the backup becomes the answer sheet again."""
-    userexcel.drop_parked(t, {name: name})                          # deletes the broken sheet (alerts off)
+    sheets.drop_parked(t, {name: name})                          # deletes the broken sheet (alerts off)
     b = com(lambda: t.wb.Worksheets(bname))
     com(lambda: setattr(b, "Visible", -1))                          # xlSheetVisible
     com(lambda: setattr(b, "Name", name))

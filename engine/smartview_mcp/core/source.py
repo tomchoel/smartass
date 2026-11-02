@@ -9,7 +9,8 @@ import datetime as dt
 import math
 from dataclasses import dataclass
 
-from .. import config, svhttp, userexcel
+from .. import config, svhttp
+from ..excel import adhoc, jobs, sheets
 from ..grid import MISSING, Axis, Layout, parse
 from ..timing import stage
 from .contract import Pull as PullSpec
@@ -21,7 +22,7 @@ ROUTES = {"http": "HTTP value grid; refresh = ask smartass to re-fetch",
 
 @dataclass
 class Source:
-    pull: userexcel.Pull
+    pull: sheets.Pull
     route: str                          # http | adhoc
     mismatches: list[str]               # sheet cells that differ from the fetch (must be empty)
     note: str | None = None             # why the fallback was used
@@ -71,24 +72,24 @@ def sheet_title(q: int, i: int, pin: PullSpec) -> str:
 def write(t, q: int, title: str, pin: PullSpec, f: svhttp.Fetched) -> Source:
     from .. import styling
     from ..ops import _used_values
-    com, lay = userexcel.com, f.layout
-    name = userexcel.unique_sheet_name(t, title)
-    ws = userexcel.add_sheet(t, name, after_q=q, color=0xA6A6A6)
+    com, lay = jobs.com, f.layout
+    name = sheets.unique_sheet_name(t, title)
+    ws = sheets.add_sheet(t, name, after_q=q, color=0xA6A6A6)
     grid = cells(f.values, data_from=(1 + lay.nc, lay.nr))
     h, w = len(grid), len(grid[0])
     parsed = parse(lay, f.values, False, False)
-    p = userexcel._make_pull(name, pin.connection, lay, parsed, f.seconds)
+    p = sheets._make_pull(name, pin.connection, lay, parsed, f.seconds)
     now = dt.datetime.now()
-    with userexcel.fast_excel(t.app):
+    with jobs.fast_excel(t.app):
         com(lambda: setattr(ws.Range(ws.Cells(1, 1), ws.Cells(h, w)), "Value", grid))
         styling.apply_data_sheet(ws, header_rows=1 + lay.nc, label_cols=lay.nr,
-                                 fte_rows=userexcel.fte_rows(lay, parsed))
+                                 fte_rows=sheets.fte_rows(lay, parsed))
         panel = provenance(pin.connection, lay, "http", now)
         prng = ws.Range(ws.Cells(2, w + 2), ws.Cells(1 + len(panel), w + 3))
         com(lambda: setattr(prng, "Value", tuple((k, "'" + v) for k, v in panel)))
         com(lambda: setattr(prng.Font, "Color", GREY))
         com(lambda: setattr(prng.Font, "Italic", True))
-        userexcel.save_meta(t, p, extra={"route": "http", "fetched": now.isoformat(timespec="seconds"),
+        sheets.save_meta(t, p, extra={"route": "http", "fetched": now.isoformat(timespec="seconds"),
                                          "pull": pin.model_dump()})
     return Source(p, "http", mismatches(f.values, com(lambda: _used_values(ws))))
 
@@ -112,5 +113,5 @@ def pull(h, t, q: int, i: int, pin: PullSpec) -> Source:
             with stage("write source sheet"):
                 return write(t, q, title, pin, f)
     with stage("pull (Smart View ad hoc)"):
-        p = userexcel.pull(h, t, q, pin.connection, dict(pin.pov), rows, cols, title=title)
+        p = adhoc.pull(h, t, q, pin.connection, dict(pin.pov), rows, cols, title=title)
     return Source(p, "adhoc", [], note)

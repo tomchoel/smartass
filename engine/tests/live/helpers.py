@@ -1176,7 +1176,7 @@ def close_scratch(t) -> None:
     """Spike cleanup: close the scratch workbook, quit its Excel if nothing but add-ins is left open (an Excel the
     spike started; a user's Excel always has their own books), then delete the file (retried: Excel/OneDrive let go
     of it a moment after the close)."""
-    from smartview_mcp.userexcel import com
+    from smartview_mcp.excel.jobs import com
     path = Path(str(t.path))
     app = t.app
     com(lambda: t.wb.Close(False))

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 
-from .. import userexcel
+from ..excel import jobs, sheets
 from ..timing import stage
 
 log = logging.getLogger("smartview")
-_sessions: dict[str, dict[int, dict[str, "userexcel.Pull"]]] = {}   # workbook path -> q -> sheet -> Pull
+_sessions: dict[str, dict[int, dict[str, "sheets.Pull"]]] = {}   # workbook path -> q -> sheet -> Pull
 
 
 def session(path: str, q: int) -> dict:
@@ -24,7 +24,7 @@ def load_session(t, q: int) -> dict:
     sess = _sessions.get(t.path.lower(), {}).get(q)
     if not sess:                                       # e.g. after a server restart: rebuild from the workbook
         with stage("reload pulls from workbook"):
-            sess = userexcel.load_pulls(t, q)
+            sess = sheets.load_pulls(t, q)
         if sess:
             _sessions.setdefault(t.path.lower(), {})[q] = sess
     return sess or {}
@@ -76,7 +76,7 @@ def answer_markdown(spec: dict, res: dict) -> str:
 
 def result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> dict:
     try:
-        if userexcel.com(lambda: t.wb.ReadOnly, limit=10):
+        if jobs.com(lambda: t.wb.ReadOnly, limit=10):
             warnings = [f"'{t.name}' is open READ-ONLY (someone or something else holds the file) - the analysis "
                         "is built but cannot be saved under this name."] + warnings
     except Exception:   # noqa: BLE001 - informational only
@@ -111,7 +111,7 @@ def tidy(t, sheet: str | None = None) -> None:
         log.warning("arrange sheets failed in %s: %s", t.name, e)
         if sheet:
             try:
-                userexcel.com(t.wb.Worksheets(sheet).Activate)
+                jobs.com(t.wb.Worksheets(sheet).Activate)
             except Exception:   # noqa: BLE001
                 pass
 
@@ -120,4 +120,4 @@ def finish(t, q: int, spec: dict, res: dict, saved_new: bool):
     tidy(t, res["sheet"])
     t.status(None)
     if saved_new:
-        userexcel.com(t.wb.Save)
+        jobs.com(t.wb.Save)

@@ -8,7 +8,8 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from test_core_skeleton import _fake_run          # tests/ is on sys.path (rootdir import)
 
-from smartview_mcp import tools_core, userexcel
+from smartview_mcp import tools_core
+from smartview_mcp.excel import jobs, sheets, target
 from smartview_mcp.core import contract, followup, pipeline
 
 B02 = json.loads((Path(__file__).parent / "fixtures" / "b02_answer_spec.json").read_text(encoding="utf-8"))
@@ -48,36 +49,36 @@ class Meta:
 def _meta_target(monkeypatch):
     ws = Meta()
     t = SimpleNamespace(wb=SimpleNamespace(Worksheets=lambda name: ws))
-    monkeypatch.setattr(userexcel, "com", lambda call, **kw: call())
-    monkeypatch.setattr(userexcel, "_sheet_exists", lambda t, name: name == userexcel.META_SHEET)
+    monkeypatch.setattr(jobs, "com", lambda call, **kw: call())
+    monkeypatch.setattr(sheets, "_sheet_exists", lambda t, name: name == sheets.META_SHEET)
     return t, ws
 
 
 def test_the_spec_is_stored_with_its_owned_range_and_read_back(monkeypatch):
     t, _ = _meta_target(monkeypatch)
-    userexcel.save_spec(t, 2, B02, {"m": "Q2 FinMax"}, owned={"rows": 40, "cols": 7})
-    got = userexcel.load_answer(t, 2)
+    sheets.save_spec(t, 2, B02, {"m": "Q2 FinMax"}, owned={"rows": 40, "cols": 7})
+    got = sheets.load_answer(t, 2)
     assert got == {"spec": B02, "ids": {"m": "Q2 FinMax"}, "owned": {"rows": 40, "cols": 7}}
-    assert userexcel.load_answer(t, 3) is None
+    assert sheets.load_answer(t, 3) is None
 
 
 def test_stored_questions_lists_only_v1_answer_specs(monkeypatch):
     t, _ = _meta_target(monkeypatch)
-    userexcel.save_spec(t, 3, B02, {})
-    userexcel.save_spec(t, 1, {"question": "an old sv_ws_build spec"}, {})
-    userexcel.save_spec(t, 2, B02, {}, owned={"rows": 5, "cols": 3})
-    userexcel.save_spec(t, 3, B02, {"m": "Q3 FinMax"})                       # overwrites its row
-    assert userexcel.stored_questions(t) == [2, 3]
+    sheets.save_spec(t, 3, B02, {})
+    sheets.save_spec(t, 1, {"question": "an old sv_ws_build spec"}, {})
+    sheets.save_spec(t, 2, B02, {}, owned={"rows": 5, "cols": 3})
+    sheets.save_spec(t, 3, B02, {"m": "Q3 FinMax"})                       # overwrites its row
+    assert sheets.stored_questions(t) == [2, 3]
 
 
 def test_saving_a_spec_again_overwrites_its_own_row_and_keeps_the_pull_rows_above(monkeypatch):
     t, ws = _meta_target(monkeypatch)
     ws.Cells(2, 1).Value, ws.Cells(2, 2).Value = "'Q1 FinMax ytd", "'{}"      # save_meta's first row is row 2
-    userexcel.save_spec(t, 1, B02, {"m": "Q1 FinMax"})
-    userexcel.save_spec(t, 1, {**B02, "question": "patched"}, {"m": "Q1 FinMax"})
+    sheets.save_spec(t, 1, B02, {"m": "Q1 FinMax"})
+    sheets.save_spec(t, 1, {**B02, "question": "patched"}, {"m": "Q1 FinMax"})
     assert ws.rows[2] == {1: "Q1 FinMax ytd", 2: "{}"}
     assert [r[1] for r in ws.rows.values()].count("SPEC Q1") == 1
-    assert userexcel.load_answer(t, 1)["spec"]["question"] == "patched"
+    assert sheets.load_answer(t, 1)["spec"]["question"] == "patched"
 
 
 def _pull(pid, members=("EBITDA",), conn="FinMax"):
@@ -118,12 +119,12 @@ def test_expectations_of_a_changed_pull_are_dropped():
 def test_the_current_question_is_the_active_answer_sheet_else_the_latest_stored(monkeypatch):
     t = SimpleNamespace()
     monkeypatch.setattr(followup, "_active_sheet", lambda t: "Q3 Answer")
-    monkeypatch.setattr(userexcel, "stored_questions", lambda t: [1, 3, 5])
+    monkeypatch.setattr(sheets, "stored_questions", lambda t: [1, 3, 5])
     assert followup.current_question(t) == 3
     monkeypatch.setattr(followup, "_active_sheet", lambda t: "Sources")
-    monkeypatch.setattr(userexcel, "stored_questions", lambda t: [1, 4])
+    monkeypatch.setattr(sheets, "stored_questions", lambda t: [1, 4])
     assert followup.current_question(t) == 4
-    monkeypatch.setattr(userexcel, "stored_questions", lambda t: [])
+    monkeypatch.setattr(sheets, "stored_questions", lambda t: [])
     assert followup.current_question(t) is None
 
 
@@ -138,12 +139,12 @@ def _stored(*sheets):
 
 def _follow_env(monkeypatch, calls, stored):
     _fake_run(monkeypatch, calls)
-    monkeypatch.setattr(userexcel, "load_pulls", lambda t, q: stored)
+    monkeypatch.setattr(sheets, "load_pulls", lambda t, q: stored)
     monkeypatch.setattr(pipeline, "_exists", lambda t, s: True)
     monkeypatch.setattr(pipeline.owned_mod, "backup", lambda t, name: calls.append(("backup", name)) or "~" + name)
     monkeypatch.setattr(pipeline, "_delete", lambda t, names: calls.append(("delete", tuple(names))))
-    monkeypatch.setattr(userexcel, "park_sheets", lambda t, names: {"~" + n: n for n in names})
-    monkeypatch.setattr(userexcel, "drop_parked", lambda t, p: calls.append(("drop_parked", tuple(p.values()))))
+    monkeypatch.setattr(sheets, "park_sheets", lambda t, names: {"~" + n: n for n in names})
+    monkeypatch.setattr(sheets, "drop_parked", lambda t, p: calls.append(("drop_parked", tuple(p.values()))))
 
 
 def test_a_follow_up_reuses_unchanged_pulls_and_redraws_the_same_answer(monkeypatch):
@@ -191,7 +192,7 @@ def test_a_failed_redraw_restores_the_answer_and_the_parked_sources(monkeypatch)
     calls = []
     _follow_env(monkeypatch, calls, {})
     monkeypatch.setattr(pipeline.owned_mod, "restore", lambda t, n, b: calls.append(("restore", n, b)))
-    monkeypatch.setattr(userexcel, "restore_parked", lambda t, p: calls.append(("unpark", tuple(p.values()))))
+    monkeypatch.setattr(sheets, "restore_parked", lambda t, p: calls.append(("unpark", tuple(p.values()))))
     monkeypatch.setattr(pipeline.answer_mod, "build", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     raw = contract.patched(B02, {"pulls": [{"id": "ytd", "title": "changed"}]})
     with pytest.raises(Exception, match="follow-up was not applied"):
@@ -204,7 +205,7 @@ def test_a_failed_redraw_restores_the_answer_and_the_parked_sources(monkeypatch)
 # ------------------------------------------------------------------ sv_answer(followup=...)
 def test_a_follow_up_patches_the_current_answer(monkeypatch):
     monkeypatch.setattr(tools_core.followup_mod, "current_question", lambda t: 2)
-    monkeypatch.setattr(tools_core.userexcel, "load_answer", lambda t, q: {"spec": B02, "ids": {}, "owned": None})
+    monkeypatch.setattr(sheets, "load_answer", lambda t, q: {"spec": B02, "ids": {}, "owned": None})
     q, old, raw = tools_core._followup_spec(SimpleNamespace(), {"layout": {"title": "New title",
                                                                           "notes": {"append": ["n"]}}}, None)
     assert q == 2 and old["spec"] is B02 and raw["layout"]["title"] == "New title"
@@ -218,14 +219,14 @@ def test_a_follow_up_without_a_stored_answer_says_ask_a_new_question(monkeypatch
 
 
 def test_a_follow_up_on_an_old_answer_is_refused(monkeypatch):
-    monkeypatch.setattr(tools_core.userexcel, "load_answer",
+    monkeypatch.setattr(sheets, "load_answer",
                         lambda t, q: {"spec": {"question": "old sv_ws_build spec"}, "ids": {}, "owned": None})
     with pytest.raises(tools_core.InputError, match="Q4 Answer was not drawn by sv_answer"):
         tools_core._followup_spec(SimpleNamespace(), {"layout": {"title": "x"}}, 4)
 
 
 def test_an_invalid_follow_up_is_an_input_error(monkeypatch):
-    monkeypatch.setattr(tools_core.userexcel, "load_answer", lambda t, q: {"spec": B02, "ids": {}, "owned": None})
+    monkeypatch.setattr(sheets, "load_answer", lambda t, q: {"spec": B02, "ids": {}, "owned": None})
     with pytest.raises(tools_core.InputError, match="does not give a valid answer spec"):
         tools_core._followup_spec(SimpleNamespace(), {"pulls": [{"id": "m", "drop": True}]}, 2)
 
@@ -244,9 +245,9 @@ async def test_sv_answer_follow_up_redraws_the_answer_and_returns_the_outline(mo
     monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
     t = SimpleNamespace(path="C:/x/a.xlsx", created=False)
     monkeypatch.setattr(tools_core, "_call_user", lambda job, what: _job(job))
-    monkeypatch.setattr(tools_core.userexcel, "resolve_target", lambda h, target, allow: t)
+    monkeypatch.setattr(target, "resolve_target", lambda h, target, allow: t)
     monkeypatch.setattr(tools_core.followup_mod, "current_question", lambda t: 2)
-    monkeypatch.setattr(tools_core.userexcel, "load_answer",
+    monkeypatch.setattr(sheets, "load_answer",
                         lambda t, q: {"spec": B02, "ids": {"m": "Q2 FinMax"}, "owned": None})
     seen, logged = {}, []
     reused = SimpleNamespace(pull=SimpleNamespace(sheet="Q2 FinMax", seconds=0.0), route="reused", note=None)
@@ -256,7 +257,7 @@ async def test_sv_answer_follow_up_redraws_the_answer_and_returns_the_outline(mo
         return pipeline.Run(t, 2, contract.validate(raw), {}, {"warnings": []}, [reused], {"ok": True, "findings": []},
                             [], raw=raw, reused=["m"])
     monkeypatch.setattr(tools_core.pipeline, "run", run)
-    monkeypatch.setattr(tools_core.userexcel, "log_source", lambda *a, **k: logged.append(a))
+    monkeypatch.setattr(sheets, "log_source", lambda *a, **k: logged.append(a))
     monkeypatch.setattr(tools_core.runlog, "write_sheet", lambda t, e: None)
     monkeypatch.setattr(tools_core.reply, "finish", lambda *a, **k: None)
     monkeypatch.setattr(tools_core.reply, "result", lambda *a, **k: {"sheet": "Q2 Answer"})

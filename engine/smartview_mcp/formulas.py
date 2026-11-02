@@ -3,7 +3,7 @@
 Rules, agreed with the user 2026-10-15:
 - sums: SUM over ranges (=SUM(C13:C21), =SUM(C10,C20:C25)); a plain '+' only for exactly two terms;
 - variance %: =IF(D13=0,"",(C13-D13)/ABS(D13)) - blank on a zero base, never 0;
-- lookups into Smart View data sheets: label-keyed XLOOKUP (see userexcel.lookup_formula).
+- lookups into Smart View data sheets: label-keyed XLOOKUP (see sheets.lookup_formula).
 """
 from __future__ import annotations
 
