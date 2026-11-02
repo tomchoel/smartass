@@ -174,7 +174,8 @@ def _finish(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, prepared
             reused: list[str] | None = None) -> Run:
     flagged = commentary.material(prepared, res.get("values") or {}, catalog.load())
     review = check.review(res, sources, extra=commentary.findings(
-        flagged, [d.model_dump() for d in spec.commentary.drivers]))
+        flagged, [d.model_dump() for d in spec.commentary.drivers]),
+        warn_checks={c.label for c in spec.layout.checks if c.severity == "Warning"})
     ext = res.get("extent")
     if ext:
         try:

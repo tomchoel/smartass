@@ -6,10 +6,16 @@ from __future__ import annotations
 ORDER = {"Critical": 0, "Warning": 1, "Info": 2}
 
 
-def review(res: dict, sources: list, extra: list[dict] | None = None) -> dict:
+def _warned(k: str, labels: set[str]) -> bool:
+    """A check row is '<label>' (static) or '<label> — <column header>' (answer.py)."""
+    return any(k == lb or k.startswith(f"{lb} — ") or k.startswith(f"{lb} (") for lb in labels)
+
+
+def review(res: dict, sources: list, extra: list[dict] | None = None, warn_checks: set[str] | None = None) -> dict:
     f: list[tuple[str, str]] = [(x["severity"], x["text"]) for x in extra or []]
     checks = res.get("checks") or {}
-    f += [("Critical", f"check '{k}' is {v}") for k, v in checks.items() if v != "OK"]
+    f += [("Warning" if _warned(k, warn_checks or set()) else "Critical", f"check '{k}' is {v}")
+          for k, v in checks.items() if v != "OK"]
     f += [("Critical", w) for w in (res.get("error_warnings")
                                     or [f"formula error on line '{k}'" for k in res.get("formula_errors") or []])]
     for s in sources:

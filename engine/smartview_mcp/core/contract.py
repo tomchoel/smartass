@@ -97,7 +97,8 @@ class Check(_Open):
     static: Literal["OK", "DIFF"] | None = None      # a check computed by smartass (e.g. warehouse = sheet)
     detail: str | None = None
     columns: list[int] | None = None
-
+    # Warning: a DIFF is a known definitional difference the user must see, not an untrustworthy number
+    severity: Literal["Critical", "Warning"] = "Critical"
     @model_validator(mode="after")
     def _one(self) -> "Check":
         if (self.expr is None) == (self.static is None):

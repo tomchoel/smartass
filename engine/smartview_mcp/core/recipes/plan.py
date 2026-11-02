@@ -21,7 +21,8 @@ def actual_vs_plan(params: dict, ctx: RecipeContext) -> Draft:
     warnings = []
     if "fm" in ids:
         # FinPlan and FinMax group accounts differently: a non-zero difference is a real finding (a Warning)
-        lay["checks"].append({"label": "EBITDA FinPlan = FinMax", "expr": "fm_diff", "columns": [0]})
+        lay["checks"].append({"label": "EBITDA FinPlan = FinMax", "expr": "fm_diff", "columns": [0],
+                              "severity": "Warning"})
     else:
         warnings += [n for n in lay.get("notes", []) if n.startswith("No FinMax entity")]
     act = next(p for p in plan.pulls if p.id == "act").pov

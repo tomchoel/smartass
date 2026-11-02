@@ -205,6 +205,7 @@ def test_actual_vs_plan_uses_the_given_closed_month_and_checks_the_finmax_recon(
     assert out["layout"]["sections"][0]["lines"][0]["cells"][0]["pull"] == "act"
     labels = [c["label"] for c in out["layout"]["checks"]]
     assert "EBITDA FinPlan = FinMax" in labels and len(labels) >= 2
+    assert out["layout"]["checks"][labels.index("EBITDA FinPlan = FinMax")]["severity"] == "Warning"
     assert "key_points" not in out["layout"]
     assert extra == {"period": "Oct 26", "warnings": []}
 

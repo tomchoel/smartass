@@ -116,6 +116,16 @@ def test_a_failed_check_or_a_sheet_that_differs_from_the_fetch_is_critical():
     assert not r["ok"] and [f["severity"] for f in r["findings"]] == ["Critical", "Critical"]
 
 
+def test_a_check_marked_warning_that_differs_is_a_warning_not_critical():
+    r = check.review({"checks": {"EBITDA FinPlan = FinMax — Actual": "DIFF", "Sum = YTD": "OK"}}, [],
+                     warn_checks={"EBITDA FinPlan = FinMax"})
+    assert r == {"ok": True, "findings": [{"severity": "Warning",
+                                           "text": "check 'EBITDA FinPlan = FinMax — Actual' is DIFF"}]}
+    spec = contract.validate({**SPEC, "layout": {**SPEC["layout"], "checks": [
+        {"label": "x", "expr": "e", "severity": "Warning"}]}})
+    assert spec.layout.checks[0].severity == "Warning"
+
+
 def test_fallback_rejected_members_and_missing_checks_are_warnings():
     r = check.review({"checks": {}}, [_src(note="HTTP route failed (x)", pov=["Smart View rejected y"])])
     assert r["ok"] and [f["severity"] for f in r["findings"]] == ["Warning"] * 3
