@@ -1072,8 +1072,9 @@ def save_meta(t: Target, p: "Pull", extra: dict | None = None) -> None:
         com(lambda: setattr(ws.Cells(r, 2 + k), "Value", "'" + c))
 
 
-def save_spec(t: Target, q: int, spec: dict, ids: dict[str, str] | None = None) -> None:
-    """Keep the question's last answer spec (unexpanded) + pull ids in the hidden sheet, for patch-only follow-ups."""
+def save_spec(t: Target, q: int, spec: dict, ids: dict[str, str] | None = None, owned: dict | None = None) -> None:
+    """Keep the question's last answer spec (unexpanded) + pull ids + the tool-owned range of its answer sheet
+    ({"rows", "cols"}) in the hidden sheet, for patch-only follow-ups."""
     if not _sheet_exists(t, META_SHEET):
         return
     ws = com(lambda: t.wb.Worksheets(META_SHEET))
@@ -1085,22 +1086,40 @@ def save_spec(t: Target, q: int, spec: dict, ids: dict[str, str] | None = None) 
         r = com(lambda: ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1
     else:
         com(lambda: ws.Rows(r).ClearContents())
-    blob = json.dumps({"spec": spec, "ids": ids or {}}, ensure_ascii=False)
+    blob = json.dumps({"spec": spec, "ids": ids or {}, "owned": owned}, ensure_ascii=False)
     com(lambda: setattr(ws.Cells(r, 1), "Value", "'" + key))
     for k in range(0, len(blob), 30000):
         com(lambda: setattr(ws.Cells(r, 2 + k // 30000), "Value", "'" + blob[k:k + 30000]))
 
 
-def load_spec(t: Target, q: int) -> tuple[dict, dict] | None:
+def _stored_specs(t: Target) -> dict[int, dict]:
+    """Every SPEC Q<n> row of the hidden sheet: {q: {"spec", "ids", "owned"}}."""
     if not _sheet_exists(t, META_SHEET):
-        return None
+        return {}
     vals = com(lambda: t.wb.Worksheets(META_SHEET).UsedRange.Value)
     vals = vals if isinstance(vals, tuple) else ((vals,),)
+    out = {}
     for row in vals:
-        if row and row[0] == f"SPEC Q{q}":
+        m = re.match(r"^SPEC Q(\d+)$", row[0]) if row and isinstance(row[0], str) else None
+        if m:
             d = json.loads("".join(str(x) for x in row[1:] if x))
-            return d.get("spec") or {}, d.get("ids") or {}
-    return None
+            out[int(m.group(1))] = {"spec": d.get("spec") or {}, "ids": d.get("ids") or {}, "owned": d.get("owned")}
+    return out
+
+
+def load_answer(t: Target, q: int) -> dict | None:
+    """The stored answer of question q: {"spec", "ids", "owned"} (owned None for answers before phase 5)."""
+    return _stored_specs(t).get(q)
+
+
+def stored_questions(t: Target) -> list[int]:
+    """The questions with a stored answer spec v1 (drawn by sv_answer), ascending."""
+    return sorted(q for q, a in _stored_specs(t).items() if a["spec"].get("version") == 1)
+
+
+def load_spec(t: Target, q: int) -> tuple[dict, dict] | None:
+    a = load_answer(t, q)
+    return None if a is None else (a["spec"], a["ids"])
 
 
 def load_pulls(t: Target, q: int) -> dict:
