@@ -129,3 +129,22 @@ def test_a_top_repeat_without_the_pull_yields_nothing():
     spec = {"sections": [{"title": "Top", "repeat": {"over": {"top": 2, "pull": "cb", "by": ["x"]},
                                                      "line": {"key": "c{i}", "cells": []}}, "lines": []}]}
     assert specs.expand(spec, {}, {})["sections"][0]["lines"] == []
+
+
+# ------------------------------------------------------------------ monthly_trend
+def test_monthly_trend_is_the_template_on_pull_ids_with_a_recon_check(monkeypatch):
+    from smartview_mcp import templates
+    monkeypatch.setattr(templates, "member_label", lambda c, n: f"<{n}>")
+    raw = {"version": 1, "question": "C30 per month for Telenor Norge", "gate": GATE,
+           "recipe": {"name": "monthly_trend", "params": {"entity": "un.SY", "accounts": ["ac.C30"]}}}
+    out, extra = recipes.expand(raw, ctx())
+    s = contract.validate(out)
+    assert [p.id for p in s.pulls] == ["tr", "ytd"]
+    assert s.pulls[0].columns[0].members == ["Jan 26", "Feb 26", "Mar 26", "Apr 26", "May 26", "Jun 26",
+                                             "Jul 26", "Aug 26", "Sep 26", "Oct 26"]
+    line = out["layout"]["sections"][0]["lines"][0]
+    assert line["cells"][0] == {"pull": "tr", "row": ["ac.C30"], "col": ["Jan 26"]} and line["label"] == "<ac.C30>"
+    assert out["layout"]["sections"][1]["lines"][0]["label"] == "<ac.C30> — Accumulated Oct 26"
+    assert out["layout"]["checks"][0] == {"label": "Sum of months = YTD: <ac.C30>", "expr": "a0-y0", "columns": [10]}
+    assert out["layout"]["chart"]["title"] == "<ac.C30> per month"
+    assert "key_points" not in out["layout"] and extra["period"] == "Oct 26"
