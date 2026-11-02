@@ -195,7 +195,8 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
     with a follow-up. Give exactly one of spec and followup.
     spec (a new question -> a new 'Q<n> Answer'): {version: 1, question, gate: {outcome: clear|ambiguous|infeasible,
     checklist: {period, scenario, entity, measure, currency_sign, granularity}, questions (ambiguous, 1-3), reason +
-    proxy (infeasible)}, assumptions: [...], pulls: [{id, connection, rows, columns, pov, title?}], layout: {title,
+    proxy (infeasible)} (or sv_gate's output as is: it is normalised, and its recipe used when spec has none),
+    assumptions: [...], pulls: [{id, connection, rows, columns, pov, title?}], layout: {title,
     columns, sections, checks, ...} (the answer spec grammar; pull cells use the pull ids)}.
     ambiguous -> returns the questions, pulls nothing. Otherwise: the answer sheet 'Q<n> Answer' appears first with
     the question, assumptions and a status line; each pull is fetched over HTTP and written as a source sheet in one
@@ -233,6 +234,12 @@ async def answer(spec: dict | None = None, followup: dict | None = None, q: int 
         raise InputError("Give exactly one of spec or followup: spec = new question, followup = change the current "
                          "answer.")
     parsed = None
+    if spec is not None and isinstance(spec.get("gate"), dict):
+        raw_gate = spec["gate"]
+        spec = {**spec, "gate": contract.normalize_gate(raw_gate)}
+        named = raw_gate.get("recipe") if "suggested_outcome" in raw_gate else None
+        if named and not spec.get("recipe") and not spec.get("layout") and not spec.get("pulls"):
+            spec["recipe"] = named                  # the gate's own recipe when the caller passed the gate as is
     recipe = spec is not None and bool(spec.get("recipe")) and not spec.get("layout")
     if spec is not None:
         if recipe and (spec.get("gate") or {}).get("outcome") != "ambiguous":

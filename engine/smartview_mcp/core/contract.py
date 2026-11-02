@@ -49,6 +49,24 @@ class Gate(_Strict):
         return self
 
 
+GATE_FIELDS = ("outcome", "checklist", "questions", "reason", "proxy", "answers")
+
+
+def normalize_gate(g):
+    """sv_gate's own output as an answer-spec gate: suggested_outcome -> outcome, each checklist {value, gap, ...}
+    -> its value (else the gap), the gate's other keys dropped. Anything else is returned as it is."""
+    if not isinstance(g, dict):
+        return g
+    items = g.get("checklist") if isinstance(g.get("checklist"), dict) else {}
+    if "suggested_outcome" not in g and not any(isinstance(v, dict) for v in items.values()):
+        return g
+    out = {k: g[k] for k in GATE_FIELDS if g.get(k) is not None}
+    out.setdefault("outcome", g.get("suggested_outcome"))
+    out["checklist"] = {k: (str(v.get("value") or v.get("gap") or "") if isinstance(v, dict) else v)
+                        for k, v in items.items()}
+    return out
+
+
 # ------------------------------------------------------------------ pulls
 class Axis(_Strict):
     dimension: str

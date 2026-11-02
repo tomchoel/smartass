@@ -327,6 +327,32 @@ async def test_norwegian_assumption_is_refused_with_its_path(monkeypatch, tmp_pa
     assert calls == []
 
 
+def test_normalize_gate_takes_the_raw_sv_gate_output():
+    raw = tools_core.scope.gate(COSTS, "Sep 26", answers={"measure": "opex"})
+    g = contract.normalize_gate(raw)
+    assert g["outcome"] == "clear" and g["checklist"]["measure"] == "Opex (ac.C70)"
+    assert set(g) <= set(contract.Gate.model_fields) and contract.Gate.model_validate(g).outcome == "clear"
+    amb = contract.normalize_gate(tools_core.scope.gate(COSTS, "Sep 26"))
+    assert amb["outcome"] == "ambiguous" and amb["checklist"]["measure"] and amb["questions"]
+    plain = {"outcome": "clear", "checklist": {"period": "Sep 26"}, "extra": 1}
+    assert contract.normalize_gate(plain) is plain              # an answer-spec gate is left to the validator
+
+
+@pytest.mark.anyio
+async def test_answer_accepts_the_raw_gate_and_its_recipe(monkeypatch, tmp_path):
+    calls, seen = [], []
+    _answer_env(monkeypatch, tmp_path, calls)
+
+    async def drills(spec, target, allow_archive, job):
+        seen.append(spec)
+        return {"sheet": "Q1 Answer"}
+    monkeypatch.setattr(tools_core, "_answer_with_drills", drills)
+    raw = tools_core.scope.gate(SUPPLIERS, "Sep 26")
+    out = await tools_core.answer({"version": 1, "question": SUPPLIERS, "gate": raw})
+    assert out == {"sheet": "Q1 Answer"} and seen[0]["recipe"] == raw["recipe"]
+    assert seen[0]["gate"]["outcome"] == "clear" and isinstance(seen[0]["gate"]["checklist"]["period"], str)
+
+
 def test_question_is_shown_as_asked_and_not_checked():
     spec = contract.validate({**SPEC, "question": "Hva er EBITDA for Business i september?"})
     assert progress.skeleton(spec, "x")[1] == "Question (as asked): Hva er EBITDA for Business i september?"
