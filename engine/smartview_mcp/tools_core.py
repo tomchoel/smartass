@@ -72,7 +72,9 @@ async def sv_answer(spec: dict, target: str = "session", allow_archive: bool = F
     ambiguous -> returns the questions, pulls nothing. Otherwise: the answer sheet 'Q<n> Answer' appears first with
     the question, assumptions and a status line; each pull is fetched over HTTP and written as a source sheet in one
     block (Smart View ad hoc grid if HTTP fails); then the answer is rendered (live formulas) and checked.
-    Returns the answer table, checks, review findings (Critical/Warning/Info), routes and timings."""
+    Returns the answer table, checks, review findings (Critical/Warning/Info: knowledge/advisor/findings.md),
+    material lines that need a driver in commentary.drivers (knowledge/advisor/variance-commentary.md), routes and
+    timings. Call sv_gate first (knowledge/advisor/gate.md)."""
     try:
         parsed = pipeline.parse_spec(spec)
     except InputError as e:
