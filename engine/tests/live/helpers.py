@@ -375,7 +375,7 @@ TINY_SPEC = tiny_spec()
 
 
 def tiny_answer(client, target: str = "new", timeout: float = 600, spec: dict | None = None):
-    """The smallest pipeline call (one pull, one line) - what the matrix used sv_query for: (body, secs, err)."""
+    """The smallest pipeline call (one pull, one line) - what the matrix used the old query tool for: (body, secs, err)."""
     return client.call("sv_answer", {"spec": spec or TINY_SPEC, "target": target}, timeout=timeout)
 
 

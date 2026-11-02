@@ -84,8 +84,7 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
   only when the user asks for their open workbook. Sheets: 'Q<n> Answer', a source sheet per pull ('Q<n> FinMax'),
   'Sources'. Add the same period last year by default.
 - Format: full NOK 1 000 000, negatives (1 000 000) in tables and with a minus sign in text; costs negative;
-  variance = current - comparison (positive = better). Line labels in English as FinMax shows them.
-- The Produktregnskapet archive folders are never written to.
+  variance = current - comparison. Labels in English as FinMax shows them. Never write to Produktregnskapet archives.
 - Invoice / journal-line detail behind any FinLite number: sv_drill(question, cell) (hidden browser, reconciled to the
   cube), then sv_answer with {drill: 'd', where: {...}} cells. Never Smart View's drill-through: it opens a browser.
 - Any workbook the user has OPEN: xl_workbooks / xl_overview / xl_read to look, xl_write / xl_rows / xl_add_sheet /

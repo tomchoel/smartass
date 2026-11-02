@@ -104,7 +104,7 @@ BUS_ACC = ["ac.C30", "ac.C40S", "ac.C70", "ac.C73", "ac.EBITDA"]
 BUS_POV = {"All Entities": "un.SY.2BUS", "All Scenarios": "Actual", "All Currencies": "NOK"}
 MONTHS = [f"{m} 25" for m in "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()] + \
          [f"{m} 26" for m in "Jan Feb Mar Apr May Jun Jul Aug Sep".split()]
-BUS_YTD, BUS_VAR = "3 496 062 985", "89 346 421"     # sv_query 23.10: 3,496,062,984.87 (live_build.py had 3 495 317 868)
+BUS_YTD, BUS_VAR = "3 496 062 985", "89 346 421"     # query tool 23.10: 3,496,062,984.87 (live_build.py had 3 495 317 868)
 FP_POV = {"Entity": "2BUS Business", "Years": "FY26", "Period": "Sep", "Version": "Working",
           "All Balance Types": "Accumulated"}
 

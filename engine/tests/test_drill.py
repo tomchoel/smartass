@@ -743,7 +743,7 @@ def test_add_sheet_anchor(names, after_q, expect):
     assert [s.Name for s in t.wb.Worksheets] == expect and t.sheets_added == ["X"]
 
 
-def test_question_grouping_includes_linjer(monkeypatch):
+def test_question_grouping_includes_lines(monkeypatch):
     from smartview_mcp.excel import sheets
     assert sheets._Q.match("Q3 Lines b") and not sheets._Q.match("Q3 Forecast")
     t = _target(["Q2 Answer", "Q2 FinLite", "Q2 Lines", "Sources"])

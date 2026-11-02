@@ -1,4 +1,4 @@
-"""fin_spec: the sv_ws_build request for fin_pnl. The source sheets are simulated by retrieving each pull from the
+"""fin_spec: the build request for the pnl recipe. The source sheets are simulated by retrieving each pull from the
 same fake provider; the spec evaluated in Python (specs.evaluate: the sheet's formula rules) must give the engine's
 facts, and live read = sheet must hold. Every figure is invented. CAT0 has no % floor, so every % is shown."""
 import dataclasses

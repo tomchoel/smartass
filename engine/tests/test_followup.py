@@ -65,7 +65,7 @@ def test_the_spec_is_stored_with_its_owned_range_and_read_back(monkeypatch):
 def test_stored_questions_lists_only_v1_answer_specs(monkeypatch):
     t, _ = _meta_target(monkeypatch)
     sheets.save_spec(t, 3, B02, {})
-    sheets.save_spec(t, 1, {"question": "an old sv_ws_build spec"}, {})
+    sheets.save_spec(t, 1, {"question": "an old pre-v1 spec"}, {})
     sheets.save_spec(t, 2, B02, {}, owned={"rows": 5, "cols": 3})
     sheets.save_spec(t, 3, B02, {"m": "Q3 FinMax"})                       # overwrites its row
     assert sheets.stored_questions(t) == [2, 3]
@@ -220,7 +220,7 @@ def test_a_follow_up_without_a_stored_answer_says_ask_a_new_question(monkeypatch
 
 def test_a_follow_up_on_an_old_answer_is_refused(monkeypatch):
     monkeypatch.setattr(sheets, "load_answer",
-                        lambda t, q: {"spec": {"question": "old sv_ws_build spec"}, "ids": {}, "owned": None})
+                        lambda t, q: {"spec": {"question": "old pre-v1 spec"}, "ids": {}, "owned": None})
     with pytest.raises(tools_core.InputError, match="Q4 Answer was not drawn by sv_answer"):
         tools_core._followup_spec(SimpleNamespace(), {"layout": {"title": "x"}}, 4)
 
