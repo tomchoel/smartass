@@ -1201,6 +1201,59 @@ def test_drill_cell_too_wide_splits_by_entity_and_skips_empty(monkeypatch):
     assert fetched == ["ssm", "i15"] and len(pieces2) == 3
 
 
+def test_too_wide_memo_survives_a_server_restart(monkeypatch, tmp_path):
+    from smartview_mcp import config
+    from smartview_mcp.core import drillstep as server
+    monkeypatch.setattr(config, "SVKIT", tmp_path)
+    monkeypatch.setattr(server, "_too_wide", None)
+    key = server._too_wide_key("FinLite", {"All Entities": "un.SY", "All Time Periods": "Yr 26"})
+    assert key not in server._wide()
+    server._remember_wide(key)
+    monkeypatch.setattr(server, "_too_wide", None)              # a new server process
+    assert key in server._wide()
+
+
+def test_split_links_only_the_children_with_a_value(monkeypatch):
+    """One retrieve of all the children's values first: an empty (#Missing) child gets no Smart View drill link."""
+    import asyncio
+    from smartview_mcp.core import drillstep as server
+    asked = _drill_fakes(monkeypatch, _LINKS, {"q3": 1231, "jul": 400, "aug": 400, "sep": 431}, _KIDS)
+    got = []
+
+    async def values(connection, parts):
+        got.append([p["All Time Periods"] for p in parts])
+        return [-400.0, None, -431.0]
+    monkeypatch.setattr(server, "_child_values", values)
+    pieces, _ = asyncio.run(server._drill_cell("FinLite", _CELL, 300000, "auto"))
+    assert got == [["Jul 26", "Aug 26", "Sep 26"]] and asked == ["Q3 26", "Jul 26", "Sep 26"]
+    assert [p.get("note") for p in pieces] == [None, "empty cell (skipped)", None]
+
+
+def test_child_values_reads_one_retrieve_in_order():
+    from types import SimpleNamespace
+
+    from smartview_mcp import ops
+    from smartview_mcp.core import drillstep as server
+    seen = {}
+
+    def query(h, conn, pov, rows, cols, sm, sz):
+        seen.update(pov=pov, rows=(rows[0].dimension, rows[0].members), cols=(cols[0].dimension, cols[0].members))
+        return SimpleNamespace(nr=1, nc=1), None, 0.1
+    cells = {"B3": -1.5, "B4": None, "B5": 0.0}                  # row 1 POV, row 2 header, data from 2+nc
+    ws = SimpleNamespace(Range=lambda a: SimpleNamespace(Value=cells[a.replace("$", "")]))
+    h = SimpleNamespace(wb=SimpleNamespace(Worksheets=lambda s: ws))
+    parts = [{**_CELL, "All Time Periods": m} for m in ("Jul 26", "Aug 26", "Sep 26")]
+    mp = pytest.MonkeyPatch()
+    mp.setattr(ops, "query", query)
+    mp.setattr(ops, "ensure_grid_sheet", lambda h, conn: "g")
+    try:
+        assert server.child_values_on(h, "FinLite", parts) == [-1.5, None, 0.0]
+    finally:
+        mp.undo()
+    assert seen["rows"] == ("All Time Periods", ["Jul 26", "Aug 26", "Sep 26"])
+    assert seen["cols"] == ("All Accounts", ["ac.C40S"]) and seen["pov"]["All Entities"] == "un.SY.2WHS"
+
+
 def test_drill_cell_too_wide_on_a_leaf_is_a_readable_error(monkeypatch):
     import asyncio
     from smartview_mcp import drill_split, ops

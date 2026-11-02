@@ -243,7 +243,29 @@ async def _progress(what: str) -> None:
             return
 
 
-_too_wide: set = set()      # cells EPM refused as too wide (EPMFDM-140373) in this server: split them right away
+_too_wide: set | None = None    # cells EPM refused as too wide (EPMFDM-140373): split them right away (kept on disk)
+
+
+def _wide() -> set:
+    global _too_wide
+    if _too_wide is None:
+        import json
+        try:
+            raw = json.loads((config.SVKIT / "drill_too_wide.json").read_text(encoding="utf-8"))
+            _too_wide = {(c, tuple(tuple(kv) for kv in cell)) for c, cell in raw}
+        except Exception:   # noqa: BLE001 - none yet or unreadable: learn again
+            _too_wide = set()
+    return _too_wide
+
+
+def _remember_wide(key: tuple) -> None:
+    import json
+    _wide().add(key)
+    try:
+        config.SVKIT.mkdir(parents=True, exist_ok=True)
+        (config.SVKIT / "drill_too_wide.json").write_text(json.dumps(sorted(_too_wide)), encoding="utf-8")
+    except Exception as e:   # noqa: BLE001 - only an optimisation
+        log.info("too-wide memo not saved: %s", e)
 
 
 class _KnownTooWide(Exception):
@@ -283,7 +305,7 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
     left = state["left"]
     limit = min(config.DRILL_SPLIT_AT, left) if can_split else left
     try:
-        if _too_wide_key(connection, cell) in _too_wide and can_split:
+        if _too_wide_key(connection, cell) in _wide() and can_split:
             raise _KnownTooWide()                   # seen before: skip the ~20 s round trip to EPM's refusal
         res = await _drill_fetch(link["url"], limit)
     except (CellTooWide, _KnownTooWide) as e:
@@ -293,7 +315,7 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
         if not parts:
             raise ToolError(f"EPM refused the drill on {cell} as too wide ({e}). Choose a lower entity or "
                             "account.") from None
-        _too_wide.add(_too_wide_key(connection, cell))
+        _remember_wide(_too_wide_key(connection, cell))
         return await _children(connection, parts, max_lines, split, state, depth)
     except TooManyLines as e:
         if e.total > left:
@@ -309,14 +331,53 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
 
 async def _children(connection: str, parts: list[dict], max_lines: int, split: str, state: dict,
                     depth: int) -> list[dict]:
-    """The split children drilled at once (their pages load in parallel tabs), pieces in the plan's order. Each
-    starts with the budget free at that moment, so the total is checked again at the end (spec 4)."""
-    done = await _all(_drill_piece(connection, pc, max_lines, split, state, depth + 1) for pc in parts)
+    """The split children drilled at once (their pages load in parallel tabs), pieces in the plan's order. Their
+    values come first in ONE retrieve, so an empty (#Missing) child costs no drill link (most children of a wide
+    entity are empty). Each starts with the budget free at that moment, so the total is checked again at the end."""
+    vals = await _child_values(connection, parts)
+
+    async def one(i: int, pc: dict) -> list[dict]:
+        if vals is not None and vals[i] is None:
+            return [{"cell": pc, "cube_value": None, "items": [], "view": None, "secs": 0,
+                     "note": "empty cell (skipped)"}]
+        return await _drill_piece(connection, pc, max_lines, split, state, depth + 1)
+    done = await _all(one(i, pc) for i, pc in enumerate(parts))
     out = [p for ps in done for p in ps]
     if state["left"] < 0:
         n = sum(len(p.get("items") or []) for p in out)
         raise ToolError(f"The split pieces hold {n}+ lines, more than allowed (max_lines={max_lines}). Narrow the "
                         "cell or raise max_lines.")
+    return out
+
+
+async def _child_values(connection: str, parts: list[dict]) -> list | None:
+    """The split children's cube values in one host job, or None (then every child is linked as before)."""
+    try:
+        return await _call(lambda h: child_values_on(h, connection, parts), what="split values")
+    except Exception as e:   # noqa: BLE001 - only an optimisation
+        log.info("split values not read (%s); linking every child", e)
+        return None
+
+
+def child_values_on(h, connection: str, parts: list[dict]) -> list | None:
+    """Host job: the cells of a split differ in one dimension - retrieve them as one column (#Missing -> None)."""
+    from ..grid import Axis
+    first = parts[0]
+    dim = next((k for k in first if any(p.get(k) != first[k] for p in parts)), None)
+    if dim is None:
+        return None
+    col = "All Time Periods" if dim != "All Time Periods" else "All Accounts"
+    pov = {**ops.DRILL_DEFAULTS, **{k: v for k, v in first.items() if k not in (dim, col)}}
+    lay, p, _ = ops.query(h, connection, pov, [Axis(dim, [pc[dim] for pc in parts])], [Axis(col, [first[col]])],
+                          False, False)
+    if p is not None and p.pov_problems:              # a member was dropped: rows no longer line up
+        return None
+    ws = h.wb.Worksheets(ops.ensure_grid_sheet(h, connection))
+    c = chr(ord("A") + lay.nr)
+    out = []
+    for i in range(len(parts)):
+        v = ws.Range(f"${c}${2 + lay.nc + i}").Value
+        out.append(v if isinstance(v, float) else None)
     return out
 
 
