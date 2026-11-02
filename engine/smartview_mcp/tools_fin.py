@@ -1,22 +1,14 @@
-"""Finance tools on the warehouse and the calc engine: fin_pnl (the first slice) and sv_warehouse. Registered on the
-shared `mcp` object by importing this module (see server.py)."""
+"""The pnl recipe's data side: area/unit resolution, the warehouse or live store, top-up and the calc engine."""
 from __future__ import annotations
 
-import contextlib
-from typing import Literal
-
-from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import atlas, catalog, extract, fin_spec, qlog, refresh, templates
-from . import fin_pnl as pnl                      # the tool below is called fin_pnl
+from . import atlas, catalog, extract, refresh, templates
+from . import fin_pnl as pnl
 from .analytics import periods
-from .host import HostError, InputError
-from .server import WRITE, _call_user, _err, tool
-from .timing import Timer, stage
+from .host import InputError
+from .timing import stage
 from .warehouse import OPEN, MemoryWarehouse, Warehouse, WarehouseUnavailable
-
-Comparison = Literal["ly", "budget", "forecast"]
 
 
 def resolve_area(cat: catalog.Catalog, area: str, units: bool = False) -> catalog.Entity:
@@ -253,114 +245,3 @@ def _prepare(h, cat, entity, period, compare, store, retrieve, db):
         return res, f"live pulls (the warehouse was unavailable: {str(e)[:160]})", fills, notes
 
 
-@tool(annotations=WRITE)
-async def fin_pnl(area: str, period: str | None = None, compare: list[Comparison] | None = None,
-                  target: str = "session", allow_archive: bool = False, q: int | None = None,
-                  detail: Literal["compact", "full"] = "compact", ctx: Context | None = None) -> dict:
-    """ONE call for 'P&L for <business area or unit>': the month and YTD against last year (FinMax), budget and the
-    latest forecast (FinPlan), materiality flags (catalogue rule), an EBITDA bridge by line and by sub-unit, KPIs
-    (cost per FTE first, margins) and the year-end landing. The numbers come from the local warehouse (refreshed
-    automatically when a month closes or the atlas shows a restatement; the open month and the latest forecast are
-    read live) and are delivered as an analysis in the session's workbook: live Smart View source sheets, every
-    answer cell a formula, and checks that the warehouse equals each source sheet. area: a business area or a unit
-    below one, e.g. 'Wholesale', 'Business', '2TEC', or 'un.SY.5OK_W' / '5OK_W' (a unit is read live, never kept
-    in the warehouse; most units have no FinPlan member, so they are compared with last year only - said in
-    warnings); Consumer and Infrastructure Growth were abolished on 1 June 2026: the tool names their successors;
-    period: 'Sep 26' (default: the last closed month); compare: any of 'ly', 'budget', 'forecast' (default all) -
-    it ONLY decides which comparisons get flags and comments: the workbook and the table ALWAYS show last year,
-    budget, the forecast and the landing. An empty newest forecast falls back to the newest one with data (said in
-    warnings). A finished year (December of an earlier year) has no landing; an open period's flags are provisional.
-    detail: 'compact' (default: the per-line table, flags, landing, missing_count) | 'full' (adds every fact).
-    Write the reply from the returned key_points, table, flags, warnings and freshness - never compute a number
-    yourself; pass every warning on."""
-    cat = catalog.load()
-    with contextlib.closing(atlas.connect()) as adb:
-        entity = resolve_scope(cat, area, adb)
-    cmp = tuple(compare or pnl.COMPARISONS)
-
-    def job(h):
-        from .tools_ws import PullIn, _build_job
-        tm = Timer.start()
-        res, mode, fills, notes = prepare(h, cat, entity, period, cmp)
-        req = fin_spec.build(res, cat, mode=mode, refresh_notes=notes)
-        stale = stale_note(fills)
-        if stale:
-            req.spec["notes"].insert(0, stale)
-        pulls = [PullIn.model_validate(x) for x in req.pulls]
-        out = _build_job(h, tm, req.question, pulls, req.spec, target, allow_archive, q, replace=bool(q),
-                         before_answer=lambda spec, by_id: fin_spec.with_reconciliation(spec, req.expected, by_id,
-                                                                                        source=req.source))
-        warnings = pnl.tool_warnings(res, fills, notes)
-        out["warnings"] = list(dict.fromkeys(warnings + list(out.get("warnings") or [])))
-        return {**out, **pnl.summary(res, mode, fills, notes, cat=cat, detail=detail)}
-    try:
-        out = await _call_user(job, what="fin_pnl")
-    except (HostError, ToolError, ValueError) as e:      # ValueError: InputError (a bad period) and engine errors
-        qlog.write({"tool": "fin_pnl", "area": area, "period": period, "error": str(e)})
-        raise _err(e)
-    qlog.write({"tool": "fin_pnl", "area": area, "period": out["period"], "workbook": out["workbook"],
-                "q": out["question"], "checks": out["checks"], "timings": out["timings"]})
-    return out
-
-
-def warehouse_job(h, action: str, area: str | None = None, store=None, retrieve=None, db=None) -> dict:
-    """sv_warehouse refresh | rebuild (testable without the server). rebuild without an area: delete the file and
-    do a full base fill; with an area: re-read its 36 months and the company total."""
-    cat = catalog.load()
-    entity = None
-    if action == "rebuild" and area:                       # catalogue areas only: a unit is never stored
-        with contextlib.ExitStack() as stack:
-            entity = resolve_scope(cat, area, db if db is not None else stack.enter_context(
-                contextlib.closing(atlas.connect())))
-        if is_unit(entity):
-            raise ToolError(f"{entity.label} ({entity.finmax}) is {entity.note}: units are always read live by "
-                            "fin_pnl and never kept in the warehouse, so there is nothing to rebuild. Next step: "
-                            f"call fin_pnl(area='{entity.finmax}') again (it re-reads the unit), or rebuild the area "
-                            "it belongs to.")
-    with stage("closed month"):
-        closed = templates.closed_month(h)
-    st = _open(store)
-    what = None
-    if action == "rebuild":
-        if area:
-            what = refresh.request_rebuild(st, entity.key)
-        else:
-            st.reset()
-            what = refresh.request_rebuild(st)
-    notes: list[str] = []
-    retrieve = retrieve or extract.route(host=lambda: h)
-    with stage("warehouse refresh"), contextlib.ExitStack() as stack:
-        adb = db if db is not None else stack.enter_context(contextlib.closing(atlas.connect()))
-        fills = refresh.refresh(st, retrieve, cat, closed, adb, templates.latest_forecast, notes=notes)
-    out = {"closed_month": closed, "notes": notes,
-           "jobs": [{"job": r.fill.job, "result": r.fill.result, "cells": r.fill.cells,
-                     "seconds": r.fill.seconds, **r.fill.detail} for r in fills]
-           or ("nothing ran: " + "; ".join(notes) if notes else "nothing to do: the warehouse is up to date")}
-    if what:
-        out["rebuild"] = what
-    return out
-
-
-@tool(annotations=WRITE)
-async def sv_warehouse(action: Literal["status", "refresh", "rebuild"] = "status", area: str | None = None) -> dict:
-    """The local warehouse behind fin_pnl. status: file, rows, closed month, last fills and their reconciliation
-    (cheap, no EPM). refresh: run the refresh check now (a base fill the first time, about 10 s; afterwards only
-    what changed). rebuild: re-read from EPM - with `area` (a business area, e.g. 'Wholesale'; a unit below one is
-    never stored, so it is refused) that area's 36 months and the company
-    total; without, the whole file is recreated (a full base fill; also the fix for 'warehouse schema is older').
-    Use rebuild when a fin_pnl check 'Warehouse = source sheet' shows DIFF: call sv_warehouse('rebuild', area=<the
-    area>), then fin_pnl again. Read-only against EPM."""
-    if action == "status":
-        try:
-            return _open(None).status()
-        except WarehouseUnavailable as e:
-            raise ToolError(f"warehouse unavailable: {e}. Next step: retry in a minute (another smartass process "
-                            "may be writing it); if it repeats, call sv_status.") from None
-
-    def job(h):
-        Timer.start()
-        return warehouse_job(h, action, area)
-    try:
-        return await _call_user(job, what=f"sv_warehouse {action}")
-    except (HostError, ToolError, WarehouseUnavailable) as e:
-        raise _err(e)

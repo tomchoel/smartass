@@ -327,7 +327,6 @@ def test_templates_read_the_catalogue():
     import inspect
 
     from smartview_mcp import templates
-    assert templates.pnl_lines() == OLD_PNL and templates.pnl_checks() == OLD_PNL_CHECKS
     assert templates.fp_lines() == OLD_FP_PNL and templates.fp_checks() == OLD_FP_CHECKS
     assert '("rev", "ac.C30"' not in inspect.getsource(templates)   # no second copy of the list
 
@@ -343,8 +342,6 @@ def test_a_broken_catalogue_fails_only_the_pnl_templates(monkeypatch, tmp_path):
     try:
         importlib.reload(templates)                 # import must not read the catalogue
         import smartview_mcp.server  # noqa: F401
-        with pytest.raises(catalog.CatalogError):
-            templates.pnl_lines()
         with pytest.raises(catalog.CatalogError):
             templates.fp_lines()
     finally:

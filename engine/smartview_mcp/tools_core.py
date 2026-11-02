@@ -80,7 +80,7 @@ def _followup_spec(t, patch: dict, q: int | None) -> tuple[int, dict, dict]:
     old = userexcel.load_answer(t, q)
     if old is None or old["spec"].get("version") != 1:
         raise InputError(f"Q{q} Answer was not drawn by sv_answer, so it has no answer spec to patch: ask it as a "
-                         "new question with spec=..., or use sv_ws_answer for answers drawn by sv_ws_build.")
+                         "new question with spec=...")
     try:
         raw = contract.patched(old["spec"], patch)
     except ValueError as e:          # pydantic ValidationError is a ValueError
@@ -129,7 +129,7 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
     spec (a new question -> a new 'Q<n> Answer'): {version: 1, question, gate: {outcome: clear|ambiguous|infeasible,
     checklist: {period, scenario, entity, measure, currency_sign, granularity}, questions (ambiguous, 1-3), reason +
     proxy (infeasible)}, assumptions: [...], pulls: [{id, connection, rows, columns, pov, title?}], layout: {title,
-    columns, sections, checks, ...} (the sv_ws_build spec grammar; pull cells use the pull ids)}.
+    columns, sections, checks, ...} (the answer spec grammar; pull cells use the pull ids)}.
     ambiguous -> returns the questions, pulls nothing. Otherwise: the answer sheet 'Q<n> Answer' appears first with
     the question, assumptions and a status line; each pull is fetched over HTTP and written as a source sheet in one
     block (Smart View ad hoc grid if HTTP fails); then the answer is rendered (live formulas) and checked.

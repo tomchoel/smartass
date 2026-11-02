@@ -959,14 +959,6 @@ def next_question(t: Target) -> int:
     return max(nums, default=0) + 1
 
 
-def park_question_data(t: Target, q: int) -> dict[str, str]:
-    """Before re-running a whole question (sv_concept with q): rename its data sheets out of the way, so the new
-    pulls get the clean names. Returns {parked name: original name} for drop_parked / restore_parked."""
-    return park_sheets(t, [s.Name for s in list(t.wb.Worksheets)
-                           if (m := _Q.match(s.Name)) and int(m.group(1)) == q
-                           and m.group(2) not in ("Svar", "Answer", "Linjer")])          # drill lines are kept
-
-
 def park_sheets(t: Target, names: list[str]) -> dict[str, str]:
     """Rename these sheets out of the way ('~<name>'). Returns {parked name: original name}."""
     parked = {}
@@ -1117,11 +1109,6 @@ def load_answer(t: Target, q: int) -> dict | None:
 def stored_questions(t: Target) -> list[int]:
     """The questions with a stored answer spec v1 (drawn by sv_answer), ascending."""
     return sorted(q for q, a in _stored_specs(t).items() if a["spec"].get("version") == 1)
-
-
-def load_spec(t: Target, q: int) -> tuple[dict, dict] | None:
-    a = load_answer(t, q)
-    return None if a is None else (a["spec"], a["ids"])
 
 
 def load_pulls(t: Target, q: int) -> dict:
@@ -1288,7 +1275,7 @@ def _refresh_pull(t: Target, p: Pull) -> Pull:
         bad = _verify_labels(p.layout, parsed)
     if bad:
         raise HostError(f"'{p.sheet}' no longer has the expected layout: " + "; ".join(bad[:5])
-                        + ". Re-run the pull (sv_ws_pull / sv_ws_build) for this question.")
+                        + ". Re-run sv_answer for this question.")
     parsed.pov_problems[:0] = [w for w in p.parsed.pov_problems if w.startswith("Smart View rejected")]
     return _make_pull(p.sheet, p.connection, p.layout, parsed, secs)
 

@@ -70,12 +70,6 @@ def test_axes_in_accepts_dict_list_and_models():
     assert [a.dimension for a in li] == ["All Accounts", "E"]
 
 
-def test_pull_in_accepts_dict_rows():
-    from smartview_mcp.tools_ws import PullIn
-    p = PullIn(id="m", connection="FinMax", rows={"All Accounts": ["ac.C30"]}, columns={"All Time Periods": "Sep 26"})
-    assert p.rows[0].members == ["ac.C30"] and p.columns[0].dimension == "All Time Periods"
-
-
 def test_axes_in_wraps_a_single_axis_object():
     from smartview_mcp.server import axes_in
     a = axes_in({"dimension": "All Accounts", "members": ["ac.C30"]})

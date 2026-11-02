@@ -240,7 +240,7 @@ async def sv_scope(text: str) -> dict:
     """SCOPING - call FIRST for product, profitability, business-area or 'what does X cost/earn' questions. Returns
     matching business concepts (with their blocks: booked / estimated / attributed / not in FinMax) and the account
     and product groups from the business map (knowledge\\) that match, with booking pattern and pitfalls. If a concept
-    matches, answer with sv_concept. If none matches: research, PROPOSE the blocks to the user, and after they confirm
+    matches, answer with sv_answer. If none matches: research, PROPOSE the blocks to the user, and after they confirm
     add the concept to knowledge\\concepts.json."""
     from . import concepts as cmod
     return cmod.scope(text)

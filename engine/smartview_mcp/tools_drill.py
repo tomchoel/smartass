@@ -276,7 +276,7 @@ async def sv_drill(question: str, cell: dict[str, str], connection: Literal["Fin
     automatically (months, then cost centres). Writes a live FinLite grid of the cell + 'Q<n> Linjer' (Excel table
     Linjer_Q<n>) to the session workbook (target 'none' = cache only) and returns the reconciliation (cube vs
     lines), a profile (top suppliers/accounts/months/journals, signs_mixed) and text repairs. Then build the report
-    with sv_ws_answer(q, spec, target=<workbook>) using {drill: 'd', where: {...}} cells. id: alias of this drill
+    with sv_answer using {drill: 'd', where: {...}} cells. id: alias of this drill
     in the question (letters/digits/_; default 'd'). Re-drilling the same q and id refreshes its table in place."""
     if not _ALIAS.match(id or ""):
         raise ToolError(f"id '{id}' must start with a letter and contain only letters, digits and _ (e.g. 'd', 'b2').")
@@ -358,7 +358,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
                                            [Axis("All Accounts", [cell["All Accounts"]])],
                                            [Axis("All Time Periods", periods)], title=f"Q{qn} {connection}")
                         if parked:
-                            notes.append(f"the cell changed: grid {p.sheet} rebuilt - re-run sv_ws_answer for Q{qn} "
+                            notes.append(f"the cell changed: grid {p.sheet} rebuilt - re-run sv_answer for Q{qn} "
                                          "if its formulas used the old grid")
                 reply.session(t.path, qn)[p.sheet] = p
                 lines_started = True
@@ -394,7 +394,7 @@ async def _sv_drill(question, cell, connection, id, split, max_lines, target, q,
                 with stage("save"):
                     userexcel.com(t.wb.Save)
             if info and info.get("columns_changed"):
-                notes.append(f"columns changed – re-run sv_ws_answer for Q{qn}")
+                notes.append(f"columns changed – re-run sv_answer for Q{qn}")
             elif info and info.get("reused") and rows:
                 notes.append(f"re-drill: table {info['table']} refreshed in place (answer formulas stay valid)")
             if info and len(info["columns"]) < len(cols) and rows:

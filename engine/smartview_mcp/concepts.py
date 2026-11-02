@@ -115,7 +115,7 @@ def _label(dim_member: str) -> str:
 
 
 def plan(c: dict, period: str, last_year: str, entity: str | None = None) -> tuple[list[dict], dict]:
-    """(pulls for sv_ws_build, answer spec) for concept c, YTD `period` vs `last_year`."""
+    """(pulls, answer spec) for concept c, YTD `period` vs `last_year`."""
     entity = entity or c.get("entity", "un.SY")
     details: dict[tuple, str] = {}             # (kind, member, account) -> detail line key
     detail_lines: list[dict] = []

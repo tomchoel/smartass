@@ -7,7 +7,7 @@ import pytest
 from fin_util import CAT, FC, WHS, http, make_value
 from mcp.server.mcpserver.exceptions import ToolError
 
-from smartview_mcp import atlas, extract, fin_pnl, refresh, templates, tools_fin, tools_ws
+from smartview_mcp import atlas, extract, fin_pnl, refresh, templates, tools_fin
 from smartview_mcp.warehouse import MemoryWarehouse, WarehouseUnavailable
 
 MEMBERS = [("FinMax", "All Entities", "un.SY.2WHS", "2WHS Wholesale (un.SY)", "un.SY"),
@@ -121,58 +121,6 @@ def test_a_skipped_refresh_is_surfaced(env, monkeypatch):
     assert skip in fin_pnl.tool_warnings(res, fills, notes)
 
 
-def _tool_env(monkeypatch, tmp_path, retrieve):
-    seen = {}
-
-    def build_job(h, tm, question, pulls, spec, target, allow, q, replace=False, before_answer=None):
-        seen.update(question=question, ids=[p.id for p in pulls], hook=before_answer, spec=spec)
-        return {"workbook": "C:/x/a.xlsx", "question": "Q1", "checks": {}, "timings": {}, "warnings": ["sheet w"]}
-
-    async def call_user(fn, what):
-        return fn(None)
-    monkeypatch.setattr(tools_ws, "_build_job", build_job)
-    monkeypatch.setattr(tools_fin, "_call_user", call_user)
-    monkeypatch.setattr(tools_fin, "_open", lambda store: MemoryWarehouse())
-    real = atlas.connect                       # svhttp still opens its own test atlas by path
-    monkeypatch.setattr(extract, "route", lambda http=None, host=None: retrieve)
-    monkeypatch.setattr(atlas, "connect", lambda path=None: real(path) if path else real(tmp_path / "atlas.db"))
-    return seen
-
-
-@pytest.mark.anyio
-async def test_the_tool_builds_through_build_job_with_the_hook(env, monkeypatch, tmp_path):
-    retrieve, _ = env
-    seen = _tool_env(monkeypatch, tmp_path, retrieve)
-    out = await tools_fin.fin_pnl("Wholesale")
-    assert seen["ids"] == ["pnl", "fte", "fpa", "fpp", "units"] and seen["hook"] is not None
-    assert out["area"] == "Wholesale" and out["workbook"] == "C:/x/a.xlsx" and "freshness" in out
-    assert seen["spec"]["key_points"][0].startswith("EBITDA YTD Sep 26:")
-    assert seen["spec"]["notes"][0].startswith("Data: warehouse;")
-    assert out["headline_kpi"] == "personnel_per_fte" and out["missing_count"] == 0 and "facts" not in out
-    assert out["table"] and out["warnings"] == ["sheet w"]
-    full = await tools_fin.fin_pnl("Wholesale", detail="full")
-    assert full["facts"]
-
-
-@pytest.mark.anyio
-async def test_a_stale_forecast_and_an_open_period_are_tool_warnings(tmp_path, monkeypatch):
-    retrieve, _ = _env(tmp_path, monkeypatch, forecasts=("Forecast Q126",))
-    _tool_env(monkeypatch, tmp_path, retrieve)
-    out = await tools_fin.fin_pnl("Wholesale", period="Oct 26")
-    assert out["warnings"][0].startswith("Oct 26 is after the Current Reporting Month")
-    assert out["warnings"][1].startswith("Warning: Forecast Q126 is") and out["warnings"][-1] == "sheet w"
-    assert out["provisional"] and all(f["provisional"] for f in out["flags"])
-
-
-@pytest.mark.anyio
-async def test_an_abolished_area_gets_no_workbook(monkeypatch):
-    called = []
-    monkeypatch.setattr(tools_fin, "_call_user", lambda fn, what: called.append(what))
-    with pytest.raises(ToolError, match="Successors: Security Solutions & Mobile"):
-        await tools_fin.fin_pnl("Consumer")
-    assert called == []
-
-
 def test_a_failed_job_is_a_visible_warning():
     from smartview_mcp.extract import FillResult
     from smartview_mcp.warehouse import Fill
@@ -194,14 +142,6 @@ def test_a_period_the_warehouse_cannot_answer_is_refused(env, period, msg):
     assert str(e.value) == msg
     tools_fin.check_period("Oct 26", "Sep 26")                                            # the open month is fine
     tools_fin.check_period("Jan 25", "Sep 26")
-
-
-@pytest.mark.anyio
-async def test_the_tool_refuses_a_future_period_readably(env, monkeypatch, tmp_path):
-    retrieve, _ = env
-    _tool_env(monkeypatch, tmp_path, retrieve)
-    with pytest.raises(ToolError, match="not available yet"):
-        await tools_fin.fin_pnl("Wholesale", period="Dec 26")
 
 
 def test_an_old_schema_warehouse_falls_back_to_live_pulls(env, tmp_path):
@@ -236,22 +176,6 @@ def test_a_first_fill_running_elsewhere_means_live_pulls(env, tmp_path, monkeypa
     finally:
         other.release()
     assert "first warehouse fill is still running" in mode and mode.startswith("live pulls")
-
-
-def test_sv_warehouse_rebuild_rereads_an_area_or_everything(env, monkeypatch):
-    retrieve, db = env
-    store = MemoryWarehouse()
-    first = tools_fin.warehouse_job(None, "refresh", store=store, retrieve=retrieve, db=db)
-    assert [j["job"] for j in first["jobs"]] == ["base"]
-    assert tools_fin.warehouse_job(None, "refresh", store=store, retrieve=retrieve, db=db)["jobs"].startswith(
-        "nothing to do")
-    one = tools_fin.warehouse_job(None, "rebuild", "Wholesale", store=store, retrieve=retrieve, db=db)
-    assert [j["job"] for j in one["jobs"]] == ["rebuild"] and one["rebuild"].startswith("wholesale")
-    n = len(store.rows)
-    every = tools_fin.warehouse_job(None, "rebuild", store=store, retrieve=retrieve, db=db)
-    assert [j["job"] for j in every["jobs"]] == ["base"] and len(store.rows) == n          # file reset, all re-read
-    with pytest.raises(ToolError, match="abolished"):
-        tools_fin.warehouse_job(None, "rebuild", "Consumer", store=store, retrieve=retrieve, db=db)
 
 
 # ------------------------------------------------------------------ sub-units (any FinMax entity below an area)
@@ -312,19 +236,3 @@ def test_a_leaf_unit_without_finplan_has_last_year_only_and_no_bridge(uenv):
     assert any("compared with last year only" in w for w in fin_pnl.tool_warnings(res, fills, notes))
 
 
-def test_sv_warehouse_rebuild_refuses_a_unit(uenv, monkeypatch):
-    retrieve, db = uenv
-    with pytest.raises(ToolError, match="never kept in the warehouse"):
-        tools_fin.warehouse_job(None, "rebuild", "un.SY.U1", store=MemoryWarehouse(), retrieve=retrieve, db=db)
-
-
-@pytest.mark.anyio
-async def test_the_tool_answers_a_unit_from_live_pulls(uenv, monkeypatch, tmp_path):
-    retrieve, _ = uenv
-    seen = _tool_env(monkeypatch, tmp_path, retrieve)
-    out = await tools_fin.fin_pnl("U2")
-    assert seen["ids"] == ["pnl", "fte"] and out["area"] == "U2 Unit two"
-    assert seen["spec"]["notes"][0].startswith("Warning: no FinPlan entity for U2 Unit two (un.SY.U2)")
-    assert any(n.startswith("Data: live pulls (sub-unit: not kept in the warehouse);") for n in seen["spec"]["notes"])
-    assert any("compared with last year only" in w for w in out["warnings"])
-    assert out["freshness"].startswith("Data: live pulls (sub-unit")

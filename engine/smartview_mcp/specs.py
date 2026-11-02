@@ -2,7 +2,7 @@
 factual key points drafted from the pulled numbers.
 
 Shorthands (all optional; a plain spec passes through unchanged):
-  * {"pull": "<id>"}      - a pull id from sv_ws_build instead of the sheet name.
+  * {"pull": "<id>"}      - a pull id instead of the sheet name.
   * section "repeat"      - one line per value: {"over": [...] | "months:Jan..Dec" | {"top": N, "pull": id,
                             "by": [col members], "among": [row members], "abs": true}, "line": {<line template>}}.
                             Values are strings ("{v}") or dicts ("{name}"); "{i}" is the 0-based index. A "top" over

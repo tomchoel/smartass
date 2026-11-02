@@ -743,13 +743,11 @@ def test_add_sheet_anchor(names, after_q, expect):
     assert [s.Name for s in t.wb.Worksheets] == expect and t.sheets_added == ["X"]
 
 
-def test_question_grouping_includes_linjer_but_never_parks_it(monkeypatch):
+def test_question_grouping_includes_linjer(monkeypatch):
     from smartview_mcp import userexcel
     assert userexcel._Q.match("Q3 Linjer b") and not userexcel._Q.match("Q3 Forecast")
     t = _target(["Q2 Svar", "Q2 FinLite", "Q2 Linjer", "Kilder"])
     assert userexcel.next_question(t) == 3
-    parked = userexcel.park_question_data(t, 2)
-    assert list(parked.values()) == ["Q2 FinLite"]
 
 
 def test_redrill_clear_ranges():

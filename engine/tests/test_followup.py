@@ -58,7 +58,6 @@ def test_the_spec_is_stored_with_its_owned_range_and_read_back(monkeypatch):
     userexcel.save_spec(t, 2, B02, {"m": "Q2 FinMax"}, owned={"rows": 40, "cols": 7})
     got = userexcel.load_answer(t, 2)
     assert got == {"spec": B02, "ids": {"m": "Q2 FinMax"}, "owned": {"rows": 40, "cols": 7}}
-    assert userexcel.load_spec(t, 2) == (B02, {"m": "Q2 FinMax"})          # the old reader still works
     assert userexcel.load_answer(t, 3) is None
 
 

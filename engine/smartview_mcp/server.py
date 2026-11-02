@@ -70,25 +70,19 @@ analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, 
 - Use the last CLOSED month (the next one is open, with reversals). History is restated to today's organisation
   (the 1 June 2026 reorg emptied 2CON Consumer into 2SSM + 2EI).
 - Product / profitability / business-area questions: call sv_scope(question) FIRST (business map + concept library).
-  If a concept matches (e.g. 'splitt', or a product family 'fam_*'), answer with sv_concept(concept) - it marks every line booked / estimated (with
-  key) / attributed / not in FinMax. No concept: research, PROPOSE the blocks to the user, then save the concept.
-- P&L for a business area (month and YTD vs last year, budget, latest forecast; materiality; EBITDA bridge by line
-  and sub-unit; KPIs; year-end landing): ONE call - fin_pnl(area). It reads the local warehouse (refreshed by itself)
-  and builds the workbook with live source sheets; write the reply from its key_points, table, flags, warnings
-  and freshness (every fact with detail='full'). A 'Warehouse = source sheet' check showing DIFF: call
-  sv_warehouse('rebuild', area=<that area>), then fin_pnl again. area may also be a unit below an area
-  ('un.SY.5OK_W'): read live, never stored; without a FinPlan member it is compared with last year only.
-  Variance positive = better everywhere; cost per FTE is shown positive. Consumer and IG were abolished 1 June 2026:
-  fin_pnl explains where their figures went (never empty figures); pass that explanation on.
-- Analyses: ONE call - sv_ws_build(question, pulls, spec) (or sv_analyse for a template). Default target 'session' =
-  this session's own workbook (the analyser folder\\<project>\\..., Q1, Q2 ...); 'active' only when the user asks
-  for their open workbook. Follow-ups: sv_ws_answer(q, spec_patch=..., target=<workbook>). Add the same period last
-  year by default. Write key_points only for interpretation - factual points are drafted from the numbers.
+  If a concept matches (e.g. 'splitt', or a product family 'fam_*'), answer with sv_answer (recipe 'concept').
+  No concept: research, PROPOSE the blocks to the user, then save the concept.
+- P&L for a business area or a unit below one ('un.SY.5OK_W'): sv_answer with recipe 'pnl' (month and YTD vs last
+  year, budget, latest forecast; materiality; EBITDA bridge; KPIs; year-end landing). Variance positive = better
+  everywhere; cost per FTE is shown positive. Consumer and IG were abolished 1 June 2026: pass the explanation on.
+- Analyses: ONE call - sv_answer(spec). Default target 'session' = this session's own workbook (the
+  analyser folder\\<project>\\..., Q1, Q2 ...); 'active' only when the user asks for their open workbook. Follow-ups:
+  sv_answer(followup=...). Add the same period last year by default.
 - Format: full NOK 1 000 000, negatives (1 000 000) in tables and with a minus sign in text; costs negative;
   variance = current - comparison (positive = better). Line labels in English as FinMax shows them.
 - Quick single numbers: sv_query. The Produktregnskapet archive folders are never written to.
 - Invoice / journal-line detail behind any FinLite number: sv_drill(question, cell) (hidden headless browser,
-  reconciled to the cube), then sv_ws_answer with {drill: 'd', where: {...}} cells. Never Smart View's own
+  reconciled to the cube), then sv_answer with {drill: 'd', where: {...}} cells. Never Smart View's own
   drill-through execute: it opens the user's browser.
 - Any workbook the user has OPEN (no Smart View needed): xl_* tools - xl_workbooks / xl_overview / xl_read to look,
   xl_write / xl_rows / xl_add_sheet / xl_format / xl_format_sheet to change (each snapshotted; xl_revert undoes),
@@ -263,7 +257,6 @@ async def _call_user(fn, what: str):
 # Order = order the model sees the tools in (status, query, ws, drill, xl - as before the split).
 from . import tools_status  # noqa: E402,F401,I001
 from . import tools_query  # noqa: E402,F401
-from . import tools_ws  # noqa: E402,F401
 from . import tools_fin  # noqa: E402,F401
 from . import tools_drill  # noqa: E402,F401
 from . import tools_xl  # noqa: E402,F401

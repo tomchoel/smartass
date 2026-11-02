@@ -6,8 +6,6 @@ import pytest
 
 sys.path.insert(0, __file__.rsplit("\\tests", 1)[0])
 from smartview_mcp import answer, atlas, ops, templates  # noqa: E402
-from smartview_mcp.grid import Axis  # noqa: E402
-from smartview_mcp.host import InputError  # noqa: E402
 
 VALUE_ERR = -2146826273                       # Excel #VALUE! as COM returns it
 
@@ -92,24 +90,6 @@ def test_cost_base_share_not_claimed_without_total(fake_atlas, monkeypatch):
 
 
 # ------------------------------------------------------------------ pull member validation
-def test_unknown_pull_member_raises_input_error(fake_atlas):
-    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.EBITDA"])],
-                            [Axis("All Time Periods", ["Sep 26"])],          # dimension not in the atlas: skipped
-                            {"All Entities": "un.SY.BANORWAY"})
-    with pytest.raises(InputError) as e:
-        templates.check_pulls([ps])
-    msg = str(e.value)
-    assert "un.SY.BANORWAY" in msg and "FinMax" in msg and "All Entities" in msg and "sv_find_member" in msg
-
-
-def test_known_members_and_missing_atlas_pass(fake_atlas):
-    ok = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.EBITDA"])],
-                            [Axis("All Time Periods", ["Sep 26"])], {"All Entities": "un.SY.2TEC"})
-    no_atlas = templates.PullSpec("x", "FinLite", [Axis("All Accounts", ["ac.NOPE"])],
-                                  [Axis("All Time Periods", ["Sep 26"])], {})
-    templates.check_pulls([ok, no_atlas])
-
-
 def test_stale_atlas_is_skipped(fake_atlas):
     fake_atlas.execute("UPDATE build SET built_at = built_at - 40 * 86400")
     fake_atlas.commit()                    # the code under test opens its own connection
@@ -142,38 +122,6 @@ def test_scan_flags_noaccess_pull_and_value_error_on_answer_line():
 
 
 # ------------------------------------------------------------------ review of 4c9ca14
-def test_member_check_is_case_insensitive_and_pov_gets_atlas_spelling(fake_atlas):
-    assert atlas.has_member(fake_atlas, "FinMax", "All Entities", "un.sy.2tec")
-    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["AC.ebitda"])],
-                            [Axis("All Time Periods", ["Sep 26"])], {"All Entities": "UN.SY.2TEC"})
-    templates.check_pulls([ps])
-    assert ps.pov["All Entities"] == "un.SY.2TEC"
-
-
-def test_atlas_miss_is_confirmed_live_before_rejecting(fake_atlas):
-    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])],
-                            [Axis("All Time Periods", ["Jan 27"])], {"All Entities": "un.SY.NOPE"})
-    asked = []
-
-    def confirm(conn, dim, member):
-        asked.append((conn, dim, member))
-        return member == "ac.NEW1"               # new account exists in the cube, the entity does not
-    with pytest.raises(InputError) as e:
-        templates.check_pulls([ps], confirm=confirm)
-    assert "un.SY.NOPE" in str(e.value) and "ac.NEW1" not in str(e.value)
-    assert set(asked) == {("FinMax", "All Entities", "un.SY.NOPE"), ("FinMax", "All Accounts", "ac.NEW1")}
-    ok = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])], [Axis("All Time Periods", ["x"])], {})
-    templates.check_pulls([ok], confirm=lambda c, d, m: True)
-
-
-def test_failed_live_confirmation_does_not_reject(fake_atlas):
-    ps = templates.PullSpec("fm", "FinMax", [Axis("All Accounts", ["ac.NEW1"])], [Axis("All Time Periods", ["x"])], {})
-
-    def broken(conn, dim, member):
-        raise RuntimeError("Smart View busy")
-    templates.check_pulls([ps], confirm=broken)  # unverified, not rejected: the error-cell scan still runs
-
-
 class FakeFind:
     """ops.live_dimension stand-in: {member: dimension}; everything else is not found."""
     def __init__(self, known):
@@ -378,11 +326,7 @@ def test_an_unexpected_http_error_is_logged_as_a_warning_then_com(tmp_path, monk
 
 
 def test_division_pnl_is_gone_and_fin_pnl_covers_units():
-    import typing
 
-    from smartview_mcp import server, tools_fin, tools_ws
-    assert "division_pnl" not in templates.TEMPLATES and not hasattr(templates, "division_pnl")
-    assert "division_pnl" not in typing.get_args(typing.get_type_hints(tools_ws.sv_analyse)["template"])
-    assert "division_pnl" not in tools_ws.sv_analyse.__doc__ and "division_pnl" not in server.INSTRUCTIONS
-    assert "fin_pnl(area)" in server.INSTRUCTIONS and "un.SY.5OK_W" in server.INSTRUCTIONS
-    assert "a unit below one, e.g. 'Wholesale'" in " ".join(tools_fin.fin_pnl.__doc__.split())
+    from smartview_mcp import server
+    assert not hasattr(templates, "division_pnl")
+    assert "division_pnl" not in server.INSTRUCTIONS and "un.SY.5OK_W" in server.INSTRUCTIONS

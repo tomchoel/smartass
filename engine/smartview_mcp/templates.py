@@ -221,27 +221,6 @@ def map_finmax_entity(entity: str, explicit: str | None = None) -> tuple[str | N
     return None, f"No FinMax entity matches {entity}; pass finmax_entity to reconcile."
 
 
-def check_pulls(pulls: list[PullSpec], confirm=None) -> None:
-    """Every member of every pull must exist - before anything is pulled (ops.check_members: atlas, then atlas misses
-    confirmed live with confirm(connection, dimension, member)). POV members get the atlas spelling."""
-    for ps in pulls:
-        ps.pov = ops.canonical_pov(ps.connection, ps.pov)
-        ops.check_members(ps.connection, ps.pov, ps.rows, ps.cols, confirm)
-
-
-# ------------------------------------------------------------------ A. the catalogue's P&L lines
-# (the division P&L template that used them was replaced by fin_pnl.) The lists come from knowledge/catalog.toml,
-# read when called (not at import): a broken catalogue then fails only these with a CatalogError, and the server
-# still starts.
-def pnl_lines() -> list[tuple]:
-    """key, FinMax account, kind, num"""
-    return [(x.key, x.account, x.kind, x.num) for x in catalog.load().pnl["FinMax"]]
-
-
-def pnl_checks() -> list[tuple]:
-    return [(c.label, c.expr) for c in catalog.load().checks["FinMax"]]
-
-
 # ------------------------------------------------------------------ B. cost base per cost centre
 def cost_base_members(connection: str, parent: str) -> tuple[list[str], set[str]]:
     """(descendants + the parent, in tree order, de-duplicated; the leaf set) from the atlas."""
@@ -435,7 +414,3 @@ def actual_vs_plan(h: ExcelHost, entity: str, month: str | None = None, year: st
                 "source": f"Source: Oracle EPM Cloud (FinPlan, FinMax) via Smart View, retrieved {_now()}."}
 
     return Plan(f"{entity} actual vs plan {month} {year}", pulls, answer)
-
-
-TEMPLATES = {"cost_base": cost_base, "monthly_trend": monthly_trend,
-             "actual_vs_plan": actual_vs_plan}

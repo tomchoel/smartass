@@ -1,6 +1,6 @@
-"""The workbook for fin_pnl: the sv_ws_build request (live Smart View source sheets + an answer spec whose every
+"""The workbook for fin_pnl: the build request (live Smart View source sheets + an answer spec whose every
 number is a formula over them) and the expected value of every source cell the answer uses, from the calc engine's
-facts - so the build can prove warehouse = sheet (with_reconciliation, run as _build_job's before_answer hook).
+facts - so the build can prove warehouse = sheet (with_reconciliation, run before the answer is drawn).
 
 Answer columns (one set for every section; the section title says what the comparison is):
   0 month | 1 comparison month | 2 variance | 3 variance % | 4 YTD | 5 comparison YTD | 6 variance | 7 variance % |
@@ -43,7 +43,7 @@ Expected = tuple   # (row, col, value, fact id, tolerance)
 @dataclass
 class Request:
     question: str
-    pulls: list[dict]                                        # PullIn fields: id, connection, rows, columns, pov
+    pulls: list[dict]                                        # pull fields: id, connection, rows, columns, pov
     spec: dict
     expected: dict[str, list[Expected]]                      # pull id -> (row, col, value, fact id, tolerance)
     source: str = "Warehouse"                                # what the sheets are checked against (check labels)
@@ -603,7 +603,7 @@ def reconcile_pull(p, cells: list[Expected], tol: float = TOL, source: str = "Wa
 
 
 def with_reconciliation(spec: dict, expected: dict, pulls_by_id: dict, source: str = "Warehouse") -> dict:
-    """_build_job's before_answer hook: one '<source> = source sheet' check per source sheet (source:
+    """The before-answer hook: one '<source> = source sheet' check per source sheet (source:
     Request.source), after the others. Returns a new spec dict (the hook must return the spec)."""
     extra = [reconcile_pull(pulls_by_id[pid], cells, source=source) for pid, cells in expected.items()
              if pid in pulls_by_id]

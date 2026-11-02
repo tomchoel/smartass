@@ -1,7 +1,7 @@
 """fin_pnl, the first slice (Stage 2+3): a business area's P&L for a month and YTD against last year (FinMax) and
 budget and the latest forecast (FinPlan: actual = version Working, plan = Final), with materiality flags, an EBITDA
 bridge by line and by sub-unit, KPIs and the year-end landing - decided by the calc engine from the warehouse, in
-milliseconds and without Excel. fin_spec.py turns the Result into the sv_ws_build request (live source sheets +
+milliseconds and without Excel. fin_spec.py turns the Result into the build request (live source sheets +
 formulas); the engine's numbers then reconcile the sheets. The entity is a catalogue area or a unit below one (a
 synthetic Entity, tools_fin.resolve_scope; most units have no FinPlan member: last year only).
 
