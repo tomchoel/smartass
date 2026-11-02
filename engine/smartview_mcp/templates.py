@@ -230,54 +230,6 @@ def cost_base_members(connection: str, parent: str) -> tuple[list[str], set[str]
     return list(dict.fromkeys(ents + [parent])), leaves
 
 
-def cost_base(h: ExcelHost, parent: str = "un.SY", accounts: list[str] | None = None, period: str | None = None,
-              top: int = 25, connection: str = "FinMax") -> Plan:
-    """All descendants are pulled (the data sheet shows the full tree), but only LEAF cost centres are ranked,
-    so parents are not double counted in the top list."""
-    period = period or closed_month(h, "FinMax")
-    accounts = accounts or ["ac.C50S", "ac.C60", "ac.C70", "ac.STA20Y"]
-    members, leaves = cost_base_members(connection, parent)
-    if len(members) * len(accounts) > 50000:
-        raise InputError(f"{len(members)} cost centres × {len(accounts)} accounts is too large; narrow 'parent'.")
-    pov = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Time Periods": period,
-           "All Balance Types": "Accumulated"}
-    pulls = [PullSpec("cb", connection, [Axis("All Entities", members)], [Axis("All Accounts", accounts)], pov)]
-    main = "ac.C70" if "ac.C70" in accounts else accounts[0]
-
-    def answer(P):
-        p = P["cb"]
-        ranked = sorted(((abs(_val(p, [m], [main]) or 0), m) for m in members if m in leaves), reverse=True)
-        lines = []
-        for n, (_, m) in enumerate(ranked[:top], 1):
-            lines.append({"key": f"c{n}", "label": _label_of(p, [m], m), "kind": "line",
-                          "cells": [{"pull": p.sheet, "row": [m], "col": [a]} for a in accounts]})
-        if ranked[top:]:
-            rest = "tot-" + "-".join(f"c{n}" for n in range(1, min(top, len(ranked)) + 1))
-            lines.append({"key": "rest", "label": f"Other {len(ranked) - top} cost centres", "kind": "line",
-                          "cells": [{"expr": rest} for _ in accounts]})
-        lines.append({"key": "tot", "label": f"Total {_label_of(p, [parent], parent)}", "kind": "grand",
-                      "cells": [{"pull": p.sheet, "row": [parent], "col": [a]} for a in accounts]})
-        cols = [{"header": _clean(p.col_labels.get((a,), (a,))[-1]), "kind": "tall1" if "STA" in a else "heltall"}
-                for a in accounts]
-        tot = _val(p, [parent], [main])
-        topsum = sum(_val(p, [m], [main]) or 0 for _, m in ranked[:top])
-        share = f" ({topsum / tot * 100:.0f} % of the total)" if tot else ""
-        kp = [f"{len(ranked)} cost centres (leaf level) under {member_label(connection, parent)}; total "
-              f"{cols[accounts.index(main)]['header']} {_fmt(tot)} YTD {period}.",
-              f"The {min(top, len(ranked))} largest account for {_fmt(topsum)}{share}. "
-              f"The full tree is on the data sheet '{p.sheet}'."]
-        return {"title": f"Cost base per cost centre — {member_label(connection, parent)} — YTD {period}",
-                "subtitle": f"NOK · {connection} · Actual · Accumulated {period}",
-                "key_points": kp, "columns": cols,
-                "sections": [{"title": f"Top {min(top, len(ranked))} cost centres by {cols[accounts.index(main)]['header']}",
-                              "lines": lines}],
-                "notes": ["FTE (STA20Y) is the end-of-period headcount.",
-                          "Parent nodes are restated to today's organisation."],
-                "source": f"Source: Oracle EPM Cloud ({connection}) via Smart View, retrieved {_now()}."}
-
-    return Plan(f"{member_label(connection, parent)} cost base {period}", pulls, answer)
-
-
 # ------------------------------------------------------------------ C. monthly trend
 def monthly_trend(h: ExcelHost, entity: str, accounts: list[str] | None = None, through: str | None = None,
                   connection: str = "FinMax") -> Plan:

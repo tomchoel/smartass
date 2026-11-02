@@ -50,7 +50,6 @@ VBA_E_IGNORE = -2146777998                   # 0x800AC472: Excel busy, delivered
 # user's Excel, only that job's token is aborted: its next COM call raises (so it rolls back instead of silently
 # finishing and duplicating a retried analysis), and jobs running in parallel in other Excels are not affected.
 _job = threading.local()
-_all_tokens: "list[JobToken]" = []
 
 
 class JobAborted(HostError):
@@ -65,13 +64,6 @@ class JobToken:
 def bind_job(token: "JobToken | None" = None) -> None:
     _job.token = token or JobToken()
     _job.turns = []
-    _all_tokens.append(_job.token)
-    del _all_tokens[:-50]
-
-
-def abort_running_jobs() -> None:
-    for tk in _all_tokens:
-        tk.aborted = True
 
 
 def _check_alive():
@@ -177,17 +169,6 @@ def release_turns() -> None:
     for tt in getattr(_job, "turns", None) or []:
         tt.close()
     _job.turns = []
-
-
-@contextlib.contextmanager
-def excel_turn(what: str = "a request", pid: int = 0):
-    """Context form of a turn (tests, tools that hold one Excel for a block)."""
-    tt = Turn(pid)
-    waited = tt.acquire(what)
-    try:
-        yield waited
-    finally:
-        tt.close()
 
 
 @contextlib.contextmanager
@@ -1348,11 +1329,6 @@ def _fix_sheet_mode(t: Target, name: str) -> bool:
         return False
     t.run("B_SetAliasTable", name, "Default")
     return True
-
-
-def _q(s: str) -> str:
-    # the formulas compare against TRIM(sheet label), which collapses double spaces
-    return " ".join(s.split()).replace('"', '""')
 
 
 def lookup_formula(p: Pull, row_members: list[str], col_members: list[str]) -> str:

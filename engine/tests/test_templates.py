@@ -1,4 +1,4 @@
-"""templates.py / ops / answer: FinMax entity mapping via the atlas, pull-member validation, error-cell scan."""
+"""templates.py / ops / answer: FinMax entity mapping via the atlas, closed month, error-cell scan."""
 import sys
 from types import SimpleNamespace as NS
 
@@ -79,21 +79,6 @@ def test_recon_key_point_without_finmax_value_never_says_na(fake_atlas, monkeypa
     kp = " ".join(plan.answer(P)["key_points"])
     assert "n/a" not in kp
     assert "FinMax reconciliation unavailable (" in kp and "#NoAccess" in kp
-
-
-def test_cost_base_share_not_claimed_without_total(fake_atlas, monkeypatch):
-    monkeypatch.setattr(templates, "closed_month", lambda h, c="FinMax": "Sep 26")
-    plan = templates.cost_base(None, parent="un.SY", accounts=["ac.C70"], period="Sep 26", top=1)
-    p = fake_pull("Q1 FinMax", ["un.SY.2TEC", "un.SY"], ["ac.C70"], [[-5.0], ["#NoAccess"]])
-    kp = " ".join(plan.answer({"cb": p})["key_points"])
-    assert "% of the total" not in kp
-
-
-# ------------------------------------------------------------------ pull member validation
-def test_stale_atlas_is_skipped(fake_atlas):
-    fake_atlas.execute("UPDATE build SET built_at = built_at - 40 * 86400")
-    fake_atlas.commit()                    # the code under test opens its own connection
-    assert ops.unknown_members("FinMax", {"All Entities": "un.SY.NOPE"}, [], []) == []
 
 
 # ------------------------------------------------------------------ error-cell scan

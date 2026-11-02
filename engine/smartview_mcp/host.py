@@ -378,12 +378,6 @@ class ExcelHost:
                 me.waiting_reset = False
 
     # ---------------- worker-thread side ----------------
-    def ensure(self) -> "ExcelHost":
-        """Start the hidden server Excel if it is not running. Only valid ON the host COM thread; user-Excel jobs run
-        on their own threads and must use on_host() for anything that touches the hidden Excel."""
-        self._ensure_started()
-        return self
-
     def on_host(self, fn: Callable[[], Any], timeout: float | None = None):
         """Run fn on the host COM thread (where the hidden Excel's COM objects live), starting that Excel if needed.
         Called from a user-Excel job thread, it waits for the result; on the host thread it just runs."""
@@ -583,23 +577,6 @@ class ExcelHost:
         self.last_error = why
         self.restarts += 1
         log.warning("Excel marked dead: %s", why)
-
-    def _abandon_thread(self, why: str):
-        """The COM thread is stuck inside the USER's Excel: leave it, kill only our own hidden Excel (its proxies
-        belong to the stuck apartment), and start a fresh COM thread."""
-        from . import userexcel
-        userexcel.abort_running_jobs()            # the stuck job stops (and rolls back) when the user's Excel frees up
-        self._mark_dead(why)
-        pid, ctime = self.pid, self.ctime
-        if pid and ctime and kill_ours(pid, ctime):
-            self.registry.remove(pid)
-        old = self.thread
-        old.q.put((None, None))                   # sentinel: the old thread exits once its blocked call returns
-        self.thread = ComThread()
-        self.thread.start()
-        self.app = self.wb = None
-        self.connected.clear()
-        self.pid = self.ctime = None
 
     def _hard_reset(self, why: str, expected_pid: int | None = None):
         """Called from the event-loop thread while the COM thread is blocked. expected_pid: the Excel the caller saw

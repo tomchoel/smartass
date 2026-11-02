@@ -224,26 +224,6 @@ def _explain_reject(conn: str, dim: str, member: str) -> str:
     return f"{dim}: {member}{why}"
 
 
-def unknown_members(conn: str, pov: dict, rows: list[Axis], cols: list[Axis]) -> list[tuple[str, str]]:
-    """(dimension, member) pairs the atlas does not know - one indexed lookup per member. Dimensions whose atlas is
-    missing, failed or stale are skipped (no verdict without a trustworthy catalogue)."""
-    from . import atlas
-    try:
-        db = atlas.connect()
-    except Exception:       # noqa: BLE001 - no atlas: nothing to check against
-        return []
-    items = [(canon_dim(conn, d), m) for d, m in pov.items()]
-    items += [(canon_dim(conn, a.dimension), m) for a in rows + cols for m in a.members]
-    ok: dict[str, bool] = {}
-    out = []
-    for dim, m in dict.fromkeys(items):
-        if dim not in ok:
-            ok[dim] = atlas.usable(db, conn, dim)
-        if ok[dim] and not atlas.has_member(db, conn, dim, m):
-            out.append((dim, m))
-    return out
-
-
 def query(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis],
           suppress_missing: bool, suppress_zeros: bool):
     """Retrieve a grid. If Smart View rejects it (rc=1000), find the rejected members by bisection, drop them,

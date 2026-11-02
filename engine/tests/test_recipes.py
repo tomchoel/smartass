@@ -183,13 +183,6 @@ def test_the_cost_base_draft_expands_to_the_ranked_lines_after_the_pull(monkeypa
     assert v["topsum"] == [-80.0] and v["rest"] == [-50.0]
 
 
-def test_templates_cost_base_uses_the_extracted_members(monkeypatch):
-    from smartview_mcp import templates
-    monkeypatch.setattr(templates, "cost_base_members", lambda conn, parent: (["A", parent], {"A"}))
-    plan = templates.cost_base(None, period="Oct 26")
-    assert plan.pulls[0].rows[0].members == ["A", "un.SY"]
-
-
 # ------------------------------------------------------------------ actual_vs_plan
 def test_actual_vs_plan_uses_the_given_closed_month_and_checks_the_finmax_recon(monkeypatch):
     from smartview_mcp import templates

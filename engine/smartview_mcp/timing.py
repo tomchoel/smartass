@@ -25,11 +25,6 @@ class Timer:
     @staticmethod
     def start() -> "Timer":
         _local.timer = Timer()
-        waited = getattr(_local, "pending_wait", None)        # set by the host before the job starts
-        if waited:
-            _local.timer.stages["wait for your Excel (another agent)"] = round(waited, 2)
-            _local.timer.t0 -= waited
-        _local.pending_wait = None
         _local.timer.notify, _local.pending_notify = getattr(_local, "pending_notify", None), None
         return _local.timer
 
@@ -66,10 +61,6 @@ class Timer:
         with self._lock:
             if self._tick is me:
                 self._arm()
-
-    @staticmethod
-    def note_wait(seconds: float) -> None:
-        _local.pending_wait = seconds
 
     @staticmethod
     def current() -> "Timer | None":
