@@ -59,3 +59,29 @@ def test_period_parse(text, kind, label, gap):
 def test_open_month_is_flagged():
     assert period.parse("Oct 26 actuals", "Sep 26").open and not period.parse("Sep 26", "Sep 26").open
     assert period.parse("Cost per FTE", "Sep 26").convention
+
+
+def test_remember_then_lookup_roundtrip(tmp_path, monkeypatch):
+    from smartview_mcp.core import prefs
+    monkeypatch.setattr(prefs.config, "PREFERENCES", tmp_path / "p.toml")
+    assert prefs.lookup("measure", "costs") is None
+    prefs.remember("measure", "Costs", "opex")
+    assert prefs.lookup("measure", "costs") == "opex"
+    prefs.remember("measure", "costs", "personnel")          # replaces, never duplicates
+    assert prefs.lookup("measure", "COSTS") == "personnel"
+    assert (tmp_path / "p.toml").read_text(encoding="utf-8").count("[[default]]") == 1
+
+
+def test_remember_rejects_unknown_item_or_value(tmp_path, monkeypatch):
+    from smartview_mcp.core import prefs
+    from smartview_mcp.host import InputError
+    monkeypatch.setattr(prefs.config, "PREFERENCES", tmp_path / "p.toml")
+    with pytest.raises(InputError):
+        prefs.remember("colour", "x", "y")
+    with pytest.raises(InputError):
+        prefs.remember("measure", "costs", "not_a_measure")
+    with pytest.raises(InputError):
+        prefs.remember("measure", "costs", "numbers")          # a vague measure is no answer
+    with pytest.raises(InputError):
+        prefs.remember("period", "this year", "sometimes")
+    assert not (tmp_path / "p.toml").exists()

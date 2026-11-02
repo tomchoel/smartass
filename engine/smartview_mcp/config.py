@@ -137,6 +137,7 @@ ANALYSER_DIR = _path(_pick("SV_ANALYSER_DIR", "paths.analyser", ONEDRIVE / "smar
 OUT_DIR = _path(_pick("SV_OUT_DIR", "paths.output", ONEDRIVE / "smartass" / "output"))
 QUERY_LOG = _path(_pick("SV_QUERY_LOG", "paths.query_log", HOME / "logs" / "queries.jsonl"))
 RUN_LOG = _path(_pick("SV_RUN_LOG", "paths.run_log", HOME / "logs" / "runs.jsonl"))   # one line per answer (core)
+PREFERENCES = _path(_pick("SV_PREFERENCES", "paths.preferences", HOME / "preferences.toml"))  # learned defaults (core)
 # The local warehouse of cube cells (Stage 2, DuckDB). Configurable so a shared copy can come later.
 WAREHOUSE_DB = _path(_pick("SV_WAREHOUSE", "paths.warehouse", HOME / "warehouse.duckdb"))
 WAREHOUSE_LOCK_WAIT_S = float(os.environ.get("SV_WAREHOUSE_LOCK_WAIT", "10"))   # wait for another writer/reader
