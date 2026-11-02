@@ -64,6 +64,19 @@ def _registry() -> dict:
 RECIPES: dict[str, Callable] = {}
 
 
+def departures(name: str | None, params: dict) -> list[str]:
+    """The finance defaults a recipe's params switch off (D3/D4). Each recipe module's DEFAULTS maps a param to
+    (the default value, or a test the value must pass; why it is the default)."""
+    from . import concept, cost, plan, pnl, trend
+    mod = {"pnl": pnl, "actual_vs_plan": plan, "monthly_trend": trend, "cost_base": cost, "concept": concept}.get(name)
+    rules = getattr(mod, "DEFAULTS", {}) if mod else {}
+    out = []
+    for key, (ok, why) in rules.items():
+        if key in params and not (ok(params[key]) if callable(ok) else params[key] == ok):
+            out.append(f"{name} {key}={params[key]!r} ({why})")
+    return out
+
+
 def expand(raw: dict, ctx: RecipeContext) -> tuple[dict, dict]:
     """A spec with a recipe and no layout -> (the full spec, extra tool-result keys). Anything else unchanged."""
     rec = raw.get("recipe")

@@ -16,7 +16,7 @@ def entry(spec, q: int | None, sources: list, review: dict | None, timings: dict
           workbook: str | None = None) -> dict:
     return {"ts": dt.datetime.now().isoformat(timespec="seconds"), "workbook": workbook,
             "q": f"Q{q}" if q else None, "question": spec.question, "gate": spec.gate.outcome,
-            "assumptions": list(spec.assumptions),
+            "assumptions": list(spec.assumptions), "deviation": spec.deviation,
             "pulls": [{"id": pin.id, "cube": pin.connection, "sheet": s.pull.sheet, "route": s.route,
                        "seconds": round(s.pull.seconds, 2)} for pin, s in zip(spec.pulls, sources)],
             "ok": None if review is None else review["ok"],

@@ -18,6 +18,14 @@ def ctx(**over):
     return RecipeContext(**{**base, **over})
 
 
+def _gate_names_no_recipe(monkeypatch):
+    """sv_answer re-runs the gate on the question; question 'q' is answered by a test recipe, so the gate is clear
+    and names no standard recipe."""
+    from smartview_mcp import tools_core
+    monkeypatch.setattr(tools_core.scope, "gate", lambda q, closed, answers=None: {"suggested_outcome": "clear",
+                                                                                   "recipe": None})
+
+
 def _echo(params, c):
     return Draft(pulls=[{"id": "x", "connection": "FinMax", "rows": [{"dimension": "All Accounts", "members": ["ac.C30"]}],
                          "columns": [{"dimension": "All Time Periods", "members": [c.closed]}]}],
@@ -68,6 +76,7 @@ async def test_sv_answer_expands_a_recipe_in_the_excel_job_and_returns_its_perio
     monkeypatch.setattr(tools_core, "_call_user", lambda job, what: _job(job))
     monkeypatch.setattr(tools_core.templates, "closed_month", lambda h, *a: "Oct 26")
     monkeypatch.setattr(tools_core.catalog, "load", lambda: None)
+    _gate_names_no_recipe(monkeypatch)
     seen = {}
 
     def run(h, raw, target, allow, **kw):
@@ -92,6 +101,7 @@ async def test_sv_answer_turns_a_recipe_error_into_a_tool_error(monkeypatch):
     monkeypatch.setattr(tools_core, "_call_user", lambda job, what: _job(job))
     monkeypatch.setattr(tools_core.templates, "closed_month", lambda h, *a: "Oct 26")
     monkeypatch.setattr(tools_core.catalog, "load", lambda: None)
+    _gate_names_no_recipe(monkeypatch)
     with pytest.raises(ToolError, match="unknown recipe 'nope'"):
         await tools_core.sv_answer({"version": 1, "question": "q", "gate": GATE, "recipe": {"name": "nope"}})
 

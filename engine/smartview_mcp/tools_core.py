@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import json
 from typing import Literal
 
 from mcp.server.mcpserver import Context
@@ -132,6 +133,54 @@ def _expand_recipe(h, spec: dict) -> tuple[dict, dict]:
         raise InputError(f"The recipe does not give a valid answer spec: {e}") from None
 
 
+def _closed_cached() -> str:
+    """The closed month for answer()'s re-gate: templates.closed_month's disk cache, else the month before today
+    (never EPM, never Excel: the re-gate must be instant)."""
+    try:
+        e = json.loads((config.SVKIT / "closed_month.json").read_text(encoding="utf-8")).get("FinMax")
+        month = e.get("month") if isinstance(e, dict) else e
+        if isinstance(month, str) and month:
+            return month
+    except (OSError, ValueError, AttributeError):
+        pass
+    d = dt.date.today().replace(day=1) - dt.timedelta(days=1)
+    return periods.label(d.year, d.month)
+
+
+def _precheck(spec: dict) -> dict | None:
+    """Before any Excel job (D5, D4, D7): the gate re-run on the question (still ambiguous -> its questions, nothing
+    pulled), departures from the standard analysis without a deviation, and sheet text that is not English."""
+    question = str(spec.get("question") or "").strip()
+    if not question:
+        raise InputError("spec.question is the user's question, as asked")
+    answers = (spec.get("gate") or {}).get("answers") or None
+    g = scope.gate(question, _closed_cached(), answers=answers)
+    if g["suggested_outcome"] == "ambiguous":
+        return {"gate": "ambiguous", "questions": g["questions"],
+                "checklist": {k: v["value"] or v["gap"] for k, v in g["checklist"].items()},
+                "note": "Nothing was pulled: the gate is still ambiguous for this question. Ask the user these "
+                        "questions in their language, in ONE message; then call sv_gate again with the same question "
+                        "and answers={item: answer}, and pass the same answers as spec.gate.answers."}
+    named, rec = (g.get("recipe") or {}).get("name"), spec.get("recipe") or {}
+    dep = []
+    if named and not rec:
+        dep.append(f"a free-form spec where sv_gate named recipe {named}")
+    elif named and rec.get("name") != named:
+        dep.append(f"recipe {rec.get('name')} instead of {named}")
+    if rec:
+        dep += recipes.departures(rec.get("name"), rec.get("params") or {})
+    if dep and not spec.get("deviation"):
+        raise InputError("This departs from the standard analysis: " + "; ".join(dep) + ". Use the recipe and "
+                         "defaults sv_gate named, or pass deviation='<the user's explicit request>' (it is written "
+                         "on the sheet).")
+    bad = [(path, s) for path, s in contract.sheet_texts(spec) if contract.non_english(s)]
+    if bad:
+        raise InputError("Sheet text that is not English:\n" + "\n".join(f"  {p}: {s}" for p, s in bad[:8]) +
+                         "\nWrite sheet text in English (the chat stays in the user's language); names and member "
+                         "labels may stay as they are.")
+    return None
+
+
 @tool(annotations=WRITE)
 async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: int | None = None,
                     target: str = "session", allow_archive: bool = False, ctx: Context | None = None) -> dict:
@@ -181,6 +230,9 @@ async def answer(spec: dict | None = None, followup: dict | None = None, q: int 
         early = pipeline.gate_reply(parsed) if parsed is not None else None
         if early is not None:
             runlog.append(runlog.entry(parsed, None, [], None, {}))
+            return early
+        early = _precheck(spec)
+        if early is not None:
             return early
 
     def job(h):

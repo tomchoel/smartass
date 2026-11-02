@@ -11,9 +11,12 @@ STATUS_ROW = 3
 
 
 def skeleton(spec: AnswerSpec, status: str) -> list[str]:
-    rows = [spec.layout.title if spec.layout else spec.question, f"Question: {spec.question}", f"Status: {status}"]
+    rows = [spec.layout.title if spec.layout else spec.question, f"Question (as asked): {spec.question}",
+            f"Status: {status}"]
     if spec.assumptions:
         rows += ["", "Assumptions"] + [f"•  {a}" for a in spec.assumptions]
+    if spec.deviation:
+        rows += ["", f"Deviation from the standard analysis (user's request): {spec.deviation}"]
     if spec.gate.outcome == "infeasible":
         rows += ["", f"Not answerable as asked: {spec.gate.reason}", f"Answered instead: {spec.gate.proxy}"]
     return rows

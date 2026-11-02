@@ -89,7 +89,7 @@ SPEC = {"version": 1, "question": "EBITDA Sep 26 for Business", "gate": {"outcom
 
 def test_skeleton_shows_title_question_status_and_assumptions():
     rows = progress.skeleton(contract.validate(SPEC), "fetching 1 source grid ...")
-    assert rows[0] == "Business — EBITDA" and rows[1] == "Question: EBITDA Sep 26 for Business"
+    assert rows[0] == "Business — EBITDA" and rows[1] == "Question (as asked): EBITDA Sep 26 for Business"
     assert rows[progress.STATUS_ROW - 1] == "Status: fetching 1 source grid ..."
     assert rows[-2:] == ["Assumptions", "•  Actual, NOK"]
 
@@ -154,7 +154,7 @@ def test_entry_records_gate_pulls_routes_and_result(monkeypatch, tmp_path):
 def test_assumptions_and_the_question_lead_the_notes_and_the_raw_layout_is_untouched():
     raw = {**SPEC, "layout": {**SPEC["layout"], "notes": ["n"]}}
     out = pipeline.answer_layout(raw["layout"], contract.validate(raw))
-    assert out["notes"] == ["Question: EBITDA Sep 26 for Business", "Assumption: Actual, NOK", "n"]
+    assert out["notes"] == ["Question (as asked): EBITDA Sep 26 for Business", "Assumption: Actual, NOK", "n"]
     assert raw["layout"]["notes"] == ["n"]
 
 
@@ -246,3 +246,88 @@ def test_the_pipeline_turns_expectations_into_static_checks(monkeypatch):
 def test_reply_helpers_live_in_core_reply():
     from smartview_mcp.core import reply
     assert callable(reply.finish) and callable(reply.result)
+
+
+# ------------------------------------------------------------------ A4: sv_answer enforces the gate
+COSTS = "How are we doing on costs?"
+SUPPLIERS = "Which suppliers invoiced most on travel in 2026?"
+
+
+def _answer_env(monkeypatch, tmp_path, calls):
+    monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
+    monkeypatch.setattr(tools_core, "_closed_cached", lambda: "Sep 26")
+    monkeypatch.setattr(tools_core.scope.prefs, "lookup", lambda item, phrase: None)
+
+    async def call_user(job, what):
+        calls.append(what)
+        return {"sheet": "Q1 Answer"}
+    monkeypatch.setattr(tools_core, "_call_user", call_user)
+
+
+def _recipe_spec(question, name, gate=None, **extra):
+    return {"version": 1, "question": question, "gate": gate or {"outcome": "clear"},
+            "recipe": {"name": name, "params": {}}, **extra}
+
+
+@pytest.mark.anyio
+async def test_answer_refuses_to_pull_when_the_gate_is_still_ambiguous(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    out = await tools_core.answer(_recipe_spec(COSTS, "pnl"))
+    assert out["gate"] == "ambiguous" and "measure" in out["questions"][0].lower() and calls == []
+    assert "answers=" in out["note"]
+
+
+@pytest.mark.anyio
+async def test_answer_pulls_when_answers_resolve_the_gate(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    out = await tools_core.answer(_recipe_spec(COSTS, "pnl", gate={"outcome": "clear",
+                                                                   "answers": {"measure": "opex"}}))
+    assert out == {"sheet": "Q1 Answer"} and calls == ["sv_answer"]
+
+
+@pytest.mark.anyio
+async def test_answer_refuses_a_departure_without_deviation(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    with pytest.raises(InputError, match="departs from the standard analysis: recipe cost_base instead of "
+                                         "lines_ranking.*deviation="):
+        await tools_core.answer(_recipe_spec(SUPPLIERS, "cost_base"))
+    with pytest.raises(InputError, match="a free-form spec where sv_gate named recipe pnl"):
+        await tools_core.answer(SPEC)
+    assert calls == []
+
+
+@pytest.mark.anyio
+async def test_deviation_is_written_on_the_sheet_and_logged(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    why = "The user asked for cost centres, not suppliers"
+    await tools_core.answer(_recipe_spec(SUPPLIERS, "cost_base", deviation=why))
+    assert calls == ["sv_answer"]
+    spec = contract.validate({**SPEC, "deviation": why})
+    line = f"Deviation from the standard analysis (user's request): {why}"
+    assert line in progress.skeleton(spec, "x")
+    assert pipeline.answer_layout(SPEC["layout"], spec)["notes"][2] == line
+    assert runlog.entry(spec, 1, [], None, {})["deviation"] == why
+    with pytest.raises(ValueError):
+        contract.validate({**SPEC, "deviation": "x" * 301})
+
+
+@pytest.mark.anyio
+async def test_norwegian_assumption_is_refused_with_its_path(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    spec = _recipe_spec(SUPPLIERS, "lines_ranking",
+                        assumptions=["NOK", "Konsulenter = kontoene C60080 og C60090 (valgt av meg)"])
+    with pytest.raises(InputError, match=r"(?s)assumptions\[1\]: Konsulenter.*Write sheet text in English"):
+        await tools_core.answer(spec)
+    assert calls == []
+
+
+def test_question_is_shown_as_asked_and_not_checked():
+    spec = contract.validate({**SPEC, "question": "Hva er EBITDA for Business i september?"})
+    assert progress.skeleton(spec, "x")[1] == "Question (as asked): Hva er EBITDA for Business i september?"
+    assert pipeline.answer_layout(SPEC["layout"], spec)["notes"][0].startswith("Question (as asked): Hva")
+    assert all(path != "question" for path, _ in contract.sheet_texts(spec.model_dump()))

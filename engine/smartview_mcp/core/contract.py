@@ -33,10 +33,11 @@ class Gate(_Strict):
     questions: list[str] = Field(default_factory=list, max_length=3)
     reason: str | None = None                        # infeasible: why it cannot be answered as asked
     proxy: str | None = None                         # infeasible: what is answered instead
+    answers: dict[str, str] = Field(default_factory=dict)   # the user's answers to the gate's questions, by item
 
     @model_validator(mode="after")
     def _consistent(self) -> "Gate":
-        unknown = set(self.checklist) - set(CHECKLIST)
+        unknown = (set(self.checklist) | set(self.answers)) - set(CHECKLIST)
         if unknown:
             raise ValueError(f"unknown checklist items {sorted(unknown)}; allowed: {', '.join(CHECKLIST)}")
         if self.outcome == "ambiguous" and not self.questions:
@@ -154,6 +155,7 @@ class AnswerSpec(_Strict):
     layout: Layout | None = None
     commentary: Commentary = Field(default_factory=Commentary)
     recipe: Recipe | None = None
+    deviation: str | None = Field(default=None, max_length=300)   # the user's explicit request to depart (D4)
 
     @model_validator(mode="after")
     def _shape(self) -> "AnswerSpec":
@@ -317,3 +319,38 @@ def outline(raw: dict) -> dict:
                           **({"repeat": (s["repeat"].get("line") or {}).get("key")} if s.get("repeat") else {})}
                          for s in lay.get("sections") or []],
             "checks": [c["label"] for c in lay.get("checks") or []]}
+
+
+# ------------------------------------------------------------------ English sheet text (D7)
+_NO = frozenset("og ikke på av til med kun fra som er det den har ble utledet valgt bekreftet kontoene beløp "
+                "inkluderer gjelder periode regnskap hittil fjor tall kostnader leverandør".split())
+_QUOTED_OR_MEMBER = re.compile(r"(?<!\w)'[^']*'(?!\w)|\"[^\"]*\"|“[^”]*”|‘[^’]*’|\b[a-z]{2}\.[\w.\-]+", re.I)
+
+
+def non_english(s: str) -> bool:
+    """A Norwegian-marker heuristic: two Norwegian function words, or æ/ø/å outside quoted names and members."""
+    words = re.findall(r"[A-Za-zÆØÅæøå]+", _QUOTED_OR_MEMBER.sub(" ", s or ""))
+    return sum(w.lower() in _NO for w in words) >= 2 or any(c in "æøåÆØÅ" for w in words for c in w)
+
+
+def sheet_texts(raw: dict) -> list[tuple[str, str]]:
+    """(path, text) of every sentence the spec writes on the sheet: assumptions, deviation, layout title, subtitle,
+    notes, key points, section titles, column headers, check labels, drivers (also in recipe overrides). Not the
+    question (shown as asked) nor line labels and data names."""
+    out: list[tuple[str, str]] = [(f"assumptions[{i}]", a) for i, a in enumerate(raw.get("assumptions") or [])]
+    if raw.get("deviation"):
+        out.append(("deviation", raw["deviation"]))
+
+    def layout(lay: dict, at: str) -> None:
+        out.extend((f"{at}.{k}", lay[k]) for k in ("title", "subtitle") if isinstance(lay.get(k), str))
+        for k in ("notes", "key_points"):
+            out.extend((f"{at}.{k}[{i}]", x) for i, x in enumerate(lay.get(k) or []) if isinstance(x, str))
+        for name, key in (("sections", "title"), ("columns", "header"), ("checks", "label")):
+            out.extend((f"{at}.{name}[{i}].{key}", x[key]) for i, x in enumerate(lay.get(name) or [])
+                       if isinstance(x, dict) and isinstance(x.get(key), str))
+    layout(raw.get("layout") or {}, "layout")
+    layout(((raw.get("recipe") or {}).get("overrides") or {}).get("layout") or {}, "recipe.overrides.layout")
+    drivers = (raw.get("commentary") or {}).get("drivers") or []
+    out.extend((f"commentary.drivers[{i}].text", d["text"]) for i, d in enumerate(drivers)
+               if isinstance(d, dict) and isinstance(d.get("text"), str))
+    return [(p, t) for p, t in out if t]

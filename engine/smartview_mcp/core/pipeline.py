@@ -52,7 +52,9 @@ def answer_layout(raw_layout: dict, spec: contract.AnswerSpec) -> dict:
     """The layout answer.build renders, with the question, assumptions and (for a proxy) what is answered instead
     leading the notes. The raw layout is not changed: it is what save_spec stores."""
     lay = copy.deepcopy(raw_layout)
-    lead = [f"Question: {spec.question}"] + [f"Assumption: {a}" for a in spec.assumptions]
+    lead = [f"Question (as asked): {spec.question}"] + [f"Assumption: {a}" for a in spec.assumptions]
+    if spec.deviation:
+        lead.append(f"Deviation from the standard analysis (user's request): {spec.deviation}")
     if spec.gate.outcome == "infeasible":
         lead.append(f"Not answerable as asked ({spec.gate.reason}); answered instead: {spec.gate.proxy}")
     lay["notes"] = lead + list(lay.get("notes") or [])
