@@ -175,7 +175,8 @@ def _fake_run(monkeypatch, calls, pull_fails=False):
             raise HostError("Retrieve failed")
         return source.Source(pull, "http", [])
     monkeypatch.setattr(pipeline.source, "pull", pull_)
-    monkeypatch.setattr(pipeline.specs, "prepare", lambda layout, ids, sess: calls.append(("prepare", ids)) or layout)
+    monkeypatch.setattr(pipeline.specs, "prepare", lambda layout, ids, sess, drills=None:
+                        calls.append(("prepare", ids)) or layout)
     monkeypatch.setattr(pipeline.answer_mod, "build", lambda t, q, spec, sess, suffix, owned=None, **kw:
                         calls.append(("build", suffix, kw.get("reserve"))) or
                         {"sheet": "Q3 Answer", "checks": {"c": "OK"}, "extent": {"rows": 20, "cols": 6}})

@@ -111,6 +111,43 @@ async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: 
                        L["split_check"], warnings, stages)
 
 
+def combine(parts: list[DrillResult]) -> DrillResult:
+    """The drills of one alias (one cell per account) as one result: rows concatenated, columns in first-seen order."""
+    if len(parts) == 1:
+        return parts[0]
+    cols = list(dict.fromkeys(c for p in parts for c in p.columns))
+    rows = [r for p in parts for r in p.rows]
+    vals = [p.cell_value for p in parts]
+    gaps = [p.reconciliation.get("gap") for p in parts]
+    cell = {**parts[0].cell, "All Accounts": ", ".join(str(p.cell.get("All Accounts")) for p in parts)}
+    return DrillResult(cell, rows, cols, None if None in vals else sum(vals),
+                       {"lines": len(rows), "gap": None if None in gaps else sum(gaps)}, None, SOURCE,
+                       round(sum(p.secs for p in parts), 1),
+                       warnings=[w for p in parts for w in p.warnings],
+                       stages={"drill": round(sum(p.stages.get("drill", 0.0) for p in parts), 2)})
+
+
+async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], list[str], str | None]:
+    """A recipe's drills ([{alias, year, cells}], d1 first) -> ({alias: result}, warnings, why d1 failed or None).
+    A failed first drill stops (no last year without this year); a later failure is a warning."""
+    out, warnings, failed = {}, [], None
+    for i, d in enumerate(plan):
+        try:
+            parts = [await drill(cell, say=say) for cell in d["cells"]]
+        except Exception as e:   # noqa: BLE001 - the answer falls back to the cube (D21)
+            why = str(e)[:300]
+            if i == 0:
+                failed = why
+                break
+            warnings.append(f"The drill of 20{d['year']:02d} ({d['alias']}) failed: {why}")
+            continue
+        res = out[d["alias"]] = combine(parts)
+        warnings += res.warnings
+        say(f"Drilled {len(res.rows):,} lines for 20{d['year']:02d} ({res.secs:.0f} s)"
+            + ("; now last year ..." if i + 1 < len(plan) else ""))
+    return out, warnings, failed
+
+
 def write(t, q: int, alias: str, result: DrillResult, title: str, question: str = "", log: bool = True) -> dict:
     """The Excel half (inside a host job): 'Q<q> Lines[ alias]' (table Lines_Q<q>[_alias]) + a Sources row
     (log=False: the caller logs its own). 0 lines empties an existing table, so Excel matches the drill."""

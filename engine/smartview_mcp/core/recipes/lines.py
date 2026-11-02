@@ -98,6 +98,11 @@ INITIATIVE, DERIVED = "INITIATIVE", "INITIATIVE_DERIVED"
 NO_DESC = "(no description)"
 
 
+def mark(params: dict, rows: list[dict], columns: list[str]) -> list[str]:
+    """Before the Lines sheet is written: the initiative columns when the question asks for projects."""
+    return add_initiative(rows, columns) if params.get("projects") else list(columns)
+
+
 def add_initiative(rows: list[dict], columns: list[str] | None = None) -> list[str]:
     """Mark each line's initiative (in place): INITIATIVE = the booked project (PROJECT_DESC, else PROJECT) when
     PROJECT is filled and not 000000; otherwise INITIATIVE_DERIVED = the cost centre (CC_DESC), else the first 40

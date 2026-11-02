@@ -77,6 +77,7 @@ async def test_sv_answer_expands_a_recipe_in_the_excel_job_and_returns_its_perio
     monkeypatch.setattr(tools_core.templates, "closed_month", lambda h, *a: "Oct 26")
     monkeypatch.setattr(tools_core.catalog, "load", lambda: None)
     _gate_names_no_recipe(monkeypatch)
+    _no_frame(monkeypatch, t)
     seen = {}
 
     def run(h, raw, target, allow, **kw):
@@ -103,12 +104,19 @@ async def test_sv_answer_turns_a_recipe_error_into_a_tool_error(monkeypatch):
     monkeypatch.setattr(tools_core.templates, "closed_month", lambda h, *a: "Oct 26")
     monkeypatch.setattr(tools_core.catalog, "load", lambda: None)
     _gate_names_no_recipe(monkeypatch)
+    _no_frame(monkeypatch)
     with pytest.raises(ToolError, match="unknown recipe 'nope'"):
         await tools_core.sv_answer({"version": 1, "question": "q", "gate": GATE, "recipe": {"name": "nope"}})
 
 
 async def _job(job):
     return job(None)
+
+
+def _no_frame(monkeypatch, t=None):
+    from smartview_mcp import tools_core
+    monkeypatch.setattr(tools_core, "_frame", lambda h, spec, target, allow, status: (t, 1))
+    monkeypatch.setattr(tools_core.sheets, "rollback", lambda t: [])
 
 
 # ------------------------------------------------------------------ specs: data-driven top-N repeat

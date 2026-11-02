@@ -111,6 +111,23 @@ def followups(name: str | None, params: dict, period: str | None, fill: dict | N
     return out[:3]
 
 
+def drilling(name: str | None) -> bool:
+    """The recipe drills ledger lines before it drafts (sv_answer draws the first frame, then drills)."""
+    return hasattr(_module(name), "drills")
+
+
+def drills(name: str | None, params: dict, ctx: RecipeContext) -> list[dict]:
+    """The cells a recipe drills before it drafts ([{alias, year, cells}]; most recipes: none)."""
+    fn = getattr(_module(name), "drills", None)
+    return fn(dict(params), ctx) if fn else []
+
+
+def mark(name: str | None, params: dict, rows: list[dict], columns: list[str]) -> list[str]:
+    """Columns a recipe derives on its drilled rows (in place) before they are written; returns the columns."""
+    fn = getattr(_module(name), "mark", None)
+    return fn(params, rows, columns) if fn else columns
+
+
 def value_findings(findings: list[dict] | None, values: dict[str, list]) -> list[dict]:
     """A recipe's value findings ({severity, line, col, above, text with {value}}) -> the review's extra findings
     for the values the sheet calculated: only where |value| > above."""

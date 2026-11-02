@@ -2,6 +2,8 @@
 answer.build later clears it and renders the full answer in one block."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from .. import answer as answer_mod
 from ..excel.jobs import com
 from .contract import AnswerSpec
@@ -20,6 +22,15 @@ def skeleton(spec: AnswerSpec, status: str) -> list[str]:
     if spec.gate.outcome == "infeasible":
         rows += ["", f"Not answerable as asked: {spec.gate.reason}", f"Answered instead: {spec.gate.proxy}"]
     return rows
+
+
+def frame(spec: dict) -> SimpleNamespace:
+    """A recipe spec (no layout yet) as show() needs it: the first frame is drawn before the recipe drafts."""
+    g = spec.get("gate") or {}
+    return SimpleNamespace(layout=None, question=str(spec.get("question") or ""),
+                           assumptions=list(spec.get("assumptions") or []), deviation=spec.get("deviation"),
+                           gate=SimpleNamespace(outcome=g.get("outcome"), reason=g.get("reason"),
+                                                proxy=g.get("proxy")))
 
 
 def show(t, q: int, spec: AnswerSpec, status: str) -> str:

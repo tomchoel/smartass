@@ -214,3 +214,155 @@ def test_by_project_sheet_sums_to_lines_total():
         {"title": "c", "lines": [{"key": "chk", "cells": [{"expr": lay["checks"][0]["expr"]}]}]}]}, {}, {"d1": rows})
     assert abs(chk["chk"][0]) < 1 and lay["checks"][0]["label"] == "By project = lines total"
     assert not lines.lines_ranking(dict(PARAMS), _ctx()).extras
+
+
+# ------------------------------------------------------------------ B4: one sv_answer call, frame first, offline
+T11 = "Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026? og på hvilke initiativer / prosjekt"
+
+
+def _answer_env(monkeypatch, tmp_path, calls, fail=None):
+    """sv_answer offline: fake Excel (every job runs inline), a fake drill (D1/D2 on the first account) and a fake
+    cube whose values equal the ledger lines; answer.build evaluates the prepared spec like the sheet would."""
+    from smartview_mcp import config, templates, tools_core
+    from smartview_mcp.core import drillstep, pipeline, progress, reply, runlog, source
+    from smartview_mcp.excel import jobs, sheets, target
+    monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
+    monkeypatch.setattr(tools_core, "_closed_cached", lambda: "Sep 26")
+    monkeypatch.setattr(tools_core.scope.prefs, "lookup", lambda item, phrase: None)
+
+    async def closed():
+        return "Sep 26", None
+
+    async def call_user(job, what):
+        return job(None)
+    monkeypatch.setattr(tools_core, "_closed_month", closed)
+    monkeypatch.setattr(tools_core, "_call_user", call_user)
+
+    def resolve(h, tgt, allow=False, title=None):
+        calls.append(("target", tgt))
+        return SimpleNamespace(path="C:\\x\\a.xlsx", created=tgt == "new", sheets_added=[], status=lambda s: None,
+                               wb=SimpleNamespace(Worksheets=lambda n: n, ReadOnly=False))
+    monkeypatch.setattr(target, "resolve_target", resolve)
+    monkeypatch.setattr(sheets, "next_question", lambda t: 1)
+    monkeypatch.setattr(sheets, "rollback", lambda t: calls.append(("rollback", list(t.sheets_added))) or [])
+    monkeypatch.setattr(sheets, "save_spec", lambda *a, **k: None)
+    monkeypatch.setattr(sheets, "log_source", lambda *a, **k: None)
+    monkeypatch.setattr(runlog, "write_sheet", lambda t, e: None)
+    monkeypatch.setattr(reply, "finish", lambda *a, **k: None)
+    monkeypatch.setattr(jobs, "com", lambda call, *a, **k: call())
+    monkeypatch.setattr(progress, "show", lambda t, q, spec, status: calls.append(("show", f"Q{q} Answer", status)))
+    monkeypatch.setattr(progress, "set_status", lambda t, q, text: calls.append(("status", text)))
+    monkeypatch.setattr(progress, "link", lambda t, q, topics: None)
+    monkeypatch.setattr(templates, "closed_month", lambda h: "Sep 26")
+    monkeypatch.setattr(templates, "member_label", lambda c, m: m)
+
+    async def drill(cell, say=None, **k):
+        calls.append(("drill", cell["All Accounts"], cell["All Time Periods"]))
+        if fail:
+            raise RuntimeError(fail)
+        rows = [dict(r) for r in {"Yr 26": D1, "Yr 25": D2}[cell["All Time Periods"]]] \
+            if cell["All Accounts"] == "ac.C60080" else []
+        return drillstep.DrillResult(cell, rows, ["AP_CUSTOMER_NAME", "AMOUNT", "Period"] if rows else [], None,
+                                     {"lines": len(rows), "gap": 0.0}, None, drillstep.SOURCE, 1.0)
+    monkeypatch.setattr(drillstep, "drill", drill)
+    monkeypatch.setattr(drillstep, "write", lambda t, q, alias, res, title, question="", log=True: calls.append(
+        ("write", alias, list(res.columns), len(res.rows))) or {"sheet": f"Q{q} Lines {alias}"})
+
+    def pull(h, t, q, i, pin):
+        calls.append(("pull", pin.id))
+        accts, cols = pin.rows[0].members, pin.columns[0].members
+        now, ly = _lines_total(D1, NOW), _lines_total(D2, LY)
+        rows = [[a, now if a == "ac.C60080" else 0.0, ly if a == "ac.C60080" else 0.0] + [0.0] * (len(cols) - 2)
+                for a in accts]
+        p = SimpleNamespace(sheet=f"Q{q} FinLite {pin.id}", seconds=0.1,
+                            row_labels={(a,): (a,) for a in accts}, col_labels={(c,): (c,) for c in cols},
+                            layout=SimpleNamespace(col_tuples=[(c,) for c in cols], nr=1),
+                            parsed=SimpleNamespace(rows=rows, pov_problems=[], unknown_members=[]))
+        return source.Source(p, "http", [])
+    monkeypatch.setattr(pipeline.source, "pull", pull)
+    seen, real = {}, specs.prepare
+
+    def prepare(spec, ids, sess, drills=None):
+        seen["drills"] = drills
+        return real(spec, ids, sess, drills)
+    monkeypatch.setattr(pipeline.specs, "prepare", prepare)
+
+    def build(t, q, prep, sess, suffix, owned=None, **kw):
+        calls.append(("build", suffix))
+        vals = specs.evaluate(prep, sess, seen["drills"])
+        checks = {}
+        for c in prep.get("checks") or []:
+            lay = {**prep, "sections": prep["sections"] + [
+                {"title": "chk", "lines": [{"key": "_chk", "cells": [{"expr": c["expr"]}] * len(prep["columns"])}]}]}
+            v = specs.evaluate(lay, sess, seen["drills"])["_chk"]
+            ok = all(v[j] is not None and abs(v[j]) < 1 for j in c.get("columns") or [0])
+            checks[c["label"]] = "OK" if ok else "FAIL"
+        return {"sheet": f"Q{q} {suffix}", "checks": checks, "values": vals, "warnings": [], "formula_errors": [],
+                "lint": []}
+    monkeypatch.setattr(pipeline.answer_mod, "build", build)
+    return tools_core
+
+
+async def _gate_and_answer(tools_core, question=T11):
+    g = await tools_core.gate(question)
+    assert g["suggested_outcome"] == "clear" and g["recipe"]["name"] == "lines_ranking"
+    return await tools_core.answer({"version": 1, "question": question, "gate": {"outcome": "clear"},
+                                    "recipe": g["recipe"]}, target="new")
+
+
+@pytest.mark.anyio
+async def test_drill_recipe_draws_the_frame_before_any_drill(monkeypatch, tmp_path):
+    calls = []
+    await _gate_and_answer(_answer_env(monkeypatch, tmp_path, calls))
+    kinds = [c[0] for c in calls]
+    assert kinds.index("show") < kinds.index("drill") < kinds.index("write") < kinds.index("pull")
+    show = next(c for c in calls if c[0] == "show")
+    assert show[1] == "Q1 Answer" and "Drilling ledger lines for ac.C60080, ac.C60090" in show[2]
+    assert [c for c in calls if c[0] == "target"] == [("target", "new"), ("target", "C:\\x\\a.xlsx")]
+
+
+@pytest.mark.anyio
+async def test_failed_drill_leaves_a_cube_only_answer(monkeypatch, tmp_path):
+    calls = []
+    out = await _gate_and_answer(_answer_env(monkeypatch, tmp_path, calls, fail="link timed out"))
+    assert ("status", "Drill failed: link timed out; cube totals only") in calls
+    assert [c[1:] for c in calls if c[0] == "drill"] == [("ac.C60080", "Yr 26")]      # no LY drill after a failure
+    assert not [c for c in calls if c[0] in ("write", "rollback")]
+    assert out["checks"] == {"Accounts = total": "OK"} and "Total (cube)" in out["key_values"]
+    assert any("link timed out" in w for w in out["warnings"]) and any("cube total only" in w for w in out["warnings"])
+
+
+@pytest.mark.anyio
+async def test_frame_before_recipe_expansion_for_non_drill_recipes(monkeypatch, tmp_path):
+    from smartview_mcp import tools_core as tc
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+
+    def expand(h, spec, lines=None):
+        calls.append(("expand", lines))
+        raise ValueError("stop here")
+    monkeypatch.setattr(tc, "_expand_recipe", expand)
+    q = "What is EBITDA for Business in September?"
+    with pytest.raises(ValueError, match="stop here"):
+        await tc.answer({"version": 1, "question": q, "gate": {"outcome": "clear"},
+                         "recipe": {"name": "pnl", "params": {"area": "un.SY.2BUS"}}}, target="new")
+    assert [c[0] for c in calls] == ["target", "show", "expand", "rollback"]
+    assert calls[2] == ("expand", None)
+
+
+@pytest.mark.anyio
+async def test_consultant_question_end_to_end_offline(monkeypatch, tmp_path):
+    calls = []
+    out = await _gate_and_answer(_answer_env(monkeypatch, tmp_path, calls))
+    assert out["sheets"][:4] == ["Q1 Answer", "Q1 By project", "Q1 Lines d1", "Q1 Lines d2"]
+    assert set(out["checks"].values()) == {"OK"} and "By project: By project = lines total" in out["checks"]
+    kv = out["key_values"]
+    assert kv["Total (cube)"]["YTD Sep 26"] == pytest.approx(_lines_total(D1, NOW))
+    assert ["TSS - Telenor Shared Services AS", "Telenor ASA", "Towers Norge AS"] == [
+        k for k in kv if k.startswith(("TSS", "Telenor", "Towers"))]
+    assert kv[lines.NO_SUPPLIER]["YTD Sep 26"] == pytest.approx(
+        sum(r["AMOUNT"] for r in D1 if r["Period"] in NOW and not r["AP_CUSTOMER_NAME"]))
+    assert 1 <= len(out["followups"]) <= 3 and out["followups"][0] == "Show the invoice lines for KPMG AS"
+    w1 = next(c for c in calls if c[0] == "write" and c[1] == "d1")
+    assert w1[2][-2:] == [lines.INITIATIVE, lines.DERIVED] and w1[3] == len(D1)
+    assert not [f for f in out["review"]["findings"] if f["severity"] == "Critical"]

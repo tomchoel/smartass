@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import json
+import os
 from typing import Literal
 
 from mcp.server.mcpserver import Context
@@ -12,7 +13,7 @@ from pydantic import ValidationError
 
 from . import catalog, config, templates
 from .excel import sheets, target as xltarget
-from .core import contract, pipeline, prefs, recipes, reply, runlog, scope
+from .core import contract, drillstep, pipeline, prefs, progress, recipes, reply, runlog, scope
 from .core import followup as followup_mod
 from .core import period as periods
 from .host import HostError, InputError
@@ -120,11 +121,16 @@ def _pnl_facts(h, area: str, period: str | None, compare: tuple[str, ...]):
     return res, mode, fills, notes, entity
 
 
-def _expand_recipe(h, spec: dict) -> tuple[dict, dict]:
-    """(the full spec, extra result keys) for a recipe spec; runs inside the Excel job (closed month, live reads)."""
-    ctx = recipes.RecipeContext(closed=templates.closed_month(h), cat=catalog.load(), label=templates.member_label,
-                                pnl_facts=lambda area, period, compare: _pnl_facts(h, area, period, compare),
-                                now=dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+def _recipe_ctx(h, lines: dict | None = None) -> recipes.RecipeContext:
+    return recipes.RecipeContext(closed=templates.closed_month(h), cat=catalog.load(), label=templates.member_label,
+                                 pnl_facts=lambda area, period, compare: _pnl_facts(h, area, period, compare),
+                                 now=dt.datetime.now().strftime("%Y-%m-%d %H:%M"), lines=lines)
+
+
+def _expand_recipe(h, spec: dict, lines: dict | None = None) -> tuple[dict, dict]:
+    """(the full spec, extra result keys) for a recipe spec; runs inside the Excel job (closed month, live reads).
+    lines: the drilled rows by alias (lines_ranking)."""
+    ctx = _recipe_ctx(h, lines)
     try:
         return recipes.expand(spec, ctx)
     except InputError:
@@ -239,15 +245,24 @@ async def answer(spec: dict | None = None, followup: dict | None = None, q: int 
         if early is not None:
             return early
 
-    def job(h):
+    def job(h, pre: dict | None = None):
         tm = Timer.start()
         p = parsed
-        extra = {}
+        extra, drawn = {}, []
         try:
             if followup is None and recipe:
-                raw, extra = _expand_recipe(h, spec)
-                p = pipeline.parse_spec(raw)
-                r = pipeline.run(h, raw, target, allow_archive)
+                t, fq = _reopen(h, pre, allow_archive) if pre else \
+                    _frame(h, spec, target, allow_archive, "drafting the analysis ...")
+                try:
+                    lines, drawn = _drilled(t, fq, spec, pre) if pre else (None, [])
+                    raw, extra = _expand_recipe(h, spec, lines)
+                    p = pipeline.parse_spec(raw)
+                except Exception:
+                    sheets.rollback(t)
+                    raise
+                extra["warnings"] = (pre or {}).get("warnings", []) + list(extra.get("warnings") or [])
+                r = pipeline.run(h, raw, target, allow_archive, q=fq, t=t, frame_done=True, drills=lines,
+                                 value_findings=extra.pop("findings", None))
             elif followup is None:
                 r = pipeline.run(h, spec, target, allow_archive)
             else:
@@ -286,8 +301,13 @@ async def answer(spec: dict | None = None, followup: dict | None = None, q: int 
                "timings": tm.summary()}
         if followup is not None:
             out.update(followup_of=r.q, reused=r.reused)
+        if drawn:                                   # the Lines sheets after the answer's own sheets
+            n = 1 + len(r.res.get("extra_sheets") or [])
+            out["sheets"] = out["sheets"][:n] + drawn + out["sheets"][n:]
+            out["data_sheets"] = drawn + out["data_sheets"]
+        if pre:
+            out["timings"] = {**out["timings"], "first frame": pre["frame_s"], "drills": pre["drill_s"]}
         fill = extra.pop("fill", None) if extra else None
-        extra.pop("findings", None)          # wired into the review in B4
         if extra:
             warn = list(dict.fromkeys(list(extra.get("warnings") or []) + list(out.get("warnings") or [])))
             out = {**out, **{k: v for k, v in extra.items() if k != "warnings"}, "warnings": warn}
@@ -295,7 +315,68 @@ async def answer(spec: dict | None = None, followup: dict | None = None, q: int 
         params = rec.get("params") or {}
         out["followups"] = recipes.followups(rec.get("name"), params, out.get("period") or params.get("period"), fill)
         return out
+    if followup is None and recipe and recipes.drilling(spec["recipe"].get("name")):
+        return await _answer_with_drills(spec, target, allow_archive, job)
     return await _call_user(job, what="sv_answer")
+
+
+async def _answer_with_drills(spec: dict, target: str, allow_archive: bool, job) -> dict:
+    """A recipe that drills (lines_ranking, D21): job A draws the first frame, the drills run on the event loop
+    (no Excel held), job B writes the Lines sheets and renders the answer - a cube-only answer if d1 failed."""
+    import time
+    t0, rec = time.monotonic(), spec["recipe"]
+
+    def frame_job(h):
+        plan = recipes.drills(rec.get("name"), rec.get("params") or {}, _recipe_ctx(h))
+        accounts = ", ".join(dict.fromkeys(str(c.get("All Accounts")) for d in plan for c in d["cells"]))
+        t, q = _frame(h, spec, target, allow_archive, f"Drilling ledger lines for {accounts} (about 60 s) ...")
+        return {"target": t.path if os.path.isabs(str(t.path)) else "active", "created": bool(t.created),
+                "added": list(t.sheets_added), "q": q, "plan": plan}
+    pre = await _call_user(frame_job, what="sv_answer")
+    pre["frame_s"], t1 = round(time.monotonic() - t0, 1), time.monotonic()
+    pre["results"], warnings, pre["failed"] = await drillstep.drill_all(pre.pop("plan"))
+    pre["drill_s"] = round(time.monotonic() - t1, 1)
+    if pre["failed"]:
+        warnings.append(f"Drill failed: {pre['failed']}")
+    pre["warnings"] = warnings
+    return await _call_user(lambda h: job(h, pre), what="sv_answer")
+
+
+def _frame(h, spec: dict, target: str, allow_archive: bool, status: str):
+    """(t, q): open the target and draw the first frame of 'Q<q> Answer' before the recipe drafts or drills."""
+    with stage("open target"):
+        t = xltarget.resolve_target(h, target, allow_archive, title=str(spec.get("question") or "")[:50])
+        q = sheets.next_question(t)
+    with stage("answer skeleton"):
+        progress.show(t, q, progress.frame(spec), status)
+    return t, q
+
+
+def _reopen(h, pre: dict, allow_archive: bool):
+    """Job B: the workbook job A framed (COM objects do not cross jobs), with job A's new sheets for a rollback."""
+    with stage("open target"):
+        t = xltarget.resolve_target(h, pre["target"], allow_archive)
+    t.created = t.created or pre["created"]
+    t.sheets_added[:0] = [s for s in pre["added"] if s not in t.sheets_added]
+    return t, pre["q"]
+
+
+def _drilled(t, q: int, spec: dict, pre: dict) -> tuple[dict | None, list[str]]:
+    """({alias: rows} or None if d1 failed, the Lines sheets written): each drill as 'Q<q> Lines <alias>', with
+    the recipe's derived columns."""
+    if pre["failed"]:
+        progress.set_status(t, q, f"Drill failed: {pre['failed']}; cube totals only")
+        return None, []
+    rec, lines, names = spec["recipe"], {}, []
+    for alias, res in pre["results"].items():
+        res.columns = recipes.mark(rec.get("name"), rec.get("params") or {}, res.rows, res.columns)
+        with stage(f"write lines {alias}"):
+            info = drillstep.write(t, q, alias, res, title=f"Ledger lines {alias}: {spec['question']}"[:120],
+                                   question=spec["question"])
+        lines[alias] = res.rows
+        names += [info["sheet"]] if info else []
+    progress.set_status(t, q, "drafting the analysis ...")
+    return lines, names
 
 
 async def _call_user(fn, what: str):
