@@ -1,4 +1,4 @@
-"""A Frame: one cube's warehouse values keyed by (entity, line key, period, scenario key), with the catalogue lines
+"""A Frame: one cube's values keyed by (entity, line key, period, scenario key), with the catalogue lines
 attached - the calc engine's only input. Scenario keys are the catalogue's ([scenarios]: actual, actual_finplan,
 budget, forecast). Flow lines come from Periodic cells, stock lines (FTE) from Accumulated cells (the month-end
 level)."""
@@ -10,7 +10,7 @@ from typing import Mapping
 from ..catalog import Line
 
 Key = tuple[str, str, str, str]                                # entity, line key, period, scenario key
-WhKey = tuple[str, str, str, str, str, str, str]               # warehouse key (see warehouse.py)
+WhKey = tuple[str, str, str, str, str, str, str]               # fact key (see factstore.py)
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class Frame:
         raise KeyError(f"{self.cube} has no line '{key}'")
 
     def get(self, entity: str, line: str, period: str, scenario: str) -> tuple[float, WhKey | tuple] | None:
-        """(value, warehouse key) - a cell read as blank (#Missing) counts as 0 - or None when it was never read."""
+        """(value, fact key) - a cell read as blank (#Missing) counts as 0 - or None when it was never read."""
         k = (entity, line, period, scenario)
         if k not in self.values:
             return None
@@ -41,7 +41,7 @@ def balance_of(line: Line) -> str:
 
 
 def from_rows(cube: str, lines, rows: Mapping[WhKey, float | None], scenarios: Mapping[tuple[str, str], str]) -> Frame:
-    """Frame from warehouse rows. scenarios maps (scenario member, version) to a scenario key, e.g.
+    """Frame from fact rows. scenarios maps (scenario member, version) to a scenario key, e.g.
     {('Actual', ''): 'actual'} for FinMax or {('Target', 'Final'): 'budget'} for FinPlan; other rows are ignored."""
     by_account = {x.account: x for x in lines}
     if len(by_account) != len(lines):
@@ -57,7 +57,7 @@ def from_rows(cube: str, lines, rows: Mapping[WhKey, float | None], scenarios: M
         if c != cube or line is None or s is None or bal != balance_of(line):
             continue
         if (ent, line.key, period, s) in values:
-            raise ValueError(f"{cube}: two warehouse rows both map to {(ent, line.key, period, s)}")
+            raise ValueError(f"{cube}: two fact rows both map to {(ent, line.key, period, s)}")
         values[(ent, line.key, period, s)] = v
         sources[(ent, line.key, period, s)] = key
     return Frame(cube, tuple(lines), values, sources)

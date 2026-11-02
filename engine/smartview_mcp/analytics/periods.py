@@ -1,5 +1,5 @@
 """Period arithmetic on FinMax month names ('Sep 26'), reusing templates' helpers. FinPlan months are stored the same
-way in the warehouse ('Sep 26' = Period Sep of Years FY26)."""
+way in the fact store ('Sep 26' = Period Sep of Years FY26)."""
 from __future__ import annotations
 
 from ..templates import MONTHS, months_to, same_period_ly, split_period

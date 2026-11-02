@@ -1,7 +1,7 @@
-"""Extract jobs (Stage 2): the grids that fill the warehouse, built from the catalogue, read over Smart View's HTTP
-protocol with the COM route as fallback (like tools_query._retrieve), stored as warehouse rows and reconciled.
+"""Extract jobs (Stage 2): the grids the pnl recipe reads live, built from the catalogue, read over Smart View's HTTP
+protocol with the COM route as fallback, stored as FactStore rows and reconciled.
 
-Base fill: every business area (not abolished) plus the company total x the catalogue's lines x 36 months.
+Base read: the area (or unit) x the catalogue's lines x 36 months.
 - FinMax Actual: flow lines Periodic (YTD is the sum of the months); stock lines (FTE) Accumulated = the month-end
   level, plus the opening December; one Accumulated spot column at the closed month for the months = YTD check.
 - FinPlan: Actual/Working (FY-1, FY), Target/Final and the latest Forecast/Final (FY-1, FY, FY+1, where the forecast
@@ -19,7 +19,7 @@ from .analytics.frame import from_rows
 from .catalog import Catalog, Entity
 from .grid import Axis, Layout, Parsed
 from .host import InputError
-from .warehouse import OPEN, Fill, Row, WarehouseUnavailable, WhKey
+from .factstore import OPEN, FactStore, Fill, Row, WhKey
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def _norm(d: str) -> str:
 
 
 def wh_key(conn: str, members: dict[str, str]) -> WhKey:
-    """The warehouse key of one cell, from its full member set {dimension: member} (any dimension spelling)."""
+    """The fact key of one cell, from its full member set {dimension: member} (any dimension spelling)."""
     m = {_norm(d): v for d, v in members.items()}
     if conn == "FinPlan":
         return (conn, m["scenario"], m["version"], m["entity"], m["account"],
@@ -66,9 +66,9 @@ def wh_key(conn: str, members: dict[str, str]) -> WhKey:
 
 
 def to_rows(lay: Layout, parsed: Parsed, conn: str, route: str, fetched_at: float, closed_label: str,
-            atlas_build: str = "", closed: str | None = None,
+            closed: str | None = None,
             unknown: set[str] | None = None) -> tuple[list[Row], list[str]]:
-    """Warehouse rows for every data cell of a retrieved grid (parsed with suppression off), and the problems:
+    """FactStore rows for every data cell of a retrieved grid (parsed with suppression off), and the problems:
     cells that are not data (#NoAccess, #Invalid) are not stored. With `closed`, an Actual cell of a month after it
     is not closed history (FinPlan carries blank actuals for the rest of the year): it is labelled OPEN."""
     pov = dict(lay.pov)
@@ -92,7 +92,7 @@ def to_rows(lay: Layout, parsed: Parsed, conn: str, route: str, fetched_at: floa
                 problems.append(f"{' / '.join(combo)} / {' / '.join(ctuple)}: {v}")
                 continue
             label = OPEN if closed and key[1] == "Actual" and periods.after(key[5], closed) else closed_label
-            rows.append(Row(key, None if v is None else float(v), route, fetched_at, label, atlas_build))
+            rows.append(Row(key, None if v is None else float(v), route, fetched_at, label))
     return rows, problems
 
 
@@ -190,7 +190,7 @@ def route(http=None, host: Callable[[], object] | None = None) -> Retrieve:
             except Exception as e:   # noqa: BLE001 - the HTTP route failed: Smart View in Excel, if we may
                 if host is None:
                     raise
-                log.warning("warehouse extract: HTTP route failed (%s); using Smart View in Excel", e)
+                log.warning("live read: HTTP route failed (%s); using Smart View in Excel", e)
         h = host()
         lay, p, secs = h.on_host(lambda: ops.query(h, conn, pov, rows, cols, False, False),
                                  timeout=max(config.CALL_TIMEOUT_S, n_cells / 200))
@@ -228,12 +228,9 @@ def check_batch(cat: Catalog, rows: list[Row], closed: str, store=None) -> tuple
     spot = {k: v for k, v in data.items() if k[0] == "FinMax" and k[6] == "Accumulated" and k[5] == closed
             and k[4] in flows}
     if spot and store is not None:
-        try:
-            stored = store.get("FinMax", {k[3] for k in spot}, {k[4] for k in spot}, ytd, "Actual", "", "Periodic",
-                               closed_only=True)
-            periodic = {**stored, **periodic}
-        except WarehouseUnavailable:
-            pass
+        stored = store.get("FinMax", {k[3] for k in spot}, {k[4] for k in spot}, ytd, "Actual", "", "Periodic",
+                           closed_only=True)
+        periodic = {**stored, **periodic}
     k, p = reconcile.months_vs_ytd(periodic, spot, ytd)
     n, problems = n + k, problems + p
     company = next((e for e in cat.entities if e.key == "company"), None)
@@ -247,33 +244,32 @@ def check_batch(cat: Catalog, rows: list[Row], closed: str, store=None) -> tuple
     return n, problems, info
 
 
-def fill(store, retrieve: Retrieve, cat: Catalog, grids: list[Grid], job: str, closed: str,
-         closed_label: str | None = None, atlas_build: str = "", now: Callable[[], float] = time.time,
+def fill(store: FactStore, retrieve: Retrieve, cat: Catalog, grids: list[Grid], job: str, closed: str,
+         closed_label: str | None = None, now: Callable[[], float] = time.time,
          atlas_db=None) -> FillResult:
     """Read every grid, store the rows, reconcile them and record the job in `fill`. A grid that fails is named in
-    the result (the others are still stored); a failed job leaves the refresh state as it was, so it is retried."""
+    the result (the others are still stored)."""
     t0, started = time.monotonic(), now()
     own_db = atlas_db is None and config.ATLAS_DB.exists()
     atlas_db = atlas.connect(config.ATLAS_DB) if own_db else atlas_db
     try:
-        return _fill(store, retrieve, cat, grids, job, closed, closed_label, atlas_build, now, atlas_db, t0, started)
+        return _fill(store, retrieve, cat, grids, job, closed, closed_label, now, atlas_db, t0, started)
     finally:
         if own_db:
             atlas_db.close()
 
 
-def _fill(store, retrieve, cat, grids, job, closed, closed_label, atlas_build, now, atlas_db, t0, started):
-    rows, errors, warnings, routes, transport = [], [], [], set(), False
+def _fill(store, retrieve, cat, grids, job, closed, closed_label, now, atlas_db, t0, started):
+    rows, errors, warnings, routes = [], [], [], set()
     for g in grids:
         try:
             lay, parsed, _secs, how = retrieve(g.conn, g.pov, g.rows, g.cols)
         except Exception as e:   # noqa: BLE001 - one failed grid must not lose the others
-            transport = True
             errors.append(f"{g.what}: {type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}")
             continue
         routes.add(how)
         unknown = really_unknown(atlas_db, g.conn, parsed.unknown_members)
-        got, bad = to_rows(lay, parsed, g.conn, how, now(), closed_label or closed, atlas_build, closed,
+        got, bad = to_rows(lay, parsed, g.conn, how, now(), closed_label or closed, closed,
                            set(unknown))
         rows += got
         found = [f"{g.what}: {b}" for b in bad[:5]] + [f"{g.what}: {w}" for w in parsed.pov_problems]
@@ -283,20 +279,11 @@ def _fill(store, retrieve, cat, grids, job, closed, closed_label, atlas_build, n
         else:
             errors += found or [f"{g.what}: no cells returned"]            # the whole grid failed
     detail = {"grids": len(grids), "routes": sorted(routes), "errors": errors[:20], "warnings": warnings[:20],
-              "checks": 0, "problems": [], "info": [], "refused": 0, "content_only": bool(errors) and not transport}   # content_only: retrying cannot help
-    try:
-        written = store.put(rows)
-    except WarehouseUnavailable as e:
-        detail["errors"] = [f"warehouse unavailable, {len(rows)} cells not stored: {e}", *errors][:20]
-        detail["content_only"] = False
-        f = Fill(job, f"{len(grids)} grids", started, round(time.monotonic() - t0, 2), 0, "error", detail)
-        return FillResult(f, [])
+              "checks": 0, "problems": [], "info": [], "refused": 0}
+    written = store.put(rows)
     n, problems, info = check_batch(cat, rows, closed, store) if rows else (0, [], [])
     result = "error" if errors else ("warn" if problems or warnings else "ok")
     detail.update(checks=n, problems=problems[:20], info=info, refused=len({r.key for r in rows}) - written)
     f = Fill(job, f"{len(grids)} grids", started, round(time.monotonic() - t0, 2), written, result, detail)
-    try:
-        store.record_fill(f)
-    except WarehouseUnavailable as e:
-        log.warning("warehouse extract: the fill record was not stored: %s", e)
+    store.record_fill(f)
     return FillResult(f, rows)

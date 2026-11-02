@@ -1,11 +1,11 @@
-"""fin_pnl.compute on a synthetic warehouse: variances, flags, bridges, KPIs and landing (invented figures)."""
+"""fin_pnl.compute on a synthetic fact store: variances, flags, bridges, KPIs and landing (invented figures)."""
 import dataclasses
 
 import pytest
 from fin_util import CAT, CAT0, FC, WHS, filled, make_value
 
 from smartview_mcp import fin_pnl
-from smartview_mcp.warehouse import Row
+from smartview_mcp.factstore import Row
 
 YR = 1.1
 AVG_FTE = (10 + 11 * 9) / 10                     # Dec 25 = 10 (2025), Jan..Sep 26 = 11: n+1 = 10 points
@@ -129,14 +129,14 @@ def test_an_open_month_is_read_from_the_top_up_and_its_flags_are_provisional(tmp
     res = fin_pnl.compute(CAT, scope, store)
     assert res.fm["ebitda"]["m"].current.value == pytest.approx(290 * YR)
     assert res.freshness["FinMax"]["open_rows"] > 0 and res.provisional
-    assert "open month read live" in fin_pnl.freshness_text(res, "warehouse")
-    s = fin_pnl.summary(res, "warehouse", [], cat=CAT)
+    assert "open month read live" in fin_pnl.freshness_text(res, "live read")
+    s = fin_pnl.summary(res, "live read", [], cat=CAT)
     assert s["area"] == "Wholesale" and s["landing"]["method"].startswith("seasonality")
     assert "facts" not in s and s["headline_kpi"] == "personnel_per_fte" and s["missing_count"] == 0
     assert s["provisional"] and all(f["provisional"] for f in s["flags"])
     assert fin_pnl.flag_text(res, "ly", "rev") == "comment - provisional"
     assert any("still open" in w for w in fin_pnl.tool_warnings(res, []))
-    full = fin_pnl.summary(res, "warehouse", [], cat=CAT, detail="full")
+    full = fin_pnl.summary(res, "live read", [], cat=CAT, detail="full")
     assert full["facts"] and any(f["id"].endswith(".pct") for f in full["facts"])
 
 
@@ -145,7 +145,7 @@ def test_the_tool_output_is_compact_signed_and_labelled_per_cube(tmp_path):
     labels = fin_pnl.line_labels(CAT, lambda cube, acct: "C30 REVENUES" if acct == "ac.C30" else None)
     assert labels[("FinMax", "rev")] == "C30 REVENUES (Revenue)" and labels[("FinPlan", "oth")] == "Other items"
     res = fin_pnl.compute(CAT0, dataclasses.replace(scope, labels=labels), store)
-    s = fin_pnl.summary(res, "warehouse", [], cat=CAT0)
+    s = fin_pnl.summary(res, "live read", [], cat=CAT0)
     rev = next(f for f in s["flags"] if f["comparison"] == "ly" and f["line"] == "rev")
     assert rev["label"] == "C30 REVENUES (Revenue)" and rev["ytd_var"] == pytest.approx(900)
     assert rev["month_var"] == pytest.approx(100) and rev["favourable"] is True and "variance" not in rev
@@ -162,7 +162,7 @@ def test_the_variance_pct_is_blank_under_the_floor(tmp_path):
     assert res.fm["rev"]["ytd"].pct.value is not None
     assert fin_pnl.shown_pct(res.fm["rev"]["ytd"], CAT.materiality) is None
     assert fin_pnl.shown_pct(res.fm["fte"]["ytd"], CAT.materiality) is not None    # FTE is not an amount
-    s = fin_pnl.summary(res, "warehouse", [], cat=CAT)
+    s = fin_pnl.summary(res, "live read", [], cat=CAT)
     assert next(r for r in s["table"] if r["line"] == "rev")["ytd"]["pct"] is None
 
 
@@ -183,27 +183,27 @@ def test_a_forecast_without_data_is_detected(tmp_path):
 
 def test_warned_fills_and_refresh_notes_are_tool_warnings(tmp_path):
     from smartview_mcp.extract import FillResult
-    from smartview_mcp.warehouse import Fill
+    from smartview_mcp.factstore import Fill
     store, _, scope = filled(tmp_path)
     res = fin_pnl.compute(CAT, scope, store)
     warn = FillResult(Fill("new_month", "x", 0.0, 0.1, 5, "warn", {"problems": ["C30 + C40S = C48 is off by 3"]}))
-    w = fin_pnl.tool_warnings(res, [warn], ["warehouse refresh skipped: another smartass process is refreshing"])
-    assert any("C30 + C40S = C48 is off by 3" in x for x in w) and w[-1].startswith("warehouse refresh skipped")
+    w = fin_pnl.tool_warnings(res, [warn], ["a live read was slow: retried once"])
+    assert any("C30 + C40S = C48 is off by 3" in x for x in w) and w[-1].startswith("a live read was slow")
 
 
 
 def test_refresh_notes_are_in_the_freshness_line(tmp_path):
     store, _, scope = filled(tmp_path)
     res = fin_pnl.compute(CAT, scope, store)
-    note = "warehouse refresh skipped: another smartass process is refreshing"
-    assert note in fin_pnl.freshness_text(res, "warehouse", [note])
-    assert fin_pnl.summary(res, "warehouse", [], [note])["refresh_notes"] == [note]
-    assert "skipped" not in fin_pnl.freshness_text(res, "warehouse")
+    note = "a live read was slow: retried once"
+    assert note in fin_pnl.freshness_text(res, "live read", [note])
+    assert fin_pnl.summary(res, "live read", [], [note])["refresh_notes"] == [note]
+    assert "slow" not in fin_pnl.freshness_text(res, "live read")
 
 
 def test_kpi_rows_have_no_variance_pct(tmp_path):
     store, _, scope = filled(tmp_path)
     res = fin_pnl.compute(CAT0, scope, store)
-    rows = [r for r in fin_pnl.summary(res, "warehouse", [], cat=CAT0)["table"] if r["line"].startswith("kpi.")]
+    rows = [r for r in fin_pnl.summary(res, "live read", [], cat=CAT0)["table"] if r["line"].startswith("kpi.")]
     assert rows and all(r["ytd"]["pct"] is None and (r["month"] is None or r["month"]["pct"] is None) for r in rows)
     assert res.kpi_vars["ebitda_margin"]["ytd"].pct.value is not None                 # the engine still has it

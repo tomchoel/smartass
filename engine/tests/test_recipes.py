@@ -249,11 +249,11 @@ def test_concept_unknown_id_lists_the_known_ones(monkeypatch):
         recipes.expand(raw, ctx())
 
 
-def test_pnl_is_fin_spec_on_pull_ids_with_the_warehouse_expectation(tmp_path):
+def test_pnl_is_fin_spec_on_pull_ids_with_the_live_read_expectation(tmp_path):
     from fin_util import CAT0
-    from test_fin_spec import build as fs_build                # (res, req, sheets) for a filled warehouse
+    from test_fin_spec import build as fs_build                # (res, req, sheets) for a filled fact store
     res, req, _ = fs_build(tmp_path)
-    facts = lambda area, period, compare: (res, "warehouse", [], [], res.scope.entity)  # noqa: E731
+    facts = lambda area, period, compare: (res, "live read", [], [], res.scope.entity)  # noqa: E731
     out, extra = recipes.expand({"version": 1, "question": "Wholesale P&L", "gate": GATE,
                                  "recipe": {"name": "pnl", "params": {"area": "Wholesale"}}},
                                 ctx(cat=CAT0, pnl_facts=facts))
@@ -265,9 +265,9 @@ def test_pnl_is_fin_spec_on_pull_ids_with_the_warehouse_expectation(tmp_path):
     assert extra["period"] == res.scope.period
 
 
-def test_pnl_needs_the_warehouse_and_an_area():
+def test_pnl_needs_a_facts_reader_and_an_area():
     raw = {"version": 1, "question": "q", "gate": GATE, "recipe": {"name": "pnl", "params": {"area": "Wholesale"}}}
-    with pytest.raises(ValueError, match="warehouse"):
+    with pytest.raises(ValueError, match="facts reader"):
         recipes.expand(raw, ctx())
     raw["recipe"]["params"] = {}
     with pytest.raises(ValueError, match="area"):

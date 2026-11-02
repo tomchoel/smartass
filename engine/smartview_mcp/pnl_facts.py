@@ -1,51 +1,57 @@
-"""The pnl recipe's data side: area/unit resolution, the warehouse or live store, top-up and the calc engine."""
+"""The pnl recipe's data side: area/unit resolution, live reads into a FactStore, top-up and the calc engine."""
 from __future__ import annotations
+
+import time
+from typing import Callable
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import atlas, catalog, extract, refresh, templates
+from . import atlas, catalog, extract, templates
 from . import fin_pnl as pnl
 from .analytics import periods
+from .extract import FillResult, Grid, fill, finmax_grids, finplan_grids
+from .factstore import OPEN, FactStore
+from .grid import Axis
 from .host import InputError
 from .timing import stage
-from .warehouse import OPEN, MemoryWarehouse, Warehouse, WarehouseUnavailable
+
+RECIPE = "sv_answer (recipe 'pnl')"
 
 
 def resolve_area(cat: catalog.Catalog, area: str, units: bool = False) -> catalog.Entity:
     """The one business area `area` names; a readable ToolError for none or several. An abolished area (2CON
     Consumer, 2IG Infrastructure Growth: emptied on 1 June 2026, history restated, so its figures are empty) is never
     answered: the error explains the split and lists the successors to offer the user. units: the caller also
-    takes a unit below an area (fin_pnl), said in the error."""
+    takes a unit below an area, said in the error."""
     found = catalog.resolve_entities(cat, area)
     known = ", ".join(e.label for e in cat.entities if not e.abolished)
     if not found:
         if units:
             raise ToolError(f"'{area}' names no business area and no FinMax entity the local atlas knows. Next step: "
-                            f"find the unit with sv_find_member('{area}') and call fin_pnl with its member name "
+                            f"find the unit with sv_find_member('{area}') and call {RECIPE} with its member name "
                             f"(e.g. 'un.SY.5OK_W'), or with one of: {known}.")
-        raise ToolError(f"'{area}' names no business area. Next step: call fin_pnl with one of: {known}.")
+        raise ToolError(f"'{area}' names no business area. Next step: call {RECIPE} with one of: {known}.")
     if len(found) > 1:
         raise ToolError(f"'{area}' names several areas ({', '.join(e.label for e in found)}). Next step: ask the "
-                        "user which one, then call fin_pnl once per area.")
+                        f"user which one, then call {RECIPE} once per area.")
     e = found[0]
     if e.abolished:
         succ = [x for x in cat.entities if x.key in e.successors]
         names = ", ".join(f"{x.label} ({x.finmax})" for x in succ)
         raise ToolError(f"{e.label} ({e.finmax}) was abolished on {e.abolished}: {e.note} Its figures are empty "
                         f"after the restatement, so they are not reported. Successors: {names}. Next step: tell the "
-                        "user about the split and ask which successor(s) they want, then call fin_pnl once per "
+                        f"user about the split and ask which successor(s) they want, then call {RECIPE} once per "
                         "successor.")
     return e
 
 
 UNIT = "unit:"                                    # key prefix of the synthetic Entity of a unit below an area
-LIVE_UNIT = "live pulls (sub-unit: not kept in the warehouse)"
+LIVE, LIVE_UNIT = "live read", "live read (sub-unit)"
 ENTITIES = "All Entities"
 
 
 def is_unit(entity: catalog.Entity) -> bool:
-    """A unit below a catalogue area: always read live, never kept in the warehouse (the refresh triggers only know
-    the catalogue areas, so stored unit rows would go stale silently)."""
+    """A unit below a catalogue area (a synthetic Entity from resolve_scope)."""
     return entity.key.startswith(UNIT)
 
 
@@ -70,13 +76,13 @@ def _finplan_of(db, member: str) -> str | None:
 
 
 def resolve_scope(cat: catalog.Catalog, area: str, db) -> catalog.Entity:
-    """fin_pnl's entity: a catalogue area (resolve_area), or any FinMax entity the atlas knows below a non-abolished
-    area (e.g. 'un.SY.5OK_W' or '5OK_W') as a synthetic Entity (key 'unit:<member>', label from the atlas, the
-    FinPlan member with the same code if any). A readable ToolError otherwise."""
+    """The pnl recipe's entity: a catalogue area (resolve_area), or any FinMax entity the atlas knows below a
+    non-abolished area (e.g. 'un.SY.5OK_W' or '5OK_W') as a synthetic Entity (key 'unit:<member>', label from the
+    atlas, the FinPlan member with the same code if any). A readable ToolError otherwise."""
     names = _entity_names(db, area)
     if len(names) > 1:
         raise ToolError(f"'{area}' matches several FinMax entities ({', '.join(names)}). Next step: ask the user "
-                        "which one, then call fin_pnl with its member name.")
+                        f"which one, then call {RECIPE} with its member name.")
     if not names:
         return resolve_area(cat, area, units=True)
     m = names[0]
@@ -90,7 +96,7 @@ def resolve_scope(cat: catalog.Catalog, area: str, db) -> catalog.Entity:
     if top.abolished:
         raise ToolError(f"{m} is below {top.label} ({top.finmax}), abolished on {top.abolished}: {top.note} Its "
                         "figures are empty after the restatement. Next step: find the unit's new place with "
-                        "sv_find_member and ask the user, then call fin_pnl with that member.")
+                        f"sv_find_member and ask the user, then call {RECIPE} with that member.")
     r = db.execute("SELECT label FROM member WHERE connection='FinMax' AND dimension=? AND name=? LIMIT 1",
                    (ENTITIES, m)).fetchone()
     return catalog.Entity(key=UNIT + m, label=templates._clean(r[0] if r else None) or m, aliases=(), finmax=m,
@@ -98,16 +104,27 @@ def resolve_scope(cat: catalog.Catalog, area: str, db) -> catalog.Entity:
 
 
 def stale_note(fills) -> str | None:
-    """A visible warning when a refresh or top-up job failed: the answer then uses the earlier warehouse data."""
+    """A visible warning when a read failed: the figures it should have given are missing."""
     failed = [r.fill for r in fills if r.fill.result == "error"]
     if not failed:
         return None
     first = (failed[0].detail.get("errors") or ["?"])[0]
-    return (f"Warning: {len(failed)} warehouse job(s) failed this time ({failed[0].job}: {first[:140]}); figures "
-            "that were not refreshed come from the earlier read shown in the data line.")
+    return (f"Warning: {len(failed)} live read(s) failed this time ({failed[0].job}: {first[:140]}); the figures "
+            "they should have given are missing.")
 
 
 UNIT_CAP = 40                                     # sub-units in the bridge (the largest 5 shown, the rest grouped)
+
+
+def sub_units(children: Callable[[str], list[str]], entity: str, limit: int = 40) -> list[str]:
+    """The sub-units of an area for its bridge: its children, going down through single-child levels (2WHS has
+    one child, 3WHS_W, whose children are the units)."""
+    kids = children(entity)
+    seen = {entity}
+    while len(kids) == 1 and kids[0] not in seen:
+        seen.add(kids[0])
+        kids = children(kids[0])
+    return kids[:limit]
 
 
 def _units(db, entity: catalog.Entity) -> tuple[tuple[tuple[str, str], ...], str | None]:
@@ -119,7 +136,7 @@ def _units(db, entity: catalog.Entity) -> tuple[tuple[tuple[str, str], ...], str
         rows = [r for r in atlas.children(db, "FinMax", m) if r["dimension"] == "All Entities"]
         labels.update({r["name"]: templates._clean(r["label"]) or r["name"] for r in rows})
         return [r["name"] for r in rows]
-    names = refresh.sub_units(kids, entity.finmax, limit=10_000) if entity.finmax else []
+    names = sub_units(kids, entity.finmax, limit=10_000) if entity.finmax else []
     note = None
     if not names:                                          # a leaf unit (or an atlas without its children)
         note = f"{entity.label} has no sub-units in the local atlas: no sub-unit bridge."
@@ -142,6 +159,38 @@ def _aliases(db):
     return alias
 
 
+def top_up(store, retrieve, cat: catalog.Catalog, entity: catalog.Entity, period: str, closed: str,
+           forecast: str | None, units: list[str], ebitda: str | None = None,
+           now: Callable[[], float] = time.time) -> list[FillResult]:
+    """Read what one question needs on top of the base read: the area's latest forecast and, when `period` is after
+    the closed month, ONLY its open months (all stored with closed_month OPEN, which never replaces closed history);
+    and the sub-units' YTD on the catalogue's grand line now and last year (labelled open when the period is open,
+    else closed history)."""
+    yy = periods.split_period(period)[1]
+    is_open = periods.after(period, closed)
+    live: list[Grid] = []
+    if forecast and entity.finplan:
+        live += finplan_grids(cat, [(forecast, "Final", yy)], [entity.finplan])
+    if is_open:
+        opened = periods.between(closed, period)
+        if entity.finmax:
+            live += finmax_grids(cat, opened, [entity.finmax], opening=False)
+        if entity.finplan:
+            years = sorted({periods.split_period(m)[1] for m in opened})
+            live += finplan_grids(cat, [("Actual", "Working", y) for y in years], [entity.finplan], months=opened)
+    out = []
+    if live:
+        out.append(fill(store, retrieve, cat, live, "top_up", closed, closed_label=OPEN, now=now))
+    if units:
+        account = ebitda or next(x.account for x in cat.pnl["FinMax"] if x.kind == "grand")
+        for p, label in ((period, OPEN if is_open else None), (periods.ly(period), None)):   # last year is history
+            g = Grid("FinMax", {"All Scenarios": "Actual", "All Currencies": "NOK", "All Accounts": account,
+                                "All Balance Types": "Accumulated"}, [Axis("All Entities", units)],
+                     [Axis("All Time Periods", [p])], f"FinMax sub-unit YTD {p}")
+            out.append(fill(store, retrieve, cat, [g], "top_up", closed, closed_label=label, now=now))
+    return out
+
+
 def _forecast(st, retrieve, cat, entity, p, closed, newest_first: list[str], fills: list):
     """The forecast to use: the newest with data on FinPlan's grand line for the year (the newest is read by
     top_up). An empty newest member (created, not filled in) falls back to the next one, read live: (name, note)."""
@@ -154,26 +203,15 @@ def _forecast(st, retrieve, cat, entity, p, closed, newest_first: list[str], fil
     if pnl.forecast_has_data(st, cat, entity, newest, yy):
         return newest, None
     for older in newest_first[1:]:
-        grids = extract.finplan_grids(cat, [(older, "Final", yy)], [entity.finplan])
-        fills.append(extract.fill(st, retrieve, cat, grids, "top_up", closed, closed_label=OPEN))
+        grids = finplan_grids(cat, [(older, "Final", yy)], [entity.finplan])
+        fills.append(fill(st, retrieve, cat, grids, "top_up", closed, closed_label=OPEN))
         if pnl.forecast_has_data(st, cat, entity, older, yy):
             return older, f"{newest} is empty; {older} used"
     return newest, f"{newest} is empty and no earlier forecast of FY{yy:02d} has data"
 
 
-def _open(store):
-    """The store to use: the given one, else the DuckDB warehouse (WarehouseUnavailable when DuckDB will not load)."""
-    if store is not None:
-        return store
-    try:
-        import duckdb  # noqa: F401 - the warehouse needs it; a broken install answers from live pulls
-        return Warehouse()
-    except ImportError as e:
-        raise WarehouseUnavailable(f"DuckDB will not load: {e}") from None
-
-
 def check_period(p: str, closed: str) -> None:
-    """InputError for a period the warehouse cannot answer: after the open month (the month after the closed one),
+    """InputError for a period the live read cannot answer: after the open month (the month after the closed one),
     or so old that last year's comparison (from its opening December) is outside the 36-month window."""
     nxt = periods.shift(closed, 1)
     if periods.after(p, nxt):
@@ -182,66 +220,45 @@ def check_period(p: str, closed: str) -> None:
     need = periods.opening(periods.ly(p))
     if periods.index(need) < periods.index(window[0]):
         earliest = next(m for m in window if periods.index(periods.opening(periods.ly(m))) >= periods.index(window[0]))
-        raise InputError(f"{p} is older than the warehouse holds: it keeps the 36 months {window[0]}..{closed}, and "
+        raise InputError(f"{p} is outside the live read window: it covers the 36 months {window[0]}..{closed}, and "
                          f"{p} against last year needs {need}. Ask for {earliest} or later.")
 
 
 def prepare(h, cat: catalog.Catalog, entity: catalog.Entity, period: str | None, compare: tuple[str, ...],
-            store=None, retrieve=None, db=None):
-    """Refresh check + top-up + calc engine: (Result, store mode, fills, refresh notes). The warehouse when it can
-    be opened, otherwise live pulls of this area into memory (slower, and the answer says so). A unit below an area
-    (is_unit) is always read live into memory and never touches the warehouse (`store` is not used). db: the atlas
-    (default: the user's)."""
+            retrieve=None, db=None):
+    """Live read + top-up + calc engine: (Result, mode, fills, notes). Every figure is read live into a FactStore
+    for this call (nothing is kept between calls). db: the atlas (default: the user's)."""
     own = db is None
     db = atlas.connect() if own else db
     try:
-        return _prepare(h, cat, entity, period, compare, store, retrieve, db)
+        return _prepare(h, cat, entity, period, compare, retrieve, db)
     finally:
         if own:
             db.close()
 
 
-def _prepare(h, cat, entity, period, compare, store, retrieve, db):
+def _prepare(h, cat, entity, period, compare, retrieve, db):
     with stage("closed month"):
         closed = templates.closed_month(h)
     p = period or closed
-    yy = templates.split_period(p)[1]                          # 'Sep 26' or a readable InputError
+    templates.split_period(p)                                  # 'Sep 26' or a readable InputError
     check_period(p, closed)
     retrieve = retrieve or extract.route(host=lambda: h)
-    candidates = templates.forecasts(yy)
+    candidates = templates.forecasts(templates.split_period(p)[1])
     units, cap_note = _units(db, entity)
     labels = pnl.line_labels(cat, _aliases(db))
-    notes: list[str] = []
-    scope_notes = [n for n in (f"{entity.label} ({entity.finmax}) is {entity.note}; read live, not kept in the "
-                               "warehouse." if is_unit(entity) else None, cap_note) if n]
-
-    def run(st, fills):
-        with stage("top up (live)"):
-            fills += refresh.top_up(st, retrieve, cat, entity, p, closed,
-                                    candidates[0] if candidates and entity.finplan else None, [u for u, _ in units])
-            forecast, fc_note = _forecast(st, retrieve, cat, entity, p, closed, candidates, fills)
-        scope = pnl.Scope(entity, p, closed, forecast, units, compare, labels=labels, forecast_note=fc_note,
-                          notes=tuple(scope_notes))
-        with stage("calc engine"):
-            return pnl.compute(cat, scope, st), fills
-
-    def live(why):
-        mem = MemoryWarehouse()
-        with stage(f"live pulls ({why})"):
-            fills = [extract.fill(mem, retrieve, cat, extract.base_grids(cat, closed, templates.latest_forecast,
-                                                                         entities=[entity]), "live", closed)]
-        return run(mem, fills)
-    if is_unit(entity):
-        res, fills = live("sub-unit")
-        return res, LIVE_UNIT, fills, notes
-    try:
-        st = _open(store)
-        with stage("warehouse refresh"):
-            fills = refresh.refresh(st, retrieve, cat, closed, db, templates.latest_forecast, notes=notes)
-        res, fills = run(st, fills)
-        return res, "warehouse", fills, notes
-    except WarehouseUnavailable as e:
-        res, fills = live("no warehouse")
-        return res, f"live pulls (the warehouse was unavailable: {str(e)[:160]})", fills, notes
-
-
+    scope_notes = [n for n in (f"{entity.label} ({entity.finmax}) is {entity.note}." if is_unit(entity) else None,
+                               cap_note) if n]
+    st = FactStore()
+    with stage("live read"):
+        fills = [fill(st, retrieve, cat, extract.base_grids(cat, closed, templates.latest_forecast,
+                                                            entities=[entity]), "live", closed)]
+    with stage("top up (live)"):
+        fills += top_up(st, retrieve, cat, entity, p, closed,
+                        candidates[0] if candidates and entity.finplan else None, [u for u, _ in units])
+        forecast, fc_note = _forecast(st, retrieve, cat, entity, p, closed, candidates, fills)
+    scope = pnl.Scope(entity, p, closed, forecast, units, compare, labels=labels, forecast_note=fc_note,
+                      notes=tuple(scope_notes))
+    with stage("calc engine"):
+        res = pnl.compute(cat, scope, st)
+    return res, LIVE_UNIT if is_unit(entity) else LIVE, fills, []

@@ -109,7 +109,7 @@ def test_a_corrupted_stored_pull_counts_as_changed():
 
 
 def test_expectations_of_a_changed_pull_are_dropped():
-    lay = {"expect": {"source": "Warehouse", "cells": {"pnl": [[1, 1, 5.0, "f", 0.5]], "fte": [[1, 1, 2.0, "g", 0.5]]}}}
+    lay = {"expect": {"source": "Live read", "cells": {"pnl": [[1, 1, 5.0, "f", 0.5]], "fte": [[1, 1, 2.0, "g", 0.5]]}}}
     assert followup.drop_stale_expect(lay, ["fte"])["expect"]["cells"] == {"pnl": [[1, 1, 5.0, "f", 0.5]]}
     assert "expect" not in followup.drop_stale_expect({"expect": {"source": "W", "cells": {"fte": []}}}, ["fte"])
     assert followup.drop_stale_expect({"title": "x"}, ["fte"]) == {"title": "x"}

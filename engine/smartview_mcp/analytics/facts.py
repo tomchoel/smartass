@@ -1,4 +1,4 @@
-"""Facts: every number the calc engine produces, with what it means and which warehouse cells it came from, so any
+"""Facts: every number the calc engine produces, with what it means and which cube cells it came from, so any
 figure in an answer can be traced. A number that cannot be computed is a Fact with value None and a reason - never a
 silent gap, never a division by zero."""
 from __future__ import annotations
@@ -16,7 +16,7 @@ class Fact:
     value: float | None
     unit: str                         # one of UNITS; pct is a ratio (0.1 = 10 %)
     definition: str
-    inputs: tuple[tuple, ...] = ()    # warehouse keys (cube, scenario, version, entity, account, period, balance)
+    inputs: tuple[tuple, ...] = ()    # fact keys (cube, scenario, version, entity, account, period, balance)
     reason: str | None = None         # why value is None
     parts: tuple["Fact", ...] = ()    # the facts this one was combined from (a KPI: numerator, denominator)
 

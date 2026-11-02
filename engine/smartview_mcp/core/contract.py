@@ -94,7 +94,7 @@ class Section(_Open):
 class Check(_Open):
     label: str
     expr: str | None = None
-    static: Literal["OK", "DIFF"] | None = None      # a check computed by smartass (e.g. warehouse = sheet)
+    static: Literal["OK", "DIFF"] | None = None      # a check computed by smartass (e.g. live read = sheet)
     detail: str | None = None
     columns: list[int] | None = None
     # Warning: a DIFF is a known definitional difference the user must see, not an untrustworthy number

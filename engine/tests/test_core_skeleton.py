@@ -234,11 +234,11 @@ async def test_an_invalid_spec_is_a_readable_error():
 def test_the_pipeline_turns_expectations_into_static_checks(monkeypatch):
     from smartview_mcp import fin_spec
     lay = {"title": "t", "columns": [{"header": "a"}], "sections": [], "checks": [],
-           "expect": {"source": "Warehouse", "cells": {"pnl": [[["ac.C30"], ["Sep 26"], 5.0, "f1", 0.5]]}}}
+           "expect": {"source": "Live read", "cells": {"pnl": [[["ac.C30"], ["Sep 26"], 5.0, "f1", 0.5]]}}}
     monkeypatch.setattr(fin_spec, "reconcile_pull", lambda p, cells, source: {"label": f"{source} = {p.sheet}",
                                                                              "static": "OK", "detail": "1 cells"})
     out = pipeline.expect_checks(lay, {"pnl": SimpleNamespace(sheet="Q1 FinMax pnl")})
-    assert "expect" not in out and out["checks"][-1] == {"label": "Warehouse = Q1 FinMax pnl", "static": "OK",
+    assert "expect" not in out and out["checks"][-1] == {"label": "Live read = Q1 FinMax pnl", "static": "OK",
                                                           "detail": "1 cells"}
 
 

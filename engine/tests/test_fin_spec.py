@@ -1,6 +1,6 @@
 """fin_spec: the sv_ws_build request for fin_pnl. The source sheets are simulated by retrieving each pull from the
 same fake provider; the spec evaluated in Python (specs.evaluate: the sheet's formula rules) must give the engine's
-facts, and warehouse = sheet must hold. Every figure is invented. CAT0 has no % floor, so every % is shown."""
+facts, and live read = sheet must hold. Every figure is invented. CAT0 has no % floor, so every % is shown."""
 import dataclasses
 import re
 
@@ -10,7 +10,7 @@ from fin_util import CAT, CAT0, WHS, filled, http, make_value
 from smartview_mcp import fin_pnl, fin_spec, specs
 from smartview_mcp.grid import Axis
 from smartview_mcp.userexcel import _make_pull
-from smartview_mcp.warehouse import Row
+from smartview_mcp.factstore import Row
 
 PARTS = {0: "m.cur", 1: "m.ly", 2: "m.var", 3: "m.pct", 4: "ytd.cur", 5: "ytd.ly", 6: "ytd.var", 7: "ytd.pct"}
 
@@ -98,7 +98,7 @@ def assert_sheet_is_engine(res, req, pulls):
 
 def reconciled(req, pulls):
     spec = fin_spec.with_reconciliation(req.spec, req.expected, pulls)
-    return [c for c in spec["checks"] if c["label"].startswith("Warehouse = source sheet")]
+    return [c for c in spec["checks"] if c["label"].startswith("Live read = source sheet")]
 
 
 @pytest.fixture
@@ -165,7 +165,7 @@ def test_a_finished_year_shows_actuals_without_a_landing(tmp_path):
 
 
 def test_an_earlier_year_names_what_it_could_not_compute(tmp_path):
-    res, req, pulls = build(tmp_path, period="Sep 25", forecast=None)          # FinPlan FY24 is not in the warehouse
+    res, req, pulls = build(tmp_path, period="Sep 25", forecast=None)          # FinPlan FY24 is not in the fact store
     assert res.facts["fp.boi.actual.ly_ytd"].value is None and not res.landing.seasonal
     assert_sheet_is_engine(res, req, pulls)
     assert any(n.startswith("Not computed (") and "fp.boi.actual.ly_ytd" in n for n in req.spec["notes"])
@@ -251,12 +251,12 @@ def test_an_unexplained_residual_and_a_stale_forecast_are_shown(tmp_path):
     assert req.spec["checks"][-1]["label"] == "Period is closed"
     notes = req.spec["notes"]
     assert notes[0].startswith("Warning: Forecast Q126") and "run-rate" in notes[0]
-    assert notes[1].startswith("Problem: Unexplained") and notes[2].startswith("Data: warehouse;")
+    assert notes[1].startswith("Problem: Unexplained") and notes[2].startswith("Data: live read;")
     assert any(k.startswith("Unexplained:") for k in req.spec["key_points"])
     assert any("static" in n and "do not re-run" in n for n in notes)
 
 
-def test_warehouse_equals_every_source_sheet_and_a_difference_is_named(built):
+def test_the_live_read_equals_every_source_sheet_and_a_difference_is_named(built):
     res, req, pulls = built
     recon = reconciled(req, pulls)
     assert len(recon) == 5 and all(c["static"] == "OK" for c in recon), recon
@@ -264,7 +264,7 @@ def test_warehouse_equals_every_source_sheet_and_a_difference_is_named(built):
     p = pulls["pnl"]
     row = next(r for r in p.parsed.rows if r[0] == "ac.C30")
     row[p.layout.nr + 2] += 5.0                                                       # Accumulated, Sep 26
-    bad = next(c for c in reconciled(req, pulls) if c["label"] == f"Warehouse = source sheet '{p.sheet}'")
+    bad = next(c for c in reconciled(req, pulls) if c["label"] == f"Live read = source sheet '{p.sheet}'")
     assert bad["static"] == "DIFF" and "ac.C30 Accumulated/Sep 26: sheet" in bad["detail"]
 
 
@@ -278,14 +278,14 @@ def test_fte_reconciles_within_a_twentieth_of_an_fte(built):
     assert next(c for c in reconciled(req, pulls) if c["label"].endswith(f"'{p.sheet}'"))["static"] == "DIFF"
 
 
-def test_a_missing_warehouse_figure_is_a_diff_never_a_silent_zero(tmp_path):
+def test_a_missing_figure_is_a_diff_never_a_silent_zero(tmp_path):
     def drop(store):
         del store.rows[("FinMax", "Actual", "", WHS.finmax, "ac.C60", "Sep 26", "Periodic")]
     res, req, pulls = build(tmp_path, store_fix=drop)
-    bad = next(c for c in reconciled(req, pulls) if c["label"] == f"Warehouse = source sheet '{pulls['pnl'].sheet}'")
-    assert bad["static"] == "DIFF" and "no warehouse value (fm.oth.m.cur)" in bad["detail"]
+    bad = next(c for c in reconciled(req, pulls) if c["label"] == f"Live read = source sheet '{pulls['pnl'].sheet}'")
+    assert bad["static"] == "DIFF" and "no live read value (fm.oth.m.cur)" in bad["detail"]
     notes = req.spec["notes"]
-    sheet_note = next(n for n in notes if "source figure(s) have no warehouse value" in n)
+    sheet_note = next(n for n in notes if "source figure(s) have no live read value" in n)
     assert sheet_note.startswith("2 source figure(s)")                              # m.cur and ytd.cur
     other = next(n for n in notes if n.startswith("Not computed ("))
     listed = [seg.split(": ")[0] for seg in other.split("): ", 1)[1].split("; ")]
@@ -318,10 +318,10 @@ def test_a_unit_without_finplan_is_compared_with_last_year_only(tmp_path):
 
     from smartview_mcp import extract
     from smartview_mcp.fin_pnl import Scope
-    from smartview_mcp.warehouse import MemoryWarehouse
+    from smartview_mcp.factstore import FactStore
     unit = dataclasses.replace(WHS, key="unit:un.SY.U1", label="U1 Unit one", aliases=(), finmax="un.SY.U1",
                                finplan=None)
-    store, retrieve = MemoryWarehouse(), extract.route(http=http(tmp_path))
+    store, retrieve = FactStore(), extract.route(http=http(tmp_path))
     grids = extract.base_grids(CAT, "Sep 26", {26: FC}.get, entities=[unit])
     assert grids and all(g.conn == "FinMax" for g in grids)
     extract.fill(store, retrieve, CAT, grids, "live", "Sep 26")
@@ -330,7 +330,7 @@ def test_a_unit_without_finplan_is_compared_with_last_year_only(tmp_path):
     warn = ("Warning: no FinPlan entity for U1 Unit one (un.SY.U1): budget, forecast and landing are not "
             "available; compared with last year only.")
     assert warn in fin_pnl.tool_warnings(res, [])
-    req = fin_spec.build(res, CAT0, now="2026-10-25 12:00", mode="live pulls (sub-unit: not kept in the warehouse)")
+    req = fin_spec.build(res, CAT0, now="2026-10-25 12:00", mode="live read (sub-unit)")
     assert [p["id"] for p in req.pulls] == ["pnl", "fte"] and req.spec["notes"][0] == warn
     assert "budget" not in req.spec["title"] and req.spec["title"].endswith("vs last year")
     pulls = sheets(tmp_path, req)
@@ -339,6 +339,4 @@ def test_a_unit_without_finplan_is_compared_with_last_year_only(tmp_path):
     recon = [c for c in spec["checks"] if c["label"].startswith("Live read = source sheet")]
     assert req.source == "Live read" and len(recon) == 2 and all(c["static"] == "OK" for c in recon)
     assert all(c["static"] == "OK" for c in spec["checks"] if "static" in c)
-    assert not any("Warehouse = source" in c["label"] for c in spec["checks"])
     assert any("'Live read = source sheet' checks are static" in n for n in spec["notes"])
-    assert fin_spec.build(res, CAT0).source == "Warehouse"

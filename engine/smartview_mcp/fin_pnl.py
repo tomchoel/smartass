@@ -1,9 +1,9 @@
 """fin_pnl, the first slice (Stage 2+3): a business area's P&L for a month and YTD against last year (FinMax) and
 budget and the latest forecast (FinPlan: actual = version Working, plan = Final), with materiality flags, an EBITDA
-bridge by line and by sub-unit, KPIs and the year-end landing - decided by the calc engine from the warehouse, in
+bridge by line and by sub-unit, KPIs and the year-end landing - decided by the calc engine from cells read live, in
 milliseconds and without Excel. fin_spec.py turns the Result into the build request (live source sheets +
 formulas); the engine's numbers then reconcile the sheets. The entity is a catalogue area or a unit below one (a
-synthetic Entity, tools_fin.resolve_scope; most units have no FinPlan member: last year only).
+synthetic Entity, pnl_facts.resolve_scope; most units have no FinPlan member: last year only).
 
 Owner decisions (2026-10-25): `compare` only decides which comparisons are flagged and commented - every answer shows
 last year, budget, forecast and the landing. An empty newest forecast member falls back to the newest one with data
@@ -187,7 +187,7 @@ def _keep(res: Result, *facts: Fact) -> None:
 
 def _cell(rows: dict, key: tuple, id: str, definition: str) -> Fact:
     if key not in rows:
-        return missing(id, "nok", definition, f"no warehouse value for {' / '.join(key[3:6])}")
+        return missing(id, "nok", definition, f"no value read for {' / '.join(key[3:6])}")
     v = rows[key]
     return Fact(id, 0.0 if v is None else float(v), "nok", definition, (key,))
 
@@ -322,7 +322,7 @@ def _kpis(cat: Catalog, s: Scope, fm: Frame, res: Result) -> None:
 
 
 def compute(cat: Catalog, s: Scope, store) -> Result:
-    """Every number of the answer, from the warehouse (store: warehouse.Warehouse or MemoryWarehouse)."""
+    """Every number of the answer, from the cells read live (store: factstore.FactStore)."""
     if s.entity.abolished:
         raise ValueError(f"{s.entity.label} was abolished on {s.entity.abolished}: ask for its successors")
     if not s.entity.finmax:
@@ -358,9 +358,8 @@ def compute(cat: Catalog, s: Scope, store) -> Result:
 
 
 def freshness_text(res: Result, mode: str, notes: list[str] | None = None) -> str:
-    """'Data: warehouse; closed history to Sep 26, oldest cell read 2026-10-25 08:12; the latest forecast and any
-    open month read live (newest 10:31).' notes: refresh()'s notes (a refresh skipped because another process is
-    refreshing, a paused job), appended so the answer says the closed history may be older."""
+    """'Data: live read; closed history to Sep 26, oldest cell read 2026-10-25 08:12; the latest forecast and any
+    open month read live (newest 10:31).' notes are appended as 'Note: ...'."""
     def ts(x):
         return dt.datetime.fromtimestamp(x).strftime("%Y-%m-%d %H:%M") if x else "never"
     stamps = [f for f in res.freshness.values() if f.get("rows")]
@@ -402,18 +401,18 @@ def landing_warnings(res: Result) -> list[str]:
 
 
 def tool_warnings(res: Result, fills, notes: list[str] | None = None) -> list[str]:
-    """What the agent must pass on: the open period, the forecast warnings, problems, failed or warned warehouse
-    jobs (their errors / problems) and refresh()'s notes (skipped or paused refresh)."""
+    """What the agent must pass on: the open period, the forecast warnings, problems, failed or warned live
+    reads (their errors / problems) and any notes."""
     out = [w for w in [open_period_note(res)] if w] + finplan_warnings(res) + landing_warnings(res)
     out += list(res.problems)
     for r in fills or []:
         f = r.fill
         if f.result == "error":
             first = (f.detail.get("errors") or ["?"])[0]
-            out.append(f"Warehouse job '{f.job}' failed ({first[:160]}); figures it did not refresh come from the "
-                       "earlier read shown in the data line.")
+            out.append(f"Live read '{f.job}' failed ({first[:160]}); the figures it should have given are "
+                       "missing.")
         elif f.result == "warn":
-            out.append(f"Warehouse job '{f.job}' stored its data with reconciliation problems: "
+            out.append(f"Live read '{f.job}' has reconciliation problems: "
                        + "; ".join(f.detail.get("problems", [])[:3]))
     return list(dict.fromkeys(out + list(notes or [])))
 
