@@ -74,6 +74,8 @@ def classify_stall(url: str, page_text: str) -> str:
         return "sso"
     return "blank" if not (page_text or "").strip() else "page"
 KILL_WAIT_S = 15                 # kill(): how long the worker gets to return after its browser died
+WANTED = ".wanted"               # in the profile folder: another smartass process asked the owner to let go
+KEEPALIVE_WAIT_S = 30            # keep-alive: how long its GET of the EPM home may take
 POLL_S = 0.01                    # how often the idle worker collects the answers of requests in flight
 
 # In-tab requests that do not block the worker (request()): _FIRE_JS starts a fetch and returns at once; its answer
@@ -367,6 +369,9 @@ class _Session:
         self.paging = False                        # the current drill got past its capture
         self.gen = 0                               # sign-ins so far: a failure seen before a newer one is stale
         self.inflight: dict[int, tuple] = {}       # request id -> (page, box token, future, deadline)
+        self.profile: Path | None = None           # profile folder (holds the .wanted flag of another process)
+        self.started_at = time.time()              # wall clock of the browser start (compared with .wanted's mtime)
+        self.last_alive = time.monotonic()         # last keep-alive check (or browser start)
 
 
 class DrillBrowser:
@@ -382,20 +387,28 @@ class DrillBrowser:
         """Start a fresh worker (caller holds self._lock)."""
         self.q: queue.Queue = queue.Queue()
         self.s = _Session()
-        self.thread = threading.Thread(target=self._loop, args=(self.q, self.s, config.DRILL_IDLE_S),
+        self.s.profile = Path(self.profile)
+        self.thread = threading.Thread(target=self._loop,
+                                       args=(self.q, self.s, config.DRILL_IDLE_S, self._keepalive),
                                        name="drill-chrome", daemon=True)
         self.thread.start()
 
     @staticmethod
-    def _loop(q: queue.Queue, s: _Session, idle_s: float | None = None):
-        """Run jobs; while requests are in flight, collect their answers between jobs (every POLL_S when idle);
-        after idle_s without a job or a request, close the browser (frees the profile lock for other sessions)."""
+    def _loop(q: queue.Queue, s: _Session, idle_s: float | None = None, keepalive=None):
+        """Run jobs; while requests are in flight, collect their answers between jobs (every POLL_S when idle).
+        Idle: keep-warm off closes the browser after idle_s (frees the profile lock for other sessions). Keep-warm
+        on keeps it, runs keepalive(s) every DRILL_KEEPALIVE_S and closes it only when another smartass process
+        asked for the profile (.wanted newer than this browser)."""
         while True:
+            warm = config.DRILL_KEEP_WARM
             try:
-                fn, fut = q.get(timeout=POLL_S if s.inflight else idle_s)
+                fn, fut = q.get(timeout=POLL_S if s.inflight else
+                                (min(idle_s, 30) if warm and idle_s else idle_s))
             except queue.Empty:
                 if s.inflight:
                     DrillBrowser._collect(s)
+                elif warm:
+                    DrillBrowser._idle_warm(s, keepalive)
                 elif s.ctx is not None or s.plock is not None:
                     DrillBrowser._close(s)
                 continue
@@ -409,6 +422,46 @@ class DrillBrowser:
                     fut.set_exception(e)
             if s.inflight:
                 DrillBrowser._collect(s)
+
+    @staticmethod
+    def _idle_warm(s: _Session, keepalive) -> None:
+        """Worker thread, idle with keep-warm on: yield the profile to a process that asked for it, else keep alive.
+        Never raises."""
+        try:
+            if s.ctx is None and s.plock is None:
+                return
+            flag = s.profile / WANTED if s.profile is not None else None
+            if flag is not None and flag.exists() and flag.stat().st_mtime > s.started_at:
+                log.info("another smartass process wants the drill profile; closing the hidden browser")
+                DrillBrowser._close(s)
+                flag.unlink(missing_ok=True)
+            elif (keepalive is not None and s.ctx is not None
+                  and time.monotonic() - s.last_alive >= config.DRILL_KEEPALIVE_S):
+                s.last_alive = time.monotonic()
+                keepalive(s)
+        except Exception as e:   # noqa: BLE001 - the keep-alive must never take the worker down
+            log.warning("drill keep-alive: %s", redact(str(e).splitlines()[0] if str(e) else type(e).__name__)[:200])
+
+    def _keepalive(self, s: _Session) -> None:
+        """Worker thread: restart a dead browser / sign in again, then one GET of the EPM home through the tab; a
+        failed or sign-in answer means the session expired: sign in again. Bounded by KEEPALIVE_WAIT_S."""
+        s.deadline = time.monotonic() + config.DRILL_SETUP_S
+        self._ensure(s)
+        fut = self._fire(s, s.page, self.base + "/HyperionPlanning/", {"method": "GET"}, KEEPALIVE_WAIT_S)
+        end = time.monotonic() + KEEPALIVE_WAIT_S + 5
+        while not fut.done() and time.monotonic() < end:
+            self._collect(s)
+            time.sleep(0.05)
+        ok = False
+        if fut.done() and not fut.cancelled() and fut.exception() is None:
+            ok = fut.result()[0] == 200 and classify_stall(s.page.url, "x") != "sso"
+        for rid in [r for r, e in s.inflight.items() if e[2] is fut]:
+            del s.inflight[rid]
+        if not ok:
+            log.warning("drill keep-alive: the EPM session is gone; signing in again")
+            s.ready = False
+            s.deadline = time.monotonic() + config.DRILL_SETUP_S
+            self._ensure(s)
 
     def submit(self, fn: Callable[[_Session], object]) -> cf.Future:
         fut: cf.Future = cf.Future()
@@ -487,6 +540,11 @@ class DrillBrowser:
     def _start(self, s: _Session):
         from playwright.sync_api import sync_playwright
         if not self.plock.acquire():
+            try:                                           # ask the owner (idle worker) to free the profile
+                Path(self.profile).mkdir(parents=True, exist_ok=True)
+                (Path(self.profile) / WANTED).write_text(str(time.time()))
+            except OSError:
+                pass
             raise DrillBusy("another sv_drill is running in a different session (its hidden browser closes after "
                             f"{config.DRILL_IDLE_S // 60:.0f} idle minutes); try again in a minute.")
         s.plock = self.plock
@@ -504,6 +562,7 @@ class DrillBrowser:
                     pass
             s.ctx, s.channel = self._launch(s.pw)
             s.page = s.ctx.pages[0] if s.ctx.pages else s.ctx.new_page()
+            s.started_at, s.last_alive = time.time(), time.monotonic()
         except BaseException:
             self._close(s)                             # no browser started: stop the driver, free the lock
             raise

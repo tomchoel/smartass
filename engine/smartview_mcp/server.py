@@ -43,8 +43,27 @@ def host() -> ExcelHost:
     return _host
 
 
+def _warm_up() -> None:
+    """Start the hidden browser and sign in, in the background (never awaited; a failure is only logged)."""
+    try:
+        if not config.DRILL_KEEP_WARM:
+            return
+        from . import drill_browser
+        b = drill_browser.shared_browser()
+
+        def warm(s):
+            s.deadline = time.monotonic() + config.DRILL_SETUP_S
+            b._ensure(s)
+        fut = b.submit(warm)
+        fut.add_done_callback(lambda f: (None if f.cancelled() or f.exception() is None else
+                                         log.info("drill warm-up failed: %s", str(f.exception())[:200])))
+    except Exception as e:   # noqa: BLE001 - best effort
+        log.info("drill warm-up not started: %s", str(e)[:200])
+
+
 @asynccontextmanager
 async def lifespan(_server):
+    _warm_up()
     try:
         yield {}
     finally:
