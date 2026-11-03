@@ -69,3 +69,9 @@ at most `SVHTTP_SESSIONS` (8) in flight per cube; 12 grids at once equal one at 
 
 ## Out of scope
 Building the workbook without Excel; caching; changing what the sheets contain.
+
+## Spike result (2026-11-03, section 2)
+A fresh Excel (`EXCEL.EXE /x /e`, no other Excel open, no Smart View call) showed the EPM login window in 3 of 3
+runs, at 19.2 s, 19.2 s and 21.8 s after the process started: Smart View connects at start-up by itself. The
+`appear_grace=12` (counted from when the workbook is found, several seconds after start) is what catches it, so it
+stays. The real saving is not starting a fresh Excel at all: the user's running Excel stays the first choice.
