@@ -69,8 +69,9 @@ class SvHttp:
         self.home = (home or config.EPM_BASE).rstrip("/")
         self.db_path = db_path or config.ATLAS_DB
         self._bases: dict[str, list[tuple[str, str]]] | None = None
-        self._sids: dict[str, str] = {}
-        self._lock = threading.Lock()      # the session setup only: requests themselves run at once (spike 2026-11-03)
+        self._idle: dict[str, list[str]] = {}       # connection -> sIDs not in use (the session pool)
+        self._slots: dict[str, threading.BoundedSemaphore] = {}
+        self._lock = threading.Lock()                 # _bases and the pools; never held during a request
 
     def base_for(self, server: str, app: str) -> str:
         """The pod of the data source named `server`, which must serve `app` and must not be a test pod (unless
@@ -94,30 +95,32 @@ class SvHttp:
                               "set svhttp.allow_test = true to use it")
         return base
 
-    def _note_sid(self, conn: str, text: str) -> None:
-        """Each answer may carry a new sID; the latest one is the session."""
-        sid = svxml.sid_in(text)
-        if sid:
-            self._sids[conn] = sid
-
-    def _session(self, conn: str) -> tuple[str, str, str]:
-        """(pod base, cube, sID). One thread sets a session up while the others wait; the provider answers many
-        requests on one sID at once (16 parallel grids and drill reports, live 2026-11-03)."""
+    def _take(self, conn: str) -> tuple[str, str, str]:
+        """(pod base, cube, sID) for ONE request: an idle session of the pool, else a new one. A session is never
+        used by two requests at once: parallel grids on one sID come back wrong (2-3 of 8 corrupted, live
+        2026-11-03), on their own sIDs all 8 are right."""
         server, app, cube = CUBES[conn]
         if not self._lock.acquire(timeout=config.SVHTTP_TIMEOUT_S):
             raise SvHttpError("the HTTP route is busy with another query")
         try:
             base = self.base_for(server, app)
-            if conn not in self._sids:
-                sid = svxml.sid_of(self.t.post(base, svxml.connect()))
-                sid = svxml.sid_of(self.t.post(base, svxml.open_application(sid, app)))
-                ans = self.t.post(base, svxml.open_cube(sid, app, cube))
-                svxml.raise_for_exception(ans)
-                self._sids[conn] = sid
-                self._note_sid(conn, ans)
-            return base, cube, self._sids[conn]
+            idle = self._idle.get(conn)
+            if idle:
+                return base, cube, idle.pop()
         finally:
             self._lock.release()
+        sid = svxml.sid_of(self.t.post(base, svxml.connect()))
+        sid = svxml.sid_of(self.t.post(base, svxml.open_application(sid, app)))
+        ans = self.t.post(base, svxml.open_cube(sid, app, cube))
+        svxml.raise_for_exception(ans)
+        return base, cube, svxml.sid_in(ans) or sid
+
+    def _give(self, conn: str, sid: str) -> None:
+        with self._lock:
+            self._idle.setdefault(conn, []).append(sid)
+
+    def _slot(self, conn: str) -> threading.BoundedSemaphore:
+        return self._slots.setdefault(conn, threading.BoundedSemaphore(config.SVHTTP_SESSIONS))   # atomic
 
     def dimensions(self, conn: str) -> list[str]:
         """The connection's dimensions from the atlas; SvHttpError if it has none or any of them was not built
@@ -229,22 +232,35 @@ class SvHttp:
                 for v in (f.values[1 + lay.nc + i][lay.nr] for i in range(len(parts)))]
 
     def _ask(self, conn: str, body, read, fatal) -> object:
-        """POST body(sid, cube) to conn's provider and read(answer). An error fatal(e) does not rule out (maybe an
-        expired session) reconnects once."""
-        for attempt in (1, 2):
-            sid = None
-            try:
-                base, cube, sid = self._session(conn)
-                ans = self.t.post(base, body(sid, cube))
-                self._note_sid(conn, ans)
-                return read(ans)
-            except svxml.SvXmlError as e:
-                if not fatal(e) and self._sids.get(conn) == sid:    # not already renewed by another request
-                    self._sids.pop(conn, None)
-                    self._bases = None                      # ... and re-read where the apps live
-                if fatal(e) or attempt == 2:
-                    raise SvHttpError(f"Smart View provider: {e}") from None
-                log.info("svhttp %s: %s - reconnecting once", conn, e)
+        """POST body(sid, cube) on a session of its own and read(answer); at most SVHTTP_SESSIONS at once per
+        connection. An error fatal(e) does not rule out (maybe an expired session) drops that session and tries
+        once more on a new one. A session whose request failed in the browser is dropped too (EPM may still be
+        working on it)."""
+        slot = self._slot(conn)
+        if not slot.acquire(timeout=config.SVHTTP_TIMEOUT_S):
+            raise SvHttpError("the HTTP route is busy with other queries")
+        try:
+            for attempt in (1, 2):
+                sid = None
+                try:
+                    base, cube, sid = self._take(conn)
+                    ans = self.t.post(base, body(sid, cube))
+                    sid = svxml.sid_in(ans) or sid            # each answer may carry a new sID: the latest one counts
+                    out = read(ans)
+                except svxml.SvXmlError as e:
+                    if fatal(e) and sid is not None:
+                        self._give(conn, sid)                 # a wrong query: the session itself is fine
+                    elif not fatal(e):
+                        with self._lock:
+                            self._bases = None                # ... and re-read where the apps live
+                    if fatal(e) or attempt == 2:
+                        raise SvHttpError(f"Smart View provider: {e}") from None
+                    log.info("svhttp %s: %s - reconnecting once", conn, e)
+                    continue
+                self._give(conn, sid)
+                return out
+        finally:
+            slot.release()
         raise AssertionError("unreachable")
 
     def _enum(self, conn: str, dim: str, member: str) -> list[str]:

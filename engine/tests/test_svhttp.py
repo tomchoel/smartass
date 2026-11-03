@@ -166,7 +166,7 @@ def test_the_latest_sid_of_each_answer_is_used(db_path):
     sv = _sv(t, db_path)
     _q(sv)
     _q(sv)                                         # the second answer has no sID: grid&2 stays the session
-    assert t.grid_sids() == ["cube1", "grid&amp;2"] and sv._sids["FinMax"] == "grid&2"
+    assert t.grid_sids() == ["cube1", "grid&amp;2"] and sv._idle["FinMax"] == ["grid&2"]
 
 
 def test_one_reconnect_then_a_clear_error(db_path):
@@ -714,16 +714,17 @@ def test_child_values_none_when_parts_do_not_differ(lite_db):
 
 
 # ------------------------------------------------------------------ requests run at once (step 1b)
-def test_queries_run_at_once_and_set_up_one_session(db_path):
+def test_queries_run_at_once_each_on_its_own_session(db_path):
     import threading
     gate = threading.Barrier(2, timeout=5)
 
     class Both(FakeTransport):
         def post(self, base, body):
-            if body.startswith("<req_ExecuteGrid>"):
+            if body.startswith("<req_ExecuteGrid>") and self.gated:
                 gate.wait()                                # both grids must be in flight together
             return super().post(base, body)
     t = Both(answer(GRID), answer(GRID))
+    t.gated = True
     sv = _sv(t, db_path)
     out, errs = [], []
 
@@ -738,8 +739,12 @@ def test_queries_run_at_once_and_set_up_one_session(db_path):
     for x in th:
         x.join(10)
     assert errs == [] and len(out) == 2
-    assert t.tags().count("ConnectToProvider") == 1        # the session is set up once, under the lock
-    assert len(set(t.grid_sids())) == 1
+    assert t.tags().count("ConnectToProvider") == 2        # one session per request in flight: never shared
+    assert len(set(t.grid_sids())) == 2
+    t.answers.append(answer(GRID))
+    t.gated = False
+    _q(sv)                                                 # afterwards a pooled session is reused
+    assert t.tags().count("ConnectToProvider") == 2 and len(sv._idle["FinMax"]) == 2
 
 
 def test_a_failure_renewed_by_another_request_does_not_sign_in_again():
@@ -769,3 +774,25 @@ def test_a_request_lost_with_its_tab_is_sent_again_after_one_sign_in():
         return real(s, pg, url, opts, timeout_s)
     b._fire = fire
     assert _bt(b).post(b.base, svxml.connect()) == OK[1] and b.logins == 1
+
+
+def test_a_session_whose_request_failed_in_the_browser_is_not_reused(db_path):
+    class Lost(FakeTransport):
+        def post(self, base, body):
+            if body.startswith("<req_ExecuteGrid>") and not self.answers:
+                raise svhttp.SvHttpError("lost the request")
+            return super().post(base, body)
+    t = Lost()
+    sv = _sv(t, db_path)
+    with pytest.raises(svhttp.SvHttpError, match="lost"):
+        _q(sv)
+    assert sv._idle.get("FinMax", []) == []                # EPM may still work on that sID: dropped
+
+
+def test_requests_per_cube_are_capped(db_path, monkeypatch):
+    monkeypatch.setattr(config, "SVHTTP_SESSIONS", 1)
+    monkeypatch.setattr(config, "SVHTTP_TIMEOUT_S", 0.01)
+    sv = _sv(FakeTransport(answer(GRID)), db_path)
+    sv._slot("FinMax").acquire()                           # the one slot is taken
+    with pytest.raises(svhttp.SvHttpError, match="busy with other queries"):
+        _q(sv)

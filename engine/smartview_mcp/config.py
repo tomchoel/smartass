@@ -214,6 +214,7 @@ DRILL_XL_FULL = int(os.environ.get("SV_DRILL_XL_FULL", "50000"))   # above this:
 DRILL_KEEP_DAYS = 90
 DRILL_LOGIN_TIMEOUT_S = 60                         # per attempt; one retry in a fresh tab (spec §6)
 SVHTTP_TIMEOUT_S = float(os.environ.get("SV_HTTP_TIMEOUT", "120"))   # one Smart View HTTP request incl. a sign-in
+SVHTTP_SESSIONS = int(os.environ.get("SV_HTTP_SESSIONS", "8"))   # Smart View requests at once per cube, each on its own session
 CLOSED_MONTH_TTL_S = float(os.environ.get("SV_CLOSED_MONTH_TTL", "1800"))   # reuse an HTTP-read closed month this long
 # Smart View HTTP route: the data source is chosen by Server NAME (several servers share app FinMax, one of them the
 # test pod). A pod whose host contains "-test" is refused unless allow_test is true.
