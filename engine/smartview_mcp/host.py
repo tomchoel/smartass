@@ -22,6 +22,7 @@ from . import config, dialogs, sso
 from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy, kill_ours, windows_of
 
 log = logging.getLogger("smartview.host")
+BOX_WATCH_S = 3.0
 
 DEAD_HRESULTS = {-2147023174, -2147023170, -2147417848}   # RPC unavailable, call failed, object disconnected
 
@@ -298,7 +299,33 @@ class ExcelHost(HiddenExcel):
         self._apply_global_options()
         self.started_at = time.time()
         self.connected.clear()
+        self._start_box_watcher()
         log.info("Excel started pid=%s in %.1fs", pid, time.monotonic() - t0)
+
+    def _start_box_watcher(self):
+        """Daemon thread: every BOX_WATCH_S close Smart View message boxes of THIS hidden Excel (window enumeration
+        only, no COM; the user's Excels are never looked at)."""
+        t = getattr(self, "_box_thread", None)
+        if t is not None and t.is_alive():
+            return
+        self._box_stop = threading.Event()
+        stop = self._box_stop
+
+        def loop():
+            while not stop.wait(BOX_WATCH_S):
+                self._watch_boxes_once()
+        self._box_thread = threading.Thread(target=loop, name="sv-box-watcher", daemon=True)
+        self._box_thread.start()
+
+    def _watch_boxes_once(self):
+        pid = self.pid
+        if not pid:
+            return
+        try:
+            for text in dialogs.close_sv_boxes(pid):
+                log.info("closed Smart View box in own Excel: %s", text)
+        except Exception:   # noqa: BLE001 - never disturb the host
+            pass
 
     def run(self, fn: str, *args):
         """Run a bridge function and raise HostError on an ERR| status string."""
@@ -309,6 +336,10 @@ class ExcelHost(HiddenExcel):
         return r
 
     def shutdown(self):
+        stop = getattr(self, "_box_stop", None)
+        if stop is not None:
+            stop.set()
+
         def job():
             if self.app is None:
                 return

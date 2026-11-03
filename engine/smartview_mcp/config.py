@@ -128,6 +128,7 @@ ONEDRIVE = Path(os.environ.get("OneDriveCommercial") or os.environ.get("OneDrive
 
 PID_FILE = HOME / "pids.json"                              # PIDs this server started (never kill others)
 ATLAS_DB = HOME / "atlas.db"
+NEW_WORKBOOK_SEED = HOME / "new_workbook_seed.xlsx"        # a labelled empty workbook; new analysis files are copies
 SERVER_LOG = HOME / "logs" / "server.log"
 
 ANALYSER_DIR = _path(_pick("SV_ANALYSER_DIR", "paths.analyser", ONEDRIVE / "smartass" / "analyser"))

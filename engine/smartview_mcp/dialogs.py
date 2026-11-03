@@ -130,6 +130,21 @@ def sv_boxes(found: list[Dialog]) -> list[Dialog]:
     return [d for d in found if d.kind == "message" and d.title == SV_BOX_TITLE]
 
 
+def close_sv_boxes(pid: int, scan=None, press=None, close=None) -> list[str]:
+    """Close Smart View's message boxes in process `pid` only (OK when that is the only button, else WM_CLOSE).
+    Returns the texts closed. Never raises: the watcher must not disturb the host."""
+    try:
+        found = sv_boxes((scan or globals()["scan"])(pid))
+        texts = []
+        for d in found:
+            if not (press or press_ok)(d.hwnd):
+                (close or globals()["close"])([d.hwnd])
+            texts.append(d.text)
+        return texts
+    except Exception:   # noqa: BLE001
+        return []
+
+
 def not_signed_in(attempts: list[list[str]]) -> bool:
     """EPM answered 'Empty response from provider' to two connect attempts (attempts = the box texts each failed
     attempt raised): this Excel's Smart View session is not valid (it shows no Login, so the SSO watcher cannot
