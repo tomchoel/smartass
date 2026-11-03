@@ -16,7 +16,7 @@ from smartview_mcp.host import HostError, InputError
 def test_fte_rows_are_the_sheet_rows_of_man_year_lines():
     lay = Layout([], [Axis("All Accounts", ["ac.C30", "ac.STA20Y"])], [Axis("All Time Periods", ["Sep 26"])])
     parsed = SimpleNamespace(row_labels=[["C30 REVENUES (ac)"], ["STA20Y Man-years (ac)"]])
-    assert sheets.fte_rows(lay, parsed) == [4]
+    assert sheets.fte_rows(lay, parsed) == [4]
 
 PIN = contract.Pull.model_validate({"id": "m", "connection": "FinMax",
                                     "rows": [{"dimension": "All Accounts", "members": ["ac.EBITDA"]}],
@@ -169,7 +169,7 @@ def _fake_run(monkeypatch, calls, pull_fails=False):
     monkeypatch.setattr(pipeline.progress, "show", lambda t, q, spec, status: calls.append(("show", q)))
     monkeypatch.setattr(pipeline.progress, "set_status", lambda t, q, text: calls.append(("status", text)))
 
-    def pull_(h, t, q, i, pin):
+    def pull_(h, t, q, i, pin, pf=None):
         calls.append(("pull", pin.id))
         if pull_fails:
             raise HostError("Retrieve failed")
@@ -474,3 +474,58 @@ def test_topic_sheet_is_ours_for_rollback_and_next_question():
     wb = SimpleNamespace(Worksheets=[SimpleNamespace(Name=n) for n in names + ["Q2 By project"]])
     assert sheets.next_question(SimpleNamespace(wb=wb)) == 2
     assert sheets.question_of("Q2 By project", names) is None                 # no Q2 Answer: the user's sheet
+
+
+def _pins(*specs):
+    return [PIN.model_copy(update={"id": i, "rows": PIN.rows, "columns": PIN.columns}) for i in specs]
+
+
+def test_prefetch_fetches_every_http_pull_at_once_and_pull_uses_it(monkeypatch):
+    monkeypatch.setattr(config, "ANSWER_PREFETCH", True)
+    seen = []
+
+    class Http:
+        def fetch_many(self, items):
+            seen.append(len(items))
+            return ["F0", svhttp.SvHttpError("down"), "F2"]
+    monkeypatch.setattr(svhttp, "shared", lambda: Http())
+    monkeypatch.setattr(source, "write", lambda t, q, title, pin, f: ("W", f))
+    monkeypatch.setattr(adhoc, "pull", lambda h, t, q, conn, pov, rows, cols, title: "ADHOC")
+    pins = _pins("a", "b", "c")
+    pf = source.Prefetch(pins)
+    assert source.pull(None, None, 1, 0, pins[0], pf=pf) == ("W", "F0")
+    s = source.pull(None, None, 1, 1, pins[1], pf=pf)                   # its HTTP fetch failed: Excel, with the note
+    assert s.route == "adhoc" and "HTTP route failed (down)" in s.note
+    assert source.pull(None, None, 1, 2, pins[2], pf=pf) == ("W", "F2")
+    assert seen == [3]                                                  # one batch for all three
+
+
+def test_prefetch_off_or_too_big_pulls_fetch_as_before(monkeypatch):
+    calls = []
+
+    class Http:
+        def fetch_many(self, items):
+            calls.append("many")
+            return []
+
+        def fetch(self, *a):
+            calls.append("one")
+            return "F"
+    monkeypatch.setattr(svhttp, "shared", lambda: Http())
+    monkeypatch.setattr(source, "write", lambda t, q, title, pin, f: ("W", f))
+    pf = source.Prefetch(_pins("a"))                                    # ANSWER_PREFETCH is False in tests
+    assert source.pull(None, None, 1, 0, _pins("a")[0], pf=pf) == ("W", "F") and calls == ["one"]
+    monkeypatch.setattr(config, "ANSWER_PREFETCH", True)
+    monkeypatch.setattr(config, "SVHTTP_TIMEOUT_S", 0.0)               # every pull is 'too big' for HTTP
+    assert source.Prefetch(_pins("a")).has(0) is False
+
+
+def test_a_prefetched_input_error_is_raised_not_sent_to_excel(monkeypatch):
+    monkeypatch.setattr(config, "ANSWER_PREFETCH", True)
+
+    class Http:
+        def fetch_many(self, items):
+            return [InputError("Invalid query: x")]
+    monkeypatch.setattr(svhttp, "shared", lambda: Http())
+    with pytest.raises(InputError, match="Invalid query"):
+        source.pull(None, None, 1, 0, _pins("a")[0], pf=source.Prefetch(_pins("a")))

@@ -5,6 +5,7 @@ label-keyed lookups of answer.py work unchanged - which is why provenance is a p
 header above it would move every label, and row 1 is the POV row."""
 from __future__ import annotations
 
+import concurrent.futures as cf
 import datetime as dt
 import math
 from dataclasses import dataclass
@@ -94,19 +95,57 @@ def write(t, q: int, title: str, pin: PullSpec, f: svhttp.Fetched) -> Source:
     return Source(p, "http", mismatches(f.values, com(lambda: _used_values(ws))))
 
 
-def pull(h, t, q: int, i: int, pin: PullSpec) -> Source:
-    """Pull i of question q: HTTP first, the ad hoc grid if the HTTP route fails or the grid is too big for one
-    request. A wrong query (InputError) is never retried through Excel."""
+_BG = cf.ThreadPoolExecutor(max_workers=2, thread_name_prefix="prefetch")
+
+
+def too_big(pin: PullSpec) -> bool:
+    """More cells than one HTTP request should carry: fetched through Smart View in Excel."""
+    n = math.prod(len(a.members) for a in [*pin.rows, *pin.columns])
+    return n / 200 > config.SVHTTP_TIMEOUT_S
+
+
+class Prefetch:
+    """An answer's HTTP pulls fetched at once in the background (svhttp.fetch_many), started before the workbook is
+    opened so the grids arrive while Excel starts. pull() takes pull i's result from here (has(i)), else fetches it
+    itself as before. Off when config.ANSWER_PREFETCH is False."""
+
+    def __init__(self, pins: list[PullSpec], only: set[int] | None = None):
+        self.index = [i for i, p in enumerate(pins)
+                      if config.ANSWER_PREFETCH and (only is None or i in only) and not too_big(p)]
+        items = [(pins[i].connection, dict(pins[i].pov), [Axis(a.dimension, a.members) for a in pins[i].rows],
+                  [Axis(a.dimension, a.members) for a in pins[i].columns]) for i in self.index]
+        self._fut = _BG.submit(svhttp.shared().fetch_many, items) if items else None
+
+    def has(self, i: int) -> bool:
+        return i in self.index
+
+    def result(self, i: int):
+        """pull i's Fetched, or the exception its fetch raised."""
+        try:
+            got = self._fut.result(timeout=config.SVHTTP_TIMEOUT_S * 2)
+        except Exception as e:   # noqa: BLE001 - the whole batch failed: every pull falls back like a failed fetch
+            return svhttp.SvHttpError(f"prefetch failed: {e}")
+        return got[self.index.index(i)]
+
+
+def pull(h, t, q: int, i: int, pin: PullSpec, pf: Prefetch | None = None) -> Source:
+    """Pull i of question q: HTTP first (prefetched in `pf` when given), the ad hoc grid if the HTTP route fails or
+    the grid is too big for one request. A wrong query (InputError) is never retried through Excel."""
     title = sheet_title(q, i, pin)
     rows = [Axis(a.dimension, a.members) for a in pin.rows]
     cols = [Axis(a.dimension, a.members) for a in pin.columns]
-    n = math.prod(len(a.members) for a in rows + cols)
-    if n / 200 > config.SVHTTP_TIMEOUT_S:
+    if too_big(pin):
+        n = math.prod(len(a.members) for a in rows + cols)
         note = f"{n} cells is too big for one HTTP request; fetched through Smart View in Excel."
     else:
         try:
             with stage("fetch (HTTP)"):
-                f = svhttp.shared().fetch(pin.connection, dict(pin.pov), rows, cols)
+                if pf is not None and pf.has(i):
+                    f = pf.result(i)
+                    if isinstance(f, BaseException):
+                        raise f
+                else:
+                    f = svhttp.shared().fetch(pin.connection, dict(pin.pov), rows, cols)
         except svhttp.SvHttpError as e:
             note = f"HTTP route failed ({e}); fetched through Smart View in Excel instead."
         else:

@@ -314,7 +314,7 @@ def _answer_env(monkeypatch, tmp_path, calls, fail=None):
     monkeypatch.setattr(drillstep, "write", lambda t, q, alias, res, title, question="", log=True: calls.append(
         ("write", alias, list(res.columns), len(res.rows))) or {"sheet": f"Q{q} Lines {alias}"})
 
-    def pull(h, t, q, i, pin):
+    def pull(h, t, q, i, pin, pf=None):
         calls.append(("pull", pin.id))
         accts, cols = pin.rows[0].members, pin.columns[0].members
         now, ly = _lines_total(D1, NOW), _lines_total(D2, LY)
