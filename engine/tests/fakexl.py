@@ -1,0 +1,648 @@
+"""A small in-memory Excel object model for the COM writers (styling, source sheets, lines sheets, sheet order).
+
+Every property a writer sets lands on the cells it covers (per cell: value, number format, font/fill/border
+attributes, style, alignment, conditional formats), on columns (width), rows (height), the sheet (tab colour, page
+setup, names, window state) or the workbook (sheet order, names). snapshot(wb) returns the whole state in a compact,
+comparable form (cells with equal settings collapsed into rectangles), so a test can pin a writer's exact effect and
+prove that a batched version leaves the same workbook. count_com(monkeypatch) counts jobs.com calls.
+"""
+from __future__ import annotations
+
+import datetime
+import hashlib
+import re
+from types import SimpleNamespace
+
+MAXR, MAXC = 1048576, 16384
+CLIP_R, CLIP_C = 400, 80                 # cell-level settings on whole rows/columns: only this block is tracked
+SEP = ";"                                # nb-NO list separator (Range unions)
+INTERNATIONAL = tuple([None, None, ",", "\xa0", SEP] + [None] * 13 + ["å", "M", "D"] + [None] * 30)
+
+
+def col_index(letters: str) -> int:
+    n = 0
+    for ch in letters.upper():
+        n = n * 26 + ord(ch) - 64
+    return n
+
+
+def col_letter(i: int) -> str:
+    s = ""
+    while i:
+        i, r = divmod(i - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+_CELL = re.compile(r"^\$?([A-Za-z]{1,3})\$?(\d+)$")
+_COLS = re.compile(r"^\$?([A-Za-z]{1,3}):\$?([A-Za-z]{1,3})$")
+_ROWS = re.compile(r"^\$?(\d+):\$?(\d+)$")
+
+
+def parse_area(a: str) -> tuple[int, int, int, int]:
+    a = a.strip()
+    if m := _COLS.match(a):
+        c1, c2 = col_index(m.group(1)), col_index(m.group(2))
+        return 1, min(c1, c2), MAXR, max(c1, c2)
+    if m := _ROWS.match(a):
+        r1, r2 = int(m.group(1)), int(m.group(2))
+        return min(r1, r2), 1, max(r1, r2), MAXC
+    parts = a.split(":")
+    if len(parts) == 1:
+        parts = parts * 2
+    (m1, m2) = (_CELL.match(parts[0]), _CELL.match(parts[1]))
+    if not (m1 and m2):
+        raise ValueError(f"bad address {a!r}")
+    r1, c1, r2, c2 = int(m1.group(2)), col_index(m1.group(1)), int(m2.group(2)), col_index(m2.group(1))
+    return min(r1, r2), min(c1, c2), max(r1, r2), max(c1, c2)
+
+
+def parse_address(addr: str) -> list[tuple[int, int, int, int]]:
+    if "," in addr and SEP != ",":
+        raise ValueError(f"union with ',' in a {SEP!r} locale: {addr!r}")
+    return [parse_area(a) for a in addr.split(SEP)]
+
+
+def rect_text(r1, c1, r2, c2) -> str:
+    if r1 == 1 and r2 == MAXR:
+        return f"{col_letter(c1)}:{col_letter(c2)}"
+    if c1 == 1 and c2 == MAXC:
+        return f"{r1}:{r2}"
+    a, b = f"{col_letter(c1)}{r1}", f"{col_letter(c2)}{r2}"
+    return a if a == b else f"{a}:{b}"
+
+
+def compress(cells) -> str:
+    """A set of (row, col) as a canonical list of rectangles: column runs per row, merged over consecutive rows."""
+    by_row: dict[int, list[int]] = {}
+    for r, c in cells:
+        by_row.setdefault(r, []).append(c)
+    runs_by_row: dict[int, list[tuple[int, int]]] = {}
+    for r, cs in by_row.items():
+        cs.sort()
+        runs = []
+        for c in cs:
+            if runs and runs[-1][1] == c - 1:
+                runs[-1] = (runs[-1][0], c)
+            else:
+                runs.append((c, c))
+        runs_by_row[r] = runs
+    open_: dict[tuple[int, int], int] = {}            # (c1, c2) -> first row
+    rects, prev_row = [], None
+    for r in sorted(runs_by_row) + [None]:
+        now = set(runs_by_row.get(r, [])) if r is not None else set()
+        nxt = {}
+        for span, top in open_.items():
+            if r is not None and span in now and prev_row == r - 1:
+                nxt[span] = top
+            else:
+                rects.append((top, span[0], prev_row, span[1]))
+        for span in now:
+            if span not in nxt:
+                nxt[span] = r
+        open_ = nxt
+        prev_row = r
+    return ",".join(rect_text(*x) for x in sorted(rects))
+
+
+class ComError(Exception):
+    """Not a 'busy' error: jobs.com passes it straight through."""
+
+
+# ------------------------------------------------------------------ ranges
+class _Sub:
+    """Range.Font / Range.Interior / Range.Borders(i) / FormatCondition.Font: attribute sets land per cell."""
+
+    def __init__(self, rng, prefix, cells=None):
+        object.__setattr__(self, "_rng", rng)
+        object.__setattr__(self, "_prefix", prefix)
+        object.__setattr__(self, "_cells", cells)
+
+    def _targets(self):
+        return self._cells if self._cells is not None else self._rng.cells()
+
+    def __setattr__(self, k, v):
+        for rc in self._targets():
+            self._rng.ws.cell(rc)[f"{self._prefix}.{k}"] = v
+
+    def __getattr__(self, k):
+        default = {"Font.Name": "Arial", "Font.Size": 10}.get(f"{self._prefix}.{k}")
+        if self._prefix.startswith("Borders") and k == "LineStyle":
+            default = -4142
+        vals = {self._rng.ws.cells.get(rc, {}).get(f"{self._prefix}.{k}", default) for rc in self._targets()}
+        return vals.pop() if len(vals) == 1 else None
+
+
+class _Rule:
+    def __init__(self, rule: dict):
+        self.rule = rule
+        self.Font = _RuleSub(rule, "Font")
+        self.Interior = _RuleSub(rule, "Interior")
+
+
+class _RuleSub:
+    def __init__(self, rule, prefix):
+        object.__setattr__(self, "_rule", rule)
+        object.__setattr__(self, "_prefix", prefix)
+
+    def __setattr__(self, k, v):
+        self._rule[f"{self._prefix}.{k}"] = v
+
+
+class _FormatConditions:
+    def __init__(self, rng):
+        self.rng = rng
+
+    def Delete(self):
+        for rc in self.rng.cells():
+            self.rng.ws.cell(rc).pop("FC", None)
+
+    def Add(self, kind, op, formula):
+        rule = {"type": kind, "op": op, "f": formula}
+        for rc in self.rng.cells():
+            self.rng.ws.cell(rc).setdefault("FC", []).append(rule)
+        return _Rule(rule)
+
+
+_FORMAT_PROPS = {"NumberFormatLocal", "NumberFormat", "HorizontalAlignment", "VerticalAlignment", "Style",
+                 "WrapText", "MergeCells", "IndentLevel"}
+_STYLE_PARTS = ("NumberFormat", "HorizontalAlignment", "VerticalAlignment", "WrapText", "IndentLevel", "Font.",
+                "Interior.", "Borders")
+
+
+class Range:
+    def __init__(self, ws, rects):
+        object.__setattr__(self, "ws", ws)
+        object.__setattr__(self, "rects", list(rects))
+
+    # -- geometry
+    def cells(self):
+        out = []
+        for r1, c1, r2, c2 in self.rects:
+            for r in range(r1, min(r2, CLIP_R) + 1):
+                for c in range(c1, min(c2, CLIP_C) + 1):
+                    out.append((r, c))
+        return out
+
+    @property
+    def Row(self):
+        return self.rects[0][0]
+
+    @property
+    def Column(self):
+        return self.rects[0][1]
+
+    @property
+    def Rows(self):
+        r1, _, r2, _ = self.rects[0]
+        return SimpleNamespace(Count=r2 - r1 + 1)
+
+    @property
+    def Columns(self):
+        _, c1, _, c2 = self.rects[0]
+        return SimpleNamespace(Count=c2 - c1 + 1)
+
+    @property
+    def Address(self):
+        return ",".join(_abs(x) for x in self.rects)
+
+    @property
+    def EntireColumn(self):
+        return Range(self.ws, [(1, c1, MAXR, c2) for _, c1, _, c2 in self.rects])
+
+    @property
+    def EntireRow(self):
+        return Range(self.ws, [(r1, 1, r2, MAXC) for r1, _, r2, _ in self.rects])
+
+    def End(self, direction):
+        assert direction == -4162                       # xlUp
+        r1, c1, _, _ = self.rects[0]
+        used = [r for (r, c), p in self.ws.cells.items() if c == c1 and r <= r1 and "Value" in p]
+        return Range(self.ws, [(max(used) if used else 1, c1, max(used) if used else 1, c1)])
+
+    # -- sub objects
+    @property
+    def Font(self):
+        return _Sub(self, "Font")
+
+    @property
+    def Interior(self):
+        return _Sub(self, "Interior")
+
+    def Borders(self, idx):
+        cells = []
+        for r1, c1, r2, c2 in self.rects:
+            r2c, c2c = min(r2, CLIP_R), min(c2, CLIP_C)
+            for r in range(r1, r2c + 1):
+                for c in range(c1, c2c + 1):
+                    if (idx == 7 and c == c1) or (idx == 8 and r == r1) or (idx == 9 and r == r2c) or \
+                            (idx == 10 and c == c2c) or (idx == 11 and c > c1) or (idx == 12 and r > r1):
+                        cells.append((r, c))
+        return _Sub(self, f"Borders{idx}", cells)
+
+    @property
+    def FormatConditions(self):
+        return _FormatConditions(self)
+
+    # -- values
+    def _get_value(self):
+        r1, c1, r2, c2 = self.rects[0]
+        if (r1, c1) == (r2, c2):
+            return self.ws.cells.get((r1, c1), {}).get("Value")
+        return tuple(tuple(self.ws.cells.get((r, c), {}).get("Value") for c in range(c1, c2 + 1))
+                     for r in range(r1, r2 + 1))
+
+    def _set_value(self, v):
+        r1, c1, r2, c2 = self.rects[0]
+        if isinstance(v, (tuple, list)):
+            assert len(v) == r2 - r1 + 1 and all(len(row) == c2 - c1 + 1 for row in v), "shape mismatch"
+            for i, row in enumerate(v):
+                for j, x in enumerate(row):
+                    self.ws.put(r1 + i, c1 + j, x)
+        else:
+            for r, c in self.cells():
+                self.ws.put(r, c, v)
+
+    def __getattr__(self, k):
+        if k in ("Value", "Value2", "Formula"):
+            return self._get_value()
+        if k == "ColumnWidth":
+            vals = {self.ws.colw.get(c, 8.43) for _, c1, _, c2 in self.rects for c in range(c1, min(c2, CLIP_C) + 1)}
+            return vals.pop() if len(vals) == 1 else None
+        if k == "RowHeight":
+            vals = {self.ws.rowh.get(r, 15) for r1, _, r2, _ in self.rects for r in range(r1, min(r2, CLIP_R) + 1)}
+            return vals.pop() if len(vals) == 1 else None
+        if k in _FORMAT_PROPS:
+            vals = {self.ws.cells.get(rc, {}).get(k) for rc in self.cells()}
+            return vals.pop() if len(vals) == 1 else None
+        raise AttributeError(k)
+
+    def __setattr__(self, k, v):
+        self.ws.log.append((k, ";".join(rect_text(*x) for x in self.rects)))
+        if k in ("Value", "Value2", "Formula"):
+            self._set_value(v)
+        elif k == "ColumnWidth":
+            for _, c1, _, c2 in self.rects:
+                for c in range(c1, min(c2, CLIP_C) + 1):
+                    self.ws.colw[c] = v
+        elif k == "RowHeight":
+            for r1, _, r2, _ in self.rects:
+                for r in range(r1, min(r2, CLIP_R) + 1):
+                    self.ws.rowh[r] = v
+        elif k in _FORMAT_PROPS:
+            for rc in self.cells():
+                p = self.ws.cell(rc)
+                if k == "Style":                       # as Excel: a style replaces the formats it includes
+                    for x in [x for x in p if x.startswith(_STYLE_PARTS)]:
+                        del p[x]
+                p[k] = v
+        else:
+            raise AttributeError(f"fake Range cannot set {k}")
+
+    # -- methods
+    def ClearFormats(self):
+        for rc in self.cells():
+            p = self.ws.cells.get(rc)
+            if p:
+                for k in [k for k in p if k != "Value"]:
+                    del p[k]
+
+    def ClearContents(self):
+        for rc in self.cells():
+            self.ws.cells.get(rc, {}).pop("Value", None)
+
+    def Clear(self):
+        for rc in self.cells():
+            self.ws.cells.pop(rc, None)
+
+    def SpecialCells(self, kind, value_type=None):
+        hits = []
+        for rc in self.cells():
+            v = self.ws.cells.get(rc, {}).get("Value")
+            is_formula = isinstance(v, str) and v.startswith("=")
+            numeric = isinstance(v, (int, float)) and not isinstance(v, bool)
+            if kind == 2 and numeric and not is_formula:
+                hits.append(rc)
+            elif kind == -4123 and is_formula:
+                hits.append(rc)
+        if not hits:
+            raise ComError("No cells were found.")
+        return Range(self.ws, [(r, c, r, c) for r, c in hits])
+
+    def Select(self):
+        self.ws.wb.selection[self.ws.Name] = ";".join(rect_text(*x) for x in self.rects)
+
+    def AutoFit(self):
+        pass
+
+
+def _abs(rect) -> str:
+    r1, c1, r2, c2 = rect
+    a, b = f"${col_letter(c1)}${r1}", f"${col_letter(c2)}${r2}"
+    return a if a == b else f"{a}:{b}"
+
+
+class _Lines:
+    """ws.Rows / ws.Columns: callable (one row/column or 'a:b') with .Count."""
+
+    def __init__(self, ws, rows: bool):
+        self.ws, self.rows = ws, rows
+        self.Count = MAXR if rows else MAXC
+
+    def __call__(self, key):
+        if self.rows:
+            r1, _, r2, _ = parse_area(f"{key}:{key}" if isinstance(key, int) else str(key))
+            return Range(self.ws, [(r1, 1, r2, MAXC)])
+        if isinstance(key, int):
+            return Range(self.ws, [(1, key, MAXR, key)])
+        key = str(key)
+        return Range(self.ws, [parse_area(key if ":" in key else f"{key}:{key}")])
+
+
+class ListObject:
+    def __init__(self, ws, rng):
+        self.ws, self.rect, self.Name, self.TableStyle = ws, rng.rects[0], "Table1", None
+
+    @property
+    def Range(self):
+        return Range(self.ws, [self.rect])
+
+    @property
+    def HeaderRowRange(self):
+        r1, c1, _, c2 = self.rect
+        return Range(self.ws, [(r1, c1, r1, c2)])
+
+    @property
+    def DataBodyRange(self):
+        r1, c1, r2, c2 = self.rect
+        return Range(self.ws, [(r1 + 1, c1, r2, c2)]) if r2 > r1 else None
+
+    def Resize(self, rng):
+        self.rect = rng.rects[0]
+
+    def Delete(self):
+        self.ws.ListObjects.remove(self)
+        self.Range.Clear()
+
+
+class _ListObjects(list):
+    def __init__(self, ws):
+        super().__init__()
+        self.ws = ws
+
+    def Add(self, source_type, rng, link_source=None, has_headers=None):
+        lo = ListObject(self.ws, rng)
+        self.append(lo)
+        return lo
+
+
+class _Names:
+    def __init__(self, owner):
+        self.owner, self.items = owner, {}
+
+    def Add(self, Name=None, RefersTo=None, Visible=True, **kw):
+        self.items[Name] = SimpleNamespace(Name=Name, RefersTo=RefersTo, Visible=Visible)
+        return self.items[Name]
+
+    def __call__(self, name):
+        if name not in self.items:
+            raise ComError(f"no name {name}")
+        return self.items[name]
+
+
+class _Recorder:
+    """PageSetup / Tab: plain attribute bag."""
+
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+class Worksheet:
+    def __init__(self, wb, name):
+        self.wb, self.Name, self.Visible = wb, name, -1
+        self.cells: dict[tuple[int, int], dict] = {}
+        self.colw: dict[int, float] = {}
+        self.rowh: dict[int, float] = {}
+        self.Tab = _Recorder(Color=False)
+        self.PageSetup = _Recorder()
+        self.Names = _Names(self)
+        self.ListObjects = _ListObjects(self)
+        self.Rows = _Lines(self, True)
+        self.Columns = _Lines(self, False)
+        self.log: list = []
+
+    @property
+    def Parent(self):
+        return self.wb
+
+    def cell(self, rc):
+        return self.cells.setdefault(rc, {})
+
+    def put(self, r, c, x):
+        if x is None or x == "":
+            self.cells.get((r, c), {}).pop("Value", None)
+            return
+        if isinstance(x, str) and x.startswith("'"):
+            x = x[1:]
+        self.cell((r, c))["Value"] = x
+
+    def Range(self, a, b=None):
+        if b is not None:
+            r1 = min(a.rects[0][0], b.rects[0][0]); c1 = min(a.rects[0][1], b.rects[0][1])
+            r2 = max(a.rects[0][2], b.rects[0][2]); c2 = max(a.rects[0][3], b.rects[0][3])
+            return Range(self, [(r1, c1, r2, c2)])
+        return Range(self, parse_address(a))
+
+    def Cells(self, r, c):
+        return Range(self, [(r, c, r, c)])
+
+    @property
+    def UsedRange(self):
+        keys = [rc for rc, p in self.cells.items() if p]
+        if not keys:
+            return Range(self, [(1, 1, 1, 1)])
+        rs, cs = [r for r, _ in keys], [c for _, c in keys]
+        return Range(self, [(min(rs), min(cs), max(rs), max(cs))])
+
+    def Activate(self):
+        self.wb.Activate()
+        self.wb.active = self
+
+    def Move(self, *args, **kw):
+        assert not kw
+        before = args[0] if args else None
+        after = args[1] if len(args) > 1 else None
+        self.wb.order.remove(self)
+        k = self.wb.order.index(before if before is not None else after)
+        self.wb.order.insert(k if before is not None else k + 1, self)
+
+
+class _Window:
+    """One window per workbook; split/freeze settings are kept per active sheet, as Excel does."""
+
+    def __init__(self, wb):
+        object.__setattr__(self, "wb", wb)
+        object.__setattr__(self, "Visible", True)
+
+    def __setattr__(self, k, v):
+        if k == "Visible":
+            object.__setattr__(self, k, v)
+            return
+        self.wb.window_state.setdefault(self.wb.active.Name, {})[k] = v
+
+    def __getattr__(self, k):
+        return self.wb.window_state.get(self.wb.active.Name, {}).get(k)
+
+
+class _Sheets:
+    def __init__(self, wb):
+        self.wb = wb
+
+    def __call__(self, key):
+        if isinstance(key, int):
+            return self.wb.order[key - 1]
+        for s in self.wb.order:
+            if s.Name == key:
+                return s
+        raise ComError(f"no sheet {key}")
+
+    def __iter__(self):
+        return iter(list(self.wb.order))
+
+    @property
+    def Count(self):
+        return len(self.wb.order)
+
+    def Add(self, before=None, after=None):
+        ws = Worksheet(self.wb, f"Sheet{len(self.wb.order) + 1}")
+        if after is not None:
+            self.wb.order.insert(self.wb.order.index(after) + 1, ws)
+        elif before is not None:
+            self.wb.order.insert(self.wb.order.index(before), ws)
+        else:
+            self.wb.order.append(ws)
+        return ws
+
+
+class Application:
+    def __init__(self):
+        self.International = INTERNATIONAL
+        self.ScreenUpdating, self.Calculation, self.DisplayAlerts = True, -4105, True
+        self.PrintCommunication = True
+        self.StatusBar = False
+        self.ActiveWorkbook = None
+
+    @property
+    def ActiveSheet(self):
+        return self.ActiveWorkbook.active if self.ActiveWorkbook else None
+
+    @property
+    def ActiveWindow(self):
+        return self.ActiveWorkbook.window
+
+    def CentimetersToPoints(self, cm):
+        return round(cm * 28.3464567, 4)
+
+
+class Workbook:
+    def __init__(self, names=("Sheet1",), app=None, styles_ver=True):
+        self.Application = app or Application()
+        self.order = [Worksheet(self, n) for n in names]
+        self.Worksheets = _Sheets(self)
+        self.Names = _Names(self)
+        self.Name, self.FullName = "book.xlsx", r"C:\fake\book.xlsx"
+        self.window = _Window(self)
+        self.window_state: dict[str, dict] = {}
+        self.selection: dict[str, str] = {}
+        self.active = self.order[0]
+        self.Application.ActiveWorkbook = self
+        if styles_ver:
+            from smartview_mcp import styling
+            self.Names.Add(Name="_tnStylesVer", RefersTo=f'="{styling._styles_version()}"', Visible=False)
+
+    def Windows(self, i):
+        return self.window
+
+    @property
+    def ActiveSheet(self):
+        return self.active
+
+    def Activate(self):
+        self.Application.ActiveWorkbook = self
+
+
+# ------------------------------------------------------------------ state + counting
+def _key(v):
+    if isinstance(v, list):                              # conditional format rules
+        return repr([sorted(r.items()) for r in v])
+    return v
+
+
+def sheet_state(ws) -> dict:
+    groups: dict[tuple, list] = {}
+    values = []
+    for (r, c), props in ws.cells.items():
+        for k, v in props.items():
+            if k == "Value":
+                values.append(((r, c), repr(v)))
+                continue
+            groups.setdefault((k, _key(v)), []).append((r, c))
+    fmt = {f"{k}={v!r}": compress(cells) for (k, v), cells in sorted(groups.items(), key=lambda x: repr(x[0]))}
+    return {
+        "values": hashlib.sha1(repr(sorted(values)).encode()).hexdigest()[:12],
+        "formats": fmt,
+        "widths": {col_letter(c): w for c, w in sorted(ws.colw.items())},
+        "heights": _runs(ws.rowh),
+        "tab": ws.Tab.Color,
+        "page_setup": dict(sorted(ws.PageSetup.__dict__.items())),
+        "names": {n: (x.RefersTo, x.Visible) for n, x in sorted(ws.Names.items.items())},
+        "window": dict(sorted(ws.wb.window_state.get(ws.Name, {}).items())),
+        "selection": ws.wb.selection.get(ws.Name),
+        "visible": ws.Visible,
+        "tables": [(lo.Name, rect_text(*lo.rect), lo.TableStyle) for lo in ws.ListObjects],
+    }
+
+
+def _runs(d: dict) -> dict:
+    out: dict = {}
+    for k in sorted(d):
+        out.setdefault(d[k], []).append((k, k))
+    return {v: compress([(r, 1) for r, _ in ks]).replace("A", "") for v, ks in out.items()}
+
+
+def snapshot(wb) -> dict:
+    return {"order": [s.Name for s in wb.order],
+            "names": {n: x.RefersTo for n, x in sorted(wb.Names.items.items())},
+            "sheets": {s.Name: sheet_state(s) for s in wb.order}}
+
+
+def count_com(monkeypatch) -> list:
+    """Count jobs.com calls (the writers' unit of work, as timing's 'com calls.*' counter), also where a module
+    imported com by name."""
+    import sys
+
+    from smartview_mcp.excel import jobs
+    calls: list = []
+    real = jobs.com
+
+    def counting(call, *a, **k):
+        calls.append(call)
+        return real(call, *a, **k)
+    monkeypatch.setattr(jobs, "com", counting)
+    for name, mod in list(sys.modules.items()):
+        if name.startswith("smartview_mcp") and getattr(mod, "com", None) is real:
+            monkeypatch.setattr(mod, "com", counting)
+    return calls
+
+
+class FixedDateTime(datetime.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 11, 3, 9, 30)
+
+
+def freeze_time(monkeypatch, *modules) -> None:
+    """datetime.now() fixed in these modules (they import datetime as dt): timestamps in cells stay comparable."""
+    ns = SimpleNamespace(datetime=FixedDateTime, timedelta=datetime.timedelta, date=datetime.date)
+    for mod in modules:
+        monkeypatch.setattr(mod, "dt", ns)

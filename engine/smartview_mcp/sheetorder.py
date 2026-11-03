@@ -140,14 +140,37 @@ def simulate(order: list[str], moves) -> list[str]:
 
 
 # ------------------------------------------------------------------ COM
+def _cosmetic(read, busy):
+    """read(), or None when Excel refuses it (e.g. a chart sheet has no tab colour); a busy Excel is raised so the
+    whole read is retried."""
+    try:
+        return read()
+    except Exception as e:   # noqa: BLE001
+        if busy(e):
+            raise
+        return None
+
+
+def _read_sheets(wb, busy) -> tuple[list[tuple[str, bool, object]], str | None]:
+    """[(name, visible, tab colour)] in order + the active sheet's name (None when the workbook is not the active
+    one), all in ONE jobs.com call."""
+    rows = [(str(s.Name), s.Visible == -1, _cosmetic(lambda s=s: s.Tab.Color, busy)) for s in wb.Worksheets]
+    active = _cosmetic(lambda: str(wb.ActiveSheet.Name)
+                       if str(wb.Application.ActiveWorkbook.Name) == str(wb.Name) else None, busy)
+    return rows, active
+
+
 def arrange_sheets(wb, mode: str = "full", activate: str | None = None) -> dict:
     """Put the workbook's sheets in the fixed order (see module doc) with positional Move (keyword Before=/After= are
     ignored through late-bound COM), set the Answer/data tab colours, and activate `activate` (else the sheet that was
-    active). Returns {'moved': [...], 'order': [...]}; raises only if Excel refuses a move."""
-    from .excel.jobs import com, fast_excel
-    sheets = list(com(lambda: wb.Worksheets))
-    names = [str(com(lambda s=s: s.Name)) for s in sheets]
-    visible = {n: com(lambda s=s: s.Visible) == -1 for n, s in zip(names, sheets)}   # xlSheetVisible
+    active). Returns {'moved': [...], 'order': [...]}; raises only if Excel refuses a move.
+    COM calls: one read of the order (names, visibility, tab colours, active sheet), one per sheet that moves or
+    whose tab colour is wrong, one Activate unless that sheet is already active - 1 call for an ordered workbook."""
+    from .excel.jobs import com, fast_excel, is_busy
+    rows, active = com(lambda: _read_sheets(wb, is_busy))
+    names = [n for n, _, _ in rows]
+    visible = {n: v for n, v, _ in rows}
+    tabs = {n: c for n, _, c in rows}
     sources = None
     if mode == "active" and "Sources" in names and "Sources SV" not in names:
         try:                                            # a user's own 'Sources' (not our log) is not ours to move
@@ -157,34 +180,27 @@ def arrange_sheets(wb, mode: str = "full", activate: str | None = None) -> dict:
         sources = {"Sources"} if a1 == "Fetched" else set()
     target = sheet_order(names, visible, mode, sources)
     moves = plan_moves(names, target, pinned_sheets(names, visible, mode, sources))
-    try:
-        prev_active = str(com(lambda: wb.ActiveSheet.Name))
-    except Exception:   # noqa: BLE001 - e.g. a chart sheet or no window
-        prev_active = None
     if moves:
         with fast_excel(com(lambda: wb.Application)):
             for n, where, anchor in moves:
-                ws, ref = com(lambda n=n: wb.Worksheets(n)), com(lambda a=anchor: wb.Worksheets(a))
-                if where == "before":
-                    com(lambda ws=ws, ref=ref: ws.Move(ref))            # positional Before
-                else:
-                    com(lambda ws=ws, ref=ref: ws.Move(None, ref))      # positional After
-        got = [str(com(lambda s=s: s.Name)) for s in com(lambda: wb.Worksheets)]
+                if where == "before":                   # positional Before
+                    com(lambda n=n, a=anchor: wb.Worksheets(n).Move(wb.Worksheets(a)))
+                else:                                   # positional After
+                    com(lambda n=n, a=anchor: wb.Worksheets(n).Move(None, wb.Worksheets(a)))
+        got = com(lambda: [str(s.Name) for s in wb.Worksheets])
         if got != target:
             log.warning("sheet order after moves %s != target %s", got, target)
     for n in target:
         kind = classify(n)[0] if visible.get(n) else "other"
         want = ANSWER_TAB if kind == "answer" else DATA_TAB if kind == "data" else None
-        if want is None:
+        if want is None or tabs.get(n) == want:
             continue
         try:
-            tab = com(lambda n=n: wb.Worksheets(n).Tab)
-            if com(lambda: tab.Color) != want:
-                com(lambda: setattr(tab, "Color", want))
+            com(lambda n=n, w=want: setattr(wb.Worksheets(n).Tab, "Color", w))
         except Exception:   # noqa: BLE001 - cosmetic
             pass
-    show = activate or prev_active
-    if show:
+    show = activate or active
+    if show and (moves or show != active):              # a Move can change the active sheet: land again after it
         try:
             com(lambda: wb.Worksheets(show).Activate())
         except Exception:   # noqa: BLE001 - e.g. the workbook's window is not active: cosmetic
