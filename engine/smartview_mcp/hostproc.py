@@ -159,6 +159,13 @@ class ComThread(threading.Thread):
         return fut
 
 
+def on_host_thread() -> bool:
+    """True on an ExcelHost's own COM thread (named 'excel-com'): work there must not wait on threads that call
+    on_host, or it deadlocks."""
+    t = threading.current_thread()
+    return isinstance(t, ComThread) and t.name == "excel-com"
+
+
 class HiddenExcel:
     """ExcelHost's hidden Excel on the host COM thread: start check, VBA bridge, Smart View options, sheets."""
 

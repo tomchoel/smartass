@@ -8,12 +8,13 @@ Base read: the area (or unit) x the catalogue's lines x 36 months.
   member exists), Periodic months. FinPlan periods are stored as 'Sep 26'."""
 from __future__ import annotations
 
+import concurrent.futures as cf
 import logging
 import time
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import atlas, config, ops
+from . import atlas, config, hostproc, ops
 from .analytics import periods, reconcile
 from .analytics.frame import from_rows
 from .catalog import Catalog, Entity
@@ -175,27 +176,42 @@ def route(http=None, host: Callable[[], object] | None = None) -> Retrieve:
     """Smart View's HTTP protocol first (svhttp.shared() unless `http` is given); on any failure that is not an input
     error, the COM route through the hidden Excel when `host` (a function returning the ExcelHost) is given. A grid
     too big for one HTTP request (cells / 200 > SVHTTP_TIMEOUT_S, like tools_query) goes straight to COM."""
-    def retrieve(conn, pov, rows, cols):
-        from . import svhttp
-        n_cells = 1
+    def cells(rows, cols) -> int:
+        n = 1
         for a in [*rows, *cols]:
-            n_cells *= max(1, len(a.members))
-        too_big = host is not None and n_cells / 200 > config.SVHTTP_TIMEOUT_S
-        if not too_big:
-            try:
-                lay, p, secs = (http or svhttp.shared()).retrieve(conn, pov, rows, cols, False, False)
-                return lay, p, secs, "http"
-            except InputError:
-                raise
-            except Exception as e:   # noqa: BLE001 - the HTTP route failed: Smart View in Excel, if we may
-                if host is None:
-                    raise
-                log.warning("live read: HTTP route failed (%s); using Smart View in Excel", e)
+            n *= max(1, len(a.members))
+        return n
+
+    def http_part(conn, pov, rows, cols):
+        """The HTTP route alone (safe in parallel); _TooBig when the grid must go through Excel."""
+        from . import svhttp
+        if host is not None and cells(rows, cols) / 200 > config.SVHTTP_TIMEOUT_S:
+            raise _TooBig()
+        lay, p, secs = (http or svhttp.shared()).retrieve(conn, pov, rows, cols, False, False)
+        return lay, p, secs, "http"
+
+    def com_part(conn, pov, rows, cols, why: Exception):
+        """Smart View in Excel after the HTTP route failed with `why` (re-raised when there is no Excel)."""
+        if host is None or isinstance(why, InputError):
+            raise why
+        if not isinstance(why, _TooBig):
+            log.warning("live read: HTTP route failed (%s); using Smart View in Excel", why)
         h = host()
         lay, p, secs = h.on_host(lambda: ops.query(h, conn, pov, rows, cols, False, False),
-                                 timeout=max(config.CALL_TIMEOUT_S, n_cells / 200))
+                                 timeout=max(config.CALL_TIMEOUT_S, cells(rows, cols) / 200))
         return lay, p, secs, "com"
+
+    def retrieve(conn, pov, rows, cols):
+        try:
+            return http_part(conn, pov, rows, cols)
+        except Exception as e:   # noqa: BLE001 - InputError is re-raised by com_part
+            return com_part(conn, pov, rows, cols, e)
+    retrieve.http_part, retrieve.com_part = http_part, com_part     # _fill: HTTP at once, Excel one at a time
     return retrieve
+
+
+class _TooBig(Exception):
+    """A grid too big for one HTTP request: Smart View in Excel."""
 
 
 @dataclass
@@ -259,14 +275,36 @@ def fill(store: FactStore, retrieve: Retrieve, cat: Catalog, grids: list[Grid], 
             atlas_db.close()
 
 
+def _retrieve_all(retrieve, grids):
+    """Every grid's retrieve result (a tuple, or the Exception it raised), in grid order. HTTP for all grids at once
+    on a pool; a grid whose HTTP read failed then goes through Smart View in Excel one at a time, as before (all at
+    once they would queue on the one Excel thread and time out there). On the host's COM thread, or for fewer than 2
+    grids, everything one after the other (a COM fallback waits on that thread: a pool there would deadlock)."""
+    def one(g, fn):
+        try:
+            return fn(g.conn, g.pov, g.rows, g.cols)
+        except Exception as e:   # noqa: BLE001 - one failed grid must not lose the others
+            return e
+    if len(grids) < 2 or hostproc.on_host_thread():
+        return [one(g, retrieve) for g in grids]
+    http_part = getattr(retrieve, "http_part", None)
+    with cf.ThreadPoolExecutor(max_workers=min(len(grids), max(1, config.SVHTTP_SESSIONS))) as pool:
+        got = list(pool.map(lambda g: one(g, http_part or retrieve), grids))
+    if http_part is not None:
+        for k, (g, r) in enumerate(zip(grids, got)):
+            if isinstance(r, Exception) and not isinstance(r, InputError):
+                got[k] = one(g, lambda *a, why=r: retrieve.com_part(*a, why=why))
+    return got
+
+
 def _fill(store, retrieve, cat, grids, job, closed, closed_label, now, atlas_db, t0, started):
     rows, errors, warnings, routes = [], [], [], set()
-    for g in grids:
-        try:
-            lay, parsed, _secs, how = retrieve(g.conn, g.pov, g.rows, g.cols)
-        except Exception as e:   # noqa: BLE001 - one failed grid must not lose the others
+    for g, got_or_err in zip(grids, _retrieve_all(retrieve, grids)):
+        if isinstance(got_or_err, Exception):
+            e = got_or_err
             errors.append(f"{g.what}: {type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}")
             continue
+        lay, parsed, _secs, how = got_or_err
         routes.add(how)
         unknown = really_unknown(atlas_db, g.conn, parsed.unknown_members)
         got, bad = to_rows(lay, parsed, g.conn, how, now(), closed_label or closed, closed,

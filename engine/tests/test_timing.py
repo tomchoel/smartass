@@ -23,3 +23,31 @@ def test_say_without_a_job_or_with_a_broken_callback_is_silent():
     timing.Timer.note_notify(lambda t: 1 / 0)
     timing.Timer.start()
     timing.say("still fine")
+
+
+def test_com_calls_are_counted_per_stage_nested_counted_in_parents(monkeypatch):
+    from smartview_mcp.excel import jobs
+    monkeypatch.setattr(jobs, "_check_alive", lambda: None)
+    tm = timing.Timer.start()
+    with timing.stage("write"):
+        for _ in range(3):
+            jobs.com(lambda: 1)
+        with timing.stage("inner"):
+            jobs.com(lambda: 2)
+    jobs.com(lambda: 3)                                   # outside any stage: counted nowhere
+    s = tm.summary()
+    assert s["com calls.write"] == 4 and s["com calls.write.inner"] == 1
+    assert not any(k.startswith("com calls.") and k not in ("com calls.write", "com calls.write.inner") for k in s)
+
+
+def test_com_without_a_timer_or_in_another_thread_is_not_counted(monkeypatch):
+    import threading
+    from smartview_mcp.excel import jobs
+    monkeypatch.setattr(jobs, "_check_alive", lambda: None)
+    assert jobs.com(lambda: 5) == 5                       # no timer: no crash
+    tm = timing.Timer.start()
+    with timing.stage("write"):
+        t = threading.Thread(target=lambda: jobs.com(lambda: 1))
+        t.start()
+        t.join()
+    assert not any(k.startswith("com calls.") for k in tm.summary())

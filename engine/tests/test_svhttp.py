@@ -818,3 +818,4 @@ def test_a_lost_request_goes_again_on_a_new_session_and_the_old_one_is_dropped(d
     sids = t.grid_sids()
     assert len(sids) == 2 and sids[0] != sids[1]           # the second try had a session of its own
     assert sv._idle["FinMax"] == [sids[1]]                 # the lost one is not reused
+

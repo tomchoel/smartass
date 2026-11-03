@@ -45,3 +45,29 @@ on their own sIDs 8 of 8 right); async direct drill; split siblings' drill queri
 What is left: EPM's drill query (one at a time per user, ~1.5-3 s on these year cells) and the warm page (~4 s,
 once per browser session). Scripts: session scratchpad `bench_drill.py`, `bench_timeline.py`, `stability.py`,
 `spike_sid.py`.
+
+## Answer speed (2026-11-03): pulls and pnl reads in parallel, prefetched while Excel opens
+Live runs on the owner's PC through the MCP server (relay-reloaded on this code), one new workbook. Times and
+COM-call counts only (`runs.jsonl`).
+
+| Answer | Before (mean of the last 40 runs, by stage) | After |
+|---|---|---|
+| P&L Wholesale YTD (`pnl`) | `live read` 14 s mean, 76 s worst | `live read` **7.0 s** (5 pulls over HTTP) |
+| Consultants Technology YTD (`lines_ranking`) | ~25 s Excel + drills | first frame **0.8 s**, drills **8.0 s**, Excel job **10.8 s**: ~20 s end to end |
+| Revenue trend Telenor Norge (`monthly_trend`) | `fetch (HTTP)` up to 8 s | `fetch (HTTP)` **0.08 s** (3 pulls prefetched), job **12.1 s** |
+
+Login spike: a fresh Excel shows the EPM login by itself after 19-22 s, so the 12 s grace stays; the P&L run that
+had to start Excel spent **25.7 s** in `open target`.
+
+### Where the Excel time goes now (input for the Excel-write plan)
+| Stage | Time | COM calls |
+|---|---:|---:|
+| `write source sheet` | 2.9-4.6 s | ~78 per sheet (234 for 3, 401 for 5) |
+| `answer` (mostly `style (tn-rapportstil)`; `G page setup` 1.3-1.4 s in 16 calls) | 2.9-4.2 s | 158-286 |
+| `save + activate` (`arrange sheets`) | 0.9-1.3 s | 84-104 |
+| `write lines d1` / `d2` | 1.4-1.7 s each | 92 each |
+| `log sources` | 0.2-1.4 s | 15-78 |
+| `open target` when Excel must start | 25.7 s | 3 |
+
+Top three to cut next: source-sheet styling (~78 calls per sheet), sheet arranging on save (~100 calls), the
+answer styling + page setup.

@@ -222,3 +222,68 @@ def test_members_the_atlas_knows_are_kept_when_the_parser_misflags_them(retrieve
     # no atlas dimension to judge with: nothing is dropped, nothing is reported
     again = extract.fill(FactStore(), misflag, CAT, grids, "t", "Dec 26", atlas_db=atlas.connect(tmp_path / "e.db"))
     assert again.fill.result == "ok" and again.fill.cells == sum(g.cells for g in grids)
+
+
+def test_fill_retrieves_at_once_and_stores_in_grid_order(http):
+    import random
+    import threading
+    import time as _t
+    grids = extract.finmax_grids(CAT, ["Jan 26", "Feb 26", "Mar 26"], ["un.SY.2WHS", "un.SY.2BUS"])
+    assert len(grids) >= 2
+    answer = extract.route(http=http)
+    seq = extract.fill(FactStore(), answer, CAT, grids, "t", "Mar 26")
+    live, peak, lock = [0], [0], threading.Lock()
+
+    def slow(conn, pov, rows, cols):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        _t.sleep(random.uniform(0.0, 0.02))
+        with lock:
+            live[0] -= 1
+        return answer(conn, pov, rows, cols)
+    par = extract.fill(FactStore(), slow, CAT, grids, "t", "Mar 26")
+    assert [r.key for r in par.rows] == [r.key for r in seq.rows]          # same rows, same order
+    assert par.fill.result == seq.fill.result and par.fill.detail["checks"] == seq.fill.detail["checks"]
+    assert peak[0] > 1
+
+
+def test_fill_on_the_host_thread_stays_sequential(http, monkeypatch):
+    import threading
+    from smartview_mcp import hostproc
+    monkeypatch.setattr(hostproc, "on_host_thread", lambda: True)
+    grids = extract.finmax_grids(CAT, ["Jan 26", "Feb 26"], ["un.SY.2WHS"])
+    answer = extract.route(http=http)
+    seen = []
+
+    def rec(conn, pov, rows, cols):
+        seen.append(threading.current_thread().name)
+        return answer(conn, pov, rows, cols)
+    extract.fill(FactStore(), rec, CAT, grids, "t", "Feb 26")
+    assert len(seen) == len(grids) and len(set(seen)) == 1       # no pool: a COM fallback could not deadlock
+
+
+
+def test_fill_reads_http_at_once_and_falls_back_to_excel_one_grid_at_a_time(monkeypatch):
+    import threading
+    from smartview_mcp import extract as ex
+    grids = ex.finmax_grids(CAT, ["Jan 26", "Feb 26", "Mar 26"], ["un.SY.2WHS", "un.SY.2BUS"])
+    live, peak, lock = [0], [0], threading.Lock()
+
+    class Down:
+        def retrieve(self, *a):
+            raise RuntimeError("HTTP down")
+
+    class Host:
+        def on_host(self, fn, timeout=None):
+            with lock:
+                live[0] += 1
+                peak[0] = max(peak[0], live[0])
+            try:
+                raise RuntimeError("no Excel in tests")
+            finally:
+                with lock:
+                    live[0] -= 1
+    res = ex.fill(FactStore(), ex.route(http=Down(), host=lambda: Host()), CAT, grids, "t", "Mar 26")
+    assert res.fill.result == "error" and len(res.fill.detail["errors"]) == len(grids)
+    assert peak[0] == 1                                    # the Excel fallback never ran two at once

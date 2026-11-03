@@ -15,4 +15,5 @@ def _no_live_drill_routes(monkeypatch):
     (drillstep then uses its Excel/page routes, which the tests fake)."""
     from smartview_mcp import config
     monkeypatch.setattr(config, "DRILL_DIRECT", False)
+    monkeypatch.setattr(config, "ANSWER_PREFETCH", False)        # tests never reach the live HTTP route
     monkeypatch.setenv("SV_TEST_NO_HTTP_DRILL", "1")
