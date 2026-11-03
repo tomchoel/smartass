@@ -127,9 +127,12 @@ def add_sheet(t: target.Target, name: str, after_q: int | None = None, color: in
     # 15.10.2026: the sheet landed before the ACTIVE sheet instead). Only 'Sources'/meta sheets yet: go first.
     ws = jobs.com(lambda: t.wb.Worksheets.Add(None, anchor) if anchor is not None else t.wb.Worksheets.Add(sheets[0]))
     t.sheets_added.append(name)
-    jobs.com(lambda: setattr(ws, "Name", name))
-    if color is not None:
-        jobs.com(lambda: setattr(ws.Tab, "Color", color))
+
+    def name_and_tab():
+        ws.Name = name
+        if color is not None:
+            ws.Tab.Color = color
+    jobs.com(name_and_tab)
     return ws
 
 
@@ -159,9 +162,8 @@ def save_meta(t: target.Target, p: "Pull", extra: dict | None = None) -> None:
     """Persist the pull's layout in a hidden sheet, so answers can be (re)built after a server restart."""
     if not _sheet_exists(t, META_SHEET):
         ws = jobs.com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))   # positional: see add_sheet
-        jobs.com(lambda: setattr(ws, "Name", META_SHEET))
-        jobs.com(lambda: setattr(ws, "Visible", 0))         # xlSheetHidden
-    ws = jobs.com(lambda: t.wb.Worksheets(META_SHEET))
+        jobs.com(lambda: _name_hidden(ws, META_SHEET))
+    ws, r = jobs.com(lambda: _next_row(t.wb.Worksheets(META_SHEET)))
     blob = json.dumps({"connection": p.connection, "pov": p.layout.pov,
                        "rows": [[a.dimension, a.members] for a in p.layout.rows],
                        "cols": [[a.dimension, a.members] for a in p.layout.cols],
@@ -169,10 +171,18 @@ def save_meta(t: target.Target, p: "Pull", extra: dict | None = None) -> None:
                        **(extra or {})},
                       ensure_ascii=False)
     chunks = [blob[i:i + 30000] for i in range(0, len(blob), 30000)]   # a cell holds max 32 767 characters
-    r = jobs.com(lambda: ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1
-    jobs.com(lambda: setattr(ws.Cells(r, 1), "Value", "'" + p.sheet))
-    for k, c in enumerate(chunks):
-        jobs.com(lambda: setattr(ws.Cells(r, 2 + k), "Value", "'" + c))
+    row = ("'" + p.sheet, *("'" + c for c in chunks))         # name + blob chunks: one row, one write
+    jobs.com(lambda: setattr(ws.Range(ws.Cells(r, 1), ws.Cells(r, len(row))), "Value", (row,)))
+
+
+def _name_hidden(ws, name: str) -> None:
+    ws.Name = name
+    ws.Visible = 0                                      # xlSheetHidden
+
+
+def _next_row(ws) -> tuple:
+    """(ws, the first empty row below column A's last value): one COM call."""
+    return ws, ws.Cells(ws.Rows.Count, 1).End(-4162).Row + 1
 
 
 def save_spec(t: target.Target, q: int, spec: dict, ids: dict[str, str] | None = None, owned: dict | None = None) -> None:

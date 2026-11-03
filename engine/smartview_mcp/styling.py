@@ -191,65 +191,91 @@ def _ensure_styles(wb) -> None:
 
 
 # ---------------------------------------------------------------- view helpers
+def _busy(e: BaseException) -> bool:
+    from .excel import jobs
+    return jobs.is_busy(e)
+
+
 @contextmanager
 def _active(ws):
-    """Make ws the active sheet (needed for window-level settings), restore the previous workbook/sheet after."""
-    wb = _get(ws, "Parent")
-    xl = _get(wb, "Application")
-    prev_wb = prev_ws = None
+    """Make ws the active sheet (needed for window-level settings), restore the previous workbook/sheet after.
+    Three COM calls: read the previous workbook/sheet, activate, restore."""
+    def read():
+        wb = ws.Parent
+        try:
+            prev_wb, prev_ws = wb.Application.ActiveWorkbook, wb.Application.ActiveSheet
+        except Exception as e:   # noqa: BLE001
+            if _busy(e):
+                raise
+            prev_wb = prev_ws = None
+        other = prev_wb is not None and prev_wb.FullName != wb.FullName
+        return wb, prev_wb, prev_ws, other
+
     try:
-        prev_wb, prev_ws = xl.ActiveWorkbook, xl.ActiveSheet
-    except Exception:   # noqa: BLE001
-        pass
+        wb, prev_wb, prev_ws, other = _retry(read)
+    except Exception:   # noqa: BLE001 - cannot tell which workbook is active: no window settings
+        yield False
+        return
+
+    def enter():
+        if prev_wb is None or other:
+            wb.Activate()
+        ws.Activate()
     ok = True
     try:
-        if prev_wb is None or _get(prev_wb, "FullName") != _get(wb, "FullName"):
-            _call(wb, "Activate")
-        _call(ws, "Activate")
+        _retry(enter)
     except Exception:   # noqa: BLE001
         ok = False
     try:
         yield ok
     finally:
-        try:
-            if prev_wb is not None and _get(prev_wb, "FullName") != _get(wb, "FullName"):
-                _call(prev_wb, "Activate")
+        def leave():
+            if other:
+                prev_wb.Activate()
             if prev_ws is not None:
-                _call(prev_ws, "Activate")
+                prev_ws.Activate()
+        try:
+            _retry(leave)
         except Exception:   # noqa: BLE001
             pass
 
 
-def _visible_window(wb):
-    try:
-        win = _get(wb, "Windows")(1)
-        return win if _get(win, "Visible") else None
-    except Exception:   # noqa: BLE001
-        return None
-
-
 def _freeze(ws, rows: int, cols: int) -> bool:
-    """Freeze panes below `rows` and right of `cols` and hide gridlines; only if the workbook window is visible."""
-    wb = _get(ws, "Parent")
-    win = _visible_window(wb)
+    """Freeze panes below `rows` and right of `cols` and hide gridlines; only if the workbook window is visible.
+    The window settings go in one COM call (rerun as a whole when Excel is busy: every setting is absolute)."""
+    def visible():
+        win = ws.Parent.Windows(1)
+        return win if win.Visible else None
+    try:
+        win = _retry(visible)
+    except Exception:   # noqa: BLE001
+        win = None
     if win is None:
         return False
+
+    def settings():
+        win.FreezePanes = False
+        win.ScrollRow = 1
+        win.ScrollColumn = 1
+        win.DisplayGridlines = False
+        if rows or cols:
+            win.SplitColumn = cols
+            win.SplitRow = rows
+            win.FreezePanes = True
+
+    def undo():
+        win.FreezePanes = False
+        win.SplitColumn = 0
+        win.SplitRow = 0
     with _active(ws) as ok:
         if not ok:
             return False
         try:
-            _set(win, "FreezePanes", False)
-            _set(win, "ScrollRow", 1)
-            _set(win, "ScrollColumn", 1)
-            _set(win, "DisplayGridlines", False)
-            if rows or cols:
-                _set(win, "SplitColumn", cols)
-                _set(win, "SplitRow", rows)
-                _set(win, "FreezePanes", True)
+            _retry(settings)
             return True
         except Exception:   # noqa: BLE001   (e.g. window has no usable client area) - leave no half-split behind
             try:
-                _set(win, "FreezePanes", False); _set(win, "SplitColumn", 0); _set(win, "SplitRow", 0)
+                _retry(undo)
             except Exception:   # noqa: BLE001
                 pass
             return False
@@ -506,66 +532,75 @@ def _page_setup_props(ws, xl, last_row, last, roles):
 
 
 # ---------------------------------------------------------------- apply_data_sheet
-def _numeric_cells(rng):
-    """Union of numeric constants and numeric formula results in rng, or None."""
-    parts = []
+def _format_numbers(rng, fmt: str, align: bool) -> None:
+    """Number format (and right alignment) on the numeric constants and numeric formula results in rng, inside ONE
+    COM call; no such cells is not an error, a busy Excel is raised (the call is rerun as a whole)."""
     for kind in (2, -4123):          # xlCellTypeConstants, xlCellTypeFormulas
         try:
-            parts.append(_retry(lambda k=kind: rng.SpecialCells(k, 1)))   # xlNumbers
-        except Exception as exc:   # noqa: BLE001 - no such cells; a busy Excel (HostError from _retry) is raised
-            from .host import HostError
-            if isinstance(exc, HostError):
+            part = rng.SpecialCells(kind, 1)   # xlNumbers
+        except Exception as e:   # noqa: BLE001 - no such cells
+            if _busy(e):
                 raise
-    return parts
+            continue
+        part.NumberFormatLocal = fmt
+        if align:
+            part.HorizontalAlignment = tn.H_RIGHT
+
+
+def _sheet_info(ws):
+    """(decimal sep, thousands sep, first row, first col, row count, col count) of ws's UsedRange: one COM call."""
+    tup = ws.Parent.Application.International
+    ur = ws.UsedRange
+    return tup[2], tup[3], ur.Row, ur.Column, ur.Rows.Count, ur.Columns.Count
 
 
 def apply_data_sheet(ws, header_rows: int, label_cols: int, fte_rows: list[int] | None = None) -> None:
     """Financial look for a LIVE Smart View ad hoc grid. Never clears/moves cells, never ClearFormats, never
-    inserts rows/columns. Rows/cols are absolute sheet indexes (1-based)."""
-    wb = _get(ws, "Parent")
-    xl = _get(wb, "Application")
-    dec, thou, _ = _seps(xl)
-    ur = _get(ws, "UsedRange")
-    r0, c0 = _get(ur, "Row"), _get(ur, "Column")
-    last_r = r0 + _get(ur, "Rows", "Count") - 1
-    last_c = c0 + _get(ur, "Columns", "Count") - 1
-    last_r, last_c = max(last_r, header_rows), max(last_c, label_cols)
+    inserts rows/columns. Rows/cols are absolute sheet indexes (1-based). The fixed look (fonts, header, alignment,
+    border) is one COM call, the number formats one per range, widths + tab colour one: every setting is absolute,
+    so a call that Excel rejects while busy is rerun as a whole."""
+    dec, thou, r0, c0, nrow, ncol = _retry(lambda: _sheet_info(ws))
+    last_r, last_c = max(r0 + nrow - 1, header_rows), max(c0 + ncol - 1, label_cols)
 
-    _set(_get(_rng(ws, 1, 1, last_r, last_c), "Font"), "Name", tn.FONT)
-    _set(_get(_rng(ws, 1, 1, last_r, last_c), "Font"), "Size", 10)
+    def a(r1, c1, r2, c2):
+        return f"{_cl(c1)}{r1}:{_cl(c2)}{r2}"
 
-    if header_rows > 0:
-        hdr = _rng(ws, 1, 1, header_rows, last_c)
-        f = _get(hdr, "Font")
-        _set(f, "Bold", True); _set(f, "Color", _rgb(tn.NAVY))
-        if last_c > label_cols:
-            _set(_rng(ws, 1, label_cols + 1, header_rows, last_c), "HorizontalAlignment", tn.H_RIGHT)
-        if label_cols:
-            _set(_rng(ws, 1, 1, header_rows, label_cols), "HorizontalAlignment", tn.H_LEFT)
-        bd = _call(_rng(ws, header_rows, 1, header_rows, last_c), "Borders", tn.B)
-        _set(bd, "LineStyle", tn.CONT); _set(bd, "Weight", tn.THIN); _set(bd, "Color", _rgb(tn.NAVY))
+    def look():
+        f = ws.Range(a(1, 1, last_r, last_c)).Font
+        f.Name = tn.FONT
+        f.Size = 10
+        if header_rows > 0:
+            f = ws.Range(a(1, 1, header_rows, last_c)).Font
+            f.Bold = True
+            f.Color = _rgb(tn.NAVY)
+            if last_c > label_cols:
+                ws.Range(a(1, label_cols + 1, header_rows, last_c)).HorizontalAlignment = tn.H_RIGHT
+            if label_cols:
+                ws.Range(a(1, 1, header_rows, label_cols)).HorizontalAlignment = tn.H_LEFT
+            bd = ws.Range(a(header_rows, 1, header_rows, last_c)).Borders(tn.B)
+            bd.LineStyle = tn.CONT
+            bd.Weight = tn.THIN
+            bd.Color = _rgb(tn.NAVY)
+        if last_r > header_rows and label_cols:
+            ws.Range(a(header_rows + 1, 1, last_r, label_cols)).HorizontalAlignment = tn.H_LEFT
+    _retry(look)
 
-    if last_r > header_rows:
-        if label_cols:
-            _set(_rng(ws, header_rows + 1, 1, last_r, label_cols), "HorizontalAlignment", tn.H_LEFT)
-        if last_c > label_cols:
-            data = _rng(ws, header_rows + 1, label_cols + 1, last_r, last_c)
-            f0 = tn.to_local(HELTALL, dec, thou)
-            f1 = tn.to_local(TALL1_THOUSANDS, dec, thou)
-            for part in _numeric_cells(data):
-                _set(part, "NumberFormatLocal", f0)
-                _set(part, "HorizontalAlignment", tn.H_RIGHT)
-            for fr in fte_rows or []:
-                if header_rows < fr <= last_r:
-                    for part in _numeric_cells(_rng(ws, fr, label_cols + 1, fr, last_c)):
-                        _set(part, "NumberFormatLocal", f1)
+    if last_r > header_rows and last_c > label_cols:
+        f0 = tn.to_local(HELTALL, dec, thou)
+        f1 = tn.to_local(TALL1_THOUSANDS, dec, thou)
+        _retry(lambda: _format_numbers(ws.Range(a(header_rows + 1, label_cols + 1, last_r, last_c)), f0, True))
+        for fr in fte_rows or []:
+            if header_rows < fr <= last_r:
+                _retry(lambda fr=fr: _format_numbers(ws.Range(a(fr, label_cols + 1, fr, last_c)), f1, False))
 
     # widths: ~46 shared by the label columns, 16 for data columns
     per_label = max(20.0, 46.0 / label_cols) if label_cols > 1 else 46.0
-    for c in range(1, label_cols + 1):
-        _set(_retry(lambda: ws.Columns(c)), "ColumnWidth", per_label)
-    if last_c > label_cols:
-        _set(_rng(ws, 1, label_cols + 1, 1, last_c).EntireColumn, "ColumnWidth", 16)
 
-    _set(_get(ws, "Tab"), "Color", _rgb(GREY_TAB))
+    def widths_and_tab():
+        if label_cols:
+            ws.Range(a(1, 1, 1, label_cols)).EntireColumn.ColumnWidth = per_label
+        if last_c > label_cols:
+            ws.Range(a(1, label_cols + 1, 1, last_c)).EntireColumn.ColumnWidth = 16
+        ws.Tab.Color = _rgb(GREY_TAB)
+    _retry(widths_and_tab)
     _freeze(ws, header_rows, label_cols)

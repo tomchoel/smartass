@@ -139,12 +139,14 @@ def fast_excel(app):
     and recalculates after every single cell: measured 17 s vs 1.6 s for one answer sheet). The user's own settings
     are restored afterwards, also on failure; the caller recalculates explicitly when it needs results."""
     prev_su = prev_calc = None
-    try:
-        prev_su = com(lambda: app.ScreenUpdating, check=False)
-        prev_calc = com(lambda: app.Calculation, check=False)
-        com(lambda: setattr(app, "ScreenUpdating", False), check=False)
+
+    def quiet():
+        app.ScreenUpdating = False
         if prev_calc != -4135:                                  # xlCalculationManual
-            com(lambda: setattr(app, "Calculation", -4135), check=False)
+            app.Calculation = -4135
+    try:
+        prev_su, prev_calc = com(lambda: (app.ScreenUpdating, app.Calculation), check=False)
+        com(quiet, check=False)
     except Exception:   # noqa: BLE001 - e.g. no workbook open: just run normally
         pass
     try:

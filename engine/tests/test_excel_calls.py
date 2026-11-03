@@ -124,7 +124,7 @@ def same(snap: dict) -> dict:
     return json.loads(json.dumps(snap, ensure_ascii=False))
 
 
-@pytest.mark.parametrize("moved, calls", [(False, 1), (True, 11)])          # before: 31, 50
+@pytest.mark.parametrize("moved, calls", [(False, 1), (True, 9)])          # before: 31, 50
 def test_arrange_sheets_same_order_fewer_calls(monkeypatch, moved, calls):
     name = "arrange_moved" if moved else "arrange_ok"
     snap, n = run(arrange_case, monkeypatch, moved)
@@ -135,10 +135,10 @@ def test_arrange_sheets_same_order_fewer_calls(monkeypatch, moved, calls):
 def test_source_sheet_same_look_fewer_calls(monkeypatch):
     snap, n = run(source_case, monkeypatch)
     assert same(snap) == pinned("source")["state"]
-    assert n == 85
+    assert n == 24                                    # before: 85
 
 
-@pytest.mark.parametrize("redraw, calls", [(False, 150), (True, 150)])
+@pytest.mark.parametrize("redraw, calls", [(False, 137), (True, 137)])
 def test_answer_styling_same_look_fewer_calls(monkeypatch, redraw, calls):
     snap, n = run(report_case, monkeypatch, redraw)
     assert same(snap) == pinned("report_redraw" if redraw else "report_first")["state"]
@@ -148,4 +148,4 @@ def test_answer_styling_same_look_fewer_calls(monkeypatch, redraw, calls):
 def test_lines_sheet_same_look_fewer_calls(monkeypatch):
     snap, n = run(lines_case, monkeypatch)
     assert same(snap) == pinned("lines")["state"]
-    assert n == 39
+    assert n == 36
