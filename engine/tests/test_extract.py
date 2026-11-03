@@ -233,11 +233,16 @@ def test_fill_retrieves_at_once_and_stores_in_grid_order(http):
     answer = extract.route(http=http)
     seq = extract.fill(FactStore(), answer, CAT, grids, "t", "Mar 26")
     live, peak, lock = [0], [0], threading.Lock()
+    two = threading.Barrier(2, timeout=5)                # the first two reads must be in flight together
 
     def slow(conn, pov, rows, cols):
         with lock:
             live[0] += 1
             peak[0] = max(peak[0], live[0])
+        try:
+            two.wait()
+        except threading.BrokenBarrierError:             # later calls, or no overlap at all (peak tells)
+            pass
         _t.sleep(random.uniform(0.0, 0.02))
         with lock:
             live[0] -= 1
