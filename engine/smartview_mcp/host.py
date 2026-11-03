@@ -19,7 +19,7 @@ import win32com.client as wc
 import win32process
 
 from . import config, dialogs, sso
-from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy, kill_ours, windows_of
+from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy, kill_ours, windows_of, _is_ours
 
 log = logging.getLogger("smartview.host")
 BOX_WATCH_S = 3.0
@@ -318,10 +318,12 @@ class ExcelHost(HiddenExcel):
         self._box_thread.start()
 
     def _watch_boxes_once(self):
-        pid = self.pid
-        if not pid:
+        pid, ctime = self.pid, getattr(self, "ctime", None)
+        if not pid or ctime is None:
             return
         try:
+            if not _is_ours(pid, ctime):      # pid recycled or Excel gone: never touch another process' windows
+                return
             for text in dialogs.close_sv_boxes(pid):
                 log.info("closed Smart View box in own Excel: %s", text)
         except Exception:   # noqa: BLE001 - never disturb the host

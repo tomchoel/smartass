@@ -35,11 +35,22 @@ def test_scan_error_never_raises():
 
 def test_host_watcher_acts_on_host_pid_only(monkeypatch):
     h = host.ExcelHost.__new__(host.ExcelHost)
-    h.pid = 77
+    h.pid, h.ctime = 77, 5.0
     h._box_stop = threading.Event()
     seen = []
+    monkeypatch.setattr(host, "_is_ours", lambda pid, ctime: True)
     monkeypatch.setattr(host.dialogs, "close_sv_boxes", lambda pid: seen.append(pid) or ["t"])
     h._watch_boxes_once()
     h.pid = None
     h._watch_boxes_once()
     assert seen == [77]
+
+
+def test_host_watcher_skips_a_pid_that_is_no_longer_the_hosts_excel(monkeypatch):
+    h = host.ExcelHost.__new__(host.ExcelHost)
+    h.pid, h.ctime = 77, 5.0
+    seen = []
+    monkeypatch.setattr(host.dialogs, "close_sv_boxes", lambda pid: seen.append(pid) or [])
+    monkeypatch.setattr(host, "_is_ours", lambda pid, ctime: False)
+    h._watch_boxes_once()
+    assert seen == []
