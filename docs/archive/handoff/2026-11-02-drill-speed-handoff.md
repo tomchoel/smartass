@@ -1,3 +1,5 @@
+> **Archived 2026-11-03: done.** Drills without Excel, parallel HTTP, sign-in popup, one-call answers, always-warm browser and lean replies shipped in PRs #2-#6; results in `docs/audit/2026-11-02-speed-bench.md`.
+
 # Handoff 2026-11-02 — advisor plans done; next: drill speed
 
 Branch `feat/advisor-plans` in `C:\dev\smartass` (checked out there, so the user's MCP runs it). Not merged, no PR
