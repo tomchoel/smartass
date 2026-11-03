@@ -53,7 +53,11 @@ def _warm_up() -> None:
 
         def warm(s):
             s.deadline = time.monotonic() + config.DRILL_SETUP_S
-            b._ensure(s)
+            s.warmup = True
+            try:
+                b._ensure(s)
+            finally:
+                s.warmup = False
         fut = b.submit(warm)
         fut.add_done_callback(lambda f: (None if f.cancelled() or f.exception() is None else
                                          log.info("drill warm-up failed: %s", str(f.exception())[:200])))

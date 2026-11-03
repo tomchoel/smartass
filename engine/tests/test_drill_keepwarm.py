@@ -23,6 +23,7 @@ def _session(tmp_path, lock=None):
     s.profile.mkdir(exist_ok=True)
     s.started_at = time.time() - 100
     s.last_alive = time.monotonic()
+    s.last_used = time.monotonic() - 1000                # unused for a long time
     return s
 
 
@@ -94,6 +95,35 @@ def test_wanted_flag_makes_idle_worker_yield(warm, tmp_path):
     _stop(q, t)
 
 
+def test_recently_used_owner_does_not_yield(warm, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DRILL_YIELD_IDLE_S", 120)
+    s = _session(tmp_path)
+    s.last_used = time.monotonic() - 5
+    flag = s.profile / ".wanted"
+    flag.write_text("1")
+    os.utime(flag, (time.time() + 5, time.time() + 5))
+    q, t = _run(s, lambda sess: None)
+    time.sleep(0.2)
+    assert s.ctx is not None and flag.exists()
+    s.last_used = time.monotonic() - 121                 # now unused for long enough
+    for _ in range(200):
+        if s.ctx is None:
+            break
+        time.sleep(0.02)
+    assert s.ctx is None
+    _stop(q, t)
+
+
+def test_a_job_counts_as_use(warm, tmp_path):
+    s = _session(tmp_path)
+    q, t = _run(s, lambda sess: None)
+    fut = db.cf.Future()
+    q.put((lambda sess: 1, fut))
+    fut.result(5)
+    assert time.monotonic() - s.last_used < 5
+    _stop(q, t)
+
+
 def test_old_wanted_flag_is_ignored(warm, tmp_path):
     s = _session(tmp_path)
     flag = s.profile / ".wanted"
@@ -134,6 +164,31 @@ def test_drillbusy_writes_wanted_flag(tmp_path):
         owner.release()
 
 
+def test_warmup_drillbusy_writes_no_flag_and_says_when(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DRILL_KEEP_WARM", True)
+    assert db.KEEPALIVE_WAIT_S == 10
+    owner = db.ProfileLock(tmp_path / "prof")
+    assert owner.acquire()
+    b = db.DrillBrowser(profile=tmp_path / "prof")
+    try:
+        def warm(s):
+            s.warmup = True
+            try:
+                b._ensure(s)
+            finally:
+                s.warmup = False
+        with pytest.raises(db.DrillBusy, match="idle minutes"):
+            b.submit(warm).result(5)
+        assert not (tmp_path / "prof" / ".wanted").exists()
+        with pytest.raises(db.DrillBusy, match="lets go after 2 idle minutes"):
+            b.submit(lambda s: b._start(s)).result(5)
+    finally:
+        with b._lock:
+            b.q.put((None, None))
+        b.thread.join(5)
+        owner.release()
+
+
 def test_keepalive_resigns_in_when_session_gone(tmp_path):
     b = db.DrillBrowser(profile=tmp_path / "prof2")
     try:
@@ -146,10 +201,10 @@ def test_keepalive_resigns_in_when_session_gone(tmp_path):
         s.page = P()
         s.ready = True
         monkey = db.DrillBrowser._fire
-        # session page redirected to sign-in: ready flips off and _ensure runs again
+        # EPM answers not-200 (signed out): ready flips off and _ensure runs again
         def fire(sess, page, url, opts, t):
             f = db.cf.Future()
-            f.set_result((200, "<html>login.microsoftonline</html>"))
+            f.set_result((401, "<html>login.microsoftonline</html>"))
             return f
         db.DrillBrowser._fire = staticmethod(fire)
         try:

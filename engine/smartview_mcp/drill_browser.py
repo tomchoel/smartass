@@ -75,7 +75,7 @@ def classify_stall(url: str, page_text: str) -> str:
     return "blank" if not (page_text or "").strip() else "page"
 KILL_WAIT_S = 15                 # kill(): how long the worker gets to return after its browser died
 WANTED = ".wanted"               # in the profile folder: another smartass process asked the owner to let go
-KEEPALIVE_WAIT_S = 30            # keep-alive: how long its GET of the EPM home may take
+KEEPALIVE_WAIT_S = 10            # keep-alive: how long its GET of the EPM home may take
 POLL_S = 0.01                    # how often the idle worker collects the answers of requests in flight
 
 # In-tab requests that do not block the worker (request()): _FIRE_JS starts a fetch and returns at once; its answer
@@ -372,6 +372,8 @@ class _Session:
         self.profile: Path | None = None           # profile folder (holds the .wanted flag of another process)
         self.started_at = time.time()              # wall clock of the browser start (compared with .wanted's mtime)
         self.last_alive = time.monotonic()         # last keep-alive check (or browser start)
+        self.last_used = time.monotonic()          # last job or request (the keep-alive does not count)
+        self.warmup = False                        # the start-up warm-up is running: it never asks the owner to let go
 
 
 class DrillBrowser:
@@ -416,10 +418,12 @@ class DrillBrowser:
                 DrillBrowser._fail_inflight(s, "the hidden browser was shut down")
                 break
             if fut.set_running_or_notify_cancel():
+                s.last_used = time.monotonic()
                 try:
                     fut.set_result(fn(s))
                 except BaseException as e:   # noqa: BLE001 - forwarded to the caller
                     fut.set_exception(e)
+                s.last_used = time.monotonic()
             if s.inflight:
                 DrillBrowser._collect(s)
 
@@ -431,7 +435,8 @@ class DrillBrowser:
             if s.ctx is None and s.plock is None:
                 return
             flag = s.profile / WANTED if s.profile is not None else None
-            if flag is not None and flag.exists() and flag.stat().st_mtime > s.started_at:
+            if (flag is not None and flag.exists() and flag.stat().st_mtime > s.started_at
+                    and time.monotonic() - s.last_used >= config.DRILL_YIELD_IDLE_S):
                 log.info("another smartass process wants the drill profile; closing the hidden browser")
                 DrillBrowser._close(s)
                 flag.unlink(missing_ok=True)
@@ -446,6 +451,7 @@ class DrillBrowser:
         """Worker thread: restart a dead browser / sign in again, then one GET of the EPM home through the tab; a
         failed or sign-in answer means the session expired: sign in again. Bounded by KEEPALIVE_WAIT_S."""
         s.deadline = time.monotonic() + config.DRILL_SETUP_S
+        used = s.last_used
         self._ensure(s)
         fut = self._fire(s, s.page, self.base + "/HyperionPlanning/", {"method": "GET"}, KEEPALIVE_WAIT_S)
         end = time.monotonic() + KEEPALIVE_WAIT_S + 5
@@ -454,7 +460,7 @@ class DrillBrowser:
             time.sleep(0.05)
         ok = False
         if fut.done() and not fut.cancelled() and fut.exception() is None:
-            ok = fut.result()[0] == 200 and classify_stall(s.page.url, "x") != "sso"
+            ok = fut.result()[0] == 200
         for rid in [r for r, e in s.inflight.items() if e[2] is fut]:
             del s.inflight[rid]
         if not ok:
@@ -462,6 +468,7 @@ class DrillBrowser:
             s.ready = False
             s.deadline = time.monotonic() + config.DRILL_SETUP_S
             self._ensure(s)
+        s.last_used = used
 
     def submit(self, fn: Callable[[_Session], object]) -> cf.Future:
         fut: cf.Future = cf.Future()
@@ -495,6 +502,7 @@ class DrillBrowser:
         rid = next(_ids)
         tok = page.evaluate(_FIRE_JS, [rid, url, opts, max(1, int(timeout_s * 1000))])
         s.inflight[rid] = (page, tok, fut, time.monotonic() + timeout_s + 5)
+        s.last_used = time.monotonic()
         return fut
 
     @staticmethod
@@ -540,13 +548,18 @@ class DrillBrowser:
     def _start(self, s: _Session):
         from playwright.sync_api import sync_playwright
         if not self.plock.acquire():
-            try:                                           # ask the owner (idle worker) to free the profile
-                Path(self.profile).mkdir(parents=True, exist_ok=True)
-                (Path(self.profile) / WANTED).write_text(str(time.time()))
-            except OSError:
-                pass
-            raise DrillBusy("another sv_drill is running in a different session (its hidden browser closes after "
-                            f"{config.DRILL_IDLE_S // 60:.0f} idle minutes); try again in a minute.")
+            if not s.warmup:                               # a start-up warm-up never pushes the owner out
+                try:                                       # ask the owner (idle worker) to free the profile
+                    Path(self.profile).mkdir(parents=True, exist_ok=True)
+                    (Path(self.profile) / WANTED).write_text(str(time.time()))
+                except OSError:
+                    pass
+            if config.DRILL_KEEP_WARM:
+                gone = f"the other session lets go after {config.DRILL_YIELD_IDLE_S // 60:.0f} idle minutes"
+            else:
+                gone = f"its hidden browser closes after {config.DRILL_IDLE_S // 60:.0f} idle minutes"
+            raise DrillBusy(f"another sv_drill is running in a different session ({gone}); "
+                            "try again in a minute.")
         s.plock = self.plock
         try:
             self._kill_ours()                              # we own the profiles: anything still on them is an orphan
