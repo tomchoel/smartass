@@ -124,7 +124,7 @@ def same(snap: dict) -> dict:
     return json.loads(json.dumps(snap, ensure_ascii=False))
 
 
-@pytest.mark.parametrize("moved, calls", [(False, 1), (True, 9)])          # before: 31, 50
+@pytest.mark.parametrize("moved, calls", [(False, 1), (True, 10)])          # before: 31, 50
 def test_arrange_sheets_same_order_fewer_calls(monkeypatch, moved, calls):
     name = "arrange_moved" if moved else "arrange_ok"
     snap, n = run(arrange_case, monkeypatch, moved)
@@ -135,7 +135,7 @@ def test_arrange_sheets_same_order_fewer_calls(monkeypatch, moved, calls):
 def test_source_sheet_same_look_fewer_calls(monkeypatch):
     snap, n = run(source_case, monkeypatch)
     assert same(snap) == pinned("source")["state"]
-    assert n == 24                                    # before: 85
+    assert n == 25                                    # before: 85
 
 
 @pytest.mark.parametrize("redraw, calls", [(False, 58), (True, 41)])          # before: 150, 150
@@ -168,7 +168,7 @@ def test_page_setup_is_redone_when_the_print_area_changes(monkeypatch):
 def test_lines_sheet_same_look_fewer_calls(monkeypatch):
     snap, n = run(lines_case, monkeypatch)
     assert same(snap) == pinned("lines")["state"]
-    assert n == 21                                    # before: 39
+    assert n == 22                                    # before: 39
 
 
 def test_answer_lint_findings_unchanged():
@@ -201,7 +201,7 @@ def lines_redrill_case(mod=None):
 def test_lines_redrill_same_table_fewer_calls(monkeypatch):
     snap, n = run(lines_redrill_case, monkeypatch)
     assert same(snap) == pinned("lines_redrill")["state"]
-    assert n == 21                                    # before: 40
+    assert n == 22                                    # before: 40
 
 
 def test_page_setup_marker_is_not_added_when_print_communication_stays_off(monkeypatch):

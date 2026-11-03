@@ -527,7 +527,7 @@ class _Sheets:
 class Application:
     def __init__(self):
         self.International = INTERNATIONAL
-        self.ScreenUpdating, self.Calculation, self.DisplayAlerts = True, -4105, True
+        self.ScreenUpdating, self.Calculation, self.DisplayAlerts, self.EnableEvents = True, -4105, True, True
         self.PrintCommunication = True
         self.StatusBar = False
         self.ActiveWorkbook = None

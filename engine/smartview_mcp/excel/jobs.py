@@ -135,24 +135,27 @@ def release_turns() -> None:
 
 @contextlib.contextmanager
 def fast_excel(app):
-    """No screen redraw and no automatic recalculation while we write/format (the user's Excel otherwise repaints
-    and recalculates after every single cell: measured 17 s vs 1.6 s for one answer sheet). The user's own settings
-    are restored afterwards, also on failure; the caller recalculates explicitly when it needs results."""
-    prev_su = prev_calc = None
+    """No screen redraw, no automatic recalculation and no Excel events while we write/format (the user's Excel
+    otherwise repaints and recalculates after every single cell: measured 17 s vs 1.6 s for one answer sheet; and
+    every add-in listening to sheet events - Smart View, Arixcel - runs its code on each write). The user's own
+    settings are restored afterwards, also on failure; the caller recalculates explicitly when it needs results."""
+    prev_su = prev_calc = prev_ev = None
 
     def quiet():
         app.ScreenUpdating = False
+        app.EnableEvents = False
         if prev_calc != -4135:                                  # xlCalculationManual
             app.Calculation = -4135
     try:
-        prev_su, prev_calc = com(lambda: (app.ScreenUpdating, app.Calculation), check=False)
+        prev_su, prev_calc, prev_ev = com(lambda: (app.ScreenUpdating, app.Calculation, app.EnableEvents),
+                                          check=False)
         com(quiet, check=False)
     except Exception:   # noqa: BLE001 - e.g. no workbook open: just run normally
         pass
     try:
         yield
     finally:
-        for name, val in (("Calculation", prev_calc), ("ScreenUpdating", prev_su)):
+        for name, val in (("Calculation", prev_calc), ("EnableEvents", prev_ev), ("ScreenUpdating", prev_su)):
             if val is not None:
                 try:
                     com(lambda: setattr(app, name, val), limit=30, check=False)
