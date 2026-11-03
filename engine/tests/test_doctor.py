@@ -48,3 +48,15 @@ def test_bundle_has_doctor_versions_logs_and_redacted_config(monkeypatch, tmp_pa
         assert json.loads(z.read("doctor.json"))["status"] == "OK"
 
 
+
+
+def test_smartview_startup_check_warns_when_the_login_at_startup_or_diagnostics_is_back():
+    def reader(values):
+        return lambda path, name: values.get(name)
+    ok = doctor._smartview_startup(reader({"CheckOnStartup": 0, "Profile": "0"}))
+    assert ok.status == "OK" and ok.name == "smartview_startup"
+    on = doctor._smartview_startup(reader({"CheckOnStartup": 1, "Profile": "0"}))
+    assert on.status == "WARN" and "Check for updates when Microsoft Office starts" in on.fix
+    diag = doctor._smartview_startup(reader({"CheckOnStartup": 0, "Profile": "1"}))
+    assert diag.status == "WARN" and "diagnostics" in diag.detail.lower()
+    assert doctor._smartview_startup(reader({})).status == "OK"      # not set: Smart View's own defaults

@@ -148,7 +148,36 @@ def _update() -> Check:
     return Check("update", "OK", f"{r['current']} is current")
 
 
-CHECKS = (_config, _excel, _smartview, _epm, _drill_browser, _atlas, _catalog, _output, _http, _update)
+def _read_hkcu(path: str, name: str):
+    """An HKCU registry value, or None (missing, or not Windows)."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as k:
+            return winreg.QueryValueEx(k, name)[0]
+    except (ImportError, OSError):
+        return None
+
+
+def _smartview_startup(read=_read_hkcu) -> Check:
+    """Smart View settings that slow every Excel start (found 2026-11-03): the extension update check at Office
+    start signs in to EPM ~20 s after Excel opens, and that login window blocks all automation of that Excel;
+    diagnostics capture slows Smart View and keeps sign-in cookies in plain text."""
+    problems, fixes = [], []
+    if str(read(r"Software\Oracle\SmartView\extensions", "CheckOnStartup")) == "1":
+        problems.append("Smart View checks for extension updates at every Excel start (an EPM login window "
+                        "~20 s after Excel opens, which blocks smartass)")
+        fixes.append("Smart View > Options > Extensions: untick 'Check for updates when Microsoft Office starts'")
+    if str(read(r"Software\Hyperion Solutions\HyperionSmartView\Options", "Profile")) == "1":
+        problems.append("Smart View diagnostics capture is on (slower; sign-in cookies stored in plain text)")
+        fixes.append("Smart View > Options > Advanced: turn diagnostics off, then delete "
+                     "%APPDATA%\\Oracle\\SmartView\\Diagnostics")
+    if problems:
+        return Check("smartview_startup", "WARN", "; ".join(problems), "; ".join(fixes) + " (close Excel first).")
+    return Check("smartview_startup", "OK", "no login at Excel start-up; diagnostics capture off")
+
+
+CHECKS = (_config, _excel, _smartview, _smartview_startup, _epm, _drill_browser, _atlas, _catalog, _output, _http,
+          _update)
 
 
 def run(include_http: bool = True) -> list[Check]:

@@ -28,6 +28,18 @@ by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe
 - **Cause:** the Oracle Smart View add-in is not installed, or is installed in a non-standard place.
 - **Fix:** Install Oracle Smart View (Company Portal), or set paths.smartview_dll in config.toml.
 
+## smartview_startup
+
+- **Symptom:** `WARN  smartview_startup  Smart View checks for extension updates at every Excel start ...` (an EPM
+  login window ~20 s after any Excel opens; smartass then reports Excel as busy until it is clicked).
+- **Cause:** Smart View's extension update check at Office start (`HKCU\Software\Oracle\SmartView\extensions`
+  `CheckOnStartup=1`) needs an EPM session, so it opens the login (found 2026-11-03 in Smart View's own traffic log).
+- **Fix:** close Excel; Smart View > Options > Extensions: untick "Check for updates when Microsoft Office starts".
+  Smart View then signs in only when you use it; extension alerts on connect and the manual update check still work.
+- **Symptom:** `WARN  smartview_startup  Smart View diagnostics capture is on ...`
+- **Fix:** Smart View > Options > Advanced: turn diagnostics off (`Profile=0`), then delete
+  `%APPDATA%\Oracle\SmartView\Diagnostics` (it holds sign-in cookies in plain text).
+
 ## epm
 
 - **Symptom:** `FAIL  epm  https://... unreachable: <error>`.
