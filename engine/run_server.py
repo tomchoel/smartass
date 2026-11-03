@@ -40,12 +40,13 @@ def log(msg: str):
 
 
 def fingerprint() -> tuple:
-    files = [CHILD, HERE / "defaults.toml", *sorted((HERE / "smartview_mcp").glob("*.py")), *sorted((HERE / "vba").glob("*.bas"))]
+    files = [CHILD, HERE / "defaults.toml", *sorted((HERE / "smartview_mcp").rglob("*.py")),   # incl. core/, excel/
+             *sorted((HERE / "vba").glob("*.bas"))]
     out = []
     for f in files:
         try:
             st = f.stat()
-            out.append((f.name, st.st_mtime_ns, st.st_size))
+            out.append((str(f.relative_to(HERE)), st.st_mtime_ns, st.st_size))
         except OSError:
             pass
     return tuple(out)
