@@ -217,3 +217,25 @@ def test_keepalive_resigns_in_when_session_gone(tmp_path):
         with b._lock:
             b.q.put((None, None))
         b.thread.join(5)
+
+
+def test_a_second_server_takes_the_next_profile_slot(tmp_path, monkeypatch):
+    from smartview_mcp import config, drill_browser as db
+    monkeypatch.setattr(config, "DRILL_PROFILE_SLOTS", 3)
+    base = tmp_path / "drill_edge"
+    other = db.ProfileLock(base)                       # another smartass process holds slot 1
+    assert other.acquire()
+    b = db.DrillBrowser.__new__(db.DrillBrowser)
+    b.profile = b.base_profile = base
+    b.plock = db.ProfileLock(base)
+    assert b._take_slot() and b.profile == tmp_path / "drill_edge_2" and b.plock.held
+    third = db.DrillBrowser.__new__(db.DrillBrowser)
+    third.profile = third.base_profile = base
+    third.plock = db.ProfileLock(base)
+    assert third._take_slot() and third.profile == tmp_path / "drill_edge_3"
+    fourth = db.DrillBrowser.__new__(db.DrillBrowser)
+    fourth.profile = fourth.base_profile = base
+    fourth.plock = db.ProfileLock(base)
+    assert not fourth._take_slot() and fourth.profile == base   # all slots taken: DrillBusy as before
+    for x in (other, b.plock, third.plock):
+        x.release()

@@ -203,6 +203,7 @@ _ch = os.environ.get("SV_DRILL_CHANNELS")
 DRILL_CHANNELS = tuple(c.strip() for c in (_ch.split(",") if _ch else _checked(as_list(
     get(SETTINGS, "drill.channels", ["msedge"]), "drill.channels",
     as_list(get(ORG_SETTINGS, "drill.channels", ["msedge"]), "", ["msedge"])[0]))) if c.strip())
+DRILL_PROFILE_SLOTS = int(os.environ.get("SV_DRILL_PROFILE_SLOTS", "3"))   # one warm browser per smartass server
 DRILL_PROFILE = SVKIT / "drill_edge"              # Edge profile + lock anchor; other channels: drill_edge_<channel>
 DRILL_LAUNCH_TRIES = 2                             # per channel
 DRILL_DB = SVKIT / "drill.db"

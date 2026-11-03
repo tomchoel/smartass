@@ -379,6 +379,7 @@ class _Session:
 class DrillBrowser:
     def __init__(self, base: str = config.EPM_BASE, profile=config.DRILL_PROFILE):
         self.base, self.profile = base.rstrip("/"), profile
+        self.base_profile = profile                    # slot 1; _take_slot may move self.profile to '<name>_2' ...
         self.plock = ProfileLock(profile)
         self._lock = threading.Lock()          # guards self.q / self.thread / self.s against kill()'s replacement
         with self._lock:
@@ -545,9 +546,30 @@ class DrillBrowser:
         s.inflight.clear()
 
     # ------------------------------------------------------------ session
+    def _slots(self) -> list[Path]:
+        """Profile folders this browser may use: the configured one, then '<name>_2', '<name>_3' ... so that every
+        smartass server (one per Claude/Copilot session) has its own warm, signed-in browser."""
+        base = Path(self.base_profile)
+        return [base] + [base.with_name(f"{base.name}_{k}") for k in range(2, max(1, config.DRILL_PROFILE_SLOTS) + 1)]
+
+    def _take_slot(self) -> bool:
+        """Hold the lock of the first free profile slot (switching self.profile to it); False when all are taken."""
+        if self.plock.acquire():
+            return True
+        for prof in self._slots():
+            if Path(prof) == Path(self.profile):
+                continue
+            lock = ProfileLock(prof)
+            if lock.acquire():
+                log.info("drill browser: profile %s is in use by another smartass process; using %s",
+                         Path(self.profile).name, prof.name)
+                self.profile, self.plock = prof, lock
+                return True
+        return False
+
     def _start(self, s: _Session):
         from playwright.sync_api import sync_playwright
-        if not self.plock.acquire():
+        if not self._take_slot():
             if not s.warmup:                               # a start-up warm-up never pushes the owner out
                 try:                                       # ask the owner (idle worker) to free the profile
                     Path(self.profile).mkdir(parents=True, exist_ok=True)
@@ -561,6 +583,7 @@ class DrillBrowser:
             raise DrillBusy(f"another sv_drill is running in a different session ({gone}); "
                             "try again in a minute.")
         s.plock = self.plock
+        s.profile = Path(self.profile)
         try:
             self._kill_ours()                              # we own the profiles: anything still on them is an orphan
             me = psutil.Process()
