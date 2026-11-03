@@ -193,3 +193,13 @@ The goal is fewer `jobs.com` calls with **identical results**. Method for each p
 
 ### Task 6: Live proof (controller)
 The server reloads by itself. Run the three answers with `sv_answer(question=...)` (P&L Wholesale YTD vs last year, answers {"measure": "the P&L to EBITDA"}; "Hvilke konsulentselskaper fakturerte mest til Technology hittil i år?"; "Telenor Norge monthly revenue trend this year vs last year", answers {"period": "YTD to Oct 26"}); record reply sizes, round trips, `_total`, stage times and `com calls.*` vs the 2026-11-03 bench; all checks OK; append to `docs/audit/2026-11-02-speed-bench.md`; PR, CI, merge.
+
+---
+
+### Task 3b: New workbooks without the hidden Excel + auto-close its Smart View boxes (spec E, F)
+
+**Files:** `engine/smartview_mcp/excel/target.py` (`_new_target` no-Excel branch, `_new_analysis_file`), `engine/smartview_mcp/config.py` (`NEW_WORKBOOK_SEED = HOME / "new_workbook_seed.xlsx"`), the hidden host (`host.py` / `hostproc.py`: an idle dialog watcher), the dialogs module (`engine/smartview_mcp/excel/dialogs.py`: reuse `scan`/`close`). Tests: `engine/tests/test_new_workbook_seed.py` (new), plus a dialog-watcher test with fake windows.
+
+- [ ] **Seed (TDD):** `_new_analysis_file(h, title)`: if the seed exists and carries `MSIP_Label_` custom properties (read `docProps/custom.xml` from the zip), `shutil.copyfile(seed, path)` and return `path` without touching `h`; else the old `h.on_host(...)` path, then copy the new file to the seed (best effort). Tests: (1) with a seed (build one with openpyxl + a custom.xml carrying a fake `MSIP_Label_x_Enabled` property via zipfile) the host is never called and the new file is a byte copy; (2) without a seed, the old path runs once and writes the seed; (3) a seed without the label property is ignored (old path).
+- [ ] **Watcher (TDD):** while the hidden host Excel is running, a daemon thread every 3 s (no COM; window enumeration only) finds top-level dialogs of the host Excel's pid whose caption is "Oracle Smart View for Office" and clicks their OK button (or sends WM_CLOSE), logging `closed Smart View box in own Excel: <text>`. Never for any other pid (the user's Excels). Test with a fake enumerator: closes only boxes of the host pid with that caption.
+- [ ] Full suite, ruff. **Commit** `perf(excel): new workbooks from a seed copy, no hidden Excel; its Smart View boxes are closed in its own process`.

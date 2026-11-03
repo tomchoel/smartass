@@ -67,3 +67,18 @@ sizes, round trips, timings and COM counts into the bench doc.
 
 ## Out of scope
 Building workbooks without Excel; caching answers or drills; Smart View refresh.
+
+## E. New workbooks without the hidden Excel (owner, 2026-11-03)
+Today, with no Excel open, the hidden server Excel (Smart View loaded) creates the file (plain workbook, sheet
+'Sources', sensitivity label, SaveAs), then the user's Excel opens it; the hidden Excel took 13.1 s to start and, idle
+at 12:18, its Smart View opened a login whose request timed out on the user's screen.
+- Seed: the first file made the old way is copied to `%LOCALAPPDATA%\smartass\new_workbook_seed.xlsx` (identical to
+  what Excel produced, label included). Later new workbooks = a copy of the seed under the new name; no hidden Excel.
+- No seed yet, or the copy fails: the old path (and it writes the seed). A seed older than 30 days is renewed the
+  next time the old path runs... simplest: renewed when the label check fails (the copied file must still carry the
+  `MSIP_Label_` properties of the seed; if not, old path).
+- The hidden Excel then starts only for the HTTP-failure fallback.
+
+## F. Smart View error boxes in smartass's own hidden Excel are closed (owner, 2026-11-03)
+While the hidden Excel runs, a watcher (every ~3 s) closes Smart View message boxes in THAT process only (caption
+"Oracle Smart View for Office", an OK button), logging their text. The user's Excel is never touched.
