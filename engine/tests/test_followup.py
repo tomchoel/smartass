@@ -28,11 +28,24 @@ class Meta:
         return SimpleNamespace(Row=first, Value=tuple(tuple(self.rows.get(r, {}).get(c) for c in range(1, w + 1))
                                                       for r in range(first, n + 1)))
 
+    def Range(self, a, b):
+        meta = self
+        self.range_writes = getattr(self, "range_writes", 0) + 1
+
+        class R:
+            def __setattr__(self, k, v):
+                for i, val in enumerate(v[0], a.addr[1]):
+                    meta.rows.setdefault(a.addr[0], {})[i] = val[1:] if val.startswith("'") else val
+        return R()
+
     def Cells(self, r, c):
         meta = self
 
         class C:
+            addr = (r, c)
+
             def __setattr__(self, k, v):
+                meta.cell_writes = getattr(meta, "cell_writes", 0) + 1
                 meta.rows.setdefault(r, {})[c] = v[1:] if isinstance(v, str) and v.startswith("'") else v
 
             @property
@@ -79,6 +92,23 @@ def test_saving_a_spec_again_overwrites_its_own_row_and_keeps_the_pull_rows_abov
     assert ws.rows[2] == {1: "Q1 FinMax ytd", 2: "{}"}
     assert [r[1] for r in ws.rows.values()].count("SPEC Q1") == 1
     assert sheets.load_answer(t, 1)["spec"]["question"] == "patched"
+
+
+def _meta_pull(extra=None):
+    ax = [SimpleNamespace(dimension="Account", members=["EBITDA"])]
+    return SimpleNamespace(sheet="Q1 FinMax", connection="FinMax", parsed=SimpleNamespace(pov_problems=[]),
+                           layout=SimpleNamespace(pov={}, rows=ax, cols=ax)), extra
+
+
+def test_save_meta_is_one_array_write_unless_a_chunk_is_long(monkeypatch):
+    t, ws = _meta_target(monkeypatch)
+    p, _ = _meta_pull()
+    sheets.save_meta(t, p)
+    assert ws.range_writes == 1 and getattr(ws, "cell_writes", 0) == 0
+    assert json.loads(ws.rows[2][2])["connection"] == "FinMax"
+    sheets.save_meta(t, p, {"pad": "x" * 20000})                       # one 20 000-char chunk > 8000
+    assert ws.range_writes == 1 and ws.cell_writes == 2                 # name + one chunk, cell by cell
+    assert ws.rows[3][1] == "Q1 FinMax" and json.loads(ws.rows[3][2])["pad"] == "x" * 20000
 
 
 def _pull(pid, members=("EBITDA",), conn="FinMax"):
@@ -233,9 +263,9 @@ def test_an_invalid_follow_up_is_an_input_error(monkeypatch):
 
 @pytest.mark.anyio
 async def test_sv_answer_needs_exactly_one_of_spec_and_followup():
-    with pytest.raises(ToolError, match="exactly one of spec or followup"):
+    with pytest.raises(ToolError, match="exactly one of question"):
         await tools_core.sv_answer()
-    with pytest.raises(ToolError, match="exactly one of spec or followup"):
+    with pytest.raises(ToolError, match="exactly one of question"):
         await tools_core.sv_answer(spec=B02, followup={"layout": {"title": "x"}})
 
 

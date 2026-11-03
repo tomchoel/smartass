@@ -61,12 +61,6 @@ def _cl(i: int) -> str:
     return s
 
 
-def _rng(ws, r1, c1, r2=None, c2=None):
-    r2 = r1 if r2 is None else r2
-    c2 = c1 if c2 is None else c2
-    return _retry(lambda: ws.Range(f"{_cl(c1)}{r1}:{_cl(c2)}{r2}"))
-
-
 def _rgb(c):
     return tn.rgb(c)
 
@@ -89,11 +83,6 @@ NUM_ALIAS = {"heltall": "heltall", "tall1": "tall1", "prosent1": "prosent1", "pr
              "faktor": "faktor", "belop": "belop"}
 TALL1_THOUSANDS = '#,##0.0_);(#,##0.0);"–"_)'    # spec: 'tall1' is one decimal WITH thousands separator
 HELTALL = tn.NUM["heltall"]
-
-
-def _seps(xl):
-    tup = _retry(lambda: xl.International)
-    return tup[2], tup[3], tup[4]     # decimal, thousands, list separator
 
 
 def _style_for(kind: str, emph: str) -> str:
@@ -191,65 +180,91 @@ def _ensure_styles(wb) -> None:
 
 
 # ---------------------------------------------------------------- view helpers
+def _busy(e: BaseException) -> bool:
+    from .excel import jobs
+    return jobs.is_busy(e)
+
+
 @contextmanager
 def _active(ws):
-    """Make ws the active sheet (needed for window-level settings), restore the previous workbook/sheet after."""
-    wb = _get(ws, "Parent")
-    xl = _get(wb, "Application")
-    prev_wb = prev_ws = None
+    """Make ws the active sheet (needed for window-level settings), restore the previous workbook/sheet after.
+    Three COM calls: read the previous workbook/sheet, activate, restore."""
+    def read():
+        wb = ws.Parent
+        try:
+            prev_wb, prev_ws = wb.Application.ActiveWorkbook, wb.Application.ActiveSheet
+        except Exception as e:   # noqa: BLE001
+            if _busy(e):
+                raise
+            prev_wb = prev_ws = None
+        other = prev_wb is not None and prev_wb.FullName != wb.FullName
+        return wb, prev_wb, prev_ws, other
+
     try:
-        prev_wb, prev_ws = xl.ActiveWorkbook, xl.ActiveSheet
-    except Exception:   # noqa: BLE001
-        pass
+        wb, prev_wb, prev_ws, other = _retry(read)
+    except Exception:   # noqa: BLE001 - cannot tell which workbook is active: no window settings
+        yield False
+        return
+
+    def enter():
+        if prev_wb is None or other:
+            wb.Activate()
+        ws.Activate()
     ok = True
     try:
-        if prev_wb is None or _get(prev_wb, "FullName") != _get(wb, "FullName"):
-            _call(wb, "Activate")
-        _call(ws, "Activate")
+        _retry(enter)
     except Exception:   # noqa: BLE001
         ok = False
     try:
         yield ok
     finally:
-        try:
-            if prev_wb is not None and _get(prev_wb, "FullName") != _get(wb, "FullName"):
-                _call(prev_wb, "Activate")
+        def leave():
+            if other:
+                prev_wb.Activate()
             if prev_ws is not None:
-                _call(prev_ws, "Activate")
+                prev_ws.Activate()
+        try:
+            _retry(leave)
         except Exception:   # noqa: BLE001
             pass
 
 
-def _visible_window(wb):
-    try:
-        win = _get(wb, "Windows")(1)
-        return win if _get(win, "Visible") else None
-    except Exception:   # noqa: BLE001
-        return None
-
-
 def _freeze(ws, rows: int, cols: int) -> bool:
-    """Freeze panes below `rows` and right of `cols` and hide gridlines; only if the workbook window is visible."""
-    wb = _get(ws, "Parent")
-    win = _visible_window(wb)
+    """Freeze panes below `rows` and right of `cols` and hide gridlines; only if the workbook window is visible.
+    The window settings go in one COM call (rerun as a whole when Excel is busy: every setting is absolute)."""
+    def visible():
+        win = ws.Parent.Windows(1)
+        return win if win.Visible else None
+    try:
+        win = _retry(visible)
+    except Exception:   # noqa: BLE001
+        win = None
     if win is None:
         return False
+
+    def settings():
+        win.FreezePanes = False
+        win.ScrollRow = 1
+        win.ScrollColumn = 1
+        win.DisplayGridlines = False
+        if rows or cols:
+            win.SplitColumn = cols
+            win.SplitRow = rows
+            win.FreezePanes = True
+
+    def undo():
+        win.FreezePanes = False
+        win.SplitColumn = 0
+        win.SplitRow = 0
     with _active(ws) as ok:
         if not ok:
             return False
         try:
-            _set(win, "FreezePanes", False)
-            _set(win, "ScrollRow", 1)
-            _set(win, "ScrollColumn", 1)
-            _set(win, "DisplayGridlines", False)
-            if rows or cols:
-                _set(win, "SplitColumn", cols)
-                _set(win, "SplitRow", rows)
-                _set(win, "FreezePanes", True)
+            _retry(settings)
             return True
         except Exception:   # noqa: BLE001   (e.g. window has no usable client area) - leave no half-split behind
             try:
-                _set(win, "FreezePanes", False); _set(win, "SplitColumn", 0); _set(win, "SplitRow", 0)
+                _retry(undo)
             except Exception:   # noqa: BLE001
                 pass
             return False
@@ -276,37 +291,84 @@ def _parse_widths(spec: dict) -> dict[int, float]:
     return w
 
 
+def _blocks(cells: list[tuple[int, int, int]]) -> list[str]:
+    """[(row, c1, c2)] (one style's column runs) -> addresses, equal runs on consecutive rows joined into one
+    rectangle ('A5:G7' instead of 'A5:G5', 'A6:G6', 'A7:G7')."""
+    out: list[list[int]] = []                       # [r1, r2, c1, c2]
+    open_: dict[tuple[int, int], list[int]] = {}
+    for r, c1, c2 in sorted(cells):
+        blk = open_.get((c1, c2))
+        if blk is not None and blk[1] == r - 1:
+            blk[1] = r
+        else:
+            blk = [r, r, c1, c2]
+            open_[(c1, c2)] = blk
+            out.append(blk)
+    return [f"{_cl(c1)}{r1}:{_cl(c2)}{r2}" for r1, r2, c1, c2 in out]
+
+
+def _merge_text(row, first) -> None:
+    """A text row merged over the table width, in one COM call: wrap, merge, the TN Tekst style again (a merge
+    resets the hidden cells to Normal), top alignment of the first cell."""
+    row.WrapText = True
+    row.MergeCells = True
+    row.Style = "TN Tekst"
+    first.VerticalAlignment = tn.V_TOP
+
+
+def _check_rules(cell) -> None:
+    """The check colours of one range in one COM call: green bold for "OK", red on red otherwise. Starts with
+    Delete, so a rerun leaves the same two rules."""
+    fcs = cell.FormatConditions
+    fcs.Delete()
+    fc = fcs.Add(1, 3, '="OK"')                            # cell value = "OK"
+    fc.Font.Color = _rgb(GREEN)
+    fc.Font.Bold = True
+    fc = fcs.Add(1, 4, '="OK"')                            # not equal -> breach
+    fc.Font.Color = _rgb(tn.BREACH_FONT)
+    fc.Font.Bold = True
+    fc.Interior.Color = _rgb(tn.BREACH_FILL)
+
+
 def apply_report(ws, roles: dict) -> list[str]:
     """Style an answer sheet whose content is already written (never clears contents). Returns lint findings."""
     from .timing import stage
+    own = bool(roles.get("last_row"))     # the tool-owned block: never re-style the user's rows below it
+
+    def info():
+        wb = ws.Parent
+        xl = wb.Application
+        tup = xl.International
+        ur_last = None if own else ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+        return wb, xl, tup[2], tup[3], tup[4], ur_last
     with stage("A ensure styles"):
-        wb = _get(ws, "Parent")
-        xl = _get(wb, "Application")
+        wb, xl, dec, thou, sep, ur_last = _retry(info)
         ensure_styles(wb)
-    dec, thou, sep = _seps(xl)
     last = _ci(roles["last_col"])
     labels = sorted(_ci(c) for c in roles.get("label_cols", ["B"]))
     first_label = labels[0]
     widths = {c: 8.43 for c in range(1, last + 1)}
     widths.update({c: w for c, w in _parse_widths(roles.get("col_widths", {})).items() if c <= last})
     rows = {int(r["row"]): r for r in roles["rows"]}
-    ur = _get(ws, "UsedRange")
-    if roles.get("last_row"):              # the tool-owned block: never re-style the user's rows below it
+    if own:
         last_row = max(max(rows), int(roles["last_row"]))
     else:
-        last_row = max(max(rows), _get(ur, "Row") + _get(ur, "Rows", "Count") - 1)
+        last_row = max(max(rows), ur_last)
+    block = f"A1:{_cl(last)}{last_row}"
 
-    raw = _get(_rng(ws, 1, 1, last_row, last), "Value2")
+    raw = _retry(lambda: ws.Range(block).Value2)
     if not isinstance(raw, tuple):
         raw = ((raw,),)
     def val(r, c):
         return raw[r - 1][c - 1]
 
     # clear stale formats (keeps contents), then base style
+    def clear_and_base():
+        area = ws.Range(block)
+        area.ClearFormats()
+        area.Style = "TN Tom"
     with stage("A2 clear + base"):
-        area = _rng(ws, 1, 1, last_row, last)
-        _call(area, "ClearFormats")
-        _set(area, "Style", "TN Tom")
+        _retry(clear_and_base)
 
     by_style: dict[str, list[str]] = {}
     tall1_cells: list[str] = []
@@ -369,23 +431,33 @@ def apply_report(ws, roles: dict) -> list[str]:
         else:
             raise ValueError(f"row {r}: unknown kind {kind!r}")
         for st, c1, c2 in _runs(cols):
-            by_style.setdefault(st, []).append(f"{_cl(c1)}{r}:{_cl(c2)}{r}")
+            by_style.setdefault(st, []).append((r, c1, c2))
         for c, st in cols.items():
             assigned[(r, c)] = st
 
+    # every call below sets absolute values, so one that Excel rejects while busy is rerun as a whole
     with stage("B cell styles"):
-        for st, addrs in by_style.items():
-            for chunk in tn._chunks(addrs, sep):
-                _set(_retry(lambda: ws.Range(chunk)), "Style", st)
+        for st, cells in by_style.items():                # equal column runs on consecutive rows: one rectangle
+            for chunk in tn._chunks(_blocks(cells), sep):
+                _retry(lambda: setattr(ws.Range(chunk), "Style", st))
         if tall1_cells:
             fmt = tn.to_local(TALL1_THOUSANDS, dec, thou)
             for chunk in tn._chunks(tall1_cells, sep):
-                _set(_retry(lambda: ws.Range(chunk)), "NumberFormatLocal", fmt)
+                _retry(lambda: setattr(ws.Range(chunk), "NumberFormatLocal", fmt))
 
     with stage("C widths + heights"):
+        given = _parse_widths(roles.get("col_widths", {}))
+        by_width: dict[float, list[tuple[int, int, int]]] = {}    # one call per run of equal widths, not per column
         for c, w in widths.items():
-            if c in _parse_widths(roles.get("col_widths", {})):
-                _set(_retry(lambda: ws.Columns(c)), "ColumnWidth", w)
+            if c in given:
+                runs = by_width.setdefault(w, [])
+                if runs and runs[-1][2] == c - 1:
+                    runs[-1] = (1, runs[-1][1], c)
+                else:
+                    runs.append((1, c, c))
+        for w, runs in by_width.items():
+            for _, c1, c2 in runs:
+                _retry(lambda: setattr(ws.Range(f"{_cl(c1)}1:{_cl(c2)}1").EntireColumn, "ColumnWidth", w))
         by_height: dict[float, list[str]] = {}            # one call per distinct height, not one per row
         for r, h in sorted(heights.items()):
             runs = by_height.setdefault(h, [])
@@ -395,25 +467,16 @@ def apply_report(ws, roles: dict) -> list[str]:
                 runs.append((r, r))
         for h, runs in by_height.items():
             for chunk in tn._chunks([f"{a}:{b}" for a, b in runs], sep):
-                _set(_retry(lambda: ws.Range(chunk)), "RowHeight", h)
+                _retry(lambda: setattr(ws.Range(chunk), "RowHeight", h))
     with stage("D merges"):
         for r, c in merges:
-            _retry(lambda: _set(_rng(ws, r, c, r, last), "WrapText", True))
-            _set(_rng(ws, r, c, r, last), "MergeCells", True)
-            _set(_rng(ws, r, c, r, last), "Style", "TN Tekst")      # merge resets the hidden cells to Normal
-            _set(_rng(ws, r, c), "VerticalAlignment", tn.V_TOP)
+            _retry(lambda: _merge_text(ws.Range(f"{_cl(c)}{r}:{_cl(last)}{r}"), ws.Range(f"{_cl(c)}{r}")))
     with stage("E check colours"):
         for chunk in tn._chunks(_check_ranges(checks), sep):          # one rule pair per chunk (was per cell: 7 s)
-            cell = _retry(lambda: ws.Range(chunk))
-            _call(_get(cell, "FormatConditions"), "Delete")
-            fc = _call(_get(cell, "FormatConditions"), "Add", 1, 3, '="OK"')      # cell value = "OK"
-            _set(_get(fc, "Font"), "Color", _rgb(GREEN)); _set(_get(fc, "Font"), "Bold", True)
-            fc = _call(_get(cell, "FormatConditions"), "Add", 1, 4, '="OK"')      # not equal -> breach
-            _set(_get(fc, "Font"), "Color", _rgb(tn.BREACH_FONT)); _set(_get(fc, "Font"), "Bold", True)
-            _set(_get(fc, "Interior"), "Color", _rgb(tn.BREACH_FILL))
+            _retry(lambda: _check_rules(ws.Range(chunk)))
 
     with stage("F tab + freeze"):
-        _set(_get(ws, "Tab"), "Color", _rgb(tn.NAVY))
+        _retry(lambda: setattr(ws.Tab, "Color", _rgb(tn.NAVY)))
         _freeze(ws, int(roles.get("freeze_rows") or 0), 0)
     with stage("G page setup"):
         _page_setup(ws, xl, last_row, last, roles)
@@ -427,19 +490,27 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
     assigned itself (size/bold/wrap from tn.style_defs). Styles and number formats are set by our own code, so the
     per-cell 'has a TN style / has a number format' checks cannot fail and are not repeated."""
     errs: list[str] = []
-    ur = _get(ws, "UsedRange")
-    ur_last_c = _get(ur, "Column") + _get(ur, "Columns", "Count") - 1
-    ur_last_r = _get(ur, "Row") + _get(ur, "Rows", "Count") - 1
-    area = _rng(ws, 1, 1, max(ur_last_r, last_row), max(ur_last_c, last))
-    fname = _get(_get(area, "Font"), "Name")
+
+    def read():                                       # used range, font and vertical borders: one COM call
+        ur = ws.UsedRange
+        ur_last_c = ur.Column + ur.Columns.Count - 1
+        ur_last_r = ur.Row + ur.Rows.Count - 1
+        area = ws.Range(f"A1:{_cl(max(ur_last_c, last))}{max(ur_last_r, last_row)}")
+        lines = []
+        for edge in (7, 10, 11):
+            try:
+                lines.append(area.Borders(edge).LineStyle)
+            except Exception as e:   # noqa: BLE001
+                if _busy(e):
+                    raise
+                lines.append(tn.NONE)                 # unreadable edge: not reported (as before)
+        return ur_last_c, area.Font.Name, lines
+    ur_last_c, fname, lines = _retry(read)
     if fname != tn.FONT:
         errs.append(f"more than one font, or not Arial (Font.Name={fname!r})")
-    for edge, label in ((7, "left"), (10, "right"), (11, "inside")):
-        try:
-            if _get(_call(area, "Borders", edge), "LineStyle") != tn.NONE:
-                errs.append(f"vertical border ({label}) on the sheet (not allowed in the report style)")
-        except Exception:   # noqa: BLE001
-            continue
+    for style, label in zip(lines, ("left", "right", "inside")):
+        if style != tn.NONE:
+            errs.append(f"vertical border ({label}) on the sheet (not allowed in the report style)")
     if ur_last_c > last:
         errs.append(f"content outside the table width (up to {roles['last_col']})")
     defs = tn.style_defs()
@@ -470,23 +541,53 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
     return errs
 
 
+PAGE_SETUP_NAME = "smartass_pagesetup"
+PAGE_SETUP_VERSION = "v1"          # bump whenever _page_setup_props changes what it sets
+
+
+def _page_setup_key(last_row, last, roles) -> str:
+    """The sheet-level name's value: the setup's version + what varies per draw (print area, header text), so a
+    redraw with another size or header is set up again."""
+    header = roles.get("print_header", "Intern")
+    return f'="{PAGE_SETUP_VERSION}|$A$1:${_cl(last)}${last_row}|' + header.replace('"', '""') + '"'
+
+
+def _has_page_setup(ws, key: str) -> bool:
+    try:
+        return str(_retry(lambda: ws.Names(PAGE_SETUP_NAME).RefersTo)) == key
+    except Exception:   # noqa: BLE001 - name missing: not set up by us yet
+        return False
+
+
 def _page_setup(ws, xl, last_row, last, roles):
+    """The answer's page setup, once per sheet: skipped (one COM call) when the sheet-level name smartass_pagesetup
+    says this exact setup is already there (follow-up redraws); the first draw is unchanged and ends by adding it."""
+    key = _page_setup_key(last_row, last, roles)
+    if _has_page_setup(ws, key):
+        return
     # every PageSetup property normally round-trips to the printer driver (measured 14 s for 12 settings);
     # PrintCommunication=False batches them into one exchange when it is switched back on
     try:
         _set(xl, "PrintCommunication", False)
     except Exception:   # noqa: BLE001 - not available: just slower
         pass
+    restored = False
     try:
-        _page_setup_props(ws, xl, last_row, last, roles)
+        done = _page_setup_props(ws, xl, last_row, last, roles)
     finally:
         try:
             _set(xl, "PrintCommunication", True)
+            restored = True
         except Exception:   # noqa: BLE001
+            pass
+    if done and restored:           # batched settings not flushed: do not mark the sheet as set up
+        try:
+            _retry(lambda: ws.Names.Add(Name=PAGE_SETUP_NAME, RefersTo=key, Visible=False))
+        except Exception:   # noqa: BLE001 - only an optimisation
             pass
 
 
-def _page_setup_props(ws, xl, last_row, last, roles):
+def _page_setup_props(ws, xl, last_row, last, roles) -> bool:
     try:
         ps = _get(ws, "PageSetup")
         _set(ps, "PrintArea", f"$A$1:${_cl(last)}${last_row}")
@@ -501,71 +602,81 @@ def _page_setup_props(ws, xl, last_row, last, roles):
         _set(ps, "CenterHeader", '&"Arial"&8' + roles.get("print_header", "Intern"))
         _set(ps, "RightFooter", '&"Arial"&8Side &P av &N')
         _set(ps, "LeftFooter", '&"Arial"&8&F')
+        return True
     except Exception:   # noqa: BLE001  (no printer installed etc.)
-        pass
+        return False
 
 
 # ---------------------------------------------------------------- apply_data_sheet
-def _numeric_cells(rng):
-    """Union of numeric constants and numeric formula results in rng, or None."""
-    parts = []
+def _format_numbers(rng, fmt: str, align: bool) -> None:
+    """Number format (and right alignment) on the numeric constants and numeric formula results in rng, inside ONE
+    COM call; no such cells is not an error, a busy Excel is raised (the call is rerun as a whole)."""
     for kind in (2, -4123):          # xlCellTypeConstants, xlCellTypeFormulas
         try:
-            parts.append(_retry(lambda k=kind: rng.SpecialCells(k, 1)))   # xlNumbers
-        except Exception as exc:   # noqa: BLE001 - no such cells; a busy Excel (HostError from _retry) is raised
-            from .host import HostError
-            if isinstance(exc, HostError):
+            part = rng.SpecialCells(kind, 1)   # xlNumbers
+        except Exception as e:   # noqa: BLE001 - no such cells
+            if _busy(e):
                 raise
-    return parts
+            continue
+        part.NumberFormatLocal = fmt
+        if align:
+            part.HorizontalAlignment = tn.H_RIGHT
+
+
+def _sheet_info(ws):
+    """(decimal sep, thousands sep, first row, first col, row count, col count) of ws's UsedRange: one COM call."""
+    tup = ws.Parent.Application.International
+    ur = ws.UsedRange
+    return tup[2], tup[3], ur.Row, ur.Column, ur.Rows.Count, ur.Columns.Count
 
 
 def apply_data_sheet(ws, header_rows: int, label_cols: int, fte_rows: list[int] | None = None) -> None:
     """Financial look for a LIVE Smart View ad hoc grid. Never clears/moves cells, never ClearFormats, never
-    inserts rows/columns. Rows/cols are absolute sheet indexes (1-based)."""
-    wb = _get(ws, "Parent")
-    xl = _get(wb, "Application")
-    dec, thou, _ = _seps(xl)
-    ur = _get(ws, "UsedRange")
-    r0, c0 = _get(ur, "Row"), _get(ur, "Column")
-    last_r = r0 + _get(ur, "Rows", "Count") - 1
-    last_c = c0 + _get(ur, "Columns", "Count") - 1
-    last_r, last_c = max(last_r, header_rows), max(last_c, label_cols)
+    inserts rows/columns. Rows/cols are absolute sheet indexes (1-based). The fixed look (fonts, header, alignment,
+    border) is one COM call, the number formats one per range, widths + tab colour one: every setting is absolute,
+    so a call that Excel rejects while busy is rerun as a whole."""
+    dec, thou, r0, c0, nrow, ncol = _retry(lambda: _sheet_info(ws))
+    last_r, last_c = max(r0 + nrow - 1, header_rows), max(c0 + ncol - 1, label_cols)
 
-    _set(_get(_rng(ws, 1, 1, last_r, last_c), "Font"), "Name", tn.FONT)
-    _set(_get(_rng(ws, 1, 1, last_r, last_c), "Font"), "Size", 10)
+    def a(r1, c1, r2, c2):
+        return f"{_cl(c1)}{r1}:{_cl(c2)}{r2}"
 
-    if header_rows > 0:
-        hdr = _rng(ws, 1, 1, header_rows, last_c)
-        f = _get(hdr, "Font")
-        _set(f, "Bold", True); _set(f, "Color", _rgb(tn.NAVY))
-        if last_c > label_cols:
-            _set(_rng(ws, 1, label_cols + 1, header_rows, last_c), "HorizontalAlignment", tn.H_RIGHT)
-        if label_cols:
-            _set(_rng(ws, 1, 1, header_rows, label_cols), "HorizontalAlignment", tn.H_LEFT)
-        bd = _call(_rng(ws, header_rows, 1, header_rows, last_c), "Borders", tn.B)
-        _set(bd, "LineStyle", tn.CONT); _set(bd, "Weight", tn.THIN); _set(bd, "Color", _rgb(tn.NAVY))
+    def look():
+        f = ws.Range(a(1, 1, last_r, last_c)).Font
+        f.Name = tn.FONT
+        f.Size = 10
+        if header_rows > 0:
+            f = ws.Range(a(1, 1, header_rows, last_c)).Font
+            f.Bold = True
+            f.Color = _rgb(tn.NAVY)
+            if last_c > label_cols:
+                ws.Range(a(1, label_cols + 1, header_rows, last_c)).HorizontalAlignment = tn.H_RIGHT
+            if label_cols:
+                ws.Range(a(1, 1, header_rows, label_cols)).HorizontalAlignment = tn.H_LEFT
+            bd = ws.Range(a(header_rows, 1, header_rows, last_c)).Borders(tn.B)
+            bd.LineStyle = tn.CONT
+            bd.Weight = tn.THIN
+            bd.Color = _rgb(tn.NAVY)
+        if last_r > header_rows and label_cols:
+            ws.Range(a(header_rows + 1, 1, last_r, label_cols)).HorizontalAlignment = tn.H_LEFT
+    _retry(look)
 
-    if last_r > header_rows:
-        if label_cols:
-            _set(_rng(ws, header_rows + 1, 1, last_r, label_cols), "HorizontalAlignment", tn.H_LEFT)
-        if last_c > label_cols:
-            data = _rng(ws, header_rows + 1, label_cols + 1, last_r, last_c)
-            f0 = tn.to_local(HELTALL, dec, thou)
-            f1 = tn.to_local(TALL1_THOUSANDS, dec, thou)
-            for part in _numeric_cells(data):
-                _set(part, "NumberFormatLocal", f0)
-                _set(part, "HorizontalAlignment", tn.H_RIGHT)
-            for fr in fte_rows or []:
-                if header_rows < fr <= last_r:
-                    for part in _numeric_cells(_rng(ws, fr, label_cols + 1, fr, last_c)):
-                        _set(part, "NumberFormatLocal", f1)
+    if last_r > header_rows and last_c > label_cols:
+        f0 = tn.to_local(HELTALL, dec, thou)
+        f1 = tn.to_local(TALL1_THOUSANDS, dec, thou)
+        _retry(lambda: _format_numbers(ws.Range(a(header_rows + 1, label_cols + 1, last_r, last_c)), f0, True))
+        for fr in fte_rows or []:
+            if header_rows < fr <= last_r:
+                _retry(lambda fr=fr: _format_numbers(ws.Range(a(fr, label_cols + 1, fr, last_c)), f1, False))
 
     # widths: ~46 shared by the label columns, 16 for data columns
     per_label = max(20.0, 46.0 / label_cols) if label_cols > 1 else 46.0
-    for c in range(1, label_cols + 1):
-        _set(_retry(lambda: ws.Columns(c)), "ColumnWidth", per_label)
-    if last_c > label_cols:
-        _set(_rng(ws, 1, label_cols + 1, 1, last_c).EntireColumn, "ColumnWidth", 16)
 
-    _set(_get(ws, "Tab"), "Color", _rgb(GREY_TAB))
+    def widths_and_tab():
+        if label_cols:
+            ws.Range(a(1, 1, 1, label_cols)).EntireColumn.ColumnWidth = per_label
+        if last_c > label_cols:
+            ws.Range(a(1, label_cols + 1, 1, last_c)).EntireColumn.ColumnWidth = 16
+        ws.Tab.Color = _rgb(GREY_TAB)
+    _retry(widths_and_tab)
     _freeze(ws, header_rows, label_cols)

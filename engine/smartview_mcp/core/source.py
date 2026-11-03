@@ -71,6 +71,12 @@ def sheet_title(q: int, i: int, pin: PullSpec) -> str:
     return pin.title or f"Q{q} {pin.connection}" + (f" {pin.id}" if i else "")
 
 
+def _grey_italic(font) -> None:
+    """The provenance panel's look: two settings of one Font object in one COM call."""
+    font.Color = GREY
+    font.Italic = True
+
+
 def write(t, q: int, title: str, pin: PullSpec, f: svhttp.Fetched) -> Source:
     from .. import styling
     from ..ops import _used_values
@@ -89,8 +95,7 @@ def write(t, q: int, title: str, pin: PullSpec, f: svhttp.Fetched) -> Source:
         panel = provenance(pin.connection, lay, "http", now)
         prng = ws.Range(ws.Cells(2, w + 2), ws.Cells(1 + len(panel), w + 3))
         com(lambda: setattr(prng, "Value", tuple((k, "'" + v) for k, v in panel)))
-        com(lambda: setattr(prng.Font, "Color", GREY))
-        com(lambda: setattr(prng.Font, "Italic", True))
+        com(lambda: _grey_italic(prng.Font))
         sheets.save_meta(t, p, extra={"route": "http", "fetched": now.isoformat(timespec="seconds"),
                                          "pull": pin.model_dump()})
     return Source(p, "http", mismatches(f.values, com(lambda: _used_values(ws))))

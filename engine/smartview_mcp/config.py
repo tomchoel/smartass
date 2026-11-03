@@ -128,6 +128,7 @@ ONEDRIVE = Path(os.environ.get("OneDriveCommercial") or os.environ.get("OneDrive
 
 PID_FILE = HOME / "pids.json"                              # PIDs this server started (never kill others)
 ATLAS_DB = HOME / "atlas.db"
+NEW_WORKBOOK_SEED = HOME / "new_workbook_seed.xlsx"        # a labelled empty workbook; new analysis files are copies
 SERVER_LOG = HOME / "logs" / "server.log"
 
 ANALYSER_DIR = _path(_pick("SV_ANALYSER_DIR", "paths.analyser", ONEDRIVE / "smartass" / "analyser"))
@@ -202,6 +203,7 @@ _ch = os.environ.get("SV_DRILL_CHANNELS")
 DRILL_CHANNELS = tuple(c.strip() for c in (_ch.split(",") if _ch else _checked(as_list(
     get(SETTINGS, "drill.channels", ["msedge"]), "drill.channels",
     as_list(get(ORG_SETTINGS, "drill.channels", ["msedge"]), "", ["msedge"])[0]))) if c.strip())
+DRILL_PROFILE_SLOTS = int(os.environ.get("SV_DRILL_PROFILE_SLOTS", "3"))   # one warm browser per smartass server
 DRILL_PROFILE = SVKIT / "drill_edge"              # Edge profile + lock anchor; other channels: drill_edge_<channel>
 DRILL_LAUNCH_TRIES = 2                             # per channel
 DRILL_DB = SVKIT / "drill.db"
@@ -226,6 +228,9 @@ DRILL_CAPTURE_TIMEOUT_S = 45
 DRILL_RELOAD_WAIT_S = 25                           # after the one reload of a page that never asked for data
 DRILL_SETUP_S = 95                                 # sign-in + capture of one drill (S8: no call past 120 s)
 DRILL_IDLE_S = int(os.environ.get("SV_DRILL_IDLE_S", "300"))   # close the hidden browser (and free the profile) when idle
+DRILL_KEEP_WARM = os.environ.get("SV_DRILL_KEEP_WARM", "1") != "0"   # never close the hidden browser when idle
+DRILL_YIELD_IDLE_S = int(os.environ.get("SV_DRILL_YIELD_IDLE_S", "120"))  # owner lets go to a waiting session only after this much non-use
+DRILL_KEEPALIVE_S = int(os.environ.get("SV_DRILL_KEEPALIVE_S", "600"))  # idle seconds between sign-in checks
 DRILL_TABS = int(os.environ.get("SV_DRILL_TABS", "4"))         # drill pages loading at once (drill_tabs)
 DRILL_DIRECT = os.environ.get("SV_DRILL_DIRECT", "1") != "0"   # drill lines from one warm tab (drill_direct); 0 = page per piece
 ANSWER_PREFETCH = os.environ.get("SV_ANSWER_PREFETCH", "1") != "0"   # fetch an answer's pulls at once, while Excel opens

@@ -71,3 +71,27 @@ had to start Excel spent **25.7 s** in `open target`.
 
 Top three to cut next: source-sheet styling (~78 calls per sheet), sheet arranging on save (~100 calls), the
 answer styling + page setup.
+
+## Smart flow (2026-11-03 afternoon): one call, always warm, lean replies, fewer Excel calls
+Live, `sv_answer(question=...)`, owner's PC with a second Claude session running smartass at the same time.
+
+| | Morning | Afternoon |
+|---|---|---|
+| AI round trips per question | 2 (`sv_gate`, `sv_answer`) | **1** |
+| P&L reply | 46 000 chars compact (57 000 sent; too big to read) | **roughly halved**: `table`, `flags` behind `detail='full'`, key_values rounded, checks `{"ok": 48}` |
+| P&L route | 5 pulls http | 5 pulls http, live read **4.8 s**, all 48 checks OK |
+| Consultants (lines_ranking) | first frame 0.8 s, drills 8.0 s | first frame 1.1 s, drills **6.5 s**; 4/4 checks OK |
+| COM calls, source sheet / answer / arrange | ~78 per sheet / 158-286 / 82-102 | **~21 per sheet / 69-93 / 1-10** |
+| Excel job, trend (fresh workbook) | 12.1 s | 13.3-18.2 s |
+
+Findings:
+- **Excel time did not fall with the call count.** Raw COM latency into the user's Excel was 18 ms per call (100 trivial
+  reads; 4 workbooks open; the analysis files are on OneDrive with AutoSave on). The time sits in a few heavy calls,
+  not in the number of calls. Excel events are now off while smartass writes (add-ins stop running code on each
+  write): ~10% per call in a micro-benchmark. Next lever to test: AutoSave off on smartass's own workbook while it
+  writes (on again before the explicit save).
+- **Two sessions fought over one browser profile** (the morning's fallbacks and the 'Script Error' popup in the
+  hidden Excel): each smartass server now takes its own profile slot (`drill_edge`, `_2`, `_3`).
+- The Smart View startup login is gone (`CheckOnStartup=0`); the hidden Excel's own Smart View boxes are closed by
+  a watcher; new workbooks come from a labelled seed copy when no Excel is open (not exercised live today: Excel was
+  open).

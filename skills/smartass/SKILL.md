@@ -25,13 +25,13 @@ smartass → Reconnect once.
 
 ### 2.1 Gate (always first)
 
-`sv_gate(question)` runs the fixed scope checklist (period, scenario, entity, measure, currency/sign, granularity)
+`sv_answer(question=...)` runs the gate itself (one call per new question; `sv_gate(question)` alone only inspects it): the fixed scope checklist (period, scenario, entity, measure, currency/sign, granularity)
 against the catalogue, the capability map and the user's learned defaults. Procedure: `knowledge/advisor/gate.md`.
 
 | Outcome | Do |
 |---|---|
-| `clear` | Proceed. State every item with source convention/learned (and each warning) as an assumption. Call `sv_answer` now with the gate's `recipe` (`{name, params}`); `recipe: null` → a free-form spec. |
-| `ambiguous` | Pull nothing. Ask its questions (1–3) in ONE message, in the user's language. Then call `sv_gate(question, answers={item: answer})` with the SAME question (e.g. `{"measure": "opex"}`), pass the same `answers` as `spec.gate.answers`, and offer `sv_remember(item, phrase, value)` to save an answer as the user's default. |
+| `clear` | Proceed. State every item with source convention/learned (and each warning) as an assumption. The same call has already answered it with the gate's `recipe` (`{name, params}`); `recipe: null` → it asks for a free-form spec (`sv_answer(spec=...)`). |
+| `ambiguous` | Pull nothing. Ask its questions (1–3) in ONE message, in the user's language. Then call `sv_answer(question=<same>, answers={item: answer})` (e.g. `{"measure": "opex"}`; with a hand-written spec, pass the same `answers` as `spec.gate.answers`), and offer `sv_remember(item, phrase, value)` to save an answer as the user's default. |
 | `infeasible` | Say why in one or two sentences, offer the proxy, and build it labelled as a proxy. |
 
 Copy the result into the spec's `gate` (`outcome`, `checklist`, `questions` / `reason` + `proxy`, `answers`) and

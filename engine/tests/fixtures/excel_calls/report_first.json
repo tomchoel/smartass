@@ -1,0 +1,83 @@
+{
+ "calls_before": 150,
+ "state": {
+  "order": [
+   "Q1 Answer"
+  ],
+  "names": {
+   "_tnStylesVer": "=\"fe684979b1\""
+  },
+  "sheets": {
+   "Q1 Answer": {
+    "values": "db83413a17bc",
+    "formats": {
+     "FC='[[(\\'Font.Bold\\', True), (\\'Font.Color\\', 3960832), (\\'f\\', \\'=\"OK\"\\'), (\\'op\\', 3), (\\'type\\', 1)], [(\\'Font.Bold\\', True), (\\'Font.Color\\', 192), (\\'Interior.Color\\', 15329789), (\\'f\\', \\'=\"OK\"\\'), (\\'op\\', 4), (\\'type\\', 1)]]'": "G9:G10",
+     "MergeCells=True": "B13:G13",
+     "NumberFormatLocal='#\\xa0##0,0_);(#\\xa0##0,0);\"–\"_)'": "C7:E7",
+     "Style='TN Etikett · Hovedsum'": "B14,G14",
+     "Style='TN Etikett · Sum'": "B8,G8",
+     "Style='TN Etikett'": "B5:B7,G5:G7,B9:F10",
+     "Style='TN Heltall · Hovedsum'": "C14:E14",
+     "Style='TN Heltall · Sum'": "C8:E8",
+     "Style='TN Heltall'": "C5:E6",
+     "Style='TN Kolonne tall'": "C4:G4",
+     "Style='TN Kolonne'": "A4:B4",
+     "Style='TN Prosent 1d · Hovedsum'": "F14",
+     "Style='TN Prosent 1d · Sum'": "F8",
+     "Style='TN Prosent 1d'": "F5:F7",
+     "Style='TN Seksjon'": "A12:G12",
+     "Style='TN Tall 1d'": "C7:E7",
+     "Style='TN Tekst tallkolonne'": "G9:G10",
+     "Style='TN Tekst'": "B13:G13",
+     "Style='TN Tittel'": "A1:G1",
+     "Style='TN Tom'": "A3:G3,A5:A10,A11:G11,A13:A14",
+     "Style='TN Undertittel'": "A2:G2",
+     "VerticalAlignment=-4160": "B13"
+    },
+    "widths": {
+     "A": 2.5,
+     "B": 46.0,
+     "C": 17.0,
+     "D": 17.0,
+     "E": 17.0,
+     "F": 17.0,
+     "G": 17.0
+    },
+    "heights": {
+     "28": "1,13",
+     "16": "2",
+     "15": "3,5:11,14",
+     "26": "4",
+     "22": "12"
+    },
+    "tab": 6567967,
+    "page_setup": {
+     "CenterHeader": "&\"Arial\"&8Intern",
+     "CenterHorizontally": true,
+     "FitToPagesTall": false,
+     "FitToPagesWide": 1,
+     "LeftFooter": "&\"Arial\"&8&F",
+     "LeftMargin": 42.5197,
+     "Orientation": 2,
+     "PrintArea": "$A$1:$G$14",
+     "PrintTitleRows": "$1:$2",
+     "RightFooter": "&\"Arial\"&8Side &P av &N",
+     "RightMargin": 42.5197,
+     "Zoom": false
+    },
+    "names": {},
+    "window": {
+     "DisplayGridlines": false,
+     "FreezePanes": true,
+     "ScrollColumn": 1,
+     "ScrollRow": 1,
+     "SplitColumn": 0,
+     "SplitRow": 4
+    },
+    "selection": null,
+    "visible": -1,
+    "tables": []
+   }
+  }
+ }
+}

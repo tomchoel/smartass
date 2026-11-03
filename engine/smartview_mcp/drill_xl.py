@@ -161,6 +161,42 @@ def same_header(old, new) -> bool:
     return [str(x) for x in (old or [])] == [str(x) for x in new]
 
 
+def _col_runs(values: list) -> list[tuple]:
+    """[v per column] -> [(v, first column, last column)] (1-based), adjacent equal values joined."""
+    out: list[list] = []
+    for j, v in enumerate(values, 1):
+        if out and out[-1][0] == v:
+            out[-1][2] = j
+        else:
+            out.append([v, j, j])
+    return [tuple(x) for x in out]
+
+
+def _clear_body(lo) -> None:
+    body = lo.DataBodyRange
+    if body is not None:
+        body.ClearContents()
+
+
+def _title_fonts(ws) -> None:
+    ws.Range("A2").Font.Color = 0
+    ws.Range("A1").Font.Bold = True
+
+
+def _name_table(lo, tname: str) -> None:
+    lo.Name = tname
+    lo.TableStyle = "TableStyleLight1"
+
+
+def _freeze_below(t: Target, ws, hdr: int) -> None:
+    """Freeze the panes below the header row, in one COM call (rerun as a whole when Excel is busy)."""
+    t.wb.Activate()                          # ActiveWindow must be OUR workbook's window
+    ws.Activate()
+    t.app.ActiveWindow.FreezePanes = False
+    ws.Range(f"A{hdr + 1}").Select()
+    t.app.ActiveWindow.FreezePanes = True
+
+
 def write_lines(t: Target, q: int, rows: list[dict], columns: list[str], title: str, source: str,
                 alias: str = "d") -> dict:
     """'Q<n> Lines' (+ ' <alias>'): title, source, then the Excel table Lines_Q<n>. Above DRILL_XL_FULL lines only
@@ -178,15 +214,12 @@ def write_lines(t: Target, q: int, rows: list[dict], columns: list[str], title: 
     reused = changed = False
     with fast_excel(t.app):
         if lo is not None:
-            name = com(lambda: ws.Name)
-            hdr = com(lambda: lo.HeaderRowRange.Row)
-            old_end = hdr + com(lambda: lo.Range.Rows.Count) - 1
-            old_ncol = com(lambda: lo.Range.Columns.Count)
-            if same_header(com(lambda: lo.HeaderRowRange.Value)[0], cols):
+            name, hdr, nrow, old_ncol, header = com(lambda: (ws.Name, lo.HeaderRowRange.Row, lo.Range.Rows.Count,
+                                                             lo.Range.Columns.Count, lo.HeaderRowRange.Value))
+            old_end = hdr + nrow - 1
+            if same_header(header[0], cols):
                 reused = True
-                body = com(lambda: lo.DataBodyRange)
-                if body is not None:
-                    com(body.ClearContents)
+                com(lambda: _clear_body(lo))
             else:                                   # other columns: drop the old table, build anew (same name)
                 changed = True
                 com(lo.Delete)
@@ -197,10 +230,8 @@ def write_lines(t: Target, q: int, rows: list[dict], columns: list[str], title: 
             ws = add_sheet(t, name, after_q=q, color=0xA6A6A6)
             hdr = 4
         end = hdr + len(rows)
-        com(lambda: setattr(ws.Range("A1"), "Value", title))
-        com(lambda: setattr(ws.Range("A2"), "Value", _source_text(source)))
-        com(lambda: setattr(ws.Range("A2").Font, "Color", 0))
-        com(lambda: setattr(ws.Range("A1").Font, "Bold", True))
+        com(lambda: setattr(ws.Range("A1:A2"), "Value", ((title,), (_source_text(source),))))
+        com(lambda: _title_fonts(ws))
         com(lambda: setattr(ws.Range(f"A{hdr}:{last_col}{hdr}"), "Value", (tuple(cols),)))
         if reused:
             com(lambda: lo.Resize(ws.Range(f"A{hdr}:{last_col}{end}")))
@@ -213,21 +244,16 @@ def write_lines(t: Target, q: int, rows: list[dict], columns: list[str], title: 
                 limit=180)
         if not reused:
             lo = com(lambda: ws.ListObjects.Add(1, ws.Range(f"A{hdr}:{last_col}{end}"), None, 1))
-            com(lambda: setattr(lo, "Name", tname))
-            com(lambda: setattr(lo, "TableStyle", "TableStyleLight1"))
-        for j, c in enumerate(cols, 1):
-            col = get_column_letter(j)
-            rng = ws.Range(f"{col}{hdr + 1}:{col}{end}")
-            if c in AMOUNT_LABELS:
-                com(lambda r=rng: setattr(r, "NumberFormatLocal", amt_fmt))
-            elif c in DATE_LABELS:
-                com(lambda r=rng: setattr(r, "NumberFormatLocal", date_fmt))
-            com(lambda r=ws.Columns(j), w=WIDTHS.get(c, 14): setattr(r, "ColumnWidth", w))
-        com(t.wb.Activate)                      # ActiveWindow must be OUR workbook's window
-        com(ws.Activate)
-        com(lambda: setattr(t.app.ActiveWindow, "FreezePanes", False))
-        com(lambda: ws.Range(f"A{hdr + 1}").Select())
-        com(lambda: setattr(t.app.ActiveWindow, "FreezePanes", True))
+            com(lambda: _name_table(lo, tname))
+        fmts = [amt_fmt if c in AMOUNT_LABELS else date_fmt if c in DATE_LABELS else None for c in cols]
+        for fmt, j1, j2 in _col_runs(fmts):     # adjacent columns with the same format / width: one range call
+            if fmt is not None:
+                rng = f"{get_column_letter(j1)}{hdr + 1}:{get_column_letter(j2)}{end}"
+                com(lambda a=rng, f=fmt: setattr(ws.Range(a), "NumberFormatLocal", f))
+        for w, j1, j2 in _col_runs([WIDTHS.get(c, 14) for c in cols]):
+            rng = f"{get_column_letter(j1)}1:{get_column_letter(j2)}1"
+            com(lambda a=rng, w=w: setattr(ws.Range(a).EntireColumn, "ColumnWidth", w))
+        com(lambda: _freeze_below(t, ws, hdr))
     return {"sheet": name, "table": tname, "columns": cols, "rows": len(rows), "reused": reused,
             "columns_changed": changed}
 

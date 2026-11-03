@@ -27,10 +27,10 @@ SKILL = ROOT / "skills" / "smartass" / "SKILL.md"
 GATE = ROOT / "knowledge" / "advisor" / "gate.md"
 
 
-def test_server_instructions_lead_with_gate_then_answer():
+def test_server_instructions_lead_with_the_one_call_question():
     from smartview_mcp import server
     text = server.INSTRUCTIONS
-    assert text.index("sv_gate") < text.index("sv_answer")
+    assert text.index("sv_answer(question=") < text.index("sv_gate")
     assert not [t for t in GONE if re.search(rf"\b{t}\b", text)]
     flat = " ".join(text.split()).lower()
     for must in ("answers=", "lines_ranking", "key_values", "never ask whether to build a sheet", "deviation"):

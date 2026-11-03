@@ -123,7 +123,7 @@ No FinPlan recipe has been reconciled against an archive file yet.
 
 ### Which recipe the gate names
 
-`sv_gate` returns `recipe: {name, params}` for a clear question: the first matching rule of `core/scope.py`
+`sv_answer(question=...)` runs the gate and uses the `recipe: {name, params}` it returns for a clear question (`sv_gate` returns the same): the first matching rule of `core/scope.py`
 `_recipe`. Use it as given; anything else is a departure (`deviation`, below).
 
 | # | When | Recipe | Params from the gate |
