@@ -39,6 +39,7 @@ class FakeHost:
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "NEW_WORKBOOK_SEED", tmp_path / "seed.xlsx")
+    monkeypatch.setattr(config, "LABEL_ID", "x")
     monkeypatch.setattr(target, "_new_path", lambda title, taken=(): tmp_path / "out" / f"{title}.xlsx")
     (tmp_path / "out").mkdir()
     return tmp_path
@@ -76,6 +77,38 @@ def test_seed_without_label_is_ignored(env, monkeypatch, custom):
     target._new_analysis_file(h, "A")
     assert h.calls == 1
     assert target._seed_has_label(config.NEW_WORKBOOK_SEED)   # rewritten from the labelled file
+
+
+def test_seed_with_another_label_id_is_ignored(env, monkeypatch):
+    _xlsx(config.NEW_WORKBOOK_SEED, CUSTOM)
+    monkeypatch.setattr(config, "LABEL_ID", "Other-Id")
+    assert not target._seed_has_label(config.NEW_WORKBOOK_SEED)
+    monkeypatch.setattr(config, "LABEL_ID", "X")                # case-insensitive
+    assert target._seed_has_label(config.NEW_WORKBOOK_SEED)
+
+
+def test_two_copies_same_title_get_different_files(env, monkeypatch):
+    from smartview_mcp import session
+    monkeypatch.undo()                                          # real _new_path
+    monkeypatch.setattr(config, "NEW_WORKBOOK_SEED", env / "seed.xlsx")
+    monkeypatch.setattr(config, "LABEL_ID", "x")
+    monkeypatch.setattr(session, "project_dir", lambda: env / "out")
+    _xlsx(config.NEW_WORKBOOK_SEED, CUSTOM)
+    first = target._new_path("T")
+    seq = iter([first, first])                                  # both calls picked the same name before either copied
+    real = target._new_path
+    monkeypatch.setattr(target, "_new_path", lambda title, taken=frozenset(): next(seq, None) or real(title, taken))
+    a = target._new_analysis_file(FakeHost(), "T")
+    b = target._new_analysis_file(FakeHost(), "T")
+    assert a != b and a.exists() and b.exists()
+
+
+def test_cleanup_permission_error_does_not_escape(env, monkeypatch):
+    _xlsx(config.NEW_WORKBOOK_SEED, CUSTOM)
+    monkeypatch.setattr(target.shutil, "copyfile", lambda a, b: (_ for _ in ()).throw(OSError("x")))
+    monkeypatch.setattr(Path, "unlink", lambda self, missing_ok=False: (_ for _ in ()).throw(PermissionError("locked")))
+    monkeypatch.setattr(target, "_new_analysis_file_host", lambda h, path: path)
+    assert target._new_analysis_file(FakeHost(), "A").name == "A.xlsx"
 
 
 def test_failed_copy_falls_back(env, monkeypatch):

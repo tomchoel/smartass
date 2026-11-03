@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
 import shutil
 import subprocess
@@ -354,10 +355,13 @@ def _new_path(title: str, taken: set[str] | frozenset = frozenset()) -> Path:
 
 
 def _seed_has_label(seed: Path) -> bool:
-    """The seed exists and carries a sensitivity label (MSIP_Label_ custom properties), so Excel will save copies."""
+    """The seed exists and carries OUR sensitivity label (MSIP_Label_<config.LABEL_ID>_ custom properties, id
+    compared case-insensitively), so Excel will save copies."""
+    if not config.LABEL_ID:
+        return False
     try:
         with zipfile.ZipFile(seed) as z:
-            return b"MSIP_Label_" in z.read("docProps/custom.xml")
+            return f"msip_label_{config.LABEL_ID}_".lower().encode() in z.read("docProps/custom.xml").lower()
     except (OSError, KeyError, zipfile.BadZipFile):
         return False
 
@@ -368,11 +372,24 @@ def _new_analysis_file(h: ExcelHost, title: str) -> Path:
     path = _new_path(title)
     seed = config.NEW_WORKBOOK_SEED
     if _seed_has_label(seed):
+        reserved = False
         try:
-            shutil.copyfile(seed, path)
-            return path
+            for _ in range(50):                       # reserve the name atomically: a parallel call picks the next one
+                try:
+                    os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                    reserved = True
+                    break
+                except FileExistsError:
+                    path = _new_path(title, taken={path.name.lower()})
+            if reserved:
+                shutil.copyfile(seed, path)
+                return path
         except OSError:
-            path.unlink(missing_ok=True)
+            if reserved:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
     made = h.on_host(lambda: _new_analysis_file_host(h, path))
     try:
         seed.parent.mkdir(parents=True, exist_ok=True)
