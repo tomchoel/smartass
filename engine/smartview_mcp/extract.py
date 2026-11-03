@@ -8,12 +8,13 @@ Base read: the area (or unit) x the catalogue's lines x 36 months.
   member exists), Periodic months. FinPlan periods are stored as 'Sep 26'."""
 from __future__ import annotations
 
+import concurrent.futures as cf
 import logging
 import time
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import atlas, config, ops
+from . import atlas, config, hostproc, ops
 from .analytics import periods, reconcile
 from .analytics.frame import from_rows
 from .catalog import Catalog, Entity
@@ -259,14 +260,29 @@ def fill(store: FactStore, retrieve: Retrieve, cat: Catalog, grids: list[Grid], 
             atlas_db.close()
 
 
+def _retrieve_all(retrieve, grids):
+    """Every grid's retrieve result (a tuple, or the Exception it raised), in grid order. The calls run at once on a
+    pool; on the host's COM thread, or for fewer than 2 grids, one after the other (a COM fallback inside retrieve
+    waits on that thread: a pool there would deadlock)."""
+    def one(g):
+        try:
+            return retrieve(g.conn, g.pov, g.rows, g.cols)
+        except Exception as e:   # noqa: BLE001 - one failed grid must not lose the others
+            return e
+    if len(grids) < 2 or hostproc.on_host_thread():
+        return [one(g) for g in grids]
+    with cf.ThreadPoolExecutor(max_workers=min(len(grids), max(1, config.SVHTTP_SESSIONS))) as pool:
+        return list(pool.map(one, grids))
+
+
 def _fill(store, retrieve, cat, grids, job, closed, closed_label, now, atlas_db, t0, started):
     rows, errors, warnings, routes = [], [], [], set()
-    for g in grids:
-        try:
-            lay, parsed, _secs, how = retrieve(g.conn, g.pov, g.rows, g.cols)
-        except Exception as e:   # noqa: BLE001 - one failed grid must not lose the others
+    for g, got_or_err in zip(grids, _retrieve_all(retrieve, grids)):
+        if isinstance(got_or_err, Exception):
+            e = got_or_err
             errors.append(f"{g.what}: {type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}")
             continue
+        lay, parsed, _secs, how = got_or_err
         routes.add(how)
         unknown = really_unknown(atlas_db, g.conn, parsed.unknown_members)
         got, bad = to_rows(lay, parsed, g.conn, how, now(), closed_label or closed, closed,
