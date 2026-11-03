@@ -349,7 +349,7 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
             return await _children(connection, parts, max_lines, split, state, depth)
         res = await _drill_fetch(link["url"], left)                       # leaf: page it all
     state["left"] -= len(res["items"])
-    return [{"cell": cell, "cube_value": link["cube_value"], **res}]
+    return [{"cell": cell, "cube_value": link["cube_value"], "drill_url": link["url"], **res}]
 
 
 async def _children(connection: str, parts: list[dict], max_lines: int, split: str, state: dict,
@@ -358,19 +358,90 @@ async def _children(connection: str, parts: list[dict], max_lines: int, split: s
     values come first in ONE retrieve, so an empty (#Missing) child costs no drill link (most children of a wide
     entity are empty). Each starts with the budget free at that moment, so the total is checked again at the end."""
     vals = await _child_values(connection, parts)
-
-    async def one(i: int, pc: dict) -> list[dict]:
-        if vals is not None and vals[i] is None:
-            return [{"cell": pc, "cube_value": None, "items": [], "view": None, "secs": 0,
-                     "note": "empty cell (skipped)"}]
-        return await _drill_piece(connection, pc, max_lines, split, state, depth + 1)
-    done = await _all(one(i, pc) for i, pc in enumerate(parts))
+    if vals is not None and config.DRILL_DIRECT and config.DRILL_DERIVE:
+        done = await _children_derived(connection, parts, vals, max_lines, split, state, depth)
+    else:
+        async def one(i: int, pc: dict) -> list[dict]:
+            if vals is not None and vals[i] is None:
+                return [_skipped(pc)]
+            return await _drill_piece(connection, pc, max_lines, split, state, depth + 1)
+        done = await _all(one(i, pc) for i, pc in enumerate(parts))
     out = [p for ps in done for p in ps]
     if state["left"] < 0:
         n = sum(len(p.get("items") or []) for p in out)
         raise ToolError(f"The split pieces hold {n}+ lines, more than allowed (max_lines={max_lines}). Narrow the "
                         "cell or raise max_lines.")
     return out
+
+
+def _skipped(cell: dict) -> dict:
+    return {"cell": cell, "cube_value": None, "items": [], "view": None, "secs": 0, "note": "empty cell (skipped)"}
+
+
+async def _children_derived(connection: str, parts: list[dict], vals: list, max_lines: int, split: str,
+                            state: dict, depth: int) -> list[list[dict]]:
+    """The split children with ONE drill query asked of EPM (the template: the live child with the fewest members,
+    up to 3 tries) and the others' queries built from it (drill_derive). A built piece counts only when its lines
+    tie to the child's cube value; anything else - no template, a guard, too many lines, no tie - drills the child
+    the usual way. Pieces in the plan's order."""
+    import asyncio
+
+    from .. import drill_derive
+    dim = next((k for k in parts[0] if any(p.get(k) != parts[0][k] for p in parts)), None)
+    out: list = [[_skipped(pc)] if vals[i] is None else None for i, pc in enumerate(parts)]
+    live = [i for i in range(len(parts)) if vals[i] is not None]
+    mem: dict = {}
+    if dim in drill_derive.COLUMNS and len(live) > 1:
+        mem = dict(zip(live, await asyncio.to_thread(
+            lambda: [drill_derive.members(connection, parts[i][dim]) for i in live])))
+    template = None
+    for i in sorted((i for i in live if mem.get(i) and vals[i]), key=lambda i: len(mem[i]))[:3]:
+        out[i] = await _drill_piece(connection, parts[i], max_lines, split, state, depth + 1)
+        p = out[i][0] if len(out[i]) == 1 else {}
+        if p.get("query") is not None and p.get("drill_url"):
+            template = (mem[i], p["query"], p["drill_url"])
+            break
+
+    async def one(i: int) -> list[dict]:
+        if template is not None and mem.get(i):
+            body = drill_derive.derive(template[1].body, dim, template[0], mem[i])
+            piece = await _derived_piece(parts[i], vals[i], template, body, state) if body else None
+            if piece is not None:
+                return [piece]
+        return await _drill_piece(connection, parts[i], max_lines, split, state, depth + 1)
+    rest = [i for i in live if out[i] is None]
+    for i, ps in zip(rest, await _all(one(i) for i in rest)):
+        out[i] = ps
+    return out
+
+
+async def _derived_piece(cell: dict, cube, template: tuple, body: str, state: dict) -> dict | None:
+    """Lines of a sibling from its built query, or None (then EPM is asked): too many lines for one piece, any
+    drill error, or lines that do not tie to the cube value."""
+    import asyncio
+    import dataclasses
+
+    from .. import drill_direct
+    from ..drill_browser import DrillError, TooManyLines
+    q = dataclasses.replace(template[1], body=body)
+    try:
+        with drilltime.span("derived drill"):
+            res = await asyncio.wait_for(drill_direct.shared_direct().lines(
+                q, template[2], min(config.DRILL_SPLIT_AT, max(state["left"], 0))), 300)
+    except (TooManyLines, DrillError, asyncio.TimeoutError) as e:
+        log.info("derived drill of %s not used (%s); asking EPM", cell, e)
+        return None
+    total = 0.0
+    for it in res["items"]:
+        try:
+            total += float(it.get("AMOUNTX") or 0)
+        except (TypeError, ValueError):
+            return None
+    if cube is None or abs(round(total, 2) - round(float(cube), 2)) >= 0.005:
+        log.info("derived drill of %s does not tie to the cube; asking EPM", cell)
+        return None
+    state["left"] -= len(res["items"])
+    return {"cell": cell, "cube_value": cube, "drill_url": template[2], **res, "derived": True}
 
 
 async def _child_values(connection: str, parts: list[dict]) -> list | None:

@@ -1652,3 +1652,73 @@ def test_drill_fetch_no_data_is_an_empty_piece_with_epms_note(monkeypatch):
     monkeypatch.setattr(server, "_page_fetch", no_pages)      # also keeps a broken build away from the live browser
     res = asyncio.run(server._drill_fetch("u", 10))
     assert res["items"] == [] and "does not return any data" in res["note"]
+
+
+# ------------------------------------------------------------------ split siblings from one EPM query (step 1b)
+def _derive_setup(monkeypatch, members, cubes, lines_for, template_query=True):
+    """Children of un.SY by entity; members[] = atlas lists; cubes[] = child values; lines_for(entity) = the
+    AMOUNTX values a built query returns. Records which children were drilled the usual way."""
+    import json as _json
+    from smartview_mcp import config, drill_derive, drill_direct
+    from smartview_mcp.core import drillstep as server
+    from smartview_mcp.drill_direct import SuiQuery
+    monkeypatch.setattr(config, "DRILL_DIRECT", True)
+    monkeypatch.setattr(config, "DRILL_DERIVE", True)
+    monkeypatch.setattr(drill_derive, "members", lambda conn, m, db=None: members.get(m))
+    usual = []
+
+    def body_of(ents):
+        q = f"SELECT 1 WHERE Entityx IN ({','.join('?' * len(ents))}) AND Accountx = ?"
+        return _json.dumps({"QUERY": q, "PARAMS": list(ents) + ["ac.C60090"],
+                            "PARAMSTYPE": ["String"] * (len(ents) + 1)})
+
+    async def piece(conn, cell, max_lines, split, state, depth=0):
+        e = cell["All Entities"]
+        usual.append(e)
+        q = SuiQuery(body_of(members.get(e, [e])), 52, 39) if template_query else None
+        return [{"cell": cell, "cube_value": cubes[e], "drill_url": "u", "items": [{"AMOUNTX": str(cubes[e])}],
+                 "view": {"v": 1}, "secs": 0, "query": q}]
+    monkeypatch.setattr(server, "_drill_piece", piece)
+
+    class Direct:
+        async def lines(self, q, warm_url, max_lines):
+            ents = _json.loads(q.body)["PARAMS"][:-1]
+            return {"items": [{"AMOUNTX": str(a)} for a in lines_for(ents[0])], "total": None, "view": {"v": 1},
+                    "secs": 0, "query": q}
+    monkeypatch.setattr(drill_direct, "shared_direct", lambda: Direct())
+    return server, usual
+
+
+def test_split_asks_epm_once_and_builds_the_siblings(monkeypatch):
+    import asyncio
+    members = {"un.SY.2TEC": ["un.SY.2TEC", "a", "b"], "un.SY.2BUS": ["un.SY.2BUS", "c"],
+               "un.SY.2EI": ["un.SY.2EI"], "un.SY.2SSM": ["un.SY.2SSM", "d"]}
+    cubes = {"un.SY.2TEC": -10.0, "un.SY.2BUS": -5.0, "un.SY.2EI": -2.0, "un.SY.2SSM": -7.0, "un.SY.2WHS": None}
+    lines = {"un.SY.2TEC": [-4, -6], "un.SY.2BUS": [-5], "un.SY.2SSM": [-1]}      # 2SSM does not tie: ask EPM
+    server, usual = _derive_setup(monkeypatch, members, cubes, lambda e: lines.get(e, []))
+    parts = [{"All Accounts": "ac.C60090", "All Entities": e, "All Time Periods": "Sep 26"} for e in cubes]
+    state = {"left": 1000, "cube": None}
+    out = asyncio.run(server._children_derived("FinLite", parts, [cubes[e] for e in cubes], 1000, "auto", state, 0))
+    assert usual == ["un.SY.2EI", "un.SY.2SSM"]           # template = fewest members; then the one that did not tie
+    assert [ps[0]["cell"]["All Entities"] for ps in out] == list(cubes)                   # plan order kept
+    assert out[0][0]["derived"] and out[1][0]["derived"] and "derived" not in out[3][0]
+    assert out[4][0]["note"] == "empty cell (skipped)"
+    assert state["left"] == 1000 - 3                      # only the built pieces' lines here (_drill_piece is faked)
+
+
+def test_split_without_a_template_drills_every_child_the_usual_way(monkeypatch):
+    import asyncio
+    members = {"un.SY.2TEC": ["un.SY.2TEC"], "un.SY.2BUS": ["un.SY.2BUS"], "un.SY.2EI": ["un.SY.2EI"]}
+    cubes = {"un.SY.2TEC": -1.0, "un.SY.2BUS": -1.0, "un.SY.2EI": -1.0}
+    server, usual = _derive_setup(monkeypatch, members, cubes, lambda e: [-1], template_query=False)
+    parts = [{"All Accounts": "ac.C60090", "All Entities": e, "All Time Periods": "Sep 26"} for e in cubes]
+    asyncio.run(server._children_derived("FinLite", parts, [-1.0] * 3, 1000, "auto", {"left": 1000}, 0))
+    assert sorted(usual) == sorted(cubes)                 # 3 template tries (no query), nothing built
+
+
+def test_period_splits_are_not_derived(monkeypatch):
+    import asyncio
+    server, usual = _derive_setup(monkeypatch, {}, {"un.SY": -1.0}, lambda e: [-1])
+    parts = [{"All Accounts": "ac.C60090", "All Entities": "un.SY", "All Time Periods": p} for p in ("Jul 26", "Aug 26")]
+    asyncio.run(server._children_derived("FinLite", parts, [-1.0, -1.0], 1000, "auto", {"left": 1000}, 0))
+    assert usual == ["un.SY", "un.SY"]

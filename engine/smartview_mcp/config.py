@@ -228,5 +228,6 @@ DRILL_SETUP_S = 95                                 # sign-in + capture of one dr
 DRILL_IDLE_S = int(os.environ.get("SV_DRILL_IDLE_S", "300"))   # close the hidden browser (and free the profile) when idle
 DRILL_TABS = int(os.environ.get("SV_DRILL_TABS", "4"))         # drill pages loading at once (drill_tabs)
 DRILL_DIRECT = os.environ.get("SV_DRILL_DIRECT", "1") != "0"   # drill lines from one warm tab (drill_direct); 0 = page per piece
+DRILL_DERIVE = os.environ.get("SV_DRILL_DERIVE", "1") != "0"   # split siblings' drill queries built from one of EPM's (drill_derive)
 TEXT_FIXES = KNOWLEDGE_DIR / "text_fixes.json"              # shipped; replaced by every update
 USER_TEXT_FIXES = HOME / "text_fixes.json"                 # the user's own corrections; win over the shipped list

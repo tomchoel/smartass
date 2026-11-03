@@ -2,8 +2,9 @@
 
 Per piece, from ONE warm tab (a tab that loaded one real drill page): GET the drill URL's JSON form
 (&FORMAT=SUI) - EPM's own drill query - and page getData with it, field for field ({QUERY, PARAMS: PARAMSARRAY,
-PARAMSTYPE: PARAMSTYPEARRAY}). Read-only: nothing is built by us. getData from a tab that never loaded a drill page
-gets the whole EPM session signed out, so it is only ever sent from the warm tab."""
+PARAMSTYPE: PARAMSTYPEARRAY}). Read-only: getData runs EPM's SELECT; only a split's siblings get a query built from
+EPM's (drill_derive, tied to the cube). getData from a tab that never loaded a drill page gets the whole EPM session
+signed out, so it is only ever sent from the warm tab."""
 from __future__ import annotations
 
 import asyncio
