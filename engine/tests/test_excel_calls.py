@@ -168,7 +168,7 @@ def test_page_setup_is_redone_when_the_print_area_changes(monkeypatch):
 def test_lines_sheet_same_look_fewer_calls(monkeypatch):
     snap, n = run(lines_case, monkeypatch)
     assert same(snap) == pinned("lines")["state"]
-    assert n == 36
+    assert n == 21                                    # before: 39
 
 
 def test_answer_lint_findings_unchanged():
@@ -181,3 +181,24 @@ def test_answer_lint_findings_unchanged():
     ws.put(3, 9, "outside")
     assert styling.apply_report(ws, roles) == ["content outside the table width (up to G)",
                                                "B5: text is cut off or spills over (~65 > 46 chars)"]
+
+
+def lines_redrill_case(mod=None):
+    """A re-drill with the same columns and fewer lines: the table is reused in place (cleared, resized)."""
+    from smartview_mcp import drill_xl
+    mod = mod or drill_xl
+    wb, first = lines_case()
+    first()
+    t = SimpleNamespace(wb=wb, app=wb.Application, sheets_added=[])
+    cols = ["ACCOUNT", "GL_DESCRIPTION_LINE", "AMOUNT", "DEBET_AMOUNT", "CREDIT_AMOUNT", "GL_POSTED_DATE",
+            "BOOKING_DATE", "PROJECT", "AP_CUSTOMER_NAME"]
+    rows = [{"ACCOUNT": "6790", "GL_DESCRIPTION_LINE": f"Audit {i}", "AMOUNT": 50.0 * i, "DEBET_AMOUNT": 50.0 * i,
+             "CREDIT_AMOUNT": 0.0, "GL_POSTED_DATE": "2026-10-01", "BOOKING_DATE": "2026-10-01", "PROJECT": "P2",
+             "AP_CUSTOMER_NAME": "Revisor AS"} for i in range(3)]
+    return wb, lambda: mod.write_lines(t, 1, rows, cols, title="Q1 lines again", source="FinLite drill", alias="d")
+
+
+def test_lines_redrill_same_table_fewer_calls(monkeypatch):
+    snap, n = run(lines_redrill_case, monkeypatch)
+    assert same(snap) == pinned("lines_redrill")["state"]
+    assert n == 21                                    # before: 40
