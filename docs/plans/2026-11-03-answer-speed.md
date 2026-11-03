@@ -240,7 +240,7 @@ def pull(h, t, q: int, i: int, pin: PullSpec, pf: Prefetch | None = None) -> Sou
 
 **Files:** Modify `smartview_mcp/core/pipeline.py` (`run`, `_new`, `_follow`). Test `tests/test_core_skeleton.py`.
 
-- [ ] **Step 1: Write the failing test** (append; reuses `_fake_run` and `SPEC` from the same file). First change the fake in `_fake_run` to accept the new keyword: `def pull_(h, t, q, i, pin, pf=None):` and record it: `calls.append(("pull", pin.id))` stays; add `seen_pf.append(pf)` via a list stored on the function — simplest: replace the body's first line with `calls.append(("pull", pin.id, pf is not None))`? No - keep the existing assertion on `[c[0] for c in calls]` intact; so add a separate test:
+- [ ] **Step 1: Write the failing test** (append; reuses `_fake_run` and `SPEC` from the same file). In `_fake_run`, change the fake's signature to `def pull_(h, t, q, i, pin, pf=None):` (body unchanged, so the existing order assertion still holds). Then add:
 
 ```python
 def test_run_starts_the_prefetch_before_opening_the_workbook(monkeypatch):
