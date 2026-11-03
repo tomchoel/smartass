@@ -8,7 +8,7 @@ import time
 
 import pywintypes
 
-from .. import config
+from .. import config, timing
 from ..host import HostError
 from ..hostproc import is_busy, retry_busy
 
@@ -47,6 +47,7 @@ def _check_alive():
 
 def com(call, limit: float = 60.0, check: bool = True):
     """A COM call in the user's Excel, retried while Excel is busy; then a readable HostError (BUSY)."""
+    timing.count_com()
     if check:
         _check_alive()
     try:

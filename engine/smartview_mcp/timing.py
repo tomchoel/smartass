@@ -9,6 +9,7 @@ import time
 
 _local = threading.local()
 log = logging.getLogger("smartview.stage")
+COM_PREFIX = "com calls."      # summary keys with this prefix are call counts, not seconds
 PROGRESS_AFTER_S = 10          # a stage running this long sends 'still working: <stage>' (then every 10 s)
 
 
@@ -17,6 +18,7 @@ class Timer:
         self.t0 = time.monotonic()
         self.stages: dict[str, float] = {}
         self.counts: dict[str, int] = {}
+        self.com: dict[str, int] = {}            # COM calls per stage path (nested stages count in their parents)
         self.stack: list[str] = []
         self.notify = None                       # notify(text): progress note to the client (thread-safe)
         self._tick: threading.Timer | None = None
@@ -66,6 +68,7 @@ class Timer:
     def summary(self) -> dict:
         out = {k: round(v, 2) for k, v in sorted(self.stages.items(), key=lambda kv: -kv[1])}
         out["_total"] = round(time.monotonic() - self.t0, 2)
+        out.update({f"{COM_PREFIX}{k}": v for k, v in self.com.items()})     # counts, not seconds
         return out
 
 
@@ -75,6 +78,16 @@ def _send(notify, text: str) -> None:
             notify(text)
     except Exception:   # noqa: BLE001 - a progress note must never break the job
         log.debug("progress note failed", exc_info=True)
+
+
+def count_com() -> None:
+    """One COM call in the current stage (and its parents), for the stage summary. No timer/stage: nothing."""
+    t = Timer.current()
+    if t is None or not t.stack:
+        return
+    for k in range(1, len(t.stack) + 1):
+        key = ".".join(t.stack[:k])
+        t.com[key] = t.com.get(key, 0) + 1
 
 
 def say(text: str) -> None:

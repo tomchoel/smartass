@@ -19,7 +19,7 @@ from .core import followup as followup_mod
 from .core import period as periods
 from .host import HostError, InputError
 from .server import LOCAL, READ, WRITE, _err, _is_our_analysis_file, _with_progress, host, tool
-from .timing import Timer, stage
+from .timing import COM_PREFIX, Timer, stage
 
 
 class _NoExcel:
@@ -347,7 +347,8 @@ async def _answer_with_drills(spec: dict, target: str, allow_archive: bool, job)
         ts["closed month + plan"] = time.monotonic() - t0 - frame_s
         return {"target": t.path if os.path.isabs(str(t.path)) else "active", "created": bool(t.created),
                 "added": list(t.sheets_added), "q": q, "plan": plan, "closed": ctx.closed, "frame_s": round(frame_s, 1),
-                "stages": {f"first frame.{k}": round(v, 1) for k, v in {**tm.summary(), **ts}.items() if k != "_total"}}
+                "stages": {f"first frame.{k}": round(v, 1) for k, v in {**tm.summary(), **ts}.items()
+                           if k != "_total" and not k.startswith(COM_PREFIX)}}
     pre = await _call_user(frame_job, what="sv_answer")
     t1, _ = time.monotonic(), drilltime.take()     # drop what earlier drills (sv_drill) left
     pre["results"], warnings, pre["failed"] = await drillstep.drill_all(pre.pop("plan"))
