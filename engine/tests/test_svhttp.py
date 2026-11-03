@@ -368,6 +368,12 @@ class _Browser:
             s.ready = True
             s.page.url = self.base + "/HyperionPlanning/"
 
+    def _fire(self, s, page, url, opts, timeout_s):        # the request in flight: here answered at once
+        assert url == "/HyperionPlanning/SmartView" and opts["method"] == "POST"
+        f = cf.Future()
+        f.set_result(tuple(page.evaluate(None, [opts["body"], int(timeout_s * 1000)])))
+        return f
+
     def _login_once(self, page, deadline, base=None):
         self.login_calls.append((page, base))
         if self.login_errors:
@@ -459,7 +465,7 @@ def test_the_fetch_aborts_itself_before_the_job_times_out():
     _bt(b).post(b.base, svxml.connect())
     body, ms = page.args[0]
     assert body == svxml.connect() and isinstance(ms, int) and 0 < ms < config.SVHTTP_TIMEOUT_S * 1000
-    assert "AbortSignal.timeout(" in svhttp._JS
+    assert "AbortSignal.timeout(" in drill_browser._FIRE_JS
 
 
 def test_the_sid_is_never_posted_from_another_origin():
@@ -705,3 +711,61 @@ def test_child_values_one_column(lite_db):
 
 def test_child_values_none_when_parts_do_not_differ(lite_db):
     assert _sv(FakeTransport(), lite_db).child_values("FinLite", [PARTS[0], dict(PARTS[0])]) is None
+
+
+# ------------------------------------------------------------------ requests run at once (step 1b)
+def test_queries_run_at_once_and_set_up_one_session(db_path):
+    import threading
+    gate = threading.Barrier(2, timeout=5)
+
+    class Both(FakeTransport):
+        def post(self, base, body):
+            if body.startswith("<req_ExecuteGrid>"):
+                gate.wait()                                # both grids must be in flight together
+            return super().post(base, body)
+    t = Both(answer(GRID), answer(GRID))
+    sv = _sv(t, db_path)
+    out, errs = [], []
+
+    def run():
+        try:
+            out.append(_q(sv))
+        except Exception as e:   # noqa: BLE001
+            errs.append(e)
+    th = [threading.Thread(target=run) for _ in range(2)]
+    for x in th:
+        x.start()
+    for x in th:
+        x.join(10)
+    assert errs == [] and len(out) == 2
+    assert t.tags().count("ConnectToProvider") == 1        # the session is set up once, under the lock
+    assert len(set(t.grid_sids())) == 1
+
+
+def test_a_failure_renewed_by_another_request_does_not_sign_in_again():
+    page = _Page([OK])
+    b = _Browser(page)
+    b.s.gen = 2
+    t = _bt(b)
+    t._drop_if_stale(b, b.s, b.base, (page, 1))           # another request signed in since: leave the tab
+    assert b.s.ready
+    t._drop_if_stale(b, b.s, b.base, (_Page(), 2))        # a different page: leave it
+    assert b.s.ready
+    t._drop_if_stale(b, b.s, b.base, (page, 2))           # the very tab and session that failed: sign in again
+    assert not b.s.ready
+
+
+def test_a_request_lost_with_its_tab_is_sent_again_after_one_sign_in():
+    page = _Page([OK])
+    b = _Browser(page)
+    lost = [drill_browser.DrillError("the browser tab navigated away before EPM answered")]
+    real = b._fire
+
+    def fire(s, pg, url, opts, timeout_s):
+        if lost:
+            f = cf.Future()
+            f.set_exception(lost.pop())
+            return f
+        return real(s, pg, url, opts, timeout_s)
+    b._fire = fire
+    assert _bt(b).post(b.base, svxml.connect()) == OK[1] and b.logins == 1
