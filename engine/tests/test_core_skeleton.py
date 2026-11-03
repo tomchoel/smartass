@@ -482,32 +482,32 @@ def _pins(*specs):
 
 def test_prefetch_fetches_every_http_pull_at_once_and_pull_uses_it(monkeypatch):
     monkeypatch.setattr(config, "ANSWER_PREFETCH", True)
-    seen = []
+    import threading
+    seen, gate = [], threading.Barrier(3, timeout=5)
 
     class Http:
-        def fetch_many(self, items):
-            seen.append(len(items))
-            return ["F0", svhttp.SvHttpError("down"), "F2"]
+        def fetch(self, conn, pov, rows, cols):
+            gate.wait()                                                 # all three in flight together
+            seen.append(conn)
+            n = len(seen)
+            if n == 2:
+                raise svhttp.SvHttpError("down")
+            return f"F{n}"
     monkeypatch.setattr(svhttp, "shared", lambda: Http())
     monkeypatch.setattr(source, "write", lambda t, q, title, pin, f: ("W", f))
     monkeypatch.setattr(adhoc, "pull", lambda h, t, q, conn, pov, rows, cols, title: "ADHOC")
     pins = _pins("a", "b", "c")
     pf = source.Prefetch(pins)
-    assert source.pull(None, None, 1, 0, pins[0], pf=pf) == ("W", "F0")
-    s = source.pull(None, None, 1, 1, pins[1], pf=pf)                   # its HTTP fetch failed: Excel, with the note
-    assert s.route == "adhoc" and "HTTP route failed (down)" in s.note
-    assert source.pull(None, None, 1, 2, pins[2], pf=pf) == ("W", "F2")
-    assert seen == [3]                                                  # one batch for all three
+    got = [source.pull(None, None, 1, i, pins[i], pf=pf) for i in range(3)]
+    failed = [s for s in got if not isinstance(s, tuple)]
+    assert len(failed) == 1 and failed[0].route == "adhoc" and "HTTP route failed (down)" in failed[0].note
+    assert sorted(s[1] for s in got if isinstance(s, tuple)) == ["F1", "F3"] and len(seen) == 3
 
 
 def test_prefetch_off_or_too_big_pulls_fetch_as_before(monkeypatch):
     calls = []
 
     class Http:
-        def fetch_many(self, items):
-            calls.append("many")
-            return []
-
         def fetch(self, *a):
             calls.append("one")
             return "F"
@@ -524,8 +524,8 @@ def test_a_prefetched_input_error_is_raised_not_sent_to_excel(monkeypatch):
     monkeypatch.setattr(config, "ANSWER_PREFETCH", True)
 
     class Http:
-        def fetch_many(self, items):
-            return [InputError("Invalid query: x")]
+        def fetch(self, *a):
+            raise InputError("Invalid query: x")
     monkeypatch.setattr(svhttp, "shared", lambda: Http())
     with pytest.raises(InputError, match="Invalid query"):
         source.pull(None, None, 1, 0, _pins("a")[0], pf=source.Prefetch(_pins("a")))
@@ -544,3 +544,26 @@ def test_run_starts_the_prefetch_before_opening_the_workbook(monkeypatch):
                         fake_pull(h, t, q, i, pin, pf=pf))
     pipeline.run(None, SPEC)
     assert order[:2] == ["prefetch", "open"] and got == ["PF"]
+
+
+def test_a_slow_prefetched_pull_falls_back_alone_within_the_shared_deadline(monkeypatch):
+    import threading
+    monkeypatch.setattr(config, "ANSWER_PREFETCH", True)
+    release = threading.Event()
+
+    class Http:
+        def fetch(self, conn, pov, rows, cols):
+            if pov.get("slow"):
+                release.wait(5)
+            return "F"
+    monkeypatch.setattr(svhttp, "shared", lambda: Http())
+    monkeypatch.setattr(source, "write", lambda t, q, title, pin, f: ("W", f))
+    monkeypatch.setattr(adhoc, "pull", lambda h, t, q, conn, pov, rows, cols, title: "ADHOC")
+    pins = _pins("a", "b")
+    pins[1] = pins[1].model_copy(update={"pov": {**dict(pins[1].pov), "slow": "1"}})
+    pf = source.Prefetch(pins)
+    pf.deadline = 0                                                     # the shared deadline has passed
+    assert source.pull(None, None, 1, 0, pins[0], pf=pf) == ("W", "F")  # a finished grid is still used
+    s = source.pull(None, None, 1, 1, pins[1], pf=pf)
+    assert s.route == "adhoc" and "did not arrive in time" in s.note    # only the slow one goes to Excel
+    release.set()

@@ -8,6 +8,7 @@ from __future__ import annotations
 import concurrent.futures as cf
 import datetime as dt
 import math
+import time
 from dataclasses import dataclass
 
 from .. import config, svhttp
@@ -95,7 +96,7 @@ def write(t, q: int, title: str, pin: PullSpec, f: svhttp.Fetched) -> Source:
     return Source(p, "http", mismatches(f.values, com(lambda: _used_values(ws))))
 
 
-_BG = cf.ThreadPoolExecutor(max_workers=2, thread_name_prefix="prefetch")
+_POOL = cf.ThreadPoolExecutor(max_workers=32, thread_name_prefix="prefetch")   # EPM load: svhttp's per-cube cap
 
 
 def too_big(pin: PullSpec) -> bool:
@@ -105,27 +106,38 @@ def too_big(pin: PullSpec) -> bool:
 
 
 class Prefetch:
-    """An answer's HTTP pulls fetched at once in the background (svhttp.fetch_many), started before the workbook is
-    opened so the grids arrive while Excel starts. pull() takes pull i's result from here (has(i)), else fetches it
-    itself as before. Off when config.ANSWER_PREFETCH is False."""
+    """An answer's HTTP pulls fetched at once in the background (svhttp's session pool caps the load per cube),
+    started before the workbook is opened so the grids arrive while Excel starts. pull() takes pull i's own result
+    from here (has(i)), else fetches it itself as before; all pulls share one deadline. Off when
+    config.ANSWER_PREFETCH is False."""
 
     def __init__(self, pins: list[PullSpec], only: set[int] | None = None):
         self.index = [i for i, p in enumerate(pins)
                       if config.ANSWER_PREFETCH and (only is None or i in only) and not too_big(p)]
         items = [(pins[i].connection, dict(pins[i].pov), [Axis(a.dimension, a.members) for a in pins[i].rows],
                   [Axis(a.dimension, a.members) for a in pins[i].columns]) for i in self.index]
-        self._fut = _BG.submit(svhttp.shared().fetch_many, items) if items else None
+        self.deadline = time.monotonic() + config.SVHTTP_TIMEOUT_S * 2
+        http = svhttp.shared() if items else None
+        self._futs = {i: _POOL.submit(http.fetch, *it) for i, it in zip(self.index, items)}
 
     def has(self, i: int) -> bool:
         return i in self.index
 
     def result(self, i: int):
-        """pull i's Fetched, or the exception its fetch raised."""
+        """pull i's Fetched, or the exception its fetch raised (SvHttpError past the shared deadline)."""
+        f = self._futs[i]
         try:
-            got = self._fut.result(timeout=config.SVHTTP_TIMEOUT_S * 2)
-        except Exception as e:   # noqa: BLE001 - the whole batch failed: every pull falls back like a failed fetch
-            return svhttp.SvHttpError(f"prefetch failed: {e}")
-        return got[self.index.index(i)]
+            return f.result(timeout=max(0.1, self.deadline - time.monotonic()))
+        except cf.TimeoutError:
+            f.cancel()
+            return svhttp.SvHttpError("the prefetched grid did not arrive in time")
+        except Exception as e:   # noqa: BLE001 - handed to pull like a failed fetch
+            return e
+
+    def cancel(self) -> None:
+        """The answer failed: drop the fetches that have not started."""
+        for f in self._futs.values():
+            f.cancel()
 
 
 def pull(h, t, q: int, i: int, pin: PullSpec, pf: Prefetch | None = None) -> Source:

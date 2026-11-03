@@ -261,3 +261,29 @@ def test_fill_on_the_host_thread_stays_sequential(http, monkeypatch):
         return answer(conn, pov, rows, cols)
     extract.fill(FactStore(), rec, CAT, grids, "t", "Feb 26")
     assert len(seen) == len(grids) and len(set(seen)) == 1       # no pool: a COM fallback could not deadlock
+
+
+
+def test_fill_reads_http_at_once_and_falls_back_to_excel_one_grid_at_a_time(monkeypatch):
+    import threading
+    from smartview_mcp import extract as ex
+    grids = ex.finmax_grids(CAT, ["Jan 26", "Feb 26", "Mar 26"], ["un.SY.2WHS", "un.SY.2BUS"])
+    live, peak, lock = [0], [0], threading.Lock()
+
+    class Down:
+        def retrieve(self, *a):
+            raise RuntimeError("HTTP down")
+
+    class Host:
+        def on_host(self, fn, timeout=None):
+            with lock:
+                live[0] += 1
+                peak[0] = max(peak[0], live[0])
+            try:
+                raise RuntimeError("no Excel in tests")
+            finally:
+                with lock:
+                    live[0] -= 1
+    res = ex.fill(FactStore(), ex.route(http=Down(), host=lambda: Host()), CAT, grids, "t", "Mar 26")
+    assert res.fill.result == "error" and len(res.fill.detail["errors"]) == len(grids)
+    assert peak[0] == 1                                    # the Excel fallback never ran two at once

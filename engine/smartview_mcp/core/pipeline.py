@@ -140,6 +140,8 @@ def _new(h, t, q: int, raw: dict, spec: contract.AnswerSpec, frame_done: bool = 
         sess = {s.pull.sheet: s.pull for s in sources}
         res, prepared = _draw(t, q, raw, spec, ids, sess, owned=None, drills=drills)
     except Exception as e:
+        if pf is not None:
+            pf.cancel()
         removed = sheets.rollback(t)
         raise rewrap(e, f"{e} (the answer was not completed; removed the partial sheets: "
                      f"{', '.join(removed) or 'none'})") from None

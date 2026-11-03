@@ -75,3 +75,14 @@ A fresh Excel (`EXCEL.EXE /x /e`, no other Excel open, no Smart View call) showe
 runs, at 19.2 s, 19.2 s and 21.8 s after the process started: Smart View connects at start-up by itself. The
 `appear_grace=12` (counted from when the workbook is found, several seconds after start) is what catches it, so it
 stays. The real saving is not starting a fresh Excel at all: the user's running Excel stays the first choice.
+
+## Review decisions (2026-11-03)
+- Each prefetched pull has its own future and all share one deadline (SVHTTP_TIMEOUT_S x 2): a slow grid falls back
+  to Excel alone; `fetch_many` was dropped (unused).
+- `_fill`: HTTP for all grids at once, then the failed ones through Smart View in Excel one at a time (all at once
+  they queued on the single Excel thread and timed out there).
+- svhttp: the data-source lookup has its own lock (a cold one signs in); the session-pool lock is never held during
+  a request.
+- Kept on purpose: the prefetch starts before the workbook is opened (the point: data arrives while Excel starts).
+  An answer then refused (archive, busy Excel, missing drill table) has fetched its grids for nothing - read-only,
+  cancelled where not yet started.

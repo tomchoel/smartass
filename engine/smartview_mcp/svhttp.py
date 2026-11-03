@@ -76,7 +76,8 @@ class SvHttp:
         self._bases: dict[str, list[tuple[str, str]]] | None = None
         self._idle: dict[str, list[str]] = {}       # connection -> sIDs not in use (the session pool)
         self._slots: dict[str, threading.BoundedSemaphore] = {}
-        self._lock = threading.Lock()                 # _bases and the pools; never held during a request
+        self._lock = threading.Lock()                 # the idle pools; never held during a request
+        self._bases_lock = threading.Lock()           # one data-source lookup at a time (a cold one signs in)
 
     def base_for(self, server: str, app: str) -> str:
         """The pod of the data source named `server`, which must serve `app` and must not be a test pod (unless
@@ -105,10 +106,15 @@ class SvHttp:
         used by two requests at once: parallel grids on one sID come back wrong (2-3 of 8 corrupted, live
         2026-11-03), on their own sIDs all 8 are right."""
         server, app, cube = CUBES[conn]
+        if not self._bases_lock.acquire(timeout=config.SVHTTP_TIMEOUT_S * 2):   # behind a cold start's sign-in
+            raise SvHttpError("the HTTP route is busy looking up the EPM data sources")
+        try:
+            base = self.base_for(server, app)
+        finally:
+            self._bases_lock.release()
         if not self._lock.acquire(timeout=config.SVHTTP_TIMEOUT_S):
             raise SvHttpError("the HTTP route is busy with another query")
         try:
-            base = self.base_for(server, app)
             idle = self._idle.get(conn)
             if idle:
                 return base, cube, idle.pop()
@@ -179,16 +185,6 @@ class SvHttp:
             raise SvHttpError("Smart View provider returned a different layout than requested (rows/columns "
                               "moved): " + "; ".join(bad[:5]))
         return Fetched(lay, values, time.monotonic() - t0)
-
-    def fetch_many(self, items: list[tuple]) -> list:
-        """fetch(conn, pov, rows, cols) for every item at once (at most SVHTTP_SESSIONS threads; each request has a
-        Smart View session of its own). Results in input order; an item that failed holds its exception."""
-        if not items:
-            return []
-        with cf.ThreadPoolExecutor(max_workers=min(len(items), config.SVHTTP_SESSIONS),
-                                   thread_name_prefix="svhttp-many") as ex:
-            futs = [ex.submit(self.fetch, *it) for it in items]
-        return [f.exception() if f.exception() is not None else f.result() for f in futs]
 
     def closed_month(self, conn: str = "FinMax") -> str:
         """The last closed month ('Current Reporting Month') as 'Sep 26': the one child of member CurrRepMonth in

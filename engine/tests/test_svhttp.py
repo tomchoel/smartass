@@ -819,28 +819,3 @@ def test_a_lost_request_goes_again_on_a_new_session_and_the_old_one_is_dropped(d
     assert len(sids) == 2 and sids[0] != sids[1]           # the second try had a session of its own
     assert sv._idle["FinMax"] == [sids[1]]                 # the lost one is not reused
 
-
-def test_fetch_many_keeps_order_returns_errors_in_place_and_caps_concurrency(db_path, monkeypatch):
-    import random
-    import time as _t
-    monkeypatch.setattr(config, "SVHTTP_SESSIONS", 3)
-    sv = _sv(FakeTransport(), db_path)
-    live, peak, lock = [0], [0], threading.Lock()
-
-    def fake_fetch(conn, pov, rows, cols):
-        with lock:
-            live[0] += 1
-            peak[0] = max(peak[0], live[0])
-        _t.sleep(random.uniform(0.0, 0.03))
-        with lock:
-            live[0] -= 1
-        if pov == "bad":
-            raise svhttp.SvHttpError("no")
-        return f"grid {pov}"
-    monkeypatch.setattr(sv, "fetch", fake_fetch)
-    items = [("FinMax", str(i) if i != 4 else "bad", [], []) for i in range(10)]
-    out = sv.fetch_many(items)
-    assert [x if isinstance(x, str) else "ERR" for x in out] == [f"grid {i}" if i != 4 else "ERR" for i in range(10)]
-    assert isinstance(out[4], svhttp.SvHttpError)
-    assert 1 < peak[0] <= 3                                 # parallel, never above the per-cube session cap
-    assert sv.fetch_many([]) == []
