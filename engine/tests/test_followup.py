@@ -233,9 +233,9 @@ def test_an_invalid_follow_up_is_an_input_error(monkeypatch):
 
 @pytest.mark.anyio
 async def test_sv_answer_needs_exactly_one_of_spec_and_followup():
-    with pytest.raises(ToolError, match="exactly one of spec or followup"):
+    with pytest.raises(ToolError, match="exactly one of question"):
         await tools_core.sv_answer()
-    with pytest.raises(ToolError, match="exactly one of spec or followup"):
+    with pytest.raises(ToolError, match="exactly one of question"):
         await tools_core.sv_answer(spec=B02, followup={"layout": {"title": "x"}})
 
 

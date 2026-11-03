@@ -3,9 +3,11 @@
 Every finance question goes through the gate before anything is pulled (design §3.1). The engine runs a fixed
 checklist; the agent follows the suggested outcome and may overrule it only with a stated reason.
 
-## 1. Call `sv_gate(question)` first
+## 1. Call `sv_answer(question=...)` first
 
-Pass the user's question as asked. The result has `suggested_outcome`, a `checklist` with one entry per item
+Pass the user's question as asked. `sv_answer(question=...)` runs the gate itself and answers a clear question with a
+recipe in the same call; `ambiguous` / `infeasible` return the gate result below and pull nothing. `sv_gate(question)`
+alone only inspects the scope. The gate result has `suggested_outcome`, a `checklist` with one entry per item
 (`period`, `scenario`, `entity`, `measure`, `currency_sign`, `granularity`), each with `value`, `source`
 (`question` | `convention` | `learned` | `catalog` | `user`), `gap` and `ask`, plus `questions`, `reason`, `proxy`,
 `warnings`, `entities`, `measures`, `concepts`, `recipe` and `next`.
@@ -17,8 +19,8 @@ Pass the user's question as asked. The result has `suggested_outcome`, a `checkl
 
 | Outcome | Do |
 |---------|----|
-| **clear** | Proceed. Every checklist item with source `convention` or `learned`, and every warning, becomes a stated assumption on the answer sheet. Call `sv_answer` now with the gate's `recipe` (or a free-form spec when it is `null`); it builds the sheets. Never ask whether to build a sheet. |
-| **ambiguous** | Pull nothing. Ask the returned questions (max 3) in **one** message, in the user's language. When answered, call `sv_gate` again with the **same** question and `answers={item: answer}` (e.g. `{"measure": "opex"}`); each answer resolves its item with source `user`. Pass the same `answers` as `spec.gate.answers`: `sv_answer` re-runs the gate and pulls nothing while it is still ambiguous. |
+| **clear** | Proceed. Every checklist item with source `convention` or `learned`, and every warning, becomes a stated assumption on the answer sheet. `sv_answer(question=...)` has already built the sheets when the gate named a recipe; when `recipe` is `null` it asks for a free-form spec (`sv_answer(spec=...)`). Never ask whether to build a sheet. |
+| **ambiguous** | Pull nothing. Ask the returned questions (max 3) in **one** message, in the user's language. When answered, call `sv_answer(question=<same question>, answers={item: answer})` (e.g. `{"measure": "opex"}`); each answer resolves its item with source `user`, and the answer is built in that call. A hand-written `spec` passes the same `answers` as `spec.gate.answers`: `sv_answer` re-runs the gate and pulls nothing while it is still ambiguous. |
 | **infeasible** | Do not pull what was asked. Say why in one or two sentences (`reason`), show what is possible, and offer the `proxy`. When the user agrees, build it with gate `infeasible`, `reason` and `proxy` in the spec — the sheet says what is answered instead. |
 
 Copy the gate result into the answer spec: `gate.outcome`, `gate.checklist` (as text), `gate.questions` /

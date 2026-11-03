@@ -41,8 +41,8 @@ async def _closed_month() -> tuple[str, str | None]:
 
 @tool(annotations=READ)
 async def sv_gate(question: str, answers: dict[str, str] | None = None) -> dict:
-    """Pipeline step 1 - call FIRST for every finance question, before any pull (procedure:
-    knowledge/advisor/gate.md). Runs the fixed scope checklist (period, scenario, entity, measure, currency/sign,
+    """Optional: sv_answer(question=...) runs the gate itself; call sv_gate alone only to inspect the scope.
+    The gate (knowledge/advisor/gate.md) runs the fixed scope checklist (period, scenario, entity, measure, currency/sign,
     granularity) against the catalog, the capability map and the user's learned defaults, and suggests one outcome:
     - clear: proceed; state every checklist item with source convention/learned (and each warning) as an assumption,
       then call sv_answer with the named recipe (+ params) now; never ask whether to build a sheet.
@@ -191,10 +191,18 @@ def _precheck(spec: dict) -> dict | None:
 
 @tool(annotations=WRITE)
 async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: int | None = None,
-                    target: str = "session", allow_archive: bool = False, detail: str = "lean",
+                    target: str = "session", allow_archive: bool = False, question: str | None = None,
+                    answers: dict[str, str] | None = None, detail: str = "lean",
                     ctx: Context | None = None) -> dict:
-    """Pipeline step 2: answer ONE question from an answer spec v1 (core/contract.py) - or change the current answer
-    with a follow-up. Give exactly one of spec and followup.
+    """Answer ONE finance question. New question: sv_answer(question=...) - it runs the gate itself; ambiguous ->
+    ask its questions in ONE message, then sv_answer(question=..., answers={item: answer}). Follow-up:
+    sv_answer(followup=...). A hand-written spec (spec=...) still works. Give exactly one of question, spec and
+    followup.
+    question: the user's question as asked; the gate (knowledge/advisor/gate.md) runs first. ambiguous / infeasible
+    -> returns the gate (questions / reason + proxy), pulls nothing. clear with a recipe -> answered at once with
+    that recipe and the gate's assumptions. clear without a recipe -> asks for a spec (pulls + layout).
+    answers = {checklist item: the user's answer} to the questions of an earlier ambiguous reply (same question).
+    spec = the answer spec v1 (core/contract.py), below.
     spec (a new question -> a new 'Q<n> Answer'): {version: 1, question, gate: {outcome: clear|ambiguous|infeasible,
     checklist: {period, scenario, entity, measure, currency_sign, granularity}, questions (ambiguous, 1-3), reason +
     proxy (infeasible)} (or sv_gate's output as is: it is normalised, and its recipe used when spec has none),
@@ -224,19 +232,47 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
     questions of the recipe) and sheets (every sheet written).
     detail="full" returns the whole table and every recipe extra (default "lean": rounded key_values, summarised
     checks, big extras trimmed).
-    Call sv_gate first for a new question (knowledge/advisor/gate.md)."""
+    Use spec=... when the gate named no recipe (or the user asked for a departure: spec.deviation)."""
     try:
-        return await answer(spec, followup, q, target, allow_archive, detail)
+        return await answer(spec, followup, q, target, allow_archive, question, answers, detail)
     except (HostError, InputError) as e:
         raise _err(e) from None
 
 
+def _assumptions(g: dict) -> list[str]:
+    """The gate's convention / learned checklist items as 'Item: value - source.', then its warnings."""
+    out = []
+    for key, item in (g.get("checklist") or {}).items():
+        if isinstance(item, dict) and item.get("source") in ("convention", "learned"):
+            label = key.replace("_", " ").capitalize()
+            out.append(f"{label}: {item.get('value')} - {item['source']}.")
+    return out + [str(w) for w in g.get("warnings") or []]
+
+
 async def answer(spec: dict | None = None, followup: dict | None = None, q: int | None = None,
-                 target: str = "session", allow_archive: bool = False, detail: str = "lean") -> dict:
+                 target: str = "session", allow_archive: bool = False, question: str | None = None,
+                 answers: dict | None = None, detail: str = "lean") -> dict:
     """sv_answer without the MCP wrapper (also POST /answer); raises InputError / HostError."""
-    if (spec is None) == (followup is None):
-        raise InputError("Give exactly one of spec or followup: spec = new question, followup = change the current "
-                         "answer.")
+    if sum(x is not None for x in (question, spec, followup)) != 1:
+        raise InputError("Give exactly one of question (a new question: the gate runs first), spec (a hand-written "
+                         "answer spec) or followup (change the current answer).")
+    if question is not None:
+        g = await gate(question, answers)
+        if g["suggested_outcome"] != "clear":
+            return g
+        if not g.get("recipe"):
+            return {**g, "next": "Clear, but no recipe fits: send sv_answer(spec=...) with pulls and layout."}
+        if answers:
+            g = {**g, "answers": {k: str(v) for k, v in answers.items()}}
+        spec = {"version": 1, "question": question, "gate": g, "assumptions": _assumptions(g),
+                "recipe": g["recipe"]}
+        return await _answer_spec(spec, None, None, target, allow_archive, detail)
+    return await _answer_spec(spec, followup, q, target, allow_archive, detail)
+
+
+async def _answer_spec(spec: dict | None, followup: dict | None, q: int | None, target: str, allow_archive: bool,
+                       detail: str = "lean") -> dict:
+    """Answer a spec (new question) or apply a follow-up."""
     parsed = None
     if spec is not None and isinstance(spec.get("gate"), dict):
         raw_gate = spec["gate"]

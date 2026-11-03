@@ -58,13 +58,14 @@ async def lifespan(_server):
 
 INSTRUCTIONS = """Read-only access to Telenor Norge's Oracle EPM Cloud cubes (Smart View); answers are built as
 analyses in the user's Excel. Same rules for every agent (Claude Code, Copilot, ...):
-- Every finance question: 1. sv_gate(question) FIRST (clear: state its assumptions and use its recipe; ambiguous: ask
-  its questions in ONE message in the user's language, pull nothing, then sv_gate(question, answers={item: answer})
-  with the same question, offer sv_remember; infeasible: say why, offer its proxy). 2. sv_answer(spec) at once with
-  the gate's recipe (pnl, actual_vs_plan, monthly_trend, cost_base, concept, lines_ranking) or, when it names none,
-  pulls + layout; follow-ups on the same answer: sv_answer(followup=<patch>, q=<n>). Never ask whether to build a
-  sheet; several sheets are fine. A departure from the gate's recipe or a recipe default only on the user's explicit
-  request, as spec deviation='<the request>' (written on the sheet). 3. Report in the user's language: quote
+- Every finance question: 1. sv_answer(question=<the question as asked>) - ONE call: it runs the gate itself. Clear
+  with a recipe (pnl, actual_vs_plan, monthly_trend, cost_base, concept, lines_ranking): answered at once, the gate's
+  assumptions on the sheet. Ambiguous: pulls nothing; ask its questions in ONE message in the user's language, then
+  sv_answer(question=<same>, answers={item: answer}), offer sv_remember. Infeasible: say why, offer its proxy. Clear
+  but no recipe: it asks for a spec (pulls + layout). 2. Follow-ups on the same answer: sv_answer(followup=<patch>,
+  q=<n>). sv_gate alone only to inspect the scope; a hand-written sv_answer(spec=...) still works. Never ask whether
+  to build a sheet; several sheets are fine. A departure from the gate's recipe or a recipe default only on the
+  user's explicit request: write a spec with deviation='<the request>' (written on the sheet). 3. Report in the user's language: quote
   key_values (never compute numbers yourself), the checks, findings and at most 3 followups; write the commentary
   from the returned checks, findings and material lines, never figures from memory. Sheet text is English.
   4. Utilities: sv_find_member / sv_members / sv_member_info / sv_dimensions to write specs; sv_drill (a workbench
