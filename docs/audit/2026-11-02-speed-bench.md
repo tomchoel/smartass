@@ -26,3 +26,22 @@ waits ~22 s in the queue; the 26 direct pieces run strictly one after another (~
   worker thread is not blocked for each request.
 - Fewer requests per split: child drill links are the parent's URL with one member changed - or at least ask for
   the links before the drills start, when the queue is empty.
+
+## Step 1b (2026-11-03): everything in flight at once, one EPM drill query per split
+Same four cells. Changes: requests start in the tab and are collected later (the worker never waits on EPM);
+a pool of Smart View sessions (parallel requests on ONE sID came back corrupted: 2-3 of 8 grids wrong per round;
+on their own sIDs 8 of 8 right); async direct drill; split siblings' drill queries built from one of EPM's
+(drill_derive), each accepted only when its lines tie to the cube; the warm tab loads while the queries run.
+
+| | Step 1 | Step 1b |
+|---|---:|---:|
+| Drills, both years, browser cold (start + sign-in ~6 s) | 52 s | **15 s** |
+| Drills incl. normalise, browser already signed in | - | **9.2 s** |
+| Same, second time in the process (warm tab) | - | **6.1 s** |
+| Drill links / EPM drill queries / built pieces | 30 / 26 / 0 | 8 / 4 / 22 (all 22 tied) |
+| Tie to the cube | gap 0 | exact on all 4 cells, 0 warnings |
+| 12 grids through the HTTP route at once | one at a time | 0.2-0.3 s, 12/12 equal to one at a time (3 rounds) |
+
+What is left: EPM's drill query (one at a time per user, ~1.5-3 s on these year cells) and the warm page (~4 s,
+once per browser session). Scripts: session scratchpad `bench_drill.py`, `bench_timeline.py`, `stability.py`,
+`spike_sid.py`.
