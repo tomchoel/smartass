@@ -187,6 +187,7 @@ def test_warm_page_without_its_own_getdata_fails_clearly():
 def test_getdata_only_ever_goes_from_the_warm_tab():
     page = FakePage(_sui(), [{"totalResults": 1, "hasMore": False, "items": _items(1)}])
     d, s, b = _setup(page)
+    d.prewarm = lambda url: None                             # (normally the answered query warms the tab at once)
     q = asyncio.run(d.query(URL))
     assert d.tab is None                                     # the SUI query needs no warm tab
     asyncio.run(d.lines(q, URL, 100))
@@ -262,3 +263,33 @@ def test_pieces_run_at_once():
                                                                "items": _items(1)}})))
         return await asyncio.gather(*tasks)
     assert [len(r["items"]) for r in asyncio.run(main())] == [1, 1, 1]
+
+
+def test_prewarm_warms_once_and_lines_then_needs_no_warm():
+    page = FakePage(_sui(), [{"totalResults": 1, "hasMore": False, "items": _items(1)}])
+    d, s, b = _setup(page)
+    d.prewarm(URL)
+    d.prewarm(URL)                                           # tab alive: nothing more
+    assert len(s.made) == 1 and d.tab is page
+    asyncio.run(d.fetch(URL, 100))
+    assert len(s.made) == 1
+
+
+def test_a_failed_prewarm_is_only_logged_and_lines_warm_again():
+    page = FakePage(_sui(), [{"totalResults": 1, "hasMore": False, "items": _items(1)}], warm_requests=False)
+    d, s, b = _setup(page, capture_timeout_s=0)
+    d.prewarm(URL)                                           # the page never asks for data: logged, not raised
+    assert d.tab is None and not d._prewarming
+    page.warm_requests = True
+    assert len(asyncio.run(d.fetch(URL, 100))["items"]) == 1
+
+
+def test_an_answered_drill_query_prewarms_and_a_refused_one_does_not():
+    page = FakePage(json.dumps({"status": 1, "details": "EPMFDM-140373: too wide"}), [])
+    d, s, b = _setup(page)
+    with pytest.raises(CellTooWide):
+        asyncio.run(d.query(URL))
+    assert s.made == []                                      # a too-wide page would never ask for data
+    page.sui = _sui()
+    asyncio.run(d.query(URL))
+    assert len(s.made) == 1 and d.tab is page

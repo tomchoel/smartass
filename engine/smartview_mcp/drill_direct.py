@@ -86,6 +86,8 @@ class DirectDrill:
         self.headers: dict[str, str] = {}
         self.views: dict[tuple, dict] = {}
         self.gen = 0                                   # warm tabs so far: a failure seen on an older one is stale
+        self._prewarming = False
+        self._prewarm_lock = threading.Lock()
         self.capture_timeout_s = config.DRILL_CAPTURE_TIMEOUT_S if capture_timeout_s is None else capture_timeout_s
         self._browser = browser or shared_browser
 
@@ -103,7 +105,10 @@ class DirectDrill:
             p.goto(b.base + "/" + url.lstrip("./"), wait_until="domcontentloaded", timeout=60_000)
             t0 = time.monotonic()
             while "h" not in got and time.monotonic() - t0 < self.capture_timeout_s:
-                p.wait_for_timeout(200)
+                p.wait_for_timeout(50)
+                collect = getattr(b, "_collect", None)          # answers of requests in flight keep coming in
+                if collect is not None and getattr(s, "inflight", None):
+                    collect(s)
         finally:
             p.remove_listener("request", on_request)
         if "h" not in got:
@@ -117,6 +122,26 @@ class DirectDrill:
         b._ensure(s)
         if not self._alive():
             self._warm(b, s, url)
+
+    def prewarm(self, url: str) -> None:
+        """Warm the tab now (on the worker, not awaited) so it is ready when the first lines are asked for; the
+        drill queries run meanwhile. Only with the link of a cell whose drill query EPM answered: a too-wide
+        cell's page never asks for data and would hold the worker for the whole capture timeout. Once per tab: later calls do nothing while a warm is queued or the tab lives.
+        A failure is only logged - lines() warms again and reports it."""
+        with self._prewarm_lock:
+            if self._prewarming or self._alive():
+                return
+            self._prewarming = True
+        b = self._browser()
+
+        def job(s):
+            try:
+                self._ensure_warm(b, s, url)
+            except Exception as e:   # noqa: BLE001 - lines() tries again and reports
+                log.info("direct drill: prewarm failed (%s)", e)
+            finally:
+                self._prewarming = False
+        b.submit(job)
 
     def _rewarm(self, b, s, url: str, seen_gen: int) -> None:
         """Signed out under a piece: sign in again and warm a new tab - unless another piece already did."""
@@ -163,7 +188,9 @@ class DirectDrill:
         for attempt in (1, 2):
             try:
                 _, text = await self._ask(b, prep)
-                return parse_sui(text)                 # NoDrillData / CellTooWide / SignedOut / DrillError
+                q = parse_sui(text)                    # NoDrillData / CellTooWide / SignedOut / DrillError
+                self.prewarm(url)                      # a drillable cell: its page will ask for data
+                return q
             except (NoDrillData, CellTooWide):
                 raise
             except SignedOut as e:
