@@ -496,7 +496,30 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
     return errs
 
 
+PAGE_SETUP_NAME = "smartass_pagesetup"
+PAGE_SETUP_VERSION = "v1"          # bump whenever _page_setup_props changes what it sets
+
+
+def _page_setup_key(last_row, last, roles) -> str:
+    """The sheet-level name's value: the setup's version + what varies per draw (print area, header text), so a
+    redraw with another size or header is set up again."""
+    header = roles.get("print_header", "Intern")
+    return f'="{PAGE_SETUP_VERSION}|$A$1:${_cl(last)}${last_row}|' + header.replace('"', '""') + '"'
+
+
+def _has_page_setup(ws, key: str) -> bool:
+    try:
+        return str(_retry(lambda: ws.Names(PAGE_SETUP_NAME).RefersTo)) == key
+    except Exception:   # noqa: BLE001 - name missing: not set up by us yet
+        return False
+
+
 def _page_setup(ws, xl, last_row, last, roles):
+    """The answer's page setup, once per sheet: skipped (one COM call) when the sheet-level name smartass_pagesetup
+    says this exact setup is already there (follow-up redraws); the first draw is unchanged and ends by adding it."""
+    key = _page_setup_key(last_row, last, roles)
+    if _has_page_setup(ws, key):
+        return
     # every PageSetup property normally round-trips to the printer driver (measured 14 s for 12 settings);
     # PrintCommunication=False batches them into one exchange when it is switched back on
     try:
@@ -504,15 +527,20 @@ def _page_setup(ws, xl, last_row, last, roles):
     except Exception:   # noqa: BLE001 - not available: just slower
         pass
     try:
-        _page_setup_props(ws, xl, last_row, last, roles)
+        done = _page_setup_props(ws, xl, last_row, last, roles)
     finally:
         try:
             _set(xl, "PrintCommunication", True)
         except Exception:   # noqa: BLE001
             pass
+    if done:
+        try:
+            _retry(lambda: ws.Names.Add(Name=PAGE_SETUP_NAME, RefersTo=key, Visible=False))
+        except Exception:   # noqa: BLE001 - only an optimisation
+            pass
 
 
-def _page_setup_props(ws, xl, last_row, last, roles):
+def _page_setup_props(ws, xl, last_row, last, roles) -> bool:
     try:
         ps = _get(ws, "PageSetup")
         _set(ps, "PrintArea", f"$A$1:${_cl(last)}${last_row}")
@@ -527,8 +555,9 @@ def _page_setup_props(ws, xl, last_row, last, roles):
         _set(ps, "CenterHeader", '&"Arial"&8' + roles.get("print_header", "Intern"))
         _set(ps, "RightFooter", '&"Arial"&8Side &P av &N')
         _set(ps, "LeftFooter", '&"Arial"&8&F')
+        return True
     except Exception:   # noqa: BLE001  (no printer installed etc.)
-        pass
+        return False
 
 
 # ---------------------------------------------------------------- apply_data_sheet

@@ -138,11 +138,31 @@ def test_source_sheet_same_look_fewer_calls(monkeypatch):
     assert n == 24                                    # before: 85
 
 
-@pytest.mark.parametrize("redraw, calls", [(False, 137), (True, 137)])
+@pytest.mark.parametrize("redraw, calls", [(False, 139), (True, 122)])
 def test_answer_styling_same_look_fewer_calls(monkeypatch, redraw, calls):
     snap, n = run(report_case, monkeypatch, redraw)
-    assert same(snap) == pinned("report_redraw" if redraw else "report_first")["state"]
+    names = snap["sheets"]["Q1 Answer"].pop("names")
+    want = pinned("report_redraw" if redraw else "report_first")["state"]
+    assert want["sheets"]["Q1 Answer"].pop("names") == {}
+    assert same(snap) == want
+    assert names == {"smartass_pagesetup": ('="v1|$A$1:$G$14|Intern"', False)}     # the one addition
     assert n == calls
+
+
+def test_page_setup_is_redone_when_the_print_area_changes(monkeypatch):
+    from smartview_mcp import styling
+    wb, ws, roles = answer_sheet()
+    styling.apply_report(ws, roles)
+    ws.PageSetup.PrintArea = "changed by hand"           # only a changed setup key brings the setup back
+    ws.put(15, 2, "Extra line")
+    roles["rows"].append({"row": 15, "kind": "note"})
+    roles["last_row"] = 15
+    styling.apply_report(ws, roles)
+    assert ws.PageSetup.PrintArea == "$A$1:$G$15"
+    assert ws.Names("smartass_pagesetup").RefersTo == '="v1|$A$1:$G$15|Intern"'
+    ws.PageSetup.PrintArea = "changed by hand"
+    styling.apply_report(ws, roles)                      # same key: skipped
+    assert ws.PageSetup.PrintArea == "changed by hand"
 
 
 def test_lines_sheet_same_look_fewer_calls(monkeypatch):
