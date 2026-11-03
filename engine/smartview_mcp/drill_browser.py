@@ -857,7 +857,11 @@ class DrillBrowser:
                 if fut is not None:
                     fut.cancel()
             old_q.put((None, None))
-            for _, _, fut, _ in list(old_s.inflight.values()):   # their answers would never be collected
+            try:                                    # their answers would never be collected
+                hung = list(old_s.inflight.values())
+            except RuntimeError:                    # the hung worker changed it meanwhile: its own close fails them
+                hung = []
+            for _, _, fut, _ in hung:
                 _fail(fut, DrillError("the hidden browser hung and was replaced"))
             _kill_driver(old_s.driver)              # read-only look at the hung worker's state
             self._spawn()

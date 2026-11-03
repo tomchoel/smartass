@@ -42,6 +42,11 @@ class SvHttpError(Exception):
     """The HTTP route could not answer; extract.route then uses Smart View in Excel."""
 
 
+class RequestLost(SvHttpError):
+    """The request left but its answer did not come (tab navigated or closed, or the fetch timed out): EPM may still
+    be working on it, so its session is dropped and the request goes again on another one."""
+
+
 class Transport(Protocol):
     def post(self, base: str, body: str) -> str: ...
 
@@ -247,6 +252,11 @@ class SvHttp:
                     ans = self.t.post(base, body(sid, cube))
                     sid = svxml.sid_in(ans) or sid            # each answer may carry a new sID: the latest one counts
                     out = read(ans)
+                except RequestLost as e:              # the sID is dropped (not given back); a fresh one tries
+                    if attempt == 2:
+                        raise SvHttpError(str(e)) from None
+                    log.info("svhttp %s: %s - once more on a new session", conn, e)
+                    continue
                 except svxml.SvXmlError as e:
                     if fatal(e) and sid is not None:
                         self._give(conn, sid)                 # a wrong query: the session itself is fine
@@ -330,9 +340,21 @@ class BrowserTransport:
             status, text, stale = self._send(base, body, stale)
             if isinstance(text, str) and ("<res_" in text or "<exception" in text):
                 return text                                       # provider XML, whatever the status: svxml judges
-            why = f"answered HTTP {status}" if status else f"lost the request ({_first_line(Exception(text))})"
+            if not status:                  # never again on this sID: EPM may still be working on the first one
+                self._settle(base, stale)
+                raise RequestLost(f"Smart View provider at {base}: lost the request "
+                                  f"({_first_line(Exception(text))})")
+            why = f"answered HTTP {status}"          # a sign-in page: EPM never ran it, so the same sID may go again
             log.warning("svhttp: %s from %s; trying again", why, base)
         raise SvHttpError(f"Smart View provider at {base}: {why} twice (sign-in failed?)")
+
+    def _settle(self, base: str, stale) -> None:
+        """After a lost request: let the next one sign in again if its tab is still the one that failed."""
+        try:
+            b = self._browser()
+            b.submit(lambda s: self._drop_if_stale(b, s, base, stale)).result(timeout=30)
+        except Exception as e:   # noqa: BLE001 - the next request's own checks still apply
+            log.info("svhttp: could not reset the tab after a lost request: %s", _first_line(e))
 
     def _send(self, base: str, body: str, stale) -> tuple[int, str, tuple]:
         deadline = time.monotonic() + config.SVHTTP_TIMEOUT_S

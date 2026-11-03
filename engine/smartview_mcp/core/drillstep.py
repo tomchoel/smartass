@@ -422,14 +422,13 @@ async def _derived_piece(cell: dict, cube, template: tuple, body: str, state: di
     import dataclasses
 
     from .. import drill_direct
-    from ..drill_browser import DrillError, TooManyLines
     q = dataclasses.replace(template[1], body=body)
     try:
         with drilltime.span("derived drill"):
             res = await asyncio.wait_for(drill_direct.shared_direct().lines(
                 q, template[2], min(config.DRILL_SPLIT_AT, max(state["left"], 0))), 300)
-    except (TooManyLines, DrillError, asyncio.TimeoutError) as e:
-        log.info("derived drill of %s not used (%s); asking EPM", cell, e)
+    except Exception as e:   # noqa: BLE001 - TooManyLines, a drill or browser error, a timeout: EPM is asked
+        log.info("derived drill of %s not used (%s: %s); asking EPM", cell, type(e).__name__, e)
         return None
     total = 0.0
     for it in res["items"]:
@@ -437,7 +436,8 @@ async def _derived_piece(cell: dict, cube, template: tuple, body: str, state: di
             total += float(it.get("AMOUNTX") or 0)
         except (TypeError, ValueError):
             return None
-    if cube is None or abs(round(total, 2) - round(float(cube), 2)) >= 0.005:
+    if not res["items"] or cube is None or abs(round(total, 2) - round(float(cube), 2)) >= 0.005:
+        # no lines proves nothing (an atlas gap ties to a zero cube): only EPM's own query may say "none"
         log.info("derived drill of %s does not tie to the cube; asking EPM", cell)
         return None
     state["left"] -= len(res["items"])

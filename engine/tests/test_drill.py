@@ -1722,3 +1722,21 @@ def test_period_splits_are_not_derived(monkeypatch):
     parts = [{"All Accounts": "ac.C60090", "All Entities": "un.SY", "All Time Periods": p} for p in ("Jul 26", "Aug 26")]
     asyncio.run(server._children_derived("FinLite", parts, [-1.0, -1.0], 1000, "auto", {"left": 1000}, 0))
     assert usual == ["un.SY", "un.SY"]
+
+
+
+def test_a_built_piece_without_lines_or_with_a_browser_error_asks_epm(monkeypatch):
+    import asyncio
+    members = {"un.SY.2TEC": ["un.SY.2TEC", "a"], "un.SY.2BUS": ["un.SY.2BUS"], "un.SY.2EI": ["un.SY.2EI", "b", "c"]}
+    cubes = {"un.SY.2TEC": 0.0, "un.SY.2BUS": -1.0, "un.SY.2EI": -3.0}
+
+    def lines_for(e):
+        if e == "un.SY.2EI":
+            raise RuntimeError("Execution context was destroyed")   # a raw Playwright error, not a DrillError
+        return []                                          # 2TEC: no lines "tie" to its zero cube - not trusted
+    server, usual = _derive_setup(monkeypatch, members, cubes, lines_for)
+    parts = [{"All Accounts": "ac.C60090", "All Entities": e, "All Time Periods": "Sep 26"} for e in cubes]
+    out = asyncio.run(server._children_derived("FinLite", parts, list(cubes.values()), 1000, "auto",
+                                               {"left": 1000}, 0))
+    assert usual[0] == "un.SY.2BUS" and sorted(usual) == sorted(cubes)   # template (fewest members), then both
+    assert all("derived" not in ps[0] for ps in out)       # every child came from EPM's own query

@@ -194,7 +194,7 @@ def test_getdata_only_ever_goes_from_the_warm_tab():
     assert d.tab is page and len(s.made) == 1
     d.tab.closed = True                                      # the warm tab died: getData must not use another tab
     with pytest.raises(DrillError, match="warm drill tab is gone"):
-        d._warm_tab()
+        d._warm_tab(s)
 
 
 def test_signed_out_mid_paging_rewarms_once():
@@ -293,3 +293,36 @@ def test_an_answered_drill_query_prewarms_and_a_refused_one_does_not():
     page.sui = _sui()
     asyncio.run(d.query(URL))
     assert len(s.made) == 1 and d.tab is page
+
+
+def test_a_warm_tab_of_an_old_browser_session_is_not_used():
+    page = FakePage(_sui(), [])
+    d, s, b = _setup(page)
+    d._warm(b, s, URL)
+    assert d._alive(s)
+    s.ctx = type("NewCtx", (), {"new_page": lambda self: page})()   # the browser was killed and started again
+    assert not d._alive(s)
+    with pytest.raises(DrillError, match="warm drill tab is gone"):
+        d._warm_tab(s)
+
+
+def test_the_drill_sets_its_own_sign_in_time():
+    page = FakePage(_sui(), [])
+    d, s, b = _setup(page)
+    s.deadline = 0.0                                         # an old job's deadline, long past
+    asyncio.run(d.query(URL))
+    import time
+    assert s.deadline > time.monotonic() + config.DRILL_SETUP_S - 5
+
+
+def test_a_cancelled_prewarm_does_not_switch_prewarming_off_for_good():
+    page = FakePage(_sui(), [])
+    d, s, b = _setup(page)
+
+    def cancelled(fn):
+        f = cf.Future()
+        f.cancel()
+        return f
+    b.submit = cancelled
+    d.prewarm(URL)
+    assert not d._prewarming

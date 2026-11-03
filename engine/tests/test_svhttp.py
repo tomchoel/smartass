@@ -760,7 +760,7 @@ def test_a_failure_renewed_by_another_request_does_not_sign_in_again():
     assert not b.s.ready
 
 
-def test_a_request_lost_with_its_tab_is_sent_again_after_one_sign_in():
+def test_a_request_lost_with_its_tab_is_not_resent_on_its_session():
     page = _Page([OK])
     b = _Browser(page)
     lost = [drill_browser.DrillError("the browser tab navigated away before EPM answered")]
@@ -773,6 +773,9 @@ def test_a_request_lost_with_its_tab_is_sent_again_after_one_sign_in():
             return f
         return real(s, pg, url, opts, timeout_s)
     b._fire = fire
+    with pytest.raises(svhttp.RequestLost, match="lost the request"):    # never again on the same sID
+        _bt(b).post(b.base, svxml.connect())
+    assert not b.s.ready                                  # the failed tab signs in again for the next request
     assert _bt(b).post(b.base, svxml.connect()) == OK[1] and b.logins == 1
 
 
@@ -796,3 +799,22 @@ def test_requests_per_cube_are_capped(db_path, monkeypatch):
     sv._slot("FinMax").acquire()                           # the one slot is taken
     with pytest.raises(svhttp.SvHttpError, match="busy with other queries"):
         _q(sv)
+
+
+def test_a_lost_request_goes_again_on_a_new_session_and_the_old_one_is_dropped(db_path):
+    class LostOnce(FakeTransport):
+        lost = True
+
+        def post(self, base, body):
+            if body.startswith("<req_ExecuteGrid>") and self.lost:
+                self.lost = False
+                self.sent.append((base, "ExecuteGrid"))
+                self.bodies.append(body)
+                raise svhttp.RequestLost("lost the request")
+            return super().post(base, body)
+    t = LostOnce(answer(GRID))
+    sv = _sv(t, db_path)
+    _q(sv)
+    sids = t.grid_sids()
+    assert len(sids) == 2 and sids[0] != sids[1]           # the second try had a session of its own
+    assert sv._idle["FinMax"] == [sids[1]]                 # the lost one is not reused
