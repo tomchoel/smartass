@@ -1,14 +1,15 @@
-"""Benchmarks B01-B15 (docs/specs/2026-11-02-benchmarks.md) over stdio MCP, on the one route: the pipeline
+"""Benchmarks B01-B16 (docs/specs/2026-11-02-benchmarks.md) over stdio MCP, on the one route: the pipeline
 (sv_gate -> sv_answer, follow-ups and recipes; B12 uses the sv_drill utility).
 
 Each case is scored on:
 - correct: every oracle value (an independent single-cell HTTP fetch in the bench process, run after the MCP server
   exited, so it can neither warm the route nor share its browser) appears on the answer sheet within 1 NOK (or as
-  MNOK/kNOK rounded), every check OK, no formula errors;
-- first_visible_s: first new sheet in a visible Excel, polled from the side;
+  MNOK/kNOK rounded), every check OK, no formula errors; an oracle may be a list of cells, scored as their sum;
+- first_visible_s: first new sheet in a visible Excel, polled from the side (B16 fails above 2.5 s);
 - total_s: the route's tool calls.
-Gate cases (B10, B11) and the trap questions T01-T10 are scored by sv_gate (suggested outcome = expected; the report
-adds false-go and needless-ask counts). Prints no figures.
+Gate cases (B10, B11) and the trap questions T01-T12 are scored by sv_gate (suggested outcome = expected; the report
+adds false-go and needless-ask counts). The pinned cases call sv_gate first and pass deviation="bench pins recipe
+<name>" only where the gate names another recipe (or a finance default is switched off). Prints no figures.
 
 Usage (from engine): uv run python tests\\live\\bench.py [--only B01,B02] [--keep] [--out NAME]
 Writes docs\\audit\\<date>-<out>.json and .md (--out defaults to bench-core).
@@ -175,14 +176,36 @@ def recipe_v1(case_id: str, name: str, params: dict, checklist: dict | None = No
             "recipe": {"name": name, "params": params}}
 
 
+def pin_deviation(gate: dict, spec: dict) -> str | None:
+    """The deviation a pinned bench spec needs: sv_answer refuses a recipe other than the one sv_gate named (or a
+    free-form spec where it named one) and recipe params that switch a finance default off, unless spec.deviation
+    says why. None when the spec is the standard analysis."""
+    from smartview_mcp.core import recipes
+    named, rec = (gate.get("recipe") or {}).get("name"), spec.get("recipe") or {}
+    departs = bool(named) and rec.get("name") != named
+    departs = departs or bool(rec and recipes.departures(rec.get("name"), rec.get("params") or {}))
+    departs = departs or bool(recipes.layout_departures(spec.get("layout")))
+    return f"bench pins recipe {rec.get('name') or 'free-form'}" if departs else None
+
+
+def _answer(ctx, spec: dict) -> tuple[dict, str]:
+    """sv_answer on a new workbook with the bench's pinned spec, after sv_gate on its question; the pin is a
+    deviation only where the gate (or a finance default) disagrees. Returns (reply, note)."""
+    gate, _ = ctx.client.must("sv_gate", {"question": spec["question"]})
+    dev = pin_deviation(gate, spec)
+    out, _ = ctx.client.must("sv_answer", {"spec": {**spec, "deviation": dev} if dev else spec, "target": "new"})
+    named = (gate.get("recipe") or {}).get("name")
+    return out, (f"{dev} (gate named {named or 'no recipe'}); " if dev else "")
+
+
 def _core(case_id: str, name: str, params: dict, keep: str | None = None, check=None, **run_kw):
     def run(ctx):
-        out, _ = ctx.client.must("sv_answer", {"spec": recipe_v1(case_id, name, params), "target": "new"})
+        out, note = _answer(ctx, recipe_v1(case_id, name, params))
         if keep:
             ctx.state.update({f"{keep}_wb": out["workbook"], f"{keep}_q": int(str(out["question"]).lstrip("Q")),
                               f"{keep}_out": out})
         return _run(out, problems=_critical(out) + (check(out) if check else []),
-                    notes=f"period {out.get('period')}", **run_kw)
+                    notes=f"{note}period {out.get('period')}", **run_kw)
     return run
 
 
@@ -233,9 +256,9 @@ def b02_v1() -> dict:
 @case("B02", "Business Norway EBITDA per month 2026 vs 2025, reconciled to accumulated YTD",
       oracle=lambda ctx, run: BUS_O)
 def b02(ctx):
-    out, _ = ctx.client.must("sv_answer", {"spec": b02_v1(), "target": "new"})
+    out, note = _answer(ctx, b02_v1())
     ctx.state.update(b02_wb=out["workbook"], b02_q=int(str(out["question"]).lstrip("Q")), b02_outline=out["outline"])
-    return _run(out, problems=_critical(out), notes=f"routes {out['routes']}")
+    return _run(out, problems=_critical(out), notes=f"{note}routes {out['routes']}")
 
 
 def b03_patch(ctx) -> dict:
@@ -361,7 +384,10 @@ for _id, _q, _g in [
         ("T07", "Q3 numbers for Consumer", "ambiguous"),
         ("T08", "Cost per FTE in IT", "clear"),
         ("T09", "How much did we spend on consultants?", "clear"),
-        ("T10", "Forecast for December 27 actuals", "infeasible")]:
+        ("T10", "Forecast for December 27 actuals", "infeasible"),
+        ("T11", "Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026? og på hvilke initiativer / "
+                "prosjekt", "clear"),
+        ("T12", "Which suppliers invoiced most on travel in 2026?", "clear")]:
     CASES[_id] = Case(_id, _q, _g, agent=True)
 
 
@@ -399,6 +425,48 @@ case("B14", "Business full-year EBITDA: latest forecast vs budget", oracle=_b14_
 case("B15", "Wholesale full P&L (revenue, COGS, opex, EBITDA) actual vs budget vs last year, YTD",
      oracle=_fin_oracle("un.SY.2WHS", "2WHS Wholesale", ("ac.C30", "ac.C40S", "ac.C70", "ac.EBITDA")))(
     _core("B15", "pnl", {"area": "Wholesale", "detail": "full"}))
+
+FRAME_LIMIT_S = 2.5
+
+
+def b16_problems(out: dict, first_visible_s: float | None) -> list[str]:
+    """What B16 (the consultant ranking) must show: the Answer and By project sheets, every check OK, the cube total
+    in key_values (the read-back the agent quotes), and a first frame in a visible Excel within 2.5 s."""
+    sheets = out.get("sheets") or []
+    problems = [f"no Q<n> {s} sheet" for s in ("Answer", "By project") if not any(x.endswith(f" {s}") for x in sheets)]
+    checks = out.get("checks") or {}
+    problems += [f"check {k}: {v}" for k, v in checks.items() if v != "OK"] or ([] if checks else ["no checks"])
+    if "Total (cube)" not in (out.get("key_values") or {}):
+        problems.append("'Total (cube)' missing from key_values")
+    t = out.get("timings") or {}
+    frame = t.get("first frame")
+    after_open = None if frame is None else round(frame - (t.get("open target") or 0.0), 2)
+    if after_open is None or after_open > FRAME_LIMIT_S:      # the owner's target: <= 2 s after the workbook is open
+        problems.append(f"first frame {_s(after_open, 'never')} s after the workbook opened > {FRAME_LIMIT_S} s"
+                        f" (seen in Excel at {_s(first_visible_s, 'never')} s)")
+    return problems
+
+
+def _b16_oracle(ctx, run):
+    """The cube total: FinLite un.SY YTD C60080 + C60090 at the answer's month (a list of cells = their sum)."""
+    month = str(run["out"]["period"]).removeprefix("YTD ").strip()
+    return {f"consultants YTD {month}": [cell("FinLite", fm("un.SY"), ("All Accounts", a), ("All Time Periods", month))
+                                         for a in ("ac.C60080", "ac.C60090")]}
+
+
+@case("B16", "Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026? og på hvilke initiativer / prosjekt",
+      oracle=_b16_oracle)
+def b16(ctx):
+    q = CASES["B16"].question
+    gate, _ = ctx.client.must("sv_gate", {"question": q})
+    if gate["suggested_outcome"] != "clear" or not gate.get("recipe"):
+        raise AssertionError(f"gate {gate['suggested_outcome']}, recipe {gate.get('recipe')}")
+    spec = {"version": 1, "question": q, "recipe": gate["recipe"],
+            "gate": {"outcome": "clear", "checklist": {k: str(v.get("value") or v.get("gap") or "")
+                                                       for k, v in gate["checklist"].items()}}}
+    out, _ = ctx.client.must("sv_answer", {"spec": spec, "target": "new"})
+    return _run(out, problems=_critical(out), frame_check=lambda secs: b16_problems(out, secs),
+                notes=f"recipe {gate['recipe']['name']}; period {out.get('period')}; timings {out.get('timings')}")
 
 
 # ================================================================== runner
@@ -447,6 +515,8 @@ def run_case(c: Case, ctx) -> dict:
         r["checks_ok"] = ok and (bool(checks) or not run.get("checks_required", True))
         r["formula_errors"] = S._no_formula_errors(out)
         r["problems"] = list(run.get("problems") or [])
+        if run.get("frame_check"):
+            r["problems"] += run["frame_check"](fv.secs)
         r["notes"] = run.get("notes") or f"{run.get('sheet')}"
         if run.get("numbers") is not None:
             nums, texts = list(run["numbers"]), []
@@ -476,7 +546,8 @@ def oracle_pass(results: list[dict]) -> None:
             nums = r.pop("_nums", None) or []
             for label, q in (r.pop("_oracle_q", None) or {}).items():
                 try:
-                    v = helpers.oracle_value(**q)
+                    vals = [helpers.oracle_value(**c) for c in (q if isinstance(q, list) else [q])]
+                    v = None if any(x is None for x in vals) else sum(vals)
                 except Exception as e:  # noqa: BLE001 - one bad oracle cell must not stop the scoring
                     r["oracle"][label], r["match"][label] = False, f"oracle failed: {str(e)[:120]}"
                     continue
@@ -526,7 +597,8 @@ def write_report(name: str, started: datetime, results: list[dict]) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Benchmarks B01-B15")
+    ap = argparse.ArgumentParser(description="Benchmarks B01-B16, trap questions T01-T12")
+    ap.add_argument("--route", default="core", choices=["core"], help="the one route (kept for the documented commands)")
     ap.add_argument("--only", default="", help="comma-separated case ids")
     ap.add_argument("--keep", action="store_true", help="leave the scratch workbooks and _bench folder")
     ap.add_argument("--out", default="bench-core", help="report name")

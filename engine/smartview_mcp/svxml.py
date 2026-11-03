@@ -11,7 +11,7 @@ import re
 from .grid import Layout
 
 ALLOWED = frozenset({"ConnectToProvider", "GetProvisionedDataSources", "OpenApplication", "OpenCube", "ExecuteGrid",
-                     "EnumMembers"})
+                     "EnumMembers", "GetDrillThroughReports"})     # lists drill reports; Execute... is never allowed
 CLIENT_XML_VERSION = "4.2.5.7.3"
 _SPECIAL = {"#noaccess": "#NoAccess", "#no access": "#NoAccess", "#missing": "#Missing", "#invalid": "#Invalid"}
 
@@ -104,6 +104,29 @@ def execute_grid(sid: str, cube: str, lay: Layout, alias: str = "Default") -> st
             f'<cube>{_x(cube)}</cube><gridType>1</gridType><dims/><slices><slice rows="{h}" cols="{w}"><data>'
             f'<range start="0" end="{h * w - 1}"><vals enc="1">{"|".join(vals)}</vals>'
             f'<types enc="0">{"|".join(types)}</types></range></data></slice></slices></grid></req_ExecuteGrid>')
+
+
+def drill_reports(sid: str, cube: str, ords: int, cells: list[tuple[str, str, str]]) -> str:
+    """List the drill-through reports of ONE data cell (read-only; never ExecuteDrillThroughReport). Captured from
+    Smart View 25.100 (2026-11-02): `ords` is the cell's row-major index in the grid just retrieved; `cells` is
+    (dimension, 'row' | 'col' | 'pov', Default-alias label) for every dimension, in grid order."""
+    dims = "".join(
+        f'<dim name="{html.escape(d, quote=True)}" '
+        f'{"pov=\"pov\"" if where == "pov" else f"{where}=\"0\""} enc="0">{_x(label)}</dim>'
+        for d, where, label in cells)
+    return (f"<req_GetDrillThroughReports><sID>{_x(sid)}</sID><usr></usr><pwd></pwd><rowGov></rowGov>"
+            f"<timeGov></timeGov><cube>{_x(cube)}</cube><ords>{int(ords)}</ords><alsTbl>Default</alsTbl><pov/>"
+            f"<cells>{dims}</cells></req_GetDrillThroughReports>")
+
+
+def drill_url(text: str) -> tuple[str, str] | None:
+    """(report name, URL relative to the EPM base without './') of the first drill report, or None."""
+    raise_for_exception(text)
+    m = re.search(r'<drillThroughURL\b([^>]*)>(.*?)</drillThroughURL>', text, re.S)
+    if not m or not m.group(2).strip():
+        return None
+    name = re.search(r'\bname="([^"]*)"', m.group(1))
+    return (html.unescape(name.group(1)) if name else "", html.unescape(m.group(2)).strip().lstrip("./"))
 
 
 def raise_for_exception(text: str) -> None:

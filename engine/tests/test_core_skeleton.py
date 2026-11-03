@@ -89,7 +89,7 @@ SPEC = {"version": 1, "question": "EBITDA Sep 26 for Business", "gate": {"outcom
 
 def test_skeleton_shows_title_question_status_and_assumptions():
     rows = progress.skeleton(contract.validate(SPEC), "fetching 1 source grid ...")
-    assert rows[0] == "Business — EBITDA" and rows[1] == "Question: EBITDA Sep 26 for Business"
+    assert rows[0] == "Business — EBITDA" and rows[1] == "Question (as asked): EBITDA Sep 26 for Business"
     assert rows[progress.STATUS_ROW - 1] == "Status: fetching 1 source grid ..."
     assert rows[-2:] == ["Assumptions", "•  Actual, NOK"]
 
@@ -154,7 +154,7 @@ def test_entry_records_gate_pulls_routes_and_result(monkeypatch, tmp_path):
 def test_assumptions_and_the_question_lead_the_notes_and_the_raw_layout_is_untouched():
     raw = {**SPEC, "layout": {**SPEC["layout"], "notes": ["n"]}}
     out = pipeline.answer_layout(raw["layout"], contract.validate(raw))
-    assert out["notes"] == ["Question: EBITDA Sep 26 for Business", "Assumption: Actual, NOK", "n"]
+    assert out["notes"] == ["Question (as asked): EBITDA Sep 26 for Business", "Assumption: Actual, NOK", "n"]
     assert raw["layout"]["notes"] == ["n"]
 
 
@@ -175,7 +175,8 @@ def _fake_run(monkeypatch, calls, pull_fails=False):
             raise HostError("Retrieve failed")
         return source.Source(pull, "http", [])
     monkeypatch.setattr(pipeline.source, "pull", pull_)
-    monkeypatch.setattr(pipeline.specs, "prepare", lambda layout, ids, sess: calls.append(("prepare", ids)) or layout)
+    monkeypatch.setattr(pipeline.specs, "prepare", lambda layout, ids, sess, drills=None:
+                        calls.append(("prepare", ids)) or layout)
     monkeypatch.setattr(pipeline.answer_mod, "build", lambda t, q, spec, sess, suffix, owned=None, **kw:
                         calls.append(("build", suffix, kw.get("reserve"))) or
                         {"sheet": "Q3 Answer", "checks": {"c": "OK"}, "extent": {"rows": 20, "cols": 6}})
@@ -246,3 +247,230 @@ def test_the_pipeline_turns_expectations_into_static_checks(monkeypatch):
 def test_reply_helpers_live_in_core_reply():
     from smartview_mcp.core import reply
     assert callable(reply.finish) and callable(reply.result)
+
+
+# ------------------------------------------------------------------ A4: sv_answer enforces the gate
+COSTS = "How are we doing on costs?"
+SUPPLIERS = "Which suppliers invoiced most on travel in 2026?"
+
+
+def _answer_env(monkeypatch, tmp_path, calls):
+    monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
+    monkeypatch.setattr(tools_core, "_closed_cached", lambda: "Sep 26")
+    monkeypatch.setattr(tools_core.scope.prefs, "lookup", lambda item, phrase: None)
+
+    async def call_user(job, what):
+        calls.append(what)
+        return {"sheet": "Q1 Answer"}
+    monkeypatch.setattr(tools_core, "_call_user", call_user)
+
+
+def _recipe_spec(question, name, gate=None, **extra):
+    return {"version": 1, "question": question, "gate": gate or {"outcome": "clear"},
+            "recipe": {"name": name, "params": {}}, **extra}
+
+
+@pytest.mark.anyio
+async def test_answer_refuses_to_pull_when_the_gate_is_still_ambiguous(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    out = await tools_core.answer(_recipe_spec(COSTS, "pnl"))
+    assert out["gate"] == "ambiguous" and "measure" in out["questions"][0].lower() and calls == []
+    assert "answers=" in out["note"]
+
+
+@pytest.mark.anyio
+async def test_answer_pulls_when_answers_resolve_the_gate(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    out = await tools_core.answer(_recipe_spec(COSTS, "pnl", gate={"outcome": "clear",
+                                                                   "answers": {"measure": "opex"}}))
+    assert out == {"sheet": "Q1 Answer"} and calls == ["sv_answer"]
+
+
+@pytest.mark.anyio
+async def test_answer_refuses_a_departure_without_deviation(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    with pytest.raises(InputError, match="departs from the standard analysis: recipe cost_base instead of "
+                                         "lines_ranking.*deviation="):
+        await tools_core.answer(_recipe_spec(SUPPLIERS, "cost_base"))
+    with pytest.raises(InputError, match="a free-form spec where sv_gate named recipe pnl"):
+        await tools_core.answer(SPEC)
+    assert calls == []
+
+
+@pytest.mark.anyio
+async def test_deviation_is_written_on_the_sheet_and_logged(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    why = "The user asked for cost centres, not suppliers"
+    await tools_core.answer(_recipe_spec(SUPPLIERS, "cost_base", deviation=why))
+    assert calls == ["sv_answer"]
+    spec = contract.validate({**SPEC, "deviation": why})
+    line = f"Deviation from the standard analysis (user's request): {why}"
+    assert line in progress.skeleton(spec, "x")
+    assert pipeline.answer_layout(SPEC["layout"], spec)["notes"][2] == line
+    assert runlog.entry(spec, 1, [], None, {})["deviation"] == why
+    with pytest.raises(ValueError):
+        contract.validate({**SPEC, "deviation": "x" * 301})
+
+
+@pytest.mark.anyio
+async def test_norwegian_assumption_is_refused_with_its_path(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    spec = _recipe_spec(SUPPLIERS, "lines_ranking",
+                        assumptions=["NOK", "Konsulenter = kontoene C60080 og C60090 (valgt av meg)"])
+    with pytest.raises(InputError, match=r"(?s)assumptions\[1\]: Konsulenter.*Write sheet text in English"):
+        await tools_core.answer(spec)
+    assert calls == []
+
+
+def test_normalize_gate_takes_the_raw_sv_gate_output():
+    raw = tools_core.scope.gate(COSTS, "Sep 26", answers={"measure": "opex"})
+    g = contract.normalize_gate(raw)
+    assert g["outcome"] == "clear" and g["checklist"]["measure"] == "Opex (ac.C70)"
+    assert set(g) <= set(contract.Gate.model_fields) and contract.Gate.model_validate(g).outcome == "clear"
+    amb = contract.normalize_gate(tools_core.scope.gate(COSTS, "Sep 26"))
+    assert amb["outcome"] == "ambiguous" and amb["checklist"]["measure"] and amb["questions"]
+    plain = {"outcome": "clear", "checklist": {"period": "Sep 26"}, "extra": 1}
+    assert contract.normalize_gate(plain) is plain              # an answer-spec gate is left to the validator
+
+
+@pytest.mark.anyio
+async def test_answer_accepts_the_raw_gate_and_its_recipe(monkeypatch, tmp_path):
+    calls, seen = [], []
+    _answer_env(monkeypatch, tmp_path, calls)
+
+    async def drills(spec, target, allow_archive, job):
+        seen.append(spec)
+        return {"sheet": "Q1 Answer"}
+    monkeypatch.setattr(tools_core, "_answer_with_drills", drills)
+    raw = tools_core.scope.gate(SUPPLIERS, "Sep 26")
+    out = await tools_core.answer({"version": 1, "question": SUPPLIERS, "gate": raw})
+    assert out == {"sheet": "Q1 Answer"} and seen[0]["recipe"] == raw["recipe"]
+    assert seen[0]["gate"]["outcome"] == "clear" and isinstance(seen[0]["gate"]["checklist"]["period"], str)
+
+
+def test_question_is_shown_as_asked_and_not_checked():
+    spec = contract.validate({**SPEC, "question": "Hva er EBITDA for Business i september?"})
+    assert progress.skeleton(spec, "x")[1] == "Question (as asked): Hva er EBITDA for Business i september?"
+    assert pipeline.answer_layout(SPEC["layout"], spec)["notes"][0].startswith("Question (as asked): Hva")
+    assert all(path != "question" for path, _ in contract.sheet_texts(spec.model_dump()))
+
+
+# ------------------------------------------------------------------ A5: finance defaults, read-back, follow-ups
+def _ranking_spec(top: int, other: bool, **extra) -> dict:
+    cell = {"pull": "cb", "row": ["{m}"], "col": ["ac.C70"]}
+    lines = [{"key": "tot", "label": "Total", "cells": [{"pull": "cb", "row": ["un.SY"], "col": ["ac.C70"]}]}]
+    if other:
+        lines.insert(0, {"key": "rest", "label": "Other cost centres", "cells": [{"expr": "tot-c0"}]})
+    return {"version": 1, "question": "Which cost centres cost the most?", "gate": {"outcome": "clear"},
+            "pulls": [{"id": "cb", "connection": "FinMax",
+                       "rows": [{"dimension": "All Entities", "members": ["un.SY"]}],
+                       "columns": [{"dimension": "All Accounts", "members": ["ac.C70"]}]}],
+            "layout": {"title": "Top cost centres", "columns": [{"header": "Costs"}],
+                       "sections": [{"title": "Top", "repeat": {"over": {"top": top, "pull": "cb", "by": ["ac.C70"]},
+                                                               "line": {"key": "c{i}", "label": "{label}",
+                                                                        "cells": [cell]}},
+                                     "lines": lines}]}, **extra}
+
+
+@pytest.mark.anyio
+async def test_freeform_ranking_above_top10_without_deviation_is_refused(monkeypatch, tmp_path):
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+    monkeypatch.setattr(tools_core.scope, "gate", lambda q, closed, answers=None: {"suggested_outcome": "clear",
+                                                                                   "recipe": None})
+    with pytest.raises(InputError, match=r"departs from the standard analysis: a top-25 ranking \(the standard is "
+                                         r"the top 10 \+ Other\); a top-25 ranking without an 'Other' line"):
+        await tools_core.answer(_ranking_spec(25, other=False))
+    assert calls == []
+    await tools_core.answer(_ranking_spec(10, other=True))
+    await tools_core.answer(_ranking_spec(25, other=True, deviation="The user asked for the top 25"))
+    assert calls == ["sv_answer", "sv_answer"]
+
+
+def test_reply_key_values_are_the_sheet_values_after_calc():
+    from smartview_mcp.core import reply
+    prepared = {"columns": [{"header": "Sep 26"}, {"header": "Sep 25"}],
+                "sections": [{"title": "S", "lines": [{"key": "e", "label": "EBITDA"}, {"label": "no key"},
+                                                      {"key": "r", "label": "Revenue"}]}]}
+    res = {"values": {"e": [10.0, None], "r": [3.0, 4.0]}}
+    assert reply.key_values(prepared, res) == {"EBITDA": {"Sep 26": 10.0}, "Revenue": {"Sep 26": 3.0, "Sep 25": 4.0}}
+    assert list(reply.key_values(prepared, res, limit=1)) == ["EBITDA"]
+
+
+def test_reply_has_at_most_three_followups():
+    from smartview_mcp.core import recipes
+    for name in ("pnl", "actual_vs_plan", "monthly_trend", "cost_base", "concept"):
+        ups = recipes.followups(name, {"entity": "un.SY.2BUS", "area": "un.SY.2BUS"}, "Sep 26")
+        assert 1 <= len(ups) <= 3 and all("{" not in u for u in ups), (name, ups)
+    assert any("Sep 26" in u for u in recipes.followups("cost_base", {"parent": "un.SY"}, "Sep 26"))
+    assert recipes.followups(None, {}, "Sep 26") == [] and recipes.followups("echo", {}, "Sep 26") == []
+
+
+def test_reply_result_names_every_sheet_written_and_the_key_values():
+    from smartview_mcp.core import reply
+    t = SimpleNamespace(path="C:/x/a.xlsx", name="a.xlsx", created=True, wb=SimpleNamespace(ReadOnly=False))
+    res = {"sheet": "Q1 Answer", "values": {"e": [1.0]}, "checks": [], "warnings": [], "lint": [],
+           "formula_errors": []}
+    spec = {"columns": [{"header": "Sep 26"}], "sections": [{"title": "S", "lines": [{"key": "e", "label": "E"}]}]}
+    out = reply.result(t, 1, spec, res, [SimpleNamespace(sheet="Q1 FinMax m")], [])
+    assert out["sheets"] == ["Q1 Answer", "Q1 FinMax m", "Sources"] and out["key_values"] == {"E": {"Sep 26": 1.0}}
+
+
+# ------------------------------------------------------------------ B3: topic sheets
+class _Cell:
+    def __init__(self):
+        self.Formula = None
+
+
+class _Ws:
+    def __init__(self, name, log):
+        self.Name, self.log, self.cells = name, log, {}
+
+    def Cells(self, r, c):
+        return self.cells.setdefault((r, c), _Cell())
+
+    def Move(self, before, after):
+        self.log.append(("move", self.Name, after.Name))
+
+    def Activate(self):
+        self.log.append(("activate", self.Name))
+
+
+def test_answer_links_to_topic_sheets_and_back(monkeypatch):
+    log = []
+    wss = {n: _Ws(n, log) for n in ("Q1 Answer", "Q1 By project")}
+    t = SimpleNamespace(wb=SimpleNamespace(Worksheets=lambda n: wss[n]))
+    monkeypatch.setattr(progress, "com", lambda call, *a, **k: call())
+    progress.link(t, 1, ["By project"])
+    assert wss["Q1 Answer"].cells[(3, 2)].Formula == '=HYPERLINK("#\'Q1 By project\'!A1","Q1 By project →")'
+    assert wss["Q1 By project"].cells[(3, 2)].Formula == '=HYPERLINK("#\'Q1 Answer\'!A1","← Q1 Answer")'
+    assert ("move", "Q1 By project", "Q1 Answer") in log and log[-1] == ("activate", "Q1 Answer")
+
+
+def test_pipeline_renders_each_extra_on_its_topic_sheet_and_reviews_its_checks(monkeypatch):
+    calls = []
+    _fake_run(monkeypatch, calls)
+    monkeypatch.setattr(pipeline.answer_mod, "build", lambda t, q, spec, sess, suffix, owned=None, **kw:
+                        calls.append(("build", suffix, kw.get("reserve"))) or
+                        {"sheet": f"Q3 {suffix}", "checks": {"c": "DIFF" if suffix != "Answer" else "OK"},
+                         "extent": {"rows": 20, "cols": 6}, "values": {"x": [1.0]}})
+    monkeypatch.setattr(pipeline.progress, "link", lambda t, q, topics: calls.append(("link", q, topics)))
+    extra = {"topic": "By project", "layout": {"title": "P", "columns": [{"header": "a"}],
+                                               "sections": [{"title": "S", "lines": []}]}}
+    r = pipeline.run(None, {**SPEC, "extras": [extra]})
+    assert ("build", "By project", None) in calls and ("link", 3, ["By project"]) in calls
+    assert r.res["checks"]["By project: c"] == "DIFF" and r.res["extra_sheets"] == ["Q3 By project"]
+    assert not r.review["ok"]
+
+
+def test_topic_sheet_is_ours_for_rollback_and_next_question():
+    names = ["Q1 Answer", "Q1 By project", "Q1 Lines d1", "Q7 Forecast", "Sources"]
+    assert [sheets.question_of(n, names) for n in names] == [1, 1, 1, None, None]
+    wb = SimpleNamespace(Worksheets=[SimpleNamespace(Name=n) for n in names + ["Q2 By project"]])
+    assert sheets.next_question(SimpleNamespace(wb=wb)) == 2
+    assert sheets.question_of("Q2 By project", names) is None                 # no Q2 Answer: the user's sheet

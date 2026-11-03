@@ -18,6 +18,8 @@ class Measure:
     concept: str | None = None
     kpi: str | None = None
     account: str | None = None
+    accounts: tuple[str, ...] = ()   # account members summed (FinLite/FinMax names), e.g. consultants
+    finplan: str | None = None       # the FinPlan account for a total-level budget, when one maps
     label: str | None = None
     vague: bool = False
     options: tuple[str, ...] = ()
@@ -46,7 +48,7 @@ def _tuple(d: dict, *keys: str) -> dict:
 
 @functools.cache
 def all_measures() -> tuple[Measure, ...]:
-    return tuple(Measure(**_tuple(m, "synonyms", "options")) for m in _caps().get("measure", []))
+    return tuple(Measure(**_tuple(m, "synonyms", "options", "accounts")) for m in _caps().get("measure", []))
 
 
 @functools.cache
@@ -120,4 +122,7 @@ def describe(m: Measure) -> str:
         line = cat.line_by_concept("FinMax", m.concept)
         base = f"{line.label} ({line.account})" if line else m.concept
         return f"{base}; {m.note}" if m.note else base
-    return f"{m.label or m.key}; {m.note}" if m.note else (m.label or m.key)
+    base = m.label or m.key
+    if m.accounts:
+        base = f"{base} ({' + '.join(m.accounts)})"
+    return f"{base}; {m.note}" if m.note else base

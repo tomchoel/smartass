@@ -171,3 +171,47 @@ def test_recipe_field_and_outline():
     assert o["sections"][0]["title"] == s["layout"]["sections"][0]["title"]
     assert o["columns"] == [c.get("header", "") for c in s["layout"]["columns"]]
     assert o["recipe"] == "monthly_trend"
+
+
+@pytest.mark.parametrize("text,bad", [
+    ("Konsulenter = kontoene C60080 og C60090 (valgt av meg)", True),
+    ("Kostnader hittil i år", True),
+    ("Periode: september", False),
+    ("Beløp i NOK", True),
+    ("Supplier 'Bøler Bygg AS' invoiced most", False),
+    ("Entity un.SY; consultants = ac.C60080 + ac.C60090", False),
+    ("Actual vs budget, NOK; the user's request", False)])
+def test_english_text_and_quoted_names_pass(text, bad):
+    assert contract.non_english(text) is bad
+
+
+def test_sheet_texts_name_their_paths():
+    s = {**spec(), "assumptions": ["a"], "deviation": "d"}
+    paths = dict(contract.sheet_texts(s))
+    assert paths["assumptions[0]"] == "a" and paths["deviation"] == "d"
+    assert paths["layout.title"] == s["layout"]["title"] and "question" not in paths
+    assert any(p.startswith("layout.columns[") for p in paths)
+
+
+# ------------------------------------------------------------------ B3: extras (topic sheets)
+def _extra(topic="By project", title="By project"):
+    return {"topic": topic, "layout": {"title": title, "columns": [{"header": "a"}],
+                                       "sections": [{"title": "S", "lines": [{"key": "x", "label": "X",
+                                                                              "cells": [{"value": 1}]}]}],
+                                       "checks": [{"label": "c", "expr": "x-x"}]}}
+
+
+def test_extras_merge_by_topic_in_followups():
+    s = spec(extras=[_extra(), _extra("By month")])
+    contract.validate(s)
+    out = contract.patched(s, {"extras": [{"topic": "By project", "layout": {"title": "Projects"}},
+                                          {"topic": "By month", "drop": True}]})
+    assert [(x["topic"], x["layout"]["title"]) for x in out["extras"]] == [("By project", "Projects")]
+    assert ("extras[0].layout.title", "By project") in contract.sheet_texts(s)
+    assert contract.outline(s)["extras"] == ["By project", "By month"]
+    assert "used twice or reserved" in errors(spec(extras=[_extra("Answer")]))
+    assert "used twice or reserved" in errors(spec(extras=[_extra(), _extra()]))
+    assert "topic" in errors(spec(extras=[_extra("by project")]))                       # a capital first
+    bad = _extra()
+    bad["layout"]["checks"][0]["expr"] = "ghost"
+    assert "extras 'By project'" in errors(spec(extras=[bad]))

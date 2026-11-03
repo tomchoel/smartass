@@ -26,6 +26,7 @@ visible output, total time.
 | B13 | EBITDA YTD for unit un.SY.5OK_W | sub-unit without FinPlan member → last-year-only warning | clear | S12 |
 | B14 | Business full-year EBITDA: latest forecast vs budget | FinPlan scenarios/versions | clear | new |
 | B15 | Wholesale full P&L (revenue, COGS, opex, EBITDA) actual vs budget vs last year, YTD | full P&L, many lines | clear | S11 full |
+| B16 | "Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026? og på hvilke initiativer / prosjekt" | gate names `lines_ranking`; drill inside `sv_answer`; ranking, By project sheet, reconciliation to the cube | clear | live test 2026-11-02 (advisor plans) |
 
 ## Trap questions (gate quality)
 
@@ -44,6 +45,8 @@ clear).
 | T08 | "Cost per FTE in IT" | clear with stated definition | FTE measure exists; cost definition must be stated |
 | T09 | "How much did we spend on consultants?" | clear or ambiguous | account mapping must come from the catalogue, not a guess |
 | T10 | "Forecast for December 27 actuals" | infeasible | actuals for an open month do not exist; offer forecast (live case: pick a month after the closed month; the unit test pins closed = Sep 26) |
+| T11 | "Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026? og på hvilke initiativer / prosjekt" | clear, recipe `lines_ranking` | consultants = C60080 + C60090, supplier + project grains, "i 2026" = YTD closed month; asking would be a needless ask |
+| T12 | "Which suppliers invoiced most on travel in 2026?" | clear, recipe `lines_ranking` | travel = C60130, supplier grain |
 
 ## Route `core` (phase 5)
 
@@ -62,10 +65,16 @@ clear).
 | B09 | recipe `concept` (the library's first match for the question; no `sv_scope`) | closed month (dynamic) |
 | B12 | the `sv_drill` utility, unchanged (a v1 drill spec is phase 6) | pinned Sep 26 |
 | B14 | recipe `actual_vs_plan` (2BUS Business, Dec FY26) | pinned FY26 Dec |
+| B16 | `sv_gate`, then `sv_answer` with the gate's recipe (`lines_ranking`) on `target="new"` | closed month (YTD, dynamic) |
+
+B16's oracle: FinLite, un.SY, Actual, NOK, Accumulated, C60080 + C60090 at the answer's month (sum of the two
+cells). Its problems: `Q<n> Answer` or `Q<n> By project` missing from `sheets`, a check not OK, "Total (cube)"
+missing from `key_values`, or `first_visible_s` > 2.5. The other cases pin their recipe; when the gate names
+another recipe for their question, the bench passes `deviation="bench pins recipe <name>"` and notes it.
 
 The closed month is FinMax's Current Reporting Month (Oct 26 at phase 5); the dynamic oracles read the answer's
 `period`. B08's oracle: C30 Periodic for un.SY.2BUS and un.SY.2TEC in B07's month. On route core the review grades
 the checks: a check with `severity: "Warning"` (actual_vs_plan's FinPlan = FinMax) may differ without failing the
-case. Gate cases (B10, B11, T01–T10) are scored by `sv_gate`. Results: `docs/audit/2026-11-02-bench-core-widen.md`,
+case. Gate cases (B10, B11, T01–T12) are scored by `sv_gate`. Results: `docs/audit/2026-11-02-bench-core-widen.md`,
 `docs/audit/2026-11-02-bench-core-gate-p5.md`; final (phase 6):
 `docs/audit/2026-11-02-bench-core-final.md`, `docs/audit/2026-11-02-bench-core-final-gate.md`.

@@ -71,6 +71,11 @@ def variance_pct(a: str, b: str) -> str:
     return f'=IF({b}=0,"",({a}-{b})/ABS({b}))'
 
 
+def share(a: str, total: str) -> str:
+    """a as a share of total; blank when the total is 0 or empty."""
+    return f'=IF({total}=0,"",{a}/{total})'
+
+
 _PLUS_ONLY = re.compile(r"\s*[A-Za-z_][A-Za-z0-9_]*(\s*\+\s*[A-Za-z_][A-Za-z0-9_]*){2,}\s*")
 
 

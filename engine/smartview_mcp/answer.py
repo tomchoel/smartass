@@ -16,6 +16,7 @@ spec = {
                   {"pull": "Q1 FinMax", "row": ["ac.C30"], "col": ["Sep 25"]},
                   {"var": [0, 1]},            # = col0 - col1 on this line
                   {"varpct": [0, 1]},         # = (col0 - col1) / |col1|
+                  {"share": {"col": 0, "of": "tot"}},   # = col0 / col0 of line 'tot' (a share of the total)
                   {"expr": "rev+cogs"},       # line keys, same column
                   {"sum": ["rev", "cogs"]}, {"avg": ["f0", "f1"]}, {"value": 123}, {"text": "n/a"}, null,
                   {"drill": "d", "where": {"JE_SOURCE": "Payables"}, "agg": "sum" | "count" | "debit" | "credit"}
@@ -152,6 +153,9 @@ def cell_trace(plan: list, rows_by_key: dict, pulls: dict, ncol: int) -> dict:
                     ent["deps"] = [(rows_by_key[k], col) for k in c["avg"] if k in rows_by_key]
                 elif "ref" in c and c["ref"].get("key") in rows_by_key:
                     ent["deps"] = [(rows_by_key[c["ref"]["key"]], FIRST_COL + int(c["ref"].get("col", j)))]
+                elif "share" in c and c["share"].get("of") in rows_by_key:
+                    k = FIRST_COL + int(c["share"]["col"])
+                    ent["deps"] = [(row, k), (rows_by_key[c["share"]["of"]], k)]
                 elif "rowsum" in c:
                     ent["deps"] = [(row, FIRST_COL + k) for k in c["rowsum"]]
             except (ValueError, KeyError, TypeError):

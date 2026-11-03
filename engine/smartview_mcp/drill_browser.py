@@ -21,6 +21,7 @@ Error messages never carry a URL query (the drill link holds an sso_token)."""
 from __future__ import annotations
 
 import concurrent.futures as cf
+import itertools
 import json
 import logging
 import os
@@ -34,6 +35,7 @@ from typing import Callable
 import psutil
 
 from . import config
+from .core import drilltime
 
 try:
     from playwright.sync_api import Error as PwError
@@ -72,6 +74,46 @@ def classify_stall(url: str, page_text: str) -> str:
         return "sso"
     return "blank" if not (page_text or "").strip() else "page"
 KILL_WAIT_S = 15                 # kill(): how long the worker gets to return after its browser died
+POLL_S = 0.01                    # how often the idle worker collects the answers of requests in flight
+
+# In-tab requests that do not block the worker (request()): _FIRE_JS starts a fetch and returns at once; its answer
+# lands in window.__smartass.done, which _TAKE_JS empties. The box's token changes when the tab navigates (the
+# fetches in flight are then lost: their futures fail).
+_FIRE_JS = """([id, u, o, ms]) => {
+  const w = window;
+  if (!w.__smartass) w.__smartass = {tok: Math.random().toString(36).slice(2), done: []};
+  const box = w.__smartass;
+  const opt = Object.assign({}, o, {credentials: 'include', signal: AbortSignal.timeout(ms)});
+  fetch(u, opt).then(async r => { let t; try { t = await r.text(); } catch (e) { t = String(e); }
+                                  box.done.push([id, r.status, t]); },
+                     e => box.done.push([id, 0, String(e)]));
+  return box.tok; }"""
+_TAKE_JS = """() => { const box = window.__smartass; if (!box) return [null, []];
+  const d = box.done; box.done = []; return [box.tok, d]; }"""
+_ids = itertools.count(1)
+
+
+def _fail(fut: cf.Future, exc: BaseException) -> None:
+    if not fut.done():
+        try:
+            fut.set_exception(exc)
+        except cf.InvalidStateError:   # cancelled meanwhile by its caller
+            pass
+
+
+def _relay(src: cf.Future, dst: cf.Future) -> None:
+    """dst gets src's outcome (unless dst is already done, e.g. cancelled by its caller)."""
+    if dst.done():
+        return
+    if src.cancelled():
+        _fail(dst, cf.CancelledError())
+    elif src.exception() is not None:
+        _fail(dst, src.exception())
+    else:
+        try:
+            dst.set_result(src.result())
+        except cf.InvalidStateError:
+            pass
 
 
 class DrillError(Exception):
@@ -131,39 +173,57 @@ def page_through(post: Callable[[int], tuple[int, str]], max_lines: int,
     short, spec §9.2). Safety caps: stop at totalResults + one page, and TooManyLines past max_lines (also when
     totalResults is missing).
     On a signed-out answer recover() is called ONCE (re-login + recapture) and paging resumes at the same offset."""
-    items: list[dict] = []
-    off, total, recovered = 0, None, False
+    pg = Pager(max_lines, progress, recover is not None)
     while True:
-        status, text = post(off)
+        step = pg.take(*post(pg.off))
+        if step == "recover":
+            recover()
+        elif step == "done":
+            return pg.result()
+
+
+class Pager:
+    """page_through's bookkeeping, one getData answer at a time (also drill_direct's async loop). take() says what
+    comes next: 'more' (post again at .off), 'recover' (sign in again, then post at the same .off) or 'done'."""
+
+    def __init__(self, max_lines: int, progress: Callable[[int, int | None], None] | None = None,
+                 can_recover: bool = True):
+        self.max_lines, self.progress = max_lines, progress
+        self.items: list[dict] = []
+        self.off, self.total, self.recovered = 0, None, not can_recover
+
+    def take(self, status: int, text: str) -> str:
         pay = _payload(text)
         if status != 200 or pay is None:
-            if _expired(status, pay) and recover is not None and not recovered:
-                log.info("drill session expired at offset %d (HTTP %s); signing in again", off, status)
-                recovered = True
-                recover()
-                continue
+            if _expired(status, pay) and not self.recovered:
+                log.info("drill session expired at offset %d (HTTP %s); signing in again", self.off, status)
+                self.recovered = True
+                return "recover"
             why = "without data" if pay is None else "with an error"
-            raise DrillError(f"getData returned HTTP {status} {why} at offset {off}.")
-        if total is None and pay.get("totalResults") is not None:
-            total = int(pay["totalResults"])
-            if total > max_lines:
-                raise TooManyLines(total)
+            raise DrillError(f"getData returned HTTP {status} {why} at offset {self.off}.")
+        if self.total is None and pay.get("totalResults") is not None:
+            self.total = int(pay["totalResults"])
+            if self.total > self.max_lines:
+                raise TooManyLines(self.total)
         got = pay.get("items") or []
-        items += got
-        if len(items) > max_lines:
-            raise TooManyLines(max(len(items), total or 0))
-        if progress:
-            progress(len(items), total)
+        self.items += got
+        if len(self.items) > self.max_lines:
+            raise TooManyLines(max(len(self.items), self.total or 0))
+        if self.progress:
+            self.progress(len(self.items), self.total)
         if not got or not pay.get("hasMore"):
-            break
-        if total is not None and len(items) >= total + config.DRILL_PAGE:
+            return "done"
+        if self.total is not None and len(self.items) >= self.total + config.DRILL_PAGE:
             log.warning("drill paging stopped at the safety cap (%d items, totalResults %d, hasMore still set)",
-                        len(items), total)
-            break
-        off += len(got)
-    if total is not None and len(items) != total:
-        log.warning("drill paged %d items but totalResults was %d", len(items), total)
-    return items, total
+                        len(self.items), self.total)
+            return "done"
+        self.off += len(got)
+        return "more"
+
+    def result(self) -> tuple[list[dict], int | None]:
+        if self.total is not None and len(self.items) != self.total:
+            log.warning("drill paged %d items but totalResults was %d", len(self.items), self.total)
+        return self.items, self.total
 
 
 def _user_data_dir(cmdline: list[str] | None) -> str | None:
@@ -305,6 +365,8 @@ class _Session:
         self.channel: str | None = None           # browser that started (msedge / chrome)
         self.deadline = float("inf")               # sign-in + capture of the current drill end by then
         self.paging = False                        # the current drill got past its capture
+        self.gen = 0                               # sign-ins so far: a failure seen before a newer one is stale
+        self.inflight: dict[int, tuple] = {}       # request id -> (page, box token, future, deadline)
 
 
 class DrillBrowser:
@@ -326,27 +388,100 @@ class DrillBrowser:
 
     @staticmethod
     def _loop(q: queue.Queue, s: _Session, idle_s: float | None = None):
-        """Run jobs; after idle_s without one, close the browser (frees the profile lock for other sessions)."""
+        """Run jobs; while requests are in flight, collect their answers between jobs (every POLL_S when idle);
+        after idle_s without a job or a request, close the browser (frees the profile lock for other sessions)."""
         while True:
             try:
-                fn, fut = q.get(timeout=idle_s)
+                fn, fut = q.get(timeout=POLL_S if s.inflight else idle_s)
             except queue.Empty:
-                if s.ctx is not None or s.plock is not None:
+                if s.inflight:
+                    DrillBrowser._collect(s)
+                elif s.ctx is not None or s.plock is not None:
                     DrillBrowser._close(s)
                 continue
             if fn is None:
+                DrillBrowser._fail_inflight(s, "the hidden browser was shut down")
                 break
             if fut.set_running_or_notify_cancel():
                 try:
                     fut.set_result(fn(s))
                 except BaseException as e:   # noqa: BLE001 - forwarded to the caller
                     fut.set_exception(e)
+            if s.inflight:
+                DrillBrowser._collect(s)
 
     def submit(self, fn: Callable[[_Session], object]) -> cf.Future:
         fut: cf.Future = cf.Future()
         with self._lock:
             self.q.put((fn, fut))
         return fut
+
+    # ------------------------------------------------------------ requests in flight
+    def request(self, prep: Callable[[_Session], tuple], timeout_s: float) -> cf.Future:
+        """One fetch from a tab that does not hold the worker while EPM answers (many run at once). prep(s) runs
+        on the worker and returns (page, url, fetch options); the future gives (http status, body text), or
+        DrillError when the tab navigated, closed or no answer came in time (the fetch aborts itself after
+        timeout_s). The returned future's .job is the worker job that starts it."""
+        out: cf.Future = cf.Future()
+
+        def start(s: _Session):
+            if out.cancelled():
+                return
+            page, url, opts = prep(s)
+            DrillBrowser._fire(s, page, url, opts, timeout_s).add_done_callback(lambda f: _relay(f, out))
+        job = self.submit(start)
+        job.add_done_callback(lambda f: (_fail(out, cf.CancelledError()) if f.cancelled()
+                                         else _fail(out, f.exception()) if f.exception() is not None else None))
+        out.job = job
+        return out
+
+    @staticmethod
+    def _fire(s: _Session, page, url: str, opts: dict, timeout_s: float) -> cf.Future:
+        """Worker thread: start the fetch in the tab; its answer is collected later (_collect)."""
+        fut: cf.Future = cf.Future()
+        rid = next(_ids)
+        tok = page.evaluate(_FIRE_JS, [rid, url, opts, max(1, int(timeout_s * 1000))])
+        s.inflight[rid] = (page, tok, fut, time.monotonic() + timeout_s + 5)
+        return fut
+
+    @staticmethod
+    def _collect(s: _Session) -> None:
+        """Worker thread: hand finished answers to their futures (one evaluate per tab); requests on a tab that
+        navigated or closed, or past their deadline, fail."""
+        tabs: dict[int, tuple] = {}
+        for rid, (page, _, _, _) in s.inflight.items():
+            tabs.setdefault(id(page), (page, []))[1].append(rid)
+        now = time.monotonic()
+        for page, rids in tabs.values():
+            try:
+                tok, done = page.evaluate(_TAKE_JS)
+                lost = "the browser tab navigated away before EPM answered"
+            except Exception as e:   # noqa: BLE001 - closed tab or dead browser
+                tok, done = None, []
+                lost = f"the browser tab is gone ({redact(str(e).splitlines()[0] if str(e) else type(e).__name__)})"
+            for rid, status, text in done:
+                ent = s.inflight.pop(rid, None)
+                if ent is not None and not ent[2].done():
+                    try:
+                        ent[2].set_result((int(status), text))
+                    except cf.InvalidStateError:
+                        pass
+            for rid in rids:
+                ent = s.inflight.get(rid)
+                if ent is None:
+                    continue
+                if tok != ent[1]:
+                    del s.inflight[rid]
+                    _fail(ent[2], DrillError(lost[:200]))
+                elif now > ent[3]:
+                    del s.inflight[rid]
+                    _fail(ent[2], DrillError("EPM did not answer in time"))
+
+    @staticmethod
+    def _fail_inflight(s: _Session, why: str) -> None:
+        for _, _, fut, _ in s.inflight.values():
+            _fail(fut, DrillError(why))
+        s.inflight.clear()
 
     # ------------------------------------------------------------ session
     def _start(self, s: _Session):
@@ -489,15 +624,18 @@ class DrillBrowser:
             except DrillError as second:
                 raise DrillError(f"{SIGNIN_FAILED} (2 attempts; {second})") from None
         s.ready = True
+        s.gen += 1
 
     def _ensure(self, s: _Session):
         if s.ctx is not None and not self._alive(s):   # crashed or killed since the last drill: start fresh
             log.warning("drill browser was dead; restarting it")
             self._close(s)
         if s.ctx is None:
-            self._start(s)
+            with drilltime.span("browser start"):
+                self._start(s)
         if not s.ready:
-            self._login(s)
+            with drilltime.span("browser sign-in"):
+                self._login(s)
 
     # ------------------------------------------------------------ one drill
     def _capture(self, s: _Session, url: str) -> dict:
@@ -685,6 +823,7 @@ class DrillBrowser:
     @staticmethod
     def _close(s: _Session):
         """Worker thread: close the browser and ALWAYS stop the Playwright driver, even if closing fails."""
+        DrillBrowser._fail_inflight(s, "the hidden browser closed")
         try:
             if s.ctx:
                 s.ctx.close()
@@ -718,6 +857,12 @@ class DrillBrowser:
                 if fut is not None:
                     fut.cancel()
             old_q.put((None, None))
+            try:                                    # their answers would never be collected
+                hung = list(old_s.inflight.values())
+            except RuntimeError:                    # the hung worker changed it meanwhile: its own close fails them
+                hung = []
+            for _, _, fut, _ in hung:
+                _fail(fut, DrillError("the hidden browser hung and was replaced"))
             _kill_driver(old_s.driver)              # read-only look at the hung worker's state
             self._spawn()
 

@@ -166,7 +166,7 @@ def test_the_latest_sid_of_each_answer_is_used(db_path):
     sv = _sv(t, db_path)
     _q(sv)
     _q(sv)                                         # the second answer has no sID: grid&2 stays the session
-    assert t.grid_sids() == ["cube1", "grid&amp;2"] and sv._sids["FinMax"] == "grid&2"
+    assert t.grid_sids() == ["cube1", "grid&amp;2"] and sv._idle["FinMax"] == ["grid&2"]
 
 
 def test_one_reconnect_then_a_clear_error(db_path):
@@ -368,6 +368,12 @@ class _Browser:
             s.ready = True
             s.page.url = self.base + "/HyperionPlanning/"
 
+    def _fire(self, s, page, url, opts, timeout_s):        # the request in flight: here answered at once
+        assert url == "/HyperionPlanning/SmartView" and opts["method"] == "POST"
+        f = cf.Future()
+        f.set_result(tuple(page.evaluate(None, [opts["body"], int(timeout_s * 1000)])))
+        return f
+
     def _login_once(self, page, deadline, base=None):
         self.login_calls.append((page, base))
         if self.login_errors:
@@ -459,7 +465,7 @@ def test_the_fetch_aborts_itself_before_the_job_times_out():
     _bt(b).post(b.base, svxml.connect())
     body, ms = page.args[0]
     assert body == svxml.connect() and isinstance(ms, int) and 0 < ms < config.SVHTTP_TIMEOUT_S * 1000
-    assert "AbortSignal.timeout(" in svhttp._JS
+    assert "AbortSignal.timeout(" in drill_browser._FIRE_JS
 
 
 def test_the_sid_is_never_posted_from_another_origin():
@@ -635,3 +641,180 @@ def test_fetch_returns_the_raw_grid_a_source_sheet_is_written_from(db_path):
         [Axis("All Accounts", ["ac.C30", "ac.EBITDA"])], [Axis("All Time Periods", ["Aug 26", "Sep 26"])])
     assert [list(r[:3]) for r in f.values] == GRID
     assert f.layout.pov == [("All Entities", "un.SY.2WHS"), ("All Scenarios", "Actual")] and f.seconds >= 0
+
+
+FINLITE_DIMS = ["All Accounts", "All Balance Types", "All Currencies", "All Entities", "All Scenarios",
+                "All Time Periods"]                 # ops.DRILL_DEFAULTS sets All Currencies, so FinLite needs it
+DRILL_ANS = ('<res_GetDrillThroughReports><authRequired>false</authRequired><drillThroughURL name="Drill Through '
+             'to source" type="post">./aif/FdmeeMain.jsp?module=aif.drilldown&amp;attribute=Entities.id.un.SY'
+             '</drillThroughURL></res_GetDrillThroughReports>')
+ONE_CELL = [[None, "Periodic", "NOK", "SY Telenor Norge AS (un)", "Actual"], [None, "Sep 26", None, None, None],
+            ["C60080 Consultancy IS/IT (ac)", -12.5, None, None, None]]
+CELL = {"All Accounts": "ac.C60080", "All Entities": "un.SY", "All Time Periods": "Sep 26"}
+
+
+@pytest.fixture
+def lite_db(db_path):
+    db = atlas.connect(db_path)
+    _store(db, "FinLite", FINLITE_DIMS)
+    db.close()
+    return db_path
+
+
+def test_drill_link_over_http_returns_the_ops_contract(lite_db):
+    t = FakeTransport(answer(ONE_CELL), DRILL_ANS)
+    got = _sv(t, lite_db).drill_link("FinLite", CELL)
+    assert got == {"cube_value": -12.5, "url": "aif/FdmeeMain.jsp?module=aif.drilldown&attribute=Entities.id.un.SY",
+                   "report": "Drill Through to source"}
+    body = t.bodies[-1]
+    assert "<ords>11</ords>" in body                    # (1 + nc) * width + nr = 2 * 5 + 1
+    assert '<dim name="All Time Periods" col="0" enc="0">Sep 26</dim>' in body
+    assert '<dim name="All Accounts" row="0" enc="0">C60080 Consultancy IS/IT (ac)</dim>' in body
+    assert '<dim name="All Entities" pov="pov" enc="0">SY Telenor Norge AS (un)</dim>' in body
+    assert "<cube>FinLite</cube>" in body
+
+
+def test_drill_link_empty_cell_has_no_cube_value(lite_db):
+    empty = [r[:] for r in ONE_CELL]
+    empty[2][1] = None
+    got = _sv(FakeTransport(answer(empty), DRILL_ANS), lite_db).drill_link("FinLite", CELL)
+    assert got["cube_value"] is None and got["url"]
+
+
+def test_drill_link_without_report(lite_db):
+    t = FakeTransport(answer(ONE_CELL), "<res_GetDrillThroughReports></res_GetDrillThroughReports>")
+    assert _sv(t, lite_db).drill_link("FinLite", CELL) == {"cube_value": -12.5, "url": None, "report": None}
+
+
+def test_drill_link_refuses_accumulated(lite_db):
+    with pytest.raises(InputError, match="Periodic"):
+        _sv(FakeTransport(), lite_db).drill_link("FinLite", {**CELL, "All Balance Types": "Accumulated"})
+
+
+def test_drill_link_reconnects_once_on_an_expired_session(lite_db):
+    t = FakeTransport(answer(ONE_CELL), EXPIRED, DRILL_ANS)
+    assert _sv(t, lite_db).drill_link("FinLite", CELL)["url"]
+    assert t.tags().count("ConnectToProvider") == 2
+
+
+PARTS = [{"All Accounts": "ac.C60080", "All Entities": e, "All Time Periods": "Sep 26"}
+         for e in ("un.SY.2TEC", "un.SY.2BUS")]
+
+
+def test_child_values_one_column(lite_db):
+    grid = [[None, "C60080 Consultancy IS/IT (ac)", "Periodic", "NOK", "Actual"], [None, "Sep 26", None, None, None],
+            ["2TEC Technology (un.SY)", -3.0, None, None, None], ["2BUS Business (un.SY)", None, None, None, None]]
+    t = FakeTransport(answer(grid))
+    assert _sv(t, lite_db).child_values("FinLite", PARTS) == [-3.0, None]
+    assert t.tags().count("ExecuteGrid") == 1
+
+
+def test_child_values_none_when_parts_do_not_differ(lite_db):
+    assert _sv(FakeTransport(), lite_db).child_values("FinLite", [PARTS[0], dict(PARTS[0])]) is None
+
+
+# ------------------------------------------------------------------ requests run at once (step 1b)
+def test_queries_run_at_once_each_on_its_own_session(db_path):
+    import threading
+    gate = threading.Barrier(2, timeout=5)
+
+    class Both(FakeTransport):
+        def post(self, base, body):
+            if body.startswith("<req_ExecuteGrid>") and self.gated:
+                gate.wait()                                # both grids must be in flight together
+            return super().post(base, body)
+    t = Both(answer(GRID), answer(GRID))
+    t.gated = True
+    sv = _sv(t, db_path)
+    out, errs = [], []
+
+    def run():
+        try:
+            out.append(_q(sv))
+        except Exception as e:   # noqa: BLE001
+            errs.append(e)
+    th = [threading.Thread(target=run) for _ in range(2)]
+    for x in th:
+        x.start()
+    for x in th:
+        x.join(10)
+    assert errs == [] and len(out) == 2
+    assert t.tags().count("ConnectToProvider") == 2        # one session per request in flight: never shared
+    assert len(set(t.grid_sids())) == 2
+    t.answers.append(answer(GRID))
+    t.gated = False
+    _q(sv)                                                 # afterwards a pooled session is reused
+    assert t.tags().count("ConnectToProvider") == 2 and len(sv._idle["FinMax"]) == 2
+
+
+def test_a_failure_renewed_by_another_request_does_not_sign_in_again():
+    page = _Page([OK])
+    b = _Browser(page)
+    b.s.gen = 2
+    t = _bt(b)
+    t._drop_if_stale(b, b.s, b.base, (page, 1))           # another request signed in since: leave the tab
+    assert b.s.ready
+    t._drop_if_stale(b, b.s, b.base, (_Page(), 2))        # a different page: leave it
+    assert b.s.ready
+    t._drop_if_stale(b, b.s, b.base, (page, 2))           # the very tab and session that failed: sign in again
+    assert not b.s.ready
+
+
+def test_a_request_lost_with_its_tab_is_not_resent_on_its_session():
+    page = _Page([OK])
+    b = _Browser(page)
+    lost = [drill_browser.DrillError("the browser tab navigated away before EPM answered")]
+    real = b._fire
+
+    def fire(s, pg, url, opts, timeout_s):
+        if lost:
+            f = cf.Future()
+            f.set_exception(lost.pop())
+            return f
+        return real(s, pg, url, opts, timeout_s)
+    b._fire = fire
+    with pytest.raises(svhttp.RequestLost, match="lost the request"):    # never again on the same sID
+        _bt(b).post(b.base, svxml.connect())
+    assert not b.s.ready                                  # the failed tab signs in again for the next request
+    assert _bt(b).post(b.base, svxml.connect()) == OK[1] and b.logins == 1
+
+
+def test_a_session_whose_request_failed_in_the_browser_is_not_reused(db_path):
+    class Lost(FakeTransport):
+        def post(self, base, body):
+            if body.startswith("<req_ExecuteGrid>") and not self.answers:
+                raise svhttp.SvHttpError("lost the request")
+            return super().post(base, body)
+    t = Lost()
+    sv = _sv(t, db_path)
+    with pytest.raises(svhttp.SvHttpError, match="lost"):
+        _q(sv)
+    assert sv._idle.get("FinMax", []) == []                # EPM may still work on that sID: dropped
+
+
+def test_requests_per_cube_are_capped(db_path, monkeypatch):
+    monkeypatch.setattr(config, "SVHTTP_SESSIONS", 1)
+    monkeypatch.setattr(config, "SVHTTP_TIMEOUT_S", 0.01)
+    sv = _sv(FakeTransport(answer(GRID)), db_path)
+    sv._slot("FinMax").acquire()                           # the one slot is taken
+    with pytest.raises(svhttp.SvHttpError, match="busy with other queries"):
+        _q(sv)
+
+
+def test_a_lost_request_goes_again_on_a_new_session_and_the_old_one_is_dropped(db_path):
+    class LostOnce(FakeTransport):
+        lost = True
+
+        def post(self, base, body):
+            if body.startswith("<req_ExecuteGrid>") and self.lost:
+                self.lost = False
+                self.sent.append((base, "ExecuteGrid"))
+                self.bodies.append(body)
+                raise svhttp.RequestLost("lost the request")
+            return super().post(base, body)
+    t = LostOnce(answer(GRID))
+    sv = _sv(t, db_path)
+    _q(sv)
+    sids = t.grid_sids()
+    assert len(sids) == 2 and sids[0] != sids[1]           # the second try had a session of its own
+    assert sv._idle["FinMax"] == [sids[1]]                 # the lost one is not reused

@@ -15,6 +15,7 @@ from .drill_lines import KEY_LABELS
 from .excel.jobs import com, fast_excel
 from .excel.sheets import add_sheet, unique_sheet_name
 from .excel.target import Target
+from .host import InputError
 
 _DATE_LIKE = re.compile(r"^\s*(\d{1,4}[-./]\d{1,2}([-./]\d{1,4})?|[A-Za-z]{3,9}[-./ ]\d{1,4}"
                         r"|\d{1,2}[-./ ][A-Za-z]{3,9}([-./ ]\d{1,4})?)\s*$")
@@ -40,15 +41,19 @@ def safe_for_sumifs(v) -> bool:
     return not (s.isdigit() and (len(s) > 15 or (len(s) > 1 and s[0] == "0")))
 
 
-def drill_formula(table: str, where: dict[str, str], agg: str = "sum") -> str:
-    """Answer-cell formula over a lines table. where: column label -> exact value ('' = blank).
+def drill_formula(table: str, where: dict[str, str | list[str]], agg: str = "sum") -> str:
+    """Answer-cell formula over a lines table. where: column label -> exact value ('' = blank), or a list of values
+    (any of them: an OR via ISNUMBER(MATCH(...)) in the FILTER form).
     agg: sum | count | debit (sum of negatives) | credit (sum of positives)."""
     if agg not in AGGS:
         raise ValueError(f"unknown drill agg '{agg}' (use one of {', '.join(AGGS)})")
     where = {k: "" if v is None else v for k, v in where.items()}     # None = blank, like specs._drill_value
+    empty = [k for k, v in where.items() if isinstance(v, list) and not v]
+    if empty:
+        raise InputError(f"drill where on {', '.join(empty)}: an empty list of values matches nothing")
     amt = f"{table}[AMOUNT]"
     sign = {"debit": '"<0"', "credit": '">0"'}.get(agg)
-    if all(safe_for_sumifs(v) for v in where.values()):
+    if all(not isinstance(v, list) and safe_for_sumifs(v) for v in where.values()):
         crit = "".join(f",{table}[{k}],{_lit(v)}" for k, v in where.items())
         if agg == "count":
             # ROWS = every line, like COUNTIFS and Python's count (a lines table is never written with 0 rows)
@@ -56,7 +61,8 @@ def drill_formula(table: str, where: dict[str, str], agg: str = "sum") -> str:
         if sign:
             return f"=SUMIFS({amt},{amt},{sign}{crit})"
         return f"=SUMIFS({amt}{crit})" if where else f"=SUM({amt})"
-    conds = [f"{table}[{k}]={_lit(v)}" for k, v in where.items()]
+    conds = [f"ISNUMBER(MATCH({table}[{k}],{{{','.join(_lit(x) for x in v)}}},0))" if isinstance(v, list)
+             else f"{table}[{k}]={_lit(v)}" for k, v in where.items()]
     if sign:
         conds.append(f"{amt}{sign.strip(chr(34))}")
     test = conds[0] if len(conds) == 1 else "*".join(f"({c})" for c in conds)
@@ -121,10 +127,17 @@ def find_table(wb, tname: str):
 
 
 def table_columns(wb, tname: str) -> list[str] | None:
+    """The table's header; None only when no table has that name (a COM error propagates: 'cannot check')."""
     _, lo = com(lambda: find_table(wb, tname))
     if lo is None:
         return None
     return [str(v) for v in com(lambda: lo.HeaderRowRange.Value)[0]]
+
+
+def lines_tables(wb) -> list[str]:
+    """Names of the drill tables (Lines_*) in the workbook."""
+    return com(lambda: [str(lo.Name) for ws in wb.Worksheets for lo in ws.ListObjects
+                        if str(lo.Name).lower().startswith("lines_")])
 
 
 def _stale_ranges(hdr: int, old_end: int, old_ncol: int, new_end: int, new_ncol: int) -> list[str]:

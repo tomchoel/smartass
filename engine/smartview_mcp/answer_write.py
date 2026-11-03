@@ -17,13 +17,24 @@ NUM_KINDS = {"heltall", "tall1", "prosent1", "prosent", "faktor"}
 CHART_TYPES = {"column": 51, "bar": 57, "line": 4, "waterfall": 119}   # xlColumnClustered, xlBarClustered, xlLine, xlWaterfall
 
 
+_LEAD_SUM = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*\+\s*[A-Za-z_][A-Za-z0-9_]*){2,})\s*(?=-|$)")
+
+
 def _expr_to_formula(expr: str, col_letter: str, rows_by_key: dict) -> str:
+    """Line keys -> cells. A leading run of 3+ keys added with + becomes SUM(...) (tn-formelstil blocks + chains):
+    'a+b+c-d' -> '=SUM(C1,C5,C9)-C12'."""
     def rep(m):
         k = m.group(0)
         if k not in rows_by_key:
             raise InputError(f"Unknown line key '{k}' in expression '{expr}'. Known: {sorted(rows_by_key)}")
         return f"{col_letter}{rows_by_key[k]}"
-    return "=" + re.sub(r"[A-Za-z_][A-Za-z0-9_]*", rep, expr)
+    head, rest = "", expr
+    m = _LEAD_SUM.match(expr)
+    if m:
+        keys = re.split(r"\s*\+\s*", m.group(1))
+        cells = [rep(re.match(r".+", k)) for k in keys]
+        head, rest = "SUM(" + ",".join(cells) + ")", expr[m.end():]
+    return "=" + head + re.sub(r"[A-Za-z_][A-Za-z0-9_]*", rep, rest)
 
 
 class _Cells:
@@ -107,7 +118,8 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Answer
             plan.append(("line", ln, rr)); rr += 1
         rr += 1
     warnings = []
-    table_cols: dict[str, list[str] | None] = {}          # drill tables: name -> header (None = not found)
+    table_cols: dict[str, list[str] | None | bool] = {}   # drill tables: name -> header (None = not found,
+    #                                                       False = unreadable: write the formula, no column check)
     for kind, item, row in plan:
         if kind == "section":
             put(row, 2, item.get("title", "")); rows_meta.append({"row": row, "kind": "section"})
@@ -133,9 +145,12 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Answer
                     if tn_ not in table_cols:
                         try:
                             table_cols[tn_] = drill_table_columns(t.wb, tn_)
-                        except Exception:   # noqa: BLE001 - unknown table: write the formula, no column check
-                            table_cols[tn_] = None
-                    miss = missing_columns(table_cols[tn_], c.get("where") or {})
+                        except Exception:   # noqa: BLE001 - tables unreadable: write the formula, no column check
+                            table_cols[tn_] = False
+                    if table_cols[tn_] is None:                    # Excel rejects a reference to a missing table
+                        buf.put(row, FIRST_COL + j, f"'#n/a: {tn_} not found", str(ln.get("label")))
+                        raise InputError(f"the lines table {tn_} not found: drill it first (sv_drill q={q})")
+                    miss = missing_columns(table_cols[tn_] or None, c.get("where") or {})
                     if miss:                                       # e.g. a detail column left out above 50 000 lines
                         raise InputError(f"the lines table {tn_} has no column {', '.join(miss)} (cell left empty)")
                     f = drill_formula(tn_, c.get("where") or {}, c.get("agg", "sum"))
@@ -160,6 +175,9 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Answer
                     f = fx.avg_rows(col, [rows_by_key[k] for k in c["avg"]])
                 elif "ref" in c:                                   # another answer cell: {"ref": {"key":.., "col":..}}
                     f = f"={L(FIRST_COL + int(c['ref'].get('col', j)))}{rows_by_key[c['ref']['key']]}"
+                elif "share" in c:                                 # {"share": {"col", "of"}}: this line / line 'of'
+                    a = L(FIRST_COL + int(c["share"]["col"]))
+                    f = fx.share(f"{a}{row}", f"{a}{rows_by_key[c['share']['of']]}")
                 elif "rowsum" in c:                                # sum of other columns on this line
                     f = fx.sum_cols(row, [FIRST_COL + k for k in c["rowsum"]])
                 elif "value" in c:

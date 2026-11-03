@@ -113,6 +113,23 @@ def test_gate_and_answer_run_the_pipeline_functions(pipe):
     assert seen == [("gate", "EBITDA Sep 26?"), ("answer", {"spec": {"version": 1}, "target": "new"})]
 
 
+def test_http_gate_accepts_answers():
+    seen = []
+
+    async def gate(question, answers=None):
+        seen.append(answers)
+        return {"outcome": "clear"}
+    s = httpapi.make_server(0, SECRET, health=lambda: {}, gate=gate, answer=None)
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{s.server_address[1]}"
+        _post(url + "/gate", {"question": "How are we doing on costs?", "answers": {"measure": "opex"}})
+    finally:
+        s.shutdown()
+        s.server_close()
+    assert seen == [{"measure": "opex"}]
+
+
 def test_post_needs_the_secret_valid_json_and_known_fields(pipe):
     url, _ = pipe
     for path, kwargs, code in (("/gate", {"body": {"question": "x"}, "secret": None}, 401),

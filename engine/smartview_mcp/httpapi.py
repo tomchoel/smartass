@@ -18,7 +18,8 @@ from .host import HostError, InputError
 
 log = logging.getLogger("smartass.http")
 MAX_BODY = 1_000_000
-_FIELDS = {"/gate": {"question"}, "/answer": {"spec", "followup", "q", "target", "allow_archive"}}
+_DRAIN_MAX = 16 * MAX_BODY
+_FIELDS = {"/gate": {"question", "answers"}, "/answer": {"spec", "followup", "q", "target", "allow_archive"}}
 
 
 class _ExclusiveServer(ThreadingHTTPServer):
@@ -54,8 +55,20 @@ def make_server(port: int, secret: str, health=None, gate=None, answer=None) -> 
             self.end_headers()
             self.wfile.write(data)
 
-        def _authorised(self) -> bool:
+        def _drain(self, size: int):
+            # Closing a socket with unread request bytes makes Windows send RST, which can beat the 413 to the client.
+            self.close_connection = True
+            left = min(size, _DRAIN_MAX)
+            while left > 0:
+                chunk = self.rfile.read(min(left, 65536))
+                if not chunk:
+                    break
+                left -= len(chunk)
+
+        def _authorised(self, size: int = 0) -> bool:
             ok = hmac.compare_digest(self.headers.get("X-Smartass-Secret", "").encode(), secret.encode())
+            if not ok:
+                self._drain(size)
             return ok or self._send(401, {"error": "missing or wrong X-Smartass-Secret"})
 
         def do_GET(self):  # noqa: N802
@@ -67,12 +80,13 @@ def make_server(port: int, secret: str, health=None, gate=None, answer=None) -> 
 
         def do_POST(self):  # noqa: N802
             path = self.path.split("?")[0]
-            if not self._authorised():
-                return
-            if path not in routes:
-                return self._send(404, {"error": "unknown path"})
             size = int(self.headers.get("Content-Length") or 0)
-            if size > MAX_BODY:
+            if not self._authorised(size):
+                return
+            if path not in routes or size > MAX_BODY:
+                self._drain(size)
+                if path not in routes:
+                    return self._send(404, {"error": "unknown path"})
                 return self._send(413, {"error": f"body larger than {MAX_BODY} bytes"})
             try:
                 body = json.loads(self.rfile.read(size) or b"{}")

@@ -42,6 +42,11 @@ class SvHttpError(Exception):
     """The HTTP route could not answer; extract.route then uses Smart View in Excel."""
 
 
+class RequestLost(SvHttpError):
+    """The request left but its answer did not come (tab navigated or closed, or the fetch timed out): EPM may still
+    be working on it, so its session is dropped and the request goes again on another one."""
+
+
 class Transport(Protocol):
     def post(self, base: str, body: str) -> str: ...
 
@@ -69,8 +74,9 @@ class SvHttp:
         self.home = (home or config.EPM_BASE).rstrip("/")
         self.db_path = db_path or config.ATLAS_DB
         self._bases: dict[str, list[tuple[str, str]]] | None = None
-        self._sids: dict[str, str] = {}
-        self._lock = threading.Lock()
+        self._idle: dict[str, list[str]] = {}       # connection -> sIDs not in use (the session pool)
+        self._slots: dict[str, threading.BoundedSemaphore] = {}
+        self._lock = threading.Lock()                 # _bases and the pools; never held during a request
 
     def base_for(self, server: str, app: str) -> str:
         """The pod of the data source named `server`, which must serve `app` and must not be a test pod (unless
@@ -94,23 +100,32 @@ class SvHttp:
                               "set svhttp.allow_test = true to use it")
         return base
 
-    def _note_sid(self, conn: str, text: str) -> None:
-        """Each answer may carry a new sID; the latest one is the session."""
-        sid = svxml.sid_in(text)
-        if sid:
-            self._sids[conn] = sid
-
-    def _session(self, conn: str) -> tuple[str, str, str]:
+    def _take(self, conn: str) -> tuple[str, str, str]:
+        """(pod base, cube, sID) for ONE request: an idle session of the pool, else a new one. A session is never
+        used by two requests at once: parallel grids on one sID come back wrong (2-3 of 8 corrupted, live
+        2026-11-03), on their own sIDs all 8 are right."""
         server, app, cube = CUBES[conn]
-        base = self.base_for(server, app)
-        if conn not in self._sids:
-            sid = svxml.sid_of(self.t.post(base, svxml.connect()))
-            sid = svxml.sid_of(self.t.post(base, svxml.open_application(sid, app)))
-            ans = self.t.post(base, svxml.open_cube(sid, app, cube))
-            svxml.raise_for_exception(ans)
-            self._sids[conn] = sid
-            self._note_sid(conn, ans)
-        return base, cube, self._sids[conn]
+        if not self._lock.acquire(timeout=config.SVHTTP_TIMEOUT_S):
+            raise SvHttpError("the HTTP route is busy with another query")
+        try:
+            base = self.base_for(server, app)
+            idle = self._idle.get(conn)
+            if idle:
+                return base, cube, idle.pop()
+        finally:
+            self._lock.release()
+        sid = svxml.sid_of(self.t.post(base, svxml.connect()))
+        sid = svxml.sid_of(self.t.post(base, svxml.open_application(sid, app)))
+        ans = self.t.post(base, svxml.open_cube(sid, app, cube))
+        svxml.raise_for_exception(ans)
+        return base, cube, svxml.sid_in(ans) or sid
+
+    def _give(self, conn: str, sid: str) -> None:
+        with self._lock:
+            self._idle.setdefault(conn, []).append(sid)
+
+    def _slot(self, conn: str) -> threading.BoundedSemaphore:
+        return self._slots.setdefault(conn, threading.BoundedSemaphore(config.SVHTTP_SESSIONS))   # atomic
 
     def dimensions(self, conn: str) -> list[str]:
         """The connection's dimensions from the atlas; SvHttpError if it has none or any of them was not built
@@ -153,12 +168,7 @@ class SvHttp:
         if problems:
             raise InputError("Invalid query: " + "; ".join(problems))
         lay = Layout(full_pov(dims, pov, rows, cols), rows, cols)
-        if not self._lock.acquire(timeout=config.SVHTTP_TIMEOUT_S):
-            raise SvHttpError("the HTTP route is busy with another query")
-        try:
-            values = self._execute(conn, lay)
-        finally:
-            self._lock.release()
+        values = self._execute(conn, lay)
         _check_grid(lay, values)
         full = parse(lay, values, False, False)
         if full.pov_problems:              # COM shows the same as a warning; here it means the layout is not the cube's
@@ -177,12 +187,7 @@ class SvHttp:
         caller's COM route gives a second opinion instead of a silently wrong month."""
         if conn not in ("FinMax", "FinLite"):
             raise SvHttpError(f"{conn} has no Current Reporting Month")
-        if not self._lock.acquire(timeout=config.SVHTTP_TIMEOUT_S):
-            raise SvHttpError("the HTTP route is busy with another query")
-        try:
-            names = self._enum("FinMax", "TimePeriods", "CurrRepMonth")
-        finally:
-            self._lock.release()
+        names = self._enum("FinMax", "TimePeriods", "CurrRepMonth")
         if len(names) != 1:
             raise SvHttpError(f"CurrRepMonth should have exactly one child, got {len(names)}: {names[:5]}")
         m = re.search(r"Y(\d\d)M(\d\d)", names[0])
@@ -195,22 +200,77 @@ class SvHttp:
                               f"({'in the future' if back < 0 else f'{back} months back'})")
         return f"{_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
 
-    def _ask(self, conn: str, body, read, fatal) -> list:
-        """POST body(sid, cube) to conn's provider and read(answer). An error fatal(e) does not rule out (maybe an
-        expired session) reconnects once."""
-        for attempt in (1, 2):
-            try:
-                base, cube, sid = self._session(conn)
-                ans = self.t.post(base, body(sid, cube))
-                self._note_sid(conn, ans)
-                return read(ans)
-            except svxml.SvXmlError as e:
-                if not fatal(e):
-                    self._sids.pop(conn, None)
-                    self._bases = None                      # ... and re-read where the apps live
-                if fatal(e) or attempt == 2:
-                    raise SvHttpError(f"Smart View provider: {e}") from None
-                log.info("svhttp %s: %s - reconnecting once", conn, e)
+    def drill_link(self, conn: str, cell: dict[str, str]) -> dict:
+        """ops.drill_link over HTTP: {cube_value, url (relative to the EPM base), report}. One 1x1 retrieve gives
+        the value and the Default-alias labels Smart View sends; then GetDrillThroughReports (read-only)."""
+        from .ops import DRILL_DEFAULTS, drill_cell_defaults
+        cell, _ = drill_cell_defaults(cell)
+        if cell.get("All Balance Types", "Periodic") != "Periodic":
+            raise InputError("Drill-through works on Periodic data only; use a period member (quarter/year) "
+                             "instead of Accumulated.")
+        pov = {**DRILL_DEFAULTS, **{d: m for d, m in cell.items() if d not in ("All Accounts", "All Time Periods")}}
+        f = self.fetch(conn, pov, [Axis("All Accounts", [cell["All Accounts"]])],
+                       [Axis("All Time Periods", [cell["All Time Periods"]])])
+        lay, v = f.layout, f.values
+        cells = [("All Time Periods", "col", str(v[1][lay.nr])), ("All Accounts", "row", str(v[1 + lay.nc][0]))]
+        cells += [(d, "pov", str(v[0][lay.nr + j])) for j, (d, _) in enumerate(lay.pov)]
+        ords = (1 + lay.nc) * len(v[0]) + lay.nr
+        val = v[1 + lay.nc][lay.nr]
+        got = self._ask(conn, lambda sid, cube: svxml.drill_reports(sid, cube, ords, cells), svxml.drill_url,
+                        lambda e: False)
+        return {"cube_value": val if isinstance(val, float) else None,
+                "url": got[1] if got else None, "report": got[0] if got else None}
+
+    def child_values(self, conn: str, parts: list[dict]) -> list | None:
+        """drill_split.child_values_on over HTTP: the parts differ in one dimension - one column retrieve,
+        float or None per part (None for the whole list when they differ in nothing)."""
+        from .ops import DRILL_DEFAULTS
+        first = parts[0]
+        dim = next((k for k in first if any(p.get(k) != first[k] for p in parts)), None)
+        if dim is None:
+            return None
+        col = "All Time Periods" if dim != "All Time Periods" else "All Accounts"
+        pov = {**DRILL_DEFAULTS, **{k: v for k, v in first.items() if k not in (dim, col)}}
+        f = self.fetch(conn, pov, [Axis(dim, [p[dim] for p in parts])], [Axis(col, [first[col]])])
+        lay = f.layout
+        return [v if isinstance(v, float) else None
+                for v in (f.values[1 + lay.nc + i][lay.nr] for i in range(len(parts)))]
+
+    def _ask(self, conn: str, body, read, fatal) -> object:
+        """POST body(sid, cube) on a session of its own and read(answer); at most SVHTTP_SESSIONS at once per
+        connection. An error fatal(e) does not rule out (maybe an expired session) drops that session and tries
+        once more on a new one. A session whose request failed in the browser is dropped too (EPM may still be
+        working on it)."""
+        slot = self._slot(conn)
+        if not slot.acquire(timeout=config.SVHTTP_TIMEOUT_S):
+            raise SvHttpError("the HTTP route is busy with other queries")
+        try:
+            for attempt in (1, 2):
+                sid = None
+                try:
+                    base, cube, sid = self._take(conn)
+                    ans = self.t.post(base, body(sid, cube))
+                    sid = svxml.sid_in(ans) or sid            # each answer may carry a new sID: the latest one counts
+                    out = read(ans)
+                except RequestLost as e:              # the sID is dropped (not given back); a fresh one tries
+                    if attempt == 2:
+                        raise SvHttpError(str(e)) from None
+                    log.info("svhttp %s: %s - once more on a new session", conn, e)
+                    continue
+                except svxml.SvXmlError as e:
+                    if fatal(e) and sid is not None:
+                        self._give(conn, sid)                 # a wrong query: the session itself is fine
+                    elif not fatal(e):
+                        with self._lock:
+                            self._bases = None                # ... and re-read where the apps live
+                    if fatal(e) or attempt == 2:
+                        raise SvHttpError(f"Smart View provider: {e}") from None
+                    log.info("svhttp %s: %s - reconnecting once", conn, e)
+                    continue
+                self._give(conn, sid)
+                return out
+        finally:
+            slot.release()
         raise AssertionError("unreachable")
 
     def _enum(self, conn: str, dim: str, member: str) -> list[str]:
@@ -245,12 +305,6 @@ def _origin(url: str) -> str:
     return f"{u.scheme}://{u.netloc}".lower()
 
 
-# The fetch aborts itself (AbortSignal) a little before the job's own time limit, so a hung request frees the worker.
-_JS = """async ([b, ms]) => { const r = await fetch('/HyperionPlanning/SmartView', {method: 'POST',
-    credentials: 'include', body: b, headers: {'Content-Type': 'text/xml'}, signal: AbortSignal.timeout(ms)});
-    return [r.status, await r.text()]; }"""
-
-
 def _fetch_ms() -> int:
     return max(1, int(config.SVHTTP_TIMEOUT_S * 900))       # 90 % of the job's time limit, in ms
 
@@ -264,9 +318,10 @@ def _close(page) -> None:
 
 class BrowserTransport:
     """Posts provider XML from a signed-in tab of the drill browser: its own tab for its pod (plan1) and one extra
-    tab per other pod (FinPlan: stratmodel), signed in once with the same SSO. All page work runs on the browser's
-    worker thread via submit(); _tabs is only touched there. Every failure to get an answer is an SvHttpError
-    (so extract.route can fall back); a refused write stays a ValueError.
+    tab per other pod (FinPlan: stratmodel), signed in once with the same SSO. Tab work runs on the browser's worker
+    thread (_tabs is only touched there); the request itself is in flight in the tab (DrillBrowser._fire), so many
+    posts run at once. Every failure to get an answer is an SvHttpError (so extract.route can fall back); a refused
+    write stays a ValueError.
 
     `browser` is a callable returning the drill browser, resolved on every post: after
     drill_browser.shutdown_shared() the next post uses the new shared browser, not the shut one."""
@@ -276,17 +331,48 @@ class BrowserTransport:
         self._tabs: dict[str, tuple[object, object]] = {}       # pod base -> (browser context, page)
 
     def post(self, base: str, body: str) -> str:
+        """Two tries: an answer that is not provider XML (signed out?) or a request lost with its tab signs in
+        again - unless another request already did (a stale failure), then it is simply sent again."""
         svxml.check_read_only(body)
+        base = base.rstrip("/")
+        why, stale = "no answer", None
+        for _ in (1, 2):
+            status, text, stale = self._send(base, body, stale)
+            if isinstance(text, str) and ("<res_" in text or "<exception" in text):
+                return text                                       # provider XML, whatever the status: svxml judges
+            if not status:                  # never again on this sID: EPM may still be working on the first one
+                self._settle(base, stale)
+                raise RequestLost(f"Smart View provider at {base}: lost the request "
+                                  f"({_first_line(Exception(text))})")
+            why = f"answered HTTP {status}"          # a sign-in page: EPM never ran it, so the same sID may go again
+            log.warning("svhttp: %s from %s; trying again", why, base)
+        raise SvHttpError(f"Smart View provider at {base}: {why} twice (sign-in failed?)")
+
+    def _settle(self, base: str, stale) -> None:
+        """After a lost request: let the next one sign in again if its tab is still the one that failed."""
+        try:
+            b = self._browser()
+            b.submit(lambda s: self._drop_if_stale(b, s, base, stale)).result(timeout=30)
+        except Exception as e:   # noqa: BLE001 - the next request's own checks still apply
+            log.info("svhttp: could not reset the tab after a lost request: %s", _first_line(e))
+
+    def _send(self, base: str, body: str, stale) -> tuple[int, str, tuple]:
+        deadline = time.monotonic() + config.SVHTTP_TIMEOUT_S
         fut = None
         try:
             b = self._browser()
-            fut = b.submit(lambda s: self._post(b, s, base.rstrip("/"), body))
-            return fut.result(timeout=config.SVHTTP_TIMEOUT_S)
+            fut = b.submit(lambda s: self._start(b, s, base, body, stale))
+            inner, page, gen = fut.result(timeout=config.SVHTTP_TIMEOUT_S)
+            try:
+                status, text = inner.result(timeout=max(0.1, deadline - time.monotonic()))
+            except DrillError as e:                               # the tab navigated or closed under the request
+                return 0, str(e), (page, gen)
+            return status, text, (page, gen)
         except cf.CancelledError:
             raise SvHttpError("the drill browser job was cancelled (browser restarting or shutting down)") from None
         except cf.TimeoutError:
             restarted = ""
-            if fut is not None and not fut.cancel() and not fut.done():   # still queued: cancelled, never runs
+            if fut is not None and not fut.done() and not fut.cancel():   # queued: cancelled, never runs
                 try:                         # running and hung: restart OUR browser (like sv_drill's hang guard), so
                     b.kill()                 # later queries and drills do not queue behind a stuck worker
                     restarted = "; the hidden browser was restarted"
@@ -335,8 +421,21 @@ class BrowserTransport:
         if page is not None:
             _close(page)
 
-    def _post(self, b, s, base: str, body: str) -> str:
+    def _drop_if_stale(self, b, s, base: str, stale) -> None:
+        """Drop the tab a failed request used - unless it was renewed since (another request signed in again):
+        many requests fail together when a tab goes, and only the first may sign in again."""
+        page, gen = stale
+        if self._own(b, base):
+            if s.page is page and getattr(s, "gen", 0) == gen:
+                self._drop(b, s, base)
+        elif self._tabs.get(base, (None, None))[1] is page:
+            self._drop(b, s, base)
+
+    def _start(self, b, s, base: str, body: str, stale) -> tuple:
+        """Worker thread: a signed-in tab on the pod, then the request in flight: (future, page, sign-in gen)."""
         s.deadline = time.monotonic() + config.SVHTTP_TIMEOUT_S
+        if stale is not None:
+            self._drop_if_stale(b, s, base, stale)
         why = "no answer"
         for attempt in (1, 2):
             try:
@@ -348,19 +447,16 @@ class BrowserTransport:
                     log.warning("svhttp: %s; signing in again", why)
                     self._drop(b, s, base)
                     continue
-                status, text = page.evaluate(_JS, [body, _fetch_ms()])
+                fut = b._fire(s, page, "/HyperionPlanning/SmartView",
+                              {"method": "POST", "body": body, "headers": {"Content-Type": "text/xml"}},
+                              _fetch_ms() / 1000)
+                return fut, page, getattr(s, "gen", 0)
             except (SvHttpError, DrillError):                    # sign-in already retried inside
                 raise
             except Exception as e:   # noqa: BLE001 - the tab navigated or the browser died: one fresh try
                 if attempt == 2:
                     raise SvHttpError(f"browser error at {base}: {_first_line(e)}") from None
                 self._drop(b, s, base)
-                continue
-            if isinstance(text, str) and ("<res_" in text or "<exception" in text):
-                return text                                       # provider XML, whatever the status: svxml judges
-            why = f"answered HTTP {status}"
-            log.warning("svhttp: HTTP %s from %s; signing in again", status, base)
-            self._drop(b, s, base)
         raise SvHttpError(f"Smart View provider at {base}: {why} twice (sign-in failed?)")
 
 

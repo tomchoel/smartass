@@ -47,7 +47,33 @@ def test_answer_ok_fails_on_error_cell_warnings():
     scenarios._answer_ok({"checks": {"c": "OK"}, "warnings": ["could not log Q1 in 'Sources'"]}, "ok")
 
 
-def test_only_empty_excels_the_run_started_are_quit():
+def test_b16_problems_flag_missing_sheets_and_slow_frame():
+    import bench
+    good = {"sheets": ["Q3 Answer", "Q3 By project", "Q3 Lines d1", "Q3 Lines d2", "Q3 FinLite cube"],
+            "checks": {"Blocks = lines total": "OK", "Total = cube": "OK"},
+            "key_values": {"Total (cube)": {"YTD Oct 26": -1.5e8}},
+            "timings": {"first frame": 2.6, "open target": 0.64}}           # 1.96 s after the workbook opened
+    assert bench.b16_problems(good, 5.2) == []
+    bad = {"sheets": ["Q3 Lines d1"], "checks": {"Total = cube": "DIFF 12"}, "key_values": {"Other": {}},
+           "timings": {"first frame": 3.7, "open target": 0.6}}
+    got = " | ".join(bench.b16_problems(bad, 3.1))
+    for must in ("Answer", "By project", "Total = cube", "Total (cube)", "3.1"):
+        assert must in got, must
+    assert bench.b16_problems({**good, "checks": {}}, 1.0)                  # no checks at all is a problem
+    assert bench.b16_problems({**good, "timings": {}}, 1.0)                 # no first frame from the engine
+
+
+def test_bench_pins_its_recipe_with_a_deviation_only_when_it_departs():
+    import bench
+    gate = {"recipe": {"name": "cost_base", "params": {"parent": "un.SY.2TEC"}}}
+    same = {"recipe": {"name": "cost_base", "params": {"parent": "un.SY.2TEC"}}}
+    assert bench.pin_deviation(gate, same) is None
+    assert bench.pin_deviation(gate, {"recipe": {"name": "cost_base", "params": {"parent": "un.SY.2BUS"}}}) is None
+    assert bench.pin_deviation(gate, {"recipe": {"name": "cost_base", "params": {"top": 15}}}) == \
+        "bench pins recipe cost_base"
+    assert bench.pin_deviation(gate, {"recipe": {"name": "pnl", "params": {}}}) == "bench pins recipe pnl"
+    assert bench.pin_deviation(gate, {"layout": {"sections": []}}) == "bench pins recipe free-form"
+    assert bench.pin_deviation({"recipe": None}, {"layout": {"sections": []}}) is None
     before = {100, 200}
     assert helpers.leftover_excel(300, before, 0, "python.exe")           # started in the run, now empty
     assert not helpers.leftover_excel(100, before, 0, "python.exe")       # was there before the run

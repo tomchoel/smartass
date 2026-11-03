@@ -25,3 +25,17 @@ def test_style_helpers_do_not_depend_on_the_user_profile(tmp_path):
                        timeout=120)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "smartview_mcp.vendor.tn_rapportstil" in r.stdout
+
+
+# sha256 (LF line ends) of the vendored advisor texts as of 2b6c237: their wording is the vendor's, never edited here
+VENDORED = {"variance-commentary.md": "85d197d36cd57cebfb047ddebf0c94c17441c6066530fa827a1b4d2b38e4218f",
+            "findings.md": "a77b8d3831da0b26e213eef04b6db158bb9a84dd99a250fffaa34ebc99602647",
+            "NOTICE.md": "3ed66bdc22ad8181b04357abb09719f15258f141f35bf8dcef35ceb56d403079"}
+
+
+def test_vendored_advisor_text_unchanged():
+    import hashlib
+    advisor = ENGINE.parent / "knowledge" / "advisor"
+    for name, sha in VENDORED.items():
+        text = (advisor / name).read_bytes().replace(b"\r\n", b"\n")
+        assert hashlib.sha256(text).hexdigest() == sha, f"{name} was edited"

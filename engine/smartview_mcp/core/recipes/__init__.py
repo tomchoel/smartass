@@ -19,6 +19,7 @@ class RecipeContext:
     label: Callable[[str, str], str]             # (connection, member) -> readable label (templates.member_label)
     pnl_facts: Callable | None = None            # (area, period, compare) -> (res, mode, fills, notes, entity)
     now: str = ""
+    lines: dict[str, list[dict]] | None = None   # drilled ledger lines by alias (lines_ranking: d1 this year, d2 LY)
 
 
 @dataclass
@@ -28,6 +29,7 @@ class Draft:
     assumptions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     result: dict = field(default_factory=dict)
+    extras: list[dict] = field(default_factory=list)     # topic sheets: [{"topic", "layout"}]
 
 
 def pull_dict(ps) -> dict:
@@ -56,12 +58,88 @@ def relabel(lines: list[dict], connection: str, ctx: RecipeContext) -> None:
 
 
 def _registry() -> dict:
-    from . import concept, cost, plan, pnl, trend
+    from . import concept, cost, lines, plan, pnl, trend
     return {"pnl": pnl.pnl, "actual_vs_plan": plan.actual_vs_plan, "monthly_trend": trend.monthly_trend,
-            "cost_base": cost.cost_base, "concept": concept.concept}
+            "cost_base": cost.cost_base, "concept": concept.concept, "lines_ranking": lines.lines_ranking}
 
 
 RECIPES: dict[str, Callable] = {}
+
+
+def _module(name: str | None):
+    from . import concept, cost, lines, plan, pnl, trend
+    return {"pnl": pnl, "actual_vs_plan": plan, "monthly_trend": trend, "cost_base": cost,
+            "concept": concept, "lines_ranking": lines}.get(name or "")
+
+
+def departures(name: str | None, params: dict) -> list[str]:
+    """The finance defaults a recipe's params switch off (D3/D4). Each recipe module's DEFAULTS maps a param to
+    (the default value, or a test the value must pass; why it is the default)."""
+    rules = getattr(_module(name), "DEFAULTS", {})
+    out = []
+    for key, (ok, why) in rules.items():
+        if key in params and not (ok(params[key]) if callable(ok) else params[key] == ok):
+            out.append(f"{name} {key}={params[key]!r} ({why})")
+    return out
+
+
+def layout_departures(layout: dict | None) -> list[str]:
+    """A free-form ranking departs from the standard (D22) when it is not the top 10 + an 'Other' line."""
+    out = []
+    for sec in (layout or {}).get("sections") or []:
+        rep = sec.get("repeat") if isinstance(sec, dict) else None
+        over = rep.get("over") if isinstance(rep, dict) else None
+        top = over.get("top") if isinstance(over, dict) else None       # 'over' may also name a member list
+        if top is None:
+            continue
+        if top != 10:
+            out.append(f"a top-{top} ranking (the standard is the top 10 + Other)")
+        if not any("other" in str(ln.get("label", "")).lower() for ln in sec.get("lines") or []):
+            out.append(f"a top-{top} ranking without an 'Other' line")
+    return out
+
+
+def followups(name: str | None, params: dict, period: str | None, fill: dict | None = None) -> list[str]:
+    """At most three natural next questions for a recipe's answer (free-form specs: none). fill: extra
+    {placeholders} from the recipe's result; a question whose placeholder is unknown is left out."""
+    entity = next((params[k] for k in ("entity", "area", "parent", "concept") if params.get(k)), "the same unit")
+    keys = {**(fill or {}), "entity": entity, "period": period or "the same period"}
+    out = []
+    for f in getattr(_module(name), "FOLLOWUPS", []):
+        try:
+            out.append(f.format_map(keys))
+        except (KeyError, IndexError):
+            continue
+    return out[:3]
+
+
+def drilling(name: str | None) -> bool:
+    """The recipe drills ledger lines before it drafts (sv_answer draws the first frame, then drills)."""
+    return hasattr(_module(name), "drills")
+
+
+def drills(name: str | None, params: dict, ctx: RecipeContext) -> list[dict]:
+    """The cells a recipe drills before it drafts ([{alias, year, cells}]; most recipes: none)."""
+    fn = getattr(_module(name), "drills", None)
+    return fn(dict(params), ctx) if fn else []
+
+
+def mark(name: str | None, params: dict, rows: list[dict], columns: list[str]) -> list[str]:
+    """Columns a recipe derives on its drilled rows (in place) before they are written; returns the columns."""
+    fn = getattr(_module(name), "mark", None)
+    return fn(params, rows, columns) if fn else columns
+
+
+def value_findings(findings: list[dict] | None, values: dict[str, list]) -> list[dict]:
+    """A recipe's value findings ({severity, line, col, above, text with {value}}) -> the review's extra findings
+    for the values the sheet calculated: only where |value| > above."""
+    out = []
+    for f in findings or []:
+        row = values.get(f["line"]) or []
+        v = row[f.get("col", 0)] if f.get("col", 0) < len(row) else None
+        if isinstance(v, (int, float)) and abs(v) > f.get("above", 0):
+            out.append({"severity": f.get("severity", "Warning"), "text": f["text"].format(value=v)})
+    return out
 
 
 def expand(raw: dict, ctx: RecipeContext) -> tuple[dict, dict]:
@@ -78,6 +156,8 @@ def expand(raw: dict, ctx: RecipeContext) -> tuple[dict, dict]:
     have = list(raw.get("assumptions") or [])
     out = {**copy.deepcopy(raw), "pulls": d.pulls, "layout": d.layout,
            "assumptions": have + [a for a in d.assumptions if a not in have]}
+    if d.extras:
+        out["extras"] = d.extras
     if rec.get("overrides"):
         out = contract.patched({k: v for k, v in out.items() if k != "recipe"}, rec["overrides"]) | {"recipe": rec}
     return out, {**d.result, "warnings": list(d.warnings)}

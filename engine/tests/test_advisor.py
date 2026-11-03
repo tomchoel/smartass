@@ -39,8 +39,8 @@ def _capability_problems() -> list[str]:
     owner: dict[str, str] = {}
     keys = {m.key for m in semantic.all_measures()}
     for m in semantic.all_measures():
-        if sum(x is not None for x in (m.concept, m.kpi, m.account)) != (0 if m.vague else 1):
-            out.append(f"measure {m.key}: exactly one of concept/kpi/account (none when vague)")
+        if sum(bool(x) for x in (m.concept, m.kpi, m.account, m.accounts)) != (0 if m.vague else 1):
+            out.append(f"measure {m.key}: exactly one of concept/kpi/account/accounts (none when vague)")
         if m.concept and m.concept not in concepts:
             out.append(f"measure {m.key}: unknown catalog concept {m.concept}")
         if m.kpi and m.kpi not in kpis:
@@ -63,8 +63,23 @@ def test_capabilities_reference_only_known_concepts():
 
 
 def test_describe_states_the_definition():
-    assert "C693" in semantic.describe(semantic.measure("consultants"))
+    assert "ac.C60080 + ac.C60090" in semantic.describe(semantic.measure("consultants"))
     assert semantic.describe(semantic.measure("opex_per_fte")).startswith("Opex per FTE")
+
+
+@pytest.mark.parametrize("q,key", [
+    ("Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026?", "consultants"),
+    ("Which consulting firms invoiced us most this year?", "consultants"),
+    ("Hvor mye brukte vi på innleie i september?", "contractors"),
+    ("Travel costs YTD for Business", "travel"), ("advokatkostnader 2026", "legal_fees"),
+    ("Legal costs this year", "legal"), ("legal fees 2026", "legal_fees"), ("legal disputes Q3", "legal_disputes")])
+def test_cost_type_measures_match_en_and_no(q, key):
+    assert semantic.measures(q)[0].key == key
+
+
+def test_consultants_sum_c60080_and_c60090():
+    assert semantic.measure("consultants").accounts == ("ac.C60080", "ac.C60090")
+    assert semantic.measure("consultants_and_temps").accounts == ("ac.C693",)
 
 from smartview_mcp.core import period  # noqa: E402
 
@@ -135,6 +150,9 @@ GATE_CASES = [
     ("T08", "Cost per FTE in IT", "clear"),
     ("T09", "How much did we spend on consultants?", "clear"),
     ("T10", "Forecast for October 26 actuals", "infeasible"),
+    ("T11", "Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026? og på hvilke initiativer / prosjekt",
+     "clear"),
+    ("T12", "Which suppliers invoiced most on travel in 2026?", "clear"),
 ]
 _NONE = lambda i, p: None  # noqa: E731
 
@@ -164,7 +182,7 @@ def test_gate_details():
     t08 = scope.gate("Cost per FTE in IT", "Sep 26", learned=_NONE)
     assert t08["checklist"]["measure"]["value"].startswith("Opex per FTE")     # the definition is stated
     t09 = scope.gate("How much did we spend on consultants?", "Sep 26", learned=_NONE)
-    assert "C693" in t09["checklist"]["measure"]["value"] and "temporary" in t09["checklist"]["measure"]["value"]
+    assert "C60080" in t09["checklist"]["measure"]["value"] and "temporary" in t09["checklist"]["measure"]["value"]
     b09 = scope.gate("What do we earn on mobile subscriptions?", "Sep 26", learned=_NONE)
     assert b09["checklist"]["measure"]["source"] == "catalog" and b09["concepts"]
     assert b09["checklist"]["entity"]["source"] == b09["checklist"]["period"]["source"] == "convention"
@@ -172,6 +190,56 @@ def test_gate_details():
     assert "last year" in t06["checklist"]["scenario"]["value"]
     b14 = scope.gate("Business full-year EBITDA: latest forecast vs budget", "Sep 26", learned=_NONE)
     assert b14["checklist"]["scenario"]["value"] == "Latest forecast vs Target (budget)"
+
+
+def test_gate_supplier_question_states_definition_grain_and_ytd():
+    g = scope.gate(GATE_CASES[-2][1], "Sep 26", learned=_NONE)
+    c = g["checklist"]
+    assert "ac.C60080 + ac.C60090" in c["measure"]["value"]
+    assert "fakturerte mest" in c["granularity"]["value"] and "initiativer" in c["granularity"]["value"]
+    assert c["period"]["value"].startswith("YTD Sep 26") and c["period"]["source"] == "convention"
+    assert any("ledger lines" in w for w in g["warnings"])
+    assert g["measures"][0]["accounts"] == ["ac.C60080", "ac.C60090"]
+    last = scope.gate("Travel costs 2025", "Sep 26", learned=_NONE)            # a past year stays the year
+    assert last["checklist"]["period"]["value"] == "2025"
+
+
+@pytest.mark.parametrize("q,name", [
+    (GATE_CASES[-2][1], "lines_ranking"),
+    ("EBITDA September", "pnl"),
+    ("Telenor Norge monthly revenue trend through Sep 26", "monthly_trend"),
+    ("Business full-year EBITDA: latest forecast vs budget", "actual_vs_plan"),
+    ("How much did we spend on consultants?", "cost_base"),
+    ("What do we earn on mobile subscriptions?", "concept"),
+    ("How are we doing on costs?", None),
+    ("Technology actual vs plan, Sep 26", "actual_vs_plan")])
+def test_gate_names_recipe(q, name):
+    g = scope.gate(q, "Sep 26", learned=_NONE)
+    assert (g["recipe"] or {}).get("name") == name, g["recipe"]
+    if q.startswith("Technology"):          # no measure named + vs plan: the recipe shows the P&L, by convention
+        assert g["suggested_outcome"] == "clear" and g["checklist"]["measure"]["source"] == "convention"
+        assert g["recipe"]["params"]["entity"] == "2TEC Technology"
+    if name == "lines_ranking":
+        p = g["recipe"]["params"]
+        assert p["accounts"] == ["ac.C60080", "ac.C60090"] and p["entity"] == "un.SY" and p["projects"] is True
+        assert "lines_ranking" in g["next"] and "Never ask whether to build a sheet" in g["next"]
+    if name == "monthly_trend":
+        assert g["recipe"]["params"] == {"entity": "un.SY", "accounts": ["ac.C30"], "through": "Sep 26"}
+    if name == "actual_vs_plan" and q.startswith("Business"):
+        assert g["recipe"]["params"]["entity"] == "2BUS Business" and g["recipe"]["params"]["month"] == "Dec"
+    if name == "cost_base":
+        assert g["recipe"]["params"]["top"] == 10
+    if name is None:
+        assert "sv_gate again" in g["next"] and "answers=" in g["next"]
+
+
+def test_gate_answers_resolve_the_asks():
+    g = scope.gate("How are we doing on costs?", "Sep 26", learned=_NONE, answers={"measure": "opex"})
+    assert g["suggested_outcome"] == "clear" and g["recipe"]["name"] == "pnl"
+    assert g["checklist"]["measure"]["source"] == "user" and not g["checklist"]["measure"]["ask"]
+    t02 = scope.gate("Opex for Wholesale this year", "Sep 26", learned=_NONE, answers={"period": "ytd"})
+    assert t02["suggested_outcome"] == "clear" and t02["checklist"]["period"]["value"] == "YTD Sep 26"
+    assert t02["checklist"]["period"]["source"] == "user"
 
 
 @pytest.mark.anyio

@@ -9,11 +9,11 @@ from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from .. import answer as answer_mod
-from .. import catalog, fin_spec, specs
+from .. import catalog, drill_xl, fin_spec, specs
 from ..excel import jobs, sheets, target as xltarget
 from ..host import InputError, rewrap
 from ..timing import stage
-from . import check, commentary, contract, findings, followup, progress, source
+from . import check, commentary, contract, findings, followup, progress, recipes, source
 from . import owned as owned_mod
 
 
@@ -52,7 +52,9 @@ def answer_layout(raw_layout: dict, spec: contract.AnswerSpec) -> dict:
     """The layout answer.build renders, with the question, assumptions and (for a proxy) what is answered instead
     leading the notes. The raw layout is not changed: it is what save_spec stores."""
     lay = copy.deepcopy(raw_layout)
-    lead = [f"Question: {spec.question}"] + [f"Assumption: {a}" for a in spec.assumptions]
+    lead = [f"Question (as asked): {spec.question}"] + [f"Assumption: {a}" for a in spec.assumptions]
+    if spec.deviation:
+        lead.append(f"Deviation from the standard analysis (user's request): {spec.deviation}")
     if spec.gate.outcome == "infeasible":
         lead.append(f"Not answerable as asked ({spec.gate.reason}); answered instead: {spec.gate.proxy}")
     lay["notes"] = lead + list(lay.get("notes") or [])
@@ -62,39 +64,85 @@ def answer_layout(raw_layout: dict, spec: contract.AnswerSpec) -> dict:
     return lay
 
 
+def drill_aliases(spec) -> set[str]:
+    """The drill aliases of every drill cell in the spec's layout and extras (lines and repeat templates)."""
+    lay = spec.layout.model_dump() if getattr(spec, "layout", None) is not None else {}
+    lays = [lay] + [x.layout.model_dump() for x in getattr(spec, "extras", None) or []]
+    out = set()
+    for sec in (s for lay in lays for s in lay.get("sections") or []):
+        lines = list(sec.get("lines") or []) + ([sec["repeat"].get("line") or {}] if sec.get("repeat") else [])
+        out |= {str(c["drill"]) for ln in lines for c in ln.get("cells") or [] if isinstance(c, dict) and "drill" in c}
+    return out
+
+
+def question_for(t, spec) -> int:
+    """A new spec with drill cells answers the pending drill (Lines sheets without an Answer); otherwise the next q."""
+    if drill_aliases(spec):
+        pending = sheets.pending_drill_question(t)
+        if pending is not None:
+            return pending
+    return sheets.next_question(t)
+
+
+def check_drill_tables(t, q: int, spec) -> None:
+    """Refuse drill cells whose Lines table is missing before anything is written: Excel rejects the formula
+    (0x800A03EC). Tables that cannot be read are not checked."""
+    aliases = drill_aliases(spec)
+    if not aliases:
+        return
+    try:
+        have = drill_xl.lines_tables(t.wb)
+    except InputError:
+        raise
+    except Exception:   # noqa: BLE001 - cannot check: the formulas are written as before
+        return
+    known = {h.lower() for h in have}
+    missing = [n for n in (drill_xl.table_name(q, a) for a in sorted(aliases)) if n.lower() not in known]
+    if missing:
+        raise InputError(f"The drill table(s) {', '.join(missing)} do not exist in this workbook (Lines tables here: "
+                         f"{', '.join(have) or 'none'}). Drill first with sv_drill(q={q}, id='<alias>'), or use the "
+                         "recipe the gate named (lines_ranking drills itself).")
+
+
 def run(h, raw: dict, target: str = "session", allow_archive: bool = False, *,
-        q: int | None = None, old: dict | None = None, t=None) -> Run:
+        q: int | None = None, old: dict | None = None, t=None, frame_done: bool = False,
+        drills: dict[str, list[dict]] | None = None, value_findings: list[dict] | None = None) -> Run:
     """A new question (old None) -> a new Q<n> Answer; a follow-up (q + old = sheets.load_answer, raw already
-    patched) -> the same Q<q> Answer redrawn in its block, unchanged pulls not fetched again."""
+    patched) -> the same Q<q> Answer redrawn in its block, unchanged pulls not fetched again.
+    frame_done: the caller already drew the first frame of Q<q> Answer (a recipe that drafts or drills first).
+    drills: alias -> drilled rows (drafted key points); value_findings: the recipe's findings on calculated values."""
     spec = parse_spec(raw)
     if spec.gate.outcome == "ambiguous":
         raise InputError("An ambiguous question pulls nothing: ask its questions first.")
     with stage("open target"):
         t = t or xltarget.resolve_target(h, target, allow_archive, title=spec.question[:50])
-        if old is None:
-            q = sheets.next_question(t)
+        if q is None:
+            q = question_for(t, spec)
+    check_drill_tables(t, q, spec)
     if old is None:
-        return _new(h, t, q, raw, spec)
+        return _new(h, t, q, raw, spec, frame_done, drills, value_findings)
     return _follow(h, t, q, raw, spec, old)
 
 
-def _new(h, t, q: int, raw: dict, spec: contract.AnswerSpec) -> Run:
+def _new(h, t, q: int, raw: dict, spec: contract.AnswerSpec, frame_done: bool = False,
+         drills: dict | None = None, value_findings: list[dict] | None = None) -> Run:
     sources: list[source.Source] = []
     try:
-        with stage("answer skeleton"):
-            progress.show(t, q, spec, f"fetching {len(spec.pulls)} source grid(s) ...")
+        if not frame_done:
+            with stage("answer skeleton"):
+                progress.show(t, q, spec, f"fetching {len(spec.pulls)} source grid(s) ...")
         for i, pin in enumerate(spec.pulls):
             progress.set_status(t, q, f"fetching {pin.connection} '{pin.id}' ({i + 1}/{len(spec.pulls)}) ...")
             sources.append(source.pull(h, t, q, i, pin))
         progress.set_status(t, q, "building the answer ...")
         ids = {pin.id: s.pull.sheet for pin, s in zip(spec.pulls, sources)}
         sess = {s.pull.sheet: s.pull for s in sources}
-        res, prepared = _draw(t, q, raw, spec, ids, sess, owned=None)
+        res, prepared = _draw(t, q, raw, spec, ids, sess, owned=None, drills=drills)
     except Exception as e:
         removed = sheets.rollback(t)
         raise rewrap(e, f"{e} (the answer was not completed; removed the partial sheets: "
                      f"{', '.join(removed) or 'none'})") from None
-    return _finish(t, q, raw, spec, ids, prepared, res, sources)
+    return _finish(t, q, raw, spec, ids, prepared, res, sources, value_findings=value_findings)
 
 
 def _exists(t, name: str) -> bool:
@@ -161,21 +209,43 @@ def expect_checks(layout: dict, by_id: dict) -> dict:
     return {**out, "checks": list(out.get("checks") or []) + extra}
 
 
-def _draw(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, sess: dict, owned: dict | None):
+def _draw(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, sess: dict, owned: dict | None,
+          drills: dict | None = None):
     by_id = {pid: sess[sheet] for pid, sheet in ids.items() if sheet in sess}
     layout = {k: v for k, v in expect_checks(raw["layout"], by_id).items() if k != "expect"}
     with stage("prepare spec"):
-        prepared = specs.prepare(answer_layout(layout, spec), ids, sess)
+        prepared = specs.prepare(answer_layout(layout, spec), ids, sess, drills=drills)
     with stage("answer"):
         res = answer_mod.build(t, q, prepared, sess, suffix=progress.ANSWER, owned=owned, reserve=findings.RESERVE)
+    _extras(t, q, raw, ids, sess, res, drills)
     return res, prepared
 
 
+def _extras(t, q: int, raw: dict, ids: dict, sess: dict, res: dict, drills: dict | None = None) -> None:
+    """Each extra as its own sheet 'Q<q> <topic>' (after the answer), linked both ways; its checks, formula errors
+    and warnings join the answer's (checks as '<topic>: <label>') so the review covers them."""
+    topics = []
+    for x in raw.get("extras") or []:
+        topic = x["topic"]
+        with stage(f"extra '{topic}'"):
+            prep = specs.prepare(x["layout"], ids, sess, drills=drills)
+            rx = answer_mod.build(t, q, prep, sess, suffix=topic)
+        res.setdefault("checks", {}).update({f"{topic}: {k}": v for k, v in (rx.get("checks") or {}).items()})
+        res.setdefault("formula_errors", []).extend(f"{topic}: {k}" for k in rx.get("formula_errors") or [])
+        res.setdefault("warnings", []).extend(rx.get("warnings") or [])
+        res.setdefault("extras", {})[topic] = {"sheet": rx["sheet"], "values": rx.get("values") or {}}
+        topics.append(topic)
+    if topics:
+        res["extra_sheets"] = [res["extras"][x]["sheet"] for x in topics]
+        progress.link(t, q, topics)
+
+
 def _finish(t, q: int, raw: dict, spec: contract.AnswerSpec, ids: dict, prepared: dict, res: dict, sources: list,
-            reused: list[str] | None = None) -> Run:
+            reused: list[str] | None = None, value_findings: list[dict] | None = None) -> Run:
     flagged = commentary.material(prepared, res.get("values") or {}, catalog.load())
     review = check.review(res, sources, extra=commentary.findings(
-        flagged, [d.model_dump() for d in spec.commentary.drivers]),
+        flagged, [d.model_dump() for d in spec.commentary.drivers])
+        + recipes.value_findings(value_findings, res.get("values") or {}),
         warn_checks={c.label for c in spec.layout.checks if c.severity == "Warning"})
     ext = res.get("extent")
     if ext:

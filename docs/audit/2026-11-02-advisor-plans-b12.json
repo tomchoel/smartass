@@ -1,0 +1,22 @@
+{
+ "started": "2026-11-02T21:07:00",
+ "route": "core",
+ "results": [
+  {
+   "id": "B12",
+   "question": "Lines behind account 12881, un.SY, Sep 26",
+   "gate": "clear",
+   "route": "core",
+   "first_visible_s": null,
+   "total_s": null,
+   "oracle": {},
+   "match": {},
+   "checks_ok": false,
+   "formula_errors": [],
+   "problems": [],
+   "error": "ToolFailed: sv_drill: Error executing tool sv_drill: Smart View in this Excel is not signed in correctly: EPM answers 'Empty response from provider' to every connect, and Smart View shows no Login to click. Ask the user to sign in once in that Excel (Smart View ribbon -> Panel -> connect FinMax, or close that Excel so the next call starts a fresh one), then ask again. If every Excel does this and ",
+   "notes": "",
+   "result": "ERROR"
+  }
+ ]
+}

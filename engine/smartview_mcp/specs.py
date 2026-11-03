@@ -141,8 +141,9 @@ def _drill_value(rows: list[dict], where: dict, agg: str):
         raise ValueError(f"unknown drill agg '{agg}'")
     key = lambda x: "" if x is None else str(x).casefold()
     names = {str(c).casefold(): c for c in rows[0]} if rows else {}     # column names: case-insensitive
-    want = {names.get(str(k).casefold(), k): key(v) for k, v in where.items()}
-    hit = [r for r in rows if all(key(r.get(k)) == v for k, v in want.items())]
+    want = {names.get(str(k).casefold(), k): ({key(x) for x in v} if isinstance(v, list) else {key(v)})
+            for k, v in where.items()}                                  # a list = any of its values
+    hit = [r for r in rows if all(key(r.get(k)) in v for k, v in want.items())]
     amts = [r["AMOUNT"] for r in hit if isinstance(r.get("AMOUNT"), float)]
     if agg == "count":
         return len(hit)
@@ -195,6 +196,10 @@ def evaluate(spec: dict, pulls: dict, drills: dict[str, list[dict]] | None = Non
                         row[j] = eval(re.sub(r"[^\w+\-*/(). ]", "", c["expr"]), {"__builtins__": {}}, env)
                     elif "ref" in c:
                         row[j] = vals.get(c["ref"]["key"], [None] * ncol)[int(c["ref"].get("col", j))]
+                    elif "share" in c:
+                        k = int(c["share"]["col"])
+                        a, tot = row[k], vals.get(c["share"]["of"], [None] * ncol)[k]
+                        row[j] = None if a is None or not tot else a / tot
                     elif "rowsum" in c:
                         xs = [row[k] for k in c["rowsum"]]
                         row[j] = None if any(x is None for x in xs) else sum(xs)

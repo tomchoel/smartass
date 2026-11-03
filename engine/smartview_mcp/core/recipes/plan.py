@@ -7,6 +7,9 @@ from ...host import InputError
 from . import Draft, RecipeContext, pull_dict, stub_pulls
 
 _KEYS = ("month", "year", "basis", "forecast", "finmax_entity")
+DEFAULTS: dict = {}            # Target and the latest forecast are always shown: no comparison to switch off
+FOLLOWUPS = ["Monthly trend for {entity} through {period}",
+             "Cost base per cost centre under {entity}, YTD {period}"]
 
 
 def actual_vs_plan(params: dict, ctx: RecipeContext) -> Draft:

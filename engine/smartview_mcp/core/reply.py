@@ -74,6 +74,24 @@ def answer_markdown(spec: dict, res: dict) -> str:
     return "\n".join(out)
 
 
+def key_values(prepared: dict, res: dict, limit: int = 40) -> dict[str, dict]:
+    """label -> {column header -> value} of the answer's lines as the sheet computed them (res['values'] is read
+    back after the calculation), at most `limit` lines; empty cells are left out."""
+    heads = [c.get("header", "") for c in prepared.get("columns", [])]
+    out: dict[str, dict] = {}
+    for sec in prepared.get("sections", []):
+        for ln in sec.get("lines", []):
+            k = ln.get("key")
+            if not k or k not in res.get("values", {}):
+                continue
+            if len(out) >= limit:
+                return out
+            label = ln.get("label") or k
+            out[label if label not in out else f"{label} ({k})"] = {
+                h: v for h, v in zip(heads, res["values"][k]) if v is not None and v != ""}
+    return out
+
+
 def result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> dict:
     try:
         if jobs.com(lambda: t.wb.ReadOnly, limit=10):
@@ -81,10 +99,12 @@ def result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> dic
                         "is built but cannot be saved under this name."] + warnings
     except Exception:   # noqa: BLE001 - informational only
         pass
+    data = [p.sheet for p in pulls] + ["Sources"]
     return {
         "workbook": t.path, "question": f"Q{q}", "answer_sheet": res["sheet"],
-        "data_sheets": [p.sheet for p in pulls] + ["Sources"],
+        "data_sheets": data, "sheets": [res["sheet"]] + list(res.get("extra_sheets") or []) + data,
         "key_points": spec.get("key_points", []),
+        "key_values": key_values(spec, res),
         "table": answer_markdown(spec, res),
         "checks": res["checks"],
         "warnings": warnings + res["warnings"] + (res.get("error_warnings")

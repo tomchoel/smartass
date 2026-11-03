@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CELL_KINDS = ("pull", "var", "varpct", "sum", "avg", "expr", "ref", "rowsum", "value", "text", "drill")
+CELL_KINDS = ("pull", "var", "varpct", "sum", "avg", "expr", "ref", "rowsum", "value", "text", "drill", "share")
 CHECKLIST = ("period", "scenario", "entity", "measure", "currency_sign", "granularity")
 
 
@@ -33,10 +33,11 @@ class Gate(_Strict):
     questions: list[str] = Field(default_factory=list, max_length=3)
     reason: str | None = None                        # infeasible: why it cannot be answered as asked
     proxy: str | None = None                         # infeasible: what is answered instead
+    answers: dict[str, str] = Field(default_factory=dict)   # the user's answers to the gate's questions, by item
 
     @model_validator(mode="after")
     def _consistent(self) -> "Gate":
-        unknown = set(self.checklist) - set(CHECKLIST)
+        unknown = (set(self.checklist) | set(self.answers)) - set(CHECKLIST)
         if unknown:
             raise ValueError(f"unknown checklist items {sorted(unknown)}; allowed: {', '.join(CHECKLIST)}")
         if self.outcome == "ambiguous" and not self.questions:
@@ -46,6 +47,24 @@ class Gate(_Strict):
         if self.outcome == "infeasible" and not (self.reason and self.proxy):
             raise ValueError("an infeasible gate needs a reason and the proxy answered instead")
         return self
+
+
+GATE_FIELDS = ("outcome", "checklist", "questions", "reason", "proxy", "answers")
+
+
+def normalize_gate(g):
+    """sv_gate's own output as an answer-spec gate: suggested_outcome -> outcome, each checklist {value, gap, ...}
+    -> its value (else the gap), the gate's other keys dropped. Anything else is returned as it is."""
+    if not isinstance(g, dict):
+        return g
+    items = g.get("checklist") if isinstance(g.get("checklist"), dict) else {}
+    if "suggested_outcome" not in g and not any(isinstance(v, dict) for v in items.values()):
+        return g
+    out = {k: g[k] for k in GATE_FIELDS if g.get(k) is not None}
+    out.setdefault("outcome", g.get("suggested_outcome"))
+    out["checklist"] = {k: (str(v.get("value") or v.get("gap") or "") if isinstance(v, dict) else v)
+                        for k, v in items.items()}
+    return out
 
 
 # ------------------------------------------------------------------ pulls
@@ -145,6 +164,16 @@ class Recipe(_Strict):
 
 
 # ------------------------------------------------------------------ the spec
+TOPIC = r"^[A-Z][A-Za-z0-9 &/-]{1,24}$"
+_RESERVED = ("Answer", "FinMax", "FinLite", "FinPlan", "Lines")
+
+
+class Extra(_Strict):
+    """A topic sheet 'Q<n> <topic>' next to the answer (e.g. 'By project'), rendered like the answer's layout."""
+    topic: str = Field(pattern=TOPIC)
+    layout: Layout
+
+
 class AnswerSpec(_Strict):
     version: Literal[1] = 1
     question: str = Field(min_length=1)
@@ -152,8 +181,10 @@ class AnswerSpec(_Strict):
     assumptions: list[str] = Field(default_factory=list)
     pulls: list[Pull] = Field(default_factory=list)
     layout: Layout | None = None
+    extras: list[Extra] = Field(default_factory=list)
     commentary: Commentary = Field(default_factory=Commentary)
     recipe: Recipe | None = None
+    deviation: str | None = Field(default=None, max_length=300)   # the user's explicit request to depart (D4)
 
     @model_validator(mode="after")
     def _shape(self) -> "AnswerSpec":
@@ -166,8 +197,14 @@ class AnswerSpec(_Strict):
         dup = sorted({i for i in ids if ids.count(i) > 1})
         if dup:
             raise ValueError(f"pull ids used twice: {', '.join(dup)}")
+        topics = [x.topic for x in self.extras]
+        bad = sorted({x for x in topics if topics.count(x) > 1 or x.split()[0] in _RESERVED})
+        if bad:
+            raise ValueError(f"extras: topic(s) used twice or reserved: {', '.join(bad)}")
         if self.layout:
             errs = _layout_refs(self.layout, set(ids), [d.line for d in self.commentary.drivers if d.line])
+            for x in self.extras:
+                errs += [f"extras '{x.topic}': {e}" for e in _layout_refs(x.layout, set(ids))]
             if errs:
                 raise ValueError("layout references: " + "; ".join(errs))
         elif any(d.line for d in self.commentary.drivers):
@@ -228,6 +265,13 @@ def _layout_refs(layout: Layout, pull_ids: set[str], driver_lines: list[str] = (
                     errs += [f"{where}[{j}]: {k} of unknown line '{x}'" for x in v if not is_key(x)]
             elif k == "ref" and not is_key(str((v or {}).get("key", ""))):
                 errs.append(f"{where}[{j}]: ref to unknown line")
+            elif k == "drill" and any(isinstance(x, list) and (not x or not all(isinstance(y, str) for y in x))
+                                      for x in (c.get("where") or {}).values()):
+                errs.append(f"{where}[{j}]: a drill where value is a text or a non-empty list of texts")
+            elif k == "share":                          # {"share": {"col": k, "of": line}}: this line / that line
+                v = v if isinstance(v, dict) else {}
+                if not isinstance(v.get("col"), int) or not 0 <= v["col"] < ncol or not is_key(str(v.get("of", ""))):
+                    errs.append(f"{where}[{j}]: share needs col within 0..{ncol - 1} and of = a line key")
             elif k == "expr":
                 errs += [f"{where}[{j}]: expr uses unknown line '{x}'"
                          for x in re.findall(r"[A-Za-z_]\w*", str(v)) if not is_key(x)]
@@ -247,7 +291,7 @@ def validate(spec: dict) -> AnswerSpec:
     return AnswerSpec.model_validate(spec)
 
 
-_IDS = {"pulls": "id", "sections": "title", "lines": "key", "checks": "label"}
+_IDS = {"pulls": "id", "sections": "title", "lines": "key", "checks": "label", "extras": "topic"}
 
 
 def _merge_list(old: list, new, ident: str | None, where: str) -> list:
@@ -316,4 +360,42 @@ def outline(raw: dict) -> dict:
             "sections": [{"title": s.get("title"), "lines": [ln.get("key") for ln in s.get("lines") or []],
                           **({"repeat": (s["repeat"].get("line") or {}).get("key")} if s.get("repeat") else {})}
                          for s in lay.get("sections") or []],
-            "checks": [c["label"] for c in lay.get("checks") or []]}
+            "checks": [c["label"] for c in lay.get("checks") or []],
+            "extras": [x.get("topic") for x in raw.get("extras") or []]}
+
+
+# ------------------------------------------------------------------ English sheet text (D7)
+_NO = frozenset("og ikke på av til med kun fra som er det den har ble utledet valgt bekreftet kontoene beløp "
+                "inkluderer gjelder periode regnskap hittil fjor tall kostnader leverandør".split())
+_QUOTED_OR_MEMBER = re.compile(r"(?<!\w)'[^']*'(?!\w)|\"[^\"]*\"|“[^”]*”|‘[^’]*’|\b[a-z]{2}\.[\w.\-]+", re.I)
+
+
+def non_english(s: str) -> bool:
+    """A Norwegian-marker heuristic: two Norwegian function words, or æ/ø/å outside quoted names and members."""
+    words = re.findall(r"[A-Za-zÆØÅæøå]+", _QUOTED_OR_MEMBER.sub(" ", s or ""))
+    return sum(w.lower() in _NO for w in words) >= 2 or any(c in "æøåÆØÅ" for w in words for c in w)
+
+
+def sheet_texts(raw: dict) -> list[tuple[str, str]]:
+    """(path, text) of every sentence the spec writes on the sheet: assumptions, deviation, layout title, subtitle,
+    notes, key points, section titles, column headers, check labels, drivers (also in recipe overrides). Not the
+    question (shown as asked) nor line labels and data names."""
+    out: list[tuple[str, str]] = [(f"assumptions[{i}]", a) for i, a in enumerate(raw.get("assumptions") or [])]
+    if raw.get("deviation"):
+        out.append(("deviation", raw["deviation"]))
+
+    def layout(lay: dict, at: str) -> None:
+        out.extend((f"{at}.{k}", lay[k]) for k in ("title", "subtitle") if isinstance(lay.get(k), str))
+        for k in ("notes", "key_points"):
+            out.extend((f"{at}.{k}[{i}]", x) for i, x in enumerate(lay.get(k) or []) if isinstance(x, str))
+        for name, key in (("sections", "title"), ("columns", "header"), ("checks", "label")):
+            out.extend((f"{at}.{name}[{i}].{key}", x[key]) for i, x in enumerate(lay.get(name) or [])
+                       if isinstance(x, dict) and isinstance(x.get(key), str))
+    layout(raw.get("layout") or {}, "layout")
+    for i, x in enumerate(raw.get("extras") or []):
+        layout((x or {}).get("layout") or {}, f"extras[{i}].layout")
+    layout(((raw.get("recipe") or {}).get("overrides") or {}).get("layout") or {}, "recipe.overrides.layout")
+    drivers = (raw.get("commentary") or {}).get("drivers") or []
+    out.extend((f"commentary.drivers[{i}].text", d["text"]) for i, d in enumerate(drivers)
+               if isinstance(d, dict) and isinstance(d.get("text"), str))
+    return [(p, t) for p, t in out if t]

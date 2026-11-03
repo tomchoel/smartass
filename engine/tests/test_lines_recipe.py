@@ -1,0 +1,428 @@
+"""Recipe lines_ranking (plan 2026-11-02 Batch B): invoiced ranking top 10 + Other, the group block, the reconciling
+line, LY from a second drill, the unexplained gap. Pure: fixture rows mirror the live consultant question."""
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from smartview_mcp import catalog, drill_xl, specs
+from smartview_mcp.core import contract, recipes
+from smartview_mcp.core.recipes import lines
+
+M = 1e6
+
+
+def _r(supplier, amount, period, **kw):
+    return {"AP_CUSTOMER_NAME": supplier, "AMOUNT": float(amount), "Period": period, **kw}
+
+
+VENDORS = [(f"Vendor {i:02d} AS", -(1.2 - i * 0.1) * M) for i in range(1, 12)]     # 11 small suppliers
+D1 = ([_r("KPMG AS", -10 * M, "Jan-26"), _r("KPMG AS", -20 * M, "Sep-26"),
+       _r("Accenture Norge AS", -20 * M, "Mar-26"), _r("Sopra Steria AS", -15 * M, "Jun-26"),
+       _r("TSS - Telenor Shared Services AS", -121.4 * M, "May-26"), _r("Telenor ASA", -15.2 * M, "Apr-26"),
+       _r("Towers Norge AS", -2.9 * M, "Feb-26"),
+       _r("", 25.4 * M, "Jun-26"), _r(None, 0.0, "Jul-26"),
+       _r("", 12.7 * M, "Oct-26"), _r("KPMG AS", -99 * M, "Oct-26")]          # October: after the closed month
+      + [_r(n, a, "Aug-26") for n, a in VENDORS])
+D2 = [_r("KPMG AS", -25 * M, "Sep-25"), _r("Accenture Norge AS", -18 * M, "Mar-25"), _r("Telenor ASA", -10 * M, "Apr-25"),
+      _r("", 5 * M, "Jun-25"), _r("Sopra Steria AS", -3 * M, "Dec-25")]                 # December: after Sep
+PARAMS = {"accounts": ["ac.C60080", "ac.C60090"], "entity": "un.SY", "period": "YTD Sep 26", "by": "supplier",
+          "projects": False}
+
+
+def _ctx(lines_=None, closed="Sep 26"):
+    return recipes.RecipeContext(closed=closed, cat=catalog.load(), label=lambda c, m: m, now="2026-10-05 10:00",
+                                 lines={"d1": D1, "d2": D2} if lines_ is None else lines_)
+
+
+def _ext_total(rows, months):
+    return sum(r["AMOUNT"] for r in rows if r["Period"] in months and r["AP_CUSTOMER_NAME"])
+
+
+def _cube(now: float, ly: float):
+    """A fake cube pull: two accounts (rows) × [Sep 26, Sep 25] (Accumulated = YTD)."""
+    rows = [["ac.C60080", now * 0.75, ly * 0.75], ["ac.C60090", now * 0.25, ly * 0.25]]
+    return {"cube": SimpleNamespace(layout=SimpleNamespace(col_tuples=[("Sep 26",), ("Sep 25",)], nr=1),
+                                    parsed=SimpleNamespace(rows=rows))}
+
+
+def _values(d, cube_now, cube_ly, lines_=None):
+    return specs.evaluate(d.layout, _cube(cube_now, cube_ly), lines_ if lines_ is not None else {"d1": D1, "d2": D2})
+
+
+def _lines_total(rows, months):
+    return sum(r["AMOUNT"] for r in rows if r["Period"] in months)
+
+
+NOW = [f"{m}-26" for m in ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep")]
+LY = [m.replace("-26", "-25") for m in NOW]
+
+
+def _labels(d, section: str) -> list[str]:
+    sec = next(s for s in d.layout["sections"] if s["title"].startswith(section))
+    return [ln["label"] for ln in sec["lines"]]
+
+
+def test_ranking_top10_excludes_group_and_orders_by_cost():
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    ranked = _labels(d, "Invoiced by supplier")[:10]
+    assert ranked[:3] == ["KPMG AS", "Accenture Norge AS", "Sopra Steria AS"]
+    assert ranked[3:] == [n for n, _ in VENDORS[:7]]                       # biggest cost first
+    assert not any("Telenor" in x or "TSS" in x or "Towers" in x for x in ranked)
+    contract.validate({"version": 1, "question": "q", "gate": {"outcome": "clear"}, "pulls": d.pulls,
+                       "layout": d.layout})
+
+
+def test_ranking_has_other_external_group_and_reconciling_lines():
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    labs = _labels(d, "Invoiced by supplier")
+    assert labs[10:] == ["Other external suppliers", "Total external suppliers"]
+    assert _labels(d, "Group companies") == ["TSS - Telenor Shared Services AS", "Telenor ASA", "Towers Norge AS",
+                                             "Total group companies"]
+    assert _labels(d, "Reconciliation") == [lines.NO_SUPPLIER, "Total (ledger lines)", lines.GAP, "ac.C60080",
+                                            "ac.C60090", "Total (cube)"]
+    total = _lines_total(D1, NOW)
+    v = _values(d, total, _lines_total(D2, LY))
+    assert v["nosupp"][0] == pytest.approx(25.4 * M) and v["lines"][0] == pytest.approx(total)
+    assert v["grp"][0] == pytest.approx(-139.5 * M)
+    assert v["other"][0] == pytest.approx(sum(a for _, a in VENDORS[7:]))
+    assert v["s1"][1] == pytest.approx(-25 * M) and v["s1"][4] == pytest.approx(-30 * M / total)
+
+
+def test_ranking_checks_tie_blocks_to_lines_and_lines_to_cube():
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    labels = {c["label"]: c for c in d.layout["checks"]}
+    assert set(labels) == {"Blocks = lines total", "Total = cube"}
+    v = _values(d, -170 * M, -60 * M)
+    for c in d.layout["checks"]:
+        res = specs.evaluate({**d.layout, "sections": d.layout["sections"] + [
+            {"title": "chk", "lines": [{"key": "chk", "cells": [{"expr": c["expr"]}] * 2}]}]},
+            _cube(-170 * M, -60 * M), {"d1": D1, "d2": D2})["chk"]
+        assert all(abs(x) < 1 for x in res[:2]), (c["label"], res)
+    assert v["cube"][0] == pytest.approx(-170 * M)
+
+
+def test_ranking_check_formulas_pass_the_formula_style_check():
+    """'ext+grp+nosupp-lines' was written as =C21+C29+C32-C33, which tn-formelstil blocks (PLUS_CHAIN)."""
+    from smartview_mcp import answer_write
+    from smartview_mcp import formulas as fx
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    keys = [ln["key"] for s in d.layout["sections"] for ln in s["lines"] if ln.get("key")]
+    rows = {k: 10 + i for i, k in enumerate(keys)}
+    fs = [("Q1 Answer", f"{col}{60 + i}", answer_write._expr_to_formula(c["expr"], col, rows))
+          for i, c in enumerate(d.layout["checks"]) for col in "CD"]
+    res = fx.check(fs)
+    assert res["ok"] is True and not res.get("block"), res
+    blocks = next(f for _, cell, f in fs if cell == "C60")
+    assert blocks == f"=SUM(C{rows['ext']},C{rows['grp']},C{rows['nosupp']})-C{rows['lines']}"
+    assert answer_write._expr_to_formula("a-b+c+d", "C", {"a": 1, "b": 2, "c": 3, "d": 4}) == "=C1-C2+C3+C4"
+
+
+def test_ranking_drivers_only_for_total_cube_and_three_largest_supplier_changes():
+    """17 'material variance ... has no driver' Warnings for one supplier ranking was noise: subtotals and
+    reconciling lines never need a driver; suppliers only the 3 largest changes, the rest one Info line."""
+    from smartview_mcp.core import commentary
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    v = _values(d, _lines_total(D1, NOW), _lines_total(D2, LY))
+    flagged = commentary.material(d.layout, v, catalog.load())
+    f = commentary.findings(flagged, [])
+    warned = [x["text"].split("'")[1] for x in f if x["severity"] == "Warning"]
+    assert warned[-1] == "Total (cube)" and len(warned) == 4
+    assert set(warned[:3]) == {"TSS - Telenor Shared Services AS", "Sopra Steria AS", "Telenor ASA"}
+    info = [x["text"] for x in f if x["severity"] == "Info"]
+    assert len(info) == 1 and info[0].endswith("other supplier changes above materiality — see sheet")
+    n = sum(1 for x in flagged if x.get("optional"))
+    assert n >= 2 and info[0].startswith(f"{n} other")
+    assert not {x["line"] for x in flagged} & {"other", "ext", "grp", "nosupp", "lines", "gap"}
+    plain = [{k: v for k, v in ln.items() if k != "driver"} for s in d.layout["sections"] for ln in s["lines"]]
+    assert len(commentary.material({"sections": [{"lines": plain}]}, v, catalog.load())) > len(flagged)
+
+
+def test_ranking_title_is_short_english_not_the_question():
+    """style_lint flagged B1 (~161 chars) as spilling over: the title is the measure, accounts and period."""
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    assert d.layout["title"] == "Consultancy (C60080 + C60090) — invoiced by supplier, YTD Sep 26"
+    assert "un.SY" in d.layout["subtitle"]
+    other = lines.lines_ranking({**PARAMS, "accounts": ["ac.C60110", "ac.C60095"]}, _ctx())
+    assert other.layout["title"] == "Accounts C60110 + C60095 — invoiced by supplier, YTD Sep 26"
+    assert not contract.non_english(d.layout["title"])
+
+
+def test_ranking_unexplained_gap_is_a_reconciling_line_and_a_warning_finding():
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    total = _lines_total(D1, NOW)
+    v = _values(d, total - 11.2 * M, _lines_total(D2, LY))
+    assert v["gap"][0] == pytest.approx(-11.2 * M)
+    f = recipes.value_findings(d.result["findings"], v)
+    assert len(f) == 1 and f[0]["severity"] == "Warning" and "-11,200,000" in f[0]["text"]
+    assert "Unexplained gap" in f[0]["text"] and f"{len([r for r in D1 if r['Period'] in NOW])} lines" in f[0]["text"]
+
+
+def test_ranking_no_gap_finding_within_1_nok():
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    v = _values(d, _lines_total(D1, NOW) + 0.6, 0.0)
+    assert recipes.value_findings(d.result["findings"], v) == []
+
+
+def test_ranking_ly_cells_use_a_list_where_on_ly_months():
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    s1 = d.layout["sections"][0]["lines"][0]
+    assert s1["cells"][0] == {"drill": "d1", "where": {"AP_CUSTOMER_NAME": "KPMG AS", "Period": NOW}}
+    assert s1["cells"][1] == {"drill": "d2", "where": {"AP_CUSTOMER_NAME": "KPMG AS", "Period": LY}}
+    v = _values(d, -1.0, -1.0)
+    assert v["s3"][1] == 0.0                                    # Sopra Dec-25 is outside the LY months
+    assert [x["alias"] for x in lines.drills(dict(PARAMS), _ctx())] == ["d1", "d2"]
+    assert lines.drills(dict(PARAMS), _ctx())[1]["cells"][0] == {"All Accounts": "ac.C60080",
+                                                                 "All Entities": "un.SY", "All Time Periods": "Yr 25"}
+
+
+def test_ranking_without_ly_drill_falls_back_to_total_ly():
+    d = lines.lines_ranking(dict(PARAMS), _ctx({"d1": D1}))
+    s1 = d.layout["sections"][0]["lines"][0]
+    assert s1["cells"][1] is None and s1["cells"][2] is None
+    assert any("last year" in w.lower() for w in d.warnings)
+    v = _values(d, -170 * M, -60 * M, {"d1": D1})
+    assert v["cube"][1] == pytest.approx(-60 * M) and v["s1"][1] is None
+    assert all(c["columns"] == [0] for c in d.layout["checks"])
+
+
+def test_ranking_assumptions_pass_the_english_check():
+    d = lines.lines_ranking(dict(PARAMS), _ctx())
+    assert d.assumptions and not [a for a in d.assumptions if contract.non_english(a)]
+    assert any("reconciling line" in a for a in d.assumptions)
+
+
+def test_drill_formula_list_value_is_an_or():
+    f = drill_xl.drill_formula("Lines_Q1_d1", {"AP_CUSTOMER_NAME": "KPMG AS", "Period": ["Jan-26", "Feb-26"]})
+    assert f == ('=SUM(FILTER(Lines_Q1_d1[AMOUNT],(Lines_Q1_d1[AP_CUSTOMER_NAME]="KPMG AS")*'
+                 '(ISNUMBER(MATCH(Lines_Q1_d1[Period],{"Jan-26","Feb-26"},0))),0))')
+    with pytest.raises(Exception, match="empty"):
+        drill_xl.drill_formula("T", {"Period": []})
+    assert specs._drill_value(D1, {"AP_CUSTOMER_NAME": "kpmg as", "Period": ["Jan-26", "Oct-26"]}, "sum") == -109 * M
+
+
+def test_group_company_patterns_match_telenor_tss_towers_not_kpmg():
+    gc = catalog.load().group_companies
+    assert gc.column == "" and gc.patterns
+    for n in ("Telenor ASA", "TSS - Telenor Shared Services AS", "Telenor Shared Services", "Towers Norge AS"):
+        assert lines.is_group(n, [], gc), n
+    for n in ("KPMG AS", "Accenture Norge AS", "Statsbygg", "Stssen AS"):
+        assert not lines.is_group(n, [], gc), n
+
+def test_span_of_gate_periods():
+    s = lines.span
+    assert (s(None, "Sep 26").head(26), s("YTD Sep 26", "Oct 26").months(25)[-1]) == ("YTD Sep 26", "Sep-25")
+    assert s("FY 26", "Sep 26").head(26) == "YTD Sep 26" and s("2025", "Sep 26").head(25) == "YTD Dec 25"
+    q = s("Q3 26", "Oct 26")
+    assert (q.head(26), q.opening(26), q.balance) == ("Q3 26", "Jun 26", "Accumulated")
+    assert (s("Aug 26", "Sep 26").balance, s("Aug 26", "Sep 26").months(26)) == ("Periodic", ["Aug-26"])
+
+
+def test_ranking_without_lines_is_a_valid_cube_only_draft_with_followups_filled():
+    d = lines.lines_ranking(dict(PARAMS), _ctx({}))
+    contract.validate({"version": 1, "question": "q", "gate": {"outcome": "clear"}, "pulls": d.pulls,
+                       "layout": d.layout})
+    assert d.warnings and d.layout["checks"]
+    full = lines.lines_ranking(dict(PARAMS), _ctx())
+    f = recipes.followups("lines_ranking", PARAMS, "YTD Sep 26", full.result["fill"])
+    assert f[0] == "Show the invoice lines for KPMG AS" and len(f) == 3
+
+
+def test_initiative_is_booked_project_else_derived_and_marked():
+    rows = [{"PROJECT": "P123", "PROJECT_DESC": "5G rollout", "CC_DESC": "Radio", "AMOUNT": -1.0},
+            {"PROJECT": "P124", "PROJECT_DESC": "", "AMOUNT": -1.0},
+            {"PROJECT": "000000", "CC_DESC": "Core network", "AMOUNT": -1.0},
+            {"PROJECT": "", "GL_DESCRIPTION_LINE": "KPMG 123456 audit fee 2026 Q3 extra work and much more text here",
+             "AMOUNT": -1.0},
+            {"AMOUNT": -1.0}]
+    cols = lines.add_initiative(rows, ["AMOUNT"])
+    assert cols == ["AMOUNT", "INITIATIVE", "INITIATIVE_DERIVED"]
+    assert [(r["INITIATIVE"], r["INITIATIVE_DERIVED"]) for r in rows] == [
+        ("5G rollout", ""), ("P124", ""), ("", "Core network"),
+        ("", "KPMG audit fee Q3 extra work and much mo"), ("", lines.NO_DESC)]
+    d = lines.lines_ranking({**PARAMS, "projects": True}, _ctx())
+    titles = [s["title"] for s in d.extras[0]["layout"]["sections"]]
+    assert d.extras[0]["topic"] == "By project" and "Initiative (derived, not booked)" in titles
+
+
+def test_by_project_sheet_sums_to_lines_total():
+    rows = [dict(r, PROJECT="P1" if r["AP_CUSTOMER_NAME"] == "KPMG AS" else "000000",
+                 PROJECT_DESC="Audit", CC_DESC="Finance") for r in D1]
+    d = lines.lines_ranking({**PARAMS, "projects": True}, _ctx({"d1": rows, "d2": D2}))
+    contract.validate({"version": 1, "question": "q", "gate": {"outcome": "clear"}, "pulls": d.pulls,
+                       "layout": d.layout, "extras": d.extras})
+    lay = d.extras[0]["layout"]
+    v = specs.evaluate(lay, {}, {"d1": rows})
+    assert v["bp"][0] == pytest.approx(-30 * M) and v["bp1"][0] == pytest.approx(-30 * M)
+    assert v["bp"][0] + v["dp"][0] == pytest.approx(_lines_total(rows, NOW)) == pytest.approx(v["plines"][0])
+    chk = specs.evaluate({**lay, "sections": lay["sections"] + [
+        {"title": "c", "lines": [{"key": "chk", "cells": [{"expr": lay["checks"][0]["expr"]}]}]}]}, {}, {"d1": rows})
+    assert abs(chk["chk"][0]) < 1 and lay["checks"][0]["label"] == "By project = lines total"
+    assert not lines.lines_ranking(dict(PARAMS), _ctx()).extras
+
+
+# ------------------------------------------------------------------ B4: one sv_answer call, frame first, offline
+T11 = "Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026? og på hvilke initiativer / prosjekt"
+
+
+def _answer_env(monkeypatch, tmp_path, calls, fail=None):
+    """sv_answer offline: fake Excel (every job runs inline), a fake drill (D1/D2 on the first account) and a fake
+    cube whose values equal the ledger lines; answer.build evaluates the prepared spec like the sheet would."""
+    from smartview_mcp import config, templates, tools_core
+    from smartview_mcp.core import drillstep, pipeline, progress, reply, runlog, source
+    from smartview_mcp.excel import jobs, sheets, target
+    monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
+    monkeypatch.setattr(tools_core, "_closed_cached", lambda: "Sep 26")
+    monkeypatch.setattr(tools_core.scope.prefs, "lookup", lambda item, phrase: None)
+
+    async def closed():
+        return "Sep 26", None
+
+    async def call_user(job, what):
+        return job(None)
+    monkeypatch.setattr(tools_core, "_closed_month", closed)
+    monkeypatch.setattr(tools_core, "_call_user", call_user)
+
+    def resolve(h, tgt, allow=False, title=None):
+        calls.append(("target", tgt))
+        return SimpleNamespace(path="C:\\x\\a.xlsx", created=tgt == "new", sheets_added=[], status=lambda s: None,
+                               wb=SimpleNamespace(Worksheets=lambda n: n, ReadOnly=False))
+    monkeypatch.setattr(target, "resolve_target", resolve)
+    monkeypatch.setattr(sheets, "next_question", lambda t: 1)
+    monkeypatch.setattr(sheets, "rollback", lambda t: calls.append(("rollback", list(t.sheets_added))) or [])
+    monkeypatch.setattr(sheets, "save_spec", lambda *a, **k: None)
+    monkeypatch.setattr(sheets, "log_source", lambda *a, **k: None)
+    monkeypatch.setattr(runlog, "write_sheet", lambda t, e: None)
+    monkeypatch.setattr(reply, "finish", lambda *a, **k: None)
+    monkeypatch.setattr(jobs, "com", lambda call, *a, **k: call())
+    monkeypatch.setattr(progress, "show", lambda t, q, spec, status: calls.append(("show", f"Q{q} Answer", status)))
+    monkeypatch.setattr(progress, "set_status", lambda t, q, text: calls.append(("status", text)))
+    monkeypatch.setattr(progress, "link", lambda t, q, topics: None)
+    monkeypatch.setattr(templates, "closed_month", lambda h: "Sep 26")
+    monkeypatch.setattr(templates, "member_label", lambda c, m: m)
+
+    async def drill(cell, say=None, **k):
+        calls.append(("drill", cell["All Accounts"], cell["All Time Periods"]))
+        if fail:
+            raise RuntimeError(fail)
+        rows = [dict(r) for r in {"Yr 26": D1, "Yr 25": D2}[cell["All Time Periods"]]] \
+            if cell["All Accounts"] == "ac.C60080" else []
+        return drillstep.DrillResult(cell, rows, ["AP_CUSTOMER_NAME", "AMOUNT", "Period"] if rows else [], None,
+                                     {"lines": len(rows), "gap": 0.0}, None, drillstep.SOURCE, 1.0)
+    monkeypatch.setattr(drillstep, "drill", drill)
+    monkeypatch.setattr(drillstep, "write", lambda t, q, alias, res, title, question="", log=True: calls.append(
+        ("write", alias, list(res.columns), len(res.rows))) or {"sheet": f"Q{q} Lines {alias}"})
+
+    def pull(h, t, q, i, pin):
+        calls.append(("pull", pin.id))
+        accts, cols = pin.rows[0].members, pin.columns[0].members
+        now, ly = _lines_total(D1, NOW), _lines_total(D2, LY)
+        rows = [[a, now if a == "ac.C60080" else 0.0, ly if a == "ac.C60080" else 0.0] + [0.0] * (len(cols) - 2)
+                for a in accts]
+        p = SimpleNamespace(sheet=f"Q{q} FinLite {pin.id}", seconds=0.1,
+                            row_labels={(a,): (a,) for a in accts}, col_labels={(c,): (c,) for c in cols},
+                            layout=SimpleNamespace(col_tuples=[(c,) for c in cols], nr=1),
+                            parsed=SimpleNamespace(rows=rows, pov_problems=[], unknown_members=[]))
+        return source.Source(p, "http", [])
+    monkeypatch.setattr(pipeline.source, "pull", pull)
+    seen, real = {}, specs.prepare
+
+    def prepare(spec, ids, sess, drills=None):
+        seen["drills"] = drills
+        return real(spec, ids, sess, drills)
+    monkeypatch.setattr(pipeline.specs, "prepare", prepare)
+
+    def build(t, q, prep, sess, suffix, owned=None, **kw):
+        calls.append(("build", suffix))
+        vals = specs.evaluate(prep, sess, seen["drills"])
+        checks = {}
+        for c in prep.get("checks") or []:
+            lay = {**prep, "sections": prep["sections"] + [
+                {"title": "chk", "lines": [{"key": "_chk", "cells": [{"expr": c["expr"]}] * len(prep["columns"])}]}]}
+            v = specs.evaluate(lay, sess, seen["drills"])["_chk"]
+            ok = all(v[j] is not None and abs(v[j]) < 1 for j in c.get("columns") or [0])
+            checks[c["label"]] = "OK" if ok else "FAIL"
+        return {"sheet": f"Q{q} {suffix}", "checks": checks, "values": vals, "warnings": [], "formula_errors": [],
+                "lint": []}
+    monkeypatch.setattr(pipeline.answer_mod, "build", build)
+    return tools_core
+
+
+async def _gate_and_answer(tools_core, question=T11):
+    g = await tools_core.gate(question)
+    assert g["suggested_outcome"] == "clear" and g["recipe"]["name"] == "lines_ranking"
+    return await tools_core.answer({"version": 1, "question": question, "gate": {"outcome": "clear"},
+                                    "recipe": g["recipe"]}, target="new")
+
+
+@pytest.mark.anyio
+async def test_drill_recipe_draws_the_frame_before_any_drill(monkeypatch, tmp_path):
+    calls = []
+    await _gate_and_answer(_answer_env(monkeypatch, tmp_path, calls))
+    kinds = [c[0] for c in calls]
+    assert kinds.index("show") < kinds.index("drill") < kinds.index("write") < kinds.index("pull")
+    show = next(c for c in calls if c[0] == "show")
+    assert show[1] == "Q1 Answer" and "Drilling ledger lines for ac.C60080, ac.C60090" in show[2]
+    assert [c for c in calls if c[0] == "target"] == [("target", "new"), ("target", "C:\\x\\a.xlsx")]
+
+
+@pytest.mark.anyio
+async def test_drill_recipe_frame_does_not_wait_for_the_closed_month(monkeypatch, tmp_path):
+    """The closed month (EPM, or the slow Excel fallback) and the drill plan come after the first frame."""
+    from smartview_mcp import templates
+    calls = []
+    tc = _answer_env(monkeypatch, tmp_path, calls)
+    monkeypatch.setattr(templates, "closed_month", lambda h: calls.append(("closed",)) or "Sep 26")
+    out = await _gate_and_answer(tc)
+    kinds = [c[0] for c in calls]
+    assert kinds.index("target") < kinds.index("show") < kinds.index("closed") < kinds.index("drill")
+    assert {"first frame", "first frame.open workbook", "first frame.draw frame",
+            "first frame.closed month + plan"} <= set(out["timings"])
+
+
+@pytest.mark.anyio
+async def test_failed_drill_leaves_a_cube_only_answer(monkeypatch, tmp_path):
+    calls = []
+    out = await _gate_and_answer(_answer_env(monkeypatch, tmp_path, calls, fail="link timed out"))
+    assert ("status", "Drill failed: link timed out; cube totals only") in calls
+    assert ("ac.C60080", "Yr 26") in [c[1:] for c in calls if c[0] == "drill"]   # the plan runs at once; a
+    assert not [c for c in calls if c[0] in ("write", "rollback")]                  # failed d1 drops every drill
+    assert out["checks"] == {"Accounts = total": "OK"} and "Total (cube)" in out["key_values"]
+    assert any("link timed out" in w for w in out["warnings"]) and any("cube total only" in w for w in out["warnings"])
+
+
+@pytest.mark.anyio
+async def test_frame_before_recipe_expansion_for_non_drill_recipes(monkeypatch, tmp_path):
+    from smartview_mcp import tools_core as tc
+    calls = []
+    _answer_env(monkeypatch, tmp_path, calls)
+
+    def expand(h, spec, lines=None):
+        calls.append(("expand", lines))
+        raise ValueError("stop here")
+    monkeypatch.setattr(tc, "_expand_recipe", expand)
+    q = "What is EBITDA for Business in September?"
+    with pytest.raises(ValueError, match="stop here"):
+        await tc.answer({"version": 1, "question": q, "gate": {"outcome": "clear"},
+                         "recipe": {"name": "pnl", "params": {"area": "un.SY.2BUS"}}}, target="new")
+    assert [c[0] for c in calls] == ["target", "show", "expand", "rollback"]
+    assert calls[2] == ("expand", None)
+
+
+@pytest.mark.anyio
+async def test_consultant_question_end_to_end_offline(monkeypatch, tmp_path):
+    calls = []
+    out = await _gate_and_answer(_answer_env(monkeypatch, tmp_path, calls))
+    assert out["sheets"][:4] == ["Q1 Answer", "Q1 By project", "Q1 Lines d1", "Q1 Lines d2"]
+    assert set(out["checks"].values()) == {"OK"} and "By project: By project = lines total" in out["checks"]
+    kv = out["key_values"]
+    assert kv["Total (cube)"]["YTD Sep 26"] == pytest.approx(_lines_total(D1, NOW))
+    assert ["TSS - Telenor Shared Services AS", "Telenor ASA", "Towers Norge AS"] == [
+        k for k in kv if k.startswith(("TSS", "Telenor", "Towers"))]
+    assert kv[lines.NO_SUPPLIER]["YTD Sep 26"] == pytest.approx(
+        sum(r["AMOUNT"] for r in D1 if r["Period"] in NOW and not r["AP_CUSTOMER_NAME"]))
+    assert 1 <= len(out["followups"]) <= 3 and out["followups"][0] == "Show the invoice lines for KPMG AS"
+    w1 = next(c for c in calls if c[0] == "write" and c[1] == "d1")
+    assert w1[2][-2:] == [lines.INITIATIVE, lines.DERIVED] and w1[3] == len(D1)
+    assert not [f for f in out["review"]["findings"] if f["severity"] == "Critical"]
