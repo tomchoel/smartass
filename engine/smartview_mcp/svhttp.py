@@ -180,6 +180,16 @@ class SvHttp:
                               "moved): " + "; ".join(bad[:5]))
         return Fetched(lay, values, time.monotonic() - t0)
 
+    def fetch_many(self, items: list[tuple]) -> list:
+        """fetch(conn, pov, rows, cols) for every item at once (at most SVHTTP_SESSIONS threads; each request has a
+        Smart View session of its own). Results in input order; an item that failed holds its exception."""
+        if not items:
+            return []
+        with cf.ThreadPoolExecutor(max_workers=min(len(items), config.SVHTTP_SESSIONS),
+                                   thread_name_prefix="svhttp-many") as ex:
+            futs = [ex.submit(self.fetch, *it) for it in items]
+        return [f.exception() if f.exception() is not None else f.result() for f in futs]
+
     def closed_month(self, conn: str = "FinMax") -> str:
         """The last closed month ('Current Reporting Month') as 'Sep 26': the one child of member CurrRepMonth in
         provider dimension TimePeriods, '[CurrRepMonth].[Y26M09]' (proven live 2026-10-25, FinMax only: FinLite is
