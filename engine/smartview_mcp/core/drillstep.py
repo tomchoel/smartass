@@ -198,8 +198,7 @@ async def _drill_fetch(url: str, max_lines: int) -> dict:
     if config.DRILL_DIRECT:
         try:
             with drilltime.span("direct drill"):
-                return await asyncio.wait_for(asyncio.wrap_future(drill_direct.shared_direct().fetch(url, max_lines)),
-                                              300)
+                return await asyncio.wait_for(drill_direct.shared_direct().fetch(url, max_lines), 300)
         except drill_direct.NoDrillData as e:
             return {"items": [], "total": 0, "view": None, "secs": 0, "note": str(e)}
         except (CellTooWide, TooManyLines):

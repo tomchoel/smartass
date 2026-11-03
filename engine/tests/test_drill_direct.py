@@ -1,4 +1,6 @@
 """drill_direct: drill lines from EPM's own drill query, without a page per piece (figures invented)."""
+import asyncio
+import concurrent.futures as cf
 import json
 
 import pytest
@@ -83,16 +85,16 @@ class FakePage:
     def close(self):
         self.closed = True
 
-    def evaluate(self, js, args):
-        url = args[0]
+    def fetch(self, url, opts):
+        """What the in-tab fetch answers: (status, text)."""
         if "FORMAT=SUI" in url:
-            self.gets.append((url, args[1]))
-            return {"s": 200, "t": self.sui}
+            self.gets.append((url, opts["headers"]))
+            return 200, self.sui
         if "view?page=DRILL_THROUGH" in url:
-            self.gets.append((url, args[1]))
-            return {"s": 200, "t": json.dumps({"items": [{"viewName": "DrillFilter", "viewDefinition": "[]"}]})}
-        self.posts.append((url, args[1], args[2]))
-        return {"s": 200, "t": json.dumps({"responsePayload": self.pages.pop(0)})}
+            self.gets.append((url, opts["headers"]))
+            return 200, json.dumps({"items": [{"viewName": "DrillFilter", "viewDefinition": "[]"}]})
+        self.posts.append((url, opts["body"], opts["headers"]))
+        return 200, json.dumps({"responsePayload": self.pages.pop(0)})
 
 
 class FakeSession:
@@ -110,10 +112,11 @@ class FakeSession:
 
 
 class FakeBrowser:
+    """DrillBrowser's surface: jobs run at once; request() answers from the tab prep() picked (tabs[] records it)."""
     base = "https://epm"
 
-    def __init__(self):
-        self.logins = 0
+    def __init__(self, s):
+        self.s, self.logins, self.tabs = s, 0, []
 
     def _ensure(self, s):
         pass
@@ -121,20 +124,45 @@ class FakeBrowser:
     def _login(self, s):
         self.logins += 1
 
+    def submit(self, fn):
+        f = cf.Future()
+        try:
+            f.set_result(fn(self.s))
+        except BaseException as e:   # noqa: BLE001
+            f.set_exception(e)
+        return f
+
+    def request(self, prep, timeout_s):
+        f = cf.Future()
+        try:
+            page, url, opts = prep(self.s)
+            self.tabs.append(page)
+            f.set_result(page.fetch(url, opts))
+        except BaseException as e:   # noqa: BLE001
+            f.set_exception(e)
+        return f
+
 
 def _items(n, amount="-1"):
     return [{"AMOUNTX": amount}] * n
 
 
+def _setup(page, **kw):
+    s = FakeSession(page)
+    b = FakeBrowser(s)
+    return dd.DirectDrill(browser=lambda: b, **kw), s, b
+
+
 def test_fetch_warms_once_then_reuses_the_tab():
     page = FakePage(_sui(), [{"totalResults": 2, "hasMore": False, "items": _items(2)},
                              {"totalResults": 1, "hasMore": False, "items": _items(1)}])
-    d, s, b = dd.DirectDrill(), FakeSession(page), FakeBrowser()
-    r1 = d.fetch_on(b, s, URL, 100)
-    r2 = d.fetch_on(b, s, URL, 100)
+    d, s, b = _setup(page)
+    r1 = asyncio.run(d.fetch(URL, 100))
+    r2 = asyncio.run(d.fetch(URL, 100))
     assert len(r1["items"]) == 2 and len(r2["items"]) == 1
     assert len(s.made) == 1                                   # one warm page for both pieces
     assert r1["view"]["items"][0]["viewName"] == "DrillFilter"
+    assert json.loads(r1["query"].body)["QUERY"] == "SELECT 1"   # the query travels with the piece (drill_derive)
     url, body, headers = page.posts[0]
     assert f"getData?limit={config.DRILL_PAGE}&offset=0" in url and json.loads(body)["QUERY"] == "SELECT 1"
     assert headers["x-appbuilder-client-id"] == "cid" and "cookie" not in headers
@@ -142,34 +170,95 @@ def test_fetch_warms_once_then_reuses_the_tab():
 
 def test_no_data_needs_no_warm_page():
     page = FakePage(json.dumps({"status": 1, "details": "Drill query does not return any data."}), [])
-    s = FakeSession(page)
+    d, s, _ = _setup(page)
     with pytest.raises(dd.NoDrillData):
-        dd.DirectDrill().fetch_on(FakeBrowser(), s, URL, 100)
+        asyncio.run(d.fetch(URL, 100))
     assert s.made == [] and page.posts == []                # getData never sent
 
 
 def test_warm_page_without_its_own_getdata_fails_clearly():
     page = FakePage(_sui(), [], warm_requests=False)
+    d, _, _ = _setup(page, capture_timeout_s=0)
     with pytest.raises(DrillError, match="never asked for its data"):
-        dd.DirectDrill(capture_timeout_s=0).fetch_on(FakeBrowser(), FakeSession(page), URL, 100)
+        asyncio.run(d.fetch(URL, 100))
     assert page.posts == []
+
+
+def test_getdata_only_ever_goes_from_the_warm_tab():
+    page = FakePage(_sui(), [{"totalResults": 1, "hasMore": False, "items": _items(1)}])
+    d, s, b = _setup(page)
+    q = asyncio.run(d.query(URL))
+    assert d.tab is None                                     # the SUI query needs no warm tab
+    asyncio.run(d.lines(q, URL, 100))
+    assert d.tab is page and len(s.made) == 1
+    d.tab.closed = True                                      # the warm tab died: getData must not use another tab
+    with pytest.raises(DrillError, match="warm drill tab is gone"):
+        d._warm_tab()
 
 
 def test_signed_out_mid_paging_rewarms_once():
     page = FakePage(_sui(), [{"totalResults": 3, "hasMore": True, "items": _items(1)}])
-    real = page.evaluate
+    real = page.fetch
     calls = {"n": 0}
 
-    def flaky(js, args):
-        if "getData" in args[0]:
+    def flaky(url, opts):
+        if "getData" in url:
             calls["n"] += 1
             if calls["n"] == 2:
-                return {"s": 200, "t": "<html>epmexit.jsp</html>"}
+                return 200, "<html>epmexit.jsp</html>"
             if calls["n"] == 3:
-                return {"s": 200, "t": json.dumps({"responsePayload": {"totalResults": 3, "hasMore": False,
-                                                                       "items": _items(2)}})}
-        return real(js, args)
-    page.evaluate = flaky
-    b, s = FakeBrowser(), FakeSession(page)
-    r = dd.DirectDrill().fetch_on(b, s, URL, 100)
+                return 200, json.dumps({"responsePayload": {"totalResults": 3, "hasMore": False, "items": _items(2)}})
+        return real(url, opts)
+    page.fetch = flaky
+    d, s, b = _setup(page)
+    r = asyncio.run(d.fetch(URL, 100))
     assert len(r["items"]) == 3 and b.logins == 1 and len(s.made) == 2
+
+
+def test_a_rewarm_already_done_by_another_piece_is_not_repeated():
+    page = FakePage(_sui(), [])
+    d, s, b = _setup(page)
+    d._warm(b, s, URL)
+    seen = d.gen
+    d._rewarm(b, s, URL, seen)                               # the first piece that saw the sign-out: rewarms
+    assert b.logins == 1 and d.gen == seen + 1
+    d._rewarm(b, s, URL, seen)                               # a second piece with the same stale view: nothing
+    assert b.logins == 1 and d.gen == seen + 1
+
+
+def test_a_lost_drill_query_is_asked_once_more():
+    page = FakePage(_sui(), [])
+    answers = [(200, "<html>sign-in</html>"), (200, _sui())]
+    page.fetch = lambda url, opts: answers.pop(0)
+    d, _, _ = _setup(page)
+    assert asyncio.run(d.query(URL)).app_id == 52
+    answers[:] = [(200, "<html/>"), (200, "<html/>")]
+    with pytest.raises(dd.SignedOut):
+        asyncio.run(d.query(URL))
+
+
+def test_pieces_run_at_once():
+    """Several pieces' requests are in flight together (the browser answers them later, out of order)."""
+    page = FakePage(_sui(), [])
+    d, s, b = _setup(page)
+    pending: list = []
+
+    def request(prep, timeout_s):
+        f = cf.Future()
+        page_, url, opts = prep(s)
+        pending.append((f, url))
+        return f
+    b.request = request
+    d._warm(b, s, URL)
+    d.views[(52, 39)] = {"items": []}
+
+    async def main():
+        tasks = [asyncio.ensure_future(d.lines(dd.parse_sui(_sui()), URL, 100)) for _ in range(3)]
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert len(pending) == 3                             # all three getData requests out before any answer
+        for f, _ in reversed(pending):
+            f.set_result((200, json.dumps({"responsePayload": {"totalResults": 1, "hasMore": False,
+                                                               "items": _items(1)}})))
+        return await asyncio.gather(*tasks)
+    assert [len(r["items"]) for r in asyncio.run(main())] == [1, 1, 1]

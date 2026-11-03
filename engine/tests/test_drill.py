@@ -1618,17 +1618,14 @@ def test_drill_link_falls_back_to_excel_and_logs(monkeypatch, caplog):
 
 def test_drill_fetch_direct_first_then_pages(monkeypatch, caplog):
     import asyncio
-    import concurrent.futures as cf
     from smartview_mcp import config, drill_direct
     from smartview_mcp.core import drillstep as server
     from smartview_mcp.drill_browser import DrillError
     monkeypatch.setattr(config, "DRILL_DIRECT", True)
 
     class Direct:
-        def fetch(self, url, max_lines):
-            f = cf.Future()
-            f.set_exception(DrillError("warm page never asked"))
-            return f
+        async def fetch(self, url, max_lines):
+            raise DrillError("warm page never asked")
     monkeypatch.setattr(drill_direct, "shared_direct", lambda: Direct())
 
     async def pages(url, max_lines):
@@ -1641,16 +1638,13 @@ def test_drill_fetch_direct_first_then_pages(monkeypatch, caplog):
 
 def test_drill_fetch_no_data_is_an_empty_piece_with_epms_note(monkeypatch):
     import asyncio
-    import concurrent.futures as cf
     from smartview_mcp import config, drill_direct
     from smartview_mcp.core import drillstep as server
     monkeypatch.setattr(config, "DRILL_DIRECT", True)
 
     class Direct:
-        def fetch(self, url, max_lines):
-            f = cf.Future()
-            f.set_exception(drill_direct.NoDrillData("Drill query does not return any data."))
-            return f
+        async def fetch(self, url, max_lines):
+            raise drill_direct.NoDrillData("Drill query does not return any data.")
     monkeypatch.setattr(drill_direct, "shared_direct", lambda: Direct())
 
     async def no_pages(url, max_lines):
