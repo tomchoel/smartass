@@ -2,6 +2,7 @@
 workbook) that sv_answer and sv_drill return. Also the per-workbook cache of a question's pulled grids."""
 from __future__ import annotations
 
+import json
 import logging
 
 from ..excel import jobs, sheets
@@ -141,3 +142,70 @@ def finish(t, q: int, spec: dict, res: dict, saved_new: bool):
     t.status(None)
     if saved_new:
         jobs.com(t.wb.Save)
+
+
+_KEEP = ("workbook", "question", "answer_sheet", "sheets", "data_sheets", "note", "gate", "period", "lines", "routes",
+         "key_points", "followups", "warnings", "outline")
+_KNOWN = set(_KEEP) | {"key_values", "checks", "review", "material", "timings", "formula_style", "style_lint", "table"}
+_EXTRA_MAX = 1500
+
+
+def _num(v, ratio: bool):
+    if isinstance(v, bool) or not isinstance(v, float):
+        return v
+    return round(v, 4) if ratio else round(v)
+
+
+def lean(out: dict, detail: str = "lean") -> dict:
+    """The reply of a built answer without the weight the answer does not need (detail='full': unchanged)."""
+    if detail == "full" or not isinstance(out, dict):
+        return out
+    res = {k: v for k, v in out.items() if k in _KEEP}
+    kv = out.get("key_values")
+    if isinstance(kv, dict):
+        res["key_values"] = {line: ({col: _num(v, "%" in str(col)) for col, v in cols.items()}
+                                    if isinstance(cols, dict) else cols) for line, cols in kv.items()}
+    ck = out.get("checks")
+    if isinstance(ck, dict):
+        bad = {k: v for k, v in ck.items() if str(v).strip().upper() != "OK"}
+        res["checks"] = {"ok": len(ck) - len(bad), **bad}
+    rv = out.get("review")
+    if isinstance(rv, dict):
+        seen, found = set(), []
+        for f in rv.get("findings") or []:
+            key = (f.get("severity"), f.get("text")) if isinstance(f, dict) else repr(f)
+            if key not in seen:
+                seen.add(key)
+                found.append(f)
+        res["review"] = {**rv, "findings": found}
+    elif rv is not None:
+        res["review"] = rv
+    if isinstance(out.get("material"), list):
+        res["material"] = [{k: m.get(k) for k in ("line", "label", "delta", "pct")} if isinstance(m, dict) else m
+                           for m in out["material"]]
+    tm = out.get("timings")
+    if isinstance(tm, dict):
+        top = sorted((k for k in tm if "." not in k and k not in ("first frame", "drills") and not k.startswith(("com calls.", "_"))),
+                     key=lambda k: -(tm[k] if isinstance(tm[k], (int, float)) else 0))[:3]
+        want = {"_total", "first frame", "drills", *top}
+        res["timings"] = {k: v for k, v in tm.items() if k in want}
+    fs = out.get("formula_style")
+    if isinstance(fs, dict):
+        res["formula_style"] = {k: fs.get(k) for k in ("ok", "counts", "block") if k in fs}
+    if isinstance(out.get("style_lint"), list):
+        res["style_lint"] = out["style_lint"][:5]
+    tb = out.get("table")
+    if isinstance(tb, str) and len(tb.splitlines()) <= 40:
+        res["table"] = tb
+    for k, v in out.items():
+        if k in _KNOWN:
+            continue
+        if len(json.dumps(v, default=str)) <= _EXTRA_MAX:
+            res[k] = v
+        elif isinstance(v, list):
+            res[k] = f"{len(v)} items: ask with detail='full'"
+        elif isinstance(v, dict):
+            res[k] = f"{len(v)} keys: ask with detail='full'"
+        else:
+            res[k] = v
+    return res

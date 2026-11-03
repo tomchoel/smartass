@@ -191,7 +191,8 @@ def _precheck(spec: dict) -> dict | None:
 
 @tool(annotations=WRITE)
 async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: int | None = None,
-                    target: str = "session", allow_archive: bool = False, ctx: Context | None = None) -> dict:
+                    target: str = "session", allow_archive: bool = False, detail: str = "lean",
+                    ctx: Context | None = None) -> dict:
     """Pipeline step 2: answer ONE question from an answer spec v1 (core/contract.py) - or change the current answer
     with a follow-up. Give exactly one of spec and followup.
     spec (a new question -> a new 'Q<n> Answer'): {version: 1, question, gate: {outcome: clear|ambiguous|infeasible,
@@ -221,15 +222,17 @@ async def sv_answer(spec: dict | None = None, followup: dict | None = None, q: i
     timings and an outline (pull ids, columns, section titles, line keys, check labels) to address follow-ups;
     key_values (line -> column -> value as the sheet calculated them: quote these), followups (at most 3 next
     questions of the recipe) and sheets (every sheet written).
+    detail="full" returns the whole table and every recipe extra (default "lean": rounded key_values, summarised
+    checks, big extras trimmed).
     Call sv_gate first for a new question (knowledge/advisor/gate.md)."""
     try:
-        return await answer(spec, followup, q, target, allow_archive)
+        return await answer(spec, followup, q, target, allow_archive, detail)
     except (HostError, InputError) as e:
         raise _err(e) from None
 
 
 async def answer(spec: dict | None = None, followup: dict | None = None, q: int | None = None,
-                 target: str = "session", allow_archive: bool = False) -> dict:
+                 target: str = "session", allow_archive: bool = False, detail: str = "lean") -> dict:
     """sv_answer without the MCP wrapper (also POST /answer); raises InputError / HostError."""
     if (spec is None) == (followup is None):
         raise InputError("Give exactly one of spec or followup: spec = new question, followup = change the current "
@@ -325,7 +328,7 @@ async def answer(spec: dict | None = None, followup: dict | None = None, q: int 
         rec = (r.raw or {}).get("recipe") or {}
         params = rec.get("params") or {}
         out["followups"] = recipes.followups(rec.get("name"), params, out.get("period") or params.get("period"), fill)
-        return out
+        return reply.lean(out, detail)
     if followup is None and recipe and recipes.drilling(spec["recipe"].get("name")):
         return await _answer_with_drills(spec, target, allow_archive, job)
     return await _call_user(job, what="sv_answer")

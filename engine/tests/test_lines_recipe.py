@@ -349,11 +349,11 @@ def _answer_env(monkeypatch, tmp_path, calls, fail=None):
     return tools_core
 
 
-async def _gate_and_answer(tools_core, question=T11):
+async def _gate_and_answer(tools_core, question=T11, detail="full"):
     g = await tools_core.gate(question)
     assert g["suggested_outcome"] == "clear" and g["recipe"]["name"] == "lines_ranking"
     return await tools_core.answer({"version": 1, "question": question, "gate": {"outcome": "clear"},
-                                    "recipe": g["recipe"]}, target="new")
+                                    "recipe": g["recipe"]}, target="new", detail=detail)
 
 
 @pytest.mark.anyio
