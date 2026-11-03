@@ -172,7 +172,11 @@ def save_meta(t: target.Target, p: "Pull", extra: dict | None = None) -> None:
                       ensure_ascii=False)
     chunks = [blob[i:i + 30000] for i in range(0, len(blob), 30000)]   # a cell holds max 32 767 characters
     row = ("'" + p.sheet, *("'" + c for c in chunks))         # name + blob chunks: one row, one write
-    jobs.com(lambda: setattr(ws.Range(ws.Cells(r, 1), ws.Cells(r, len(row))), "Value", (row,)))
+    if any(len(c) > 8000 for c in chunks):                    # long cells: one write each (an array write may truncate)
+        for i, v in enumerate(row, 1):
+            jobs.com(lambda i=i, v=v: setattr(ws.Cells(r, i), "Value", v))
+    else:
+        jobs.com(lambda: setattr(ws.Range(ws.Cells(r, 1), ws.Cells(r, len(row))), "Value", (row,)))
 
 
 def _name_hidden(ws, name: str) -> None:

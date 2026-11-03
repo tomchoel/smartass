@@ -571,14 +571,16 @@ def _page_setup(ws, xl, last_row, last, roles):
         _set(xl, "PrintCommunication", False)
     except Exception:   # noqa: BLE001 - not available: just slower
         pass
+    restored = False
     try:
         done = _page_setup_props(ws, xl, last_row, last, roles)
     finally:
         try:
             _set(xl, "PrintCommunication", True)
+            restored = True
         except Exception:   # noqa: BLE001
             pass
-    if done:
+    if done and restored:           # batched settings not flushed: do not mark the sheet as set up
         try:
             _retry(lambda: ws.Names.Add(Name=PAGE_SETUP_NAME, RefersTo=key, Visible=False))
         except Exception:   # noqa: BLE001 - only an optimisation

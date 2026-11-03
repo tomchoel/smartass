@@ -202,3 +202,25 @@ def test_lines_redrill_same_table_fewer_calls(monkeypatch):
     snap, n = run(lines_redrill_case, monkeypatch)
     assert same(snap) == pinned("lines_redrill")["state"]
     assert n == 21                                    # before: 40
+
+
+def test_page_setup_marker_is_not_added_when_print_communication_stays_off(monkeypatch):
+    from smartview_mcp import styling
+    wb, ws, roles = answer_sheet()
+
+    class Flaky:
+        def __init__(self, inner):
+            object.__setattr__(self, "inner", inner)
+
+        def __getattr__(self, k):
+            return getattr(self.inner, k)
+
+        def __setattr__(self, k, v):
+            if k == "PrintCommunication" and v is True:
+                raise RuntimeError("busy")
+            setattr(self.inner, k, v)
+    monkeypatch.setattr(styling, "_retry", lambda f, *a, **k: f())
+    styling._page_setup(ws, Flaky(wb.Application), 14, 7, roles)
+    assert not styling._has_page_setup(ws, styling._page_setup_key(14, 7, roles))
+    styling._page_setup(ws, wb.Application, 14, 7, roles)
+    assert styling._has_page_setup(ws, styling._page_setup_key(14, 7, roles))
