@@ -138,7 +138,7 @@ def test_source_sheet_same_look_fewer_calls(monkeypatch):
     assert n == 24                                    # before: 85
 
 
-@pytest.mark.parametrize("redraw, calls", [(False, 139), (True, 122)])
+@pytest.mark.parametrize("redraw, calls", [(False, 58), (True, 41)])          # before: 150, 150
 def test_answer_styling_same_look_fewer_calls(monkeypatch, redraw, calls):
     snap, n = run(report_case, monkeypatch, redraw)
     names = snap["sheets"]["Q1 Answer"].pop("names")
@@ -169,3 +169,15 @@ def test_lines_sheet_same_look_fewer_calls(monkeypatch):
     snap, n = run(lines_case, monkeypatch)
     assert same(snap) == pinned("lines")["state"]
     assert n == 36
+
+
+def test_answer_lint_findings_unchanged():
+    """The lint's findings as the unbatched lint returned them (captured before batching)."""
+    from smartview_mcp import styling
+    wb, ws, roles = answer_sheet()
+    assert styling.apply_report(ws, roles) == []
+    wb, ws, roles = answer_sheet()
+    ws.put(5, 2, "A very very long label that will not fit into the column at all, no way, really not")
+    ws.put(3, 9, "outside")
+    assert styling.apply_report(ws, roles) == ["content outside the table width (up to G)",
+                                               "B5: text is cut off or spills over (~65 > 46 chars)"]

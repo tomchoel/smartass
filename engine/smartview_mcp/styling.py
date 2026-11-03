@@ -61,12 +61,6 @@ def _cl(i: int) -> str:
     return s
 
 
-def _rng(ws, r1, c1, r2=None, c2=None):
-    r2 = r1 if r2 is None else r2
-    c2 = c1 if c2 is None else c2
-    return _retry(lambda: ws.Range(f"{_cl(c1)}{r1}:{_cl(c2)}{r2}"))
-
-
 def _rgb(c):
     return tn.rgb(c)
 
@@ -89,11 +83,6 @@ NUM_ALIAS = {"heltall": "heltall", "tall1": "tall1", "prosent1": "prosent1", "pr
              "faktor": "faktor", "belop": "belop"}
 TALL1_THOUSANDS = '#,##0.0_);(#,##0.0);"–"_)'    # spec: 'tall1' is one decimal WITH thousands separator
 HELTALL = tn.NUM["heltall"]
-
-
-def _seps(xl):
-    tup = _retry(lambda: xl.International)
-    return tup[2], tup[3], tup[4]     # decimal, thousands, list separator
 
 
 def _style_for(kind: str, emph: str) -> str:
@@ -302,37 +291,84 @@ def _parse_widths(spec: dict) -> dict[int, float]:
     return w
 
 
+def _blocks(cells: list[tuple[int, int, int]]) -> list[str]:
+    """[(row, c1, c2)] (one style's column runs) -> addresses, equal runs on consecutive rows joined into one
+    rectangle ('A5:G7' instead of 'A5:G5', 'A6:G6', 'A7:G7')."""
+    out: list[list[int]] = []                       # [r1, r2, c1, c2]
+    open_: dict[tuple[int, int], list[int]] = {}
+    for r, c1, c2 in sorted(cells):
+        blk = open_.get((c1, c2))
+        if blk is not None and blk[1] == r - 1:
+            blk[1] = r
+        else:
+            blk = [r, r, c1, c2]
+            open_[(c1, c2)] = blk
+            out.append(blk)
+    return [f"{_cl(c1)}{r1}:{_cl(c2)}{r2}" for r1, r2, c1, c2 in out]
+
+
+def _merge_text(row, first) -> None:
+    """A text row merged over the table width, in one COM call: wrap, merge, the TN Tekst style again (a merge
+    resets the hidden cells to Normal), top alignment of the first cell."""
+    row.WrapText = True
+    row.MergeCells = True
+    row.Style = "TN Tekst"
+    first.VerticalAlignment = tn.V_TOP
+
+
+def _check_rules(cell) -> None:
+    """The check colours of one range in one COM call: green bold for "OK", red on red otherwise. Starts with
+    Delete, so a rerun leaves the same two rules."""
+    fcs = cell.FormatConditions
+    fcs.Delete()
+    fc = fcs.Add(1, 3, '="OK"')                            # cell value = "OK"
+    fc.Font.Color = _rgb(GREEN)
+    fc.Font.Bold = True
+    fc = fcs.Add(1, 4, '="OK"')                            # not equal -> breach
+    fc.Font.Color = _rgb(tn.BREACH_FONT)
+    fc.Font.Bold = True
+    fc.Interior.Color = _rgb(tn.BREACH_FILL)
+
+
 def apply_report(ws, roles: dict) -> list[str]:
     """Style an answer sheet whose content is already written (never clears contents). Returns lint findings."""
     from .timing import stage
+    own = bool(roles.get("last_row"))     # the tool-owned block: never re-style the user's rows below it
+
+    def info():
+        wb = ws.Parent
+        xl = wb.Application
+        tup = xl.International
+        ur_last = None if own else ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+        return wb, xl, tup[2], tup[3], tup[4], ur_last
     with stage("A ensure styles"):
-        wb = _get(ws, "Parent")
-        xl = _get(wb, "Application")
+        wb, xl, dec, thou, sep, ur_last = _retry(info)
         ensure_styles(wb)
-    dec, thou, sep = _seps(xl)
     last = _ci(roles["last_col"])
     labels = sorted(_ci(c) for c in roles.get("label_cols", ["B"]))
     first_label = labels[0]
     widths = {c: 8.43 for c in range(1, last + 1)}
     widths.update({c: w for c, w in _parse_widths(roles.get("col_widths", {})).items() if c <= last})
     rows = {int(r["row"]): r for r in roles["rows"]}
-    ur = _get(ws, "UsedRange")
-    if roles.get("last_row"):              # the tool-owned block: never re-style the user's rows below it
+    if own:
         last_row = max(max(rows), int(roles["last_row"]))
     else:
-        last_row = max(max(rows), _get(ur, "Row") + _get(ur, "Rows", "Count") - 1)
+        last_row = max(max(rows), ur_last)
+    block = f"A1:{_cl(last)}{last_row}"
 
-    raw = _get(_rng(ws, 1, 1, last_row, last), "Value2")
+    raw = _retry(lambda: ws.Range(block).Value2)
     if not isinstance(raw, tuple):
         raw = ((raw,),)
     def val(r, c):
         return raw[r - 1][c - 1]
 
     # clear stale formats (keeps contents), then base style
+    def clear_and_base():
+        area = ws.Range(block)
+        area.ClearFormats()
+        area.Style = "TN Tom"
     with stage("A2 clear + base"):
-        area = _rng(ws, 1, 1, last_row, last)
-        _call(area, "ClearFormats")
-        _set(area, "Style", "TN Tom")
+        _retry(clear_and_base)
 
     by_style: dict[str, list[str]] = {}
     tall1_cells: list[str] = []
@@ -395,23 +431,33 @@ def apply_report(ws, roles: dict) -> list[str]:
         else:
             raise ValueError(f"row {r}: unknown kind {kind!r}")
         for st, c1, c2 in _runs(cols):
-            by_style.setdefault(st, []).append(f"{_cl(c1)}{r}:{_cl(c2)}{r}")
+            by_style.setdefault(st, []).append((r, c1, c2))
         for c, st in cols.items():
             assigned[(r, c)] = st
 
+    # every call below sets absolute values, so one that Excel rejects while busy is rerun as a whole
     with stage("B cell styles"):
-        for st, addrs in by_style.items():
-            for chunk in tn._chunks(addrs, sep):
-                _set(_retry(lambda: ws.Range(chunk)), "Style", st)
+        for st, cells in by_style.items():                # equal column runs on consecutive rows: one rectangle
+            for chunk in tn._chunks(_blocks(cells), sep):
+                _retry(lambda: setattr(ws.Range(chunk), "Style", st))
         if tall1_cells:
             fmt = tn.to_local(TALL1_THOUSANDS, dec, thou)
             for chunk in tn._chunks(tall1_cells, sep):
-                _set(_retry(lambda: ws.Range(chunk)), "NumberFormatLocal", fmt)
+                _retry(lambda: setattr(ws.Range(chunk), "NumberFormatLocal", fmt))
 
     with stage("C widths + heights"):
+        given = _parse_widths(roles.get("col_widths", {}))
+        by_width: dict[float, list[tuple[int, int, int]]] = {}    # one call per run of equal widths, not per column
         for c, w in widths.items():
-            if c in _parse_widths(roles.get("col_widths", {})):
-                _set(_retry(lambda: ws.Columns(c)), "ColumnWidth", w)
+            if c in given:
+                runs = by_width.setdefault(w, [])
+                if runs and runs[-1][2] == c - 1:
+                    runs[-1] = (1, runs[-1][1], c)
+                else:
+                    runs.append((1, c, c))
+        for w, runs in by_width.items():
+            for _, c1, c2 in runs:
+                _retry(lambda: setattr(ws.Range(f"{_cl(c1)}1:{_cl(c2)}1").EntireColumn, "ColumnWidth", w))
         by_height: dict[float, list[str]] = {}            # one call per distinct height, not one per row
         for r, h in sorted(heights.items()):
             runs = by_height.setdefault(h, [])
@@ -421,25 +467,16 @@ def apply_report(ws, roles: dict) -> list[str]:
                 runs.append((r, r))
         for h, runs in by_height.items():
             for chunk in tn._chunks([f"{a}:{b}" for a, b in runs], sep):
-                _set(_retry(lambda: ws.Range(chunk)), "RowHeight", h)
+                _retry(lambda: setattr(ws.Range(chunk), "RowHeight", h))
     with stage("D merges"):
         for r, c in merges:
-            _retry(lambda: _set(_rng(ws, r, c, r, last), "WrapText", True))
-            _set(_rng(ws, r, c, r, last), "MergeCells", True)
-            _set(_rng(ws, r, c, r, last), "Style", "TN Tekst")      # merge resets the hidden cells to Normal
-            _set(_rng(ws, r, c), "VerticalAlignment", tn.V_TOP)
+            _retry(lambda: _merge_text(ws.Range(f"{_cl(c)}{r}:{_cl(last)}{r}"), ws.Range(f"{_cl(c)}{r}")))
     with stage("E check colours"):
         for chunk in tn._chunks(_check_ranges(checks), sep):          # one rule pair per chunk (was per cell: 7 s)
-            cell = _retry(lambda: ws.Range(chunk))
-            _call(_get(cell, "FormatConditions"), "Delete")
-            fc = _call(_get(cell, "FormatConditions"), "Add", 1, 3, '="OK"')      # cell value = "OK"
-            _set(_get(fc, "Font"), "Color", _rgb(GREEN)); _set(_get(fc, "Font"), "Bold", True)
-            fc = _call(_get(cell, "FormatConditions"), "Add", 1, 4, '="OK"')      # not equal -> breach
-            _set(_get(fc, "Font"), "Color", _rgb(tn.BREACH_FONT)); _set(_get(fc, "Font"), "Bold", True)
-            _set(_get(fc, "Interior"), "Color", _rgb(tn.BREACH_FILL))
+            _retry(lambda: _check_rules(ws.Range(chunk)))
 
     with stage("F tab + freeze"):
-        _set(_get(ws, "Tab"), "Color", _rgb(tn.NAVY))
+        _retry(lambda: setattr(ws.Tab, "Color", _rgb(tn.NAVY)))
         _freeze(ws, int(roles.get("freeze_rows") or 0), 0)
     with stage("G page setup"):
         _page_setup(ws, xl, last_row, last, roles)
@@ -453,19 +490,27 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
     assigned itself (size/bold/wrap from tn.style_defs). Styles and number formats are set by our own code, so the
     per-cell 'has a TN style / has a number format' checks cannot fail and are not repeated."""
     errs: list[str] = []
-    ur = _get(ws, "UsedRange")
-    ur_last_c = _get(ur, "Column") + _get(ur, "Columns", "Count") - 1
-    ur_last_r = _get(ur, "Row") + _get(ur, "Rows", "Count") - 1
-    area = _rng(ws, 1, 1, max(ur_last_r, last_row), max(ur_last_c, last))
-    fname = _get(_get(area, "Font"), "Name")
+
+    def read():                                       # used range, font and vertical borders: one COM call
+        ur = ws.UsedRange
+        ur_last_c = ur.Column + ur.Columns.Count - 1
+        ur_last_r = ur.Row + ur.Rows.Count - 1
+        area = ws.Range(f"A1:{_cl(max(ur_last_c, last))}{max(ur_last_r, last_row)}")
+        lines = []
+        for edge in (7, 10, 11):
+            try:
+                lines.append(area.Borders(edge).LineStyle)
+            except Exception as e:   # noqa: BLE001
+                if _busy(e):
+                    raise
+                lines.append(tn.NONE)                 # unreadable edge: not reported (as before)
+        return ur_last_c, area.Font.Name, lines
+    ur_last_c, fname, lines = _retry(read)
     if fname != tn.FONT:
         errs.append(f"more than one font, or not Arial (Font.Name={fname!r})")
-    for edge, label in ((7, "left"), (10, "right"), (11, "inside")):
-        try:
-            if _get(_call(area, "Borders", edge), "LineStyle") != tn.NONE:
-                errs.append(f"vertical border ({label}) on the sheet (not allowed in the report style)")
-        except Exception:   # noqa: BLE001
-            continue
+    for style, label in zip(lines, ("left", "right", "inside")):
+        if style != tn.NONE:
+            errs.append(f"vertical border ({label}) on the sheet (not allowed in the report style)")
     if ur_last_c > last:
         errs.append(f"content outside the table width (up to {roles['last_col']})")
     defs = tn.style_defs()
