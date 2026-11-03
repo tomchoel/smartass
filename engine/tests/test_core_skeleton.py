@@ -529,3 +529,18 @@ def test_a_prefetched_input_error_is_raised_not_sent_to_excel(monkeypatch):
     monkeypatch.setattr(svhttp, "shared", lambda: Http())
     with pytest.raises(InputError, match="Invalid query"):
         source.pull(None, None, 1, 0, _pins("a")[0], pf=source.Prefetch(_pins("a")))
+
+
+def test_run_starts_the_prefetch_before_opening_the_workbook(monkeypatch):
+    calls = []
+    _fake_run(monkeypatch, calls)
+    order = []
+    real_resolve = target.resolve_target
+    monkeypatch.setattr(target, "resolve_target", lambda *a, **k: order.append("open") or real_resolve(*a, **k))
+    monkeypatch.setattr(pipeline.source, "Prefetch", lambda pins, only=None: order.append("prefetch") or "PF")
+    got = []
+    fake_pull = pipeline.source.pull
+    monkeypatch.setattr(pipeline.source, "pull", lambda h, t, q, i, pin, pf=None: got.append(pf) or
+                        fake_pull(h, t, q, i, pin, pf=pf))
+    pipeline.run(None, SPEC)
+    assert order[:2] == ["prefetch", "open"] and got == ["PF"]

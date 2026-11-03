@@ -114,18 +114,19 @@ def run(h, raw: dict, target: str = "session", allow_archive: bool = False, *,
     spec = parse_spec(raw)
     if spec.gate.outcome == "ambiguous":
         raise InputError("An ambiguous question pulls nothing: ask its questions first.")
+    pf = source.Prefetch(spec.pulls) if old is None else None   # grids arrive while Excel opens the workbook
     with stage("open target"):
         t = t or xltarget.resolve_target(h, target, allow_archive, title=spec.question[:50])
         if q is None:
             q = question_for(t, spec)
     check_drill_tables(t, q, spec)
     if old is None:
-        return _new(h, t, q, raw, spec, frame_done, drills, value_findings)
+        return _new(h, t, q, raw, spec, frame_done, drills, value_findings, pf=pf)
     return _follow(h, t, q, raw, spec, old)
 
 
 def _new(h, t, q: int, raw: dict, spec: contract.AnswerSpec, frame_done: bool = False,
-         drills: dict | None = None, value_findings: list[dict] | None = None) -> Run:
+         drills: dict | None = None, value_findings: list[dict] | None = None, pf: source.Prefetch | None = None) -> Run:
     sources: list[source.Source] = []
     try:
         if not frame_done:
@@ -133,7 +134,7 @@ def _new(h, t, q: int, raw: dict, spec: contract.AnswerSpec, frame_done: bool = 
                 progress.show(t, q, spec, f"fetching {len(spec.pulls)} source grid(s) ...")
         for i, pin in enumerate(spec.pulls):
             progress.set_status(t, q, f"fetching {pin.connection} '{pin.id}' ({i + 1}/{len(spec.pulls)}) ...")
-            sources.append(source.pull(h, t, q, i, pin))
+            sources.append(source.pull(h, t, q, i, pin, pf=pf))
         progress.set_status(t, q, "building the answer ...")
         ids = {pin.id: s.pull.sheet for pin, s in zip(spec.pulls, sources)}
         sess = {s.pull.sheet: s.pull for s in sources}
@@ -171,13 +172,14 @@ def _follow(h, t, q: int, raw: dict, spec: contract.AnswerSpec, old: dict) -> Ru
         if plan.replace:
             parked = sheets.park_sheets(t, list(plan.replace.values()))
         fresh = [p for p in spec.pulls if p.id not in plan.reuse]
+        pf = source.Prefetch(spec.pulls, only={i for i, p in enumerate(spec.pulls) if p.id not in plan.reuse})
         for i, pin in enumerate(spec.pulls):
             if pin.id in plan.reuse:
                 sheet = plan.reuse[pin.id]
                 src = source.Source(stored[sheet], "reused", [])
             else:
                 t.status(f"fetching {pin.connection} '{pin.id}' ({fresh.index(pin) + 1}/{len(fresh)}) ...")
-                src = source.pull(h, t, q, i, pin)
+                src = source.pull(h, t, q, i, pin, pf=pf)
                 sheet = src.pull.sheet
             sources.append(src)
             ids[pin.id], sess[sheet] = sheet, src.pull
