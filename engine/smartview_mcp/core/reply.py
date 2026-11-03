@@ -93,6 +93,12 @@ def key_values(prepared: dict, res: dict, limit: int = 40) -> dict[str, dict]:
     return out
 
 
+def line_count(prepared: dict, res: dict) -> int:
+    """How many lines of the answer have values (key_values carries at most its limit)."""
+    return sum(1 for sec in prepared.get("sections", []) for ln in sec.get("lines", [])
+               if ln.get("key") and ln["key"] in res.get("values", {}))
+
+
 def result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> dict:
     try:
         if jobs.com(lambda: t.wb.ReadOnly, limit=10):
@@ -106,6 +112,7 @@ def result(t, q: int, spec: dict, res: dict, pulls: list, warnings: list) -> dic
         "data_sheets": data, "sheets": [res["sheet"]] + list(res.get("extra_sheets") or []) + data,
         "key_points": spec.get("key_points", []),
         "key_values": key_values(spec, res),
+        "key_values_total": line_count(spec, res),
         "table": answer_markdown(spec, res),
         "checks": res["checks"],
         "warnings": warnings + res["warnings"] + (res.get("error_warnings")
@@ -146,14 +153,15 @@ def finish(t, q: int, spec: dict, res: dict, saved_new: bool):
 
 _KEEP = ("workbook", "question", "answer_sheet", "sheets", "data_sheets", "note", "gate", "period", "lines", "routes",
          "key_points", "followups", "warnings", "outline")
-_KNOWN = set(_KEEP) | {"key_values", "checks", "review", "material", "timings", "formula_style", "style_lint", "table"}
+_KNOWN = set(_KEEP) | {"key_values", "key_values_total", "checks", "review", "material", "timings", "formula_style", "style_lint", "table"}
 _EXTRA_MAX = 1500
 
 
 def _num(v, ratio: bool):
+    """Ratios and small fractions (margin 0.2345, FTE 0.5) keep 4 decimals; money-sized floats become integers."""
     if isinstance(v, bool) or not isinstance(v, float):
         return v
-    return round(v, 4) if ratio else round(v)
+    return round(v, 4) if ratio or abs(v) < 10 else int(round(v))
 
 
 def lean(out: dict, detail: str = "lean") -> dict:
@@ -165,6 +173,10 @@ def lean(out: dict, detail: str = "lean") -> dict:
     if isinstance(kv, dict):
         res["key_values"] = {line: ({col: _num(v, "%" in str(col)) for col, v in cols.items()}
                                     if isinstance(cols, dict) else cols) for line, cols in kv.items()}
+        total = out.get("key_values_total")
+        if isinstance(total, int) and total > len(kv):
+            res["more_lines"] = total - len(kv)
+            res["more_lines_note"] = "ask with detail='full'"
     ck = out.get("checks")
     if isinstance(ck, dict):
         bad = {k: v for k, v in ck.items() if str(v).strip().upper() != "OK"}

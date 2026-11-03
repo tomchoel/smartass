@@ -42,3 +42,32 @@ def test_full_detail_and_small_tables_are_kept():
     small = {**_big(), "table": "| a |\n| b |"}
     assert reply.lean(small, "lean")["table"] == "| a |\n| b |"
     assert reply.lean({"gate": "ambiguous", "questions": ["q"]}, "lean") == {"gate": "ambiguous", "questions": ["q"]}
+
+
+def test_lean_keeps_ratios_and_fractions_but_rounds_money():
+    kv = {"EBITDA margin": {"Sep 26": 0.2345678}, "Var": {"Variance": 0.01234}, "FTE": {"Sep 26": 0.5},
+          "Revenue": {"Sep 26": 2247931399.13}}
+    out = reply.lean({"key_values": kv}, "lean")["key_values"]
+    assert out["EBITDA margin"] == {"Sep 26": 0.2346} and out["Var"] == {"Variance": 0.0123}
+    assert out["FTE"] == {"Sep 26": 0.5} and out["Revenue"] == {"Sep 26": 2247931399}
+    assert isinstance(out["Revenue"]["Sep 26"], int)
+
+
+def test_lean_reports_lines_beyond_key_values():
+    kv = {f"L{i}": {"Sep 26": 1.0} for i in range(40)}
+    out = reply.lean({"key_values": kv, "key_values_total": 55}, "lean")
+    assert out["more_lines"] == 15 and "detail='full'" in out["more_lines_note"]
+    assert "more_lines" not in reply.lean({"key_values": kv, "key_values_total": 40}, "lean")
+
+
+def test_line_count_counts_lines_with_values():
+    spec = {"sections": [{"lines": [{"key": "a"}, {"key": "b"}, {}]}]}
+    assert reply.line_count(spec, {"values": {"a": [1]}}) == 1
+
+
+def test_gate_rejects_answer_keys_that_are_not_checklist_items():
+    import pytest
+    from smartview_mcp.core import scope
+    from smartview_mcp.host import InputError
+    with pytest.raises(InputError, match="measure"):
+        scope.gate("Opex this year", "Sep 26", learned=lambda i, p: None, answers={"bogus": "x"})
