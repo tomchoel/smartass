@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import shutil
 import subprocess
 import time
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -351,9 +353,33 @@ def _new_path(title: str, taken: set[str] | frozenset = frozenset()) -> Path:
         n += 1
 
 
+def _seed_has_label(seed: Path) -> bool:
+    """The seed exists and carries a sensitivity label (MSIP_Label_ custom properties), so Excel will save copies."""
+    try:
+        with zipfile.ZipFile(seed) as z:
+            return b"MSIP_Label_" in z.read("docProps/custom.xml")
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return False
+
+
 def _new_analysis_file(h: ExcelHost, title: str) -> Path:
+    """A copy of the labelled seed under the new name (no Excel started); without a usable seed the hidden Excel
+    makes the file the old way and its result becomes the seed (best effort)."""
     path = _new_path(title)
-    return h.on_host(lambda: _new_analysis_file_host(h, path))
+    seed = config.NEW_WORKBOOK_SEED
+    if _seed_has_label(seed):
+        try:
+            shutil.copyfile(seed, path)
+            return path
+        except OSError:
+            path.unlink(missing_ok=True)
+    made = h.on_host(lambda: _new_analysis_file_host(h, path))
+    try:
+        seed.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(made, seed)
+    except OSError:
+        pass
+    return made
 
 
 def _new_analysis_file_host(h: ExcelHost, path: Path) -> Path:
