@@ -74,9 +74,8 @@ Today, with no Excel open, the hidden server Excel (Smart View loaded) creates t
 at 12:18, its Smart View opened a login whose request timed out on the user's screen.
 - Seed: the first file made the old way is copied to `%LOCALAPPDATA%\smartass\new_workbook_seed.xlsx` (identical to
   what Excel produced, label included). Later new workbooks = a copy of the seed under the new name; no hidden Excel.
-- No seed yet, or the copy fails: the old path (and it writes the seed). A seed older than 30 days is renewed the
-  next time the old path runs... simplest: renewed when the label check fails (the copied file must still carry the
-  `MSIP_Label_` properties of the seed; if not, old path).
+- No seed yet, a seed without `MSIP_Label_` custom properties, or a failed copy: the old path, which (re)writes the
+  seed.
 - The hidden Excel then starts only for the HTTP-failure fallback.
 
 ## F. Smart View error boxes in smartass's own hidden Excel are closed (owner, 2026-11-03)
