@@ -9,6 +9,7 @@ from typing import Literal
 from ..context import Ctx
 from ..expr import Cells, Expr, Neg, Ref, Sub, Sum, share, var_pct
 from ..frame import Frame
+from ..resolver import metric_of_member
 from ..spec import Query
 
 BASES = ("ly", "budget", "forecast")
@@ -40,6 +41,19 @@ class BlockOut:
     lines: list[Line] = field(default_factory=list)
     chart: str | None = None
     drills: list = field(default_factory=list)   # DrillRequest (blocks/drivers.py)
+
+
+def metric_label(r, token: str, cube: str) -> str:
+    """The display name of a metric token: the semantic metric name for a metric id, alias or name; for a raw member
+    the name of the metric whose only member in this cube it is, else the atlas label ('C48 GROSS MARGIN'); else
+    the token as given."""
+    find = getattr(r, "metric", None)
+    m = find(token) if find is not None else None
+    if m is not None:
+        return m.name
+    defs = getattr(r, "metrics", None)
+    defs = defs() if callable(defs) else (defs or [])
+    return metric_of_member(defs, token, cube, None) or r.label(token, cube)
 
 
 def ck(block: str, line: str, col: int) -> str:

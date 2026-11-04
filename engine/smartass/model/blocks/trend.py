@@ -8,7 +8,7 @@ from ..expr import Expr, Ref, Sub, Sum
 from ..periods import label, resolve
 from ..series import months
 from ..spec import MatrixBlock, TrendBlock
-from .common import HEAD, BlockOut, Line, ck, children_sum, counted
+from .common import HEAD, BlockOut, Line, ck, children_sum, counted, metric_label
 
 
 def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
@@ -18,7 +18,8 @@ def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
     # a series lives on its own months: value and ly on the query's periods, budget and forecast on plan_periods
     own = {s: set(months(q, "value" if s == "ly" else s, cl)) for s in b.series}
     ms = sorted(set().union(*own.values()))
-    out = BlockOut(key, "trend", b.title or "Trend", [f"{m} {HEAD[s]}" for m, s in combos],
+    heads = [f"{metric_label(ctx.resolver, m, q.cube)} {HEAD[s]}" for m, s in combos]
+    out = BlockOut(key, "trend", b.title or "Trend", heads,
                    cols=[s for _, s in combos], query=q.id, chart="line" if b.chart else None,
                    col_metrics=[m for m, _ in combos])
     stock = [ctx.resolver.aggregation(m) == "last" for m, _ in combos]   # a stock is picked per month, never added
@@ -46,7 +47,8 @@ def build_matrix(b: MatrixBlock, ctx: Ctx, key: str) -> BlockOut:
     ms = resolve(q.periods, ctx.closed_for(q.cube))
     r = ctx.resolver
     kids = r.children(q.entity, q.cube)
-    out = BlockOut(key, "matrix", b.title or b.metric, [label(m) for m in ms], cols=["value"] * len(ms), query=q.id)
+    out = BlockOut(key, "matrix", b.title or metric_label(r, b.metric, q.cube), [label(m) for m in ms],
+                   cols=["value"] * len(ms), query=q.id)
     for i, e in enumerate(kids):
         out.lines.append(Line(f"e{i}", r.label(e, q.cube), [ctx.pick(q, b.metric, "value", e, [m]) for m in ms],
                               metric=b.metric, entity=e))

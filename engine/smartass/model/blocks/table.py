@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from ..context import Ctx
 from ..spec import KpiBlock, TableBlock
-from .common import BlockOut, Line, col_headers, entity_lines, product_lines, row_cells
+from .common import BlockOut, Line, col_headers, entity_lines, metric_label, product_lines, row_cells
 
 
 def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
@@ -18,7 +18,8 @@ def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
         out.lines = product_lines(ctx, q, b.metric, cols, key, top=b.top, other=b.other, sort=b.sort)
     else:
         for i, m in enumerate(b.metrics or q.metrics):
-            out.lines.append(Line(f"m{i}", m, row_cells(ctx, q, m, cols, key, f"m{i}"), metric=m,
+            out.lines.append(Line(f"m{i}", metric_label(ctx.resolver, m, q.cube),
+                                  row_cells(ctx, q, m, cols, key, f"m{i}"), metric=m,
                                   entity=q.entity))
     return out
 
@@ -29,6 +30,7 @@ def build_kpi(b: KpiBlock, ctx: Ctx, key: str) -> BlockOut:
     out = BlockOut(key, "kpi_tiles", b.title or "Key figures", col_headers(cols), cols=cols,
                    query=q.id)
     for i, m in enumerate(b.metrics):
-        out.lines.append(Line(f"k{i}", m, row_cells(ctx, q, m, cols, key, f"k{i}"), metric=m,
+        out.lines.append(Line(f"k{i}", metric_label(ctx.resolver, m, q.cube),
+                              row_cells(ctx, q, m, cols, key, f"k{i}"), metric=m,
                                   entity=q.entity))
     return out

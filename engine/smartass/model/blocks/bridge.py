@@ -6,20 +6,22 @@ from __future__ import annotations
 from ..context import Ctx
 from ..expr import Ref, Sub, Sum
 from ..spec import BridgeBlock
-from .common import HEAD, BlockOut, Line, ck
+from .common import HEAD, BlockOut, Line, ck, metric_label
 
 
 def build_bridge(b: BridgeBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
-    out = BlockOut(key, "bridge", b.title or f"{b.total} bridge", ["Amount"], cols=["amount"], query=q.id, chart="waterfall")
-    out.lines.append(Line("start", f"{b.total} {HEAD[b.base]}", [ctx.pick(q, b.total, b.base)], kind="sum",
+    total = metric_label(ctx.resolver, b.total, q.cube)
+    out = BlockOut(key, "bridge", b.title or f"{total} bridge", ["Amount"], cols=["amount"], query=q.id, chart="waterfall")
+    out.lines.append(Line("start", f"{total} {HEAD[b.base]}", [ctx.pick(q, b.total, b.base)], kind="sum",
                           metric=b.total, entity=q.entity))
     for i, s in enumerate(b.steps):
-        out.lines.append(Line(f"s{i}", s, [Sub(ctx.pick(q, s, "value"), ctx.pick(q, s, b.base))], metric=s,
+        out.lines.append(Line(f"s{i}", metric_label(ctx.resolver, s, q.cube),
+                              [Sub(ctx.pick(q, s, "value"), ctx.pick(q, s, b.base))], metric=s,
                               entity=q.entity))
     steps = Sum(tuple(Ref(ck(key, f"s{i}", 0)) for i in range(len(b.steps))))
     out.lines.append(Line("other", "Other / unexplained",
                           [Sub(Sub(Ref(ck(key, "end", 0)), Ref(ck(key, "start", 0))), steps)]))
-    out.lines.append(Line("end", f"{b.total} {HEAD['value']}", [ctx.pick(q, b.total, "value")], kind="grand",
+    out.lines.append(Line("end", f"{total} {HEAD['value']}", [ctx.pick(q, b.total, "value")], kind="grand",
                           metric=b.total, entity=q.entity))
     return out

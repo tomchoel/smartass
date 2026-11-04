@@ -89,6 +89,10 @@ class StaticResolver:
                        | {c for cs in self.tree.values() for c in cs}
                        | {a for m in self.metrics for ms in m.members.values() for a in ms})
 
+    def metric(self, name: str) -> MetricDef | None:
+        """The metric for a name (any case); None for a raw member."""
+        return self._m.get(name.strip().lower())
+
     def members(self, metric: str, cube: str) -> tuple[str, ...]:
         m = self._m.get(metric.lower())
         if m is None:
