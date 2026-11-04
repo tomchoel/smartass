@@ -1,4 +1,5 @@
-"""smartass command line: doctor, serve (HTTP API + update at login), setup (installer), update, atlas."""
+"""smartass command line: doctor, serve (HTTP API + update at login), setup (installer), update, atlas,
+knowledge."""
 from __future__ import annotations
 
 import argparse
@@ -23,6 +24,12 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
                    help="only this cube (repeatable; default all three)")
     b.add_argument("--dimension", action="append", help="only this dimension (repeatable; no purge of the cube)")
+    kn = sub.add_parser("knowledge", help="the semantic layer: compile knowledge.db from the semantic files + atlas")
+    kn_sub = kn.add_subparsers(dest="knowledge_cmd", required=True)
+    kb = kn_sub.add_parser("build", help="build knowledge.db and print the build report (errors keep the old db)")
+    kb.add_argument("--semantic", help="semantic folder (default: knowledge/semantic)")
+    kb.add_argument("--atlas", help="atlas.db (default: the home folder's)")
+    kb.add_argument("--out", help="knowledge.db to write (default: the home folder's)")
     a = ap.parse_args(argv)
 
     if a.cmd == "doctor":
@@ -57,6 +64,15 @@ def main(argv: list[str] | None = None) -> int:
         failed = [d for d in done if d.get("error")]
         print(f"atlas: {len(done) - len(failed)} built, {len(failed)} failed ({config.ATLAS_DB})")
         return 1 if failed else 0
+    if a.cmd == "knowledge":
+        from pathlib import Path
+
+        from ..core import config
+        from ..knowledge.build import build
+        r = build(Path(a.semantic or config.SEMANTIC_DIR), Path(a.atlas or config.ATLAS_DB),
+                  Path(a.out or config.KNOWLEDGE_DB))
+        print(r.to_text())
+        return 0 if r.ok else 1
     if a.cmd == "update":
         from . import update
         print(update.apply(force=a.force))

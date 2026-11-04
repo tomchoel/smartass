@@ -138,6 +138,8 @@ RUN_LOG = _path(_pick("SV_RUN_LOG", "paths.run_log", HOME / "logs" / "runs.jsonl
 PREFERENCES = _path(_pick("SV_PREFERENCES", "paths.preferences", HOME / "preferences.toml"))  # learned defaults (core)
 # Business map ("forretningskart"): core maps in the repo; packs add their own knowledge folders
 KNOWLEDGE_DIR = _path(_pick("SV_KNOWLEDGE_DIR", "paths.knowledge", REPO_DIR / "knowledge"))
+SEMANTIC_DIR = KNOWLEDGE_DIR / "semantic"                  # metrics/*.toml + facts/*.toml (sub-spec 2), in git
+KNOWLEDGE_DB = HOME / "knowledge.db"                       # compiled from SEMANTIC_DIR + the atlas; never in git
 PACKS = _checked(as_list(get(SETTINGS, "packs.enabled", []), "packs.enabled",
                          as_list(get(ORG_SETTINGS, "packs.enabled", []), "", [])[0]))
 # Regulated audit record: never written unless the caller explicitly allows it for that request.
