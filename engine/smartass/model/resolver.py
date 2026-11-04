@@ -22,6 +22,7 @@ class Resolver(Protocol):
     def materiality(self, metric: str) -> tuple[float, float]: ...
     def exists(self, member: str, cube: str) -> bool: ...
     def children(self, member: str, cube: str) -> tuple[str, ...]: ...
+    def weight(self, member: str, cube: str) -> float: ...
     def label(self, member: str, cube: str) -> str: ...
     def latest_forecast(self) -> str: ...
 
@@ -42,6 +43,7 @@ class StaticResolver:
     labels: dict[str, str] = field(default_factory=dict)
     extra_members: set[str] = field(default_factory=set)
     forecast: str = "Forecast Q326"
+    weights: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self):
         self._m = {m.name.lower(): m for m in self.metrics}
@@ -76,6 +78,10 @@ class StaticResolver:
 
     def children(self, member: str, cube: str) -> tuple[str, ...]:
         return self.tree.get(member, ())
+
+    def weight(self, member: str, cube: str) -> float:
+        """Consolidation weight in its parent: 1.0 add, -1.0 subtract, 0.0 ignore ('~')."""
+        return self.weights.get(member, 1.0)
 
     def label(self, member: str, cube: str) -> str:
         return self.labels.get(member, member)

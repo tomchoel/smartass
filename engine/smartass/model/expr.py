@@ -140,6 +140,19 @@ class Sub(Expr):
 
 
 @dataclass(frozen=True)
+class Neg(Expr):
+    a: Expr
+
+    def evaluate(self, frame, cells):
+        x = self.a.evaluate(frame, cells)
+        return None if x is None else -x
+
+    def to_excel(self, table, addr):
+        s = self.a.to_excel(table, addr)
+        return f"-({s})" if isinstance(self.a, Sub) else f"-{s}"
+
+
+@dataclass(frozen=True)
 class Ratio(Expr):
     """num / den, empty when the base is zero or missing; abs_base divides by |den| (variance %)."""
     num: Expr

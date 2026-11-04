@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from ..context import Ctx
-from ..expr import Cells, Expr, Ref, Sub, Sum, share, var_pct
+from ..expr import Cells, Expr, Neg, Ref, Sub, Sum, share, var_pct
 from ..frame import Frame
 from ..spec import Query
 
@@ -81,6 +81,26 @@ def row_cells(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, lkey: 
             else derived(c, cols, key, lkey, total_key, j) for j, c in enumerate(cols)]
 
 
+def counted(ctx: Ctx, q: Query, kids) -> list[str]:
+    """Children that take part in the consolidation (weight 0, '~', is ignored)."""
+    return [k for k in kids if ctx.resolver.weight(k, q.cube) != 0]
+
+
+def children_sum(ctx: Ctx, q: Query, metric: str, kids, series: str = "value",
+                 base_months: list | None = None) -> Expr:
+    """What the children add up to in the parent: weight +1 children minus weight -1 children; weight 0 skipped."""
+    w = {k: ctx.resolver.weight(k, q.cube) for k in kids}
+    plus = tuple(k for k in kids if w[k] > 0)
+    minus = tuple(k for k in kids if w[k] < 0)
+    if not plus and not minus:
+        raise ValueError(f"{q.entity}: no child takes part in the consolidation")
+    neg = ctx.pick(q, metric, series, minus, base_months) if minus else None
+    if not plus:
+        return Neg(neg)
+    pos = ctx.pick(q, metric, series, plus, base_months)
+    return Sub(pos, neg) if neg is not None else pos
+
+
 def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, top: int | None = None,
                  other: bool = True, sort: str = "none") -> list[Line]:
     r = ctx.resolver
@@ -109,9 +129,9 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
     lines.append(Line("total", r.label(q.entity, q.cube),
                       row_cells(ctx, q, metric, cols, key, "total", entity=q.entity, total_key="total"),
                       kind="grand", metric=metric))
-    if kids:
+    if counted(ctx, q, kids):
         vi = cols.index("value")
         check: list[Expr | None] = [None] * len(cols)
-        check[vi] = Sub(ctx.pick(q, metric, "value", tuple(kids)), Ref(ck(key, "total", vi)))
+        check[vi] = Sub(children_sum(ctx, q, metric, counted(ctx, q, kids)), Ref(ck(key, "total", vi)))
         lines.append(Line("check", "Check: children = parent", check, kind="check"))
     return lines
