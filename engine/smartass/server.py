@@ -24,8 +24,8 @@ from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError
 from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prepare
 
-TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "xl_snapshot", "xl_revert",
-              "xl_tidy")
+TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "fin_critic", "xl_snapshot",
+              "xl_revert", "xl_tidy")
 
 INSTRUCTIONS = """smartass (read-only towards Oracle EPM: FinMax/FinLite actuals, FinPlan plan/forecast).
 1) fin_lookup: metric names and members (entities 'un.SY.<code>' in FinMax, '<code> <name>' in FinPlan).
@@ -61,8 +61,22 @@ def _resolver(forecast_year: int | None = None):
     return open_resolver(year)
 
 
+ANSWER_KEY_VALUES = 5
+
+
+def _past(row: dict) -> dict:
+    kv = row.get("key_values") or {}
+    return {"workbook": row["workbook"], "q": row["q"], "question": row["question"], "when": row["at"],
+            "score": row.get("score"), "notes": row.get("notes") or "",
+            "key_values": dict(list(kv.items())[:ANSWER_KEY_VALUES])}
+
+
 def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 15) -> dict:
-    """{metrics: [id, name, aliases, description, differs, members, caveats ...], members: [... with caveats]}."""
+    """{metrics: [id, name, aliases, description, differs, members, caveats ...], members: [... with caveats]};
+    kind 'answer': {answers: past answers from answers.db (workbook, q, question, when, score, top key values)}."""
+    if kind == "answer":
+        from . import answers
+        return {"answers": [_past(r) for r in answers.search(query, limit)]}
     with contextlib.closing(_resolver()) as r:
         return r.search(query, kind, cube, limit)
 
@@ -71,7 +85,8 @@ def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 
 def fin_lookup(query: str, kind: str = "any", cube: str | None = None) -> dict:
     """Find metrics (kind 'metric': by name or alias, e.g. 'driftskostnader'; with description, members and how the
     cubes differ) and cube members (kind 'member'); 'any' returns both. Every hit carries its caveats (reorgs,
-    abolished units, account traps): pass them on. cube: FinMax | FinLite | FinPlan to narrow. Local, instant."""
+    abolished units, account traps): pass them on. cube: FinMax | FinLite | FinPlan to narrow. kind 'answer': past
+    answers (question, when, critic score, top key values) for continuity. Local, instant."""
     return lookup(query, kind, cube)
 
 
@@ -223,6 +238,53 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
         except Exception as e:   # noqa: BLE001 - one question never stops the pack
             done.append({"q": q, "ok": False, "error": str(e)})
     return {"refreshed": done, "workbook": workbook}
+
+
+def _rubric() -> str:
+    from .core import config
+    return (config.KNOWLEDGE_DIR / "agent" / "critic.md").read_text(encoding="utf-8")
+
+
+async def _answer_for(q: int | None) -> tuple[str, int]:
+    """(workbook, q) of the answer the critic reviews: found as a follow-up finds it (the explicit q, else the
+    active Q<n> Answer, else the latest v2 answer). Without a session workbook: the latest stored run."""
+    from . import answers
+    try:
+        stored, active, path = await _user(lambda h: read_stored(h, "session"), "fin_critic")
+    except GuardError:
+        row = answers.latest(q)
+        if row is None:
+            raise GuardError("no stored answer to review" + (f" for Q{q}" if q is not None else ""),
+                             "ask a question with fin_analyze(spec) first") from None
+        return row["workbook"], row["q"]
+    q2, _, _ = find_question(stored, q, active)
+    return path, q2
+
+
+@_register(kit.LOCAL)
+async def fin_critic(q: int | None = None, score: float | None = None, notes: str = "",
+                     ctx: Context | None = None) -> dict:
+    """The critic pass for a standard or deep answer or a pack question. Without score: {brief, rubric} of the
+    stored answer Q<q> (default: the active Q<n> Answer, else the latest) - score it on the rubric's 6 criteria,
+    fix by fin_analyze(patch=...) when below 4 (at most 2 rounds). With score (1-5, the rounded mean) and notes:
+    stores the score with the answer (answer memory, fin_lookup kind 'answer')."""
+    from . import answers
+    if score is not None and not 1 <= float(score) <= 5:
+        raise GuardError(f"score {score} is outside 1-5", "score each rubric criterion 1-5 and pass their mean")
+    workbook, q2 = await _answer_for(q)
+    if score is not None:
+        if not answers.set_score(workbook, q2, float(score), notes):
+            raise GuardError(f"Q{q2} has no stored answer to score", "re-run it (fin_analyze patch or fin_refresh) "
+                             "so it is stored, then score it")
+        return {"stored": True, "q": q2, "score": float(score)}
+    row = answers.get(workbook, q2)
+    if row is None:
+        raise GuardError(f"Q{q2} has no stored answer to review", "re-run it (fin_analyze patch or fin_refresh) "
+                         "so it is stored with its brief")
+    return {"q": q2, "workbook": workbook, "question": row["question"], "brief": row.get("critic_brief"),
+            "score": row.get("score"), "rubric": _rubric(),
+            **({} if row.get("critic_brief") else {"note": "no brief: the answer is depth 'quick' or older than "
+                                                   "the critic; patch plan.depth to 'standard' to get one"})}
 
 
 @_register(kit.ADMIN)

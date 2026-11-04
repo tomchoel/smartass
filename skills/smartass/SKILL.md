@@ -17,9 +17,8 @@ workbook, `"new"` for a separate file.
 2. **Build.** `fin_analyze(spec=...)`: one call fetches (Smart View HTTP; an ad hoc grid in Excel as fallback),
    computes every value and writes `Q<n> Answer` (live formulas) + `Q<n> Data` (table `Data_Q<n>`). Unknown
    members or metrics, an open month or totals that do not reconcile stop it with the reason and the fix.
-3. **Critic** (skip for `quick`). Review the reply as a controller: every material line explained, LY or plan
-   shown, top-N + Other when ranking, signs right, each hypothesis confirmed or rejected? Fix by patch, then add
-   the `commentary` block.
+3. **Critic** (skip for `quick`). Add the `commentary` by patch, then `fin_critic(q)`: score the brief on the
+   rubric, fix by patch below 4 (2 rounds), store with `fin_critic(q, score, notes)`.
 
 ## 2. AnalysisSpec v2 essentials
 

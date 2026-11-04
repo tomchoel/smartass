@@ -377,6 +377,25 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
                  lint + ([arranged] if arranged else []))
 
 
+def remember(pre: Prepared, out: dict) -> None:
+    """The run into answer memory (answers.db). Never stops an answer: a failure becomes a warning."""
+    from . import answers
+    spec = pre.spec
+    cells = [b.cell for b in spec.blocks if isinstance(b, LinesBlock)]
+    try:
+        answers.store({
+            "workbook": out["workbook"], "q": out["q"], "question": spec.question, "purpose": spec.plan.purpose,
+            "spec": pre.raw, "key_values": out.get("key_values") or {},
+            "metrics": sorted({m for q in spec.queries for m in q.metrics}),
+            "entities": list(dict.fromkeys([q.entity for q in spec.queries]
+                                           + [c["All Entities"] for c in cells if "All Entities" in c])),
+            "periods": list(dict.fromkeys([q.periods for q in spec.queries]
+                                          + [c["All Time Periods"] for c in cells])),
+            "critic_brief": out.get("critic_brief")})
+    except Exception as e:   # noqa: BLE001
+        out["warnings"] = list(out.get("warnings", [])) + [f"answer memory not updated ({e})"]
+
+
 def _with_notes(out: dict, notes: list[str]) -> dict:
     if notes:
         out["warnings"] = list(out.get("warnings", [])) + notes
@@ -395,6 +414,7 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
         except Exception:
             _rollback(t)
             raise
+    remember(pre, out)
     return _with_notes(out, notes)
 
 
@@ -432,6 +452,7 @@ def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "sess
         if not owned:
             out["warnings"] = list(out.get("warnings", [])) + [
                 "old answer without a stored range: the whole Answer sheet was redrawn"]
+    remember(pre, out)
     return _with_notes(out, notes)
 
 
