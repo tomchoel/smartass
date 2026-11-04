@@ -20,6 +20,7 @@ class GridRequest:
     periods: tuple[str, ...]
     scenario: str
     version: str
+    balance: str = "Periodic"
 
 
 def _depth(spec: AnalysisSpec, qid: str) -> int:
@@ -45,10 +46,13 @@ def _subtree(r: Resolver, cube: str, root: str, depth: int) -> tuple[str, ...]:
 def requests(spec: AnalysisSpec, r: Resolver, closed: Month) -> list[GridRequest]:
     reqs = []
     for q in spec.queries:
-        accounts = tuple(dict.fromkeys(a for m in q.metrics for a in r.members(m, q.cube)))
+        by_balance: dict[str, list[str]] = {}
+        for m in q.metrics:
+            by_balance.setdefault(r.balance(m), []).extend(r.members(m, q.cube))
         ents = _subtree(r, q.cube, q.entity, _depth(spec, q.id))
         for s in ("value", *q.compare):
             scen, ver = scenario(q.cube, s, r)
-            reqs.append(GridRequest(q.id, q.cube, accounts, ents, tuple(label(m) for m in months(q, s, closed)),
-                                    scen, ver))
+            for bal, accs in by_balance.items():
+                reqs.append(GridRequest(q.id, q.cube, tuple(dict.fromkeys(accs)), ents,
+                                        tuple(label(m) for m in months(q, s, closed)), scen, ver, bal))
     return reqs

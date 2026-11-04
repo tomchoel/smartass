@@ -8,6 +8,8 @@ from typing import Literal, Protocol
 
 Sign = Literal["income", "cost", "neutral"]
 Status = Literal["approved", "draft"]
+Balance = Literal["Periodic", "Accumulated"]
+Aggregation = Literal["sum", "last"]
 DEFAULT_MATERIALITY = (5_000_000.0, 0.05)
 
 
@@ -20,6 +22,8 @@ class Resolver(Protocol):
     def sign(self, metric: str) -> Sign: ...
     def status(self, metric: str) -> Status: ...
     def materiality(self, metric: str) -> tuple[float, float]: ...
+    def balance(self, metric: str) -> Balance: ...
+    def aggregation(self, metric: str) -> Aggregation: ...
     def exists(self, member: str, cube: str) -> bool: ...
     def children(self, member: str, cube: str) -> tuple[str, ...]: ...
     def weight(self, member: str, cube: str) -> float: ...
@@ -34,6 +38,8 @@ class MetricDef:
     sign: Sign = "neutral"
     status: Status = "approved"
     materiality: tuple[float, float] = DEFAULT_MATERIALITY
+    balance: Balance = "Periodic"
+    aggregation: Aggregation = "sum"
 
 
 @dataclass
@@ -72,6 +78,14 @@ class StaticResolver:
     def materiality(self, metric: str) -> tuple[float, float]:
         m = self._m.get(metric.lower())
         return m.materiality if m else DEFAULT_MATERIALITY
+
+    def balance(self, metric: str) -> Balance:
+        m = self._m.get(metric.lower())
+        return m.balance if m else "Periodic"
+
+    def aggregation(self, metric: str) -> Aggregation:
+        m = self._m.get(metric.lower())
+        return m.aggregation if m else "sum"
 
     def exists(self, member: str, cube: str) -> bool:
         return member in self._known

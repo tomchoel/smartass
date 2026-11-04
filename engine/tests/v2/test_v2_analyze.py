@@ -50,3 +50,27 @@ def test_identical_block_titles_and_labels_do_not_collide_in_key_values():
     assert res.key_values["Key figures (2) · EBITDA"]["Actual"] == 70.0
     assert res.key_values["Key figures (2) · EBITDA"]["Budget"] == 80.0
     assert "Key figures (3) · EBITDA" in res.key_values and "Key figures (3) · EBITDA (2)" in res.key_values
+
+
+def fte_spec():
+    d = spec_dict(blocks=[{"type": "kpi_tiles", "query": "fm", "metrics": ["FTE", "Opex"]}])
+    d["queries"][0].update(metrics=["FTE", "Opex"], periods="closed-ytd")
+    return AnalysisSpec.model_validate(d)
+
+
+def test_accumulated_last_metric_reads_the_last_month_not_the_sum():
+    from smartass.model.frame import Fact, Frame
+    fte = [Fact("FinMax", "fm", "ac.STA20Y", "un.SY.2BUS", f"{m} 26", "Actual", "", 100.0 + i, "Accumulated")
+           for i, m in enumerate(("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep"))]
+    # a Periodic row on the same account must not leak in
+    fte.append(Fact("FinMax", "fm", "ac.STA20Y", "un.SY.2BUS", "Sep 26", "Actual", "", 5.0, "Periodic"))
+    res = compute(fte_spec(), resolver(), CLOSED, Frame(fte))
+    assert res.key_values["Key figures · FTE"]["Actual"] == 108.0
+
+
+def test_requests_split_by_balance():
+    reqs = plan_requests(fte_spec(), resolver(), CLOSED)
+    assert [(x.balance, x.accounts) for x in reqs] == [("Accumulated", ("ac.STA20Y",)),
+                                                       ("Periodic", ("ac.C50S", "ac.C60")),
+                                                       ("Accumulated", ("ac.STA20Y",)),
+                                                       ("Periodic", ("ac.C50S", "ac.C60"))]

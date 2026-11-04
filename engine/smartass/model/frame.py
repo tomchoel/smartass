@@ -2,9 +2,9 @@
 Every cube's periods are normalised to month labels ('Sep 26') by the data layer; FinMax has no version ('')."""
 from __future__ import annotations
 
-from dataclasses import astuple, dataclass
+from dataclasses import dataclass
 
-COLUMNS = ("Cube", "Query", "Account", "Entity", "Period", "Scenario", "Version", "Value")
+COLUMNS = ("Cube", "Query", "Account", "Entity", "Period", "Scenario", "Version", "Balance", "Value")
 FILTER_COLUMNS = COLUMNS[:-1]
 
 
@@ -18,6 +18,7 @@ class Fact:
     scenario: str
     version: str
     value: float
+    balance: str = "Periodic"
 
 
 class Frame:
@@ -37,4 +38,5 @@ class Frame:
         return sum(x.value for x in hit) if hit else None
 
     def rows(self) -> list[tuple]:
-        return [astuple(x) for x in self.facts]
+        return [(x.cube, x.query, x.account, x.entity, x.period, x.scenario, x.version, x.balance, x.value)
+                for x in self.facts]

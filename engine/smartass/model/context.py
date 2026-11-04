@@ -29,11 +29,15 @@ class Ctx:
              base_months: list[Month] | None = None) -> Expr:
         scen, ver = scenario(q.cube, series, self.resolver)
         ents = (q.entity,) if entity is None else ((entity,) if isinstance(entity, str) else tuple(entity))
+        ms = months(q, series, self.closed, base_months)
+        if self.resolver.aggregation(metric) == "last":
+            ms = ms[-1:]
         f = {"Cube": (q.cube,), "Query": (q.id,), "Account": self.resolver.members(metric, q.cube),
-             "Entity": ents, "Period": tuple(label(m) for m in months(q, series, self.closed, base_months)),
+             "Entity": ents, "Period": tuple(label(m) for m in ms),
              "Scenario": (scen,)}
         if ver:
             f["Version"] = (ver,)
+        f["Balance"] = (self.resolver.balance(metric),)
         return pick(f)
 
     def value(self, e: Expr) -> float | None:

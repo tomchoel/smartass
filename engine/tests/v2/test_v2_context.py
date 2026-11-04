@@ -37,7 +37,8 @@ def test_pick_value_and_ly_and_formula():
     assert c.pick(q, "Opex", "value").to_excel("Data_Q1", str) == (
         'SUM(SUMIFS(Data_Q1[Value],Data_Q1[Cube],"FinMax",Data_Q1[Query],"fm",'
         'Data_Q1[Account],{"ac.C50S","ac.C60"},Data_Q1[Entity],"un.SY.2BUS",'
-        'Data_Q1[Period],"Sep 26",Data_Q1[Scenario],"Actual"))')
+        'Data_Q1[Period],"Sep 26",Data_Q1[Scenario],"Actual",'
+        'Data_Q1[Balance],"Periodic"))')
 
 
 def test_unknown_series_and_query():
