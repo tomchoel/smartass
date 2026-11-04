@@ -9,12 +9,13 @@ from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from .. import answer as answer_mod
-from .. import catalog, drill_xl, fin_spec, specs
-from ..excel import jobs, sheets, target as xltarget
-from ..host import InputError, rewrap
+from .. import catalog, fin_spec, specs
+from smartass.xl import drill_xl
+from smartass.xl import jobs, sheets, target as xltarget
+from smartass.xl.host import InputError, rewrap
 from smartass.core.timing import stage
 from . import check, commentary, contract, findings, followup, progress, recipes, source
-from . import owned as owned_mod
+from smartass.xl import owned as owned_mod
 
 
 @dataclass

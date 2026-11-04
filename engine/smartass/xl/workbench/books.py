@@ -7,8 +7,8 @@ import re
 import pywintypes
 from openpyxl.utils import get_column_letter as L
 
-from ..excel.instances import busy_error, busy_holder, excel_instances, interactive_excels, is_archive, local_path
-from ..excel.jobs import com, hold_turn
+from ..instances import busy_error, busy_holder, excel_instances, interactive_excels, is_archive, local_path
+from ..jobs import com, hold_turn
 from ..host import HostError, InputError
 
 log = logging.getLogger("smartview.workbench")

@@ -8,7 +8,7 @@ import time
 
 from smartass.core import config, timing
 from .grid import Axis, Layout, full_pov, parse
-from smartview_mcp.host import ExcelHost, HostError, InputError, ProviderEmpty
+from ..xl.host import ExcelHost, HostError, InputError, ProviderEmpty
 
 log = logging.getLogger("smartview.ops")
 

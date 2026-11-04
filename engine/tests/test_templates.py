@@ -203,7 +203,7 @@ def test_a_com_entry_is_reused_for_two_hours_only(tmp_path, monkeypatch):
 
 def test_com_month_outside_1_to_12_is_refused_and_not_cached(tmp_path, monkeypatch):
     from smartass.epm import svhttp
-    from smartview_mcp.host import HostError
+    from smartass.xl.host import HostError
     path = _setup(tmp_path, monkeypatch, _Http(svhttp.SvHttpError("signed out")))
     _com(monkeypatch, month="13")
     with pytest.raises(HostError, match="13"):
@@ -272,7 +272,7 @@ def test_closed_month_falls_back_to_com_and_caches_it_for_the_day(tmp_path, monk
 
 def test_http_and_com_both_failing_raises_and_caches_nothing(tmp_path, monkeypatch):
     from smartass.epm import svhttp
-    from smartview_mcp.host import HostError
+    from smartass.xl.host import HostError
     path = _setup(tmp_path, monkeypatch, _Http(svhttp.SvHttpError("signed out")))
     monkeypatch.setattr(ops, "find_member", lambda h, c, n: {"info": {}})
     with pytest.raises(HostError) as e:

@@ -6,11 +6,11 @@ import re
 from openpyxl.utils import get_column_letter as L
 from openpyxl.utils.cell import range_boundaries
 
-from . import books, fmt, history
-from .. import formulas as fx
-from ..excel.jobs import com
-from ..excel.target import _wait_ready
-from ..host import InputError
+from smartass.xl.workbench import books, fmt, history
+from smartass.xl import formulas as fx
+from smartass.xl.jobs import com
+from smartass.xl.target import _wait_ready
+from smartass.xl.host import InputError
 
 def _check_written(ws, rng) -> dict:
     """tn-formelstil on the formulas in the changed rows (whole used width, so row consistency is judged too)."""

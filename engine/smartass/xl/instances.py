@@ -17,7 +17,7 @@ import win32process
 
 from . import login
 from smartass.core import config
-from ..host import ExcelHost, HostError
+from .host import ExcelHost, HostError
 
 WM_GETOBJECT, OBJID_NATIVEOM = 0x003D, -16
 
@@ -73,7 +73,7 @@ def _app_from_window(ex7: int):
 
 def engine_excel_pids() -> set[int]:
     """The hidden automation Excels the smartass servers started (pids.json): never a user's Excel."""
-    from ..hostproc import _PidRegistry
+    from .hostproc import _PidRegistry
     return {int(i["pid"]) for i in _PidRegistry().load() if isinstance(i, dict) and i.get("pid")}
 
 
@@ -127,7 +127,7 @@ def busy_holder(instances: list[XlInstance], name: str) -> XlInstance | None:
 
 def busy_error(pid: int, name: str) -> HostError:
     """Name what blocks the Excel holding `name`: a dialog (dialogs.scan) or else cell edit mode."""
-    from .. import dialogs
+    from . import dialogs
     try:
         found = dialogs.scan(pid)
     except Exception:   # noqa: BLE001

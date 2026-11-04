@@ -2,7 +2,7 @@
 the answer's notes, inside the tool-owned range. Written after the build because it needs the calculated checks."""
 from __future__ import annotations
 
-from ..excel.jobs import com as _com
+from smartass.xl.jobs import com as _com
 
 LIMIT = 15
 RESERVE = LIMIT + 3          # header + rows + tail + a blank row: room made before the answer is written

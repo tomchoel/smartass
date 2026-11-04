@@ -6,7 +6,7 @@ import datetime as dt
 import json
 
 from smartass.core import config
-from ..excel import jobs, sheets
+from smartass.xl import jobs, sheets
 
 SHEET = "_runlog"
 HEADER = ("When", "Question no", "Question", "Gate", "Pulls", "Result", "Details")

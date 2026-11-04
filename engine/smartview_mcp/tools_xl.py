@@ -5,14 +5,15 @@ from typing import Literal
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from .host import HostError
+from smartass.xl.host import HostError
 from .server import LOCAL, WRITE, _call_user, _doc, _err, tool
 
 # ================================================================== xl_*: live work in the user's open workbooks
 # Any open workbook, no Smart View involved. Active workbook by default (or name one). Every change is snapshotted
 # (xl_revert undoes it - Ctrl+Z cannot undo automation), the screen stays frozen while writing and then jumps to the
 # change, and the workbook is NEVER saved: the user reviews and saves. Formulas must pass tn-formelstil.
-from .workbench import books, changes, fmt, history  # noqa: E402
+from smartass.xl.workbench import books, fmt, history
+from .workbench import changes  # noqa: E402
 
 XL_RULES = ("Formulas follow skill tn-formelstil: SUM over ranges (never a + chain of 3+ cells), label-keyed XLOOKUP "
             "(no INDEX/MATCH(1,1*...), no guessed ranges like $A$5:$Z$400), variance % "

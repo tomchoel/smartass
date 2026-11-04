@@ -1,7 +1,7 @@
 import json
 
 from smartass.core import config
-from smartview_mcp.host import ExcelHost
+from smartass.xl.host import ExcelHost
 
 
 def _host(calls, current):

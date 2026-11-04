@@ -1,5 +1,5 @@
 # engine/tests/v2/test_v2_legacy_sheetorder.py
-from smartview_mcp import sheetorder
+from smartass.xl import sheetorder
 
 from smartass import legacy
 

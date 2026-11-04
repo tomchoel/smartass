@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from ... import fin_spec, pnl_facts
 from ... import fin_pnl as pnl_mod                  # the P&L engine
-from ...host import InputError
+from smartass.xl.host import InputError
 from . import Draft, RecipeContext
 
 # budget/forecast only where FinPlan has the entity: pnl warns "last year only" itself

@@ -18,7 +18,7 @@ from smartass.knowledge import atlas
 from . import catalog
 from smartass.epm import ops
 from smartass.epm.grid import Axis
-from .host import ExcelHost, HostError, InputError
+from smartass.xl.host import ExcelHost, HostError, InputError
 
 log = logging.getLogger(__name__)
 

@@ -5,12 +5,12 @@ import re
 
 from openpyxl.utils import get_column_letter as L
 
-from . import formulas as fx
-from .drill_xl import drill_formula, missing_columns, table_columns as drill_table_columns, table_name
-from .excel.jobs import com
-from .excel.sheets import lookup_formula
-from .excel.target import Target
-from .host import HostError, InputError
+from smartass.xl import formulas as fx
+from smartass.xl.drill_xl import drill_formula, missing_columns, table_columns as drill_table_columns, table_name
+from smartass.xl.jobs import com
+from smartass.xl.sheets import lookup_formula
+from smartass.xl.target import Target
+from smartass.xl.host import HostError, InputError
 
 FIRST_COL = 3             # column C: first value column; B = labels, A = margin
 NUM_KINDS = {"heltall", "tall1", "prosent1", "prosent", "faktor"}
@@ -237,7 +237,7 @@ def _write(t: Target, q: int, spec: dict, pulls: dict, ws, suffix: str = "Answer
 
 def _named(shape):
     """Name the chart so a redraw deletes it and only it (owned.drop_charts); user charts keep their names."""
-    from .core.owned import CHART_NAME
+    from smartass.xl.owned import CHART_NAME
     try:
         shape.Name = CHART_NAME
     except Exception:   # noqa: BLE001 - an unnamed chart is only deleted by a full clear

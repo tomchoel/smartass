@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from ... import templates
 from smartass.epm.grid import Axis
-from ...host import InputError
+from smartass.xl.host import InputError
 from . import Draft, RecipeContext, pull_dict
 
 ACCOUNTS = ["ac.C50S", "ac.C60", "ac.C70", "ac.STA20Y"]

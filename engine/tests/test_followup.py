@@ -9,7 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from test_core_skeleton import _fake_run          # tests/ is on sys.path (rootdir import)
 
 from smartview_mcp import tools_core
-from smartview_mcp.excel import jobs, sheets, target
+from smartass.xl import jobs, sheets, target
 from smartview_mcp.core import contract, followup, pipeline
 
 B02 = json.loads((Path(__file__).parent / "fixtures" / "b02_answer_spec.json").read_text(encoding="utf-8"))

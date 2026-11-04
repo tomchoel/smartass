@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from smartview_mcp.sheetorder import arrange_sheets, classify, plan_moves, sheet_order, simulate
+from smartass.xl.sheetorder import arrange_sheets, classify, plan_moves, sheet_order, simulate
 
 SCRAMBLED = ["Sources", "Q2 FinMax", "Q1 Lines", "Q1 Answer", "Intervjuguide", "Q10 Answer", "Q2 Answer",
              "Q1 FinLite 2", "Q1 FinLite", "_svmeta"]
@@ -149,7 +149,7 @@ def test_plan_moves_rejects_mismatch():
 
 
 def test_answer_sheets_count_as_questions():
-    from smartview_mcp.excel.sheets import _Q
+    from smartass.xl.sheets import _Q
     names = ["Q2 FinMax", "Q2 Answer", "Q1 Answer"]
     assert sheet_order(names, set(names)) == ["Q1 Answer", "Q2 Answer", "Q2 FinMax"]
     assert _Q.match("Q3 Answer").group(1) == "3" and not _Q.match("Q3 Svar")

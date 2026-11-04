@@ -15,7 +15,7 @@ import pywintypes
 
 from . import instances, jobs, login
 from smartass.core import config
-from ..host import ExcelHost, HostError, InputError
+from .host import ExcelHost, HostError, InputError
 
 # ------------------------------------------------------------------ target workbook
 @dataclass
@@ -147,7 +147,7 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None)
     """A new analysis workbook in a FREE Excel, so parallel agents do not wait for each other: the first Excel whose
     turn is free; else (below MAX_EXCELS) a new Excel window started on the TN template; else wait for the first.
     If it cannot be saved, the new workbook is closed unsaved (and an Excel started for it is closed again)."""
-    from .. import styling
+    from . import styling
     from smartass.core.timing import stage
     tpl = styling.template_path()
     choice = next((e for e in excels if jobs.hold_turn(e[0], wait=False)), None)

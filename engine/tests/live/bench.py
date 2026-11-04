@@ -68,7 +68,7 @@ def verdict(r: dict) -> str:
 def _visible_sheets() -> set[tuple[str, str]]:
     """(workbook, sheet) of every visible Excel, reached through its windows: the running object table misses new
     unsaved workbooks of an automation-started Excel, which is where answers land."""
-    from smartview_mcp.excel.instances import _app_from_window, _excel_windows
+    from smartass.xl.instances import _app_from_window, _excel_windows
     out: set[tuple[str, str]] = set()
     for _pid, _main, ex7s in _excel_windows():
         app = next((a for a in (_app_from_window(h) for h, _ in ex7s[:1]) if a is not None), None)

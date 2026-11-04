@@ -7,22 +7,22 @@ from .provider import FetchResult, _grids, facts_from_parsed
 
 
 def _target(h, target):
-    from smartview_mcp.excel import target as xltarget
+    from ..xl import target as xltarget
     return xltarget.resolve_target(h, target, allow_archive=False, title="Ad hoc fetch")
 
 
 def _next_q(t):
-    from smartview_mcp.excel import sheets
+    from ..xl import sheets
     return sheets.next_question(t)
 
 
 def _pull(h, t, q, conn, pov, rows, cols):
-    from smartview_mcp.excel import adhoc as v1adhoc
+    from ..xl import pull_adhoc as v1adhoc
     return v1adhoc.pull(h, t, q, conn, pov, rows, cols)
 
 
 def _drop(t, name):
-    from smartview_mcp.excel import sheets
+    from ..xl import sheets
     sheets.drop_parked(t, {name: name})      # drop_parked deletes every key of the mapping
 
 

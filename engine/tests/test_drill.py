@@ -174,7 +174,7 @@ def test_profile_groups_carry_debit_and_credit(whs):
     assert pay["debit"] == -123802585.86 and pay["credit"] == 670036.67
 
 
-from smartview_mcp import drill_xl as dx
+from smartass.xl import drill_xl as dx
 
 
 def test_table_name():
@@ -219,7 +219,7 @@ def test_formula_totals_debit_credit_and_blank():
 
 
 def test_formulas_pass_the_style_checker():
-    from smartview_mcp import formulas
+    from smartass.xl import formulas
     t = "Lines_Q1"
     fs = [dx.drill_formula(t, {"JE_SOURCE": "Payables"}),
           dx.drill_formula(t, {"JE_SOURCE": "Payables", "AP_CUSTOMER_NAME": "SUPPLIER 037 AS"}, "count"),
@@ -756,14 +756,14 @@ def _target(names):
     (["Q1 Answer", "Q1 FinMax", "Sources"], 2, ["Q1 Answer", "Q1 FinMax", "X", "Sources"]),
 ])
 def test_add_sheet_anchor(names, after_q, expect):
-    from smartview_mcp.excel import sheets
+    from smartass.xl import sheets
     t = _target(names)
     sheets.add_sheet(t, "X", after_q=after_q)
     assert [s.Name for s in t.wb.Worksheets] == expect and t.sheets_added == ["X"]
 
 
 def test_question_grouping_includes_lines(monkeypatch):
-    from smartview_mcp.excel import sheets
+    from smartass.xl import sheets
     assert sheets._Q.match("Q3 Lines b") and not sheets._Q.match("Q3 Forecast")
     t = _target(["Q2 Answer", "Q2 FinLite", "Q2 Lines", "Sources"])
     assert sheets.next_question(t) == 3
@@ -849,7 +849,7 @@ def _render_drill_cell(monkeypatch, tables):
 
 def test_answer_refuses_drill_cell_whose_table_is_missing_and_names_existing_tables():
     from smartview_mcp.core import pipeline
-    from smartview_mcp.host import InputError
+    from smartass.xl.host import InputError
     t = _target_with_tables(["Lines_Q1_d1", "Lines_Q1_d2"])
     with pytest.raises(InputError) as e:
         pipeline.check_drill_tables(t, 2, _spec(_drill_cell("d2", {"AP_CUSTOMER_NAME": "KPMG AS"})))
@@ -871,7 +871,7 @@ def test_answer_write_keeps_cannot_check_path_when_tables_unreadable(monkeypatch
 
 def test_new_spec_with_drill_cells_takes_the_pending_drill_q():
     from smartview_mcp.core import pipeline
-    from smartview_mcp.excel import sheets
+    from smartass.xl import sheets
     t = _target_with_sheets(["Q1 Lines d1", "Q1 Lines d2"])               # the live case
     assert pipeline.question_for(t, _spec(_drill_cell("d2", {}))) == 1
     assert pipeline.question_for(t, _spec_without_drill()) == 2
@@ -1385,7 +1385,7 @@ def test_page_url_replaces_only_limit_and_offset():
 
 def test_drill_link_reports_a_failed_status(monkeypatch):
     from smartass.epm import ops
-    from smartview_mcp.host import HostError
+    from smartass.xl.host import HostError
 
     class Lay:
         nr, nc = 1, 1
@@ -1440,7 +1440,7 @@ def test_profile_shares_for_no_supplier_and_untagged(whs):
 
 # ------------------------------------------------------------------ reliability audit (Task 11)
 def test_drill_cell_defaults_entity_and_needs_account_and_period():
-    from smartview_mcp.host import InputError
+    from smartass.xl.host import InputError
     from smartass.epm.ops import drill_cell_defaults
     cell, w = drill_cell_defaults({"All Accounts": "ac.12881", "All Time Periods": "Sep 26"})
     assert cell["All Entities"] == "All Entities" and "All Entities not given" in w[0]

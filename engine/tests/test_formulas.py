@@ -1,9 +1,9 @@
 """Readable formulas (skill tn-formelstil): builders and lookups pass the checker."""
 import pytest
 
-from smartview_mcp import formulas as fx
+from smartass.xl import formulas as fx
 from smartass.epm.grid import Axis, Layout
-from smartview_mcp.excel.sheets import Pull, lookup_formula
+from smartass.xl.sheets import Pull, lookup_formula
 
 
 def _pull(rows, cols, rl, cl, name="Q1 FinMax"):

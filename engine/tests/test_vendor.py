@@ -6,8 +6,8 @@ from pathlib import Path
 ENGINE = Path(__file__).resolve().parents[1]
 
 SCRIPT = """
-import smartview_mcp.styling as s
-import smartview_mcp.formulas as f
+import smartass.xl.styling as s
+import smartass.xl.formulas as f
 r = f.check([("S", "C5", "=C1+C2+C3")])
 assert r["ok"] is not None, r
 assert r["checked"] == 1, r
@@ -24,7 +24,7 @@ def test_style_helpers_do_not_depend_on_the_user_profile(tmp_path):
     r = subprocess.run([sys.executable, "-c", SCRIPT], cwd=ENGINE, env=env, capture_output=True, text=True,
                        timeout=120)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "smartview_mcp.vendor.tn_rapportstil" in r.stdout
+    assert "smartass.xl.vendor.tn_rapportstil" in r.stdout
 
 
 # sha256 (LF line ends) of the vendored advisor texts as of 2b6c237: their wording is the vendor's, never edited here

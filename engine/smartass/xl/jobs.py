@@ -9,8 +9,8 @@ import time
 import pywintypes
 
 from smartass.core import config, timing
-from ..host import HostError
-from ..hostproc import is_busy, retry_busy
+from .host import HostError
+from .hostproc import is_busy, retry_busy
 
 EDIT_WAIT_S = 30
 BUSY = "Excel is busy - probably a cell is being edited or a dialog is open. Press Enter or Esc in Excel and ask again."

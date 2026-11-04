@@ -12,7 +12,7 @@ from . import atlas_history, doctor, qlog
 from smartass.epm import ops
 from smartass.core import config
 from . import server as core                      # live module ref: read core._host at call time
-from .host import HostError
+from smartass.xl.host import HostError
 from .server import _STARTED, ADMIN, LOCAL, Connection, _call, host, tool
 
 # ---------------------------------------------------------------- primary tools

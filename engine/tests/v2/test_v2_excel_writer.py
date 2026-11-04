@@ -72,7 +72,7 @@ def test_answer_cells_grid_is_one_rectangle():
 
 
 def test_write_answer_sets_value_column_widths(monkeypatch):
-    from smartview_mcp import styling
+    from smartass.xl import styling
 
     from smartass.render import excel
     seen = {}

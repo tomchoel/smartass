@@ -14,12 +14,12 @@ from pydantic import ValidationError
 
 from . import catalog, templates
 from smartass.core import config
-from .excel import sheets, target as xltarget
+from smartass.xl import sheets, target as xltarget
 from .core import contract, pipeline, prefs, progress, recipes, reply, runlog, scope
 from smartass.epm import drillstep, drilltime
 from .core import followup as followup_mod
 from .core import period as periods
-from .host import HostError, InputError
+from smartass.xl.host import HostError, InputError
 from .server import LOCAL, READ, WRITE, _err, _is_our_analysis_file, _with_progress, host, tool
 from smartass.core.timing import COM_PREFIX, Timer, stage
 

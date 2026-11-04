@@ -7,7 +7,7 @@ from . import jobs, login, sheets, target
 from smartass.core import config, timing
 from smartass.epm import ops
 from smartass.epm.grid import Axis, full_pov, Layout, parse, validate_axes, verify_labels as _verify_labels
-from ..host import ExcelHost, HostError, InputError
+from .host import ExcelHost, HostError, InputError
 
 
 def retrieve_with_retry(do, say, wait=time.sleep):
@@ -39,7 +39,7 @@ def pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, row
 
 def _pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, rows: list[Axis], cols: list[Axis],
           title: str | None, boxes: "login.SmartViewBoxes") -> sheets.Pull:
-    from .. import styling                         # provided by the styling adapter
+    from . import styling                         # provided by the styling adapter
     from smartass.epm.ops import _dims_cache, _grid_labels, _used_values, canon_dim, dims_known, is_rc1000, learn_dims
     from smartass.core.timing import stage
 
@@ -63,7 +63,7 @@ def _pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, ro
         ws = sheets.add_sheet(t, name, after_q=q, color=0xA6A6A6)
         jobs.com(ws.Activate)
     with stage("connect"):
-        from ..dialogs import not_signed_in
+        from .dialogs import not_signed_in
         failed: list[list[str]] = []              # box texts of each failed attempt
         for attempt in range(3):                  # EPM sometimes answers a connect with its extension manifest
             n0 = len(boxes.texts)
@@ -74,7 +74,7 @@ def _pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, ro
             if not_signed_in(failed):             # retrying cannot fix a session EPM keeps rejecting
                 raise HostError(login.NOT_SIGNED_IN)
             if attempt == 2:
-                from ..host import _explain
+                from .host import _explain
                 raise HostError(_explain("Connect", st))
             if attempt == 0 and "Empty response" in str(st) + " ".join(failed[-1]):
                 timing.say("connecting in your Excel: EPM gave an empty response; trying again")

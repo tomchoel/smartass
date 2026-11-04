@@ -72,7 +72,7 @@ def teach_sheetorder() -> None:
     before FinMax). Module globals are read at call time, so this needs no v1 edit."""
     import re
 
-    from smartview_mcp import sheetorder
+    from .xl import sheetorder
     if "Data" in sheetorder._RANK:
         return
     sheetorder._OURS = re.compile(r"^Q(\d+) (Answer|FinMax|FinLite|FinPlan|Lines|Data)(?: (.+))?$")

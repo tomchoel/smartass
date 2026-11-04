@@ -148,7 +148,7 @@ class ExcelHost(HiddenExcel):
 
     async def _call_once(self, fn: Callable[["ExcelHost"], Any], timeout: float | None, what: str, user_excel: bool):
         import asyncio
-        from .excel import jobs
+        from . import jobs
         timeout = timeout or (config.USER_CALL_TIMEOUT_S if user_excel else config.CALL_TIMEOUT_S)
         started = threading.Event()
         token = jobs.JobToken()

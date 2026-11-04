@@ -168,8 +168,8 @@ async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], 
 def write(t, q: int, alias: str, result: DrillResult, title: str, question: str = "", log: bool = True) -> dict:
     """The Excel half (inside a host job): 'Q<q> Lines[ alias]' (table Lines_Q<q>[_alias]) + a Sources row
     (log=False: the caller logs its own). 0 lines empties an existing table, so Excel matches the drill."""
-    from smartview_mcp import drill_xl
-    from smartview_mcp.excel import sheets
+    from ..xl import drill_xl
+    from ..xl import sheets
     from .grid import Layout
     if result.rows:
         info = drill_xl.write_lines(t, q, result.rows, result.columns, title=title, source=result.source, alias=alias)
@@ -288,7 +288,7 @@ async def _link(connection: str, cell: dict) -> dict:
     """The drill link over HTTP (no Excel); Smart View in the hidden Excel only if the HTTP route fails (logged)."""
     import asyncio
 
-    from smartview_mcp.host import InputError
+    from ..xl.host import InputError
     if not _http_off():
         try:
             with drilltime.span("http drill link"):

@@ -3,7 +3,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from smartview_mcp import server
 from smartass.epm.drill_browser import CellTooWide
-from smartview_mcp.host import HostTimeout
+from smartass.xl.host import HostTimeout
 
 
 class HostError(Exception):
@@ -75,7 +75,7 @@ async def _tool_error_via_host(monkeypatch, exc, user_excel=False) -> str:
 
 @pytest.mark.anyio
 async def test_host_error_via_call_gets_the_restart_hint_exactly_once(monkeypatch):
-    from smartview_mcp.host import HostError as RealHostError
+    from smartass.xl.host import HostError as RealHostError
     msg = await _tool_error_via_host(monkeypatch, RealHostError("COM error during query: boom"))
     assert msg.startswith("COM error during query: boom. Next step:")
     assert msg.count("sv_restart") == 1 and msg.lower().count("next step") == 1
@@ -83,7 +83,7 @@ async def test_host_error_via_call_gets_the_restart_hint_exactly_once(monkeypatc
 
 @pytest.mark.anyio
 async def test_a_message_with_its_own_advice_gets_no_second_advice(monkeypatch):
-    from smartview_mcp.host import HostError as RealHostError
+    from smartass.xl.host import HostError as RealHostError
     own = "Unexpected KeyError during query: 'x'. If it repeats, run sv_restart."
     assert await _tool_error_via_host(monkeypatch, RealHostError(own)) == own
 
@@ -98,7 +98,7 @@ async def test_a_message_with_its_own_advice_gets_no_second_advice(monkeypatch):
 
 @pytest.mark.anyio
 async def test_input_errors_never_suggest_a_restart(monkeypatch):
-    from smartview_mcp.host import InputError
+    from smartass.xl.host import InputError
     msg = await _tool_error_via_host(monkeypatch, InputError("Unknown pull sheet 'm'. Pulls: ['ytd']"), user_excel=True)
     assert "sv_restart" not in msg and "sv_status" not in msg
     assert msg.count("Next step:") == 1 and "Correct the input" in msg
@@ -126,22 +126,22 @@ async def test_drill_errors_keep_their_class_advice(monkeypatch):
 
 def test_answer_spec_errors_are_input_errors_not_host_errors():
     from smartview_mcp import answer_write
-    from smartview_mcp.host import HostError as RealHostError
-    from smartview_mcp.host import InputError
+    from smartass.xl.host import HostError as RealHostError
+    from smartass.xl.host import InputError
     with pytest.raises(InputError) as e:
         answer_write._expr_to_formula("rev + nope", "D", {"rev": 5})
     assert not isinstance(e.value, RealHostError)
 
 
 def test_rewrap_keeps_input_errors_as_input_errors():
-    from smartview_mcp.host import HostError as RealHostError
-    from smartview_mcp.host import InputError, rewrap
+    from smartass.xl.host import HostError as RealHostError
+    from smartass.xl.host import InputError, rewrap
     assert type(rewrap(InputError("bad spec"), "bad spec (removed: none)")) is InputError
     assert type(rewrap(RuntimeError("boom"), "boom (removed: none)")) is RealHostError
 
 
 def test_connect_without_a_session_id_says_sign_in_and_retry():
-    from smartview_mcp.host import _explain
+    from smartass.xl.host import _explain
     msg = _explain("B_Connect", "ERR|-15|invalid parameter|Argument sID in the request is an empty string or NULL. "
                                 "Try to connect again.")
     assert "not signed in" in msg and "retry" in msg
@@ -150,8 +150,8 @@ def test_connect_without_a_session_id_says_sign_in_and_retry():
 def test_login_dialog_message_asks_the_user_not_the_agent(monkeypatch):
     import pytest
 
-    from smartview_mcp.excel import login
-    from smartview_mcp.host import HostError
+    from smartass.xl import login
+    from smartass.xl.host import HostError
     monkeypatch.setattr(login, "login_open", lambda pid: [1])
     monkeypatch.setattr(login.time, "sleep", lambda s: None)
     with pytest.raises(HostError) as e:

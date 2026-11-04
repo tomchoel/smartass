@@ -1,6 +1,6 @@
 """Smart View dialog classification and the restart decision (no Win32 calls)."""
-from smartview_mcp import dialogs
-from smartview_mcp.dialogs import Dialog
+from smartass.xl import dialogs
+from smartass.xl.dialogs import Dialog
 
 
 def test_classify_webview2_fallback_message_box():

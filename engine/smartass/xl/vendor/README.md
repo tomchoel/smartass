@@ -9,7 +9,7 @@ cell styles, number-format syntax, text widths; the skill's roles, apply, lint a
 | `formelsjekk.py` | `tn-formelstil` (`~\.claude\skills\tn-formelstil\formelsjekk.py`) |
 
 The engine always uses these vendored copies (`styling.py` and `formulas.py` import them from
-`smartview_mcp.vendor`). It never looks in the user profile, so behaviour is the same on every machine and on CI.
+`smartass.xl.vendor`). It never looks in the user profile, so behaviour is the same on every machine and on CI.
 Both modules need only openpyxl and the standard library.
 
 ## Refresh
@@ -17,8 +17,8 @@ Both modules need only openpyxl and the standard library.
 1. Copy the files from the skill folders (then trim `tn_rapportstil.py` again), for example from `engine`:
 
    ```powershell
-   Copy-Item "$env:USERPROFILE\.claude\skills\tn-rapportstil\tn_rapportstil.py" smartview_mcp\vendor\
-   Copy-Item "$env:USERPROFILE\.claude\skills\tn-formelstil\formelsjekk.py" smartview_mcp\vendor\
+   Copy-Item "$env:USERPROFILE\.claude\skills\tn-rapportstil\tn_rapportstil.py" smartass\xl\vendor\
+   Copy-Item "$env:USERPROFILE\.claude\skills\tn-formelstil\formelsjekk.py" smartass\xl\vendor\
    ```
 
 2. Run the tests: `uv run pytest -q` and `uv run python ..\scripts\check_staged.py --all`.

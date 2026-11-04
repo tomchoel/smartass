@@ -1,6 +1,6 @@
 # engine/tests/v2/test_v2_save_spec.py
 from smartass import pipeline
-from smartview_mcp.excel import jobs, sheets
+from smartass.xl import jobs, sheets
 
 
 class Sheet:
@@ -53,7 +53,7 @@ def test_save_spec_creates_the_hidden_meta_sheet_first(monkeypatch):
 
 def test_arrange_mode_and_activation(monkeypatch):
     from smartass.core import serverkit as kit
-    from smartview_mcp import sheetorder
+    from smartass.xl import sheetorder
     calls = []
     monkeypatch.setattr(sheetorder, "arrange_sheets", lambda wb, mode="full", activate=None: calls.append((mode, activate)))
     monkeypatch.setattr(kit, "_is_our_analysis_file", lambda path: path.startswith("OURS"))
@@ -71,7 +71,7 @@ def test_arrange_mode_and_activation(monkeypatch):
 
 def test_arrange_failure_is_a_warning_not_an_error(monkeypatch):
     from smartass.core import serverkit as kit
-    from smartview_mcp import sheetorder
+    from smartass.xl import sheetorder
 
     def boom(*a, **k):
         raise RuntimeError("excel said no")

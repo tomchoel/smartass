@@ -2,7 +2,7 @@
 
 The style definitions (fonts, colours, named cell styles ``TN ...``, number formats, locale translation and the
 Arial text-width / wrap calibration) are reused from the ``tn-rapportstil`` skill, through the pinned copy in
-``smartview_mcp/vendor/tn_rapportstil.py``; this
+``smartass/xl/vendor/tn_rapportstil.py``; this
 module only adds the live-workbook plumbing: COM retry, row-role based application, a COM-based lint, and a
 non-destructive look for Smart View ad hoc grids.
 
@@ -27,7 +27,7 @@ RETRY_LIMIT_S = 30.0
 
 def _retry(fn, limit_s: float = RETRY_LIMIT_S):
     """Call fn(); while Excel is busy it is retried up to limit_s, then a readable HostError (as jobs.com)."""
-    from .excel import jobs
+    from . import jobs
     return jobs.com(fn, limit_s, check=False)
 
 
@@ -165,7 +165,7 @@ def ensure_template(xl) -> Path:
     try:
         _ensure_styles(wb)
         _mark(wb, ver)
-        from .excel.instances import _label
+        from .instances import _label
         _retry(lambda: _label(wb))
         _retry(lambda: wb.SaveAs(str(path), 54))           # xlOpenXMLTemplate
     finally:
@@ -181,7 +181,7 @@ def _ensure_styles(wb) -> None:
 
 # ---------------------------------------------------------------- view helpers
 def _busy(e: BaseException) -> bool:
-    from .excel import jobs
+    from . import jobs
     return jobs.is_busy(e)
 
 

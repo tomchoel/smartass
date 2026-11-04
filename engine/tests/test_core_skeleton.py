@@ -9,10 +9,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from smartass.core import config
 from smartass.epm import svhttp
 from smartview_mcp import tools_core
-from smartview_mcp.excel import adhoc, jobs, sheets, target
+from smartass.xl import pull_adhoc as adhoc, jobs, sheets, target
 from smartview_mcp.core import check, contract, pipeline, progress, runlog, source
 from smartass.epm.grid import Axis, Layout
-from smartview_mcp.host import HostError, InputError
+from smartass.xl.host import HostError, InputError
 
 
 def test_fte_rows_are_the_sheet_rows_of_man_year_lines():

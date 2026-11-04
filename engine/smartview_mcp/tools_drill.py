@@ -11,11 +11,11 @@ from mcp.server.mcpserver.exceptions import ToolError
 from smartass.core import config
 from smartass.epm import ops
 from . import qlog
-from .excel import adhoc, jobs, sheets, target as xltarget
+from smartass.xl import pull_adhoc as adhoc, jobs, sheets, target as xltarget
 from smartass.epm import drillstep
 from .core import reply
 from smartass.epm.grid import Axis
-from .host import HostError, rewrap
+from smartass.xl.host import HostError, rewrap
 from .server import WRITE, _call_user, _err, _is_our_analysis_file, tool, with_next_step
 from smartass.core.timing import Timer, stage
 
@@ -47,7 +47,8 @@ def _prev_drill(workbook: str, q: int, alias: str) -> dict | None:
 def _restore_lines(t, q: int, alias: str, prev: dict | None, source: str) -> str:
     """A re-drill failed while rewriting the reused table: put the previous lines back from drill.db; if that fails
     too, mark the sheet INCOMPLETE in red. Returns a note for the error message."""
-    from . import drill_store, drill_xl
+    from . import drill_store
+    from smartass.xl import drill_xl
     try:
         if prev is None:
             raise LookupError("no earlier drill in the cache")
@@ -108,7 +109,7 @@ async def sv_drill(question: str, cell: dict[str, str], connection: Literal["Fin
 
 async def _sv_drill(question, cell, connection, id, split, max_lines, target, q, allow_archive) -> dict:
     import asyncio
-    from . import drill_xl
+    from smartass.xl import drill_xl
     tm = Timer()
     r = await drillstep.drill(cell, connection=connection, max_lines=max_lines, split=split)
     tm.stages.update(r.stages)

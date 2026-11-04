@@ -34,17 +34,17 @@ import re
 
 from openpyxl.utils import get_column_letter as L
 
-from . import formulas as fx
+from smartass.xl import formulas as fx
 from .answer_write import FIRST_COL, _chart, _write
-from .excel.jobs import com
-from .excel.sheets import add_sheet, Pull
-from .excel.target import Target
+from smartass.xl.jobs import com
+from smartass.xl.sheets import add_sheet, Pull
+from smartass.xl.target import Target
 
 
 def answer_sheet(t: Target, q: int, suffix: str = "Answer", owned: dict | None = None):
     """Create 'Q<n> <suffix>' before the question's data sheets, or clear it for a rebuild (follow-up): only the
     tool-owned block `owned` ({"rows", "cols"}) and smartass charts, or everything when no block is stored."""
-    from .core import owned as owned_mod
+    from smartass.xl import owned as owned_mod
     name = f"Q{q} {suffix}"
     for s in list(t.wb.Worksheets):
         if s.Name == name:
@@ -63,10 +63,10 @@ def answer_sheet(t: Target, q: int, suffix: str = "Answer", owned: dict | None =
 
 def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull], suffix: str = "Answer",
           owned: dict | None = None, reserve: int = 0) -> dict:
-    from .excel.jobs import fast_excel
+    from smartass.xl.jobs import fast_excel
     with fast_excel(t.app):
         res = _build(t, q, spec, pulls, suffix, owned, reserve)
-    from .excel.sheets import wait_calculated
+    from smartass.xl.sheets import wait_calculated
     from smartass.core.timing import stage
     with stage("calculate + read back"):
         ws = t.wb.Worksheets(res.pop("_ws_name"))
@@ -242,8 +242,8 @@ def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Answer", o
            reserve: int = 0) -> dict:
     """Write, style and chart the answer sheet (inside fast_excel: no redraw, manual calculation). reserve: rows
     below the answer to make room for (the findings table, written after the build)."""
-    from . import styling
-    from .core import owned as owned_mod
+    from smartass.xl import styling
+    from smartass.xl import owned as owned_mod
     from smartass.core.timing import stage
     chart = bool(spec.get("chart"))
     with stage("prepare sheet"):

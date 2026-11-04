@@ -2,7 +2,7 @@
 import pytest
 
 from smartview_mcp import answer_write
-from smartview_mcp.host import HostError
+from smartass.xl.host import HostError
 
 
 class Cell:
@@ -81,6 +81,6 @@ def test_nothing_to_write_is_no_call():
 
 
 def test_check_cells_are_grouped_into_column_runs():
-    from smartview_mcp import styling
+    from smartass.xl import styling
     assert styling._check_ranges([(10, 4), (11, 4), (12, 4), (15, 4), (3, 6)]) == ["D10:D12", "D15", "F3"]
     assert styling._check_ranges([]) == []

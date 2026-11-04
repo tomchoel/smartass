@@ -6,34 +6,34 @@ from __future__ import annotations
 
 
 def _find_book(workbook):
-    from smartview_mcp.workbench import books
+    from .xl.workbench import books
     return books.find_book(workbook, write=True)            # also pauses AutoSave, as v1 does for edits
 
 
 def _wait_ready(app):
-    from smartview_mcp.excel.target import _wait_ready as wait
+    from .xl.target import _wait_ready as wait
     wait(app)
 
 
 def _range(ws, address):
-    from smartview_mcp.excel.jobs import com
-    from smartview_mcp.workbench import books
+    from .xl.jobs import com
+    from .xl.workbench import books
     rng = books._rng(ws, address) if address else com(lambda: ws.UsedRange)
     return rng, books._addr(rng)
 
 
 def _sheet_name(ws) -> str:
-    from smartview_mcp.excel.jobs import com
+    from .xl.jobs import com
     return str(com(lambda: ws.Name))
 
 
 def _capture(ws, rng):
-    from smartview_mcp.workbench import history
+    from .xl.workbench import history
     return history._capture(ws, rng)
 
 
 def _record(b, ws, address, snap, label):
-    from smartview_mcp.workbench import history
+    from .xl.workbench import history
     ch = history._new_change(b, ws, "write", address, snap, label=label)
     ch["state"] = "applied"                                 # nothing is mutated; no "after" hash, so revert never
     history._save_change(ch)                                # refuses on "edited after" - the edit follows this
@@ -41,7 +41,7 @@ def _record(b, ws, address, snap, label):
 
 
 def _history_revert(change_id, workbook, force):
-    from smartview_mcp.workbench import history
+    from .xl.workbench import history
     return history.revert(change_id, workbook, force=force)
 
 
@@ -63,12 +63,12 @@ def revert(change_id: str | None, workbook: str | None, force: bool = False) -> 
 
 
 def _format_sheet(workbook, sheet, last_col, rows):
-    from smartview_mcp.workbench import fmt
+    from .xl.workbench import fmt
     return fmt.format_sheet(workbook, sheet, last_col, rows)
 
 
 def _check(workbook, sheet):
-    from smartview_mcp.workbench import fmt
+    from .xl.workbench import fmt
     return fmt.check(workbook, sheet)
 
 

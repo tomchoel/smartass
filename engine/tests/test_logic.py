@@ -4,8 +4,8 @@ from types import SimpleNamespace
 from smartass.epm.grid import Axis, Layout
 from smartview_mcp.core.reply import fin
 from smartview_mcp.templates import _clean, _fmt, _pct, months_to, same_period_ly, split_period
-from smartview_mcp.excel.adhoc import _verify_labels
-from smartview_mcp.excel.instances import is_archive, local_path
+from smartass.xl.pull_adhoc import _verify_labels
+from smartass.xl.instances import is_archive, local_path
 
 
 def test_fin_matches_sheet_format():
@@ -56,7 +56,7 @@ def test_archive_guard_local_url_and_unsaved(monkeypatch, tmp_path):
 
 
 def test_local_path_maps_personal_onedrive(monkeypatch):
-    from smartview_mcp.excel import instances
+    from smartass.xl import instances
     monkeypatch.setattr(instances, "_onedrive_mounts",
                         lambda: [("https://contoso-my.sharepoint.com/personal/a_b/Documents/", r"C:\OD")])
     url = "https://contoso-my.sharepoint.com/personal/a_b/Documents/smartass/analyser/a%20b.xlsx"
@@ -98,9 +98,9 @@ def test_progress_job_clears_its_notify_after_the_job():
 
 
 def test_wait_login_recovers_an_ie_fallback_login_by_itself(monkeypatch):
-    from smartview_mcp import dialogs
-    from smartview_mcp.excel import login
-    from smartview_mcp.dialogs import Dialog
+    from smartass.xl import dialogs
+    from smartass.xl import login
+    from smartass.xl.dialogs import Dialog
     state = {"ie": True, "recovered": 0}
     clock = {"t": 0.0}
     monkeypatch.setattr(login.time, "monotonic", lambda: clock["t"])
@@ -121,9 +121,9 @@ def test_wait_login_recovers_an_ie_fallback_login_by_itself(monkeypatch):
 
 
 def test_wait_login_after_recovery_waits_for_the_new_login_and_spaces_retries(monkeypatch):
-    from smartview_mcp import dialogs
-    from smartview_mcp.excel import login
-    from smartview_mcp.dialogs import Dialog
+    from smartass.xl import dialogs
+    from smartass.xl import login
+    from smartass.xl.dialogs import Dialog
     clock = {"t": 0.0}
     monkeypatch.setattr(login.time, "monotonic", lambda: clock["t"])
     monkeypatch.setattr(login.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
@@ -142,9 +142,9 @@ def test_wait_login_after_recovery_waits_for_the_new_login_and_spaces_retries(mo
 def test_smart_view_box_guard_dismisses_each_box_once_and_keeps_its_text(monkeypatch):
     import time as _t
 
-    from smartview_mcp import dialogs
-    from smartview_mcp.excel import login
-    from smartview_mcp.dialogs import Dialog
+    from smartass.xl import dialogs
+    from smartass.xl import login
+    from smartass.xl.dialogs import Dialog
     box = Dialog(5, "#32770", "Oracle Smart View for Office", "Empty response from provider.", "message")
     pressed = []
     monkeypatch.setattr(dialogs, "scan", lambda pid: [box] if 5 not in pressed else [])
@@ -159,9 +159,9 @@ def test_com_retries_a_busy_excel_then_says_so_in_words(monkeypatch):
     import pytest
     import pywintypes
 
-    from smartview_mcp import hostproc
-    from smartview_mcp.excel import jobs
-    from smartview_mcp.host import HostError
+    from smartass.xl import hostproc
+    from smartass.xl import jobs
+    from smartass.xl.host import HostError
     monkeypatch.setattr(hostproc.time, "sleep", lambda s: None)
     rejected = pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
     recalc = pywintypes.com_error(-2147352567, "Exception occurred.", (0, None, None, None, 0, -2146777998), None)

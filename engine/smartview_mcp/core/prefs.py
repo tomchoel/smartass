@@ -15,7 +15,7 @@ import tomllib
 
 from .. import catalog
 from smartass.core import config
-from ..host import InputError
+from smartass.xl.host import InputError
 from . import semantic
 
 ITEMS = ("measure", "period", "scenario", "entity")

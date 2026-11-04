@@ -4,8 +4,8 @@ Q<n> Answer as one rectangle of values and formulas (Formula2), then v1's TN sty
 (v1 host().call(..., user_excel=True)); every COM call goes through v1 jobs.com (busy retry)."""
 from __future__ import annotations
 
-from smartview_mcp import styling
-from smartview_mcp.excel.jobs import com
+from ..xl import styling
+from ..xl.jobs import com
 
 from ..model.errors import GuardError
 from ..model.frame import COLUMNS, Frame

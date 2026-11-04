@@ -14,7 +14,7 @@ SHEETS8 = ["Q1 Answer", "Q2 Answer", "Notes", "Q1 FinMax", "Q1 FinPlan", "Q1 Lin
 
 
 def arrange_case(moved: bool):
-    from smartview_mcp import sheetorder
+    from smartass.xl import sheetorder
     names = list(SHEETS8)
     if moved:
         names.insert(1, names.pop(6))                 # 'Q2 FinMax' out of place
@@ -82,7 +82,7 @@ def answer_sheet():
 
 
 def report_case(redraw: bool = False):
-    from smartview_mcp import styling
+    from smartass.xl import styling
     wb, ws, roles = answer_sheet()
     if redraw:
         styling.apply_report(ws, roles)
@@ -90,7 +90,7 @@ def report_case(redraw: bool = False):
 
 
 def lines_case():
-    from smartview_mcp import drill_xl
+    from smartass.xl import drill_xl
     wb = Workbook(["Q1 Answer"])
     t = SimpleNamespace(wb=wb, app=wb.Application, sheets_added=[])
     cols = ["ACCOUNT", "GL_DESCRIPTION_LINE", "AMOUNT", "DEBET_AMOUNT", "CREDIT_AMOUNT", "GL_POSTED_DATE",
@@ -102,7 +102,7 @@ def lines_case():
 
 
 def run(case, monkeypatch, *a):
-    from smartview_mcp import drill_xl
+    from smartass.xl import drill_xl
     from smartview_mcp.core import source
     freeze_time(monkeypatch, drill_xl, source)
     wb, go = case(*a)
@@ -150,7 +150,7 @@ def test_answer_styling_same_look_fewer_calls(monkeypatch, redraw, calls):
 
 
 def test_page_setup_is_redone_when_the_print_area_changes(monkeypatch):
-    from smartview_mcp import styling
+    from smartass.xl import styling
     wb, ws, roles = answer_sheet()
     styling.apply_report(ws, roles)
     ws.PageSetup.PrintArea = "changed by hand"           # only a changed setup key brings the setup back
@@ -173,7 +173,7 @@ def test_lines_sheet_same_look_fewer_calls(monkeypatch):
 
 def test_answer_lint_findings_unchanged():
     """The lint's findings as the unbatched lint returned them (captured before batching)."""
-    from smartview_mcp import styling
+    from smartass.xl import styling
     wb, ws, roles = answer_sheet()
     assert styling.apply_report(ws, roles) == []
     wb, ws, roles = answer_sheet()
@@ -185,7 +185,7 @@ def test_answer_lint_findings_unchanged():
 
 def lines_redrill_case(mod=None):
     """A re-drill with the same columns and fewer lines: the table is reused in place (cleared, resized)."""
-    from smartview_mcp import drill_xl
+    from smartass.xl import drill_xl
     mod = mod or drill_xl
     wb, first = lines_case()
     first()
@@ -205,7 +205,7 @@ def test_lines_redrill_same_table_fewer_calls(monkeypatch):
 
 
 def test_page_setup_marker_is_not_added_when_print_communication_stays_off(monkeypatch):
-    from smartview_mcp import styling
+    from smartass.xl import styling
     wb, ws, roles = answer_sheet()
 
     class Flaky:

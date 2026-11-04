@@ -6,7 +6,7 @@ from svxml_util import EchoTransport, atlas_with_dimensions, pnl_value as value
 from smartview_mcp import catalog, extract
 from smartass.epm import ops, svhttp
 from smartass.epm.grid import Axis
-from smartview_mcp.host import InputError
+from smartass.xl.host import InputError
 from smartview_mcp.factstore import FactStore
 
 CAT = catalog.load()
@@ -256,7 +256,7 @@ def test_fill_retrieves_at_once_and_stores_in_grid_order(http):
 
 def test_fill_on_the_host_thread_stays_sequential(http, monkeypatch):
     import threading
-    from smartview_mcp import hostproc
+    from smartass.xl import hostproc
     monkeypatch.setattr(hostproc, "on_host_thread", lambda: True)
     grids = extract.finmax_grids(CAT, ["Jan 26", "Feb 26"], ["un.SY.2WHS"])
     answer = extract.route(http=http)

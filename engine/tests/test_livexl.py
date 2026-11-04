@@ -1,5 +1,5 @@
 """workbench snapshot logic that needs no Excel."""
-from smartview_mcp.workbench.history import _coerced, _constants
+from smartass.xl.workbench.history import _coerced, _constants
 
 
 def test_constants_skip_formula_cells_and_keep_types():
@@ -17,7 +17,8 @@ def test_coerced_finds_text_turned_number_and_leftovers():
 def test_dependents_outside_a_row_delete_are_listed_once(monkeypatch):
     import types
 
-    from smartview_mcp.workbench import changes, fmt
+    from smartview_mcp.workbench import changes
+    from smartass.xl.workbench import fmt
     sheet = lambda n: types.SimpleNamespace(Name=n)          # noqa: E731
     b = types.SimpleNamespace(wb=types.SimpleNamespace(Worksheets=[sheet("Data"), sheet("Calc")]))
     f = {"Data": [("Data", "D9", "=SUM(B3:B4)"), ("Data", "B3", "=B4"), ("Data", "D10", "=SUM(B2:B5)")],
@@ -33,13 +34,13 @@ def test_constants_skip_spill_children():
 
 
 def test_format_grid_has_the_range_shape():
-    from smartview_mcp.workbench.books import _format_grid
+    from smartass.xl.workbench.books import _format_grid
     assert _format_grid("0.0", 2, 3, lambda i, j: 1 / 0) == [["0.0"] * 3] * 2      # uniform: no per-cell reads
     assert _format_grid(None, 2, 2, lambda i, j: f"f{i}{j}") == [["f00", "f01"], ["f10", "f11"]]
 
 
 def test_changes_filter_matches_a_local_path_to_a_onedrive_url(monkeypatch):
-    from smartview_mcp.workbench import history
+    from smartass.xl.workbench import history
     url = "https://telenor-my.sharepoint.com/personal/x/Documents/analyser/Q.xlsx"
     monkeypatch.setattr(history, "local_path", lambda s: r"C:\OneDrive\analyser\Q.xlsx" if s == url else s)
     ch = {"workbook": "Q.xlsx", "full_name": url}
@@ -51,7 +52,7 @@ def test_changes_filter_matches_a_local_path_to_a_onedrive_url(monkeypatch):
 def test_a_sheet_with_only_formats_has_no_content():
     from types import SimpleNamespace as NS
 
-    from smartview_mcp.workbench.history import _has_content
+    from smartass.xl.workbench.history import _has_content
     app = NS(WorksheetFunction=NS(CountA=lambda cells: cells["n"]))
     assert not _has_content(app, NS(Cells={"n": 0}, Shapes=NS(Count=0)))   # formatted after a revert, no values
     assert _has_content(app, NS(Cells={"n": 3}, Shapes=NS(Count=0)))

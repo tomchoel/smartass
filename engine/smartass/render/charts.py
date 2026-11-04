@@ -6,8 +6,8 @@ start and end as totals; falls back to a column chart where Excel has no waterfa
 failed answer."""
 from __future__ import annotations
 
-from smartview_mcp.core.owned import CHART_NAME
-from smartview_mcp.excel.jobs import com
+from ..xl.owned import CHART_NAME
+from ..xl.jobs import com
 
 from .excel import col_number
 from .layout import ChartSpec, SheetPlan

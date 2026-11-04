@@ -557,7 +557,7 @@ class Workbook:
         self.active = self.order[0]
         self.Application.ActiveWorkbook = self
         if styles_ver:
-            from smartview_mcp import styling
+            from smartass.xl import styling
             self.Names.Add(Name="_tnStylesVer", RefersTo=f'="{styling._styles_version()}"', Visible=False)
 
     def Windows(self, i):
@@ -621,7 +621,7 @@ def count_com(monkeypatch) -> list:
     imported com by name."""
     import sys
 
-    from smartview_mcp.excel import jobs
+    from smartass.xl import jobs
     calls: list = []
     real = jobs.com
 
@@ -630,7 +630,7 @@ def count_com(monkeypatch) -> list:
         return real(call, *a, **k)
     monkeypatch.setattr(jobs, "com", counting)
     for name, mod in list(sys.modules.items()):
-        if name.startswith("smartview_mcp") and getattr(mod, "com", None) is real:
+        if name.startswith("smartass") and getattr(mod, "com", None) is real:
             monkeypatch.setattr(mod, "com", counting)
     return calls
 

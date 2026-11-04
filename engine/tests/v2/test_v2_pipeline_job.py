@@ -65,7 +65,7 @@ def test_arrange_warning_goes_to_the_reply_without_rollback(monkeypatch):
 
 
 def test_data_tab_colour_is_v1s():
-    from smartview_mcp import sheetorder
+    from smartass.xl import sheetorder
     assert pipeline.DATA_TAB == sheetorder.DATA_TAB == 0xA6A6A6
 
 

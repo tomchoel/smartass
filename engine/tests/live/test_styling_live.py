@@ -1,4 +1,4 @@
-"""Live test of smartview_mcp.styling against its OWN Excel instance (DispatchEx; never attaches to a running Excel).
+"""Live test of smartass.xl.styling against its OWN Excel instance (DispatchEx; never attaches to a running Excel).
 
 Run (from engine):  uv run python tests\\live\\test_styling_live.py
 Under pytest it skips cleanly when Excel / pywin32 is not available.
@@ -27,9 +27,9 @@ def run() -> None:
     import win32api
     import win32com.client
     import win32process
-    from smartview_mcp import styling
-    from smartview_mcp.excel import instances
-    from smartview_mcp import styling as st
+    from smartass.xl import styling
+    from smartass.xl import instances
+    from smartass.xl import styling as st
     tn = st.tn
 
     WORK.mkdir(parents=True, exist_ok=True)

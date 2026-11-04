@@ -1,8 +1,8 @@
 """The hidden Excel's Smart View message boxes are closed - its own pid only, that caption only."""
 import threading
 
-from smartview_mcp import dialogs, host
-from smartview_mcp.dialogs import Dialog
+from smartass.xl import dialogs, host
+from smartass.xl.dialogs import Dialog
 
 SV = Dialog(1, "#32770", "Oracle Smart View for Office", "Empty response from provider", "message")
 OTHER = Dialog(2, "#32770", "Microsoft Excel", "Something", "message")

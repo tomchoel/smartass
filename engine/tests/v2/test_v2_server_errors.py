@@ -4,7 +4,7 @@ import pytest
 
 from smartass import server
 from smartass.model.errors import GuardError
-from smartview_mcp.host import InputError
+from smartass.xl.host import InputError
 
 
 def test_guard_error_in_a_job_becomes_input_error(monkeypatch):

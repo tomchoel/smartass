@@ -18,8 +18,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from smartass.core import config, logsetup
-from .excel import instances
-from .host import ExcelHost, HostError, InputError
+from smartass.xl import instances
+from smartass.xl.host import ExcelHost, HostError, InputError
 
 logsetup.configure(config.SERVER_LOG)
 logsetup.add_secret(config.HTTP_SECRET)

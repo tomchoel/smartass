@@ -166,7 +166,7 @@ def arrange_sheets(wb, mode: str = "full", activate: str | None = None) -> dict:
     active). Returns {'moved': [...], 'order': [...]}; raises only if Excel refuses a move.
     COM calls: one read of the order (names, visibility, tab colours, active sheet), one per sheet that moves or
     whose tab colour is wrong, one Activate unless that sheet is already active - 1 call for an ordered workbook."""
-    from .excel.jobs import com, fast_excel, is_busy
+    from .jobs import com, fast_excel, is_busy
     rows, active = com(lambda: _read_sheets(wb, is_busy))
     names = [n for n, _, _ in rows]
     visible = {n: v for n, v, _ in rows}

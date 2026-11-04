@@ -3,7 +3,7 @@ attributed and estimated items, allocation keys and the concept's own checks. Wr
 from __future__ import annotations
 
 from ... import concepts, templates
-from ...host import InputError
+from smartass.xl.host import InputError
 from . import Draft, RecipeContext
 
 DEFAULTS = {"compare": (lambda v: bool(v), "the standard comparison is the same period last year")}

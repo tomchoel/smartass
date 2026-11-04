@@ -1,8 +1,8 @@
 import pytest
 
 from smartass.core import timing
-from smartview_mcp.excel import adhoc, login
-from smartview_mcp.host import HostError
+from smartass.xl import pull_adhoc as adhoc, login
+from smartass.xl.host import HostError
 
 
 @pytest.fixture(autouse=True)

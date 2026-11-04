@@ -3,7 +3,7 @@ month or YTD, reconciled to FinMax EBITDA. Wraps templates.actual_vs_plan on stu
 from __future__ import annotations
 
 from ... import templates
-from ...host import InputError
+from smartass.xl.host import InputError
 from . import Draft, RecipeContext, pull_dict, stub_pulls
 
 _KEYS = ("month", "year", "basis", "forecast", "finmax_entity")

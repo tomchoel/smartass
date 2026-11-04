@@ -12,7 +12,7 @@ from mcp.server.mcpserver import Context, MCPServer
 
 from .knowledge import atlas
 from .core import serverkit as kit
-from smartview_mcp.host import InputError
+from .xl.host import InputError
 
 from . import legacy
 from .data.adhoc import adhoc_fetch
@@ -119,7 +119,7 @@ async def _drill(cell: dict):
 async def _line_sets(spec: AnalysisSpec) -> tuple[dict, list[str]]:
     """Drill every lines block: {'b<i>': LineSet} and the drills' warnings. Project grouping marks each line's
     booked project (INITIATIVE) first. A drill with 0 lines still gives a LineSet (prepare refuses it, with the reason)."""
-    from smartview_mcp.core.recipes import lines as v1lines
+    from .model.lines import add_initiative
     blocks = [(i, b) for i, b in enumerate(spec.blocks) if isinstance(b, LinesBlock)]
     results = await asyncio.gather(*[_drill(b.cell) for _, b in blocks])      # independent cells: drilled concurrently
     out: dict[str, LineSet] = {}
@@ -127,7 +127,7 @@ async def _line_sets(spec: AnalysisSpec) -> tuple[dict, list[str]]:
     for (i, b), res in zip(blocks, results):
         rows, cols = res.rows, list(res.columns)
         if b.group_by == "project":
-            cols = v1lines.add_initiative(rows, cols)
+            cols = add_initiative(rows, cols)
         out[f"b{i}"] = LineSet(f"b{i}", rows, cols, res.cell_value, reconciliation=res.reconciliation,
                                 warnings=list(res.warnings), cell=b.cell)
         notes += res.warnings

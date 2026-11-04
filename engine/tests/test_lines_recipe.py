@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from smartview_mcp import catalog, drill_xl, specs
+from smartview_mcp import catalog, specs
+from smartass.xl import drill_xl
 from smartview_mcp.core import contract, recipes
 from smartview_mcp.core.recipes import lines
 
@@ -106,7 +107,7 @@ def test_ranking_checks_tie_blocks_to_lines_and_lines_to_cube():
 def test_ranking_check_formulas_pass_the_formula_style_check():
     """'ext+grp+nosupp-lines' was written as =C21+C29+C32-C33, which tn-formelstil blocks (PLUS_CHAIN)."""
     from smartview_mcp import answer_write
-    from smartview_mcp import formulas as fx
+    from smartass.xl import formulas as fx
     d = lines.lines_ranking(dict(PARAMS), _ctx())
     keys = [ln["key"] for s in d.layout["sections"] for ln in s["lines"] if ln.get("key")]
     rows = {k: 10 + i for i, k in enumerate(keys)}
@@ -273,7 +274,7 @@ def _answer_env(monkeypatch, tmp_path, calls, fail=None):
     from smartview_mcp import templates, tools_core
     from smartass.epm import drillstep
     from smartview_mcp.core import pipeline, progress, reply, runlog, source
-    from smartview_mcp.excel import jobs, sheets, target
+    from smartass.xl import jobs, sheets, target
     monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
     monkeypatch.setattr(tools_core, "_closed_cached", lambda: "Sep 26")
     monkeypatch.setattr(tools_core.scope.prefs, "lookup", lambda item, phrase: None)

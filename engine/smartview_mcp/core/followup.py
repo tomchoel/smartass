@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ..excel import jobs, sheets
+from smartass.xl import jobs, sheets
 from . import contract
 
 _ANSWER = re.compile(r"^Q(\d+) Answer$")

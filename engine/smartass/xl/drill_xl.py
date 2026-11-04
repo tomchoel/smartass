@@ -12,9 +12,9 @@ from openpyxl.utils import get_column_letter
 
 from smartass.core import config
 from smartass.epm.drill_lines import KEY_LABELS
-from .excel.jobs import com, fast_excel
-from .excel.sheets import add_sheet, unique_sheet_name
-from .excel.target import Target
+from .jobs import com, fast_excel
+from .sheets import add_sheet, unique_sheet_name
+from .target import Target
 from .host import InputError
 
 _DATE_LIKE = re.compile(r"^\s*(\d{1,4}[-./]\d{1,2}([-./]\d{1,4})?|[A-Za-z]{3,9}[-./ ]\d{1,4}"

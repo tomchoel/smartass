@@ -9,8 +9,8 @@ from openpyxl.utils.cell import range_boundaries
 
 from . import books, history
 from .. import formulas as fx
-from ..excel.jobs import com
-from ..excel.target import _wait_ready
+from ..jobs import com
+from ..target import _wait_ready
 from ..host import InputError
 
 TN_EMPH = {"": "", "sum": "Sum", "hovedsum": "Hovedsum", "grand": "Hovedsum", "input": "Input", "nokkel": "Nøkkel",

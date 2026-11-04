@@ -11,7 +11,7 @@ import pywintypes
 
 from . import jobs, target
 from smartass.epm.grid import Axis, Layout, parse
-from ..host import InputError
+from .host import InputError
 
 # ------------------------------------------------------------------ question numbering and sheets
 _Q = re.compile(r"^Q(\d+) (Answer|FinMax|FinLite|FinPlan|Lines)\b")   # our sheets only, not the user's "Q3 Forecast"

@@ -56,7 +56,7 @@ def test_clear_without_a_recipe_asks_for_a_spec(monkeypatch):
 
 
 def test_exactly_one_of_question_spec_followup():
-    from smartview_mcp.host import InputError
+    from smartass.xl.host import InputError
     with pytest.raises(InputError):
         asyncio.run(tools_core.answer(question="q", spec={"version": 1}))
     with pytest.raises(InputError):

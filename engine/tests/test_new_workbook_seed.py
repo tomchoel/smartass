@@ -6,7 +6,7 @@ import openpyxl
 import pytest
 
 from smartass.core import config
-from smartview_mcp.excel import target
+from smartass.xl import target
 
 CUSTOM = ('<?xml version="1.0" encoding="UTF-8"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/'
           '2006/custom-properties"><property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" '

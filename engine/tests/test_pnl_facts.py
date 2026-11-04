@@ -111,7 +111,7 @@ def test_a_failed_read_is_a_visible_warning():
     ("Dec 24", "Dec 24 is outside the live read window: it covers the 36 months Oct 23..Sep 26, and Dec 24 "
                "against last year needs Dec 22. Ask for Jan 25 or later.")])
 def test_a_period_outside_the_live_read_window_is_refused(env, period, msg):
-    from smartview_mcp.host import InputError
+    from smartass.xl.host import InputError
     retrieve, db = env
     with pytest.raises(InputError) as e:
         pnl_facts.prepare(None, CAT, WHS, period, ("ly",), retrieve=retrieve, db=db)

@@ -2,7 +2,7 @@
 from types import SimpleNamespace
 
 from smartview_mcp import answer_write
-from smartview_mcp.core import owned
+from smartass.xl import owned
 
 
 def test_growth_inserts_rows_only_when_the_band_below_holds_user_content():

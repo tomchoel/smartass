@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from .. import answer as answer_mod
-from ..excel.jobs import com
+from smartass.xl.jobs import com
 from .contract import AnswerSpec
 
 ANSWER = "Answer"            # sheet 'Q<n> Answer'

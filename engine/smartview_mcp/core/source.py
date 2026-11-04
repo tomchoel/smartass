@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from smartass.core import config
 from smartass.epm import svhttp
-from ..excel import adhoc, jobs, sheets
+from smartass.xl import pull_adhoc as adhoc, jobs, sheets
 from smartass.epm.grid import MISSING, Axis, Layout, parse
 from smartass.core.timing import stage
 from .contract import Pull as PullSpec
@@ -79,7 +79,7 @@ def _grey_italic(font) -> None:
 
 
 def write(t, q: int, title: str, pin: PullSpec, f: svhttp.Fetched) -> Source:
-    from .. import styling
+    from smartass.xl import styling
     from smartass.epm.ops import _used_values
     com, lay = jobs.com, f.layout
     name = sheets.unique_sheet_name(t, title)

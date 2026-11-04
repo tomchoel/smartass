@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
-from ..excel import jobs, sheets
+from smartass.xl import jobs, sheets
 from smartass.core.timing import stage
 
 log = logging.getLogger("smartview")
@@ -129,7 +129,7 @@ def tidy(t, sheet: str | None = None) -> None:
     """Fixed, neat sheet order (sheetorder: Answer first, other sheets, data per question, Sources, hidden) and land
     on `sheet`. Our own analysis files get the full order; in a user's own workbook only our sheets are reordered
     among themselves. Cosmetic: never fails the tool."""
-    from .. import sheetorder
+    from smartass.xl import sheetorder
     from ..server import _is_our_analysis_file
     try:
         with stage("arrange sheets"):

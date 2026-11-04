@@ -14,8 +14,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import config, logsetup
-from smartview_mcp.excel import instances
-from smartview_mcp.host import ExcelHost, HostError, InputError
+from ..xl import instances
+from ..xl.host import ExcelHost, HostError, InputError
 
 logsetup.configure(config.SERVER_LOG)
 logsetup.add_secret(config.HTTP_SECRET)

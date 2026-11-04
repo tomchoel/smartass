@@ -10,7 +10,7 @@ from smartass.knowledge import atlas
 from smartass.epm import drill_browser, svhttp, svxml
 from smartass.core import config
 from smartass.epm.grid import Axis
-from smartview_mcp.host import InputError
+from smartass.xl.host import InputError
 
 
 def _store(db, conn, dims, error=None):

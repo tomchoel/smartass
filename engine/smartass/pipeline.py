@@ -131,29 +131,29 @@ DATA_TAB = 0xA6A6A6      # grey tab for data sheets (BGR), as v1 sheetorder.DATA
 
 
 def _target(h, target: str, title: str):
-    from smartview_mcp.excel import target as xltarget
+    from .xl import target as xltarget
     return xltarget.resolve_target(h, target, allow_archive=False, title=title)
 
 
 def _next_q(t) -> int:
-    from smartview_mcp.excel import sheets
+    from .xl import sheets
     return sheets.next_question(t)
 
 
 def _add_sheet(t, name: str, q: int, color=None):
-    from smartview_mcp.excel import sheets
+    from .xl import sheets
     return sheets.add_sheet(t, name, after_q=q, color=color)
 
 
 def _calculate(t) -> None:
-    from smartview_mcp.excel import sheets
-    from smartview_mcp.excel.jobs import com
+    from .xl import sheets
+    from .xl.jobs import com
     com(lambda: t.app.Calculate())
     sheets.wait_calculated(t.app)
 
 
 def _save_spec(t, q: int, raw: dict, owned: dict | None = None) -> None:
-    from smartview_mcp.excel import jobs, sheets
+    from .xl import jobs, sheets
     if not sheets._sheet_exists(t, sheets.META_SHEET):      # v1 save_spec returns silently without it; same creation as save_meta
         ws = jobs.com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))
         jobs.com(lambda: sheets._name_hidden(ws, sheets.META_SHEET))
@@ -163,7 +163,7 @@ def _save_spec(t, q: int, raw: dict, owned: dict | None = None) -> None:
 def _arrange(t, sheet: str) -> str | None:
     """Sheet order like v1 tidy: our own files fully, the user's workbook only our sheets among themselves; land on
     the Answer sheet. Cosmetic: a failure is returned as a warning text, never raised (no rollback)."""
-    from smartview_mcp import sheetorder
+    from .xl import sheetorder
     try:
         mode = "full" if _is_ours(t) else "active"
         sheetorder.arrange_sheets(t.wb, mode, activate=sheet)
@@ -184,7 +184,7 @@ def autosave_paused(t):
     """AutoSave (OneDrive/SharePoint files) off while v2 writes, so a half-written answer is never stored.
     Our own analysis file: restored afterwards (we save it ourselves). The user's workbook: left off, with a note
     (AutoSave would otherwise save our edits into their file; v1 does the same)."""
-    from smartview_mcp.excel.jobs import com
+    from .xl.jobs import com
     notes: list[str] = []
     try:
         prev = bool(com(lambda: t.wb.AutoSaveOn))
@@ -204,27 +204,27 @@ def autosave_paused(t):
 
 
 def _save(t) -> None:
-    from smartview_mcp.excel.jobs import com
+    from .xl.jobs import com
     if _is_ours(t):                                     # only the engine's own analysis file, never the user's
         com(lambda: t.wb.Save())
 
 
 def _rollback(t) -> None:
-    from smartview_mcp.excel import sheets
+    from .xl import sheets
     sheets.rollback(t)
 
 
 def _backup(t, name: str) -> str:
-    from smartview_mcp.core import owned
+    from .xl import owned
     return owned.backup(t, name)
 
 
 def _restore(t, name: str, bname: str) -> None:
     """The backup becomes the sheet again. v1's restore first deletes the (broken) sheet `name`, which fails when it
     is already gone (the Data sheet is deleted before it is rebuilt): then only un-hide and rename the backup."""
-    from smartview_mcp.core import owned
-    from smartview_mcp.excel import sheets
-    from smartview_mcp.excel.jobs import com
+    from .xl import owned
+    from .xl import sheets
+    from .xl.jobs import com
     if sheets._sheet_exists(t, name):
         owned.restore(t, name, bname)
         return
@@ -234,7 +234,7 @@ def _restore(t, name: str, bname: str) -> None:
 
 
 def _delete_sheet(t, name: str) -> None:
-    from smartview_mcp.excel import sheets
+    from .xl import sheets
     sheets.drop_parked(t, {name: name})                 # alerts off while deleting, restored after
 
 
@@ -247,18 +247,18 @@ def _read_data(ws, q: int):
 
 
 def _sheet(t, name: str):
-    from smartview_mcp.excel.jobs import com
+    from .xl.jobs import com
     return com(lambda: t.wb.Worksheets(name))
 
 
 def _make_room(ws, old: dict | None, new: dict) -> None:
     """Insert rows/columns when the larger new answer would cover the user's own cells (v1 owned.make_room)."""
-    from smartview_mcp.core import owned as owned_mod
+    from .xl import owned as owned_mod
     owned_mod.make_room(ws, old, new)
 
 
 def _clear(ws, owned: dict | None) -> None:
-    from smartview_mcp.core import owned as owned_mod
+    from .xl import owned as owned_mod
     owned_mod.clear(ws, owned)                          # the drawn range and our charts (everything when none stored)
 
 
@@ -271,8 +271,8 @@ def read_stored(h, target: str = "session") -> tuple[dict, str | None, str]:
     """(stored specs by q, active sheet name, absolute workbook path): a short user-Excel job. The redraw uses the
     returned path as its target, so a workbook switch while the data is fetched cannot redirect it. A follow-up never
     creates a workbook: target 'new', or 'session' before the session has one, is refused before Excel is touched."""
-    from smartview_mcp.excel import sheets
-    from smartview_mcp.excel.jobs import com
+    from .xl import sheets
+    from .xl.jobs import com
     if target == "new":
         raise GuardError("a follow-up or refresh works on an existing answer, not a new workbook",
                          "use target 'session' (default) or 'active', or ask a new question with fin_analyze(spec)")
@@ -286,8 +286,8 @@ def read_stored(h, target: str = "session") -> tuple[dict, str | None, str]:
 def _write_lines(t, q: int, ls) -> str:
     """One line set -> table Lines_Q<q>_<alias> on 'Q<q> Lines <alias>' (v1 drill_xl.write_lines, which reuses the
     table in place) and the cube value in C2/D2 where CubeRef reads it."""
-    from smartview_mcp import drill_xl
-    from smartview_mcp.excel.jobs import com
+    from .xl import drill_xl
+    from .xl.jobs import com
 
     from .model.lines import CUBE_CELL
     cell = " / ".join(ls.cell.values()) if ls.cell else ls.alias

@@ -16,7 +16,7 @@ import re
 from typing import Callable
 
 from .. import catalog, concepts
-from ..host import InputError
+from smartass.xl.host import InputError
 from . import period as periods
 from . import prefs, semantic
 from .contract import CHECKLIST

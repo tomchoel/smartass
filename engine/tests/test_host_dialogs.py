@@ -7,9 +7,9 @@ import pytest
 import pywintypes
 
 from smartass.core import config
-from smartview_mcp import host
-from smartview_mcp.dialogs import Dialog
-from smartview_mcp.host import ComThread, ExcelHost, HostError, HostTimeout, SignInBlocked
+from smartass.xl import host
+from smartass.xl.dialogs import Dialog
+from smartass.xl.host import ComThread, ExcelHost, HostError, HostTimeout, SignInBlocked
 
 LOGIN_IE = Dialog(11, "#32770", "Login", "", "login", True)
 MESSAGE = Dialog(12, "#32770", "Oracle Smart View for Office", "Empty response from provider", "message")

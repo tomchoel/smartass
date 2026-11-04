@@ -5,10 +5,10 @@ import pytest
 import pywintypes
 
 from smartass.core import config, session
-from smartview_mcp import dialogs, styling
-from smartview_mcp.excel import instances, jobs, login, target
-from smartview_mcp.dialogs import Dialog
-from smartview_mcp.host import HostError
+from smartass.xl import dialogs, styling
+from smartass.xl import instances, jobs, login, target
+from smartass.xl.dialogs import Dialog
+from smartass.xl.host import HostError
 
 
 class FakeProc:

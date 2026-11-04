@@ -26,7 +26,7 @@ from . import drill_browser, svxml
 from smartass.core import config
 from .drill_browser import DrillError
 from .grid import INVALID, MISSING, NOACCESS, Axis, Layout, full_pov, parse, validate_axes, verify_labels
-from smartview_mcp.host import InputError
+from ..xl.host import InputError
 
 log = logging.getLogger(__name__)
 

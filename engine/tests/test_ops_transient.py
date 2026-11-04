@@ -2,7 +2,7 @@ import pytest
 
 from smartass.core import config
 from smartass.epm import ops
-from smartview_mcp.host import HostError, ProviderEmpty
+from smartass.xl.host import HostError, ProviderEmpty
 
 
 class _H:

@@ -1,7 +1,7 @@
 """rc=1000 handling: exact code match and bisection of rejected members (fake retrieve, no Excel)."""
 from smartass.epm import ops
 from smartass.epm.grid import Axis
-from smartview_mcp.host import HostError
+from smartass.xl.host import HostError
 
 
 def test_is_rc1000():

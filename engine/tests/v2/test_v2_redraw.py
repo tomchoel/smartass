@@ -91,8 +91,8 @@ def test_a_failing_restore_step_neither_hides_the_error_nor_skips_the_others(mon
 
 
 def test_restore_when_the_original_sheet_is_gone(monkeypatch):
-    from smartview_mcp.core import owned
-    from smartview_mcp.excel import jobs, sheets
+    from smartass.xl import owned
+    from smartass.xl import jobs, sheets
     monkeypatch.setattr(jobs, "com", lambda call, *a, **k: call())
     calls = []
 

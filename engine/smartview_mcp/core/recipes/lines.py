@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from ... import templates
 from smartass.epm.grid import Axis
-from ...host import InputError
+from smartass.xl.host import InputError
 from . import Draft, RecipeContext, pull_dict
 
 TOP = 10

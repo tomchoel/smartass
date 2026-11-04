@@ -119,7 +119,7 @@ def test_remember_then_lookup_roundtrip(tmp_path, monkeypatch):
 
 def test_remember_rejects_unknown_item_or_value(tmp_path, monkeypatch):
     from smartview_mcp.core import prefs
-    from smartview_mcp.host import InputError
+    from smartass.xl.host import InputError
     monkeypatch.setattr(prefs.config, "PREFERENCES", tmp_path / "p.toml")
     with pytest.raises(InputError):
         prefs.remember("colour", "x", "y")

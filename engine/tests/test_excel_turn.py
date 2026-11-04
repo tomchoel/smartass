@@ -4,7 +4,7 @@ import sys
 import time
 
 sys.path.insert(0, __file__.rsplit("\\tests", 1)[0])
-from smartview_mcp.excel import jobs  # noqa: E402
+from smartass.xl import jobs  # noqa: E402
 
 HOLDER = r"""
 import sys, time

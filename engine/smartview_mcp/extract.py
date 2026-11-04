@@ -15,14 +15,14 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from smartass.knowledge import atlas
-from . import hostproc
+from smartass.xl import hostproc
 from smartass.epm import ops
 from smartass.core import config
 from .analytics import periods, reconcile
 from .analytics.frame import from_rows
 from .catalog import Catalog, Entity
 from smartass.epm.grid import Axis, Layout, Parsed
-from .host import InputError
+from smartass.xl.host import InputError
 from .factstore import OPEN, FactStore, Fill, Row, WhKey
 
 log = logging.getLogger(__name__)

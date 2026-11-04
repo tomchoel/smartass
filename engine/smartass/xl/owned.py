@@ -3,8 +3,8 @@ row of the table, checks, notes and findings - is stored with the spec. A redraw
 charts named CHART_NAME, and makes room (inserts rows/columns) when a larger answer would overwrite user content."""
 from __future__ import annotations
 
-from ..excel import sheets
-from ..excel.jobs import com as _com
+from . import sheets
+from .jobs import com as _com
 
 CHART_NAME = "smartass chart"
 

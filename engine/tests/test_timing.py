@@ -26,7 +26,7 @@ def test_say_without_a_job_or_with_a_broken_callback_is_silent():
 
 
 def test_com_calls_are_counted_per_stage_nested_counted_in_parents(monkeypatch):
-    from smartview_mcp.excel import jobs
+    from smartass.xl import jobs
     monkeypatch.setattr(jobs, "_check_alive", lambda: None)
     tm = timing.Timer.start()
     with timing.stage("write"):
@@ -42,7 +42,7 @@ def test_com_calls_are_counted_per_stage_nested_counted_in_parents(monkeypatch):
 
 def test_com_without_a_timer_or_in_another_thread_is_not_counted(monkeypatch):
     import threading
-    from smartview_mcp.excel import jobs
+    from smartass.xl import jobs
     monkeypatch.setattr(jobs, "_check_alive", lambda: None)
     assert jobs.com(lambda: 5) == 5                       # no timer: no crash
     tm = timing.Timer.start()

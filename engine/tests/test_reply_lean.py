@@ -68,6 +68,6 @@ def test_line_count_counts_lines_with_values():
 def test_gate_rejects_answer_keys_that_are_not_checklist_items():
     import pytest
     from smartview_mcp.core import scope
-    from smartview_mcp.host import InputError
+    from smartass.xl.host import InputError
     with pytest.raises(InputError, match="measure"):
         scope.gate("Opex this year", "Sep 26", learned=lambda i, p: None, answers={"bogus": "x"})

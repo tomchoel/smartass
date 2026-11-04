@@ -10,7 +10,7 @@ from fin_util import CAT, CAT0, WHS, filled, http, make_value
 
 from smartview_mcp import fin_pnl, fin_spec, specs
 from smartass.epm.grid import Axis
-from smartview_mcp.excel.sheets import _make_pull
+from smartass.xl.sheets import _make_pull
 from smartview_mcp.factstore import Row
 
 PARTS = {0: "m.cur", 1: "m.ly", 2: "m.var", 3: "m.pct", 4: "ytd.cur", 5: "ytd.ly", 6: "ytd.var", 7: "ytd.pct"}
