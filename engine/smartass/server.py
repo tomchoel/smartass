@@ -15,6 +15,8 @@ from smartview_mcp import server as v1
 from smartview_mcp.host import InputError
 
 from . import legacy
+from .data.adhoc import adhoc_fetch
+from .data.provider import ComboProvider
 from .knowledge.atlas_resolver import AtlasResolver
 from .knowledge.interim import catalog_metrics
 from .followup import find_question, merge_patch, v2_questions
@@ -137,13 +139,19 @@ def _has_lines(raw: dict) -> bool:
     return any(isinstance(b, dict) and b.get("type") == "lines" for b in raw.get("blocks") or [])
 
 
-async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None):
-    """(Prepared, drill warnings). A stored or patched raw spec with lines blocks is re-drilled, so lines are fresh."""
+async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target: str = "session"):
+    """(Prepared, drill warnings). A stored or patched raw spec with lines blocks is re-drilled, so lines are fresh.
+    Grids the HTTP route could not fetch are pulled as ad hoc grids in the user's Excel (one job), then the model is
+    prepared again with those results fixed; this fallback runs at most once."""
     notes: list[str] = []
     lines: dict = {}
     if spec is not None or _has_lines(raw):
         lines, notes = await _line_sets(spec or AnalysisSpec.model_validate(raw))
     pre = await asyncio.to_thread(run_prepare, raw, provider, lines=lines)
+    failed = getattr(pre, "failed", None)
+    if failed:
+        fixed = await _user(lambda h: adhoc_fetch(h, failed, target), "ad hoc fallback")
+        pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, fixed), lines=lines)
     return pre, notes
 
 
@@ -154,7 +162,7 @@ def _with_notes(out: dict, notes: list[str]) -> dict:
 
 
 async def _new_question(spec: AnalysisSpec, target: str) -> dict:
-    pre, notes = await _prepare(spec.model_dump(), _provider(), spec)
+    pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target)
     return _with_notes(await _user(lambda h: excel_job(h, pre, target), "fin_analyze"), notes)
 
 
@@ -175,7 +183,7 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     provider = _provider()
     stored, active, path = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
     q2, raw, owned = find_question(stored, q, active)
-    pre, notes = await _prepare(merge_patch(raw, patch), provider)
+    pre, notes = await _prepare(merge_patch(raw, patch), provider, target=path)
     return _with_notes(await _user(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up"), notes)
 
 
@@ -207,7 +215,7 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
                          "error": f"skipped: the restore of Q{broken} failed - check the workbook first"})
             continue
         try:
-            pre, notes = await _prepare(stored[q]["spec"]["v2"], provider)
+            pre, notes = await _prepare(stored[q]["spec"]["v2"], provider, target=path)
             out = _with_notes(await _user(lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), path),
                                           "fin_refresh"), notes)
             workbook = out.get("workbook", workbook)

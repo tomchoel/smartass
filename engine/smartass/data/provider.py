@@ -98,3 +98,16 @@ class SvHttpProvider:
         """FinMax's 'Current Reporting Month' for every cube (FinLite and FinPlan close with FinMax)."""
         m = parse(self.sv.closed_month("FinMax"))
         return {"FinMax": m, "FinLite": m, "FinPlan": m}
+
+
+class ComboProvider:
+    """Fixed results (the ad hoc fallback's) for the requests that failed over HTTP, the primary provider for the rest."""
+
+    def __init__(self, primary, fixed: dict):
+        self.primary, self.fixed = primary, fixed
+
+    def closed_months(self):
+        return self.primary.closed_months()
+
+    def fetch(self, req: GridRequest) -> FetchResult:
+        return self.fixed[req] if req in self.fixed else self.primary.fetch(req)
