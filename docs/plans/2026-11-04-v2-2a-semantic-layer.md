@@ -262,3 +262,17 @@ old one atomically: write to `out_db.tmp`, then `os.replace`.
 3. `fin_analyze` with a query on un.SY.2BUS YTD returns caveats, if any are in scope. Sheet = model OK.
 4. `smartass knowledge refresh --no-atlas`: the report is written and the test set is 8/8.
 5. Merge into main, push.
+
+---
+
+## Live result (2026-11-04)
+
+- `fin_status(restart=True)`: the knowledge block reads 11 metrics, 37 facts, 0 drafts. Doctor OK.
+- `fin_lookup("driftskostnader")` returns Opex (aliases, description, how FinPlan differs).
+- `fin_lookup("2CON")` returns un.SY.2CON with the abolished-Consumer warn caveat. The un.MX/un.SN namesakes get
+  none.
+- `fin_analyze`, a Technology opex ranking YTD: the caveat "Moved in the 1 Jun 2026 reorg (IG → TEC)", Sheet = model
+  OK.
+- `smartass knowledge refresh --no-atlas`: baseline saved, 0 drafts, test set 8/8, report
+  `%LOCALAPPDATA%\smartass\knowledge\reports\2026-10.md`.
+- Merged into main and pushed.
