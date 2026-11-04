@@ -90,7 +90,7 @@ from .render.excel import read_block, write_answer, write_data  # noqa: E402
 from .render.layout import layout  # noqa: E402
 from .render.readback import compare  # noqa: E402
 
-DATA_TAB = 0x808080      # grey tab for data sheets (BGR)
+DATA_TAB = 0xA6A6A6      # grey tab for data sheets (BGR), as v1 sheetorder.DATA_TAB
 
 
 def _target(h, target: str, title: str):

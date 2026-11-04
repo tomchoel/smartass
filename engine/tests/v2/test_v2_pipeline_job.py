@@ -61,3 +61,8 @@ def test_arrange_warning_goes_to_the_reply_without_rollback(monkeypatch):
     pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
     out = pipeline.excel_job(None, pre, target="session")
     assert "arrange failed for Q4 Answer" in out["warnings"] and "rollback" not in log
+
+
+def test_data_tab_colour_is_v1s():
+    from smartview_mcp import sheetorder
+    assert pipeline.DATA_TAB == sheetorder.DATA_TAB == 0xA6A6A6
