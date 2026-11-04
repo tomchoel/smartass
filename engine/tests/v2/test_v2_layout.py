@@ -67,3 +67,13 @@ def test_plan_lists_the_percentage_cells_for_the_readback():
     pct = {f"{o.key}.{ln.key}.{j}" for o in res.outs for ln in o.lines for j, e in enumerate(ln.cells)
            if e is not None and o.cols[j] in ("var_pct", "share")}
     assert pct and p.fractions == pct
+
+
+def test_long_notes_are_wrapped_to_the_lint_width():
+    from smartass.model.findings import Finding
+    s, res, _ = plan()
+    res.findings.append(Finding("info", "word " * 40, "b0"))
+    p = layout(3, s, res, stock=set(), subtitle="NOK · FinMax · closed Sep 26")
+    notes = [p.cells[(r["row"], 2)] for r in p.rows if r["kind"] == "note"]
+    assert len(notes) >= 4 and all(len(n) <= 78 for n in notes)
+    assert " ".join(n.strip() for n in notes if n.startswith(("Info", "word"))).count("word") >= 40

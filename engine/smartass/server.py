@@ -120,12 +120,11 @@ async def _line_sets(spec: AnalysisSpec) -> tuple[dict, list[str]]:
     """Drill every lines block: {'b<i>': LineSet} and the drills' warnings. Project grouping marks each line's
     booked project (INITIATIVE) first. A drill with 0 lines still gives a LineSet (prepare refuses it, with the reason)."""
     from smartview_mcp.core.recipes import lines as v1lines
+    blocks = [(i, b) for i, b in enumerate(spec.blocks) if isinstance(b, LinesBlock)]
+    results = await asyncio.gather(*[_drill(b.cell) for _, b in blocks])      # independent cells: drilled concurrently
     out: dict[str, LineSet] = {}
     notes: list[str] = []
-    for i, b in enumerate(spec.blocks):
-        if not isinstance(b, LinesBlock):
-            continue
-        res = await _drill(b.cell)
+    for (i, b), res in zip(blocks, results):
         rows, cols = res.rows, list(res.columns)
         if b.group_by == "project":
             cols = v1lines.add_initiative(rows, cols)
@@ -155,9 +154,23 @@ async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target
     return pre, notes
 
 
+TEXT_FIX_PREFIX = "Text broken in EPM"
+
+
+def _broken_texts(warning: str) -> list[str]:
+    """'Text broken in EPM (letters lost at load): a; b - add corrections to ...' -> ['a', 'b']."""
+    body = warning.split("): ", 1)[-1].split(" - add corrections", 1)[0]
+    return [t.strip() for t in body.split(";") if t.strip()]
+
+
 def _with_notes(out: dict, notes: list[str]) -> dict:
+    """Drill notes join the warnings; the broken-text ones become reply['text_fixes'] (candidates for text_fixes.json)."""
+    fixes = [t for n in notes if n.startswith(TEXT_FIX_PREFIX) for t in _broken_texts(n)]
+    notes = [n for n in notes if not n.startswith(TEXT_FIX_PREFIX)]
     if notes:
         out["warnings"] = list(out.get("warnings", [])) + notes
+    if fixes:
+        out["text_fixes"] = list(dict.fromkeys(out.get("text_fixes", []) + fixes))
     return out
 
 

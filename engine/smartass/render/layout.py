@@ -5,6 +5,7 @@ addresses first, then formulas, so a Ref may point forwards (bridge 'Other' -> '
 from __future__ import annotations
 
 import math
+import textwrap
 from dataclasses import dataclass, field
 
 from ..model.analyze import Result
@@ -14,6 +15,7 @@ from ..model.spec import AnalysisSpec, CommentaryBlock
 
 FIRST_COL = 3
 LABEL_COL = 2
+NOTE_WIDTH = 78          # characters per note row (the width styling lint allows)
 PCT_CODES = {"var_pct", "share"}
 
 
@@ -100,6 +102,13 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         p.cells[(row, LABEL_COL)] = value
         p.rows.append({"row": row, "kind": kind})
 
+    def notes(row: int, value: str) -> int:
+        """A note longer than the lint width continues on following note rows, split at word boundaries."""
+        for part in textwrap.wrap(value, NOTE_WIDTH) or [""]:
+            text(row, part, "note")
+            row += 1
+        return row
+
     text(r, spec.plan.purpose or spec.question, "title")
     text(r + 1, subtitle, "subtitle")
     r += 3
@@ -165,11 +174,10 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         text(r, "Findings", "section")
         r += 1
         for f in res.findings:
-            text(r, f"{f.severity.capitalize()}: {f.text}", "note")
-            r += 1
+            r = notes(r, f"{f.severity.capitalize()}: {f.text}")
         r += 1
-    text(r, f"Source: Oracle EPM Cloud via Smart View. Every number is a formula on table {table} "
-            f"(sheet Q{q} Data).", "note")
+    r = notes(r, f"Source: Oracle EPM Cloud via Smart View. Every number is a formula on table {table} "
+                 f"(sheet Q{q} Data).") - 1
 
     def addr(key: str) -> str:
         return p.addr[key]

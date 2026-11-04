@@ -6,6 +6,8 @@ One pipeline: every question goes `sv_gate` -> `sv_answer` (design `docs/specs/2
 
 ### Added
 
+- v2: ad hoc fallback for failed HTTP grids, record/replay, test set (record / approve / run offline),
+  text-fix candidates in the reply, wrapped notes, parallel drills.
 - v2 ledger lines: lines block and fin_drill (supplier / project / account ranking tied to the cube), clean
   refusals, shorter SUMIFS.
 - v2 robustness and toolkit: AutoSave paused while writing, session workbook kept across /mcp reconnects, a lost

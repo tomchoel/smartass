@@ -104,3 +104,32 @@ def test_followup_re_drills_the_patched_spec(monkeypatch):
 def test_tool_names_and_instructions():
     assert "fin_drill" in server.TOOL_NAMES
     assert "fin_drill" in server.INSTRUCTIONS and len(server.INSTRUCTIONS) < 2500
+
+
+def test_text_fix_candidates_are_listed_apart_from_the_warnings(monkeypatch):
+    broken = "Text broken in EPM (letters lost at load): Tlefon AS; Acme Cnsult - add corrections to x\text_fixes.json"
+    wire(monkeypatch, [result(warnings=[broken, "thin"])])
+    out = asyncio.run(server.fin_analyze(spec=spec_with({"type": "lines", "cell": CELL})))
+    assert out["text_fixes"] == ["Tlefon AS", "Acme Cnsult"]
+    assert "thin" in out["warnings"] and not any(w.startswith("Text broken in EPM") for w in out["warnings"])
+
+
+def test_no_text_fixes_key_without_broken_texts():
+    assert "text_fixes" not in server._with_notes({"warnings": []}, ["thin"])
+
+
+def test_several_lines_blocks_are_drilled_concurrently(monkeypatch):
+    log = []
+
+    async def slow_drill(cell):
+        log.append(("start", cell["All Time Periods"]))
+        await asyncio.sleep(0.05)
+        log.append(("end", cell["All Time Periods"]))
+        return result()
+
+    monkeypatch.setattr(server, "_drill", slow_drill)
+    cell2 = dict(CELL, **{"All Time Periods": "Aug 26"})
+    sets, _ = asyncio.run(server._line_sets(spec_with({"type": "lines", "cell": CELL},
+                                                      {"type": "lines", "cell": cell2})))
+    assert sorted(sets) == ["b0", "b1"] and sets["b1"].cell == cell2
+    assert [k for k, _ in log[:2]] == ["start", "start"]        # both started before either ended
