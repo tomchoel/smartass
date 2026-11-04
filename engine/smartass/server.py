@@ -353,5 +353,52 @@ async def xl_tidy(workbook: str | None = None, sheet: str | None = None, rows: d
     return await _user(lambda h: tidy(workbook, sheet, rows, last_col), "xl_tidy")
 
 
+# ---------------------------------------------------------------- playbooks: MCP prompts and resources (sub-spec 2 §6)
+PLAYBOOKS = {"monthly-pack": "Monthly pack: build once with relative periods, refresh, critic, commentary patch.",
+             "variance-commentary": "Variance commentary: drivers from data, caveats, FinMax vs FinPlan.",
+             "gl-extract": "GL extract: ledger lines per account and cost centre, reconciled exactly to the cube.",
+             "prodreg-input": "Produktregnskapet input: drill per division node, sum to YTD, support workbook rule."}
+GUIDES = {"plan": ("agent/plan.md", "How to write the plan of an AnalysisSpec v2: purpose, hypotheses, blocks."),
+          "critic": ("agent/critic.md", "The critic rubric: score a standard or deep answer 1-5 on 6 criteria."),
+          **{n: (f"playbooks/{n}.md", d) for n, d in PLAYBOOKS.items()}}
+FINANCE_RULES = "## 6. Finance rules"
+
+
+def _knowledge_text(rel: str) -> str:
+    from .core import config
+    return (config.KNOWLEDGE_DIR / rel).read_text(encoding="utf-8")
+
+
+def _guide_prompt(name: str, rel: str, desc: str):
+    def render() -> str:
+        return (f"smartass {name} ({desc.split(':')[0].lower()}): apply this with the fin_* tools; quote numbers "
+                f"only from key_values.\n\n" + _knowledge_text(rel))
+    render.__name__ = name.replace("-", "_")
+    mcp.prompt(name=name, description=desc)(render)
+
+
+def _playbook_resource(name: str, desc: str):
+    def read() -> str:
+        return _knowledge_text(f"playbooks/{name}.md")
+    read.__name__ = f"playbook_{name.replace('-', '_')}"
+    mcp.resource(f"smartass://playbooks/{name}", name=name, description=desc, mime_type="text/markdown")(read)
+
+
+for _n, (_rel, _d) in GUIDES.items():
+    _guide_prompt(_n, _rel, _d)
+for _n, _d in PLAYBOOKS.items():
+    _playbook_resource(_n, _d)
+
+
+@mcp.resource("smartass://conventions", name="conventions", mime_type="text/markdown",
+              description="Finance conventions: cube choice, NOK format, signs, variance, P&L chain, members.")
+def conventions() -> str:
+    """The skill's finance rules section (one source: skills/smartass/SKILL.md)."""
+    from .core import config
+    skill = (config.REPO_DIR / "skills" / "smartass" / "SKILL.md").read_text(encoding="utf-8")
+    body = skill.split(FINANCE_RULES, 1)[1].split("\n## ", 1)[0]
+    return "# smartass finance conventions\n" + body
+
+
 def main():
     mcp.run()
