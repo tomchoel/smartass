@@ -123,9 +123,17 @@ def _save_spec(t, q: int, raw: dict) -> None:
     sheets.save_spec(t, q, {"v2": raw}, ids={}, owned=None)
 
 
-def _arrange(t) -> None:
+def _arrange(t, sheet: str) -> str | None:
+    """Sheet order like v1 tidy: our own files fully, the user's workbook only our sheets among themselves; land on
+    the Answer sheet. Cosmetic: a failure is returned as a warning text, never raised (no rollback)."""
+    from smartview_mcp import server as v1server
     from smartview_mcp import sheetorder
-    sheetorder.arrange_sheets(t.wb, mode="full")
+    try:
+        mode = "full" if (getattr(t, "created", False) or v1server._is_our_analysis_file(t.path)) else "active"
+        sheetorder.arrange_sheets(t.wb, mode, activate=sheet)
+    except Exception as e:   # noqa: BLE001
+        return f"could not arrange the sheets ({e}); the answer is built"
+    return None
 
 
 def _save(t) -> None:
@@ -153,12 +161,13 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
         _calculate(t)
         mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan))
         _save_spec(t, q, pre.raw)
-        _arrange(t)
+        arranged = _arrange(t, f"Q{q} Answer")
         _save(t)
     except Exception:
         _rollback(t)
         raise
-    return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data"], mismatches, list(lint or []))
+    return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data"], mismatches,
+                 list(lint or []) + ([arranged] if arranged else []))
 
 
 def _stock(pre: Prepared) -> set[str]:

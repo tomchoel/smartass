@@ -52,3 +52,12 @@ def test_job_rolls_back_on_failure(monkeypatch):
     with pytest.raises(RuntimeError):
         pipeline.excel_job(None, pre, target="session")
     assert log[-1] == "rollback"
+
+
+def test_arrange_warning_goes_to_the_reply_without_rollback(monkeypatch):
+    log = []
+    wire(monkeypatch, log)
+    monkeypatch.setattr(pipeline, "_arrange", lambda t, sheet: f"arrange failed for {sheet}")
+    pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
+    out = pipeline.excel_job(None, pre, target="session")
+    assert "arrange failed for Q4 Answer" in out["warnings"] and "rollback" not in log

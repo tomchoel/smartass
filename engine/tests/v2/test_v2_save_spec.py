@@ -49,3 +49,36 @@ def test_save_spec_creates_the_hidden_meta_sheet_first(monkeypatch):
     assert meta.Visible == 0
     pipeline._save_spec(t, 3, {})                       # second call: no second meta sheet
     assert [s.Name for s in t.wb.Worksheets].count(sheets.META_SHEET) == 1
+
+
+def test_arrange_mode_and_activation(monkeypatch):
+    from smartview_mcp import server as v1server
+    from smartview_mcp import sheetorder
+    calls = []
+    monkeypatch.setattr(sheetorder, "arrange_sheets", lambda wb, mode="full", activate=None: calls.append((mode, activate)))
+    monkeypatch.setattr(v1server, "_is_our_analysis_file", lambda path: path.startswith("OURS"))
+
+    class Tg:
+        wb = object()
+
+        def __init__(self, path, created):
+            self.path, self.created = path, created
+    assert pipeline._arrange(Tg("C:/u/book.xlsx", False), "Q3 Answer") is None
+    assert pipeline._arrange(Tg("OURS/a.xlsx", False), "Q3 Answer") is None
+    assert pipeline._arrange(Tg("C:/new.xlsx", True), "Q3 Answer") is None
+    assert calls == [("active", "Q3 Answer"), ("full", "Q3 Answer"), ("full", "Q3 Answer")]
+
+
+def test_arrange_failure_is_a_warning_not_an_error(monkeypatch):
+    from smartview_mcp import server as v1server
+    from smartview_mcp import sheetorder
+
+    def boom(*a, **k):
+        raise RuntimeError("excel said no")
+    monkeypatch.setattr(sheetorder, "arrange_sheets", boom)
+    monkeypatch.setattr(v1server, "_is_our_analysis_file", lambda p: True)
+
+    class Tg:
+        wb, path, created = object(), "x", True
+    msg = pipeline._arrange(Tg(), "Q1 Answer")
+    assert "excel said no" in msg
