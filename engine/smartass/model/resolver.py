@@ -41,6 +41,11 @@ class MetricDef:
     balance: Balance = "Periodic"
     aggregation: Aggregation = "sum"
 
+    def __post_init__(self):
+        if self.balance == "Accumulated" and self.aggregation == "sum":
+            raise ValueError(f"metric {self.name!r}: an Accumulated balance cannot be summed over months "
+                             "(Accumulated with aggregation 'sum' double counts); use aggregation 'last'")
+
 
 @dataclass
 class StaticResolver:

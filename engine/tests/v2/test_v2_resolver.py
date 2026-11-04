@@ -35,3 +35,10 @@ def test_tree_labels_and_status():
     assert r.status("Draft thing") == "draft"
     assert r.materiality("Opex") == (5.0, 0.05)
     assert r.latest_forecast() == "Forecast Q326"
+
+
+def test_accumulated_balance_with_sum_aggregation_is_refused():
+    from smartass.model.resolver import MetricDef
+    with pytest.raises(ValueError, match="Accumulated.*sum"):
+        MetricDef("Bad", {"FinMax": ("ac.X",)}, balance="Accumulated", aggregation="sum")
+    MetricDef("Ok", {"FinMax": ("ac.X",)}, balance="Accumulated", aggregation="last")
