@@ -93,3 +93,9 @@ def test_material_lists_one_line_per_query_metric_entity_and_base():
     ids = [(m["block"], m["line"]) for m in mat]
     assert len(ids) == len(set(ids)) and all(m["base"] == "ly" for m in mat)
     assert len([m for m in mat if m["line"] in ("un.SY.4BUS_B",)]) == 1
+
+
+def test_unique_names_stay_distinct_when_the_suffix_is_taken():
+    from smartass.model.analyze import _unique
+    out = _unique(["A", "A", "A (2)"])
+    assert len(set(out)) == 3 and out[0] == "A"

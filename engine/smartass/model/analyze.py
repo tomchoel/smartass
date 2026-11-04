@@ -34,11 +34,17 @@ def plan_requests(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[GridR
 
 
 def _unique(names: list[str]) -> list[str]:
-    seen: dict[str, int] = {}
+    taken = set(names)          # every original name is reserved, so a suffix never lands on a later real name
+    seen: set[str] = set()
     out = []
     for n in names:
-        seen[n] = seen.get(n, 0) + 1
-        out.append(n if seen[n] == 1 else f"{n} ({seen[n]})")
+        if n in seen:
+            k = 2
+            while f"{n} ({k})" in taken | seen:
+                k += 1
+            n = f"{n} ({k})"
+        seen.add(n)
+        out.append(n)
     return out
 
 
