@@ -1,0 +1,11 @@
+{
+  "id": "b01",
+  "question": "Wholesale P&L year to date vs last year",
+  "spec": {
+    "version": 2,
+    "question": "Wholesale P&L year to date vs last year",
+    "plan": {"depth": "standard", "purpose": "Explain the Wholesale P&L and EBITDA bridge YTD vs last year"},
+    "queries": [{"id": "q1", "cube": "FinMax", "metrics": ["Revenue","COGS","Opex","Other items","EBITDA"], "entity": "un.SY.2WHS", "periods": "closed-ytd", "compare": ["ly"]}],
+    "blocks": [{"type":"kpi_tiles","query":"q1","metrics":["Revenue","EBITDA"]},{"type":"table","query":"q1","title":"P&L","metrics":["Revenue","COGS","Opex","Other items","EBITDA"]},{"type":"bridge","query":"q1","total":"EBITDA","steps":["Revenue","COGS","Opex","Other items"]}]
+  }
+}

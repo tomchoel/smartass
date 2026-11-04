@@ -1,0 +1,11 @@
+{
+  "id": "b15",
+  "question": "What drives Business opex vs last year",
+  "spec": {
+    "version": 2,
+    "question": "What drives Business opex vs last year",
+    "plan": {"depth": "standard", "purpose": "Find the drivers of Business opex vs last year"},
+    "queries": [{"id": "q1", "cube": "FinMax", "metrics": ["Opex"], "entity": "un.SY.2BUS", "periods": "closed-ytd", "compare": ["ly"]}],
+    "blocks": [{"type":"drivers","query":"q1","metric":"Opex","depth":2}]
+  }
+}

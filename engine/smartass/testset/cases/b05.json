@@ -1,0 +1,11 @@
+{
+  "id": "b05",
+  "question": "Technology actual vs budget and forecast year to date",
+  "spec": {
+    "version": 2,
+    "question": "Technology actual vs budget and forecast year to date",
+    "plan": {"depth": "standard", "purpose": "Show Technology actual against budget and the latest forecast YTD"},
+    "queries": [{"id": "q1", "cube": "FinPlan", "metrics": ["Revenue","Opex","EBITDA"], "entity": "1TEC Technology", "periods": "closed-ytd", "compare": ["budget","forecast"]}],
+    "blocks": [{"type":"table","query":"q1","title":"Actual vs plan","metrics":["Revenue","Opex","EBITDA"],"columns":["value","budget","var","forecast","var"]}]
+  }
+}

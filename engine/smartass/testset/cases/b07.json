@@ -1,0 +1,11 @@
+{
+  "id": "b07",
+  "question": "Telenor Norge monthly revenue trend",
+  "spec": {
+    "version": 2,
+    "question": "Telenor Norge monthly revenue trend",
+    "plan": {"depth": "quick", "purpose": ""},
+    "queries": [{"id": "q1", "cube": "FinMax", "metrics": ["Revenue"], "entity": "un.SY", "periods": "closed-ytd", "compare": ["ly"]}],
+    "blocks": [{"type":"trend","query":"q1","metrics":["Revenue"]}]
+  }
+}

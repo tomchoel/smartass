@@ -1,0 +1,11 @@
+{
+  "id": "b13",
+  "question": "EBITDA year to date for un.SY.5OK_W",
+  "spec": {
+    "version": 2,
+    "question": "EBITDA year to date for un.SY.5OK_W",
+    "plan": {"depth": "quick", "purpose": ""},
+    "queries": [{"id": "q1", "cube": "FinMax", "metrics": ["EBITDA"], "entity": "un.SY.5OK_W", "periods": "closed-ytd", "compare": ["ly"]}],
+    "blocks": [{"type":"kpi_tiles","query":"q1","metrics":["EBITDA"]}]
+  }
+}

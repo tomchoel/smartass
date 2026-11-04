@@ -1,0 +1,11 @@
+{
+  "id": "b16",
+  "question": "Technology other opex lines by supplier, Sep 26",
+  "spec": {
+    "version": 2,
+    "question": "Technology other opex lines by supplier, Sep 26",
+    "plan": {"depth": "quick"},
+    "queries": [],
+    "blocks": [{"type": "lines", "cell": {"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"}, "group_by": "supplier"}]
+  }
+}

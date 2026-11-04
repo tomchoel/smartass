@@ -1,0 +1,11 @@
+{
+  "id": "b02",
+  "question": "Business EBITDA year to date Sep 26 vs last year",
+  "spec": {
+    "version": 2,
+    "question": "Business EBITDA year to date Sep 26 vs last year",
+    "plan": {"depth": "quick", "purpose": ""},
+    "queries": [{"id": "q1", "cube": "FinMax", "metrics": ["EBITDA"], "entity": "un.SY.2BUS", "periods": "Jan 26..Sep 26", "compare": ["ly"]}],
+    "blocks": [{"type":"kpi_tiles","query":"q1","metrics":["EBITDA"]}]
+  }
+}

@@ -1,0 +1,63 @@
+"""uv run python -m smartass.testset record [ids] | approve ids | run
+record is live (EPM over the hidden browser, never Excel); approve and run are offline. run exits 1 on any failure."""
+from __future__ import annotations
+
+import asyncio
+import sys
+
+from . import runner
+
+
+def _pick(ids: list[str]) -> list[dict]:
+    cases = runner.load_cases()
+    if not ids:
+        return cases
+    known = {c["id"] for c in cases}
+    if set(ids) - known:
+        raise SystemExit(f"unknown case(s): {', '.join(sorted(set(ids) - known))}; known: {', '.join(sorted(known))}")
+    return [c for c in cases if c["id"] in ids]
+
+
+def _record(ids: list[str]) -> int:
+    from .. import legacy, server
+    from ..model.spec import AnalysisSpec
+    legacy.configure_v2()
+    provider = server._provider()
+    bad = 0
+    for c in _pick(ids):
+        try:
+            spec = AnalysisSpec.model_validate(c["spec"])
+            lines = asyncio.run(server._line_sets(spec))[0]
+            cand = runner.record(c, provider, lines)
+            print(f"{c['id']}: recorded, {len(cand['key_values'])} key lines (closed {cand['closed']['FinMax']})")
+            for k, v in list(cand["key_values"].items())[:12]:
+                print(f"    {k}: {v}")
+        except Exception as e:   # noqa: BLE001 - report each refusal, go on with the next case
+            bad += 1
+            print(f"{c['id']}: FAILED - {type(e).__name__}: {e}")
+    return 1 if bad else 0
+
+
+def main(argv: list[str]) -> int:
+    cmd, ids = (argv[0] if argv else ""), argv[1:]
+    if cmd == "record":
+        return _record(ids)
+    if cmd == "approve":
+        if not ids:
+            raise SystemExit("approve needs case ids, e.g. approve b01 b02")
+        for i in ids:
+            print(f"{i}: approved -> {runner.approve(i)}")
+        return 0
+    if cmd == "run":
+        report = runner.run_offline(_pick(ids))
+        for r in report:
+            mark = {True: "ok", False: "FAIL", None: "no golden"}[r["ok"]]
+            print(f"{r['id']:<6}{mark}")
+            for d in r["diffs"] if r["ok"] is False else []:
+                print(f"      {d}")
+        return 1 if any(r["ok"] is False for r in report) else 0
+    raise SystemExit(__doc__)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

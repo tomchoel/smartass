@@ -1,0 +1,11 @@
+{
+  "id": "b06",
+  "question": "Top cost centres by opex under Technology",
+  "spec": {
+    "version": 2,
+    "question": "Top cost centres by opex under Technology",
+    "plan": {"depth": "quick", "purpose": ""},
+    "queries": [{"id": "q1", "cube": "FinMax", "metrics": ["Opex"], "entity": "un.SY.2TEC", "periods": "closed-ytd", "compare": ["ly"]}],
+    "blocks": [{"type":"ranking","query":"q1","metric":"Opex","top":15}]
+  }
+}
