@@ -24,3 +24,40 @@ def spec_dict(**over) -> dict:
     d = copy.deepcopy(BASE_SPEC)
     d.update(over)
     return d
+
+
+from smartass.model.frame import Fact, Frame  # noqa: E402
+from smartass.model.resolver import MetricDef, StaticResolver  # noqa: E402
+
+TREE = {"un.SY.2BUS": ("un.SY.4BUS_B", "un.SY.G910"), "un.SY.4BUS_B": ("un.SY.B1", "un.SY.B2")}
+LEAVES = {  # period -> entity -> account -> value
+    "Sep 26": {"un.SY.B1": {"ac.C30": 100.0, "ac.C50S": -40.0, "ac.C60": -20.0},
+               "un.SY.B2": {"ac.C30": 30.0, "ac.C50S": -10.0, "ac.C60": -5.0},
+               "un.SY.G910": {"ac.C30": 20.0, "ac.C50S": -8.0, "ac.C60": -2.0}},
+    "Sep 25": {"un.SY.B1": {"ac.C30": 90.0, "ac.C50S": -35.0, "ac.C60": -15.0},
+               "un.SY.B2": {"ac.C30": 32.0, "ac.C50S": -12.0, "ac.C60": -6.0},
+               "un.SY.G910": {"ac.C30": 18.0, "ac.C50S": -8.0, "ac.C60": -1.0}},
+}
+
+
+def resolver(**kw) -> StaticResolver:
+    return StaticResolver(
+        metrics=[MetricDef("Revenue", {"FinMax": ("ac.C30",), "FinPlan": ("Revenue",)}, sign="income"),
+                 MetricDef("Opex", {"FinMax": ("ac.C50S", "ac.C60"), "FinPlan": ("OPEX",)}, sign="cost",
+                           materiality=(5.0, 0.05)),
+                 MetricDef("EBITDA", {"FinMax": ("ac.EBITDA",), "FinPlan": ("EBITDA",)}, sign="income"),
+                 MetricDef("Draft thing", {"FinMax": ("ac.C99",)}, status="draft")],
+        tree=TREE, labels={"un.SY.2BUS": "2BUS Business Norway"}, **kw)
+
+
+def facts() -> Frame:
+    """Leaves plus parents (EPM returns parent values), EBITDA = C30 + C50S + C60 per entity."""
+    out = []
+    for per, ents in LEAVES.items():
+        vals = {e: dict(a) for e, a in ents.items()}
+        for parent in ("un.SY.4BUS_B", "un.SY.2BUS"):
+            vals[parent] = {acc: sum(vals[c][acc] for c in TREE[parent]) for acc in ("ac.C30", "ac.C50S", "ac.C60")}
+        for ent, accs in vals.items():
+            accs["ac.EBITDA"] = accs["ac.C30"] + accs["ac.C50S"] + accs["ac.C60"]
+            out += [Fact("FinMax", "fm", acc, ent, per, "Actual", "", v) for acc, v in accs.items()]
+    return Frame(out)
