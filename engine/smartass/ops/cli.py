@@ -13,7 +13,18 @@ os.environ.setdefault("SV_DRILL_PROFILE_SLOTS", "6")
 os.environ.setdefault("SV_DRILL_KEEP_WARM", "0")
 
 
+def utf8_stdio() -> None:
+    """Print UTF-8 whatever the console code page ('·', 'å' in labels); a stream that cannot be reconfigured
+    (pythonw, a test capture) is left as it is."""
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8")
+        except Exception:   # noqa: BLE001
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    utf8_stdio()
     ap = argparse.ArgumentParser(prog="smartass")
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor", help="health checks (cheap)")

@@ -11,6 +11,7 @@ import sys
 os.environ.setdefault("SV_DRILL_PROFILE_SLOTS", "6")
 os.environ.setdefault("SV_DRILL_KEEP_WARM", "0")
 
+from ..ops.cli import utf8_stdio  # noqa: E402
 from . import runner  # noqa: E402
 
 
@@ -44,6 +45,7 @@ def _record(ids: list[str]) -> int:
 
 
 def main(argv: list[str]) -> int:
+    utf8_stdio()
     cmd, ids = (argv[0] if argv else ""), argv[1:]
     if cmd == "record":
         return _record(ids)
