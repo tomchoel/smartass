@@ -805,3 +805,28 @@ After Tom reconnects `smartass2` (`/mcp`), the controller runs these in the sess
 3. **Refresh:** `fin_refresh()`. Expect every v2 Q `ok`.
 
 Whatever fails becomes a 1D task with the observed error.
+
+---
+
+## Live result (2026-11-04, Tom's go)
+
+- Q3 (full EBITDA bridge, opex trend and drivers): built; the bridge closes (Other ≈ 0); drivers skip 50BUS_B
+  and show 5ADM_B, 5MS_B and 5NWW_B. The first try timed out while the cold browser signed in; the retry passed.
+- `fin_refresh` failed live at first:
+  - Cause: writing Value2 over a table's header and body as one rectangle deletes the table, so the formulas
+    became #REF!.
+  - OneDrive AutoSave stored the broken state.
+  - Fixed in 778a295 (header and body written separately; a missing table is refused, never recreated). After
+    the fix, `fin_refresh` repaired all three answers.
+- Follow-up `fin_analyze(patch, q=3)`: rebuilt in place, new title, Sheet = model OK (near-zero readback fix
+  df10cbd).
+
+## Carried to Plan 1D
+
+1. Turn off OneDrive AutoSave for v2's own files during writes, so a broken intermediate state is never stored.
+2. Keep the session workbook across a `/mcp` reconnect. The relay pid changes, so the v2 session is lost and
+   follow-ups need an explicit path.
+3. Cold browser: the first request after the idle close times out during the SSO sign-in. Warm the browser up
+   before the first grid, or retry automatically once the sign-in completes.
+4. Claude Code keeps the old tool schema after a reload: `fin_analyze` showed no `patch` until the server was
+   reconnected, and only ToolSearch was refreshed. Note this in the skill and the instructions.
