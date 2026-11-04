@@ -10,6 +10,7 @@ import datetime as dt
 
 from mcp.server.mcpserver import Context, MCPServer
 
+from . import __version__
 from .knowledge import atlas
 from .core import serverkit as kit
 from .xl.host import InputError
@@ -237,13 +238,26 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
     return {"refreshed": done, "workbook": workbook}
 
 
-@_register(kit.LOCAL)
-def fin_status() -> dict:
-    """Health: atlas status, metric count, and where v2 writes its answer files."""
+@_register(kit.ADMIN)
+async def fin_status(restart: bool = False) -> dict:
+    """Health: version, atlas status, metric count, and where answer files go. restart=True after repeated errors
+    or to load new code: the relay starts a fresh server process (its own hidden Excel closes); run without the
+    relay, only this server's own Excel is closed (it restarts on the next pull)."""
+    import os
+
     from .core import config
+    out: dict = {"version": __version__}
+    if restart:
+        if os.environ.get("SVKIT_PROXY"):
+            out["restarted"] = "relay"             # run_server.py replaced the child before forwarding this call
+        else:
+            old, kit._host = kit._host, None
+            if old is not None:
+                await asyncio.to_thread(old.shutdown)
+            out["restarted"] = "excel"
     with contextlib.closing(atlas.connect()) as db:
         st = atlas.status(db)
-    return {"analyser": str(config.ANALYSER_DIR), "atlas": st, "metrics": len(catalog_metrics())}
+    return {**out, "analyser": str(config.ANALYSER_DIR), "atlas": st, "metrics": len(catalog_metrics())}
 
 
 @_register(kit.WRITE)

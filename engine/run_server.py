@@ -1,13 +1,19 @@
-"""Stable stdio entry point for Claude Code.
-Registered by installer\\install.ps1 as: <engine>\\.venv\\Scripts\\python.exe <this file>
+r"""Stable stdio entry point for Claude Code.
+Registered as: <engine>\.venv\Scripts\python.exe <this file>   (MCP entry 'smartass')
 
-Claude Code never restarts a stdio server by itself, so a code change used to need '/mcp' reconnect. This file is a
-small relay instead: it runs the real server (child_server.py) as a child process and passes MCP JSON-RPC lines
-through unchanged. Before forwarding a request it compares the code on disk (smartass/**/*.py, vba/*.bas,
-child_server.py) with what the child was started from. If it changed and nothing is in flight, it stops the child
-gracefully (its Excel closes and Smart View options are restored), starts a new one, replays the client's
-'initialize', and sends notifications/tools/list_changed so Claude Code refreshes the tool list. A crashed child is
-restarted the same way. Only an edit to THIS file still needs a reconnect - keep it small.
+Claude Code never restarts a stdio server by itself. This file is a small relay instead: it runs the real server
+(child_server.py) as a child process and passes MCP JSON-RPC lines through unchanged. The child is replaced (it
+stops gracefully - its Excel closes and Smart View options are restored -, a new one starts, the client's
+'initialize' is replayed and notifications/tools/list_changed is sent so Claude Code refreshes the tool list) when:
+- engine/VERSION changed and nothing is in flight, or
+- the client calls fin_status(restart=True) (an explicit restart; in-flight calls then fail with "retry"), or
+- the child crashed.
+Editing a .py file does NOT restart the child: half-saved edits and parallel agents' work in progress no longer
+bounce the server. To roll a code change into a running session:
+- `scripts\bump.ps1` (bumps engine/VERSION and pyproject.toml; the next request reloads), or
+- `fin_status(restart=True)` (reloads the current code without a version bump).
+Then run /mcp in Claude Code if a tool's parameters changed. Only an edit to THIS file still needs a reconnect -
+keep it small.
 """
 import itertools
 import json
@@ -40,16 +46,22 @@ def log(msg: str):
 
 
 def fingerprint() -> tuple:
-    files = [CHILD, HERE / "defaults.toml", *sorted((HERE / "smartass").rglob("*.py")),   # incl. core/, xl/, epm/ ...
-             *sorted((HERE / "vba").glob("*.bas"))]
-    out = []
-    for f in files:
-        try:
-            st = f.stat()
-            out.append((str(f.relative_to(HERE)), st.st_mtime_ns, st.st_size))
-        except OSError:
-            pass
-    return tuple(out)
+    """What a running child was started from: the content of engine/VERSION (only)."""
+    try:
+        return ((HERE / "VERSION").read_text(encoding="utf-8").strip(),)
+    except OSError:
+        return ("",)
+
+
+RESTART_TOOL = "fin_status"
+
+
+def wants_restart(msg: dict) -> bool:
+    """A tools/call of fin_status with restart=true: the client asks for a fresh child (current code on disk)."""
+    if not isinstance(msg, dict) or msg.get("method") != "tools/call":
+        return False
+    params = msg.get("params") or {}
+    return params.get("name") == RESTART_TOOL and (params.get("arguments") or {}).get("restart") is True
 
 
 class Relay:
@@ -154,20 +166,20 @@ class Relay:
             if c is self.child or self.child is None:
                 for mid in list(self.inflight):
                     self.to_client(json.dumps({"jsonrpc": "2.0", "id": mid, "error": {
-                        "code": -32603, "message": "The smartview server process stopped. Retry the call - it "
+                        "code": -32603, "message": "The smartass server process stopped. Retry the call - it "
                                                    "restarts automatically."}}).encode())
                 self.inflight.clear()
         log(f"child pid={c.pid} exited rc={c.poll()}")
 
-    def maybe_reload(self):
+    def maybe_reload(self, force: bool = False):
         with self.lock:
             dead = self.child is None or self.child.poll() is not None
             now = time.monotonic()
             busy = [m for m, t in self.inflight.items() if now - t < STALE_INFLIGHT]
-            if not dead and (busy or fingerprint() == self.fp):
+            if not dead and not force and (busy or fingerprint() == self.fp):
                 return
             if not dead:
-                self.stop_child("code on disk changed")
+                self.stop_child("fin_status(restart=True)" if force else "engine/VERSION changed")
             self.start_child(replay=True)
         self.notify_client("notifications/tools/list_changed")
         log("reloaded; sent tools/list_changed")
@@ -199,7 +211,7 @@ class Relay:
                     with self.lock:
                         self.inflight.pop((msg.get("params") or {}).get("requestId"), None)
                 elif method and mid is not None and self.init_req is not None:
-                    self.maybe_reload()
+                    self.maybe_reload(force=wants_restart(msg))
                 if method and mid is not None:
                     with self.lock:
                         self.inflight[mid] = time.monotonic()
@@ -207,7 +219,7 @@ class Relay:
                 with self.lock:
                     self.inflight.pop(msg["id"], None)
                 self.to_client(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "error": {
-                    "code": -32603, "message": "The smartview server process is not running. Retry the call."}}).encode())
+                    "code": -32603, "message": "The smartass server process is not running. Retry the call."}}).encode())
         log("client closed stdin - shutting down")
         with self.lock:
             self.stop_child("client disconnected")

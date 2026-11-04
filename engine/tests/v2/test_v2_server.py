@@ -125,3 +125,45 @@ def test_refresh_stops_after_a_failed_restore_and_reports_the_rest_as_skipped(mo
     assert [(x["q"], x["ok"]) for x in r] == [(2, True), (3, False), (4, False)]
     assert "restore" in r[1]["error"] and r[2].get("skipped") is True and "Q3" in r[2]["error"]
     assert ("redraw", 4) not in calls
+
+
+def _status_base(monkeypatch):
+    monkeypatch.setattr(server.atlas, "connect", lambda: _FakeDb())
+    monkeypatch.setattr(server.atlas, "status", lambda db: {"stale": False})
+    monkeypatch.setattr(server, "catalog_metrics", lambda: [1, 2])
+
+
+class _FakeDb:
+    def close(self):
+        pass
+
+
+def test_fin_status_restart_behind_the_relay_reports_the_fresh_child(monkeypatch):
+    import asyncio
+    _status_base(monkeypatch)
+    monkeypatch.setenv("SVKIT_PROXY", "1")
+    out = asyncio.run(server.fin_status(restart=True))
+    assert out["restarted"] == "relay"
+    assert out["version"] == server.__version__
+
+
+def test_fin_status_restart_without_relay_restarts_our_excel(monkeypatch):
+    import asyncio
+    _status_base(monkeypatch)
+    monkeypatch.delenv("SVKIT_PROXY", raising=False)
+    closed = []
+
+    class Old:
+        def shutdown(self):
+            closed.append(True)
+    monkeypatch.setattr(server.kit, "_host", Old())
+    out = asyncio.run(server.fin_status(restart=True))
+    assert closed == [True] and server.kit._host is None
+    assert out["restarted"] == "excel"
+
+
+def test_fin_status_without_restart_changes_nothing(monkeypatch):
+    import asyncio
+    _status_base(monkeypatch)
+    out = asyncio.run(server.fin_status())
+    assert "restarted" not in out and out["metrics"] == 2
