@@ -1,0 +1,26 @@
+name = "Personnel cost"
+aliases = [
+  "personnel cost",
+  "personnel costs",
+  "payroll",
+  "salary costs",
+  "personalkostnader",
+  "personalkostnad",
+  "lønnskostnader",
+  "lønnskostnad",
+  "C50S",
+]
+description = "Personnel cost"
+unit = "NOK"
+sign = "cost"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
+
+[finmax]
+members = ["ac.C50S"]
+
+[finlite]
+members = ["ac.C50S"]

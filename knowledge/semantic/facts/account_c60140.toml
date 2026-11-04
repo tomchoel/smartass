@@ -1,0 +1,8 @@
+text = "C60140 Commission: May be booked on a product, e.g. the Splitt finance component FV081."
+severity = "warn"
+source = "accounts_map.json ac.C60140 pitfalls (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["ac.C60140"]
+FinLite = ["ac.C60140"]

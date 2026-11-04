@@ -1,0 +1,7 @@
+text = "FinPlan entity BANORWAY is Telenor Norge (FinMax un.SY). Actual is Scenario Actual, version Working; Target and Forecast Q<q><yy> are version Final."
+severity = "info"
+source = "finplan_map.json meta notes (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinPlan = ["BANORWAY"]

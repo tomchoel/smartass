@@ -1,0 +1,9 @@
+text = "Moved in the 1 Jun 2026 reorg (CWK → CSW); history is restated to the new organisation."
+valid_from = "2026-06"
+severity = "info"
+source = "org_map.json moved 'CWK → CSW' (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["un.SY.2CWK", "un.SY.3WHS_C"]
+FinLite = ["un.SY.2CWK", "un.SY.3WHS_C"]

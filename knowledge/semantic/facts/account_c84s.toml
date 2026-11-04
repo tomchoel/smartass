@@ -1,0 +1,8 @@
+text = "C84S Net Financial Items: Financial items sit mainly in Administration/Finance, with no product. Instalment interest (C80311) sits in SSM/5SAL_C."
+severity = "warn"
+source = "accounts_map.json ac.C84S pitfalls (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["ac.C84S"]
+FinLite = ["ac.C84S"]

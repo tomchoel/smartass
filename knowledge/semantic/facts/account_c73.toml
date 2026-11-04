@@ -1,0 +1,8 @@
+text = "C73 Other income and expenses: Kept outside EBITDA before other items. FinPlan Target has no other items."
+severity = "warn"
+source = "accounts_map.json ac.C73 pitfalls (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["ac.C73"]
+FinLite = ["ac.C73"]

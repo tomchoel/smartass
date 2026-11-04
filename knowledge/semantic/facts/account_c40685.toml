@@ -1,0 +1,8 @@
+text = "C40685 Amortization of contract acquisition and fulfilment costs (cogs): IFRS 15 contract costs, amortised. Partly booked in the IFRS 15 unit 2I15."
+severity = "warn"
+source = "accounts_map.json ac.C40685 pitfalls (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["ac.C40685"]
+FinLite = ["ac.C40685"]

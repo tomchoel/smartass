@@ -1,0 +1,29 @@
+name = "COGS"
+aliases = [
+  "cogs",
+  "cost of goods sold",
+  "cost of sales",
+  "direct costs",
+  "varekost",
+  "varekostnad",
+  "vareforbruk",
+  "C40S",
+]
+description = "COGS"
+unit = "NOK"
+sign = "cost"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
+differs = "FinPlan groups accounts differently from FinMax (e.g. EBITDA 2025: 14.16 bn FinPlan vs 12.40 bn FinMax); compare across cubes only with a reconciliation line."
+
+[finmax]
+members = ["ac.C40S"]
+
+[finlite]
+members = ["ac.C40S"]
+
+[finplan]
+members = ["COGS"]

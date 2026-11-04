@@ -1,0 +1,13 @@
+name = "FTE"
+aliases = ["fte", "ftes", "headcount", "employees", "årsverk", "ansatte", "STA20Y"]
+description = "FTE is a level: the month-end value, never a sum of months"
+unit = "FTE"
+sign = "neutral"
+balance = "Accumulated"
+aggregation = "last"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
+
+[finmax]
+members = ["ac.STA20Y"]

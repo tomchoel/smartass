@@ -1,0 +1,9 @@
+text = "Consumer Norway was abolished on 1 Jun 2026; successors Security Solutions & Mobile (un.SY.2SSM), Entertainment & Internet (un.SY.2EI); history is restated to today's organisation."
+valid_from = "2026-06"
+severity = "warn"
+source = "catalog.toml [[entity]] consumer (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["un.SY.2CON"]
+FinLite = ["un.SY.2CON"]

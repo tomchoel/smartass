@@ -1,0 +1,20 @@
+name = "EBITDA before other items"
+aliases = ["ebitda before other items", "ebitda boi", "ebitda før andre poster", "EBITDA_BOI"]
+description = "EBITDA before other items: C48 + C70 = EBITDA_BOI"
+unit = "NOK"
+sign = "income"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
+differs = "FinPlan groups accounts differently from FinMax (e.g. EBITDA 2025: 14.16 bn FinPlan vs 12.40 bn FinMax); compare across cubes only with a reconciliation line."
+
+[finmax]
+members = ["ac.EBITDA_BOI"]
+
+[finlite]
+members = ["ac.EBITDA_BOI"]
+
+[finplan]
+members = ["EBITDA before Other Items"]

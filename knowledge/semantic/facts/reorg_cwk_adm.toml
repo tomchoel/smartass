@@ -1,0 +1,27 @@
+text = "Moved in the 1 Jun 2026 reorg (CWK → ADM); history is restated to the new organisation."
+valid_from = "2026-06"
+severity = "info"
+source = "org_map.json moved 'CWK → ADM' (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = [
+  "un.SY.3SEC_C",
+  "un.SY.E257",
+  "un.SY.K570",
+  "un.SY.3CA_C",
+  "un.SY.K540",
+  "un.SY.K530",
+  "un.SY.K520",
+  "un.SY.K510",
+]
+FinLite = [
+  "un.SY.3SEC_C",
+  "un.SY.E257",
+  "un.SY.K570",
+  "un.SY.3CA_C",
+  "un.SY.K540",
+  "un.SY.K530",
+  "un.SY.K520",
+  "un.SY.K510",
+]

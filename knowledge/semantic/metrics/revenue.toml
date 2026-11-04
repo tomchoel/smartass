@@ -1,0 +1,30 @@
+name = "Revenue"
+aliases = [
+  "revenue",
+  "revenues",
+  "sales",
+  "turnover",
+  "inntekt",
+  "inntekter",
+  "omsetning",
+  "salgsinntekter",
+  "C30",
+]
+description = "Revenue"
+unit = "NOK"
+sign = "income"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
+differs = "FinPlan groups accounts differently from FinMax (e.g. EBITDA 2025: 14.16 bn FinPlan vs 12.40 bn FinMax); compare across cubes only with a reconciliation line."
+
+[finmax]
+members = ["ac.C30"]
+
+[finlite]
+members = ["ac.C30"]
+
+[finplan]
+members = ["Revenue"]

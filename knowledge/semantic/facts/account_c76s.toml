@@ -1,0 +1,8 @@
+text = "C76S Total Depreciations and Write Downs: Mostly booked on cost centres (Technology/IT); only partly product-tagged. A full product split needs the product cost accounts (Produktregnskapet)."
+severity = "warn"
+source = "accounts_map.json ac.C76S pitfalls (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["ac.C76S"]
+FinLite = ["ac.C76S"]

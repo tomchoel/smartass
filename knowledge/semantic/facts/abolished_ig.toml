@@ -1,0 +1,10 @@
+text = "Infrastructure Growth was abolished on 1 Jun 2026; successors Technology (un.SY.2TEC), Norway Adm (un.SY.2ADM), Entertainment & Internet (un.SY.2EI), Security Solutions & Mobile (un.SY.2SSM), Business (un.SY.2BUS); history is restated to today's organisation."
+valid_from = "2026-06"
+severity = "warn"
+source = "catalog.toml [[entity]] ig (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["un.SY.2IG"]
+FinLite = ["un.SY.2IG"]
+FinPlan = ["2IG Infrastructure Growth"]

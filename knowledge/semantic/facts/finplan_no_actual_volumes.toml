@@ -1,0 +1,33 @@
+text = "Actual volumes (subscriptions, customers) are not in FinPlan for BANORWAY: only Target and forecasts carry them (Actual is empty)."
+severity = "warn"
+source = "finplan_map.json meta notes + pitfalls 'Bare i plan/prognose' (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinPlan = [
+  "No of FTEs from P&C",
+  "No of FTE production",
+  "Change Cost",
+  "Change Opex",
+  "Volumes ARPU",
+  "Fixed Broadband subscriptions",
+  "Mobile Other Telemetric / M2M Subscriptions",
+  "Fixed TV subscriptions",
+  "Fixed Phone Subscriptions",
+  "Wholesale Volume",
+  "ARPU",
+  "Insurance - Total Customers",
+  "Insurance - Paying Customers",
+  "Fixed Broadband ARPU",
+  "Mobile ARPU",
+  "Mobile Subscriptions",
+  "Rental model Total",
+  "CAPEX / Sales",
+  "Fixed Broadband Cable Access Subscriptions",
+  "Fixed total fiber access subscriptions",
+  "Fixed Data Services EC Fiber Volume",
+  "Fixed Broadband Fiber Access Subscriptions",
+  "Fixed total FWA access subscriptions",
+  "Fixed Data Services NC Mobile Volume",
+  "Fixed Broadband FWA Access Subscriptions",
+]

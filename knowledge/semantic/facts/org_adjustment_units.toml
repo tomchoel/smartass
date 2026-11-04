@@ -1,0 +1,58 @@
+text = "Adjustment or correction unit (IFRS, elimination, valuation), not an operating unit."
+severity = "info"
+source = "org_map.json pitfalls 'Justerings-/korreksjonsenhet' (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = [
+  "un.SY.5OMS_A",
+  "un.SY.K170",
+  "un.SY.K186",
+  "un.SY.SYi",
+  "un.SY.E171",
+  "un.SY.DE11",
+  "un.SY.2I15",
+  "un.SY.C281",
+  "un.SY.I999",
+  "un.SY.G400",
+  "un.SY.A101",
+  "un.SY.DA28",
+  "un.SY.G397",
+  "un.SY.H181",
+  "un.SY.H221",
+  "un.SY.G911",
+  "un.SY.G915",
+  "un.SY.G916",
+  "un.SY.2I16",
+  "un.SY.A299",
+  "un.SY.DA99",
+  "un.SY.VF99",
+  "un.SY.E170",
+  "un.SY.AB99",
+]
+FinLite = [
+  "un.SY.5OMS_A",
+  "un.SY.K170",
+  "un.SY.K186",
+  "un.SY.SYi",
+  "un.SY.E171",
+  "un.SY.DE11",
+  "un.SY.2I15",
+  "un.SY.C281",
+  "un.SY.I999",
+  "un.SY.G400",
+  "un.SY.A101",
+  "un.SY.DA28",
+  "un.SY.G397",
+  "un.SY.H181",
+  "un.SY.H221",
+  "un.SY.G911",
+  "un.SY.G915",
+  "un.SY.G916",
+  "un.SY.2I16",
+  "un.SY.A299",
+  "un.SY.DA99",
+  "un.SY.VF99",
+  "un.SY.E170",
+  "un.SY.AB99",
+]

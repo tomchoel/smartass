@@ -1,0 +1,8 @@
+text = "C81340 Interest Expenses on Leasing Liabilities: IFRS 16: partly booked in the adjustment units 2I16/E171."
+severity = "warn"
+source = "accounts_map.json ac.C81340 pitfalls (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["ac.C81340"]
+FinLite = ["ac.C81340"]

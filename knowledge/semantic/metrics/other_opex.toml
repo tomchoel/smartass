@@ -1,0 +1,16 @@
+name = "Other opex"
+aliases = ["other opex", "other operating expenses", "andre driftskostnader", "C60"]
+description = "Other opex"
+unit = "NOK"
+sign = "cost"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
+
+[finmax]
+members = ["ac.C60"]
+
+[finlite]
+members = ["ac.C60"]

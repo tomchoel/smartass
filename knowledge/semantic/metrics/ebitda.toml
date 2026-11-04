@@ -1,0 +1,20 @@
+name = "EBITDA"
+aliases = ["ebitda", "profit", "profits", "profitability", "earnings", "lønnsomhet", "resultat", "overskudd"]
+description = "EBITDA: EBITDA_BOI + C73 = EBITDA"
+unit = "NOK"
+sign = "income"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
+differs = "FinPlan groups accounts differently from FinMax (e.g. EBITDA 2025: 14.16 bn FinPlan vs 12.40 bn FinMax); compare across cubes only with a reconciliation line."
+
+[finmax]
+members = ["ac.EBITDA"]
+
+[finlite]
+members = ["ac.EBITDA"]
+
+[finplan]
+members = ["EBITDA"]

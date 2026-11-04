@@ -1,0 +1,28 @@
+name = "Opex"
+aliases = [
+  "opex",
+  "operating expenses",
+  "operating costs",
+  "operating cost",
+  "driftskostnader",
+  "driftskostnad",
+  "C70",
+]
+description = "Opex: C50S + C60 = C70"
+unit = "NOK"
+sign = "cost"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
+differs = "FinPlan groups accounts differently from FinMax (e.g. EBITDA 2025: 14.16 bn FinPlan vs 12.40 bn FinMax); compare across cubes only with a reconciliation line."
+
+[finmax]
+members = ["ac.C70"]
+
+[finlite]
+members = ["ac.C70"]
+
+[finplan]
+members = ["OPEX"]

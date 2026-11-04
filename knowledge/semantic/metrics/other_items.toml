@@ -1,0 +1,20 @@
+name = "Other items"
+aliases = ["other items", "andre poster", "one-offs", "one offs", "engangsposter", "C73", "Total Other Items"]
+description = "Other items"
+unit = "NOK"
+sign = "neutral"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
+differs = "FinPlan groups accounts differently from FinMax (e.g. EBITDA 2025: 14.16 bn FinPlan vs 12.40 bn FinMax); compare across cubes only with a reconciliation line."
+
+[finmax]
+members = ["ac.C73"]
+
+[finlite]
+members = ["ac.C73"]
+
+[finplan]
+members = ["Total Other Items"]

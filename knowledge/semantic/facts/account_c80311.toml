@@ -1,0 +1,8 @@
+text = "C80311 Interest income on customer instalment plan: Only partly product-tagged. The Splitt definition attributes the whole amount to Splitt."
+severity = "warn"
+source = "accounts_map.json ac.C80311 pitfalls (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["ac.C80311"]
+FinLite = ["ac.C80311"]

@@ -1,0 +1,8 @@
+text = "C30 REVENUES: History is restated to the 2026 organisation (reorg 1 Jun 2026)."
+severity = "warn"
+source = "accounts_map.json ac.C30 pitfalls (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["ac.C30"]
+FinLite = ["ac.C30"]

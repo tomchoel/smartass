@@ -1,0 +1,8 @@
+text = "C813 Financial Expenses: Losses on instalment receivables (C81313–C81315) and the handset financing cost were not visible in un.SY in 2025; they may sit in another legal entity."
+severity = "warn"
+source = "accounts_map.json ac.C813 pitfalls (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = ["ac.C813"]
+FinLite = ["ac.C813"]

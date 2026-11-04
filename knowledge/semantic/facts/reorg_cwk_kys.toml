@@ -1,0 +1,49 @@
+text = "Moved in the 1 Jun 2026 reorg (CWK → KYS); history is restated to the new organisation."
+valid_from = "2026-06"
+severity = "info"
+source = "org_map.json moved 'CWK → KYS' (approved by Tom 2026-10-15)"
+status = "approved"
+
+[scope_members]
+FinMax = [
+  "un.SY.3KYS_C",
+  "un.SY.4KYS_C",
+  "un.SY.K566",
+  "un.SY.K565",
+  "un.SY.K564",
+  "un.SY.K563",
+  "un.SY.K562",
+  "un.SY.K561",
+  "un.SY.K560",
+  "un.SY.3TKR_W",
+  "un.SY.RS01",
+  "un.SY.RS05",
+  "un.SY.RZ00",
+  "un.SY.41TKR_W",
+  "un.SY.RL00",
+  "un.SY.RL31",
+  "un.SY.42TKR_W",
+  "un.SY.RS00",
+  "un.SY.RS13",
+]
+FinLite = [
+  "un.SY.3KYS_C",
+  "un.SY.4KYS_C",
+  "un.SY.K566",
+  "un.SY.K565",
+  "un.SY.K564",
+  "un.SY.K563",
+  "un.SY.K562",
+  "un.SY.K561",
+  "un.SY.K560",
+  "un.SY.3TKR_W",
+  "un.SY.RS01",
+  "un.SY.RS05",
+  "un.SY.RZ00",
+  "un.SY.41TKR_W",
+  "un.SY.RL00",
+  "un.SY.RL31",
+  "un.SY.42TKR_W",
+  "un.SY.RS00",
+  "un.SY.RS13",
+]

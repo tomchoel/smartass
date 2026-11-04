@@ -9,9 +9,7 @@ import tomllib
 from ..core import config
 
 from ..model.resolver import MetricDef
-
-SIGN = {"revenue": "income", "gross_margin": "income", "ebitda_boi": "income", "ebitda": "income",
-        "cogs": "cost", "personnel": "cost", "other_opex": "cost", "opex": "cost", "da": "cost"}
+from .seed import SIGN
 
 
 def catalog_metrics(path=None) -> list[MetricDef]:

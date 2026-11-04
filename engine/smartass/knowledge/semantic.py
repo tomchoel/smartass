@@ -3,6 +3,7 @@
 knowledge.db."""
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -120,6 +121,47 @@ class Fact(BaseModel):
         if not self.scope_metrics and not any(self.scope_members.values()):
             raise ValueError(f"fact {self.id!r} needs a scope (scope_members or scope_metrics)")
         return self
+
+
+def _scalar(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    if isinstance(v, str):
+        return json.dumps(v, ensure_ascii=False)          # a JSON string is a valid TOML basic string
+    if isinstance(v, (list, tuple)):
+        return "[" + ", ".join(_scalar(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{ " + ", ".join(f"{_key(k)} = {_scalar(x)}" for k, x in v.items()) + " }"
+    raise TypeError(f"cannot write {type(v).__name__} to TOML")
+
+
+def _key(k: str) -> str:
+    return k if re.fullmatch(r"[A-Za-z0-9_-]+", k) else json.dumps(k, ensure_ascii=False)
+
+
+def _array(v: list) -> str:
+    """A string array; one item per line when long (git diffs stay readable)."""
+    one = _scalar(v)
+    if len(one) <= 100:
+        return one
+    return "[\n" + "".join(f"  {_scalar(x)},\n" for x in v) + "]"
+
+
+def to_toml(item: Metric | Fact) -> str:
+    """The item as its source file (without `id`, which is the file stem). Every set field is written, defaults
+    included, so a file reads on its own; None and empty values are left out. Per-cube members (a metric's
+    finmax/finlite/finplan, a fact's scope_members) are tables."""
+    data = {k: v for k, v in item.model_dump(exclude={"id"}).items() if v not in (None, "", [], {})}
+    if isinstance(item, Metric):
+        tables = {c: data.pop(c) for c in ("finmax", "finlite", "finplan") if c in data}
+    else:
+        tables = {"scope_members": data.pop("scope_members")} if "scope_members" in data else {}
+    lines = [f"{_key(k)} = {_array(v) if isinstance(v, list) else _scalar(v)}" for k, v in data.items()]
+    for name, t in tables.items():
+        lines += ["", f"[{name}]"] + [f"{_key(k)} = {_array(v)}" for k, v in t.items()]
+    return "\n".join(lines) + "\n"
 
 
 def _load(path: Path, cls):
