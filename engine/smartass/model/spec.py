@@ -37,7 +37,7 @@ class Plan(_M):
 class Query(_M):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,15}$")
     cube: Literal["FinMax", "FinLite", "FinPlan"]
-    metrics: list[str] = Field(min_length=1)
+    metrics: list[str]                # may be empty only for a query that serves concept blocks alone
     entity: str
     periods: str
     plan_periods: str | None = None
@@ -195,8 +195,17 @@ class CommentaryBlock(_M):
     drivers: list[Driver] = []
 
 
+class ConceptBlock(_M):
+    """A product concept (fin_lookup kind 'concept') on its query: the query gives the cube (FinMax or FinLite), the
+    entity, the periods and the compare; the concept gives the accounts and products."""
+    type: Literal["concept"]
+    query: str
+    concept: str
+    title: str = ""
+
+
 Block = Annotated[Union[TableBlock, KpiBlock, TrendBlock, BridgeBlock, RankingBlock, MatrixBlock, DriversBlock,
-                        LinesBlock, CommentaryBlock], Field(discriminator="type")]
+                        LinesBlock, CommentaryBlock, ConceptBlock], Field(discriminator="type")]
 
 
 def block_metrics(b) -> list[str]:
@@ -241,6 +250,11 @@ class AnalysisSpec(_M):
         if len(ids) != len(set(ids)):
             raise ValueError("query ids must be unique")
         by_id = {q.id: q for q in self.queries}
+        for q in self.queries:
+            users = [b for b in self.blocks if getattr(b, "query", None) == q.id]
+            if not q.metrics and (not users or not all(isinstance(b, ConceptBlock) for b in users)):
+                raise ValueError(f"query {q.id} needs metrics (only a query that serves concept blocks alone may "
+                                 "have none)")
         for i, b in enumerate(self.blocks):
             qid = getattr(b, "query", None)
             if qid is None:
@@ -252,6 +266,9 @@ class AnalysisSpec(_M):
             if missing:
                 raise ValueError(f"block {i} ({b.type}): metrics {missing} are not in query '{qid}' "
                                  "(add them to its metrics)")
+            if isinstance(b, ConceptBlock) and q.cube not in ("FinMax", "FinLite"):
+                raise ValueError(f"block {i} (concept): a concept reads FinMax members; give it a FinMax or FinLite "
+                                 f"query, not {q.cube}")
             if getattr(b, "rows", None) == "products" and not q.products:
                 raise ValueError(f"block {i} ({b.type}): rows 'products' needs products in query '{qid}'")
             absent = [s for s in block_series(b) if s not in q.compare]

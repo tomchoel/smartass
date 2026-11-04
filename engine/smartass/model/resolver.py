@@ -29,6 +29,7 @@ class Resolver(Protocol):
     def weight(self, member: str, cube: str) -> float: ...
     def label(self, member: str, cube: str) -> str: ...
     def latest_forecast(self) -> str: ...
+    def concept(self, name: str): ...          # a product concept (knowledge.semantic.Concept) or None
 
 
 @dataclass
@@ -55,6 +56,7 @@ class StaticResolver:
     extra_members: set[str] = field(default_factory=set)
     forecast: str = "Forecast Q326"
     weights: dict[str, float] = field(default_factory=dict)
+    concepts: dict = field(default_factory=dict)          # id -> knowledge.semantic.Concept
 
     def __post_init__(self):
         self._m = {m.name.lower(): m for m in self.metrics}
@@ -107,3 +109,10 @@ class StaticResolver:
 
     def latest_forecast(self) -> str:
         return self.forecast
+
+    def concept(self, name: str):
+        key = name.strip().casefold()
+        for c in self.concepts.values():
+            if key in {c.id.casefold(), c.title.casefold(), *(n.casefold() for n in c.names)}:
+                return c
+        return None

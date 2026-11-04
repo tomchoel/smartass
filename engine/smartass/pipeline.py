@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from .model.analyze import Result, compute, plan_requests
+from .model.blocks.concept import concept_caveats
 from .model.frame import Frame
 from .model.periods import parse
 from .model.requests import GridRequest
@@ -88,7 +89,8 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     result = compute(spec, resolver, closed, frame)
     aggregation = {m: resolver.aggregation(m) for q in spec.queries for m in q.metrics}
     return Prepared(spec, raw, closed, reqs, frame, result, warnings, routes, sum(g.seconds for g in got),
-                    aggregation, failed, failed_errors, {g.request: g for g in got}, caveats(spec, reqs, resolver))
+                    aggregation, failed, failed_errors, {g.request: g for g in got},
+                    caveats(spec, reqs, resolver) + concept_caveats(spec, resolver))
 
 
 _YEAR = re.compile(r"(?:Yr|FY) ?(\d{2})")

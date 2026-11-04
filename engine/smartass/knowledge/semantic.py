@@ -317,7 +317,7 @@ class Concept(BaseModel):
 
     def members(self) -> dict[str, list[str]]:
         """The cube members the concept names (accounts, products, entities), for the atlas checks."""
-        out: dict[str, list[str]] = {"account": [], "product": [], "entity": [self.entity]}
+        out: dict[str, list[str]] = {"account": [], "product": [], "entity": []}
         for p in self.picks():
             out["account"].append(p.account)
             out["product"] += p.products

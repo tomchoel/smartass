@@ -175,6 +175,36 @@ class Ratio(Expr):
         return f'IF({d}=0,"",({n})/{den})'
 
 
+@dataclass(frozen=True)
+class Mul(Expr):
+    """a x b (a concept's base x its key share, both cells); missing when either is missing."""
+    a: Expr
+    b: Expr
+
+    def evaluate(self, frame, cells):
+        x, y = self.a.evaluate(frame, cells), self.b.evaluate(frame, cells)
+        return None if x is None or y is None else x * y
+
+    def to_excel(self, table, addr, const=None):
+        def wrap(e: Expr) -> str:
+            s = e.to_excel(table, addr, const)
+            return f"({s})" if isinstance(e, (Sub, Neg)) else s
+        return f"{wrap(self.a)}*{wrap(self.b)}"
+
+
+@dataclass(frozen=True)
+class Const(Expr):
+    """An input written as a number in its own cell (e.g. a 100 % key share), never inside a formula: the layout
+    writes the value, not a formula."""
+    value: float
+
+    def evaluate(self, frame, cells):
+        return self.value
+
+    def to_excel(self, table, addr, const=None):
+        raise TypeError("a Const is written as a value in its own cell, never inside a formula")
+
+
 def pick(filters: dict[str, tuple[str, ...] | list[str]]) -> Expr:
     """A Pick; split into a Sum of Picks when more than two filters have several values (one SUMIFS can cross
     only a row array and a column array)."""

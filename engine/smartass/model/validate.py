@@ -15,7 +15,7 @@ from .expr import Cells
 from .periods import Closed, closed_for, label, resolve
 from .resolver import Resolver, UnknownMetric
 from .series import months
-from .spec import AnalysisSpec, BridgeBlock, DriversBlock, KpiBlock, RankingBlock, TableBlock
+from .spec import AnalysisSpec, BridgeBlock, ConceptBlock, DriversBlock, KpiBlock, RankingBlock, TableBlock
 
 TOLERANCE = 1.0  # NOK
 
@@ -82,11 +82,29 @@ def guard_spec(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[Finding]
                                 q.id))
         if spec.plan.depth != "quick" and q.cube != "FinPlan" and "ly" not in q.compare:
             soft.append(Finding("warning", f"query {q.id} has no last-year comparison", q.id))
+    by_id = {q.id: q for q in spec.queries}
+    for b in spec.blocks:
+        if isinstance(b, ConceptBlock):
+            _guard_concept(b, by_id[b.query], r)
     return soft
+
+
+def _guard_concept(b: ConceptBlock, q, r: Resolver) -> None:
+    c = r.concept(b.concept)
+    if c is None:
+        raise GuardError(f"unknown concept {b.concept!r}", "find it with fin_lookup(kind='concept')")
+    if c.status != "approved":
+        raise GuardError(f"concept {c.id!r} is a draft", "approve it (smartass knowledge approve) first")
+    gone = [x for xs in c.members().values() for x in xs if not r.exists(x, q.cube)]
+    if gone:
+        raise GuardError(f"concept {c.id}: {', '.join(gone[:10])} not in {q.cube}",
+                         "fix the concept file (knowledge/semantic/concepts) or refresh the atlas")
 
 
 def guard_result(outs: list[BlockOut], cells: Cells) -> None:
     for o in outs:
+        if o.type == "concept":                # a concept's checks are findings (concept_findings), never a stop
+            continue
         for ln in o.lines:
             if ln.kind != "check":
                 continue

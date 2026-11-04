@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from .blocks import BUILDERS
 from .blocks.common import BlockOut, evaluate
+from .blocks.concept import concept_findings
 from .context import Ctx
 from .expr import Cells
 from .findings import bridge_findings, key_values, lines_findings, material
@@ -63,5 +64,6 @@ def compute(spec: AnalysisSpec, r: Resolver, closed: Closed, frame: Frame, kv_li
     _uniquify(outs)
     cells = evaluate(outs, frame)
     guard_result(outs, cells)
-    return Result(outs, cells, soft + sign_findings(ctx) + bridge_findings(outs, cells, r) + lines_findings(outs, cells), material(outs, cells, r),
+    return Result(outs, cells, soft + sign_findings(ctx) + bridge_findings(outs, cells, r) + lines_findings(outs, cells)
+                  + concept_findings(outs, cells), material(outs, cells, r),
                   key_values(outs, cells, kv_limit))

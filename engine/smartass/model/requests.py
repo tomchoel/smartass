@@ -11,6 +11,8 @@ from .resolver import Resolver
 from .series import months, scenario
 from .spec import AnalysisSpec, DriversBlock, MatrixBlock, RankingBlock, TableBlock
 
+CONCEPT_BALANCE = "Periodic"
+
 
 @dataclass(frozen=True)
 class GridRequest:
@@ -68,4 +70,10 @@ def requests(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[GridReques
                 reqs.append(GridRequest(q.id, q.cube, tuple(dict.fromkeys(accs)), ents,
                                         tuple(label(m) for m in months(q, s, closed_for(closed, q.cube))), scen, ver, bal,
                                         tuple(dict.fromkeys(q.products))))
+    from .blocks.concept import concept_requests              # the concept blocks' own grids, after the queries'
+    for q, g, s in concept_requests(spec, r):
+        scen, ver = scenario(q.cube, s, r)
+        reqs.append(GridRequest(g.tag, q.cube, g.accounts, g.entities,
+                                tuple(label(m) for m in months(q, s, closed_for(closed, q.cube))), scen, ver,
+                                CONCEPT_BALANCE, g.products))
     return reqs

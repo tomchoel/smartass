@@ -10,13 +10,14 @@ from dataclasses import dataclass, field
 
 from ..model.analyze import Result
 from ..model.blocks.common import ck
+from ..model.expr import Const
 from ..model.frame import FILTER_COLUMNS
 from ..model.spec import AnalysisSpec, CommentaryBlock
 
 FIRST_COL = 3
 LABEL_COL = 2
 NOTE_WIDTH = 78          # characters per note row (the width styling lint allows)
-PCT_CODES = {"var_pct", "share"}
+PCT_CODES = {"var_pct", "share", "key", "key_ly"}
 
 
 def col_letter(c: int) -> str:
@@ -190,7 +191,9 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
 
     for row, o, ln in placed:
         for j, e in enumerate(ln.cells):
-            if e is not None:
+            if isinstance(e, Const):              # an input (a 100 % key share): a value, never a formula
+                p.cells[(row, FIRST_COL + j)] = e.value
+            elif e is not None:
                 p.cells[(row, FIRST_COL + j)] = "=" + e.to_excel(table, addr, const)
     p.last_col = col_letter(FIRST_COL + widest - 1)
     bottom = 0

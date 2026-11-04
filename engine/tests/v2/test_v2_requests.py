@@ -7,7 +7,7 @@ from smartass.model.spec import AnalysisSpec
 
 
 def test_registry_covers_the_computed_blocks():
-    assert set(BUILDERS) == {"table", "kpi_tiles", "trend", "bridge", "ranking", "matrix", "drivers", "lines"}
+    assert set(BUILDERS) == {"table", "kpi_tiles", "trend", "bridge", "ranking", "matrix", "drivers", "lines", "concept"}
 
 
 def test_one_request_per_series_with_subtree_and_all_accounts():
