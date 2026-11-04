@@ -12,6 +12,7 @@ from mcp.server.mcpserver import Context, MCPServer
 
 from smartview_mcp import atlas
 from smartview_mcp import server as v1
+from smartview_mcp.host import InputError
 
 from . import legacy
 from .knowledge.atlas_resolver import AtlasResolver
@@ -89,8 +90,18 @@ def _provider():
     return SvHttpProvider(svhttp.shared())
 
 
+def _clean(fn):
+    """Refusals raised inside a host job are input errors, not 'Unexpected ... run sv_restart'."""
+    def job(h):
+        try:
+            return fn(h)
+        except GuardError as e:
+            raise InputError(f"{e.reason} - {e.fix}") from None
+    return job
+
+
 async def _user(fn, what: str):
-    return await v1._call_user(fn, what=what)
+    return await v1._call_user(_clean(fn), what=what)
 
 
 @_register(v1.WRITE)
