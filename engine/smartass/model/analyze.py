@@ -33,10 +33,28 @@ def plan_requests(spec: AnalysisSpec, r: Resolver, closed: Month) -> list[GridRe
     return requests(spec, r, closed)
 
 
+def _unique(names: list[str]) -> list[str]:
+    seen: dict[str, int] = {}
+    out = []
+    for n in names:
+        seen[n] = seen.get(n, 0) + 1
+        out.append(n if seen[n] == 1 else f"{n} ({seen[n]})")
+    return out
+
+
+def _uniquify(outs: list[BlockOut]) -> None:
+    """Block titles and, within a block, line labels become unique so key_values cannot overwrite itself."""
+    for o, t in zip(outs, _unique([o.title for o in outs])):
+        o.title = t
+        for ln, lab in zip(o.lines, _unique([ln.label for ln in o.lines])):
+            ln.label = lab
+
+
 def compute(spec: AnalysisSpec, r: Resolver, closed: Month, frame: Frame, kv_limit: int = 40) -> Result:
     soft = guard_spec(spec, r, closed)
     ctx = Ctx(spec, r, closed, frame)
     outs = [BUILDERS[b.type](b, ctx, f"b{i}") for i, b in enumerate(spec.blocks) if b.type in BUILDERS]
+    _uniquify(outs)
     cells = evaluate(outs, frame)
     guard_result(outs, cells)
     return Result(outs, cells, soft + sign_findings(ctx), material(outs, cells, r),

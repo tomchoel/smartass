@@ -33,3 +33,20 @@ def test_key_values_are_capped():
     s = AnalysisSpec.model_validate(spec_dict())
     res = compute(s, resolver(), CLOSED, facts(), kv_limit=3)
     assert len(res.key_values) == 3
+
+
+def test_identical_block_titles_and_labels_do_not_collide_in_key_values():
+    from smartass.model.frame import Fact
+    d = spec_dict(blocks=[{"type": "kpi_tiles", "query": "fm", "metrics": ["EBITDA"]},
+                          {"type": "kpi_tiles", "query": "fp", "metrics": ["EBITDA"], "compare": "budget"},
+                          {"type": "kpi_tiles", "query": "fm", "metrics": ["EBITDA", "EBITDA"]}])
+    d["queries"].append({"id": "fp", "cube": "FinPlan", "metrics": ["EBITDA"], "entity": "un.SY.2BUS",
+                         "periods": "closed", "compare": ["budget"]})
+    fr = facts()
+    fr.facts += [Fact("FinPlan", "fp", "EBITDA", "un.SY.2BUS", "Sep 26", "Actual", "Working", 70.0),
+                 Fact("FinPlan", "fp", "EBITDA", "un.SY.2BUS", "Sep 26", "Target", "Final", 80.0)]
+    res = compute(AnalysisSpec.model_validate(d), resolver(), CLOSED, fr)
+    assert res.key_values["Key figures · EBITDA"]["Actual"] == 65.0
+    assert res.key_values["Key figures (2) · EBITDA"]["Actual"] == 70.0
+    assert res.key_values["Key figures (2) · EBITDA"]["Budget"] == 80.0
+    assert "Key figures (3) · EBITDA" in res.key_values and "Key figures (3) · EBITDA (2)" in res.key_values
