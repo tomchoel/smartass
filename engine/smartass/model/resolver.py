@@ -31,6 +31,14 @@ class Resolver(Protocol):
     def latest_forecast(self) -> str: ...
     def concept(self, name: str): ...          # a product concept (knowledge.semantic.Concept) or None
     def metric_of(self, member: str, cube: str) -> str | None: ...   # the metric of an account (or its parent)
+    def pct_floor(self, metric: str) -> float | None: ...  # |base| below it: no variance %; None = no floor
+
+
+def pct_floor_of(unit: str, materiality: tuple[float, float], own: float | None) -> float | None:
+    """The variance % floor: the metric's own floor when it has one; else a tenth of the absolute materiality for a
+    NOK metric; a stock or ratio metric (FTE, count, ratio) without its own floor has none. Never zero or below."""
+    f = own if own is not None else (materiality[0] / 10 if unit == "NOK" else None)
+    return f if f is not None and f > 0 else None
 
 
 def metric_of_member(metrics, member: str, cube: str, parent: str | None) -> str | None:
@@ -56,6 +64,8 @@ class MetricDef:
     materiality: tuple[float, float] = DEFAULT_MATERIALITY
     balance: Balance = "Periodic"
     aggregation: Aggregation = "sum"
+    unit: str = "NOK"                       # NOK | FTE | count | ratio
+    pct_floor: float | None = None          # own variance % floor (else materiality abs / 10 for NOK)
 
     def __post_init__(self):
         if self.balance == "Accumulated" and self.aggregation == "sum":
@@ -100,6 +110,10 @@ class StaticResolver:
     def materiality(self, metric: str) -> tuple[float, float]:
         m = self._m.get(metric.lower())
         return m.materiality if m else DEFAULT_MATERIALITY
+
+    def pct_floor(self, metric: str) -> float | None:
+        m = self._m.get(metric.lower())
+        return pct_floor_of(m.unit, m.materiality, m.pct_floor) if m else None
 
     def balance(self, metric: str) -> Balance:
         m = self._m.get(metric.lower())

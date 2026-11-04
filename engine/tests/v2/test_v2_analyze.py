@@ -11,8 +11,9 @@ def test_end_to_end_base_spec():
     s = AnalysisSpec.model_validate(spec_dict())
     res = compute(s, resolver(), CLOSED, facts())
     assert [o.type for o in res.outs] == ["kpi_tiles", "table", "bridge", "ranking", "drivers"]
+    # Plan 2D: a base of 63 NOK is below EBITDA's variance % floor (5 MNOK / 10), so the % is empty
     assert res.key_values["Key figures · EBITDA"] == {"Actual": 65.0, "Last year": 63.0, "Variance": 2.0,
-                                                     "Variance %": pytest.approx(2 / 63)}
+                                                     "Variance %": None}
     assert res.key_values["EBITDA bridge · Other / unexplained"] == {"Amount": 0.0}
     assert not any("Check" in k for k in res.key_values)
     keys = {m["key"] for m in res.material}

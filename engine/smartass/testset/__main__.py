@@ -1,5 +1,6 @@
-"""uv run python -m smartass.testset record [ids] | approve ids | run
-record is live (EPM over the hidden browser, never Excel); approve and run are offline. run exits 1 on any failure."""
+"""uv run python -m smartass.testset record [ids] | candidate --offline [ids] | approve ids | run
+record is live (EPM over the hidden browser, never Excel); candidate --offline (a candidate from the replay, with its
+diff to the golden), approve and run are offline. run exits 1 on any failure."""
 from __future__ import annotations
 
 import asyncio
@@ -49,6 +50,16 @@ def main(argv: list[str]) -> int:
     cmd, ids = (argv[0] if argv else ""), argv[1:]
     if cmd == "record":
         return _record(ids)
+    if cmd == "candidate":
+        if "--offline" not in ids:
+            raise SystemExit("candidate needs --offline (a replay of the recording); a live candidate is `record`")
+        for c in _pick([i for i in ids if i != "--offline"]):
+            r = runner.candidate_offline(c)
+            n = len(r["diffs"])
+            print(f"{r['id']:<6}{f'{n} diff(s)' if n else 'same as golden'}")
+            for d in r["diffs"]:
+                print(f"      {d}")
+        return 0
     if cmd == "approve":
         if not ids:
             raise SystemExit("approve needs case ids, e.g. approve b01 b02")

@@ -48,6 +48,7 @@ class Metric(BaseModel):
     balance: Literal["Periodic", "Accumulated"] = "Periodic"
     aggregation: Literal["sum", "last"] = "sum"
     materiality: tuple[float, float] = (5_000_000.0, 0.10)
+    pct_floor: float | None = None          # |base| below it: no variance % (default: materiality abs / 10 for NOK)
     status: Literal["approved", "draft"] = "draft"
     approved: dict | None = None
     finmax: Members | None = None

@@ -157,21 +157,41 @@ class Neg(Expr):
 
 
 @dataclass(frozen=True)
+class Param(Expr):
+    """A threshold in its own labelled cell on the answer sheet (e.g. the variance % floor of a metric): the model
+    reads its value, a formula references its cell (key `key` in the layout's parameter cells)."""
+    key: str
+    value: float
+
+    def evaluate(self, frame, cells):
+        return self.value
+
+    def to_excel(self, table, addr, const=None):
+        return addr(self.key)
+
+
+@dataclass(frozen=True)
 class Ratio(Expr):
-    """num / den, empty when the base is zero or missing; abs_base divides by |den| (variance %)."""
+    """num / den, empty when the base is zero or missing; abs_base divides by |den| (variance %). With a floor
+    (a Param), empty when |den| is below it: a percentage on a tiny base says nothing."""
     num: Expr
     den: Expr
     abs_base: bool = False
+    floor: Param | None = None
 
     def evaluate(self, frame, cells):
         n, d = self.num.evaluate(frame, cells), self.den.evaluate(frame, cells)
         if n is None or d is None or d == 0:
+            return None
+        if self.floor is not None and abs(d) < self.floor.value:
             return None
         return n / (abs(d) if self.abs_base else d)
 
     def to_excel(self, table, addr, const=None):
         n, d = self.num.to_excel(table, addr, const), self.den.to_excel(table, addr, const)
         den = f"ABS({d})" if self.abs_base else f"({d})"
+        if self.floor is not None:
+            return f'IF(ABS({d})<{self.floor.to_excel(table, addr, const)},"",({n})/{den})'
         return f'IF({d}=0,"",({n})/{den})'
 
 

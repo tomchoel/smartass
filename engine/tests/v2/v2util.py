@@ -46,7 +46,8 @@ def resolver(**kw) -> StaticResolver:
                  MetricDef("Opex", {"FinMax": ("ac.C50S", "ac.C60"), "FinPlan": ("OPEX",)}, sign="cost",
                            materiality=(5.0, 0.05)),
                  MetricDef("EBITDA", {"FinMax": ("ac.EBITDA",), "FinPlan": ("EBITDA",)}, sign="income"),
-                 MetricDef("FTE", {"FinMax": ("ac.STA20Y",)}, balance="Accumulated", aggregation="last"),
+                 MetricDef("FTE", {"FinMax": ("ac.STA20Y",)}, unit="FTE", balance="Accumulated",
+                           aggregation="last"),
                  MetricDef("Draft thing", {"FinMax": ("ac.C99",)}, status="draft")],
         tree=TREE, labels={"un.SY.2BUS": "2BUS Business Norway"}, **kw)
 

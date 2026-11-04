@@ -1,6 +1,6 @@
 """Record, approve and run the test set. record needs EPM (live); approve and run are offline. A case's grids and
 lines are stored in <HOME>/<id>/ (grids.json, lines.json); candidate.json holds the closed months and the key values
-of the last recording, golden.json the approved copy. Relative periods make a golden belong to the closed month it
+of the last recording (or of `candidate --offline`, a replay of it with today's code), golden.json the approved copy. Relative periods make a golden belong to the closed month it
 was recorded in, so a run replays that same recording."""
 from __future__ import annotations
 
@@ -87,6 +87,36 @@ def compare(golden: dict, new: dict, tol_abs: float = 1.0, tol_frac: float = 1e-
     return diffs
 
 
+def _replay(case: dict):
+    """The case's prepared answer on its own recording (grids + lines), offline."""
+    d = HOME / case["id"]
+    replay = ReplayProvider(d / "grids.json")
+    return replay, _prepare(case["spec"], replay, replay.closed_months(), load_lines(d / "lines.json"))
+
+
+def candidate_offline(case: dict) -> dict:
+    """Write candidate.json from the replay of the case's recording (no EPM): the closed months and recorded_at of
+    the recording, the key values the code gives now. Returns {id, diffs} against the golden (diffs ['no golden']
+    when there is none); the golden is never touched - approve copies the candidate over it."""
+    d = HOME / case["id"]
+    if not (d / "grids.json").exists():
+        raise FileNotFoundError(f"{case['id']}: no recording - record it first")
+    old = {}
+    for name in ("candidate.json", "golden.json"):
+        if (d / name).exists():
+            old = json.loads((d / name).read_text(encoding="utf-8"))
+            break
+    replay, pre = _replay(case)
+    cand = {"closed": {c: list(m) for c, m in replay.closed_months().items()}, "key_values": pre.result.key_values,
+            "recorded_at": old.get("recorded_at", ""),
+            "replayed_at": dt.datetime.now().isoformat(timespec="seconds")}
+    (d / "candidate.json").write_text(json.dumps(cand, ensure_ascii=False, indent=1), encoding="utf-8")
+    if not (d / "golden.json").exists():
+        return {"id": case["id"], "diffs": ["no golden"]}
+    golden = json.loads((d / "golden.json").read_text(encoding="utf-8"))
+    return {"id": case["id"], "diffs": compare(golden["key_values"], cand["key_values"])}
+
+
 def run_offline(cases: list[dict]) -> list[dict]:
     out = []
     for c in cases:
@@ -95,9 +125,8 @@ def run_offline(cases: list[dict]) -> list[dict]:
             out.append({"id": c["id"], "ok": None, "diffs": ["no golden"]})
             continue
         golden = json.loads((d / "golden.json").read_text(encoding="utf-8"))
-        replay = ReplayProvider(d / "grids.json")
         try:
-            pre = _prepare(c["spec"], replay, replay.closed_months(), load_lines(d / "lines.json"))
+            _, pre = _replay(c)
         except Exception as e:   # noqa: BLE001 - a broken case is a failed case, not a crashed run
             out.append({"id": c["id"], "ok": False, "diffs": [f"{type(e).__name__}: {e}"]})
             continue

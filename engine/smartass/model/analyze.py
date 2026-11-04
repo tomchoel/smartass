@@ -4,13 +4,13 @@ values, the reconciliation guard, findings, material lines and key values. The d
 the two; the render layer writes the same trees as formulas."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 
 from .blocks import BUILDERS
 from .blocks.common import BlockOut, evaluate
 from .blocks.concept import concept_findings
 from .context import Ctx
-from .expr import Cells
+from .expr import Cells, Param, Ratio
 from .findings import bridge_findings, key_values, lines_findings, material
 from .frame import Frame
 from .periods import Closed
@@ -27,6 +27,29 @@ class Result:
     findings: list[Finding]
     material: list[dict]
     key_values: dict[str, dict[str, float | None]]
+    floors: dict[str, float] = field(default_factory=dict)    # metric -> variance % floor used (sheet: Thresholds)
+
+
+FLOOR_KEY = "floor."
+
+
+def apply_floors(outs: list[BlockOut], r: Resolver) -> dict[str, float]:
+    """Every variance % of a line with a metric gets the metric's floor: below it the % is empty (|base| too small
+    for a percentage to say anything). Returns the floors used, per metric, for the sheet's Thresholds cells."""
+    used: dict[str, float] = {}
+    for o in outs:
+        for ln in o.lines:
+            if not ln.metric:
+                continue
+            for j, e in enumerate(ln.cells):
+                if o.cols[j] != "var_pct" or not isinstance(e, Ratio) or e.floor is not None:
+                    continue
+                f = r.pct_floor(ln.metric)
+                if f is None:
+                    continue
+                used[ln.metric] = f
+                ln.cells[j] = replace(e, floor=Param(FLOOR_KEY + ln.metric, f))
+    return used
 
 
 def plan_requests(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[GridRequest]:
@@ -62,8 +85,9 @@ def compute(spec: AnalysisSpec, r: Resolver, closed: Closed, frame: Frame, kv_li
     ctx = Ctx(spec, r, closed, frame)
     outs = [BUILDERS[b.type](b, ctx, f"b{i}") for i, b in enumerate(spec.blocks) if b.type in BUILDERS]
     _uniquify(outs)
+    floors = apply_floors(outs, r)
     cells = evaluate(outs, frame)
     guard_result(outs, cells)
     return Result(outs, cells, soft + sign_findings(ctx) + bridge_findings(outs, cells, r) + lines_findings(outs, cells)
                   + concept_findings(outs, cells), material(outs, cells, r),
-                  key_values(outs, cells, kv_limit))
+                  key_values(outs, cells, kv_limit), floors)

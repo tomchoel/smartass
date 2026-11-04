@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 
 from ..model.periods import Month
-from ..model.resolver import DEFAULT_MATERIALITY, MetricDef, UnknownMetric, metric_of_member
+from ..model.resolver import DEFAULT_MATERIALITY, MetricDef, UnknownMetric, metric_of_member, pct_floor_of
 from . import atlas
 from .atlas_tree import AtlasTree
 from .build import build, search_concepts, search_metrics, semantic_hash, summary
@@ -56,7 +56,8 @@ class KnowledgeResolver(AtlasTree):
 
     def metrics(self) -> list[MetricDef]:
         return [MetricDef(m.name, m.members(), sign=m.sign, status=m.status, materiality=m.materiality,
-                          balance=m.balance, aggregation=m.aggregation) for m in self._metrics.values()]
+                          balance=m.balance, aggregation=m.aggregation, unit=m.unit, pct_floor=m.pct_floor)
+                for m in self._metrics.values()]
 
     def metric_of(self, member: str, cube: str) -> str | None:
         """The metric of an account: the one whose members in the cube are exactly it, else its parent's, else None."""
@@ -84,6 +85,11 @@ class KnowledgeResolver(AtlasTree):
     def materiality(self, metric):
         m = self._metric(metric)
         return tuple(m.materiality) if m else DEFAULT_MATERIALITY
+
+    def pct_floor(self, metric):
+        """|base| below it: no variance %. A raw member (no semantic metric) has no floor: its unit is unknown."""
+        m = self._metric(metric)
+        return pct_floor_of(m.unit, tuple(m.materiality), m.pct_floor) if m else None
 
     def balance(self, metric):
         m = self._metric(metric)

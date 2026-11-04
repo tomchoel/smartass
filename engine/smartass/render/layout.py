@@ -8,7 +8,7 @@ import math
 import textwrap
 from dataclasses import dataclass, field
 
-from ..model.analyze import Result
+from ..model.analyze import FLOOR_KEY, Result
 from ..model.blocks.common import ck
 from ..model.expr import Const
 from ..model.frame import FILTER_COLUMNS
@@ -58,6 +58,7 @@ class SheetPlan:
     last_row: int = 1
     charts: list[ChartSpec] = field(default_factory=list)
     fractions: set[str] = field(default_factory=set)        # keys of percentage cells (readback: no near-zero rule)
+    params: dict[str, str] = field(default_factory=dict)    # threshold cells (Param keys) -> absolute address
 
     def at(self, key: str) -> tuple[int, int]:
         a = self.addr[key]
@@ -171,6 +172,17 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
                                           [] if line else [1, len(rows)], "", millions=_millions(o, stock)))
         r += 1
 
+    if res.floors:                      # the variance % floors the formulas reference: labelled input cells
+        text(r, "Thresholds", "section")
+        r += 1
+        r = notes(r, "Variance % is left blank when |base| is below the floor of its metric.")
+        for metric, floor in res.floors.items():
+            p.cells[(r, LABEL_COL)] = f"Variance % floor: {metric}"
+            p.cells[(r, FIRST_COL)] = floor
+            p.params[FLOOR_KEY + metric] = f"${col_letter(FIRST_COL)}${r}"
+            p.rows.append({"row": r, "kind": "line", "num": {col_letter(FIRST_COL): _num("value", metric in stock)}})
+            r += 1
+        r += 1
     if res.findings:
         text(r, "Findings", "section")
         r += 1
@@ -187,7 +199,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
                  f"(sheet Q{q} Data).") - 1
 
     def addr(key: str) -> str:
-        return p.addr[key]
+        return p.addr[key] if key in p.addr else p.params[key]
 
     for row, o, ln in placed:
         for j, e in enumerate(ln.cells):
