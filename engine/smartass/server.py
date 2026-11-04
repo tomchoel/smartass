@@ -180,6 +180,28 @@ def _with_notes(out: dict, notes: list[str]) -> dict:
     return out
 
 
+def _default_target(target: str) -> str:
+    """Follow-ups, fin_refresh and fin_critic: target 'session' (the default) means the workbook of the latest
+    stored answer (answers.db), so a follow-up lands where the user's last answer is (an open 'Book1', the active
+    workbook) and not in an older session file. Explicit targets win; no stored answer (or the latest one in the
+    session workbook itself) keeps 'session'."""
+    if target != "session":
+        return target
+    from . import answers
+    from .core import session
+    try:
+        row = answers.latest()
+    except Exception:   # noqa: BLE001 - answer memory unreadable: the session workbook, as before
+        return target
+    wb = (row or {}).get("workbook")
+    if not wb:
+        return target
+    own = session.workbook()
+    if own and answers._key(own) == answers._key(wb):
+        return target                                # the session file stays 'ours' (saved after each answer)
+    return wb
+
+
 async def _new_question(spec: AnalysisSpec, target: str) -> dict:
     pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target)
     return _with_notes(await _user(lambda h: excel_job(h, pre, target), "fin_analyze"), notes)
@@ -191,14 +213,16 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     """Run one analysis. New question: spec = AnalysisSpec v2. Follow-up: patch = JSON merge patch on the stored
     spec of Q<q> (default: the active Q<n> Answer, else the latest); the same sheets are rebuilt in place.
     Fetches over Smart View HTTP, computes, and builds Q<n> Answer (live formulas on table Data_Q<n>) + Q<n> Data in
-    the session workbook (target 'session', 'new' or 'active'). Returns key_values (quote only these), material
-    lines, findings, checks and warnings."""
+    the session workbook (target 'session', 'new' or 'active', an absolute path or the name of an open workbook).
+    A follow-up's target default: the workbook of your latest answer. Returns key_values (quote only these),
+    material lines, findings, checks and warnings."""
     if (spec is None) == (patch is None):
         raise GuardError("give spec (a new question) or patch (a follow-up), not both",
                          "pass spec=... for a new question, or patch=... (and q) to change an existing answer")
     if spec is not None:
         return await _new_question(spec, target)
     provider = _provider()
+    target = _default_target(target)
     stored, active, path = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
     q2, raw, owned = find_question(stored, q, active)
     pre, notes = await _prepare(merge_patch(raw, patch), provider, target=path)
@@ -221,8 +245,10 @@ async def fin_drill(cell: dict, group_by: str = "supplier", top: int = 10, targe
 @_register(kit.WRITE)
 async def fin_refresh(target: str = "session", ctx: Context | None = None) -> dict:
     """Re-run every v2 answer in the workbook with its stored spec (no patch): relative periods such as
-    'closed-ytd' roll forward to the latest closed month. A failing question is reported and does not stop the rest."""
+    'closed-ytd' roll forward to the latest closed month. A failing question is reported and does not stop the rest.
+    target default: the workbook of your latest answer."""
     provider = _provider()
+    target = _default_target(target)
     stored, _, path = await _user(lambda h: read_stored(h, target), "fin_refresh")
     done, workbook, broken = [], None, None
     for q in v2_questions(stored):
