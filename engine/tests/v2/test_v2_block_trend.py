@@ -67,3 +67,23 @@ def test_stock_metric_does_not_accumulate():
     c, b = fte_ctx(cumulative=True)
     cells = evaluate([build_trend(b, c, "b0")], c.frame)
     assert [cells.get(ck("b0", f"p{i}", 0)) for i in range(3)] == [100.0, 101.0, 102.0]
+
+
+def test_trend_runs_over_value_months_and_plan_months():
+    from smartass.model.frame import Fact, Frame
+    d = spec_dict(blocks=[{"type": "trend", "query": "fp", "metrics": ["EBITDA"], "series": ["value", "forecast"]}])
+    d["queries"] = [{"id": "fp", "cube": "FinPlan", "metrics": ["EBITDA"], "entity": "un.SY.2BUS",
+                     "periods": "Jan 26..Sep 26", "plan_periods": "Oct 26..Dec 26", "compare": ["forecast"]}]
+    s = AnalysisSpec.model_validate(d)
+    mons = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    fr = Frame([Fact("FinPlan", "fp", "EBITDA", "un.SY.2BUS", f"{m} 26", sc, "Final" if sc != "Actual" else "Working",
+                     float(i + 1))
+                for i, m in enumerate(mons) for sc in (("Actual",) if i < 9 else ("Forecast Q326",))])
+    c = Ctx(s, resolver(), CLOSED, fr)
+    out = build_trend(s.blocks[0], c, "b0")
+    cells = evaluate([out], fr)
+    assert [ln.label for ln in out.lines][:1] == ["Jan 26"] and len(out.lines) == 13      # 12 months + Total
+    assert [out.lines[i].cells[0] is None for i in range(12)] == [False] * 9 + [True] * 3
+    assert [out.lines[i].cells[1] is None for i in range(12)] == [True] * 9 + [False] * 3
+    assert cells.get(ck("b0", "total", 0)) == 45.0 and cells.get(ck("b0", "total", 1)) == 10.0 + 11.0 + 12.0
+    assert cells.get(ck("b0", "p9", 1)) == 10.0 and cells.get(ck("b0", "p9", 0)) is None

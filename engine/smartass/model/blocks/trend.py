@@ -6,27 +6,37 @@ from __future__ import annotations
 from ..context import Ctx
 from ..expr import Expr, Ref, Sub, Sum
 from ..periods import label, resolve
+from ..series import months
 from ..spec import MatrixBlock, TrendBlock
 from .common import HEAD, BlockOut, Line, ck, children_sum, counted
 
 
 def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
-    ms = resolve(q.periods, ctx.closed_for(q.cube))
+    cl = ctx.closed_for(q.cube)
     combos = [(m, s) for m in b.metrics for s in b.series]
+    # a series lives on its own months: value and ly on the query's periods, budget and forecast on plan_periods
+    own = {s: set(months(q, "value" if s == "ly" else s, cl)) for s in b.series}
+    ms = sorted(set().union(*own.values()))
     out = BlockOut(key, "trend", b.title or "Trend", [f"{m} {HEAD[s]}" for m, s in combos],
                    cols=[s for _, s in combos], query=q.id, chart="line" if b.chart else None)
     stock = [ctx.resolver.aggregation(m) == "last" for m, _ in combos]   # a stock is picked per month, never added
     for i, mon in enumerate(ms):
         cells: list[Expr | None] = []
         for j, (m, s) in enumerate(combos):
+            if mon not in own[s]:
+                cells.append(None)
+                continue
             this = ctx.pick(q, m, s, base_months=[mon])
             cells.append(Sum((Ref(ck(key, f"p{i - 1}", j)), this)) if b.cumulative and i and not stock[j] else this)
         out.lines.append(Line(f"p{i}", label(mon), cells))
     if not b.cumulative and len(ms) > 1:
-        out.lines.append(Line("total", "Total", [Ref(ck(key, f"p{len(ms) - 1}", j)) if stock[j]
-                                                 else Sum(tuple(Ref(ck(key, f"p{i}", j)) for i in range(len(ms))))
-                                                 for j in range(len(combos))], kind="grand"))
+        def total(j: int) -> Expr:
+            if stock[j]:
+                last = max(i for i, ln in enumerate(out.lines) if ln.cells[j] is not None)
+                return Ref(ck(key, f"p{last}", j))
+            return Sum(tuple(Ref(ck(key, f"p{i}", j)) for i in range(len(ms))))
+        out.lines.append(Line("total", "Total", [total(j) for j in range(len(combos))], kind="grand"))
     return out
 
 
