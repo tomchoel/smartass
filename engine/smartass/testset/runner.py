@@ -10,12 +10,12 @@ import json
 import shutil
 from pathlib import Path
 
-from ..core import config as v1config
+from ..core import config
 
 from ..data.recorder import RecordingProvider, ReplayProvider, load_lines, save_lines
 from ..pipeline import prepare
 
-HOME = Path(v1config.SVKIT) / "v2" / "testset"
+HOME = Path(config.SVKIT) / "v2" / "testset"
 CASES = Path(__file__).parent / "cases"
 
 

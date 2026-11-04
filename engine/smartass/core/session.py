@@ -3,20 +3,29 @@
 Every client session starts its own relay (run_server.py) in the session's project folder; the relay outlives code
 reloads of the server child, so (relay pid, start time) identifies the session and the relay's working folder names
 the project. Each session keeps ONE analysis workbook (analyser\\<project>\\<date time> <first question>.xlsx) for
-all its questions; two sessions never share a file unless the user asks for their open workbook."""
+all its questions. After an /mcp reconnect the relay is new, so the last workbook of the same folder (cwd) is taken
+over (the '_last:<cwd>' entry); two sessions in one folder therefore share it, and Excel's per-workbook turn lock keeps
+them from writing at the same time. Every write of the state file is atomic (a temp file, then os.replace)."""
 from __future__ import annotations
 
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 import psutil
 
 from . import config
 
-_STATE = config.SVKIT / "sessions.json"
+_STATE = config.HOME / "sessions.json"
+RELAY_SCRIPT = "run_server.py"
+LAST_PREFIX = "_last:"
 _info: dict | None = None
+
+
+def _sid(p) -> str:
+    return f"{p.pid}-{int(p.create_time())}"
 
 
 def info() -> dict:
@@ -24,10 +33,10 @@ def info() -> dict:
     global _info
     if _info is None:
         me = psutil.Process()
-        relay = next((p for p in me.parents() if "run_server.py" in " ".join(_cmdline(p))), None)
+        relay = next((p for p in me.parents() if _alive_relay(p)), None)
         p = relay or me
         cwd = _cwd(p) or os.getcwd()
-        _info = {"id": f"{p.pid}-{int(p.create_time())}", "cwd": cwd, "project": safe_name(Path(cwd).name)}
+        _info = {"id": _sid(p), "cwd": cwd, "project": safe_name(Path(cwd).name)}
     return _info
 
 
@@ -43,6 +52,10 @@ def _cwd(p) -> str | None:
         return p.cwd()
     except (psutil.Error, OSError):
         return None
+
+
+def _alive_relay(p) -> bool:
+    return any(Path(a).name == RELAY_SCRIPT for a in _cmdline(p))
 
 
 def safe_name(s: str) -> str:
@@ -62,26 +75,48 @@ def _load() -> dict:
         return {}
 
 
+def _save(data: dict) -> None:
+    """Atomic: a reader (another session) sees the old file or the new one, never half of it."""
+    tmp = _STATE.with_name(f"{_STATE.name}.{os.getpid()}.tmp")
+    try:
+        _STATE.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, _STATE)
+    except OSError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def workbook() -> str | None:
-    """This session's analysis workbook, if it has one and the file still exists."""
-    w = _load().get(info()["id"], {}).get("workbook")
-    return w if w and Path(w).exists() else None
+    """This session's analysis workbook, if it has one and the file still exists. After an /mcp reconnect the id
+    lookup finds nothing: then the last workbook of the same folder (cwd), if the file still exists, re-bound under
+    the new id."""
+    me = info()
+    data = _load()
+    own = data.get(me["id"], {}).get("workbook")
+    if own and Path(own).exists():
+        return own
+    last = data.get(f"{LAST_PREFIX}{me['cwd']}", {}).get("workbook")
+    if last and Path(last).exists():
+        set_workbook(last)
+        return last
+    return None
 
 
 def set_workbook(path: str) -> None:
+    """Remember this session's workbook (and the folder's last one). Ended sessions are forgotten; the live relays'
+    entries and every '_last:' entry are kept, so concurrent sessions never prune each other."""
+    me = info()
     data = _load()
-    data[info()["id"]] = {"workbook": str(path), "project": info()["project"], "cwd": info()["cwd"]}
-    live = {f"{p.pid}-{int(p.create_time())}" for p in psutil.process_iter() if _alive_relay(p)}
-    data = {k: v for k, v in data.items() if k in live or k == info()["id"]}   # forget ended sessions
-    try:
-        config.SVKIT.mkdir(parents=True, exist_ok=True)
-        _STATE.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    except OSError:
-        pass
-
-
-def _alive_relay(p) -> bool:
-    try:
-        return "run_server.py" in " ".join(p.cmdline())
-    except (psutil.Error, OSError):
-        return False
+    data[me["id"]] = {"workbook": str(path), "project": me["project"], "cwd": me["cwd"]}
+    data[f"{LAST_PREFIX}{me['cwd']}"] = {"workbook": str(path), "ts": time.time()}     # survives /mcp reconnects
+    live = set()
+    for p in psutil.process_iter():
+        try:
+            if _alive_relay(p):
+                live.add(_sid(p))
+        except (psutil.Error, OSError):
+            pass
+    _save({k: v for k, v in data.items() if k in live or k == me["id"] or k.startswith(LAST_PREFIX)})

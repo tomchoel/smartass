@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import tomllib
 
-from ..core import config as v1config
+from ..core import config
 
 from ..model.resolver import MetricDef
 
@@ -15,7 +15,7 @@ SIGN = {"revenue": "income", "gross_margin": "income", "ebitda_boi": "income", "
 
 
 def catalog_metrics(path=None) -> list[MetricDef]:
-    data = tomllib.loads((path or v1config.KNOWLEDGE_DIR / "catalog.toml").read_text(encoding="utf-8"))
+    data = tomllib.loads((path or config.KNOWLEDGE_DIR / "catalog.toml").read_text(encoding="utf-8"))
     mat = data["materiality"]
     materiality = (float(mat["abs_nok"]), float(mat["pct"]))
     by_concept: dict[str, dict] = {}

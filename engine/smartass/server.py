@@ -14,7 +14,6 @@ from .knowledge import atlas
 from .core import serverkit as kit
 from .xl.host import InputError
 
-from . import legacy
 from .data.adhoc import adhoc_fetch
 from .data.provider import ComboProvider
 from .knowledge.atlas_resolver import AtlasResolver
@@ -187,7 +186,6 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     Fetches over Smart View HTTP, computes, and builds Q<n> Answer (live formulas on table Data_Q<n>) + Q<n> Data in
     the session workbook (target 'session', 'new' or 'active'). Returns key_values (quote only these), material
     lines, findings, checks and warnings."""
-    legacy.configure_v2()
     if (spec is None) == (patch is None):
         raise GuardError("give spec (a new question) or patch (a follow-up), not both",
                          "pass spec=... for a new question, or patch=... (and q) to change an existing answer")
@@ -207,7 +205,6 @@ async def fin_drill(cell: dict, group_by: str = "supplier", top: int = 10, targe
     lines without the group, the lines total, the cube value and the gap. cell: {"All Accounts": "ac.C60",
     "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"} (a parent period such as 'Yr 26' works).
     Same sheets and checks as a lines block in fin_analyze."""
-    legacy.configure_v2()
     spec = AnalysisSpec.model_validate({
         "version": 2, "question": f"Ledger lines behind {' / '.join(cell.values())}", "plan": {"depth": "quick"},
         "queries": [], "blocks": [{"type": "lines", "cell": cell, "group_by": group_by, "top": top}]})
@@ -218,7 +215,6 @@ async def fin_drill(cell: dict, group_by: str = "supplier", top: int = 10, targe
 async def fin_refresh(target: str = "session", ctx: Context | None = None) -> dict:
     """Re-run every v2 answer in the workbook with its stored spec (no patch): relative periods such as
     'closed-ytd' roll forward to the latest closed month. A failing question is reported and does not stop the rest."""
-    legacy.configure_v2()
     provider = _provider()
     stored, _, path = await _user(lambda h: read_stored(h, target), "fin_refresh")
     done, workbook, broken = [], None, None
@@ -244,11 +240,10 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
 @_register(kit.LOCAL)
 def fin_status() -> dict:
     """Health: atlas status, metric count, and where v2 writes its answer files."""
-    from .core import config as v1config
-    legacy.configure_v2()
+    from .core import config
     with contextlib.closing(atlas.connect()) as db:
         st = atlas.status(db)
-    return {"analyser": str(v1config.ANALYSER_DIR), "atlas": st, "metrics": len(catalog_metrics())}
+    return {"analyser": str(config.ANALYSER_DIR), "atlas": st, "metrics": len(catalog_metrics())}
 
 
 @_register(kit.WRITE)
@@ -276,5 +271,4 @@ async def xl_tidy(workbook: str | None = None, sheet: str | None = None, rows: d
 
 
 def main():
-    legacy.configure_v2()
     mcp.run()

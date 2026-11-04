@@ -17,8 +17,8 @@ def _next_q(t):
 
 
 def _pull(h, t, q, conn, pov, rows, cols):
-    from ..xl import pull_adhoc as v1adhoc
-    return v1adhoc.pull(h, t, q, conn, pov, rows, cols)
+    from ..xl import pull_adhoc
+    return pull_adhoc.pull(h, t, q, conn, pov, rows, cols)
 
 
 def _drop(t, name):

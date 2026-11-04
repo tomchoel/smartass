@@ -19,9 +19,8 @@ def _pick(ids: list[str]) -> list[dict]:
 
 
 def _record(ids: list[str]) -> int:
-    from .. import legacy, server
+    from .. import server
     from ..model.spec import AnalysisSpec
-    legacy.configure_v2()
     provider = server._provider()
     bad = 0
     for c in _pick(ids):
