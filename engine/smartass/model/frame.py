@@ -24,6 +24,7 @@ class Fact:
 class Frame:
     def __init__(self, facts=()):
         self.facts: list[Fact] = list(facts)
+        self.lines: dict = {}                    # alias -> LineSet (ledger lines behind a cube cell)
 
     def total(self, filters: dict[str, tuple[str, ...]]) -> float | None:
         """Sum of the facts matching every filter (column -> allowed values); None when no fact matches."""

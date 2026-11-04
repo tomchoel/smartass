@@ -200,3 +200,44 @@ def var_pct(cur: Expr, base: Expr) -> Expr:
 
 def share(part: Expr, total: Expr) -> Expr:
     return Ratio(part, total)
+
+
+@dataclass(frozen=True)
+class LinePick(Expr):
+    """Sum of AMOUNT over a line set's rows whose `column` (case-insensitive, trimmed) is one of `values`
+    (column None: every row). Excel: SUMIFS on table Lines_Q<n>_<alias> (n from the Data table name)."""
+    alias: str
+    column: str | None
+    values: tuple[str, ...] | None
+
+    def evaluate(self, frame, cells):
+        from .lines import AMOUNT, norm
+        ls = frame.lines[self.alias]
+        want = None if self.column is None else {norm(v) for v in self.values or ()}
+        hit = [float(r.get(AMOUNT) or 0.0) for r in ls.rows
+               if want is None or norm(r.get(self.column)) in want]
+        return sum(hit) if hit else None
+
+    def to_excel(self, table, addr, const=None):
+        t = f"Lines_{table.split('_', 1)[1]}_{self.alias}"
+        if self.column is None:
+            return f"SUM({t}[AMOUNT])"
+        vals = tuple(dict.fromkeys(self.values or ()))
+        if len(vals) == 1:
+            return f"SUMIFS({t}[AMOUNT],{t}[{self.column}],{_crit(vals[0])})"
+        arr = "{" + ",".join(_crit(v) for v in vals) + "}"
+        return f"SUM(SUMIFS({t}[AMOUNT],{t}[{self.column}],{arr}))"
+
+
+@dataclass(frozen=True)
+class CubeRef(Expr):
+    """The cube value of the drilled cell, written next to the lines (sheet 'Q<n> Lines <alias>', D2)."""
+    alias: str
+
+    def evaluate(self, frame, cells):
+        return frame.lines[self.alias].cube_value
+
+    def to_excel(self, table, addr, const=None):
+        from .lines import CUBE_CELL
+        q = table.split("_", 1)[1]                      # 'Q3'
+        return f"'{q} Lines {self.alias}'!{CUBE_CELL}"
