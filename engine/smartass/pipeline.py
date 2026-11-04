@@ -5,6 +5,7 @@ styling, readback, spec saved in _svmeta, sheet order, save our own file. reply(
 quotes from (key_values only - never numbers it computed itself)."""
 from __future__ import annotations
 
+import contextlib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
@@ -137,25 +138,49 @@ def _save_spec(t, q: int, raw: dict, owned: dict | None = None) -> None:
 def _arrange(t, sheet: str) -> str | None:
     """Sheet order like v1 tidy: our own files fully, the user's workbook only our sheets among themselves; land on
     the Answer sheet. Cosmetic: a failure is returned as a warning text, never raised (no rollback)."""
-    from smartview_mcp import server as v1server
     from smartview_mcp import sheetorder
     try:
-        mode = "full" if (getattr(t, "created", False) or v1server._is_our_analysis_file(t.path)) else "active"
+        mode = "full" if _is_ours(t) else "active"
         sheetorder.arrange_sheets(t.wb, mode, activate=sheet)
     except Exception as e:   # noqa: BLE001
         return f"could not arrange the sheets ({e}); the answer is built"
     return None
 
 
-def _our_file(t) -> bool:
-    """A workbook opened by path (follow-ups target the stored path) is still ours when it sits in the analyser folder."""
-    from smartview_mcp import server as v1server
-    return v1server._is_our_analysis_file(str(t.path))
+def _is_ours(t) -> bool:
+    """The engine's own analysis file (created by us, or sitting in the analyser folder - a follow-up targets the
+    stored path), never the user's workbook."""
+    from smartview_mcp import server as v1
+    return bool(getattr(t, "created", False)) or v1._is_our_analysis_file(str(t.path))
+
+
+@contextlib.contextmanager
+def autosave_paused(t):
+    """AutoSave (OneDrive/SharePoint files) off while v2 writes, so a half-written answer is never stored.
+    Our own analysis file: restored afterwards (we save it ourselves). The user's workbook: left off, with a note
+    (AutoSave would otherwise save our edits into their file; v1 does the same)."""
+    from smartview_mcp.excel.jobs import com
+    notes: list[str] = []
+    try:
+        prev = bool(com(lambda: t.wb.AutoSaveOn))
+    except Exception:   # noqa: BLE001 - a local file or an Excel without AutoSave
+        prev = False
+    if prev:
+        com(lambda: setattr(t.wb, "AutoSaveOn", False))
+    try:
+        yield notes
+    finally:
+        if prev and _is_ours(t):
+            with contextlib.suppress(Exception):
+                com(lambda: setattr(t.wb, "AutoSaveOn", True))
+        elif prev:
+            notes.append(f"AutoSave was switched off in {t.wb.Name} so the answer is not saved for you; "
+                         "save yourself or switch it back on.")
 
 
 def _save(t) -> None:
     from smartview_mcp.excel.jobs import com
-    if getattr(t, "created", False) or _our_file(t):    # only the engine's own analysis file, never the user's
+    if _is_ours(t):                                     # only the engine's own analysis file, never the user's
         com(lambda: t.wb.Save())
 
 
@@ -253,18 +278,25 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
                  lint + ([arranged] if arranged else []))
 
 
+def _with_notes(out: dict, notes: list[str]) -> dict:
+    if notes:
+        out["warnings"] = list(out.get("warnings", [])) + notes
+    return out
+
+
 def excel_job(h, pre: Prepared, target: str = "session") -> dict:
     t = _target(h, target, pre.spec.question[:60])
-    try:
-        q = _next_q(t)
-        ws_answer = _add_sheet(t, f"Q{q} Answer", q)
-        ws_data = _add_sheet(t, f"Q{q} Data", q, DATA_TAB)
-        out = _draw(t, q, pre, ws_answer, ws_data)
-        _save(t)
-    except Exception:
-        _rollback(t)
-        raise
-    return out
+    with autosave_paused(t) as notes:
+        try:
+            q = _next_q(t)
+            ws_answer = _add_sheet(t, f"Q{q} Answer", q)
+            ws_data = _add_sheet(t, f"Q{q} Data", q, DATA_TAB)
+            out = _draw(t, q, pre, ws_answer, ws_data)
+            _save(t)
+        except Exception:
+            _rollback(t)
+            raise
+    return _with_notes(out, notes)
 
 
 def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "session") -> dict:
@@ -273,34 +305,35 @@ def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "sess
     points at it survive). On failure: rollback, the Answer backup becomes the sheet again, the old data is written
     back into the table - each step on its own, so one failing step never hides the error or skips the others."""
     t = _target(h, target, pre.spec.question[:60])
-    a_name, d_name = f"Q{q} Answer", f"Q{q} Data"
-    ws_data = _sheet(t, d_name)
-    old_data = _read_data(ws_data, q)
-    b_answer = _backup(t, a_name)
-    try:
-        ws_answer = _sheet(t, a_name)
-        _clear(ws_answer, owned)
-        out = _draw(t, q, pre, ws_answer, ws_data, redraw=True, old_owned=owned)
-    except Exception as e:
-        problems = []
-        steps = [("rollback", lambda: _rollback(t)), (f"restore {a_name}", lambda: _restore(t, a_name, b_answer))]
-        if old_data is not None:
-            steps.append((f"rewrite {d_name}", lambda: rewrite_grid(_sheet(t, d_name), old_data, q)))
-        for what, step in steps:
-            try:
-                step()
-            except Exception as e2:   # noqa: BLE001 - collect, never hide the original error
-                problems.append(f"{what}: {e2}")
-        if problems:
-            raise RestoreError(f"{e}; the restore was incomplete - " + "; ".join(problems)) from e
-        raise
-    _drop_backup(t, b_answer)
-    _save(t)
-    out["followup"] = True
-    if not owned:
-        out["warnings"] = list(out.get("warnings", [])) + [
-            "old answer without a stored range: the whole Answer sheet was redrawn"]
-    return out
+    with autosave_paused(t) as notes:
+        a_name, d_name = f"Q{q} Answer", f"Q{q} Data"
+        ws_data = _sheet(t, d_name)
+        old_data = _read_data(ws_data, q)
+        b_answer = _backup(t, a_name)
+        try:
+            ws_answer = _sheet(t, a_name)
+            _clear(ws_answer, owned)
+            out = _draw(t, q, pre, ws_answer, ws_data, redraw=True, old_owned=owned)
+        except Exception as e:
+            problems = []
+            steps = [("rollback", lambda: _rollback(t)), (f"restore {a_name}", lambda: _restore(t, a_name, b_answer))]
+            if old_data is not None:
+                steps.append((f"rewrite {d_name}", lambda: rewrite_grid(_sheet(t, d_name), old_data, q)))
+            for what, step in steps:
+                try:
+                    step()
+                except Exception as e2:   # noqa: BLE001 - collect, never hide the original error
+                    problems.append(f"{what}: {e2}")
+            if problems:
+                raise RestoreError(f"{e}; the restore was incomplete - " + "; ".join(problems)) from e
+            raise
+        _drop_backup(t, b_answer)
+        _save(t)
+        out["followup"] = True
+        if not owned:
+            out["warnings"] = list(out.get("warnings", [])) + [
+                "old answer without a stored range: the whole Answer sheet was redrawn"]
+    return _with_notes(out, notes)
 
 
 def _stock(pre: Prepared) -> set[str]:
