@@ -24,12 +24,24 @@ def col_letter(c: int) -> str:
 
 
 @dataclass
+class ChartSpec:
+    type: str                 # "line" | "waterfall"
+    title: str
+    header_row: int
+    rows: list[int]           # data rows (trend: months only, no Total; bridge: start..end)
+    series_cols: list[str]    # one series per column
+    totals: list[int]         # waterfall points (1-based) that are totals
+    anchor_col: str           # top-left cell of the chart: anchor_col + header_row
+
+
+@dataclass
 class SheetPlan:
     cells: dict[tuple[int, int], object] = field(default_factory=dict)
     rows: list[dict] = field(default_factory=list)
     addr: dict[str, str] = field(default_factory=dict)
     last_col: str = "C"
     last_row: int = 1
+    charts: list[ChartSpec] = field(default_factory=list)
 
     def at(self, key: str) -> tuple[int, int]:
         a = self.addr[key]
@@ -93,7 +105,9 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         for j, h in enumerate(o.headers):
             p.cells[(r, FIRST_COL + j)] = h
         p.rows.append({"row": r, "kind": "header", "num_cols": letters})
+        header_row = r
         r += 1
+        line_rows: list[tuple[int, str]] = []
         for ln in o.lines:
             p.cells[(r, LABEL_COL)] = ("   " * ln.level) + ln.label
             is_stock = ln.metric in stock if ln.metric else False
@@ -103,7 +117,14 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
                 if e is not None:
                     p.addr[ck(o.key, ln.key, j)] = f"{letters[j]}{r}"
             placed.append((r, o, ln))
+            line_rows.append((r, ln.kind))
             r += 1
+        if o.chart:
+            rows = [row for row, kind in line_rows if o.chart == "waterfall" or kind not in ("grand", "check")]
+            if rows:
+                line = o.chart == "line"
+                p.charts.append(ChartSpec(o.chart, o.title, header_row, rows, letters if line else letters[:1],
+                                          [] if line else [1, len(rows)], ""))
         r += 1
 
     if res.findings:
@@ -124,5 +145,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
             if e is not None:
                 p.cells[(row, FIRST_COL + j)] = "=" + e.to_excel(table, addr)
     p.last_col = col_letter(FIRST_COL + widest - 1)
+    for c in p.charts:                                      # right of the widest table, at its own block's header row
+        c.anchor_col = col_letter(FIRST_COL + widest + 1)
     p.last_row = r
     return p

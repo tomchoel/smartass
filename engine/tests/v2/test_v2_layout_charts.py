@@ -1,0 +1,39 @@
+# engine/tests/v2/test_v2_layout_charts.py
+from v2util import CLOSED, facts, monthly_facts, resolver, spec_dict
+
+from smartass.model.analyze import compute
+from smartass.model.spec import AnalysisSpec
+from smartass.render.layout import layout
+
+
+def run(blocks, frame, periods=None):
+    d = spec_dict(blocks=blocks)
+    if periods:
+        d["queries"][0]["periods"] = periods
+    s = AnalysisSpec.model_validate(d)
+    return layout(1, s, compute(s, resolver(), CLOSED, frame), stock=set(), subtitle="x")
+
+
+def test_bridge_gets_a_waterfall_anchor():
+    p = run([{"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}], facts())
+    (c,) = p.charts
+    assert c.type == "waterfall" and c.title == "EBITDA bridge"
+    assert c.series_cols == ["C"] and len(c.rows) == 5 and c.totals == [1, 5]
+    assert c.rows == list(range(c.rows[0], c.rows[0] + 5))
+    assert c.header_row == c.rows[0] - 1
+    assert c.anchor_col == "E"                                 # widest table is 1 value column: chart sits right of it
+
+
+def test_trend_gets_a_line_anchor_without_total_row():
+    p = run([{"type": "trend", "query": "fm", "metrics": ["Opex"]}], monthly_facts(), "Jul 26..Sep 26")
+    (c,) = p.charts
+    assert c.type == "line" and c.series_cols == ["C", "D"] and len(c.rows) == 3
+    assert c.anchor_col == "F"
+
+
+def test_no_chart_without_chart_blocks_and_anchor_right_of_table():
+    p = run([{"type": "kpi_tiles", "query": "fm", "metrics": ["EBITDA"]}], facts())
+    assert p.charts == []
+    p = run([{"type": "trend", "query": "fm", "metrics": ["Opex"], "chart": False}], monthly_facts(),
+            "Jul 26..Sep 26")
+    assert p.charts == []
