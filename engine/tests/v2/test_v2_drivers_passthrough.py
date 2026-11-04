@@ -33,3 +33,22 @@ def test_single_child_node_is_skipped_and_costs_no_depth():
     assert "un.SY.PASS" not in labels
     assert labels[:2] == ["2BUS Business Norway", "un.SY.4BUS_B"]
     assert "un.SY.B1" in labels                            # depth 2 still reaches the grandchildren
+
+
+def test_fetch_reaches_what_the_walk_shows():
+    from smartass.model.requests import requests
+    full = passthrough_frame()
+    r = resolver()
+    r.tree = dict(TREE)
+    r.__post_init__()
+    s = AnalysisSpec.model_validate(spec_dict(blocks=[{"type": "drivers", "query": "fm", "metric": "Opex",
+                                                       "depth": 2}]))
+    fetched = {e for g in requests(s, r, CLOSED) for e in g.entities}
+    frame = Frame([f for f in full.facts if f.entity in fetched])        # what the provider would have returned
+    out = build_drivers(s.blocks[0], Ctx(s, r, CLOSED, frame), "b0")
+    deepest = [ln for ln in out.lines if ln.level == 2]
+    assert deepest and all(any(c is not None for c in ln.cells) for ln in deepest)
+    b1 = next(ln for ln in out.lines if ln.label == "un.SY.B1")
+    assert "un.SY.B1" in fetched
+    vals = [ctx_v for ctx_v in (Ctx(s, r, CLOSED, frame).value(b1.cells[0]),)]
+    assert vals[0] not in (0, 0.0, None)

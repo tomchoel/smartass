@@ -3,6 +3,7 @@
 query's metrics need and the entity subtree as deep as its blocks go."""
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 
 from .periods import Closed, closed_for, label
@@ -36,10 +37,19 @@ def _depth(spec: AnalysisSpec, qid: str) -> int:
 
 
 def _subtree(r: Resolver, cube: str, root: str, depth: int) -> tuple[str, ...]:
-    out, frontier = [root], [root]
-    for _ in range(depth):
-        frontier = [c for e in frontier for c in r.children(e, cube)]
-        out += frontier
+    """The root and its descendants as deep as the blocks go. A single-child pass-through node costs no depth,
+    exactly as the drivers walk treats it, so the fetch reaches every entity the walk shows."""
+    out = [root]
+    queue = deque([(root, 0)])                              # breadth first: the fetch order stays level by level
+    while queue:
+        entity, level = queue.popleft()
+        kids = r.children(entity, cube)
+        if level >= depth or not kids:
+            continue
+        step = 0 if len(kids) == 1 else 1
+        for k in kids:
+            out.append(k)
+            queue.append((k, level + step))
     return tuple(dict.fromkeys(out))
 
 
