@@ -62,6 +62,9 @@ def build_drivers(b: DriversBlock, ctx: Ctx, key: str) -> BlockOut:
         if level >= b.depth or not kids:
             leaf(entity)
             return
+        if len(kids) == 1:                                    # pass-through node: same numbers, no split - skip it
+            walk(kids[0], level, prefix)                      # level unchanged: it costs no depth
+            return
         scored = sorted(((variance(k), k) for k in kids), key=lambda t: -abs(t[0]))
         gross = sum(abs(v) for v, _ in scored) or 1.0
         covered = 0.0
