@@ -52,7 +52,7 @@ def _wire(monkeypatch, stored, fail_prepare=()):
     calls = []
     monkeypatch.setattr(server, "_user", user)
     monkeypatch.setattr(server, "_provider", lambda: "provider")
-    monkeypatch.setattr(server, "read_stored", lambda h, target="session": (stored, "Q2 Answer"))
+    monkeypatch.setattr(server, "read_stored", lambda h, target="session": (stored, "Q2 Answer", "C:/a/x.xlsx"))
 
     def prep(raw, provider):
         if raw["question"] in fail_prepare:
@@ -63,6 +63,8 @@ def _wire(monkeypatch, stored, fail_prepare=()):
 
     def redraw(h, pre, q, owned, target="session"):
         calls.append(("redraw", q))
+        assert target == "C:/a/x.xlsx"                      # the path read with the specs, not the word 'session'
+        assert pre is not None
         return {"q": q, "workbook": "W", "closed": {"FinMax": "09/2026"}}
     monkeypatch.setattr(server, "redraw_job", redraw)
     return calls, asyncio

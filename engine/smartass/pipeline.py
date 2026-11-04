@@ -143,9 +143,15 @@ def _arrange(t, sheet: str) -> str | None:
     return None
 
 
+def _our_file(t) -> bool:
+    """A workbook opened by path (follow-ups target the stored path) is still ours when it sits in the analyser folder."""
+    from smartview_mcp import server as v1server
+    return v1server._is_our_analysis_file(str(t.path))
+
+
 def _save(t) -> None:
     from smartview_mcp.excel.jobs import com
-    if getattr(t, "created", False):           # only the engine's own analysis file, never the user's workbook
+    if getattr(t, "created", False) or _our_file(t):    # only the engine's own analysis file, never the user's
         com(lambda: t.wb.Save())
 
 
@@ -196,12 +202,25 @@ def _clear(ws, owned: dict | None) -> None:
     owned_mod.clear(ws, owned)                          # the drawn range and our charts (everything when none stored)
 
 
-def read_stored(h, target: str = "session") -> tuple[dict, str | None]:
-    """(stored specs by q, active sheet name): a short user-Excel job."""
+def _session_workbook() -> str | None:
+    from smartview_mcp import session
+    return session.workbook()
+
+
+def read_stored(h, target: str = "session") -> tuple[dict, str | None, str]:
+    """(stored specs by q, active sheet name, absolute workbook path): a short user-Excel job. The redraw uses the
+    returned path as its target, so a workbook switch while the data is fetched cannot redirect it. A follow-up never
+    creates a workbook: target 'new', or 'session' before the session has one, is refused before Excel is touched."""
     from smartview_mcp.excel import sheets
     from smartview_mcp.excel.jobs import com
+    if target == "new":
+        raise GuardError("a follow-up or refresh works on an existing answer, not a new workbook",
+                         "use target 'session' (default) or 'active', or ask a new question with fin_analyze(spec)")
+    if target == "session" and not _session_workbook():
+        raise GuardError("no session workbook yet - ask a new question first",
+                         "run fin_analyze(spec) for a new question; follow-ups need an existing answer")
     t = _target(h, target, "Follow-up")
-    return sheets._stored_specs(t), com(lambda: t.wb.ActiveSheet.Name)
+    return sheets._stored_specs(t), com(lambda: t.wb.ActiveSheet.Name), str(t.path)
 
 
 def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False) -> dict:

@@ -4,6 +4,7 @@ from v2util import facts, resolver, spec_dict
 
 from smartass.data.provider import FetchResult
 from smartass.model.validate import GuardError
+from smartass import pipeline
 from smartass.pipeline import prepare, reply
 
 
@@ -53,3 +54,40 @@ def test_lines_block_is_refused_in_1b():
     d = spec_dict(blocks=[{"type": "lines", "cell": {"All Accounts": "ac.C60"}}])
     with pytest.raises(GuardError, match="lines"):
         prepare(d, resolver(), FakeProvider(facts()))
+
+
+class TStored:
+    path = "C:/a/v2/x.xlsx"
+    wb = type("WB", (), {"ActiveSheet": type("S", (), {"Name": "Q2 Answer"})()})()
+
+
+def _stored_wire(monkeypatch, session_wb="C:/a/v2/x.xlsx"):
+    from smartview_mcp.excel import sheets
+    calls = []
+    monkeypatch.setattr(pipeline, "_target", lambda h, target, title: calls.append(target) or TStored())
+    monkeypatch.setattr(pipeline, "_session_workbook", lambda: session_wb)
+    monkeypatch.setattr(sheets, "_stored_specs", lambda t: {2: {}})
+    monkeypatch.setattr("smartview_mcp.excel.jobs.com", lambda call, *a, **k: call())
+    return calls
+
+
+def test_read_stored_returns_the_absolute_workbook_path(monkeypatch):
+    calls = _stored_wire(monkeypatch)
+    stored, active, path = pipeline.read_stored(None, "session")
+    assert (stored, active, path) == ({2: {}}, "Q2 Answer", "C:/a/v2/x.xlsx") and calls == ["session"]
+
+
+def test_followup_refuses_target_new_before_touching_excel(monkeypatch):
+    from smartass.model.validate import GuardError
+    calls = _stored_wire(monkeypatch)
+    with pytest.raises(GuardError, match="new"):
+        pipeline.read_stored(None, "new")
+    assert calls == []
+
+
+def test_followup_without_a_session_workbook_creates_no_file(monkeypatch):
+    from smartass.model.validate import GuardError
+    calls = _stored_wire(monkeypatch, session_wb=None)
+    with pytest.raises(GuardError, match="no session workbook yet"):
+        pipeline.read_stored(None, "session")
+    assert calls == []

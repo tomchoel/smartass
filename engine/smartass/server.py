@@ -106,10 +106,10 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     if spec is not None:
         pre = await asyncio.to_thread(run_prepare, spec.model_dump(), provider)
         return await _user(lambda h: excel_job(h, pre, target), "fin_analyze")
-    stored, active = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
+    stored, active, path = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
     q2, raw, owned = find_question(stored, q, active)
     pre = await asyncio.to_thread(run_prepare, merge_patch(raw, patch), provider)
-    return await _user(lambda h: redraw_job(h, pre, q2, owned, target), "fin_analyze follow-up")
+    return await _user(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up")
 
 
 @_register(v1.WRITE)
@@ -118,12 +118,12 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
     'closed-ytd' roll forward to the latest closed month. A failing question is reported and does not stop the rest."""
     legacy.configure_v2()
     provider = _provider()
-    stored, _ = await _user(lambda h: read_stored(h, target), "fin_refresh")
+    stored, _, path = await _user(lambda h: read_stored(h, target), "fin_refresh")
     done, workbook = [], None
     for q in v2_questions(stored):
         try:
             pre = await asyncio.to_thread(run_prepare, stored[q]["spec"]["v2"], provider)
-            out = await _user(lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), target),
+            out = await _user(lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), path),
                               "fin_refresh")
             workbook = out.get("workbook", workbook)
             done.append({"q": q, "ok": True, "closed": out.get("closed")})
