@@ -174,3 +174,9 @@ def test_fin_status_without_restart_changes_nothing(monkeypatch):
     assert out["atlas"] == {"oldest_age_days": 3.0, "stale": False, "dimensions_built": 1}
     assert out["doctor"]["overall"] == "FAIL"
     assert [p["name"] for p in out["doctor"]["problems"]] == ["vba_access"]
+
+
+def test_instructions_mention_the_critic_and_the_prompts():
+    text = server.INSTRUCTIONS
+    assert "fin_critic" in text and "prompts" in text and "kind='answer'" in text
+    assert len(text) < 2500

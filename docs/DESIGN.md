@@ -18,14 +18,15 @@ v1 (the `sv_*` gate/recipe pipeline, retired 2026-11-04) is described in
 - **Your Excel is never closed or saved.** Only the engine's own hidden Excel is restarted; only the engine's own
   answer files are saved.
 
-## Tools (8, `smartass/server.py`)
+## Tools (9, `smartass/server.py`)
 
 | Tool | Does |
 |---|---|
 | `fin_analyze(spec \| patch, q, target)` | New question from a spec, or a JSON merge patch on the stored spec of `Q<n>` |
 | `fin_refresh(target)` | Re-runs every v2 answer in the workbook; relative periods roll to the latest closed month |
-| `fin_lookup(query, kind, cube)` | Metrics by name or alias (description, members, `differs`) and atlas members, each with caveats |
+| `fin_lookup(query, kind, cube)` | Metrics by name or alias (description, members, `differs`) and atlas members, each with caveats; `kind="answer"`: past answers from answer memory |
 | `fin_drill(cell, group_by, top)` | A spec with one `lines` block: FinLite ledger lines ranked and tied to the cube |
+| `fin_critic(q, score, notes)` | The stored answer's critic brief + the rubric (`knowledge/agent/critic.md`); with `score` (1–5) stores it |
 | `fin_status(restart)` | Version, atlas age, knowledge build and refresh due, doctor problems; `restart=True` gives a fresh server process |
 | `xl_snapshot`, `xl_revert`, `xl_tidy` | Snapshot / undo around Excel MCP edits; TN style + tn-formelstil check |
 
@@ -48,7 +49,9 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    drills, TN style (`xl/styling.py`), read-back (`render/readback.py`), the spec stored in hidden `_svmeta`, sheet
    order (`xl/sheetorder.py`), save (our files only).
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
-   `findings`, `checks`, `warnings`, `caveats`, `routes`, `closed`, `saved_user_workbook: false`.
+   `findings`, `checks`, `warnings`, `caveats`, `routes`, `closed`, `saved_user_workbook: false`, and for
+   depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
+   (`answers.py`) at the end of the Excel job and of every redraw.
 
 **Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; the answer is redrawn in
 place inside its owned range (`xl/owned.py`), so the user's cells outside it survive; a failed redraw restores the
@@ -109,8 +112,28 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
   `smartass knowledge approve <id|all> [--by]` sets `status = approved` and `approved = {by, on}`, then rebuilds;
   `smartass knowledge status` lists the build, drafts and last report. `fin_status` says "knowledge refresh due" when
   an answer has seen a closed month newer than the last refresh (`knowledge/state.json`).
-- **Not yet (Plan 2B):** critic and rubric, playbooks, answer memory, product concepts. The atlas has no
+- **Not yet (Plan 2C):** product concepts (`splitt`, `fam_*`; they need the Product dimension). The atlas has no
   consolidation operators, so metric identities (C70 = C50S + C60) are checked in the test set, not the tree.
+
+## Critic, playbooks and answer memory (sub-spec 2 §5–§7)
+
+- **Critic brief** (`model/critic.py`, pure): plan purpose, depth and hypotheses; each material line with
+  `backed` and its `evidence` (a drivers block on the same metric whose tree holds the line's entity, a lines block
+  on the line's entity, or a commentary driver naming the line with basis `data`); comparisons; warn/block caveats;
+  checks; findings; the commentary drivers and their basis; `gaps` (unbacked material lines, warn/block caveats
+  whose id or first 30 characters the commentary does not mention, a FinMax/FinLite query of flow metrics without
+  `ly`). `fin_refresh` returns one brief per question.
+- **Rubric** `knowledge/agent/critic.md`: six criteria 1–5 (right question, numbers reconciled, comparison basis,
+  drivers backed by data, caveats respected, clear for a controller); the rounded mean must be at least 4, else fix
+  by patch, at most 2 rounds. The plan guide is `knowledge/agent/plan.md`.
+- **Playbooks** `knowledge/playbooks/{monthly-pack,variance-commentary,gl-extract,prodreg-input}.md` (method and
+  judgement; variance-commentary quotes the vendored Apache-2.0 text unchanged). MCP prompts `plan`, `critic` and
+  the four playbooks (the Markdown with a one-line preface); resources `smartass://playbooks/<name>` and
+  `smartass://conventions` (the skill's finance rules section).
+- **Answer memory** `answers.py`: `%LOCALAPPDATA%\smartass\answers.db` (SQLite, per user, never in git): one row per
+  run (time, workbook, q, question, purpose, spec, key values, metrics, entities, periods, critic brief, score,
+  notes), FTS5 over question, purpose, metrics and entities; `get` and `search` give the latest run per workbook
+  and Q; rows older than 24 months are purged. A failed store is a warning, never a failed answer.
 
 ## HTTP API (`ops/httpapi.py`, `smartass serve`)
 

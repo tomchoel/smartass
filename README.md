@@ -7,12 +7,13 @@ as the fallback), computes every value in Python and draws the answer in Excel: 
 whose numbers are live formulas on one data table per question (`Data_Q<n>`), with checks, findings, the material
 lines and their drivers. Follow-ups patch the stored spec; monthly packs refresh to the latest closed month.
 
-## Tools (8)
+## Tools (9)
 
 | Group | Tools |
 |---|---|
 | Analysis | `fin_analyze` (new spec or follow-up patch), `fin_refresh` (re-run every answer in a workbook) |
-| Names | `fin_lookup` (metrics and atlas members) |
+| Names | `fin_lookup` (metrics, atlas members and, with `kind="answer"`, past answers) |
+| Critic | `fin_critic` (the brief and rubric for an answer; stores the score). Playbooks are MCP prompts |
 | Ledger lines | `fin_drill` (FinLite lines behind one cell, ranked and tied to the cube) |
 | Health | `fin_status` (version, atlas, doctor; `restart=True` for a fresh server) |
 | Open workbooks (with Excel MCP) | `xl_snapshot`, `xl_revert`, `xl_tidy` (TN style + formula check) |

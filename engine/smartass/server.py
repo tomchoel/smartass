@@ -42,6 +42,9 @@ with xl_tidy (zero BLOCK findings). 7) After the server reloads, Claude Code may
 parameter seems missing, ask the user to run /mcp and reconnect smartass. Repeated errors: fin_status(restart=True).
 Ledger lines: a lines block (cell with All Accounts, All Entities, All Time Periods; Periodic; FinLite) or
 fin_drill(cell) ranks suppliers, projects or accounts and ties them to the cube.
+Critic: after a standard/deep answer run fin_critic(q) (brief + rubric), fix by patch below 4, store
+fin_critic(q, score, notes); the method is in MCP prompts (plan, critic, monthly-pack, variance-commentary,
+gl-extract, prodreg-input) and past answers in fin_lookup(kind='answer').
 Sheet text is English; answer the user in their language. The user's own workbooks are never saved."""
 
 mcp = MCPServer("smartass", instructions=INSTRUCTIONS, lifespan=kit.lifespan)

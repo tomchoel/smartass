@@ -5,20 +5,24 @@ description: Pull Telenor Norge financial data from Oracle EPM Cloud (FinMax/Fin
 
 # smartass: finance analyses in Excel
 
-Call the `mcp__smartass__*` tools directly, never a side script. Read-only towards EPM. Answers go to the
-session workbook (`target="session"`, questions Q1, Q2 …); `"active"` only when the user asks for *their* open
-workbook, `"new"` for a separate file.
+Call the 9 `mcp__smartass__*` tools directly, never a side script. Read-only towards EPM. Answers go to the
+session workbook (`target="session"`, Q1, Q2 …); `"active"` only for the user's open workbook, `"new"` for a
+separate file. Method lives in MCP prompts: `plan`, `critic` and the playbooks `monthly-pack`,
+`variance-commentary`, `gl-extract`, `prodreg-input` (also resources `smartass://playbooks/<name>`).
 
-## 1. The loop: plan → build → critic
+## 1. The loop: plan → build → explain → critic
 
 1. **Plan.** Decide cube, entity, metrics, periods and comparisons. Unsure of a name: `fin_lookup(query, kind,
-   cube)` (metrics by name or alias, e.g. `driftskostnader`, and atlas members; each hit with its caveats). Write `plan`: `depth` (`quick` | `standard` | `deep`),
-   `purpose` (required unless quick), `hypotheses` you will test.
+   cube)` (metrics by name or alias, e.g. `driftskostnader`, and atlas members; each hit with its caveats).
+   Continuity: `fin_lookup(query, kind="answer")` lists past answers (driver, score, key values). Write `plan`:
+   `depth` (`quick` | `standard` | `deep`), `purpose` (required unless quick), `hypotheses` you will test.
 2. **Build.** `fin_analyze(spec=...)`: one call fetches (Smart View HTTP; an ad hoc grid in Excel as fallback),
    computes every value and writes `Q<n> Answer` (live formulas) + `Q<n> Data` (table `Data_Q<n>`). Unknown
    members or metrics, an open month or totals that do not reconcile stop it with the reason and the fix.
-3. **Critic** (skip for `quick`). Add the `commentary` by patch, then `fin_critic(q)`: score the brief on the
-   rubric, fix by patch below 4 (2 rounds), store with `fin_critic(q, score, notes)`.
+3. **Explain.** Add the `commentary` by patch (drivers with `data` evidence or labelled `hypothesis`).
+4. **Critic** (`standard`, `deep`, every pack question). `fin_critic(q)` returns the brief and the rubric; score
+   the 6 criteria 1–5, fix the gaps by patch while the mean is below 4 (at most 2 rounds), then store it with
+   `fin_critic(q, score, notes)`.
 
 ## 2. AnalysisSpec v2 essentials
 
@@ -49,26 +53,25 @@ workbook, `"new"` for a separate file.
 
 - **Follow-up:** `fin_analyze(patch=..., q=n)`: a JSON merge patch on the stored spec (lists such as `blocks` are
   replaced whole); default q = the active `Q<n> Answer`, else the latest. Same sheets, rebuilt in place.
-- **Monthly pack:** `fin_refresh()` re-runs every answer in the workbook to the latest closed month, no AI needed;
-  then update the commentary by patch.
+- **Monthly pack:** `fin_refresh()` re-runs every answer to the latest closed month (a brief per question); then
+  follow prompt `monthly-pack`.
 - **Ledger lines:** a `lines` block, or `fin_drill(cell, group_by, top)` with
   `{"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"}` (FinLite, Periodic;
-  `Yr 26` works). Ranks suppliers, projects or accounts and ties the lines to the cube: report the gap. 60–90 s;
-  wait for the progress notes. Details: [reference/drill.md](reference/drill.md).
+  `Yr 26` works). Ranks suppliers, projects or accounts and ties the lines to the cube: report the gap. 60–90 s.
+  Details: [reference/drill.md](reference/drill.md).
 
 ## 4. Reporting
 
 - Quote numbers **only from `key_values`**; never compute sums, differences or shares yourself.
 - Pass on, Critical first: `findings`, checks not OK, `warnings` (rejected members and error cells are missing
   numbers, never zero), the `material` lines with their drivers.
-- Read the reply's `caveats` (reorg moves, abolished units, account traps; also on the sheet) and pass on those
+- Read the reply's `caveats` (reorgs, abolished units, account traps) and pass on those
   that bear on the answer.
 - Chat in the user's language; sheet text is English. Name the sheets; the user's workbook is never saved.
 
 ## 5. Editing open workbooks (Excel MCP)
 
-Every other Excel job (read, write, format, pivots, charts) is Excel MCP on the attached workbook. Before an
-edit `xl_snapshot(workbook, sheet, range)`; undo with `xl_revert(change_id)`. Finish with
+Other Excel work is Excel MCP on the attached workbook. Before an edit `xl_snapshot(workbook, sheet, range)`; undo with `xl_revert(change_id)`. Finish with
 `xl_tidy(workbook, sheet, rows, last_col)`: TN style (given `rows` + `last_col`) and the tn-formelstil check,
 zero BLOCK findings.
 
@@ -85,7 +88,7 @@ zero BLOCK findings.
 ## 7. Health and reloads
 
 `fin_status()`: version, atlas age, knowledge, doctor problems. Repeated errors: `fin_status(restart=True)`.
-Stale atlas: `smartass atlas build` in a terminal. Monthly, when it says knowledge refresh due: the user runs
-`smartass knowledge refresh`, reads the report, then `smartass knowledge approve <id|all>`. After a reload Claude Code may keep an old
-tool schema: if a parameter seems missing, ask the user to run `/mcp` and reconnect smartass.
+Stale atlas: `smartass atlas build` in a terminal. When knowledge refresh is due, the user runs
+`smartass knowledge refresh`, reads the report, then `smartass knowledge approve <id|all>`. A parameter missing after a
+reload: ask the user to run `/mcp` and reconnect smartass.
 Errors, files and logs: [reference/operations.md](reference/operations.md).

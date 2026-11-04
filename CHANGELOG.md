@@ -2,11 +2,17 @@
 
 ## Unreleased
 
-v2 stands alone: one MCP server `smartass` with eight tools; the agent writes an AnalysisSpec v2 and the engine
+v2 stands alone: one MCP server `smartass` with nine tools; the agent writes an AnalysisSpec v2 and the engine
 validates, computes and draws it (design `docs/DESIGN.md`, `docs/specs/2026-11-04-v2-overview.md`). v1 is retired.
 
 ### Added
 
+- v2 critic, playbooks and answer memory (Plan 2B): `critic_brief` in standard/deep replies and per question in
+  `fin_refresh` (material lines backed by data, gaps); `fin_critic(q, score, notes)` returns the brief and the rubric
+  (`knowledge/agent/critic.md`) and stores the score; the plan guide `knowledge/agent/plan.md`; four playbooks
+  (monthly-pack, variance-commentary, gl-extract, prodreg-input) as MCP prompts with plan and critic, and as
+  resources `smartass://playbooks/<name>` + `smartass://conventions`; answer memory `answers.db` (FTS5, 24 months)
+  searched by `fin_lookup(kind="answer")`.
 - v2 knowledge layer (Plan 2A): metrics and facts as TOML files in `knowledge/semantic`, compiled with the atlas
   into knowledge.db (build checks); `KnowledgeResolver` replaces the interim catalogue; every reply and Answer sheet
   carries the caveats it touched; `fin_lookup` finds metrics by alias; `smartass knowledge refresh | approve |
