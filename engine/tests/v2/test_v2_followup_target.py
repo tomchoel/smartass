@@ -89,3 +89,63 @@ def test_followup_on_book1_resolves_the_open_unsaved_workbook(home, monkeypatch)
     monkeypatch.setattr(jobs, "com", lambda fn, **k: fn())
     stored, active, path = pipeline.read_stored(None, server._default_target("session"))
     assert stored[1]["wb"] is book1 and active == "Q1 Answer" and path == "Book1"
+
+
+# ------------------------------------------------------------------ fin_critic: target, default = latest answer's book
+def _critic_wire(monkeypatch, fail=None):
+    seen = []
+
+    async def user(fn, what):
+        return fn(None)
+
+    def read_stored(h, target="session"):
+        seen.append(target)
+        if fail is not None:
+            raise fail
+        return {1: {"spec": {"v2": {"question": "q1"}}}}, "Q1 Answer", target if target != "session" else "C:/s.xlsx"
+    monkeypatch.setattr(server, "_user", user)
+    monkeypatch.setattr(server, "read_stored", read_stored)
+    return seen
+
+
+def _store_brief(workbook, q=1):
+    answers.store({"workbook": workbook, "q": q, "question": f"q{q} in {workbook}",
+                   "spec": {"v2": {"question": f"q{q}"}}, "critic_brief": {"purpose": workbook}})
+
+
+def test_critic_defaults_to_the_workbook_of_the_latest_answer(home, monkeypatch):
+    monkeypatch.setattr(session, "workbook", lambda: "C:/s.xlsx")
+    _store_brief("C:/s.xlsx")
+    _store_brief("Book1")
+    seen = _critic_wire(monkeypatch)
+    out = asyncio.run(server.fin_critic())
+    assert seen == ["Book1"] and out["workbook"] == "Book1" and out["brief"] == {"purpose": "Book1"}
+    assert asyncio.run(server.fin_critic(q=1, score=4.0))["stored"] is True
+    assert answers.get("Book1", 1)["score"] == 4.0 and answers.get("C:/s.xlsx", 1)["score"] is None
+
+
+def test_critic_takes_an_explicit_target(home, monkeypatch):
+    _store_brief("Book1")
+    _store_brief("C:/other.xlsx")
+    seen = _critic_wire(monkeypatch)
+    out = asyncio.run(server.fin_critic(target="Book1"))
+    assert seen == ["Book1"] and out["brief"] == {"purpose": "Book1"}
+
+
+def test_critic_on_a_closed_unsaved_book_falls_back_to_its_stored_answer(home, monkeypatch):
+    from smartass.xl.host import InputError
+    _store_brief("Book1")
+    _store_brief("C:/x.xlsx", q=1)
+    _store_brief("Book1", q=2)
+    _critic_wire(monkeypatch, fail=InputError("Give an absolute path for target (got 'Book1')"))
+    answers.store({"workbook": "Book1", "q": 2, "question": "latest", "spec": {}, "critic_brief": {"purpose": "B2"}})
+    out = asyncio.run(server.fin_critic(q=1))
+    assert out["workbook"] == "Book1" and out["q"] == 1
+
+
+def test_critic_explicit_target_that_is_not_open_is_an_error(home, monkeypatch):
+    from smartass.xl.host import InputError
+    _store_brief("Book1")
+    _critic_wire(monkeypatch, fail=InputError("Give an absolute path for target (got 'Book7')"))
+    with pytest.raises(InputError):
+        asyncio.run(server.fin_critic(target="Book7"))

@@ -107,11 +107,20 @@ def get(workbook: str, q: int) -> dict | None:
         return _row(_latest(db, _key(workbook), q))
 
 
-def latest(q: int | None = None) -> dict | None:
-    """The most recent stored run (of Q<q> when given) in any workbook: fin_critic without an Excel session."""
+def latest(q: int | None = None, workbook: str | None = None) -> dict | None:
+    """The most recent stored run (of Q<q> when given) in any workbook, or in `workbook` (its path, or the name of an
+    unsaved book, as store keys it): fin_critic without an Excel session, the default target of follow-ups."""
+    where, args = [], []
+    if q is not None:
+        where.append("q = ?")
+        args.append(int(q))
+    if workbook is not None:
+        where.append("wb_key = ?")
+        args.append(_key(workbook))
     with _connect() as db:
-        sql = "SELECT * FROM answer" + (" WHERE q = ?" if q is not None else "") + " ORDER BY id DESC LIMIT 1"
-        return _row(db.execute(sql, () if q is None else (int(q),)).fetchone())
+        sql = ("SELECT * FROM answer" + (" WHERE " + " AND ".join(where) if where else "")
+               + " ORDER BY id DESC LIMIT 1")
+        return _row(db.execute(sql, args).fetchone())
 
 
 def set_score(workbook: str, q: int, score: float, notes: str = "") -> bool:

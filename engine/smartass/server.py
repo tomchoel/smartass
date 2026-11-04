@@ -276,14 +276,20 @@ def _rubric() -> str:
     return (config.KNOWLEDGE_DIR / "agent" / "critic.md").read_text(encoding="utf-8")
 
 
-async def _answer_for(q: int | None) -> tuple[str, int]:
-    """(workbook, q) of the answer the critic reviews: found as a follow-up finds it (the explicit q, else the
-    active Q<n> Answer, else the latest v2 answer). Without a session workbook: the latest stored run."""
+async def _answer_for(q: int | None, target: str = "session") -> tuple[str, int]:
+    """(workbook, q) of the answer the critic reviews: in the target workbook (default: the workbook of the latest
+    answer), found as a follow-up finds it (the explicit q, else the active Q<n> Answer, else the latest v2 answer).
+    Without a session workbook, or when the defaulted workbook is not open any more: the latest stored run (in that
+    workbook when known). Answers are keyed by the path, or by the name of an unsaved book, as answers.store keys."""
     from . import answers
+    explicit = target != "session"
+    target = _default_target(target)
     try:
-        stored, active, path = await _user(lambda h: read_stored(h, "session"), "fin_critic")
-    except GuardError:
-        row = answers.latest(q)
+        stored, active, path = await _user(lambda h: read_stored(h, target), "fin_critic")
+    except (GuardError, InputError) as e:
+        if isinstance(e, InputError) and (explicit or target == "session"):
+            raise
+        row = answers.latest(q, None if target == "session" else target)
         if row is None:
             raise GuardError("no stored answer to review" + (f" for Q{q}" if q is not None else ""),
                              "ask a question with fin_analyze(spec) first") from None
@@ -293,16 +299,17 @@ async def _answer_for(q: int | None) -> tuple[str, int]:
 
 
 @_register(kit.LOCAL)
-async def fin_critic(q: int | None = None, score: float | None = None, notes: str = "",
+async def fin_critic(q: int | None = None, score: float | None = None, notes: str = "", target: str = "session",
                      ctx: Context | None = None) -> dict:
-    """The critic pass for a standard or deep answer or a pack question. Without score: {brief, rubric} of the
-    stored answer Q<q> (default: the active Q<n> Answer, else the latest) - score it on the rubric's 6 criteria,
-    fix by fin_analyze(patch=...) when below 4 (at most 2 rounds). With score (1-5, the rounded mean) and notes:
-    stores the score with the answer (answer memory, fin_lookup kind 'answer')."""
+    """The critic pass for a standard or deep answer or a pack question. target: the workbook of the answer
+    (default: the workbook of your latest answer; 'active', an absolute path or an open workbook's name). Without
+    score: {brief, rubric} of the stored answer Q<q> (default: the active Q<n> Answer, else the latest) - score it on
+    the rubric's 6 criteria, fix by fin_analyze(patch=...) when below 4 (at most 2 rounds). With score (1-5, the
+    rounded mean) and notes: stores the score with the answer (answer memory, fin_lookup kind 'answer')."""
     from . import answers
     if score is not None and not 1 <= float(score) <= 5:
         raise GuardError(f"score {score} is outside 1-5", "score each rubric criterion 1-5 and pass their mean")
-    workbook, q2 = await _answer_for(q)
+    workbook, q2 = await _answer_for(q, target)
     if score is not None:
         if not answers.set_score(workbook, q2, float(score), notes):
             raise GuardError(f"Q{q2} has no stored answer to score", "re-run it (fin_analyze patch or fin_refresh) "
