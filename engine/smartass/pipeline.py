@@ -6,11 +6,13 @@ quotes from (key_values only - never numbers it computed itself)."""
 from __future__ import annotations
 
 import contextlib
+import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from .model.analyze import Result, compute, plan_requests
 from .model.frame import Frame
+from .model.periods import parse
 from .model.requests import GridRequest
 from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError
@@ -38,6 +40,7 @@ class Prepared:
     failed: list[GridRequest] = field(default_factory=list)          # grids the HTTP route could not fetch
     failed_errors: list[str] = field(default_factory=list)
     fetched: dict = field(default_factory=dict)       # GridRequest -> FetchResult the HTTP route fetched (reused by the fallback round)
+    caveats: list[dict] = field(default_factory=list)  # {id, text, severity} of the facts the answer touched
 
 
 def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: dict | None = None) -> Prepared:
@@ -84,23 +87,59 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     result = compute(spec, resolver, closed, frame)
     aggregation = {m: resolver.aggregation(m) for q in spec.queries for m in q.metrics}
     return Prepared(spec, raw, closed, reqs, frame, result, warnings, routes, sum(g.seconds for g in got),
-                    aggregation, failed, failed_errors, {g.request: g for g in got})
+                    aggregation, failed, failed_errors, {g.request: g for g in got}, caveats(spec, reqs, resolver))
+
+
+_YEAR = re.compile(r"(?:Yr|FY) ?(\d{2})")
+
+
+def _cell_months(period: str) -> list:
+    """A lines cell's period as months: 'Sep 26' -> [Sep 26], 'Yr 26' -> the year; anything else -> none."""
+    with contextlib.suppress(ValueError):
+        return [parse(period)]
+    hit = _YEAR.fullmatch(period.strip())
+    return [(2000 + int(hit.group(1)), m) for m in range(1, 13)] if hit else []
+
+
+def caveats(spec: AnalysisSpec, reqs: list[GridRequest], resolver) -> list[dict]:
+    """The resolver's caveats for what the answer touched: the entities and accounts of every grid request and lines
+    cell (per cube; FinLite shares the FinMax members, so it counts for both), the metrics of the queries and the
+    months fetched. A resolver without caveats (a test double) gives none."""
+    fn = getattr(resolver, "caveats", None)
+    if fn is None:
+        return []
+    touched: dict[str, set[str]] = {}
+    months: set = set()
+
+    def touch(cube: str, names) -> None:
+        for c in ({cube, "FinMax"} if cube == "FinLite" else {cube}):
+            touched.setdefault(c, set()).update(names)
+    for r in reqs:
+        touch(r.cube, (*r.entities, *r.accounts))
+        for per in r.periods:
+            with contextlib.suppress(ValueError):
+                months.add(parse(per))
+    for b in spec.blocks:
+        if isinstance(b, LinesBlock):
+            touch("FinLite", [v for k, v in b.cell.items() if k in ("All Accounts", "All Entities")])
+            months.update(_cell_months(b.cell.get("All Time Periods", "")))
+    metric = getattr(resolver, "metric", None)
+    ids = {m.id for q in spec.queries for name in q.metrics if metric and (m := metric(name)) is not None}
+    return fn(touched, ids, months)
 
 
 def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:
-    """prepare() for a worker thread: everything that touches sqlite (the atlas connection) is opened, used and closed
-    here, in the calling thread. Closed months are fetched once. Nothing after prepare needs the resolver: the
-    labels are already in the BlockOut lines."""
-    import contextlib
-
-    from .knowledge import atlas
-
-    from .knowledge.atlas_resolver import AtlasResolver
-    from .knowledge.interim import catalog_metrics
+    """prepare() for a worker thread: everything that touches sqlite (knowledge.db and the atlas) is opened, used and
+    closed here, in the calling thread. knowledge.db is built first when it is missing (said in the warnings). Closed
+    months are fetched once. Nothing after prepare needs the resolver: the labels are already in the BlockOut lines
+    and the caveats in Prepared."""
+    from .knowledge.resolver import open_resolver
     closed = provider.closed_months()
-    with contextlib.closing(atlas.connect()) as db:
-        resolver = AtlasResolver(db, catalog_metrics(), forecast_year=closed["FinPlan"][0] % 100)
-        return prepare(raw, resolver, provider, closed=closed, lines=lines)
+    notes: list[str] = []
+    with contextlib.closing(open_resolver(closed["FinPlan"][0] % 100, notes)) as resolver:
+        pre = prepare(raw, resolver, provider, closed=closed, lines=lines)
+    pre.warnings[:0] = notes
+    return pre
 
 
 def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: list[str], lint: list[str]) -> dict:
@@ -115,6 +154,7 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
         "checks": {"sheet_equals_model": "OK" if not mismatches else f"DIFF in {len(mismatches)} cells"},
         "mismatches": mismatches[:20],
         "warnings": pre.warnings + lint,
+        "caveats": list(pre.caveats),
         "routes": pre.routes,
         "closed": {c: f"{m[1]:02d}/{m[0]}" for c, m in pre.closed.items()},
         "fetch_seconds": round(pre.fetch_seconds, 2),
@@ -315,7 +355,7 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
         _write_lines(t, q, ls)
     closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
     plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}",
-                  const=constant_columns(pre.frame))
+                  const=constant_columns(pre.frame), caveats=pre.caveats)
     if redraw:                                  # a larger answer pushes the user's cells aside, never overwrites them
         _make_room(ws_answer, old_owned, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     lint = write_answer(ws_answer, plan, pre.warnings)

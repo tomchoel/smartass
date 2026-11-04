@@ -24,22 +24,17 @@ def load_cases() -> list[dict]:
 
 
 def _resolver_for(closed: dict):
-    """An AtlasResolver on the local atlas (as run_prepare builds it); its connection is closed by _close."""
-    from ..knowledge import atlas
-
-    from ..knowledge.atlas_resolver import AtlasResolver
-    from ..knowledge.interim import catalog_metrics
-    db = atlas.connect()
-    r = AtlasResolver(db, catalog_metrics(), forecast_year=closed["FinPlan"][0] % 100)
-    r._db = db
-    return r
+    """A KnowledgeResolver on knowledge.db (built when missing) and the local atlas, as run_prepare opens it; its
+    connections are closed by _close."""
+    from ..knowledge.resolver import open_resolver
+    return open_resolver(closed["FinPlan"][0] % 100)
 
 
 def _close(resolver) -> None:
-    db = getattr(resolver, "_db", None)
-    if db is not None:
+    close = getattr(resolver, "close", None)
+    if close is not None:
         with contextlib.suppress(Exception):
-            db.close()
+            close()
 
 
 def _prepare(spec: dict, provider, closed: dict, lines: dict):

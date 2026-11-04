@@ -92,7 +92,7 @@ def constant_columns(frame) -> dict[str, str]:
 
 
 def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: str,
-           const: dict[str, str] | None = None) -> SheetPlan:
+           const: dict[str, str] | None = None, caveats: list[dict] | None = None) -> SheetPlan:
     p = SheetPlan()
     table = f"Data_Q{q}"
     widest = max([len(o.headers) for o in res.outs] or [1])
@@ -175,6 +175,12 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         r += 1
         for f in res.findings:
             r = notes(r, f"{f.severity.capitalize()}: {f.text}")
+        r += 1
+    if caveats:                         # the knowledge facts the answer touched (sub-spec 2 §4), wrapped like notes
+        text(r, "Caveats", "section")
+        r += 1
+        for c in caveats:
+            r = notes(r, f"{c['severity'].capitalize()}: {c['text']}")
         r += 1
     r = notes(r, f"Source: Oracle EPM Cloud via Smart View. Every number is a formula on table {table} "
                  f"(sheet Q{q} Data).") - 1

@@ -2,13 +2,16 @@
 plus the caveats for what an answer touched and search for fin_lookup (sub-spec 2 §4)."""
 from __future__ import annotations
 
+import contextlib
 import sqlite3
+import threading
+from pathlib import Path
 
 from ..model.periods import Month
 from ..model.resolver import DEFAULT_MATERIALITY, MetricDef, UnknownMetric
 from . import atlas
 from .atlas_tree import AtlasTree
-from .build import search_metrics
+from .build import build, search_metrics
 from .semantic import Fact, Metric
 
 SEVERITY_ORDER = {"block": 0, "warn": 1, "info": 2}
@@ -139,3 +142,41 @@ class KnowledgeResolver(AtlasTree):
                                 "label": h["label"], "parents": h["parents"], "depth": h["depth"],
                                 "caveats": self.caveats({h["connection"]: {h["name"]}})})
         return {"metrics": metrics, "members": members}
+
+    def close(self) -> None:
+        for db in (self.kdb, self.db):
+            with contextlib.suppress(Exception):
+                db.close()
+
+
+_BUILD_LOCK = threading.Lock()
+
+
+def ensure_built(notes: list[str] | None = None) -> Path:
+    """config.KNOWLEDGE_DB, compiled from config.SEMANTIC_DIR and the atlas first when it is missing (said in notes).
+    A build with errors is a GuardError: the answer would rest on knowledge that does not match the cubes."""
+    from ..core import config
+    from ..model.validate import GuardError
+    path = Path(config.KNOWLEDGE_DB)
+    with _BUILD_LOCK:                           # two answers at once never write the same .tmp
+        if path.exists():
+            return path
+        report = build(Path(config.SEMANTIC_DIR), Path(config.ATLAS_DB), path)
+    if not report.ok:
+        raise GuardError(f"knowledge.db is missing and could not be built: {'; '.join(report.errors[:3])}",
+                         "run `smartass knowledge build` in a terminal and fix the errors it lists")
+    if notes is not None:
+        notes.append(f"knowledge.db was missing and has been built ({report.metrics} metrics, {report.facts} facts) "
+                     f"in {path.parent}")
+    return path
+
+
+def open_resolver(forecast_year: int, notes: list[str] | None = None) -> KnowledgeResolver:
+    """A KnowledgeResolver on knowledge.db (built when missing) and the local atlas; the caller closes it (close())."""
+    path = ensure_built(notes)
+    db = atlas.connect()
+    try:
+        return KnowledgeResolver(sqlite3.connect(path), db, forecast_year)
+    except Exception:
+        db.close()
+        raise

@@ -5,7 +5,10 @@ import threading
 from test_v2_pipeline import FakeProvider
 from v2util import facts, spec_dict
 
+from kutil import make_semantic
+
 from smartass import pipeline
+from smartass.knowledge.build import build
 from smartass.knowledge import atlas
 from smartass.core import config
 
@@ -20,17 +23,22 @@ ROWS = [("FinMax", "All Entities", "un.SY.2BUS", "2BUS Business Norway", "un.SY"
         ("FinMax", "All Accounts", "ac.EBITDA", "EBITDA", "ac.X", 3, 3)]
 
 
-def make_atlas(path):
+def make_atlas(path, monkeypatch=None):
+    """The atlas, plus knowledge.db built from the kutil semantic files on it (config points there)."""
     con = atlas.connect(path)
     con.executemany("INSERT INTO member (connection, dimension, name, label, parent, depth, ord) "
                     "VALUES (?,?,?,?,?,?,?)", ROWS)
     con.commit()
     con.close()
+    if monkeypatch is not None:
+        k = path.parent / "knowledge.db"
+        assert build(make_semantic(path.parent / "semantic"), path, k).ok
+        monkeypatch.setattr(config, "KNOWLEDGE_DB", k)
 
 
 def test_run_prepare_opens_and_closes_atlas_in_the_calling_thread(tmp_path, monkeypatch):
     db_path = tmp_path / "atlas.db"
-    make_atlas(db_path)
+    make_atlas(db_path, monkeypatch)
     opened = []
 
     def connect():
@@ -68,7 +76,7 @@ def test_run_prepare_opens_and_closes_atlas_in_the_calling_thread(tmp_path, monk
 
 def test_prepare_uses_the_atlas_spelling_of_the_entity(tmp_path, monkeypatch):
     db_path = tmp_path / "atlas.db"
-    make_atlas(db_path)
+    make_atlas(db_path, monkeypatch)
     monkeypatch.setattr(atlas, "connect", lambda: sqlite3.connect(db_path))
     d = spec_dict()
     d["queries"][0]["entity"] = "un.sy.2bus"

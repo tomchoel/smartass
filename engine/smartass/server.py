@@ -18,8 +18,6 @@ from .xl.host import InputError
 
 from .data.adhoc import adhoc_fetch
 from .data.provider import ComboProvider
-from .knowledge.atlas_resolver import AtlasResolver
-from .knowledge.interim import catalog_metrics
 from .followup import find_question, merge_patch, v2_questions
 from .model.lines import LineSet
 from .model.spec import AnalysisSpec, LinesBlock
@@ -56,37 +54,24 @@ def _register(annotations):
     return deco
 
 
-def _resolver(forecast_year: int | None = None) -> AtlasResolver:
+def _resolver(forecast_year: int | None = None):
+    """A KnowledgeResolver (knowledge.db, built when missing, + the atlas); the caller closes it."""
+    from .knowledge.resolver import open_resolver
     year = forecast_year if forecast_year is not None else dt.date.today().year % 100
-    return AtlasResolver(atlas.connect(), catalog_metrics(), forecast_year=year)
-
-
-def _search_members(text: str, cube: str | None, limit: int) -> list[dict]:
-    with contextlib.closing(atlas.connect()) as db:
-        return atlas.search(db, text, connection=cube, limit=limit)
-
-
-def _metric_defs(r) -> list:
-    m = r.metrics
-    return list(m() if callable(m) else m)
+    return open_resolver(year)
 
 
 def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 15) -> dict:
-    q = query.lower()
-    metrics = []
-    if kind in ("any", "metric"):
-        for m in _metric_defs(_resolver()):
-            if q in m.name.lower():
-                metrics.append({"name": m.name, "members": {c: list(v) for c, v in m.members.items()},
-                                "sign": m.sign, "balance": m.balance, "aggregation": m.aggregation})
-    members = _search_members(query, cube, limit) if kind in ("any", "member") else []
-    return {"metrics": metrics, "members": members}
+    """{metrics: [id, name, aliases, description, differs, members, caveats ...], members: [... with caveats]}."""
+    with contextlib.closing(_resolver()) as r:
+        return r.search(query, kind, cube, limit)
 
 
 @_register(kit.LOCAL)
 def fin_lookup(query: str, kind: str = "any", cube: str | None = None) -> dict:
-    """Find metric names (kind 'metric') and cube members (kind 'member') by text; 'any' returns both.
-    cube: FinMax | FinLite | FinPlan to narrow members. Local atlas, instant."""
+    """Find metrics (kind 'metric': by name or alias, e.g. 'driftskostnader'; with description, members and how the
+    cubes differ) and cube members (kind 'member'); 'any' returns both. Every hit carries its caveats (reorgs,
+    abolished units, account traps): pass them on. cube: FinMax | FinLite | FinPlan to narrow. Local, instant."""
     return lookup(query, kind, cube)
 
 
@@ -241,8 +226,9 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
 
 @_register(kit.ADMIN)
 async def fin_status(restart: bool = False) -> dict:
-    """Health: version, atlas age, metric count, where answer files go, and the doctor checks (config, Excel,
-    Smart View, VBA access, EPM, drill browser, atlas, output folder, HTTP API, update; only problems listed).
+    """Health: version, atlas age, knowledge build (metrics, facts, drafts awaiting approval), where answer files go,
+    and the doctor checks (config, Excel, Smart View, VBA access, EPM, drill browser, atlas, knowledge, output
+    folder, HTTP API, update; only problems listed).
     restart=True after repeated errors or to load new code: the relay starts a fresh server process (its hidden
     Excel closes); run without the relay, only this server's own Excel is closed (it restarts on the next pull).
     A stale atlas: run `smartass atlas build` in a terminal."""
@@ -260,12 +246,16 @@ async def fin_status(restart: bool = False) -> dict:
             out["restarted"] = "excel"
     with contextlib.closing(atlas.connect()) as db:
         st = atlas.status(db)
+    from .knowledge.build import summary
+    kn = summary(config.KNOWLEDGE_DB)
     from .ops import doctor
     checks = await asyncio.to_thread(doctor.run)         # network checks (EPM 5 s, HTTP 2 s) off the event loop
     return {**out, "behind_relay": bool(os.environ.get("SVKIT_PROXY")), "analyser": str(config.ANALYSER_DIR),
             "atlas": {"oldest_age_days": st["oldest_age_days"], "stale": st["stale"],
                       "dimensions_built": len(st["built"])},
-            "metrics": len(catalog_metrics()),
+            "metrics": kn.get("metrics", 0),
+            "knowledge": {"built_at": kn.get("built_at"), "metrics": kn.get("metrics", 0),
+                          "facts": kn.get("facts", 0), "drafts": kn.get("drafts", 0)},
             "doctor": {"overall": doctor.overall(checks),
                        "problems": [c.__dict__ for c in checks if c.status != "OK"]}}
 

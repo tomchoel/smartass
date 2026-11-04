@@ -1,6 +1,5 @@
 # engine/tests/v2/test_v2_server.py
 import pytest
-from v2util import resolver
 
 from smartass import server
 
@@ -16,19 +15,20 @@ def test_instructions_mention_the_excel_toolkit_and_reconnect():
     assert len(text) < 2500
 
 
-def test_lookup_metrics_and_members(monkeypatch):
-    monkeypatch.setattr(server, "_resolver", lambda: resolver())
-    monkeypatch.setattr(server, "_search_members", lambda text, cube, limit: [
-        {"connection": "FinMax", "dimension": "All Entities", "name": "un.SY.2BUS", "label": "2BUS Business Norway"}])
+def test_lookup_metrics_and_members(tmp_path, monkeypatch):
+    from kutil import knowledge
+    knowledge(tmp_path, monkeypatch)
     out = server.lookup("opex", kind="any")
     assert out["metrics"][0]["name"] == "Opex"
     assert out["metrics"][0]["members"]["FinMax"] == ["ac.C50S", "ac.C60"]
-    assert out["members"][0]["name"] == "un.SY.2BUS"
+    assert server.lookup("2BUS", kind="any")["members"][0]["name"] == "un.SY.2BUS"
 
 
-def test_lookup_kind_metric_only(monkeypatch):
-    monkeypatch.setattr(server, "_resolver", lambda: resolver())
-    monkeypatch.setattr(server, "_search_members", lambda *a: pytest.fail("members not asked"))
+def test_lookup_kind_metric_only(tmp_path, monkeypatch):
+    from kutil import knowledge
+    from smartass.knowledge import atlas
+    knowledge(tmp_path, monkeypatch)
+    monkeypatch.setattr(atlas, "search", lambda *a, **k: pytest.fail("members not asked"))
     assert server.lookup("ebitda", kind="metric")["members"] == []
 
 
@@ -130,7 +130,8 @@ def test_refresh_stops_after_a_failed_restore_and_reports_the_rest_as_skipped(mo
 def _status_base(monkeypatch):
     monkeypatch.setattr(server.atlas, "connect", lambda: _FakeDb())
     monkeypatch.setattr(server.atlas, "status", lambda db: {"stale": False, "oldest_age_days": 3.0, "built": [1]})
-    monkeypatch.setattr(server, "catalog_metrics", lambda: [1, 2])
+    from smartass.knowledge import build
+    monkeypatch.setattr(build, "summary", lambda path: {"metrics": 2, "facts": 5, "drafts": 0, "built_at": "x"})
     from smartass.ops import doctor
     monkeypatch.setattr(doctor, "run", lambda: [doctor.Check("excel", "OK", "x"),
                                                 doctor.Check("vba_access", "FAIL", "blocked", "tick it")])

@@ -1,9 +1,54 @@
+import tomllib
+
 import pytest
 
 from smartass.core import config
-from smartass.knowledge.interim import catalog_metrics
-from smartass.knowledge.seed import seed
+from smartass.knowledge.seed import SIGN, seed
 from smartass.knowledge.semantic import Fact, Metric, load_semantic, to_toml
+from smartass.model.resolver import MetricDef
+
+
+def catalog_metrics() -> list[MetricDef]:
+    """The independent oracle (the retired knowledge/interim.py, kept here): catalog.toml [pnl] lines joined across
+    cubes on `concept`; FinLite = FinMax except stock; materiality from [materiality]."""
+    data = tomllib.loads((config.KNOWLEDGE_DIR / "catalog.toml").read_text(encoding="utf-8"))
+    materiality = (float(data["materiality"]["abs_nok"]), float(data["materiality"]["pct"]))
+    by_concept: dict[str, dict] = {}
+    for cube in ("FinMax", "FinPlan"):
+        for line in data["pnl"][cube]:
+            concept = line.get("concept")
+            if not concept:
+                continue
+            d = by_concept.setdefault(concept, {"label": line["label"], "members": {}, "stock": False})
+            d["members"][cube] = (line["account"],)
+            d["stock"] = d["stock"] or line.get("measure") == "stock"
+            if cube == "FinMax":
+                d["label"] = line["label"]
+    out = []
+    for concept, d in by_concept.items():
+        stock = d["stock"]
+        if "FinMax" in d["members"] and not stock:
+            d["members"]["FinLite"] = d["members"]["FinMax"]
+        out.append(MetricDef(d["label"], d["members"], sign=SIGN.get(concept, "neutral"), status="approved",
+                             materiality=materiality, balance="Accumulated" if stock else "Periodic",
+                             aggregation="last" if stock else "sum"))
+    return out
+
+
+def test_the_oracle_joins_cubes_on_concept():
+    """Was test_v2_interim.py: the catalogue join the seeded metrics are checked against."""
+    by = {m.name: m for m in catalog_metrics()}
+    assert by["Revenue"].members == {"FinMax": ("ac.C30",), "FinPlan": ("Revenue",), "FinLite": ("ac.C30",)}
+    assert by["Opex"].members == {"FinMax": ("ac.C70",), "FinPlan": ("OPEX",), "FinLite": ("ac.C70",)}
+    assert "FinPlan" not in by["Personnel cost"].members
+    fte = by["FTE"]
+    assert (fte.balance, fte.aggregation, fte.sign) == ("Accumulated", "last", "neutral")
+    assert "FinLite" not in fte.members and by["Opex"].materiality == (5_000_000.0, 0.10)
+    assert by["Revenue"].sign == "income" and by["Opex"].sign == "cost" and by["EBITDA"].sign == "income"
+    assert by["Other items"].sign == "neutral" and by["EBITDA"].members["FinPlan"] == ("EBITDA",)
+    for m in by.values():
+        if "FinMax" in m.members and m.aggregation != "last":
+            assert m.members["FinLite"] == m.members["FinMax"], m.name
 
 
 @pytest.fixture(scope="module")

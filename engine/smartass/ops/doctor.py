@@ -89,45 +89,44 @@ def _atlas(max_age_days: float = 35) -> Check:
                  "" if status == "OK" else "Re-run the installer after the monthly release, or run `smartass atlas build`.")
 
 
-ACCOUNT_DIM = {"FinMax": "All Accounts", "FinPlan": "Account"}     # FinLite = the FinMax accounts
+def _knowledge() -> Check:
+    """The semantic layer (knowledge/semantic) against the current atlas, with the build checks of `smartass
+    knowledge build`: FAIL on a build error (a metric member not in the atlas, an alias clash); WARN when knowledge.db
+    is missing, older than the atlas or the semantic files, or when drafts await approval."""
+    import os
 
-
-def _catalog() -> Check:
-    """The v2 metrics (knowledge/catalog.toml P&L lines) load, and their accounts are in the atlas."""
-    import tomllib
-
-    from ..knowledge import atlas
-    from ..knowledge.interim import catalog_metrics
+    from ..knowledge.build import BuildReport, _atlas, _hash, check, summary
+    from ..knowledge.semantic import SemanticError, load_semantic
     try:
-        metrics = catalog_metrics()
-    except (OSError, KeyError, TypeError, ValueError, tomllib.TOMLDecodeError) as e:
-        return Check("catalog", "FAIL", f"{type(e).__name__}: {e}",
-                     "Fix knowledge\\catalog.toml (see the error), or update smartass.")
+        metrics, facts = load_semantic(config.SEMANTIC_DIR)
+    except (OSError, SemanticError) as e:
+        return Check("knowledge", "FAIL", f"{type(e).__name__}: {e}",
+                     "Fix the semantic file named in the error (knowledge\\semantic), or update smartass.")
+    detail = f"{len(metrics)} metrics, {len(facts)} facts"
     if not config.ATLAS_DB.exists():
-        return Check("catalog", "WARN", f"{len(metrics)} metrics loaded; members not checked (no atlas)",
-                     "Re-run installer\\install.ps1 (copies the monthly atlas).")
-    problems: list[str] = []
-    unchecked: list[str] = []
-    with contextlib.closing(atlas.connect(config.ATLAS_DB)) as db:
-        for m in metrics:
-            for cube, members in m.members.items():
-                dim = ACCOUNT_DIM.get(cube)
-                if dim is None:
-                    continue
-                if not atlas.built(db, cube, dim):
-                    if f"{cube} / {dim}" not in unchecked:
-                        unchecked.append(f"{cube} / {dim}")
-                    continue
-                problems += [f"{m.name}: '{x}' is not in {cube} / {dim}" for x in members
-                             if not atlas.has_member(db, cube, dim, x)]
+        return Check("knowledge", "WARN", f"{detail}; members not checked (no atlas)",
+                     "Re-run installer\\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.")
+    report = BuildReport(out=config.KNOWLEDGE_DB)
+    with contextlib.closing(_atlas(config.ATLAS_DB)) as db:
+        check(metrics, facts, db, report)
+    if report.errors:
+        return Check("knowledge", "FAIL", f"{len(report.errors)} build error(s): " + "; ".join(report.errors[:3]),
+                     "Fix the semantic files (a reorg or rename?), then run `smartass knowledge build`.")
+    rebuild = "Run `smartass knowledge build` (or `smartass knowledge refresh` after a month-end)."
+    k = config.KNOWLEDGE_DB
+    if not k.exists():
+        return Check("knowledge", "WARN", f"{detail}; knowledge.db not built yet (built on first use)", rebuild)
+    problems = []
+    if os.path.getmtime(k) < os.path.getmtime(config.ATLAS_DB):
+        problems.append("knowledge.db is older than the atlas")
+    if summary(k).get("semantic_hash") != _hash(config.SEMANTIC_DIR):
+        problems.append("knowledge.db is older than the semantic files")
+    if report.drafts:
+        problems.append(f"{report.drafts} draft(s) await approval")
+        rebuild = "Review the drafts, then `smartass knowledge approve <id|all>`."
     if problems:
-        return Check("catalog", "WARN", f"{len(problems)} member(s) not in the cubes: " + "; ".join(problems[:5]),
-                     "Update knowledge\\catalog.toml to the current members (a reorg or rename?).")
-    detail = f"{len(metrics)} metrics match the atlas"
-    if unchecked:
-        return Check("catalog", "WARN", f"{detail}; not checked: {', '.join(unchecked)}",
-                     "Re-run installer\\install.ps1 (copies the monthly atlas).")
-    return Check("catalog", "OK", detail)
+        return Check("knowledge", "WARN", f"{detail}; " + "; ".join(problems), rebuild)
+    return Check("knowledge", "OK", f"{detail} match the atlas ({k})")
 
 
 def _output() -> Check:
@@ -214,8 +213,8 @@ def _vba_access(read=_read_hkcu) -> Check:
                  "access to the VBA project object model' (close Excel first; a policy value needs IT).")
 
 
-CHECKS = (_config, _excel, _smartview, _smartview_startup, _vba_access, _epm, _drill_browser, _atlas, _catalog, _output, _http,
-          _update)
+CHECKS = (_config, _excel, _smartview, _smartview_startup, _vba_access, _epm, _drill_browser, _atlas, _knowledge,
+          _output, _http, _update)
 
 
 def run(include_http: bool = True) -> list[Check]:
