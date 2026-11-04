@@ -8,12 +8,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from .blocks.common import BlockOut, ck
+from .blocks.common import BlockOut, base_of, ck
 from .context import Ctx
 from .expr import Cells
 from .periods import Closed, closed_for, label, resolve
 from .resolver import Resolver, UnknownMetric
-from .spec import AnalysisSpec
+from .series import months
+from .spec import AnalysisSpec, BridgeBlock, DriversBlock, KpiBlock, RankingBlock, TableBlock
 
 TOLERANCE = 1.0  # NOK
 
@@ -31,6 +32,33 @@ class Finding:
     where: str = ""
 
 
+def _plan_bases(b) -> set[str]:
+    """The plan series (budget / forecast) a block compares the value against."""
+    if isinstance(b, TableBlock):
+        return {b.columns[base_of(b.columns, j)] for j, c in enumerate(b.columns) if c in ("var", "var_pct")}             & {"budget", "forecast"}
+    if isinstance(b, (KpiBlock, BridgeBlock, DriversBlock)):
+        return {b.compare if isinstance(b, KpiBlock) else b.base} & {"budget", "forecast"}
+    if isinstance(b, RankingBlock):
+        return {b.compare} & {"budget", "forecast"}
+    return set()
+
+
+def _span(ms) -> str:
+    return label(ms[0]) if len(ms) == 1 else f"{label(ms[0])}..{label(ms[-1])}"
+
+
+def _like_for_like(spec: AnalysisSpec, q, cl) -> None:
+    if not q.plan_periods:
+        return
+    asked = {s for b in spec.blocks if getattr(b, "query", None) == q.id for s in _plan_bases(b)}
+    actual = months(q, "value", cl)
+    for s in sorted(asked):
+        plan = months(q, s, cl)
+        if plan != actual:
+            raise GuardError(f"query {q.id}: Actual covers {_span(actual)} but {s} covers {_span(plan)}",
+                             "compare like-for-like months, or put the full-year plan in its own query")
+
+
 def guard_spec(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[Finding]:
     soft: list[Finding] = []
     for q in spec.queries:
@@ -45,6 +73,7 @@ def guard_spec(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[Finding]
                 raise GuardError(f"metric {m!r} is a draft",
                                  "approve it (smartass knowledge approve) or use an approved metric")
         cl = closed_for(closed, q.cube)
+        _like_for_like(spec, q, cl)
         late = [label(x) for x in resolve(q.periods, cl) if x > cl]
         if late and not q.preliminary:
             raise GuardError(f"query {q.id}: {', '.join(late)} is after the last closed month {label(cl)}",
