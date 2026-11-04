@@ -35,6 +35,8 @@ def answer_grid(p: SheetPlan) -> tuple[int, int, list[list]]:
     r0, c0 = min(rows), min(cols)
     g = [[""] * (max(cols) - c0 + 1) for _ in range(max(rows) - r0 + 1)]
     for (r, c), v in p.cells.items():
+        if isinstance(v, str) and v and not v.startswith("="):
+            v = "'" + v                  # text stays text: Excel would turn 'Sep 26' into a date (as v1 answer_write)
         g[r - r0][c - c0] = "" if v is None else v
     return r0, c0, g
 

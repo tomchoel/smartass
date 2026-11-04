@@ -61,7 +61,7 @@ def test_answer_cells_grid_is_one_rectangle():
     from smartass.render.excel import answer_grid
     p = SheetPlan(cells={(1, 2): "T", (4, 3): "=1+1"}, last_col="C", last_row=4)
     r0, c0, g = answer_grid(p)
-    assert (r0, c0) == (1, 2) and g[0][0] == "T" and g[3][1] == "=1+1" and g[1][0] == ""
+    assert (r0, c0) == (1, 2) and g[0][0] == "'T" and g[3][1] == "=1+1" and g[1][0] == ""
 
 
 def test_write_answer_sets_value_column_widths(monkeypatch):
@@ -73,3 +73,11 @@ def test_write_answer_sets_value_column_widths(monkeypatch):
     p = SheetPlan(cells={(1, 2): "T", (2, 3): 1.0, (2, 5): 2.0}, last_col="E", last_row=2)
     excel.write_answer(WS(), p, [])
     assert seen["col_widths"] == {"B": 46, "C": 16, "D": 16, "E": 16}
+
+
+def test_answer_grid_stores_text_as_text_but_not_formulas_or_numbers():
+    from smartass.render.excel import answer_grid
+    p = SheetPlan(cells={(1, 2): "Sep 26", (1, 3): "=C2+1", (2, 3): 5.0, (2, 2): "1/2", (3, 2): ""},
+                  last_col="C", last_row=3)
+    _, _, g = answer_grid(p)
+    assert g[0] == ["'Sep 26", "=C2+1"] and g[1] == ["'1/2", 5.0] and g[2][0] == ""
