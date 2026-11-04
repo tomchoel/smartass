@@ -70,7 +70,7 @@ def _missing(atlas: sqlite3.Connection, cube: str, members) -> list[str]:
     return out
 
 
-def _hash(semantic_dir: Path) -> str:
+def semantic_hash(semantic_dir: Path) -> str:
     h = hashlib.sha256()
     for p in sorted(Path(semantic_dir).glob("*/*.toml")):
         h.update(p.relative_to(semantic_dir).as_posix().encode())
@@ -149,7 +149,7 @@ def build(semantic_dir: Path, atlas_db: Path, out_db: Path, extra_meta: dict | N
         if report.errors:
             return report
         atlas_built = atlas.execute("SELECT max(built_at) FROM build").fetchone()[0]
-        meta = {"built_at": time.strftime("%Y-%m-%d %H:%M:%S"), "semantic_hash": _hash(Path(semantic_dir)),
+        meta = {"built_at": time.strftime("%Y-%m-%d %H:%M:%S"), "semantic_hash": semantic_hash(Path(semantic_dir)),
                 "atlas_built_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(atlas_built)) if atlas_built
                 else "", "metrics": len(metrics), "facts": len(facts), "drafts": report.drafts}
         old = summary(out_db)

@@ -32,8 +32,10 @@ def make_atlas(path, monkeypatch=None):
     con.close()
     if monkeypatch is not None:
         k = path.parent / "knowledge.db"
-        assert build(make_semantic(path.parent / "semantic"), path, k).ok
+        sem = make_semantic(path.parent / "semantic")
+        assert build(sem, path, k).ok
         monkeypatch.setattr(config, "KNOWLEDGE_DB", k)
+        monkeypatch.setattr(config, "SEMANTIC_DIR", sem)      # the files it was built from: no rebuild
 
 
 def test_run_prepare_opens_and_closes_atlas_in_the_calling_thread(tmp_path, monkeypatch):

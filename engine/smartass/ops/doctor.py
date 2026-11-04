@@ -95,7 +95,7 @@ def _knowledge() -> Check:
     is missing, older than the atlas or the semantic files, or when drafts await approval."""
     import os
 
-    from ..knowledge.build import BuildReport, _atlas, _hash, check, summary
+    from ..knowledge.build import BuildReport, _atlas, semantic_hash, check, summary
     from ..knowledge.semantic import SemanticError, load_semantic
     try:
         metrics, facts = load_semantic(config.SEMANTIC_DIR)
@@ -119,7 +119,7 @@ def _knowledge() -> Check:
     problems = []
     if os.path.getmtime(k) < os.path.getmtime(config.ATLAS_DB):
         problems.append("knowledge.db is older than the atlas")
-    if summary(k).get("semantic_hash") != _hash(config.SEMANTIC_DIR):
+    if summary(k).get("semantic_hash") != semantic_hash(config.SEMANTIC_DIR):
         problems.append("knowledge.db is older than the semantic files")
     if report.drafts:
         problems.append(f"{report.drafts} draft(s) await approval")
