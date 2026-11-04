@@ -19,7 +19,7 @@ MAX_MEMBERS = 1000                 # Oracle's IN-list limit; EPM refuses wider c
 
 def members(connection: str, member: str, db=None) -> list[str] | None:
     """The member and all its descendants from the local atlas (EPM's IN-list), or None when unknown/too many."""
-    from . import atlas
+    from smartass.knowledge import atlas
     own = db is None
     db = db or atlas.connect()
     try:

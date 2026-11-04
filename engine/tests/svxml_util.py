@@ -70,7 +70,7 @@ FINPLAN_DIMS = ["Account", "All Balance Types", "Entity", "Period", "Scenario", 
 
 def atlas_with_dimensions(path):
     """A temporary atlas that knows the two cubes' dimensions (all svhttp needs to lay out a grid)."""
-    from smartview_mcp import atlas
+    from smartass.knowledge import atlas
     db = atlas.connect(path)
     for conn, dims in (("FinMax", FINMAX_DIMS), ("FinPlan", FINPLAN_DIMS)):
         for d in dims:

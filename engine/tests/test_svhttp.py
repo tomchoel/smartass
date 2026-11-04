@@ -6,7 +6,8 @@ import threading
 import pytest
 from svxml_util import answer
 
-from smartview_mcp import atlas, drill_browser, svhttp, svxml
+from smartass.knowledge import atlas
+from smartview_mcp import drill_browser, svhttp, svxml
 from smartass.core import config
 from smartview_mcp.grid import Axis
 from smartview_mcp.host import InputError

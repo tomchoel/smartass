@@ -93,7 +93,7 @@ def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:
     labels are already in the BlockOut lines."""
     import contextlib
 
-    from smartview_mcp import atlas
+    from .knowledge import atlas
 
     from .knowledge.atlas_resolver import AtlasResolver
     from .knowledge.interim import catalog_metrics

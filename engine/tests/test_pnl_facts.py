@@ -9,7 +9,8 @@ from fin_util import CAT, FC, WHS, http, make_value
 from mcp.server.mcpserver.exceptions import ToolError
 from svxml_util import EchoTransport, atlas_with_dimensions, pnl_value as value
 
-from smartview_mcp import atlas, extract, fin_pnl, pnl_facts, svhttp, templates
+from smartass.knowledge import atlas
+from smartview_mcp import extract, fin_pnl, pnl_facts, svhttp, templates
 from smartview_mcp.factstore import OPEN, FactStore
 
 MEMBERS = [("FinMax", "All Entities", "un.SY.2WHS", "2WHS Wholesale (un.SY)", "un.SY"),

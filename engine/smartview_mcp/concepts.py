@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import re
 
-from . import atlas
+from smartass.knowledge import atlas
 from smartass.core import config
 
 SUFFIX = {"booked": " (booked)", "attributed": " (attributed 100 %)", "estimated": " (estimated)"}

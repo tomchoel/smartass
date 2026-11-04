@@ -5,7 +5,8 @@ from types import SimpleNamespace as NS
 import pytest
 
 sys.path.insert(0, __file__.rsplit("\\tests", 1)[0])
-from smartview_mcp import answer, atlas, ops, templates  # noqa: E402
+from smartview_mcp import answer, ops, templates
+from smartass.knowledge import atlas  # noqa: E402
 
 VALUE_ERR = -2146826273                       # Excel #VALUE! as COM returns it
 

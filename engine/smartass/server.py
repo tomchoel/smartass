@@ -10,7 +10,7 @@ import datetime as dt
 
 from mcp.server.mcpserver import Context, MCPServer
 
-from smartview_mcp import atlas
+from .knowledge import atlas
 from .core import serverkit as kit
 from smartview_mcp.host import InputError
 

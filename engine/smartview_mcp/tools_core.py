@@ -115,7 +115,8 @@ def _check_recipe_spec(spec: dict) -> None:
 
 def _pnl_facts(h, area: str, period: str | None, compare: tuple[str, ...]):
     """(res, mode, fills, notes, entity) for recipe pnl: the facts read live by pnl_facts.prepare."""
-    from . import atlas, pnl_facts
+    from smartass.knowledge import atlas
+    from . import pnl_facts
     cat = catalog.load()
     with contextlib.closing(atlas.connect()) as adb:
         entity = pnl_facts.resolve_scope(cat, area, adb)

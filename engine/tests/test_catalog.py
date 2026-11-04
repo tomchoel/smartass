@@ -283,7 +283,7 @@ def test_a_name_may_repeat_within_one_area():
 
 
 def _atlas_with(tmp_path, members):
-    from smartview_mcp import atlas
+    from smartass.knowledge import atlas
     db = atlas.connect(tmp_path / "a.db")
     for (conn, dim), names in members.items():
         atlas.store(db, conn, dim, [{"name": n, "label": n, "parent": None, "depth": 1, "order": i}
@@ -368,7 +368,8 @@ def test_validate_notes_a_missing_member_of_an_abolished_area(tmp_path):
 
 
 def test_doctor_warns_when_a_dimension_is_unchecked(monkeypatch, tmp_path):
-    from smartview_mcp import atlas, doctor
+    from smartass.knowledge import atlas
+    from smartview_mcp import doctor
     atlas.connect(tmp_path / "a.db").close()
     monkeypatch.setattr(doctor.config, "ATLAS_DB", tmp_path / "a.db")
     c = doctor._catalog()

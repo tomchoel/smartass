@@ -126,7 +126,7 @@ def retrieve(http):
 
 
 def test_rows_of_members_smart_view_did_not_recognise_are_not_stored(retrieve, tmp_path):
-    from smartview_mcp import atlas
+    from smartass.knowledge import atlas
     store = FactStore()
     grids = extract.finmax_grids(CAT, ["Jan 26"], ["un.SY.2WHS", "un.SY.BAD"])
     real = retrieve
@@ -188,7 +188,7 @@ def test_cells_count_what_was_written_and_the_refused_are_in_the_detail(retrieve
 
 
 def _finplan_atlas(tmp_path, entity="2WHS Wholesale"):
-    from smartview_mcp import atlas
+    from smartass.knowledge import atlas
     db = atlas.connect(tmp_path / "fp.db")
     months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
     for dim, names in (("Entity", [entity]), ("Account", ["EBITDA", "Total Other Items"]), ("Period", list(months))):
@@ -201,7 +201,7 @@ def _finplan_atlas(tmp_path, entity="2WHS Wholesale"):
 def test_members_the_atlas_knows_are_kept_when_the_parser_misflags_them(retrieve, tmp_path):
     """FinPlan names equal their labels, so grid.parse flags a member with an empty row/column as unknown. The atlas
     decides: known members keep their cells (None stays None); a member the atlas lacks is dropped."""
-    from smartview_mcp import atlas
+    from smartass.knowledge import atlas
     store = FactStore()
     grids = extract.finplan_grids(CAT, [("Target", "Final", 27)], ["2WHS Wholesale", "2NOPE Missing"])
     real = retrieve

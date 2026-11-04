@@ -48,7 +48,7 @@ def plan_split(cell: dict[str, str], children: Callable[[str, str], list[str]],
 
 def atlas_children(connection: str) -> Callable[[str, str], list[str]]:
     """children(dim, member) from the local atlas (instant)."""
-    from . import atlas
+    from smartass.knowledge import atlas
     db = atlas.connect()
 
     def kids(dim: str, member: str) -> list[str]:

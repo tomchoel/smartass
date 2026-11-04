@@ -3,7 +3,8 @@ from datetime import datetime
 
 import pytest
 
-from smartview_mcp import atlas, atlas_history as h
+from smartass.knowledge import atlas
+from smartview_mcp import atlas_history as h
 
 D1 = datetime(2026, 5, 20, 12).timestamp()
 D2 = datetime(2026, 6, 5, 12).timestamp()

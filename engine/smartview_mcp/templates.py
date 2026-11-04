@@ -14,7 +14,8 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from . import atlas, catalog, ops
+from smartass.knowledge import atlas
+from . import catalog, ops
 from .grid import Axis
 from .host import ExcelHost, HostError, InputError
 

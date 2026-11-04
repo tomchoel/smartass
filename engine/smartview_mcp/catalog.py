@@ -388,7 +388,7 @@ def validate(cat: Catalog, db) -> tuple[list[str], list[str], list[str]]:
     """(problems, unchecked, notes): catalogue members the atlas does not have; dimensions not checked because the
     atlas has not built them; and members of abolished areas that are gone (expected after a reorg, so only a note).
     The atlas's age is not judged here (the doctor's atlas check does that)."""
-    from . import atlas
+    from smartass.knowledge import atlas
     problems: list[str] = []
     unchecked: list[str] = []
     notes: list[str] = []

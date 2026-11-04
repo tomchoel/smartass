@@ -6,7 +6,7 @@ from test_v2_pipeline import FakeProvider
 from v2util import facts, spec_dict
 
 from smartass import pipeline
-from smartview_mcp import atlas
+from smartass.knowledge import atlas
 from smartass.core import config
 
 ROWS = [("FinMax", "All Entities", "un.SY.2BUS", "2BUS Business Norway", "un.SY", 2, 1),

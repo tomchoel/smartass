@@ -2,7 +2,7 @@ import pytest
 
 from smartass.knowledge.atlas_resolver import AtlasResolver
 from smartass.model.resolver import MetricDef, UnknownMetric
-from smartview_mcp import atlas
+from smartass.knowledge import atlas
 
 
 @pytest.fixture

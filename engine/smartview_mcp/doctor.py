@@ -90,7 +90,8 @@ def _atlas(max_age_days: float = 35) -> Check:
 
 
 def _catalog() -> Check:
-    from . import atlas, catalog
+    from smartass.knowledge import atlas
+    from . import catalog
     try:
         cat = catalog.load()
     except catalog.CatalogError as e:

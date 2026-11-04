@@ -236,7 +236,7 @@ def rejected_note(conn: str, rej: list[tuple[str, str]]) -> str:
 
 def _explain_reject(conn: str, dim: str, member: str) -> str:
     try:
-        from . import atlas
+        from smartass.knowledge import atlas
         parents = [r[0] for r in atlas.connect().execute(
             "SELECT DISTINCT parent FROM member WHERE connection=? AND name=?", (conn, member))]
     except Exception:       # noqa: BLE001 - the explanation is best effort

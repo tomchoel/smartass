@@ -25,7 +25,7 @@ def load_cases() -> list[dict]:
 
 def _resolver_for(closed: dict):
     """An AtlasResolver on the local atlas (as run_prepare builds it); its connection is closed by _close."""
-    from smartview_mcp import atlas
+    from ..knowledge import atlas
 
     from ..knowledge.atlas_resolver import AtlasResolver
     from ..knowledge.interim import catalog_metrics

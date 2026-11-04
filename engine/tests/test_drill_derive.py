@@ -47,7 +47,7 @@ def test_guards_fall_back_to_epm():
 
 
 def test_members_are_the_member_and_its_descendants(tmp_path, monkeypatch):
-    from smartview_mcp import atlas
+    from smartass.knowledge import atlas
     monkeypatch.setattr(atlas, "descendants", lambda db, c, m, limit=5000: [{"name": "un.SY.A"}, {"name": "un.SY.B"}])
 
     class Db:

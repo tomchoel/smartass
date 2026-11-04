@@ -6,7 +6,8 @@ from typing import Callable
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import atlas, catalog, extract, templates
+from smartass.knowledge import atlas
+from . import catalog, extract, templates
 from . import fin_pnl as pnl
 from .analytics import periods
 from .extract import FillResult, Grid, fill, finmax_grids, finplan_grids
