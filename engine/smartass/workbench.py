@@ -56,3 +56,23 @@ def snapshot(workbook: str | None, sheet: str | None, address: str | None, label
 
 def revert(change_id: str | None, workbook: str | None, force: bool = False) -> dict:
     return _history_revert(change_id, workbook, force)
+
+
+def _format_sheet(workbook, sheet, last_col, rows):
+    from smartview_mcp.workbench import fmt
+    return fmt.format_sheet(workbook, sheet, last_col, rows)
+
+
+def _check(workbook, sheet):
+    from smartview_mcp.workbench import fmt
+    return fmt.check(workbook, sheet)
+
+
+def tidy(workbook, sheet, rows: dict | None = None, last_col: str | None = None) -> dict:
+    """TN style first when rows + last_col are given (v1 snapshots before styling, so it can be reverted), then
+    always the tn-formelstil check ({ok, block, warn, counts, ...} - ok None means the checker itself failed)."""
+    out: dict = {}
+    if rows and last_col:
+        out["styled"] = _format_sheet(workbook, sheet, last_col, rows)
+    out["check"] = _check(workbook, sheet)
+    return out

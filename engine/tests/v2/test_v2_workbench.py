@@ -57,3 +57,26 @@ def test_server_tools_route_through_user_excel(monkeypatch):
     monkeypatch.setattr(workbench, "revert", lambda cid, wb, force: ("rev", cid, wb, force))
     assert asyncio.run(server.xl_snapshot("B", "S", "A1")) == {"what": "xl_snapshot", "out": ("snap", "B", "S", "A1")}
     assert asyncio.run(server.xl_revert("c1", "B", True)) == {"what": "xl_revert", "out": ("rev", "c1", "B", True)}
+
+
+def test_tidy_checks_and_optionally_styles(monkeypatch):
+    log = []
+    monkeypatch.setattr(workbench, "_format_sheet", lambda wb, sh, last_col, rows: log.append("style") or
+                        {"change_id": "c9"})
+    monkeypatch.setattr(workbench, "_check", lambda wb, sh: {"ok": True, "block": [], "warn": [], "counts": {}})
+    assert workbench.tidy("B", "S")["check"]["ok"] is True and log == []
+    out = workbench.tidy("B", "S", rows={"1": "title"}, last_col="F")
+    assert log == ["style"] and out["styled"]["change_id"] == "c9"
+
+
+def test_xl_tidy_tool_routes_through_user_excel(monkeypatch):
+    import asyncio
+
+    from smartass import server
+
+    async def user(fn, what):
+        return {"what": what, "out": fn(None)}
+    monkeypatch.setattr(server, "_user", user)
+    monkeypatch.setattr(workbench, "tidy", lambda wb, sh, rows, last_col: ("tidy", wb, sh, rows, last_col))
+    assert asyncio.run(server.xl_tidy("B", "S", {"1": "title"}, "F")) == {
+        "what": "xl_tidy", "out": ("tidy", "B", "S", {"1": "title"}, "F")}

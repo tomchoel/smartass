@@ -164,6 +164,15 @@ async def xl_revert(change_id: str | None = None, workbook: str | None = None, f
     return await _user(lambda h: revert(change_id, workbook, force), "xl_revert")
 
 
+@_register(v1.WRITE)
+async def xl_tidy(workbook: str | None = None, sheet: str | None = None, rows: dict | None = None,
+                  last_col: str | None = None) -> dict:
+    """TN report style (when rows + last_col are given) and the tn-formelstil formula check; zero BLOCK findings
+    before work is done. rows: {"1": "title", "4": "header", "5-12": "line", "13": "sum", ...}; last_col e.g. "F"."""
+    from .workbench import tidy
+    return await _user(lambda h: tidy(workbook, sheet, rows, last_col), "xl_tidy")
+
+
 def main():
     legacy.configure_v2()
     mcp.run()
