@@ -10,6 +10,7 @@ from typing import Literal
 
 from .blocks.common import BlockOut, base_of, ck
 from .context import Ctx
+from .errors import GuardError
 from .expr import Cells
 from .periods import Closed, closed_for, label, resolve
 from .resolver import Resolver, UnknownMetric
@@ -17,12 +18,6 @@ from .series import months
 from .spec import AnalysisSpec, BridgeBlock, DriversBlock, KpiBlock, RankingBlock, TableBlock
 
 TOLERANCE = 1.0  # NOK
-
-
-class GuardError(Exception):
-    def __init__(self, reason: str, fix: str):
-        super().__init__(f"{reason} - {fix}")
-        self.reason, self.fix = reason, fix
 
 
 @dataclass

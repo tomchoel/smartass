@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from .errors import GuardError
+
 Month = tuple[int, int]
 ABBR = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _LABEL = re.compile(r"([A-Z][a-z]{2}) (\d{2})")
@@ -15,7 +17,7 @@ Closed = Month | dict[str, Month]   # one closed month, or one per cube
 def closed_for(closed: Closed, cube: str) -> Month:
     if isinstance(closed, dict):
         if cube not in closed:
-            raise ValueError(f"no closed month given for cube {cube}")
+            raise GuardError(f"no closed month for cube {cube}", "pass the closed month for every cube used")
         return closed[cube]
     return closed
 

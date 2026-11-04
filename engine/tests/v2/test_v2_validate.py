@@ -90,3 +90,14 @@ def test_plan_value_columns_and_trend_over_other_months_are_allowed():
 def test_plan_comparison_over_the_same_months_is_allowed():
     guard_spec(plan_spec({"type": "table", "query": "fp", "columns": ["value", "budget", "var"]},
                          plan_periods="Jan 26..Sep 26"), resolver(), CLOSED)
+
+
+def test_closed_dict_without_a_used_cube_is_a_guard_error():
+    from smartass.model.analyze import compute, plan_requests
+    s = AnalysisSpec.model_validate(spec_dict())            # one FinMax query
+    for call in (lambda: guard_spec(s, resolver(), {"FinPlan": (2026, 8)}),
+                 lambda: plan_requests(s, resolver(), {"FinPlan": (2026, 8)}),
+                 lambda: compute(s, resolver(), {"FinPlan": (2026, 8)}, Frame())):
+        with pytest.raises(GuardError, match="no closed month for cube FinMax") as e:
+            call()
+        assert e.value.fix == "pass the closed month for every cube used"
