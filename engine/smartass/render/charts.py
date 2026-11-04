@@ -76,7 +76,10 @@ def _waterfall(ws, spec: ChartSpec) -> None:
         com(lambda: chart.SetSourceData(ws.Range(f"B{r1}:{col}{r2}")))
         series = com(lambda: chart.FullSeriesCollection(1))
         for idx in spec.totals:
-            com(lambda: setattr(series.Points(idx), "IsTotal", True))
+            try:                                           # one point failing keeps the waterfall (as v1)
+                com(lambda: setattr(series.Points(idx), "IsTotal", True))
+            except Exception:   # noqa: BLE001
+                pass
     except Exception:   # noqa: BLE001 - no waterfall in this Excel: a column chart says the same
         if shape is not None:
             try:

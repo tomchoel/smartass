@@ -121,3 +121,35 @@ def test_the_millions_axis_is_applied_only_when_the_spec_asks_for_it():
     write_charts(ws, p)
     units = [e for e in log if e[0] == "set" and e[1].endswith("DisplayUnit")]
     assert len(units) == 1
+
+
+def test_a_failing_total_point_does_not_turn_the_waterfall_into_a_column_chart():
+    log = []
+
+    class Series:
+        def Points(self, idx):
+            if idx == 1:
+                raise RuntimeError("no such point")
+            log.append(("total", idx))
+            return Obj(log, f"point{idx}")
+
+    class WChart(Obj):
+        def FullSeriesCollection(self, i):
+            return Series()
+    chart = WChart(log, "chart")
+
+    class ShapesW:
+        def AddChart2(self, *a):
+            log.append(("add", a[1]))
+            return type("Sh", (), {"Chart": chart})()
+
+    class W(WS):
+        Shapes = ShapesW()
+
+        def Range(self, a):
+            return Obj(log, f"Range({a})")
+    ws = W(log, "ws")
+    p = SheetPlan(charts=[ChartSpec("waterfall", "EBITDA bridge", 20, [21, 22, 23, 24, 25], ["C"], [1, 5], "G")])
+    assert write_charts(ws, p) == []
+    assert [e for e in log if e[0] == "add"] == [("add", XL_WATERFALL)]
+    assert ("total", 5) in log
