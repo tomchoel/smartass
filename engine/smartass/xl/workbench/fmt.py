@@ -60,10 +60,16 @@ def format_range(workbook, sheet, address, style=None, number_format=None, colum
             "note": "Not saved. xl_revert(change_id) undoes this."}
 
 
+ROW_KIND_ALIASES = {"subtotal": "sum", "total": "grand", "heading": "section"}
+
+
 def _expand_rows(spec: dict) -> dict[int, str]:
+    """{"5-12": "line"} -> {5: "line", ..., 12: "line"}; the aliases subtotal, total and heading (any case) become
+    sum, grand and section before the kinds are validated."""
     out = {}
     for k, kind in (spec or {}).items():
         a, _, z = str(k).partition("-")
+        kind = ROW_KIND_ALIASES.get(str(kind).strip().lower(), kind)
         for r in range(int(a), int(z or a) + 1):
             out[r] = kind
     return out
@@ -85,7 +91,7 @@ def format_sheet(workbook, sheet, last_col: str, rows: dict, label_cols=None, nu
                                                   "grand", "note", "blank")}
     if bad:
         raise InputError(f"Unknown row kinds {sorted(bad)}; use title, subtitle, section, text, header, line, sum, "
-                         "grand, note, blank.")
+                         "grand, note, blank (aliases: subtotal = sum, total = grand, heading = section).")
     ur = com(lambda: ws.UsedRange)
     last_row = max([com(lambda: ur.Row) + int(com(lambda: ur.Rows.Count)) - 1] + list(kinds))
     area = f"A1:{last_col}{last_row}"

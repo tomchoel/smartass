@@ -97,3 +97,31 @@ def test_snapshot_passes_on_book_notes(monkeypatch):
     monkeypatch.setattr(workbench, "_capture", lambda ws, rng: {})
     monkeypatch.setattr(workbench, "_record", lambda b, ws, address, snap, label: {"id": "c2"})
     assert workbench.snapshot("Book1", "S", "B1")["notes"] == ["AutoSave was switched off in Book1.xlsx"]
+
+
+def test_row_kind_aliases_map_before_validation(monkeypatch):
+    import pytest
+
+    from smartass.xl.host import InputError
+    from smartass.xl.workbench import books, fmt
+    assert fmt._expand_rows({"1": "heading", "2-3": "subtotal", "4": "Total", "5": "line"}) == {
+        1: "section", 2: "sum", 3: "sum", 4: "grand", 5: "line"}
+
+    class Validated(Exception):
+        pass
+
+    class Book:
+        app = None
+
+        def sheet(self, name):
+            return object()
+    monkeypatch.setattr(books, "find_book", lambda *a, **k: Book())
+    monkeypatch.setattr(fmt, "_wait_ready", lambda app: None)
+
+    def com(fn, **k):
+        raise Validated                                  # the first COM call comes after the kind validation
+    monkeypatch.setattr(fmt, "com", com)
+    with pytest.raises(Validated):
+        fmt.format_sheet(None, "S", "F", {"4": "header", "5": "subtotal", "6": "total"})
+    with pytest.raises(InputError, match="subtotal"):
+        fmt.format_sheet(None, "S", "F", {"5": "bogus"})

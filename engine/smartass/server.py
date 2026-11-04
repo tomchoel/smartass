@@ -386,7 +386,8 @@ async def xl_revert(change_id: str | None = None, workbook: str | None = None, f
 async def xl_tidy(workbook: str | None = None, sheet: str | None = None, rows: dict | None = None,
                   last_col: str | None = None) -> dict:
     """TN report style (when rows + last_col are given) and the tn-formelstil formula check; zero BLOCK findings
-    before work is done. rows: {"1": "title", "4": "header", "5-12": "line", "13": "sum", ...}; last_col e.g. "F"."""
+    before work is done. rows: {"1": "title", "4": "header", "5-12": "line", "13": "sum", ...}; last_col e.g. "F".
+    Kinds: title, subtitle, section, text, header, line, sum, grand, note, blank (subtotal, total, heading accepted)."""
     from .workbench import tidy
     return await _user(lambda h: tidy(workbook, sheet, rows, last_col), "xl_tidy")
 
