@@ -61,3 +61,16 @@ def facts() -> Frame:
             accs["ac.EBITDA"] = accs["ac.C30"] + accs["ac.C50S"] + accs["ac.C60"]
             out += [Fact("FinMax", "fm", acc, ent, per, "Actual", "", v) for acc, v in accs.items()]
     return Frame(out)
+
+
+def monthly_facts() -> Frame:
+    """Opex for B1, B2, G910 and parents, Jul-Sep 26 and Jul-Sep 25: leaf value = -(month) per account."""
+    out = []
+    for yy in (26, 25):
+        for mon, lab in ((7, "Jul"), (8, "Aug"), (9, "Sep")):
+            per = f"{lab} {yy}"
+            leaf = {e: {"ac.C50S": -float(mon), "ac.C60": -1.0} for e in ("un.SY.B1", "un.SY.B2", "un.SY.G910")}
+            leaf["un.SY.4BUS_B"] = {a: leaf["un.SY.B1"][a] + leaf["un.SY.B2"][a] for a in ("ac.C50S", "ac.C60")}
+            leaf["un.SY.2BUS"] = {a: leaf["un.SY.4BUS_B"][a] + leaf["un.SY.G910"][a] for a in ("ac.C50S", "ac.C60")}
+            out += [Fact("FinMax", "fm", a, e, per, "Actual", "", v) for e, accs in leaf.items() for a, v in accs.items()]
+    return Frame(out)
