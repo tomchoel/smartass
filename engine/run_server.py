@@ -3,7 +3,7 @@ Registered by installer\\install.ps1 as: <engine>\\.venv\\Scripts\\python.exe <t
 
 Claude Code never restarts a stdio server by itself, so a code change used to need '/mcp' reconnect. This file is a
 small relay instead: it runs the real server (child_server.py) as a child process and passes MCP JSON-RPC lines
-through unchanged. Before forwarding a request it compares the code on disk (smartview_mcp/*.py, vba/*.bas,
+through unchanged. Before forwarding a request it compares the code on disk (smartass/**/*.py, vba/*.bas,
 child_server.py) with what the child was started from. If it changed and nothing is in flight, it stops the child
 gracefully (its Excel closes and Smart View options are restored), starts a new one, replays the client's
 'initialize', and sends notifications/tools/list_changed so Claude Code refreshes the tool list. A crashed child is
@@ -40,7 +40,7 @@ def log(msg: str):
 
 
 def fingerprint() -> tuple:
-    files = [CHILD, HERE / "defaults.toml", *sorted((HERE / "smartview_mcp").rglob("*.py")),   # incl. core/, excel/
+    files = [CHILD, HERE / "defaults.toml", *sorted((HERE / "smartass").rglob("*.py")),   # incl. core/, xl/, epm/ ...
              *sorted((HERE / "vba").glob("*.bas"))]
     out = []
     for f in files:

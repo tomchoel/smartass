@@ -72,7 +72,7 @@ def test_import_survives_wrong_typed_user_config(tmp_path):
     env = {**os.environ, "SMARTASS_HOME": str(tmp_path)}
     for k in ("SMARTASS_HTTP_PORT", "SV_DRILL_CHANNELS"):
         env.pop(k, None)
-    code = ("from smartview_mcp import config as c; "
+    code = ("from smartass.core import config as c; "
             "print(c.HTTP_PORT, c.DRILL_CHANNELS, c.PACKS, repr(c.CONFIG_ERROR))")
     out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout
     assert "47811 ('chrome',) ['p1']" in out and "http.port" in out
@@ -82,7 +82,7 @@ def test_release_folder_expands_env_vars_and_empty_means_not_configured(tmp_path
     import os
     import subprocess
     import sys
-    code = "from smartview_mcp import config as c; print(repr(c.RELEASE_FOLDER))"
+    code = "from smartass.core import config as c; print(repr(c.RELEASE_FOLDER))"
 
     def run(value):
         (tmp_path / "config.toml").write_text(f"[release]\nfolder = '{value}'\n", encoding="utf-8")

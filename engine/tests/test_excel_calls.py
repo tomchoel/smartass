@@ -26,31 +26,6 @@ def arrange_case(moved: bool):
     return wb, lambda: sheetorder.arrange_sheets(wb, "full", activate="Q2 Answer")
 
 
-def fetched_5x14():
-    from smartass.epm import svhttp
-    from smartass.epm.grid import Axis, Layout
-    periods = [f"{m} 26" for m in ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
-                                   "Dec")] + ["FY26"]
-    accounts = ["ac.C30", "ac.C70", "ac.STA20Y"]
-    lay = Layout([("Entity", "un.SY.2WHS"), ("Scenario", "Actual")], [Axis("Account", accounts)],
-                 [Axis("Period", periods)])
-    values = [[""] + ["un.SY.2WHS", "Actual"] + [""] * 11, [""] + periods,
-              ["C30 Revenues"] + [1000.0 * (k + 1) for k in range(13)],
-              ["C70 Opex"] + [-250.5 * (k + 1) for k in range(12)] + ["#Missing"],
-              ["STA20Y man-years"] + [12.25] * 13]
-    return svhttp.Fetched(lay, values, 0.5)
-
-
-def source_case():
-    from smartview_mcp.core import source
-    from smartview_mcp.core.contract import Pull
-    wb = Workbook(["Q1 Answer"])
-    t = SimpleNamespace(wb=wb, app=wb.Application, sheets_added=[])
-    pin = Pull(id="m", connection="FinMax", rows=[{"dimension": "Account", "members": ["ac.C30"]}],
-               columns=[{"dimension": "Period", "members": ["Jan 26"]}])
-    return wb, lambda: source.write(t, 1, "Q1 FinMax", pin, fetched_5x14())
-
-
 def answer_sheet():
     """A small answer sheet: title, subtitle, header, lines, a sum, a check, a text and a section."""
     wb = Workbook(["Q1 Answer"])
@@ -103,8 +78,7 @@ def lines_case():
 
 def run(case, monkeypatch, *a):
     from smartass.xl import drill_xl
-    from smartview_mcp.core import source
-    freeze_time(monkeypatch, drill_xl, source)
+    freeze_time(monkeypatch, drill_xl)
     wb, go = case(*a)
     calls = count_com(monkeypatch)
     go()
@@ -130,12 +104,6 @@ def test_arrange_sheets_same_order_fewer_calls(monkeypatch, moved, calls):
     snap, n = run(arrange_case, monkeypatch, moved)
     assert same(snap) == pinned(name)["state"]
     assert n == calls
-
-
-def test_source_sheet_same_look_fewer_calls(monkeypatch):
-    snap, n = run(source_case, monkeypatch)
-    assert same(snap) == pinned("source")["state"]
-    assert n == 25                                    # before: 85
 
 
 @pytest.mark.parametrize("redraw, calls", [(False, 58), (True, 41)])          # before: 150, 150

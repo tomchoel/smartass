@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from smartview_mcp import logsetup
+from smartass.core import logsetup
 
 
 def test_redact_hides_tokens_and_secrets():

@@ -135,31 +135,6 @@ def test_no_split_possible():
     assert ds.plan_split(leaf, kids) is None
 
 
-import datetime as _dt
-
-from smartview_mcp import drill_store as st
-
-
-def test_store_roundtrip(tmp_path, whs):
-    rows, _ = whs
-    db = st.connect(tmp_path / "d.db")
-    did = st.save(db, connection="FinLite", cell=CELL, rec={"lines": len(rows), "gap": 0.0},
-                  columns=list(rows[0]), rows=rows, workbook="C:/x.xlsx", q=3, alias="d")
-    meta, back = st.load(db, did)
-    assert meta["q"] == 3 and meta["cell"] == CELL and len(back) == 1231
-    assert back[0]["GL_POSTED_DATE"] == rows[0]["GL_POSTED_DATE"]           # datetimes survive
-    assert st.find(db, "C:/x.xlsx", 3) == {"d": did}
-
-
-def test_store_prunes_old(tmp_path):
-    db = st.connect(tmp_path / "d.db")
-    old = st.save(db, connection="FinLite", cell=CELL, rec={}, columns=["AMOUNT"], rows=[{"AMOUNT": 1.0}],
-                  workbook="w", q=1, alias="d", created=_dt.datetime.now() - _dt.timedelta(days=91))
-    assert st.prune(db, keep_days=90) == 1
-    with pytest.raises(KeyError):
-        st.load(db, old)
-
-
 def test_reconcile_counts_non_numeric_amounts(whs):
     rows, _ = whs
     assert dl.reconcile(-24706615.55, rows)["non_numeric"] == 0
@@ -234,8 +209,6 @@ def test_formulas_pass_the_style_checker():
     assert res["ok"] is True and res["block"] == [], res
 
 
-from smartview_mcp import specs
-
 DRILL_SPEC = {"columns": [{"header": "NOK"}, {"header": "Lines"}],
               "sections": [{"title": "By source", "lines": [
                   {"key": "pay", "label": "Payables", "cells": [
@@ -245,34 +218,6 @@ DRILL_SPEC = {"columns": [{"header": "NOK"}, {"header": "Lines"}],
                       {"drill": "d", "where": {"Period": "Jul-26"}, "agg": "debit"}, None]},
                   {"key": "tot", "label": "Total", "kind": "sum", "cells": [
                       {"drill": "d", "where": {}}, {"drill": "d", "where": {}, "agg": "count"}]}]}]}
-
-
-def test_evaluate_drill_cells(whs):
-    rows, _ = whs
-    vals = specs.evaluate(DRILL_SPEC, {}, drills={"d": rows})
-    assert round(vals["pay"][0], 2) == -123132549.19 and vals["pay"][1] == 359
-    assert round(vals["tot"][0], 2) == -24706615.55 and vals["tot"][1] == 1231
-    jul = sum(r["AMOUNT"] for r in rows if r["Period"] == "Jul-26" and r["AMOUNT"] < 0)
-    assert vals["jul"][0] == pytest.approx(jul) and jul < 0
-
-
-def test_evaluate_drill_cells_without_rows_are_empty():
-    vals = specs.evaluate(DRILL_SPEC, {})
-    assert vals["pay"] == [None, None] and vals["tot"] == [None, None]
-    assert specs.prepare(DRILL_SPEC, {}, {})["sections"]        # drills stays optional
-
-
-def test_prepare_passes_drill_rows(whs, monkeypatch):
-    rows, _ = whs
-    seen = []
-    real = specs.evaluate
-
-    def spy(s, p, drills=None):
-        seen.append(drills)
-        return real(s, p, drills)
-    monkeypatch.setattr(specs, "evaluate", spy)
-    specs.prepare(DRILL_SPEC, {}, {}, drills={"d": rows})
-    assert seen and seen[0]["d"] is rows
 
 
 class _Cell:
@@ -309,63 +254,6 @@ class _Rect:
 class _Target:
     def status(self, _msg):
         pass
-
-
-def test_answer_writes_drill_formulas(monkeypatch):
-    from smartview_mcp import answer_write
-    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
-    ws = _Sheet()
-    out = answer_write._write(_Target(), 2, DRILL_SPEC, {}, ws)
-    rows_by_key, warnings = out[2], out[-1]
-    assert warnings == []
-    c = answer_write.FIRST_COL
-    assert ws.cells[(rows_by_key["pay"], c)].Formula2 == '=SUMIFS(Lines_Q2[AMOUNT],Lines_Q2[JE_SOURCE],"Payables")'
-    assert ws.cells[(rows_by_key["pay"], c + 1)].Formula2 == '=COUNTIFS(Lines_Q2[JE_SOURCE],"Payables")'
-    assert ws.cells[(rows_by_key["jul"], c)].Formula2 == \
-        '=SUM(FILTER(Lines_Q2[AMOUNT],(Lines_Q2[Period]="Jul-26")*(Lines_Q2[AMOUNT]<0),0))'
-    assert ws.cells[(rows_by_key["tot"], c)].Formula2 == "=SUM(Lines_Q2[AMOUNT])"
-    other = {**DRILL_SPEC["sections"][0]["lines"][2], "key": "b", "cells": [{"drill": "b", "where": {}}]}
-    ws2 = _Sheet()
-    out2 = answer_write._write(_Target(), 2, {**DRILL_SPEC, "sections": [{"title": "x", "lines": [other]}]}, {}, ws2)
-    assert ws2.cells[(out2[2]["b"], c)].Formula2 == "=SUM(Lines_Q2_b[AMOUNT])"
-
-
-def test_drill_value_matches_like_excel_equals():
-    rows = [{"JE_SOURCE": "Payables", "ACCOUNT": "43200", "AMOUNT": -10.0},
-            {"JE_SOURCE": "PAYABLES", "ACCOUNT": "43200", "AMOUNT": -5.0},
-            {"JE_SOURCE": None, "ACCOUNT": "43201", "AMOUNT": 2.0}]
-    assert specs._drill_value(rows, {"JE_SOURCE": "payables"}, "sum") == -15.0      # case-insensitive
-    assert specs._drill_value(rows, {"ACCOUNT": 43200}, "count") == 2               # non-string where value
-    assert specs._drill_value(rows, {"JE_SOURCE": ""}, "sum") == 2.0                # None = blank
-
-
-def test_unknown_agg_is_rejected():
-    with pytest.raises(ValueError):
-        dx.drill_formula("T", {"JE_SOURCE": "Payables"}, "avg")
-    with pytest.raises(ValueError):
-        specs._drill_value([{"AMOUNT": 1.0}], {}, "avg")
-    spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
-        {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {}, "agg": "avg"}]}]}]}
-    assert specs.evaluate(spec, {}, drills={"d": [{"AMOUNT": 1.0}]})["a"] == [None]
-
-
-def test_answer_reports_unknown_agg_as_warning(monkeypatch):
-    from smartview_mcp import answer_write
-    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
-    spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
-        {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {}, "agg": "avg"}]}]}]}
-    warnings = answer_write._write(_Target(), 1, spec, {}, _Sheet())[-1]
-    assert len(warnings) == 1 and "avg" in warnings[0]
-
-
-def test_answer_drill_wins_over_pull_like_specs(monkeypatch):
-    from smartview_mcp import answer_write
-    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
-    spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
-        {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {}, "pull": "nope"}]}]}]}
-    ws = _Sheet()
-    out = answer_write._write(_Target(), 1, spec, {}, ws)
-    assert out[-1] == [] and ws.cells[(out[2]["a"], answer_write.FIRST_COL)].Formula2 == "=SUM(Lines_Q1[AMOUNT])"
 
 
 # ------------------------------------------------------------------ drill_browser (no browser started)
@@ -781,35 +669,9 @@ def test_where_columns_checked_against_table():
     assert dx.missing_columns(None, {"X": "1"}) == []                          # table unknown: no check
 
 
-def test_answer_warns_on_where_column_missing_from_table(monkeypatch):
-    from smartview_mcp import answer_write
-    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
-    monkeypatch.setattr(answer_write, "drill_table_columns", lambda wb, tn: ["Period", "AMOUNT", "JE_SOURCE"])
-    spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
-        {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {"BATCH_ID": "7"}}]},
-        {"key": "b", "label": "B", "cells": [{"drill": "d", "where": {"JE_SOURCE": "Payables"}}]}]}]}
-    ws, t = _Sheet(), _Target()
-    t.wb = None
-    out = answer_write._write(t, 1, spec, {}, ws)
-    assert len(out[-1]) == 1 and "BATCH_ID" in out[-1][0]
-    assert (out[2]["a"], answer_write.FIRST_COL) not in ws.cells
-    assert ws.cells[(out[2]["b"], answer_write.FIRST_COL)].Formula2.startswith("=SUMIFS(")
-
-
 # ------------------------------------------------------------------ missing Lines table / wrong q (0x800A03EC)
 def _drill_cell(alias, where):
     return {"drill": alias, "where": where}
-
-
-def _spec(cell):
-    from smartview_mcp.core import contract
-    return contract.validate({"version": 1, "question": "Top suppliers", "gate": {"outcome": "clear"},
-                              "layout": {"title": "t", "columns": [{"header": "NOK"}], "sections": [
-                                  {"title": "s", "lines": [{"key": "a", "label": "KPMG AS", "cells": [cell]}]}]}})
-
-
-def _spec_without_drill():
-    return _spec({"value": 1})
 
 
 def _lo_sheet(name, tables=()):
@@ -828,54 +690,6 @@ def _target_with_sheets(names):
 
 
 RAISES = object()
-
-
-def _render_drill_cell(monkeypatch, tables):
-    from smartview_mcp import answer_write
-
-    def cols(wb, tn):
-        if tables is RAISES:
-            raise RuntimeError("COM error")
-        return tables.get(tn)
-    monkeypatch.setattr(answer_write, "com", lambda call, *a, **k: call())
-    monkeypatch.setattr(answer_write, "drill_table_columns", cols)
-    spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
-        {"key": "a", "label": "KPMG AS", "cells": [_drill_cell("d2", {"AP_CUSTOMER_NAME": "KPMG AS"})]}]}]}
-    ws, t = _Sheet(), _Target()
-    t.wb = None
-    warnings = answer_write._write(t, 2, spec, {}, ws)[-1]
-    return [c.Formula2 or c.Value for c in ws.cells.values()], warnings
-
-
-def test_answer_refuses_drill_cell_whose_table_is_missing_and_names_existing_tables():
-    from smartview_mcp.core import pipeline
-    from smartass.xl.host import InputError
-    t = _target_with_tables(["Lines_Q1_d1", "Lines_Q1_d2"])
-    with pytest.raises(InputError) as e:
-        pipeline.check_drill_tables(t, 2, _spec(_drill_cell("d2", {"AP_CUSTOMER_NAME": "KPMG AS"})))
-    assert all(s in str(e.value) for s in ("Lines_Q2_d2", "Lines_Q1_d2", "sv_drill", "q=2"))
-    pipeline.check_drill_tables(t, 1, _spec(_drill_cell("d2", {})))           # the table exists: no error
-
-
-def test_answer_write_marks_missing_table_as_cell_error_not_formula(monkeypatch):
-    written, warnings = _render_drill_cell(monkeypatch, tables={})            # find_table -> None
-    assert not any("SUMIFS(" in str(v) for v in written)
-    assert any("Lines_Q2_d2 not found" in w for w in warnings)
-    assert any("Lines_Q2_d2 not found" in str(v) for v in written)
-
-
-def test_answer_write_keeps_cannot_check_path_when_tables_unreadable(monkeypatch):
-    written, _ = _render_drill_cell(monkeypatch, tables=RAISES)             # today's behaviour: formula written
-    assert any("SUMIFS(" in str(v) for v in written)
-
-
-def test_new_spec_with_drill_cells_takes_the_pending_drill_q():
-    from smartview_mcp.core import pipeline
-    from smartass.xl import sheets
-    t = _target_with_sheets(["Q1 Lines d1", "Q1 Lines d2"])               # the live case
-    assert pipeline.question_for(t, _spec(_drill_cell("d2", {}))) == 1
-    assert pipeline.question_for(t, _spec_without_drill()) == 2
-    assert sheets.pending_drill_question(_target_with_sheets(["Q1 Answer", "Q1 Lines d1"])) is None
 
 
 # ------------------------------------------------------------------ cross-process profile lock
@@ -945,45 +759,11 @@ def test_server_lines_of_normalises_each_piece_once(monkeypatch):
     assert isinstance(L["stats"]["unfixed"], list) and L["cols"][0] == "Scenario"
 
 
-def test_drill_alias_syntax():
-    from smartview_mcp import tools_drill as server
-    assert server._ALIAS.match("d") and server._ALIAS.match("b2_x")
-    for bad in ("", "2b", "a-b", "a b", "a]"):
-        assert not server._ALIAS.match(bad)
-
-
 # ------------------------------------------------------------------ re-drill decisions (last review round)
 def test_same_header_decides_reuse():
     assert dx.same_header(("Period", "AMOUNT"), ["Period", "AMOUNT"])
     assert not dx.same_header(("Period", "AMOUNT"), ["Period", "AMOUNT", "ACCOUNT"])
     assert not dx.same_header(("AMOUNT", "Period"), ["Period", "AMOUNT"]) and not dx.same_header(None, ["A"])
-
-
-def test_grid_key_identifies_the_same_grid():
-    from smartview_mcp import tools_drill as server
-    a = server._grid_key("FinLite", {"All Entities": "un.SY.2WHS", "All Scenarios": "Actual"}, "ac.C40S", ["Q3 26"])
-    b = server._grid_key("FinLite", {"All Scenarios": "Actual", "All Entities": "un.SY.2WHS"}, "ac.C40S", ["Q3 26"])
-    assert a == b
-    assert a != server._grid_key("FinLite", {"All Entities": "un.SY.2WHS", "All Scenarios": "Actual"}, "ac.C40S",
-                                 ["Sep 26"])
-
-
-def test_failed_redrill_restores_previous_lines_or_marks_incomplete(monkeypatch, tmp_path):
-    from smartview_mcp import drill_store, tools_drill as server
-    db = drill_store.connect(tmp_path / "d.db")
-    did = drill_store.save(db, connection="FinLite", cell={"All Accounts": "ac.C40S"}, rec={}, columns=["AMOUNT"],
-                           rows=[{"AMOUNT": -1.0}], workbook="w.xlsx", q=1, alias="d")
-    db.close()
-    monkeypatch.setattr(drill_store, "connect", lambda path=None: drill_store.sqlite3.connect(tmp_path / "d.db"))
-    prev = server._prev_drill("w.xlsx", 1, "d")
-    assert prev["id"] == did and prev["columns"] == ["AMOUNT"]
-    calls = []
-    monkeypatch.setattr(dx, "write_lines", lambda t, q, rows, cols, **kw: calls.append(("write", rows, cols, kw)))
-    monkeypatch.setattr(dx, "mark_incomplete", lambda t, q, alias="d": calls.append(("incomplete", q, alias)))
-    assert "restored" in server._restore_lines(None, 1, "d", prev, "src")
-    assert calls[0][:3] == ("write", [{"AMOUNT": -1.0}], ["AMOUNT"]) and "forrige uttrekk" in calls[0][3]["title"]
-    calls.clear()
-    assert "INCOMPLETE" in server._restore_lines(None, 1, "d", None, "src") and calls == [("incomplete", 1, "d")]
 
 
 def test_chrome_start_failure_releases_the_profile_lock(monkeypatch, tmp_path):
@@ -1360,20 +1140,6 @@ def test_fetch_never_leaks_the_sso_token():
     assert "abc" not in str(e.value)
 
 
-def test_sv_drill_error_text_is_redacted(monkeypatch):
-    import asyncio
-    from smartview_mcp import tools_drill as server
-    logged = []
-
-    async def boom(*a, **k):
-        raise RuntimeError("failed at https://epm/aif/x.jsp?sso_token=abc")
-    monkeypatch.setattr(server, "_sv_drill", boom)
-    monkeypatch.setattr(server.qlog, "write", logged.append)
-    with pytest.raises(Exception) as e:
-        asyncio.run(server.sv_drill("q", _CELL))
-    assert "abc" not in str(e.value) and "abc" not in json.dumps(logged) and logged
-
-
 def test_page_url_replaces_only_limit_and_offset():
     from urllib.parse import parse_qs, urlsplit
     from smartass.core import config
@@ -1419,15 +1185,6 @@ def test_drill_link_reports_a_failed_status(monkeypatch):
 
 def test_drill_formula_treats_none_as_blank():
     assert dx.drill_formula("T", {"AP_CUSTOMER_NAME": None}) == dx.drill_formula("T", {"AP_CUSTOMER_NAME": ""})
-
-
-def test_evaluate_drill_cell_on_a_column_not_in_excel_is_empty():
-    spec = {"columns": [{"header": "NOK"}], "sections": [{"title": "x", "lines": [
-        {"key": "a", "label": "A", "cells": [{"drill": "d", "where": {"BATCH_ID": "7"}}]},
-        {"key": "b", "label": "B", "cells": [{"drill": "d", "where": {"je_source": "Payables"}}]}]}]}
-    rows = [{"JE_SOURCE": "Payables", "AMOUNT": -2.0}]
-    v = specs.evaluate(spec, {}, drills={"d": rows})
-    assert v["a"] == [None] and v["b"] == [-2.0]
 
 
 def test_profile_shares_for_no_supplier_and_untagged(whs):
@@ -1726,7 +1483,6 @@ def test_period_splits_are_not_derived(monkeypatch):
     parts = [{"All Accounts": "ac.C60090", "All Entities": "un.SY", "All Time Periods": p} for p in ("Jul 26", "Aug 26")]
     asyncio.run(server._children_derived("FinLite", parts, [-1.0, -1.0], 1000, "auto", {"left": 1000}, 0))
     assert usual == ["un.SY", "un.SY"]
-
 
 
 def test_a_built_piece_without_lines_or_with_a_browser_error_asks_epm(monkeypatch):

@@ -11,7 +11,7 @@ def test_blocks_databases_and_stray_workbooks():
     assert cs.problems("engine/atlas.db", b"") and cs.problems("x/drill.sqlite", b"")
     assert cs.problems("docs/analyse.xlsx", b"")
     assert not cs.problems("packs/produktregnskap/knowledge/source_x.xlsx", b"")
-    assert not cs.problems("engine/smartview_mcp/knowledge/map.xlsx", b"")
+    assert not cs.problems("engine/smartass/knowledge/map.xlsx", b"")
 
 
 def test_blocks_tokens_unless_marked():

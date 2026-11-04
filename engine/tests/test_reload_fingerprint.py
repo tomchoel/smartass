@@ -1,4 +1,4 @@
-"""run_server's reload fingerprint covers every code file, including subpackages (core/, excel/)."""
+"""run_server's reload fingerprint covers every code file, including subpackages (core/, xl/ ...)."""
 import importlib.util
 from pathlib import Path
 
@@ -12,13 +12,13 @@ def _relay_module():
 
 def test_a_change_in_a_subpackage_changes_the_fingerprint(tmp_path, monkeypatch):
     rs = _relay_module()
-    (tmp_path / "smartview_mcp" / "excel").mkdir(parents=True)
-    (tmp_path / "smartview_mcp" / "top.py").write_text("x = 1\n", encoding="utf-8")
-    sub = tmp_path / "smartview_mcp" / "excel" / "jobs.py"
+    (tmp_path / "smartass" / "xl").mkdir(parents=True)
+    (tmp_path / "smartass" / "top.py").write_text("x = 1\n", encoding="utf-8")
+    sub = tmp_path / "smartass" / "xl" / "jobs.py"
     sub.write_text("y = 1\n", encoding="utf-8")
     monkeypatch.setattr(rs, "HERE", tmp_path)
     monkeypatch.setattr(rs, "CHILD", tmp_path / "child_server.py")
     before = rs.fingerprint()
-    assert any("excel" in name for name, _, _ in before)
+    assert any("xl" in name for name, _, _ in before)
     sub.write_text("y = 22\n", encoding="utf-8")
     assert rs.fingerprint() != before

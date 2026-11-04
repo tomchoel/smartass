@@ -1,6 +1,4 @@
 from smartass.epm.grid import Axis, Layout, full_pov, name_from_label, parse, validate_axes
-from smartass.epm.ops import tree_from_labels
-
 DIMS = ["All Time Periods", "All Balance Types", "All Accounts", "All Entities", "All Scenarios", "All Currencies"]
 
 
@@ -84,18 +82,6 @@ def test_two_column_dims_join_their_headers():
     vals = ((None, "Target 2025"), (None, "FY25", "FY26"), (None, "TotalYear", "TotalYear"), ("BANORWAY", 1.0, 2.0))
     p = parse(lay, vals, False, False)
     assert p.columns == ["Entity", "FY25 / TotalYear", "FY26 / TotalYear"]
-
-
-def test_tree_bottom_up():
-    # ancestors-at-bottom ordering as Smart View returns it with the user's 'ancestor position' setting
-    labels = ["          3WHS_W Wholesale (un.SY)", "     2WHS Wholesale (un.SY)", "     2BUS Business (un.SY)",
-              "SY Telenor Norge AS (un)"]
-    t = tree_from_labels(labels)
-    by = {x["name"]: x for x in t}
-    assert by["un.SY"]["depth"] == 0 and by["un.SY"]["parent"] is None
-    assert by["un.SY.2WHS"]["parent"] == "un.SY"
-    assert by["un.SY.3WHS_W"]["parent"] == "un.SY.2WHS"
-    assert by["un.SY.2BUS"]["parent"] == "un.SY"
 
 
 def test_parse_names_rows_suppressed_as_empty():

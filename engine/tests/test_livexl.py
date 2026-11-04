@@ -14,19 +14,6 @@ def test_coerced_finds_text_turned_number_and_leftovers():
     assert _coerced(consts, now, 2, 2) == [("C2", "2026"), ("C3", None)]
 
 
-def test_dependents_outside_a_row_delete_are_listed_once(monkeypatch):
-    import types
-
-    from smartview_mcp.workbench import changes
-    from smartass.xl.workbench import fmt
-    sheet = lambda n: types.SimpleNamespace(Name=n)          # noqa: E731
-    b = types.SimpleNamespace(wb=types.SimpleNamespace(Worksheets=[sheet("Data"), sheet("Calc")]))
-    f = {"Data": [("Data", "D9", "=SUM(B3:B4)"), ("Data", "B3", "=B4"), ("Data", "D10", "=SUM(B2:B5)")],
-         "Calc": [("Calc", "A1", "=Data!B3+Data!C3"), ("Calc", "A2", "=Other!B3")]}
-    monkeypatch.setattr(fmt.fx, "sheet_formulas", lambda ws, com: f[ws.Name])
-    assert changes._dependents_outside(b, sheet("Data"), "3:4", True) == ["Data!D9", "Calc!A1"]
-
-
 def test_constants_skip_spill_children():
     f2 = [["=SEQUENCE(2)"], [""], [""]]          # B2 spills into B3; B4 is really empty
     v2 = [[1.0], [2.0], [None]]

@@ -3,10 +3,10 @@ import subprocess
 import sys
 
 CODE = ("import sys, smartass.server; "
-        "print('LEAK' if any(m.startswith('smartview_mcp.tools_') for m in sys.modules) else 'CLEAN')")
+        "print('LEAK' if any(m.startswith('smartview_mcp') for m in sys.modules) else 'CLEAN')")
 
 
-def test_importing_the_v2_server_does_not_import_v1_tools():
+def test_importing_the_v2_server_does_not_import_v1():
     out = subprocess.run([sys.executable, "-c", CODE], capture_output=True, text=True, timeout=120,
                          stdin=subprocess.DEVNULL)
     assert out.returncode == 0, out.stderr[-2000:]

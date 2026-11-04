@@ -2,37 +2,8 @@
 from types import SimpleNamespace
 
 from smartass.epm.grid import Axis, Layout
-from smartview_mcp.core.reply import fin
-from smartview_mcp.templates import _clean, _fmt, _pct, months_to, same_period_ly, split_period
 from smartass.xl.pull_adhoc import _verify_labels
 from smartass.xl.instances import is_archive, local_path
-
-
-def test_fin_matches_sheet_format():
-    assert fin(-1112834010.34) == "(1 112 834 010)"
-    assert fin(59752923.67) == "59 752 924"
-    assert fin(0) == "–" and fin(0.2) == "–"
-    assert fin(544.2, "tall1") == "544,2"
-    assert fin(0.13, "prosent1") == "+13,0 %" and fin(-0.044, "prosent1") == "-4,4 %"
-
-
-def test_text_amounts_use_minus_never_double_parentheses():
-    assert _fmt(-151328997) == "−151 328 997"
-    assert "(" not in _fmt(-1) and _fmt(1234) == "1 234"
-    assert _pct(954.0, 1000.0) == "−4,6 %"          # (current − comparison) / |comparison|
-    assert _pct(-1112.8, -1066.4) == "−4,4 %"       # costs/EBITDA negative: worse = negative
-
-
-def test_periods():
-    assert split_period("Sep 26") == (9, 26)
-    assert same_period_ly("Jan 26") == "Jan 25"
-    assert months_to("Mar 26") == ["Jan 26", "Feb 26", "Mar 26"]
-
-
-def test_clean_labels():
-    assert _clean("C30 REVENUES (ac)") == "C30 REVENUES"
-    assert _clean("EBITDA EBITDA (ac)") == "EBITDA"
-    assert _clean("2TEC Technology (un.SY)") == "2TEC Technology"
 
 
 def test_verify_labels_catches_shifted_rows():
@@ -85,7 +56,7 @@ def test_slow_stage_sends_progress_notes_and_stops_after(monkeypatch):
 def test_progress_job_clears_its_notify_after_the_job():
     import asyncio
 
-    from smartview_mcp import server
+    from smartass.core import serverkit as server
     from smartass.core import timing
 
     async def run():

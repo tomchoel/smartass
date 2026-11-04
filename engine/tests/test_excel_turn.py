@@ -9,7 +9,7 @@ from smartass.xl import jobs  # noqa: E402
 HOLDER = r"""
 import sys, time
 sys.path.insert(0, sys.argv[1])
-from smartview_mcp.excel import jobs
+from smartass.xl import jobs
 tt = jobs.Turn(int(sys.argv[3]))
 tt.acquire("holder")
 print("held", flush=True)

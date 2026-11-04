@@ -1,7 +1,7 @@
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from smartview_mcp import server
+from smartass.core import serverkit as server
 from smartass.epm.drill_browser import CellTooWide
 from smartass.xl.host import HostTimeout
 
@@ -110,27 +110,16 @@ def test_explain_gives_one_next_step_for_unknown_errors():
 
 
 @pytest.mark.anyio
-async def test_drill_errors_keep_their_class_advice(monkeypatch):
-    from smartview_mcp import tools_drill
+async def test_drill_errors_keep_their_class_advice():
     from smartass.epm.drill_browser import DrillError
 
-    async def boom(*a, **k):
+    async def fin_drill(cell=None):
         raise DrillError("getData returned HTTP 500 at offset 0.")
-    monkeypatch.setattr(tools_drill, "_sv_drill", boom)
     with pytest.raises(ToolError) as e:
-        await tools_drill.sv_drill(question="q", cell={})
+        await server.guard(fin_drill)(cell={})
     msg = str(e.value)
     assert "DrillError: getData returned HTTP 500" in msg and "Retry the drill once" in msg
     assert msg.count("Next step:") == 1
-
-
-def test_answer_spec_errors_are_input_errors_not_host_errors():
-    from smartview_mcp import answer_write
-    from smartass.xl.host import HostError as RealHostError
-    from smartass.xl.host import InputError
-    with pytest.raises(InputError) as e:
-        answer_write._expr_to_formula("rev + nope", "D", {"rev": 5})
-    assert not isinstance(e.value, RealHostError)
 
 
 def test_rewrap_keeps_input_errors_as_input_errors():
