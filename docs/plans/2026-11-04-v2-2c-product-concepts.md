@@ -107,3 +107,26 @@ rebuilt: semantic files changed"). A build error stops the answer with a GuardEr
 4. A product ranking: top 10 products by revenue in Wholesale YTD.
 5. `testset record b09`, then `approve b09`, then `run` (9/9).
 6. Merge and push.
+
+---
+
+## Live result (2026-11-04)
+
+- **Lookup.** `fin_lookup("splitt", kind="concept")` returns the concept with its blocks, names and notes.
+- **Splitt concept block.** FinMax un.SY closed-ytd vs LY: direct contribution 145 168 724 against 59 698 162,
+  Sheet = model OK. The key shares sit in helper columns (handset key 13.2 %). The concept notes and the account
+  caveats come through.
+- **b09 recorded:** Mobil Own Subscriptions Mobile, direct contribution 6 292 157 291 against 6 244 093 486.
+  - The golden awaits Tom's approval: `uv run python -m smartass.testset approve b09`.
+  - The CLI needed `SV_DRILL_PROFILE_SLOTS=6`, because every browser slot was taken by the running servers.
+- **Version.** Bumped to 0.2.1 so every running relay reloads 2C. Otherwise the servers keep rebuilding
+  knowledge.db against each other.
+
+## Carried forward
+
+1. Concept lines have no materiality, so the critic brief lists no material lines for a concept answer. Give
+   concept lines the materiality of their account's metric.
+2. Concept labels are wider than the 46-character label column. Widen column B for concept blocks, or wrap.
+3. The CLI's default browser slots clash with the running servers. Use a dedicated CLI slot name, or more slots by
+   default.
+4. The product ranking (`rows: products`) has not been tested live yet.
