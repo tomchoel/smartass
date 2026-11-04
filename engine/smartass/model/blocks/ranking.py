@@ -11,6 +11,7 @@ from .common import BlockOut, col_headers, entity_lines
 def build_ranking(b: RankingBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
     cols = ["value"] + ([b.compare, "var", "var_pct"] if b.compare else []) + ["share"]
-    out = BlockOut(key, "ranking", b.title or f"Top {b.top} by {b.metric}", col_headers(cols))
+    out = BlockOut(key, "ranking", b.title or f"Top {b.top} by {b.metric}", col_headers(cols), cols=cols,
+                   query=q.id)
     out.lines = entity_lines(ctx, q, b.metric, cols, key, top=b.top, other=True, sort="abs")
     return out

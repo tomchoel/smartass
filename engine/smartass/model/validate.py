@@ -11,7 +11,7 @@ from typing import Literal
 from .blocks.common import BlockOut, ck
 from .context import Ctx
 from .expr import Cells
-from .periods import Month, label, resolve
+from .periods import Closed, closed_for, label, resolve
 from .resolver import Resolver, UnknownMetric
 from .spec import AnalysisSpec
 
@@ -31,7 +31,7 @@ class Finding:
     where: str = ""
 
 
-def guard_spec(spec: AnalysisSpec, r: Resolver, closed: Month) -> list[Finding]:
+def guard_spec(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[Finding]:
     soft: list[Finding] = []
     for q in spec.queries:
         if not r.exists(q.entity, q.cube):
@@ -44,10 +44,11 @@ def guard_spec(spec: AnalysisSpec, r: Resolver, closed: Month) -> list[Finding]:
             if r.status(m) != "approved":
                 raise GuardError(f"metric {m!r} is a draft",
                                  "approve it (smartass knowledge approve) or use an approved metric")
-        late = [label(x) for x in resolve(q.periods, closed) if x > closed]
+        cl = closed_for(closed, q.cube)
+        late = [label(x) for x in resolve(q.periods, cl) if x > cl]
         if late and not q.preliminary:
-            raise GuardError(f"query {q.id}: {', '.join(late)} is after the last closed month {label(closed)}",
-                             f"end the period at {label(closed)} or set preliminary: true")
+            raise GuardError(f"query {q.id}: {', '.join(late)} is after the last closed month {label(cl)}",
+                             f"end the period at {label(cl)} or set preliminary: true")
         if late:
             soft.append(Finding("warning", f"query {q.id}: {', '.join(late)} is preliminary (month not closed)",
                                 q.id))

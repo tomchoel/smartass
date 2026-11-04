@@ -2,7 +2,7 @@
 from v2util import CLOSED, facts, resolver, spec_dict
 
 from smartass.model.blocks.common import ck, evaluate
-from smartass.model.blocks.drivers import build_drivers
+from smartass.model.blocks.drivers import build_drivers, DrillRequest
 from smartass.model.context import Ctx
 from smartass.model.spec import AnalysisSpec
 
@@ -26,8 +26,9 @@ def test_drivers_walk_the_biggest_contributors():
 
 def test_drivers_request_drills_at_the_leaves():
     _, out = run(depth=2, drill=True)
-    assert out.drills == [{"entity": "un.SY.B1", "metric": "Opex", "query": "fm"},
-                          {"entity": "un.SY.B2", "metric": "Opex", "query": "fm"}]
+    assert out.drills == [
+        DrillRequest("fm", "FinMax", "un.SY.B1", "Opex", ("ac.C50S", "ac.C60"), ("Sep 26",), ("Sep 25",), "ly"),
+        DrillRequest("fm", "FinMax", "un.SY.B2", "Opex", ("ac.C50S", "ac.C60"), ("Sep 26",), ("Sep 25",), "ly")]
 
 
 def test_depth_one_stops_at_children():

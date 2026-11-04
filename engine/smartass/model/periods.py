@@ -9,6 +9,17 @@ ABBR = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "N
 _LABEL = re.compile(r"([A-Z][a-z]{2}) (\d{2})")
 
 
+Closed = Month | dict[str, Month]   # one closed month, or one per cube
+
+
+def closed_for(closed: Closed, cube: str) -> Month:
+    if isinstance(closed, dict):
+        if cube not in closed:
+            raise ValueError(f"no closed month given for cube {cube}")
+        return closed[cube]
+    return closed
+
+
 def label(m: Month) -> str:
     return f"{ABBR[m[1] - 1]} {m[0] % 100:02d}"
 

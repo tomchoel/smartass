@@ -66,3 +66,24 @@ def test_variance_compares_against_the_nearest_base_to_its_left():
 def test_single_base_keeps_plain_variance_headers():
     c, b = plan_ctx(["value", "budget", "var", "var_pct"])
     assert build_table(b, c, "b0").headers == ["Actual", "Budget", "Variance", "Variance %"]
+
+
+def test_blocks_expose_column_codes_and_line_entities():
+    c, (b,) = run([{"type": "table", "query": "fm", "rows": "entities", "metric": "Opex",
+                    "columns": ["value", "ly", "var", "var_pct", "share"], "top": 1}])
+    out = build_table(b, c, "b0")
+    assert out.cols == ["value", "ly", "var", "var_pct", "share"] and len(out.cols) == len(out.headers)
+    assert [(ln.key, ln.entity) for ln in out.lines] == [("e0", "un.SY.4BUS_B"), ("other", None),
+                                                         ("total", "un.SY.2BUS"), ("check", None)]
+    c, (b,) = run([{"type": "kpi_tiles", "query": "fm", "metrics": ["EBITDA"]}])
+    out = build_kpi(b, c, "b0")
+    assert out.cols == ["value", "ly", "var", "var_pct"] and out.lines[0].entity == "un.SY.2BUS"
+
+
+def test_material_reads_every_variance_column_by_code():
+    from smartass.model.findings import material
+    c, b = plan_ctx(["value", "budget", "var", "forecast", "var", "var_pct"])
+    c.resolver._m['ebitda'].materiality = (7.0, 0.5)         # EBITDA: |-10| vs budget is material, |-5| is not
+    out = build_table(b, c, "b0")
+    hits = material([out], evaluate([out], c.frame), c.resolver)
+    assert [(h["key"], h["variance"]) for h in hits] == [("b0.m0", -10.0)]

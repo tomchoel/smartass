@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .expr import Cells, Expr, pick
 from .frame import Frame
-from .periods import Month, label
+from .periods import Closed, Month, closed_for, label
 from .resolver import Resolver
 from .series import months, scenario
 from .spec import AnalysisSpec, Query
@@ -16,8 +16,11 @@ from .spec import AnalysisSpec, Query
 class Ctx:
     spec: AnalysisSpec
     resolver: Resolver
-    closed: Month
+    closed: Closed
     frame: Frame
+
+    def closed_for(self, cube: str) -> Month:
+        return closed_for(self.closed, cube)
 
     def query(self, qid: str) -> Query:
         for q in self.spec.queries:
@@ -29,7 +32,7 @@ class Ctx:
              base_months: list[Month] | None = None) -> Expr:
         scen, ver = scenario(q.cube, series, self.resolver)
         ents = (q.entity,) if entity is None else ((entity,) if isinstance(entity, str) else tuple(entity))
-        ms = months(q, series, self.closed, base_months)
+        ms = months(q, series, self.closed_for(q.cube), base_months)
         if self.resolver.aggregation(metric) == "last":
             ms = ms[-1:]
         f = {"Cube": (q.cube,), "Query": (q.id,), "Account": self.resolver.members(metric, q.cube),

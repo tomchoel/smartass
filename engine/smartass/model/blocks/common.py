@@ -24,6 +24,7 @@ class Line:
     kind: Literal["line", "sum", "grand", "check"] = "line"
     level: int = 0
     metric: str | None = None
+    entity: str | None = None
 
 
 @dataclass
@@ -32,9 +33,12 @@ class BlockOut:
     type: str
     title: str
     headers: list[str]
+    cols: list[str] = field(default_factory=list)   # column codes parallel to headers: value, ly, budget,
+    # forecast, var, var_pct, share, amount (bridge)
+    query: str | None = None
     lines: list[Line] = field(default_factory=list)
     chart: str | None = None
-    drills: list[dict] = field(default_factory=list)
+    drills: list = field(default_factory=list)   # DrillRequest (blocks/drivers.py)
 
 
 def ck(block: str, line: str, col: int) -> str:
@@ -115,7 +119,8 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
         kids.sort(key=order)
     shown, rest = (kids[:top], kids[top:]) if top else (kids, [])
     lines = [Line(f"e{i}", r.label(e, q.cube),
-                  row_cells(ctx, q, metric, cols, key, f"e{i}", entity=e, total_key="total"), metric=metric)
+                  row_cells(ctx, q, metric, cols, key, f"e{i}", entity=e, total_key="total"), metric=metric,
+                  entity=e)
              for i, e in enumerate(shown)]
     if rest and other:
         cells: list[Expr | None] = []
@@ -128,7 +133,7 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
         lines.append(Line("other", "Other", cells, metric=metric))
     lines.append(Line("total", r.label(q.entity, q.cube),
                       row_cells(ctx, q, metric, cols, key, "total", entity=q.entity, total_key="total"),
-                      kind="grand", metric=metric))
+                      kind="grand", metric=metric, entity=q.entity))
     if counted(ctx, q, kids):
         vi = cols.index("value")
         check: list[Expr | None] = [None] * len(cols)

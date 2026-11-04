@@ -11,19 +11,22 @@ from .common import BlockOut, Line, col_headers, entity_lines, row_cells
 def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
     cols = list(b.columns)
-    out = BlockOut(key, "table", b.title or "Table", col_headers(cols))
+    out = BlockOut(key, "table", b.title or "Table", col_headers(cols), cols=cols, query=q.id)
     if b.rows == "entities":
         out.lines = entity_lines(ctx, q, b.metric, cols, key, top=b.top, other=b.other, sort=b.sort)
     else:
         for i, m in enumerate(b.metrics or q.metrics):
-            out.lines.append(Line(f"m{i}", m, row_cells(ctx, q, m, cols, key, f"m{i}"), metric=m))
+            out.lines.append(Line(f"m{i}", m, row_cells(ctx, q, m, cols, key, f"m{i}"), metric=m,
+                                  entity=q.entity))
     return out
 
 
 def build_kpi(b: KpiBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
     cols = ["value", b.compare, "var", "var_pct"]
-    out = BlockOut(key, "kpi_tiles", b.title or "Key figures", col_headers(cols))
+    out = BlockOut(key, "kpi_tiles", b.title or "Key figures", col_headers(cols), cols=cols,
+                   query=q.id)
     for i, m in enumerate(b.metrics):
-        out.lines.append(Line(f"k{i}", m, row_cells(ctx, q, m, cols, key, f"k{i}"), metric=m))
+        out.lines.append(Line(f"k{i}", m, row_cells(ctx, q, m, cols, key, f"k{i}"), metric=m,
+                                  entity=q.entity))
     return out

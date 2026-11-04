@@ -12,10 +12,10 @@ from .common import HEAD, BlockOut, Line, ck, children_sum, counted
 
 def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
-    ms = resolve(q.periods, ctx.closed)
+    ms = resolve(q.periods, ctx.closed_for(q.cube))
     combos = [(m, s) for m in b.metrics for s in b.series]
     out = BlockOut(key, "trend", b.title or "Trend", [f"{m} {HEAD[s]}" for m, s in combos],
-                   chart="line" if b.chart else None)
+                   cols=[s for _, s in combos], query=q.id, chart="line" if b.chart else None)
     for i, mon in enumerate(ms):
         cells: list[Expr | None] = []
         for j, (m, s) in enumerate(combos):
@@ -30,15 +30,16 @@ def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
 
 def build_matrix(b: MatrixBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
-    ms = resolve(q.periods, ctx.closed)
+    ms = resolve(q.periods, ctx.closed_for(q.cube))
     r = ctx.resolver
     kids = r.children(q.entity, q.cube)
-    out = BlockOut(key, "matrix", b.title or b.metric, [label(m) for m in ms])
+    out = BlockOut(key, "matrix", b.title or b.metric, [label(m) for m in ms], cols=["value"] * len(ms), query=q.id)
     for i, e in enumerate(kids):
         out.lines.append(Line(f"e{i}", r.label(e, q.cube), [ctx.pick(q, b.metric, "value", e, [m]) for m in ms],
-                              metric=b.metric))
+                              metric=b.metric, entity=e))
     out.lines.append(Line("total", r.label(q.entity, q.cube),
-                          [ctx.pick(q, b.metric, "value", q.entity, [m]) for m in ms], kind="grand", metric=b.metric))
+                          [ctx.pick(q, b.metric, "value", q.entity, [m]) for m in ms], kind="grand", metric=b.metric,
+                          entity=q.entity))
     live = counted(ctx, q, kids)
     if live:
         out.lines.append(Line("check", "Check: children = parent",

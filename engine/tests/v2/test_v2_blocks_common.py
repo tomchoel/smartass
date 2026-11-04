@@ -85,3 +85,15 @@ def test_children_sum_with_only_subtracted_children():
 
 def Line_out(key, lines):  # noqa: N802
     return BlockOut(key, "table", "t", ["Actual"], lines=lines)
+
+
+def test_matrix_trend_bridge_codes_and_entities():
+    from smartass.model.blocks.bridge import build_bridge
+    from smartass.model.blocks.trend import build_trend
+    c = ctx()
+    b = AnalysisSpec.model_validate(spec_dict(blocks=[
+        {"type": "trend", "query": "fm", "metrics": ["Opex"]},
+        {"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Opex"]}])).blocks
+    assert build_trend(b[0], c, "b0").cols == ["value", "ly"]
+    br = build_bridge(b[1], c, "b1")
+    assert br.cols == ["amount"] and {ln.entity for ln in br.lines} == {"un.SY.2BUS", None}

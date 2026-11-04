@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .periods import Month, label
+from .periods import Closed, closed_for, label
 from .resolver import Resolver
 from .series import months, scenario
 from .spec import AnalysisSpec, DriversBlock, MatrixBlock, RankingBlock, TableBlock
@@ -43,7 +43,7 @@ def _subtree(r: Resolver, cube: str, root: str, depth: int) -> tuple[str, ...]:
     return tuple(dict.fromkeys(out))
 
 
-def requests(spec: AnalysisSpec, r: Resolver, closed: Month) -> list[GridRequest]:
+def requests(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[GridRequest]:
     reqs = []
     for q in spec.queries:
         by_balance: dict[str, list[str]] = {}
@@ -54,5 +54,5 @@ def requests(spec: AnalysisSpec, r: Resolver, closed: Month) -> list[GridRequest
             scen, ver = scenario(q.cube, s, r)
             for bal, accs in by_balance.items():
                 reqs.append(GridRequest(q.id, q.cube, tuple(dict.fromkeys(accs)), ents,
-                                        tuple(label(m) for m in months(q, s, closed)), scen, ver, bal))
+                                        tuple(label(m) for m in months(q, s, closed_for(closed, q.cube))), scen, ver, bal))
     return reqs
