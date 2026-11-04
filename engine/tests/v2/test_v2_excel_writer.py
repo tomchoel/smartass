@@ -62,3 +62,14 @@ def test_answer_cells_grid_is_one_rectangle():
     p = SheetPlan(cells={(1, 2): "T", (4, 3): "=1+1"}, last_col="C", last_row=4)
     r0, c0, g = answer_grid(p)
     assert (r0, c0) == (1, 2) and g[0][0] == "T" and g[3][1] == "=1+1" and g[1][0] == ""
+
+
+def test_write_answer_sets_value_column_widths(monkeypatch):
+    from smartview_mcp import styling
+
+    from smartass.render import excel
+    seen = {}
+    monkeypatch.setattr(styling, "apply_report", lambda ws, roles: seen.update(roles) or [])
+    p = SheetPlan(cells={(1, 2): "T", (2, 3): 1.0, (2, 5): 2.0}, last_col="E", last_row=2)
+    excel.write_answer(WS(), p, [])
+    assert seen["col_widths"] == {"B": 46, "C": 16, "D": 16, "E": 16}

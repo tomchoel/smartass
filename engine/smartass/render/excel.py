@@ -8,7 +8,7 @@ from smartview_mcp import styling
 from smartview_mcp.excel.jobs import com
 
 from ..model.frame import COLUMNS, Frame
-from .layout import SheetPlan
+from .layout import SheetPlan, col_letter
 
 XL_SRC_RANGE = 1
 XL_YES = 1
@@ -44,7 +44,8 @@ def write_answer(ws, p: SheetPlan, warnings: list[str]) -> list[str]:
     r0, c0, g = answer_grid(p)
     rng = ws.Range(ws.Cells(r0, c0), ws.Cells(r0 + len(g) - 1, c0 + len(g[0]) - 1))
     com(lambda: setattr(rng, "Formula2", tuple(tuple(x) for x in g)))
-    roles = {"last_col": p.last_col, "label_cols": ["B"], "last_row": p.last_row, "col_widths": {"B": 46},
+    widths = {"B": 46, **{col_letter(c): 16 for c in range(3, col_number(p.last_col) + 1)}}
+    roles = {"last_col": p.last_col, "label_cols": ["B"], "last_row": p.last_row, "col_widths": widths,
              "rows": p.rows}
     return styling.apply_report(ws, roles)
 
@@ -53,3 +54,10 @@ def read_block(ws, p: SheetPlan) -> tuple:
     rng = ws.Range(f"A1:{p.last_col}{p.last_row}")
     v = com(lambda: rng.Value2)
     return v if isinstance(v, tuple) else ((v,),)
+
+
+def col_number(letters: str) -> int:
+    n = 0
+    for ch in letters:
+        n = n * 26 + ord(ch) - 64
+    return n
