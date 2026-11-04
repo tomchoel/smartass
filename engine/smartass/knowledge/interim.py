@@ -32,6 +32,8 @@ def catalog_metrics(path=None) -> list[MetricDef]:
     out = []
     for concept, d in by_concept.items():
         stock = d["stock"]
+        if "FinMax" in d["members"] and not stock:     # FinLite = the same accounts as FinMax; stock (FTE) is not in it
+            d["members"]["FinLite"] = d["members"]["FinMax"]
         out.append(MetricDef(d["label"], d["members"], sign=SIGN.get(concept, "neutral"), status="approved",
                              materiality=materiality, balance="Accumulated" if stock else "Periodic",
                              aggregation="last" if stock else "sum"))
