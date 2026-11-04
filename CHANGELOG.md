@@ -7,6 +7,10 @@ validates, computes and draws it (design `docs/DESIGN.md`, `docs/specs/2026-11-0
 
 ### Added
 
+- Excel task pane on v2 (Plan 3A): the TN Claude pane source now lives in `addin/tn-claude` (served from the repo
+  on `https://localhost:3000`); its chat may use only `mcp__smartass`, `mcp__excel` and read-only tools, with a v2
+  pane prompt (fin_analyze `target="active"`, xl_snapshot before Excel MCP edits, xl_tidy, never save). New CLI
+  `smartass xl changes|revert|check` (one JSON object on stdout) backs the pane's Endringer and Formelsjekk tabs.
 - v2 products and product concepts (Plan 2C): `Query.products` adds the `All Products` dimension to the grid (a
   `Product` column in the Data table only then); `table`/`ranking` take `rows: "products"`; 24 approved concepts
   (`splitt`, `streamix`, 22 `fam_*` families) as `knowledge/semantic/concepts/*.toml` seeded from `concepts.json`,
