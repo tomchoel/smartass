@@ -28,3 +28,8 @@ def test_unknown_filter_column_is_an_error():
 def test_rows_follow_columns():
     assert COLUMNS[-1] == "Value"
     assert FR.rows()[0] == ("FinMax", "fm", "ac.C50S", "E1", "Sep 26", "Actual", "", -40.0)
+
+
+def test_total_refuses_string_filter_value():
+    with pytest.raises(TypeError, match="tuple"):
+        Frame().total({"Entity": "E1"})

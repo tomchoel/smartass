@@ -68,7 +68,7 @@ def test_var_pct_and_share_blank_on_zero_base():
     v = var_pct(Ref("a"), Ref("b"))
     assert v.evaluate(FR, cells) == pytest.approx((-40.0 - -30.0) / 30.0)
     assert v.to_excel("T", ADDR) == 'IF(D5=0,"",(D4-D5)/ABS(D5))'
-    assert share(Ref("a"), Ref("b")).to_excel("T", ADDR) == 'IF(D5=0,"",(D4)/D5)'
+    assert share(Ref("a"), Ref("b")).to_excel("T", ADDR) == 'IF(D5=0,"",(D4)/(D5))'
     zero = Cells(FR, {"z": pick({"Entity": ("E9",)}), "a": exprs["a"]})
     assert var_pct(Ref("a"), Ref("z")).evaluate(FR, zero) is None
 
@@ -83,3 +83,42 @@ def test_cells_detect_cycles_and_unknown_keys():
 
 def test_pick_is_hashable_tree():
     assert isinstance(pick({"Entity": ("E1",)}), Pick)
+    hash(pick({"Entity": ("E1",), "Period": ("Sep 26", "Sep 25")}))
+    hash(pick({"A": ("1", "2"), "Account": ("3", "4"), "Entity": ("5", "6")}))
+
+
+def test_share_brackets_compound_denominator():
+    e = share(Ref("a"), Sub(Ref("b"), Ref("c")))
+    assert e.to_excel("T", ADDR) == 'IF(D5-D6=0,"",(D4)/(D5-D6))'
+
+
+def test_cells_not_stuck_busy_after_error():
+    cells = Cells(FR, {"a": Ref("nope")})
+    for _ in range(2):
+        with pytest.raises(KeyError):
+            cells.get("a")
+
+
+def test_pick_rejects_string_and_dedupes():
+    with pytest.raises(TypeError, match="filter Entity: give a tuple of values, not a string"):
+        pick({"Entity": "E1"})
+    dup = pick({"Account": ("ac.C50S", "ac.C50S"), "Period": ("Sep 26",)})
+    assert dup.to_excel("T", str).count("ac.C50S") == 1
+    assert ev(dup) == ev(pick({"Account": ("ac.C50S",), "Period": ("Sep 26",)}))
+
+
+def test_pick_splits_on_fewest_valued_multi_column():
+    e = pick({"Account": ("a", "b", "c"), "Entity": ("x", "y"), "Period": ("p", "q", "r", "s")})
+    assert isinstance(e, Sum) and len(e.items) == 2
+    assert all(len(dict(i.filters)["Entity"]) == 1 for i in e.items)
+
+
+def test_criteria_wildcards_escaped():
+    f = pick({"Entity": ("E*",)}).to_excel("T", str)
+    assert '"E~*"' in f
+    assert '"a~~b~?"' in pick({"Entity": ("a~b?",)}).to_excel("T", str)
+
+
+def test_sum_needs_items():
+    with pytest.raises(ValueError, match="Sum needs at least one item"):
+        Sum(())

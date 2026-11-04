@@ -29,6 +29,9 @@ class Frame:
         bad = set(filters) - set(FILTER_COLUMNS)
         if bad:
             raise KeyError(f"unknown filter column(s): {sorted(bad)}")
+        for col, allowed in filters.items():
+            if isinstance(allowed, str):
+                raise TypeError(f"filter {col}: give a tuple of values, not a string")
         hit = [x for x in self.facts
                if all(getattr(x, col.lower()) in allowed for col, allowed in filters.items())]
         return sum(x.value for x in hit) if hit else None

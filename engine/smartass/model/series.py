@@ -10,8 +10,14 @@ from .spec import Query
 
 def scenario(cube: str, series: str, r: Resolver) -> tuple[str, str]:
     if cube == "FinPlan":
-        return {"value": ("Actual", "Working"), "ly": ("Actual", "Working"), "budget": ("Target", "Final"),
-                "forecast": (r.latest_forecast(), "Final")}[series]
+        table = {"value": ("Actual", "Working"), "ly": ("Actual", "Working"), "budget": ("Target", "Final")}
+        if series in table:
+            return table[series]
+        if series == "forecast":
+            return (r.latest_forecast(), "Final")
+        raise ValueError(f"unknown series {series!r}")
+    if series not in ("value", "ly", "budget", "forecast"):
+        raise ValueError(f"unknown series {series!r}")
     if series in ("budget", "forecast"):
         raise ValueError(f"{series} exists only in FinPlan")
     return ("Actual", "")

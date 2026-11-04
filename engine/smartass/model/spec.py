@@ -6,7 +6,9 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .periods import resolve
 
 Compare = Literal["ly", "budget", "forecast"]
 Series = Literal["value", "ly", "budget", "forecast"]
@@ -40,6 +42,15 @@ class Query(_M):
     periods: str
     compare: list[Compare] = []
     preliminary: bool = False
+
+    @field_validator("periods")
+    @classmethod
+    def _periods_parse(cls, v: str) -> str:
+        try:
+            resolve(v, (2000, 1))
+        except ValueError as e:
+            raise ValueError(f"periods {v!r}: {e}") from e
+        return v
 
     @model_validator(mode="after")
     def _plan_only(self) -> "Query":

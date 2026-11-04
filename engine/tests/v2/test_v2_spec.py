@@ -42,11 +42,12 @@ def test_block_must_reference_a_known_query_and_its_metrics_and_series():
 
 
 def test_table_shape_rules():
-    bad = [{"type": "table", "query": "fm", "columns": ["value", "var"]},
-           {"type": "table", "query": "fm", "columns": ["value", "share"]},
-           {"type": "table", "query": "fm", "rows": "entities", "columns": ["value"]}]
-    for b in bad:
-        with pytest.raises(ValidationError):
+    bad = [({"type": "table", "query": "fm", "columns": ["value", "var"]}, "var and var_pct need"),
+           ({"type": "table", "query": "fm", "columns": ["value", "share"]}, "share needs rows"),
+           ({"type": "table", "query": "fm", "rows": "entities", "columns": ["value"]},
+            "rows 'entities' needs")]
+    for b, msg in bad:
+        with pytest.raises(ValidationError, match=msg):
             AnalysisSpec.model_validate(spec_dict(blocks=[b]))
 
 
@@ -67,3 +68,13 @@ def test_json_schema_lists_every_block_type():
     text = str(json_schema())
     for t in ("table", "kpi_tiles", "trend", "bridge", "ranking", "matrix", "drivers", "lines", "commentary"):
         assert f"'{t}'" in text
+
+
+def test_unparseable_periods_refused_but_relative_ok():
+    d = spec_dict()
+    d["queries"][0]["periods"] = "September 2026"
+    with pytest.raises(ValidationError, match="periods"):
+        AnalysisSpec.model_validate(d)
+    for ok in ("closed", "closed-ytd", "closed-12m", "fy", "Sep 26", "Jan 26..Sep 26"):
+        d["queries"][0]["periods"] = ok
+        AnalysisSpec.model_validate(d)

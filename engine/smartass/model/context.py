@@ -20,7 +20,10 @@ class Ctx:
     frame: Frame
 
     def query(self, qid: str) -> Query:
-        return next(q for q in self.spec.queries if q.id == qid)
+        for q in self.spec.queries:
+            if q.id == qid:
+                return q
+        raise KeyError(f"unknown query {qid!r}")
 
     def pick(self, q: Query, metric: str, series: str = "value", entity: str | tuple[str, ...] | None = None,
              base_months: list[Month] | None = None) -> Expr:

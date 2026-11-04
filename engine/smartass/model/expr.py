@@ -29,9 +29,11 @@ class Cells:
         if key in self._busy:
             raise ValueError(f"circular reference at {key}")
         self._busy.add(key)
-        e = self.exprs[key]
-        v = e.evaluate(self.frame, self) if e is not None else None
-        self._busy.discard(key)
+        try:
+            e = self.exprs[key]
+            v = e.evaluate(self.frame, self) if e is not None else None
+        finally:
+            self._busy.discard(key)
         self.done[key] = v
         return v
 
@@ -48,6 +50,11 @@ def _q(s: str) -> str:
     return '"' + s.replace('"', '""') + '"'
 
 
+def _crit(s: str) -> str:
+    """A SUMIFS criterion: * ? ~ are wildcards there, so escape them before quoting."""
+    return _q(s.replace("~", "~~").replace("*", "~*").replace("?", "~?"))
+
+
 @dataclass(frozen=True)
 class Pick(Expr):
     filters: tuple[tuple[str, tuple[str, ...]], ...]
@@ -59,10 +66,10 @@ class Pick(Expr):
         parts, multi = [f"{table}[Value]"], 0
         for col, vals in self.filters:
             if len(vals) == 1:
-                crit = _q(vals[0])
+                crit = _crit(vals[0])
             else:
                 multi += 1
-                crit = "{" + ("," if multi == 1 else ";").join(_q(v) for v in vals) + "}"
+                crit = "{" + ("," if multi == 1 else ";").join(_crit(v) for v in vals) + "}"
             parts += [f"{table}[{col}]", crit]
         f = "SUMIFS(" + ",".join(parts) + ")"
         return f"SUM({f})" if multi else f
@@ -99,6 +106,10 @@ def _ranges(addrs: list[str]) -> list[str]:
 @dataclass(frozen=True)
 class Sum(Expr):
     items: tuple[Expr, ...]
+
+    def __post_init__(self):
+        if not self.items:
+            raise ValueError("Sum needs at least one item")
 
     def evaluate(self, frame, cells):
         vals = [e.evaluate(frame, cells) for e in self.items]
@@ -143,21 +154,26 @@ class Ratio(Expr):
 
     def to_excel(self, table, addr):
         n, d = self.num.to_excel(table, addr), self.den.to_excel(table, addr)
-        den = f"ABS({d})" if self.abs_base else d
+        den = f"ABS({d})" if self.abs_base else f"({d})"
         return f'IF({d}=0,"",({n})/{den})'
 
 
 def pick(filters: dict[str, tuple[str, ...] | list[str]]) -> Expr:
     """A Pick; split into a Sum of Picks when more than two filters have several values (one SUMIFS can cross
     only a row array and a column array)."""
-    items = [(c, tuple(v)) for c, v in filters.items()]
+    items = []
+    for c, v in filters.items():
+        if isinstance(v, str):
+            raise TypeError(f"filter {c}: give a tuple of values, not a string")
+        items.append((c, tuple(dict.fromkeys(v))))
     for c, v in items:
         if not v:
             raise ValueError(f"filter {c} has no values")
     multis = [i for i, (_, v) in enumerate(items) if len(v) > 1]
     if len(multis) <= 2:
         return Pick(tuple(items))
-    col, vals = items[multis[0]]
+    k = min(multis, key=lambda i: len(items[i][1]))
+    col, vals = items[k]
     return Sum(tuple(pick({**dict(items), col: (v,)}) for v in vals))
 
 
