@@ -8,6 +8,9 @@ class Rng:
     def __init__(self, ws, a, b):
         self.ws, self.a, self.b = ws, a, b
 
+    def Clear(self):
+        self.ws.log.append(("clear", self.a, self.b))
+
     def __setattr__(self, k, v):
         if k in ("ws", "a", "b"):
             object.__setattr__(self, k, v)
@@ -33,6 +36,10 @@ class WS:
     def __init__(self):
         self.log = []
         self.ListObjects = Lists(self)
+
+    @property
+    def UsedRange(self):
+        return Rng(self, "used", "used")
 
     def Cells(self, r, c):
         return (r, c)
@@ -81,3 +88,67 @@ def test_answer_grid_stores_text_as_text_but_not_formulas_or_numbers():
                   last_col="C", last_row=3)
     _, _, g = answer_grid(p)
     assert g[0] == ["'Sep 26", "=C2+1"] and g[1] == ["'1/2", 5.0] and g[2][0] == ""
+
+
+class LO:
+    def __init__(self, log, rows):
+        self.log, self.rows = log, rows
+
+    @property
+    def Range(self):
+        rows = self.rows
+
+        class R:
+            Rows = type("Rw", (), {"Count": rows})()
+            Value2 = (("Cube", "Value"), ("FinMax", 1.0))
+        return R()
+
+    def Resize(self, rng):
+        self.log.append(("resize", rng.a, rng.b))
+
+
+class WSLO(WS):
+    def __init__(self, rows=3, table=True):
+        super().__init__()
+        lo = LO(self.log, rows)
+
+        class Lists2:
+            def __call__(_, name):
+                if not table:
+                    raise RuntimeError("no such table")
+                self.log.append(("lookup", name))
+                return lo
+
+            def Add(_, *a):
+                return Lists(self).Add(*a)
+        self.ListObjects = Lists2()
+
+
+def test_rewrite_data_resizes_the_existing_table_then_writes():
+    from smartass.render.excel import rewrite_data
+    fr = Frame([Fact("FinMax", "fm", "ac.C30", "E1", "Sep 26", "Actual", "", 5.0, "Periodic"),
+                Fact("FinMax", "fm", "ac.C30", "E2", "Sep 26", "Actual", "", 6.0, "Periodic")])
+    ws = WSLO(rows=2)
+    rewrite_data(ws, fr, 3)
+    kinds = [x[2] if len(x) == 4 else x[0] for x in ws.log]
+    assert ("lookup", "Data_Q3") in ws.log and ("resize", (1, 1), (3, 9)) in ws.log
+    assert kinds.index("NumberFormat") < kinds.index("resize") < kinds.index("Value2")
+    assert "table" not in kinds                                      # no new ListObject: the name never changes
+
+
+def test_rewrite_data_clears_leftover_rows_when_the_table_shrinks():
+    from smartass.render.excel import rewrite_data
+    fr = Frame([Fact("FinMax", "fm", "ac.C30", "E1", "Sep 26", "Actual", "", 5.0, "Periodic")])
+    ws = WSLO(rows=6)                                                # old table: header + 5 rows, new: header + 1
+    rewrite_data(ws, fr, 3)
+    assert ("clear", (3, 1), (6, 9)) in ws.log
+
+
+def test_rewrite_data_without_a_table_falls_back_to_write_data():
+    from smartass.render.excel import rewrite_data
+    fr = Frame([Fact("FinMax", "fm", "ac.C30", "E1", "Sep 26", "Actual", "", 5.0, "Periodic")])
+    ws = WSLO(table=False)
+    rewrite_data(ws, fr, 3)
+    kinds = [x[2] if len(x) == 4 else x[0] for x in ws.log]
+    assert ("clear", "used", "used") in ws.log                       # a cleared sheet, then the v1-style write
+    assert "table" in kinds and ("table.Name", "Data_Q3") in ws.log

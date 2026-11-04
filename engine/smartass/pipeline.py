@@ -92,7 +92,8 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
     }
 # ---------------------------------------------------------------- the Excel job (runs on a v1 user-Excel job thread)
 from .render.charts import write_charts  # noqa: E402
-from .render.excel import col_number, read_block, write_answer, write_data  # noqa: E402
+from .render.excel import (col_number, read_block, read_data, rewrite_data, rewrite_grid,  # noqa: E402
+                           write_answer, write_data)
 from .render.layout import layout  # noqa: E402
 from .render.readback import compare  # noqa: E402
 
@@ -181,6 +182,10 @@ def _drop_backup(t, bname: str) -> None:
     _delete_sheet(t, bname)
 
 
+def _read_data(ws, q: int):
+    return read_data(ws, q)
+
+
 def _sheet(t, name: str):
     from smartview_mcp.excel.jobs import com
     return com(lambda: t.wb.Worksheets(name))
@@ -199,10 +204,10 @@ def read_stored(h, target: str = "session") -> tuple[dict, str | None]:
     return sheets._stored_specs(t), com(lambda: t.wb.ActiveSheet.Name)
 
 
-def _draw(t, q: int, pre: Prepared, ws_answer, ws_data) -> dict:
+def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False) -> dict:
     """Data sheet, layout, Answer sheet, charts, readback, spec + owned range, sheet order. Shared by excel_job and
-    redraw_job; the caller owns rollback and save."""
-    write_data(ws_data, pre.frame, q)
+    redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place."""
+    (rewrite_data if redraw else write_data)(ws_data, pre.frame, q)
     cubes = sorted({x.cube for x in pre.spec.queries})
     closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
     plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}")
@@ -231,24 +236,33 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
 
 
 def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "session") -> dict:
-    """A follow-up or refresh: back up Q<q> Answer and Q<q> Data, clear what smartass drew, rebuild both sheets;
-    on failure the backups become the sheets again."""
+    """A follow-up or refresh: back up Q<q> Answer (only), clear what smartass drew there, rewrite the existing
+    Data table in place (the Data sheet is never copied, deleted or renamed: the table name and every formula that
+    points at it survive). On failure: rollback, the Answer backup becomes the sheet again, the old data is written
+    back into the table - each step on its own, so one failing step never hides the error or skips the others."""
     t = _target(h, target, pre.spec.question[:60])
     a_name, d_name = f"Q{q} Answer", f"Q{q} Data"
-    b_answer, b_data = _backup(t, a_name), _backup(t, d_name)
+    ws_data = _sheet(t, d_name)
+    old_data = _read_data(ws_data, q)
+    b_answer = _backup(t, a_name)
     try:
         ws_answer = _sheet(t, a_name)
         _clear(ws_answer, owned)
-        _delete_sheet(t, d_name)
-        ws_data = _add_sheet(t, d_name, q, DATA_TAB)
-        out = _draw(t, q, pre, ws_answer, ws_data)
-    except Exception:
-        _rollback(t)
-        _restore(t, a_name, b_answer)
-        _restore(t, d_name, b_data)
+        out = _draw(t, q, pre, ws_answer, ws_data, redraw=True)
+    except Exception as e:
+        problems = []
+        steps = [("rollback", lambda: _rollback(t)), (f"restore {a_name}", lambda: _restore(t, a_name, b_answer))]
+        if old_data is not None:
+            steps.append((f"rewrite {d_name}", lambda: rewrite_grid(_sheet(t, d_name), old_data, q)))
+        for what, step in steps:
+            try:
+                step()
+            except Exception as e2:   # noqa: BLE001 - collect, never hide the original error
+                problems.append(f"{what}: {e2}")
+        if problems:
+            raise RuntimeError(f"{e}; the restore was incomplete - " + "; ".join(problems)) from e
         raise
     _drop_backup(t, b_answer)
-    _drop_backup(t, b_data)
     _save(t)
     out["followup"] = True
     return out

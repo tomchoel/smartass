@@ -5,13 +5,15 @@ from v2util import facts, resolver, spec_dict
 
 from smartass import pipeline
 
+OLD = (("Cube", "Value"), ("FinMax", 1.0))
+
 
 class T:
     path = "C:/a/v2/x.xlsx"
     created = True
 
 
-def wire(monkeypatch, log, fail_at=None):
+def wire(monkeypatch, log, fail_at=None, restore_fail=()):
     def rec(name, ret=None):
         def f(*a, **k):
             log.append(name)
@@ -19,13 +21,22 @@ def wire(monkeypatch, log, fail_at=None):
                 raise RuntimeError("boom")
             return ret
         return f
+
+    def restore(what):
+        def f(*a, **k):
+            log.append(what)
+            if what in restore_fail:
+                raise RuntimeError(f"{what} failed")
+        return f
     monkeypatch.setattr(pipeline, "_target", rec("target", T()))
     monkeypatch.setattr(pipeline, "_backup", lambda t, name: log.append(f"backup {name}") or f"~{name}")
     monkeypatch.setattr(pipeline, "_sheet", rec("sheet", object()))
+    monkeypatch.setattr(pipeline, "_read_data", rec("read_old_data", OLD))
     monkeypatch.setattr(pipeline, "_clear", rec("clear"))
-    monkeypatch.setattr(pipeline, "_delete_sheet", rec("delete_data"))
     monkeypatch.setattr(pipeline, "_add_sheet", rec("add_sheet", object()))
     monkeypatch.setattr(pipeline, "write_data", rec("write_data"))
+    monkeypatch.setattr(pipeline, "rewrite_data", rec("rewrite_data"))
+    monkeypatch.setattr(pipeline, "rewrite_grid", lambda ws, grid, q: log.append(f"rewrite_old {grid == OLD}"))
     monkeypatch.setattr(pipeline, "write_answer", rec("write_answer", []))
     monkeypatch.setattr(pipeline, "write_charts", rec("write_charts", []))
     monkeypatch.setattr(pipeline, "_calculate", rec("calculate"))
@@ -34,8 +45,8 @@ def wire(monkeypatch, log, fail_at=None):
     monkeypatch.setattr(pipeline, "_save_spec", rec("save_spec"))
     monkeypatch.setattr(pipeline, "_arrange", rec("arrange", []))
     monkeypatch.setattr(pipeline, "_drop_backup", lambda t, b: log.append(f"drop {b}"))
-    monkeypatch.setattr(pipeline, "_restore", lambda t, name, b: log.append(f"restore {name}"))
-    monkeypatch.setattr(pipeline, "_rollback", rec("rollback"))
+    monkeypatch.setattr(pipeline, "_restore", lambda t, name, b: restore("restore " + name)())
+    monkeypatch.setattr(pipeline, "_rollback", restore("rollback"))
     monkeypatch.setattr(pipeline, "_save", rec("save"))
 
 
@@ -44,19 +55,32 @@ def test_redraw_order(monkeypatch):
     wire(monkeypatch, log)
     pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
     out = pipeline.redraw_job(None, pre, q=2, owned={"rows": 30, "cols": 6}, target="session")
-    assert log[:4] == ["target", "backup Q2 Answer", "backup Q2 Data", "sheet"]
-    assert log.index("clear") < log.index("delete_data") < log.index("add_sheet") < log.index("write_data")
-    assert log[-3:] == ["drop ~Q2 Answer", "drop ~Q2 Data", "save"]
+    assert log[:5] == ["target", "sheet", "read_old_data", "backup Q2 Answer", "sheet"]
+    assert log.index("clear") < log.index("rewrite_data") < log.index("write_answer")
+    assert "write_data" not in log and "add_sheet" not in log                   # the Data sheet is never rebuilt
+    assert not any("Data" in x for x in log if x.startswith(("backup", "drop", "restore")))
+    assert log[-2:] == ["drop ~Q2 Answer", "save"]
     assert out["q"] == 2 and out["followup"] is True
 
 
-def test_redraw_restores_both_sheets_on_failure(monkeypatch):
+def test_redraw_failure_rolls_back_restores_answer_and_rewrites_old_data(monkeypatch):
     log = []
     wire(monkeypatch, log, fail_at="write_answer")
     pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="boom"):
         pipeline.redraw_job(None, pre, q=2, owned=None, target="session")
-    assert log[-3:] == ["rollback", "restore Q2 Answer", "restore Q2 Data"]
+    assert [x for x in log if x != "sheet"][-3:] == ["rollback", "restore Q2 Answer", "rewrite_old True"]
+
+
+def test_a_failing_restore_step_neither_hides_the_error_nor_skips_the_others(monkeypatch):
+    log = []
+    wire(monkeypatch, log, fail_at="write_answer", restore_fail=("restore Q2 Answer",))
+    pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
+    with pytest.raises(RuntimeError) as ei:
+        pipeline.redraw_job(None, pre, q=2, owned=None, target="session")
+    msg = str(ei.value)
+    assert "boom" in msg and "restore Q2 Answer failed" in msg
+    assert [x for x in log if x != "sheet"][-3:] == ["rollback", "restore Q2 Answer", "rewrite_old True"]
 
 
 def test_restore_when_the_original_sheet_is_gone(monkeypatch):

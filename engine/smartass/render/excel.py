@@ -18,15 +18,63 @@ def data_grid(frame: Frame) -> list[tuple]:
     return [COLUMNS, *frame.rows()]
 
 
-def write_data(ws, frame: Frame, q: int) -> None:
-    g = data_grid(frame)
+def _put(ws, g: list[tuple], between=None):
+    """Label columns as text first, then (after `between(range)`, if any) the values; returns the range."""
     n = len(g)
     labels = ws.Range(ws.Cells(1, 1), ws.Cells(n, len(COLUMNS) - 1))
     com(lambda: setattr(labels, "NumberFormat", "@"))
     rng = ws.Range(ws.Cells(1, 1), ws.Cells(n, len(COLUMNS)))
+    if between is not None:
+        between(rng)
     com(lambda: setattr(rng, "Value2", tuple(g)))
+    return rng
+
+
+def _create_table(ws, g: list[tuple], q: int) -> None:
+    rng = _put(ws, g)
     t = com(lambda: ws.ListObjects.Add(XL_SRC_RANGE, rng, None, XL_YES))
     com(lambda: setattr(t, "Name", f"Data_Q{q}"))
+
+
+def write_data(ws, frame: Frame, q: int) -> None:
+    _create_table(ws, data_grid(frame), q)
+
+
+def _table(ws, q: int):
+    try:
+        return com(lambda: ws.ListObjects(f"Data_Q{q}"))
+    except Exception:   # noqa: BLE001 - no such table (an older answer)
+        return None
+
+
+def read_data(ws, q: int) -> list[tuple] | None:
+    """Header + body of table Data_Q<q> as a grid, or None when the sheet has no such table."""
+    lo = _table(ws, q)
+    if lo is None:
+        return None
+    v = com(lambda: lo.Range.Value2)
+    return [tuple(r) for r in v] if isinstance(v, tuple) else None
+
+
+def rewrite_grid(ws, g: list[tuple], q: int) -> None:
+    """Put grid g into the EXISTING table Data_Q<q>: resize it, write the values, clear rows left below when it
+    shrank. The table is never deleted or renamed, so formulas that point at it keep working. No table (an older
+    answer): clear the sheet and create it as write_data does."""
+    lo = _table(ws, q)
+    if lo is None:
+        com(lambda: ws.UsedRange.Clear())
+        _create_table(ws, g, q)
+        return
+    old_rows = com(lambda: lo.Range.Rows.Count)
+    n = len(g)
+    _put(ws, g, between=lambda rng: com(lambda: lo.Resize(rng)))
+    if old_rows > n:
+        left = ws.Range(ws.Cells(n + 1, 1), ws.Cells(old_rows, len(COLUMNS)))
+        com(lambda: left.Clear())
+
+
+def rewrite_data(ws, frame: Frame, q: int) -> None:
+    rewrite_grid(ws, data_grid(frame), q)
 
 
 def answer_grid(p: SheetPlan) -> tuple[int, int, list[list]]:
