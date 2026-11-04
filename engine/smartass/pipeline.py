@@ -91,7 +91,8 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
         "saved_user_workbook": False,
     }
 # ---------------------------------------------------------------- the Excel job (runs on a v1 user-Excel job thread)
-from .render.excel import read_block, write_answer, write_data  # noqa: E402
+from .render.charts import write_charts  # noqa: E402
+from .render.excel import col_number, read_block, write_answer, write_data  # noqa: E402
 from .render.layout import layout  # noqa: E402
 from .render.readback import compare  # noqa: E402
 
@@ -120,12 +121,12 @@ def _calculate(t) -> None:
     sheets.wait_calculated(t.app)
 
 
-def _save_spec(t, q: int, raw: dict) -> None:
+def _save_spec(t, q: int, raw: dict, owned: dict | None = None) -> None:
     from smartview_mcp.excel import jobs, sheets
     if not sheets._sheet_exists(t, sheets.META_SHEET):      # v1 save_spec returns silently without it; same creation as save_meta
         ws = jobs.com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))
         jobs.com(lambda: sheets._name_hidden(ws, sheets.META_SHEET))
-    sheets.save_spec(t, q, {"v2": raw}, ids={}, owned=None)
+    sheets.save_spec(t, q, {"v2": raw}, ids={}, owned=owned)
 
 
 def _arrange(t, sheet: str) -> str | None:
@@ -163,9 +164,10 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
         closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
         plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}")
         lint = write_answer(ws_answer, plan, pre.warnings)
+        lint = list(lint or []) + write_charts(ws_answer, plan)
         _calculate(t)
         mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan))
-        _save_spec(t, q, pre.raw)
+        _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
         arranged = _arrange(t, f"Q{q} Answer")
         _save(t)
     except Exception:

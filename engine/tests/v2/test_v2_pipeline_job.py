@@ -26,6 +26,7 @@ def wire(monkeypatch, log, fail_at=None):
     monkeypatch.setattr(pipeline, "_add_sheet", rec("add_sheet", object()))
     monkeypatch.setattr(pipeline, "write_data", rec("write_data"))
     monkeypatch.setattr(pipeline, "write_answer", rec("write_answer", []))
+    monkeypatch.setattr(pipeline, "write_charts", rec("write_charts", []))
     monkeypatch.setattr(pipeline, "_calculate", rec("calculate"))
     monkeypatch.setattr(pipeline, "read_block", rec("read_block", ()))
     monkeypatch.setattr(pipeline, "compare", rec("compare", []))
@@ -40,7 +41,7 @@ def test_job_order(monkeypatch):
     wire(monkeypatch, log)
     pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
     out = pipeline.excel_job(None, pre, target="session")
-    assert log == ["target", "next_q", "add_sheet", "add_sheet", "write_data", "write_answer", "calculate",
+    assert log == ["target", "next_q", "add_sheet", "add_sheet", "write_data", "write_answer", "write_charts", "calculate",
                    "read_block", "compare", "save_spec", "arrange", "save"]
     assert out["q"] == 4 and out["sheets"] == ["Q4 Answer", "Q4 Data"]
 
@@ -66,3 +67,13 @@ def test_arrange_warning_goes_to_the_reply_without_rollback(monkeypatch):
 def test_data_tab_colour_is_v1s():
     from smartview_mcp import sheetorder
     assert pipeline.DATA_TAB == sheetorder.DATA_TAB == 0xA6A6A6
+
+
+def test_job_draws_charts_and_saves_owned_range(monkeypatch):
+    log, saved = [], {}
+    wire(monkeypatch, log)
+    monkeypatch.setattr(pipeline, "_save_spec", lambda t, q, raw, owned: saved.update(q=q, owned=owned))
+    pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
+    pipeline.excel_job(None, pre, target="session")
+    assert log.index("write_answer") < log.index("write_charts") < log.index("calculate")
+    assert saved["q"] == 4 and saved["owned"]["rows"] > 10 and saved["owned"]["cols"] >= 3
