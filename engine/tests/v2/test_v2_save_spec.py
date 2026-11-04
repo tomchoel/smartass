@@ -52,11 +52,11 @@ def test_save_spec_creates_the_hidden_meta_sheet_first(monkeypatch):
 
 
 def test_arrange_mode_and_activation(monkeypatch):
-    from smartview_mcp import server as v1server
+    from smartass.core import serverkit as kit
     from smartview_mcp import sheetorder
     calls = []
     monkeypatch.setattr(sheetorder, "arrange_sheets", lambda wb, mode="full", activate=None: calls.append((mode, activate)))
-    monkeypatch.setattr(v1server, "_is_our_analysis_file", lambda path: path.startswith("OURS"))
+    monkeypatch.setattr(kit, "_is_our_analysis_file", lambda path: path.startswith("OURS"))
 
     class Tg:
         wb = object()
@@ -70,13 +70,13 @@ def test_arrange_mode_and_activation(monkeypatch):
 
 
 def test_arrange_failure_is_a_warning_not_an_error(monkeypatch):
-    from smartview_mcp import server as v1server
+    from smartass.core import serverkit as kit
     from smartview_mcp import sheetorder
 
     def boom(*a, **k):
         raise RuntimeError("excel said no")
     monkeypatch.setattr(sheetorder, "arrange_sheets", boom)
-    monkeypatch.setattr(v1server, "_is_our_analysis_file", lambda p: True)
+    monkeypatch.setattr(kit, "_is_our_analysis_file", lambda p: True)
 
     class Tg:
         wb, path, created = object(), "x", True

@@ -17,7 +17,7 @@ def test_guard_error_in_a_job_becomes_input_error(monkeypatch):
             seen["type"] = type(e)
             raise
 
-    monkeypatch.setattr(server.v1, "_call_user", fake_call_user)
+    monkeypatch.setattr(server.kit, "_call_user", fake_call_user)
 
     def job(h):
         raise GuardError("no v2 answer here", "ask a new question")

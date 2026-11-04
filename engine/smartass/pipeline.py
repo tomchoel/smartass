@@ -175,8 +175,8 @@ def _arrange(t, sheet: str) -> str | None:
 def _is_ours(t) -> bool:
     """The engine's own analysis file (created by us, or sitting in the analyser folder - a follow-up targets the
     stored path), never the user's workbook."""
-    from smartview_mcp import server as v1
-    return bool(getattr(t, "created", False)) or v1._is_our_analysis_file(str(t.path))
+    from .core import serverkit as kit
+    return bool(getattr(t, "created", False)) or kit._is_our_analysis_file(str(t.path))
 
 
 @contextlib.contextmanager

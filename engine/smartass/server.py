@@ -1,7 +1,7 @@
 # engine/smartass/server.py
 """smartass2: the v2 MCP server (built beside v1 until v2 passes the test set). Tools:
-fin_analyze (new question or follow-up patch), fin_lookup, fin_status, fin_refresh, fin_drill. Error text (guard), Excel jobs (_call_user, progress notes) and the lifespan
-(warm-up, closing the hidden Excel) are v1's via the legacy seam; answer files and session are v2's own."""
+fin_analyze (new question or follow-up patch), fin_lookup, fin_status, fin_refresh, fin_drill. Error text (guard), Excel jobs
+(_call_user, progress notes) and the lifespan (warm-up, closing the hidden Excel) come from core.serverkit."""
 from __future__ import annotations
 
 import asyncio
@@ -11,7 +11,7 @@ import datetime as dt
 from mcp.server.mcpserver import Context, MCPServer
 
 from smartview_mcp import atlas
-from smartview_mcp import server as v1
+from .core import serverkit as kit
 from smartview_mcp.host import InputError
 
 from . import legacy
@@ -45,12 +45,12 @@ Ledger lines: a lines block (cell with All Accounts, All Entities, All Time Peri
 fin_drill(cell) ranks suppliers, projects or accounts and ties them to the cube.
 Sheet text is English; answer the user in their language. The user's own workbooks are never saved."""
 
-mcp = MCPServer("smartass2", instructions=INSTRUCTIONS, lifespan=v1.lifespan)
+mcp = MCPServer("smartass2", instructions=INSTRUCTIONS, lifespan=kit.lifespan)
 
 
 def _register(annotations):
     def deco(fn):
-        mcp.tool(annotations=annotations)(v1.guard(fn))
+        mcp.tool(annotations=annotations)(kit.guard(fn))
         return fn
     return deco
 
@@ -82,7 +82,7 @@ def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 
     return {"metrics": metrics, "members": members}
 
 
-@_register(v1.LOCAL)
+@_register(kit.LOCAL)
 def fin_lookup(query: str, kind: str = "any", cube: str | None = None) -> dict:
     """Find metric names (kind 'metric') and cube members (kind 'member') by text; 'any' returns both.
     cube: FinMax | FinLite | FinPlan to narrow members. Local atlas, instant."""
@@ -107,7 +107,7 @@ def _clean(fn):
 
 
 async def _user(fn, what: str):
-    return await v1._call_user(_clean(fn), what=what)
+    return await kit._call_user(_clean(fn), what=what)
 
 
 async def _drill(cell: dict):
@@ -179,7 +179,7 @@ async def _new_question(spec: AnalysisSpec, target: str) -> dict:
     return _with_notes(await _user(lambda h: excel_job(h, pre, target), "fin_analyze"), notes)
 
 
-@_register(v1.WRITE)
+@_register(kit.WRITE)
 async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = None, q: int | None = None,
                       target: str = "session", ctx: Context | None = None) -> dict:
     """Run one analysis. New question: spec = AnalysisSpec v2. Follow-up: patch = JSON merge patch on the stored
@@ -200,7 +200,7 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     return _with_notes(await _user(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up"), notes)
 
 
-@_register(v1.WRITE)
+@_register(kit.WRITE)
 async def fin_drill(cell: dict, group_by: str = "supplier", top: int = 10, target: str = "session",
                     ctx: Context | None = None) -> dict:
     """Ledger lines behind one cube cell (FinLite, Periodic): ranked by supplier, project or account, with Other,
@@ -214,7 +214,7 @@ async def fin_drill(cell: dict, group_by: str = "supplier", top: int = 10, targe
     return await _new_question(spec, target)
 
 
-@_register(v1.WRITE)
+@_register(kit.WRITE)
 async def fin_refresh(target: str = "session", ctx: Context | None = None) -> dict:
     """Re-run every v2 answer in the workbook with its stored spec (no patch): relative periods such as
     'closed-ytd' roll forward to the latest closed month. A failing question is reported and does not stop the rest."""
@@ -241,7 +241,7 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
     return {"refreshed": done, "workbook": workbook}
 
 
-@_register(v1.LOCAL)
+@_register(kit.LOCAL)
 def fin_status() -> dict:
     """Health: atlas status, metric count, and where v2 writes its answer files."""
     from smartview_mcp import config as v1config
@@ -251,7 +251,7 @@ def fin_status() -> dict:
     return {"analyser": str(v1config.ANALYSER_DIR), "atlas": st, "metrics": len(catalog_metrics())}
 
 
-@_register(v1.WRITE)
+@_register(kit.WRITE)
 async def xl_snapshot(workbook: str | None = None, sheet: str | None = None, range: str | None = None) -> dict:
     """Save the current state of a range (default: the sheet's used range) of an open workbook, changing nothing.
     Call before any Excel MCP edit to a workbook the user has open; xl_revert(change_id) undoes the edit."""
@@ -259,14 +259,14 @@ async def xl_snapshot(workbook: str | None = None, sheet: str | None = None, ran
     return await _user(lambda h: snapshot(workbook, sheet, range), "xl_snapshot")
 
 
-@_register(v1.WRITE)
+@_register(kit.WRITE)
 async def xl_revert(change_id: str | None = None, workbook: str | None = None, force: bool = False) -> dict:
     """Put a range back as xl_snapshot (or a v1 xl_* edit) recorded it. Default: the latest change. Not saved."""
     from .workbench import revert
     return await _user(lambda h: revert(change_id, workbook, force), "xl_revert")
 
 
-@_register(v1.WRITE)
+@_register(kit.WRITE)
 async def xl_tidy(workbook: str | None = None, sheet: str | None = None, rows: dict | None = None,
                   last_col: str | None = None) -> dict:
     """TN report style (when rows + last_col are given) and the tn-formelstil formula check; zero BLOCK findings
