@@ -174,3 +174,29 @@ def test_rewrite_data_without_the_table_refuses_and_leaves_the_sheet_alone():
     with pytest.raises(GuardError, match="Data_Q3"):
         rewrite_data(ws, fr, 3)
     assert ws.log == []                                              # no clear, no new table, nothing written
+
+
+def _widths_for(monkeypatch, cells, rows):
+    from smartass.xl import styling
+
+    from smartass.render import excel
+    seen = {}
+    monkeypatch.setattr(styling, "apply_report", lambda ws, roles: seen.update(roles) or [])
+    excel.write_answer(WS(), SheetPlan(cells=cells, rows=rows, last_col="D", last_row=3), [])
+    return seen["col_widths"]
+
+
+def test_the_label_column_fits_a_long_line_label(monkeypatch):
+    """Plan 2D task 2: B = max(46, min(80, longest line label + 2)); no other column changes."""
+    label = "   " + "x" * 57                                       # 60 characters with the level indent
+    w = _widths_for(monkeypatch, {(1, 2): "T", (2, 2): label, (2, 3): 1.0, (3, 2): "y" * 120},
+                    [{"row": 1, "kind": "title"}, {"row": 2, "kind": "line", "num": {}},
+                     {"row": 3, "kind": "note"}])
+    assert w == {"B": 62, "C": 16, "D": 16}                         # the 120-char note does not count
+
+
+def test_the_label_column_stays_46_and_stops_at_80(monkeypatch):
+    short = _widths_for(monkeypatch, {(2, 2): "Revenue", (2, 3): 1.0}, [{"row": 2, "kind": "line", "num": {}}])
+    assert short["B"] == 46
+    long = _widths_for(monkeypatch, {(2, 2): "z" * 100, (2, 3): 1.0}, [{"row": 2, "kind": "grand", "num": {}}])
+    assert long["B"] == 80

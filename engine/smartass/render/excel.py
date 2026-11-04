@@ -9,7 +9,7 @@ from ..xl.jobs import com
 
 from ..model.errors import GuardError
 from ..model.frame import Frame
-from .layout import SheetPlan, col_letter
+from .layout import LABEL_COL, SheetPlan, col_letter
 
 XL_SRC_RANGE = 1
 XL_YES = 1
@@ -98,12 +98,25 @@ def answer_grid(p: SheetPlan) -> tuple[int, int, list[list]]:
     return r0, c0, g
 
 
+LINE_KINDS = ("line", "sum", "grand", "check")
+LABEL_MIN, LABEL_MAX = 46, 80
+
+
+def label_width(p: SheetPlan) -> int:
+    """Column B fits the longest table line label (indent included): max(46, min(80, longest + 2)). Titles, text
+    and notes are not counted (they may run over the empty cells to their right)."""
+    rows = {r["row"] for r in p.rows if r.get("kind") in LINE_KINDS}
+    longest = max((len(v) for (r, c), v in p.cells.items() if c == LABEL_COL and r in rows and isinstance(v, str)),
+                  default=0)
+    return max(LABEL_MIN, min(LABEL_MAX, longest + 2))
+
+
 def write_answer(ws, p: SheetPlan, warnings: list[str]) -> list[str]:
     """Write every cell in one Formula2 rectangle, then style. Returns the styling lint findings."""
     r0, c0, g = answer_grid(p)
     rng = ws.Range(ws.Cells(r0, c0), ws.Cells(r0 + len(g) - 1, c0 + len(g[0]) - 1))
     com(lambda: setattr(rng, "Formula2", tuple(tuple(x) for x in g)))
-    widths = {"B": 46, **{col_letter(c): 16 for c in range(3, col_number(p.last_col) + 1)}}
+    widths = {"B": label_width(p), **{col_letter(c): 16 for c in range(3, col_number(p.last_col) + 1)}}
     roles = {"last_col": p.last_col, "label_cols": ["B"], "last_row": p.last_row, "col_widths": widths,
              "rows": p.rows}
     return styling.apply_report(ws, roles)
