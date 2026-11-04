@@ -1,7 +1,8 @@
 """Provider over v1's Smart View HTTP route (svhttp.SvHttp, read-only, ~0.2 s per grid once signed in).
 FinMax/FinLite: rows Accounts x Entities, columns Time Periods ('Sep 26'), POV scenario, NOK, balance.
 FinPlan: rows Account x Entity, columns Period ('Sep'), POV Scenario, Version, Years ('FY26'), balance - one grid
-per year, periods relabelled to 'Sep 26'. #Missing gives no fact (missing is never zero); #NoAccess / #Invalid
+per year, periods relabelled to 'Sep 26'. A request with products adds 'All Products' (the dimension's name in all
+three cubes) as a third row dimension. #Missing gives no fact (missing is never zero); #NoAccess / #Invalid
 give a warning and no fact. The ad hoc Excel fallback arrives in Plan 1C."""
 from __future__ import annotations
 
@@ -39,12 +40,19 @@ def _grids(req: GridRequest) -> list[tuple[dict, list[Axis], list[Axis], dict[st
         out = []
         for fy, months in by_year.items():
             pov = {"Scenario": req.scenario, "Version": req.version, "Years": fy, "All Balance Types": req.balance}
-            out.append((pov, [Axis("Account", list(req.accounts)), Axis("Entity", list(req.entities))],
+            out.append((pov, [Axis("Account", list(req.accounts)), Axis("Entity", list(req.entities)), *_products(req)],
                         [Axis("Period", months)], {mo: f"{mo} {fy[2:]}" for mo in months}))
         return out
     pov = {"All Scenarios": req.scenario, "All Currencies": "NOK", "All Balance Types": req.balance}
-    return [(pov, [Axis("All Accounts", list(req.accounts)), Axis("All Entities", list(req.entities))],
+    return [(pov, [Axis("All Accounts", list(req.accounts)), Axis("All Entities", list(req.entities)), *_products(req)],
              [Axis("All Time Periods", list(req.periods))], {p: p for p in req.periods})]
+
+
+PRODUCT_DIMENSION = "All Products"         # FinMax, FinLite and FinPlan (atlas, 04.11.2026)
+
+
+def _products(req: GridRequest) -> list[Axis]:
+    return [Axis(PRODUCT_DIMENSION, list(req.products))] if req.products else []
 
 
 def facts_from_parsed(req: GridRequest, parsed, labels: dict[str, str]) -> tuple[list[Fact], list[str]]:
@@ -54,17 +62,20 @@ def facts_from_parsed(req: GridRequest, parsed, labels: dict[str, str]) -> tuple
     warnings: list[str] = []
     if parsed.unknown_members:
         warnings.append(f"{req.cube}: Smart View did not know {', '.join(parsed.unknown_members)}")
-    heads = parsed.columns[2:]
+    nr = 3 if req.products else 2                   # row dimensions: account, entity (, product)
+    heads = parsed.columns[nr:]
     for row in parsed.rows:
-        account, entity, values = row[0], row[1], row[2:]
+        account, entity, values = row[0], row[1], row[nr:]
+        product = row[2] if req.products else ""
         for head, v in zip(heads, values):
             if v is None:
                 continue
             if isinstance(v, str):
-                warnings.append(f"{req.cube} {account} / {entity} / {head}: {v} (left out)")
+                where = " / ".join(x for x in (account, entity, product, head) if x)
+                warnings.append(f"{req.cube} {where}: {v} (left out)")
                 continue
             facts.append(Fact(req.cube, req.query, account, entity, labels[head], req.scenario, req.version,
-                              float(v), req.balance))
+                              float(v), req.balance, product))
     return facts, warnings
 
 

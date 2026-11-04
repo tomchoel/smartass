@@ -64,6 +64,7 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
         for q in spec.queries:
             if resolver.exists(q.entity, q.cube):
                 q.entity = canonical(q.entity, q.cube)
+            q.products = [canonical(x, q.cube) if resolver.exists(x, q.cube) else x for x in q.products]
     reqs = plan_requests(spec, resolver, closed)
     def fetch_one(req):
         try:
@@ -115,7 +116,7 @@ def caveats(spec: AnalysisSpec, reqs: list[GridRequest], resolver) -> list[dict]
         for c in ({cube, "FinMax"} if cube == "FinLite" else {cube}):
             touched.setdefault(c, set()).update(names)
     for r in reqs:
-        touch(r.cube, (*r.entities, *r.accounts))
+        touch(r.cube, (*r.entities, *r.accounts, *r.products))
         for per in r.periods:
             with contextlib.suppress(ValueError):
                 months.add(parse(per))

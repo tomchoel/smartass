@@ -81,8 +81,9 @@ def derived(c: str, cols: list[str], key: str, lkey: str, total_key: str | None 
 
 
 def row_cells(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, lkey: str,
-              entity: str | None = None, total_key: str | None = None) -> list[Expr | None]:
-    return [ctx.pick(q, metric, c, entity) if c in ("value",) + BASES
+              entity: str | None = None, total_key: str | None = None,
+              product: str | None = None) -> list[Expr | None]:
+    return [ctx.pick(q, metric, c, entity, product=product) if c in ("value",) + BASES
             else derived(c, cols, key, lkey, total_key, j) for j, c in enumerate(cols)]
 
 
@@ -140,4 +141,40 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
         check: list[Expr | None] = [None] * len(cols)
         check[vi] = Sub(children_sum(ctx, q, metric, counted(ctx, q, kids)), Ref(ck(key, "total", vi)))
         lines.append(Line("check", "Check: children = parent", check, kind="check"))
+    return lines
+
+
+PRODUCTS_TOTAL = "Total products"
+
+
+def product_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, top: int | None = None,
+                  other: bool = True, sort: str = "none") -> list[Line]:
+    """One line per product of the query (top N, sorted like entity_lines), Other, and the total over the query's
+    products (no parent member: the total is the sum of the products asked for, so no check line)."""
+    r = ctx.resolver
+    prods = list(q.products)
+
+    def val(p: str) -> float:
+        return ctx.value(ctx.pick(q, metric, "value", product=p)) or 0.0
+
+    if sort != "none" or top:
+        order = {"desc": lambda p: -val(p), "asc": val, "abs": lambda p: -abs(val(p)),
+                 "none": lambda p: -abs(val(p))}[sort]
+        prods.sort(key=order)
+    shown, rest = (prods[:top], prods[top:]) if top else (prods, [])
+    lines = [Line(f"p{i}", r.label(p, q.cube),
+                  row_cells(ctx, q, metric, cols, key, f"p{i}", total_key="total", product=p), metric=metric,
+                  entity=q.entity)
+             for i, p in enumerate(shown)]
+    if rest and other:
+        cells: list[Expr | None] = []
+        for j, c in enumerate(cols):
+            if c in ("value",) + BASES:
+                cells.append(Sub(Ref(ck(key, "total", j)),
+                                 Sum(tuple(Ref(ck(key, f"p{i}", j)) for i in range(len(shown))))))
+            else:
+                cells.append(derived(c, cols, key, "other", total_key="total", j=j))
+        lines.append(Line("other", "Other", cells, metric=metric))
+    lines.append(Line("total", PRODUCTS_TOTAL, row_cells(ctx, q, metric, cols, key, "total", total_key="total"),
+                      kind="grand", metric=metric, entity=q.entity))
     return lines

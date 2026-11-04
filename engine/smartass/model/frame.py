@@ -1,11 +1,15 @@
 """Fetched facts as one long table: the same rows become the Excel table Data_Q<n>.
-Every cube's periods are normalised to month labels ('Sep 26') by the data layer; FinMax has no version ('')."""
+Every cube's periods are normalised to month labels ('Sep 26') by the data layer; FinMax has no version ('').
+A fact's product is '' when the query asked for none (the cube's product total); the Data table has a Product
+column only when some fact has a product, so answers without products keep their table exactly."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 COLUMNS = ("Cube", "Query", "Account", "Entity", "Period", "Scenario", "Version", "Balance", "Value")
-FILTER_COLUMNS = COLUMNS[:-1]
+PRODUCT_COLUMNS = ("Cube", "Query", "Account", "Entity", "Product", "Period", "Scenario", "Version", "Balance",
+                   "Value")
+FILTER_COLUMNS = PRODUCT_COLUMNS[:-1]
 
 
 @dataclass(frozen=True)
@@ -19,6 +23,7 @@ class Fact:
     version: str
     value: float
     balance: str = "Periodic"
+    product: str = ""
 
 
 class Frame:
@@ -38,6 +43,15 @@ class Frame:
                if all(getattr(x, col.lower()) in allowed for col, allowed in filters.items())]
         return sum(x.value for x in hit) if hit else None
 
+    def has_products(self) -> bool:
+        return any(x.product for x in self.facts)
+
+    def columns(self) -> tuple[str, ...]:
+        return PRODUCT_COLUMNS if self.has_products() else COLUMNS
+
     def rows(self) -> list[tuple]:
+        if self.has_products():
+            return [(x.cube, x.query, x.account, x.entity, x.product, x.period, x.scenario, x.version, x.balance,
+                     x.value) for x in self.facts]
         return [(x.cube, x.query, x.account, x.entity, x.period, x.scenario, x.version, x.balance, x.value)
                 for x in self.facts]

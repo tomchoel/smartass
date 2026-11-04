@@ -1,6 +1,6 @@
 # engine/smartass/model/requests.py
 """What to fetch: one grid request per query and series (value + each comparison), with every account the
-query's metrics need and the entity subtree as deep as its blocks go."""
+query's metrics need, the entity subtree as deep as its blocks go and the query's products (if any)."""
 from __future__ import annotations
 
 from collections import deque
@@ -22,6 +22,7 @@ class GridRequest:
     scenario: str
     version: str
     balance: str = "Periodic"
+    products: tuple[str, ...] = ()        # empty: no product dimension (the cube's product total)
 
 
 def _depth(spec: AnalysisSpec, qid: str) -> int:
@@ -31,7 +32,8 @@ def _depth(spec: AnalysisSpec, qid: str) -> int:
             continue
         if isinstance(b, DriversBlock):
             d = max(d, b.depth)
-        elif isinstance(b, (RankingBlock, MatrixBlock)) or (isinstance(b, TableBlock) and b.rows == "entities"):
+        elif (isinstance(b, MatrixBlock) or (isinstance(b, RankingBlock) and b.rows == "entities")
+              or (isinstance(b, TableBlock) and b.rows == "entities")):
             d = max(d, 1)
     return d
 
@@ -64,5 +66,6 @@ def requests(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[GridReques
             scen, ver = scenario(q.cube, s, r)
             for bal, accs in by_balance.items():
                 reqs.append(GridRequest(q.id, q.cube, tuple(dict.fromkeys(accs)), ents,
-                                        tuple(label(m) for m in months(q, s, closed_for(closed, q.cube))), scen, ver, bal))
+                                        tuple(label(m) for m in months(q, s, closed_for(closed, q.cube))), scen, ver, bal,
+                                        tuple(dict.fromkeys(q.products))))
     return reqs

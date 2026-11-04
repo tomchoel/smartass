@@ -13,7 +13,11 @@ from .provider import FetchResult
 
 
 def _key(req: GridRequest) -> str:
-    return json.dumps(dataclasses.asdict(req), sort_keys=True)
+    """The request as JSON; no products leaves the field out, so recordings made before products keep their keys."""
+    d = dataclasses.asdict(req)
+    if not d["products"]:
+        del d["products"]
+    return json.dumps(d, sort_keys=True)
 
 
 class RecordingProvider:
@@ -53,7 +57,7 @@ class ReplayProvider:
         k = _key(req)
         if k not in self.grids:
             raise KeyError(f"grid not recorded: {k} - record the case again")
-        return FetchResult(req, [Fact(**f) for f in self.grids[k]], route="replay")
+        return FetchResult(req, [Fact(**f) for f in self.grids[k]], route="replay")   # older facts: no product ('')
 
 
 def save_lines(path: Path, sets: dict) -> None:

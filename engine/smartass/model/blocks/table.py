@@ -1,11 +1,11 @@
 # engine/smartass/model/blocks/table.py
-"""table: metric rows or entity rows (children of the query's entity) by columns; kpi_tiles: headline metrics
-with one comparison."""
+"""table: metric rows, entity rows (children of the query's entity) or product rows (the query's products) by
+columns; kpi_tiles: headline metrics with one comparison."""
 from __future__ import annotations
 
 from ..context import Ctx
 from ..spec import KpiBlock, TableBlock
-from .common import BlockOut, Line, col_headers, entity_lines, row_cells
+from .common import BlockOut, Line, col_headers, entity_lines, product_lines, row_cells
 
 
 def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
@@ -14,6 +14,8 @@ def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
     out = BlockOut(key, "table", b.title or "Table", col_headers(cols), cols=cols, query=q.id)
     if b.rows == "entities":
         out.lines = entity_lines(ctx, q, b.metric, cols, key, top=b.top, other=b.other, sort=b.sort)
+    elif b.rows == "products":
+        out.lines = product_lines(ctx, q, b.metric, cols, key, top=b.top, other=b.other, sort=b.sort)
     else:
         for i, m in enumerate(b.metrics or q.metrics):
             out.lines.append(Line(f"m{i}", m, row_cells(ctx, q, m, cols, key, f"m{i}"), metric=m,

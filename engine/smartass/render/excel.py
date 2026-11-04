@@ -8,7 +8,7 @@ from ..xl import styling
 from ..xl.jobs import com
 
 from ..model.errors import GuardError
-from ..model.frame import COLUMNS, Frame
+from ..model.frame import Frame
 from .layout import SheetPlan, col_letter
 
 XL_SRC_RANGE = 1
@@ -16,15 +16,15 @@ XL_YES = 1
 
 
 def data_grid(frame: Frame) -> list[tuple]:
-    return [COLUMNS, *frame.rows()]
+    return [frame.columns(), *frame.rows()]
 
 
 def _put(ws, g: list[tuple]):
     """Label columns as text first, then the values; returns the range. Only for a range that is not a table yet."""
-    n = len(g)
-    labels = ws.Range(ws.Cells(1, 1), ws.Cells(n, len(COLUMNS) - 1))
+    n, w = len(g), len(g[0])
+    labels = ws.Range(ws.Cells(1, 1), ws.Cells(n, w - 1))
     com(lambda: setattr(labels, "NumberFormat", "@"))
-    rng = ws.Range(ws.Cells(1, 1), ws.Cells(n, len(COLUMNS)))
+    rng = ws.Range(ws.Cells(1, 1), ws.Cells(n, w))
     com(lambda: setattr(rng, "Value2", tuple(g)))
     return rng
 
@@ -67,7 +67,7 @@ def rewrite_grid(ws, g: list[tuple], q: int) -> None:
         raise GuardError(f"table Data_Q{q} is missing on sheet 'Q{q} Data', so the answer cannot be redrawn in place",
                          "ask the question again with fin_analyze(spec); the old sheets were left as they were")
     old_rows = com(lambda: lo.Range.Rows.Count)
-    n, w = len(g), len(COLUMNS)
+    n, w = len(g), len(g[0])
     labels = ws.Range(ws.Cells(1, 1), ws.Cells(n, w - 1))
     com(lambda: setattr(labels, "NumberFormat", "@"))              # text first: 'Sep 26' never becomes a date
     rng = ws.Range(ws.Cells(1, 1), ws.Cells(max(n, 2), w))          # a table keeps at least one body row

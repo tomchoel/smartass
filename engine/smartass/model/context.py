@@ -29,15 +29,20 @@ class Ctx:
         raise KeyError(f"unknown query {qid!r}")
 
     def pick(self, q: Query, metric: str, series: str = "value", entity: str | tuple[str, ...] | None = None,
-             base_months: list[Month] | None = None) -> Expr:
+             base_months: list[Month] | None = None, product: str | tuple[str, ...] | None = None) -> Expr:
+        """The SUMIFS behind one cell. Product filters on the query's products (all of them unless one or some are
+        given); a query without products has no Product criterion."""
         scen, ver = scenario(q.cube, series, self.resolver)
         ents = (q.entity,) if entity is None else ((entity,) if isinstance(entity, str) else tuple(entity))
         ms = months(q, series, self.closed_for(q.cube), base_months)
         if self.resolver.aggregation(metric) == "last":
             ms = ms[-1:]
         f = {"Cube": (q.cube,), "Query": (q.id,), "Account": self.resolver.members(metric, q.cube),
-             "Entity": ents, "Period": tuple(label(m) for m in ms),
-             "Scenario": (scen,)}
+             "Entity": ents}
+        prods = q.products if product is None else ((product,) if isinstance(product, str) else tuple(product))
+        if prods:
+            f["Product"] = tuple(prods)
+        f |= {"Period": tuple(label(m) for m in ms), "Scenario": (scen,)}
         if ver:
             f["Version"] = (ver,)
         f["Balance"] = (self.resolver.balance(metric),)

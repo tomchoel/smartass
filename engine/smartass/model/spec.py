@@ -43,6 +43,7 @@ class Query(_M):
     plan_periods: str | None = None
     compare: list[Compare] = []
     preliminary: bool = False
+    products: list[str] = []          # empty: the cube's product total (no product dimension in the grid)
 
     @field_validator("periods", "plan_periods")
     @classmethod
@@ -68,7 +69,7 @@ class TableBlock(_M):
     type: Literal["table"]
     query: str
     title: str = ""
-    rows: Literal["metrics", "entities"] = "metrics"
+    rows: Literal["metrics", "entities", "products"] = "metrics"
     metrics: list[str] = []
     metric: str | None = None
     columns: list[Column] = ["value", "ly", "var", "var_pct"]
@@ -94,10 +95,10 @@ class TableBlock(_M):
                      for i, x in enumerate(cols) if x == c and any(y in BASE_SERIES for y in cols[:i])]
             if len(bases) != len(set(bases)):
                 raise ValueError(f"table: {c} appears twice against the same base column")
-        if "share" in cols and (self.rows != "entities" or "value" not in cols):
-            raise ValueError("table: share needs rows 'entities' and a 'value' column")
-        if self.rows == "entities" and (not self.metric or "value" not in cols):
-            raise ValueError("table: rows 'entities' needs 'metric' and a 'value' column")
+        if "share" in cols and (self.rows == "metrics" or "value" not in cols):
+            raise ValueError("table: share needs rows 'entities' or 'products' and a 'value' column")
+        if self.rows != "metrics" and (not self.metric or "value" not in cols):
+            raise ValueError(f"table: rows '{self.rows}' needs 'metric' and a 'value' column")
         return self
 
 
@@ -135,6 +136,7 @@ class RankingBlock(_M):
     metric: str
     top: int = Field(10, ge=1)
     compare: Compare | None = "ly"
+    rows: Literal["entities", "products"] = "entities"
 
 
 class MatrixBlock(_M):
@@ -250,6 +252,8 @@ class AnalysisSpec(_M):
             if missing:
                 raise ValueError(f"block {i} ({b.type}): metrics {missing} are not in query '{qid}' "
                                  "(add them to its metrics)")
+            if getattr(b, "rows", None) == "products" and not q.products:
+                raise ValueError(f"block {i} ({b.type}): rows 'products' needs products in query '{qid}'")
             absent = [s for s in block_series(b) if s not in q.compare]
             if absent:
                 raise ValueError(f"block {i} ({b.type}): {absent} not in query '{qid}' compare")
