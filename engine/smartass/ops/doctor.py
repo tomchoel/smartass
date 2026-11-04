@@ -145,7 +145,7 @@ def _output() -> Check:
 
 def _http(timeout: float = 2) -> Check:
     if not config.HTTP_SECRET:
-        return Check("http_api", "WARN", "no http.secret in config.toml", "Run installer\\install.ps1.")
+        return Check("http_api", "WARN", "no HTTP API secret (secret.bin)", "Run `smartass setup` (or installer\\install.ps1).")
     req = urllib.request.Request(f"http://127.0.0.1:{config.HTTP_PORT}/health",
                                  headers={"X-Smartass-Secret": config.HTTP_SECRET})
     try:

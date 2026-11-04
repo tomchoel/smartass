@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 from ..core import config
@@ -32,16 +34,57 @@ enabled = []            # e.g. ["produktregnskap"]
 # version = "0.2.0"     # pin a version (also downwards); empty = latest
 
 [http]
-secret = "{secret}"
+# port = 47811          # the API secret is in secret.bin next to this file (DPAPI: only this Windows user)
 """
+
+_SECTION = re.compile(r"(?m)^[ \t]*\[([^\]]+)\][ \t]*(?:#.*)?$")
+_PLAIN_SECRET = re.compile(r"(?m)^[ \t]*secret[ \t]*=.*(?:\r?\n|$)")
+
+
+def _drop_http_secret(text: str) -> str:
+    """config.toml without the `secret = ...` line of its [http] section (other sections untouched)."""
+    heads = list(_SECTION.finditer(text))
+    for i, h in enumerate(heads):
+        if h.group(1).strip() == "http":
+            end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+            return text[:h.end()] + _PLAIN_SECRET.sub("", text[h.end():end], count=1) + text[end:]
+    return text
 
 
 def write_user_config(path: Path = config.USER_CONFIG) -> str:
     if path.exists():
         return "kept"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(CONFIG_TEMPLATE.format(secret=secrets.token_urlsafe(32)), encoding="utf-8")
+    path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
     return "created"
+
+
+def _plain_secret(cfg: Path) -> str | None:
+    try:
+        return config.get(tomllib.loads(cfg.read_text(encoding="utf-8")), "http.secret")
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+
+def secret_step(cfg: Path = config.USER_CONFIG, secret_file: Path = config.SECRET_FILE) -> str:
+    """The HTTP API secret, DPAPI-protected in secret.bin. A plain-text http.secret in config.toml is moved
+    there once and removed from the file; without either a new one is generated. An existing readable
+    secret.bin is kept."""
+    plain = _plain_secret(cfg)
+    if config.read_secret(secret_file) and not plain:
+        return "secret: unchanged"
+    how = "migrated from config.toml" if plain else "created"
+    if not config.read_secret(secret_file):
+        secret_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = secret_file.with_name(secret_file.name + ".tmp")
+        tmp.write_bytes(config.protect_secret(plain or secrets.token_urlsafe(32)))
+        os.replace(tmp, secret_file)
+    if plain:
+        text = cfg.read_text(encoding="utf-8")
+        tmp = cfg.with_name(cfg.name + ".tmp")
+        tmp.write_text(_drop_http_secret(text), encoding="utf-8")
+        os.replace(tmp, cfg)
+    return f"secret: {how} (secret.bin, DPAPI)"
 
 
 def mcp_entries(python: Path, relay: Path) -> dict:
@@ -236,7 +279,7 @@ def copy_atlas() -> str:
 
 def run() -> list[str]:
     config.HOME.mkdir(parents=True, exist_ok=True)
-    out = [f"config: {write_user_config()} ({config.USER_CONFIG})"]
+    out = [f"config: {write_user_config()} ({config.USER_CONFIG})", secret_step()]
     e = mcp_entries(config.ENGINE_DIR / ".venv" / "Scripts" / "python.exe", config.ENGINE_DIR / "run_server.py")
     out.append(f"copilot mcp: {register_mcp(USER / '.copilot' / 'mcp-config.json', e['copilot'], create=True)}")
     out.append(f"claude mcp: {register_mcp(USER / '.claude.json', e['claude'])}")

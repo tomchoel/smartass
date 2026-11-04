@@ -118,7 +118,7 @@ def make_server(port: int, secret: str, health=None, gate=None, answer=None) -> 
 
 def serve() -> int:
     if not config.HTTP_SECRET:
-        log.error("no http.secret in config.toml - run the installer")
+        log.error("no HTTP API secret (secret.bin) - run `smartass setup`")
         return 2
     try:
         srv = make_server(config.HTTP_PORT, config.HTTP_SECRET)

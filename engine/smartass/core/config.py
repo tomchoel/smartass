@@ -174,7 +174,35 @@ RELEASE_PIN = get(SETTINGS, "release.version")
 HTTP_PORT = _checked(as_int(_pick("SMARTASS_HTTP_PORT", "http.port", 47811), "http.port",
                             as_int(get(ORG_SETTINGS, "http.port", 47811), "", 47811)[0]),
                      "SMARTASS_HTTP_PORT" if os.environ.get("SMARTASS_HTTP_PORT") else "config.toml")
-HTTP_SECRET = _pick("SMARTASS_HTTP_SECRET", "http.secret")
+SECRET_FILE = HOME / "secret.bin"                          # HTTP API secret, DPAPI-protected (this Windows user)
+
+
+def _dpapi():
+    import win32crypt
+    return win32crypt
+
+
+def protect_secret(text: str) -> bytes:
+    return _dpapi().CryptProtectData(text.encode("utf-8"), "smartass http secret", None, None, None, 0)
+
+
+def read_secret(path: Path = SECRET_FILE) -> str | None:
+    """The secret from a DPAPI blob; None when the file is missing or cannot be unprotected (other user/machine)."""
+    try:
+        blob = path.read_bytes()
+        return _dpapi().CryptUnprotectData(blob, None, None, None, 0)[1].decode("utf-8") or None
+    except Exception:   # noqa: BLE001 - OSError, pywintypes.error, bad bytes: all mean "no usable secret"
+        return None
+
+
+def load_http_secret(env=os.environ, path: Path = SECRET_FILE, settings: dict | None = None) -> str | None:
+    """SMARTASS_HTTP_SECRET, else secret.bin, else a not yet migrated plain http.secret in config.toml
+    (`smartass setup` migrates it into secret.bin and removes it from the file)."""
+    return (env.get("SMARTASS_HTTP_SECRET") or read_secret(path)
+            or get(SETTINGS if settings is None else settings, "http.secret") or None)
+
+
+HTTP_SECRET = load_http_secret()
 
 # Global Smart View options set while the server runs and restored on shutdown (they are user prefs).
 GLOBAL_OPTIONS = {104: 3, 109: False, 110: False}         # messages: none; no home panel; no comment dialog

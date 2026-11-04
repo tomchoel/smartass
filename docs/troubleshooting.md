@@ -70,10 +70,10 @@ by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe
 
 ## http_api
 
-- **Symptom:** `WARN  http_api  no http.secret in config.toml` or `WARN  http_api  not answering on 127.0.0.1:<port>`.
-- **Cause:** the installer has not written the per-user secret, or the background engine (`smartass serve`,
-  started by the Startup entry `smartass-engine.lnk`) is not running.
-- **Fix:** no secret: Run installer\install.ps1.
+- **Symptom:** `WARN  http_api  no HTTP API secret (secret.bin)` or `WARN  http_api  not answering on 127.0.0.1:<port>`.
+- **Cause:** the installer has not written the per-user secret (`%LOCALAPPDATA%\smartass\secret.bin`, DPAPI), or
+  the background engine (`smartass serve`, started by the Startup entry `smartass-engine.lnk`) is not running.
+- **Fix:** no secret: run `smartass setup` (it also moves an old plain `http.secret` out of config.toml).
   Not answering: Log off and on (Startup entry), or run `smartass serve`.
 
 ## update

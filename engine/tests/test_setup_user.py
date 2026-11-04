@@ -58,11 +58,11 @@ def test_path_step_skips_without_smartass_exe(tmp_path):
     assert setup_user.path_step(str(tmp_path / "python.exe"), **reg.kw()).startswith("path: skipped")
     assert not reg.writes
 
-def test_user_config_is_written_once_with_a_secret(tmp_path):
+def test_user_config_is_written_once_without_a_plain_secret(tmp_path):
     p = tmp_path / "config.toml"
     assert setup_user.write_user_config(p) == "created"
     first = p.read_text(encoding="utf-8")
-    assert "[http]" in first and "secret = " in first and "[packs]" in first
+    assert "[http]" in first and "\nsecret = " not in first and "[packs]" in first
     assert setup_user.write_user_config(p) == "kept"
     assert p.read_text(encoding="utf-8") == first
 
