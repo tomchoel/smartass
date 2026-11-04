@@ -55,6 +55,9 @@ class AtlasResolver:
         return self.db.execute("SELECT name, dimension, label FROM member WHERE connection=? AND name=? "
                                "COLLATE NOCASE ORDER BY depth LIMIT 1", (cube, member)).fetchone()
 
+    def canonical(self, member: str, cube: str) -> str:
+        return self._spelling(member, cube)
+
     def _spelling(self, member: str, cube: str) -> str:
         row = self._row(member, cube)
         return row[0] if row else member
@@ -76,7 +79,9 @@ class AtlasResolver:
 
     def label(self, member: str, cube: str) -> str:
         row = self._row(member, cube)
-        return (row[2] or row[0]) if row else member
+        if not row:
+            return member
+        return re.sub(r"\s*\([^()]*\)\s*$", "", row[2] or row[0]) or row[0]
 
     def latest_forecast(self) -> str:
         names = [r[0] for r in self.db.execute("SELECT DISTINCT name FROM member WHERE connection='FinPlan' AND "

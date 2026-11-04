@@ -46,3 +46,18 @@ def test_latest_forecast_of_the_year(db):
     assert res(db).latest_forecast() == "Forecast Q326"
     with pytest.raises(UnknownMetric, match="Forecast Q<q>25"):
         res(db, 25).latest_forecast()
+
+
+def test_label_drops_a_trailing_parenthesis_suffix(db):
+    db.execute("INSERT INTO member (connection, dimension, name, label, parent, depth, ord) "
+               "VALUES ('FinMax','All Entities','un.SY.2WHS','2WHS Wholesale (un.SY)','un.SY',2,9)")
+    db.commit()
+    r = res(db)
+    assert r.label("un.SY.2WHS", "FinMax") == "2WHS Wholesale"
+    assert r.label("un.SY.2BUS", "FinMax") == "2BUS Business Norway"
+
+
+def test_canonical_spelling(db):
+    r = res(db)
+    assert r.canonical("un.sy.2bus", "FinMax") == "un.SY.2BUS"
+    assert r.canonical("un.SY.ZZ", "FinMax") == "un.SY.ZZ"
