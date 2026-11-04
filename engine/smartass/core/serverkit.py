@@ -77,17 +77,17 @@ def _err(e: Exception) -> ToolError:
     return ToolError(with_next_step(logsetup.redact(e), e))
 
 
-ESCALATE = ("if it repeats, call sv_status (in a terminal: `smartass doctor`) and send the file from "
+ESCALATE = ("if it repeats, call fin_status (in a terminal: `smartass doctor`) and send the file from "
             "`smartass doctor --bundle` to the maintainer.")
 GENERIC_NEXT = "Retry once; " + ESCALATE
 NEXT_STEP = {
     "InputError": "Correct the input named above and call the tool again.",
-    "HostError": "Call sv_restart (restarts the hidden Smart View Excel), then retry; " + ESCALATE,
+    "HostError": "Call fin_status(restart=True) (restarts the server and its hidden Smart View Excel), then retry; " + ESCALATE,
     "DrillError": "Retry the drill once; " + ESCALATE,
     "CellTooWide": "Narrow the cell (e.g. child entities) and drill again.",
     "TimeoutError": "Retry with a smaller request (fewer members or periods).",
 }
-# A message that already says what to do ('Next step: ...', 'If it repeats, run sv_restart.', '... Try again
+# A message that already says what to do ('Next step: ...', 'If it repeats, run fin_status(restart=True).', '... Try again
 # shortly.', '; pass force=true') gets no second piece of advice.
 _ADVISED = re.compile(
     r"next step|if it (?:repeats|persists)|(?:^|[.;:!?]\s+|,\s*(?:or|then)\s+|\bthen\s+|\s-\s+)"

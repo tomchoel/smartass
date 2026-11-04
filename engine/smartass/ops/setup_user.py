@@ -16,7 +16,7 @@ from pathlib import Path
 from ..core import config
 
 SERVER_NAME = "smartass"
-LEGACY_SERVER_NAMES = ("smartview",)   # renamed 2026-10-23; register_mcp moves these entries to SERVER_NAME
+LEGACY_SERVER_NAMES = ("smartview", "smartass2")   # smartview renamed 2026-10-23, smartass2 (v2 beside v1) retired 2026-11-04
 USER = Path(os.environ.get("USERPROFILE", str(Path.home())))
 STARTUP = Path(os.environ.get("APPDATA", str(USER / "AppData" / "Roaming"))) / \
     "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"

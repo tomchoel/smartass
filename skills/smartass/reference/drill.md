@@ -1,14 +1,29 @@
-# Drill-through (sv_drill): glossary, report rules, text repair
+# Ledger lines: lines blocks and fin_drill (v2)
 
-Spec: `docs\archive\specs\2026-10-15-sv-drill-design.md` in the smartass repo. Plan: `docs\archive\plans\2026-10-15-sv-drill.md`.
-The lines come from the FinLite drill page (view `DrillFilter`, 45 columns), written to `Q<n> Lines` (Excel table
-`Lines_Q<n>`); the report is an `sv_answer` spec with `{"drill": "d", "where": {...}}` cells. **Key** = used in most reports.
+The lines come from the FinLite drill page (Data Integration, view `DrillFilter`, 45 columns), read by a hidden
+headless Edge, never by Smart View's own drill-through. Two ways in, same engine, same sheets and checks:
 
-**`sv_drill` is a workbench utility.** "Which suppliers / consultancies invoiced most (on which projects)" is the
-recipe `lines_ranking` (one `sv_answer` call that drills itself, ranks and reconciles; [recipes.md](recipes.md)
-"Server-side recipes"), not `sv_drill` plus your own sums. Use `sv_drill` for other line-level reports. A new spec
-with drill cells takes the `Q<n>` of the pending drill (Lines sheets without an Answer); drill cells whose
-`Lines_*` table does not exist are refused before anything is written.
+- **A `lines` block** in an `fin_analyze` spec, next to the cube blocks:
+  `{"type": "lines", "cell": {"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"},
+  "group_by": "supplier", "top": 10}`. It needs no query. A follow-up patch or `fin_refresh` drills again, so
+  lines are always fresh.
+- **`fin_drill(cell, group_by, top)`**: the same as a spec with only that lines block.
+
+`cell` needs `All Accounts` and `All Time Periods` (plus `All Entities` for the unit; without it the top member is
+drilled, with a warning). Balance is Periodic only. A parent period (`Yr 26`, `Q3 26`) works. `group_by`:
+`supplier` (`AP_CUSTOMER_NAME`), `project` (the booked project, `INITIATIVE`) or `account` (`ACCOUNT`).
+
+## What the answer shows
+
+- **Ranking:** top N groups (largest absolute amount first; spellings that differ only in case are one group),
+  `Other`, `Lines without a <supplier | booked project | account>`, `Ledger lines total`, `Cube value`, and the
+  gap (cube − lines), each with its share of the lines total.
+- **Gap:** must be 0 (tolerance 1 NOK). Otherwise report it as a gap, never hide it; ask again to re-drill.
+- **Sheets:** `Q<n> Answer` (the ranking, live formulas on the lines table) and `Q<n> Lines <alias>` (Excel table
+  `Lines_Q<n>_<alias>`, key columns as text).
+- **Chat:** totals and the top groups from `key_values`, never line dumps. Journals, accruals and allocations
+  have no supplier: name that line when it is large. Mixed signs (purchases offset by allocation credits) make
+  shares misleading: say so instead of quoting a share above 100 %.
 
 ## Column glossary (45 columns, in page order)
 
@@ -60,39 +75,17 @@ with drill cells takes the `Q<n>` of the pending drill (Lines sheets without an 
 | 44 | RESERVE_DESC | Reserve description |
 | 45 | CC_DESC | **Key.** Cost centre description |
 
-## Report rules
-
-- **Reconciliation block, always.** Cube value (read live from the `cube_pull` grid), sum of lines, gap (cube − lines),
-  line count, gross debits and gross credits. `exact` or explain the gap.
-- **No share of total when signs are mixed** (`signs_mixed`). Purchases (−123 M) and allocations (+106 M) offset
-  each other and gave 498 %. Shares only when every line in the block has the same sign; otherwise show gross debit
-  and gross credit columns.
-- **Criteria Excel would coerce.** Default is `SUMIFS` over `Lines_Q<n>`. Use the exact-match form
-  `=SUM(FILTER(Lines_Q1[AMOUNT],Lines_Q1[Period]=$B30,0))` (the builder picks it by itself) when the key is:
-  - date-like (`Jul-26`);
-  - a digit string over 15 characters (rounded to a number);
-  - containing wildcards `* ? ~`;
-  - starting with `<`, `>` or `=` (read as a comparison);
-  - with leading zeros (`0123` becomes 123);
-  - a time (`12:30`), a percent (`50%`), `TRUE`/`FALSE`, or a comma decimal (`1,5`);
-  - over 255 characters (SUMIFS fails; the FILTER form has no such limit).
-  Verify in real Excel. Key-like columns are written as text.
-- **"Other" and "no supplier" rows.** Other = block total − the listed rows (two terms). Blank keys use the criterion `""`.
-- **Key points** name the drivers from the profile: largest suppliers, invoices vs journals, allocation journals by
-  name. Running text uses full NOK with a minus sign (`−24 706 615`).
-- **Size.** Excel gets all 45 columns up to 50 000 lines; above that only the key columns (full detail stays in the
-  cache `smartass\drill.db`). Chat shows totals and top suppliers, never line dumps.
-
 ## Text repair
 
-Applied to every text field in `drill_lines.normalize`. The result carries `text_repairs {fixed_mojibake, fixed_by_list, unfixed}`.
+Applied to every text field of the lines (`epm\drill_lines.normalize`). Text that could not be repaired is listed in the
+reply's `text_fixes` (candidates for your own fix list).
 - **U+FFFD (letters lost in EPM at load).** Cannot be computed back. Fragment list in `knowledge\text_fixes.json`
   (shipped, replaced by updates) merged with the user's own `%LOCALAPPDATA%\smartass\text_fixes.json` (same
   format `{"fixes": {...}}`, wins on conflicts; broken fragment → correct fragment, replaced wherever it occurs).
   Seed: `H��yhastighet → Høyhastighet`.
 - **Mojibake** (`FjordbÃ¥ndet`): repaired exactly with `encode("latin-1").decode("utf-8")`, only when the
   string matches `Ã[\x80-\xbf]` or `Â[\x80-\xbf]` and the round trip succeeds.
-- **Unfixed** strings stay as they are, are listed in `warnings` and `text_repairs.unfixed`, and are never guessed.
+- **Unfixed** strings stay as they are, are listed in `text_fixes`, and are never guessed.
   Offer to add them to `%LOCALAPPDATA%\smartass\text_fixes.json` (survives updates).
 - The SYPR68 "Høyhastighet" project text is broken in the EPM metadata itself (the FinMax alias of `pj.SY.SY.SYPR68`
   too). Tell the user once; the EPM admins should fix it.
@@ -109,20 +102,19 @@ Applied to every text field in `drill_lines.normalize`. The result carries `text
 - **Browser:** headless Microsoft Edge first (`config.DRILL_CHANNELS` = msedge, chrome; profile `smartass\drill_edge`).
   A channel with a `UserDataDir` browser policy is skipped (Chrome has one: it forces every launch onto the user's
   own profile); a failed launch is retried once, then the next channel. A browser that died is restarted and the
-  drill retried once. `sv_status` → `drill_browser` shows which channels can start. A failed drill page leaves a
+  drill retried once. `smartass doctor` (check `drill_browser`) shows which channels can start. A failed drill page leaves a
   screenshot and HTML in `smartass\logs\drill_fail_*`.
 - Excel gets key columns only above 50 000 lines. Maximum 300 000 lines; above that the tool stops after the first
   page and reports the size, and you narrow the request.
-- No drill report on the cell (data entered by journal in EPM): cube value returned, `lines=0`, with the reason.
+- No drill report on the cell (data entered by journal in EPM): the answer is refused with the reason.
 
-## Worked example: golden report
+## Errors
 
-Built 15.10 by a since-deleted live script (the matrix's `S5.drill.report` now covers drill reports): FinLite `ac.C40S` × `un.SY.2WHS` × `Q3 26` (Wholesale COGS). 1 231 lines, −24 706 615.55,
-gap 0, 14/14 checks OK, 0 BLOCK findings from `formelsjekk.py`. Eight sections, each totalling the same amount:
-1. Reconciliation. 2. JE source (Payables −123 132 549.19, 359 lines). 3. Journal category. 4. Month (354 / 459 / 418 lines;
-`Jul-26` uses the FILTER form). 5. Account. 6. Top 12 suppliers + no supplier (872 lines) + other (SUPPLIER 037 AS
-−60 646 654.33, SUPPLIER 020 AS −20 187 679.96). 7. Top 10 products + other. 8. Ten largest invoices.
-
-Business insight recorded from it: the +106.3 M manual-journal credit on account 41130 is +72.4 M "SF26xx allokering IC VK"
-plus +33.9 M "KE51 2607 WHS allokering REV og Cogs". These allocations offset the −123 M of purchase invoices, which is why
-the supplier shares showed 498 % before the sign rule.
+| Symptom | Action |
+|---|---|
+| `Sign-in to EPM did not complete - open EPM once in Edge and log in, then retry fin_drill` | The silent SSO stalled. The user opens EPM in Edge once; retry. |
+| `The drill page loaded but never requested data (also after one reload)` | Retry once; if it repeats, the Oracle page changed (screenshot path in the error). |
+| `The hidden drill browser crashed …` / `ran out of time before it could sign in` | Retry. |
+| `another fin_drill is running in a different session` | One drill at a time across sessions: wait and retry. |
+| `this cell has no drill-through report …` | Not a FinLite base-level intersection loaded by Data Integration: use a FinLite account and a lower entity or period. |
+| Too wide (EPMFDM-140373) | Splits by itself by child entity, then account. |

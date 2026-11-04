@@ -1,5 +1,5 @@
 {
- "_doc": "Exact-string corrections for text that arrives broken from EPM (U+FFFD where a Norwegian letter was lost at load). Applied by sv_drill to every text field. Add new pairs when sv_drill reports unfixed strings.",
+ "_doc": "Exact-string corrections for text that arrives broken from EPM (U+FFFD where a Norwegian letter was lost at load). Applied by fin_drill (and lines blocks) to every text field. Add new pairs when a drill reports unfixed strings (reply text_fixes).",
  "fixes": {
   "H��yhastighet": "Høyhastighet"
  }

@@ -8,7 +8,8 @@ Users point at the release folder with `release.folder` in `config.toml` (or `SM
 variables and `~` are allowed, for example `folder = '%OneDriveCommercial%\<synced library>\smartass-release'`. An empty
 value means "not configured".
 
-1. Bump `version` in `engine\pyproject.toml` (the only place; the engine reads its version from the package metadata).
+1. Bump the version with `scripts\bump.ps1` (`-Part patch|minor|major` or `-Set x.y.z`): it writes `engine\VERSION`
+   (what the engine reports, and what makes running servers reload) and the same version in `engine\pyproject.toml`.
 2. Add an entry to `CHANGELOG.md`.
 3. Run `uv lock` and the tests: `cd engine; uv lock; uv run pytest -q; uv run ruff check .`
 4. Run the live checks in `engine\tests\live\README.md` on this PC.
@@ -18,6 +19,6 @@ value means "not configured".
    `pyproject.toml`, copies HEAD (`git archive`), optionally snapshots your
    `%LOCALAPPDATA%\smartass\atlas.db`, tags and pushes `v<version>`, and only then writes `latest.json`. Any git
    failure stops it before `latest.json`.
-7. Monthly: after `sv_atlas_build`, bump the patch version and publish again with `-WithAtlas`.
+7. Monthly: after `smartass atlas build`, bump the patch version (`scripts\bump.ps1`) and publish again with `-WithAtlas`.
 8. Roll back: a user pins a version with `release.version` in their `config.toml` (pinning down is allowed), or
    you republish the older code under a new, higher version number.

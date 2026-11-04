@@ -129,8 +129,11 @@ def test_refresh_stops_after_a_failed_restore_and_reports_the_rest_as_skipped(mo
 
 def _status_base(monkeypatch):
     monkeypatch.setattr(server.atlas, "connect", lambda: _FakeDb())
-    monkeypatch.setattr(server.atlas, "status", lambda db: {"stale": False})
+    monkeypatch.setattr(server.atlas, "status", lambda db: {"stale": False, "oldest_age_days": 3.0, "built": [1]})
     monkeypatch.setattr(server, "catalog_metrics", lambda: [1, 2])
+    from smartass.ops import doctor
+    monkeypatch.setattr(doctor, "run", lambda: [doctor.Check("excel", "OK", "x"),
+                                                doctor.Check("vba_access", "FAIL", "blocked", "tick it")])
 
 
 class _FakeDb:
@@ -167,3 +170,6 @@ def test_fin_status_without_restart_changes_nothing(monkeypatch):
     _status_base(monkeypatch)
     out = asyncio.run(server.fin_status())
     assert "restarted" not in out and out["metrics"] == 2
+    assert out["atlas"] == {"oldest_age_days": 3.0, "stale": False, "dimensions_built": 1}
+    assert out["doctor"]["overall"] == "FAIL"
+    assert [p["name"] for p in out["doctor"]["problems"]] == ["vba_access"]

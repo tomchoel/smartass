@@ -146,7 +146,7 @@ class SvHttp:
         finally:
             db.close()
         if not dims:
-            raise SvHttpError(f"the atlas has no dimensions for {conn}: build it with sv_atlas_build")
+            raise SvHttpError(f"the atlas has no dimensions for {conn}: build it with `smartass atlas build`")
         if stale:
             raise SvHttpError(f"the atlas is incomplete or stale for {conn} (dimensions {', '.join(stale)})")
         return dims
@@ -381,7 +381,7 @@ class BrowserTransport:
         except cf.TimeoutError:
             restarted = ""
             if fut is not None and not fut.done() and not fut.cancel():   # queued: cancelled, never runs
-                try:                         # running and hung: restart OUR browser (like sv_drill's hang guard), so
+                try:                         # running and hung: restart OUR browser (like fin_drill's hang guard), so
                     b.kill()                 # later queries and drills do not queue behind a stuck worker
                     restarted = "; the hidden browser was restarted"
                 except Exception as e:   # noqa: BLE001 - the fallback must still be offered

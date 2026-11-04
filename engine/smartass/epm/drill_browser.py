@@ -1,4 +1,4 @@
-"""Headless Microsoft Edge that reads Data Integration drill pages (proven 15.10.2026 with Chrome, see the sv_drill
+"""Headless Microsoft Edge that reads Data Integration drill pages (proven 15.10.2026 with Chrome, see the fin_drill
 spec; moved to Edge 22.10.2026 because an HKCU Chrome policy, UserDataDir, now forces every Chrome launch onto the
 user's own profile, so a separate headless Chrome cannot start). Channels are tried in config.DRILL_CHANNELS order:
 one blocked by a UserDataDir policy is skipped, one that fails to launch is retried once, then the next is tried.
@@ -45,7 +45,7 @@ except ImportError:   # pragma: no cover - playwright is a hard dependency of th
 log = logging.getLogger("smartview.drill")
 
 SIGNIN = "/ui/v1/signin"
-SIGNIN_FAILED = ("Sign-in to EPM did not complete - open EPM once in Edge and log in, then retry sv_drill. Nothing "
+SIGNIN_FAILED = ("Sign-in to EPM did not complete - open EPM once in Edge and log in, then retry fin_drill. Nothing "
                  "was shown on screen.")
 CRASH_RETRY_S = 45             # a browser restart + sign-in + capture after a crash needs this much of the deadline
 MIN_RETRY_S = 15               # a second login attempt / page reload needs at least this much of the deadline left
@@ -580,7 +580,7 @@ class DrillBrowser:
                 gone = f"the other session lets go after {config.DRILL_YIELD_IDLE_S // 60:.0f} idle minutes"
             else:
                 gone = f"its hidden browser closes after {config.DRILL_IDLE_S // 60:.0f} idle minutes"
-            raise DrillBusy(f"another sv_drill is running in a different session ({gone}); "
+            raise DrillBusy(f"another fin_drill is running in a different session ({gone}); "
                             "try again in a minute.")
         s.plock = self.plock
         s.profile = Path(self.profile)
@@ -702,7 +702,7 @@ class DrillBrowser:
         s.ready = False
         if s.deadline - time.monotonic() < 1:
             raise DrillError("The drill ran out of time before it could sign in (the hidden browser was slow to "
-                             "start or restarted) - retry sv_drill.")
+                             "start or restarted) - retry fin_drill.")
         try:
             self._login_once(s.page, s.deadline)
         except DrillError as first:
@@ -819,7 +819,7 @@ class DrillBrowser:
                 dump = self._dump_failure(p)
                 raise DrillError("The drill page loaded but never requested data"
                                  + (" (also after one reload)" if reloaded else "") + " - retry "
-                                 "sv_drill; if it repeats, the Oracle drill page may have changed. "
+                                 "fin_drill; if it repeats, the Oracle drill page may have changed. "
                                  f"Page: {redact(p.url)[:120]}. Console errors: {tail}. "
                                  f"Screenshot/HTML: {dump}")
         finally:
@@ -886,7 +886,7 @@ class DrillBrowser:
                 s.deadline = time.monotonic() + config.DRILL_SETUP_S
             elif s.deadline - time.monotonic() < CRASH_RETRY_S:
                 raise DrillError(f"The hidden drill browser crashed ({e}) with too little time left to start it "
-                                 "again - retry sv_drill.") from None
+                                 "again - retry fin_drill.") from None
             log.warning("drill browser died mid-drill (%s); restarting it and retrying once", e)
             return self._fetch_once(s, url, max_lines, progress)
 
@@ -987,7 +987,7 @@ _shared_lock = threading.Lock()
 
 
 def shared_browser() -> DrillBrowser:
-    """The process's one drill browser: sv_drill and the Smart View HTTP route (svhttp) share it, its worker thread
+    """The process's one drill browser: fin_drill and the Smart View HTTP route (svhttp) share it, its worker thread
     and its profile lock."""
     global _shared
     with _shared_lock:

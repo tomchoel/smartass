@@ -11,23 +11,23 @@ class HostError(Exception):
 
 
 def test_explain_names_tool_cause_and_next_step():
-    msg = server.explain("sv_answer", HostError("Excel did not answer"))
-    assert msg.startswith("sv_answer failed - HostError: Excel did not answer")
-    assert "Next step:" in msg and "sv_restart" in msg
-    assert "Next step:" in server.explain("sv_answer", ValueError("bad"))
+    msg = server.explain("fin_analyze", HostError("Excel did not answer"))
+    assert msg.startswith("fin_analyze failed - HostError: Excel did not answer")
+    assert "Next step:" in msg and "fin_status(restart=True)" in msg
+    assert "Next step:" in server.explain("fin_analyze", ValueError("bad"))
 
 
 def test_explain_uses_the_advice_of_a_base_class():
-    assert "sv_restart" in server.explain("sv_answer", HostTimeout("slow"))
-    assert "Narrow the cell" in server.explain("sv_drill", CellTooWide("too wide"))
+    assert "fin_status(restart=True)" in server.explain("fin_analyze", HostTimeout("slow"))
+    assert "Narrow the cell" in server.explain("fin_drill", CellTooWide("too wide"))
 
 
 def test_with_next_step_keeps_existing_advice():
-    assert server.with_next_step("Bad member X. Next step: use sv_find_member.") == \
-        "Bad member X. Next step: use sv_find_member."
+    assert server.with_next_step("Bad member X. Next step: use fin_lookup.") == \
+        "Bad member X. Next step: use fin_lookup."
     assert "Next step:" in server.with_next_step("Bad member X")
     assert server.with_next_step("Busy. Try again shortly.") == "Busy. Try again shortly."
-    assert server.with_next_step("Failed. If it repeats, run sv_restart.") == "Failed. If it repeats, run sv_restart."
+    assert server.with_next_step("Failed. If it repeats, run fin_status(restart=True).") == "Failed. If it repeats, run fin_status(restart=True)."
 
 
 @pytest.mark.anyio
@@ -78,21 +78,21 @@ async def test_host_error_via_call_gets_the_restart_hint_exactly_once(monkeypatc
     from smartass.xl.host import HostError as RealHostError
     msg = await _tool_error_via_host(monkeypatch, RealHostError("COM error during query: boom"))
     assert msg.startswith("COM error during query: boom. Next step:")
-    assert msg.count("sv_restart") == 1 and msg.lower().count("next step") == 1
+    assert msg.count("fin_status(restart=True)") == 1 and msg.lower().count("next step") == 1
 
 
 @pytest.mark.anyio
 async def test_a_message_with_its_own_advice_gets_no_second_advice(monkeypatch):
     from smartass.xl.host import HostError as RealHostError
-    own = "Unexpected KeyError during query: 'x'. If it repeats, run sv_restart."
+    own = "Unexpected KeyError during query: 'x'. If it repeats, run fin_status(restart=True)."
     assert await _tool_error_via_host(monkeypatch, RealHostError(own)) == own
 
     grid = "Grid has 9 cells (> 1). Narrow the members, split the query, or pass large=true if you really need it."
 
-    async def sv_answer():
+    async def fin_analyze():
         raise ToolError(grid)
     with pytest.raises(ToolError) as e:
-        await server.guard(sv_answer)()
+        await server.guard(fin_analyze)()
     assert str(e.value) == grid
 
 
@@ -100,12 +100,12 @@ async def test_a_message_with_its_own_advice_gets_no_second_advice(monkeypatch):
 async def test_input_errors_never_suggest_a_restart(monkeypatch):
     from smartass.xl.host import InputError
     msg = await _tool_error_via_host(monkeypatch, InputError("Unknown pull sheet 'm'. Pulls: ['ytd']"), user_excel=True)
-    assert "sv_restart" not in msg and "sv_status" not in msg
+    assert "fin_status(restart=True)" not in msg and "fin_status" not in msg
     assert msg.count("Next step:") == 1 and "Correct the input" in msg
 
 
 def test_explain_gives_one_next_step_for_unknown_errors():
-    msg = server.explain("sv_answer", ValueError("bad"))
+    msg = server.explain("fin_analyze", ValueError("bad"))
     assert msg.count("Next step:") == 1 and "Retry once" in msg
 
 

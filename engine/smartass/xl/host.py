@@ -215,7 +215,7 @@ class ExcelHost(HiddenExcel):
         except Exception as e:   # noqa: BLE001 - always give the model a readable reason
             log.exception("unexpected error during %s", what)
             raise HostError(f"Unexpected {type(e).__name__} during {what}: {e}. Retry once; if it repeats, run "
-                            "sv_restart.") from None
+                            "fin_status(restart=True).") from None
 
     async def _await_job(self, wrapped, timeout: float, watch_dialogs: bool):
         """Wait for the job; from DIALOG_CHECK_AFTER_S on, every DIALOG_POLL_S, look for a stuck Smart View sign-in in
@@ -432,13 +432,13 @@ def _explain(fn: str, status: str) -> str:
         hint = ("Smart View is not signed in yet (no session id): wait until the EPM login has completed, or ask the "
                 "user to sign in once in their Excel, then retry")
     elif rc == "57704" and "mbrs" in low:
-        hint = ("the EPM Cloud Planning provider does not support this member query; use sv_find_member / sv_members "
+        hint = ("the EPM Cloud Planning provider does not support this member query; use fin_lookup "
                 "(atlas) instead")
     else:
         hint = {
             "-15": "invalid parameter",
             "-41": "not supported by the Planning provider (official)",
-            "1000": "Smart View rejected the grid; check member names with sv_find_member",
+            "1000": "Smart View rejected the grid; check member names with fin_lookup",
             "-71": "invalid member name",
         }.get(rc, "")
     if "<update>" in detail:                     # EPM sent its extension-update manifest instead of a reply

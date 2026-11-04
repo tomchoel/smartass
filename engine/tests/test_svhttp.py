@@ -271,7 +271,7 @@ def test_an_incomplete_or_stale_atlas_falls_back_to_com(db_path, tmp_path):
     with pytest.raises(svhttp.SvHttpError, match="atlas has no dimensions"):
         _q(_sv(FakeTransport(), tmp_path / "empty.db"), "FinLite")
     db = atlas.connect(db_path)
-    atlas.store(db, "FinMax", "All Scenarios", [], 0.1, "timed out")   # a failed rebuild, as sv_atlas_build writes it
+    atlas.store(db, "FinMax", "All Scenarios", [], 0.1, "timed out")   # a failed rebuild, as `smartass atlas build` writes it
     assert db.execute("SELECT count(*) FROM member WHERE dimension='All Scenarios'").fetchone()[0] == 0   # gone ...
     db.close()
     with pytest.raises(svhttp.SvHttpError, match="atlas is incomplete or stale for FinMax.*All Scenarios"):

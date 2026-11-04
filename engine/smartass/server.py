@@ -1,7 +1,8 @@
 # engine/smartass/server.py
-"""smartass2: the v2 MCP server (built beside v1 until v2 passes the test set). Tools:
-fin_analyze (new question or follow-up patch), fin_lookup, fin_status, fin_refresh, fin_drill. Error text (guard), Excel jobs
-(_call_user, progress notes) and the lifespan (warm-up, closing the hidden Excel) come from core.serverkit."""
+"""smartass: the MCP server (stdio; started by run_server.py through child_server.py). Tools: fin_analyze (new
+question or follow-up patch), fin_lookup, fin_status, fin_refresh, fin_drill, and xl_snapshot / xl_revert / xl_tidy
+for edits to open workbooks made with Excel MCP. Error text (guard), Excel jobs (_call_user, progress notes) and the
+lifespan (warm-up, closing the hidden Excel) come from core.serverkit."""
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +29,7 @@ from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prep
 TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "xl_snapshot", "xl_revert",
               "xl_tidy")
 
-INSTRUCTIONS = """smartass2 (v2, read-only towards Oracle EPM: FinMax/FinLite actuals, FinPlan plan/forecast).
+INSTRUCTIONS = """smartass (read-only towards Oracle EPM: FinMax/FinLite actuals, FinPlan plan/forecast).
 1) fin_lookup: metric names and members (entities 'un.SY.<code>' in FinMax, '<code> <name>' in FinPlan).
 2) New question: fin_analyze(spec) with an AnalysisSpec v2 - plan (depth, purpose, hypotheses), queries (cube,
 metrics, entity, periods e.g. 'closed-ytd', compare ly | budget | forecast; budget/forecast only in FinPlan),
@@ -40,12 +41,12 @@ answer in the workbook to the latest closed month (relative periods roll forward
 5) Quote numbers only from key_values; explain material lines from drivers evidence or label them a hypothesis.
 6) Editing a workbook the user has open with Excel MCP: xl_snapshot first, then edit, xl_revert to undo; finish
 with xl_tidy (zero BLOCK findings). 7) After the server reloads, Claude Code may keep an old tool schema: if a
-parameter seems missing, ask the user to run /mcp and reconnect smartass2.
+parameter seems missing, ask the user to run /mcp and reconnect smartass. Repeated errors: fin_status(restart=True).
 Ledger lines: a lines block (cell with All Accounts, All Entities, All Time Periods; Periodic; FinLite) or
 fin_drill(cell) ranks suppliers, projects or accounts and ties them to the cube.
 Sheet text is English; answer the user in their language. The user's own workbooks are never saved."""
 
-mcp = MCPServer("smartass2", instructions=INSTRUCTIONS, lifespan=kit.lifespan)
+mcp = MCPServer("smartass", instructions=INSTRUCTIONS, lifespan=kit.lifespan)
 
 
 def _register(annotations):
@@ -97,7 +98,7 @@ def _provider():
 
 
 def _clean(fn):
-    """Refusals raised inside a host job are input errors, not 'Unexpected ... run sv_restart'."""
+    """Refusals raised inside a host job are input errors, not 'Unexpected ... run fin_status(restart=True)'."""
     def job(h):
         try:
             return fn(h)
@@ -240,9 +241,11 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
 
 @_register(kit.ADMIN)
 async def fin_status(restart: bool = False) -> dict:
-    """Health: version, atlas status, metric count, and where answer files go. restart=True after repeated errors
-    or to load new code: the relay starts a fresh server process (its own hidden Excel closes); run without the
-    relay, only this server's own Excel is closed (it restarts on the next pull)."""
+    """Health: version, atlas age, metric count, where answer files go, and the doctor checks (config, Excel,
+    Smart View, VBA access, EPM, drill browser, atlas, output folder, HTTP API, update; only problems listed).
+    restart=True after repeated errors or to load new code: the relay starts a fresh server process (its hidden
+    Excel closes); run without the relay, only this server's own Excel is closed (it restarts on the next pull).
+    A stale atlas: run `smartass atlas build` in a terminal."""
     import os
 
     from .core import config
@@ -257,7 +260,14 @@ async def fin_status(restart: bool = False) -> dict:
             out["restarted"] = "excel"
     with contextlib.closing(atlas.connect()) as db:
         st = atlas.status(db)
-    return {**out, "analyser": str(config.ANALYSER_DIR), "atlas": st, "metrics": len(catalog_metrics())}
+    from .ops import doctor
+    checks = await asyncio.to_thread(doctor.run)         # network checks (EPM 5 s, HTTP 2 s) off the event loop
+    return {**out, "behind_relay": bool(os.environ.get("SVKIT_PROXY")), "analyser": str(config.ANALYSER_DIR),
+            "atlas": {"oldest_age_days": st["oldest_age_days"], "stale": st["stale"],
+                      "dimensions_built": len(st["built"])},
+            "metrics": len(catalog_metrics()),
+            "doctor": {"overall": doctor.overall(checks),
+                       "problems": [c.__dict__ for c in checks if c.status != "OK"]}}
 
 
 @_register(kit.WRITE)

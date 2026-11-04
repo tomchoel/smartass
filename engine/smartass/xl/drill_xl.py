@@ -1,4 +1,4 @@
-"""sv_drill in the user's workbook: the lines table ('Q<n> Lines', Excel table Lines_Q<n>) and the formulas
+"""fin_drill in the user's workbook: the lines table ('Q<n> Lines', Excel table Lines_Q<n>) and the formulas
 answer cells use over it. Formula rules (tn-formelstil): SUMIFS by default; an exact-match FILTER form where SUMIFS
 would not match the key literally ('Jul-26' -> a date, digit strings over 15 characters -> a rounded number,
 '0123' -> 123, * ? ~ -> wildcards, a leading < > = -> a comparison, '12:30' -> a time, '50%' -> 0.5, 'TRUE' -> a
@@ -152,7 +152,7 @@ def _stale_ranges(hdr: int, old_end: int, old_ncol: int, new_end: int, new_ncol:
 
 def _source_text(source: str) -> str:
     return (f"{source} Extract {dt.datetime.now():%d.%m.%Y %H:%M}. AMOUNT has the FinMax sign (cost negative). "
-            "Snapshot: run sv_drill again to update.")
+            "Snapshot: run fin_drill again to update.")
 
 
 def same_header(old, new) -> bool:
@@ -280,5 +280,5 @@ def mark_incomplete(t: Target, q: int, alias: str = "d") -> None:
     ws, lo = com(lambda: find_table(t.wb, table_name(q, alias)))
     if ws is None:
         return
-    com(lambda: setattr(ws.Range("A2"), "Value", "INCOMPLETE – run sv_drill again"))
+    com(lambda: setattr(ws.Range("A2"), "Value", "INCOMPLETE – run fin_drill again"))
     com(lambda: setattr(ws.Range("A2").Font, "Color", 0x0000C0))     # BGR: red

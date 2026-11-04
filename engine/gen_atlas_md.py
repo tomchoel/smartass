@@ -1,5 +1,5 @@
 """Generate the skill's readable cube atlas (reference/cubes.md) from atlas.db.
-Run after sv_atlas_build:  python gen_atlas_md.py [output.md]"""
+Run after `smartass atlas build`:  python gen_atlas_md.py [output.md]"""
 import os
 import sqlite3
 import sys
@@ -32,7 +32,7 @@ def fmt(name, label):
 
 lines = ["# Cube atlas (generated)", "",
          f"Generated {time.strftime('%Y-%m-%d %H:%M')} from `%LOCALAPPDATA%\\smartass\\atlas.db` by `gen_atlas_md.py`. "
-         "Top levels only; search everything with `sv_find_member`, walk with `sv_members`.", ""]
+         "Top levels only; search everything with `fin_lookup`.", ""]
 for (conn,) in db.execute("SELECT DISTINCT connection FROM build ORDER BY connection"):
     lines += [f"## {conn}", "", "| Dimension | Members | Built |", "|---|---:|---|"]
     builds = db.execute("SELECT dimension, n, built_at, error FROM build WHERE connection=? ORDER BY dimension",

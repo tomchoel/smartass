@@ -1,4 +1,4 @@
-"""The async drill (ledger lines behind a FinLite cell) and its Excel half, shared by sv_drill and the recipes that
+"""The async drill (ledger lines behind a FinLite cell) and its Excel half, shared by fin_drill and the recipes that
 drill (lines_ranking). drill() runs on the event loop (Smart View link via the host, then the hidden browser);
 write() runs inside a host job."""
 from __future__ import annotations

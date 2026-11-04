@@ -1,4 +1,4 @@
-"""Unit tests for sv_drill's pure parts (fixtures from the 15.10.2026 spike)."""
+"""Unit tests for fin_drill's pure parts (fixtures from the 15.10.2026 spike)."""
 import json
 from pathlib import Path
 

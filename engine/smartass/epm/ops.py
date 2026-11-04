@@ -7,7 +7,7 @@ import re
 import time
 
 from ..core import config, timing
-from .grid import Axis, Layout, full_pov, parse
+from .grid import Axis, Layout, full_pov, indent_of, name_from_label, parse
 from ..xl.host import ExcelHost, HostError, InputError, ProviderEmpty
 
 log = logging.getLogger("smartview.ops")
@@ -151,7 +151,62 @@ def ensure_grid_sheet(h: ExcelHost, conn: str, sheet: str | None = None, fresh: 
         h.connected.pop(sheet, None)
         time.sleep(2)
     raise HostError(f"Smart View opened {conn} in a non-standard ad hoc mode ({problem}). "
-                    "Try sv_restart; if it persists, check the connection in Smart View (alias table Default).")
+                    "Try fin_status(restart=True); if it persists, check the connection in Smart View (alias table Default).")
+
+
+def dimensions(h: ExcelHost, conn: str) -> list[str]:
+    """The cube's dimension labels as the grid shows them (connects a grid sheet if needed)."""
+    ensure_grid_sheet(h, conn)
+    return list(_dims_cache[conn])
+
+
+def dump_dimension(h: ExcelHost, conn: str, dim: str, root: str | None = None) -> list[dict]:
+    """Zoom a dimension's tree (all levels) on a grid and return [{label, name, depth, parent, order}] top-down.
+    Used by `smartass atlas build`."""
+    sheet = f"A_{conn}"[:31]
+    ensure_grid_sheet(h, conn, sheet=sheet, fresh=True)
+    dims = _dims_cache[conn]
+    other = next(d for d in dims if d != dim)
+    lay = Layout(full_pov(dims, {}, [Axis(dim, [root or dim])], [Axis(other, [other])]),
+                 [Axis(dim, [root or dim])], [Axis(other, [other])])
+    ws = h.wb.Worksheets(sheet)
+    ws.Activate()
+    ws.Cells.ClearContents()
+    m = lay.matrix()
+    ws.Range(ws.Cells(1, 1), ws.Cells(len(m), len(m[0]))).NumberFormat = "@"
+    ws.Range(ws.Cells(1, 1), ws.Cells(len(m), len(m[0]))).Value = m
+    _apply_sheet_options(h, sheet, {5: 1, 33: True})     # indent sub-items; navigate without data
+    h.run("B_Retrieve", sheet)
+    h.run("B_ZoomIn", sheet, "A3", 1, False)            # all levels
+    vals = _used_values(ws)
+    labels = [r[0] for r in vals[2:] if r and isinstance(r[0], str) and r[0].strip()]
+    _apply_sheet_options(h, sheet, {5: 0, 33: False})
+    return tree_from_labels(labels)
+
+
+def tree_from_labels(labels: list[str]) -> list[dict]:
+    """Indentation -> depth/parent. Handles both ancestor-on-top and ancestor-at-bottom ordering."""
+    if not labels:
+        return []
+    ind = [indent_of(x) for x in labels]
+    bottom_up = ind[-1] < ind[0]                # top member last = ancestors below their children
+    seq = list(zip(labels, ind))
+    if bottom_up:
+        seq.reverse()
+    base = min(i for _, i in seq)
+    steps = sorted({i for _, i in seq})
+    step = (steps[1] - steps[0]) if len(steps) > 1 else 1
+    out, stack = [], []
+    for order, (lab, i) in enumerate(seq):
+        depth = (i - base) // step if step else 0
+        while len(stack) > depth:
+            stack.pop()
+        parent = stack[-1] if stack else None
+        clean = lab.strip()
+        name = name_from_label(clean) or clean
+        out.append({"label": clean, "name": name, "depth": depth, "parent": parent, "order": order})
+        stack.append(name)
+    return out
 
 
 def canon_dim(conn: str, name: str) -> str:
@@ -224,7 +279,7 @@ def _rejected_members(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols
 def rejected_note(conn: str, rej: list[tuple[str, str]]) -> str:
     return ("Smart View rejected these members (rc=1000), so they were left out: "
             + "; ".join(_explain_reject(conn, d, m) for d, m in rej)
-            + ". Pick a more specific member with sv_find_member / sv_members.")
+            + ". Pick a more specific member with fin_lookup.")
 
 
 def _explain_reject(conn: str, dim: str, member: str) -> str:
@@ -269,7 +324,7 @@ def query(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list[Axis]
     if any(not a.members for a in rows2 + cols2):
         raise InputError("Smart View rejects every member on an axis: "
                          + "; ".join(_explain_reject(conn, d, m) for d, m in rej)
-                         + ". Next step: pick valid members with sv_find_member / sv_members.")
+                         + ". Next step: pick valid members with fin_lookup.")
     lay, p, secs = _query_once(h, conn, pov, rows2, cols2, suppress_missing, suppress_zeros)
     p.pov_problems.insert(0, rejected_note(conn, rej))
     return lay, p, secs
@@ -322,7 +377,7 @@ def drill_cell_defaults(cell: dict[str, str]) -> tuple[dict[str, str], list[str]
     """A drill cell needs an account and a period; a missing entity drills the top member, with a warning."""
     missing = {"All Accounts", "All Time Periods"} - set(cell)
     if missing:
-        raise InputError(f"sv_drill needs these dimensions in cell: {sorted(missing)}")
+        raise InputError(f"fin_drill needs these dimensions in cell: {sorted(missing)}")
     if "All Entities" in cell:
         return dict(cell), []
     return {**cell, "All Entities": "All Entities"}, [

@@ -1,4 +1,4 @@
-"""smartass command line: doctor, serve (HTTP API + update at login), setup (installer), update."""
+"""smartass command line: doctor, serve (HTTP API + update at login), setup (installer), update, atlas."""
 from __future__ import annotations
 
 import argparse
@@ -16,6 +16,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("setup", help="per-user setup (run by installer\\install.ps1)")
     u = sub.add_parser("update", help="install the release from the release folder")
     u.add_argument("--force", action="store_true")
+    at = sub.add_parser("atlas", help="the local member atlas: status, or build it from Smart View")
+    at_sub = at.add_subparsers(dest="atlas_cmd", required=True)
+    at_sub.add_parser("status", help="what the atlas holds and whether it is stale")
+    b = at_sub.add_parser("build", help="rebuild from Smart View (own hidden Excel; read-only; a few minutes)")
+    b.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
+                   help="only this cube (repeatable; default all three)")
+    b.add_argument("--dimension", action="append", help="only this dimension (repeatable; no purge of the cube)")
     a = ap.parse_args(argv)
 
     if a.cmd == "doctor":
@@ -39,6 +46,17 @@ def main(argv: list[str] | None = None) -> int:
         for line in setup_user.run():
             print(line)
         return 0
+    if a.cmd == "atlas":
+        from . import atlas_build
+        if a.atlas_cmd == "status":
+            print(json.dumps(atlas_build.status(), indent=2))
+            return 0
+        from ..core import config, logsetup
+        logsetup.configure(config.HOME / "logs" / "atlas.log")
+        done = atlas_build.run_build(a.cube, a.dimension)
+        failed = [d for d in done if d.get("error")]
+        print(f"atlas: {len(done) - len(failed)} built, {len(failed)} failed ({config.ATLAS_DB})")
+        return 1 if failed else 0
     if a.cmd == "update":
         from . import update
         print(update.apply(force=a.force))

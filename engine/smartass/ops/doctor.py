@@ -1,5 +1,5 @@
 """smartass doctor: cheap health checks (starts neither Excel nor a browser). Each check gives OK / WARN / FAIL,
-a detail and the fix. Used by the CLI, sv_status and the HTTP /health endpoint."""
+a detail and the fix. Used by the CLI, fin_status and the HTTP /health endpoint."""
 from __future__ import annotations
 
 import contextlib
@@ -82,11 +82,11 @@ def _atlas(max_age_days: float = 35) -> Check:
     p = config.ATLAS_DB
     if not p.exists():
         return Check("atlas", "FAIL", f"missing: {p}",
-                     "Re-run installer\\install.ps1 (copies the monthly atlas), or call sv_atlas_build.")
+                     "Re-run installer\\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.")
     age = (time.time() - p.stat().st_mtime) / 86400
     status = "OK" if age <= max_age_days else "WARN"
     return Check("atlas", status, f"{p} ({age:.0f} days old)",
-                 "" if status == "OK" else "Re-run the installer after the monthly release, or call sv_atlas_build.")
+                 "" if status == "OK" else "Re-run the installer after the monthly release, or run `smartass atlas build`.")
 
 
 ACCOUNT_DIM = {"FinMax": "All Accounts", "FinPlan": "Account"}     # FinLite = the FinMax accounts

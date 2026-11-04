@@ -34,7 +34,7 @@ def next_question(t: target.Target) -> int:
 
 
 def pending_drill_question(t: target.Target) -> int | None:
-    """The highest q that has drilled 'Q<q> Lines…' sheets but no 'Q<q> Answer' yet (sv_drill ran before sv_answer),
+    """The highest q that has drilled 'Q<q> Lines…' sheets but no 'Q<q> Answer' yet (fin_drill ran before fin_analyze),
     else None."""
     names = [s.Name for s in t.wb.Worksheets]
     drilled = {int(m.group(1)) for n in names if (m := _LINES.match(n))}
@@ -232,7 +232,7 @@ def load_answer(t: target.Target, q: int) -> dict | None:
 
 
 def stored_questions(t: target.Target) -> list[int]:
-    """The questions with a stored answer spec v1 (drawn by sv_answer), ascending."""
+    """The questions with a stored answer spec v1 (drawn by fin_analyze), ascending."""
     return sorted(q for q, a in _stored_specs(t).items() if a["spec"].get("version") == 1)
 
 

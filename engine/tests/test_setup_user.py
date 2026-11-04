@@ -129,3 +129,14 @@ def test_make_shortcut_creates_missing_startup_folder(tmp_path):
     lnk = tmp_path / "Microsoft" / "Windows" / "Startup" / "x.lnk"
     setup_user.make_shortcut(lnk, "cmd.exe", "/c exit", str(tmp_path))
     assert lnk.exists()
+
+
+def test_register_mcp_drops_the_v2_side_by_side_entry(tmp_path):
+    p = tmp_path / ".claude.json"
+    p.write_text(json.dumps({"mcpServers": {
+        "smartass": {"command": "py.exe", "args": ["run_server.py"], "env": {"SV_DRILL_KEEP_WARM": "0"}},
+        "smartass2": {"command": "py.exe", "args": ["run_server_v2.py"], "env": {}}}}), encoding="utf-8")
+    entry = {"type": "stdio", "command": "py.exe", "args": ["run_server.py"], "env": {}}
+    assert setup_user.register_mcp(p, entry) == "updated"
+    servers = json.loads(p.read_text(encoding="utf-8"))["mcpServers"]
+    assert list(servers) == ["smartass"] and servers["smartass"]["env"] == {"SV_DRILL_KEEP_WARM": "0"}

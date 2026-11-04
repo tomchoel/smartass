@@ -222,7 +222,7 @@ LOGIN_GRACE_S = float(os.environ.get("SV_LOGIN_GRACE", "30"))
 TRANSIENT_RETRY_WAIT_S = 3.0                        # before the one retry after rc=752 / rc=57704
 RESET_WAIT_S = 10.0                                 # after killing our Excel, wait this long for the COM call to return
 
-# ---------------------------------------------------------------- drill-through (sv_drill)
+# ---------------------------------------------------------------- drill-through (fin_drill)
 EPM_BASE = _pick("SV_EPM_BASE", "epm.base")
 # Browsers tried in order. Edge first: an HKCU Chrome policy (UserDataDir) forces every Chrome launch onto the user's
 # own profile, so a hidden Chrome hands off to the user's running Chrome and exits (code 21). A channel whose

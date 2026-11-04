@@ -153,7 +153,7 @@ def _refresh_pull(t: target.Target, p: sheets.Pull) -> sheets.Pull:
         bad = _verify_labels(p.layout, parsed)
     if bad:
         raise HostError(f"'{p.sheet}' no longer has the expected layout: " + "; ".join(bad[:5])
-                        + ". Re-run sv_answer for this question.")
+                        + ". Re-run fin_analyze for this question.")
     parsed.pov_problems[:0] = [w for w in p.parsed.pov_problems if w.startswith("Smart View rejected")]
     return sheets._make_pull(p.sheet, p.connection, p.layout, parsed, secs)
 

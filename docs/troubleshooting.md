@@ -58,7 +58,7 @@ by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe
 ## drill_browser
 
 - **Symptom:** `FAIL  drill_browser  msedge: ...; chrome: ...`.
-- **Cause:** `sv_drill` needs a hidden Edge or Chrome (`drill.channels`). None is installed, or a policy blocks it
+- **Cause:** `fin_drill` (and lines blocks) need a hidden Edge or Chrome (`drill.channels`). None is installed, or a policy blocks it
   (Chrome's UserDataDir policy blocks a hidden Chrome, which is why Edge is tried first).
 - **Fix:** Install Microsoft Edge, or ask IT why the Edge UserDataDir policy is set.
 
@@ -66,8 +66,8 @@ by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe
 
 - **Symptom:** `FAIL  atlas  missing: ...\atlas.db` or `WARN  atlas  ...\atlas.db (N days old)` (older than 35 days).
 - **Cause:** the member atlas (used to find members by name) was never copied, or is out of date.
-- **Fix:** FAIL: Re-run installer\install.ps1 (copies the monthly atlas), or call sv_atlas_build.
-  WARN: Re-run the installer after the monthly release, or call sv_atlas_build.
+- **Fix:** FAIL: Re-run installer\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.
+  WARN: Re-run the installer after the monthly release, or run `smartass atlas build`.
 
 ## output
 

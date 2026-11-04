@@ -8,7 +8,7 @@ base = "https://plan1-telenorepm.epm.eu-frankfurt-1.ocs.oraclecloud.com"
 id = "f604d2c9-1577-460e-b668-57374a0216c3"
 site = "1676489c-5c72-46b7-ba63-9ab90c4aad44"
 
-[drill]          # browsers tried in order for sv_drill (Edge first: Chrome's UserDataDir policy blocks a hidden Chrome)
+[drill]          # browsers tried in order for fin_drill (Edge first: Chrome's UserDataDir policy blocks a hidden Chrome)
 channels = ["msedge", "chrome"]
 
 [archive]        # under the user's OneDrive for Business root; never written unless explicitly allowed
