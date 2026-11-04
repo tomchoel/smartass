@@ -2631,3 +2631,7 @@ Plan 1B is written after this plan is merged.
 - The test-set runner on recorded facts.
 - Patches (follow-ups as JSON merge patches on the stored spec, with unchanged queries reused).
 - Passing caveats from the resolver through to the reply.
+- Readback rule (review 04.11): the model's `None` (missing) equals Excel's 0 / blank in "Sheet = model". SUMIFS
+  over missing data returns 0, and a ratio with a missing numerator shows 0 in Excel.
+- Write `Data_Q<n>[Period]` (and every label column) as text (`@` number format), or Excel turns "Sep 26" into a
+  date and SUMIFS stops matching.
