@@ -197,6 +197,12 @@ def _sheet(t, name: str):
     return com(lambda: t.wb.Worksheets(name))
 
 
+def _make_room(ws, old: dict | None, new: dict) -> None:
+    """Insert rows/columns when the larger new answer would cover the user's own cells (v1 owned.make_room)."""
+    from smartview_mcp.core import owned as owned_mod
+    owned_mod.make_room(ws, old, new)
+
+
 def _clear(ws, owned: dict | None) -> None:
     from smartview_mcp.core import owned as owned_mod
     owned_mod.clear(ws, owned)                          # the drawn range and our charts (everything when none stored)
@@ -223,13 +229,16 @@ def read_stored(h, target: str = "session") -> tuple[dict, str | None, str]:
     return sheets._stored_specs(t), com(lambda: t.wb.ActiveSheet.Name), str(t.path)
 
 
-def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False) -> dict:
+def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
+          old_owned: dict | None = None) -> dict:
     """Data sheet, layout, Answer sheet, charts, readback, spec + owned range, sheet order. Shared by excel_job and
     redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place."""
     (rewrite_data if redraw else write_data)(ws_data, pre.frame, q)
     cubes = sorted({x.cube for x in pre.spec.queries})
     closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
     plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}")
+    if redraw:                                  # a larger answer pushes the user's cells aside, never overwrites them
+        _make_room(ws_answer, old_owned, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     lint = write_answer(ws_answer, plan, pre.warnings)
     lint = list(lint or []) + write_charts(ws_answer, plan)
     _calculate(t)
@@ -267,7 +276,7 @@ def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "sess
     try:
         ws_answer = _sheet(t, a_name)
         _clear(ws_answer, owned)
-        out = _draw(t, q, pre, ws_answer, ws_data, redraw=True)
+        out = _draw(t, q, pre, ws_answer, ws_data, redraw=True, old_owned=owned)
     except Exception as e:
         problems = []
         steps = [("rollback", lambda: _rollback(t)), (f"restore {a_name}", lambda: _restore(t, a_name, b_answer))]

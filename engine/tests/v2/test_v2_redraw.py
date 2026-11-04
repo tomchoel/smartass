@@ -5,6 +5,7 @@ from v2util import facts, resolver, spec_dict
 
 from smartass import pipeline
 
+ROOM = {}
 OLD = (("Cube", "Value"), ("FinMax", 1.0))
 
 
@@ -37,6 +38,8 @@ def wire(monkeypatch, log, fail_at=None, restore_fail=()):
     monkeypatch.setattr(pipeline, "write_data", rec("write_data"))
     monkeypatch.setattr(pipeline, "rewrite_data", rec("rewrite_data"))
     monkeypatch.setattr(pipeline, "rewrite_grid", lambda ws, grid, q: log.append(f"rewrite_old {grid == OLD}"))
+    monkeypatch.setattr(pipeline, "_make_room",
+                        lambda ws, old, new: log.append("make_room") or ROOM.update(old=old, new=new))
     monkeypatch.setattr(pipeline, "write_answer", rec("write_answer", []))
     monkeypatch.setattr(pipeline, "write_charts", rec("write_charts", []))
     monkeypatch.setattr(pipeline, "_calculate", rec("calculate"))
@@ -57,6 +60,10 @@ def test_redraw_order(monkeypatch):
     out = pipeline.redraw_job(None, pre, q=2, owned={"rows": 30, "cols": 6}, target="session")
     assert log[:5] == ["target", "sheet", "read_old_data", "backup Q2 Answer", "sheet"]
     assert log.index("clear") < log.index("rewrite_data") < log.index("write_answer")
+    assert log.index("rewrite_data") < log.index("make_room") < log.index("write_answer")
+    assert log.index("clear") < log.index("make_room")
+    assert ROOM["old"] == {"rows": 30, "cols": 6} and set(ROOM["new"]) == {"rows", "cols"}
+    assert ROOM["new"]["rows"] > 5 and ROOM["new"]["cols"] >= 3
     assert "write_data" not in log and "add_sheet" not in log                   # the Data sheet is never rebuilt
     assert not any("Data" in x for x in log if x.startswith(("backup", "drop", "restore")))
     assert log[-2:] == ["drop ~Q2 Answer", "save"]
