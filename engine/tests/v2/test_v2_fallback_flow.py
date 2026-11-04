@@ -67,3 +67,21 @@ def test_a_second_round_failure_stays_in_the_warnings(monkeypatch):
     pre, _ = asyncio.run(server._prepare(spec_dict(), Flaky(facts())))
     assert jobs == ["ad hoc fallback"] and pre.failed
     assert any("could not be fetched over HTTP" in w for w in pre.warnings)
+
+
+def test_the_fallback_round_reuses_the_grids_http_already_fetched(monkeypatch):
+    class Counting(Flaky):
+        def fetch(self, req):
+            self.asked.append(req)
+            if req.periods == ("Sep 25",):
+                raise SvHttpError("lost the request")
+            return FakeProvider(self.frame).fetch(req)
+
+    jobs = []
+    provider = Counting(facts())
+    _wire(monkeypatch, provider, jobs)
+    monkeypatch.setattr(server, "adhoc_fetch", lambda h, reqs, target: {
+        r: FetchResult(r, FakeProvider(facts()).fetch(r).facts, [], "adhoc") for r in reqs})
+    pre, _ = asyncio.run(server._prepare(spec_dict(), provider))
+    assert len(provider.asked) == len(set(provider.asked)) == len(pre.requests)     # each request asked exactly once
+    assert pre.failed == [] and pre.routes["adhoc"] == 1 and pre.routes["http"] == len(pre.requests) - 1

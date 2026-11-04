@@ -37,6 +37,7 @@ class Prepared:
     aggregation: dict[str, str] = field(default_factory=dict)
     failed: list[GridRequest] = field(default_factory=list)          # grids the HTTP route could not fetch
     failed_errors: list[str] = field(default_factory=list)
+    fetched: dict = field(default_factory=dict)       # GridRequest -> FetchResult the HTTP route fetched (reused by the fallback round)
 
 
 def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: dict | None = None) -> Prepared:
@@ -83,7 +84,7 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     result = compute(spec, resolver, closed, frame)
     aggregation = {m: resolver.aggregation(m) for q in spec.queries for m in q.metrics}
     return Prepared(spec, raw, closed, reqs, frame, result, warnings, routes, sum(g.seconds for g in got),
-                    aggregation, failed, failed_errors)
+                    aggregation, failed, failed_errors, {g.request: g for g in got})
 
 
 def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:

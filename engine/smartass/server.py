@@ -150,7 +150,7 @@ async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target
     failed = getattr(pre, "failed", None)
     if failed:
         fixed = await _user(lambda h: adhoc_fetch(h, failed, target), "ad hoc fallback")
-        pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, fixed), lines=lines)
+        pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, {**pre.fetched, **fixed}), lines=lines)
     return pre, notes
 
 
