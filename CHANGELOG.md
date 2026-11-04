@@ -9,6 +9,9 @@ One pipeline: every question goes `sv_gate` -> `sv_answer` (design `docs/specs/2
 - v2 model core (`engine/smartass/model`): typed analysis spec, period algebra, fact frame, expression trees
   (value and Excel formula from one tree), seven computed blocks (table, kpi_tiles, trend, matrix, bridge, ranking,
   drivers), data guards, material lines and key values. Not wired to tools yet (Plan 1B).
+- v2 first answer (`smartass2` server, beside v1): `fin_analyze`, `fin_lookup`, `fin_status`; Smart View HTTP
+  provider, interim atlas resolver, Q<n> Answer as live formulas on table Data_Q<n>, "Sheet = model" readback;
+  answer files in `<analyser>\v2`. Not yet: follow-ups, packs, drill, xl_* tools, ad hoc fallback (Plan 1C).
 - `sv_gate`: the advisor gate. A fixed checklist (period, scenario, entity, measure, currency/sign, granularity)
   against the semantic catalogue, the capability map and the user's learned defaults; `clear`, `ambiguous` (1-3
   questions) or `infeasible` (reason + proxy). It never pulls. `sv_remember` saves a gate answer as a default.
