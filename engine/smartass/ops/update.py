@@ -8,8 +8,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from smartass import __version__
-from smartass.core import config
+from .. import __version__
+from ..core import config
 
 CREATE_NO_WINDOW = 0x08000000
 DETACHED = 0x00000008

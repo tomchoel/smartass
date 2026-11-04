@@ -34,7 +34,7 @@ from typing import Callable
 
 import psutil
 
-from smartass.core import config
+from ..core import config
 from . import drilltime
 
 try:

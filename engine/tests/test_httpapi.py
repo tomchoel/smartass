@@ -6,7 +6,7 @@ import urllib.request
 
 import pytest
 
-from smartview_mcp import httpapi
+from smartass.ops import httpapi
 from smartass.xl.host import HostError, InputError
 
 SECRET = "s" * 32

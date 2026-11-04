@@ -5,7 +5,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from smartass.core import config
+from ..core import config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS member (

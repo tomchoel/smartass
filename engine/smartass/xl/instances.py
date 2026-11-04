@@ -16,7 +16,7 @@ import win32gui
 import win32process
 
 from . import login
-from smartass.core import config
+from ..core import config
 from .host import ExcelHost, HostError
 
 WM_GETOBJECT, OBJID_NATIVEOM = 0x003D, -16
@@ -98,7 +98,7 @@ def excel_instances(_retry_login: bool = True) -> list[XlInstance]:
                 break
         out.append(XlInstance(pid, h, [c for _e, c in ex7s], app))
     if pending and _retry_login:
-        from smartass.epm import sso
+        from ..epm import sso
         sso.ensure_global_watcher()
         for pid in pending:
             login.wait_login_cleared(pid)

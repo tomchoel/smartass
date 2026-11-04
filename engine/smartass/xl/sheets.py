@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import pywintypes
 
 from . import jobs, target
-from smartass.epm.grid import Axis, Layout, parse
+from ..epm.grid import Axis, Layout, parse
 from .host import InputError
 
 # ------------------------------------------------------------------ question numbering and sheets
@@ -238,7 +238,7 @@ def stored_questions(t: target.Target) -> list[int]:
 
 def load_pulls(t: target.Target, q: int) -> dict:
     """Rebuild Pull objects of question q from the hidden metadata + the live data sheets."""
-    from smartass.epm.ops import _used_values
+    from ..epm.ops import _used_values
     if not _sheet_exists(t, META_SHEET):
         return {}
     ws = jobs.com(lambda: t.wb.Worksheets(META_SHEET))

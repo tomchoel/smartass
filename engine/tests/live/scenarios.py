@@ -584,7 +584,7 @@ def s10_bundle(ctx):
             continue
     bundles = home / "bundles"
     before = set(bundles.glob("*.zip"))
-    r = subprocess.run([sys.executable, "-m", "smartview_mcp.cli", "doctor", "--bundle"], cwd=ENGINE,
+    r = subprocess.run([sys.executable, "-m", "smartass.ops.cli", "doctor", "--bundle"], cwd=ENGINE,
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
     made = sorted(set(bundles.glob("*.zip")) - before)
     try:

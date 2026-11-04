@@ -144,14 +144,14 @@ def _mark(wb, ver: str) -> None:
 
 
 def template_path(ver: str | None = None) -> Path:
-    from smartass.core import config
+    from ..core import config
     return config.SVKIT / f"tn_template_{ver or _styles_version()}.xltx"
 
 
 def ensure_template(xl) -> Path:
     """An Excel template (.xltx) holding the TN styles + version marker: new analysis workbooks are created from it
     (styles for free) and existing workbooks merge their styles from it. Built once per style version (~10 s)."""
-    from smartass.core import config
+    from ..core import config
     ver = _styles_version()
     path = template_path(ver)
     if path.exists():
@@ -332,7 +332,7 @@ def _check_rules(cell) -> None:
 
 def apply_report(ws, roles: dict) -> list[str]:
     """Style an answer sheet whose content is already written (never clears contents). Returns lint findings."""
-    from smartass.core.timing import stage
+    from ..core.timing import stage
     own = bool(roles.get("last_row"))     # the tool-owned block: never re-style the user's rows below it
 
     def info():

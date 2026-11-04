@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from smartass.core import config
+from ..core import config
 
 SERVER_NAME = "smartass"
 LEGACY_SERVER_NAMES = ("smartview",)   # renamed 2026-10-23; register_mcp moves these entries to SERVER_NAME
@@ -128,7 +128,7 @@ def startup_entries() -> list[str]:
     venv = config.ENGINE_DIR / ".venv" / "Scripts"
     logs = config.HOME / "logs"
     logs.mkdir(parents=True, exist_ok=True)
-    make_shortcut(STARTUP / "smartass-engine.lnk", str(venv / "pythonw.exe"), "-m smartview_mcp.cli serve",
+    make_shortcut(STARTUP / "smartass-engine.lnk", str(venv / "pythonw.exe"), "-m smartass.ops.cli serve",
                   str(config.ENGINE_DIR))
     make_shortcut(STARTUP / "smartass-sso-watcher.lnk", "powershell.exe",
                   f'-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{config.ENGINE_DIR / "sso_watcher.ps1"}"'

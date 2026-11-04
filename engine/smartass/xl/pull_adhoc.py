@@ -4,9 +4,9 @@ from __future__ import annotations
 import time
 
 from . import jobs, login, sheets, target
-from smartass.core import config, timing
-from smartass.epm import ops
-from smartass.epm.grid import Axis, full_pov, Layout, parse, validate_axes, verify_labels as _verify_labels
+from ..core import config, timing
+from ..epm import ops
+from ..epm.grid import Axis, full_pov, Layout, parse, validate_axes, verify_labels as _verify_labels
 from .host import ExcelHost, HostError, InputError
 
 
@@ -40,8 +40,8 @@ def pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, row
 def _pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, rows: list[Axis], cols: list[Axis],
           title: str | None, boxes: "login.SmartViewBoxes") -> sheets.Pull:
     from . import styling                         # provided by the styling adapter
-    from smartass.epm.ops import _dims_cache, _grid_labels, _used_values, canon_dim, dims_known, is_rc1000, learn_dims
-    from smartass.core.timing import stage
+    from ..epm.ops import _dims_cache, _grid_labels, _used_values, canon_dim, dims_known, is_rc1000, learn_dims
+    from ..core.timing import stage
 
     def layout():
         p_ = {canon_dim(connection, d): m for d, m in pov.items()}
@@ -173,7 +173,7 @@ def _write_and_retrieve(t: target.Target, ws, name: str, lay: Layout) -> tuple[s
 def _drop_rejected(t: target.Target, ws, name: str, lay: Layout, connection: str) -> tuple[Layout, list[tuple[str, str]]]:
     """rc=1000: bisect each axis on this sheet to find the members Smart View rejects; return the layout without
     them (unchanged + [] if none could be isolated or an axis would be empty)."""
-    from smartass.epm.ops import MAX_BISECT_RETRIEVES, is_rc1000, isolate_rejected, without
+    from ..epm.ops import MAX_BISECT_RETRIEVES, is_rc1000, isolate_rejected, without
     axes = lay.rows + lay.cols
 
     def ok(trial):

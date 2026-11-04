@@ -64,5 +64,5 @@ def test_exactly_one_of_question_spec_followup():
 
 
 def test_http_answer_accepts_question_and_answers():
-    from smartview_mcp import httpapi
+    from smartass.ops import httpapi
     assert {"question", "answers"} <= httpapi._FIELDS["/answer"]

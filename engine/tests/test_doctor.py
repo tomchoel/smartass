@@ -2,7 +2,7 @@ import json
 import zipfile
 
 from smartass.core import config
-from smartview_mcp import doctor
+from smartass.ops import doctor
 
 
 def test_overall_and_exceptions_become_fail(monkeypatch):

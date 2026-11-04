@@ -932,7 +932,7 @@ def fresh_install(env: dict, version: str = "0.2.0", root: Path = FRESH_ROOT) ->
 def fresh_cli(env: dict, *args: str, root: Path = FRESH_ROOT, timeout: float = 900) -> subprocess.CompletedProcess:
     """`smartass <args>` of the fresh install (its venv python, the fresh env)."""
     p = fresh_paths(root)
-    return _run([str(p["py"]), "-m", "smartview_mcp.cli", *args], env, cwd=p["engine"], timeout=timeout)
+    return _run([str(p["py"]), "-m", "smartass.ops.cli", *args], env, cwd=p["engine"], timeout=timeout)
 
 
 def fresh_py(env: dict, code: str, root: Path = FRESH_ROOT) -> subprocess.CompletedProcess:

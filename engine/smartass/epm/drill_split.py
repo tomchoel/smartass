@@ -8,7 +8,7 @@ import logging
 import re
 from typing import Callable
 
-from smartass.core import config
+from ..core import config
 
 log = logging.getLogger("smartview")
 
@@ -48,7 +48,7 @@ def plan_split(cell: dict[str, str], children: Callable[[str, str], list[str]],
 
 def atlas_children(connection: str) -> Callable[[str, str], list[str]]:
     """children(dim, member) from the local atlas (instant)."""
-    from smartass.knowledge import atlas
+    from ..knowledge import atlas
     db = atlas.connect()
 
     def kids(dim: str, member: str) -> list[str]:

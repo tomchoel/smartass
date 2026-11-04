@@ -13,8 +13,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import import_module
 
-from smartass.core import config
-from smartass.xl.host import HostError, InputError
+from ..core import config
+from ..xl.host import HostError, InputError
 
 log = logging.getLogger("smartass.http")
 MAX_BODY = 1_000_000

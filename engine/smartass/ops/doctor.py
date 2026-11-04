@@ -14,8 +14,8 @@ import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from smartass import __version__
-from smartass.core import config, logsetup
+from .. import __version__
+from ..core import config, logsetup
 
 BUNDLE_FIX = "Send the file from `smartass doctor --bundle` to the maintainer."
 
@@ -49,7 +49,7 @@ def _excel() -> Check:
 
 
 def _smartview() -> Check:
-    from smartass.epm import sso
+    from ..epm import sso
     v = sso.smartview_version()
     if v:
         return Check("smartview", "OK", f"{v} ({config.SMARTVIEW_DLL})")
@@ -69,7 +69,7 @@ def _epm(timeout: float = 5) -> Check:
 
 
 def _drill_browser() -> Check:
-    from smartass.epm.drill_browser import browser_health
+    from ..epm.drill_browser import browser_health
     h = browser_health()
     detail = "; ".join(f"{k}: {v}" for k, v in h["channels"].items())
     if h["usable"]:
@@ -89,26 +89,44 @@ def _atlas(max_age_days: float = 35) -> Check:
                  "" if status == "OK" else "Re-run the installer after the monthly release, or call sv_atlas_build.")
 
 
+ACCOUNT_DIM = {"FinMax": "All Accounts", "FinPlan": "Account"}     # FinLite = the FinMax accounts
+
+
 def _catalog() -> Check:
-    from smartass.knowledge import atlas
-    from . import catalog
+    """The v2 metrics (knowledge/catalog.toml P&L lines) load, and their accounts are in the atlas."""
+    import tomllib
+
+    from ..knowledge import atlas
+    from ..knowledge.interim import catalog_metrics
     try:
-        cat = catalog.load()
-    except catalog.CatalogError as e:
-        return Check("catalog", "FAIL", str(e), "Fix knowledge\\catalog.toml (see the error), or update smartass.")
+        metrics = catalog_metrics()
+    except (OSError, KeyError, TypeError, ValueError, tomllib.TOMLDecodeError) as e:
+        return Check("catalog", "FAIL", f"{type(e).__name__}: {e}",
+                     "Fix knowledge\\catalog.toml (see the error), or update smartass.")
     if not config.ATLAS_DB.exists():
-        return Check("catalog", "WARN", "loaded; members not checked (no atlas)",
-                     "Build the atlas with sv_atlas_build.")
+        return Check("catalog", "WARN", f"{len(metrics)} metrics loaded; members not checked (no atlas)",
+                     "Re-run installer\\install.ps1 (copies the monthly atlas).")
+    problems: list[str] = []
+    unchecked: list[str] = []
     with contextlib.closing(atlas.connect(config.ATLAS_DB)) as db:
-        problems, unchecked, notes = catalog.validate(cat, db)
+        for m in metrics:
+            for cube, members in m.members.items():
+                dim = ACCOUNT_DIM.get(cube)
+                if dim is None:
+                    continue
+                if not atlas.built(db, cube, dim):
+                    if f"{cube} / {dim}" not in unchecked:
+                        unchecked.append(f"{cube} / {dim}")
+                    continue
+                problems += [f"{m.name}: '{x}' is not in {cube} / {dim}" for x in members
+                             if not atlas.has_member(db, cube, dim, x)]
     if problems:
         return Check("catalog", "WARN", f"{len(problems)} member(s) not in the cubes: " + "; ".join(problems[:5]),
                      "Update knowledge\\catalog.toml to the current members (a reorg or rename?).")
-    detail = (f"{sum(len(v) for v in cat.pnl.values())} P&L lines and {len(cat.entities)} business areas match the "
-              "atlas" + (f"; {'; '.join(notes)}" if notes else ""))
+    detail = f"{len(metrics)} metrics match the atlas"
     if unchecked:
         return Check("catalog", "WARN", f"{detail}; not checked: {', '.join(unchecked)}",
-                     "Build the missing dimensions with sv_atlas_build.")
+                     "Re-run installer\\install.ps1 (copies the monthly atlas).")
     return Check("catalog", "OK", detail)
 
 
@@ -221,7 +239,7 @@ def _versions() -> dict:
             pk[name] = version(name)
         except PackageNotFoundError:
             pk[name] = None
-    from smartass.epm import sso
+    from ..epm import sso
     return {"smartass": __version__, "python": sys.version, "os": platform.platform(),
             "smartview": sso.smartview_version(), "packages": pk}
 

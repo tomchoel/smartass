@@ -15,7 +15,7 @@ import time
 
 import psutil
 
-from smartass.core import config
+from ..core import config
 
 log = logging.getLogger("smartview.sso")
 SV_DLL = config.SMARTVIEW_DLL

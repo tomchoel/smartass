@@ -2,7 +2,7 @@ import json
 import subprocess
 import winreg
 
-from smartview_mcp import setup_user
+from smartass.ops import setup_user
 
 
 class FakeReg:

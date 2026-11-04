@@ -1,6 +1,6 @@
 import json
 
-from smartview_mcp import update
+from smartass.ops import update
 
 
 def _release(tmp_path, latest, versions):

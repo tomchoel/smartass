@@ -10,8 +10,8 @@ import re
 
 from openpyxl.utils import get_column_letter
 
-from smartass.core import config
-from smartass.epm.drill_lines import KEY_LABELS
+from ..core import config
+from ..epm.drill_lines import KEY_LABELS
 from .jobs import com, fast_excel
 from .sheets import add_sheet, unique_sheet_name
 from .target import Target

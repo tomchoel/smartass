@@ -6,7 +6,7 @@ import time
 
 from . import jobs
 from . import dialogs
-from smartass.core import timing
+from ..core import timing
 from .host import HostError
 
 LOGIN_NOTICE_S = 5            # a Login open this long: tell the user we wait for the SSO click

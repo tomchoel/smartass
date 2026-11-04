@@ -322,7 +322,7 @@ def test_validate_reports_a_missing_entity_and_scenario(tmp_path):
 
 
 def test_doctor_reports_catalogue_problems(monkeypatch, tmp_path):
-    from smartview_mcp import doctor
+    from smartass.ops import doctor
     monkeypatch.setattr(doctor.config, "ATLAS_DB", tmp_path / "missing.db")
     c = doctor._catalog()
     assert c.name == "catalog" and c.status == "WARN" and "no atlas" in c.detail
@@ -369,7 +369,7 @@ def test_validate_notes_a_missing_member_of_an_abolished_area(tmp_path):
 
 def test_doctor_warns_when_a_dimension_is_unchecked(monkeypatch, tmp_path):
     from smartass.knowledge import atlas
-    from smartview_mcp import doctor
+    from smartass.ops import doctor
     atlas.connect(tmp_path / "a.db").close()
     monkeypatch.setattr(doctor.config, "ATLAS_DB", tmp_path / "a.db")
     c = doctor._catalog()
