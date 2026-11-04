@@ -68,3 +68,79 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
         "fetch_seconds": round(pre.fetch_seconds, 2),
         "saved_user_workbook": False,
     }
+# ---------------------------------------------------------------- the Excel job (runs on a v1 user-Excel job thread)
+from .render.excel import read_block, write_answer, write_data  # noqa: E402
+from .render.layout import layout  # noqa: E402
+from .render.readback import compare  # noqa: E402
+
+DATA_TAB = 0x808080      # grey tab for data sheets (BGR)
+
+
+def _target(h, target: str, title: str):
+    from smartview_mcp.excel import target as xltarget
+    return xltarget.resolve_target(h, target, allow_archive=False, title=title)
+
+
+def _next_q(t) -> int:
+    from smartview_mcp.excel import sheets
+    return sheets.next_question(t)
+
+
+def _add_sheet(t, name: str, q: int, color=None):
+    from smartview_mcp.excel import sheets
+    return sheets.add_sheet(t, name, after_q=q, color=color)
+
+
+def _calculate(t) -> None:
+    from smartview_mcp.excel import sheets
+    from smartview_mcp.excel.jobs import com
+    com(lambda: t.app.Calculate())
+    sheets.wait_calculated(t.app)
+
+
+def _save_spec(t, q: int, raw: dict) -> None:
+    from smartview_mcp.excel import sheets
+    sheets.save_spec(t, q, {"v2": raw}, ids={}, owned=None)
+
+
+def _arrange(t) -> None:
+    from smartview_mcp import sheetorder
+    sheetorder.arrange_sheets(t.wb, mode="full")
+
+
+def _save(t) -> None:
+    from smartview_mcp.excel.jobs import com
+    if getattr(t, "created", False):           # only the engine's own analysis file, never the user's workbook
+        com(lambda: t.wb.Save())
+
+
+def _rollback(t) -> None:
+    from smartview_mcp.excel import sheets
+    sheets.rollback(t)
+
+
+def excel_job(h, pre: Prepared, target: str = "session") -> dict:
+    t = _target(h, target, pre.spec.question[:60])
+    try:
+        q = _next_q(t)
+        ws_answer = _add_sheet(t, f"Q{q} Answer", q)
+        ws_data = _add_sheet(t, f"Q{q} Data", q, DATA_TAB)
+        write_data(ws_data, pre.frame, q)
+        cubes = sorted({x.cube for x in pre.spec.queries})
+        closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
+        plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}")
+        lint = write_answer(ws_answer, plan, pre.warnings)
+        _calculate(t)
+        mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan))
+        _save_spec(t, q, pre.raw)
+        _arrange(t)
+        _save(t)
+    except Exception:
+        _rollback(t)
+        raise
+    return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data"], mismatches, list(lint or []))
+
+
+def _stock(pre: Prepared) -> set[str]:
+    """Stock metrics (FTE): shown with one decimal (tall1), never summed over months."""
+    return {m for m, agg in pre.aggregation.items() if agg == "last"}
