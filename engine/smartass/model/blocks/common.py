@@ -36,6 +36,7 @@ class BlockOut:
     cols: list[str] = field(default_factory=list)   # column codes parallel to headers: value, ly, budget,
     # forecast, var, var_pct, share, amount (bridge)
     query: str | None = None
+    col_metrics: list[str] = field(default_factory=list)   # trend: the metric behind each column (for chart units)
     lines: list[Line] = field(default_factory=list)
     chart: str | None = None
     drills: list = field(default_factory=list)   # DrillRequest (blocks/drivers.py)

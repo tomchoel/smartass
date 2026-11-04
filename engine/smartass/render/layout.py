@@ -34,6 +34,7 @@ class ChartSpec:
     totals: list[int]         # waterfall points (1-based) that are totals
     anchor_col: str           # top-left cell of the chart: anchor_col + anchor_row
     anchor_row: int = 0       # 0 = the header row; the layout moves it down below the previous chart
+    millions: bool = True     # value axis in MNOK; False for stocks (FTE) and percentages
 
     @property
     def height_pt(self) -> float:
@@ -66,6 +67,14 @@ def _num(code: str, stock: bool) -> str:
     if code in PCT_CODES:
         return "prosent1"
     return "tall1" if stock else "heltall"
+
+
+def _millions(o, stock: set[str]) -> bool:
+    """MNOK on the value axis only for NOK amounts: not for a stock metric (FTE) and not for a %/ratio block."""
+    metrics = set(o.col_metrics) | {ln.metric for ln in o.lines if ln.metric}
+    if metrics & stock:
+        return False
+    return not (o.cols and all(c in PCT_CODES for c in o.cols))
 
 
 def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: str) -> SheetPlan:
@@ -134,7 +143,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
             if rows:
                 line = o.chart == "line"
                 p.charts.append(ChartSpec(o.chart, o.title, header_row, rows, letters if line else letters[:1],
-                                          [] if line else [1, len(rows)], ""))
+                                          [] if line else [1, len(rows)], "", millions=_millions(o, stock)))
         r += 1
 
     if res.findings:

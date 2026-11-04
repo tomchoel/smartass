@@ -63,7 +63,8 @@ def _line(ws, spec: ChartSpec) -> None:
         com(lambda: setattr(s, "Name", str(head or "")))
     _title(chart, spec.title)
     com(lambda: setattr(chart, "HasLegend", len(spec.series_cols) > 1))
-    _millions(chart)
+    if spec.millions:
+        _millions(chart)
 
 
 def _waterfall(ws, spec: ChartSpec) -> None:
@@ -86,7 +87,8 @@ def _waterfall(ws, spec: ChartSpec) -> None:
         com(lambda: chart.SetSourceData(ws.Range(f"B{r1}:{col}{r2}")))
     _title(chart, spec.title)
     com(lambda: setattr(chart, "HasLegend", False))
-    _millions(chart)
+    if spec.millions:
+        _millions(chart)
 
 
 def write_charts(ws, plan: SheetPlan) -> list[str]:

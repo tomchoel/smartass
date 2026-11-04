@@ -41,6 +41,7 @@ def test_no_chart_without_chart_blocks_and_anchor_right_of_table():
 
 def run2(blocks, frame, periods=None, stock=()):
     d = spec_dict(blocks=blocks)
+    d["queries"][0]["metrics"].append("FTE")
     if periods:
         d["queries"][0]["periods"] = periods
     s = AnalysisSpec.model_validate(d)
@@ -68,3 +69,12 @@ def test_a_chart_far_below_keeps_its_own_header_row():
               {"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}]
     p = run2(blocks, monthly_facts(), "Jul 26..Sep 26")
     assert p.charts[-1].anchor_row >= p.charts[-1].header_row
+def test_millions_axis_only_for_nok_amounts():
+    flow = run2([{"type": "trend", "query": "fm", "metrics": ["Opex"]}], monthly_facts(), "Jul 26..Sep 26")
+    assert flow.charts[0].millions is True
+    fte = run2([{"type": "trend", "query": "fm", "metrics": ["FTE"]}], monthly_facts(), "Jul 26..Sep 26",
+               stock={"FTE"})
+    assert fte.charts[0].millions is False
+    bridge = run2([{"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}], facts(),
+                  stock={"FTE"})
+    assert bridge.charts[0].millions is True

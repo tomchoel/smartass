@@ -19,7 +19,8 @@ def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
     own = {s: set(months(q, "value" if s == "ly" else s, cl)) for s in b.series}
     ms = sorted(set().union(*own.values()))
     out = BlockOut(key, "trend", b.title or "Trend", [f"{m} {HEAD[s]}" for m, s in combos],
-                   cols=[s for _, s in combos], query=q.id, chart="line" if b.chart else None)
+                   cols=[s for _, s in combos], query=q.id, chart="line" if b.chart else None,
+                   col_metrics=[m for m, _ in combos])
     stock = [ctx.resolver.aggregation(m) == "last" for m, _ in combos]   # a stock is picked per month, never added
     for i, mon in enumerate(ms):
         cells: list[Expr | None] = []
