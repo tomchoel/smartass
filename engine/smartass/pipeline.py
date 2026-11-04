@@ -99,7 +99,7 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
 from .render.charts import write_charts  # noqa: E402
 from .render.excel import (col_number, read_block, read_data, rewrite_data, rewrite_grid,  # noqa: E402
                            write_answer, write_data)
-from .render.layout import layout  # noqa: E402
+from .render.layout import constant_columns, layout  # noqa: E402
 from .render.readback import compare  # noqa: E402
 
 DATA_TAB = 0xA6A6A6      # grey tab for data sheets (BGR), as v1 sheetorder.DATA_TAB
@@ -265,7 +265,8 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     (rewrite_data if redraw else write_data)(ws_data, pre.frame, q)
     cubes = sorted({x.cube for x in pre.spec.queries})
     closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
-    plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}")
+    plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}",
+                  const=constant_columns(pre.frame))
     if redraw:                                  # a larger answer pushes the user's cells aside, never overwrites them
         _make_room(ws_answer, old_owned, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     lint = write_answer(ws_answer, plan, pre.warnings)

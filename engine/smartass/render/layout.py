@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 from ..model.analyze import Result
 from ..model.blocks.common import ck
+from ..model.frame import FILTER_COLUMNS
 from ..model.spec import AnalysisSpec, CommentaryBlock
 
 FIRST_COL = 3
@@ -78,7 +79,18 @@ def _millions(o, stock: set[str]) -> bool:
     return not (o.cols and all(c in PCT_CODES for c in o.cols))
 
 
-def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: str) -> SheetPlan:
+def constant_columns(frame) -> dict[str, str]:
+    """Filter columns that hold one single value over the whole Data table: a criterion on it matches every row."""
+    out = {}
+    for col in FILTER_COLUMNS:
+        vals = {getattr(x, col.lower()) for x in frame.facts}
+        if len(vals) == 1:
+            out[col] = next(iter(vals))
+    return out
+
+
+def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: str,
+           const: dict[str, str] | None = None) -> SheetPlan:
     p = SheetPlan()
     table = f"Data_Q{q}"
     widest = max([len(o.headers) for o in res.outs] or [1])
@@ -165,7 +177,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     for row, o, ln in placed:
         for j, e in enumerate(ln.cells):
             if e is not None:
-                p.cells[(row, FIRST_COL + j)] = "=" + e.to_excel(table, addr)
+                p.cells[(row, FIRST_COL + j)] = "=" + e.to_excel(table, addr, const)
     p.last_col = col_letter(FIRST_COL + widest - 1)
     bottom = 0
     for c in p.charts:                  # right of the widest table, at its block's header row, never over the last chart

@@ -42,7 +42,7 @@ class Expr:
     def evaluate(self, frame: Frame, cells: Cells) -> float | None:
         raise NotImplementedError
 
-    def to_excel(self, table: str, addr: Addr) -> str:
+    def to_excel(self, table: str, addr: Addr, const: dict[str, str] | None = None) -> str:
         raise NotImplementedError
 
 
@@ -62,15 +62,19 @@ class Pick(Expr):
     def evaluate(self, frame, cells):
         return frame.total(dict(self.filters))
 
-    def to_excel(self, table, addr):
+    def to_excel(self, table, addr, const=None):
         parts, multi = [f"{table}[Value]"], 0
         for col, vals in self.filters:
+            if const and len(vals) == 1 and const.get(col) == vals[0]:
+                continue                      # matches every row of the table
             if len(vals) == 1:
                 crit = _crit(vals[0])
             else:
                 multi += 1
                 crit = "{" + ("," if multi == 1 else ";").join(_crit(v) for v in vals) + "}"
             parts += [f"{table}[{col}]", crit]
+        if len(parts) == 1:
+            return f"SUM({table}[Value])"
         f = "SUMIFS(" + ",".join(parts) + ")"
         return f"SUM({f})" if multi else f
 
@@ -82,7 +86,7 @@ class Ref(Expr):
     def evaluate(self, frame, cells):
         return cells.get(self.key)
 
-    def to_excel(self, table, addr):
+    def to_excel(self, table, addr, const=None):
         return addr(self.key)
 
 
@@ -115,11 +119,11 @@ class Sum(Expr):
         vals = [e.evaluate(frame, cells) for e in self.items]
         return None if all(v is None for v in vals) else sum(v for v in vals if v is not None)
 
-    def to_excel(self, table, addr):
+    def to_excel(self, table, addr, const=None):
         if self.items and all(isinstance(e, Ref) for e in self.items):
             args = _ranges([addr(e.key) for e in self.items])
         else:
-            args = [e.to_excel(table, addr) for e in self.items]
+            args = [e.to_excel(table, addr, const) for e in self.items]
         return "SUM(" + ",".join(args) + ")"
 
 
@@ -132,9 +136,9 @@ class Sub(Expr):
         x, y = self.a.evaluate(frame, cells), self.b.evaluate(frame, cells)
         return None if x is None and y is None else (x or 0.0) - (y or 0.0)
 
-    def to_excel(self, table, addr):
+    def to_excel(self, table, addr, const=None):
         def wrap(e: Expr) -> str:
-            s = e.to_excel(table, addr)
+            s = e.to_excel(table, addr, const)
             return f"({s})" if isinstance(e, Sub) else s
         return f"{wrap(self.a)}-{wrap(self.b)}"
 
@@ -147,8 +151,8 @@ class Neg(Expr):
         x = self.a.evaluate(frame, cells)
         return None if x is None else -x
 
-    def to_excel(self, table, addr):
-        s = self.a.to_excel(table, addr)
+    def to_excel(self, table, addr, const=None):
+        s = self.a.to_excel(table, addr, const)
         return f"-({s})" if isinstance(self.a, Sub) else f"-{s}"
 
 
@@ -165,8 +169,8 @@ class Ratio(Expr):
             return None
         return n / (abs(d) if self.abs_base else d)
 
-    def to_excel(self, table, addr):
-        n, d = self.num.to_excel(table, addr), self.den.to_excel(table, addr)
+    def to_excel(self, table, addr, const=None):
+        n, d = self.num.to_excel(table, addr, const), self.den.to_excel(table, addr, const)
         den = f"ABS({d})" if self.abs_base else f"({d})"
         return f'IF({d}=0,"",({n})/{den})'
 
