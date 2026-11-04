@@ -529,3 +529,23 @@ After `/mcp` reconnects `smartass2`, the controller:
 4. Runs `xl_tidy` on `Q3 Answer` (check only). Expect zero BLOCK findings, or report them.
 
 Whatever fails becomes a task in 1E with the observed error.
+
+---
+
+## Live result (2026-11-04, Tom's go)
+
+- **New question** (Wholesale, Q1 in a new v2 workbook): Sheet = model OK. There was no AutoSave note, and
+  AutoSave was back ON afterwards, so it was restored for our own file.
+- **Snapshot and revert:** `xl_snapshot` B1, then Excel MCP wrote "TEST - edited by Excel MCP", then `xl_revert`.
+  The original title is back. `xl_snapshot` reported that it had switched AutoSave off.
+- **`xl_tidy` check:** 0 BLOCK findings and 24 LONG_FORMULA warnings (SUMIFS with seven criteria, about 289
+  characters).
+- **Follow-up after `/mcp` with no target:** the session workbook was found (Q1 rebuilt, Sheet = model OK).
+- **Before 1D the session memory did not exist,** so the first follow-up correctly refused.
+
+## Carried to Plan 1E
+
+1. GuardError text through v1's guard reads as "Unexpected GuardError ... run sv_restart". Map GuardError to a
+   clean refusal (reason + fix).
+2. LONG_FORMULA warnings: shorten the generated SUMIFS (LET, or drop criteria that are constant for the whole
+   Data table, such as Cube and Query when the table holds one query) so xl_tidy is warning-free.
