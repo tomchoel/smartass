@@ -1,0 +1,43 @@
+# engine/smartass/model/analyze.py
+"""The model's two entry points. plan_requests: guards, then what to fetch. compute: guards, blocks -> trees ->
+values, the reconciliation guard, findings, material lines and key values. The data layer (Plan 1B) fetches between
+the two; the render layer writes the same trees as formulas."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from .blocks import BUILDERS
+from .blocks.common import BlockOut, evaluate
+from .context import Ctx
+from .expr import Cells
+from .findings import key_values, material
+from .frame import Frame
+from .periods import Month
+from .requests import GridRequest, requests
+from .resolver import Resolver
+from .spec import AnalysisSpec
+from .validate import Finding, guard_result, guard_spec, sign_findings
+
+
+@dataclass
+class Result:
+    outs: list[BlockOut]
+    cells: Cells
+    findings: list[Finding]
+    material: list[dict]
+    key_values: dict[str, dict[str, float | None]]
+
+
+def plan_requests(spec: AnalysisSpec, r: Resolver, closed: Month) -> list[GridRequest]:
+    guard_spec(spec, r, closed)
+    return requests(spec, r, closed)
+
+
+def compute(spec: AnalysisSpec, r: Resolver, closed: Month, frame: Frame, kv_limit: int = 40) -> Result:
+    soft = guard_spec(spec, r, closed)
+    ctx = Ctx(spec, r, closed, frame)
+    outs = [BUILDERS[b.type](b, ctx, f"b{i}") for i, b in enumerate(spec.blocks) if b.type in BUILDERS]
+    cells = evaluate(outs, frame)
+    guard_result(outs, cells)
+    return Result(outs, cells, soft + sign_findings(ctx), material(outs, cells, r),
+                  key_values(outs, cells, kv_limit))
