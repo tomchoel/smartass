@@ -25,7 +25,7 @@ def _session_info() -> dict:
 
 
 def configure_v2() -> None:
-    """In this process only: new analysis files go to <analyser>\v2\<project>, and the session workbook is
+    """In this process only: new analysis files go to <analyser>/v2/<project>, and the session workbook is
     remembered in sessions_v2.json under v2's own relay, so v2 never writes into a v1 session workbook."""
     global _configured
     if _configured:
