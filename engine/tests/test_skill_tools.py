@@ -61,3 +61,15 @@ def test_skill_covers_the_critic_loop_playbook_prompts_and_answer_memory():
     assert "prompt" in text and all(p in text for p in ("monthly-pack", "variance-commentary", "gl-extract",
                                                         "prodreg-input"))
     assert 'fin_lookup(query, kind="answer")' in text
+
+
+def test_skill_is_under_5500_characters_and_the_detail_is_in_the_reference():
+    """Plan 2D task 5b: SKILL.md stays lean; spec details, block options, drill and concepts live in reference/."""
+    text = _text()
+    assert len(text) < 5500, len(text)
+    for ref in ("reference/spec.md", "reference/drill.md", "reference/concepts.md"):
+        assert ref in text, ref
+    spec = (SKILL / "reference" / "spec.md").read_text(encoding="utf-8")
+    for word in ("closed-ytd", "preliminary", "budget", "forecast", "var_pct", "top", "cumulative", "depth",
+                 "group_by", "key_points", "hypothesis", "Thresholds"):
+        assert word in spec, word

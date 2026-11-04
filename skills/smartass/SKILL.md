@@ -14,82 +14,54 @@ separate file. Method lives in MCP prompts: `plan`, `critic` and the playbooks `
 
 1. **Plan.** Decide cube, entity, metrics, periods and comparisons. Unsure of a name: `fin_lookup(query, kind,
    cube)` (metrics by name or alias, e.g. `driftskostnader`, atlas members, product concepts; with caveats).
-   Continuity: `fin_lookup(query, kind="answer")` lists past answers. Write `plan`:
-   `depth` (`quick` | `standard` | `deep`), `purpose` (required unless quick), `hypotheses` you will test.
-2. **Build.** `fin_analyze(spec=...)`: one call fetches (Smart View HTTP; ad hoc Excel as fallback), computes
-   every value and writes `Q<n> Answer` (live formulas) + `Q<n> Data` (table `Data_Q<n>`). Unknown
-   members, an open month or totals that do not reconcile stop it with the fix.
+   Past answers: `fin_lookup(query, kind="answer")`. Write `plan`: `depth`, `purpose`, `hypotheses`.
+2. **Build.** `fin_analyze(spec=...)` fetches, computes every value and writes `Q<n> Answer` (live formulas) +
+   `Q<n> Data` (table `Data_Q<n>`). Unknown members, an open month or totals that do not reconcile stop it.
 3. **Explain.** Add the `commentary` by patch (drivers with `data` evidence or labelled `hypothesis`).
 4. **Critic** (`standard`, `deep`, every pack question). `fin_critic(q)` returns the brief and the rubric; score
    the 6 criteria 1–5, fix the gaps by patch while the mean is below 4 (at most 2 rounds), then store it with
    `fin_critic(q, score, notes)`.
 
-## 2. AnalysisSpec v2 essentials
+## 2. The spec
 
-```json
-{"version": 2, "question": "Wholesale P&L year to date vs last year",
- "plan": {"depth": "standard", "purpose": "Explain the Wholesale EBITDA bridge YTD vs LY"},
- "queries": [{"id": "q1", "cube": "FinMax", "metrics": ["Revenue", "COGS", "Opex", "Other items", "EBITDA"],
-              "entity": "un.SY.2WHS", "periods": "closed-ytd", "compare": ["ly"]}],
- "blocks": [{"type": "kpi_tiles", "query": "q1", "metrics": ["Revenue", "EBITDA"]},
-            {"type": "table", "query": "q1", "title": "P&L"},
-            {"type": "bridge", "query": "q1", "total": "EBITDA", "steps": ["Revenue", "COGS", "Opex", "Other items"]}]}
-```
-
-- **Strict:** unknown fields are refused; a block's metrics and series must be in its query.
-- **periods:** `closed`, `closed-ytd`, `closed-12m`, `fy`, `Sep 26`, `Jan 26..Sep 26`. Relative periods roll
-  forward in `fin_refresh`. Open month: `preliminary: true`.
-- **compare:** `ly`; `budget` and `forecast` (latest) **only in FinPlan**: actual vs plan is done entirely in
-  FinPlan (entity alias e.g. `1TEC Technology`; columns `["value", "budget", "var", "forecast", "var"]`).
-- **Blocks:** `table` (rows `metrics` or `entities` + `metric`; columns value, ly, budget, forecast, var,
-  var_pct, share; `top`, `other`, `sort`), `kpi_tiles` (2–6), `trend` (series, `cumulative`, chart), `bridge`
-  (`total`, `steps`, `base`; an EBITDA bridge uses every step: Revenue, COGS, Opex, Other items), `ranking`
-  (`metric`, `top`), `matrix`, `drivers` (`metric`, `depth` 1–4, `drill` to ledger lines), `lines` (`cell`,
-  `group_by` supplier | project | account, `top`; needs no query), `commentary` (`key_points`, `drivers`),
-  `concept` (`concept`, FinMax/FinLite `query`). Products: query `products`, `rows: "products"` in
-  `table`/`ranking`. See [reference/concepts.md](reference/concepts.md).
-- **Commentary drivers:** `{"line", "text", "basis": "data", "evidence": "<cell key>"}` or
-  `"basis": "hypothesis"`, written from the reply's evidence, never from memory.
+`{"version": 2, "question", "plan", "queries": [{"id", "cube", "metrics", "entity", "periods", "compare"}],
+"blocks": [...]}`. Strict: unknown fields are refused. Periods `closed`, `closed-ytd`, `fy`, `Sep 26`, ranges.
+`budget`/`forecast` only in FinPlan. Blocks: `table`, `kpi_tiles`, `trend`, `bridge` (an EBITDA bridge uses
+Revenue, COGS, Opex, Other items), `ranking`, `matrix`, `drivers`, `lines`, `commentary`, `concept`. Products:
+query `products`, `rows: "products"`. Options, example, variance %:
+[reference/spec.md](reference/spec.md); concepts: [reference/concepts.md](reference/concepts.md).
 
 ## 3. After the first answer
 
-- **Follow-up:** `fin_analyze(patch=..., q=n)`: a JSON merge patch on the stored spec (lists such as `blocks` are
-  replaced whole); default q = the active `Q<n> Answer`, else the latest. Same sheets, rebuilt in place.
-- **Monthly pack:** `fin_refresh()` re-runs every answer to the latest closed month (a brief per question); then
-  follow prompt `monthly-pack`.
-- **Ledger lines:** a `lines` block, or `fin_drill(cell, group_by, top)` with
-  `{"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"}` (FinLite, Periodic;
-  `Yr 26` works). Ties the lines to the cube: report the gap. 60–90 s.
-  Details: [reference/drill.md](reference/drill.md).
+- **Follow-up:** `fin_analyze(patch=..., q=n)`: JSON merge patch on the stored spec (lists replaced whole).
+- **Monthly pack:** `fin_refresh()` re-runs every answer to the latest closed month; then prompt `monthly-pack`.
+- **Ledger lines:** a `lines` block or `fin_drill(cell, group_by, top)` (FinLite, Periodic; ties to the cube,
+  report the gap; 60–90 s): [reference/drill.md](reference/drill.md).
 
 ## 4. Reporting
 
 - Quote numbers **only from `key_values`**; never compute sums, differences or shares yourself.
 - Pass on, Critical first: `findings`, checks not OK, `warnings` (rejected members and error cells are missing
-  numbers, never zero), the `material` lines with their drivers.
-- Pass on the reply's `caveats` (reorgs, abolished units, account traps, concept notes) that bear on the answer.
-- Chat in the user's language; sheet text is English. Name the sheets; the user's workbook is never saved.
+  numbers, never zero), the `material` lines with their drivers, and the `caveats` that bear on the answer.
+- Chat in the user's language; sheet text is English. The user's workbook is never saved.
 
 ## 5. Editing open workbooks (Excel MCP)
 
-Before an Excel MCP edit `xl_snapshot(workbook, sheet, range)`; undo with `xl_revert(change_id)`. Finish with
-`xl_tidy(workbook, sheet, rows, last_col)`: TN style (given `rows` + `last_col`) and the tn-formelstil check,
-zero BLOCK findings.
+Before an edit `xl_snapshot(workbook, sheet, range)`; undo with `xl_revert(change_id)`. Finish with
+`xl_tidy(workbook, sheet, rows, last_col)`: TN style and the tn-formelstil check, zero BLOCK findings.
 
 ## 6. Finance rules
 
 - **Cube:** actuals FinMax (FTE `ac.STA20Y`); FinLite lighter (no FTE; drill source); plan only FinPlan.
 - **Format:** full NOK `1 000 000`, negatives `(1 000 000)` in tables, `−1 000 000` in text; FinMax signs (costs
-  negative); variance = current − comparison (positive = better); variance % empty when the base is zero.
+  negative); variance = current − comparison (positive = better); variance % empty on a zero or tiny base (the
+  floor sits in the sheet's Thresholds).
 - **P&L chain (FinMax):** C30 + C40S = C48; C50S + C60 = C70; C48 + C70 = EBITDA_BOI; + C73 = EBITDA.
-- **Members:** `un.SY.<code>` (2WHS, 2BUS, 2SSM, 2EI, 2TEC …), `ac.<code>`, `Sep 26`. History is restated to
-  today's organisation (the 1 June 2026 reorg emptied 2CON into 2SSM + 2EI). Tops: [reference/cubes.md](reference/cubes.md).
-- Never write to the Produktregnskapet archive.
+- **Members:** `un.SY.<code>`, `ac.<code>`, `Sep 26`; history restated to today's organisation:
+  [reference/cubes.md](reference/cubes.md). Never write to the Produktregnskapet archive.
 
-## 7. Health and reloads
+## 7. Health
 
-`fin_status()`: version, atlas age, knowledge, doctor problems. Repeated errors: `fin_status(restart=True)`.
-Stale atlas: `smartass atlas build`. When knowledge refresh is due, the user runs
-`smartass knowledge refresh`, reads the report, then `smartass knowledge approve <id|all>`. A parameter missing after a
-reload: ask the user to run `/mcp` and reconnect smartass.
-Errors, files and logs: [reference/operations.md](reference/operations.md).
+`fin_status()` (version, atlas, knowledge); repeated errors: `fin_status(restart=True)`. Knowledge refresh: the
+user runs `smartass knowledge refresh`, reads the report, then `smartass knowledge approve <id|all>`. A parameter
+missing after a reload: ask for `/mcp` and reconnect smartass. [reference/operations.md](reference/operations.md).
