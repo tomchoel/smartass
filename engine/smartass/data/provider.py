@@ -47,6 +47,27 @@ def _grids(req: GridRequest) -> list[tuple[dict, list[Axis], list[Axis], dict[st
              [Axis("All Time Periods", list(req.periods))], {p: p for p in req.periods})]
 
 
+def facts_from_parsed(req: GridRequest, parsed, labels: dict[str, str]) -> tuple[list[Fact], list[str]]:
+    """Facts and warnings from one parsed grid (grid.parse output), the same for the HTTP and the ad hoc route.
+    #Missing (None) gives no fact; an error cell gives a warning and no fact."""
+    facts: list[Fact] = []
+    warnings: list[str] = []
+    if parsed.unknown_members:
+        warnings.append(f"{req.cube}: Smart View did not know {', '.join(parsed.unknown_members)}")
+    heads = parsed.columns[2:]
+    for row in parsed.rows:
+        account, entity, values = row[0], row[1], row[2:]
+        for head, v in zip(heads, values):
+            if v is None:
+                continue
+            if isinstance(v, str):
+                warnings.append(f"{req.cube} {account} / {entity} / {head}: {v} (left out)")
+                continue
+            facts.append(Fact(req.cube, req.query, account, entity, labels[head], req.scenario, req.version,
+                              float(v), req.balance))
+    return facts, warnings
+
+
 class SvHttpProvider:
     def __init__(self, sv):
         self.sv = sv
@@ -67,19 +88,9 @@ class SvHttpProvider:
         t0 = time.monotonic()
         for pov, rows, cols, labels in _grids(req):
             _, parsed, _ = self._retrieve(out, req.cube, pov, rows, cols, False, False)
-            if parsed.unknown_members:
-                out.warnings.append(f"{req.cube}: Smart View did not know {', '.join(parsed.unknown_members)}")
-            heads = parsed.columns[2:]
-            for row in parsed.rows:
-                account, entity, values = row[0], row[1], row[2:]
-                for head, v in zip(heads, values):
-                    if v is None:
-                        continue
-                    if isinstance(v, str):
-                        out.warnings.append(f"{req.cube} {account} / {entity} / {head}: {v} (left out)")
-                        continue
-                    out.facts.append(Fact(req.cube, req.query, account, entity, labels[head], req.scenario,
-                                          req.version, float(v), req.balance))
+            facts, warns = facts_from_parsed(req, parsed, labels)
+            out.facts += facts
+            out.warnings += warns
         out.seconds = time.monotonic() - t0
         return out
 

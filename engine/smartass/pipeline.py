@@ -14,6 +14,7 @@ from .model.frame import Frame
 from .model.requests import GridRequest
 from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError
+from smartview_mcp.svhttp import SvHttpError
 
 MAX_PARALLEL = 6
 
@@ -34,6 +35,8 @@ class Prepared:
     routes: dict[str, int] = field(default_factory=dict)
     fetch_seconds: float = 0.0
     aggregation: dict[str, str] = field(default_factory=dict)
+    failed: list[GridRequest] = field(default_factory=list)          # grids the HTTP route could not fetch
+    failed_errors: list[str] = field(default_factory=list)
 
 
 def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: dict | None = None) -> Prepared:
@@ -58,18 +61,29 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
             if resolver.exists(q.entity, q.cube):
                 q.entity = canonical(q.entity, q.cube)
     reqs = plan_requests(spec, resolver, closed)
+    def fetch_one(req):
+        try:
+            return provider.fetch(req), None
+        except SvHttpError as e:        # only the HTTP route's failure; a wrong member (InputError) is wrong on every route
+            return None, str(e)
+
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as ex:
-        got = list(ex.map(provider.fetch, reqs))
+        fetched = list(ex.map(fetch_one, reqs))
+    failed = [r for r, (g, _) in zip(reqs, fetched) if g is None]
+    failed_errors = [err for g, err in fetched if g is None]
+    got = [g for g, _ in fetched if g is not None]
     frame = Frame([f for g in got for f in g.facts])
     frame.lines = dict(lines)
     warnings = [w for g in got for w in g.warnings]
+    if failed:
+        warnings.append(f"{len(failed)} grid(s) could not be fetched over HTTP: {'; '.join(failed_errors[:3])}")
     routes: dict[str, int] = {}
     for g in got:
         routes[g.route] = routes.get(g.route, 0) + 1
     result = compute(spec, resolver, closed, frame)
     aggregation = {m: resolver.aggregation(m) for q in spec.queries for m in q.metrics}
     return Prepared(spec, raw, closed, reqs, frame, result, warnings, routes, sum(g.seconds for g in got),
-                    aggregation)
+                    aggregation, failed, failed_errors)
 
 
 def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:
