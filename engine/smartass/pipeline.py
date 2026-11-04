@@ -116,7 +116,10 @@ def _calculate(t) -> None:
 
 
 def _save_spec(t, q: int, raw: dict) -> None:
-    from smartview_mcp.excel import sheets
+    from smartview_mcp.excel import jobs, sheets
+    if not sheets._sheet_exists(t, sheets.META_SHEET):      # v1 save_spec returns silently without it; same creation as save_meta
+        ws = jobs.com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))
+        jobs.com(lambda: sheets._name_hidden(ws, sheets.META_SHEET))
     sheets.save_spec(t, q, {"v2": raw}, ids={}, owned=None)
 
 
