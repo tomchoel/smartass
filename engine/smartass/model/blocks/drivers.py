@@ -48,10 +48,14 @@ def build_drivers(b: DriversBlock, ctx: Ctx, key: str) -> BlockOut:
     def leaf(entity: str) -> None:
         if b.drill:
             closed = ctx.closed_for(q.cube)
+            last = r.aggregation(b.metric) == "last"          # a stock is read at the last month only
+
+            def cut(ms: list) -> tuple[str, ...]:
+                return tuple(label(m) for m in (ms[-1:] if last else ms))
+
             out.drills.append(DrillRequest(
                 q.id, q.cube, entity, b.metric, tuple(r.members(b.metric, q.cube)),
-                tuple(label(m) for m in months(q, "value", closed)),
-                tuple(label(m) for m in months(q, b.base, closed)), b.base))
+                cut(months(q, "value", closed)), cut(months(q, b.base, closed)), b.base))
 
     def walk(entity: str, level: int, prefix: str) -> None:
         kids = r.children(entity, q.cube)

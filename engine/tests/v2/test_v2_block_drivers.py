@@ -34,3 +34,14 @@ def test_drivers_request_drills_at_the_leaves():
 def test_depth_one_stops_at_children():
     _, out = run(depth=1)
     assert [ln.key for ln in out.lines] == ["top", "d0"]
+
+
+def test_drill_requests_of_a_stock_metric_carry_only_the_last_month():
+    from v2util import monthly_facts
+    d = spec_dict(blocks=[{"type": "drivers", "query": "fm", "metric": "FTE", "depth": 1, "drill": True}])
+    d["queries"][0].update(metrics=["FTE"], periods="Jul 26..Sep 26")
+    s = AnalysisSpec.model_validate(d)
+    out = build_drivers(s.blocks[0], Ctx(s, resolver(), CLOSED, monthly_facts()), "b0")
+    assert out.drills
+    for dr in out.drills:
+        assert dr.periods == ("Sep 26",) and dr.base_periods == ("Sep 25",)
