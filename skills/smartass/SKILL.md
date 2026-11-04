@@ -34,6 +34,8 @@ query `products`, `rows: "products"`. Options, example, variance %:
 ## 3. After the first answer
 
 - **Follow-up:** `fin_analyze(patch=..., q=n)`: JSON merge patch on the stored spec (lists replaced whole).
+  Follow-ups, `fin_critic` and `fin_refresh` default to the workbook of the latest answer; an open workbook can
+  be targeted by name (`target="Book1"`).
 - **Monthly pack:** `fin_refresh()` re-runs every answer to the latest closed month; then prompt `monthly-pack`.
 - **Ledger lines:** a `lines` block or `fin_drill(cell, group_by, top)` (FinLite, Periodic; ties to the cube,
   report the gap; 60–90 s): [reference/drill.md](reference/drill.md).

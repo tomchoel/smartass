@@ -5,6 +5,20 @@
 v2 stands alone: one MCP server `smartass` with nine tools; the agent writes an AnalysisSpec v2 and the engine
 validates, computes and draws it (design `docs/DESIGN.md`, `docs/specs/2026-11-04-v2-overview.md`). v1 is retired.
 
+### Fixed
+
+- Pane live-test fixes (v2): follow-ups (`fin_analyze(patch)`), `fin_refresh` and `fin_critic` default to the
+  workbook of the latest answer in answers.db, not the old session file (explicit targets win; no stored answer
+  keeps the session workbook); a target that is the name of an open workbook (e.g. an unsaved `Book1`, with or
+  without extension) resolves to it in any Excel (two of that name: ambiguous; the archive guard applies);
+  `fin_critic(target=...)` finds and scores the answer in that workbook; answer lines, KPI tiles, bridge steps,
+  trend headers, drivers/ranking/matrix titles and key_values show metric names (a raw member: its metric if it
+  is that metric's only member, else the atlas label) instead of the tokens passed; `xl_tidy` accepts row kinds
+  `subtotal`, `total`, `heading` (= sum, grand, section). Pane: one `/api/chat` run at a time (409 with a message,
+  send disabled while running); the pane prompt pins `target="active"` on every fin_analyze / fin_critic /
+  fin_refresh / fin_drill call, stops on a fin_* error instead of rebuilding the analysis by hand with Excel MCP,
+  and asks for metric names from fin_lookup. `npm test` in `addin/tn-claude` tests the server.
+
 ### Added
 
 - Excel task pane on v2 (Plan 3A): the TN Claude pane source now lives in `addin/tn-claude` (served from the repo
