@@ -149,6 +149,21 @@ def fin_status() -> dict:
     return {"analyser": str(v1config.ANALYSER_DIR), "atlas": st, "metrics": len(catalog_metrics())}
 
 
+@_register(v1.WRITE)
+async def xl_snapshot(workbook: str | None = None, sheet: str | None = None, range: str | None = None) -> dict:
+    """Save the current state of a range (default: the sheet's used range) of an open workbook, changing nothing.
+    Call before any Excel MCP edit to a workbook the user has open; xl_revert(change_id) undoes the edit."""
+    from .workbench import snapshot
+    return await _user(lambda h: snapshot(workbook, sheet, range), "xl_snapshot")
+
+
+@_register(v1.WRITE)
+async def xl_revert(change_id: str | None = None, workbook: str | None = None, force: bool = False) -> dict:
+    """Put a range back as xl_snapshot (or a v1 xl_* edit) recorded it. Default: the latest change. Not saved."""
+    from .workbench import revert
+    return await _user(lambda h: revert(change_id, workbook, force), "xl_revert")
+
+
 def main():
     legacy.configure_v2()
     mcp.run()
