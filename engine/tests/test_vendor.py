@@ -28,9 +28,16 @@ def test_style_helpers_do_not_depend_on_the_user_profile(tmp_path):
 
 
 # sha256 (LF line ends) of the vendored advisor texts as of 2b6c237: their wording is the vendor's, never edited here
+# (NOTICE.md as of Plan 2A task 7: findings.md and gate.md, v1-only, were deleted and their lines dropped from it)
 VENDORED = {"variance-commentary.md": "85d197d36cd57cebfb047ddebf0c94c17441c6066530fa827a1b4d2b38e4218f",
-            "findings.md": "a77b8d3831da0b26e213eef04b6db158bb9a84dd99a250fffaa34ebc99602647",
-            "NOTICE.md": "3ed66bdc22ad8181b04357abb09719f15258f141f35bf8dcef35ceb56d403079"}
+            "NOTICE.md": "ec103aa63bc174fb4dc4f00afdf70ee40815dc64ca29ad51830139296fd78836"}
+
+
+def test_v1_only_advisor_files_are_gone():
+    advisor = ENGINE.parent / "knowledge" / "advisor"
+    assert sorted(p.name for p in advisor.iterdir()) == ["NOTICE.md", "variance-commentary.md"]
+    notice = (advisor / "NOTICE.md").read_text(encoding="utf-8")
+    assert "findings.md" not in notice and "gate.md" not in notice and "variance-commentary.md" in notice
 
 
 def test_vendored_advisor_text_unchanged():

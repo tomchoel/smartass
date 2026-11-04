@@ -7,6 +7,11 @@ validates, computes and draws it (design `docs/DESIGN.md`, `docs/specs/2026-11-0
 
 ### Added
 
+- v2 knowledge layer (Plan 2A): metrics and facts as TOML files in `knowledge/semantic`, compiled with the atlas
+  into knowledge.db (build checks); `KnowledgeResolver` replaces the interim catalogue; every reply and Answer sheet
+  carries the caveats it touched; `fin_lookup` finds metrics by alias; `smartass knowledge refresh | approve |
+  status` for the monthly atlas diff, drafts and impact report; doctor check `knowledge` replaces `catalog`. The
+  v1-only advisor texts `gate.md` / `findings.md` and the `products_map.json` side files are removed.
 - v2: ad hoc fallback for failed HTTP grids, record/replay, test set (record / approve / run offline),
   text-fix candidates in the reply, wrapped notes, parallel drills.
 - v2 ledger lines: lines block and fin_drill (supplier / project / account ranking tied to the cube), clean

@@ -24,9 +24,9 @@ v1 (the `sv_*` gate/recipe pipeline, retired 2026-11-04) is described in
 |---|---|
 | `fin_analyze(spec \| patch, q, target)` | New question from a spec, or a JSON merge patch on the stored spec of `Q<n>` |
 | `fin_refresh(target)` | Re-runs every v2 answer in the workbook; relative periods roll to the latest closed month |
-| `fin_lookup(query, kind, cube)` | Metric names (interim catalogue) and atlas members |
+| `fin_lookup(query, kind, cube)` | Metrics by name or alias (description, members, `differs`) and atlas members, each with caveats |
 | `fin_drill(cell, group_by, top)` | A spec with one `lines` block: FinLite ledger lines ranked and tied to the cube |
-| `fin_status(restart)` | Version, atlas age, doctor problems; `restart=True` gives a fresh server process |
+| `fin_status(restart)` | Version, atlas age, knowledge build and refresh due, doctor problems; `restart=True` gives a fresh server process |
 | `xl_snapshot`, `xl_revert`, `xl_tidy` | Snapshot / undo around Excel MCP edits; TN style + tn-formelstil check |
 
 Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. Error text: every tool runs under
@@ -35,7 +35,7 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
 ## Pipeline (`pipeline.py`)
 
 1. **Prepare** (no Excel): validate the spec (`model/spec.py`, pydantic, strict), resolve metrics and members
-   (`knowledge/atlas_resolver.py` over `atlas.db` + `knowledge/interim.py`), run the hard guards
+   (`knowledge/resolver.py` `KnowledgeResolver` over `knowledge.db` + `atlas.db`), run the hard guards
    (`model/validate.py`: unknown member or metric, open month without `preliminary`, period mismatch), plan the
    grid requests (`model/requests.py`, `model/series.py`) and fetch them in parallel over Smart View HTTP
    (`data/provider.py` → `epm/svhttp.py`). `lines` blocks drill first (`epm/drillstep.py`, concurrently).
@@ -48,7 +48,7 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    drills, TN style (`xl/styling.py`), read-back (`render/readback.py`), the spec stored in hidden `_svmeta`, sheet
    order (`xl/sheetorder.py`), save (our files only).
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
-   `findings`, `checks`, `warnings`, `routes`, `closed`, `saved_user_workbook: false`.
+   `findings`, `checks`, `warnings`, `caveats`, `routes`, `closed`, `saved_user_workbook: false`.
 
 **Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; the answer is redrawn in
 place inside its owned range (`xl/owned.py`), so the user's cells outside it survive; a failed redraw restores the
@@ -63,7 +63,7 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
 | `data/` | providers (HTTP, ad hoc combo), recorder (offline replay for the test set) |
 | `render/` | layout (pure), COM writer, charts, read-back |
 | `epm/` | Smart View HTTP/XML, grids, `ops` (bridge grids, atlas dumps), SSO, the drill browser and lines |
-| `knowledge/` | atlas (SQLite), atlas resolver, interim metrics from `knowledge/catalog.toml` |
+| `knowledge/` | atlas (SQLite), semantic files (`semantic`, `seed`), `build` (knowledge.db), `KnowledgeResolver`, monthly `refresh` |
 | `xl/` | the hidden Excel (`host`, `hostproc`, `dialogs`), the user's Excel (`instances`, `target`, `jobs`, `login`, `sheets`), `styling`, `formulas`, `owned`, `sheetorder`, `drill_xl`, snapshots (`workbench/history`), vendored TN style and formula checker |
 | `ops/` | `cli`, `doctor`, `setup_user`, `update`, `httpapi`, `atlas_build` |
 | `testset/` | the B-question test set: specs in git, recordings and golden numbers outside git |
@@ -85,6 +85,33 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
 - **Atlas**: `atlas.db`, rebuilt with `smartass atlas build` (or copied from the monthly release by `smartass
   setup`).
 
+## Knowledge layer (`knowledge/`, sub-spec 2 §1–§4, §8)
+
+- **Source, in git:** `knowledge/semantic/metrics/<id>.toml` (name, aliases, description, unit, sign, balance,
+  aggregation, materiality, members per cube, `differs`, status) and `facts/<id>.toml` (text, scope members per cube
+  and/or metrics, `valid_from`/`valid_to`, severity info / warn / block, source, status). `semantic.py` validates
+  them (pydantic, strict); `seed.py` generated the first 11 metrics and 37 facts from the approved catalogue and maps.
+- **Build:** `build.py` compiles the files with the atlas into `%LOCALAPPDATA%\smartass\knowledge.db` (metrics,
+  members, aliases + FTS5, facts, fact scopes, member labels, meta), written to `.tmp` and swapped in. Errors (a
+  metric member not in the atlas, an alias on two metrics) keep the old db; warnings (a historical fact member,
+  drafts) do not. `smartass knowledge build`; a missing db is built on first use and said in the warnings.
+- **Resolver:** `KnowledgeResolver` serves the model (metrics by id, name or alias, any case; tree, labels and
+  existence from the atlas via `atlas_tree.AtlasTree`; a draft metric is refused by the status guard),
+  `search()` for `fin_lookup`, and `caveats(touched, metrics, months)`.
+- **Caveats:** `prepare` collects the entities and accounts of every grid request and lines cell (FinLite counts as
+  FinMax, whose members it shares), the query metrics and the fetched months; every approved fact in scope and in
+  validity becomes `{id, text, severity}` in `reply["caveats"]` and a "Caveats" section on the Answer sheet. Drafts
+  in scope add one warn line "unapproved knowledge change touches this answer".
+- **Monthly refresh** (`refresh.py`): `smartass knowledge refresh [--no-atlas] [--month YYYY-MM]` rebuilds the atlas
+  (live), diffs it against `knowledge/atlas_snapshot.json` in the home folder (added, removed, moved, relabelled
+  account and entity members), drafts a fact per moved or removed member a metric or fact references, rebuilds
+  knowledge.db (meta `refresh_month`), runs the offline test set and writes `knowledge/reports/<yyyy-mm>.md`.
+  `smartass knowledge approve <id|all> [--by]` sets `status = approved` and `approved = {by, on}`, then rebuilds;
+  `smartass knowledge status` lists the build, drafts and last report. `fin_status` says "knowledge refresh due" when
+  an answer has seen a closed month newer than the last refresh (`knowledge/state.json`).
+- **Not yet (Plan 2B):** critic and rubric, playbooks, answer memory, product concepts. The atlas has no
+  consolidation operators, so metric identities (C70 = C50S + C60) are checked in the test set, not the tree.
+
 ## HTTP API (`ops/httpapi.py`, `smartass serve`)
 
 Localhost only, per-user secret (`secret.bin`, DPAPI), one request at a time: `GET /health` (the doctor checks)
@@ -97,5 +124,6 @@ fields or an invalid spec, 401 secret, 409 busy, 413 over 1 MB, 503 Excel/EPM er
   `child_server.py` with the warm-up off).
 - Test set: `uv run python -m smartass.testset run` replays recorded grids and compares with the approved golden
   numbers (8 questions).
-- `smartass doctor` checks the install (config, Excel, Smart View, VBA access, EPM, drill browser, atlas, catalogue,
-  output, HTTP API, update).
+- `smartass doctor` checks the install (config, Excel, Smart View, VBA access, EPM, drill browser, atlas,
+  knowledge (build checks against the current atlas; WARN when knowledge.db is older than the atlas or the semantic
+  files, or drafts await approval), output, HTTP API, update).

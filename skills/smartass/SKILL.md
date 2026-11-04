@@ -12,7 +12,7 @@ workbook, `"new"` for a separate file.
 ## 1. The loop: plan → build → critic
 
 1. **Plan.** Decide cube, entity, metrics, periods and comparisons. Unsure of a name: `fin_lookup(query, kind,
-   cube)` (metrics and atlas members, instant). Write `plan`: `depth` (`quick` | `standard` | `deep`),
+   cube)` (metrics by name or alias, e.g. `driftskostnader`, and atlas members; each hit with its caveats). Write `plan`: `depth` (`quick` | `standard` | `deep`),
    `purpose` (required unless quick), `hypotheses` you will test.
 2. **Build.** `fin_analyze(spec=...)`: one call fetches (Smart View HTTP; an ad hoc grid in Excel as fallback),
    computes every value and writes `Q<n> Answer` (live formulas) + `Q<n> Data` (table `Data_Q<n>`). Unknown
@@ -62,6 +62,8 @@ workbook, `"new"` for a separate file.
 - Quote numbers **only from `key_values`**; never compute sums, differences or shares yourself.
 - Pass on, Critical first: `findings`, checks not OK, `warnings` (rejected members and error cells are missing
   numbers, never zero), the `material` lines with their drivers.
+- Read the reply's `caveats` (reorg moves, abolished units, account traps; also on the sheet) and pass on those
+  that bear on the answer.
 - Chat in the user's language; sheet text is English. Name the sheets; the user's workbook is never saved.
 
 ## 5. Editing open workbooks (Excel MCP)
@@ -83,7 +85,8 @@ zero BLOCK findings.
 
 ## 7. Health and reloads
 
-`fin_status()`: version, atlas age, doctor problems. Repeated errors: `fin_status(restart=True)` (fresh server
-and hidden Excel). Stale atlas: `smartass atlas build` in a terminal. After a reload Claude Code may keep an old
+`fin_status()`: version, atlas age, knowledge, doctor problems. Repeated errors: `fin_status(restart=True)`.
+Stale atlas: `smartass atlas build` in a terminal. Monthly, when it says knowledge refresh due: the user runs
+`smartass knowledge refresh`, reads the report, then `smartass knowledge approve <id|all>`. After a reload Claude Code may keep an old
 tool schema: if a parameter seems missing, ask the user to run `/mcp` and reconnect smartass.
 Errors, files and logs: [reference/operations.md](reference/operations.md).

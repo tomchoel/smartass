@@ -40,3 +40,16 @@ def test_references_exist_and_name_no_v1_tools():
         body = f.read_text(encoding="utf-8")
         assert not re.search(r"\bsv_(?!version)[a-z_]+\b", body), f.name
         assert set(TOOL.findall(body)) <= set(server.TOOL_NAMES), f.name
+
+
+def test_skill_covers_caveats_aliases_and_the_monthly_refresh():
+    text = _text()
+    assert "caveats" in text and "alias" in text
+    assert "smartass knowledge refresh" in text and "smartass knowledge approve" in text
+
+
+def test_products_map_side_files_are_gone():
+    knowledge = SKILL.parents[1] / "knowledge"
+    assert (knowledge / "products_map.json").exists()
+    assert not (knowledge / "products_map.json.leaves.json").exists()
+    assert not (knowledge / "products_map.json.q4.json").exists()
