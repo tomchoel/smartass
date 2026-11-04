@@ -30,6 +30,21 @@ class Resolver(Protocol):
     def label(self, member: str, cube: str) -> str: ...
     def latest_forecast(self) -> str: ...
     def concept(self, name: str): ...          # a product concept (knowledge.semantic.Concept) or None
+    def metric_of(self, member: str, cube: str) -> str | None: ...   # the metric of an account (or its parent)
+
+
+def metric_of_member(metrics, member: str, cube: str, parent: str | None) -> str | None:
+    """The name of the metric whose members in the cube are exactly this member (any case); else the metric of the
+    member's parent the same way; else None. metrics: MetricDef-like (name, members dict)."""
+    for m in (member, parent):
+        if not m:
+            continue
+        key = m.casefold()
+        for d in metrics:
+            ms = d.members.get(cube, ())
+            if len(ms) == 1 and ms[0].casefold() == key:
+                return d.name
+    return None
 
 
 @dataclass
@@ -109,6 +124,11 @@ class StaticResolver:
 
     def latest_forecast(self) -> str:
         return self.forecast
+
+    def metric_of(self, member: str, cube: str) -> str | None:
+        parent = next((p for p, kids in self.tree.items() if any(k.casefold() == member.casefold() for k in kids)),
+                      None)
+        return metric_of_member(self.metrics, member, cube, parent)
 
     def concept(self, name: str):
         key = name.strip().casefold()

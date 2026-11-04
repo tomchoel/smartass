@@ -32,7 +32,8 @@ def material(outs: list[BlockOut], cells: Cells, r: Resolver) -> list[dict]:
                 a, pct = r.materiality(ln.metric)
                 if abs(v) >= a or (p is not None and abs(p) >= pct and abs(v) >= a / 10):
                     if ln.entity is not None:       # the same cell in another block is not listed twice
-                        ident = (o.query, ln.metric, ln.entity, base)
+                        ident = ((o.query, ln.metric, ln.entity, base) if o.type != "concept"
+                                 else (o.query, o.title, ln.key, base))     # a concept line is its own cell
                         if ident in seen:
                             continue
                         seen.add(ident)

@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 
 from ..model.periods import Month
-from ..model.resolver import DEFAULT_MATERIALITY, MetricDef, UnknownMetric
+from ..model.resolver import DEFAULT_MATERIALITY, MetricDef, UnknownMetric, metric_of_member
 from . import atlas
 from .atlas_tree import AtlasTree
 from .build import build, search_concepts, search_metrics, semantic_hash, summary
@@ -57,6 +57,10 @@ class KnowledgeResolver(AtlasTree):
     def metrics(self) -> list[MetricDef]:
         return [MetricDef(m.name, m.members(), sign=m.sign, status=m.status, materiality=m.materiality,
                           balance=m.balance, aggregation=m.aggregation) for m in self._metrics.values()]
+
+    def metric_of(self, member: str, cube: str) -> str | None:
+        """The metric of an account: the one whose members in the cube are exactly it, else its parent's, else None."""
+        return metric_of_member(self.metrics(), member, cube, self.parent(member, cube))
 
     def members(self, metric: str, cube: str) -> tuple[str, ...]:
         m = self._metric(metric)

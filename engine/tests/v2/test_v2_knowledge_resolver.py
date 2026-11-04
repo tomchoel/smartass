@@ -201,3 +201,16 @@ def test_search_members_carry_caveats_without_month_filter(dbs):
     (m,) = [h for h in hits["members"] if h["name"] == "un.SY.2CON"]
     assert m["cube"] == "FinMax" and [c["id"] for c in m["caveats"]] == ["abolished_consumer"]
     assert res(dbs).search("revenue", kind="metric")["members"] == []
+
+
+def test_metric_of_a_member_or_of_its_parent(dbs):
+    _, con = dbs
+    con.execute("INSERT INTO member (connection, dimension, name, label, parent, depth, ord) "
+                "VALUES ('FinMax','All Accounts','ac.C3011','C3011 Subscriptions','ac.C30',4,1)")
+    con.commit()
+    r = res(dbs)
+    assert r.metric_of("ac.C30", "FinMax") == "Revenue"
+    assert r.metric_of("ac.c30", "FinMax") == "Revenue"
+    assert r.metric_of("ac.C3011", "FinMax") == "Revenue"
+    assert r.metric_of("ac.C48", "FinMax") is None
+    assert r.metric_of("un.SY.2BUS", "FinMax") is None

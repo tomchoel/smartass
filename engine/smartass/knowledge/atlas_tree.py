@@ -37,6 +37,11 @@ class AtlasTree:
             (cube, row[1], row[0]))]
         return tuple(dict.fromkeys(names))
 
+    def parent(self, member: str, cube: str) -> str | None:
+        row = self.db.execute("SELECT parent FROM member WHERE connection=? AND name=? COLLATE NOCASE "
+                              "ORDER BY depth LIMIT 1", (cube, member)).fetchone()
+        return row[0] if row and row[0] else None
+
     def weight(self, member: str, cube: str) -> float:
         return 1.0
 

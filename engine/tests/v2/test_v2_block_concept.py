@@ -246,3 +246,50 @@ def test_a_concept_found_by_its_name():
     d["blocks"][0]["concept"] = "Tiny Offer"
     pre = prepare(d, cresolver(), ProductProvider(cfacts()))
     assert pre.result.outs[0].title == "Tiny - direct contribution"
+
+
+# ---- Plan 2D task 1: concept lines carry the metric of their account, so they get materiality
+
+def test_a_concept_line_carries_the_metric_of_its_account():
+    _, _, out, _ = _built()
+    by = {ln.key: ln for ln in out.lines}
+    assert by["i_rev"].metric == "Revenue"                    # ac.C30 is Revenue's FinMax member
+    assert by["i_cogs"].metric is None                        # ac.C50S is one of Opex's two members, not equal
+    assert by["i_fin"].metric is None and by["i_gp"].metric is None and by["total"].metric is None
+
+
+def test_the_metric_of_a_member_or_of_its_parent():
+    from smartass.model.resolver import MetricDef, StaticResolver
+    r = StaticResolver([MetricDef("Revenue", {"FinMax": ("ac.C30",)})], tree={"ac.C30": ("ac.C3011",)})
+    assert r.metric_of("ac.C30", "FinMax") == "Revenue"
+    assert r.metric_of("ac.c30", "FinMax") == "Revenue"
+    assert r.metric_of("ac.C3011", "FinMax") == "Revenue"         # the parent's metric
+    assert r.metric_of("ac.C99", "FinMax") is None
+
+
+def test_a_concept_line_with_a_large_variance_is_material_and_in_the_brief():
+    from smartass.model.critic import brief
+    big = {per: {k: (v * 1e6 if k[1] == "ac.C30" and k[3] == "pd.SY.T1" else v) for k, v in by.items()}
+           for per, by in VALUES.items()}                       # Revenue (booked): 40 M vs 30 M, +10 M
+    frame = Frame([Fact("FinMax", tag, acc, ent, per, "Actual", "", v, product=prod)
+                   for per, by in big.items() for (tag, acc, ent, prod), v in by.items()])
+    s = AnalysisSpec.model_validate(cspec())
+    res = compute(s, cresolver(), CLOSED, frame)
+    hits = [m for m in res.material if m["key"] == "b0.i_rev"]
+    assert len(hits) == 1 and hits[0]["variance"] == pytest.approx(10e6)
+    b = brief(s, res, [], {})
+    assert any(m["key"] == "b0.i_rev" for m in b["material"])
+
+
+def test_a_material_concept_line_is_not_hidden_by_the_same_metric_in_a_table():
+    big = {per: {k: (v * 1e6 if k[1] == "ac.C30" and k[3] == "pd.SY.T1" else v) for k, v in by.items()}
+           for per, by in VALUES.items()}
+    own = [Fact("FinMax", "fm", "ac.C30", "un.SY.2BUS", per, "Actual", "", v)
+           for per, v in (("Sep 26", 900e6), ("Sep 25", 800e6))]
+    frame = Frame(own + [Fact("FinMax", tag, acc, ent, per, "Actual", "", v, product=prod)
+                         for per, by in big.items() for (tag, acc, ent, prod), v in by.items()])
+    d = cspec(metrics=["Revenue"])
+    d["blocks"].insert(0, {"type": "table", "query": "fm", "columns": ["value", "ly", "var", "var_pct"]})
+    res = compute(AnalysisSpec.model_validate(d), cresolver(), CLOSED, frame)
+    keys = {m["key"] for m in res.material}
+    assert {"b0.m0", "b1.i_rev"} <= keys

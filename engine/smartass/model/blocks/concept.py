@@ -96,6 +96,12 @@ def build_concept(b: ConceptBlock, ctx: Ctx, key: str) -> BlockOut:
     def col(name: str) -> int:
         return cols.index(name)
 
+    def metric_of(p) -> str | None:
+        """The metric of the item's account (in the query cube, else FinMax), so the line gets its materiality."""
+        if p is None or not p.account:
+            return None
+        return ctx.resolver.metric_of(p.account, q.cube) or ctx.resolver.metric_of(p.account, "FinMax")
+
     def ref(item_key: str, j: int) -> Ref:
         return Ref(ck(key, "total" if item_key == "total" else f"i_{item_key}", j))
 
@@ -143,7 +149,8 @@ def build_concept(b: ConceptBlock, ctx: Ctx, key: str) -> BlockOut:
             if it.kind != "missing":
                 derive(cells, lkey)
             kind = "sum" if it.kind == "sum" else "line"
-            out.lines.append(Line(lkey, lab, cells, kind=kind, level=1, entity=q.entity))
+            out.lines.append(Line(lkey, lab, cells, kind=kind, level=1, entity=q.entity,
+                                  metric=metric_of(it.pick())))
     total: list[Expr | None] = [None] * len(cols)
     for s in series_of(q):
         total[col(s)] = Sum(tuple(ref(k, col(s)) for k in c.total.of))
