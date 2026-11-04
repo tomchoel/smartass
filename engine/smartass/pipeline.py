@@ -246,7 +246,7 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     lint = write_answer(ws_answer, plan, pre.warnings)
     lint = list(lint or []) + write_charts(ws_answer, plan)
     _calculate(t)
-    mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan))
+    mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan), plan.fractions)
     _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     arranged = _arrange(t, f"Q{q} Answer")
     return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data"], mismatches,

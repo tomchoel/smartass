@@ -60,3 +60,10 @@ def test_check_lines_and_findings_rows():
     _, res, p = plan([{"type": "ranking", "query": "fm", "metric": "Opex", "top": 1}])
     assert any(r["kind"] == "check" for r in p.rows)
     assert p.last_row == max(r["row"] for r in p.rows)
+
+
+def test_plan_lists_the_percentage_cells_for_the_readback():
+    _, res, p = plan()
+    pct = {f"{o.key}.{ln.key}.{j}" for o in res.outs for ln in o.lines for j, e in enumerate(ln.cells)
+           if e is not None and o.cols[j] in ("var_pct", "share")}
+    assert pct and p.fractions == pct

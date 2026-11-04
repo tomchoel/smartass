@@ -53,6 +53,7 @@ class SheetPlan:
     last_col: str = "C"
     last_row: int = 1
     charts: list[ChartSpec] = field(default_factory=list)
+    fractions: set[str] = field(default_factory=set)        # keys of percentage cells (readback: no near-zero rule)
 
     def at(self, key: str) -> tuple[int, int]:
         a = self.addr[key]
@@ -135,6 +136,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
             for j, e in enumerate(ln.cells):
                 if e is not None:
                     p.addr[ck(o.key, ln.key, j)] = f"{letters[j]}{r}"
+                    if o.cols[j] in PCT_CODES:
+                        p.fractions.add(ck(o.key, ln.key, j))
             placed.append((r, o, ln))
             line_rows.append((r, ln.kind))
             r += 1
