@@ -7,6 +7,13 @@ validates, computes and draws it (design `docs/DESIGN.md`, `docs/specs/2026-11-0
 
 ### Added
 
+- v2 products and product concepts (Plan 2C): `Query.products` adds the `All Products` dimension to the grid (a
+  `Product` column in the Data table only then); `table`/`ranking` take `rows: "products"`; 24 approved concepts
+  (`splitt`, `streamix`, 22 `fam_*` families) as `knowledge/semantic/concepts/*.toml` seeded from `concepts.json`,
+  found by `fin_lookup(kind="concept")`; the `concept` block shows booked, attributed, estimated (base x key share
+  in helper columns) and missing items, the total and its checks as findings; the concept notes become caveats.
+  knowledge.db is rebuilt when the semantic files changed (hash differs), not only when it is missing. Test-set
+  case `b09` (mobile subscriptions family).
 - v2 critic, playbooks and answer memory (Plan 2B): `critic_brief` in standard/deep replies and per question in
   `fin_refresh` (material lines backed by data, gaps); `fin_critic(q, score, notes)` returns the brief and the rubric
   (`knowledge/agent/critic.md`) and stores the score; the plan guide `knowledge/agent/plan.md`; four playbooks

@@ -24,7 +24,7 @@ v1 (the `sv_*` gate/recipe pipeline, retired 2026-11-04) is described in
 |---|---|
 | `fin_analyze(spec \| patch, q, target)` | New question from a spec, or a JSON merge patch on the stored spec of `Q<n>` |
 | `fin_refresh(target)` | Re-runs every v2 answer in the workbook; relative periods roll to the latest closed month |
-| `fin_lookup(query, kind, cube)` | Metrics by name or alias (description, members, `differs`) and atlas members, each with caveats; `kind="answer"`: past answers from answer memory |
+| `fin_lookup(query, kind, cube)` | Metrics by name or alias (description, members, `differs`), atlas members and product concepts (`kind="concept"`), with caveats; `kind="answer"`: past answers from answer memory |
 | `fin_drill(cell, group_by, top)` | A spec with one `lines` block: FinLite ledger lines ranked and tied to the cube |
 | `fin_critic(q, score, notes)` | The stored answer's critic brief + the rubric (`knowledge/agent/critic.md`); with `score` (1–5) stores it |
 | `fin_status(restart)` | Version, atlas age, knowledge build and refresh due, doctor problems; `restart=True` gives a fresh server process |
@@ -112,8 +112,34 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
   `smartass knowledge approve <id|all> [--by]` sets `status = approved` and `approved = {by, on}`, then rebuilds;
   `smartass knowledge status` lists the build, drafts and last report. `fin_status` says "knowledge refresh due" when
   an answer has seen a closed month newer than the last refresh (`knowledge/state.json`).
-- **Not yet (Plan 2C):** product concepts (`splitt`, `fam_*`; they need the Product dimension). The atlas has no
-  consolidation operators, so metric identities (C70 = C50S + C60) are checked in the test set, not the tree.
+- **Rebuild on change:** `ensure_built` compares the semantic hash in knowledge.db meta (file paths and bytes, plus
+  the schema version) with the files and rebuilds first when they differ ("knowledge.db rebuilt: semantic files
+  changed" in the warnings); a failing rebuild is a GuardError naming the error and keeps the old db.
+- **Product concepts (Plan 2C):** `knowledge/semantic/concepts/<id>.toml`, seeded from `knowledge/concepts.json` by
+  `seed_concepts()` (24 approved concepts: `splitt`, `streamix`, 22 booked-only `fam_*` families; texts translated
+  to English). A concept has `[[block]]`s of `[[block.item]]`s (booked: account x products or entities; attributed;
+  estimated: `base` x `key_share` with `num`/`den` or `same_as`; sum; missing with a note), `[[check]]` (an
+  expression over item keys and `$src`, the check's source amount), `[total]` and `notes`. The build stores
+  concepts and aliases (`concept`, `concept_alias`, `concept_fts`); an alias that is a metric's or another
+  concept's is an error, a concept member missing from the atlas a warning. `fin_lookup(kind="concept" | "any")`
+  finds them. The atlas has no consolidation operators, so metric identities (C70 = C50S + C60) are checked in the
+  test set, not the tree.
+
+## Products and the concept block (Plan 2C)
+
+- **Products:** `Query.products` (empty = the cube's product total, unchanged). A request with products adds
+  `All Products` (the dimension's name in FinMax, FinLite and FinPlan) as a third row dimension; facts carry
+  `product`; the Data table has a `Product` column only when a fact has a product (answers without products keep
+  their table, requests, replay keys and formulas exactly); `Pick` filters on Product and a constant Product is left
+  out of the formula. Unknown products stop the answer. `table` and `ranking` take `rows: "products"`
+  (`blocks/common.product_lines`: products, Other, the total over the listed products).
+- **Concept block** (`model/blocks/concept.py`): `{type "concept", concept, query}` on a FinMax/FinLite query. The
+  concept's amounts are fetched in their own grids, tagged `<query>:<id>:p` (account x query entity x products)
+  and `<query>:<id>:e` (account x entities, no product), so they never mix with the query's metric grid. One
+  section with a heading per concept block and a line per item; booked = Pick, attributed/estimated = `Base` x
+  `Key share` from labelled helper columns (a 100 % key is a typed input, never a constant in a formula), missing =
+  no value, then sums, the total and the checks. A check off zero is a finding (`concept_findings`), never the
+  reconciliation stop. The notes, missing items and estimates become info caveats (`concept_caveats`).
 
 ## Critic, playbooks and answer memory (sub-spec 2 §5–§7)
 

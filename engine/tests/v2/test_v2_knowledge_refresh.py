@@ -192,4 +192,4 @@ def test_cli_refresh_no_atlas_runs_the_offline_testset(tmp_path, monkeypatch, ca
     monkeypatch.setattr(atlas_build, "run_build", lambda *a, **k: pytest.fail("--no-atlas must not rebuild"))
     assert cli.main(["knowledge", "refresh", "--no-atlas", "--month", "2026-10"]) == 0
     out = capsys.readouterr().out
-    assert "2026-10.md" in out and "8/8" in out
+    assert "2026-10.md" in out and "9/9" in out          # nine test-set cases since b09 (Plan 2C)

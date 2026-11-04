@@ -1,0 +1,11 @@
+{
+  "id": "b09",
+  "question": "What do we earn on mobile subscriptions?",
+  "spec": {
+    "version": 2,
+    "question": "What do we earn on mobile subscriptions?",
+    "plan": {"depth": "standard", "purpose": "Direct contribution of the consumer mobile subscriptions family YTD vs last year", "hypotheses": ["Revenue drives the contribution; product-tagged opex is small"]},
+    "queries": [{"id": "q1", "cube": "FinMax", "metrics": [], "entity": "un.SY", "periods": "closed-ytd", "compare": ["ly"]}],
+    "blocks": [{"type": "concept", "query": "q1", "concept": "fam_mobil_own_subscriptions_mobile_consumer"}]
+  }
+}

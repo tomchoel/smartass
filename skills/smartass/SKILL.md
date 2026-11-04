@@ -13,12 +13,12 @@ separate file. Method lives in MCP prompts: `plan`, `critic` and the playbooks `
 ## 1. The loop: plan → build → explain → critic
 
 1. **Plan.** Decide cube, entity, metrics, periods and comparisons. Unsure of a name: `fin_lookup(query, kind,
-   cube)` (metrics by name or alias, e.g. `driftskostnader`, and atlas members; each hit with its caveats).
-   Continuity: `fin_lookup(query, kind="answer")` lists past answers (driver, score, key values). Write `plan`:
+   cube)` (metrics by name or alias, e.g. `driftskostnader`, atlas members, product concepts; with caveats).
+   Continuity: `fin_lookup(query, kind="answer")` lists past answers. Write `plan`:
    `depth` (`quick` | `standard` | `deep`), `purpose` (required unless quick), `hypotheses` you will test.
-2. **Build.** `fin_analyze(spec=...)`: one call fetches (Smart View HTTP; an ad hoc grid in Excel as fallback),
-   computes every value and writes `Q<n> Answer` (live formulas) + `Q<n> Data` (table `Data_Q<n>`). Unknown
-   members or metrics, an open month or totals that do not reconcile stop it with the reason and the fix.
+2. **Build.** `fin_analyze(spec=...)`: one call fetches (Smart View HTTP; ad hoc Excel as fallback), computes
+   every value and writes `Q<n> Answer` (live formulas) + `Q<n> Data` (table `Data_Q<n>`). Unknown
+   members, an open month or totals that do not reconcile stop it with the fix.
 3. **Explain.** Add the `commentary` by patch (drivers with `data` evidence or labelled `hypothesis`).
 4. **Critic** (`standard`, `deep`, every pack question). `fin_critic(q)` returns the brief and the rubric; score
    the 6 criteria 1–5, fix the gaps by patch while the mean is below 4 (at most 2 rounds), then store it with
@@ -45,7 +45,9 @@ separate file. Method lives in MCP prompts: `plan`, `critic` and the playbooks `
   var_pct, share; `top`, `other`, `sort`), `kpi_tiles` (2–6), `trend` (series, `cumulative`, chart), `bridge`
   (`total`, `steps`, `base`; an EBITDA bridge uses every step: Revenue, COGS, Opex, Other items), `ranking`
   (`metric`, `top`), `matrix`, `drivers` (`metric`, `depth` 1–4, `drill` to ledger lines), `lines` (`cell`,
-  `group_by` supplier | project | account, `top`; needs no query), `commentary` (`key_points`, `drivers`).
+  `group_by` supplier | project | account, `top`; needs no query), `commentary` (`key_points`, `drivers`),
+  `concept` (`concept`, FinMax/FinLite `query`). Products: query `products`, `rows: "products"` in
+  `table`/`ranking`. See [reference/concepts.md](reference/concepts.md).
 - **Commentary drivers:** `{"line", "text", "basis": "data", "evidence": "<cell key>"}` or
   `"basis": "hypothesis"`, written from the reply's evidence, never from memory.
 
@@ -57,7 +59,7 @@ separate file. Method lives in MCP prompts: `plan`, `critic` and the playbooks `
   follow prompt `monthly-pack`.
 - **Ledger lines:** a `lines` block, or `fin_drill(cell, group_by, top)` with
   `{"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"}` (FinLite, Periodic;
-  `Yr 26` works). Ranks suppliers, projects or accounts and ties the lines to the cube: report the gap. 60–90 s.
+  `Yr 26` works). Ties the lines to the cube: report the gap. 60–90 s.
   Details: [reference/drill.md](reference/drill.md).
 
 ## 4. Reporting
@@ -65,13 +67,12 @@ separate file. Method lives in MCP prompts: `plan`, `critic` and the playbooks `
 - Quote numbers **only from `key_values`**; never compute sums, differences or shares yourself.
 - Pass on, Critical first: `findings`, checks not OK, `warnings` (rejected members and error cells are missing
   numbers, never zero), the `material` lines with their drivers.
-- Read the reply's `caveats` (reorgs, abolished units, account traps) and pass on those
-  that bear on the answer.
+- Pass on the reply's `caveats` (reorgs, abolished units, account traps, concept notes) that bear on the answer.
 - Chat in the user's language; sheet text is English. Name the sheets; the user's workbook is never saved.
 
 ## 5. Editing open workbooks (Excel MCP)
 
-Other Excel work is Excel MCP on the attached workbook. Before an edit `xl_snapshot(workbook, sheet, range)`; undo with `xl_revert(change_id)`. Finish with
+Before an Excel MCP edit `xl_snapshot(workbook, sheet, range)`; undo with `xl_revert(change_id)`. Finish with
 `xl_tidy(workbook, sheet, rows, last_col)`: TN style (given `rows` + `last_col`) and the tn-formelstil check,
 zero BLOCK findings.
 
@@ -88,7 +89,7 @@ zero BLOCK findings.
 ## 7. Health and reloads
 
 `fin_status()`: version, atlas age, knowledge, doctor problems. Repeated errors: `fin_status(restart=True)`.
-Stale atlas: `smartass atlas build` in a terminal. When knowledge refresh is due, the user runs
+Stale atlas: `smartass atlas build`. When knowledge refresh is due, the user runs
 `smartass knowledge refresh`, reads the report, then `smartass knowledge approve <id|all>`. A parameter missing after a
 reload: ask the user to run `/mcp` and reconnect smartass.
 Errors, files and logs: [reference/operations.md](reference/operations.md).
