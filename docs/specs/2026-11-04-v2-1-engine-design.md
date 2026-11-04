@@ -36,7 +36,7 @@ validates before calling. Periods are **relative or absolute**, so a saved spec 
    {"id": "fm", "cube": "FinMax", "metrics": ["EBITDA", "Revenue", "COGS", "Opex"],
     "entity": "un.SY.2BUS", "periods": "closed-ytd", "compare": ["ly"]},
    {"id": "fp", "cube": "FinPlan", "metrics": ["EBITDA"], "entity": "1BUS Business",
-    "periods": "closed-ytd", "scenarios": ["Actual", "Target", "Forecast:latest"]}],
+    "periods": "closed-ytd", "compare": ["budget", "forecast"]}],
  "blocks": [
    {"type": "kpi_tiles", "query": "fm", "metrics": ["EBITDA", "Revenue"], "compare": "ly"},
    {"type": "table", "title": "P&L YTD", "query": "fm", "rows": "metrics",
@@ -50,7 +50,8 @@ validates before calling. Periods are **relative or absolute**, so a saved spec 
 - **`plan`** is required unless `depth` is `quick`. It is stored with the answer and shown to the critic.
 - **`queries`** name metrics from the semantic layer (sub-spec 2) or raw members (`ac.C30`). Dimensions not named
   take the metric's defaults (currency NOK, balance from the metric). `periods`: `closed`, `closed-ytd`,
-  `closed-12m`, `fy`, `Sep 26`, `Jan 26..Sep 26`; `compare`: `ly`, `budget`, `forecast:latest`.
+  `closed-12m`, `fy`, `Sep 26`, `Jan 26..Sep 26`; `compare`: `ly`, `budget`, `forecast` (the latest
+  forecast). `budget` and `forecast` exist only on FinPlan queries (actual vs plan is done entirely in FinPlan).
 - **Blocks** (closed list; each a pydantic class):
 
 | Block | Renders | Options |
@@ -86,7 +87,8 @@ Pure Python; no Excel, no network. This is where all numbers come from (D7).
    variance, recurses to `depth`, and requests drills at the leaf when `drill` is set.
 6. `validate.py`: the hard guards (D9) — unknown member or metric, draft (unapproved) metric used, open month
    without the `preliminary` label, a block total that does not reconcile with the cube's own parent value
-   (tolerance 1 NOK), a sign that contradicts the metric. Soft findings (no LY, no top-N + Other, no source) go
+   (tolerance 1 NOK). A query total whose sign contradicts the metric is a Critical finding, not a stop (FinPlan's
+   sign convention is not verified yet). Soft findings (no LY, no top-N + Other, no source) go
    to `review`.
 7. `findings.py`: checks, materiality (metric threshold from the semantic layer), material lines that need a
    driver, `key_values`.
