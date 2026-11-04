@@ -517,3 +517,19 @@ def test_record_approve_run_offline(tmp_path, monkeypatch):
 4. **Ad hoc fallback.** Only if Tom wants to see it: force one HTTP failure, for example with
    `SV_HTTP_TIMEOUT=0.001` for one `fin_analyze` call. Check that the answer is built with `routes.adhoc`, Sheet =
    model OK, and that no `Q<n> FinMax` ad hoc sheet is left behind.
+
+---
+
+## Live result (2026-11-04, Tom's go)
+
+- `testset record`: all 8 cases recorded with closed month 10/2026.
+  - B02 equals v1: EBITDA YTD Sep 26 3 496 062 985, variance 89 346 421.
+  - B15 and B16 equal the earlier live answers.
+- Tom approved all 8 as golden numbers. `testset run` (offline replay) gives 8/8 ok, exit 0.
+
+## Carried to the next plan
+
+1. Variance % on a tiny base is meaningless. On B06, VG20 shows −28 282 % against 10 108 NOK last year. Show the
+   variance % blank when |base| is below the metric's percentage floor (the materiality floor, 500k for NOK).
+2. The CLI prints "·" as "�" in a cp1252 console. Write stdout as UTF-8 (`sys.stdout.reconfigure(encoding="utf-8")`).
+3. The ad hoc fallback is only unit-tested. Force one HTTP failure live when Tom wants to see it.
