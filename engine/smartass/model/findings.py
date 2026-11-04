@@ -5,7 +5,7 @@ from __future__ import annotations
 from .blocks.common import BlockOut, base_of, ck
 from .expr import Cells
 from .resolver import Resolver
-from .validate import Finding
+from .validate import TOLERANCE, Finding
 
 
 def material(outs: list[BlockOut], cells: Cells, r: Resolver) -> list[dict]:
@@ -70,3 +70,16 @@ def key_values(outs: list[BlockOut], cells: Cells, limit: int = 40) -> dict[str,
                 return kv
             kv[f"{o.title} · {ln.label}"] = {h: cells.get(ck(o.key, ln.key, j)) for j, h in enumerate(o.headers)}
     return kv
+
+
+def lines_findings(outs: list[BlockOut], cells: Cells) -> list[Finding]:
+    """A lines block whose ledger lines do not add up to the cube value: the drill and the cube disagree."""
+    out: list[Finding] = []
+    for o in outs:
+        if o.type != "lines":
+            continue
+        gap = cells.get(ck(o.key, "gap", 0))
+        if gap is not None and abs(gap) >= TOLERANCE:
+            out.append(Finding("warning", f"{o.title}: Ledger lines do not add up to the cube: gap {gap:,.0f} NOK "
+                                          "(e.g. lines posted after the drill, or rounding)", o.key))
+    return out

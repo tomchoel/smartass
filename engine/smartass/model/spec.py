@@ -159,6 +159,18 @@ class LinesBlock(_M):
     title: str = ""
     cell: dict[str, str]
     group_by: Literal["supplier", "project", "account"] = "supplier"
+    top: int = Field(10, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def _cell(self) -> "LinesBlock":
+        missing = [k for k in ("All Accounts", "All Time Periods") if k not in self.cell]
+        if missing:
+            raise ValueError(f"lines: cell needs {' and '.join(repr(k) for k in missing)} "
+                             "(plus 'All Entities' for the unit)")
+        bal = self.cell.get("All Balance Types")
+        if bal is not None and bal != "Periodic":
+            raise ValueError("lines: drill is Periodic only; leave 'All Balance Types' out or set 'Periodic'")
+        return self
 
 
 class Driver(_M):

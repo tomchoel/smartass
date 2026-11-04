@@ -51,7 +51,7 @@ def test_reply_shape_and_fetch_warnings():
 
 
 def test_lines_block_is_refused_in_1b():
-    d = spec_dict(blocks=[{"type": "lines", "cell": {"All Accounts": "ac.C60"}}])
+    d = spec_dict(blocks=[{"type": "lines", "cell": {"All Accounts": "ac.C60", "All Time Periods": "Yr 26"}}])
     with pytest.raises(GuardError, match="lines"):
         prepare(d, resolver(), FakeProvider(facts()))
 

@@ -10,7 +10,7 @@ from .blocks import BUILDERS
 from .blocks.common import BlockOut, evaluate
 from .context import Ctx
 from .expr import Cells
-from .findings import bridge_findings, key_values, material
+from .findings import bridge_findings, key_values, lines_findings, material
 from .frame import Frame
 from .periods import Closed
 from .requests import GridRequest, requests
@@ -63,5 +63,5 @@ def compute(spec: AnalysisSpec, r: Resolver, closed: Closed, frame: Frame, kv_li
     _uniquify(outs)
     cells = evaluate(outs, frame)
     guard_result(outs, cells)
-    return Result(outs, cells, soft + sign_findings(ctx) + bridge_findings(outs, cells, r), material(outs, cells, r),
+    return Result(outs, cells, soft + sign_findings(ctx) + bridge_findings(outs, cells, r) + lines_findings(outs, cells), material(outs, cells, r),
                   key_values(outs, cells, kv_limit))
