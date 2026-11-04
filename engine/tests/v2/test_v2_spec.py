@@ -92,3 +92,12 @@ def test_table_variance_columns_need_a_base_to_the_left_and_duplicates_are_limit
                       (["value", "ly", "var", "var_pct", "var_pct"], "same base")):
         with pytest.raises(ValidationError, match=msg):
             TableBlock.model_validate({**ok, "columns": cols})
+
+
+def test_plan_periods_validated_like_periods():
+    d = spec_dict()
+    d["queries"][0]["plan_periods"] = "next year"
+    with pytest.raises(ValidationError, match="periods"):
+        AnalysisSpec.model_validate(d)
+    d["queries"][0]["plan_periods"] = "fy"
+    AnalysisSpec.model_validate(d)

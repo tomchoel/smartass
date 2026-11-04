@@ -8,6 +8,9 @@ from .resolver import Resolver
 from .spec import Query
 
 
+PLAN_SERIES = ("budget", "forecast")
+
+
 def scenario(cube: str, series: str, r: Resolver) -> tuple[str, str]:
     if cube == "FinPlan":
         table = {"value": ("Actual", "Working"), "ly": ("Actual", "Working"), "budget": ("Target", "Final")}
@@ -24,5 +27,8 @@ def scenario(cube: str, series: str, r: Resolver) -> tuple[str, str]:
 
 
 def months(q: Query, series: str, closed: Month, base: list[Month] | None = None) -> list[Month]:
-    ms = list(base) if base is not None else resolve(q.periods, closed)
+    if base is not None:
+        ms = list(base)
+    else:
+        ms = resolve(q.plan_periods if series in PLAN_SERIES and q.plan_periods else q.periods, closed)
     return [shift(m, -12) for m in ms] if series == "ly" else ms

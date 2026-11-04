@@ -40,12 +40,15 @@ class Query(_M):
     metrics: list[str] = Field(min_length=1)
     entity: str
     periods: str
+    plan_periods: str | None = None
     compare: list[Compare] = []
     preliminary: bool = False
 
-    @field_validator("periods")
+    @field_validator("periods", "plan_periods")
     @classmethod
-    def _periods_parse(cls, v: str) -> str:
+    def _periods_parse(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
         try:
             resolve(v, (2000, 1))
         except ValueError as e:

@@ -32,3 +32,13 @@ def test_finplan_series_have_versions():
     assert [(x.scenario, x.version) for x in reqs] == [("Actual", "Working"), ("Target", "Final"),
                                                        ("Forecast Q326", "Final")]
     assert len(reqs[0].periods) == 9
+
+
+def test_plan_periods_apply_to_budget_and_forecast_only():
+    from smartass.model.analyze import plan_requests
+    d = spec_dict(blocks=[{"type": "kpi_tiles", "query": "fp", "metrics": ["EBITDA"], "compare": "forecast"}])
+    d["queries"] = [{"id": "fp", "cube": "FinPlan", "metrics": ["EBITDA"], "entity": "un.SY.2BUS",
+                     "periods": "closed-ytd", "plan_periods": "fy", "compare": ["forecast"]}]
+    reqs = plan_requests(AnalysisSpec.model_validate(d), resolver(), CLOSED)   # no GuardError for Oct-Dec
+    assert [len(x.periods) for x in reqs] == [9, 12]
+    assert reqs[1].scenario == "Forecast Q326"
