@@ -153,28 +153,105 @@ def _rollback(t) -> None:
     sheets.rollback(t)
 
 
+def _backup(t, name: str) -> str:
+    from smartview_mcp.core import owned
+    return owned.backup(t, name)
+
+
+def _restore(t, name: str, bname: str) -> None:
+    """The backup becomes the sheet again. v1's restore first deletes the (broken) sheet `name`, which fails when it
+    is already gone (the Data sheet is deleted before it is rebuilt): then only un-hide and rename the backup."""
+    from smartview_mcp.core import owned
+    from smartview_mcp.excel import sheets
+    from smartview_mcp.excel.jobs import com
+    if sheets._sheet_exists(t, name):
+        owned.restore(t, name, bname)
+        return
+    b = com(lambda: t.wb.Worksheets(bname))
+    com(lambda: setattr(b, "Visible", -1))                          # xlSheetVisible
+    com(lambda: setattr(b, "Name", name))
+
+
+def _delete_sheet(t, name: str) -> None:
+    from smartview_mcp.excel import sheets
+    sheets.drop_parked(t, {name: name})                 # alerts off while deleting, restored after
+
+
+def _drop_backup(t, bname: str) -> None:
+    _delete_sheet(t, bname)
+
+
+def _sheet(t, name: str):
+    from smartview_mcp.excel.jobs import com
+    return com(lambda: t.wb.Worksheets(name))
+
+
+def _clear(ws, owned: dict | None) -> None:
+    from smartview_mcp.core import owned as owned_mod
+    owned_mod.clear(ws, owned)                          # the drawn range and our charts (everything when none stored)
+
+
+def read_stored(h, target: str = "session") -> tuple[dict, str | None]:
+    """(stored specs by q, active sheet name): a short user-Excel job."""
+    from smartview_mcp.excel import sheets
+    from smartview_mcp.excel.jobs import com
+    t = _target(h, target, "Follow-up")
+    return sheets._stored_specs(t), com(lambda: t.wb.ActiveSheet.Name)
+
+
+def _draw(t, q: int, pre: Prepared, ws_answer, ws_data) -> dict:
+    """Data sheet, layout, Answer sheet, charts, readback, spec + owned range, sheet order. Shared by excel_job and
+    redraw_job; the caller owns rollback and save."""
+    write_data(ws_data, pre.frame, q)
+    cubes = sorted({x.cube for x in pre.spec.queries})
+    closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
+    plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}")
+    lint = write_answer(ws_answer, plan, pre.warnings)
+    lint = list(lint or []) + write_charts(ws_answer, plan)
+    _calculate(t)
+    mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan))
+    _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
+    arranged = _arrange(t, f"Q{q} Answer")
+    return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data"], mismatches,
+                 lint + ([arranged] if arranged else []))
+
+
 def excel_job(h, pre: Prepared, target: str = "session") -> dict:
     t = _target(h, target, pre.spec.question[:60])
     try:
         q = _next_q(t)
         ws_answer = _add_sheet(t, f"Q{q} Answer", q)
         ws_data = _add_sheet(t, f"Q{q} Data", q, DATA_TAB)
-        write_data(ws_data, pre.frame, q)
-        cubes = sorted({x.cube for x in pre.spec.queries})
-        closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
-        plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}")
-        lint = write_answer(ws_answer, plan, pre.warnings)
-        lint = list(lint or []) + write_charts(ws_answer, plan)
-        _calculate(t)
-        mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan))
-        _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
-        arranged = _arrange(t, f"Q{q} Answer")
+        out = _draw(t, q, pre, ws_answer, ws_data)
         _save(t)
     except Exception:
         _rollback(t)
         raise
-    return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data"], mismatches,
-                 list(lint or []) + ([arranged] if arranged else []))
+    return out
+
+
+def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "session") -> dict:
+    """A follow-up or refresh: back up Q<q> Answer and Q<q> Data, clear what smartass drew, rebuild both sheets;
+    on failure the backups become the sheets again."""
+    t = _target(h, target, pre.spec.question[:60])
+    a_name, d_name = f"Q{q} Answer", f"Q{q} Data"
+    b_answer, b_data = _backup(t, a_name), _backup(t, d_name)
+    try:
+        ws_answer = _sheet(t, a_name)
+        _clear(ws_answer, owned)
+        _delete_sheet(t, d_name)
+        ws_data = _add_sheet(t, d_name, q, DATA_TAB)
+        out = _draw(t, q, pre, ws_answer, ws_data)
+    except Exception:
+        _rollback(t)
+        _restore(t, a_name, b_answer)
+        _restore(t, d_name, b_data)
+        raise
+    _drop_backup(t, b_answer)
+    _drop_backup(t, b_data)
+    _save(t)
+    out["followup"] = True
+    return out
 
 
 def _stock(pre: Prepared) -> set[str]:
