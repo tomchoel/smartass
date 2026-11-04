@@ -230,3 +230,59 @@ def test_new_workbook_never_reuses_a_file_name_from_the_same_minute(tmp_path, mo
     t2 = target._new_target(None, "Same question", [(11, 110, app)])
     names = [Path(w.saved_as).name for w in made]
     assert t1.created and t2.created and names[0] != names[1] and names[1].endswith(" (2).xlsx")
+
+
+# ------------------------------------------------------------------ an open workbook targeted by its name
+class NamedWb:
+    def __init__(self, name, full_name=None):
+        self.Name, self.FullName = name, full_name or name
+
+
+def _by_name(monkeypatch, windows: dict, apps: dict):
+    from smartass.epm import sso
+    monkeypatch.setattr(sso, "ensure_global_watcher", lambda: True)
+    monkeypatch.setattr(target, "_finish_target", lambda h, t, allow_archive: t)
+    _excels(monkeypatch, windows, apps)
+
+
+def test_unsaved_open_workbook_is_targeted_by_name(tmp_path, monkeypatch, fast):
+    book1 = NamedWb("Book1")
+    first = FakeApp(Books([NamedWb("other.xlsx", str(tmp_path / "other.xlsx"))]))
+    second = FakeApp(Books([book1]))
+    _by_name(monkeypatch, {11: ["other"], 22: ["Book1"]}, {11: first, 22: second})
+    t = target.resolve_target(None, "book1")
+    assert (t.pid, t.wb) == (22, book1)
+
+
+def test_open_workbook_is_targeted_by_name_without_extension(tmp_path, monkeypatch, fast):
+    wb = NamedWb("Pack.xlsx", str(tmp_path / "Pack.xlsx"))
+    _by_name(monkeypatch, {11: ["Pack.xlsx"]}, {11: FakeApp(Books([wb]))})
+    assert target.resolve_target(None, "Pack").wb is wb
+
+
+def test_two_open_workbooks_with_the_same_name_are_ambiguous(tmp_path, monkeypatch, fast):
+    from smartass.xl.host import InputError
+    a = NamedWb("Pack.xlsx", str(tmp_path / "a" / "Pack.xlsx"))
+    b = NamedWb("Pack.xlsx", str(tmp_path / "b" / "Pack.xlsx"))
+    _by_name(monkeypatch, {11: ["Pack.xlsx"], 22: ["Pack.xlsx"]}, {11: FakeApp(Books([a])), 22: FakeApp(Books([b]))})
+    with pytest.raises(InputError, match="ambiguous") as e:
+        target.resolve_target(None, "Pack.xlsx")
+    assert str(tmp_path / "a" / "Pack.xlsx") in str(e.value) and str(tmp_path / "b" / "Pack.xlsx") in str(e.value)
+
+
+def test_unknown_name_is_refused_naming_the_open_workbooks(tmp_path, monkeypatch, fast):
+    from smartass.xl.host import InputError
+    _by_name(monkeypatch, {11: ["Book1"]}, {11: FakeApp(Books([NamedWb("Book1"), NamedWb("x.xlam")]))})
+    with pytest.raises(InputError, match="absolute path") as e:
+        target.resolve_target(None, "Book9")
+    assert "Book1" in str(e.value) and "x.xlam" not in str(e.value)
+
+
+def test_archive_guard_applies_to_a_workbook_targeted_by_name(tmp_path, monkeypatch, fast):
+    from smartass.epm import sso
+    from smartass.xl.host import InputError
+    monkeypatch.setattr(sso, "ensure_global_watcher", lambda: True)
+    arch = config.ARCHIVE_ROOT / "2024" / "Model.xlsx"
+    _excels(monkeypatch, {11: ["Model.xlsx"]}, {11: FakeApp(Books([NamedWb("Model.xlsx", str(arch))]))})
+    with pytest.raises(InputError, match="archive"):
+        target.resolve_target(None, "Model.xlsx")

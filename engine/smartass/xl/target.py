@@ -99,7 +99,7 @@ ARCHIVE_REFUSAL = ("'{name}' is in the Produktregnskapet archive (audit record) 
 def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = False, title: str | None = None) -> Target:
     """target: 'session' (default: this session's own analysis workbook - created on its first question, reopened
     if closed), 'active' (the workbook the user is working in), 'new' (a new file, which becomes the session's
-    workbook), or an absolute file path."""
+    workbook), an absolute file path, or the name of an open workbook (e.g. an unsaved 'Book1')."""
     from ..core import session
     from ..epm import sso
     sso.ensure_global_watcher()
@@ -110,13 +110,18 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
             t.created = True                          # the session's own file: saved after each answer
             return t
         target = "new"
+    from ..core.timing import stage
     if target not in ("active", "new"):
         p = Path(target)
-        if not p.is_absolute():
-            raise InputError(f"Give an absolute path for target (got '{target}'), or use 'session' / 'active' / 'new'.")
+        if not p.is_absolute():                                 # the name of an open workbook, e.g. an unsaved 'Book1'
+            with stage("find Excel windows"):
+                insts = instances.excel_instances()
+            t = _find_named([(i.pid, i.hwnd, i.app) for i in insts if i.app is not None], target)
+            jobs.hold_turn(t.pid, what="this request")
+            with stage("ready + bridge"):
+                return _finish_target(h, t, allow_archive)      # the archive guard applies here too
         if instances.is_archive(p) and not allow_archive:       # refuse BEFORE opening anything
             raise InputError(ARCHIVE_REFUSAL.format(name=p.name))
-    from ..core.timing import stage
     with stage("find Excel windows"):
         insts = instances.excel_instances()                     # waits for any open EPM login before touching an Excel
     excels = [(i.pid, i.hwnd, i.app) for i in insts if i.app is not None]
@@ -250,6 +255,29 @@ def _finish_target(h: ExcelHost, t: Target, allow_archive: bool) -> Target:
     _wait_ready(t.app, pid=t.pid, name=t.name)
     _attach_bridge(h, t)
     return t
+
+
+def _find_named(excels, name: str) -> Target:
+    """The open workbook (in any Excel that answers) whose Name is `name`, case-insensitive, with or without its
+    extension; add-ins are skipped. Two such workbooks are ambiguous; none is refused naming the open workbooks."""
+    want = name.strip().lower()
+    hits: list[Target] = []
+    names: list[str] = []
+    for pid, hwnd, app in excels:
+        for wb in app.Workbooks:
+            n = str(wb.Name)
+            if n.lower().endswith((".xlam", ".xla")):
+                continue
+            names.append(n)
+            if want in (n.lower(), Path(n).stem.lower()):
+                hits.append(Target(app, wb, pid, hwnd))
+    if len(hits) > 1:
+        raise InputError(f"target '{name}' is ambiguous: open as " + "; ".join(str(t.wb.FullName) for t in hits)
+                         + ". Give the absolute path of the one you mean.")
+    if not hits:
+        raise InputError(f"Give an absolute path for target (got '{name}'), or use 'session' / 'active' / 'new', or "
+                         f"the name of an open workbook ({', '.join(names) or 'none open'}).")
+    return hits[0]
 
 
 def _find_open(excels, path: Path) -> Target | None:
