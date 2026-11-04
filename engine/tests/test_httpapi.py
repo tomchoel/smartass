@@ -81,75 +81,100 @@ def _post(url, body, secret=SECRET, raw=None):
     return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=5)
 
 
+SPEC = {
+    "version": 2, "question": "Business opex vs last year?",
+    "plan": {"depth": "quick", "purpose": "Opex vs LY"},
+    "queries": [{"id": "fm", "cube": "FinMax", "metrics": ["Opex"], "entity": "un.SY.2BUS", "periods": "closed",
+                 "compare": ["ly"]}],
+    "blocks": [{"type": "table", "query": "fm", "title": "Opex"}],
+}
+
+
 @pytest.fixture
 def pipe():
     seen = []
 
-    async def gate(question):
-        seen.append(("gate", question))
-        if not question:
-            raise InputError("question is the user's question")
-        return {"outcome": "clear", "question": question}
-
-    async def answer(**kw):
-        seen.append(("answer", kw))
-        if kw.get("spec") == "slow":
+    async def analyze(spec, target):
+        seen.append((spec, target))
+        if spec.question == "slow":
             time.sleep(0.5)
-        if kw.get("spec") == "down":
+        if spec.question == "down":
             raise HostError("Excel is gone")
-        return {"sheet": "Q1 Answer"}
+        if spec.question == "guard":
+            from smartass.model.errors import GuardError
+            raise GuardError("unknown entity", "find the member with fin_lookup")
+        if spec.question == "bad":
+            raise InputError("no such member")
+        return {"sheet": "Q1 Answer", "key_values": {"Opex": -1}}
 
-    s = httpapi.make_server(0, SECRET, health=lambda: {}, gate=gate, answer=answer)
+    s = httpapi.make_server(0, SECRET, health=lambda: {}, analyze=analyze)
     threading.Thread(target=s.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{s.server_address[1]}", seen
     s.shutdown()
     s.server_close()
 
 
-def test_gate_and_answer_run_the_pipeline_functions(pipe):
+def test_analyze_runs_the_spec_like_fin_analyze(pipe):
+    from smartass.model.spec import AnalysisSpec
     url, seen = pipe
-    assert json.loads(_post(url + "/gate", {"question": "EBITDA Sep 26?"}).read())["outcome"] == "clear"
-    assert json.loads(_post(url + "/answer", {"spec": {"version": 1}, "target": "new"}).read()) == {"sheet": "Q1 Answer"}
-    assert seen == [("gate", "EBITDA Sep 26?"), ("answer", {"spec": {"version": 1}, "target": "new"})]
+    out = json.loads(_post(url + "/analyze", {"spec": SPEC, "target": "session"}).read())
+    assert out == {"sheet": "Q1 Answer", "key_values": {"Opex": -1}}
+    (spec, target), = seen
+    assert isinstance(spec, AnalysisSpec) and spec.question == SPEC["question"] and target == "session"
+    _post(url + "/analyze", {"spec": SPEC})
+    assert seen[-1][1] == "session"                       # target defaults to the session workbook
 
 
-def test_http_gate_accepts_answers():
-    seen = []
+def test_default_analyze_is_the_servers_new_question(monkeypatch):
+    import asyncio
 
-    async def gate(question, answers=None):
-        seen.append(answers)
-        return {"outcome": "clear"}
-    s = httpapi.make_server(0, SECRET, health=lambda: {}, gate=gate, answer=None)
-    threading.Thread(target=s.serve_forever, daemon=True).start()
-    try:
-        url = f"http://127.0.0.1:{s.server_address[1]}"
-        _post(url + "/gate", {"question": "How are we doing on costs?", "answers": {"measure": "opex"}})
-    finally:
-        s.shutdown()
-        s.server_close()
-    assert seen == [{"measure": "opex"}]
+    from smartass import server
+    from smartass.model.spec import AnalysisSpec
+    calls = []
+
+    async def fake(spec, target):
+        calls.append((spec.question, target))
+        return {"ok": True}
+    monkeypatch.setattr(server, "_new_question", fake)
+    out = asyncio.run(httpapi._default_analyze(AnalysisSpec.model_validate(SPEC), "new"))
+    assert out == {"ok": True} and calls == [(SPEC["question"], "new")]
 
 
 def test_post_needs_the_secret_valid_json_and_known_fields(pipe):
     url, _ = pipe
-    for path, kwargs, code in (("/gate", {"body": {"question": "x"}, "secret": None}, 401),
-                               ("/gate", {"body": None, "raw": b"{not json"}, 400),
-                               ("/gate", {"body": {"question": "x", "evil": 1}}, 400),
-                               ("/gate", {"body": None, "raw": b"{" + b" " * (httpapi.MAX_BODY + 1) + b"}"}, 413),
-                               ("/query", {"body": {}}, 404),
-                               ("/gate", {"body": {"question": ""}}, 400),
-                               ("/answer", {"body": {"spec": "down"}}, 503)):
+
+    def spec(question):
+        return {"spec": {**SPEC, "question": question}}
+    for path, kwargs, code in (("/analyze", {"body": {"spec": SPEC}, "secret": None}, 401),
+                               ("/analyze", {"body": None, "raw": b"{not json"}, 400),
+                               ("/analyze", {"body": {"spec": SPEC, "evil": 1}}, 400),
+                               ("/analyze", {"body": {}}, 400),                       # no spec
+                               ("/analyze", {"body": {"spec": {"version": 2}}}, 400),  # invalid spec
+                               ("/analyze", {"body": {"spec": SPEC, "target": 3}}, 400),
+                               ("/analyze", {"body": None, "raw": b"{" + b" " * (httpapi.MAX_BODY + 1) + b"}"}, 413),
+                               ("/gate", {"body": {"question": "x"}}, 404),            # v1 routes are gone
+                               ("/answer", {"body": {"spec": SPEC}}, 404),
+                               ("/analyze", {"body": spec("bad")}, 400),
+                               ("/analyze", {"body": spec("guard")}, 400),
+                               ("/analyze", {"body": spec("down")}, 503)):
         with pytest.raises(urllib.error.HTTPError) as e:
             _post(url + path, **kwargs)
-        assert e.value.code == code
+        assert e.value.code == code, (path, kwargs.get("body"))
+
+
+def test_invalid_spec_says_what_is_wrong(pipe):
+    url, _ = pipe
+    with pytest.raises(urllib.error.HTTPError) as e:
+        _post(url + "/analyze", {"spec": {**SPEC, "blocks": [{"type": "nonsense"}]}})
+    assert e.value.code == 400 and "blocks" in json.loads(e.value.read())["error"]
 
 
 def test_one_request_at_a_time(pipe):
     url, _ = pipe
-    t = threading.Thread(target=lambda: _post(url + "/answer", {"spec": "slow"}))
+    t = threading.Thread(target=lambda: _post(url + "/analyze", {"spec": {**SPEC, "question": "slow"}}))
     t.start()
     time.sleep(0.1)
     with pytest.raises(urllib.error.HTTPError) as e:
-        _post(url + "/gate", {"question": "x"})
+        _post(url + "/analyze", {"spec": SPEC})
     assert e.value.code == 409
     t.join()

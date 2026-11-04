@@ -6,10 +6,10 @@ $repo = Split-Path $PSScriptRoot -Parent
 if (git -C $repo status --porcelain) { throw 'working tree not clean - commit first' }
 $ver = (Select-String -Path "$repo\engine\pyproject.toml" -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
 Push-Location "$repo\engine"
-try { $engineVer = (uv run python -c "import smartview_mcp;print(smartview_mcp.__version__)" | Select-Object -Last 1) }
+try { $engineVer = (uv run python -c "import smartass;print(smartass.__version__)" | Select-Object -Last 1) }
 finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { throw "could not read the engine version (uv run failed: $LASTEXITCODE)" }
-if ("$engineVer".Trim() -ne $ver) { throw "pyproject.toml says $ver but the engine reports '$engineVer' - run uv sync in engine" }
+if ("$engineVer".Trim() -ne $ver) { throw "pyproject.toml says $ver but the engine (engine\VERSION) reports '$engineVer' - set both with scripts\bump.ps1" }
 $dest = Join-Path $Folder $ver
 if (Test-Path $dest) { throw "release $ver already exists in $Folder - bump the version" }
 $zip = Join-Path $env:TEMP "smartass-$ver.zip"

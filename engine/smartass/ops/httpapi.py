@@ -1,6 +1,7 @@
-"""Localhost-only HTTP API for the Excel add-in: GET /health, POST /gate, POST /answer (the same pipeline calls as the
-MCP tools sv_gate/sv_answer; JSON body = their arguments), behind a per-user shared secret (header
-X-Smartass-Secret), one request at a time. Never binds anything but 127.0.0.1."""
+"""Localhost-only HTTP API for the Excel add-in and scripts: GET /health (the doctor checks) and POST /analyze
+(body {"spec": <AnalysisSpec v2>, "target": "session"}: the same run as the MCP tool fin_analyze with a new spec),
+behind a per-user shared secret (header X-Smartass-Secret, from secret.bin via config), one request at a time.
+Never binds anything but 127.0.0.1."""
 from __future__ import annotations
 
 import asyncio
@@ -11,7 +12,6 @@ import logging
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from importlib import import_module
 
 from ..core import config
 from ..xl.host import HostError, InputError
@@ -19,7 +19,7 @@ from ..xl.host import HostError, InputError
 log = logging.getLogger("smartass.http")
 MAX_BODY = 1_000_000
 _DRAIN_MAX = 16 * MAX_BODY
-_FIELDS = {"/gate": {"question", "answers"}, "/answer": {"spec", "followup", "q", "target", "allow_archive", "detail", "question", "answers"}}
+_FIELDS = {"/analyze": {"spec", "target"}}
 
 
 class _ExclusiveServer(ThreadingHTTPServer):
@@ -38,10 +38,35 @@ def _default_health() -> dict:
     return doctor.as_dict(doctor.run(include_http=False))
 
 
-def make_server(port: int, secret: str, health=None, gate=None, answer=None) -> ThreadingHTTPServer:
-    """gate/answer default to tools_core.gate/answer (imported on the first POST: it loads the MCP tools)."""
+async def _default_analyze(spec, target: str) -> dict:
+    """fin_analyze's own new-question run (imported on the first POST: it loads the MCP server module)."""
+    from ..server import _new_question
+    return await _new_question(spec, target)
+
+
+def _call_analyze(analyze, body: dict) -> dict:
+    """Validate the body (InputError -> 400), then run the analysis."""
+    from pydantic import ValidationError
+
+    from ..model.spec import AnalysisSpec
+    if "spec" not in body:
+        raise InputError("body needs 'spec' (an AnalysisSpec v2)")
+    target = body.get("target", "session")
+    if not isinstance(target, str):
+        raise InputError("'target' is 'session', 'new' or 'active'")
+    try:
+        spec = AnalysisSpec.model_validate(body["spec"])
+    except ValidationError as e:
+        raise InputError(f"invalid spec: {e}") from None
+    return asyncio.run(analyze(spec, target))
+
+
+def make_server(port: int, secret: str, health=None, analyze=None) -> ThreadingHTTPServer:
+    """analyze(spec: AnalysisSpec, target) defaults to the MCP server's _new_question (fin_analyze with a spec)."""
+    from ..model.validate import GuardError
     health = health or _default_health
-    routes = {"/gate": gate, "/answer": answer}
+    analyze = analyze or _default_analyze
+    routes = {"/analyze": analyze}
     busy = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
@@ -98,10 +123,11 @@ def make_server(port: int, secret: str, health=None, gate=None, answer=None) -> 
             if not busy.acquire(blocking=False):
                 return self._send(409, {"error": "busy: one request at a time"})
             try:
-                fn = routes[path] or getattr(import_module(".tools_core", __package__), path[1:])
-                self._send(200, asyncio.run(fn(**body)))
+                self._send(200, _call_analyze(routes[path], body))
             except InputError as e:
                 self._send(400, {"error": str(e)})
+            except GuardError as e:
+                self._send(400, {"error": f"{e.reason} - {e.fix}"})
             except HostError as e:
                 self._send(503, {"error": str(e)})
             except Exception:   # noqa: BLE001 - the client gets a short answer, the log the traceback

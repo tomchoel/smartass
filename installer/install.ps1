@@ -33,15 +33,15 @@ try {
     if ($dev) { uv sync --frozen } else { uv sync --frozen --no-dev }
     if ($LASTEXITCODE) { throw "uv sync failed ($LASTEXITCODE)" }
     $py = Join-Path $engine '.venv\Scripts\python.exe'
-    & $py -m smartview_mcp.cli setup
+    & $py -m smartass.ops.cli setup
     if ($LASTEXITCODE) { throw "smartass setup failed ($LASTEXITCODE)" }
     if ($dev) { git -C $app config core.hooksPath .githooks }
     $running = Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' or Name='python.exe'" |
         Where-Object { $_.CommandLine -like "*$engine*" -and $_.CommandLine -like '*cli serve*' }
     if (-not $running) {
-        Start-Process (Join-Path $engine '.venv\Scripts\pythonw.exe') -ArgumentList '-m','smartview_mcp.cli','serve' `
+        Start-Process (Join-Path $engine '.venv\Scripts\pythonw.exe') -ArgumentList '-m','smartass.ops.cli','serve' `
             -WorkingDirectory $engine -WindowStyle Hidden
     }
-    if (-not $NoDoctor) { Start-Sleep 2; & $py -m smartview_mcp.cli doctor }
+    if (-not $NoDoctor) { Start-Sleep 2; & $py -m smartass.ops.cli doctor }
 } finally { Pop-Location }
 Write-Host "smartass installed ($(if ($dev) {'dev checkout'} else {$app})). Restart Copilot CLI / Claude Code to load it."

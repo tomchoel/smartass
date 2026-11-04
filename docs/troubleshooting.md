@@ -2,7 +2,7 @@
 
 Start with `smartass doctor`. It prints one line per check (`OK`, `WARN` or `FAIL`), and under every line that is
 not OK a `fix:` line. The sections below follow the checks in the order the doctor runs them. The fix wording is
-the same as in the doctor (`engine\smartview_mcp\doctor.py`).
+the same as in the doctor (`engine\smartass\ops\doctor.py`).
 
 User settings live in `%LOCALAPPDATA%\smartass\config.toml`; defaults in `engine\defaults.toml`.
 
@@ -39,6 +39,14 @@ by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe
 - **Symptom:** `WARN  smartview_startup  Smart View diagnostics capture is on ...`
 - **Fix:** Smart View > Options > Advanced: turn diagnostics off (`Profile=0`), then delete
   `%APPDATA%\Oracle\SmartView\Diagnostics` (it holds sign-in cookies in plain text).
+
+## vba_access
+
+- **Symptom:** `FAIL  vba_access  Excel blocks access to the VBA project object model ...`.
+- **Cause:** the hidden Excel loads its Smart View bridge through the VBA project, which Excel refuses unless
+  `HKCU\Software\Microsoft\Office\16.0\Excel\Security` `AccessVBOM=1` (a value under `Software\Policies` wins).
+- **Fix:** close Excel; File > Options > Trust Center > Trust Center Settings > Macro Settings: tick "Trust access to
+  the VBA project object model". A policy value needs IT.
 
 ## epm
 
