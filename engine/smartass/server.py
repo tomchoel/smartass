@@ -81,12 +81,10 @@ async def fin_analyze(spec: AnalysisSpec, target: str = "session", ctx: Context 
     from smartview_mcp import svhttp
 
     from .data.provider import SvHttpProvider
-    from .pipeline import excel_job, prepare
+    from .pipeline import excel_job, run_prepare
     legacy.configure_v2()
     provider = SvHttpProvider(svhttp.shared())
-    closed = await asyncio.to_thread(provider.closed_months)
-    resolver = _resolver(closed["FinPlan"][0] % 100)
-    pre = await asyncio.to_thread(prepare, spec.model_dump(), resolver, provider)
+    pre = await asyncio.to_thread(run_prepare, spec.model_dump(), provider)
     return await v1._call_user(lambda h: excel_job(h, pre, target), what="fin_analyze")
 
 

@@ -31,12 +31,13 @@ class Prepared:
     aggregation: dict[str, str] = field(default_factory=dict)
 
 
-def prepare(raw: dict, resolver, provider) -> Prepared:
+def prepare(raw: dict, resolver, provider, closed: dict | None = None) -> Prepared:
     spec = AnalysisSpec.model_validate(raw)
     if any(isinstance(b, LinesBlock) for b in spec.blocks):
         raise GuardError("the 'lines' block needs fin_drill, which arrives in Plan 1C",
                          "leave the lines block out for now")
-    closed = provider.closed_months()
+    if closed is None:
+        closed = provider.closed_months()
     reqs = plan_requests(spec, resolver, closed)
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as ex:
         got = list(ex.map(provider.fetch, reqs))
@@ -49,6 +50,22 @@ def prepare(raw: dict, resolver, provider) -> Prepared:
     aggregation = {m: resolver.aggregation(m) for q in spec.queries for m in q.metrics}
     return Prepared(spec, raw, closed, reqs, frame, result, warnings, routes, sum(g.seconds for g in got),
                     aggregation)
+
+
+def run_prepare(raw: dict, provider) -> Prepared:
+    """prepare() for a worker thread: everything that touches sqlite (the atlas connection) is opened, used and closed
+    here, in the calling thread. Closed months are fetched once. Nothing after prepare needs the resolver: the
+    labels are already in the BlockOut lines."""
+    import contextlib
+
+    from smartview_mcp import atlas
+
+    from .knowledge.atlas_resolver import AtlasResolver
+    from .knowledge.interim import catalog_metrics
+    closed = provider.closed_months()
+    with contextlib.closing(atlas.connect()) as db:
+        resolver = AtlasResolver(db, catalog_metrics(), forecast_year=closed["FinPlan"][0] % 100)
+        return prepare(raw, resolver, provider, closed=closed)
 
 
 def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: list[str], lint: list[str]) -> dict:
