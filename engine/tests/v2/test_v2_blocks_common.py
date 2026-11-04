@@ -97,3 +97,20 @@ def test_matrix_trend_bridge_codes_and_entities():
     assert build_trend(b[0], c, "b0").cols == ["value", "ly"]
     br = build_bridge(b[1], c, "b1")
     assert br.cols == ["amount"] and {ln.entity for ln in br.lines} == {"un.SY.2BUS", None}
+
+
+def test_children_sum_mixed_weights_formula():
+    from smartass.model.blocks.common import children_sum
+    c = weighted_ctx({"B": -1.0, "C": 1.0}, 0.0)
+    f = children_sum(c, c.query("fm"), "Revenue", ["A", "B", "C"]).to_excel("T", str)
+    assert f == ('SUM(SUMIFS(T[Value],T[Cube],"FinMax",T[Query],"fm",T[Account],"ac.C30",T[Entity],{"A","C"},'
+                 'T[Period],"Sep 26",T[Scenario],"Actual",T[Balance],"Periodic"))'
+                 '-SUMIFS(T[Value],T[Cube],"FinMax",T[Query],"fm",T[Account],"ac.C30",T[Entity],"B",'
+                 'T[Period],"Sep 26",T[Scenario],"Actual",T[Balance],"Periodic")')
+
+
+def test_children_sum_only_negative_children_is_a_negation():
+    from smartass.model.blocks.common import children_sum
+    c = weighted_ctx({"A": -1.0, "B": -1.0}, 0.0)
+    f = children_sum(c, c.query("fm"), "Revenue", ["A", "B"]).to_excel("T", str)
+    assert f.startswith("-SUM(SUMIFS(") and f.count("{") == 1

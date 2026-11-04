@@ -99,3 +99,13 @@ def test_unique_names_stay_distinct_when_the_suffix_is_taken():
     from smartass.model.analyze import _unique
     out = _unique(["A", "A", "A (2)"])
     assert len(set(out)) == 3 and out[0] == "A"
+
+
+def test_fte_kpi_on_closed_ytd_finmax_with_last_year_and_variance():
+    from smartass.model.frame import Fact, Frame
+    mons = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep")
+    fte = [Fact("FinMax", "fm", "ac.STA20Y", "un.SY.2BUS", f"{m} {yy}", "Actual", "", base + i, "Accumulated")
+           for yy, base in ((26, 100.0), (25, 90.0)) for i, m in enumerate(mons)]
+    res = compute(fte_spec(), resolver(), CLOSED, Frame(fte))
+    assert res.key_values["Key figures · FTE"] == {"Actual": 108.0, "Last year": 98.0, "Variance": 10.0,
+                                                  "Variance %": pytest.approx(10 / 98)}

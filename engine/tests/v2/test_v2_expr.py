@@ -122,3 +122,13 @@ def test_criteria_wildcards_escaped():
 def test_sum_needs_items():
     with pytest.raises(ValueError, match="Sum needs at least one item"):
         Sum(())
+
+
+def test_neg_formula_and_value():
+    from smartass.model.expr import Neg
+    exprs = {"a": pick({"Account": ("ac.C50S",), "Period": ("Sep 26",)}), "b": pick({"Account": ("ac.C60",),
+             "Period": ("Sep 26",)})}
+    cells = Cells(FR, exprs)
+    assert Neg(Ref("a")).evaluate(FR, cells) == 40.0 and Neg(Ref("a")).to_excel("T", ADDR) == "-D4"
+    assert Neg(Sub(Ref("a"), Ref("b"))).to_excel("T", ADDR) == "-(D4-D5)"
+    assert Neg(pick({"Entity": ("E9",)})).evaluate(FR, cells) is None
