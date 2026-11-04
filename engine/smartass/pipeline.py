@@ -38,6 +38,11 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None) -> Prepar
                          "leave the lines block out for now")
     if closed is None:
         closed = provider.closed_months()
+    canonical = getattr(resolver, "canonical", None)
+    if canonical is not None:                   # atlas spelling: requests and SUMIFS then use one name
+        for q in spec.queries:
+            if resolver.exists(q.entity, q.cube):
+                q.entity = canonical(q.entity, q.cube)
     reqs = plan_requests(spec, resolver, closed)
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as ex:
         got = list(ex.map(provider.fetch, reqs))

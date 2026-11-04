@@ -63,3 +63,16 @@ def test_run_prepare_opens_and_closes_atlas_in_the_calling_thread(tmp_path, monk
     except sqlite3.ProgrammingError:
         closed = True
     assert closed
+
+
+def test_prepare_uses_the_atlas_spelling_of_the_entity(tmp_path, monkeypatch):
+    db_path = tmp_path / "atlas.db"
+    make_atlas(db_path)
+    monkeypatch.setattr(atlas, "connect", lambda: sqlite3.connect(db_path))
+    d = spec_dict()
+    d["queries"][0]["entity"] = "un.sy.2bus"
+    prov = FakeProvider(facts())
+    pre = pipeline.run_prepare(d, prov)
+    assert pre.spec.queries[0].entity == "un.SY.2BUS"
+    assert all(e == e.replace("un.sy.", "un.SY.") for r in prov.asked for e in r.entities)
+    assert any("un.SY.2BUS" in r.entities for r in prov.asked)
