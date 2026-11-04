@@ -76,9 +76,21 @@ class TableBlock(_M):
     @model_validator(mode="after")
     def _shape(self) -> "TableBlock":
         cols = self.columns
-        has_base = any(c in cols for c in BASE_SERIES)
-        if ("var" in cols or "var_pct" in cols) and not ("value" in cols and has_base):
+        if "value" not in cols and ("var" in cols or "var_pct" in cols):
             raise ValueError("table: var and var_pct need 'value' and one of ly/budget/forecast in columns")
+        for i, c in enumerate(cols):
+            if c in ("var", "var_pct") and not any(x in BASE_SERIES for x in cols[:i]):
+                raise ValueError("table: var and var_pct need 'value' and one of ly/budget/forecast in columns "
+                                 "to their left")
+        for c in dict.fromkeys(cols):
+            if cols.count(c) > 1 and c not in ("var", "var_pct"):
+                raise ValueError(f"table: column {c!r} appears more than once (only var and var_pct may repeat, "
+                                 "once per base column)")
+        for c in ("var", "var_pct"):
+            bases = [next(x for x in reversed(cols[:i]) if x in BASE_SERIES)
+                     for i, x in enumerate(cols) if x == c and any(y in BASE_SERIES for y in cols[:i])]
+            if len(bases) != len(set(bases)):
+                raise ValueError(f"table: {c} appears twice against the same base column")
         if "share" in cols and (self.rows != "entities" or "value" not in cols):
             raise ValueError("table: share needs rows 'entities' and a 'value' column")
         if self.rows == "entities" and (not self.metric or "value" not in cols):

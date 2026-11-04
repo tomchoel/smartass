@@ -49,13 +49,27 @@ def evaluate(outs: list[BlockOut], frame: Frame) -> Cells:
     return cells
 
 
-def derived(c: str, cols: list[str], key: str, lkey: str, total_key: str | None = None) -> Expr | None:
+def base_of(cols: list[str], j: int) -> int:
+    """Index of the base column (ly/budget/forecast) nearest to the left of column j."""
+    return next(i for i in range(j - 1, -1, -1) if cols[i] in BASES)
+
+
+def col_headers(cols: list[str]) -> list[str]:
+    """Column headers; a variance names its base when the table has several base columns."""
+    several = sum(c in BASES for c in cols) > 1
+    return [f"{HEAD[c]} vs {HEAD[cols[base_of(cols, j)]]}" if several and c in ("var", "var_pct") else HEAD[c]
+            for j, c in enumerate(cols)]
+
+
+def derived(c: str, cols: list[str], key: str, lkey: str, total_key: str | None = None,
+            j: int | None = None) -> Expr | None:
+    """The derived cell of column j (default: the first column named c)."""
+    j = cols.index(c) if j is None else j
     vi = cols.index("value")
-    base = next(x for x in cols if x in BASES) if c in ("var", "var_pct") else None
-    if c == "var":
-        return Sub(Ref(ck(key, lkey, vi)), Ref(ck(key, lkey, cols.index(base))))
-    if c == "var_pct":
-        return var_pct(Ref(ck(key, lkey, vi)), Ref(ck(key, lkey, cols.index(base))))
+    if c in ("var", "var_pct"):
+        bi = base_of(cols, j)
+        cur, base = Ref(ck(key, lkey, vi)), Ref(ck(key, lkey, bi))
+        return Sub(cur, base) if c == "var" else var_pct(cur, base)
     if c == "share":
         return share(Ref(ck(key, lkey, vi)), Ref(ck(key, total_key, vi))) if total_key else None
     raise ValueError(f"not a derived column: {c}")
@@ -63,8 +77,8 @@ def derived(c: str, cols: list[str], key: str, lkey: str, total_key: str | None 
 
 def row_cells(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, lkey: str,
               entity: str | None = None, total_key: str | None = None) -> list[Expr | None]:
-    return [ctx.pick(q, metric, c, entity) if c in ("value",) + BASES else derived(c, cols, key, lkey, total_key)
-            for c in cols]
+    return [ctx.pick(q, metric, c, entity) if c in ("value",) + BASES
+            else derived(c, cols, key, lkey, total_key, j) for j, c in enumerate(cols)]
 
 
 def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, top: int | None = None,
@@ -90,7 +104,7 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
                 cells.append(Sub(Ref(ck(key, "total", j)),
                                  Sum(tuple(Ref(ck(key, f"e{i}", j)) for i in range(len(shown))))))
             else:
-                cells.append(derived(c, cols, key, "other", total_key="total"))
+                cells.append(derived(c, cols, key, "other", total_key="total", j=j))
         lines.append(Line("other", "Other", cells, metric=metric))
     lines.append(Line("total", r.label(q.entity, q.cube),
                       row_cells(ctx, q, metric, cols, key, "total", entity=q.entity, total_key="total"),

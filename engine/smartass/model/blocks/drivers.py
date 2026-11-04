@@ -8,7 +8,7 @@ from __future__ import annotations
 from ..context import Ctx
 from ..expr import Sub
 from ..spec import DriversBlock
-from .common import HEAD, BlockOut, Line, row_cells
+from .common import BlockOut, Line, col_headers, row_cells
 
 COVER = 0.8
 MAX_PER_LEVEL = 3
@@ -18,7 +18,7 @@ def build_drivers(b: DriversBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
     r = ctx.resolver
     cols = ["value", b.base, "var", "var_pct"]
-    out = BlockOut(key, "drivers", b.title or f"Drivers of {b.metric}", [HEAD[c] for c in cols])
+    out = BlockOut(key, "drivers", b.title or f"Drivers of {b.metric}", col_headers(cols))
 
     def variance(entity: str) -> float:
         return ctx.value(Sub(ctx.pick(q, b.metric, "value", entity), ctx.pick(q, b.metric, b.base, entity))) or 0.0

@@ -78,3 +78,17 @@ def test_unparseable_periods_refused_but_relative_ok():
     for ok in ("closed", "closed-ytd", "closed-12m", "fy", "Sep 26", "Jan 26..Sep 26"):
         d["queries"][0]["periods"] = ok
         AnalysisSpec.model_validate(d)
+
+
+def test_table_variance_columns_need_a_base_to_the_left_and_duplicates_are_limited():
+    from pydantic import ValidationError
+
+    from smartass.model.spec import TableBlock
+    ok = {"type": "table", "query": "fp", "columns": ["value", "budget", "var", "forecast", "var", "var_pct"]}
+    TableBlock.model_validate(ok)
+    for cols, msg in ((["value", "var", "ly"], "to their left"),
+                      (["value", "ly", "ly"], "more than once"),
+                      (["value", "ly", "var", "var"], "same base"),
+                      (["value", "ly", "var", "var_pct", "var_pct"], "same base")):
+        with pytest.raises(ValidationError, match=msg):
+            TableBlock.model_validate({**ok, "columns": cols})

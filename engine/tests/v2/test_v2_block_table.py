@@ -39,3 +39,30 @@ def test_kpi_tiles():
     cells = evaluate([out], c.frame)
     assert out.type == "kpi_tiles"
     assert [cells.get(ck("b0", "k0", j)) for j in range(3)] == [65.0, 63.0, 2.0]
+
+
+def plan_ctx(columns):
+    from smartass.model.frame import Fact, Frame
+    d = spec_dict(blocks=[{"type": "table", "query": "fp", "columns": columns, "metrics": ["EBITDA"]}])
+    d["queries"] = [{"id": "fp", "cube": "FinPlan", "metrics": ["EBITDA"], "entity": "un.SY.2BUS",
+                     "periods": "closed", "compare": ["budget", "forecast"]}]
+    s = AnalysisSpec.model_validate(d)
+    fr = Frame([Fact("FinPlan", "fp", "EBITDA", "un.SY.2BUS", "Sep 26", sc, ver, v)
+                for sc, ver, v in (("Actual", "Working", 70.0), ("Target", "Final", 80.0),
+                                   ("Forecast Q326", "Final", 75.0))])
+    return Ctx(s, resolver(), CLOSED, fr), s.blocks[0]
+
+
+def test_variance_compares_against_the_nearest_base_to_its_left():
+    c, b = plan_ctx(["value", "budget", "var", "forecast", "var", "var_pct"])
+    out = build_table(b, c, "b0")
+    assert out.headers == ["Actual", "Budget", "Variance vs Budget", "Forecast", "Variance vs Forecast",
+                           "Variance % vs Forecast"]
+    cells = evaluate([out], c.frame)
+    assert [cells.get(ck("b0", "m0", j)) for j in range(5)] == [70.0, 80.0, -10.0, 75.0, -5.0]
+    assert cells.get(ck("b0", "m0", 5)) == pytest.approx(-5.0 / 75.0)
+
+
+def test_single_base_keeps_plain_variance_headers():
+    c, b = plan_ctx(["value", "budget", "var", "var_pct"])
+    assert build_table(b, c, "b0").headers == ["Actual", "Budget", "Variance", "Variance %"]
