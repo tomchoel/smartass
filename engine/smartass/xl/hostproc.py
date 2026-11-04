@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import concurrent.futures as cf
+import contextlib
 import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -77,8 +79,39 @@ class _PidRegistry:
     """Persist the Excel PIDs we started, with the owning server process, so a restarted server cleans up only
     orphans whose owner is gone - never the live Excel of another running server (e.g. a test harness)."""
 
+    LOCK_WAIT_S = 10.0
+    _tlock = threading.RLock()                     # threads of this process; the byte lock covers other processes
+
     def __init__(self, path=config.PID_FILE):
         self.path = path
+
+    @contextlib.contextmanager
+    def _locked(self):
+        """Exclusive lock for a read-modify-write of the file: a thread lock plus an msvcrt byte lock on
+        <file>.lock (Windows frees it when the process dies). Not re-entrant across processes - only the public
+        methods take it."""
+        import msvcrt
+        with self._tlock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.path.with_name(self.path.name + ".lock"), "a+b") as f:
+                t0 = time.monotonic()
+                while True:
+                    try:
+                        f.seek(0)
+                        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if time.monotonic() - t0 > self.LOCK_WAIT_S:
+                            break                  # a stuck holder must not block Excel start-up: write anyway
+                        time.sleep(0.02)
+                try:
+                    yield
+                finally:
+                    try:
+                        f.seek(0)
+                        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                    except OSError:
+                        pass
 
     def load(self) -> list[dict]:
         try:
@@ -86,9 +119,23 @@ class _PidRegistry:
         except (OSError, ValueError):
             return []
 
+    def _write(self, items: list[dict]) -> None:
+        """Atomic: write <file>.<pid>.tmp, then os.replace (retried while a reader briefly holds the target)."""
+        tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(items))
+        for attempt in range(200):
+            try:
+                os.replace(tmp, self.path)
+                return
+            except PermissionError:
+                if attempt == 199:
+                    tmp.unlink(missing_ok=True)
+                    raise
+                time.sleep(0.005)
+
     def save(self, items: list[dict]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(items))
+        with self._locked():
+            self._write(items)
 
     @staticmethod
     def _owner_alive(item: dict) -> bool:
@@ -102,20 +149,23 @@ class _PidRegistry:
 
     def add(self, pid: int, ctime: float) -> None:
         me = psutil.Process()
-        keep = [i for i in self.load() if psutil.pid_exists(i["pid"])]
-        self.save(keep + [{"pid": pid, "ctime": ctime, "owner": me.pid, "owner_ctime": me.create_time()}])
+        with self._locked():
+            keep = [i for i in self.load() if psutil.pid_exists(i["pid"])]
+            self._write(keep + [{"pid": pid, "ctime": ctime, "owner": me.pid, "owner_ctime": me.create_time()}])
 
     def remove(self, pid: int) -> None:
-        self.save([i for i in self.load() if i["pid"] != pid])
+        with self._locked():
+            self._write([i for i in self.load() if i["pid"] != pid])
 
     def sweep(self) -> list[int]:
         killed, keep = [], []
-        for i in self.load():
-            if self._owner_alive(i):
-                keep.append(i)                     # belongs to another live server process
-            elif kill_ours(i["pid"], i["ctime"]):
-                killed.append(i["pid"])
-        self.save(keep)
+        with self._locked():
+            for i in self.load():
+                if self._owner_alive(i):
+                    keep.append(i)                 # belongs to another live server process
+                elif kill_ours(i["pid"], i["ctime"]):
+                    killed.append(i["pid"])
+            self._write(keep)
         return killed
 
 
