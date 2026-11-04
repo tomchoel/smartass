@@ -47,6 +47,18 @@ def _set_workbook_v2(path: str) -> None:
         pass
 
 
+def teach_sheetorder() -> None:
+    """v1's sheetorder only knows Q<n> Answer/FinMax/FinLite/FinPlan/Lines; add Data (ranked like a source sheet,
+    before FinMax). Module globals are read at call time, so this needs no v1 edit."""
+    import re
+
+    from smartview_mcp import sheetorder
+    if "Data" in sheetorder._RANK:
+        return
+    sheetorder._OURS = re.compile(r"^Q(\d+) (Answer|FinMax|FinLite|FinPlan|Lines|Data)(?: (.+))?$")
+    sheetorder._RANK["Data"] = min(sheetorder._RANK.values()) - 1
+
+
 def configure_v2() -> None:
     """In this process only: new analysis files go to <analyser>/v2/<project>, and the session workbook is
     remembered in sessions_v2.json under v2's own relay, so v2 never writes into a v1 session workbook."""
@@ -59,4 +71,5 @@ def configure_v2() -> None:
     v1session._info = _session_info()
     v1session._alive_relay = _alive_relay_v2
     v1session.set_workbook = _set_workbook_v2
+    teach_sheetorder()
     _configured = True
