@@ -2,11 +2,13 @@
 //   https://localhost:3000            the built pane (dist/), over the office-addin-dev-certs localhost certificate
 //   POST /api/chat     {prompt, context, sessionId?}  -> Server-Sent Events from a headless Claude Code run
 //   POST /api/stop     {runId}                        -> stops that run
-//   GET  /api/changes?workbook=                       -> the xl_* change log (snapshots, revertable)
+//   GET  /api/changes?workbook=                       -> the smartass snapshot/change log (revertable)
 //   POST /api/revert   {id?, workbook?, force?}       -> undo a change from its snapshot
 //   POST /api/check    {workbook?, sheet?}            -> tn-formelstil check of the live formulas
 // Claude runs as `claude -p` in the Produktregnskapet folder (CLAUDE.md, memory, skills, MCP servers as in the
-// terminal) and may ONLY use the smartview MCP (xl_* live Excel tools + sv_* Smart View) and read-only file tools.
+// terminal) and may ONLY use smartass v2 (fin_* EPM tools, xl_snapshot/xl_revert/xl_tidy), the Excel MCP server
+// (mcp__excel__*: generic edits to the open workbook) and read-only file tools.
+// /api/changes|revert|check run `python -m smartass.ops.cli xl ...` from the smartass engine venv (one JSON line).
 import http from "node:http"
 import https from "node:https"
 import fs from "node:fs"
@@ -22,30 +24,31 @@ const CLAUDE = process.env.CLAUDE_EXE || path.join(os.homedir(), ".local", "bin"
 const WORKDIR = process.env.CLAUDE_CWD ||
   path.join(os.homedir(), "OneDrive - Telenor", "Analyse (Telenor Norge AS) - Produktregnskapet")
 const SVKIT = path.join(process.env.LOCALAPPDATA, "svkit")
-const PY = path.join(SVKIT, "venv", "Scripts", "python.exe")
-const MCP_DIR = path.join(os.homedir(), "OneDrive - Telenor", "Projects", "prodreg2026", "smartview", "mcp")
+const ENGINE = process.env.SMARTASS_ENGINE || "C:\\dev\\smartass\\engine"
+const PY = process.env.SMARTASS_PY || path.join(ENGINE, ".venv", "Scripts", "python.exe")
 const CERTS = path.join(os.homedir(), ".office-addin-dev-certs")
 const DIST = path.join(HERE, "dist")
 const LOG = path.join(SVKIT, "logs", "addin.log")
 fs.mkdirSync(path.dirname(LOG), { recursive: true })
 const log = (...a) => fs.appendFileSync(LOG, `${new Date().toISOString()} ${a.join(" ")}\n`)
 
-const ALLOWED_TOOLS = ["mcp__smartview", "Read", "Grep", "Glob", "Skill", "ToolSearch"]
+const ALLOWED_TOOLS = ["mcp__smartass", "mcp__excel", "Read", "Grep", "Glob", "Skill", "ToolSearch"]
 
 const PANE_PROMPT = `You are Claude working INSIDE the user's Excel, in a narrow task pane (about 350 px wide).
-- The user's live context (workbook, sheet, selection and its values) is given with every message. "This", "here",
-  "the selection", "this cell" mean that context.
-- Work in the open workbook ONLY through the mcp__smartview__xl_* tools (xl_overview, xl_read, xl_write, xl_rows,
-  xl_add_sheet, xl_format, xl_format_sheet, xl_trace, xl_check, xl_revert). Pass workbook=<the context workbook name>.
-  Numbers from FinMax/FinPlan: the sv_* tools. Load tool schemas with ToolSearch first if needed.
-- ANALYSES GO INTO THE OPEN WORKBOOK: always pass target="active" to sv_ws_build, sv_analyse, sv_concept and
-  sv_ws_answer (and sv_ws_pull). Never create a new analysis workbook or let target default to "session" unless the
-  user explicitly asks for a new file. If the context below has no workbook, still use target="active".
-- Never save the workbook. Every change has a change_id the user can undo from the pane's "Endringer" tab.
-- Formulas follow skill tn-formelstil: SUM over ranges, label-keyed XLOOKUP, no guessed fixed ranges, variance %
-  =IF(D=0,"",(C-D)/ABS(D)). Fix BLOCK findings before you say you are done.
-- Answer short for a narrow pane: a few sentences or bullets, no wide tables (max 3 columns). Financial format:
-  1 000 000, negatives (1 000 000) in tables, a minus sign in text. Reply in the user's language.`
+- The user's live context (workbook, sheet, selection and its values) comes with every message. "This", "here",
+  "the selection", "this cell" mean that context. Load tool schemas with ToolSearch first if needed.
+- Finance numbers (FinMax/FinLite/FinPlan): smartass v2 (skill smartass). Names: fin_lookup. Analyses: fin_analyze
+  ALWAYS with target="active" (the open workbook), also follow-ups (patch, q) - never a new file unless the user
+  asks. Quote numbers only from key_values, pass on caveats, warnings and findings; standard/deep answers: run
+  fin_critic(q), fix by patch below 4, store the score. Ledger lines: fin_drill.
+- Other edits to the open workbook: Excel MCP (file_read discover -> file attach with the context workbook, then
+  range, range_format, worksheet ...). ALWAYS xl_snapshot(workbook, sheet, range) BEFORE an edit; xl_revert undoes
+  it; finish with xl_tidy (zero BLOCK findings, formulas per tn-formelstil: SUM over ranges, label-keyed XLOOKUP,
+  variance % empty on a zero base). Never save or close the user's workbook (no file save/close, no save:true).
+- Finance format: 1 000 000, negatives (1 000 000) in tables, a minus sign in text; FinMax signs (costs negative);
+  variance = current - comparison. Sheet text English.
+- Answer short for a narrow pane: a few sentences or bullets, no wide tables (max 3 columns). Reply in the user's
+  language.`
 
 // ------------------------------------------------------------------ helpers
 const runs = new Map()
@@ -66,9 +69,9 @@ function readBody(req) {
 
 function xlcli(args) {
   return new Promise((resolve) => {
-    const p = spawn(PY, ["-B", "-m", "smartview_mcp.xlcli", ...args], {
-      cwd: MCP_DIR, env: { ...process.env, PYTHONPATH: MCP_DIR, PYTHONIOENCODING: "utf-8", SV_XL_JUMP: "1" },
-      windowsHide: true,
+    const p = spawn(PY, ["-B", "-m", "smartass.ops.cli", "xl", ...args], {
+      cwd: ENGINE, env: { ...process.env, PYTHONIOENCODING: "utf-8", SV_XL_JUMP: "1" },
+      windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
     })
     let out = "", err = ""
     p.stdout.on("data", (d) => (out += d))
@@ -80,7 +83,7 @@ function xlcli(args) {
 }
 
 function contextBlock(ctx) {
-  if (!ctx || !ctx.workbook) return "Context: (the pane could not read the selection this time). Work in the user's ACTIVE workbook: xl_* tools without workbook=, sv_* tools with target=\"active\"."
+  if (!ctx || !ctx.workbook) return "Context: (the pane could not read the selection this time). Work in the user's ACTIVE workbook: fin_analyze with target=\"active\", xl_* tools without workbook=, Excel MCP attach to the active workbook."
   const lines = [`Context: workbook "${ctx.workbook}", sheet "${ctx.sheet}", selection ${ctx.selection}.`]
   if (ctx.values?.length) {
     const preview = ctx.values.slice(0, 12).map((r) => r.slice(0, 8).map((v) => (v === "" ? "·" : String(v))).join(" | "))
@@ -95,8 +98,9 @@ function contextBlock(ctx) {
 
 function summarizeInput(name, input) {
   if (!input) return ""
-  const keys = ["range", "cell", "sheet", "address", "at", "question", "text", "member", "change_id", "style"]
-  const parts = keys.filter((k) => input[k] != null).map((k) => `${k}=${String(input[k]).slice(0, 40)}`)
+  const keys = ["action", "sheet_name", "range_address", "range", "sheet", "workbook", "q", "query", "kind", "target", "change_id", "cell"]
+  const parts = keys.filter((k) => input[k] != null)
+    .map((k) => `${k}=${(typeof input[k] === "object" ? JSON.stringify(input[k]) : String(input[k])).slice(0, 40)}`)
   return parts.join(" ")
 }
 

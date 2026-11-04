@@ -28,13 +28,22 @@ type TextPart = { kind: "text"; text: string }
 type Msg = { id: string; role: "user" | "assistant"; parts: (TextPart | ToolPart)[]; meta?: string }
 
 const TOOL_LABEL: Record<string, string> = {
-  xl_workbooks: "Ser på åpne arbeidsbøker", xl_overview: "Kartlegger arbeidsboka", xl_read: "Leser celler",
-  xl_write: "Skriver", xl_rows: "Rader/kolonner", xl_add_sheet: "Nytt ark", xl_format: "Formaterer",
-  xl_format_sheet: "TN-formaterer arket", xl_trace: "Sporer formel", xl_check: "Sjekker formler",
-  xl_changes: "Endringslogg", xl_revert: "Angrer", sv_query: "Henter fra EPM", sv_ws_build: "Bygger analyse",
-  sv_ws_answer: "Oppdaterer svar", sv_find_member: "Finner medlem", sv_members: "Slår opp medlemmer",
-  sv_scope: "Avgrenser spørsmålet", sv_concept: "Henter begrep", ToolSearch: "Laster verktøy", Read: "Leser fil",
-  Grep: "Søker", Glob: "Finner filer", Skill: "Laster ferdighet",
+  // smartass v2
+  fin_analyze: "Bygger analyse", fin_lookup: "Slår opp begrep og medlemmer", fin_status: "Sjekker status",
+  fin_refresh: "Oppdaterer svarene", fin_drill: "Henter bilagslinjer", fin_critic: "Kvalitetssjekker svaret",
+  xl_snapshot: "Tar øyeblikksbilde", xl_revert: "Angrer", xl_tidy: "Rydder og sjekker formler",
+  // Excel MCP
+  file_read: "Finner åpne arbeidsbøker", file: "Kobler til arbeidsboka", workbook_read: "Leser arbeidsboka",
+  worksheet_read: "Ser på arkene", worksheet: "Endrer ark", worksheet_style: "Formaterer ark",
+  range_read: "Leser celler", range: "Skriver", range_edit: "Rader/kolonner", range_edit_read: "Søker i celler",
+  range_format: "Formaterer", range_format_read: "Leser formatering", range_link: "Lenker/beskyttelse",
+  namedrange_read: "Leser navn", namedrange: "Endrer navn", table_read: "Leser tabell", table: "Endrer tabell",
+  table_column: "Endrer tabellkolonne", chart_read: "Leser diagram", chart: "Lager diagram",
+  chart_config: "Justerer diagram", conditionalformat: "Betinget formatering", pivottable_read: "Leser pivot",
+  pivottable: "Endrer pivot", calculation_mode: "Beregning", calculation_mode_read: "Leser beregningsmodus",
+  screenshot: "Tar bilde av arket", batch: "Kjører flere steg", window_read: "Ser på vinduet",
+  // Claude Code
+  ToolSearch: "Laster verktøy", Read: "Leser fil", Grep: "Søker", Glob: "Finner filer", Skill: "Laster ferdighet",
 }
 const shortName = (n: string) => n.replace(/^mcp__[^_]+(?:_[^_]+)*?__/, "")
 const toolLabel = (n: string) => TOOL_LABEL[shortName(n)] ?? shortName(n)
@@ -44,6 +53,7 @@ const SUGGESTIONS = [
   { icon: ShieldCheck, text: "Sjekk formlene på dette arket og rett det som bryter TN-formelstil" },
   { icon: Sparkles, text: "Gi meg en kort oppsummering av hva dette arket viser" },
   { icon: Wrench, text: "Lag en sumrad under markeringen med SUM" },
+  { icon: FileSpreadsheet, text: "Hent EBITDA hittil i år mot i fjor fra FinMax inn i denne arbeidsboka" },
 ]
 
 const uid = () => Math.random().toString(36).slice(2, 10)
