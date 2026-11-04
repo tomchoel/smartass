@@ -5,6 +5,7 @@ from __future__ import annotations
 from .blocks.common import BlockOut, base_of, ck
 from .expr import Cells
 from .resolver import Resolver
+from .validate import Finding
 
 
 def material(outs: list[BlockOut], cells: Cells, r: Resolver) -> list[dict]:
@@ -13,6 +14,7 @@ def material(outs: list[BlockOut], cells: Cells, r: Resolver) -> list[dict]:
     codes: it needs a 'var' column (a table with only 'var_pct' is skipped); each var column is judged against its
     own base column, together with the first var_pct against the same base."""
     hits = []
+    seen: set[tuple] = set()
     for o in outs:
         for vi, c in enumerate(o.cols):
             if c != "var":
@@ -29,9 +31,33 @@ def material(outs: list[BlockOut], cells: Cells, r: Resolver) -> list[dict]:
                 p = cells.get(ck(o.key, ln.key, pi)) if pi is not None else None
                 a, pct = r.materiality(ln.metric)
                 if abs(v) >= a or (p is not None and abs(p) >= pct and abs(v) >= a / 10):
+                    if ln.entity is not None:       # the same cell in another block is not listed twice
+                        ident = (o.query, ln.metric, ln.entity, base)
+                        if ident in seen:
+                            continue
+                        seen.add(ident)
                     hits.append({"block": o.title, "line": ln.label, "key": f"{o.key}.{ln.key}", "variance": v,
-                                 "variance_pct": p})
+                                 "variance_pct": p, "base": base})
     return hits
+
+
+def bridge_findings(outs: list[BlockOut], cells: Cells, r: Resolver) -> list[Finding]:
+    """A bridge whose 'Other / unexplained' is as large as the total metric's materiality has not explained the
+    movement: the steps are missing a driver."""
+    out: list[Finding] = []
+    for o in outs:
+        if o.type != "bridge":
+            continue
+        end = next((ln for ln in o.lines if ln.key == "end"), None)
+        v = cells.get(ck(o.key, "other", 0))
+        if end is None or not end.metric or v is None:
+            continue
+        limit = r.materiality(end.metric)[0]
+        if abs(v) >= limit:
+            out.append(Finding("warning", f"{o.title}: Other / unexplained is {v:,.0f}, as large as the "
+                                          f"materiality of {end.metric} ({limit:,.0f}); add the missing steps",
+                               o.key))
+    return out
 
 
 def key_values(outs: list[BlockOut], cells: Cells, limit: int = 40) -> dict[str, dict[str, float | None]]:

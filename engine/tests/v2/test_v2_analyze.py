@@ -16,7 +16,9 @@ def test_end_to_end_base_spec():
     assert res.key_values["EBITDA bridge · Other / unexplained"] == {"Amount": 0.0}
     assert not any("Check" in k for k in res.key_values)
     keys = {m["key"] for m in res.material}
-    assert {"b1.m1", "b4.top", "b4.d0", "b4.d0_0", "b4.d0_1"} <= keys      # Opex lines over 5 NOK / 5 %
+    # Opex lines over 5 NOK / 5 %; the same cell (query, metric, entity, base) is listed once, first block wins
+    assert {"b1.m1", "b3.e0", "b4.d0_0", "b4.d0_1"} <= keys
+    assert not keys & {"b3.total", "b4.top", "b4.d0"}
     assert "b0.k0" not in keys                                             # EBITDA +2 is under 5 MNOK
     assert res.findings == []
 
@@ -74,3 +76,20 @@ def test_requests_split_by_balance():
                                                        ("Periodic", ("ac.C50S", "ac.C60")),
                                                        ("Accumulated", ("ac.STA20Y",)),
                                                        ("Periodic", ("ac.C50S", "ac.C60"))]
+
+
+def test_bridge_that_leaves_a_material_unexplained_remainder_warns():
+    d = spec_dict(blocks=[{"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue"]}])
+    r = resolver()
+    assert compute(AnalysisSpec.model_validate(d), r, CLOSED, facts()).findings == []        # 5 MNOK threshold
+    r._m["ebitda"].materiality = (5.0, 0.05)
+    f = compute(AnalysisSpec.model_validate(d), r, CLOSED, facts()).findings
+    assert [(x.severity, x.where) for x in f] == [("warning", "b0")] and "-8" in f[0].text
+
+
+def test_material_lists_one_line_per_query_metric_entity_and_base():
+    s = AnalysisSpec.model_validate(spec_dict())
+    mat = compute(s, resolver(), CLOSED, facts()).material
+    ids = [(m["block"], m["line"]) for m in mat]
+    assert len(ids) == len(set(ids)) and all(m["base"] == "ly" for m in mat)
+    assert len([m for m in mat if m["line"] in ("un.SY.4BUS_B",)]) == 1
