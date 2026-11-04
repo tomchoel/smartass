@@ -9,10 +9,13 @@ import time
 from dataclasses import dataclass, field
 
 from smartview_mcp.grid import Axis
+from smartview_mcp.svhttp import SvHttpError
 
 from ..model.frame import Fact
 from ..model.periods import Month, parse
 from ..model.requests import GridRequest
+
+RETRY_WAIT_S = 5.0     # a cold browser loses the first request while it signs in; one retry after this wait
 
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
@@ -48,11 +51,22 @@ class SvHttpProvider:
     def __init__(self, sv):
         self.sv = sv
 
+    def _retrieve(self, out: FetchResult, *args):
+        """sv.retrieve; a lost request (cold sign-in) is tried once more after RETRY_WAIT_S, anything else is raised."""
+        try:
+            return self.sv.retrieve(*args)
+        except SvHttpError as e:
+            if "lost the request" not in str(e):
+                raise
+        time.sleep(RETRY_WAIT_S)
+        out.warnings.append(f"{args[0]}: the first request was lost (cold sign-in) and retried")
+        return self.sv.retrieve(*args)
+
     def fetch(self, req: GridRequest) -> FetchResult:
         out = FetchResult(req)
         t0 = time.monotonic()
         for pov, rows, cols, labels in _grids(req):
-            _, parsed, _ = self.sv.retrieve(req.cube, pov, rows, cols, False, False)
+            _, parsed, _ = self._retrieve(out, req.cube, pov, rows, cols, False, False)
             if parsed.unknown_members:
                 out.warnings.append(f"{req.cube}: Smart View did not know {', '.join(parsed.unknown_members)}")
             heads = parsed.columns[2:]
