@@ -159,3 +159,22 @@ method and judgement only:
 5. The MCP prompt list must show the 6 prompts. Use the `ListMcpResourcesTool` / prompts if available, or a stdio
    smoke check.
 6. Merge and push.
+
+---
+
+## Live result (2026-11-04)
+
+- **Restart:** `fin_status(restart=True)` brought in the new code. The doctor warned that knowledge.db was older
+  than the semantic files; `smartass knowledge build` fixed that (11 metrics, 37 facts, 0 errors).
+- **Critic brief on a standard answer:** Business Norway opex YTD, with kpi tiles, a table, drivers and
+  commentary. The brief flagged two real gaps: Personnel cost and Other opex had no driver.
+- **Score:** `fin_critic(q=4, score=4, notes)` stored it. The per-criterion scores were 5/5/5/3/5/3, mean 4.33.
+- **Answer memory:** `fin_lookup(kind="answer", "Business Norway opex")` found the answer with its score and notes.
+- **Prompts:** the six MCP prompts were verified over stdio by the implementer.
+- Merged into main and pushed.
+
+## Carried forward
+
+- **Auto-build:** the knowledge build is stale after a branch checkout that touches `knowledge/semantic`. Make
+  `run_prepare` rebuild automatically when the semantic hash differs, not only when the db is missing.
+- **SKILL.md size:** it is at 6983/7000 characters. Move detail to `reference/` before adding anything.
