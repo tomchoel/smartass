@@ -16,7 +16,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "engine"))
-from smartview_mcp import config as _cfg  # noqa: E402
+from smartass.core import config as _cfg  # noqa: E402
 
 OUT_DIR = str(_cfg.OUT_DIR)
 XLSX = os.path.join(HERE, "Forretningskart 1 - Konti og bokføring.xlsx")

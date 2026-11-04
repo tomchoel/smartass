@@ -16,7 +16,7 @@ import win32gui
 import win32process
 
 from . import login
-from .. import config
+from smartass.core import config
 from ..host import ExcelHost, HostError
 
 WM_GETOBJECT, OBJID_NATIVEOM = 0x003D, -16

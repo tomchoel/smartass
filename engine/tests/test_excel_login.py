@@ -1,6 +1,6 @@
 import pytest
 
-from smartview_mcp import timing
+from smartass.core import timing
 from smartview_mcp.excel import adhoc, login
 from smartview_mcp.host import HostError
 

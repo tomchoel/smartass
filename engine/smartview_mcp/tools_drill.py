@@ -8,13 +8,14 @@ from typing import Literal
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import config, ops, qlog
+from smartass.core import config
+from . import ops, qlog
 from .excel import adhoc, jobs, sheets, target as xltarget
 from .core import drillstep, reply
 from .grid import Axis
 from .host import HostError, rewrap
 from .server import WRITE, _call_user, _err, _is_our_analysis_file, tool, with_next_step
-from .timing import Timer, stage
+from smartass.core.timing import Timer, stage
 
 # ---------------------------------------------------------------- sv_drill: ledger lines behind a FinLite cell
 _ALIAS = re.compile(r"^[A-Za-z]\w*$")

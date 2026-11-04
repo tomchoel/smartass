@@ -5,7 +5,8 @@ import json
 
 import pytest
 
-from smartview_mcp import config, drill_direct as dd
+from smartass.core import config
+from smartview_mcp import drill_direct as dd
 from smartview_mcp.drill_browser import CellTooWide, DrillError
 
 URL = "aif/m/FdmeeMain.jsp?module=aif.drilldown&DRILLURL=Drill&sso_token=T&attribute=Entities.id.un.SY"

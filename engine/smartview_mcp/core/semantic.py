@@ -8,7 +8,8 @@ import re
 import tomllib
 from dataclasses import dataclass
 
-from .. import catalog, config
+from .. import catalog
+from smartass.core import config
 
 
 @dataclass(frozen=True)

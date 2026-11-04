@@ -11,10 +11,11 @@ import math
 import time
 from dataclasses import dataclass
 
-from .. import config, svhttp
+from smartass.core import config
+from .. import svhttp
 from ..excel import adhoc, jobs, sheets
 from ..grid import MISSING, Axis, Layout, parse
-from ..timing import stage
+from smartass.core.timing import stage
 from .contract import Pull as PullSpec
 
 GREY = 0x808080

@@ -15,7 +15,7 @@ import pywintypes
 import win32api
 import win32con
 
-from . import config
+from smartass.core import config
 
 log = logging.getLogger("smartview.host")
 RETRY_HRESULTS = {-2147418111, -2147417846}        # RPC_E_CALL_REJECTED, RPC_E_SERVERCALL_RETRYLATER

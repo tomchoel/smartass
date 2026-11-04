@@ -7,7 +7,8 @@ import time
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import atlas, atlas_history, config, doctor, ops, qlog
+from . import atlas, atlas_history, doctor, ops, qlog
+from smartass.core import config
 from . import server as core                      # live module ref: read core._host at call time
 from .host import HostError
 from .server import _STARTED, ADMIN, LOCAL, Connection, _call, host, tool

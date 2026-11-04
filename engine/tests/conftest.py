@@ -13,7 +13,7 @@ def pytest_configure(config):
 def _no_live_drill_routes(monkeypatch):
     """Tests never reach EPM: the HTTP drill link/values and the direct drill are off unless a test turns them on
     (drillstep then uses its Excel/page routes, which the tests fake)."""
-    from smartview_mcp import config
+    from smartass.core import config
     monkeypatch.setattr(config, "DRILL_DIRECT", False)
     monkeypatch.setattr(config, "DRILL_KEEP_WARM", False)        # tests: the idle worker closes its browser as before
     monkeypatch.setattr(config, "DRILL_PROFILE_SLOTS", 1)               # one profile, as the tests expect

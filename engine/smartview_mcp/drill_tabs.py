@@ -15,7 +15,7 @@ import logging
 import threading
 import time
 
-from . import config
+from smartass.core import config
 from .drill_browser import (SIGNIN, CellTooWide, DrillBrowser, DrillError, TooManyLines, load_timeout_ms,
                             page_through, redact)
 

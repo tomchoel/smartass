@@ -14,7 +14,7 @@ import pywintypes
 from openpyxl.utils import get_column_letter as L
 
 from . import books
-from .. import config
+from smartass.core import config
 from ..excel.instances import local_path
 from ..excel.jobs import com, fast_excel
 from ..excel.target import _wait_ready

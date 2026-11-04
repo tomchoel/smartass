@@ -46,7 +46,7 @@ def test_verify_labels_catches_shifted_rows():
 
 
 def test_archive_guard_local_url_and_unsaved(monkeypatch, tmp_path):
-    from smartview_mcp import config
+    from smartass.core import config
     root = tmp_path / "Analyse (Telenor Norge AS) - Produktregnskapet"
     monkeypatch.setattr(config, "ARCHIVE_ROOT", root)
     assert is_archive(str(root / "2025" / "x.xlsx"))
@@ -66,7 +66,7 @@ def test_local_path_maps_personal_onedrive(monkeypatch):
 def test_slow_stage_sends_progress_notes_and_stops_after(monkeypatch):
     import time as _t
 
-    from smartview_mcp import timing
+    from smartass.core import timing
     monkeypatch.setattr(timing, "PROGRESS_AFTER_S", 0.05)
     notes = []
     timing.Timer.note_notify(notes.append)
@@ -85,7 +85,8 @@ def test_slow_stage_sends_progress_notes_and_stops_after(monkeypatch):
 def test_progress_job_clears_its_notify_after_the_job():
     import asyncio
 
-    from smartview_mcp import server, timing
+    from smartview_mcp import server
+    from smartass.core import timing
 
     async def run():
         server._ctx.set(object())                 # any ctx: notify is only called by a ticker

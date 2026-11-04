@@ -1,4 +1,4 @@
-from smartview_mcp import config
+from smartass.core import config
 
 
 def _defaults(tmp_path):

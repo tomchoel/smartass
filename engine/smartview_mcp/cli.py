@@ -27,7 +27,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(doctor.as_dict(rs), indent=2) if a.json else doctor.to_text(rs))
         return 1 if doctor.overall(rs) == "FAIL" else 0
     if a.cmd == "serve":
-        from . import config, httpapi, logsetup, update
+        from smartass.core import config, logsetup
+        from . import httpapi, update
         logsetup.configure(config.HOME / "logs" / "engine.log")
         logsetup.add_secret(config.HTTP_SECRET)
         if update.start_if_available():

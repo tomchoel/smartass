@@ -67,7 +67,7 @@ def build(t: Target, q: int, spec: dict, pulls: dict[str, Pull], suffix: str = "
     with fast_excel(t.app):
         res = _build(t, q, spec, pulls, suffix, owned, reserve)
     from .excel.sheets import wait_calculated
-    from .timing import stage
+    from smartass.core.timing import stage
     with stage("calculate + read back"):
         ws = t.wb.Worksheets(res.pop("_ws_name"))
         com(lambda: ws.Calculate())
@@ -244,7 +244,7 @@ def _build(t: Target, q: int, spec: dict, pulls: dict, suffix: str = "Answer", o
     below the answer to make room for (the findings table, written after the build)."""
     from . import styling
     from .core import owned as owned_mod
-    from .timing import stage
+    from smartass.core.timing import stage
     chart = bool(spec.get("chart"))
     with stage("prepare sheet"):
         ws = answer_sheet(t, q, suffix, owned)

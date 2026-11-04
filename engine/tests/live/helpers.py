@@ -57,7 +57,7 @@ def pid_registry() -> list[dict]:
     """The engine's pids.json (written by hostproc._PidRegistry: [{pid, ctime, owner, owner_ctime}])."""
     import json
 
-    from smartview_mcp import config
+    from smartass.core import config
 
     try:
         items = json.loads(Path(config.PID_FILE).read_text())
@@ -322,7 +322,7 @@ def close_scratch_book(path: str, save: bool = False) -> bool:
 def kill_engine_edge() -> list[int]:
     """Kill only the Edge processes the engine's drill started: their --user-data-dir is the drill profile.
     The user's own Edge (another profile) is never touched."""
-    from smartview_mcp import config
+    from smartass.core import config
     from smartview_mcp.drill_browser import kill_our_chrome
     return kill_our_chrome(config.DRILL_PROFILE)
 
@@ -415,7 +415,7 @@ COOKIE_FILES = ("Cookies", "Cookies-journal")
 
 def _cookie_dirs() -> list[Path]:
     """Cookie folders of the engine's drill Edge profiles (drill_edge, drill_edge_<channel>)."""
-    from smartview_mcp import config
+    from smartass.core import config
 
     out = []
     for prof in Path(config.DRILL_PROFILE).parent.glob(Path(config.DRILL_PROFILE).name + "*"):
@@ -508,7 +508,7 @@ def server_pids(client) -> list[int]:
 
 
 def _suspend_marker() -> Path:
-    from smartview_mcp import config
+    from smartass.core import config
 
     return Path(config.HOME) / "matrix-suspended.json"
 
@@ -603,7 +603,7 @@ def scratch_excel(path, watch=None, timeout: float = 240):
     pid. The workbook is first closed in any other Excel. Afterwards our Excel is closed, or killed if it hangs (an
     Excel that holds a workbook from outside _matrix is left alone)."""
     import pythoncom
-    from smartview_mcp import config
+    from smartass.core import config
 
     p = str(path)
     if not _IN_MATRIX.search(p):
@@ -840,7 +840,7 @@ def edit_mode(pid: int, sheet: str | None = None):
 
 
 def _scratch_root() -> Path:
-    from smartview_mcp import config
+    from smartass.core import config
 
     return Path(config.ANALYSER_DIR) / "_matrix"
 
@@ -880,7 +880,7 @@ def fresh_profile(root: Path = FRESH_ROOT, version: str = "0.2.0") -> dict:
     import sqlite3
     import zipfile
 
-    from smartview_mcp import config
+    from smartass.core import config
 
     remove_fresh(root)
     p = fresh_paths(root)

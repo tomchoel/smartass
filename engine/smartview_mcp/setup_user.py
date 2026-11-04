@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import config
+from smartass.core import config
 
 SERVER_NAME = "smartass"
 LEGACY_SERVER_NAMES = ("smartview",)   # renamed 2026-10-23; register_mcp moves these entries to SERVER_NAME

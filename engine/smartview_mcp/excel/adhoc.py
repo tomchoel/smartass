@@ -4,7 +4,8 @@ from __future__ import annotations
 import time
 
 from . import jobs, login, sheets, target
-from .. import config, ops, timing
+from smartass.core import config, timing
+from .. import ops
 from ..grid import Axis, full_pov, Layout, parse, validate_axes, verify_labels as _verify_labels
 from ..host import ExcelHost, HostError, InputError
 
@@ -40,7 +41,7 @@ def _pull(h: ExcelHost, t: target.Target, q: int, connection: str, pov: dict, ro
           title: str | None, boxes: "login.SmartViewBoxes") -> sheets.Pull:
     from .. import styling                         # provided by the styling adapter
     from ..ops import _dims_cache, _grid_labels, _used_values, canon_dim, dims_known, is_rc1000, learn_dims
-    from ..timing import stage
+    from smartass.core.timing import stage
 
     def layout():
         p_ = {canon_dim(connection, d): m for d, m in pov.items()}

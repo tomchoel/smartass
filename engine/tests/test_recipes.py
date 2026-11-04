@@ -69,7 +69,8 @@ def test_pull_dict_converts_a_template_pullspec():
 
 @pytest.mark.anyio
 async def test_sv_answer_expands_a_recipe_in_the_excel_job_and_returns_its_period(monkeypatch, tmp_path):
-    from smartview_mcp import config, tools_core
+    from smartass.core import config
+    from smartview_mcp import tools_core
     monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
     monkeypatch.setitem(recipes.RECIPES, "echo", _echo)
     t = SimpleNamespace(path="C:/x/a.xlsx", created=False)

@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 import pywintypes
 
-from smartview_mcp import config, dialogs, session, styling
+from smartass.core import config, session
+from smartview_mcp import dialogs, styling
 from smartview_mcp.excel import instances, jobs, login, target
 from smartview_mcp.dialogs import Dialog
 from smartview_mcp.host import HostError

@@ -340,7 +340,8 @@ def test_templates_read_the_catalogue():
 def test_a_broken_catalogue_fails_only_the_pnl_templates(monkeypatch, tmp_path):
     import importlib
 
-    from smartview_mcp import config, templates
+    from smartass.core import config
+    from smartview_mcp import templates
     (tmp_path / "catalog.toml").write_text("[materiality]\npct = 10\n", encoding="utf-8")
     monkeypatch.setattr(config, "KNOWLEDGE_DIR", tmp_path)
     monkeypatch.setattr(config, "PACKS", [])

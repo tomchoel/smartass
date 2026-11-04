@@ -6,7 +6,8 @@ import time
 import pytest
 import pywintypes
 
-from smartview_mcp import config, host
+from smartass.core import config
+from smartview_mcp import host
 from smartview_mcp.dialogs import Dialog
 from smartview_mcp.host import ComThread, ExcelHost, HostError, HostTimeout, SignInBlocked
 

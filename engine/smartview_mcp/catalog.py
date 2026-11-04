@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 
-from . import config
+from smartass.core import config
 
 KINDS = {"line", "sum", "grand"}
 RULES = {"latest_forecast"}

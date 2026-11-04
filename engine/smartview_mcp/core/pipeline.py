@@ -12,7 +12,7 @@ from .. import answer as answer_mod
 from .. import catalog, drill_xl, fin_spec, specs
 from ..excel import jobs, sheets, target as xltarget
 from ..host import InputError, rewrap
-from ..timing import stage
+from smartass.core.timing import stage
 from . import check, commentary, contract, findings, followup, progress, recipes, source
 from . import owned as owned_mod
 

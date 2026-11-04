@@ -51,7 +51,8 @@ def closed_month(h: ExcelHost, connection: str = "FinMax") -> str:
     import json
     import os
     import time
-    from . import config, svhttp
+    from smartass.core import config
+    from . import svhttp
     cache = config.SVKIT / "closed_month.json"
     now = time.time()
     try:

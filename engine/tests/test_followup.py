@@ -271,7 +271,7 @@ async def test_sv_answer_needs_exactly_one_of_spec_and_followup():
 
 @pytest.mark.anyio
 async def test_sv_answer_follow_up_redraws_the_answer_and_returns_the_outline(monkeypatch, tmp_path):
-    from smartview_mcp import config
+    from smartass.core import config
     monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
     t = SimpleNamespace(path="C:/x/a.xlsx", created=False)
     monkeypatch.setattr(tools_core, "_call_user", lambda job, what: _job(job))

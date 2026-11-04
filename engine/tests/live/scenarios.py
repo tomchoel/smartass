@@ -573,7 +573,7 @@ def s10_bundle(ctx):
     import zipfile
 
     from mcpclient import ENGINE
-    from smartview_mcp import config
+    from smartass.core import config
 
     home = Path(config.HOME)
     secrets = {config.HTTP_SECRET} if config.HTTP_SECRET else set()
@@ -640,7 +640,7 @@ def s10_reload(ctx):
     import os
 
     from mcpclient import McpClient
-    from smartview_mcp import config
+    from smartass.core import config
 
     f = Path(config.__file__)
     st = f.stat()
@@ -709,7 +709,7 @@ def s10_update(ctx):
 
 @scenario("S10.5.textfixes", ["feature"], budget=30)
 def s10_textfixes(ctx):
-    from smartview_mcp import config
+    from smartass.core import config
     from smartview_mcp import drill_lines as dl
 
     f = Path(config.USER_TEXT_FIXES)
@@ -812,7 +812,7 @@ def s10_coldexcel(ctx):
 
 @scenario("S10.9.options", ["feature"], budget=120)
 def s10_options(ctx):
-    from smartview_mcp import config
+    from smartass.core import config
 
     orig = Path(config.HOME) / "smartview_options_original.json"
     before = helpers.sv_options()
@@ -836,7 +836,7 @@ def s10_http(ctx):
     import urllib.error
     import urllib.request
 
-    from smartview_mcp import config
+    from smartass.core import config
 
     url = f"http://127.0.0.1:{config.HTTP_PORT}/health"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))

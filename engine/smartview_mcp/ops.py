@@ -6,7 +6,7 @@ import logging
 import re
 import time
 
-from . import config, timing
+from smartass.core import config, timing
 from .grid import Axis, Layout, full_pov, indent_of, name_from_label, parse
 from .host import ExcelHost, HostError, InputError, ProviderEmpty
 

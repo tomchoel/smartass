@@ -269,7 +269,8 @@ T11 = "Hvilke konsulentselskaper fakturerte mest til Telenor Norge i 2026? og p√
 def _answer_env(monkeypatch, tmp_path, calls, fail=None):
     """sv_answer offline: fake Excel (every job runs inline), a fake drill (D1/D2 on the first account) and a fake
     cube whose values equal the ledger lines; answer.build evaluates the prepared spec like the sheet would."""
-    from smartview_mcp import config, templates, tools_core
+    from smartass.core import config
+    from smartview_mcp import templates, tools_core
     from smartview_mcp.core import drillstep, pipeline, progress, reply, runlog, source
     from smartview_mcp.excel import jobs, sheets, target
     monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")

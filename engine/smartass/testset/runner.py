@@ -10,7 +10,7 @@ import json
 import shutil
 from pathlib import Path
 
-from smartview_mcp import config as v1config
+from ..core import config as v1config
 
 from ..data.recorder import RecordingProvider, ReplayProvider, load_lines, save_lines
 from ..pipeline import prepare

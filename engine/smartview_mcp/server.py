@@ -17,7 +17,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import config, logsetup
+from smartass.core import config, logsetup
 from .excel import instances
 from .host import ExcelHost, HostError, InputError
 
@@ -211,7 +211,7 @@ def _with_progress(fn):
     long (timing.PROGRESS_AFTER_S). Only for tools that declare ctx; a client without a progress token ignores them."""
     import asyncio
 
-    from .timing import Timer
+    from smartass.core.timing import Timer
     ctx = _ctx.get()
     if ctx is None:
         return fn

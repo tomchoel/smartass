@@ -151,7 +151,8 @@ def _com(monkeypatch, month="08"):
 
 
 def _setup(tmp_path, monkeypatch, http):
-    from smartview_mcp import config, svhttp
+    from smartass.core import config
+    from smartview_mcp import svhttp
     monkeypatch.setattr(config, "SVKIT", tmp_path)
     monkeypatch.setattr(svhttp, "shared", lambda: http)
     return tmp_path / "closed_month.json"

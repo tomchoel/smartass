@@ -5,7 +5,7 @@ import getpass
 import json
 import time
 
-from . import config
+from smartass.core import config
 
 
 def write(entry: dict) -> None:

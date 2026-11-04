@@ -1,6 +1,6 @@
 import json
 
-from smartview_mcp import config
+from smartass.core import config
 from smartview_mcp.host import ExcelHost
 
 

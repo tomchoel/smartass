@@ -1,5 +1,5 @@
-from smartview_mcp import config as v1config
-from smartview_mcp import session as v1session
+from smartass.core import config as v1config
+from smartass.core import session as v1session
 
 from smartass import legacy
 

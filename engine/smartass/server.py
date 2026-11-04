@@ -244,7 +244,7 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
 @_register(kit.LOCAL)
 def fin_status() -> dict:
     """Health: atlas status, metric count, and where v2 writes its answer files."""
-    from smartview_mcp import config as v1config
+    from .core import config as v1config
     legacy.configure_v2()
     with contextlib.closing(atlas.connect()) as db:
         st = atlas.status(db)

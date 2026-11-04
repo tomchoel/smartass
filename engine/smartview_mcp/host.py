@@ -18,7 +18,8 @@ import pywintypes
 import win32com.client as wc
 import win32process
 
-from . import config, dialogs, sso
+from smartass.core import config
+from . import dialogs, sso
 from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy, kill_ours, windows_of, _is_ours
 
 log = logging.getLogger("smartview.host")
@@ -121,7 +122,7 @@ class ExcelHost(HiddenExcel):
         not retried: the caller is asked to ask again)."""
         import asyncio
 
-        from .timing import _send
+        from smartass.core.timing import _send
         for attempt in (1, 2):
             try:
                 return await self._call_once(fn, timeout, what, user_excel)

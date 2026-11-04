@@ -7,7 +7,7 @@ import os
 import tomllib
 from pathlib import Path
 
-PKG = Path(__file__).resolve().parent
+PKG = Path(__file__).resolve().parents[1]                 # engine/smartass (this file is smartass/core/config.py)
 ENGINE_DIR = PKG.parent
 REPO_DIR = ENGINE_DIR.parent
 DEFAULTS_FILE = ENGINE_DIR / "defaults.toml"

@@ -263,7 +263,7 @@ def _clear(ws, owned: dict | None) -> None:
 
 
 def _session_workbook() -> str | None:
-    from smartview_mcp import session
+    from .core import session
     return session.workbook()
 
 

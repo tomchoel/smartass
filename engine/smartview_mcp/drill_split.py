@@ -8,7 +8,7 @@ import logging
 import re
 from typing import Callable
 
-from . import config
+from smartass.core import config
 
 log = logging.getLogger("smartview")
 

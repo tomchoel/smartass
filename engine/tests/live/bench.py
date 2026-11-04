@@ -31,7 +31,7 @@ import helpers
 import scenarios as S
 from mcpclient import ENGINE, McpClient
 
-from smartview_mcp import config
+from smartass.core import config
 
 AUDIT = ENGINE.parent / "docs" / "audit"
 PERIOD = "Sep 26"

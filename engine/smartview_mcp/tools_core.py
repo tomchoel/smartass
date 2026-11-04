@@ -12,14 +12,15 @@ from typing import Literal
 from mcp.server.mcpserver import Context
 from pydantic import ValidationError
 
-from . import catalog, config, templates
+from . import catalog, templates
+from smartass.core import config
 from .excel import sheets, target as xltarget
 from .core import contract, drillstep, drilltime, pipeline, prefs, progress, recipes, reply, runlog, scope
 from .core import followup as followup_mod
 from .core import period as periods
 from .host import HostError, InputError
 from .server import LOCAL, READ, WRITE, _err, _is_our_analysis_file, _with_progress, host, tool
-from .timing import COM_PREFIX, Timer, stage
+from smartass.core.timing import COM_PREFIX, Timer, stage
 
 
 class _NoExcel:

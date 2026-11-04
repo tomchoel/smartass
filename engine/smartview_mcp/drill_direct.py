@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from . import config
+from smartass.core import config
 from .drill_browser import CellTooWide, DrillError, Pager, shared_browser
 
 log = logging.getLogger("smartview.drill")

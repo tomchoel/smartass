@@ -10,8 +10,8 @@ from pathlib import Path
 
 import psutil
 
-from smartview_mcp import config as v1config
-from smartview_mcp import session as v1session
+from .core import config as v1config
+from .core import session as v1session
 
 V2_DIR_NAME = "v2"
 RELAY_SCRIPT = "run_server_v2.py"

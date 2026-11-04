@@ -6,7 +6,8 @@ from types import SimpleNamespace
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from smartview_mcp import config, svhttp, tools_core
+from smartass.core import config
+from smartview_mcp import svhttp, tools_core
 from smartview_mcp.excel import adhoc, jobs, sheets, target
 from smartview_mcp.core import check, contract, pipeline, progress, runlog, source
 from smartview_mcp.grid import Axis, Layout

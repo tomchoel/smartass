@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 
-from .. import config
+from smartass.core import config
 from ..excel import jobs, sheets
 
 SHEET = "_runlog"

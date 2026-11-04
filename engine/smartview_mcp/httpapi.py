@@ -13,7 +13,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import import_module
 
-from . import config
+from smartass.core import config
 from .host import HostError, InputError
 
 log = logging.getLogger("smartass.http")

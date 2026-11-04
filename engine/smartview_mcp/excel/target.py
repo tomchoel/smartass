@@ -14,7 +14,7 @@ from pathlib import Path
 import pywintypes
 
 from . import instances, jobs, login
-from .. import config
+from smartass.core import config
 from ..host import ExcelHost, HostError, InputError
 
 # ------------------------------------------------------------------ target workbook
@@ -100,7 +100,8 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
     """target: 'session' (default: this session's own analysis workbook - created on its first question, reopened
     if closed), 'active' (the workbook the user is working in), 'new' (a new file, which becomes the session's
     workbook), or an absolute file path."""
-    from .. import session, sso
+    from smartass.core import session
+    from .. import sso
     sso.ensure_global_watcher()
     if target == "session":
         wb_path = session.workbook()
@@ -115,7 +116,7 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
             raise InputError(f"Give an absolute path for target (got '{target}'), or use 'session' / 'active' / 'new'.")
         if instances.is_archive(p) and not allow_archive:       # refuse BEFORE opening anything
             raise InputError(ARCHIVE_REFUSAL.format(name=p.name))
-    from ..timing import stage
+    from smartass.core.timing import stage
     with stage("find Excel windows"):
         insts = instances.excel_instances()                     # waits for any open EPM login before touching an Excel
     excels = [(i.pid, i.hwnd, i.app) for i in insts if i.app is not None]
@@ -147,7 +148,7 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None)
     turn is free; else (below MAX_EXCELS) a new Excel window started on the TN template; else wait for the first.
     If it cannot be saved, the new workbook is closed unsaved (and an Excel started for it is closed again)."""
     from .. import styling
-    from ..timing import stage
+    from smartass.core.timing import stage
     tpl = styling.template_path()
     choice = next((e for e in excels if jobs.hold_turn(e[0], wait=False)), None)
     wb = None
@@ -342,7 +343,7 @@ def _launch_excel(path: Path) -> subprocess.Popen:
 def _new_path(title: str, taken: set[str] | frozenset = frozenset()) -> Path:
     """analyser\\<project of this session>\\<date time> <title>.xlsx, with ' (2)', ' (3)' ... when that file exists
     (the same question again within the minute, e.g. a retry) or its name is in `taken` (open workbooks, lower case)."""
-    from .. import session
+    from smartass.core import session
     safe = re.sub(r'[\\/:*?"<>|]+', "_", title).strip()[:60] or "Analysis"   # only characters Windows forbids
     stem = f"{dt.datetime.now():%Y-%m-%d_%H%M} {safe}"
     folder = session.project_dir()

@@ -6,7 +6,7 @@ import json
 import logging
 
 from ..excel import jobs, sheets
-from ..timing import stage
+from smartass.core.timing import stage
 
 log = logging.getLogger("smartview")
 _sessions: dict[str, dict[int, dict[str, "sheets.Pull"]]] = {}   # workbook path -> q -> sheet -> Pull

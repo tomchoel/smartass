@@ -13,7 +13,7 @@ from .extract import FillResult, Grid, fill, finmax_grids, finplan_grids
 from .factstore import OPEN, FactStore
 from .grid import Axis
 from .host import InputError
-from .timing import stage
+from smartass.core.timing import stage
 
 RECIPE = "sv_answer (recipe 'pnl')"
 

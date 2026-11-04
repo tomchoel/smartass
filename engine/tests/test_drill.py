@@ -439,7 +439,7 @@ def test_page_through_follows_has_more_past_a_short_total(caplog):
 
 
 def test_page_through_safety_cap_when_has_more_never_ends(monkeypatch):
-    from smartview_mcp import config
+    from smartass.core import config
     from smartview_mcp.drill_browser import page_through
     monkeypatch.setattr(config, "DRILL_PAGE", 10)
     post, calls = _pages(81, [81], has_more_always=True)   # then 1-line pages with hasMore forever
@@ -452,7 +452,7 @@ def test_a_piece_up_to_the_split_size_is_one_getdata_call():
     different sum each time (measured 02.11.2026). So any piece the split allows is fetched in ONE call."""
     from urllib.parse import parse_qs, urlsplit
 
-    from smartview_mcp import config
+    from smartass.core import config
     from smartview_mcp.drill_browser import _page_url, page_through
     n, offsets = config.DRILL_SPLIT_AT, []
 
@@ -1020,7 +1020,7 @@ def test_chrome_start_failure_releases_the_profile_lock(monkeypatch, tmp_path):
 
 
 def test_launch_skips_policy_blocked_channel_retries_and_falls_back(monkeypatch, tmp_path):
-    from smartview_mcp import config
+    from smartass.core import config
     from smartview_mcp import drill_browser as db
     tried = []
 
@@ -1075,7 +1075,8 @@ def test_dead_browser_is_restarted_and_the_drill_retried_once(monkeypatch):
 # ------------------------------------------------------------------ final review round
 def _drill_fakes(monkeypatch, links: dict, totals: dict, kids: dict, split_at: int = 600):
     """Fake Smart View links, a fake browser and a fake atlas for server._drill_cell."""
-    from smartview_mcp import config, drill_split, ops
+    from smartass.core import config
+    from smartview_mcp import drill_split, ops
     from smartview_mcp.core import drillstep as server
     from smartview_mcp.drill_browser import TooManyLines
     asked = []
@@ -1221,7 +1222,7 @@ def test_drill_cell_too_wide_splits_by_entity_and_skips_empty(monkeypatch):
 
 
 def test_too_wide_memo_survives_a_server_restart(monkeypatch, tmp_path):
-    from smartview_mcp import config
+    from smartass.core import config
     from smartview_mcp import drill_split
     monkeypatch.setattr(config, "SVKIT", tmp_path)
     monkeypatch.setattr(drill_split, "_too_wide", None)
@@ -1375,7 +1376,7 @@ def test_sv_drill_error_text_is_redacted(monkeypatch):
 
 def test_page_url_replaces_only_limit_and_offset():
     from urllib.parse import parse_qs, urlsplit
-    from smartview_mcp import config
+    from smartass.core import config
     from smartview_mcp import drill_browser as db
     u = db._page_url("https://epm/aif/ui/model/drilldown/getData?limit=25&offset=0&locale=nb&x=a%20b", 1500)
     assert u.startswith("https://epm/aif/ui/model/drilldown/getData?")
@@ -1618,7 +1619,8 @@ def test_drill_link_falls_back_to_excel_and_logs(monkeypatch, caplog):
 
 def test_drill_fetch_direct_first_then_pages(monkeypatch, caplog):
     import asyncio
-    from smartview_mcp import config, drill_direct
+    from smartass.core import config
+    from smartview_mcp import drill_direct
     from smartview_mcp.core import drillstep as server
     from smartview_mcp.drill_browser import DrillError
     monkeypatch.setattr(config, "DRILL_DIRECT", True)
@@ -1638,7 +1640,8 @@ def test_drill_fetch_direct_first_then_pages(monkeypatch, caplog):
 
 def test_drill_fetch_no_data_is_an_empty_piece_with_epms_note(monkeypatch):
     import asyncio
-    from smartview_mcp import config, drill_direct
+    from smartass.core import config
+    from smartview_mcp import drill_direct
     from smartview_mcp.core import drillstep as server
     monkeypatch.setattr(config, "DRILL_DIRECT", True)
 
@@ -1659,7 +1662,8 @@ def _derive_setup(monkeypatch, members, cubes, lines_for, template_query=True):
     """Children of un.SY by entity; members[] = atlas lists; cubes[] = child values; lines_for(entity) = the
     AMOUNTX values a built query returns. Records which children were drilled the usual way."""
     import json as _json
-    from smartview_mcp import config, drill_derive, drill_direct
+    from smartass.core import config
+    from smartview_mcp import drill_derive, drill_direct
     from smartview_mcp.core import drillstep as server
     from smartview_mcp.drill_direct import SuiQuery
     monkeypatch.setattr(config, "DRILL_DIRECT", True)

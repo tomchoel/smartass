@@ -1,6 +1,6 @@
 import pytest
 
-from smartview_mcp import timing
+from smartass.core import timing
 
 
 @pytest.fixture(autouse=True)

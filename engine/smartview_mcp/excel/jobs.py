@@ -8,7 +8,7 @@ import time
 
 import pywintypes
 
-from .. import config, timing
+from smartass.core import config, timing
 from ..host import HostError
 from ..hostproc import is_busy, retry_busy
 
@@ -118,7 +118,7 @@ def hold_turn(pid: int, wait: bool = True, what: str = "this request") -> bool:
             tt.close()
             return False
     else:
-        from ..timing import stage
+        from smartass.core.timing import stage
         with stage("wait for that Excel (another agent)"):
             waited = tt.acquire(what)
         if waited > 1:

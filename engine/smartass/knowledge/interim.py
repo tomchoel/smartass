@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import tomllib
 
-from smartview_mcp import config as v1config
+from ..core import config as v1config
 
 from ..model.resolver import MetricDef
 

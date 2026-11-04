@@ -18,7 +18,8 @@ import scenarios
 from auditlib import error_class, merge_before, verdict
 from mcpclient import ENGINE, McpClient
 
-from smartview_mcp import __version__, config
+from smartass import __version__
+from smartass.core import config
 
 AUDIT = ENGINE.parent / "docs" / "audit"
 

@@ -14,7 +14,8 @@ import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from . import __version__, config, logsetup
+from smartass import __version__
+from smartass.core import config, logsetup
 
 BUNDLE_FIX = "Send the file from `smartass doctor --bundle` to the maintainer."
 

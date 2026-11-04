@@ -13,7 +13,8 @@ from __future__ import annotations
 import datetime as dt
 import tomllib
 
-from .. import catalog, config
+from .. import catalog
+from smartass.core import config
 from ..host import InputError
 from . import semantic
 

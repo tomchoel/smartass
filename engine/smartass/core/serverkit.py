@@ -13,7 +13,7 @@ from pathlib import Path
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from smartview_mcp import config, logsetup
+from . import config, logsetup
 from smartview_mcp.excel import instances
 from smartview_mcp.host import ExcelHost, HostError, InputError
 
@@ -152,7 +152,7 @@ def _with_progress(fn):
     long (timing.PROGRESS_AFTER_S). Only for tools that declare ctx; a client without a progress token ignores them."""
     import asyncio
 
-    from smartview_mcp.timing import Timer
+    from .timing import Timer
     ctx = _ctx.get()
     if ctx is None:
         return fn

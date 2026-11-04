@@ -157,7 +157,7 @@ def test_the_areas_check_uses_only_the_areas_in_the_batch(retrieve):
 
 
 def test_a_big_grid_goes_straight_to_com(monkeypatch):
-    from smartview_mcp import config
+    from smartass.core import config
     calls = []
 
     class Http:

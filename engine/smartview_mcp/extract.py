@@ -14,7 +14,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import atlas, config, hostproc, ops
+from . import atlas, hostproc, ops
+from smartass.core import config
 from .analytics import periods, reconcile
 from .analytics.frame import from_rows
 from .catalog import Catalog, Entity

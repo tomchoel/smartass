@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from pathlib import Path
 
-from . import config
+from smartass.core import config
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS drill (id TEXT PRIMARY KEY, created TEXT, connection TEXT, cell TEXT, rec TEXT,

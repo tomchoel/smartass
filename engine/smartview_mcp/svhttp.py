@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import urlsplit
 
-from . import atlas, config, drill_browser, svxml
+from . import atlas, drill_browser, svxml
+from smartass.core import config
 from .drill_browser import DrillError
 from .grid import INVALID, MISSING, NOACCESS, Axis, Layout, full_pov, parse, validate_axes, verify_labels
 from .host import InputError

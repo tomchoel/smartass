@@ -10,7 +10,8 @@ from dataclasses import dataclass, field
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from .. import config, ops
+from smartass.core import config
+from .. import ops
 from . import drilltime
 
 log = logging.getLogger("smartview")
@@ -253,7 +254,7 @@ async def _progress(what: str) -> None:
     """'still working: <what> (n s)' to the client every timing.PROGRESS_AFTER_S (tools that declare ctx)."""
     import asyncio
 
-    from .. import timing
+    from smartass.core import timing
     from ..server import _ctx, progress_secs
     ctx = _ctx.get()
     if ctx is None:

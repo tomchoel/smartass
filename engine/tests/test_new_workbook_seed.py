@@ -5,7 +5,7 @@ from pathlib import Path
 import openpyxl
 import pytest
 
-from smartview_mcp import config
+from smartass.core import config
 from smartview_mcp.excel import target
 
 CUSTOM = ('<?xml version="1.0" encoding="UTF-8"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/'
@@ -88,7 +88,7 @@ def test_seed_with_another_label_id_is_ignored(env, monkeypatch):
 
 
 def test_two_copies_same_title_get_different_files(env, monkeypatch):
-    from smartview_mcp import session
+    from smartass.core import session
     monkeypatch.undo()                                          # real _new_path
     monkeypatch.setattr(config, "NEW_WORKBOOK_SEED", env / "seed.xlsx")
     monkeypatch.setattr(config, "LABEL_ID", "x")
