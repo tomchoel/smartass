@@ -196,7 +196,25 @@ def _smartview_startup(read=_read_hkcu) -> Check:
     return Check("smartview_startup", "OK", "no login at Excel start-up; diagnostics capture off")
 
 
-CHECKS = (_config, _excel, _smartview, _smartview_startup, _epm, _drill_browser, _atlas, _catalog, _output, _http,
+_VBOM_KEY = r"Software\Microsoft\Office\16.0\Excel\Security"
+_VBOM_POLICY = r"Software\Policies\Microsoft\Office\16.0\Excel\Security"
+
+
+def _vba_access(read=_read_hkcu) -> Check:
+    """Our hidden Excel loads its VBA bridge through wb.VBProject, which Excel refuses unless 'Trust access to the
+    VBA project object model' is on (HKCU ...\\Excel\\Security AccessVBOM = 1; a policy value wins)."""
+    policy = read(_VBOM_POLICY, "AccessVBOM")
+    value = policy if policy is not None else read(_VBOM_KEY, "AccessVBOM")
+    if str(value) == "1":
+        return Check("vba_access", "OK", "Excel trusts access to the VBA project object model")
+    where = "set by policy" if policy is not None else f"HKCU\\{_VBOM_KEY} AccessVBOM = {value}"
+    return Check("vba_access", "FAIL", f"Excel blocks access to the VBA project object model ({where}); the "
+                 "Smart View bridge cannot load",
+                 "Excel > File > Options > Trust Center > Trust Center Settings > Macro Settings: tick 'Trust "
+                 "access to the VBA project object model' (close Excel first; a policy value needs IT).")
+
+
+CHECKS = (_config, _excel, _smartview, _smartview_startup, _vba_access, _epm, _drill_browser, _atlas, _catalog, _output, _http,
           _update)
 
 

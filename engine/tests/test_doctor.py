@@ -61,3 +61,27 @@ def test_smartview_startup_check_warns_when_the_login_at_startup_or_diagnostics_
     diag = doctor._smartview_startup(reader({"CheckOnStartup": 0, "Profile": "1"}))
     assert diag.status == "WARN" and "diagnostics" in diag.detail.lower()
     assert doctor._smartview_startup(reader({})).status == "OK"      # not set: Smart View's own defaults
+
+
+def test_vba_access_check_names_the_trust_center_fix():
+    key = r"Software\Microsoft\Office\16.0\Excel\Security"
+    seen = []
+
+    def reader(values):
+        def read(path, name):
+            seen.append((path, name))
+            return values.get((path, name))
+        return read
+    ok = doctor._vba_access(reader({(key, "AccessVBOM"): 1}))
+    assert ok.status == "OK" and ok.name == "vba_access"
+    assert (key, "AccessVBOM") in seen
+    for values in ({(key, "AccessVBOM"): 0}, {}):
+        off = doctor._vba_access(reader(values))
+        assert off.status == "FAIL"
+        assert "Trust Center" in off.fix and "Trust access to the VBA project object model" in off.fix
+    policy = r"Software\Policies\Microsoft\Office\16.0\Excel\Security"
+    assert doctor._vba_access(reader({(policy, "AccessVBOM"): 0, (key, "AccessVBOM"): 1})).status == "FAIL"
+
+
+def test_vba_access_is_a_doctor_check():
+    assert doctor._vba_access in doctor.CHECKS
