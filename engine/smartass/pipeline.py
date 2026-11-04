@@ -148,14 +148,15 @@ def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:
 
 def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: list[str], lint: list[str]) -> dict:
     res = pre.result
-    return {
+    checks = {"sheet_equals_model": "OK" if not mismatches else f"DIFF in {len(mismatches)} cells"}
+    out = {
         "q": q,
         "workbook": workbook,
         "sheets": sheets,
         "key_values": res.key_values,
         "material": res.material,
         "findings": [{"severity": f.severity, "text": f.text, "where": f.where} for f in res.findings],
-        "checks": {"sheet_equals_model": "OK" if not mismatches else f"DIFF in {len(mismatches)} cells"},
+        "checks": checks,
         "mismatches": mismatches[:20],
         "warnings": pre.warnings + lint,
         "caveats": list(pre.caveats),
@@ -164,6 +165,10 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
         "fetch_seconds": round(pre.fetch_seconds, 2),
         "saved_user_workbook": False,
     }
+    if pre.spec.plan.depth in ("standard", "deep"):         # the critic pass (sub-spec 2 §5) reads this
+        from .model.critic import brief
+        out["critic_brief"] = brief(pre.spec, res, list(pre.caveats), checks, stock=_stock(pre))
+    return out
 # ---------------------------------------------------------------- the Excel job (runs on a v1 user-Excel job thread)
 from .render.charts import write_charts  # noqa: E402
 from .render.excel import (col_number, read_block, read_data, rewrite_data, rewrite_grid,  # noqa: E402

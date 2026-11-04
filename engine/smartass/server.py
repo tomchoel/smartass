@@ -215,7 +215,8 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
             out = _with_notes(await _user(lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), path),
                                           "fin_refresh"), notes)
             workbook = out.get("workbook", workbook)
-            done.append({"q": q, "ok": True, "closed": out.get("closed")})
+            done.append({"q": q, "ok": True, "closed": out.get("closed"),
+                         **({"critic_brief": out["critic_brief"]} if "critic_brief" in out else {})})
         except RestoreError as e:
             broken = q
             done.append({"q": q, "ok": False, "error": str(e)})
