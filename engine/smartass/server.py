@@ -1,6 +1,6 @@
 # engine/smartass/server.py
-"""smartass2: the v2 MCP server (built beside v1 until v2 passes the test set). Four tools:
-fin_analyze (new question or follow-up patch), fin_lookup, fin_status, fin_refresh. Error text (guard), Excel jobs (_call_user, progress notes) and the lifespan
+"""smartass2: the v2 MCP server (built beside v1 until v2 passes the test set). Tools:
+fin_analyze (new question or follow-up patch), fin_lookup, fin_status, fin_refresh, fin_drill. Error text (guard), Excel jobs (_call_user, progress notes) and the lifespan
 (warm-up, closing the hidden Excel) are v1's via the legacy seam; answer files and session are v2's own."""
 from __future__ import annotations
 
@@ -18,11 +18,13 @@ from . import legacy
 from .knowledge.atlas_resolver import AtlasResolver
 from .knowledge.interim import catalog_metrics
 from .followup import find_question, merge_patch, v2_questions
-from .model.spec import AnalysisSpec
+from .model.lines import LineSet
+from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError
 from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prepare
 
-TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "xl_snapshot", "xl_revert", "xl_tidy")
+TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "xl_snapshot", "xl_revert",
+              "xl_tidy")
 
 INSTRUCTIONS = """smartass2 (v2, read-only towards Oracle EPM: FinMax/FinLite actuals, FinPlan plan/forecast).
 1) fin_lookup: metric names and members (entities 'un.SY.<code>' in FinMax, '<code> <name>' in FinPlan).
@@ -37,6 +39,8 @@ answer in the workbook to the latest closed month (relative periods roll forward
 6) Editing a workbook the user has open with Excel MCP: xl_snapshot first, then edit, xl_revert to undo; finish
 with xl_tidy (zero BLOCK findings). 7) After the server reloads, Claude Code may keep an old tool schema: if a
 parameter seems missing, ask the user to run /mcp and reconnect smartass2.
+Ledger lines: a lines block (cell with All Accounts, All Entities, All Time Periods; Periodic; FinLite) or
+fin_drill(cell) ranks suppliers, projects or accounts and ties them to the cube.
 Sheet text is English; answer the user in their language. The user's own workbooks are never saved."""
 
 mcp = MCPServer("smartass2", instructions=INSTRUCTIONS, lifespan=v1.lifespan)
@@ -104,6 +108,56 @@ async def _user(fn, what: str):
     return await v1._call_user(_clean(fn), what=what)
 
 
+async def _drill(cell: dict):
+    """The FinLite ledger lines behind one cube cell (v1 drill: Smart View link, hidden browser, reconciliation)."""
+    from smartview_mcp.core import drillstep
+    return await drillstep.drill(cell, connection="FinLite")
+
+
+async def _line_sets(spec: AnalysisSpec) -> tuple[dict, list[str]]:
+    """Drill every lines block: {'b<i>': LineSet} and the drills' warnings. Project grouping marks each line's
+    booked project (INITIATIVE) first. A drill with 0 lines still gives a LineSet (prepare refuses it, with the reason)."""
+    from smartview_mcp.core.recipes import lines as v1lines
+    out: dict[str, LineSet] = {}
+    notes: list[str] = []
+    for i, b in enumerate(spec.blocks):
+        if not isinstance(b, LinesBlock):
+            continue
+        res = await _drill(b.cell)
+        rows, cols = res.rows, list(res.columns)
+        if b.group_by == "project":
+            cols = v1lines.add_initiative(rows, cols)
+        out[f"b{i}"] = LineSet(f"b{i}", rows, cols, res.cell_value, reconciliation=res.reconciliation,
+                                warnings=list(res.warnings), cell=b.cell)
+        notes += res.warnings
+    return out, notes
+
+
+def _has_lines(raw: dict) -> bool:
+    return any(isinstance(b, dict) and b.get("type") == "lines" for b in raw.get("blocks") or [])
+
+
+async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None):
+    """(Prepared, drill warnings). A stored or patched raw spec with lines blocks is re-drilled, so lines are fresh."""
+    notes: list[str] = []
+    lines: dict = {}
+    if spec is not None or _has_lines(raw):
+        lines, notes = await _line_sets(spec or AnalysisSpec.model_validate(raw))
+    pre = await asyncio.to_thread(run_prepare, raw, provider, lines=lines)
+    return pre, notes
+
+
+def _with_notes(out: dict, notes: list[str]) -> dict:
+    if notes:
+        out["warnings"] = list(out.get("warnings", [])) + notes
+    return out
+
+
+async def _new_question(spec: AnalysisSpec, target: str) -> dict:
+    pre, notes = await _prepare(spec.model_dump(), _provider(), spec)
+    return _with_notes(await _user(lambda h: excel_job(h, pre, target), "fin_analyze"), notes)
+
+
 @_register(v1.WRITE)
 async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = None, q: int | None = None,
                       target: str = "session", ctx: Context | None = None) -> dict:
@@ -116,14 +170,27 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     if (spec is None) == (patch is None):
         raise GuardError("give spec (a new question) or patch (a follow-up), not both",
                          "pass spec=... for a new question, or patch=... (and q) to change an existing answer")
-    provider = _provider()
     if spec is not None:
-        pre = await asyncio.to_thread(run_prepare, spec.model_dump(), provider)
-        return await _user(lambda h: excel_job(h, pre, target), "fin_analyze")
+        return await _new_question(spec, target)
+    provider = _provider()
     stored, active, path = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
     q2, raw, owned = find_question(stored, q, active)
-    pre = await asyncio.to_thread(run_prepare, merge_patch(raw, patch), provider)
-    return await _user(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up")
+    pre, notes = await _prepare(merge_patch(raw, patch), provider)
+    return _with_notes(await _user(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up"), notes)
+
+
+@_register(v1.WRITE)
+async def fin_drill(cell: dict, group_by: str = "supplier", top: int = 10, target: str = "session",
+                    ctx: Context | None = None) -> dict:
+    """Ledger lines behind one cube cell (FinLite, Periodic): ranked by supplier, project or account, with Other,
+    lines without the group, the lines total, the cube value and the gap. cell: {"All Accounts": "ac.C60",
+    "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"} (a parent period such as 'Yr 26' works).
+    Same sheets and checks as a lines block in fin_analyze."""
+    legacy.configure_v2()
+    spec = AnalysisSpec.model_validate({
+        "version": 2, "question": f"Ledger lines behind {' / '.join(cell.values())}", "plan": {"depth": "quick"},
+        "queries": [], "blocks": [{"type": "lines", "cell": cell, "group_by": group_by, "top": top}]})
+    return await _new_question(spec, target)
 
 
 @_register(v1.WRITE)
@@ -140,9 +207,9 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
                          "error": f"skipped: the restore of Q{broken} failed - check the workbook first"})
             continue
         try:
-            pre = await asyncio.to_thread(run_prepare, stored[q]["spec"]["v2"], provider)
-            out = await _user(lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), path),
-                              "fin_refresh")
+            pre, notes = await _prepare(stored[q]["spec"]["v2"], provider)
+            out = _with_notes(await _user(lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), path),
+                                          "fin_refresh"), notes)
             workbook = out.get("workbook", workbook)
             done.append({"q": q, "ok": True, "closed": out.get("closed")})
         except RestoreError as e:
