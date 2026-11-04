@@ -36,11 +36,20 @@ class Prepared:
     aggregation: dict[str, str] = field(default_factory=dict)
 
 
-def prepare(raw: dict, resolver, provider, closed: dict | None = None) -> Prepared:
+def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: dict | None = None) -> Prepared:
     spec = AnalysisSpec.model_validate(raw)
-    if any(isinstance(b, LinesBlock) for b in spec.blocks):
-        raise GuardError("the 'lines' block needs fin_drill, which arrives in Plan 1C",
-                         "leave the lines block out for now")
+    lines = lines or {}
+    for i, b in enumerate(spec.blocks):
+        if not isinstance(b, LinesBlock):
+            continue
+        ls = lines.get(f"b{i}")
+        if ls is None:
+            raise GuardError(f"block {i} (lines) has no ledger lines", "run it through fin_analyze or fin_drill, "
+                             "which drill the cell first")
+        if not ls.rows:
+            why = f" ({'; '.join(ls.warnings)})" if ls.warnings else ""
+            raise GuardError(f"no ledger lines behind {' / '.join(b.cell.values())}{why}",
+                             "check the cell (account, entity, period) or the cube value; FinLite holds the lines")
     if closed is None:
         closed = provider.closed_months()
     canonical = getattr(resolver, "canonical", None)
@@ -52,6 +61,7 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None) -> Prepar
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as ex:
         got = list(ex.map(provider.fetch, reqs))
     frame = Frame([f for g in got for f in g.facts])
+    frame.lines = dict(lines)
     warnings = [w for g in got for w in g.warnings]
     routes: dict[str, int] = {}
     for g in got:
@@ -62,7 +72,7 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None) -> Prepar
                     aggregation)
 
 
-def run_prepare(raw: dict, provider) -> Prepared:
+def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:
     """prepare() for a worker thread: everything that touches sqlite (the atlas connection) is opened, used and closed
     here, in the calling thread. Closed months are fetched once. Nothing after prepare needs the resolver: the
     labels are already in the BlockOut lines."""
@@ -75,7 +85,7 @@ def run_prepare(raw: dict, provider) -> Prepared:
     closed = provider.closed_months()
     with contextlib.closing(atlas.connect()) as db:
         resolver = AtlasResolver(db, catalog_metrics(), forecast_year=closed["FinPlan"][0] % 100)
-        return prepare(raw, resolver, provider, closed=closed)
+        return prepare(raw, resolver, provider, closed=closed, lines=lines)
 
 
 def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: list[str], lint: list[str]) -> dict:
@@ -258,12 +268,36 @@ def read_stored(h, target: str = "session") -> tuple[dict, str | None, str]:
     return sheets._stored_specs(t), com(lambda: t.wb.ActiveSheet.Name), str(t.path)
 
 
+def _write_lines(t, q: int, ls) -> str:
+    """One line set -> table Lines_Q<q>_<alias> on 'Q<q> Lines <alias>' (v1 drill_xl.write_lines, which reuses the
+    table in place) and the cube value in C2/D2 where CubeRef reads it."""
+    from smartview_mcp import drill_xl
+    from smartview_mcp.excel.jobs import com
+
+    from .model.lines import CUBE_CELL
+    cell = " / ".join(ls.cell.values()) if ls.cell else ls.alias
+    res = drill_xl.write_lines(t, q, ls.rows, ls.columns, title=f"Ledger lines behind {cell}",
+                               source="Source: Oracle EPM Cloud (FinLite drill-through) via Smart View.",
+                               alias=ls.alias)
+    want = f"Q{q} Lines {ls.alias}"
+    if res["sheet"] != want:                    # CubeRef addresses the sheet by this name
+        raise GuardError(f"the lines sheet came out as {res['sheet']!r}, not {want!r}",
+                         "rename or delete the sheet with that name, then ask again")
+    ws = _sheet(t, want)
+    com(lambda: setattr(ws.Range("C2"), "Value", "Cube value"))
+    com(lambda: setattr(ws.Range(CUBE_CELL.replace("$", "")), "Value", ls.cube_value))
+    return want
+
+
 def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
           old_owned: dict | None = None) -> dict:
     """Data sheet, layout, Answer sheet, charts, readback, spec + owned range, sheet order. Shared by excel_job and
     redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place."""
     (rewrite_data if redraw else write_data)(ws_data, pre.frame, q)
-    cubes = sorted({x.cube for x in pre.spec.queries})
+    cubes = sorted({x.cube for x in pre.spec.queries}) or ["FinLite"]     # a lines-only spec has no query
+    line_sheets = [f"Q{q} Lines {a}" for a in pre.frame.lines]
+    for ls in pre.frame.lines.values():         # before the answer, so its formulas resolve
+        _write_lines(t, q, ls)
     closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
     plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}",
                   const=constant_columns(pre.frame))
@@ -275,7 +309,7 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan), plan.fractions)
     _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     arranged = _arrange(t, f"Q{q} Answer")
-    return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data"], mismatches,
+    return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data", *line_sheets], mismatches,
                  lint + ([arranged] if arranged else []))
 
 

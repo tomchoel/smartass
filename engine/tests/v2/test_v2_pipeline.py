@@ -50,10 +50,44 @@ def test_reply_shape_and_fetch_warnings():
     assert out["saved_user_workbook"] is False
 
 
-def test_lines_block_is_refused_in_1b():
-    d = spec_dict(blocks=[{"type": "lines", "cell": {"All Accounts": "ac.C60", "All Time Periods": "Yr 26"}}])
-    with pytest.raises(GuardError, match="lines"):
+LINE_CELL = {"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Yr 26"}
+
+
+def lines_only_spec():
+    d = spec_dict(blocks=[{"type": "lines", "cell": LINE_CELL, "group_by": "supplier", "top": 2}])
+    d["queries"] = []
+    return d
+
+
+def test_lines_only_spec_needs_no_grid_requests():
+    from smartass.model.lines import LineSet
+    prov = FakeProvider(facts())
+    rows = [{"AP_CUSTOMER_NAME": "Bouvet", "AMOUNT": -30.0}, {"AP_CUSTOMER_NAME": "Accenture", "AMOUNT": -70.0}]
+    ls = LineSet("b0", rows, ["AP_CUSTOMER_NAME", "AMOUNT"], cube_value=-100.0, cell=LINE_CELL)
+    pre = prepare(lines_only_spec(), resolver(), prov, lines={"b0": ls})
+    assert prov.asked == [] and pre.requests == []
+    assert pre.frame.lines["b0"] is ls
+    assert pre.result.outs[0].type == "lines"
+    assert pre.result.key_values["Ledger lines by supplier · Ledger lines total"]["Amount"] == -100.0
+
+
+def test_spec_needs_a_query_or_a_lines_block():
+    d = spec_dict()
+    d["queries"] = []
+    with pytest.raises(Exception, match="query"):
         prepare(d, resolver(), FakeProvider(facts()))
+
+
+def test_lines_block_without_its_line_set_is_refused():
+    with pytest.raises(GuardError, match="lines"):
+        prepare(lines_only_spec(), resolver(), FakeProvider(facts()))
+
+
+def test_empty_line_set_is_refused_before_excel():
+    from smartass.model.lines import LineSet
+    ls = LineSet("b0", [], [], cube_value=-100.0, cell=LINE_CELL, warnings=["no drill report"])
+    with pytest.raises(GuardError, match="no ledger lines"):
+        prepare(lines_only_spec(), resolver(), FakeProvider(facts()), lines={"b0": ls})
 
 
 class TStored:

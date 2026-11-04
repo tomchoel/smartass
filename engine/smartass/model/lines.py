@@ -15,6 +15,7 @@ class LineSet:
     columns: list[str]
     cube_value: float | None = None
     reconciliation: dict = field(default_factory=dict)
+    cell: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
 

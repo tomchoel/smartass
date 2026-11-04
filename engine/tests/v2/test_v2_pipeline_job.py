@@ -77,3 +77,19 @@ def test_job_draws_charts_and_saves_owned_range(monkeypatch):
     pipeline.excel_job(None, pre, target="session")
     assert log.index("write_answer") < log.index("write_charts") < log.index("calculate")
     assert saved["q"] == 4 and saved["owned"]["rows"] > 10 and saved["owned"]["cols"] >= 3
+
+
+def test_job_writes_each_line_set_before_the_answer(monkeypatch):
+    from test_v2_pipeline import LINE_CELL, lines_only_spec
+
+    from smartass.model.lines import LineSet
+    log = []
+    wire(monkeypatch, log)
+    monkeypatch.setattr(pipeline, "_write_lines", lambda t, q, ls: log.append(f"write_lines {q} {ls.alias}"))
+    rows = [{"AP_CUSTOMER_NAME": "Bouvet", "AMOUNT": -30.0}]
+    ls = LineSet("b0", rows, ["AP_CUSTOMER_NAME", "AMOUNT"], cube_value=-30.0, cell=LINE_CELL)
+    pre = pipeline.prepare(lines_only_spec(), resolver(), FakeProvider(facts()), lines={"b0": ls})
+    out = pipeline.excel_job(None, pre, target="session")
+    assert log.index("write_data") < log.index("write_lines 4 b0") < log.index("write_answer")
+    assert log.count("write_lines 4 b0") == 1
+    assert out["sheets"] == ["Q4 Answer", "Q4 Data", "Q4 Lines b0"]

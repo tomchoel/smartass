@@ -228,11 +228,13 @@ class AnalysisSpec(_M):
     version: Literal[2]
     question: str = Field(min_length=1)
     plan: Plan
-    queries: list[Query] = Field(min_length=1)
+    queries: list[Query] = []
     blocks: list[Block] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _refs(self) -> "AnalysisSpec":
+        if not self.queries and not any(isinstance(b, LinesBlock) for b in self.blocks):
+            raise ValueError("give at least one query, or a lines block (the only block that needs no query)")
         ids = [q.id for q in self.queries]
         if len(ids) != len(set(ids)):
             raise ValueError("query ids must be unique")
