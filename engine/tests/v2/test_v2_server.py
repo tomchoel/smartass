@@ -5,8 +5,15 @@ from v2util import resolver
 from smartass import server
 
 
-def test_four_tools_registered():
-    assert server.TOOL_NAMES == ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh")
+def test_seven_tools_registered():
+    assert server.TOOL_NAMES == ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "xl_snapshot", "xl_revert",
+                                 "xl_tidy")
+
+
+def test_instructions_mention_the_excel_toolkit_and_reconnect():
+    text = server.INSTRUCTIONS
+    assert "xl_snapshot" in text and "Excel MCP" in text and "/mcp" in text
+    assert len(text) < 2500
 
 
 def test_lookup_metrics_and_members(monkeypatch):

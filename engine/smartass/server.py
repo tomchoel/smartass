@@ -21,7 +21,7 @@ from .model.spec import AnalysisSpec
 from .model.validate import GuardError
 from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prepare
 
-TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh")
+TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "xl_snapshot", "xl_revert", "xl_tidy")
 
 INSTRUCTIONS = """smartass2 (v2, read-only towards Oracle EPM: FinMax/FinLite actuals, FinPlan plan/forecast).
 1) fin_lookup: metric names and members (entities 'un.SY.<code>' in FinMax, '<code> <name>' in FinPlan).
@@ -33,6 +33,9 @@ step: Revenue, COGS, Opex, Other items (FinMax) - otherwise 'Other / unexplained
 whole); default q = the active Q<n> Answer, else the latest. 4) Monthly packs: fin_refresh() re-runs every v2
 answer in the workbook to the latest closed month (relative periods roll forward), no AI needed.
 5) Quote numbers only from key_values; explain material lines from drivers evidence or label them a hypothesis.
+6) Editing a workbook the user has open with Excel MCP: xl_snapshot first, then edit, xl_revert to undo; finish
+with xl_tidy (zero BLOCK findings). 7) After the server reloads, Claude Code may keep an old tool schema: if a
+parameter seems missing, ask the user to run /mcp and reconnect smartass2.
 Sheet text is English; answer the user in their language. The user's own workbooks are never saved."""
 
 mcp = MCPServer("smartass2", instructions=INSTRUCTIONS, lifespan=v1.lifespan)
