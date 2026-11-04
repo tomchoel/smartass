@@ -5,8 +5,8 @@ from v2util import resolver
 from smartass import server
 
 
-def test_three_tools_registered():
-    assert server.TOOL_NAMES == ("fin_analyze", "fin_lookup", "fin_status")
+def test_four_tools_registered():
+    assert server.TOOL_NAMES == ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh")
 
 
 def test_lookup_metrics_and_members(monkeypatch):
@@ -27,3 +27,74 @@ def test_lookup_kind_metric_only(monkeypatch):
 
 def test_instructions_are_short():
     assert len(server.INSTRUCTIONS) < 2500
+
+
+def test_patched_spec_is_validated_before_any_excel_work():
+    from v2util import spec_dict
+
+    from smartass.followup import merge_patch
+    from smartass.model.spec import AnalysisSpec
+    raw = merge_patch(spec_dict(), {"plan": {"purpose": "New purpose"}})
+    assert AnalysisSpec.model_validate(raw).plan.purpose == "New purpose"
+
+
+def test_instructions_mention_followup_refresh_and_bridge_steps():
+    text = server.INSTRUCTIONS
+    assert "patch" in text and "fin_refresh" in text and "COGS" in text
+    assert len(text) < 2500
+
+
+def _wire(monkeypatch, stored, fail_prepare=()):
+    import asyncio
+
+    async def user(fn, what):
+        return fn(None)
+    calls = []
+    monkeypatch.setattr(server, "_user", user)
+    monkeypatch.setattr(server, "_provider", lambda: "provider")
+    monkeypatch.setattr(server, "read_stored", lambda h, target="session": (stored, "Q2 Answer"))
+
+    def prep(raw, provider):
+        if raw["question"] in fail_prepare:
+            raise RuntimeError("no data")
+        calls.append(("prepare", raw["question"]))
+        return raw
+    monkeypatch.setattr(server, "run_prepare", prep)
+
+    def redraw(h, pre, q, owned, target="session"):
+        calls.append(("redraw", q))
+        return {"q": q, "workbook": "W", "closed": {"FinMax": "09/2026"}}
+    monkeypatch.setattr(server, "redraw_job", redraw)
+    return calls, asyncio
+
+
+def test_fin_analyze_needs_exactly_one_of_spec_and_patch(monkeypatch):
+    import asyncio
+
+    from smartass.model.spec import AnalysisSpec
+    from smartass.model.validate import GuardError
+    from v2util import spec_dict
+    with pytest.raises(GuardError, match="not both"):
+        asyncio.run(server.fin_analyze())
+    with pytest.raises(GuardError, match="not both"):
+        asyncio.run(server.fin_analyze(spec=AnalysisSpec.model_validate(spec_dict()), patch={"x": 1}))
+
+
+def test_followup_patches_the_stored_spec_and_redraws(monkeypatch):
+    stored = {2: {"spec": {"v2": {"question": "a", "plan": {"purpose": "old"}}}, "ids": {}, "owned": {"rows": 3, "cols": 2}}}
+    calls, asyncio = _wire(monkeypatch, stored)
+    seen = {}
+    monkeypatch.setattr(server, "run_prepare", lambda raw, provider: seen.update(raw=raw) or raw)
+    out = asyncio.run(server.fin_analyze(patch={"plan": {"purpose": "new"}}))
+    assert seen["raw"]["plan"]["purpose"] == "new" and out["q"] == 2 and calls == [("redraw", 2)]
+
+
+def test_refresh_continues_past_a_failing_question(monkeypatch):
+    stored = {2: {"spec": {"v2": {"question": "bad"}}, "ids": {}, "owned": None},
+              3: {"spec": {"v2": {"question": "good"}}, "ids": {}, "owned": None}}
+    calls, asyncio = _wire(monkeypatch, stored, fail_prepare=("bad",))
+    out = asyncio.run(server.fin_refresh())
+    r = out["refreshed"]
+    assert [(x["q"], x["ok"]) for x in r] == [(2, False), (3, True)]
+    assert "no data" in r[0]["error"] and r[1]["closed"] == {"FinMax": "09/2026"}
+    assert calls == [("prepare", "good"), ("redraw", 3)]

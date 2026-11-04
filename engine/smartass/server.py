@@ -1,6 +1,6 @@
 # engine/smartass/server.py
-"""smartass2: the v2 MCP server (built beside v1 until v2 passes the test set). Three tools in Plan 1B:
-fin_analyze, fin_lookup, fin_status. Error text (guard), Excel jobs (_call_user, progress notes) and the lifespan
+"""smartass2: the v2 MCP server (built beside v1 until v2 passes the test set). Four tools:
+fin_analyze (new question or follow-up patch), fin_lookup, fin_status, fin_refresh. Error text (guard), Excel jobs (_call_user, progress notes) and the lifespan
 (warm-up, closing the hidden Excel) are v1's via the legacy seam; answer files and session are v2's own."""
 from __future__ import annotations
 
@@ -16,18 +16,24 @@ from smartview_mcp import server as v1
 from . import legacy
 from .knowledge.atlas_resolver import AtlasResolver
 from .knowledge.interim import catalog_metrics
+from .followup import find_question, merge_patch, v2_questions
 from .model.spec import AnalysisSpec
+from .model.validate import GuardError
+from .pipeline import excel_job, read_stored, redraw_job, run_prepare
 
-TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status")
+TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh")
 
 INSTRUCTIONS = """smartass2 (v2, read-only towards Oracle EPM: FinMax/FinLite actuals, FinPlan plan/forecast).
-Loop: 1) fin_lookup to find metric names and members (entities 'un.SY.<code>' in FinMax, '<code> <name>' in FinPlan).
-2) Write an AnalysisSpec (version 2): plan (depth quick|standard|deep, purpose, hypotheses), queries (cube, metrics,
-entity, periods like 'closed-ytd', compare ly | budget | forecast - budget/forecast only in FinPlan), blocks (table,
-kpi_tiles, trend, matrix, bridge, ranking, drivers, commentary). 3) fin_analyze(spec): builds Q<n> Answer (live
-formulas) + Q<n> Data in the session workbook; a refused spec says why and how to fix it. 4) Quote numbers only from
-key_values; explain material lines from drivers evidence or label them as a hypothesis. Sheet text is English;
-answer the user in their language. The user's own workbooks are never saved."""
+1) fin_lookup: metric names and members (entities 'un.SY.<code>' in FinMax, '<code> <name>' in FinPlan).
+2) New question: fin_analyze(spec) with an AnalysisSpec v2 - plan (depth, purpose, hypotheses), queries (cube,
+metrics, entity, periods e.g. 'closed-ytd', compare ly | budget | forecast; budget/forecast only in FinPlan),
+blocks (table, kpi_tiles, trend, matrix, bridge, ranking, drivers, commentary). An EBITDA bridge uses every P&L
+step: Revenue, COGS, Opex, Other items (FinMax) - otherwise 'Other / unexplained' is large.
+3) Follow-up: fin_analyze(patch=..., q=n) - a JSON merge patch on the stored spec (lists like blocks are replaced
+whole); default q = the active Q<n> Answer, else the latest. 4) Monthly packs: fin_refresh() re-runs every v2
+answer in the workbook to the latest closed month (relative periods roll forward), no AI needed.
+5) Quote numbers only from key_values; explain material lines from drivers evidence or label them a hypothesis.
+Sheet text is English; answer the user in their language. The user's own workbooks are never saved."""
 
 mcp = MCPServer("smartass2", instructions=INSTRUCTIONS, lifespan=v1.lifespan)
 
@@ -73,19 +79,57 @@ def fin_lookup(query: str, kind: str = "any", cube: str | None = None) -> dict:
     return lookup(query, kind, cube)
 
 
-@_register(v1.WRITE)
-async def fin_analyze(spec: AnalysisSpec, target: str = "session", ctx: Context | None = None) -> dict:
-    """Run one analysis: validate the spec, fetch the data over Smart View HTTP, compute, and build Q<n> Answer
-    (live formulas on table Data_Q<n>) + Q<n> Data in the session workbook (target 'session', 'new' or 'active').
-    Returns key_values (quote only these), material lines, findings, checks and warnings."""
+def _provider():
     from smartview_mcp import svhttp
 
     from .data.provider import SvHttpProvider
-    from .pipeline import excel_job, run_prepare
+    return SvHttpProvider(svhttp.shared())
+
+
+async def _user(fn, what: str):
+    return await v1._call_user(fn, what=what)
+
+
+@_register(v1.WRITE)
+async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = None, q: int | None = None,
+                      target: str = "session", ctx: Context | None = None) -> dict:
+    """Run one analysis. New question: spec = AnalysisSpec v2. Follow-up: patch = JSON merge patch on the stored
+    spec of Q<q> (default: the active Q<n> Answer, else the latest); the same sheets are rebuilt in place.
+    Fetches over Smart View HTTP, computes, and builds Q<n> Answer (live formulas on table Data_Q<n>) + Q<n> Data in
+    the session workbook (target 'session', 'new' or 'active'). Returns key_values (quote only these), material
+    lines, findings, checks and warnings."""
     legacy.configure_v2()
-    provider = SvHttpProvider(svhttp.shared())
-    pre = await asyncio.to_thread(run_prepare, spec.model_dump(), provider)
-    return await v1._call_user(lambda h: excel_job(h, pre, target), what="fin_analyze")
+    if (spec is None) == (patch is None):
+        raise GuardError("give spec (a new question) or patch (a follow-up), not both",
+                         "pass spec=... for a new question, or patch=... (and q) to change an existing answer")
+    provider = _provider()
+    if spec is not None:
+        pre = await asyncio.to_thread(run_prepare, spec.model_dump(), provider)
+        return await _user(lambda h: excel_job(h, pre, target), "fin_analyze")
+    stored, active = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
+    q2, raw, owned = find_question(stored, q, active)
+    pre = await asyncio.to_thread(run_prepare, merge_patch(raw, patch), provider)
+    return await _user(lambda h: redraw_job(h, pre, q2, owned, target), "fin_analyze follow-up")
+
+
+@_register(v1.WRITE)
+async def fin_refresh(target: str = "session", ctx: Context | None = None) -> dict:
+    """Re-run every v2 answer in the workbook with its stored spec (no patch): relative periods such as
+    'closed-ytd' roll forward to the latest closed month. A failing question is reported and does not stop the rest."""
+    legacy.configure_v2()
+    provider = _provider()
+    stored, _ = await _user(lambda h: read_stored(h, target), "fin_refresh")
+    done, workbook = [], None
+    for q in v2_questions(stored):
+        try:
+            pre = await asyncio.to_thread(run_prepare, stored[q]["spec"]["v2"], provider)
+            out = await _user(lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), target),
+                              "fin_refresh")
+            workbook = out.get("workbook", workbook)
+            done.append({"q": q, "ok": True, "closed": out.get("closed")})
+        except Exception as e:   # noqa: BLE001 - one question never stops the pack
+            done.append({"q": q, "ok": False, "error": str(e)})
+    return {"refreshed": done, "workbook": workbook}
 
 
 @_register(v1.LOCAL)

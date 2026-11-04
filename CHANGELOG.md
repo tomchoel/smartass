@@ -6,6 +6,8 @@ One pipeline: every question goes `sv_gate` -> `sv_answer` (design `docs/specs/2
 
 ### Added
 
+- v2 complete answers: charts (trend, bridge), follow-ups via fin_analyze(patch, q), fin_refresh for monthly
+  packs, drivers skip pass-through nodes, Q<n> Data sorted with data sheets.
 - v2 model core (`engine/smartass/model`): typed analysis spec, period algebra, fact frame, expression trees
   (value and Excel formula from one tree), seven computed blocks (table, kpi_tiles, trend, matrix, bridge, ranking,
   drivers), data guards, material lines and key values. Not wired to tools yet (Plan 1B).
