@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-One pipeline: every question goes `sv_gate` -> `sv_answer` (design `docs/specs/2026-11-02-pipeline-architecture-design.md`).
+v2 stands alone: one MCP server `smartass` with eight tools; the agent writes an AnalysisSpec v2 and the engine
+validates, computes and draws it (design `docs/DESIGN.md`, `docs/specs/2026-11-04-v2-overview.md`). v1 is retired.
 
 ### Added
 
@@ -49,13 +50,44 @@ One pipeline: every question goes `sv_gate` -> `sv_answer` (design `docs/specs/2
 
 ### Changed
 
+- **One server, `smartass`, runs v2.** `run_server.py` -> `child_server.py` -> `smartass.server`; the side-by-side
+  `smartass2` entry, `run_server_v2.py` and `child_server_v2.py` are gone (`smartass setup` removes a leftover
+  `smartass2` MCP entry). Engine code lives in `engine/smartass/` (`core`, `model`, `data`, `render`, `epm`,
+  `knowledge`, `xl`, `ops`); answer files go to the plain analyser folder again (no `v2` subfolder).
+- **Reload on request only.** The relay restarts its server when `engine/VERSION` changes (`scripts/bump.ps1`
+  bumps it with `pyproject.toml`; `smartass.__version__` reads it) or on `fin_status(restart=True)`, never on a
+  `.py` edit.
+- **Runtime fixes.** `pids.json` is written atomically under a lock file; the HTTP API secret is DPAPI-protected in
+  `secret.bin` (a plain `http.secret` in `config.toml` is moved there once by `smartass setup`); Smart View options
+  left by a crashed run are restored at the next start; `smartass doctor` checks Excel's VBA project access
+  (Trust Center).
+- **HTTP API:** `POST /analyze` (`{"spec", "target"}`, the same run as `fin_analyze`) replaces `/gate` and
+  `/answer`; `GET /health` stays.
+- **CLI:** `smartass atlas build | status` (the atlas build is no longer a tool); `doctor`, `setup`, `update` and
+  `serve` run on the v2 modules (`python -m smartass.ops.cli`).
+- `fin_status` returns the doctor's problems and takes `restart`.
 - The SSO grace for the hidden Excel's sign-in (`LOGIN_GRACE_S`, env `SV_LOGIN_GRACE`) defaults to 30 s.
 - Engine modules reorganised: packages `excel/` (the user's Excel) and `workbench/` (xl_* tools), `answer` +
   `answer_write`, `host` + `hostproc`.
-- Tool count 35 -> 25.
+- Tool count 35 -> 25 (v1 rework), then 8 (v2).
 
 ### Removed (breaking)
 
+- **v1 retired:** the package `engine/smartview_mcp` (gate, recipes, answer spec v1, workbench tools), its tests,
+  the live bench (`tests/live`, replaced by `python -m smartass.testset`) and the skill's `recipes.md`. Tool
+  renames:
+
+  | v1 | v2 |
+  |---|---|
+  | `sv_answer` (and `sv_gate`, `sv_remember`, recipes) | `fin_analyze` (AnalysisSpec v2; follow-ups by `patch`) |
+  | `sv_drill` | `fin_drill` (or a `lines` block) |
+  | `sv_find_member`, `sv_members`, `sv_member_info`, `sv_dimensions` | `fin_lookup` |
+  | `sv_status`, `sv_restart`, `sv_atlas_status` | `fin_status` (`restart=True`) |
+  | `sv_atlas_build`, `sv_atlas_changes` | `smartass atlas build` / `smartass atlas status` (CLI) |
+  | `xl_workbooks`, `xl_overview`, `xl_read`, `xl_write`, `xl_rows`, `xl_add_sheet`, `xl_format`, `xl_format_sheet`, `xl_trace`, `xl_check`, `xl_changes`, `xl_revert` | Excel MCP + `xl_snapshot` / `xl_revert` / `xl_tidy` |
+  | (new) | `fin_refresh` (monthly packs) |
+
+- HTTP endpoints `POST /gate` and `POST /answer` (use `POST /analyze`).
 - Tools `sv_query`, `sv_ws_pull`, `sv_ws_build`, `sv_ws_answer`, `sv_analyse`, `sv_concept`, `fin_pnl`,
   `sv_scope`, `sv_warehouse`, `sv_refresh_workbook`: use `sv_gate` + `sv_answer` (recipes for P&L, plan, trend,
   cost base and concepts); refresh an old workbook in Excel with Smart View's Refresh.
