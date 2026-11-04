@@ -11,6 +11,9 @@ export type ChatEvent =
   | { type: "error"; message: string }
   | { type: "closed"; code: number }
 
+/** The server runs one chat at a time: a second /api/chat while one is going answers 409 with this message. */
+export class BusyError extends Error {}
+
 /** POST /api/chat and yield the Server-Sent Events as they arrive. */
 export async function* chat(prompt: string, context: ExcelContext, sessionId?: string, signal?: AbortSignal) {
   const res = await fetch("/api/chat", {
@@ -19,6 +22,10 @@ export async function* chat(prompt: string, context: ExcelContext, sessionId?: s
     body: JSON.stringify({ prompt, context, sessionId }),
     signal,
   })
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}))
+    throw new BusyError(body.error || "Claude arbeider allerede med en forespørsel.")
+  }
   if (!res.ok || !res.body) throw new Error(`server answered ${res.status}`)
   const reader = res.body.getReader()
   const dec = new TextDecoder()

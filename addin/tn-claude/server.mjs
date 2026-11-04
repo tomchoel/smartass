@@ -1,6 +1,7 @@
 // TN Claude task pane - local server (just for this PC).
 //   https://localhost:3000            the built pane (dist/), over the office-addin-dev-certs localhost certificate
 //   POST /api/chat     {prompt, context, sessionId?}  -> Server-Sent Events from a headless Claude Code run
+//                                                        (one run at a time: 409 while one is going)
 //   POST /api/stop     {runId}                        -> stops that run
 //   GET  /api/changes?workbook=                       -> the smartass snapshot/change log (revertable)
 //   POST /api/revert   {id?, workbook?, force?}       -> undo a change from its snapshot
@@ -21,6 +22,7 @@ import { fileURLToPath } from "node:url"
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT || 3000)
 const CLAUDE = process.env.CLAUDE_EXE || path.join(os.homedir(), ".local", "bin", "claude.exe")
+const CLAUDE_JS = process.env.CLAUDE_JS     // tests only: a node script that stands in for claude.exe
 const WORKDIR = process.env.CLAUDE_CWD ||
   path.join(os.homedir(), "OneDrive - Telenor", "Analyse (Telenor Norge AS) - Produktregnskapet")
 const SVKIT = path.join(process.env.LOCALAPPDATA, "svkit")
@@ -37,14 +39,18 @@ const ALLOWED_TOOLS = ["mcp__smartass", "mcp__excel", "Read", "Grep", "Glob", "S
 const PANE_PROMPT = `You are Claude working INSIDE the user's Excel, in a narrow task pane (about 350 px wide).
 - The user's live context (workbook, sheet, selection and its values) comes with every message. "This", "here",
   "the selection", "this cell" mean that context. Load tool schemas with ToolSearch first if needed.
-- Finance numbers (FinMax/FinLite/FinPlan): smartass v2 (skill smartass). Names: fin_lookup. Analyses: fin_analyze
-  ALWAYS with target="active" (the open workbook), also follow-ups (patch, q) - never a new file unless the user
-  asks. Quote numbers only from key_values, pass on caveats, warnings and findings; standard/deep answers: run
-  fin_critic(q), fix by patch below 4, store the score. Ledger lines: fin_drill.
-- Other edits to the open workbook: Excel MCP (file_read discover -> file attach with the context workbook, then
-  range, range_format, worksheet ...). ALWAYS xl_snapshot(workbook, sheet, range) BEFORE an edit; xl_revert undoes
-  it; finish with xl_tidy (zero BLOCK findings, formulas per tn-formelstil: SUM over ranges, label-keyed XLOOKUP,
-  variance % empty on a zero base). Never save or close the user's workbook (no file save/close, no save:true).
+- Finance numbers (FinMax/FinLite/FinPlan): smartass v2 (skill smartass). Pass target="active" to EVERY
+  fin_analyze (new question AND follow-up patch), fin_critic, fin_refresh and fin_drill call - never a new file
+  unless the user asks. Metrics: use metric NAMES from fin_lookup (e.g. "Gross margin"), not account codes or ids.
+  Quote numbers only from key_values, pass on caveats, warnings and findings; standard/deep answers: run
+  fin_critic(q, target="active"), fix by patch below 4, store the score. Ledger lines: fin_drill.
+- If a fin_* call fails: tell the user the error message and stop. never rebuild an analysis by hand with Excel MCP
+  (no own data sheets, lookup formulas or copied numbers instead of fin_analyze).
+- Excel MCP is only for edits the user explicitly asks for in the open workbook (file_read discover -> file attach
+  with the context workbook, then range, range_format, worksheet ...). ALWAYS xl_snapshot(workbook, sheet, range)
+  BEFORE an edit; xl_revert undoes it; finish with xl_tidy (zero BLOCK findings, formulas per tn-formelstil: SUM
+  over ranges, label-keyed XLOOKUP, variance % empty on a zero base). Never save or close the user's workbook (no
+  file save/close, no save:true).
 - Finance format: 1 000 000, negatives (1 000 000) in tables, a minus sign in text; FinMax signs (costs negative);
   variance = current - comparison. Sheet text English.
 - Answer short for a narrow pane: a few sentences or bullets, no wide tables (max 3 columns). Reply in the user's
@@ -105,7 +111,13 @@ function summarizeInput(name, input) {
 }
 
 // ------------------------------------------------------------------ chat (SSE)
+const BUSY_MESSAGE = "Claude arbeider allerede med en forespørsel. Vent til den er ferdig, eller stopp den først."
+
 function chat(req, res, body) {
+  if (runs.size > 0) {          // one run at a time: two runs in the same Excel step on each other's workbook
+    log("chat refused (busy)", JSON.stringify(body.prompt).slice(0, 200))
+    return json(res, 409, { ok: false, error: BUSY_MESSAGE })
+  }
   const runId = randomUUID()
   res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" })
   const send = (ev) => res.write(`data: ${JSON.stringify(ev)}\n\n`)
@@ -114,7 +126,8 @@ function chat(req, res, body) {
     "--append-system-prompt", PANE_PROMPT, "--allowedTools", ...ALLOWED_TOOLS]
   if (body.sessionId) args.push("--resume", body.sessionId)
   log("chat", runId, body.sessionId || "new", JSON.stringify(body.prompt).slice(0, 200))
-  const child = spawn(CLAUDE, args, { cwd: WORKDIR, windowsHide: true, env: { ...process.env } })
+  const [exe, argv] = CLAUDE_JS ? [process.execPath, [CLAUDE_JS, ...args]] : [CLAUDE, args]
+  const child = spawn(exe, argv, { cwd: WORKDIR, windowsHide: true, env: { ...process.env } })
   runs.set(runId, child)
   send({ type: "run", runId })
   const tools = new Map()       // tool_use id -> name

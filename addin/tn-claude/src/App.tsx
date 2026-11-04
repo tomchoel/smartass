@@ -144,6 +144,7 @@ function ChatPane({ ctx }: { ctx: ExcelContext }) {
   const [startedAt, setStartedAt] = useState<number>(0)
   const [now, setNow] = useState(Date.now())
   const runId = useRef<string>("")
+  const running = useRef(false)          // set at once (state lags a render): two quick sends never start two runs
   const bottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }) }, [msgs])
@@ -157,7 +158,8 @@ function ChatPane({ ctx }: { ctx: ExcelContext }) {
 
   async function send(text: string) {
     const prompt = text.trim()
-    if (!prompt || busy) return
+    if (!prompt || busy || running.current) return
+    running.current = true
     setInput("")
     setBusy(true)
     setStartedAt(Date.now())
@@ -188,8 +190,12 @@ function ChatPane({ ctx }: { ctx: ExcelContext }) {
         } else if (ev.type === "error") toast.error(ev.message.slice(0, 200))
       }
     } catch (e) {
-      toast.error(`Fikk ikke kontakt med den lokale serveren: ${e}`)
+      if (e instanceof api.BusyError) {
+        toast.error(e.message)
+        patchLast((m) => ({ ...m, parts: [{ kind: "text", text: e.message }] }))
+      } else toast.error(`Fikk ikke kontakt med den lokale serveren: ${e}`)
     } finally {
+      running.current = false
       setBusy(false)
       runId.current = ""
     }
@@ -214,7 +220,7 @@ function ChatPane({ ctx }: { ctx: ExcelContext }) {
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input) } }}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!busy) send(input) } }}
             placeholder={ctx.inExcel ? `Spør om ${ctx.sheet}!${ctx.selection} …` : "Spør Claude …"}
             className="max-h-40 min-h-[60px] resize-none border-0 shadow-none focus-visible:ring-0"
           />
@@ -235,7 +241,7 @@ function ChatPane({ ctx }: { ctx: ExcelContext }) {
                 <Square className="size-3 fill-current" />
               </Button>
             ) : (
-              <Button size="icon" className="size-7" onClick={() => send(input)} disabled={!input.trim()}>
+              <Button size="icon" className="size-7" onClick={() => send(input)} disabled={busy || !input.trim()}>
                 <ArrowUp className="size-4" />
               </Button>
             )}
