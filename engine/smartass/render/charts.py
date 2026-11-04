@@ -44,8 +44,17 @@ def _millions(chart) -> None:
         pass
 
 
+def _drop_auto_series(chart) -> None:
+    """AddChart2 guesses a series from the selection; drop it, as v1 answer_write does."""
+    for _ in range(50):
+        if not com(lambda: chart.SeriesCollection().Count):
+            return
+        com(lambda: chart.SeriesCollection(1).Delete())
+
+
 def _line(ws, spec: ChartSpec) -> None:
     shape, chart = _place(ws, spec, XL_LINE)
+    _drop_auto_series(chart)
     r1, r2 = spec.rows[0], spec.rows[-1]
     for col in spec.series_cols:
         s = com(lambda: chart.SeriesCollection().NewSeries())
