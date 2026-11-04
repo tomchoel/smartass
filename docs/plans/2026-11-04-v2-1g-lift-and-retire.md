@@ -236,3 +236,21 @@ Commit per fix: `fix(v2): <what>`.
    - `smartass doctor`;
    - `testset run` 8/8.
 6. **Merge** `v2/1g` into `main` on Tom's OK.
+
+---
+
+## Live result (2026-11-04, Tom's go)
+
+- **MCP.** One entry, `smartass` (v2), with `SV_DRILL_KEEP_WARM=0` and `SV_DRILL_PROFILE_SLOTS=4`. The v1 and
+  `smartass2` entries are removed.
+- **`smartass setup`.** The secret was migrated to `secret.bin` (DPAPI), and the startup shortcut was rewritten.
+- **Outside the repo** (diffs approved by Tom): the global CLAUDE.md Excel section, the skills `tn-formelstil`,
+  `excel-mcp` and `produktregnskapet`, and the memory files.
+- **Smoke checks:**
+  - `fin_status` OK.
+  - B02 = 3 496 062 985, Sheet = model OK.
+  - `fin_drill` C60 / 2TEC / Sep 26 gap 0.
+  - `xl_snapshot`, then an Excel MCP edit, then `xl_revert` restored B1.
+  - `smartass doctor` all OK except `http_api`: the old v1 serve process runs until the next log-on.
+  - Test set 8/8 ok.
+- **Merge.** Merged into main on Tom's OK.
