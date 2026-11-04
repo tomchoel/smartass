@@ -1757,3 +1757,23 @@ Hidden Edge for the Smart View sign-in; the answer opens in Tom's Excel as a new
 ```
 
 Whatever fails live becomes a task in Plan 1C, with the observed error. Never patch it silently.
+
+---
+
+## Live result (2026-11-04, Tom's go)
+
+- Registered as `smartass2` (user scope) with `SV_DRILL_KEEP_WARM=0` and `SV_DRILL_PROFILE_SLOTS=4`.
+- Q1: Business Norway EBITDA YTD Oct 26 vs LY, built with Sheet = model OK (HTTP, 2 grids, 0.73 s).
+- Q2: the B02 check (YTD Sep 26) gives EBITDA 3 496 062 985, variance 89 346 421. Both are identical to v1's
+  bench B02.
+
+## Carried to Plan 1C
+
+1. Every server keeps its own warm drill browser, and there are only three profile slots. With three v1
+   sessions open, v2 got "another sv_drill is running". The Smart View HTTP route should not need a browser slot
+   per server: share one signed-in browser across servers, or raise the slots by default.
+2. Drivers walk through single-child chains (2BUS → 4BUS_B → 50BUS_B with the same numbers). Skip pass-through
+   nodes, so that depth is spent where the variance splits.
+3. A bridge whose steps leave out P&L lines gets a large "Other / unexplained" (97.7 MNOK on Q1). The finding
+   fires correctly. The agent skill should default to the full P&L chain for an EBITDA bridge (Revenue, COGS,
+   Opex, Other items).
