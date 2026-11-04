@@ -6,7 +6,7 @@ from v2util import facts, resolver, spec_dict
 from smartass import server
 from smartass.data.provider import ComboProvider, FetchResult
 from smartass.pipeline import prepare
-from smartview_mcp.svhttp import SvHttpError
+from smartass.epm.svhttp import SvHttpError
 
 
 def test_combo_provider_prefers_the_fixed_result_and_delegates_the_rest():

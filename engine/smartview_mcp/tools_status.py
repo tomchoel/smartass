@@ -8,7 +8,8 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
 from smartass.knowledge import atlas
-from . import atlas_history, doctor, ops, qlog
+from . import atlas_history, doctor, qlog
+from smartass.epm import ops
 from smartass.core import config
 from . import server as core                      # live module ref: read core._host at call time
 from .host import HostError
@@ -24,9 +25,9 @@ async def sv_status() -> dict:
     doc = await asyncio.to_thread(doctor.run)      # network checks (EPM 5 s, HTTP 2 s) off the event loop
     db = atlas.connect()
     st = atlas.status(db)
-    from . import sso
+    from smartass.epm import sso
     h = core._host.status() if core._host else {"excel_running": False, "smartview_version": sso.smartview_version()}
-    from .drill_browser import browser_health
+    from smartass.epm.drill_browser import browser_health
     try:
         drill = browser_health()
     except Exception as e:   # noqa: BLE001 - a health probe never fails the status call

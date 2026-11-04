@@ -2,7 +2,7 @@
 import pytest
 
 from smartview_mcp import formulas as fx
-from smartview_mcp.grid import Axis, Layout
+from smartass.epm.grid import Axis, Layout
 from smartview_mcp.excel.sheets import Pull, lookup_formula
 
 

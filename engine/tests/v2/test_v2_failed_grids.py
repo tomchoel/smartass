@@ -4,7 +4,7 @@ from v2util import facts, resolver, spec_dict
 from smartass.data.provider import facts_from_parsed
 from smartass.model.requests import GridRequest
 from smartass.pipeline import prepare
-from smartview_mcp.svhttp import SvHttpError
+from smartass.epm.svhttp import SvHttpError
 
 REQ = GridRequest("fm", "FinMax", ("ac.C30",), ("E1",), ("Sep 26",), "Actual", "", "Periodic")
 

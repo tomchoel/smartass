@@ -15,8 +15,9 @@ from dataclasses import dataclass
 from typing import Callable
 
 from smartass.knowledge import atlas
-from . import catalog, ops
-from .grid import Axis
+from . import catalog
+from smartass.epm import ops
+from smartass.epm.grid import Axis
 from .host import ExcelHost, HostError, InputError
 
 log = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ def closed_month(h: ExcelHost, connection: str = "FinMax") -> str:
     import os
     import time
     from smartass.core import config
-    from . import svhttp
+    from smartass.epm import svhttp
     cache = config.SVKIT / "closed_month.json"
     now = time.time()
     try:

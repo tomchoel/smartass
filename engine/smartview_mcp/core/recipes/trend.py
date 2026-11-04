@@ -4,7 +4,7 @@ against FinMax Accumulated, and the same months last year (unless compare=[]). W
 from __future__ import annotations
 
 from ... import templates
-from ...grid import Axis
+from smartass.epm.grid import Axis
 from . import Draft, RecipeContext, pull_dict, relabel, stub_pulls
 
 DEFAULTS = {"compare": (lambda v: "ly" in (v or []), "the standard trend shows the same months last year")}

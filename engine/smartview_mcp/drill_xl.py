@@ -11,7 +11,7 @@ import re
 from openpyxl.utils import get_column_letter
 
 from smartass.core import config
-from .drill_lines import KEY_LABELS
+from smartass.epm.drill_lines import KEY_LABELS
 from .excel.jobs import com, fast_excel
 from .excel.sheets import add_sheet, unique_sheet_name
 from .excel.target import Target

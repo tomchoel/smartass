@@ -1,7 +1,7 @@
 """drill_derive: a sibling's drill query from EPM's query for one cell (shapes from the live probe 2026-11-03)."""
 import json
 
-from smartview_mcp import drill_derive as dv
+from smartass.epm import drill_derive as dv
 
 Q = ("SELECT ENTITY, AMOUNTX FROM TDATASEG abdv WHERE ( tpovpartition.partitionkey in ( ?,? ) ) AND abdv.catKey IN"
      " ( ? ) AND abdv.periodKey IN ( ? ) AND Entityx IN (?,?,? ) AND Accountx IN (?,? ) AND Ud1x = ?")

@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 
 from ... import templates
-from ...grid import Axis
+from smartass.epm.grid import Axis
 from ...host import InputError
 from . import Draft, RecipeContext, pull_dict
 

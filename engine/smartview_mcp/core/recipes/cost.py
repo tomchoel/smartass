@@ -4,7 +4,7 @@ line's share of the total; the check top + other = total."""
 from __future__ import annotations
 
 from ... import templates
-from ...grid import Axis
+from smartass.epm.grid import Axis
 from ...host import InputError
 from . import Draft, RecipeContext, pull_dict
 

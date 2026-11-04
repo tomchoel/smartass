@@ -49,7 +49,7 @@ def _excel() -> Check:
 
 
 def _smartview() -> Check:
-    from . import sso
+    from smartass.epm import sso
     v = sso.smartview_version()
     if v:
         return Check("smartview", "OK", f"{v} ({config.SMARTVIEW_DLL})")
@@ -69,7 +69,7 @@ def _epm(timeout: float = 5) -> Check:
 
 
 def _drill_browser() -> Check:
-    from .drill_browser import browser_health
+    from smartass.epm.drill_browser import browser_health
     h = browser_health()
     detail = "; ".join(f"{k}: {v}" for k, v in h["channels"].items())
     if h["usable"]:
@@ -221,7 +221,7 @@ def _versions() -> dict:
             pk[name] = version(name)
         except PackageNotFoundError:
             pk[name] = None
-    from . import sso
+    from smartass.epm import sso
     return {"smartass": __version__, "python": sys.version, "os": platform.platform(),
             "smartview": sso.smartview_version(), "packages": pk}
 

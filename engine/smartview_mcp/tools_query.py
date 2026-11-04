@@ -6,7 +6,7 @@ from typing import Literal
 from mcp.server.mcpserver.exceptions import ToolError
 
 from smartass.knowledge import atlas
-from . import ops
+from smartass.epm import ops
 from .host import HostError
 from .server import LOCAL, READ, Connection, _call, _err, tool
 

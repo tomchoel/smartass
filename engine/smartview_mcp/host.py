@@ -19,7 +19,8 @@ import win32com.client as wc
 import win32process
 
 from smartass.core import config
-from . import dialogs, sso
+from . import dialogs
+from smartass.epm import sso
 from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy, kill_ours, windows_of, _is_ours
 
 log = logging.getLogger("smartview.host")

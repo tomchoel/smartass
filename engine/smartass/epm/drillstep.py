@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from mcp.server.mcpserver.exceptions import ToolError
 
 from smartass.core import config
-from .. import ops
+from . import ops
 from . import drilltime
 
 log = logging.getLogger("smartview")
@@ -39,12 +39,12 @@ class DrillResult:
 
 
 def browser():
-    from ..drill_browser import shared_browser
+    from .drill_browser import shared_browser
     return shared_browser()
 
 
 async def _call(fn, what: str = "call"):
-    from ..server import _call as call
+    from ..core.serverkit import _call as call
     return await call(fn, what=what)
 
 
@@ -63,7 +63,7 @@ def say(text: str) -> None:
     import asyncio
     log.info("note: %s", text)
     try:
-        from ..server import _ctx, progress_secs
+        from ..core.serverkit import _ctx, progress_secs
         ctx = _ctx.get()
         if ctx is not None:
             asyncio.get_running_loop().create_task(ctx.report_progress(progress_secs(), None, text))
@@ -77,7 +77,7 @@ async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: 
     One retry (with a note) when Smart View answers 'Empty response from provider'. Always live: nothing is cached."""
     import asyncio
 
-    from .. import drill_lines as dl
+    from . import drill_lines as dl
     t0, stages = time.monotonic(), {}
     cell, warnings = ops.drill_cell_defaults(cell)
     with timed(stages, "drill"):
@@ -168,9 +168,9 @@ async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], 
 def write(t, q: int, alias: str, result: DrillResult, title: str, question: str = "", log: bool = True) -> dict:
     """The Excel half (inside a host job): 'Q<q> Lines[ alias]' (table Lines_Q<q>[_alias]) + a Sources row
     (log=False: the caller logs its own). 0 lines empties an existing table, so Excel matches the drill."""
-    from .. import drill_xl
-    from ..excel import sheets
-    from ..grid import Layout
+    from smartview_mcp import drill_xl
+    from smartview_mcp.excel import sheets
+    from .grid import Layout
     if result.rows:
         info = drill_xl.write_lines(t, q, result.rows, result.columns, title=title, source=result.source, alias=alias)
     else:
@@ -194,8 +194,8 @@ async def _drill_fetch(url: str, max_lines: int) -> dict:
     piece, tab pump) when the direct route fails. No data at this cell -> an empty piece with EPM's note."""
     import asyncio
 
-    from .. import drill_direct
-    from ..drill_browser import CellTooWide, TooManyLines
+    from . import drill_direct
+    from .drill_browser import CellTooWide, TooManyLines
     if config.DRILL_DIRECT:
         try:
             with drilltime.span("direct drill"):
@@ -216,8 +216,8 @@ async def _page_fetch(url: str, max_lines: int) -> dict:
     import asyncio
     import math
 
-    from ..drill_browser import DrillBusy
-    from ..drill_tabs import shared_pump
+    from .drill_browser import DrillBusy
+    from .drill_tabs import shared_pump
     budget = 300 + 10 * math.ceil(max_lines / config.DRILL_PAGE)      # login + capture (+ one browser restart),
                                                                        # then ~10 s per page
     global _tick
@@ -255,7 +255,7 @@ async def _progress(what: str) -> None:
     import asyncio
 
     from smartass.core import timing
-    from ..server import _ctx, progress_secs
+    from ..core.serverkit import _ctx, progress_secs
     ctx = _ctx.get()
     if ctx is None:
         return
@@ -275,7 +275,7 @@ class _KnownTooWide(Exception):
 
 
 def _http_link(connection: str, cell: dict) -> dict:
-    from .. import svhttp
+    from . import svhttp
     return svhttp.shared().drill_link(connection, cell)
 
 
@@ -288,7 +288,7 @@ async def _link(connection: str, cell: dict) -> dict:
     """The drill link over HTTP (no Excel); Smart View in the hidden Excel only if the HTTP route fails (logged)."""
     import asyncio
 
-    from ..host import InputError
+    from smartview_mcp.host import InputError
     if not _http_off():
         try:
             with drilltime.span("http drill link"):
@@ -313,8 +313,8 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
     """Drill one cell; if it holds more than DRILL_SPLIT_AT lines (and split='auto'), drill its children instead.
     state['left'] is the line budget still free (max_lines minus the lines already fetched): a cell bigger than
     that fails with its size BEFORE any split (spec 4). Returns pieces: [{cell, cube_value, items, view, secs}]."""
-    from .. import drill_split
-    from ..drill_browser import CellTooWide, TooManyLines
+    from . import drill_split
+    from .drill_browser import CellTooWide, TooManyLines
     link = await _link(connection, cell)
     if depth == 0:
         state["cube"] = link["cube_value"]
@@ -387,7 +387,7 @@ async def _children_derived(connection: str, parts: list[dict], vals: list, max_
     the usual way. Pieces in the plan's order."""
     import asyncio
 
-    from .. import drill_derive
+    from . import drill_derive
     dim = next((k for k in parts[0] if any(p.get(k) != parts[0][k] for p in parts)), None)
     out: list = [[_skipped(pc)] if vals[i] is None else None for i, pc in enumerate(parts)]
     live = [i for i in range(len(parts)) if vals[i] is not None]
@@ -422,7 +422,7 @@ async def _derived_piece(cell: dict, cube, template: tuple, body: str, state: di
     import asyncio
     import dataclasses
 
-    from .. import drill_direct
+    from . import drill_direct
     q = dataclasses.replace(template[1], body=body)
     try:
         with drilltime.span("derived drill"):
@@ -449,7 +449,7 @@ async def _child_values(connection: str, parts: list[dict]) -> list | None:
     """The split children's cube values in one host job, or None (then every child is linked as before)."""
     import asyncio
 
-    from .. import drill_split, svhttp
+    from . import drill_split, svhttp
     if not _http_off():
         try:
             return await asyncio.to_thread(lambda: svhttp.shared().child_values(connection, parts))
@@ -465,7 +465,7 @@ async def _child_values(connection: str, parts: list[dict]) -> list | None:
 def _lines_of(pieces: list[dict], view: dict, parent_cube: float | None = None) -> dict:
     """CPU work off the event loop: normalise each piece ONCE, reconcile each piece, and the whole against the
     PARENT cell's own cube value; split_check = sum of the piece cubes - parent (None without a split)."""
-    from .. import drill_lines as dl
+    from . import drill_lines as dl
     cols = dl.columns_from_view(view)
     fixes = dl.load_text_fixes(config.TEXT_FIXES, config.USER_TEXT_FIXES)
     rows, piece_recs = [], []

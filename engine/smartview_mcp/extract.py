@@ -15,12 +15,13 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from smartass.knowledge import atlas
-from . import hostproc, ops
+from . import hostproc
+from smartass.epm import ops
 from smartass.core import config
 from .analytics import periods, reconcile
 from .analytics.frame import from_rows
 from .catalog import Catalog, Entity
-from .grid import Axis, Layout, Parsed
+from smartass.epm.grid import Axis, Layout, Parsed
 from .host import InputError
 from .factstore import OPEN, FactStore, Fill, Row, WhKey
 
@@ -186,7 +187,7 @@ def route(http=None, host: Callable[[], object] | None = None) -> Retrieve:
 
     def http_part(conn, pov, rows, cols):
         """The HTTP route alone (safe in parallel); _TooBig when the grid must go through Excel."""
-        from . import svhttp
+        from smartass.epm import svhttp
         if host is not None and cells(rows, cols) / 200 > config.SVHTTP_TIMEOUT_S:
             raise _TooBig()
         lay, p, secs = (http or svhttp.shared()).retrieve(conn, pov, rows, cols, False, False)

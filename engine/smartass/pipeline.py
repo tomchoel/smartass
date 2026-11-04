@@ -14,7 +14,7 @@ from .model.frame import Frame
 from .model.requests import GridRequest
 from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError
-from smartview_mcp.svhttp import SvHttpError
+from .epm.svhttp import SvHttpError
 
 MAX_PARALLEL = 6
 

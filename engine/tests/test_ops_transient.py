@@ -1,7 +1,7 @@
 import pytest
 
 from smartass.core import config
-from smartview_mcp import ops
+from smartass.epm import ops
 from smartview_mcp.host import HostError, ProviderEmpty
 
 

@@ -16,8 +16,7 @@ import threading
 import time
 
 from smartass.core import config
-from .drill_browser import (SIGNIN, CellTooWide, DrillBrowser, DrillError, TooManyLines, load_timeout_ms,
-                            page_through, redact)
+from .drill_browser import SIGNIN, CellTooWide, DrillBrowser, DrillError, TooManyLines, load_timeout_ms, page_through, redact
 
 log = logging.getLogger("smartview.drill")
 POLL_MS = 200

@@ -195,7 +195,7 @@ def test_bench_core_routes_cover_the_phase_5_cases():
 
 def test_oracle_cell_reads_the_one_data_cell_of_a_provider_grid():
     import helpers
-    from smartview_mcp.grid import Axis, Layout
+    from smartass.epm.grid import Axis, Layout
 
     lay = Layout([("Entity", "un.SY")], [Axis("Account", ["ac.EBITDA"])], [Axis("Period", ["Sep 26"])])
     values = [list(r) for r in lay.matrix()]

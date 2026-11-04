@@ -271,7 +271,8 @@ def _answer_env(monkeypatch, tmp_path, calls, fail=None):
     cube whose values equal the ledger lines; answer.build evaluates the prepared spec like the sheet would."""
     from smartass.core import config
     from smartview_mcp import templates, tools_core
-    from smartview_mcp.core import drillstep, pipeline, progress, reply, runlog, source
+    from smartass.epm import drillstep
+    from smartview_mcp.core import pipeline, progress, reply, runlog, source
     from smartview_mcp.excel import jobs, sheets, target
     monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
     monkeypatch.setattr(tools_core, "_closed_cached", lambda: "Sep 26")

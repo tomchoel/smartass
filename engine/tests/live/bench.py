@@ -540,7 +540,7 @@ def run_case(c: Case, ctx) -> dict:
 def oracle_pass(results: list[dict]) -> None:
     """Score the oracle cells after the MCP server has exited (its hidden Edge freed the drill profile): one
     in-process HTTP fetch per cell, so the oracle never warms the route it checks. Re-scores every result."""
-    from smartview_mcp import drill_browser
+    from smartass.epm import drill_browser
     try:
         for r in results:
             nums = r.pop("_nums", None) or []

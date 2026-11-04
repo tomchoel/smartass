@@ -1,8 +1,8 @@
 import pytest
 from svxml_util import answer
 
-from smartview_mcp import svxml
-from smartview_mcp.grid import Axis, Layout, parse
+from smartass.epm import svxml
+from smartass.epm.grid import Axis, Layout, parse
 
 
 def _lay():
@@ -219,8 +219,8 @@ def test_members_parses_the_pipe_list():
 def test_echo_transport_answers_a_retrieve_with_the_value_function(tmp_path):
     from svxml_util import EchoTransport, atlas_with_dimensions, pnl_value
 
-    from smartview_mcp import svhttp
-    from smartview_mcp.grid import Axis
+    from smartass.epm import svhttp
+    from smartass.epm.grid import Axis
     sv = svhttp.SvHttp(EchoTransport(pnl_value), home="https://plan1.example",
                        db_path=atlas_with_dimensions(tmp_path / "a.db"))
     lay, p, _ = sv.retrieve("FinMax", {"All Balance Types": "Accumulated"},

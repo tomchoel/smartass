@@ -219,7 +219,7 @@ def error_warnings(sheet: str, grid, trace: dict, pull_grids: dict) -> list[str]
 
 def _pull_grids(t: Target, pulls: dict) -> dict:
     """Values of the question's data sheets (same read as a pull: ops._used_values); unreadable sheets are skipped."""
-    from .ops import _used_values
+    from smartass.epm.ops import _used_values
     out = {}
     for name in pulls:
         try:

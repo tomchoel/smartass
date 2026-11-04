@@ -9,10 +9,12 @@ from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 
 from smartass.core import config
-from . import ops, qlog
+from smartass.epm import ops
+from . import qlog
 from .excel import adhoc, jobs, sheets, target as xltarget
-from .core import drillstep, reply
-from .grid import Axis
+from smartass.epm import drillstep
+from .core import reply
+from smartass.epm.grid import Axis
 from .host import HostError, rewrap
 from .server import WRITE, _call_user, _err, _is_our_analysis_file, tool, with_next_step
 from smartass.core.timing import Timer, stage
@@ -95,7 +97,7 @@ async def sv_drill(question: str, cell: dict[str, str], connection: Literal["Fin
     in the question (letters/digits/_; default 'd'). Re-drilling the same q and id refreshes its table in place."""
     if not _ALIAS.match(id or ""):
         raise ToolError(f"id '{id}' must start with a letter and contain only letters, digits and _ (e.g. 'd', 'b2').")
-    from .drill_browser import redact
+    from smartass.epm.drill_browser import redact
     try:
         return await _sv_drill(question, cell, connection, id, split, max_lines, target, q, allow_archive)
     except Exception as e:

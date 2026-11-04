@@ -323,7 +323,7 @@ def kill_engine_edge() -> list[int]:
     """Kill only the Edge processes the engine's drill started: their --user-data-dir is the drill profile.
     The user's own Edge (another profile) is never touched."""
     from smartass.core import config
-    from smartview_mcp.drill_browser import kill_our_chrome
+    from smartass.epm.drill_browser import kill_our_chrome
     return kill_our_chrome(config.DRILL_PROFILE)
 
 
@@ -343,8 +343,8 @@ def oracle_cell(lay, values: list[list]) -> float | None:
 def oracle_value(connection: str, pov: dict, row: tuple[str, str], col: tuple[str, str]) -> float | None:
     """One cube cell over the Smart View HTTP provider, in THIS process (bench.oracle_pass runs it after the MCP
     server exited, so its hidden Edge is free to start on the drill profile)."""
-    from smartview_mcp import svhttp
-    from smartview_mcp.grid import Axis
+    from smartass.epm import svhttp
+    from smartass.epm.grid import Axis
     f = svhttp.shared().fetch(connection, pov, [Axis(row[0], [row[1]])], [Axis(col[0], [col[1]])])
     return oracle_cell(f.layout, f.values)
 

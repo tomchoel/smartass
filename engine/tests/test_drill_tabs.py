@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from smartview_mcp import drill_tabs
-from smartview_mcp.drill_browser import CellTooWide
+from smartass.epm import drill_tabs
+from smartass.epm.drill_browser import CellTooWide
 
 
 class _Req:

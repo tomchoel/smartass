@@ -7,7 +7,7 @@ import time
 import pytest
 
 from smartass.core import config
-from smartview_mcp import drill_browser as db
+from smartass.epm import drill_browser as db
 
 
 class FakeCtx:
@@ -221,7 +221,7 @@ def test_keepalive_resigns_in_when_session_gone(tmp_path):
 
 def test_a_second_server_takes_the_next_profile_slot(tmp_path, monkeypatch):
     from smartass.core import config
-    from smartview_mcp import drill_browser as db
+    from smartass.epm import drill_browser as db
     monkeypatch.setattr(config, "DRILL_PROFILE_SLOTS", 3)
     base = tmp_path / "drill_edge"
     other = db.ProfileLock(base)                       # another smartass process holds slot 1

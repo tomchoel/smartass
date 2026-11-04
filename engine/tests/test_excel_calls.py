@@ -27,8 +27,8 @@ def arrange_case(moved: bool):
 
 
 def fetched_5x14():
-    from smartview_mcp import svhttp
-    from smartview_mcp.grid import Axis, Layout
+    from smartass.epm import svhttp
+    from smartass.epm.grid import Axis, Layout
     periods = [f"{m} 26" for m in ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
                                    "Dec")] + ["FY26"]
     accounts = ["ac.C30", "ac.C70", "ac.STA20Y"]

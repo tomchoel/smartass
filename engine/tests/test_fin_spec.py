@@ -9,7 +9,7 @@ from analytics_util import closes
 from fin_util import CAT, CAT0, WHS, filled, http, make_value
 
 from smartview_mcp import fin_pnl, fin_spec, specs
-from smartview_mcp.grid import Axis
+from smartass.epm.grid import Axis
 from smartview_mcp.excel.sheets import _make_pull
 from smartview_mcp.factstore import Row
 

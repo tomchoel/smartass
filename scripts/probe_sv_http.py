@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
-from smartview_mcp.drill_browser import DrillBrowser  # noqa: E402
+from smartass.epm.drill_browser import DrillBrowser  # noqa: E402
 
 WRITES = ("submit", "writeback", "setvals", "settxts", "setcell", "setsubvar", "launch", "calculate", "consolidate",
           "copydata", "addmembers", "delete")

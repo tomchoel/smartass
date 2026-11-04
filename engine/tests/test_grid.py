@@ -1,5 +1,5 @@
-from smartview_mcp.grid import Axis, Layout, full_pov, name_from_label, parse, validate_axes
-from smartview_mcp.ops import tree_from_labels
+from smartass.epm.grid import Axis, Layout, full_pov, name_from_label, parse, validate_axes
+from smartass.epm.ops import tree_from_labels
 
 DIMS = ["All Time Periods", "All Balance Types", "All Accounts", "All Entities", "All Scenarios", "All Currencies"]
 
@@ -67,7 +67,7 @@ def test_parse_pov_problem_and_missing():
 
 
 def test_grid_labels_standard_and_odd_mode():
-    from smartview_mcp.ops import _grid_labels
+    from smartass.epm.ops import _grid_labels
     fm = ((None, "All Accounts", "All Entities"), (None, "All Time Periods", None), ("All Balance Types", "#No Access", None))
     assert _grid_labels(fm, [1, 0, 2, 2]) == ["All Time Periods", "All Balance Types", "All Accounts", "All Entities"]
     fp = ((None, None, "Scenario", "Version"), (None, None, "Years", None), (None, None, "Period", None),

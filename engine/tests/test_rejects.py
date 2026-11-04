@@ -1,6 +1,6 @@
 """rc=1000 handling: exact code match and bisection of rejected members (fake retrieve, no Excel)."""
-from smartview_mcp import ops
-from smartview_mcp.grid import Axis
+from smartass.epm import ops
+from smartass.epm.grid import Axis
 from smartview_mcp.host import HostError
 
 

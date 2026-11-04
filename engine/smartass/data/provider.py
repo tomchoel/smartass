@@ -8,8 +8,8 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from smartview_mcp.grid import Axis
-from smartview_mcp.svhttp import SvHttpError
+from ..epm.grid import Axis
+from ..epm.svhttp import SvHttpError
 
 from ..model.frame import Fact
 from ..model.periods import Month, parse

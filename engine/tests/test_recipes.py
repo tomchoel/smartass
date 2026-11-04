@@ -5,7 +5,7 @@ import pytest
 
 from smartview_mcp.core import contract, recipes
 from smartview_mcp.core.recipes import Draft, RecipeContext
-from smartview_mcp.grid import Axis
+from smartass.epm.grid import Axis
 from smartview_mcp.templates import PullSpec
 
 GATE = {"outcome": "clear", "checklist": {"period": "closed month", "scenario": "Actual", "entity": "un.SY",

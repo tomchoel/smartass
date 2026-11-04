@@ -2,7 +2,7 @@ from svxml_util import EchoTransport, atlas_with_dimensions
 
 from smartass.data.provider import SvHttpProvider
 from smartass.model.requests import GridRequest
-from smartview_mcp import svhttp
+from smartass.epm import svhttp
 
 
 def provider(tmp_path, value):

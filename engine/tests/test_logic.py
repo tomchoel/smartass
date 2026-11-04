@@ -1,7 +1,7 @@
 """Unit tests for the analysis logic that needs no Excel."""
 from types import SimpleNamespace
 
-from smartview_mcp.grid import Axis, Layout
+from smartass.epm.grid import Axis, Layout
 from smartview_mcp.core.reply import fin
 from smartview_mcp.templates import _clean, _fmt, _pct, months_to, same_period_ly, split_period
 from smartview_mcp.excel.adhoc import _verify_labels
@@ -41,7 +41,7 @@ def test_verify_labels_catches_shifted_rows():
     shifted = SimpleNamespace(row_labels=[["C40S Total Cost (ac)"], ["C48 Contribution (ac)"]], col_labels=[["Sep 26"]])
     assert _verify_labels(lay, ok) == []
     assert len(_verify_labels(lay, shifted)) == 2
-    from smartview_mcp.grid import verify_labels
+    from smartass.epm.grid import verify_labels
     assert verify_labels is _verify_labels           # one implementation, shared by the COM and HTTP routes
 
 

@@ -7,8 +7,8 @@ import re
 import time
 
 from smartass.core import config, timing
-from .grid import Axis, Layout, full_pov, indent_of, name_from_label, parse
-from .host import ExcelHost, HostError, InputError, ProviderEmpty
+from .grid import Axis, Layout, full_pov, parse
+from smartview_mcp.host import ExcelHost, HostError, InputError, ProviderEmpty
 
 log = logging.getLogger("smartview.ops")
 
@@ -163,13 +163,6 @@ def canon_dim(conn: str, name: str) -> str:
     return amap.get(k, name)
 
 
-def dimensions(h: ExcelHost, conn: str) -> dict:
-    ensure_grid_sheet(h, conn)
-    return {"connection": conn, "dimensions": _dims_cache[conn],
-            "default_axes": {d: {0: "row", 1: "column", 2: "pov"}.get(t, t)
-                             for d, t in zip(_dims_cache[conn], _types_cache[conn])}}
-
-
 MAX_BISECT_RETRIEVES = 40
 
 
@@ -320,69 +313,6 @@ def _query_once(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list
         raise HostError("Smart View returned a different layout than requested (rows/columns moved): "
                         + "; ".join(bad[:5]))
     return lay, p, secs
-
-
-def find_member(h: ExcelHost, conn: str, member: str) -> dict:
-    sheet = ensure_grid_sheet(h, conn)
-    r = h._run("B_FindMember", sheet, member, "Default")
-    if not (isinstance(r, tuple) and r[0] == "OK"):
-        return {"found": False, "member": member, "detail": str(r[0] if isinstance(r, tuple) else r)}
-    out = {"found": True, "member": member, "dimension": r[1], "alias": r[2], "generation": r[3], "level": r[4]}
-    info = h._run("B_MemberInfoEx", sheet, member)
-    if isinstance(info, tuple) and info[0] == "OK":
-        props = dict(zip(info[1], info[2]))
-        keep = ("Name", "Dimension", "Level", "Generation", "Description", "ParentMbrName", "ChildMbrName",
-                "ChildCount", "Consolidation Operator", "Data Storage", "Data Type", "AliasNames", "Udas")
-        out["info"] = {k: props.get(k) for k in keep if k in props}
-    return out
-
-
-def dump_dimension(h: ExcelHost, conn: str, dim: str, root: str | None = None) -> list[dict]:
-    """Zoom a dimension's tree (all levels) on a grid and return [{label, name, depth, parent}] top-down."""
-    sheet = f"A_{conn}"[:31]
-    ensure_grid_sheet(h, conn, sheet=sheet, fresh=True)
-    dims = _dims_cache[conn]
-    other = next(d for d in dims if d != dim)
-    lay = Layout(full_pov(dims, {}, [Axis(dim, [root or dim])], [Axis(other, [other])]),
-                 [Axis(dim, [root or dim])], [Axis(other, [other])])
-    ws = h.wb.Worksheets(sheet)
-    ws.Activate()
-    ws.Cells.ClearContents()
-    m = lay.matrix()
-    ws.Range(ws.Cells(1, 1), ws.Cells(len(m), len(m[0]))).NumberFormat = "@"
-    ws.Range(ws.Cells(1, 1), ws.Cells(len(m), len(m[0]))).Value = m
-    _apply_sheet_options(h, sheet, {5: 1, 33: True})     # indent sub-items; navigate without data
-    h.run("B_Retrieve", sheet)
-    h.run("B_ZoomIn", sheet, "A3", 1, False)            # all levels
-    vals = _used_values(ws)
-    labels = [r[0] for r in vals[2:] if r and isinstance(r[0], str) and r[0].strip()]
-    _apply_sheet_options(h, sheet, {5: 0, 33: False})
-    return tree_from_labels(labels)
-
-
-def tree_from_labels(labels: list[str]) -> list[dict]:
-    """Indentation -> depth/parent. Handles both ancestor-on-top and ancestor-at-bottom ordering."""
-    if not labels:
-        return []
-    ind = [indent_of(x) for x in labels]
-    bottom_up = ind[-1] < ind[0]                # top member last = ancestors below their children
-    seq = list(zip(labels, ind))
-    if bottom_up:
-        seq.reverse()
-    base = min(i for _, i in seq)
-    steps = sorted({i for _, i in seq})
-    step = (steps[1] - steps[0]) if len(steps) > 1 else 1
-    out, stack = [], []
-    for order, (lab, i) in enumerate(seq):
-        depth = (i - base) // step if step else 0
-        while len(stack) > depth:
-            stack.pop()
-        parent = stack[-1] if stack else None
-        clean = lab.strip()
-        name = name_from_label(clean) or clean
-        out.append({"label": clean, "name": name, "depth": depth, "parent": parent, "order": order})
-        stack.append(name)
-    return out
 
 
 DRILL_DEFAULTS = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}

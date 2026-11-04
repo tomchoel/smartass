@@ -1,6 +1,6 @@
 # engine/tests/v2/test_v2_provider_retry.py
 import pytest
-from smartview_mcp.svhttp import SvHttpError
+from smartass.epm.svhttp import SvHttpError
 
 from smartass.data import provider as prov
 from smartass.data.provider import SvHttpProvider

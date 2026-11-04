@@ -3,8 +3,9 @@ Every figure is invented by the value function below."""
 import pytest
 from svxml_util import EchoTransport, atlas_with_dimensions, pnl_value as value
 
-from smartview_mcp import catalog, extract, ops, svhttp
-from smartview_mcp.grid import Axis
+from smartview_mcp import catalog, extract
+from smartass.epm import ops, svhttp
+from smartass.epm.grid import Axis
 from smartview_mcp.host import InputError
 from smartview_mcp.factstore import FactStore
 

@@ -42,7 +42,7 @@ def _warm_up() -> None:
     try:
         if not config.DRILL_KEEP_WARM:
             return
-        from smartview_mcp import drill_browser
+        from ..epm import drill_browser
         b = drill_browser.shared_browser()
 
         def warm(s):
@@ -69,7 +69,7 @@ async def lifespan(_server):
             if _host is not None:
                 _host.shutdown()
         finally:
-            from smartview_mcp import drill_browser
+            from ..epm import drill_browser
             drill_browser.shutdown_shared()
 
 

@@ -5,7 +5,8 @@ from types import SimpleNamespace as NS
 import pytest
 
 sys.path.insert(0, __file__.rsplit("\\tests", 1)[0])
-from smartview_mcp import answer, ops, templates
+from smartview_mcp import answer, templates
+from smartass.epm import ops
 from smartass.knowledge import atlas  # noqa: E402
 
 VALUE_ERR = -2146826273                       # Excel #VALUE! as COM returns it
@@ -153,7 +154,7 @@ def _com(monkeypatch, month="08"):
 
 def _setup(tmp_path, monkeypatch, http):
     from smartass.core import config
-    from smartview_mcp import svhttp
+    from smartass.epm import svhttp
     monkeypatch.setattr(config, "SVKIT", tmp_path)
     monkeypatch.setattr(svhttp, "shared", lambda: http)
     return tmp_path / "closed_month.json"
@@ -201,7 +202,7 @@ def test_a_com_entry_is_reused_for_two_hours_only(tmp_path, monkeypatch):
 
 
 def test_com_month_outside_1_to_12_is_refused_and_not_cached(tmp_path, monkeypatch):
-    from smartview_mcp import svhttp
+    from smartass.epm import svhttp
     from smartview_mcp.host import HostError
     path = _setup(tmp_path, monkeypatch, _Http(svhttp.SvHttpError("signed out")))
     _com(monkeypatch, month="13")
@@ -215,7 +216,7 @@ def test_com_month_outside_1_to_12_is_refused_and_not_cached(tmp_path, monkeypat
 
 def test_an_implausible_com_month_is_still_answered_but_warned(tmp_path, monkeypatch, caplog):
     import datetime as dt
-    from smartview_mcp import svhttp
+    from smartass.epm import svhttp
     today = dt.date.today()
     path = _setup(tmp_path, monkeypatch, _Http(svhttp.SvHttpError("signed out")))
     monkeypatch.setattr(ops, "find_member", lambda h, c, n: {"info": {"ChildMbrName": "[CurrRepMonth].[Y%02dM%02d]" % (
@@ -259,7 +260,7 @@ def test_the_old_cache_format_is_tolerated(tmp_path, monkeypatch):
 
 def test_closed_month_falls_back_to_com_and_caches_it_for_the_day(tmp_path, monkeypatch):
     import json
-    from smartview_mcp import svhttp
+    from smartass.epm import svhttp
     http = _Http(svhttp.SvHttpError("signed out"))
     path = _setup(tmp_path, monkeypatch, http)
     _com(monkeypatch)
@@ -270,7 +271,7 @@ def test_closed_month_falls_back_to_com_and_caches_it_for_the_day(tmp_path, monk
 
 
 def test_http_and_com_both_failing_raises_and_caches_nothing(tmp_path, monkeypatch):
-    from smartview_mcp import svhttp
+    from smartass.epm import svhttp
     from smartview_mcp.host import HostError
     path = _setup(tmp_path, monkeypatch, _Http(svhttp.SvHttpError("signed out")))
     monkeypatch.setattr(ops, "find_member", lambda h, c, n: {"info": {}})

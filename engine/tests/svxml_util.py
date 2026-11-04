@@ -40,7 +40,7 @@ class EchoTransport:
     def post(self, base, body):
         import re
 
-        from smartview_mcp import svxml
+        from smartass.epm import svxml
         svxml.check_read_only(body)
         tag = re.match(r"\s*<req_(\w+)>", body).group(1)
         if tag == "GetProvisionedDataSources":

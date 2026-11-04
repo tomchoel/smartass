@@ -15,7 +15,8 @@ from pydantic import ValidationError
 from . import catalog, templates
 from smartass.core import config
 from .excel import sheets, target as xltarget
-from .core import contract, drillstep, drilltime, pipeline, prefs, progress, recipes, reply, runlog, scope
+from .core import contract, pipeline, prefs, progress, recipes, reply, runlog, scope
+from smartass.epm import drillstep, drilltime
 from .core import followup as followup_mod
 from .core import period as periods
 from .host import HostError, InputError

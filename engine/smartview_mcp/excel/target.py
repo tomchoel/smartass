@@ -101,7 +101,7 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
     if closed), 'active' (the workbook the user is working in), 'new' (a new file, which becomes the session's
     workbook), or an absolute file path."""
     from smartass.core import session
-    from .. import sso
+    from smartass.epm import sso
     sso.ensure_global_watcher()
     if target == "session":
         wb_path = session.workbook()

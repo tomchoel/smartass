@@ -12,7 +12,7 @@ from . import fin_pnl as pnl
 from .analytics import periods
 from .extract import FillResult, Grid, fill, finmax_grids, finplan_grids
 from .factstore import OPEN, FactStore
-from .grid import Axis
+from smartass.epm.grid import Axis
 from .host import InputError
 from smartass.core.timing import stage
 

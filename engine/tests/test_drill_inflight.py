@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-from smartview_mcp import drill_browser as db
+from smartass.epm import drill_browser as db
 
 
 class BoxPage:

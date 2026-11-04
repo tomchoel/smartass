@@ -5,7 +5,8 @@ import dataclasses
 
 from svxml_util import EchoTransport, atlas_with_dimensions, pnl_value
 
-from smartview_mcp import catalog, extract, pnl_facts, svhttp
+from smartview_mcp import catalog, extract, pnl_facts
+from smartass.epm import svhttp
 from smartview_mcp.fin_pnl import Scope
 from smartview_mcp.factstore import FactStore
 

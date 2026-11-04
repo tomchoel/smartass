@@ -90,7 +90,7 @@ def fin_lookup(query: str, kind: str = "any", cube: str | None = None) -> dict:
 
 
 def _provider():
-    from smartview_mcp import svhttp
+    from .epm import svhttp
 
     from .data.provider import SvHttpProvider
     return SvHttpProvider(svhttp.shared())
@@ -112,7 +112,7 @@ async def _user(fn, what: str):
 
 async def _drill(cell: dict):
     """The FinLite ledger lines behind one cube cell (v1 drill: Smart View link, hidden browser, reconciliation)."""
-    from smartview_mcp.core import drillstep
+    from .epm import drillstep
     return await drillstep.drill(cell, connection="FinLite")
 
 

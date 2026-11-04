@@ -710,7 +710,7 @@ def s10_update(ctx):
 @scenario("S10.5.textfixes", ["feature"], budget=30)
 def s10_textfixes(ctx):
     from smartass.core import config
-    from smartview_mcp import drill_lines as dl
+    from smartass.epm import drill_lines as dl
 
     f = Path(config.USER_TEXT_FIXES)
     old = f.read_bytes() if f.exists() else None

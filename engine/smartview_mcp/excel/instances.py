@@ -98,7 +98,7 @@ def excel_instances(_retry_login: bool = True) -> list[XlInstance]:
                 break
         out.append(XlInstance(pid, h, [c for _e, c in ex7s], app))
     if pending and _retry_login:
-        from .. import sso
+        from smartass.epm import sso
         sso.ensure_global_watcher()
         for pid in pending:
             login.wait_login_cleared(pid)

@@ -35,7 +35,7 @@ from typing import Callable
 import psutil
 
 from smartass.core import config
-from .core import drilltime
+from . import drilltime
 
 try:
     from playwright.sync_api import Error as PwError
