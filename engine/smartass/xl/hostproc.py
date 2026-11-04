@@ -270,7 +270,16 @@ class HiddenExcel:
                 got = self._run("B_GetOption", k, "")
                 if got and got[0] == "OK":
                     saved[k] = got[1]
-        if src != orig_file:
+        if src == orig_file:
+            # A clean shutdown deletes our file, so it is left over from a crashed run: put the user's originals
+            # back first (our values were never restored), then apply ours below as on any start.
+            log.info("smartview options: restoring the originals left by a crashed run")
+            for k, v in saved.items():
+                try:
+                    self._run("B_SetOption", k, v, "")
+                except pywintypes.com_error as e:
+                    log.info("restoring option %s failed: %s", k, str(e)[:200])
+        else:
             orig_file.parent.mkdir(parents=True, exist_ok=True)
             orig_file.write_text(json.dumps({str(k): v for k, v in saved.items()}))
         self.saved_options = saved

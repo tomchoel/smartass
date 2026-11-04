@@ -43,3 +43,28 @@ def test_originals_are_read_from_excel_when_no_file_exists(tmp_path, monkeypatch
     h._apply_global_options()
     assert h.saved_options == {k: f"cur{k}" for k in config.GLOBAL_OPTIONS}
     assert json.loads(home_file.read_text()) == {str(k): f"cur{k}" for k in config.GLOBAL_OPTIONS}
+
+
+def test_originals_left_by_a_crashed_run_are_restored_before_ours_are_applied(tmp_path, monkeypatch):
+    home_file, _ = _paths(tmp_path, monkeypatch)
+    home_file.parent.mkdir()
+    real = {str(k): f"user{k}" for k in config.GLOBAL_OPTIONS}
+    home_file.write_text(json.dumps(real))                      # a clean shutdown deletes it: so the last run crashed
+    calls = []
+    h = _host(calls, {k: "ours-still-applied" for k in config.GLOBAL_OPTIONS})
+    h._apply_global_options()
+    sets = [c[1:3] for c in calls if c[0] == "B_SetOption"]
+    n = len(config.GLOBAL_OPTIONS)
+    assert sets[:n] == [(int(k), v) for k, v in real.items()]   # the user's originals first
+    assert sets[n:] == list(config.GLOBAL_OPTIONS.items())      # then ours, as before
+    assert not [c for c in calls if c[0] == "B_GetOption"]
+    assert h.saved_options == {int(k): v for k, v in real.items()}
+    assert json.loads(home_file.read_text()) == real
+
+
+def test_no_restore_step_on_a_clean_start(tmp_path, monkeypatch):
+    _paths(tmp_path, monkeypatch)
+    calls = []
+    h = _host(calls, {k: f"cur{k}" for k in config.GLOBAL_OPTIONS})
+    h._apply_global_options()
+    assert [c[1:3] for c in calls if c[0] == "B_SetOption"] == list(config.GLOBAL_OPTIONS.items())
