@@ -16,14 +16,16 @@ def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
     combos = [(m, s) for m in b.metrics for s in b.series]
     out = BlockOut(key, "trend", b.title or "Trend", [f"{m} {HEAD[s]}" for m, s in combos],
                    cols=[s for _, s in combos], query=q.id, chart="line" if b.chart else None)
+    stock = [ctx.resolver.aggregation(m) == "last" for m, _ in combos]   # a stock is picked per month, never added
     for i, mon in enumerate(ms):
         cells: list[Expr | None] = []
         for j, (m, s) in enumerate(combos):
             this = ctx.pick(q, m, s, base_months=[mon])
-            cells.append(Sum((Ref(ck(key, f"p{i - 1}", j)), this)) if b.cumulative and i else this)
+            cells.append(Sum((Ref(ck(key, f"p{i - 1}", j)), this)) if b.cumulative and i and not stock[j] else this)
         out.lines.append(Line(f"p{i}", label(mon), cells))
     if not b.cumulative and len(ms) > 1:
-        out.lines.append(Line("total", "Total", [Sum(tuple(Ref(ck(key, f"p{i}", j)) for i in range(len(ms))))
+        out.lines.append(Line("total", "Total", [Ref(ck(key, f"p{len(ms) - 1}", j)) if stock[j]
+                                                 else Sum(tuple(Ref(ck(key, f"p{i}", j)) for i in range(len(ms))))
                                                  for j in range(len(combos))], kind="grand"))
     return out
 
