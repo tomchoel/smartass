@@ -133,8 +133,12 @@ def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:
     closed here, in the calling thread. knowledge.db is built first when it is missing (said in the warnings). Closed
     months are fetched once. Nothing after prepare needs the resolver: the labels are already in the BlockOut lines
     and the caveats in Prepared."""
+    from .core import config
+    from .knowledge.refresh import note_closed
     from .knowledge.resolver import open_resolver
     closed = provider.closed_months()
+    with contextlib.suppress(Exception):         # fin_status's 'knowledge refresh due'; never stops an answer
+        note_closed(config.HOME, closed["FinMax"])
     notes: list[str] = []
     with contextlib.closing(open_resolver(closed["FinPlan"][0] % 100, notes)) as resolver:
         pre = prepare(raw, resolver, provider, closed=closed, lines=lines)

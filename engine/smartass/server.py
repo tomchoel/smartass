@@ -247,7 +247,9 @@ async def fin_status(restart: bool = False) -> dict:
     with contextlib.closing(atlas.connect()) as db:
         st = atlas.status(db)
     from .knowledge.build import summary
+    from .knowledge.refresh import due
     kn = summary(config.KNOWLEDGE_DB)
+    refresh = due(config.HOME, config.KNOWLEDGE_DB)
     from .ops import doctor
     checks = await asyncio.to_thread(doctor.run)         # network checks (EPM 5 s, HTTP 2 s) off the event loop
     return {**out, "behind_relay": bool(os.environ.get("SVKIT_PROXY")), "analyser": str(config.ANALYSER_DIR),
@@ -255,7 +257,11 @@ async def fin_status(restart: bool = False) -> dict:
                       "dimensions_built": len(st["built"])},
             "metrics": kn.get("metrics", 0),
             "knowledge": {"built_at": kn.get("built_at"), "metrics": kn.get("metrics", 0),
-                          "facts": kn.get("facts", 0), "drafts": kn.get("drafts", 0)},
+                          "facts": kn.get("facts", 0), "drafts": kn.get("drafts", 0),
+                          "refresh_month": refresh["refresh_month"], "refresh_due": refresh["due"],
+                          **({"note": f"knowledge refresh due (closed {refresh['closed_seen']}, last refresh "
+                                      f"{refresh['refresh_month'] or 'never'}): run `smartass knowledge refresh` "
+                                      "in a terminal, then `smartass knowledge approve`"} if refresh["due"] else {})},
             "doctor": {"overall": doctor.overall(checks),
                        "problems": [c.__dict__ for c in checks if c.status != "OK"]}}
 

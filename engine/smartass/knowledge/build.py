@@ -126,7 +126,11 @@ def _write(db: sqlite3.Connection, metrics, facts, atlas: sqlite3.Connection, me
     db.executemany("INSERT INTO meta VALUES (?,?)", [(k, str(v)) for k, v in meta.items()])
 
 
-def build(semantic_dir: Path, atlas_db: Path, out_db: Path) -> BuildReport:
+CARRIED_META = ("refresh_month",)      # kept from the previous knowledge.db by every rebuild (set by a refresh)
+
+
+def build(semantic_dir: Path, atlas_db: Path, out_db: Path, extra_meta: dict | None = None) -> BuildReport:
+    """extra_meta joins the meta table (a refresh passes its month); CARRIED_META keys of the old db are kept."""
     out_db = Path(out_db)
     report = BuildReport(out=out_db)
     try:
@@ -148,6 +152,9 @@ def build(semantic_dir: Path, atlas_db: Path, out_db: Path) -> BuildReport:
         meta = {"built_at": time.strftime("%Y-%m-%d %H:%M:%S"), "semantic_hash": _hash(Path(semantic_dir)),
                 "atlas_built_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(atlas_built)) if atlas_built
                 else "", "metrics": len(metrics), "facts": len(facts), "drafts": report.drafts}
+        old = summary(out_db)
+        meta.update({k: old[k] for k in CARRIED_META if k in old})
+        meta.update(extra_meta or {})
         out_db.parent.mkdir(parents=True, exist_ok=True)
         tmp = out_db.with_name(out_db.name + ".tmp")
         tmp.unlink(missing_ok=True)

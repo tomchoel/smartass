@@ -97,6 +97,7 @@ class Fact(BaseModel):
     severity: Literal["info", "warn", "block"] = "info"
     source: str
     status: Literal["approved", "draft"] = "draft"
+    approved: dict | None = None                 # {"by", "on"}, set by `smartass knowledge approve`
 
     @field_validator("id")
     @classmethod
