@@ -49,4 +49,4 @@ def test_two_v2_sessions_survive_set_workbook(monkeypatch, tmp_path):
     monkeypatch.setattr(v1session, "_info", {"id": "v2-33-1000", "cwd": "c", "project": "p"})
     v1session.set_workbook("c.xlsx")
     saved = json.loads((tmp_path / "sessions_v2.json").read_text(encoding="utf-8"))
-    assert set(saved) == {"v2-11-1000", "v2-22-1000", "v2-33-1000"}        # the dead relay 99 is forgotten
+    assert set(saved) == {"v2-11-1000", "v2-22-1000", "v2-33-1000", "_last:c"}   # the dead relay 99 is forgotten

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 import psutil
@@ -15,6 +16,7 @@ from smartview_mcp import session as v1session
 V2_DIR_NAME = "v2"
 RELAY_SCRIPT = "run_server_v2.py"
 _configured = False
+LAST_PREFIX = "_last:"
 
 
 def _session_info() -> dict:
@@ -38,13 +40,31 @@ def _set_workbook_v2(path: str) -> None:
     info = v1session.info()
     data = v1session._load()
     data[info["id"]] = {"workbook": str(path), "project": info["project"], "cwd": info["cwd"]}
+    data[f"{LAST_PREFIX}{info['cwd']}"] = {"workbook": str(path), "ts": time.time()}     # survives /mcp reconnects
     live = {f"v2-{p.pid}-{int(p.create_time())}" for p in psutil.process_iter() if v1session._alive_relay(p)}
-    data = {k: v for k, v in data.items() if k in live or k == info["id"]}
+    data = {k: v for k, v in data.items() if k in live or k == info["id"] or k.startswith(LAST_PREFIX)}
     try:
         v1config.SVKIT.mkdir(parents=True, exist_ok=True)
         v1session._STATE.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     except OSError:
         pass
+
+
+def _workbook_v2() -> str | None:
+    """This session's analysis workbook. After an /mcp reconnect the relay has a new id, so the id lookup finds
+    nothing: then the last workbook of the same folder (cwd) is taken, if the file still exists, and re-bound under
+    the new id. Two sessions in the same folder therefore share the last workbook; Excel's per-workbook turn lock
+    (hold_turn) keeps them from writing at the same time."""
+    info = v1session.info()
+    data = v1session._load()
+    own = data.get(info["id"], {}).get("workbook")
+    if own and Path(own).exists():
+        return own
+    last = data.get(f"{LAST_PREFIX}{info['cwd']}", {}).get("workbook")
+    if last and Path(last).exists():
+        _set_workbook_v2(last)
+        return last
+    return None
 
 
 def teach_sheetorder() -> None:
@@ -71,5 +91,6 @@ def configure_v2() -> None:
     v1session._info = _session_info()
     v1session._alive_relay = _alive_relay_v2
     v1session.set_workbook = _set_workbook_v2
+    v1session.workbook = _workbook_v2
     teach_sheetorder()
     _configured = True
