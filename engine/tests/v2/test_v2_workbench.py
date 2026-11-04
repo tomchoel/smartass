@@ -80,3 +80,20 @@ def test_xl_tidy_tool_routes_through_user_excel(monkeypatch):
     monkeypatch.setattr(workbench, "tidy", lambda wb, sh, rows, last_col: ("tidy", wb, sh, rows, last_col))
     assert asyncio.run(server.xl_tidy("B", "S", {"1": "title"}, "F")) == {
         "what": "xl_tidy", "out": ("tidy", "B", "S", {"1": "title"}, "F")}
+
+
+def test_snapshot_passes_on_book_notes(monkeypatch):
+    class B:
+        name = "Book1.xlsx"
+        app = object()
+        notes = ["AutoSave was switched off in Book1.xlsx"]
+
+        def sheet(self, name):
+            return "WS"
+
+    monkeypatch.setattr(workbench, "_find_book", lambda wb: B())
+    monkeypatch.setattr(workbench, "_wait_ready", lambda app: None)
+    monkeypatch.setattr(workbench, "_range", lambda ws, address: ("RNG", "B1"))
+    monkeypatch.setattr(workbench, "_capture", lambda ws, rng: {})
+    monkeypatch.setattr(workbench, "_record", lambda b, ws, address, snap, label: {"id": "c2"})
+    assert workbench.snapshot("Book1", "S", "B1")["notes"] == ["AutoSave was switched off in Book1.xlsx"]

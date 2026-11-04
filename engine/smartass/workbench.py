@@ -51,7 +51,11 @@ def snapshot(workbook: str | None, sheet: str | None, address: str | None, label
     _wait_ready(b.app)
     rng, addr = _range(ws, address)
     ch = _record(b, ws, addr, _capture(ws, rng), label)
-    return {"change_id": ch["id"], "workbook": b.name, "sheet": sheet or _sheet_name(ws), "address": addr}
+    out = {"change_id": ch["id"], "workbook": b.name, "sheet": sheet or _sheet_name(ws), "address": addr}
+    notes = list(getattr(b, "notes", None) or [])          # e.g. "AutoSave was switched off" (v1 find_book)
+    if notes:
+        out["notes"] = notes
+    return out
 
 
 def revert(change_id: str | None, workbook: str | None, force: bool = False) -> dict:
