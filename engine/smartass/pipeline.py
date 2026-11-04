@@ -17,6 +17,10 @@ from .model.validate import GuardError
 MAX_PARALLEL = 6
 
 
+class RestoreError(RuntimeError):
+    """A follow-up failed AND its restore was incomplete: the workbook may be damaged, nothing more should be drawn."""
+
+
 @dataclass
 class Prepared:
     spec: AnalysisSpec
@@ -288,7 +292,7 @@ def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "sess
             except Exception as e2:   # noqa: BLE001 - collect, never hide the original error
                 problems.append(f"{what}: {e2}")
         if problems:
-            raise RuntimeError(f"{e}; the restore was incomplete - " + "; ".join(problems)) from e
+            raise RestoreError(f"{e}; the restore was incomplete - " + "; ".join(problems)) from e
         raise
     _drop_backup(t, b_answer)
     _save(t)

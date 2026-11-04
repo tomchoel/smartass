@@ -19,7 +19,7 @@ from .knowledge.interim import catalog_metrics
 from .followup import find_question, merge_patch, v2_questions
 from .model.spec import AnalysisSpec
 from .model.validate import GuardError
-from .pipeline import excel_job, read_stored, redraw_job, run_prepare
+from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prepare
 
 TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh")
 
@@ -119,14 +119,21 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
     legacy.configure_v2()
     provider = _provider()
     stored, _, path = await _user(lambda h: read_stored(h, target), "fin_refresh")
-    done, workbook = [], None
+    done, workbook, broken = [], None, None
     for q in v2_questions(stored):
+        if broken is not None:                  # a failed restore may have left the workbook damaged: draw nothing more
+            done.append({"q": q, "ok": False, "skipped": True,
+                         "error": f"skipped: the restore of Q{broken} failed - check the workbook first"})
+            continue
         try:
             pre = await asyncio.to_thread(run_prepare, stored[q]["spec"]["v2"], provider)
             out = await _user(lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), path),
                               "fin_refresh")
             workbook = out.get("workbook", workbook)
             done.append({"q": q, "ok": True, "closed": out.get("closed")})
+        except RestoreError as e:
+            broken = q
+            done.append({"q": q, "ok": False, "error": str(e)})
         except Exception as e:   # noqa: BLE001 - one question never stops the pack
             done.append({"q": q, "ok": False, "error": str(e)})
     return {"refreshed": done, "workbook": workbook}

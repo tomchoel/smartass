@@ -100,3 +100,21 @@ def test_refresh_continues_past_a_failing_question(monkeypatch):
     assert [(x["q"], x["ok"]) for x in r] == [(2, False), (3, True)]
     assert "no data" in r[0]["error"] and r[1]["closed"] == {"FinMax": "09/2026"}
     assert calls == [("prepare", "good"), ("redraw", 3)]
+
+
+def test_refresh_stops_after_a_failed_restore_and_reports_the_rest_as_skipped(monkeypatch):
+    from smartass.pipeline import RestoreError
+    stored = {q: {"spec": {"v2": {"question": f"q{q}"}}, "ids": {}, "owned": None} for q in (2, 3, 4)}
+    calls, asyncio = _wire(monkeypatch, stored)
+
+    def redraw(h, pre, q, owned, target="session"):
+        calls.append(("redraw", q))
+        if q == 3:
+            raise RestoreError("boom; the restore was incomplete - restore Q3 Answer: x")
+        return {"q": q, "workbook": "W", "closed": {}}
+    monkeypatch.setattr(server, "redraw_job", redraw)
+    out = asyncio.run(server.fin_refresh())
+    r = out["refreshed"]
+    assert [(x["q"], x["ok"]) for x in r] == [(2, True), (3, False), (4, False)]
+    assert "restore" in r[1]["error"] and r[2].get("skipped") is True and "Q3" in r[2]["error"]
+    assert ("redraw", 4) not in calls
