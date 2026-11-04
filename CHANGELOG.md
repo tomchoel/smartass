@@ -6,6 +6,8 @@ One pipeline: every question goes `sv_gate` -> `sv_answer` (design `docs/specs/2
 
 ### Added
 
+- v2 robustness and toolkit: AutoSave paused while writing, session workbook kept across /mcp reconnects, a lost
+  first request retried, xl_snapshot / xl_revert / xl_tidy.
 - v2 complete answers: charts (trend, bridge), follow-ups via fin_analyze(patch, q), fin_refresh for monthly
   packs, drivers skip pass-through nodes, Q<n> Data sorted with data sheets.
 - v2 model core (`engine/smartass/model`): typed analysis spec, period algebra, fact frame, expression trees
