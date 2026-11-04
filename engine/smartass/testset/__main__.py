@@ -3,9 +3,15 @@ record is live (EPM over the hidden browser, never Excel); approve and run are o
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 
-from . import runner
+# Before core.config is imported (runner imports it): own browser profile slots and no warm browser, so a test-set
+# run never collides with the running servers' slots (an explicit setting wins).
+os.environ.setdefault("SV_DRILL_PROFILE_SLOTS", "6")
+os.environ.setdefault("SV_DRILL_KEEP_WARM", "0")
+
+from . import runner  # noqa: E402
 
 
 def _pick(ids: list[str]) -> list[dict]:
