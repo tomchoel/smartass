@@ -7,6 +7,7 @@ from __future__ import annotations
 from smartview_mcp import styling
 from smartview_mcp.excel.jobs import com
 
+from ..model.errors import GuardError
 from ..model.frame import COLUMNS, Frame
 from .layout import SheetPlan, col_letter
 
@@ -18,14 +19,12 @@ def data_grid(frame: Frame) -> list[tuple]:
     return [COLUMNS, *frame.rows()]
 
 
-def _put(ws, g: list[tuple], between=None):
-    """Label columns as text first, then (after `between(range)`, if any) the values; returns the range."""
+def _put(ws, g: list[tuple]):
+    """Label columns as text first, then the values; returns the range. Only for a range that is not a table yet."""
     n = len(g)
     labels = ws.Range(ws.Cells(1, 1), ws.Cells(n, len(COLUMNS) - 1))
     com(lambda: setattr(labels, "NumberFormat", "@"))
     rng = ws.Range(ws.Cells(1, 1), ws.Cells(n, len(COLUMNS)))
-    if between is not None:
-        between(rng)
     com(lambda: setattr(rng, "Value2", tuple(g)))
     return rng
 
@@ -58,18 +57,28 @@ def read_data(ws, q: int) -> list[tuple] | None:
 
 def rewrite_grid(ws, g: list[tuple], q: int) -> None:
     """Put grid g into the EXISTING table Data_Q<q>: resize it, write the values, clear rows left below when it
-    shrank. The table is never deleted or renamed, so formulas that point at it keep working. No table (an older
-    answer): clear the sheet and create it as write_data does."""
+    shrank. The table is never deleted, recreated or renamed, so formulas that point at it keep working.
+    Header and body are written as two rectangles: Value2 on one rectangle covering a table's header AND body deletes
+    the table in Excel (measured 04.11.2026, even with its own values) and every formula on it becomes #REF!.
+    No table: refused (GuardError) before anything is touched - clearing the sheet and creating a new table would
+    leave the answer's formulas, and its backup, pointing at a deleted table."""
     lo = _table(ws, q)
     if lo is None:
-        com(lambda: ws.UsedRange.Clear())
-        _create_table(ws, g, q)
-        return
+        raise GuardError(f"table Data_Q{q} is missing on sheet 'Q{q} Data', so the answer cannot be redrawn in place",
+                         "ask the question again with fin_analyze(spec); the old sheets were left as they were")
     old_rows = com(lambda: lo.Range.Rows.Count)
-    n = len(g)
-    _put(ws, g, between=lambda rng: com(lambda: lo.Resize(rng)))
+    n, w = len(g), len(COLUMNS)
+    labels = ws.Range(ws.Cells(1, 1), ws.Cells(n, w - 1))
+    com(lambda: setattr(labels, "NumberFormat", "@"))              # text first: 'Sep 26' never becomes a date
+    rng = ws.Range(ws.Cells(1, 1), ws.Cells(max(n, 2), w))          # a table keeps at least one body row
+    com(lambda: lo.Resize(rng))
+    head = ws.Range(ws.Cells(1, 1), ws.Cells(1, w))
+    com(lambda: setattr(head, "Value2", (tuple(g[0]),)))
+    if n > 1:
+        body = ws.Range(ws.Cells(2, 1), ws.Cells(n, w))
+        com(lambda: setattr(body, "Value2", tuple(tuple(r) for r in g[1:])))
     if old_rows > n:
-        left = ws.Range(ws.Cells(n + 1, 1), ws.Cells(old_rows, len(COLUMNS)))
+        left = ws.Range(ws.Cells(n + 1, 1), ws.Cells(old_rows, w))
         com(lambda: left.Clear())
 
 

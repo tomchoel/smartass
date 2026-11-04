@@ -144,11 +144,33 @@ def test_rewrite_data_clears_leftover_rows_when_the_table_shrinks():
     assert ("clear", (3, 1), (6, 9)) in ws.log
 
 
-def test_rewrite_data_without_a_table_falls_back_to_write_data():
+
+def _value2_writes(ws):
+    return [(a, b) for x in ws.log if len(x) == 4 and x[2] == "Value2" for a, b in [(x[0], x[1])]]
+
+
+def test_rewrite_never_writes_header_and_body_in_one_rectangle():
+    """Measured in Excel 365 (04.11.2026): Value2 on a rectangle covering a ListObject's header AND body deletes the
+    table (ListObjects.Count 1 -> 0), even when the values are its own; every formula on it becomes #REF!. Header
+    alone or body alone keeps it. So the header and the body are written separately."""
+    from smartass.render.excel import rewrite_data
+    fr = Frame([Fact("FinMax", "fm", "ac.C30", "E1", "Sep 26", "Actual", "", 5.0, "Periodic"),
+                Fact("FinMax", "fm", "ac.C30", "E2", "Sep 26", "Actual", "", 6.0, "Periodic")])
+    ws = WSLO(rows=3)
+    rewrite_data(ws, fr, 3)
+    writes = _value2_writes(ws)
+    assert writes, "nothing written"
+    assert not [w for w in writes if w[0][0] == 1 and w[1][0] >= 2], writes     # never header + body together
+    assert ((1, 1), (1, 9)) in writes and ((2, 1), (3, 9)) in writes
+
+
+def test_rewrite_data_without_the_table_refuses_and_leaves_the_sheet_alone():
+    import pytest
+
+    from smartass.model.errors import GuardError
     from smartass.render.excel import rewrite_data
     fr = Frame([Fact("FinMax", "fm", "ac.C30", "E1", "Sep 26", "Actual", "", 5.0, "Periodic")])
     ws = WSLO(table=False)
-    rewrite_data(ws, fr, 3)
-    kinds = [x[2] if len(x) == 4 else x[0] for x in ws.log]
-    assert ("clear", "used", "used") in ws.log                       # a cleared sheet, then the v1-style write
-    assert "table" in kinds and ("table.Name", "Data_Q3") in ws.log
+    with pytest.raises(GuardError, match="Data_Q3"):
+        rewrite_data(ws, fr, 3)
+    assert ws.log == []                                              # no clear, no new table, nothing written
