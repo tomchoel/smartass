@@ -4,6 +4,7 @@ roles v1's styling.apply_report understands. Column B holds labels, values start
 addresses first, then formulas, so a Ref may point forwards (bridge 'Other' -> 'end'). Pure: no Excel."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from ..model.analyze import Result
@@ -31,7 +32,16 @@ class ChartSpec:
     rows: list[int]           # data rows (trend: months only, no Total; bridge: start..end)
     series_cols: list[str]    # one series per column
     totals: list[int]         # waterfall points (1-based) that are totals
-    anchor_col: str           # top-left cell of the chart: anchor_col + header_row
+    anchor_col: str           # top-left cell of the chart: anchor_col + anchor_row
+    anchor_row: int = 0       # 0 = the header row; the layout moves it down below the previous chart
+
+    @property
+    def height_pt(self) -> float:
+        return max(180.0, 15.0 * (len(self.rows) + 3))
+
+    @property
+    def rows_tall(self) -> int:
+        return math.ceil(self.height_pt / 15.0)
 
 
 @dataclass
@@ -145,7 +155,10 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
             if e is not None:
                 p.cells[(row, FIRST_COL + j)] = "=" + e.to_excel(table, addr)
     p.last_col = col_letter(FIRST_COL + widest - 1)
-    for c in p.charts:                                      # right of the widest table, at its own block's header row
+    bottom = 0
+    for c in p.charts:                  # right of the widest table, at its block's header row, never over the last chart
         c.anchor_col = col_letter(FIRST_COL + widest + 1)
+        c.anchor_row = max(c.header_row, bottom + 1)
+        bottom = c.anchor_row + c.rows_tall
     p.last_row = r
     return p

@@ -99,3 +99,14 @@ def test_line_chart_drops_the_auto_added_series_before_its_own():
     assert write_charts(ws, p) == []
     seq = [x for x in log if x in ("delete_auto", "new_series")]
     assert seq == ["delete_auto", "delete_auto", "new_series", "new_series"]
+
+
+def test_charts_are_placed_at_the_anchor_row():
+    log = []
+    ws = WS(log, "ws")
+    p = SheetPlan(charts=[
+        ChartSpec("line", "FTE", 10, [11, 12, 13], ["C"], [], "G", anchor_row=40),
+        ChartSpec("line", "Opex", 50, [51, 52, 53], ["C"], [], "G")])
+    write_charts(ws, p)
+    assert ("range", "G40") in log and ("range", "G50") in log
+    assert ("range", "G40") in log and ("range", "G10") not in log

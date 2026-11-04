@@ -19,10 +19,9 @@ WIDTH = 480.0
 
 
 def _place(ws, spec: ChartSpec, xl_type: int):
-    cell = ws.Range(f"{spec.anchor_col}{spec.header_row}")
+    cell = ws.Range(f"{spec.anchor_col}{spec.anchor_row or spec.header_row}")
     left, top = com(lambda: cell.Left), com(lambda: cell.Top)
-    height = max(180.0, 15.0 * (len(spec.rows) + 3))
-    shape = com(lambda: ws.Shapes.AddChart2(-1, xl_type, left, top, WIDTH, height))
+    shape = com(lambda: ws.Shapes.AddChart2(-1, xl_type, left, top, WIDTH, spec.height_pt))
     com(lambda: setattr(shape, "Name", CHART_NAME))
     return shape, com(lambda: shape.Chart)
 

@@ -37,3 +37,34 @@ def test_no_chart_without_chart_blocks_and_anchor_right_of_table():
     p = run([{"type": "trend", "query": "fm", "metrics": ["Opex"], "chart": False}], monthly_facts(),
             "Jul 26..Sep 26")
     assert p.charts == []
+
+
+def run2(blocks, frame, periods=None, stock=()):
+    d = spec_dict(blocks=blocks)
+    if periods:
+        d["queries"][0]["periods"] = periods
+    s = AnalysisSpec.model_validate(d)
+    return layout(1, s, compute(s, resolver(), CLOSED, frame), stock=set(stock), subtitle="x")
+
+
+def test_a_chart_starts_below_the_previous_chart():
+    import math
+    blocks = [{"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]},
+              {"type": "trend", "query": "fm", "metrics": ["Opex"]}]
+    p = run2(blocks, monthly_facts(), "Jul 26..Sep 26")
+    first, second = p.charts
+    assert first.type == "waterfall" and second.type == "line"
+    assert first.anchor_row == first.header_row
+    assert first.height_pt == max(180.0, 15.0 * (len(first.rows) + 3))
+    bottom = first.anchor_row + math.ceil(first.height_pt / 15)
+    assert second.anchor_row >= bottom + 1
+    assert second.anchor_row >= second.header_row
+
+
+def test_a_chart_far_below_keeps_its_own_header_row():
+    blocks = [{"type": "trend", "query": "fm", "metrics": ["Opex"]},
+              {"type": "table", "query": "fm", "title": "P&L"} ] + [
+              {"type": "table", "query": "fm", "title": f"T{i}"} for i in range(6)] + [
+              {"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}]
+    p = run2(blocks, monthly_facts(), "Jul 26..Sep 26")
+    assert p.charts[-1].anchor_row >= p.charts[-1].header_row
