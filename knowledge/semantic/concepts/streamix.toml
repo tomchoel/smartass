@@ -1,0 +1,87 @@
+title = "Streamix - direct contribution since launch"
+names = ["streamix", "streamix lønnsomhet", "streamix pl", "streamix p&l"]
+kind = "product_offer"
+description = "Streamix (pd.SY.P255) as booked in FinMax: subscriptions, purchase products and COGS, plus opex tagged on the product. Streamix Mobil (GF068/GF069 under M4115) is shown as a memo outside the total."
+entity = "un.SY"
+source = "manual"
+status = "approved"
+notes = [
+  "Consumer fixed products have no fixed product-cost-accounts code; Streamix P255 is allocated with FinPlan keys after year end.",
+  "Agreed with Tom 22.10.2026: booked items + Streamix Mobil as a memo.",
+]
+
+[approved]
+by = "tom"
+on = "2026-10-22"
+via = "concepts.json"
+
+[total]
+label = "Direct contribution Streamix"
+of = ["rev", "cogs", "opex"]
+
+[[check]]
+label = "Direct contribution = EBITDA before other items on the product"
+expr = "total-$src"
+
+[check.source]
+account = "ac.EBITDA_BOI"
+products = ["pd.SY.P255"]
+
+[[block]]
+title = "Revenue and COGS"
+
+[[block.item]]
+key = "rev"
+label = "Revenue (C30) (booked)"
+kind = "booked"
+account = "ac.C30"
+products = ["pd.SY.P255"]
+
+[[block.item]]
+key = "cogs"
+label = "COGS (C40S) (booked)"
+kind = "booked"
+account = "ac.C40S"
+products = ["pd.SY.P255"]
+
+[[block.item]]
+key = "gp"
+label = "Gross profit"
+kind = "sum"
+of = ["rev", "cogs"]
+
+[[block]]
+title = "Opex booked on the product"
+
+[[block.item]]
+key = "opex"
+label = "Opex (C70) (booked)"
+kind = "booked"
+account = "ac.C70"
+products = ["pd.SY.P255"]
+
+[[block]]
+title = "Memo: Streamix Mobil (not in the total)"
+
+[[block.item]]
+key = "memo_rev"
+label = "Memo: revenue Streamix Mobil (C30) (booked)"
+kind = "booked"
+account = "ac.C30"
+products = ["pd.SY.GF068", "pd.SY.GF069"]
+
+[[block.item]]
+key = "memo_cogs"
+label = "Memo: COGS Streamix Mobil (C40S) (booked)"
+kind = "booked"
+account = "ac.C40S"
+products = ["pd.SY.GF068", "pd.SY.GF069"]
+
+[[block]]
+title = "Not included"
+
+[[block.item]]
+key = "not_tagged"
+label = "Salaries and costs on cost centres"
+kind = "missing"
+note = "salaries (C50S) are never product-tagged, C60 and C75 only partly."

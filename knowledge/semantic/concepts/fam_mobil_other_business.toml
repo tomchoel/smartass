@@ -1,0 +1,103 @@
+title = "Mobil Other Business - direct contribution"
+names = [
+  "Mobil Other Business",
+  "Mobil / Business / Mobil Other Business",
+  "Mobil Business Mobil Other Business",
+]
+kind = "product_family"
+description = "Product family «Mobil / Business / Mobil Other Business» in FinMax (pd.SY): 7 product group(s), e.g. M4422 Data Service Provideres in Norway, M4513 Other Non Mobile Revenues, M4427 Fixed Fee Service Provider in Norway, M4453 Misc_Mobile Revenues. Direct contribution = revenue + COGS + opex booked on the products."
+entity = "un.SY"
+source = "auto family (2025 product list, business map 2)"
+status = "approved"
+notes = ["Family from the 2025 product list via business map 2 (approved 15.10.2026); booked figures only."]
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "concepts.json"
+
+[total]
+label = "Direct contribution Mobil Other Business"
+of = ["rev", "cogs", "opex"]
+
+[[check]]
+label = "Direct contribution = EBITDA before other items on the products"
+expr = "total-$src"
+
+[check.source]
+account = "ac.EBITDA_BOI"
+products = [
+  "pd.SY.M410",
+  "pd.SY.M415",
+  "pd.SY.M4421",
+  "pd.SY.M4422",
+  "pd.SY.M4427",
+  "pd.SY.M4453",
+  "pd.SY.M4513",
+]
+
+[[block]]
+title = "Revenue and COGS"
+
+[[block.item]]
+key = "rev"
+label = "Revenue (C30) (booked)"
+kind = "booked"
+account = "ac.C30"
+products = [
+  "pd.SY.M410",
+  "pd.SY.M415",
+  "pd.SY.M4421",
+  "pd.SY.M4422",
+  "pd.SY.M4427",
+  "pd.SY.M4453",
+  "pd.SY.M4513",
+]
+
+[[block.item]]
+key = "cogs"
+label = "COGS (C40S) (booked)"
+kind = "booked"
+account = "ac.C40S"
+products = [
+  "pd.SY.M410",
+  "pd.SY.M415",
+  "pd.SY.M4421",
+  "pd.SY.M4422",
+  "pd.SY.M4427",
+  "pd.SY.M4453",
+  "pd.SY.M4513",
+]
+
+[[block.item]]
+key = "gp"
+label = "Gross profit"
+kind = "sum"
+of = ["rev", "cogs"]
+
+[[block]]
+title = "Opex booked on the products"
+
+[[block.item]]
+key = "opex"
+label = "Opex (C70) (booked)"
+kind = "booked"
+account = "ac.C70"
+products = [
+  "pd.SY.M410",
+  "pd.SY.M415",
+  "pd.SY.M4421",
+  "pd.SY.M4422",
+  "pd.SY.M4427",
+  "pd.SY.M4453",
+  "pd.SY.M4513",
+]
+
+[[block]]
+title = "Not included"
+
+[[block.item]]
+key = "not_tagged"
+label = "Salaries and costs on cost centres"
+kind = "missing"
+note = "salaries (C50S) are never product-tagged, C60 and C75 only partly; fully allocated in the product cost accounts (Produktregnskapet)."

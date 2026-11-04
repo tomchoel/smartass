@@ -11,8 +11,8 @@ from ..model.periods import Month
 from ..model.resolver import DEFAULT_MATERIALITY, MetricDef, UnknownMetric
 from . import atlas
 from .atlas_tree import AtlasTree
-from .build import build, search_metrics, semantic_hash, summary
-from .semantic import Fact, Metric
+from .build import build, search_concepts, search_metrics, semantic_hash, summary
+from .semantic import Concept, Fact, Metric
 
 SEVERITY_ORDER = {"block": 0, "warn": 1, "info": 2}
 DRAFT_CAVEAT = "unapproved knowledge change touches this answer"
@@ -29,6 +29,11 @@ class KnowledgeResolver(AtlasTree):
         self._metrics = {mid: Metric.model_validate_json(js)
                          for mid, js in kdb.execute("SELECT id, json FROM metric ORDER BY id")}
         self._facts = {fid: Fact.model_validate_json(js) for fid, js in kdb.execute("SELECT id, json FROM fact")}
+        self._concepts = {cid: Concept.model_validate_json(js)
+                          for cid, js in kdb.execute("SELECT id, json FROM concept ORDER BY id")}
+        self._concept_lookup = {t.casefold(): self._concepts[cid]
+                                for cid, t in kdb.execute("SELECT concept_id, text FROM concept_alias")
+                                if cid in self._concepts}
         self._lookup: dict[str, Metric] = {}
         for mid, terms in self._terms().items():
             for t in terms:
@@ -84,6 +89,12 @@ class KnowledgeResolver(AtlasTree):
         m = self._metric(metric)
         return m.aggregation if m else "sum"
 
+    # ---- concepts
+
+    def concept(self, name: str) -> Concept | None:
+        """The product concept for an id, title or name (any case); None when there is none."""
+        return self._concepts.get(name.strip()) or self._concept_lookup.get(name.strip().casefold())
+
     # ---- caveats
 
     def _in_scope(self, touched: dict[str, set[str]], metric_ids: set[str]) -> set[str]:
@@ -127,10 +138,22 @@ class KnowledgeResolver(AtlasTree):
                 "members": {c: list(ms) for c, ms in m.members().items()},
                 "caveats": self.caveats({}, {m.id})}
 
+    @staticmethod
+    def _concept_hit(c: Concept) -> dict:
+        return {"id": c.id, "title": c.title, "kind": c.kind, "description": c.description, "names": c.names,
+                "entity": c.entity, "status": c.status, "notes": c.notes, "total": c.total.label,
+                "checks": [x.label for x in c.check],
+                "blocks": [{"title": b.title, "items": [{"key": it.key, "label": it.label, "kind": it.kind}
+                                                       for it in b.item]} for b in c.block]}
+
     def search(self, text: str, kind: str = "any", cube: str | None = None, limit: int = 10) -> dict:
-        """Metrics by alias or name (exact, then FTS prefix), members by name or label from the atlas; every hit
-        carries its caveats (no month filter). kind: any | metric | member."""
-        metrics, members = [], []
+        """Metrics by alias or name (exact, then FTS prefix), product concepts the same way, members by name or label
+        from the atlas; every metric and member hit carries its caveats (no month filter).
+        kind: any | metric | member | concept."""
+        metrics, members, concepts = [], [], []
+        if kind in ("any", "concept") and cube in (None, "FinMax", "FinLite"):
+            concepts = [self._concept_hit(self._concepts[cid]) for cid in search_concepts(self.kdb, text, limit)
+                        if cid in self._concepts]
         if kind in ("any", "metric"):
             for mid in search_metrics(self.kdb, text, limit):
                 m = self._metrics.get(mid)
@@ -141,7 +164,7 @@ class KnowledgeResolver(AtlasTree):
                 members.append({"cube": h["connection"], "dimension": h["dimension"], "name": h["name"],
                                 "label": h["label"], "parents": h["parents"], "depth": h["depth"],
                                 "caveats": self.caveats({h["connection"]: {h["name"]}})})
-        return {"metrics": metrics, "members": members}
+        return {"metrics": metrics, "members": members, "concepts": concepts}
 
     def close(self) -> None:
         for db in (self.kdb, self.db):

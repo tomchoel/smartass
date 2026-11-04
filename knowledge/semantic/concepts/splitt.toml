@@ -1,0 +1,229 @@
+title = "Splitt - direct profitability"
+names = [
+  "splitt",
+  "splitt lønnsomhet",
+  "delbetaling",
+  "avbetaling",
+  "håndsett på avbetaling",
+  "handset instalment",
+  "split payment",
+]
+kind = "product_offer"
+description = "Telenor Consumer's offer to buy handsets and equipment on instalments, with optional Pluss insurance (Plussforsikring) and dedicated Splitt subscriptions. Profitability = direct contribution from FinMax."
+entity = "un.SY"
+source = "manual"
+status = "approved"
+notes = [
+  "Profitability = direct contribution from FinMax (not the fully allocated product cost accounts, Produktregnskapet).",
+  "Tagging: (booked) = tagged on a Splitt product or cost centre; (estimated) = shared amount × key; (attributed) = not tagged, but belongs to Splitt in full.",
+  "Other accounts booked on the Splitt products (losses on receivables, freight, marketing, discounts, fees) are included automatically in the C40S/C70 lines.",
+  "Against last year: commission on FV081 (C60140) and interest income C80311 were first booked in Q4 2025, so year to date against last year's year to date shows large changes.",
+  "Pluss insurance (F4046) grew strongly from 2025 to 2026; the key for the insurance content cost follows it (share of insurance revenue).",
+  "Trade-in is allocated with the handset key (Splitt's share of handset revenue), because trade-in concerns all handset sales. Chosen 15.10.2026 for want of a better source; immaterial: trade-in in total is -3.5 MNOK YTD Sep 26, so 0 % or 100 % moves the contribution by less than 3 %.",
+]
+
+[approved]
+by = "tom"
+on = "2026-10-14"
+via = "concepts.json"
+
+[decisions]
+
+[decisions.trade_in_key]
+value = "handset key (key_same_as hw_cogs)"
+decided = "2026-10-15"
+by = "Claude (the user had no preference)"
+materiality = "trade-in in total -3.5 MNOK YTD Sep 26"
+
+[total]
+label = "Direct contribution Splitt (before financing cost and losses)"
+of = ["hw_rev", "hw_cogs", "bk_cogs", "bk_opex", "fin_int", "ins_rev", "ins_cost", "trade", "tar"]
+
+[[check]]
+label = "Hardware lines = M4517 Handset Splitt Revenue"
+expr = "hw_rev-$src"
+
+[check.source]
+account = "ac.C30"
+products = ["pd.SY.M4517"]
+
+[[block]]
+title = "Hardware (Splitt equipment sales)"
+
+[[block.item]]
+key = "hw_apple"
+label = "Splitt revenue Apple (booked)"
+kind = "booked"
+account = "ac.C30"
+products = ["pd.SY.FV064", "pd.SY.FV065", "pd.SY.FV066", "pd.SY.FV067", "pd.SY.FV068"]
+
+[[block.item]]
+key = "hw_samsung"
+label = "Splitt revenue Samsung (booked)"
+kind = "booked"
+account = "ac.C30"
+products = ["pd.SY.FV069", "pd.SY.FV070", "pd.SY.FV071", "pd.SY.FV072", "pd.SY.FV073"]
+
+[[block.item]]
+key = "hw_other"
+label = "Splitt revenue other brands (booked)"
+kind = "booked"
+account = "ac.C30"
+products = ["pd.SY.FV074", "pd.SY.FV075", "pd.SY.FV076", "pd.SY.FV077", "pd.SY.FV078"]
+
+[[block.item]]
+key = "hw_gsn"
+label = "God Som Ny (used devices) (booked)"
+kind = "booked"
+account = "ac.C30"
+products = ["pd.SY.FV079"]
+
+[[block.item]]
+key = "hw_fin"
+label = "Finance component (interest share split out of revenue) (booked)"
+kind = "booked"
+account = "ac.C30"
+products = ["pd.SY.FV081"]
+
+[[block.item]]
+key = "hw_rev"
+label = "Hardware revenue Splitt"
+kind = "sum"
+of = ["hw_apple", "hw_samsung", "hw_other", "hw_gsn", "hw_fin"]
+
+[[block.item]]
+key = "hw_cogs"
+label = "Hardware COGS (estimated)"
+kind = "estimated"
+
+[block.item.base]
+label = "Handset COGS in total (M5008 + M5010)"
+account = "ac.C40S"
+products = ["pd.SY.M5008", "pd.SY.M5010"]
+
+[block.item.key_share]
+text = "Splitt's share of all handset revenue"
+
+[block.item.key_share.num]
+label = "Splitt hardware revenue excl. the finance component"
+expr = "hw_rev-hw_fin"
+
+[block.item.key_share.den]
+label = "Handset revenue in total (M411)"
+account = "ac.C30"
+products = ["pd.SY.M411"]
+
+[[block]]
+title = "Other costs booked on the Splitt products"
+
+[[block.item]]
+key = "bk_cogs"
+label = "COGS booked on Splitt (C40S) (booked)"
+kind = "booked"
+account = "ac.C40S"
+products = ["pd.SY.M4517"]
+
+[[block.item]]
+key = "bk_opex"
+label = "Opex booked on Splitt (C70, incl. commission C60140) (booked)"
+kind = "booked"
+account = "ac.C70"
+products = ["pd.SY.M4517"]
+
+[[block]]
+title = "Financing"
+
+[[block.item]]
+key = "fin_int"
+label = "Interest income on instalment plans (C80311) (attributed 100 %)"
+kind = "attributed"
+account = "ac.C80311"
+entities = ["un.SY"]
+note = "Not product-tagged; attributed 100 % to Splitt."
+
+[[block.item]]
+key = "fin_cost"
+label = "Financing cost and losses on instalment receivables"
+kind = "missing"
+note = "Not visible in FinMax un.SY (C81313–C81315, 81502); not in the contribution."
+
+[[block]]
+title = "Insurance"
+
+[[block.item]]
+key = "ins_rev"
+label = "Splitt Pluss insurance (booked)"
+kind = "booked"
+account = "ac.C30"
+products = ["pd.SY.F4046"]
+
+[[block.item]]
+key = "ins_cost"
+label = "Insurance content cost (estimated)"
+kind = "estimated"
+
+[block.item.base]
+label = "Insurance content cost in total (F4010)"
+account = "ac.C48"
+products = ["pd.SY.F4010"]
+
+[block.item.key_share]
+text = "Splitt's share of all insurance revenue"
+
+[block.item.key_share.num]
+label = "Splitt Pluss insurance"
+expr = "ins_rev"
+
+[block.item.key_share.den]
+label = "Insurance revenue in total (M4124)"
+account = "ac.C30"
+products = ["pd.SY.M4124"]
+
+[[block]]
+title = "Trade-in"
+
+[[block.item]]
+key = "trade"
+label = "Trade-in (trade-in value and bonus, C120–C134) (estimated)"
+kind = "estimated"
+
+[block.item.base]
+label = "Trade-in in total (EBITDA before other items, C120–C134)"
+account = "ac.EBITDA_BOI"
+entities = [
+  "un.SY.C120",
+  "un.SY.C121",
+  "un.SY.C122",
+  "un.SY.C123",
+  "un.SY.C124",
+  "un.SY.C130",
+  "un.SY.C131",
+  "un.SY.C132",
+  "un.SY.C133",
+  "un.SY.C134",
+]
+
+[block.item.key_share]
+text = "the same key as the hardware (share of handset revenue): trade-in concerns all handset sales"
+same_as = "hw_cogs"
+
+[[block]]
+title = "Splitt subscriptions and data packs"
+
+[[block.item]]
+key = "tar"
+label = "Splitt tariffs and data packs (contribution C30 + C40S) (booked)"
+kind = "booked"
+account = "ac.C48"
+products = [
+  "pd.SY.FF884",
+  "pd.SY.FC884",
+  "pd.SY.FC960",
+  "pd.SY.FC961",
+  "pd.SY.FC962",
+  "pd.SY.FC963",
+  "pd.SY.FF960",
+  "pd.SY.FF961",
+  "pd.SY.FF962",
+  "pd.SY.FF963",
+]

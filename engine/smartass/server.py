@@ -75,7 +75,8 @@ def _past(row: dict) -> dict:
 
 
 def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 15) -> dict:
-    """{metrics: [id, name, aliases, description, differs, members, caveats ...], members: [... with caveats]};
+    """{metrics: [id, name, aliases, description, differs, members, caveats ...], members: [... with caveats],
+    concepts: [id, title, kind, blocks, notes ...]};
     kind 'answer': {answers: past answers from answers.db (workbook, q, question, when, score, top key values)}."""
     if kind == "answer":
         from . import answers
@@ -87,7 +88,8 @@ def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 
 @_register(kit.LOCAL)
 def fin_lookup(query: str, kind: str = "any", cube: str | None = None) -> dict:
     """Find metrics (kind 'metric': by name or alias, e.g. 'driftskostnader'; with description, members and how the
-    cubes differ) and cube members (kind 'member'); 'any' returns both. Every hit carries its caveats (reorgs,
+    cubes differ), cube members (kind 'member') and product concepts (kind 'concept', e.g. 'splitt': blocks and items
+    for a concept block); 'any' returns all three. Every metric and member hit carries its caveats (reorgs,
     abolished units, account traps): pass them on. cube: FinMax | FinLite | FinPlan to narrow. kind 'answer': past
     answers (question, when, critic score, top key values) for continuity. Local, instant."""
     return lookup(query, kind, cube)

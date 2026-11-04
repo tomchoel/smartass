@@ -1,0 +1,67 @@
+title = "Fiber Wholesale - direct contribution"
+names = ["Fiber Wholesale", "Fixed / Wholesale / Fiber Wholesale", "Fixed Wholesale Fiber Wholesale"]
+kind = "product_family"
+description = "Product family «Fixed / Wholesale / Fiber Wholesale» in FinMax (pd.SY): 1 product group(s), e.g. P502 VULA. Direct contribution = revenue + COGS + opex booked on the products."
+entity = "un.SY"
+source = "auto family (2025 product list, business map 2)"
+status = "approved"
+notes = ["Family from the 2025 product list via business map 2 (approved 15.10.2026); booked figures only."]
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "concepts.json"
+
+[total]
+label = "Direct contribution Fiber Wholesale"
+of = ["rev", "cogs", "opex"]
+
+[[check]]
+label = "Direct contribution = EBITDA before other items on the products"
+expr = "total-$src"
+
+[check.source]
+account = "ac.EBITDA_BOI"
+products = ["pd.SY.P502"]
+
+[[block]]
+title = "Revenue and COGS"
+
+[[block.item]]
+key = "rev"
+label = "Revenue (C30) (booked)"
+kind = "booked"
+account = "ac.C30"
+products = ["pd.SY.P502"]
+
+[[block.item]]
+key = "cogs"
+label = "COGS (C40S) (booked)"
+kind = "booked"
+account = "ac.C40S"
+products = ["pd.SY.P502"]
+
+[[block.item]]
+key = "gp"
+label = "Gross profit"
+kind = "sum"
+of = ["rev", "cogs"]
+
+[[block]]
+title = "Opex booked on the products"
+
+[[block.item]]
+key = "opex"
+label = "Opex (C70) (booked)"
+kind = "booked"
+account = "ac.C70"
+products = ["pd.SY.P502"]
+
+[[block]]
+title = "Not included"
+
+[[block.item]]
+key = "not_tagged"
+label = "Salaries and costs on cost centres"
+kind = "missing"
+note = "salaries (C50S) are never product-tagged, C60 and C75 only partly; fully allocated in the product cost accounts (Produktregnskapet)."

@@ -13,7 +13,7 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
-from .semantic import Fact, Metric, to_toml
+from .semantic import Concept, Fact, Metric, to_toml
 
 SIGN = {"revenue": "income", "gross_margin": "income", "ebitda_boi": "income", "ebitda": "income",
         "cogs": "cost", "personnel": "cost", "other_opex": "cost", "opex": "cost", "da": "cost"}
@@ -237,19 +237,223 @@ def seed_facts(catalog: dict, accounts_map: dict, org_map: dict, finplan_map: di
     return facts
 
 
-def seed(knowledge_dir: Path, out_dir: Path) -> tuple[int, int]:
-    """Write metrics/<id>.toml and facts/<id>.toml under out_dir; returns (metrics, facts) written."""
+# ---- product concepts (Plan 2C): knowledge/concepts.json -> concepts/<id>.toml
+
+# concepts.json texts (Norwegian; splitt agreed with Tom 14.10, the business map with the families approved 15.10,
+# streamix 22.10) -> English sheet text. A new text stops the seed until it has a translation here.
+CONCEPT_TEXT = {
+    "Telenor Consumers tilbud om å kjøpe håndsett/utstyr på delbetaling, med valgfri Plussforsikring og egne "
+    "Splitt-abonnement. Lønnsomhet = direkte bidrag fra FinMax.":
+        "Telenor Consumer's offer to buy handsets and equipment on instalments, with optional Pluss insurance "
+        "(Plussforsikring) and dedicated Splitt subscriptions. Profitability = direct contribution from FinMax.",
+    "Lønnsomhet = direkte bidrag fra FinMax (ikke fullfordelt Produktregnskap).":
+        "Profitability = direct contribution from FinMax (not the fully allocated product cost accounts, "
+        "Produktregnskapet).",
+    "Merking: (bokført) = merket på Splitt-produkt/koststed; (estimert) = delt beløp × nøkkel; (henført 100 %) = "
+    "ikke merket, men tilhører Splitt.":
+        "Tagging: (booked) = tagged on a Splitt product or cost centre; (estimated) = shared amount × key; "
+        "(attributed) = not tagged, but belongs to Splitt in full.",
+    "Øvrige kontoer bokført på Splitt-produktene (tap på fordringer, frakt, markedsføring, rabatter, gebyrer) kommer "
+    "automatisk med i C40S/C70-linjene.":
+        "Other accounts booked on the Splitt products (losses on receivables, freight, marketing, discounts, fees) "
+        "are included automatically in the C40S/C70 lines.",
+    "Sammenligning mot i fjor: provisjon på FV081 (C60140) og renteinntekt C80311 ble i 2025 først bokført i 4. "
+    "kvartal – hittil-tall mot hittil i fjor gir derfor store endringer.":
+        "Against last year: commission on FV081 (C60140) and interest income C80311 were first booked in Q4 2025, "
+        "so year to date against last year's year to date shows large changes.",
+    "Plussforsikring (F4046) økte kraftig fra 2025 til 2026 – nøkkelen for forsikringsinnholdskostnad følger med "
+    "(andel av forsikringsinntekt).":
+        "Pluss insurance (F4046) grew strongly from 2025 to 2026; the key for the insurance content cost follows it "
+        "(share of insurance revenue).",
+    "Innbytte fordeles med håndsettnøkkelen (Splitts andel av håndsettinntekt), fordi innbytte gjelder alt "
+    "håndsettsalg. Valgt 15.10.2026 uten bedre kilde; uvesentlig: innbytte totalt er −3,5 MNOK hittil sep 26, så 0 "
+    "% eller 100 % flytter bidraget med under 3 %.":
+        "Trade-in is allocated with the handset key (Splitt's share of handset revenue), because trade-in concerns "
+        "all handset sales. Chosen 15.10.2026 for want of a better source; immaterial: trade-in in total is "
+        "-3.5 MNOK YTD Sep 26, so 0 % or 100 % moves the contribution by less than 3 %.",
+    "Direkte bidrag Splitt (før finansieringskostnad og tap)":
+        "Direct contribution Splitt (before financing cost and losses)",
+    "Maskinvarelinjene = M4517 Handset Splitt Revenue": "Hardware lines = M4517 Handset Splitt Revenue",
+    "Maskinvare (Splitt-salg av utstyr)": "Hardware (Splitt equipment sales)",
+    "Splitt-inntekt Apple": "Splitt revenue Apple",
+    "Splitt-inntekt Samsung": "Splitt revenue Samsung",
+    "Splitt-inntekt øvrige merker": "Splitt revenue other brands",
+    "God Som Ny (brukte enheter)": "God Som Ny (used devices)",
+    "Finanskomponent (renteandel skilt ut av inntekten)": "Finance component (interest share split out of revenue)",
+    "Maskinvareinntekt Splitt": "Hardware revenue Splitt",
+    "Varekost maskinvare": "Hardware COGS",
+    "Splitts andel av all håndsettinntekt": "Splitt's share of all handset revenue",
+    "Håndsett-varekost totalt (M5008 + M5010)": "Handset COGS in total (M5008 + M5010)",
+    "Splitt maskinvareinntekt ekskl. finanskomponent": "Splitt hardware revenue excl. the finance component",
+    "Håndsettinntekt totalt (M411)": "Handset revenue in total (M411)",
+    "Andre kostnader bokført på Splitt-produktene": "Other costs booked on the Splitt products",
+    "Varekost bokført på Splitt (C40S)": "COGS booked on Splitt (C40S)",
+    "Driftskostnader bokført på Splitt (C70, bl.a. provisjon C60140)":
+        "Opex booked on Splitt (C70, incl. commission C60140)",
+    "Finansiering": "Financing",
+    "Renteinntekt på avbetalingsplaner (C80311)": "Interest income on instalment plans (C80311)",
+    "Ikke produktmerket; henført 100 % til Splitt.": "Not product-tagged; attributed 100 % to Splitt.",
+    "Finansieringskostnad og tap på avbetalingsfordringer": "Financing cost and losses on instalment receivables",
+    "Ikke synlig i FinMax un.SY (C81313–C81315, 81502) – ikke med i bidraget.":
+        "Not visible in FinMax un.SY (C81313–C81315, 81502); not in the contribution.",
+    "Forsikring": "Insurance",
+    "Splitt Plussforsikring": "Splitt Pluss insurance",
+    "Forsikringsinnholdskostnad": "Insurance content cost",
+    "Splitts andel av all forsikringsinntekt": "Splitt's share of all insurance revenue",
+    "Forsikringsinnholdskostnad totalt (F4010)": "Insurance content cost in total (F4010)",
+    "Forsikringsinntekt totalt (M4124)": "Insurance revenue in total (M4124)",
+    "Innbytte": "Trade-in",
+    "Innbytte (innbytteverdi og -bonus, C120–C134)": "Trade-in (trade-in value and bonus, C120–C134)",
+    "samme nøkkel som maskinvaren (andel av håndsettinntekt) – innbytte gjelder alt håndsettsalg":
+        "the same key as the hardware (share of handset revenue): trade-in concerns all handset sales",
+    "Innbytte totalt (EBITDA før andre poster, C120–C134)":
+        "Trade-in in total (EBITDA before other items, C120–C134)",
+    "Splitt-abonnement og datapakker": "Splitt subscriptions and data packs",
+    "Splitt-tariffer og datapakker (bidrag C30 + C40S)": "Splitt tariffs and data packs (contribution C30 + C40S)",
+    "Splitt – direkte lønnsomhet": "Splitt - direct profitability",
+    "Streamix – direkte bidrag siden lansering": "Streamix - direct contribution since launch",
+    "Streamix (pd.SY.P255) bokført i FinMax: abonnement, oppkjøpsprodukter og COGS, samt driftskostnader merket på "
+    "produktet. Streamix Mobil (GF068/GF069 under M4115) vises som memo utenfor totalen.":
+        "Streamix (pd.SY.P255) as booked in FinMax: subscriptions, purchase products and COGS, plus opex tagged on "
+        "the product. Streamix Mobil (GF068/GF069 under M4115) is shown as a memo outside the total.",
+    "Forbrukerens fast-produkter har ingen fast Produktregnskap-kode; Streamix P255 fordeles med FinPlan-nøkler "
+    "etter årsslutt.":
+        "Consumer fixed products have no fixed product-cost-accounts code; Streamix P255 is allocated with FinPlan "
+        "keys after year end.",
+    "Avtalt med Tom 22.10.2026: booked + Streamix Mobil som memo.":
+        "Agreed with Tom 22.10.2026: booked items + Streamix Mobil as a memo.",
+    "Direkte bidrag Streamix": "Direct contribution Streamix",
+    "Direkte bidrag = EBITDA før andre poster på produktet":
+        "Direct contribution = EBITDA before other items on the product",
+    "Direkte bidrag = EBITDA før andre poster på produktene":
+        "Direct contribution = EBITDA before other items on the products",
+    "Inntekter og varekost": "Revenue and COGS",
+    "Inntekter (C30)": "Revenue (C30)",
+    "Varekost (C40S)": "COGS (C40S)",
+    "Bruttofortjeneste": "Gross profit",
+    "Driftskostnader bokført på produktet": "Opex booked on the product",
+    "Driftskostnader bokført på produktene": "Opex booked on the products",
+    "Driftskostnader (C70)": "Opex (C70)",
+    "Memo: Streamix Mobil (ikke i total)": "Memo: Streamix Mobil (not in the total)",
+    "Memo: inntekter Streamix Mobil (C30)": "Memo: revenue Streamix Mobil (C30)",
+    "Memo: varekost Streamix Mobil (C40S)": "Memo: COGS Streamix Mobil (C40S)",
+    "Ikke med": "Not included",
+    "Lønn og kostnader på koststed": "Salaries and costs on cost centres",
+    "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis.":
+        "salaries (C50S) are never product-tagged, C60 and C75 only partly.",
+    "lønn (C50S) er aldri produktmerket, C60 og C75 bare delvis; fullt fordelt i Produktregnskapet.":
+        "salaries (C50S) are never product-tagged, C60 and C75 only partly; fully allocated in the product cost "
+        "accounts (Produktregnskapet).",
+    "Familie fra produktlisten 2025 via forretningskart 2 (godkjent 15.10.2026); bare bokførte tall.":
+        "Family from the 2025 product list via business map 2 (approved 15.10.2026); booked figures only.",
+    # splitt decisions
+    "håndsettnøkkel (key_same_as hw_cogs)": "handset key (key_same_as hw_cogs)",
+    "Claude (brukeren hadde ingen preferanse)": "Claude (the user had no preference)",
+    "innbytte totalt −3,5 MNOK YTD sep 26": "trade-in in total -3.5 MNOK YTD Sep 26",
+}
+# family texts with the family's own name in them
+FAMILY_TEXT = [
+    (re.compile(r"(.+) – direkte bidrag"), r"\1 - direct contribution"),
+    (re.compile(r"Direkte bidrag (.+)"), r"Direct contribution \1"),
+    (re.compile(r"Produktfamilien «(.+)» i FinMax \(pd\.SY\): (\d+) produktgruppe\(r\), bl\.a\. (.+)\. Direkte bidrag "
+                r"= inntekter \+ varekost \+ driftskostnader bokført på produktene\."),
+     r"Product family «\1» in FinMax (pd.SY): \2 product group(s), e.g. \3. Direct contribution = revenue + COGS + "
+     r"opex booked on the products."),
+]
+KIND_SUFFIX = {"booked": " (booked)", "attributed": " (attributed 100 %)", "estimated": " (estimated)"}
+CONCEPT_SOURCE = {"manual": "manual", "auto-familie": "auto family (2025 product list, business map 2)"}
+CONCEPT_APPROVED_ON = {"splitt": "2026-10-14", "streamix": "2026-10-22"}     # the rest with the business map, 15.10
+
+
+def _tr(text: str, where: str) -> str:
+    if not text:
+        return ""
+    if text in CONCEPT_TEXT:
+        return CONCEPT_TEXT[text]
+    for pattern, repl in FAMILY_TEXT:
+        if pattern.fullmatch(text):
+            return pattern.sub(repl, text)
+    raise ValueError(f"concepts.json {where}: no English text for {text!r}; add it to seed.CONCEPT_TEXT")
+
+
+def _cpick(d: dict | None, where: str) -> dict | None:
+    """A concepts.json amount (account + products|entities), expression ('expr') or reference ('ref': one item)."""
+    if d is None:
+        return None
+    out = {"label": _tr(d.get("label", ""), where)}
+    if "expr" in d or "ref" in d:
+        out["expr"] = d.get("expr") or d["ref"]
+    else:
+        out |= {"account": d["account"], "products": d.get("products", []), "entities": d.get("entities", [])}
+    return out
+
+
+def _citem(it: dict, cid: str) -> dict:
+    where = f"{cid}.{it['key']}"
+    kind = it["kind"]
+    out = {"key": it["key"], "label": _tr(it.get("label", it["key"]), where) + KIND_SUFFIX.get(kind, ""),
+           "kind": kind, "note": _tr(it.get("note", ""), where)}
+    if kind in ("booked", "attributed"):
+        out |= {"account": it["account"], "products": it.get("products", []), "entities": it.get("entities", [])}
+    elif kind == "sum":
+        out["of"] = it["of"]
+    elif kind == "estimated":
+        out["base"] = _cpick(it["base"], where)
+        share = {"text": _tr(it.get("key_text", ""), where)}
+        if it.get("key_same_as"):
+            share["same_as"] = it["key_same_as"]
+        else:
+            share |= {"num": _cpick(it["key_num"], where), "den": _cpick(it["key_den"], where)}
+        out["key_share"] = share
+    return out
+
+
+def _translate_values(d, where: str):
+    """Decisions: translate the texts, keep dates and codes."""
+    if isinstance(d, dict):
+        return {k: _translate_values(v, where) for k, v in d.items()}
+    return CONCEPT_TEXT.get(d, d) if isinstance(d, str) else d
+
+
+def seed_concepts(concepts_json: dict) -> list[Concept]:
+    """Every concept of knowledge/concepts.json as a semantic Concept (approved: the user approved the business map
+    on 15.10; the families are automatic but booked-only). Keys are mapped as they stand: an estimated item's
+    key_num/key_den (an amount, an 'expr' over item keys, or a 'ref' to one item) become key_share num/den,
+    key_same_as becomes key_share.same_as."""
+    out = []
+    for c in concepts_json["concepts"]:
+        cid = c["id"]
+        out.append(Concept(
+            id=cid, title=_tr(c["title"], cid), names=_dedupe(c.get("names", [])), kind=c["kind"],
+            description=_tr(c["description"], cid), entity=c.get("entity", "un.SY"),
+            source=CONCEPT_SOURCE.get(c.get("source") or "manual", c.get("source") or "manual"),
+            status="approved",
+            approved={"by": "tom", "on": CONCEPT_APPROVED_ON.get(cid, "2026-10-15"), "via": "concepts.json"},
+            notes=[_tr(n, cid) for n in c.get("notes", [])],
+            decisions=_translate_values(c.get("decisions", {}), cid),
+            total={"label": _tr(c["total"]["label"], cid), "of": c["total"]["of"]},
+            check=[{"label": _tr(x["label"], cid), "expr": x["expr"], "source": _cpick(x.get("source"), cid)}
+                   for x in c.get("checks", [])],
+            block=[{"title": _tr(b["title"], cid), "item": [_citem(it, cid) for it in b["items"]]}
+                   for b in c["blocks"]]))
+    return out
+
+
+def seed(knowledge_dir: Path, out_dir: Path) -> tuple[int, int, int]:
+    """Write metrics/<id>.toml, facts/<id>.toml and concepts/<id>.toml under out_dir; returns (metrics, facts,
+    concepts) written."""
     knowledge_dir, out_dir = Path(knowledge_dir), Path(out_dir)
     catalog = _read(knowledge_dir, "catalog.toml")
     metrics = seed_metrics(catalog, _read(knowledge_dir, "capabilities.toml"))
     facts = seed_facts(catalog, _read(knowledge_dir, "accounts_map.json"), _read(knowledge_dir, "org_map.json"),
                        _read(knowledge_dir, "finplan_map.json"))
-    for kind, items in (("metrics", metrics), ("facts", facts)):
+    concepts = seed_concepts(_read(knowledge_dir, "concepts.json"))
+    for kind, items in (("metrics", metrics), ("facts", facts), ("concepts", concepts)):
         d = out_dir / kind
         d.mkdir(parents=True, exist_ok=True)
         for it in items:
             (d / f"{it.id}.toml").write_text(to_toml(it), encoding="utf-8", newline="\n")
-    return len(metrics), len(facts)
+    return len(metrics), len(facts), len(concepts)
 
 
 if __name__ == "__main__":                              # uv run python -m smartass.knowledge.seed < /dev/null
