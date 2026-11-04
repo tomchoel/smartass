@@ -297,6 +297,9 @@ def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "sess
     _drop_backup(t, b_answer)
     _save(t)
     out["followup"] = True
+    if not owned:
+        out["warnings"] = list(out.get("warnings", [])) + [
+            "old answer without a stored range: the whole Answer sheet was redrawn"]
     return out
 
 

@@ -117,3 +117,14 @@ def test_restore_when_the_original_sheet_is_gone(monkeypatch):
     monkeypatch.setattr(sheets, "_sheet_exists", lambda t, n: True)
     pipeline._restore(Tg(), "Q2 Data", "~Q2 Data")
     assert calls == ["v1 restore"]
+
+
+def test_old_answer_without_a_stored_range_gets_a_reply_note(monkeypatch):
+    log = []
+    wire(monkeypatch, log)
+    pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
+    out = pipeline.redraw_job(None, pre, q=2, owned=None, target="session")
+    assert any("old answer without a stored range: the whole Answer sheet was redrawn" in w for w in out["warnings"])
+    log.clear()
+    out = pipeline.redraw_job(None, pre, q=2, owned={"rows": 3, "cols": 2}, target="session")
+    assert not any("stored range" in w for w in out["warnings"])
