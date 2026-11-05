@@ -750,3 +750,18 @@ the earlier v1/v2 answers (Business EBITDA YTD Oct 26: 3 868 633 901 against 3 8
 4. The accent colour (0,160,220) for chart highlights is a placeholder. Tom to confirm the TN accent.
 5. A trend chart with several metrics draws every AC line in navy, so the metrics cannot be told apart. Give each metric its own shade, keep AC solid and PY grey, and show the plan dashed.
 6. The redraw of a pre-v5 workbook was checked on a scratch copy of the 04.11 Wholesale book (5 answers, 5 data and 4 lines tables). The header was inserted above every A1 table, the tables survived, 0 formulas show an error, and Sheet = model was OK for all 5. A workbook with many queries (Q4: 7) gets a 60-row header above its table.
+
+
+## 5c follow-up (05.11.2026, v0.2.9-0.2.11)
+
+Tom: "fiks alt". Superseded above: a line without a driver gets no cause row (no "Cause not yet explained").
+- One unit per set of key points (`shared_unit`: MNOK when any amount >= 1 m, two decimals under 50 000); a ledger
+  gap to the cube keeps its own unit (1 NOK, never 0,00 MNOK).
+- A base column (PY/BU/FC) empty on every line is dropped with its variance, variance % and the columns that read it
+  (concept helpers); Material is rebuilt over the remaining variances; `BlockOut.no_base` makes the key points say
+  `no PY (new)`; `BlockOut.dropped` keeps the chart lint quiet about it.
+- A trend's AC column empty on every month is dropped (FinPlan KPI with only Target); the points say `no AC`.
+- A trend starts at its first month with data (rows before launch go; Total and cumulative sums pruned; the period
+  label and subtitle follow).
+- A grid without one data cell is no data ("FinPlan: no data for ... in Actual"), not "Smart View did not know".
+- Font lint reads the drawn block only (cells a redraw cleared fall back to the Normal font).
