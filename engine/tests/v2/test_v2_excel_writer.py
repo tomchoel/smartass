@@ -77,9 +77,13 @@ def test_write_answer_sets_value_column_widths(monkeypatch):
     from smartass.render import excel
     seen = {}
     monkeypatch.setattr(styling, "apply_report", lambda ws, roles: seen.update(roles) or [])
-    p = SheetPlan(cells={(1, 2): "T", (2, 3): 1.0, (2, 5): 2.0}, last_col="E", last_row=2)
+    p = SheetPlan(cells={(1, 2): "T", (2, 4): 1.0, (2, 6): 2.0}, last_col="F", last_row=2)
     excel.write_answer(WS(), p, [])
-    assert seen["col_widths"] == {"B": 46, "C": 16, "D": 16, "E": 16}
+    assert seen["col_widths"] == {"A": 2, "B": 9, "C": 46, "D": 16, "E": 16, "F": 16}
+    assert seen["label_cols"] == ["B", "C"] and seen["code_cols"] == ["B"]
+    p.widths = {"E": 2, "F": 9}                                   # the layout's gap and Material widths win
+    excel.write_answer(WS(), p, [])
+    assert seen["col_widths"]["E"] == 2 and seen["col_widths"]["F"] == 9
 
 
 def test_answer_grid_stores_text_as_text_but_not_formulas_or_numbers():
@@ -187,16 +191,16 @@ def _widths_for(monkeypatch, cells, rows):
 
 
 def test_the_label_column_fits_a_long_line_label(monkeypatch):
-    """Plan 2D task 2: B = max(46, min(80, longest line label + 2)); no other column changes."""
+    """Plan 2D task 2 (plan 5: the label is in C): C = max(46, min(80, longest line label + 2))."""
     label = "   " + "x" * 57                                       # 60 characters with the level indent
-    w = _widths_for(monkeypatch, {(1, 2): "T", (2, 2): label, (2, 3): 1.0, (3, 2): "y" * 120},
+    w = _widths_for(monkeypatch, {(1, 2): "T", (2, 3): label, (2, 4): 1.0, (3, 2): "y" * 120},
                     [{"row": 1, "kind": "title"}, {"row": 2, "kind": "line", "num": {}},
                      {"row": 3, "kind": "note"}])
-    assert w == {"B": 62, "C": 16, "D": 16}                         # the 120-char note does not count
+    assert w == {"A": 2, "B": 9, "C": 62, "D": 16}                   # the 120-char note does not count
 
 
 def test_the_label_column_stays_46_and_stops_at_80(monkeypatch):
-    short = _widths_for(monkeypatch, {(2, 2): "Revenue", (2, 3): 1.0}, [{"row": 2, "kind": "line", "num": {}}])
-    assert short["B"] == 46
-    long = _widths_for(monkeypatch, {(2, 2): "z" * 100, (2, 3): 1.0}, [{"row": 2, "kind": "grand", "num": {}}])
-    assert long["B"] == 80
+    short = _widths_for(monkeypatch, {(2, 3): "Revenue", (2, 4): 1.0}, [{"row": 2, "kind": "line", "num": {}}])
+    assert short["C"] == 46
+    long = _widths_for(monkeypatch, {(2, 3): "z" * 100, (2, 4): 1.0}, [{"row": 2, "kind": "grand", "num": {}}])
+    assert long["C"] == 80

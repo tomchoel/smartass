@@ -1,21 +1,22 @@
 # engine/smartass/render/charts.py
 """Charts for v2 answers, in v1's style (answer_write._chart / _multi_chart): a line chart per trend block (one
-series per value column, months from column B), a waterfall per bridge block (column B labels + column C amounts,
-start and end as totals; falls back to a column chart where Excel has no waterfall). Every chart is named
-'smartass chart' (v1's owned.CHART_NAME) so a follow-up can drop it. A chart that fails is a warning, never a
-failed answer."""
+series per value column, months from the label column C), a waterfall per bridge block (column C labels + the
+amount column, start and end as totals; falls back to a column chart where Excel has no waterfall), each at its
+anchor in the Charts zone. Every chart is named 'smartass chart' (v1's owned.CHART_NAME) so a follow-up can drop it.
+A chart that fails is a warning, never a failed answer."""
 from __future__ import annotations
 
 from ..xl.owned import CHART_NAME
 from ..xl.jobs import com
 
 from .excel import col_number
-from .layout import ChartSpec, SheetPlan
+from .layout import LABEL_COL, ChartSpec, SheetPlan, col_letter
 
 XL_LINE = 4
 XL_WATERFALL = 119
 XL_COLUMN = 51
 WIDTH = 480.0
+LABEL = col_letter(LABEL_COL)     # category labels (column B holds the codes)
 
 
 def _place(ws, spec: ChartSpec, xl_type: int):
@@ -58,7 +59,7 @@ def _line(ws, spec: ChartSpec) -> None:
     for col in spec.series_cols:
         s = com(lambda: chart.SeriesCollection().NewSeries())
         com(lambda: setattr(s, "Values", ws.Range(f"{col}{r1}:{col}{r2}")))
-        com(lambda: setattr(s, "XValues", ws.Range(f"B{r1}:B{r2}")))
+        com(lambda: setattr(s, "XValues", ws.Range(f"{LABEL}{r1}:{LABEL}{r2}")))
         head = com(lambda: ws.Cells(spec.header_row, col_number(col)).Value)   # series named by its header, as v1
         com(lambda: setattr(s, "Name", str(head or "")))
     _title(chart, spec.title)
@@ -73,7 +74,7 @@ def _waterfall(ws, spec: ChartSpec) -> None:
     shape = None
     try:
         shape, chart = _place(ws, spec, XL_WATERFALL)
-        com(lambda: chart.SetSourceData(ws.Range(f"B{r1}:{col}{r2}")))
+        com(lambda: chart.SetSourceData(ws.Range(f"{LABEL}{r1}:{col}{r2}")))
         series = com(lambda: chart.FullSeriesCollection(1))
         for idx in spec.totals:
             try:                                           # one point failing keeps the waterfall (as v1)
@@ -87,7 +88,7 @@ def _waterfall(ws, spec: ChartSpec) -> None:
             except Exception:   # noqa: BLE001
                 pass
         shape, chart = _place(ws, spec, XL_COLUMN)
-        com(lambda: chart.SetSourceData(ws.Range(f"B{r1}:{col}{r2}")))
+        com(lambda: chart.SetSourceData(ws.Range(f"{LABEL}{r1}:{col}{r2}")))
     _title(chart, spec.title)
     com(lambda: setattr(chart, "HasLegend", False))
     if spec.millions:
@@ -97,6 +98,8 @@ def _waterfall(ws, spec: ChartSpec) -> None:
 def write_charts(ws, plan: SheetPlan) -> list[str]:
     warnings = []
     for spec in plan.charts:
+        if not spec.rows:              # a kind drawn from plan 5 Task 7 on: its zone is reserved
+            continue
         try:
             (_waterfall if spec.type == "waterfall" else _line)(ws, spec)
         except Exception as e:   # noqa: BLE001 - a chart never fails the answer

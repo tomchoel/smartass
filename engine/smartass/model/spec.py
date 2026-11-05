@@ -263,9 +263,9 @@ class ChartBlock(_M):
             self.sort = "desc"
         if self.source.query is not None:
             self.data_table()             # own data: the same column rules as a table
-            if self.kind == "waterfall" and "amount" not in self.series:
-                raise ValueError("chart: a waterfall points at a bridge block (source.block) or has its own data "
-                                 "with an 'amount' series")
+            if self.kind == "waterfall":
+                raise ValueError("chart: a waterfall has no own data; point a waterfall at a bridge block: "
+                                 "source {block: <bridge index>}")
         return self
 
     def data_table(self) -> "TableBlock | None":
@@ -377,8 +377,8 @@ class AnalysisSpec(_M):
         if isinstance(t, (ChartBlock, CommentaryBlock)):
             raise ValueError(f"block {i} (chart): source.block {j} is a {t.type} block; point at a block with data")
         if c.kind == "waterfall" and not isinstance(t, BridgeBlock):
-            raise ValueError(f"block {i} (chart): a waterfall points at a bridge block, not a {t.type} block "
-                             "(or give it its own data with an 'amount' series)")
+            raise ValueError(f"block {i} (chart): a waterfall needs a bridge, not a {t.type} block; point a "
+                             "waterfall at a bridge block: source {block: <bridge index>}")
 
 
 def json_schema() -> dict:

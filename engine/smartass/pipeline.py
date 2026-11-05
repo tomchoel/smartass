@@ -186,7 +186,7 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
 from .render.charts import write_charts  # noqa: E402
 from .render.excel import (col_number, read_block, read_data, rewrite_data, rewrite_grid,  # noqa: E402
                            write_answer, write_data)
-from .render.layout import constant_columns, layout  # noqa: E402
+from .render.layout import answer_subtitle, constant_columns, layout  # noqa: E402
 from .render.readback import compare  # noqa: E402
 
 DATA_TAB = 0xA6A6A6      # grey tab for data sheets (BGR), as v1 sheetorder.DATA_TAB
@@ -371,12 +371,11 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     """Data sheet, layout, Answer sheet, charts, readback, spec + owned range, sheet order. Shared by excel_job and
     redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place."""
     (rewrite_data if redraw else write_data)(ws_data, pre.frame, q)
-    cubes = sorted({x.cube for x in pre.spec.queries}) or ["FinLite"]     # a lines-only spec has no query
     line_sheets = [f"Q{q} Lines {a}" for a in pre.frame.lines]
     for ls in pre.frame.lines.values():         # before the answer, so its formulas resolve
         _write_lines(t, q, ls)
-    closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
-    plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}",
+    plan = layout(q, pre.spec, pre.result, stock=_stock(pre),
+                  subtitle=answer_subtitle(pre.spec, pre.result, pre.closed),
                   const=constant_columns(pre.frame), caveats=pre.caveats)
     if redraw:                                  # a larger answer pushes the user's cells aside, never overwrites them
         _make_room(ws_answer, old_owned, {"rows": plan.last_row, "cols": col_number(plan.last_col)})

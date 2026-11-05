@@ -109,14 +109,14 @@ def test_the_floor_sits_in_a_labelled_thresholds_cell():
     res, p = _plan()
     sections = {p.cells[(r["row"], 2)]: r["row"] for r in p.rows if r["kind"] == "section"}
     assert "Thresholds" in sections
-    labels = {v: row for (row, col), v in p.cells.items() if col == 2 and isinstance(v, str)}
+    labels = {v: row for (row, col), v in p.cells.items() if col == 3 and isinstance(v, str)}
     row = labels["Variance % floor: Revenue"]
-    assert p.cells[(row, 3)] == 500_000 and row > sections["Thresholds"]
-    assert p.cells[(labels["Variance % floor: Heads"], 3)] == 5.0
+    assert p.cells[(row, 4)] == 500_000 and row > sections["Thresholds"]
+    assert p.cells[(labels["Variance % floor: Heads"], 4)] == 5.0
     assert "Variance % floor: FTE" not in labels
     f = p.cells[p.at(ck("b0", "m0", 3))]
     r0, c0 = p.at(ck("b0", "m0", 1))
-    assert f == f'=IF(ABS({col_letter(c0)}{r0})<$C${row},"",({col_letter(c0 - 1)}{r0}-{col_letter(c0)}{r0})' \
+    assert f == f'=IF(ABS({col_letter(c0)}{r0})<$D${row},"",({col_letter(c0 - 1)}{r0}-{col_letter(c0)}{r0})' \
                 f'/ABS({col_letter(c0)}{r0}))'
     assert p.cells[p.at(ck("b0", "m2", 3))].startswith("=IF(")                            # FTE: as before
     assert "=0," in p.cells[p.at(ck("b0", "m2", 3))]
@@ -127,17 +127,18 @@ def test_the_floor_layout_has_no_block_findings():
     from smartass.xl.vendor.formelsjekk import check_cells
     _, p = _plan()
     cells = [("Q1 Answer", f"{col_letter(col)}{row}", v if isinstance(v, str) else repr(v))
-             for (row, col), v in p.cells.items() if col >= 3]
+             for (row, col), v in p.cells.items() if col >= 4]
     assert [f for f in check_cells(cells) if f.severity == "block"] == []
 
 
-def test_no_floor_used_no_thresholds_section():
+def test_no_floor_used_no_floor_rows():
     d = spec_dict(blocks=[{"type": "table", "query": "fm", "metrics": ["FTE"], "material": False}])
     d["queries"][0]["metrics"] = ["FTE"]
     s = AnalysisSpec.model_validate(d)
     res = compute(s, res_(), CLOSED, frame())
     p = layout(1, s, res, stock={"FTE"}, subtitle="x", const={})
-    assert "Thresholds" not in [p.cells[(r["row"], 2)] for r in p.rows if r["kind"] == "section"]
+    assert not any(k.startswith("floor.") for k in p.params)                  # plan 5: Thresholds always shows
+    assert set(p.params) == {"unit_mnok", "tolerance"}                       # the unit and the check tolerance
 
 
 def test_sheet_equals_model_with_a_blank_pct():

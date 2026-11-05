@@ -35,14 +35,16 @@ def test_line_and_waterfall_are_drawn_and_named():
     log = []
     ws = WS(log, "ws")
     p = SheetPlan(charts=[
-        ChartSpec("line", "Trend", 10, [11, 12, 13], ["C", "D"], [], "G"),
-        ChartSpec("waterfall", "EBITDA bridge", 20, [21, 22, 23, 24, 25], ["C"], [1, 5], "G")])
+        ChartSpec("line", "Trend", 10, [11, 12, 13], ["D", "E"], [], "G"),
+        ChartSpec("waterfall", "EBITDA bridge", 20, [21, 22, 23, 24, 25], ["D"], [1, 5], "G"),
+        ChartSpec("column", "Opex rose", 0, [], [], [], "B", anchor_row=5)])      # Task 7 draws it: skipped
     warnings = write_charts(ws, p)
     assert warnings == []
     adds = [e for e in log if e[0] == "call" and e[1].endswith("Shapes.AddChart2")]
     assert [a[2][1] for a in adds] == [XL_LINE, XL_WATERFALL]
-    assert ("range", "C11:C13") in log and ("range", "B11:B13") in log and ("range", "D11:D13") in log
-    assert ("range", "B21:C25") in log
+    assert ("range", "D11:D13") in log and ("range", "C11:C13") in log and ("range", "E11:E13") in log
+    assert ("range", "C21:D25") in log                     # labels in C (codes in B), amounts in D
+    assert not any(e[0] == "range" and "B" in e[1] for e in log)
     assert any(e[0] == "set" and e[1].endswith(".Name") and e[2] == CHART_NAME for e in log)
 
 

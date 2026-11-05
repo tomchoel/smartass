@@ -134,7 +134,7 @@ def test_source_block_must_not_be_a_chart_or_commentary():
         spec(TABLE, chart(), chart(source={"block": 1}))
 
 
-def test_waterfall_needs_a_bridge_or_own_data_with_amount():
+def test_waterfall_needs_a_bridge():
     with pytest.raises(ValidationError, match="waterfall"):
         spec(TABLE, chart(kind="waterfall"))
     bridge = {"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}
@@ -142,7 +142,8 @@ def test_waterfall_needs_a_bridge_or_own_data_with_amount():
     own = {"query": "fm", "metrics": ["Opex"]}
     with pytest.raises(ValidationError, match="waterfall"):
         spec(TABLE, chart(kind="waterfall", source=own))
-    spec(TABLE, chart(kind="waterfall", source=own, series=["amount"]))
+    with pytest.raises(ValidationError, match="point a waterfall at a bridge block"):     # own data: never
+        spec(TABLE, chart(kind="waterfall", source=own, series=["amount"]))
 
 
 def test_source_needs_exactly_one_of_block_and_query():
@@ -238,7 +239,7 @@ def test_layout_skips_chart_outs_and_lays_out_chart_data_as_a_table():
     assert "Chart data: Own data" in texts
     o = next(o for o in res.outs if o.type == "chart_data")
     assert all(ck(o.key, ln.key, j) in p.addr for ln in o.lines for j, e in enumerate(ln.cells) if e is not None)
-    assert p.charts == []                                            # chart blocks are drawn from Task 7 on
+    assert [(c.type, c.rows) for c in p.charts] == [("column", []), ("column", [])]   # zone reserved; Task 7 draws
 
 
 def test_layout_still_charts_trend_and_bridge():

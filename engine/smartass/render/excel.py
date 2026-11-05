@@ -9,7 +9,8 @@ from ..xl.jobs import com
 
 from ..model.errors import GuardError
 from ..model.frame import Frame
-from .layout import LABEL_COL, SheetPlan, col_letter
+from .layout import (CODE_COL, FIRST_COL, LABEL_COL, W_A, W_CODE, W_NUM, SheetPlan, col_letter,  # noqa: F401
+                     col_number, label_width)  # col_number, label_width: re-exported (charts, tests)
 
 XL_SRC_RANGE = 1
 XL_YES = 1
@@ -98,38 +99,25 @@ def answer_grid(p: SheetPlan) -> tuple[int, int, list[list]]:
     return r0, c0, g
 
 
-LINE_KINDS = ("line", "sum", "grand", "check")
-LABEL_MIN, LABEL_MAX = 46, 80
-
-
-def label_width(p: SheetPlan) -> int:
-    """Column B fits the longest table line label (indent included): max(46, min(80, longest + 2)). Titles, text
-    and notes are not counted (they may run over the empty cells to their right)."""
-    rows = {r["row"] for r in p.rows if r.get("kind") in LINE_KINDS}
-    longest = max((len(v) for (r, c), v in p.cells.items() if c == LABEL_COL and r in rows and isinstance(v, str)),
-                  default=0)
-    return max(LABEL_MIN, min(LABEL_MAX, longest + 2))
-
-
 def write_answer(ws, p: SheetPlan, warnings: list[str]) -> list[str]:
     """Write every cell in one Formula2 rectangle, then style. Returns the styling lint findings."""
     r0, c0, g = answer_grid(p)
     rng = ws.Range(ws.Cells(r0, c0), ws.Cells(r0 + len(g) - 1, c0 + len(g[0]) - 1))
     com(lambda: setattr(rng, "Formula2", tuple(tuple(x) for x in g)))
-    widths = {"B": label_width(p), **{col_letter(c): 16 for c in range(3, col_number(p.last_col) + 1)}}
-    roles = {"last_col": p.last_col, "label_cols": ["B"], "last_row": p.last_row, "col_widths": widths,
-             "rows": p.rows}
-    return styling.apply_report(ws, roles)
+    return styling.apply_report(ws, answer_roles(p))
+
+
+def answer_roles(p: SheetPlan) -> dict:
+    """The apply_report roles of an answer: widths (A 2, B code, C label, numbers 16, the layout's gap and marker
+    widths), codes in B and labels in C."""
+    widths = {"A": W_A, "B": W_CODE, "C": label_width(p),
+              **{col_letter(c): W_NUM for c in range(FIRST_COL, col_number(p.last_col) + 1)}, **p.widths}
+    code, label = col_letter(CODE_COL), col_letter(LABEL_COL)
+    return {"last_col": p.last_col, "label_cols": [code, label], "code_cols": [code], "last_row": p.last_row,
+            "col_widths": widths, "rows": p.rows}
 
 
 def read_block(ws, p: SheetPlan) -> tuple:
     rng = ws.Range(f"A1:{p.last_col}{p.last_row}")
     v = com(lambda: rng.Value2)
     return v if isinstance(v, tuple) else ((v,),)
-
-
-def col_number(letters: str) -> int:
-    n = 0
-    for ch in letters:
-        n = n * 26 + ord(ch) - 64
-    return n

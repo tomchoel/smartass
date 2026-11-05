@@ -80,7 +80,13 @@ def _check_ranges(cells: list[tuple[int, int]]) -> list[str]:
 GREEN = (0, 112, 60)
 GREY_TAB = (166, 166, 166)
 NUM_ALIAS = {"heltall": "heltall", "tall1": "tall1", "prosent1": "prosent1", "prosent": "prosent",
-             "faktor": "faktor", "belop": "belop"}
+             "faktor": "faktor", "belop": "belop",
+             "avvik": "heltall", "avvikpst": "prosent1", "markor": "heltall"}    # new kinds: base TN style
+# the scenario kinds (sub-spec 5 §1.5) on top of their base style, as en-US codes set through NumberFormat (not
+# Local, so no locale translation): Δ NOK, Δ % and the Material marker (1 -> ●, 0 -> blank)
+NUM_FORMATS = {"avvik": '[Color10]"▲ "#,##0;[Red]"▼ ("#,##0")";"–"',
+               "avvikpst": '[Color10]"▲ "0.0 %;[Red]"▼ ("0.0 %")";"–"',
+               "markor": '"●";"●";""'}
 TALL1_THOUSANDS = '#,##0.0_);(#,##0.0);"–"_)'    # spec: 'tall1' is one decimal WITH thousands separator
 HELTALL = tn.NUM["heltall"]
 
@@ -88,7 +94,7 @@ HELTALL = tn.NUM["heltall"]
 def _style_for(kind: str, emph: str) -> str:
     if kind not in NUM_ALIAS:
         raise ValueError(f"unknown number kind {kind!r}; use one of {sorted(NUM_ALIAS)}")
-    return tn.style_name(kind, emph)
+    return tn.style_name(NUM_ALIAS[kind], emph)
 
 
 # ---------------------------------------------------------------- ensure_styles
@@ -316,6 +322,12 @@ def _merge_text(row, first) -> None:
     first.VerticalAlignment = tn.V_TOP
 
 
+def _code_look(rng) -> None:
+    """The code column (FinMax/FinPlan member codes): grey and left-aligned, in one COM call."""
+    rng.Font.Color = _rgb(tn.GREY)
+    rng.HorizontalAlignment = tn.H_LEFT
+
+
 def _check_rules(cell) -> None:
     """The check colours of one range in one COM call: green bold for "OK", red on red otherwise. Starts with
     Delete, so a rerun leaves the same two rules."""
@@ -372,6 +384,9 @@ def apply_report(ws, roles: dict) -> list[str]:
 
     by_style: dict[str, list[str]] = {}
     tall1_cells: list[str] = []
+    formats: dict[str, list[str]] = {}                    # NUM_FORMATS kind -> cells (set after the styles)
+    codes = {_ci(c) for c in roles.get("code_cols", [])}
+    code_cells: list[tuple[int, int, int]] = []           # (row, col, col): code cells of table rows (grey, left)
     heights: dict[int, float] = {}
     merges: list[tuple[int, int]] = []
     checks: list[tuple[int, int]] = []
@@ -417,6 +432,8 @@ def apply_report(ws, roles: dict) -> list[str]:
                     cols[c] = _style_for(k, emph)
                     if k == "tall1":
                         tall1_cells.append(f"{_cl(c)}{r}")
+                    elif k in NUM_FORMATS:
+                        formats.setdefault(k, []).append(f"{_cl(c)}{r}")
                 elif c == status:
                     cols[c] = "TN Tekst tallkolonne" if not emph else tn.style_name("etikett", emph)
                 elif c in labels:
@@ -428,6 +445,7 @@ def apply_report(ws, roles: dict) -> list[str]:
             heights[r] = 15
             if status:
                 checks.append((r, status))
+            code_cells += [(r, c, c) for c in codes if c not in num]
         else:
             raise ValueError(f"row {r}: unknown kind {kind!r}")
         for st, c1, c2 in _runs(cols):
@@ -444,6 +462,12 @@ def apply_report(ws, roles: dict) -> list[str]:
             fmt = tn.to_local(TALL1_THOUSANDS, dec, thou)
             for chunk in tn._chunks(tall1_cells, sep):
                 _retry(lambda: setattr(ws.Range(chunk), "NumberFormatLocal", fmt))
+        for k, cells in formats.items():
+            for chunk in tn._chunks(cells, sep):
+                _retry(lambda: setattr(ws.Range(chunk), "NumberFormat", NUM_FORMATS[k]))
+        if code_cells:
+            for chunk in tn._chunks(_blocks(code_cells), sep):
+                _retry(lambda: _code_look(ws.Range(chunk)))
 
     with stage("C widths + heights"):
         given = _parse_widths(roles.get("col_widths", {}))

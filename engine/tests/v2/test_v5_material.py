@@ -126,21 +126,21 @@ def test_layout_writes_labelled_thresholds_and_the_live_formula():
     s = table_spec()
     res = compute(s, resolver(), CLOSED, facts())
     p = layout(3, s, res, stock=set(), subtitle="x", const={})
-    labels = {v: row for (row, col), v in p.cells.items() if col == 2 and isinstance(v, str)}
+    labels = {v: row for (row, col), v in p.cells.items() if col == 3 and isinstance(v, str)}
     ra, rp, rs = (labels[f"{x}: Opex{y}"] for x, y in
                   (("Materiality", " (NOK)"), ("Materiality %", ""), ("Materiality with %", " (NOK)")))
-    assert (p.cells[(ra, 3)], p.cells[(rp, 3)], p.cells[(rs, 3)]) == (5.0, 0.05, 0.5)
+    assert (p.cells[(ra, 4)], p.cells[(rp, 4)], p.cells[(rs, 4)]) == (5.0, 0.05, 0.5)
     pct_row = next(x for x in p.rows if x["row"] == rp)
-    assert pct_row["num"] == {"C": "prosent1"}
+    assert pct_row["num"] == {"D": "prosent1"}
     o = res.outs[0]
     line = next(ln.key for ln in o.lines if ln.metric == "Opex")
     j = o.cols.index("material")
     r, c = p.at(ck("b0", line, j))
     v, pc = col_letter(c - 2), col_letter(c - 1)          # var, var_pct sit left of the marker
-    assert p.cells[(r, c)] == (f"=IF(OR(ABS({v}{r})>=$C${ra},AND(ABS(N({pc}{r}))>=$C${rp},"
-                               f"ABS({v}{r})>=$C${rs})),1,0)")
+    assert p.cells[(r, c)] == (f"=IF(OR(ABS({v}{r})>=$D${ra},AND(ABS(N({pc}{r}))>=$D${rp},"
+                               f"ABS({v}{r})>=$D${rs})),1,0)")
     row = next(x for x in p.rows if x["row"] == r)
-    assert "material" in MARK_CODES and row["num"][col_letter(c)] == "heltall"
+    assert "material" in MARK_CODES and row["num"][col_letter(c)] == "markor"
 
 
 def test_readback_compares_the_markers():
