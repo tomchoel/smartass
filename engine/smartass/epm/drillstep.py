@@ -165,28 +165,13 @@ async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], 
     return out, warnings, None
 
 
-def write(t, q: int, alias: str, result: DrillResult, title: str, question: str = "", log: bool = True) -> dict:
-    """The Excel half (inside a host job): 'Q<q> Lines[ alias]' (table Lines_Q<q>[_alias]) + a Sources row
-    (log=False: the caller logs its own). 0 lines empties an existing table, so Excel matches the drill."""
+def write(t, q: int, alias: str, result: DrillResult, title: str) -> dict:
+    """The Excel half (inside a host job): 'Q<q> Lines[ alias]' (table Lines_Q<q>[_alias]). 0 lines empties an
+    existing table, so Excel matches the drill. The v1 Sources row is gone: v2 logs its pulls with xl/sources.py."""
     from ..xl import drill_xl
-    from ..xl import sheets
-    from .grid import Layout
     if result.rows:
-        info = drill_xl.write_lines(t, q, result.rows, result.columns, title=title, source=result.source, alias=alias)
-    else:
-        info = drill_xl.clear_lines(t, q, title=title, source=result.source, alias=alias)
-    if info and log:
-        rec = result.reconciliation
-
-        class _Src:                                 # log_source wants a pull: the drilled cell is its POV
-            sheet, connection = info["sheet"], "FinLite"
-            layout = Layout([(d, m) for d, m in result.cell.items()], [], [])
-        try:
-            sheets.log_source(t, q, question or title, _Src,
-                              notes=f"drill {alias}: {rec.get('lines', 0)} lines, gap {rec.get('gap')}")
-        except Exception:   # noqa: BLE001 - the source log must never undo a finished drill
-            pass
-    return info
+        return drill_xl.write_lines(t, q, result.rows, result.columns, title=title, source=result.source, alias=alias)
+    return drill_xl.clear_lines(t, q, title=title, source=result.source, alias=alias)
 
 
 async def _drill_fetch(url: str, max_lines: int) -> dict:

@@ -1,7 +1,6 @@
 """Question sheets (numbering, rollback, parking), data-sheet metadata, stored specs/pulls and lookup formulas."""
 from __future__ import annotations
 
-import datetime as dt
 import json
 import re
 import time
@@ -306,42 +305,12 @@ def lookup_formula(p: Pull, row_members: list[str], col_members: list[str]) -> s
 
 
 def _sources_name(t: target.Target) -> str:
-    """'Sources', unless the user already has their own sheet with that name - then 'Sources SV'."""
-    if _sheet_exists(t, "Sources"):
-        a1 = jobs.com(lambda: t.wb.Worksheets("Sources").Range("A1").Value)
-        used = jobs.com(lambda: t.wb.Worksheets("Sources").UsedRange.Address)
-        if a1 != "Fetched" and used not in ("$A$1",):
-            return "Sources SV"
+    """'Sources', unless that sheet is not a v2 log - the user's own sheet, or a v1 log (left as it is) - then
+    'Sources SV'. Ours: the v2 log header in row 1, or the sheet is empty (a new workbook's first sheet)."""
+    from .sources import log_kind
+    if _sheet_exists(t, "Sources") and log_kind(jobs.com(lambda: t.wb.Worksheets("Sources"))) not in ("v2", "empty"):
+        return "Sources SV"
     return "Sources"
-
-
-def log_source(t: target.Target, q: int, question: str, p: Pull, notes: str = "") -> None:
-    """Append a row to the sources sheet (created if missing, kept last)."""
-    with jobs.fast_excel(t.app):
-        _log_source(t, q, question, p, notes)
-
-
-def _log_source(t: target.Target, q: int, question: str, p: Pull, notes: str) -> None:
-    kname = _sources_name(t)
-    if not _sheet_exists(t, kname):
-        ws = jobs.com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))   # positional: see add_sheet
-        jobs.com(lambda: setattr(ws, "Name", kname))
-    ws = jobs.com(lambda: t.wb.Worksheets(kname))
-    if jobs.com(lambda: ws.Range("A1").Value) != "Fetched":
-        jobs.com(lambda: setattr(ws.Range("A1:H1"), "Value", (("Fetched", "Question no", "Question", "Cube", "POV",
-                                                          "Rows × columns", "Notes", "Sheet"),)))
-        jobs.com(lambda: setattr(ws.Range("A1:H1").Font, "Bold", True))
-        jobs.com(lambda: setattr(ws.Range("A1:H1").Font, "Color", 0x64381F))
-    r = jobs.com(lambda: ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1
-    pov = " · ".join(f"{m}" for d, m in p.layout.pov if m != d)
-    axes = " × ".join(f"{a.dimension}[{len(a.members)}]" for a in p.layout.rows + p.layout.cols)
-    row = ((dt.datetime.now().strftime("%Y-%m-%d %H:%M"), f"Q{q}", question, p.connection, pov, axes, notes),)
-    jobs.com(lambda: setattr(ws.Range(ws.Cells(r, 1), ws.Cells(r, 7)), "Value", row))
-    # positional (Anchor, Address, SubAddress, ScreenTip, TextToDisplay): keyword TextToDisplay= was ignored
-    jobs.com(lambda: ws.Hyperlinks.Add(ws.Cells(r, 8), "", f"'{p.sheet}'!A1", p.sheet, p.sheet))
-    jobs.com(lambda: ws.Range("A1:H1").EntireColumn.AutoFit())
-    if jobs.com(lambda: ws.Columns("C").ColumnWidth) > 60:
-        jobs.com(lambda: setattr(ws.Columns("C"), "ColumnWidth", 60))
 
 
 def wait_calculated(app, limit: float = 60.0) -> None:

@@ -24,7 +24,7 @@ from ..expr import Const, Expr, Mul, Neg, Ratio, Ref, Sub, Sum, pick
 from ..periods import label
 from ..series import months, scenario
 from ..spec import ConceptBlock, Query
-from .common import HEAD, BlockOut, Line, ck, derived
+from .common import HEAD, BlockOut, Line, ck, derived, scenario_heads
 
 BALANCE = "Periodic"
 HELPERS = {"value": ("base", "key"), "ly": ("base_ly", "key_ly")}
@@ -76,8 +76,9 @@ def build_concept(b: ConceptBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
     c = ctx.resolver.concept(b.concept)
     cols = _cols(q, c)
-    out = BlockOut(key, "concept", b.title or c.title, [HEAD.get(x) or HELPER_HEAD[x] for x in cols], cols=cols,
-                   query=q.id)
+    heads, _ = scenario_heads(ctx, q, cols)
+    out = BlockOut(key, "concept", b.title or c.title, [h or HELPER_HEAD[x] for x, h in zip(cols, heads)],
+                   cols=cols, query=q.id, keys=[HEAD.get(x) or HELPER_HEAD[x] for x in cols])
     ptag, etag = tags(q, c)
     closed = ctx.closed_for(q.cube)
 

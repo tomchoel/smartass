@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from .periods import Closed, closed_for, label
 from .resolver import Resolver
 from .series import months, scenario
-from .spec import AnalysisSpec, DriversBlock, MatrixBlock, RankingBlock, TableBlock
+from .spec import AnalysisSpec, DriversBlock, MatrixBlock, RankingBlock, TableBlock, data_block
 
 CONCEPT_BALANCE = "Periodic"
 
@@ -29,7 +29,7 @@ class GridRequest:
 
 def _depth(spec: AnalysisSpec, qid: str) -> int:
     d = 0
-    for b in spec.blocks:
+    for b in map(data_block, spec.blocks):          # an own-data chart fetches like its table
         if getattr(b, "query", None) != qid:
             continue
         if isinstance(b, DriversBlock):

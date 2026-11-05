@@ -9,9 +9,12 @@ import contextlib
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime
+from functools import partial
 
 from .model.analyze import Result, compute, plan_requests
 from .model.blocks.concept import concept_caveats
+from .model.chain import complete_chain, restore_chain
 from .model.frame import Frame
 from .model.periods import parse
 from .model.requests import GridRequest
@@ -44,8 +47,17 @@ class Prepared:
     caveats: list[dict] = field(default_factory=list)  # {id, text, severity} of the facts the answer touched
 
 
-def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: dict | None = None) -> Prepared:
+def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: dict | None = None,
+            complete: bool = False) -> Prepared:
+    """complete (new questions and follow-up patches): the spec's chained tables get the whole P&L chain first
+    (model/chain.py; a query a patch resent without the chain gets it back); the completed spec is the one returned
+    as raw, so it is stored and refresh, patch and redraw see the chain."""
+    if complete:
+        raw = restore_chain(raw)
     spec = AnalysisSpec.model_validate(raw)
+    if complete:
+        spec = complete_chain(spec, resolver)
+        raw = spec.model_dump()
     lines = lines or {}
     for i, b in enumerate(spec.blocks):
         if not isinstance(b, LinesBlock):
@@ -131,7 +143,7 @@ def caveats(spec: AnalysisSpec, reqs: list[GridRequest], resolver) -> list[dict]
     return fn(touched, ids, months)
 
 
-def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:
+def run_prepare(raw: dict, provider, lines: dict | None = None, complete: bool = False) -> Prepared:
     """prepare() for a worker thread: everything that touches sqlite (knowledge.db and the atlas) is opened, used and
     closed here, in the calling thread. knowledge.db is built first when it is missing (said in the warnings). Closed
     months are fetched once. Nothing after prepare needs the resolver: the labels are already in the BlockOut lines
@@ -144,14 +156,16 @@ def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:
         note_closed(config.HOME, closed["FinMax"])
     notes: list[str] = []
     with contextlib.closing(open_resolver(closed["FinPlan"][0] % 100, notes)) as resolver:
-        pre = prepare(raw, resolver, provider, closed=closed, lines=lines)
+        pre = prepare(raw, resolver, provider, closed=closed, lines=lines, complete=complete)
     pre.warnings[:0] = notes
     return pre
 
 
-def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: list[str], lint: list[str]) -> dict:
+def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: list[str], lint: list[str],
+          layout: list[str] | None = None, charts: list[str] | None = None) -> dict:
+    """layout: the layout check's findings (render/check.py), each with its fix; charts: the titles drawn."""
     res = pre.result
-    checks = {"sheet_equals_model": "OK" if not mismatches else f"DIFF in {len(mismatches)} cells"}
+    checks = {"sheet_equals_model": sheet_status(mismatches)}
     out = {
         "q": q,
         "workbook": workbook,
@@ -160,6 +174,8 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
         "material": res.material,
         "findings": [{"severity": f.severity, "text": f.text, "where": f.where} for f in res.findings],
         "checks": checks,
+        "layout": list(layout or []),
+        "charts": list(charts or []),
         "mismatches": mismatches[:20],
         "warnings": pre.warnings + lint,
         "caveats": list(pre.caveats),
@@ -173,10 +189,13 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
         out["critic_brief"] = brief(pre.spec, res, list(pre.caveats), checks, stock=_stock(pre))
     return out
 # ---------------------------------------------------------------- the Excel job (runs on a v1 user-Excel job thread)
+from .render import datasheet  # noqa: E402
 from .render.charts import write_charts  # noqa: E402
-from .render.excel import (col_number, read_block, read_data, rewrite_data, rewrite_grid,  # noqa: E402
-                           write_answer, write_data)
-from .render.layout import constant_columns, layout  # noqa: E402
+from .render.datasheet import header_rows  # noqa: E402
+from .render.excel import (VALUE_FORMAT, answer_footer, col_number, read_block, read_data, rewrite_data,  # noqa: E402
+                           rewrite_grid, sheet_status, write_answer, write_data, write_status)
+from .render.layout import answer_subtitle, constant_columns, layout  # noqa: E402
+from .render.keypoints import free_points, key_points  # noqa: E402
 from .render.readback import compare  # noqa: E402
 
 DATA_TAB = 0xA6A6A6      # grey tab for data sheets (BGR), as v1 sheetorder.DATA_TAB
@@ -335,9 +354,10 @@ def read_stored(h, target: str = "session") -> tuple[dict, str | None, str]:
     return sheets._stored_specs(t), com(lambda: t.wb.ActiveSheet.Name), str(t.path)
 
 
-def _write_lines(t, q: int, ls) -> str:
+def _write_lines(t, q: int, ls, fetched: str = "") -> str:
     """One line set -> table Lines_Q<q>_<alias> on 'Q<q> Lines <alias>' (v1 drill_xl.write_lines, which reuses the
-    table in place) and the cube value in C2/D2 where CubeRef reads it."""
+    table in place), the cube value in C2/D2 where CubeRef reads it, and the provenance + tie-out in F1:K3
+    (datasheet.lines_header; fetched: the draw's one timestamp text)."""
     from .xl import drill_xl
     from .xl.jobs import com
 
@@ -353,31 +373,107 @@ def _write_lines(t, q: int, ls) -> str:
     ws = _sheet(t, want)
     com(lambda: setattr(ws.Range("C2"), "Value", "Cube value"))
     com(lambda: setattr(ws.Range(CUBE_CELL.replace("$", "")), "Value", ls.cube_value))
+    _lines_header(ws, res["table"], ls.cell, fetched)
+    from .render.excel import sheet_print
+    from .render.layout import col_letter, col_number
+    last = max(len(res["columns"]), col_number(datasheet.LINES_HEADER.split(":")[1].rstrip("0123456789")))
+    sheet_print(ws, col_letter(last), LINES_TABLE_ROW + res["rows"],     # the table and its F1:K3 provenance
+                header_row=LINES_TABLE_ROW)                                # 100 %, the header on every page
     return want
+
+
+LINES_TABLE_ROW = 4                     # drill_xl.write_lines: the lines table header row
+
+
+def _lines_header(ws, table: str, cell: dict, fetched: str) -> None:
+    """F1:K3 as one rectangle (text with a leading apostrophe: never a date or a formula), labels grey, values ink."""
+    from .xl import styling
+    from .xl.jobs import com
+    g = datasheet.lines_header(table, cell, fetched)
+    grid = tuple(tuple("'" + x if isinstance(x, str) and x and not x.startswith("=") else x for x in r) for r in g)
+    rng = ws.Range(datasheet.LINES_HEADER)
+
+    def look():
+        rng.ClearFormats()          # General: the name is locale-bound
+        rng.Formula = grid
+        rng.Font.Name = styling.tn.FONT
+        rng.Font.Size = 9
+        rng.Font.Color = styling._rgb(styling.tn.INK)
+        for a in ("F1:F3", "H3", "J3"):
+            ws.Range(a).Font.Color = styling._rgb(styling.tn.GREY)
+        g3 = ws.Range("G3")
+        g3.NumberFormat = styling.local_format(g3, VALUE_FORMAT)
+    com(look)
+
+
+def _write_sources(t, q: int, pre: Prepared, ws_data, header, fetched: str) -> str | None:
+    """The pull logged on the Sources sheet (xl/sources.py), with each query's OK/DIFF read from the calculated
+    Data header and each drill's tie-out from its lines sheet, and the header's Sources cells linked to the rows
+    (every draw: the header rewrite cleared them). Provenance, not the answer: a failure (or a query / drill without
+    its row) is returned as a warning text, never raised (no rollback); None = every pull is logged."""
+    from .xl import sources
+    from .xl.jobs import com
+    try:
+        status, tie, notes = {}, {}, []
+        for qid, cell in header.status.items():
+            v = com(lambda cell=cell: ws_data.Range(cell).Value)
+            status[qid] = v if v in ("OK", "DIFF") else ""
+        for alias in pre.frame.lines:
+            ws = _sheet(t, f"Q{q} Lines {alias}")
+            v = com(lambda ws=ws: ws.Range(datasheet.LINES_STATUS).Value)
+            tie[alias] = v if isinstance(v, str) else ""
+        rows = sources.write_sources(t, q, pre, ws_data, header, fetched, status, tie, notes)
+    except Exception as e:   # noqa: BLE001
+        return f"could not log the pull on the Sources sheet ({e}); the answer is built"
+    missing = [x for x in [*(qq.id for qq in pre.spec.queries), *pre.frame.lines] if x not in rows]
+    if missing:
+        notes.append(f"the Sources sheet has no row for {', '.join(missing)}; the answer is built")
+    return "; ".join(notes) or None
+
+
+SOURCES_PROBLEMS = ("could not log", "has no row")      # _write_sources warnings that mean rows are missing
+
+
+def _check(plan, ws_answer, ws_data, sources_ok: bool, header) -> list[str]:
+    """The fast layout check (render/check.py): findings for the reply, never raised."""
+    from .render.check import check
+    return check(plan, ws_answer, ws_data, sources_ok, header.status)
 
 
 def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
           old_owned: dict | None = None) -> dict:
-    """Data sheet, layout, Answer sheet, charts, readback, spec + owned range, sheet order. Shared by excel_job and
-    redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place."""
-    (rewrite_data if redraw else write_data)(ws_data, pre.frame, q)
-    cubes = sorted({x.cube for x in pre.spec.queries}) or ["FinLite"]     # a lines-only spec has no query
+    """Data sheet, layout, Answer sheet, charts, readback, status, Sources, spec + owned range, sheet order, layout
+    check. Shared by excel_job and
+    redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place. One timestamp
+    per draw: the data header's Fetched and the answer's print footer never disagree."""
+    fetched = datetime.now().astimezone()
+    user = datasheet.windows_user()
+    header = header_rows(q, pre.spec, pre, fetched, user)
+    (rewrite_data if redraw else write_data)(ws_data, pre.frame, q, header)
     line_sheets = [f"Q{q} Lines {a}" for a in pre.frame.lines]
     for ls in pre.frame.lines.values():         # before the answer, so its formulas resolve
-        _write_lines(t, q, ls)
-    closed = ", ".join(f"{c} {m[1]:02d}/{m[0]}" for c, m in sorted(pre.closed.items()) if c in cubes)
-    plan = layout(q, pre.spec, pre.result, stock=_stock(pre), subtitle=f"NOK · {' + '.join(cubes)} · closed {closed}",
-                  const=constant_columns(pre.frame), caveats=pre.caveats)
+        _write_lines(t, q, ls, datasheet.fetched_text(fetched, user))
+    free, too_many = free_points(pre.spec)
+    pre.warnings += [w for w in too_many if w not in pre.warnings]
+    plan = layout(q, pre.spec, pre.result, stock=_stock(pre),
+                  subtitle=answer_subtitle(pre.spec, pre.result, pre.closed),
+                  const=constant_columns(pre.frame), caveats=pre.caveats,
+                  key_points=partial(key_points, stock=_stock(pre), free=free))
+    plan.footer = answer_footer(fetched)
     if redraw:                                  # a larger answer pushes the user's cells aside, never overwrites them
         _make_room(ws_answer, old_owned, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     lint = write_answer(ws_answer, plan, pre.warnings)
-    lint = list(lint or []) + write_charts(ws_answer, plan)
+    drawn: list[str] = []
+    lint = list(lint or []) + write_charts(ws_answer, plan, drawn=drawn)
     _calculate(t)
     mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan), plan.fractions)
+    write_status(ws_answer, plan, mismatches)   # the 'Sheet = model' cell: OK or DIFF in <n> cells
+    logged = _write_sources(t, q, pre, ws_data, header, datasheet.fetched_text(fetched, user))   # append-only: late
     _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     arranged = _arrange(t, f"Q{q} Answer")
+    found = _check(plan, ws_answer, ws_data, not (logged and any(x in logged for x in SOURCES_PROBLEMS)), header)
     return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data", *line_sheets], mismatches,
-                 lint + ([arranged] if arranged else []))
+                 lint + [w for w in (logged, arranged) if w], layout=found, charts=drawn)
 
 
 def remember(pre: Prepared, out: dict) -> None:

@@ -4,6 +4,8 @@ The `plan` tells the engine and the critic what a good answer is. Write it befor
 
 ## Fields
 
+- **title**: the message of the answer in one sentence, shown as the sheet title (empty = the purpose). The
+  plan itself is not drawn on the sheet.
 - **purpose** (required unless `quick`): one sentence naming the decision or question, e.g. "Explain Business opex
   YTD vs last year and name the cost centres behind the increase". The critic checks the answer against it.
 - **hypotheses**: what you expect and will confirm or reject from data, e.g. "Consultants up on the BSS
@@ -22,15 +24,21 @@ The `plan` tells the engine and the critic what a good answer is. Write it befor
 
 ## Which block
 
-- `kpi_tiles`: 2–6 headline figures first. `table`: the P&L or a metric by entity (`rows: "entities"`, `top`,
-  `other`). `trend`: monthly path. `ranking`: top movers. `matrix`: metric by entity by month.
+- `table`: the P&L or cost table by default shows the closed month and YTD:
+  `{"type":"table","query":"q","periods":["closed","closed-ytd"]}` (the query's periods `closed-ytd`). A table
+  with EBITDA gets the whole P&L chain. A metric by entity: `rows: "entities"`, `top`, `other`.
+- `chart`: every answer has one, chosen by the message (skill reference charts.md): a bridge `waterfall`, a
+  trend `line`, AC against PY/BU `column`, a ranking `bar`, a variance by line `variance`, a mix `stacked100`.
+- `kpi_tiles`: 2–6 headline figures first. `trend`: monthly path. `ranking`: top movers. `matrix`: metric by
+  entity by month.
 - `bridge`: an EBITDA bridge uses the full chain Revenue, COGS, Opex, Other items (FinMax); a missing step leaves
   a large "Other / unexplained".
 - `drivers`: one per material metric (`depth` 2, `drill: true` at `deep`), so every material line has evidence.
 - `lines`: for supplier, project or account questions, a cell with All Accounts, All Entities and All Time
   Periods (Periodic, FinLite); the lines must tie to the cube value.
-- `commentary`: 3–5 `key_points`, and one driver per material line with `basis: "data"` and the evidence cell
-  key, or `basis: "hypothesis"`.
+- `commentary`: at most 5 `key_points` (the engine writes the material lines first), and one driver per
+  material line with `basis: "data"` and the evidence cell key, or `basis: "hypothesis"`. The driver becomes the
+  cause sentence under that line's key point.
 
 ## Before you build
 

@@ -18,8 +18,8 @@ def test_title_subtitle_and_sections():
     assert p.cells[(1, 2)] == "Explain Business opex vs LY"
     assert p.cells[(2, 2)] == "NOK · FinMax · closed Sep 26"
     sections = [p.cells[(r["row"], 2)] for r in p.rows if r["kind"] == "section"]
-    assert sections[:2] == ["Plan", "Key figures"]
-    assert "EBITDA bridge" in sections and "Commentary" in sections
+    assert sections[:2] == ["Key points", "Key figures"]                  # plan 5: no Plan zone
+    assert "EBITDA bridge" in sections and "Commentary" not in sections   # commentary goes to the key points
 
 
 def test_every_model_cell_is_a_formula_on_the_data_table():
@@ -43,17 +43,17 @@ def test_refs_point_at_their_rows():
     other = p.at("b0.other.0")
     end, start = p.at("b0.end.0"), p.at("b0.start.0")
     s0, s1 = p.at("b0.s0.0"), p.at("b0.s1.0")
-    col = "C"
+    col = "D"
     assert p.cells[other] == f"=({col}{end[0]}-{col}{start[0]})-SUM({col}{s0[0]}:{col}{s1[0]})"
 
 
 def test_number_formats_by_column_code():
     _, res, p = plan([{"type": "table", "query": "fm", "columns": ["value", "ly", "var", "var_pct"]}])
     line = next(r for r in p.rows if r["kind"] == "line")
-    assert line["num"] == {"C": "heltall", "D": "heltall", "E": "heltall", "F": "prosent1"}
+    assert line["num"] == {"D": "heltall", "E": "heltall", "F": "avvik", "G": "avvikpst", "H": "markor"}
     header = next(r for r in p.rows if r["kind"] == "header")
-    assert header["num_cols"] == ["C", "D", "E", "F"]
-    assert p.last_col == "F"
+    assert header["num_cols"] == ["D", "E", "F", "G", "H"]          # H: the Material marker
+    assert p.last_col == "H"
 
 
 def test_check_lines_and_findings_rows():

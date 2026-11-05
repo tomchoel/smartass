@@ -177,7 +177,8 @@ def arrange_sheets(wb, mode: str = "full", activate: str | None = None) -> dict:
             a1 = com(lambda: wb.Worksheets("Sources").Range("A1").Value)
         except Exception:   # noqa: BLE001
             a1 = None
-        sources = {"Sources"} if a1 == "Fetched" else set()
+        from .sources import OURS_A1
+        sources = {"Sources"} if a1 in OURS_A1 else set()
     target = sheet_order(names, visible, mode, sources)
     moves = plan_moves(names, target, pinned_sheets(names, visible, mode, sources))
     if moves:

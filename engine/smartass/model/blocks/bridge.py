@@ -12,7 +12,8 @@ from .common import HEAD, BlockOut, Line, ck, metric_label
 def build_bridge(b: BridgeBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
     total = metric_label(ctx.resolver, b.total, q.cube)
-    out = BlockOut(key, "bridge", b.title or f"{total} bridge", ["Amount"], cols=["amount"], query=q.id, chart="waterfall")
+    out = BlockOut(key, "bridge", b.title or f"{total} bridge", ["Amount"], cols=["amount"], query=q.id,
+                   chart="waterfall" if b.chart else None)
     out.lines.append(Line("start", f"{total} {HEAD[b.base]}", [ctx.pick(q, b.total, b.base)], kind="sum",
                           metric=b.total, entity=q.entity))
     for i, s in enumerate(b.steps):

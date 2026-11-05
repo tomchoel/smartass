@@ -31,7 +31,7 @@ def _wire(monkeypatch):
     monkeypatch.setattr(server, "_user", user)
     monkeypatch.setattr(server, "_provider", lambda: "provider")
     monkeypatch.setattr(server, "read_stored", read_stored)
-    monkeypatch.setattr(server, "run_prepare", lambda raw, provider, lines=None: raw)
+    monkeypatch.setattr(server, "run_prepare", lambda raw, provider, lines=None, **kw: raw)
     monkeypatch.setattr(server, "redraw_job", lambda h, pre, q, owned, target="session": {"q": q, "workbook": target})
     return seen
 

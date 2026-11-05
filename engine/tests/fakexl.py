@@ -200,7 +200,8 @@ class Range:
     @property
     def Columns(self):
         _, c1, _, c2 = self.rects[0]
-        return SimpleNamespace(Count=c2 - c1 + 1)
+        return SimpleNamespace(Count=c2 - c1 + 1, AutoFit=lambda: self.ws.log.append(("AutoFit", ";".join(
+            rect_text(*x) for x in self.rects))))
 
     @property
     def Address(self):
@@ -280,6 +281,7 @@ class Range:
     def __setattr__(self, k, v):
         self.ws.log.append((k, ";".join(rect_text(*x) for x in self.rects)))
         if k in ("Value", "Value2", "Formula"):
+            self._check_tables(v)
             self._set_value(v)
         elif k == "ColumnWidth":
             for _, c1, _, c2 in self.rects:
@@ -314,6 +316,17 @@ class Range:
     def Clear(self):
         for rc in self.cells():
             self.ws.cells.pop(rc, None)
+        inside = set(self.cells())
+        self.ws.Hyperlinks[:] = [h for h in self.ws.Hyperlinks if h.cell not in inside]   # as Excel: Clear drops links
+
+    def AutoFilter(self, *a):
+        """As Excel: without arguments it TOGGLES the sheet's AutoFilter."""
+        assert not a
+        self.ws.log.append(("AutoFilter", ";".join(rect_text(*x) for x in self.rects)))
+        if self.ws.AutoFilterMode:
+            self.ws.AutoFilterMode, self.ws.autofilter = False, None
+        else:
+            self.ws.AutoFilterMode, self.ws.autofilter = True, self.rects[0]
 
     def SpecialCells(self, kind, value_type=None):
         hits = []
@@ -334,6 +347,47 @@ class Range:
 
     def AutoFit(self):
         pass
+
+    def _check_tables(self, v) -> None:
+        """As Excel: a formula naming a table that does not exist (yet) is refused (0x800A03EC)."""
+        flat = [x for row in v for x in row] if isinstance(v, (tuple, list)) else [v]
+        names = {lo.Name for lo in self.ws.ListObjects}
+        for x in flat:
+            if isinstance(x, str) and x.startswith("="):
+                for name in re.findall(r"(Data_Q\d+)\[", x):
+                    if name not in names:
+                        raise ComError(f"formula names a missing table {name}: {x}")
+
+    def _shift_rows(self, at: int, n: int) -> None:
+        """Move every cell, row height and table at or below row `at` by n rows (n < 0: up)."""
+        ws = self.ws
+        ws.cells = {((r + n) if r >= at else r, c): v for (r, c), v in ws.cells.items()}
+        ws.rowh = {((r + n) if r >= at else r): h for r, h in ws.rowh.items()}
+        for h in ws.Hyperlinks:
+            if h.cell[0] >= at:
+                h.cell = (h.cell[0] + n, h.cell[1])
+        for lo in ws.ListObjects:
+            r1, c1, r2, c2 = lo.rect
+            if r1 >= at:
+                lo.rect = (r1 + n, c1, r2 + n, c2)
+
+    def Insert(self, shift=None):
+        """Whole rows only (as ws.Rows('1:k').Insert()): the rows below move down, tables keep name and identity."""
+        r1, c1, r2, c2 = self.rects[0]
+        assert (c1, c2) == (1, MAXC), "fake Insert: whole rows only"
+        self.ws.log.append(("Insert", rect_text(r1, c1, r2, c2)))
+        self._shift_rows(r1, r2 - r1 + 1)
+
+    def Delete(self, shift=None):
+        r1, c1, r2, c2 = self.rects[0]
+        assert (c1, c2) == (1, MAXC), "fake Delete: whole rows only"
+        self.ws.log.append(("Delete", rect_text(r1, c1, r2, c2)))
+        for lo in self.ws.ListObjects:
+            assert not (lo.rect[0] <= r2 and lo.rect[2] >= r1), "fake Delete: rows inside a table"
+        for rc in [rc for rc in self.ws.cells if r1 <= rc[0] <= r2]:
+            del self.ws.cells[rc]
+        self.ws.Hyperlinks[:] = [h for h in self.ws.Hyperlinks if not r1 <= h.cell[0] <= r2]
+        self._shift_rows(r2 + 1, -(r2 - r1 + 1))
 
 
 def _abs(rect) -> str:
@@ -390,7 +444,16 @@ class _ListObjects(list):
         super().__init__()
         self.ws = ws
 
+    def __call__(self, key):
+        if isinstance(key, int):
+            return self[key - 1]
+        for lo in self:
+            if lo.Name == key:
+                return lo
+        raise ComError(f"no table {key}")
+
     def Add(self, source_type, rng, link_source=None, has_headers=None):
+        self.ws.log.append(("ListObjects.Add", ";".join(rect_text(*x) for x in rng.rects)))
         lo = ListObject(self.ws, rng)
         self.append(lo)
         return lo
@@ -408,6 +471,28 @@ class _Names:
         if name not in self.items:
             raise ComError(f"no name {name}")
         return self.items[name]
+
+
+class _Hyperlinks(list):
+    """ws.Hyperlinks: Add(Anchor, Address, SubAddress, ScreenTip, TextToDisplay) POSITIONAL only (late-bound COM
+    ignored the keyword TextToDisplay in v1); one link per cell, the text becomes the cell value."""
+
+    def __init__(self, ws):
+        super().__init__()
+        self.ws = ws
+
+    def Add(self, anchor, address, sub=None, tip=None, text=None, **kw):
+        assert not kw, "Hyperlinks.Add: positional arguments only"
+        r, c = anchor.rects[0][:2]
+        self[:] = [h for h in self if h.cell != (r, c)]
+        link = SimpleNamespace(cell=(r, c), Address=address, SubAddress=sub, ScreenTip=tip, TextToDisplay=text)
+        self.append(link)
+        if text:
+            self.ws.put(r, c, text)
+        return link
+
+    def at(self, r, c):
+        return next((h for h in self if h.cell == (r, c)), None)
 
 
 class _Recorder:
@@ -429,6 +514,8 @@ class Worksheet:
         self.ListObjects = _ListObjects(self)
         self.Rows = _Lines(self, True)
         self.Columns = _Lines(self, False)
+        self.Hyperlinks = _Hyperlinks(self)
+        self.AutoFilterMode, self.autofilter = False, None
         self.log: list = []
 
     @property

@@ -80,7 +80,13 @@ def _check_ranges(cells: list[tuple[int, int]]) -> list[str]:
 GREEN = (0, 112, 60)
 GREY_TAB = (166, 166, 166)
 NUM_ALIAS = {"heltall": "heltall", "tall1": "tall1", "prosent1": "prosent1", "prosent": "prosent",
-             "faktor": "faktor", "belop": "belop"}
+             "faktor": "faktor", "belop": "belop",
+             "avvik": "heltall", "avvikpst": "prosent1", "markor": "heltall"}    # new kinds: base TN style
+# the scenario kinds (sub-spec 5 §1.5) on top of their base style, as en-US codes set through NumberFormat (not
+# Local, so no locale translation): Δ NOK, Δ % and the Material marker (1 -> ●, 0 -> blank)
+NUM_FORMATS = {"avvik": '[Color10]"▲ "#,##0;[Red]"▼ ("#,##0")";"–"',
+               "avvikpst": '[Color10]"▲ "0.0 %;[Red]"▼ ("0.0 %")";"–"',
+               "markor": '"●";"●";""'}
 TALL1_THOUSANDS = '#,##0.0_);(#,##0.0);"–"_)'    # spec: 'tall1' is one decimal WITH thousands separator
 HELTALL = tn.NUM["heltall"]
 
@@ -88,7 +94,7 @@ HELTALL = tn.NUM["heltall"]
 def _style_for(kind: str, emph: str) -> str:
     if kind not in NUM_ALIAS:
         raise ValueError(f"unknown number kind {kind!r}; use one of {sorted(NUM_ALIAS)}")
-    return tn.style_name(kind, emph)
+    return tn.style_name(NUM_ALIAS[kind], emph)
 
 
 # ---------------------------------------------------------------- ensure_styles
@@ -316,6 +322,12 @@ def _merge_text(row, first) -> None:
     first.VerticalAlignment = tn.V_TOP
 
 
+def _code_look(rng) -> None:
+    """The code column (FinMax/FinPlan member codes): grey and left-aligned, in one COM call."""
+    rng.Font.Color = _rgb(tn.GREY)
+    rng.HorizontalAlignment = tn.H_LEFT
+
+
 def _check_rules(cell) -> None:
     """The check colours of one range in one COM call: green bold for "OK", red on red otherwise. Starts with
     Delete, so a rerun leaves the same two rules."""
@@ -345,6 +357,7 @@ def apply_report(ws, roles: dict) -> list[str]:
         wb, xl, dec, thou, sep, ur_last = _retry(info)
         ensure_styles(wb)
     last = _ci(roles["last_col"])
+    text_last = _ci(roles.get("print_last_col") or roles["last_col"])   # text rows end where the print area does
     labels = sorted(_ci(c) for c in roles.get("label_cols", ["B"]))
     first_label = labels[0]
     widths = {c: 8.43 for c in range(1, last + 1)}
@@ -372,6 +385,9 @@ def apply_report(ws, roles: dict) -> list[str]:
 
     by_style: dict[str, list[str]] = {}
     tall1_cells: list[str] = []
+    formats: dict[str, list[str]] = {}                    # NUM_FORMATS kind -> cells (set after the styles)
+    codes = {_ci(c) for c in roles.get("code_cols", [])}
+    code_cells: list[tuple[int, int, int]] = []           # (row, col, col): code cells of table rows (grey, left)
     heights: dict[int, float] = {}
     merges: list[tuple[int, int]] = []
     checks: list[tuple[int, int]] = []
@@ -389,11 +405,11 @@ def apply_report(ws, roles: dict) -> list[str]:
             heights[r] = {"title": 28, "subtitle": 16, "section": 22}.get(kind, 15)
         elif kind == "text":
             cols = {c: "TN Tekst" if c >= first_label else "TN Tom" for c in range(1, last + 1)}
-            width = sum(widths[c] for c in range(first_label, last + 1))
+            width = sum(widths[c] for c in range(first_label, text_last + 1))
             txt = val(r, first_label)
             n = (tn.wrap_lines(str(txt), width) or 4) if txt else 1
             heights[r] = max(15, n * 13 + 2)
-            if all(val(r, c) in (None, "") for c in range(first_label + 1, last + 1)):
+            if all(val(r, c) in (None, "") for c in range(first_label + 1, text_last + 1)):
                 merges.append((r, first_label))
         elif kind == "header":
             nc = {_ci(c) for c in spec.get("num_cols", [])} if "num_cols" in spec else \
@@ -417,6 +433,8 @@ def apply_report(ws, roles: dict) -> list[str]:
                     cols[c] = _style_for(k, emph)
                     if k == "tall1":
                         tall1_cells.append(f"{_cl(c)}{r}")
+                    elif k in NUM_FORMATS:
+                        formats.setdefault(k, []).append(f"{_cl(c)}{r}")
                 elif c == status:
                     cols[c] = "TN Tekst tallkolonne" if not emph else tn.style_name("etikett", emph)
                 elif c in labels:
@@ -428,6 +446,7 @@ def apply_report(ws, roles: dict) -> list[str]:
             heights[r] = 15
             if status:
                 checks.append((r, status))
+            code_cells += [(r, c, c) for c in codes if c not in num]
         else:
             raise ValueError(f"row {r}: unknown kind {kind!r}")
         for st, c1, c2 in _runs(cols):
@@ -444,6 +463,16 @@ def apply_report(ws, roles: dict) -> list[str]:
             fmt = tn.to_local(TALL1_THOUSANDS, dec, thou)
             for chunk in tn._chunks(tall1_cells, sep):
                 _retry(lambda: setattr(ws.Range(chunk), "NumberFormatLocal", fmt))
+        for k, cells in formats.items():
+            for chunk in tn._chunks(cells, sep):
+                _retry(lambda: setattr(ws.Range(chunk), "NumberFormatLocal", tn.to_local(NUM_FORMATS[k], dec, thou)))
+        if code_cells:
+            for chunk in tn._chunks(_blocks(code_cells), sep):
+                _retry(lambda: _code_look(ws.Range(chunk)))
+        helpers = sorted(_ci(c) for c in roles.get("helper_cols", []))
+        if helpers:                                       # chart helper columns: grey, they are not the answer
+            hrng = f"{_cl(helpers[0])}1:{_cl(helpers[-1])}{last_row}"
+            _retry(lambda: setattr(ws.Range(hrng).Font, "Color", _rgb(tn.GREY)))
 
     with stage("C widths + heights"):
         given = _parse_widths(roles.get("col_widths", {}))
@@ -470,7 +499,7 @@ def apply_report(ws, roles: dict) -> list[str]:
                 _retry(lambda: setattr(ws.Range(chunk), "RowHeight", h))
     with stage("D merges"):
         for r, c in merges:
-            _retry(lambda: _merge_text(ws.Range(f"{_cl(c)}{r}:{_cl(last)}{r}"), ws.Range(f"{_cl(c)}{r}")))
+            _retry(lambda: _merge_text(ws.Range(f"{_cl(c)}{r}:{_cl(text_last)}{r}"), ws.Range(f"{_cl(c)}{r}")))
     with stage("E check colours"):
         for chunk in tn._chunks(_check_ranges(checks), sep):          # one rule pair per chunk (was per cell: 7 s)
             _retry(lambda: _check_rules(ws.Range(chunk)))
@@ -479,7 +508,11 @@ def apply_report(ws, roles: dict) -> list[str]:
         _retry(lambda: setattr(ws.Tab, "Color", _rgb(tn.NAVY)))
         _freeze(ws, int(roles.get("freeze_rows") or 0), 0)
     with stage("G page setup"):
-        _page_setup(ws, xl, last_row, last, roles)
+        if roles.get("print_footer"):         # a v2 answer: its own footer, no repeated title rows
+            print_setup(ws, roles.get("print_area_col") or _cl(text_last), last_row, roles["print_footer"],
+                        header=roles.get("print_header"))
+        else:
+            _page_setup(ws, xl, last_row, text_last, roles)
     with stage("H lint"):
         return _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights)
 
@@ -490,6 +523,7 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
     assigned itself (size/bold/wrap from tn.style_defs). Styles and number formats are set by our own code, so the
     per-cell 'has a TN style / has a number format' checks cannot fail and are not repeated."""
     errs: list[str] = []
+    text_last = _ci(roles.get("print_last_col") or roles["last_col"])   # merged text rows end at the print area
 
     def read():                                       # used range, font and vertical borders: one COM call
         ur = ws.UsedRange
@@ -524,7 +558,7 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
             size, bold = p.get("size", 10), bool(p.get("bold"))
             a = f"{_cl(c)}{r}"
             if (r, c) in merged:
-                w = sum(widths.get(k, 8.43) for k in range(c, last + 1))
+                w = sum(widths.get(k, 8.43) for k in range(c, text_last + 1))
                 lines = tn.wrap_lines(v, w, size, bold)
                 h = heights.get(r, 15)
                 if lines is None or lines * (size + 3) > h + 1:
@@ -565,6 +599,7 @@ def _page_setup(ws, xl, last_row, last, roles):
     key = _page_setup_key(last_row, last, roles)
     if _has_page_setup(ws, key):
         return
+    keep_footer = _has_center_footer(ws)        # read before PrintCommunication goes off
     # every PageSetup property normally round-trips to the printer driver (measured 14 s for 12 settings);
     # PrintCommunication=False batches them into one exchange when it is switched back on
     try:
@@ -573,7 +608,7 @@ def _page_setup(ws, xl, last_row, last, roles):
         pass
     restored = False
     try:
-        done = _page_setup_props(ws, xl, last_row, last, roles)
+        done = _page_setup_props(ws, xl, last_row, last, roles, keep_footer)
     finally:
         try:
             _set(xl, "PrintCommunication", True)
@@ -587,7 +622,16 @@ def _page_setup(ws, xl, last_row, last, roles):
             pass
 
 
-def _page_setup_props(ws, xl, last_row, last, roles) -> bool:
+def _has_center_footer(ws) -> bool:
+    """A v2 answer's print_setup footer (source, date, page &P of &N) is there: the v1 setup (xl_tidy) then leaves
+    the footers alone, so the page never shows two page numbers."""
+    try:
+        return bool(str(_retry(lambda: ws.PageSetup.CenterFooter) or ""))   # one COM call
+    except Exception:   # noqa: BLE001 - no printer / not readable: v1 footers as before
+        return False
+
+
+def _page_setup_props(ws, xl, last_row, last, roles, keep_footer: bool = False) -> bool:
     try:
         ps = _get(ws, "PageSetup")
         _set(ps, "PrintArea", f"$A$1:${_cl(last)}${last_row}")
@@ -600,11 +644,63 @@ def _page_setup_props(ws, xl, last_row, last, roles) -> bool:
         cm = _call(xl, "CentimetersToPoints", 1.5)
         _set(ps, "LeftMargin", cm); _set(ps, "RightMargin", cm)
         _set(ps, "CenterHeader", '&"Arial"&8' + roles.get("print_header", "Intern"))
-        _set(ps, "RightFooter", '&"Arial"&8Side &P av &N')
-        _set(ps, "LeftFooter", '&"Arial"&8&F')
+        if not keep_footer:                     # a v2 CenterFooter already carries the page number
+            _set(ps, "RightFooter", '&"Arial"&8Side &P av &N')
+            _set(ps, "LeftFooter", '&"Arial"&8&F')
         return True
     except Exception:   # noqa: BLE001  (no printer installed etc.)
         return False
+
+
+PRINT_SETUP_VERSION = "a1"        # bump whenever print_setup changes what it sets
+
+
+def print_setup(ws, last_col: str, last_row: int, footer: str, header: str | None = None, *,
+                fit_wide: bool = True, title_rows: str = "") -> None:
+    """A v2 answer's page setup: print area A1:<last_col><last_row> (the tables' last column, chart helpers
+    outside), landscape, one page wide and as many tall as needed, no repeated title rows (the zones vary), no
+    gridlines, `footer` centred (it carries the page number; the left and right footers are cleared). The display
+    gridlines are apply_report's; ActiveWindow is never touched. Batched (PrintCommunication off) and skipped (one
+    COM call) when the sheet-level name says this exact setup is already there; a new footer (date) sets it up
+    again. fit_wide False (a wide lines table): 100 % zoom, as many pages wide as needed, title_rows ('$4:$4')
+    repeated on every page."""
+    header = "Intern" if header is None else header
+    area = f"$A$1:${last_col}${last_row}"
+    parts = (PRINT_SETUP_VERSION, area, header, footer) + (() if fit_wide else ("zoom100", title_rows))
+    key = '="' + "|".join(parts).replace('"', '""') + '"'
+    if _has_page_setup(ws, key):
+        return
+    xl = _retry(lambda: ws.Parent.Application)
+    try:
+        _set(xl, "PrintCommunication", False)
+    except Exception:   # noqa: BLE001 - not available: just slower
+        pass
+    done = restored = False
+    try:
+        ps = _get(ws, "PageSetup")
+        scale = (("Zoom", False), ("FitToPagesWide", 1), ("FitToPagesTall", False)) if fit_wide else             (("Zoom", 100),)
+        for name, value in (("PrintArea", area), ("PrintTitleRows", title_rows), ("Orientation", 2), *scale,
+                            ("PrintGridlines", False),
+                            ("CenterHorizontally", True), ("CenterHeader", '&"Arial"&8' + header),
+                            ("LeftFooter", ""), ("RightFooter", ""), ("CenterFooter", footer)):
+            _set(ps, name, value)
+        cm = _call(xl, "CentimetersToPoints", 1.5)
+        _set(ps, "LeftMargin", cm)
+        _set(ps, "RightMargin", cm)
+        done = True
+    except Exception:   # noqa: BLE001  (no printer installed etc.)
+        pass
+    finally:
+        try:
+            _set(xl, "PrintCommunication", True)
+            restored = True
+        except Exception:   # noqa: BLE001
+            pass
+    if done and restored:
+        try:
+            _retry(lambda: ws.Names.Add(Name=PAGE_SETUP_NAME, RefersTo=key, Visible=False))
+        except Exception:   # noqa: BLE001 - only an optimisation
+            pass
 
 
 # ---------------------------------------------------------------- apply_data_sheet
@@ -621,6 +717,34 @@ def _format_numbers(rng, fmt: str, align: bool) -> None:
         part.NumberFormatLocal = fmt
         if align:
             part.HorizontalAlignment = tn.H_RIGHT
+
+
+def local_format(obj, fmt: str) -> str:
+    """fmt (en-US codes: ',' thousands, '.' decimal) in the user's locale. Through late-bound COM (pywin32 passes the
+    user's LCID) Excel reads Range.NumberFormat and DataLabels.NumberFormat in the user's locale too: '#,##0.0' was
+    refused under nb-NO (live 05.11.2026). obj: any Excel object with .Application. Without one (fakes): fmt."""
+    try:
+        tup = obj.Application.International
+        return tn.to_local(fmt, tup[2], tup[3])
+    except Exception:   # noqa: BLE001 - a fake or a detached object: the code as given
+        return fmt
+
+
+CHART_THOUSANDS = "\xa0"
+
+
+def chart_format(obj, fmt: str) -> str:
+    """fmt (en-US codes) for a chart's DataLabels.NumberFormat. Excel parses that one differently from a cell's:
+    under nb-NO the thousands and scaling character must be U+00A0, not the plain space International returns
+    ('#\\xa0##0,0\\xa0\\xa0' shows 3 811,4 for 3 811 374 124.3; '# ##0,0  ' showed '3811374 124,3', live 05.11.2026).
+    So every ',' (outside quotes) becomes U+00A0 and '.' the locale decimal; spaces stay plain (a U+00A0 after a
+    digit placeholder would scale). An en-US Excel (',' thousands) keeps the code. Without an app (fakes): fmt."""
+    try:
+        tup = obj.Application.International
+        dec, thou = tup[2], tup[3]
+    except Exception:   # noqa: BLE001 - a fake or a detached object: the code as given
+        return fmt
+    return tn.to_local(fmt, dec, "," if thou == "," else CHART_THOUSANDS)
 
 
 def _sheet_info(ws):

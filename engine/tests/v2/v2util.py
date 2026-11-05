@@ -76,3 +76,18 @@ def monthly_facts() -> Frame:
             leaf["un.SY.2BUS"] = {a: leaf["un.SY.4BUS_B"][a] + leaf["un.SY.G910"][a] for a in ("ac.C50S", "ac.C60")}
             out += [Fact("FinMax", "fm", a, e, per, "Actual", "", v) for e, accs in leaf.items() for a, v in accs.items()]
     return Frame(out)
+
+
+CHAIN_DEFS = [MetricDef("COGS", {"FinMax": ("ac.C40S",), "FinPlan": ("COGS",)}, sign="cost"),
+              MetricDef("Gross margin", {"FinMax": ("ac.C48",), "FinPlan": ("Gross_Profit",)}, sign="income"),
+              MetricDef("EBITDA before other items", {"FinMax": ("ac.EBITDA_BOI",),
+                                                      "FinPlan": ("EBITDA before Other Items",)}, sign="income"),
+              MetricDef("Other items", {"FinMax": ("ac.C73",)})]          # no FinPlan definition (the skip case)
+
+
+def chain_resolver(**kw) -> StaticResolver:
+    """resolver() plus the P&L chain metrics; Opex is ac.C70 here (the real FinMax member)."""
+    base = resolver(**kw)
+    ms = [MetricDef("Opex", {"FinMax": ("ac.C70",), "FinPlan": ("OPEX",)}, sign="cost") if m.name == "Opex" else m
+          for m in base.metrics]
+    return StaticResolver(metrics=ms + CHAIN_DEFS, tree=base.tree, labels=base.labels, **kw)

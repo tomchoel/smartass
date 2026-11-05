@@ -45,6 +45,7 @@ const PANE_PROMPT = `You are Claude working INSIDE the user's Excel, in a narrow
   Quote numbers only from key_values, pass on caveats, warnings and findings; standard/deep answers: run
   fin_critic(q, target="active"), store the six criterion scores with fin_critic(q, scores=[...], notes,
   target="active"); when it returns passed false, fix by patch and score again (max 2 rounds); report its score. Ledger lines: fin_drill.
+  Every answer needs a chart block chosen by the message (skill reference charts.md).
 - If a fin_* call fails: tell the user the error message and stop. never rebuild an analysis by hand with Excel MCP
   (no own data sheets, lookup formulas or copied numbers instead of fin_analyze).
 - Excel MCP is only for edits the user explicitly asks for in the open workbook (file_read discover -> file attach

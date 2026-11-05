@@ -74,7 +74,7 @@ def _built(compare=("ly",)):
 
 
 def _col(out, header):
-    return out.headers.index(header)
+    return out.keys.index(header)
 
 
 # ---- the spec
@@ -98,10 +98,12 @@ def test_a_query_without_metrics_serves_only_concept_blocks():
 
 def test_columns_follow_the_compare_and_add_the_key_helpers():
     _, _, out, _ = _built()
-    assert out.headers == ["Actual", "Last year", "Variance", "Variance %", "Base", "Key share", "Base last year",
+    assert out.headers == ["AC Sep 26", "PY Sep 25", "ΔPY", "ΔPY %", "Base", "Key share", "Base last year",
                            "Key share last year"]
+    assert out.keys == ["Actual", "Last year", "Variance", "Variance %", "Base", "Key share", "Base last year",
+                        "Key share last year"]
     _, _, out, _ = _built(compare=())
-    assert out.headers == ["Actual", "Base", "Key share"]
+    assert out.headers == ["AC Sep 26", "Base", "Key share"]
 
 
 def test_one_line_per_item_with_block_headings_total_and_checks():

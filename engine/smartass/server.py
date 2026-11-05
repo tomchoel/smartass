@@ -19,9 +19,10 @@ from .xl.host import InputError
 from .data.adhoc import adhoc_fetch
 from .data.provider import ComboProvider
 from .followup import find_question, merge_patch, v2_questions
+from .model.chain import restore_chain
 from .model.lines import LineSet
 from .model.spec import AnalysisSpec, LinesBlock
-from .model.validate import GuardError
+from .model.validate import GuardError, guard_chart, guard_key_points
 from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prepare
 
 TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "fin_critic", "xl_snapshot",
@@ -37,6 +38,8 @@ step: Revenue, COGS, Opex, Other items (FinMax) - otherwise 'Other / unexplained
 whole); default q = the active Q<n> Answer, else the latest. 4) Monthly packs: fin_refresh() re-runs every v2
 answer in the workbook to the latest closed month (relative periods roll forward), no AI needed.
 5) Quote numbers only from key_values; explain material lines from drivers evidence or label them a hypothesis.
+Every answer has at least one chart block (kind by message); the sheet shows Key points first, the plan is not
+drawn. Fix each reply.layout finding by patch.
 6) Editing a workbook the user has open with Excel MCP: xl_snapshot first, then edit, xl_revert to undo; finish
 with xl_tidy (zero BLOCK findings). 7) After the server reloads, Claude Code may keep an old tool schema: if a
 parameter seems missing, ask the user to run /mcp and reconnect smartass. Repeated errors: fin_status(restart=True).
@@ -145,19 +148,24 @@ def _has_lines(raw: dict) -> bool:
     return any(isinstance(b, dict) and b.get("type") == "lines" for b in raw.get("blocks") or [])
 
 
-async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target: str = "session"):
+async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target: str = "session",
+                   complete: bool = False):
     """(Prepared, drill warnings). A stored or patched raw spec with lines blocks is re-drilled, so lines are fresh.
     Grids the HTTP route could not fetch are pulled as ad hoc grids in the user's Excel (one job), then the model is
-    prepared again with those results fixed; this fallback runs at most once."""
+    prepared again with those results fixed; this fallback runs at most once. complete (new questions and follow-up
+    patches, not fin_refresh): the P&L chain is completed in the spec (pipeline.prepare), and the completed spec is
+    what gets stored."""
     notes: list[str] = []
+    kw = {"complete": True} if complete else {}
     lines: dict = {}
     if spec is not None or _has_lines(raw):
         lines, notes = await _line_sets(spec or AnalysisSpec.model_validate(raw))
-    pre = await asyncio.to_thread(run_prepare, raw, provider, lines=lines)
+    pre = await asyncio.to_thread(run_prepare, raw, provider, lines=lines, **kw)
     failed = getattr(pre, "failed", None)
     if failed:
         fixed = await _user(lambda h: adhoc_fetch(h, failed, target), "ad hoc fallback")
-        pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, {**pre.fetched, **fixed}), lines=lines)
+        pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, {**pre.fetched, **fixed}),
+                                      lines=lines, **kw)
     return pre, notes
 
 
@@ -204,7 +212,9 @@ def _default_target(target: str) -> str:
 
 
 async def _new_question(spec: AnalysisSpec, target: str) -> dict:
-    pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target)
+    guard_chart(spec)                  # new questions only: every other path gets an implicit chart
+    guard_key_points(spec)             # new questions only: a stored spec keeps its first 5 (a warning)
+    pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target, complete=True)
     return _with_notes(await _user(lambda h: excel_job(h, pre, target), "fin_analyze"), notes)
 
 
@@ -216,7 +226,8 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     Fetches over Smart View HTTP, computes, and builds Q<n> Answer (live formulas on table Data_Q<n>) + Q<n> Data in
     the session workbook (target 'session', 'new' or 'active', an absolute path or the name of an open workbook).
     A follow-up's target default: the workbook of your latest answer. Returns key_values (quote only these),
-    material lines, findings, checks and warnings."""
+    material lines, findings, checks, warnings, layout (check findings, each with its fix: patch them) and charts
+    (the chart titles drawn)."""
     if (spec is None) == (patch is None):
         raise GuardError("give spec (a new question) or patch (a follow-up), not both",
                          "pass spec=... for a new question, or patch=... (and q) to change an existing answer")
@@ -226,7 +237,7 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     target = _default_target(target)
     stored, active, path = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
     q2, raw, owned = find_question(stored, q, active)
-    pre, notes = await _prepare(merge_patch(raw, patch), provider, target=path)
+    pre, notes = await _prepare(restore_chain(merge_patch(raw, patch)), provider, target=path, complete=True)
     return _with_notes(await _user(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up"), notes)
 
 

@@ -26,8 +26,8 @@ def wire(monkeypatch, results):
     async def user(fn, what):
         return fn(None)
 
-    def prep(raw, provider, lines=None):
-        prepared.update(raw=raw, lines=lines)
+    def prep(raw, provider, lines=None, **kw):
+        prepared.update(raw=raw, lines=lines, **kw)
         return "PRE"
 
     monkeypatch.setattr(server, "_drill", fake_drill)
@@ -56,6 +56,7 @@ def test_fin_analyze_drills_each_lines_block_once(monkeypatch):
     assert ls["b0"].cube_value == -10.0 and ls["b0"].cell == CELL and ls["b0"].alias == "b0"
     assert ls["b1"].warnings == ["thin"] and ls["b1"].reconciliation == {"gap": 0.0}
     assert out["pre"] == "PRE" and "thin" in out["warnings"] and "w0" in out["warnings"]
+    assert prepared["complete"] is True                  # a new question completes the P&L chain (plan 5 task 2)
 
 
 def test_project_grouping_adds_the_initiative(monkeypatch):

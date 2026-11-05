@@ -33,8 +33,7 @@ def test_block_must_reference_a_known_query_and_its_metrics_and_series():
     with pytest.raises(ValidationError, match="unknown query 'xx'"):
         AnalysisSpec.model_validate(d)
     d = spec_dict(blocks=[{"type": "ranking", "query": "fm", "metric": "Capex"}])
-    with pytest.raises(ValidationError, match="not in query 'fm'"):
-        AnalysisSpec.model_validate(d)
+    assert "Capex" in AnalysisSpec.model_validate(d).queries[0].metrics    # a block's metric is fetched too
     d = spec_dict()
     d["queries"][0]["compare"] = []
     with pytest.raises(ValidationError, match="compare"):
