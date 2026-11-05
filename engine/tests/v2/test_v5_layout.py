@@ -178,12 +178,11 @@ def test_charts_zone_two_per_row_and_anchors():
     z = dict(p.zones)
     assert z["tables"] - z["charts"] == 2 * CHART_ROWS                 # three charts: two zone rows
     a, b, c = p.charts
-    assert (a.type, b.type, c.type) == ("waterfall", "line", "column")     # spec order
+    assert (a.kind, b.kind, c.kind) == ("waterfall", "line", "column")     # spec order
     assert a.anchor_col == "B" and c.anchor_col == "B" and b.anchor_col not in ("B", "C")
     assert a.anchor_row == b.anchor_row == z["charts"] and c.anchor_row == z["charts"] + CHART_ROWS
-    assert a.height_pt <= (CHART_ROWS - 1) * 15
-    assert c.rows == []                                                 # drawn in Task 7
-    assert a.rows and a.header_row < a.rows[0]
+    assert a.height_pt == 260 < CHART_ROWS * 15                         # 480 x 260 pt (spec 3.3) in its zone row
+    assert a.series and b.series and c.series                           # every kind is drawn (Task 7)
 
 
 def test_implicit_chart_reserves_the_zone():

@@ -113,8 +113,11 @@ def answer_roles(p: SheetPlan) -> dict:
     widths = {"A": W_A, "B": W_CODE, "C": label_width(p),
               **{col_letter(c): W_NUM for c in range(FIRST_COL, col_number(p.last_col) + 1)}, **p.widths}
     code, label = col_letter(CODE_COL), col_letter(LABEL_COL)
-    return {"last_col": p.last_col, "label_cols": [code, label], "code_cols": [code], "last_row": p.last_row,
-            "col_widths": widths, "rows": p.rows}
+    roles = {"last_col": p.last_col, "label_cols": [code, label], "code_cols": [code], "last_row": p.last_row,
+             "col_widths": widths, "rows": p.rows}
+    if p.helper_cols:                    # chart helpers: grey, inside the owned block, outside the print area
+        roles |= {"helper_cols": list(p.helper_cols), "print_last_col": p.print_last_col}
+    return roles
 
 
 def read_block(ws, p: SheetPlan) -> tuple:

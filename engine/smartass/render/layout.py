@@ -29,10 +29,12 @@ PCT_CODES = {"var_pct", "share", "key", "key_ly"}
 CHART_ROWS = 18          # sheet rows per row of (at most two) charts
 CHART_WIDTH = 480.0      # pt
 CHART_GAP = 8.0          # pt between two charts in one zone row
+CHART_HEIGHT = 260.0     # pt (fits a zone row of 18 rows x 15 pt)
 ROW_PT = 15.0
 LABEL_MIN, LABEL_MAX = 46, 80
 LINE_KINDS = ("line", "sum", "grand", "check")
-W_NUM, W_GAP, W_MARK, W_A, W_CODE, W_CODE_MAX = 16, 2, 9, 2, 9, 24
+W_NUM, W_GAP, W_MARK, W_A, W_CODE, W_CODE_MAX, W_HELPER = 16, 2, 9, 2, 9, 24, 10
+HELPER = "helper"           # col_kind of a chart helper column
 DEFAULT_WIDTH = 8.43
 CONVENTIONS = ("NOK. FinMax signs: costs are negative. Δ = current − comparison; ▲ better, ▼ worse. Variance % "
                "blank when |base| < floor. ● = material (thresholds below).")
@@ -60,24 +62,33 @@ def col_number(letters: str) -> int:
 
 @dataclass
 class ChartSpec:
-    type: str                 # chart kind: "line" | "waterfall" | "column" | ... (Task 7 draws the rest)
+    """One chart (ChartSpec v2, sub-spec 5 §3.3): what charts.write_charts draws. series are (name, range, role)
+    with role ac | py | bu | fc | var | pct (scenario fills), fav | unfav (variance), base | up | down | total
+    (stacked waterfall) or part (stacked); [] = not drawn (the zone stays reserved, the lint says why)."""
+    kind: str                 # waterfall | line | column | bar | stacked | stacked100 | combo | variance
     title: str
-    header_row: int
-    rows: list[int]           # data rows (trend: months only, no Total; bridge: start..end); [] = not drawn yet
-    series_cols: list[str]    # one series per column
-    totals: list[int]         # waterfall points (1-based) that are totals
-    anchor_col: str = "B"     # top-left cell of the chart in the Charts zone: anchor_col + anchor_row
-    anchor_row: int = 0
-    millions: bool = True     # value axis in MNOK; False for stocks (FTE) and percentages
+    cat_range: str = ""       # category labels (column C), e.g. 'C12:C16'
+    series: list[tuple[str, str, str]] = field(default_factory=list)
+    anchor: str = "B1"        # top-left cell of the chart in the Charts zone
+    width: float = CHART_WIDTH
+    height: float = CHART_HEIGHT
+    millions: bool = True     # data labels in MNOK; False for stocks (FTE) and percentages
+    sort: str = "none"        # desc | asc | none (bar: the order on the sheet; desc keeps the largest on top)
+    highlight: list[int] = field(default_factory=list)   # 1-based points coloured with the accent, the rest grey
     source: str = ""          # the key of the out whose rows the chart draws (b<i>)
+    helpers: dict[tuple[int, int], object] = field(default_factory=dict)   # chart helper cells (not model cells)
+
+    @property
+    def anchor_col(self) -> str:
+        return "".join(ch for ch in self.anchor if ch.isalpha())
+
+    @property
+    def anchor_row(self) -> int:
+        return int(self.anchor[len(self.anchor_col):])
 
     @property
     def height_pt(self) -> float:
-        return (CHART_ROWS - 1) * ROW_PT          # fits its zone row, one empty row below
-
-    @property
-    def rows_tall(self) -> int:
-        return math.ceil(self.height_pt / ROW_PT)
+        return self.height
 
 
 @dataclass
@@ -93,6 +104,9 @@ class SheetPlan:
     zones: list[tuple[str, int]] = field(default_factory=list)   # (zone name, first row), in sheet order
     status_cell: str = ""                                   # the empty 'Sheet = model' value cell (written later)
     widths: dict[str, float] = field(default_factory=dict)  # column letter -> width (A, B, C, numbers, gap, marker)
+    chart_lint: list[str] = field(default_factory=list)     # chart problems found while laying out (reply lint)
+    helper_cols: list[str] = field(default_factory=list)    # chart helper columns (grey, right of every table)
+    print_last_col: str = ""                                # the tables' last column (print area; helpers excluded)
 
     def at(self, key: str) -> tuple[int, int]:
         a = self.addr[key]
@@ -212,7 +226,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     widest = max([len(o.headers) for o in tables + chart_data] or [1])
     col_kind: dict[int, set[str]] = {}            # sheet column -> the column codes the tables put there
     placed: list[tuple[int, object, object]] = []          # (row, BlockOut, Line) per model line, for pass 2
-    block_rows: dict[str, tuple[int, list[tuple[int, str]], list[str]]] = {}   # out key -> header row, rows, letters
+    block_rows: dict[str, tuple[int, list[tuple[int, object]], list[str]]] = {}   # out key -> header row, (row, Line), letters
     r = 1
 
     def zone(name: str, row: int) -> None:
@@ -246,7 +260,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         p.rows.append({"row": r, "kind": "header", "num_cols": nums})
         header_row = r
         r += 1
-        line_rows: list[tuple[int, str]] = []
+        line_rows: list[tuple[int, object]] = []
         for ln in o.lines:
             if ln.code:
                 p.cells[(r, CODE_COL)] = ln.code
@@ -260,7 +274,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
                     if o.cols[j] in PCT_CODES:
                         p.fractions.add(ck(o.key, ln.key, j))
             placed.append((r, o, ln))
-            line_rows.append((r, ln.kind))
+            line_rows.append((r, ln))
             r += 1
         block_rows[o.key] = (header_row, line_rows, letters)
         return r + 1
@@ -387,10 +401,13 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
             if cause is not None:
                 text(rr, cause, "text")
                 rr += 1
-    p.last_col = col_letter(FIRST_COL + widest - 1)
+    p.print_last_col = col_letter(FIRST_COL + widest - 1)
+    p.last_col = p.print_last_col
     p.last_row = r
+    specs = [_chart(o, spec, res, outs, block_rows, stock, p.chart_lint) for o in chart_outs]
+    _place_helpers(p, specs, FIRST_COL + widest + 1, col_kind)
     p.widths = _widths(p, col_kind)
-    p.charts = _charts(chart_outs, outs, block_rows, stock, charts_row, p.widths)
+    p.charts = _anchor(specs, charts_row, p.widths)
     return p
 
 
@@ -400,14 +417,183 @@ def _widths(p: SheetPlan, col_kind: dict[int, set[str]]) -> dict[str, float]:
     w: dict[str, float] = {"A": W_A, "B": code_width(p), "C": label_width(p)}
     for c in range(FIRST_COL, col_number(p.last_col) + 1):
         kinds = col_kind.get(c, set())
-        w[col_letter(c)] = (W_GAP if kinds == {GAP} else W_MARK if kinds and kinds <= MARK_CODES else W_NUM)
+        w[col_letter(c)] = (W_GAP if kinds == {GAP} else W_MARK if kinds and kinds <= MARK_CODES
+                            else W_HELPER if kinds == {HELPER} else W_NUM)
     return w
 
 
-def _charts(chart_outs, outs, block_rows, stock, top: int, widths: dict[str, float]) -> list[ChartSpec]:
-    """One ChartSpec per chart: anchors two per zone row (B, and the first column 480 pt + a gap to the right of
-    B); rows and series for the kinds charts.py draws today (a trend line, a bridge waterfall), [] for the rest
-    (plan 5 Task 7 draws them)."""
+
+# --- charts (ChartSpec v2) ----------------------------------------------------------------------------------------
+
+ROLE = {"value": "ac", "amount": "ac", "ly": "py", "budget": "bu", "forecast": "fc", "var": "var", "var_pct": "pct"}
+ALIAS = {"value": "amount", "amount": "value"}       # a ledger lines / bridge block has amount where others have value
+IMPLICIT_SERIES = {"drivers": ["var"]}                 # an implicit bar on a drivers block shows the variance
+SORTED_SOURCES = ("ranking", "lines")                  # rows already ranked by size (descending)
+DROP_KEYS = {"lines": {"total", "cube", "gap"}}        # ledger lines rows that are controls, not parts
+MAX_PARTS = 5
+
+
+def _runs(letter: str, rows: list[int]) -> str:
+    """A column's cells on the given rows as one range text: 'D5:D7' or, with gaps, 'D5:D6,D8'."""
+    out, start = [], None
+    for k, row in enumerate(rows):
+        if start is None:
+            start = row
+        if k + 1 == len(rows) or rows[k + 1] != row + 1:
+            out.append(f"{letter}{start}" if start == row else f"{letter}{start}:{letter}{row}")
+            start = None
+    return ",".join(out)
+
+
+def _across(letters: list[str], row: int) -> str:
+    """One row's cells in the given columns: 'D5:E5' when adjacent, else 'D5,F5'."""
+    nums = [col_number(c) for c in letters]
+    if nums == list(range(nums[0], nums[0] + len(nums))):
+        return f"{letters[0]}{row}" if len(letters) == 1 else f"{letters[0]}{row}:{letters[-1]}{row}"
+    return ",".join(f"{c}{row}" for c in letters)
+
+
+def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
+    """The ChartSpec of one chart out (rows and columns of the block it draws, its last column group); a problem is
+    one lint line and a chart without series (never a failed answer)."""
+    from ..model.blocks.chart import default_series
+    from ..model.spec import ChartBlock
+    kind = o.chart or "column"
+    src = o.chart_of if o.type == "chart" else o.key
+    cs = ChartSpec(kind, o.title, source=src or "", sort="desc" if kind == "bar" else "none")
+    try:
+        cb = None
+        if o.type in ("chart", "chart_data") and o.key.startswith("b") and o.key[1:].isdigit():
+            b = spec.blocks[int(o.key[1:])]
+            cb = b if isinstance(b, ChartBlock) else None
+        if cb is not None:
+            cs.sort = cb.sort
+        data = outs.get(src)
+        if data is None or data.key not in block_rows:
+            lint.append(f"chart '{o.title}': its source has no rows on the sheet; fix: point source.block at a "
+                        "table, trend, bridge, ranking or kpi block")
+            return cs
+        cs.millions = _millions(data, stock)
+        if cb is None and data.type not in SORTED_SOURCES:
+            cs.sort = "none"           # an implicit bar keeps the table's order (drivers: the tree)
+        header_row, line_rows, letters = block_rows[data.key]
+        cols = data.cols
+        last = group_start(cols, len(cols) - 1) if cols else 0
+        cand = [j for j in range(last, len(cols)) if cols[j] != GAP and cols[j] not in MARK_CODES]
+        have = ", ".join(dict.fromkeys(cols[j] for j in cand)) or "none"
+        if kind == "waterfall":
+            rows = list(line_rows)
+        else:
+            drop = DROP_KEYS.get(data.type, set())
+            rows = [(r, ln) for r, ln in line_rows if ln.kind not in ("grand", "check") and ln.key not in drop]
+            if any(ln.kind == "line" for _, ln in rows):
+                rows = [(r, ln) for r, ln in rows if ln.kind != "sum"]
+        if not rows:
+            lint.append(f"chart '{o.title}': the source block has no rows to chart; fix: point the chart at a "
+                        "block with lines")
+            return cs
+        if cb is not None and cb.series:
+            want = list(cb.series)
+        elif cb is None and data.type in IMPLICIT_SERIES:
+            want = list(IMPLICIT_SERIES[data.type])
+        else:
+            want = default_series(kind, cols)
+        picked: list[int] = []
+        for code in want:
+            hits = [j for j in cand if cols[j] == code] or [j for j in cand if cols[j] == ALIAS.get(code)]
+            if not hits:
+                lint.append(f"chart '{o.title}': series '{code}' is not in the source (columns: {have}); fix: add "
+                            f"'{code}' to the source block's columns or drop it from the chart's series")
+                continue
+            picked += [j for j in (hits if data.type == "trend" else hits[-1:]) if j not in picked]
+        if not picked:
+            lint.append(f"chart '{o.title}': no series to draw, chart skipped; fix: give series the source has "
+                        f"({have})")
+            return cs
+        row_nums = [r for r, _ in rows]
+        cs.cat_range = _runs(col_letter(LABEL_COL), row_nums)
+        labels = [ln.label.strip().lower() for _, ln in rows]
+        for h in (cb.highlight if cb is not None else []):
+            if h.strip().lower() in labels:
+                cs.highlight.append(labels.index(h.strip().lower()) + 1)
+            else:
+                lint.append(f"chart '{o.title}': highlight '{h}' is not a line of the source; fix: use a line "
+                            "label as shown in column C")
+        if kind == "waterfall":
+            if data.type != "bridge" or "amount" not in cols:
+                lint.append(f"chart '{o.title}': a waterfall needs a bridge block; fix: source {{block: <bridge "
+                            "index>}")
+                return cs
+            cs.helpers = {"kind": "waterfall", "rows": row_nums, "col": letters[cols.index("amount")],
+                          "header_row": header_row}
+        elif kind == "variance":
+            v = next((j for j in picked if cols[j] == "var"), None)
+            if v is None:
+                lint.append(f"chart '{o.title}': a variance chart needs a var column; fix: add 'var' to the "
+                            "source's columns")
+                return cs
+            cs.helpers = {"kind": "variance", "rows": row_nums, "col": letters[v], "header_row": header_row,
+                          "name": data.headers[v]}
+        elif kind in ("stacked", "stacked100"):
+            if len(rows) > MAX_PARTS:
+                lint.append(f"chart '{o.title}': {len(rows)} parts (at most {MAX_PARTS} read well); fix: chart a "
+                            "block with fewer lines, or use a bar chart")
+            sel = [letters[j] for j in picked]
+            cs.cat_range = _across(sel, header_row)
+            cs.series = [(ln.label.strip(), _across(sel, r), "part") for r, ln in rows]
+        else:
+            if kind == "bar" and cs.sort != "none" and data.type not in SORTED_SOURCES:
+                vals = [res.cells.get(ck(data.key, ln.key, picked[0])) for _, ln in rows]
+                vals = [v if isinstance(v, (int, float)) else 0.0 for v in vals]
+                if vals != sorted(vals, reverse=cs.sort == "desc"):
+                    lint.append(f"chart '{o.title}': sort '{cs.sort}' not applied, the bars keep the table's "
+                                "order; fix: chart a ranking block (rows sorted by size) or set sort 'none'")
+            cs.series = [(data.headers[j], _runs(letters[j], row_nums), ROLE.get(cols[j], "ac")) for j in picked]
+    except Exception as e:   # noqa: BLE001 - a chart never fails the answer
+        cs.series, cs.helpers = [], {}
+        lint.append(f"chart '{o.title}' failed: {e}; fix: patch the chart block (kind, source, series)")
+    return cs
+
+
+def _place_helpers(p: SheetPlan, specs: list[ChartSpec], first: int, col_kind) -> None:
+    """Chart helper columns (render/chartdata.py) to the right of every table (first = widest table + one empty
+    column), on the rows of the block they reshape, under a grey 'Chart helper' header; the chart's series point
+    at them. They widen p.last_col (owned range, styling, readback block) but not the print area. Not model cells:
+    never in p.addr."""
+    from .chartdata import (VARIANCE_HEADS, VARIANCE_ROLES, WATERFALL_HEADS, WATERFALL_ROLES, variance_helpers,
+                            waterfall_helpers)
+    by_row = {d["row"]: d for d in p.rows}
+    cursor = first
+    for cs in specs:
+        h = cs.helpers
+        if not h:
+            continue
+        wf = h["kind"] == "waterfall"
+        heads, roles = (WATERFALL_HEADS, WATERFALL_ROLES) if wf else (VARIANCE_HEADS, VARIANCE_ROLES)
+        letters = [col_letter(cursor + k) for k in range(len(heads))]
+        cells = (waterfall_helpers if wf else variance_helpers)(h["rows"], h["col"], letters)
+        hr = h["header_row"]
+        p.cells[(hr - 1, cursor)] = "Chart helper"
+        for k, name in enumerate(heads):
+            p.cells[(hr, cursor + k)] = name
+            col_kind.setdefault(cursor + k, set()).add(HELPER)
+        by_row[hr].setdefault("num_cols", []).extend(letters)
+        num = "heltall" if cs.millions else "tall1"
+        for (row, letter), v in cells.items():
+            p.cells[(row, col_number(letter))] = v
+            by_row[row].setdefault("num", {})[letter] = num
+        r1, r2 = h["rows"][0], h["rows"][-1]
+        cs.series = [(heads[k] if wf else f"{h['name']} {heads[k].lower()}", f"{letters[k]}{r1}:{letters[k]}{r2}",
+                      role) for k, role in enumerate(roles) if role]
+        cs.helpers = {(row, col_number(letter)): v for (row, letter), v in cells.items()}
+        p.helper_cols += letters
+        cursor += len(heads)
+    if p.helper_cols:
+        p.last_col = p.helper_cols[-1]
+
+
+def _anchor(specs: list[ChartSpec], top: int, widths: dict[str, float]) -> list[ChartSpec]:
+    """Anchors two per zone row: B, and the first column 480 pt + a gap to the right of B."""
     left = {}
     x = 0.0
     for c in range(1, 80):
@@ -415,25 +601,6 @@ def _charts(chart_outs, outs, block_rows, stock, top: int, widths: dict[str, flo
         x += width_pt(widths.get(col_letter(c), DEFAULT_WIDTH))
     want = left[CODE_COL] + CHART_WIDTH + CHART_GAP
     second = col_letter(next(c for c in range(CODE_COL + 1, 80) if left[c] >= want))
-    specs = []
-    for i, o in enumerate(chart_outs):
-        src = o.chart_of if o.type == "chart" else o.key
-        data = outs.get(src)
-        kind = o.chart or "column"
-        rows: list[int] = []
-        series: list[str] = []
-        totals: list[int] = []
-        header_row = 0
-        if data is not None and data.key in block_rows:
-            header_row, line_rows, letters = block_rows[data.key]
-            if kind == "waterfall" and data.type == "bridge":
-                rows = [row for row, _ in line_rows]
-                series, totals = letters[:1], [1, len(rows)] if rows else []
-            elif kind == "line" and data.type == "trend":
-                rows = [row for row, k in line_rows if k not in ("grand", "check")]
-                series = letters
-        millions = _millions(data, stock) if data is not None else True
-        specs.append(ChartSpec(kind, o.title, header_row, rows, series, totals,
-                               anchor_col="B" if i % 2 == 0 else second, anchor_row=top + (i // 2) * CHART_ROWS,
-                               millions=millions, source=src or ""))
+    for i, cs in enumerate(specs):
+        cs.anchor = f"{'B' if i % 2 == 0 else second}{top + (i // 2) * CHART_ROWS}"
     return specs

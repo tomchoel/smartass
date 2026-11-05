@@ -239,7 +239,7 @@ def test_layout_skips_chart_outs_and_lays_out_chart_data_as_a_table():
     assert "Chart data: Own data" in texts
     o = next(o for o in res.outs if o.type == "chart_data")
     assert all(ck(o.key, ln.key, j) in p.addr for ln in o.lines for j, e in enumerate(ln.cells) if e is not None)
-    assert [(c.type, c.rows) for c in p.charts] == [("column", []), ("column", [])]   # zone reserved; Task 7 draws
+    assert [(c.kind, bool(c.series)) for c in p.charts] == [("column", True), ("column", True)]
 
 
 def test_layout_still_charts_trend_and_bridge():
@@ -247,7 +247,7 @@ def test_layout_still_charts_trend_and_bridge():
     s = spec(TABLE, bridge)
     res = compute(s, resolver(), CLOSED, facts())
     p = layout(3, s, res, stock=set(), subtitle="NOK")
-    assert [c.type for c in p.charts] == ["waterfall"]
+    assert [c.kind for c in p.charts] == ["waterfall"]
 
 
 # --- paths: guard on new questions only, implicit chart everywhere else -----------------------------------------

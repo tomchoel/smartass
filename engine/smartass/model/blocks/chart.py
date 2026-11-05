@@ -36,12 +36,13 @@ def build_chart(b: ChartBlock, ctx: Ctx, key: str) -> BlockOut:
 
 
 CHARTABLE = ("bridge", "trend", "table")     # the implicit chart's preference: waterfall, line, column
-IMPLICIT_KIND = {"bridge": "waterfall", "trend": "line"}
+IMPLICIT_KIND = {"bridge": "waterfall", "trend": "line", "ranking": "bar", "lines": "bar", "drivers": "bar"}
 
 
 def implicit_chart(outs: list[BlockOut]) -> BlockOut | None:
     """A chart on the first bridge (waterfall), else the first trend (line), else the first table (column), else the
-    first block with lines (column); None when no block has data."""
+    first block with lines (a bar for ranking, ledger lines and drivers, else a column); None when no block has
+    data."""
     data = [o for o in outs if o.type not in ("chart", "chart_data") and o.lines]
     pick = next((o for t in CHARTABLE for o in data if o.type == t), data[0] if data else None)
     if pick is None:

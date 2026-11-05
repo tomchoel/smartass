@@ -468,6 +468,10 @@ def apply_report(ws, roles: dict) -> list[str]:
         if code_cells:
             for chunk in tn._chunks(_blocks(code_cells), sep):
                 _retry(lambda: _code_look(ws.Range(chunk)))
+        helpers = sorted(_ci(c) for c in roles.get("helper_cols", []))
+        if helpers:                                       # chart helper columns: grey, they are not the answer
+            hrng = f"{_cl(helpers[0])}1:{_cl(helpers[-1])}{last_row}"
+            _retry(lambda: setattr(ws.Range(hrng).Font, "Color", _rgb(tn.GREY)))
 
     with stage("C widths + heights"):
         given = _parse_widths(roles.get("col_widths", {}))
@@ -503,7 +507,7 @@ def apply_report(ws, roles: dict) -> list[str]:
         _retry(lambda: setattr(ws.Tab, "Color", _rgb(tn.NAVY)))
         _freeze(ws, int(roles.get("freeze_rows") or 0), 0)
     with stage("G page setup"):
-        _page_setup(ws, xl, last_row, last, roles)
+        _page_setup(ws, xl, last_row, _ci(roles.get("print_last_col") or roles["last_col"]), roles)
     with stage("H lint"):
         return _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights)
 
