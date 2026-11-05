@@ -393,6 +393,23 @@ def _lines_header(ws, table: str, cell: dict, fetched: str) -> None:
     com(look)
 
 
+def _write_sources(t, q: int, pre: Prepared, ws_data, header, fetched: str) -> str | None:
+    """The pull logged on the Sources sheet (xl/sources.py), with each query's OK/DIFF read from the calculated
+    Data header, and the header's Sources cells linked to the rows (every draw: the header rewrite cleared them).
+    Provenance, not the answer: a failure is returned as a warning text, never raised (no rollback)."""
+    from .xl import sources
+    from .xl.jobs import com
+    try:
+        status = {}
+        for qid, cell in header.status.items():
+            v = com(lambda cell=cell: ws_data.Range(cell).Value)
+            status[qid] = v if v in ("OK", "DIFF") else ""
+        sources.write_sources(t, q, pre, ws_data, header, fetched, status)
+    except Exception as e:   # noqa: BLE001
+        return f"could not log the pull on the Sources sheet ({e}); the answer is built"
+    return None
+
+
 def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
           old_owned: dict | None = None) -> dict:
     """Data sheet, layout, Answer sheet, charts, readback, spec + owned range, sheet order. Shared by excel_job and
@@ -401,7 +418,7 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     fetched = datetime.now().astimezone()
     user = datasheet.windows_user()
     header = header_rows(q, pre.spec, pre, fetched, user)
-    (rewrite_data if redraw else write_data)(ws_data, pre.frame, q, header)   # its cells: Task 11 (Sources link)
+    (rewrite_data if redraw else write_data)(ws_data, pre.frame, q, header)
     line_sheets = [f"Q{q} Lines {a}" for a in pre.frame.lines]
     for ls in pre.frame.lines.values():         # before the answer, so its formulas resolve
         _write_lines(t, q, ls, datasheet.fetched_text(fetched, user))
@@ -419,10 +436,11 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     _calculate(t)
     mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan), plan.fractions)
     write_status(ws_answer, plan, mismatches)   # the 'Sheet = model' cell: OK or DIFF in <n> cells
+    logged = _write_sources(t, q, pre, ws_data, header, datasheet.fetched_text(fetched, user))   # append-only: late
     _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     arranged = _arrange(t, f"Q{q} Answer")
     return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data", *line_sheets], mismatches,
-                 lint + ([arranged] if arranged else []))
+                 lint + [w for w in (logged, arranged) if w])
 
 
 def remember(pre: Prepared, out: dict) -> None:

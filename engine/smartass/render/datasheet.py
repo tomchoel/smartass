@@ -60,9 +60,9 @@ def _span(expr: str, closed) -> str:
     return f"{text} ({expr})"
 
 
-def _query_rows(q: int, query, pre, fetched: str, first: int, tol: str):
-    """(rows, sources cell, status cell) of one query's block starting at sheet row `first`."""
-    t = f"Data_Q{q}"
+def query_info(query, pre) -> dict:
+    """What one query pulled, as the texts the Data header and the Sources log both show: scenario (per series,
+    '<scenario>/<version>'), POV, periods, route; and the static control total (the facts EPM returned)."""
     reqs = [r for r in pre.requests if r.query == query.id]
     scen = list(dict.fromkeys(f"{r.scenario}/{r.version}" if r.version else r.scenario for r in reqs))
     balances = list(dict.fromkeys(r.balance for r in reqs))
@@ -78,9 +78,18 @@ def _query_rows(q: int, query, pre, fetched: str, first: int, tol: str):
     failed = [r for r in pre.failed if r.query == query.id]
     if failed:
         route = " · ".join(x for x in (route, f"HTTP failed for {len(failed)} grid(s)") if x)
-    static = pre.frame.total({"Query": (query.id,)}) or 0.0
+    return {"scenario": ", ".join(scen), "pov": pov, "periods": periods, "route": route,
+            "rows": sum(1 for f in pre.frame.facts if f.query == query.id),
+            "total": pre.frame.total({"Query": (query.id,)}) or 0.0}
+
+
+def _query_rows(q: int, query, pre, fetched: str, first: int, tol: str):
+    """(rows, sources cell, status cell) of one query's block starting at sheet row `first`."""
+    t = f"Data_Q{q}"
+    info = query_info(query, pre)
+    scen, pov, periods, route, static = info["scenario"], info["pov"], info["periods"], info["route"], info["total"]
     ct = first + 6
-    rows = [("Query", f"{query.id}: {query.cube}" + (f" · {', '.join(scen)}" if scen else "")),
+    rows = [("Query", f"{query.id}: {query.cube}" + (f" · {scen}" if scen else "")),
             ("POV", pov),
             ("Periods", periods),
             ("Route", route),

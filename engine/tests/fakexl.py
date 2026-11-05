@@ -316,6 +316,17 @@ class Range:
     def Clear(self):
         for rc in self.cells():
             self.ws.cells.pop(rc, None)
+        inside = set(self.cells())
+        self.ws.Hyperlinks[:] = [h for h in self.ws.Hyperlinks if h.cell not in inside]   # as Excel: Clear drops links
+
+    def AutoFilter(self, *a):
+        """As Excel: without arguments it TOGGLES the sheet's AutoFilter."""
+        assert not a
+        self.ws.log.append(("AutoFilter", ";".join(rect_text(*x) for x in self.rects)))
+        if self.ws.AutoFilterMode:
+            self.ws.AutoFilterMode, self.ws.autofilter = False, None
+        else:
+            self.ws.AutoFilterMode, self.ws.autofilter = True, self.rects[0]
 
     def SpecialCells(self, kind, value_type=None):
         hits = []
@@ -352,6 +363,9 @@ class Range:
         ws = self.ws
         ws.cells = {((r + n) if r >= at else r, c): v for (r, c), v in ws.cells.items()}
         ws.rowh = {((r + n) if r >= at else r): h for r, h in ws.rowh.items()}
+        for h in ws.Hyperlinks:
+            if h.cell[0] >= at:
+                h.cell = (h.cell[0] + n, h.cell[1])
         for lo in ws.ListObjects:
             r1, c1, r2, c2 = lo.rect
             if r1 >= at:
@@ -372,6 +386,7 @@ class Range:
             assert not (lo.rect[0] <= r2 and lo.rect[2] >= r1), "fake Delete: rows inside a table"
         for rc in [rc for rc in self.ws.cells if r1 <= rc[0] <= r2]:
             del self.ws.cells[rc]
+        self.ws.Hyperlinks[:] = [h for h in self.ws.Hyperlinks if not r1 <= h.cell[0] <= r2]
         self._shift_rows(r2 + 1, -(r2 - r1 + 1))
 
 
@@ -458,6 +473,28 @@ class _Names:
         return self.items[name]
 
 
+class _Hyperlinks(list):
+    """ws.Hyperlinks: Add(Anchor, Address, SubAddress, ScreenTip, TextToDisplay) POSITIONAL only (late-bound COM
+    ignored the keyword TextToDisplay in v1); one link per cell, the text becomes the cell value."""
+
+    def __init__(self, ws):
+        super().__init__()
+        self.ws = ws
+
+    def Add(self, anchor, address, sub=None, tip=None, text=None, **kw):
+        assert not kw, "Hyperlinks.Add: positional arguments only"
+        r, c = anchor.rects[0][:2]
+        self[:] = [h for h in self if h.cell != (r, c)]
+        link = SimpleNamespace(cell=(r, c), Address=address, SubAddress=sub, ScreenTip=tip, TextToDisplay=text)
+        self.append(link)
+        if text:
+            self.ws.put(r, c, text)
+        return link
+
+    def at(self, r, c):
+        return next((h for h in self if h.cell == (r, c)), None)
+
+
 class _Recorder:
     """PageSetup / Tab: plain attribute bag."""
 
@@ -477,6 +514,8 @@ class Worksheet:
         self.ListObjects = _ListObjects(self)
         self.Rows = _Lines(self, True)
         self.Columns = _Lines(self, False)
+        self.Hyperlinks = _Hyperlinks(self)
+        self.AutoFilterMode, self.autofilter = False, None
         self.log: list = []
 
     @property
