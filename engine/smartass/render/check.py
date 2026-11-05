@@ -22,7 +22,8 @@ NUMERIC_KINDS = ("line", "sum", "grand")
 XL_ERRORS = {-2146826281: "#DIV/0!", -2146826246: "#N/A", -2146826259: "#NAME?", -2146826288: "#NULL!",
              -2146826252: "#NUM!", -2146826265: "#REF!", -2146826273: "#VALUE!"}
 GENERAL_DIGITS = 11                      # a General cell switches to E+ notation from about 11 digits
-PAD = 1.0                                # characters of padding Excel keeps in a cell
+PAD = 0.0                                # tn.text_units (x 1.08) already over-estimates; the margin fits in it
+BOLD_KINDS = ("sum", "grand")
 
 
 def _number(v) -> bool:
@@ -37,17 +38,24 @@ def _error(v) -> str | None:
     return None
 
 
-def shown_chars(v: float, num: str) -> int:
-    """The characters Excel shows for v in a TN number kind (thousands separators, sign or ▲/▼, parentheses)."""
-    if num in ("prosent1", "avvikpst", "prosent"):
-        body = f"{abs(v) * 100:,.1f}%"
-    elif num == "tall1":
-        body = f"{abs(v):,.1f}"
-    elif num == "markor":
-        return 1
-    else:
-        body = f"{abs(v):,.0f}"
-    return len(body) + 2                 # sign / arrow and the closing parenthesis or its space
+def shown_text(v: float, num: str) -> str:
+    """The text Excel shows for v in a TN number kind (styling.NUM_FORMATS): thousands separators, negatives in
+    parentheses (or '-' for percentages), the ▲ / ▼ ( ) of a variance, the trailing _) space of a positive."""
+    if num == "markor":
+        return "●"
+    pct = num in ("prosent1", "avvikpst", "prosent")
+    body = f"{abs(v) * 100:,.1f}%" if pct else f"{abs(v):,.1f}" if num == "tall1" else f"{abs(v):,.0f}"
+    if num in ("avvik", "avvikpst"):
+        return f"▲ {body}" if v >= 0 else f"▼ ({body})"
+    if pct:
+        return f"-{body}" if v < 0 else body
+    return f"({body})" if v < 0 else f"{body})"            # '_)' keeps a parenthesis-wide space
+
+
+def shown_width(v: float, num: str, bold: bool = False) -> float:
+    """The shown text's width in column units (Arial 10, tn.text_units)."""
+    from ..xl.vendor import tn_rapportstil as tn
+    return tn.text_units(shown_text(v, num), 10, bold)
 
 
 def _grid(plan, ws):
@@ -83,15 +91,18 @@ def _charts(plan, ws) -> list[str]:
 
 
 def _formats(plan, grid) -> list[str]:
+    by_row: dict[int, list[tuple[int, object]]] = {}
+    for (r, c), v in plan.cells.items():
+        if c >= FIRST_COL:
+            by_row.setdefault(r, []).append((c, v))
     out = []
     for d in plan.rows:
         if d.get("kind") not in NUMERIC_KINDS or "status_col" in d:
             continue
         row, num = d["row"], d.get("num") or {}
         missing = []
-        for (r, c), v in plan.cells.items():
-            if r != row or c < FIRST_COL:
-                continue
+        for c, v in sorted(by_row.get(row, ()), key=lambda x: x[0]):
+            r = row
             numeric = (isinstance(v, str) and v.startswith("=")) or _number(v)
             if numeric and not num.get(col_letter(c)):
                 missing.append(col_letter(c))
@@ -105,19 +116,19 @@ def _formats(plan, grid) -> list[str]:
 
 
 def _narrow(plan, grid) -> list[str]:
-    worst: dict[str, tuple[int, int]] = {}            # column -> (shown chars, row) of its widest number
+    worst: dict[str, tuple[float, int]] = {}          # column -> (shown width, row) of its widest number
     for d in plan.rows:
         for letter, num in (d.get("num") or {}).items():
             v = grid.get((d["row"], col_number(letter)))
             if _number(v):
-                n = shown_chars(v, num)
-                if n > worst.get(letter, (0, 0))[0]:
+                n = shown_width(v, num, d.get("kind") in BOLD_KINDS)
+                if n > worst.get(letter, (0.0, 0))[0]:
                     worst[letter] = (n, d["row"])
     out = []
     for letter, (n, row) in sorted(worst.items(), key=lambda x: col_number(x[0])):
         width = plan.widths.get(letter, DEFAULT_WIDTH)
         if n + PAD > width:
-            out.append(f"layout: column {letter} too narrow for {letter}{row} ({n} characters in width {width:g}, "
+            out.append(f"layout: column {letter} too narrow for {letter}{row} (needs {n:.1f}, width {width:g}: "
                        f"shown as ###); fix: widen column {letter} or show the block in MNOK")
     return out
 

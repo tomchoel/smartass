@@ -4,6 +4,8 @@ the real layout(). No Excel: a tiny sheet fake that answers the check's few read
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from fakexl import parse_area
 from test_v5_headers import OCT, ytd_frame
 from v2util import resolver, spec_dict
@@ -14,6 +16,18 @@ from smartass.render.check import check
 from smartass.render.layout import FIRST_COL, TEXT_COL, SheetPlan, col_letter, layout
 
 GROUPED = {"type": "table", "query": "fm", "title": "P&L", "periods": ["closed", "closed-ytd"]}
+BLOCKS = {
+    "grouped": [GROUPED],
+    "bridge": [{"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}],
+    "ranking": [{"type": "ranking", "query": "fm", "metric": "Opex", "top": 1}],
+    "drivers": [{"type": "drivers", "query": "fm", "metric": "Opex"}],
+    "matrix": [{"type": "matrix", "query": "fm", "metric": "Opex"}],
+    "kpi_tiles": [{"type": "kpi_tiles", "query": "fm", "metrics": ["EBITDA"]}],
+    "trend": [{"type": "trend", "query": "fm", "metrics": ["Opex"]}],
+    "commentary": [GROUPED, {"type": "commentary", "key_points": ["Opex up"],
+                             "drivers": [{"line": "Opex", "text": "Probably consultants", "basis": "hypothesis"}]}],
+    "chart": [GROUPED, {"type": "chart", "kind": "column", "title": "Opex", "source": {"block": 0}}],
+}
 
 
 class Sheet:
@@ -37,15 +51,15 @@ class Sheet:
         return SimpleNamespace(Value2=v, Value=v)
 
 
-def drawn(blocks=None):
-    """A clean answer: the real layout, every formula shown as a modest number, key points as text."""
+def drawn(blocks=None, value=1234.5):
+    """A clean answer: the real layout, every formula shown as a number (value), key points as text."""
     d = spec_dict(blocks=blocks or [GROUPED])
     d["queries"][0]["periods"] = "closed-ytd"
     s = AnalysisSpec.model_validate(d)
     p = layout(3, s, compute(s, resolver(), OCT, ytd_frame()), stock=set(), subtitle="SUB")
     grid = {}
     for (r, c), v in p.cells.items():
-        grid[(r, c)] = (1234.5 if c >= FIRST_COL else "Opex fell 3 MNOK") if isinstance(v, str) and v.startswith("=") \
+        grid[(r, c)] = (value if c >= FIRST_COL else "Opex fell 3 MNOK") if isinstance(v, str) and v.startswith("=") \
             else v
     for r in [d["row"] for d in p.rows if "status_col" in d]:
         grid[(r, FIRST_COL)] = "OK"
@@ -56,9 +70,28 @@ def run(p, ws, data, ok=True, cells=None):
     return check(p, ws, data, ok, {"fm": "D13"} if cells is None else cells)
 
 
-def test_a_clean_draw_has_no_findings():
-    p, ws, data = drawn()
+@pytest.mark.parametrize("kind", sorted(BLOCKS))
+def test_a_clean_draw_has_no_findings(kind):
+    p, ws, data = drawn(BLOCKS[kind])
     assert run(p, ws, data) == []
+
+
+def test_a_large_nok_total_fits_a_number_column():
+    """-20 123 456 789 (a YTD revenue in NOK) in a 16 wide column, bold on sum rows, a ▼ (2 bn) variance, -15.3 %:
+    commas and parentheses are narrow."""
+    from smartass.render.layout import col_number
+    p, ws, data = drawn()
+    big = {"heltall": -20_123_456_789.0, "avvik": -2_123_456_789.0, "prosent1": -0.153, "avvikpst": -0.153}
+    for d in p.rows:
+        for letter, num in (d.get("num") or {}).items():
+            if num in big and (d["row"], col_number(letter)) in ws.grid:
+                ws.grid[(d["row"], col_number(letter))] = big[num]
+    assert not [f for f in run(p, ws, data) if "too narrow" in f]
+
+
+def test_a_clean_draw_reads_little():
+    p, ws, data = drawn()
+    run(p, ws, data)
     assert ws.reads <= 2 and data.reads == 1                         # ChartObjects + one Value2; one status cell
 
 
@@ -146,4 +179,6 @@ def test_200_rows_check_fast():
     p.last_col, p.last_row = letters[-1], 240
     t0 = time.perf_counter()
     out = check(p, Sheet(grid), Sheet({(13, 4): "OK"}), True, {"fm": "D13"})
-    assert time.perf_counter() - t0 < 0.5 and out == []
+    took = time.perf_counter() - t0
+    print(f"layout check, 200 rows x 8 columns: {took * 1000:.1f} ms")
+    assert took < 0.5 and out == []
