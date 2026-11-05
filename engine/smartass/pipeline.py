@@ -395,19 +395,27 @@ def _lines_header(ws, table: str, cell: dict, fetched: str) -> None:
 
 def _write_sources(t, q: int, pre: Prepared, ws_data, header, fetched: str) -> str | None:
     """The pull logged on the Sources sheet (xl/sources.py), with each query's OK/DIFF read from the calculated
-    Data header, and the header's Sources cells linked to the rows (every draw: the header rewrite cleared them).
-    Provenance, not the answer: a failure is returned as a warning text, never raised (no rollback)."""
+    Data header and each drill's tie-out from its lines sheet, and the header's Sources cells linked to the rows
+    (every draw: the header rewrite cleared them). Provenance, not the answer: a failure (or a query / drill without
+    its row) is returned as a warning text, never raised (no rollback); None = every pull is logged."""
     from .xl import sources
     from .xl.jobs import com
     try:
-        status = {}
+        status, tie, notes = {}, {}, []
         for qid, cell in header.status.items():
             v = com(lambda cell=cell: ws_data.Range(cell).Value)
             status[qid] = v if v in ("OK", "DIFF") else ""
-        sources.write_sources(t, q, pre, ws_data, header, fetched, status)
+        for alias in pre.frame.lines:
+            ws = _sheet(t, f"Q{q} Lines {alias}")
+            v = com(lambda ws=ws: ws.Range(datasheet.LINES_STATUS).Value)
+            tie[alias] = v if isinstance(v, str) else ""
+        rows = sources.write_sources(t, q, pre, ws_data, header, fetched, status, tie, notes)
     except Exception as e:   # noqa: BLE001
         return f"could not log the pull on the Sources sheet ({e}); the answer is built"
-    return None
+    missing = [x for x in [*(qq.id for qq in pre.spec.queries), *pre.frame.lines] if x not in rows]
+    if missing:
+        notes.append(f"the Sources sheet has no row for {', '.join(missing)}; the answer is built")
+    return "; ".join(notes) or None
 
 
 def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,

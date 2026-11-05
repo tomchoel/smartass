@@ -305,14 +305,11 @@ def lookup_formula(p: Pull, row_members: list[str], col_members: list[str]) -> s
 
 
 def _sources_name(t: target.Target) -> str:
-    """'Sources', unless the user already has their own sheet with that name - then 'Sources SV'. Ours: A1 is our
-    title (v2 'Known limits', v1 'Fetched'), or the sheet is empty (a new workbook's first sheet)."""
-    from .sources import OURS_A1
-    if _sheet_exists(t, "Sources"):
-        a1 = jobs.com(lambda: t.wb.Worksheets("Sources").Range("A1").Value)
-        used = jobs.com(lambda: t.wb.Worksheets("Sources").UsedRange.Address)
-        if not (a1 in OURS_A1 or (a1 in (None, "") and used == "$A$1")):
-            return "Sources SV"
+    """'Sources', unless that sheet is not a v2 log - the user's own sheet, or a v1 log (left as it is) - then
+    'Sources SV'. Ours: the v2 log header in row 1, or the sheet is empty (a new workbook's first sheet)."""
+    from .sources import log_kind
+    if _sheet_exists(t, "Sources") and log_kind(jobs.com(lambda: t.wb.Worksheets("Sources"))) not in ("v2", "empty"):
+        return "Sources SV"
     return "Sources"
 
 
