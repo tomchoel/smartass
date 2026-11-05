@@ -113,6 +113,7 @@ class SheetPlan:
     print_last_col: str = ""                                # the tables' last column (text rows; helpers excluded)
     print_area_col: str = ""                                # the print area's last column: the tables or the charts
     footer: str = ""                                        # the print footer (pipeline: source and fetch date)
+    literal: set[tuple[int, int]] = field(default_factory=set)   # text cells: always written as text, never parsed
 
     def at(self, key: str) -> tuple[int, int]:
         a = self.addr[key]
@@ -316,9 +317,15 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     def zone(name: str, row: int) -> None:
         p.zones.append((name, row))
 
-    def text(row: int, value: str, kind: str) -> None:
+    def text(row: int, value: str, kind: str, literal: bool = True) -> None:
+        """literal: a wrapped note can start with '=' ('… YTD Sep' / '= 78 million …', live 05.11.2026), which Excel
+        would read as a formula; text cells are always written as text."""
         p.cells[(row, TEXT_COL)] = value
         p.rows.append({"row": row, "kind": kind})
+        if literal:
+            p.literal.add((row, TEXT_COL))
+        else:
+            p.literal.discard((row, TEXT_COL))
 
     def notes(row: int, value: str) -> int:
         """A note longer than the lint width continues on following note rows, split at word boundaries."""
@@ -481,7 +488,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         size = f"ABS({refs[0]})" if len(refs) == 1 else "MAX(" + ",".join(f"ABS({a})" for a in refs) + ")"
         p.cells[(row, FIRST_COL)] = f'=IF({size}<={tol},"OK","DIFF")'
     for i, row_text in enumerate(_point_rows(hook(main, res, drivers, addr))):
-        text(kp_row + i, row_text, "text")
+        text(kp_row + i, row_text, "text", literal=not row_text.startswith('="'))
     p.print_last_col = col_letter(FIRST_COL + widest - 1)
     p.last_col = p.print_last_col
     p.last_row = r

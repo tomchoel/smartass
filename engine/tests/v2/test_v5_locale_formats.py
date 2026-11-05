@@ -91,3 +91,18 @@ def test_finplan_aliases_get_a_code_only_when_they_carry_one():
     assert code_of("2WHS Wholesale") == "2WHS"
     assert code_of("EBITDA before Other Items") == ""
     assert code_of("ac.C30") == "C30" and code_of("Gross_Profit") == "Gross_Profit"
+
+
+def test_a_text_cell_starting_with_equals_is_written_as_text():
+    """Live 05.11.2026: a wrapped caveat continued on a line starting '= 78 million …'; Excel refused it as a formula
+    (E_OUTOFMEMORY) and the answer failed."""
+    from smartass.render.excel import answer_grid
+    from smartass.render.layout import SheetPlan
+    p = SheetPlan()
+    p.cells[(1, 2)] = "= 78 million against 8.7 million in stock)."
+    p.cells[(2, 2)] = '="•  Revenue "&FIXED(D5,1)'
+    p.cells[(3, 4)] = "=SUM(D1:D2)"
+    p.literal.add((1, 2))
+    _, _, g = answer_grid(p)
+    assert g[0][0] == "'= 78 million against 8.7 million in stock)."
+    assert g[1][0].startswith('="•') and g[2][2] == "=SUM(D1:D2)"
