@@ -386,7 +386,7 @@ def _lines_header(ws, table: str, cell: dict, fetched: str) -> None:
     rng = ws.Range(datasheet.LINES_HEADER)
 
     def look():
-        rng.NumberFormat = "General"
+        rng.ClearFormats()          # General: the name is locale-bound
         rng.Formula = grid
         rng.Font.Name = styling.tn.FONT
         rng.Font.Size = 9

@@ -172,7 +172,7 @@ def _write_header(ws, header: Header) -> None:
         for j, x in enumerate(value if isinstance(value, tuple) else (value,)):
             g[i][1 + j] = _text(x)
     rng = ws.Range(ws.Cells(1, 1), ws.Cells(h, 4))
-    com(lambda: setattr(rng, "NumberFormat", "General"))
+    com(lambda: rng.ClearFormats())      # General without naming it: "General" is "Standard" under nb-NO
     com(lambda: setattr(rng, "Formula", tuple(tuple(r) for r in g)))
     numeric = [i + 1 for i, (lab, _) in enumerate(header) if lab in ("Control total", "Tolerance (NOK)")]
 

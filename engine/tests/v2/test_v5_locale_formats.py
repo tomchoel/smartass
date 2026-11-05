@@ -28,7 +28,7 @@ def test_local_format_without_an_app_returns_the_code():
 def test_no_raw_numeric_number_format_writes():
     """Every NumberFormat write (attribute or setattr) of a numeric code goes through local_format; text '@' and
     'General' are locale-free."""
-    ok = ("styling.local_format(", "local_format(", '"@"', '"General"', "tn.to_local(")
+    ok = ("styling.local_format(", "local_format(", '"@"', "tn.to_local(")   # "General" is "Standard" under nb-NO
     bad = []
     for f in PKG.rglob("*.py"):
         if "vendor" in f.parts or "workbench" in f.parts:
