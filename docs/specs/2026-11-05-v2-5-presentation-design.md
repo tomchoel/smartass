@@ -110,8 +110,8 @@ groups.
      with a minus sign.
 3. The cause sentence goes on the row below, indented. It is the commentary driver whose `line` matches the
    point's line (or metric name), as `<text> (data: <evidence>)` or `<text> (hypothesis)`.
-   - A material line without a driver gets `Cause not yet explained`. This is the critic's existing gap, made
-     visible.
+   - A material line without a driver gets no cause row (5b, 05.11.2026: the placeholder on every point was noise;
+     the critic still lists the missing driver as a gap).
 4. The agent's free `key_points` (static text) follow, up to 5 points in total.
 
 The key points refresh with `fin_refresh`. The cause sentences are static until the agent patches them.

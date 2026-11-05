@@ -117,6 +117,7 @@ class Parsed:
     pov_problems: list[str]
     no_access_cells: int
     suppressed_rows: list[str] = field(default_factory=list)   # known members whose row was all #Missing
+    empty: bool = False      # no data cell at all: the members are known (checked before), the grid just has no data
 
 
 def _clean(v):
@@ -192,7 +193,14 @@ def parse(layout: Layout, values: tuple | list, suppress_missing: bool, suppress
                 if all(v is None for v in col_vals):
                     unknown.add(f"{layout.cols[d].dimension}: {combo[d]}")
     columns = [a.dimension for a in layout.rows] + [" / ".join(c) for c in layout.col_tuples]
-    return Parsed(columns, out_rows, row_labels, col_labels, sorted(unknown), pov_problems, no_access, suppressed)
+    # a grid without one data cell flags every row and column member as unknown: that is no data (a scenario
+    # without actuals, months before launch), not names Smart View did not know (those fail on their own row)
+    empty = all(cell(first_data_row + k, nr + j) is None
+                for k in range(len(layout.row_tuples)) for j in range(len(layout.col_tuples)))
+    if empty and len(layout.row_tuples) * len(layout.col_tuples) > 1:
+        unknown = set()
+    return Parsed(columns, out_rows, row_labels, col_labels, sorted(unknown), pov_problems, no_access, suppressed,
+                  empty=empty)
 
 
 def verify_labels(lay: Layout, parsed) -> list[str]:

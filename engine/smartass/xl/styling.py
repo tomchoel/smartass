@@ -541,7 +541,9 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
                 if _busy(e):
                     raise
                 lines.append(tn.NONE)                 # unreadable edge: not reported (as before)
-        return ur_last_c, area.Font.Name, lines
+        # the font of the drawn block only: cells a redraw cleared outside it (a wider earlier answer) fall back to
+        # the Normal style's font, are empty and print nothing
+        return ur_last_c, ws.Range(f"A1:{_cl(last)}{last_row}").Font.Name, lines
     ur_last_c, fname, lines = _retry(read)
     if fname != tn.FONT:
         errs.append(f"more than one font, or not Arial (Font.Name={fname!r})")

@@ -62,6 +62,10 @@ def facts_from_parsed(req: GridRequest, parsed, labels: dict[str, str]) -> tuple
     warnings: list[str] = []
     if parsed.unknown_members:
         warnings.append(f"{req.cube}: Smart View did not know {', '.join(parsed.unknown_members)}")
+    elif getattr(parsed, "empty", False):
+        what = ", ".join(req.accounts[:3]) + (" …" if len(req.accounts) > 3 else "")
+        warnings.append(f"{req.cube}: no data for {what} in {req.scenario} ({', '.join(req.entities[:2])}; "
+                        f"{req.periods[0]}–{req.periods[-1]})" if req.periods else f"{req.cube}: no data for {what}")
     nr = 3 if req.products else 2                   # row dimensions: account, entity (, product)
     heads = parsed.columns[nr:]
     for row in parsed.rows:
