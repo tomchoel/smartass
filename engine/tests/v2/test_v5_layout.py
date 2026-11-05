@@ -137,7 +137,7 @@ def test_thresholds_hold_every_param_with_addresses():
                 "mat_small": "Materiality with %"}[k.split(".", 1)[0]]
         assert p.cells[(head, c)] == want
         assert p.cells[(r, LABEL_COL)].split(" (")[0] == k.split(".", 1)[1]
-    for key, label, value in (("unit_mnok", "Unit: MNOK (NOK)", 1_000_000), ("tolerance", "Tolerance (NOK)", 1.0),
+    for key, label, value in (("unit_mnok", "Unit: MNOK", 1_000_000), ("tolerance", "Tolerance (NOK)", 1.0),
                               ("hundred", "Percent factor", 100)):
         r, c = _cell(p.params[key])
         assert (c, p.cells[(r, LABEL_COL)], p.cells[(r, c)]) == (FIRST_COL, label, value)

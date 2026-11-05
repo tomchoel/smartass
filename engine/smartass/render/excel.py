@@ -200,7 +200,7 @@ def _style(ws, lo, n: int, w: int) -> None:
     r0, c0 = _origin(lo)
     com(lambda: setattr(lo, "TableStyle", "TableStyleLight1"))
     com(lambda: setattr(lo, "ShowTableStyleRowStripes", False))
-    table_font(lo.Range)                 # before AutoFit: the font size sets the fitted widths
+    table_font(com(lambda: lo.Range))    # before AutoFit: the font size sets the fitted widths
     com(lambda: setattr(lo.HeaderRowRange.Font, "Bold", True))
     if n > 1:
         def value():

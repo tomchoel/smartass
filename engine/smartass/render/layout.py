@@ -409,7 +409,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         if not key.startswith(THRESHOLD_KINDS):
             param(r, key, label, value, "heltall")
             r += 1
-    param(r, UNIT_MNOK, "Unit: MNOK (NOK)", 1_000_000, "heltall")
+    param(r, UNIT_MNOK, "Unit: MNOK", 1_000_000, "heltall")
     r += 1
     param(r, TOLERANCE, "Tolerance (NOK)", TOLERANCE_NOK, "heltall")
     r += 1
