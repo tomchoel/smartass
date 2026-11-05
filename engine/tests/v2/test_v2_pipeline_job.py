@@ -86,7 +86,7 @@ def test_job_writes_each_line_set_before_the_answer(monkeypatch):
     from smartass.model.lines import LineSet
     log = []
     wire(monkeypatch, log)
-    monkeypatch.setattr(pipeline, "_write_lines", lambda t, q, ls: log.append(f"write_lines {q} {ls.alias}"))
+    monkeypatch.setattr(pipeline, "_write_lines", lambda t, q, ls, *a: log.append(f"write_lines {q} {ls.alias}"))
     rows = [{"AP_CUSTOMER_NAME": "Bouvet", "AMOUNT": -30.0}]
     ls = LineSet("b0", rows, ["AP_CUSTOMER_NAME", "AMOUNT"], cube_value=-30.0, cell=LINE_CELL)
     pre = pipeline.prepare(lines_only_spec(), resolver(), FakeProvider(facts()), lines={"b0": ls})

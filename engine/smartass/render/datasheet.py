@@ -105,3 +105,22 @@ def header_rows(q: int, spec, pre, fetched_at: datetime, user: str) -> Header:
     head += [("Tolerance (NOK)", TOLERANCE), ("Refresh", REFRESH_TEXT)]
     assert len(head) == tol_row + 1, "the Tolerance row moved: fix tol_row"
     return head
+
+
+# ------------------------------------------------------------------ the lines sheets (sub-spec 5 §2.3)
+LINES_HEADER = "F1:K3"     # rows 1-3 only: the lines table header is row 4 (drill_xl.write_lines); A1/A2, C2/D2 stay
+
+
+def lines_header(table: str, cell: dict, fetched: str) -> list[list]:
+    """The provenance block of a 'Q<n> Lines <alias>' sheet, as the 3 x 6 grid for F1:K3 (label, value pairs):
+      F1 Drill cell  · G1 the drilled cell's dimensions
+      F2 Fetched     · G2 static time and user
+      F3 Lines total · G3 =SUM(<table>[AMOUNT]) · H3 Tie-out · I3 OK/DIFF against the cube cell · J3/K3 tolerance.
+    The amount column is the one LinePick sums (model.lines.AMOUNT); a missing cube value says so, never DIFF."""
+    from ..model.lines import AMOUNT, CUBE_CELL
+    dims = " · ".join(f"{k}: {v}" for k, v in (cell or {}).items())
+    tie = (f'=IF(NOT(ISNUMBER({CUBE_CELL})),"no cube value",'
+           f'IF(ABS($G$3-{CUBE_CELL})<=$K$3,"OK","DIFF"))')
+    return [["Drill cell", dims, "", "", "", ""],
+            ["Fetched", fetched, "", "", "", ""],
+            ["Lines total", f"=SUM({table}[{AMOUNT}])", "Tie-out", tie, "Tolerance (NOK)", TOLERANCE]]

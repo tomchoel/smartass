@@ -188,7 +188,7 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
 from .render import datasheet  # noqa: E402
 from .render.charts import write_charts  # noqa: E402
 from .render.datasheet import header_rows  # noqa: E402
-from .render.excel import (answer_footer, col_number, read_block, read_data, rewrite_data,  # noqa: E402
+from .render.excel import (VALUE_FORMAT, answer_footer, col_number, read_block, read_data, rewrite_data,  # noqa: E402
                            rewrite_grid, sheet_status, write_answer, write_data, write_status)
 from .render.layout import answer_subtitle, constant_columns, layout  # noqa: E402
 from .render.keypoints import free_points, key_points  # noqa: E402
@@ -350,9 +350,10 @@ def read_stored(h, target: str = "session") -> tuple[dict, str | None, str]:
     return sheets._stored_specs(t), com(lambda: t.wb.ActiveSheet.Name), str(t.path)
 
 
-def _write_lines(t, q: int, ls) -> str:
+def _write_lines(t, q: int, ls, fetched: str = "") -> str:
     """One line set -> table Lines_Q<q>_<alias> on 'Q<q> Lines <alias>' (v1 drill_xl.write_lines, which reuses the
-    table in place) and the cube value in C2/D2 where CubeRef reads it."""
+    table in place), the cube value in C2/D2 where CubeRef reads it, and the provenance + tie-out in F1:K3
+    (datasheet.lines_header; fetched: the draw's one timestamp text)."""
     from .xl import drill_xl
     from .xl.jobs import com
 
@@ -368,7 +369,28 @@ def _write_lines(t, q: int, ls) -> str:
     ws = _sheet(t, want)
     com(lambda: setattr(ws.Range("C2"), "Value", "Cube value"))
     com(lambda: setattr(ws.Range(CUBE_CELL.replace("$", "")), "Value", ls.cube_value))
+    _lines_header(ws, res["table"], ls.cell, fetched)
     return want
+
+
+def _lines_header(ws, table: str, cell: dict, fetched: str) -> None:
+    """F1:K3 as one rectangle (text with a leading apostrophe: never a date or a formula), labels grey, values ink."""
+    from .xl import styling
+    from .xl.jobs import com
+    g = datasheet.lines_header(table, cell, fetched)
+    grid = tuple(tuple("'" + x if isinstance(x, str) and x and not x.startswith("=") else x for x in r) for r in g)
+    rng = ws.Range(datasheet.LINES_HEADER)
+
+    def look():
+        rng.NumberFormat = "General"
+        rng.Formula = grid
+        rng.Font.Name = styling.tn.FONT
+        rng.Font.Size = 9
+        rng.Font.Color = styling._rgb(styling.tn.INK)
+        for a in ("F1:F3", "H3", "J3"):
+            ws.Range(a).Font.Color = styling._rgb(styling.tn.GREY)
+        ws.Range("G3").NumberFormat = VALUE_FORMAT
+    com(look)
 
 
 def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
@@ -377,11 +399,12 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place. One timestamp
     per draw: the data header's Fetched and the answer's print footer never disagree."""
     fetched = datetime.now().astimezone()
-    header = header_rows(q, pre.spec, pre, fetched, datasheet.windows_user())
+    user = datasheet.windows_user()
+    header = header_rows(q, pre.spec, pre, fetched, user)
     (rewrite_data if redraw else write_data)(ws_data, pre.frame, q, header)   # its cells: Task 11 (Sources link)
     line_sheets = [f"Q{q} Lines {a}" for a in pre.frame.lines]
     for ls in pre.frame.lines.values():         # before the answer, so its formulas resolve
-        _write_lines(t, q, ls)
+        _write_lines(t, q, ls, datasheet.fetched_text(fetched, user))
     free, too_many = free_points(pre.spec)
     pre.warnings += [w for w in too_many if w not in pre.warnings]
     plan = layout(q, pre.spec, pre.result, stock=_stock(pre),
