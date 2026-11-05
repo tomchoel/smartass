@@ -37,6 +37,7 @@ def style_defs():
         "TN Tittel":      dict(size=16, bold=True, color=NAVY, h=H_LEFT, v=V_BOTTOM, bottom=(MEDIUM, NAVY)),
         "TN Undertittel": dict(size=9, italic=True, color=GREY, h=H_LEFT, v=V_CENTER),
         "TN Seksjon":     dict(size=11, bold=True, color=NAVY, h=H_LEFT, v=V_BOTTOM, bottom=(THIN, NAVY)),
+        "TN Underseksjon": dict(size=9, bold=True, color=NAVY, h=H_LEFT, v=V_BOTTOM),   # sub-heading in a table
         "TN Kolonne":     dict(size=9, bold=True, color=NAVY, h=H_LEFT, v=V_BOTTOM, wrap=True, bottom=(THIN, NAVY)),
         "TN Kolonne tall": dict(size=9, bold=True, color=NAVY, h=H_RIGHT, v=V_BOTTOM, wrap=True, bottom=(THIN, NAVY)),
         "TN Note":        dict(size=9, italic=True, color=GREY, h=H_LEFT, v=V_CENTER, indent=1),

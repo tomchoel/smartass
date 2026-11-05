@@ -104,10 +104,10 @@ def test_line_scenarios_dashed_budget_dotted_forecast_and_a_lone_budget_line_get
     assert ("set", "c1.HasLegend", False) in log
 
 
-def test_short_name_caps_long_finplan_members_keeping_their_last_words():
+def test_short_name_drops_whole_leading_words_never_an_ellipsis():
     assert short_name("Fixed Streamix ARPU") == "Fixed Streamix ARPU"
-    s = short_name("Fixed Access Independent Streamix Subscriptions")
-    assert len(s) <= 32 and s.startswith("…") and s.endswith("Streamix Subscriptions")
+    assert short_name("Fixed Access Independent Streamix Subscriptions") == "Streamix Subscriptions"
+    assert short_name("Supercalifragilisticexpialidocious-and-more") == "Supercalifragilisticexpialidocious-and-more"
 
 
 # --- 4. units: classes and the split ------------------------------------------------------------------------------
@@ -166,7 +166,7 @@ def _fp_run(frame):
 
 def test_a_trend_of_subscriptions_and_arpu_is_split_into_one_chart_per_unit():
     s, res, p = _fp_run(_fp_frame())
-    assert [c.title for c in p.charts] == ["Streamix — Fixed Streamix Subscriptions", "Streamix — Fixed Streamix ARPU"]
+    assert [c.title for c in p.charts] == ["Fixed Streamix Subscriptions vs budget", "Fixed Streamix ARPU vs budget"]
     assert [c.unit for c in p.charts] == [COUNT, PER_UNIT]
     assert all(not c.millions and c.whole for c in p.charts)
     assert p.charts[0].hues == [0, 0] and p.charts[1].hues == [1, 1]     # a metric keeps its hue
@@ -324,3 +324,54 @@ def test_concept_key_points_never_pick_a_memo_item():
     res = SimpleNamespace(material=[{"key": "b0.i_memo", "variance": 9e9, "base": "ly"},
                                     {"key": "b0.i_rev", "variance": 1e6, "base": "ly"}])
     assert [ln.key for ln, _, _ in _concept_chosen(main, res, {})] == ["total", "i_rev"]
+
+
+
+def test_an_agent_chart_title_stays_and_a_split_adds_the_metric():
+    d = _fp_spec()
+    d["blocks"].append({"type": "chart", "kind": "line", "title": "Streamix runs ahead of plan", "source": {"block": 0}})
+    s = AnalysisSpec.model_validate(d)
+    closed = {"FinMax": CLOSED, "FinPlan": CLOSED, "FinLite": CLOSED}
+    res = compute(s, _fp_resolver(), closed, _fp_frame())
+    p = layout(1, s, res, stock=set(), subtitle="x")
+    assert [c.title for c in p.charts] == ["Streamix runs ahead of plan — Fixed Streamix Subscriptions",
+                                           "Streamix runs ahead of plan — Fixed Streamix ARPU"]
+
+
+def test_implicit_trend_titles_name_the_metrics_per_month_without_a_base():
+    s, res, p = run(_launch_spec(), frame=_launch_frame())
+    assert [c.title for c in p.charts] == ["Revenue per month"]           # PY has no data: no base drawn
+    s, res, p = run(cspec(), r=cresolver(), frame=cfacts())
+    assert p.charts[0].title == "Direct contribution Tiny Sep 26"          # the concept waterfall: total + period
+
+
+def _notes(p):
+    start = next(r for name, r in p.zones if name == "notes")
+    return " ".join(str(p.cells.get((r, 2), "")) for r in range(start, start + 4))
+
+
+def test_conventions_fit_the_sheet():
+    s, res, p = _fp_run(_fp_frame())
+    note = _notes(p)
+    assert "FinPlan KPIs read Periodic per month; AC = actual (Working), BU = Target (Final)." in note
+    assert "FinMax" not in note and "NOK" not in note and "▲" not in note and "●" not in note
+    s, res, p = run(_launch_spec(), frame=_launch_frame())                # FinMax trend: NOK, no Δ columns
+    note = _notes(p)
+    assert note.startswith("Notes NOK. FinMax signs: costs are negative.") and "▲" not in note
+
+
+def test_thresholds_only_what_formulas_use():
+    s, res, p = _fp_run(_fp_frame())
+    assert not any(name == "Thresholds" for name in (p.cells.get((r, 2)) for r in range(1, p.last_row + 1)))
+    assert p.params == {}
+    s, res, p = run(cspec(), r=cresolver(), frame=cfacts())                # concept: a check line -> Tolerance
+    assert "tolerance" in p.params
+
+
+def test_concept_headings_are_subheads_with_a_spacer_before_all_but_the_first():
+    s, res, p = run(cspec(), r=cresolver(), frame=cfacts())
+    kinds = {d["row"]: d["kind"] for d in p.rows}
+    heads = [r for r, k in kinds.items() if k == "subhead"]
+    assert [p.cells[(r, 3)] for r in heads] == ["Revenue and COGS", "Financing"]
+    assert heads[1] - 1 not in kinds and (heads[0] - 1) in kinds          # spacer before the second only
+    assert all((r, c) not in p.cells for r in heads for c in range(4, 12))

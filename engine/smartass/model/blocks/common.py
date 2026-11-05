@@ -26,7 +26,7 @@ class Line:
     key: str
     label: str
     cells: list[Expr | None]
-    kind: Literal["line", "sum", "grand", "check"] = "line"
+    kind: Literal["line", "sum", "grand", "check", "heading"] = "line"   # heading: a concept sub-heading
     level: int = 0
     metric: str | None = None
     entity: str | None = None

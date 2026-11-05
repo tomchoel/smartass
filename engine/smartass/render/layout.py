@@ -85,6 +85,7 @@ class ChartSpec:
     label_points: list[list[int]] = field(default_factory=list)   # per series (line): 1-based labelled points
     label_below: list[bool] = field(default_factory=list)   # per series (line): every value <= 0, labels below it
     unit: str = "nok"         # the unit class of every series (model/units.py): a chart never mixes units
+    auto_title: bool = False  # an implicit chart (or trend/bridge sugar): the engine names it by metric and base
     _meta: object = field(default=None, repr=False, compare=False)   # (rows, picked columns) for the unit split
 
     @property
@@ -366,7 +367,16 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         header_row = r
         r += 1
         line_rows: list[tuple[int, object]] = []
-        for ln in o.lines:
+        for k, ln in enumerate(o.lines):
+            if ln.kind == "heading":           # a concept sub-heading: navy bold, a spacer row before it
+                if k:
+                    r += 1
+                p.cells[(r, LABEL_COL)] = sheet_label(ln)
+                p.rows.append({"row": r, "kind": "subhead"})
+                placed.append((r, o, ln))
+                line_rows.append((r, ln))
+                r += 1
+                continue
             if ln.code:
                 p.cells[(r, CODE_COL)] = ln.code
             p.cells[(r, LABEL_COL)] = ("   " * ln.level) + sheet_label(ln)
@@ -396,7 +406,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     text(r, "Key points", "section")
     r += 1
     kp_row = r
-    r += len(_point_rows(hook(main, res, drivers, lambda key: "A1"))) + 1
+    asked: set[str] = set()              # the param cells the key points use (Unit MNOK, Percent factor)
+    r += len(_point_rows(hook(main, res, drivers, lambda key: asked.add(key) or "A1"))) + 1
 
     # 4. Charts: two per zone row, in spec order (a trend/bridge chart at its block, chart blocks, the implicit one)
     zone("charts", r)
@@ -440,7 +451,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     zone("notes", r)
     text(r, "Notes", "section")
     r += 1
-    r = notes(r, CONVENTIONS)
+    r = notes(r, conventions(spec, res, tables + chart_data))
     for b in spec.blocks:
         if isinstance(b, TableBlock) and b.rows == "metrics" and not b.chain:
             r = notes(r, f"{b.title or 'Table'}: the P&L chain is switched off (chain: false); the table shows a "
@@ -448,24 +459,29 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     for line in _axis_notes(chart_outs, outs, res, stock):
         r = notes(r, line)
     r += 1
-    text(r, "Thresholds", "section")
-    r += 1
-    if res.floors:
-        r = notes(r, "Variance % is left blank when |base| is below the floor of its metric.")
-    if any(k.startswith(MAT_PCT) for k in res.params):
-        r = notes(r, "Material (●) when |variance| >= the materiality, or when |variance %| >= the materiality % "
-                     "and |variance| >= the materiality with %.")
-    r = _threshold_table(p, r, res.params, stock, t_cols)
-    for key, (label, value) in res.params.items():          # a param of no known kind: a label/value row
-        if not key.startswith(THRESHOLD_KINDS):
+    # Thresholds: only the params a formula on the sheet uses (the model's floors and materiality, Unit MNOK and
+    # Percent factor when a key point uses them, Tolerance when there is a check line); none: no section
+    own = [(k, lab, v) for k, lab, v in ((UNIT_MNOK, "Unit: MNOK", 1_000_000),
+                                         (TOLERANCE, "Tolerance (NOK)", TOLERANCE_NOK),
+                                         (HUNDRED, "Percent factor", 100))
+           if k in asked or (k == TOLERANCE and check_rows)]
+    if res.params or own:
+        text(r, "Thresholds", "section")
+        r += 1
+        if res.floors:
+            r = notes(r, "Variance % is left blank when |base| is below the floor of its metric.")
+        if any(k.startswith(MAT_PCT) for k in res.params):
+            r = notes(r, "Material (●) when |variance| >= the materiality, or when |variance %| >= the "
+                         "materiality % and |variance| >= the materiality with %.")
+        r = _threshold_table(p, r, res.params, stock, t_cols)
+        for key, (label, value) in res.params.items():          # a param of no known kind: a label/value row
+            if not key.startswith(THRESHOLD_KINDS):
+                param(r, key, label, value, "heltall")
+                r += 1
+        for key, label, value in own:
             param(r, key, label, value, "heltall")
             r += 1
-    param(r, UNIT_MNOK, "Unit: MNOK", 1_000_000, "heltall")
-    r += 1
-    param(r, TOLERANCE, "Tolerance (NOK)", TOLERANCE_NOK, "heltall")
-    r += 1
-    param(r, HUNDRED, "Percent factor", 100, "heltall")
-    r += 2
+        r += 1
     if res.findings:
         text(r, "Findings", "section")
         r += 1
@@ -503,7 +519,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
                 p.cells[(row, FIRST_COL + j)] = f'=IF({base}=0,"",{e.to_excel(table, addr, const)})'
             elif e is not None:
                 p.cells[(row, FIRST_COL + j)] = "=" + e.to_excel(table, addr, const)
-    tol = p.params[TOLERANCE]
+    tol = p.params.get(TOLERANCE, "")
     for row, o, ln in check_rows:
         refs = [p.addr[ck(o.key, ln.key, j)] for j, e in enumerate(ln.cells) if e is not None]
         size = f"ABS({refs[0]})" if len(refs) == 1 else "MAX(" + ",".join(f"ABS({a})" for a in refs) + ")"
@@ -527,6 +543,46 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     p.charts = _anchor(specs, charts_row, p.widths)
     p.print_area_col = _print_area_col(p)
     return p
+
+
+def conventions(spec: AnalysisSpec, res: Result, outs) -> str:
+    """The conventions note, only what holds for this sheet: NOK and FinMax signs only when a FinMax/FinLite amount
+    is shown; FinPlan amounts without a sign claim (FinPlan's convention is not verified); FinPlan KPIs read Periodic
+    with their scenarios; Δ/▲▼ only with variance columns, the floor with variance %, ● with a Material column."""
+    cube = {q.id: q.cube for q in spec.queries}
+    units = getattr(res, "units", None) or {}
+    fm_nok = fp_nok = fp_kpi = False
+    codes: set[str] = set()
+    for o in outs:
+        c = cube.get(o.query or "", "FinLite")
+        ms = [*o.col_metrics, *(ln.metric for ln in o.lines if ln.metric)]
+        nok = not ms or any(units.get(m, "nok") == "nok" for m in ms)
+        kpi = any(units.get(m, "nok") != "nok" for m in ms)
+        codes |= set(o.cols)
+        if c == "FinPlan":
+            fp_nok |= nok
+            fp_kpi |= kpi
+        else:
+            fm_nok |= nok
+    parts = []
+    if fm_nok:
+        parts.append("NOK. FinMax signs: costs are negative.")
+    if fp_nok:
+        parts.append(("" if fm_nok else "NOK. ") + "FinPlan amounts as FinPlan holds them (its sign convention is "
+                     "not verified).")
+    if fp_kpi:
+        scen = [x for code, x in (("value", "AC = actual (Working)"), ("budget", "BU = Target (Final)"),
+                                  ("forecast", "FC = forecast (Final)")) if code in codes]
+        parts.append("FinPlan KPIs read Periodic per month" + ("; " + ", ".join(scen) if scen else "") + ".")
+    elif fp_nok and "budget" in codes:
+        parts.append("BU = Target (Final).")
+    if "var" in codes or "var_pct" in codes:
+        parts.append("Δ = current − comparison; ▲ better, ▼ worse.")
+    if "var_pct" in codes:
+        parts.append("Variance % blank when |base| < floor.")
+    if MARK_CODES & codes:
+        parts.append("● = material (thresholds below).")
+    return " ".join(parts) or "NOK."
 
 
 def _print_area_col(p: SheetPlan) -> str:
@@ -697,7 +753,7 @@ def _charts(o, spec, res, outs, block_rows, stock, lint: list[str]) -> list[Char
     """The ChartSpecs of one chart out: one, or one per unit group when its series (a trend's metrics) or its rows
     (a table's metric lines) mix units (NOK, counts, ARPU, %, FTE): a chart never mixes units. Titles of a split
     chart name the group ('<title> — <metric>'). A problem is one lint line and a chart without series."""
-    from ..model.units import NOK, short_name
+    from ..model.units import NOK
     cs = _chart(o, spec, res, outs, block_rows, stock, lint)
     data = outs.get(cs.source)
     meta = getattr(cs, "_meta", None)
@@ -720,26 +776,48 @@ def _charts(o, spec, res, outs, block_rows, stock, lint: list[str]) -> list[Char
                 groups.setdefault(u, (list(picked), []))[1].append((r, ln))
     if len(groups) <= 1:
         unit = next(iter(groups), NOK)
-        return [_finish(cs, data, res, rows, picked, unit, stock, lint)]
+        return [_finish(cs, data, res, rows, picked, unit, stock, lint, None)]
     out = []
     for unit, (js, rs) in groups.items():
         part = ChartSpec(cs.kind, cs.title, source=cs.source, sort=cs.sort)
         part.highlight = []
         if data.col_metrics:
             ms = list(dict.fromkeys(series_metric(data, j, rs) for j in js))
-            name = (short_name(data.headers[js[0]].rsplit(" ", 1)[0]) if len(ms) == 1 else unit_group_name(unit))
+            name = data.headers[js[0]].rsplit(" ", 1)[0] if len(ms) == 1 else unit_group_name(unit)
         else:
             name = sheet_label(rs[0][1]).strip() if len(rs) == 1 else unit_group_name(unit)
-        part.title = f"{cs.title} — {name}"
+        part.auto_title = cs.auto_title
         part.series = [(data.headers[j], _runs(block_rows[data.key][2][j], [r for r, _ in rs]), ROLE.get(
             data.cols[j], "ac")) for j in js]
         part.cat_range = _runs(col_letter(LABEL_COL), [r for r, _ in rs])
         part.millions = cs.millions
-        out.append(_finish(part, data, res, rs, js, unit, stock, lint))
+        out.append(_finish(part, data, res, rs, js, unit, stock, lint, name))
     return out
 
 
-def _finish(cs: ChartSpec, data, res, rows, picked: list[int], unit: str, stock, lint) -> ChartSpec:
+BASE_WORD = {"py": "last year", "bu": "budget", "fc": "forecast"}
+
+
+def chart_title(cs: ChartSpec, data, kept: list[int], split_name: str | None) -> str:
+    """An agent's chart title stays (a split adds ' — <metric>'). An implicit chart is named by what it shows:
+    '<metric> vs budget' (last year, forecast), '<metric> per month' for a trend without a base; one or two metrics
+    by name, more (or a table's rows) by the block title. Never '<block title> — ...'."""
+    if not cs.auto_title:
+        return f"{cs.title} — {split_name}" if split_name else cs.title
+    names = list(dict.fromkeys(data.headers[j].rsplit(" ", 1)[0] for j in kept)) if data.col_metrics else []
+    subject = " and ".join(names) if 1 <= len(names) <= 2 else (split_name or data.title)
+    roles = [r for _, _, r in cs.series]
+    base = next((BASE_WORD[r] for r in roles if r in BASE_WORD), None)
+    monthly = " per month" if data.type == "trend" else ""
+    if base and "ac" in roles:
+        return f"{subject} vs {base}"
+    if base:
+        return f"{subject} {base}{monthly}"
+    return f"{subject}{monthly}"
+
+
+def _finish(cs: ChartSpec, data, res, rows, picked: list[int], unit: str, stock, lint,
+            split_name: str | None = None) -> ChartSpec:
     """Per chart after the unit split: drop series with no data (lint), drop a trend's leading empty months, colour
     each metric with its own hue, label a line's last point (and min/max on 12 points or fewer), units."""
     from ..model.units import COUNT, NOK, PER_UNIT
@@ -782,6 +860,7 @@ def _finish(cs: ChartSpec, data, res, rows, picked: list[int], unit: str, stock,
         cs.millions, cs.whole = False, unit in (COUNT, PER_UNIT)
     _scale(cs, data, res, rows, kept)
     cs.unit = unit
+    cs.title = chart_title(cs, data, kept, split_name)
     return cs
 
 
@@ -812,6 +891,11 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
             cb = b if isinstance(b, ChartBlock) else None
         if cb is not None:
             cs.sort = cb.sort
+        cs.auto_title = cb is None
+        if cs.auto_title and data is not None and data.type == "concept":   # 'Direct contribution X YTD Oct 26'
+            total = next((ln for ln in data.lines if ln.key == "total"), None)
+            if total is not None:
+                cs.title = " ".join(x for x in (sheet_label(total), data.period) if x)
         if data is None or data.key not in block_rows:
             lint.append(f"chart '{o.title}': its source has no rows on the sheet; fix: point source.block at a "
                         "table, trend, bridge, ranking or kpi block")

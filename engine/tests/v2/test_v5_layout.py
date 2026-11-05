@@ -130,7 +130,7 @@ def test_checks_rows_use_the_tolerance_param():
 
 def test_thresholds_hold_every_param_with_addresses():
     _, res, p = run([GROUPED], stock={"FTE"})
-    for key in [*res.params, "unit_mnok", "tolerance", "hundred"]:
+    for key in res.params:
         r, c = _cell(p.params[key])
         assert isinstance(p.cells[(r, c)], (int, float)) and c >= FIRST_COL
     head = next(r for (r, c), v in p.cells.items() if c == LABEL_COL and v == "Metric")
@@ -147,6 +147,8 @@ def test_thresholds_hold_every_param_with_addresses():
         assert p.cells[(r, LABEL_COL)].split(" (")[0] == k.split(".", 1)[1]
     for key, label, value in (("unit_mnok", "Unit: MNOK", 1_000_000), ("tolerance", "Tolerance (NOK)", 1.0),
                               ("hundred", "Percent factor", 100)):
+        if key not in p.params:          # 5b: only when a key point or a check line uses it
+            continue
         r, c = _cell(p.params[key])
         assert (c, p.cells[(r, LABEL_COL)], p.cells[(r, c)]) == (FIRST_COL, label, value)
         assert r > max(rows)

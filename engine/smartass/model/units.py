@@ -15,7 +15,7 @@ _PCT = re.compile(r"%|\bshare\b|\bandel\b|\bpercent\b|\bratio\b|\brate\b", re.I)
 _COUNT = re.compile(r"\bsubscriptions?\b|\bsubs\b|\bcustomers?\b|\bvolumes?\b|\busers?\b|\blines\b|\babonnement",
                     re.I)
 _FTE = re.compile(r"\bfte\b|årsverk", re.I)
-SHORT_MAX = 32
+SHORT_MAX = 28
 
 
 def unit_class(r, token: str, cube: str) -> str:
@@ -35,14 +35,10 @@ def unit_class(r, token: str, cube: str) -> str:
 
 
 def short_name(name: str, cap: int = SHORT_MAX) -> str:
-    """A metric name short enough for a legend or a header: at most cap characters; a longer name keeps its last
-    words (they tell FinPlan members apart: 'Fixed Access Independent Streamix Subscriptions' -> '…Streamix
-    Subscriptions') behind an ellipsis."""
-    name = " ".join(name.split())
-    if len(name) <= cap:
-        return name
-    words = name.split(" ")
-    while len(words) > 1 and len(" ".join(words)) + 1 > cap:
+    """A metric name short enough for a legend, a header, a chart title or a key point: whole leading words dropped
+    until it is cap characters or fewer ('Fixed Access Independent Streamix Subscriptions' -> 'Streamix
+    Subscriptions'; the last words tell FinPlan members apart). Never an ellipsis; one long word stays whole."""
+    words = name.split()
+    while len(words) > 1 and len(" ".join(words)) > cap:
         words = words[1:]
-    tail = " ".join(words)
-    return "…" + (tail if len(tail) + 1 <= cap else tail[-(cap - 1):])
+    return " ".join(words)

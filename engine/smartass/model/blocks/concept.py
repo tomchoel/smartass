@@ -141,7 +141,7 @@ def build_concept(b: ConceptBlock, ctx: Ctx, key: str) -> BlockOut:
         return cells
 
     for gi, blk in enumerate(c.block):
-        out.lines.append(Line(f"g{gi}", blk.title, [None] * len(cols)))
+        out.lines.append(Line(f"g{gi}", blk.title, [None] * len(cols), kind="heading"))
         for it in blk.item:
             lkey = f"i_{it.key}"
             cells: list[Expr | None] = [None] * len(cols)
