@@ -49,29 +49,42 @@ def _cell(ln: Line, j: int | None) -> bool:
     return j is not None and j < len(ln.cells) and ln.cells[j] is not None
 
 
-def _amount(a: str, unit: str, addr: Callable[[str], str]) -> str:
-    """An amount cell as text in its unit: MNOK one decimal, NOK whole kroner, FTE one decimal."""
+SMALL_MNOK = 50_000              # under this an MNOK amount gets two decimals (never '0,0 MNOK')
+
+
+def _amount(a: str, unit: str, addr: Callable[[str], str], value=None) -> str:
+    """An amount cell as text in its unit: MNOK one decimal (two below 50 000), NOK whole kroner, FTE one
+    decimal."""
     if unit == "MNOK":
-        return f"FIXED({a}/{addr(UNIT_MNOK)},1)"
+        small = isinstance(value, (int, float)) and 0 < abs(value) < SMALL_MNOK
+        return f"FIXED({a}/{addr(UNIT_MNOK)},{2 if small else 1})"
     return f"FIXED({a},0)" if unit == "NOK" else f"FIXED({a},1)"
 
 
+def shared_unit(values) -> str:
+    """One unit for every amount of a set of key points (a controller reads one unit per section): MNOK when any
+    amount is at least 1 m (or none is known), else NOK."""
+    nums = [abs(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    return unit_of(max(nums)) if nums else "MNOK"
+
+
 def _formula(o: BlockOut, ln: Line, addr: Callable[[str], str], stock: set[str],
-             base: str | None = None, cells=None) -> str | None:
+             base: str | None = None, cells=None, unit: str | None = None) -> str | None:
     vi, di, pi = _columns(o, base)
     if not _cell(ln, vi):
         return None
     stocked = bool(ln.metric and ln.metric in stock)
-    unit = "FTE" if stocked else unit_of((cells or {}).get(ck(o.key, ln.key, vi)))
+    unit = "FTE" if stocked else unit or unit_of((cells or {}).get(ck(o.key, ln.key, vi)))
 
     def num(j: int) -> str:
-        return _amount(addr(ck(o.key, ln.key, j)), unit, addr)
+        return _amount(addr(ck(o.key, ln.key, j)), unit, addr, _value(cells or {}, ck(o.key, ln.key, j)))
 
     u = " " + unit
     head = " ".join(x for x in (sheet_label(ln), _last_period(o)) if x)
     f = f'="{BULLET}{_esc(head)} "&{num(vi)}'
     if not _cell(ln, di):
-        return f + f'&"{u}"'
+        gone = [SCEN.get(c, "") for c in o.no_base]          # the base was dropped as empty (a new product)
+        return f + f'&"{u}' + (f'; {_no_base(gone[0])}"' if gone else '"')
     code = SCEN.get(o.cols[base_of(o.cols, di)], "")
     if cells and _missing(cells, ck(o.key, ln.key, di)):       # no base at all (a product launched this year)
         return f + f'&"{u}; {_no_base(code)}"'
@@ -135,19 +148,25 @@ def key_points(main: BlockOut | None, res, drivers, addr: Callable[[str], str], 
         out += [(f, None) for f in _lines_points(main, addr, cells)]
     elif main is not None and main.type == "trend":
         out += _trend_points(main, res, drivers, addr, cells)
-    elif main is not None and main.type == "concept":
-        for ln, material, base in _concept_chosen(main, res, cells):
-            f = _formula(main, ln, addr, stock, base, cells)
-            if f is not None:
-                out.append((f, _cause(ln, drivers, material)))
-    else:
-        for ln, material, base in (_chosen(main, res) if main is not None else []):
-            f = _formula(main, ln, addr, stock, base, cells)
+    elif main is not None:
+        chosen = _concept_chosen(main, res, cells) if main.type == "concept" else _chosen(main, res)
+        unit = _points_unit(main, chosen, cells)
+        for ln, material, base in chosen:
+            f = _formula(main, ln, addr, stock, base, cells, unit)
             if f is not None:
                 out.append((f, _cause(ln, drivers, material)))
     out = _once(out)
     out += [(BULLET + t, None) for t in free]
     return out[:MAX_POINTS]
+
+
+def _points_unit(o: BlockOut, chosen, cells) -> str:
+    """The one amount unit of a table's or concept's points: by the largest value or variance they show."""
+    vals = []
+    for ln, _, base in chosen:
+        vi, di, _ = _columns(o, base)
+        vals += [_value(cells, ck(o.key, ln.key, j)) for j in (vi, di) if j is not None]
+    return shared_unit(vals)
 
 
 def _once(points: list[tuple[str, str | None]]) -> list[tuple[str, str | None]]:
@@ -192,11 +211,12 @@ def _value(cells, key: str) -> float | None:
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
-def _unit_text(unit: str, value) -> tuple[str, str]:
-    """(unit word, FIXED decimals) for a trend metric by its unit class: NOK amounts in MNOK or NOK, counts as whole
-    numbers without a unit word, ARPU in whole NOK, FTE and % with one decimal."""
+def _unit_text(unit: str, value, nok: str | None = None) -> tuple[str, str]:
+    """(unit word, FIXED decimals) for a trend metric by its unit class: NOK amounts in MNOK or NOK (nok: the one
+    unit of all the points), counts as whole numbers without a unit word, ARPU in whole NOK, FTE and % with one
+    decimal."""
     if unit == "nok":
-        u = unit_of(value)
+        u = nok or unit_of(value)
         return u, "mnok" if u == "MNOK" else "0"
     return {"count": ("", "0"), "per_unit": ("NOK", "0"), "fte": ("FTE", "1"), "pct": ("%", "1")}.get(unit, ("", "1"))
 
@@ -213,6 +233,8 @@ def _trend_points(o: BlockOut, res, drivers, addr: Callable[[str], str], cells) 
     months = [ln for ln in o.lines if ln.kind == "line"]
     total = next((ln for ln in o.lines if ln.key == "total"), None)
     out: list[tuple[str, str | None]] = []
+    nok = shared_unit(_value(cells, ck(o.key, ln.key, j)) for ln in [*months, *([total] if total else [])]
+                      for j, m in enumerate(o.col_metrics) if units.get(m, "nok") == "nok")
     for m in list(dict.fromkeys(o.col_metrics))[:MAX_TREND]:
         js = [j for j, x in enumerate(o.col_metrics) if x == m]
         has = {j: [ln for ln in months if _value(cells, ck(o.key, ln.key, j)) is not None] for j in js}
@@ -224,7 +246,7 @@ def _trend_points(o: BlockOut, res, drivers, addr: Callable[[str], str], cells) 
         last = has[shown][-1]
         a = addr(ck(o.key, last.key, shown))
         unit = units.get(m, "nok")
-        word, how = _unit_text(unit, _value(cells, ck(o.key, last.key, shown)))
+        word, how = _unit_text(unit, _value(cells, ck(o.key, last.key, shown)), nok)
         tail = f" {word}" if word else ""
         name = o.headers[shown].rsplit(" ", 1)[0]
         scen = SCEN.get(o.cols[shown], "")
@@ -237,12 +259,14 @@ def _trend_points(o: BlockOut, res, drivers, addr: Callable[[str], str], cells) 
                 f += f"; {_no_base(code)}"
             elif _value(cells, ck(o.key, last.key, b)) is not None:
                 f += f' vs {code} "&{_fixed(addr(ck(o.key, last.key, b)), how, addr)}&"{tail}'
+        if not bases and o.no_base:                          # the base was dropped as empty (a new product)
+            f += "; " + _no_base(SCEN.get(o.no_base[0], ""))
         if o.cols[shown] != "value":
             f += "; no AC"
         if (total is not None and unit == "nok" and shown < len(total.cells) and total.cells[shown] is not None
                 and o.period):
             t = ck(o.key, "total", shown)
-            tw, thow = _unit_text(unit, _value(cells, t))
+            tw, thow = _unit_text(unit, _value(cells, t), nok)
             f += f' · total {_esc(o.period)}: "&{_fixed(addr(t), thow, addr)}&" {tw}'
         out.append((f + '"', _cause(Line(m, m, [], metric=m, display=name), drivers)))
     return out
@@ -253,12 +277,14 @@ LINES_CONTROLS = ("total", "cube", "gap", "other", "blank")    # not groups: tot
 
 def _lines_points(o: BlockOut, addr: Callable[[str], str], cells) -> list[str]:
     """A ledger lines main block: '<group>: <amount> (<share> %)' for its top 3 groups (ranked by size), then
-    'Ledger lines total <amount>; gap to cube <gap>'. Live formulas; each amount in its own unit (unit_of)."""
+    'Ledger lines total <amount>; gap to cube <gap>'. Live formulas; one unit for the amounts (shared_unit), the gap in its own."""
+    one = shared_unit(_value(cells, ck(o.key, ln.key, 0)) for ln in o.lines if ln.cells and ln.cells[0] is not None)
+
     def amount(key: str) -> str:
-        return _amount(addr(ck(o.key, key, 0)), unit_of(cells.get(ck(o.key, key, 0))), addr)
+        return _amount(addr(ck(o.key, key, 0)), one, addr, _value(cells, ck(o.key, key, 0)))
 
     def unit(key: str) -> str:
-        return " " + unit_of(cells.get(ck(o.key, key, 0)))
+        return " " + one
     out = []
     groups = [ln for ln in o.lines if ln.key not in LINES_CONTROLS and ln.kind == "line"][:TOP_LINES]
     for ln in groups:
@@ -273,7 +299,8 @@ def _lines_points(o: BlockOut, addr: Callable[[str], str], cells) -> list[str]:
     if "total" in keys:
         f = f'="{BULLET}Ledger lines total "&{amount("total")}&"{unit("total")}'
         if "gap" in keys:
-            f += f'; gap to cube "&{amount("gap")}&"{unit("gap")}'
+            g = unit_of(cells.get(ck(o.key, "gap", 0)))           # a control gap: in its own unit (1 NOK, not 0,0 MNOK)
+            f += f'; gap to cube "&{_amount(addr(ck(o.key, "gap", 0)), g, addr)}&" {g}'
         out.append(f + '"')
     return out
 

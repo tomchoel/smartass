@@ -205,7 +205,10 @@ def test_trend_chart_starts_at_the_first_month_with_data_and_labels_only_ends():
     assert cs.cat_range == f"C{aug}:C{aug + 1}"                          # Jul 26 (empty) is not a category
     assert [r for _, _, r in cs.series] == ["ac"]                         # PY has no data
     assert cs.label_points == [[1, 2]]                                    # last + min/max of two points
-    assert p.cells[(p.at(ck(out.key, "p0", 0))[0], 3)].strip() == "Jul 26"   # the table keeps the row
+    # 5c: the table starts at launch too (no empty pre-launch rows), the empty PY column is gone
+    assert [ln.label for ln in out.lines] == ["Aug 26", "Sep 26", "Total"] and out.period == "Aug–Sep 26"
+    assert out.cols == ["value"] and out.no_base == ["ly"]
+    assert res.cells.get(ck(out.key, "total", 0)) == 170.0
 
 
 def test_line_labels_are_switched_off_except_the_chosen_points():
@@ -235,7 +238,7 @@ def test_subtitle_uses_the_trend_period_and_no_nok_for_counts():
     sub = answer_subtitle(s, res, CLOSED)
     assert "YTD Sep 26" in sub and not sub.startswith("NOK") and "AC" not in sub
     s, res, p = run(_launch_spec(), frame=_launch_frame())
-    assert answer_subtitle(s, res, CLOSED).startswith("NOK") and "Jul–Sep 26" in answer_subtitle(s, res, CLOSED)
+    assert answer_subtitle(s, res, CLOSED).startswith("NOK") and "Aug–Sep 26" in answer_subtitle(s, res, CLOSED)
 
 
 # --- 11-13. key points ----------------------------------------------------------------------------------------------
@@ -261,7 +264,7 @@ def test_trend_main_block_gets_a_point_per_metric_with_its_unit():
 def test_trend_point_of_a_nok_flow_has_its_total_and_says_no_py_for_a_new_product():
     s, res, p = run(_launch_spec(), frame=_launch_frame())
     (pt,) = _points(p)
-    assert "Revenue Sep 26: " in pt and "; no PY (new)" in pt and " · total Jul–Sep 26: " in pt
+    assert "Revenue Sep 26: " in pt and "; no PY (new)" in pt and " · total Aug–Sep 26: " in pt
 
 
 def test_concept_points_are_the_total_then_the_largest_items_and_no_placeholder_cause():
@@ -272,16 +275,14 @@ def test_concept_points_are_the_total_then_the_largest_items_and_no_placeholder_
     assert not any("Cause not yet explained" in str(v) for v in p.cells.values())
 
 
-def test_a_base_missing_on_every_line_gives_a_blank_variance_not_the_whole_value():
+def test_a_base_missing_on_every_line_drops_its_columns_and_says_no_py_once():
     frame = Frame([f for f in cfacts().facts if f.period != "Sep 25"])          # no last year at all
     s, res, p = run(cspec(), r=cresolver(), frame=frame)
     out = next(o for o in res.outs if o.type == "concept")
-    vi = out.cols.index("var")
-    rev = next(ln for ln in out.lines if ln.key == "i_rev")
-    assert isinstance(rev.cells[vi], Var) and res.cells.get(ck(out.key, "i_rev", vi)) is None
-    f = p.cells[p.at(ck(out.key, "i_rev", vi))]
-    ly = p.addr[ck(out.key, "i_rev", out.cols.index("ly"))]
-    assert f.startswith(f'=IF({ly}=0,"",')
+    assert not {"ly", "var", "var_pct"} & set(out.cols) and out.no_base == ["ly"]    # no empty PY / ΔPY columns
+    assert not any("PY" in h for h in out.headers)
+    assert "Last year" not in str(res.key_values) and "Variance" not in str(res.key_values)
+    assert res.cells.get(ck(out.key, "total", 0)) is not None                       # the values stay
     pts = _points(p)
     assert sum("no PY (new)" in x for x in pts) == 1 and not any("vs PY" in x for x in pts)
 
@@ -298,17 +299,41 @@ def test_tiny_concept_fixture_is_unchanged():
     assert TINY.id == "tiny"
 
 
-def test_material_marker_reads_a_blank_variance_through_n():
+def test_a_table_without_any_last_year_has_no_py_variance_or_material_columns():
     from v2util import facts
     frame = Frame([f for f in facts().facts if f.period != "Sep 25"])       # no last year on any line
     d = spec_dict(blocks=[{"type": "table", "query": "fm", "title": "P&L"}])
     s, res, p = run(d, frame=frame)
     out = next(o for o in res.outs if o.type == "table")
-    vi, mi = out.cols.index("var"), out.cols.index("material")
-    ln = next(x for x in out.lines if x.cells[mi] is not None)
-    var_at = p.addr[ck(out.key, ln.key, vi)]
-    assert f"ABS(N({var_at}))" in p.cells[p.at(ck(out.key, ln.key, mi))]   # never ABS("") -> #VALUE!
-    assert res.cells.get(ck(out.key, ln.key, vi)) is None and res.cells.get(ck(out.key, ln.key, mi)) == 0.0
+    assert out.cols == ["value"] and out.no_base == ["ly"]                # Material has no variance left to judge
+    assert all(len(ln.cells) == 1 for ln in out.lines)
+    assert sum("no PY (new)" in x for x in _points(p)) == 1
+
+
+def test_a_base_empty_on_one_period_group_only_drops_that_group_and_rebuilds_material():
+    from v2util import facts
+    frame = facts()
+    d = spec_dict(blocks=[{"type": "table", "query": "fm", "title": "P&L", "periods": ["closed", "closed-ytd"]}])
+    d["queries"][0]["periods"] = "closed-ytd"
+    s = AnalysisSpec.model_validate(d)
+    res = compute(s, resolver(), CLOSED, frame)
+    out = next(o for o in res.outs if o.type == "table")
+    if "material" in out.cols:                                        # every Ref of the block still resolves
+        mi = out.cols.index("material")
+        assert all(res.cells.get(ck(out.key, ln.key, mi)) in (0.0, 1.0, None) for ln in out.lines)
+    p = layout(1, s, res, stock=set(), subtitle="x", key_points=key_points)
+    assert p.cells                                                    # every formula addresses a live cell
+
+
+def test_one_unit_for_all_key_points_of_a_concept():
+    from smartass.render.keypoints import shared_unit
+    assert shared_unit([38_151_172.86, -219_601.0]) == "MNOK"
+    assert shared_unit([-219_601.0, 7_271.0]) == "NOK"
+    assert shared_unit([None]) == "MNOK"
+    s, res, p = run(cspec(), r=cresolver(), frame=cfacts())
+    pts = _points(p)
+    units = {u for x in pts for u in ("MNOK", "NOK") if f'" {u}' in x.replace(" MNOK", " MNOK")}
+    assert not (any('" NOK' in x for x in pts) and any('" MNOK' in x for x in pts))
 
 
 def test_concept_key_points_never_pick_a_memo_item():

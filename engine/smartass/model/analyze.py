@@ -11,7 +11,7 @@ from .blocks.chart import implicit_chart
 from .blocks.common import MAT_ABS, MAT_PCT, MAT_SMALL, BlockOut, base_of, ck, evaluate
 from .blocks.concept import concept_findings
 from .context import Ctx
-from .expr import Cells, Expr, Material, Num, Param, Ratio, Ref, Sub, Var
+from .expr import Cells, Expr, Material, Num, Param, Ratio, Ref, Sub, Sum, Var
 from .findings import bridge_findings, key_values, lines_findings, material
 from .frame import Frame
 from .periods import Closed
@@ -141,6 +141,10 @@ def compute(spec: AnalysisSpec, r: Resolver, closed: Closed, frame: Frame, kv_li
             outs.append(extra)
     apply_floors(outs, r)
     cells = evaluate(outs, frame)
+    if drop_empty_bases(outs, cells, r):   # a base missing on every line: its columns go (no empty ΔPY columns)
+        cells = evaluate(outs, frame)
+    if drop_leading_months(outs, cells):   # a trend starts at its first month with data (a product's launch)
+        cells = evaluate(outs, frame)
     if missing_bases(outs, cells):     # a base missing on every line: its variance is missing too (re-evaluated)
         cells = evaluate(outs, frame)
     guard_result(outs, cells)
@@ -178,6 +182,139 @@ def _label(r: Resolver, q) -> str:
         return r.label(q.entity, q.cube)
     except Exception:   # noqa: BLE001 - a label is cosmetic
         return q.entity
+
+
+DROP_TYPES = ("table", "concept", "kpi_tiles", "trend", "ranking")
+
+
+def _remap(e, f):
+    """The expression with every Ref key passed through f (frozen dataclasses, nested tuples)."""
+    if isinstance(e, Ref):
+        return Ref(f(e.key))
+    if isinstance(e, tuple):
+        return tuple(_remap(x, f) for x in e)
+    if isinstance(e, Expr) and hasattr(e, "__dataclass_fields__"):
+        ch = {fl.name: _remap(getattr(e, fl.name), f) for fl in fields(e)
+              if isinstance(getattr(e, fl.name), (Expr, tuple))}
+        return replace(e, **ch) if ch else e
+    return e
+
+
+def _prune(e, dead: set[str]):
+    """The expression without Refs to dead cells: a Sum keeps its other items (none left: None)."""
+    if isinstance(e, Ref):
+        return None if e.key in dead else e
+    if isinstance(e, Sum):
+        items = tuple(x for x in (_prune(i, dead) for i in e.items) if x is not None)
+        return Sum(items) if items else None
+    return e
+
+
+def drop_leading_months(outs: list[BlockOut], cells: Cells) -> bool:
+    """A trend whose first months are empty on every column (a product launched in Nov 25 asked from Jan 25) starts
+    at its first month with data: the empty rows go, the Total and cumulative sums lose their refs to them, and the
+    block's period label follows. A trend without any data keeps its rows. Returns True when a block changed."""
+    from .periods import parse, period_label
+    changed = False
+    for o in outs:
+        if o.type != "trend":
+            continue
+        months = [ln for ln in o.lines if ln.kind == "line"]
+        lead = []
+        for ln in months:
+            if any(cells.get(ck(o.key, ln.key, j)) is not None for j, e in enumerate(ln.cells) if e is not None):
+                break
+            lead.append(ln)
+        if not lead or len(lead) == len(months):
+            continue
+        gone = {ln.key for ln in lead}
+        dead = {ck(o.key, k, j) for k in gone for j in range(len(o.cols))}
+        o.lines = [ln for ln in o.lines if ln.key not in gone]
+        for ln in o.lines:
+            ln.cells = [_prune(e, dead) if e is not None else None for e in ln.cells]
+        try:
+            o.period = period_label([parse(ln.label) for ln in o.lines if ln.kind == "line"])
+        except Exception:   # noqa: BLE001 - a label is cosmetic
+            pass
+        changed = True
+    return changed
+
+
+def _refs_col(e, prefix: str, cols: set[int]) -> bool:
+    """True when the expression holds a Ref to one of the block's columns in cols."""
+    if isinstance(e, Ref):
+        head, _, j = e.key.rpartition(".")
+        return e.key.startswith(prefix) and j.isdigit() and int(j) in cols
+    if isinstance(e, tuple):
+        return any(_refs_col(x, prefix, cols) for x in e)
+    if isinstance(e, Expr) and hasattr(e, "__dataclass_fields__"):
+        return any(_refs_col(getattr(e, fl.name), prefix, cols) for fl in fields(e))
+    return False
+
+
+def drop_empty_bases(outs: list[BlockOut], cells: Cells, r: Resolver) -> bool:
+    """A base column (PY/BU/FC) missing on every line of a table-like block - no PY for a product launched this
+    year - is dropped with its variance and variance % columns (an empty ΔPY column says nothing; the key points say
+    'no PY (new)' from o.no_base). The Material column is rebuilt over the remaining variances (none left: no
+    Material). Ref keys of the block are re-indexed. A base missing on only some lines stays (current - 0).
+    Returns True when a block changed (the caller evaluates again)."""
+    from .blocks.common import BASES, MATERIAL, add_material
+    changed = False
+    for o in outs:
+        if o.type not in DROP_TYPES or not o.lines:
+            continue
+        empty = []
+        for bi, c in enumerate(o.cols):
+            if c not in BASES:
+                continue
+            lines = [ln for ln in o.lines if ln.kind != "check" and bi < len(ln.cells) and ln.cells[bi] is not None]
+            if lines and all(cells.get(ck(o.key, ln.key, bi)) is None for ln in lines):
+                empty.append(bi)
+        if not empty:
+            continue
+        drop = set(empty)
+        for j, c in enumerate(o.cols):
+            if c in ("var", "var_pct"):
+                try:
+                    if base_of(o.cols, j) in drop:
+                        drop.add(j)
+                except StopIteration:
+                    pass
+        had_material = MATERIAL in o.cols
+        if had_material:
+            drop.add(o.cols.index(MATERIAL))
+        prefix = f"{o.key}."
+        grown = True
+        while grown:                   # a column that reads a dropped column goes too (concept helper columns)
+            grown = False
+            for j in range(len(o.cols)):
+                if j in drop:
+                    continue
+                if any(_refs_col(ln.cells[j], prefix, drop) for ln in o.lines if j < len(ln.cells)):
+                    drop.add(j)
+                    grown = True
+        keep = [j for j in range(len(o.cols)) if j not in drop]
+        new = {old: i for i, old in enumerate(keep)}
+
+        def f(key, new=new, prefix=prefix):
+            if not key.startswith(prefix):
+                return key
+            head, _, j = key.rpartition(".")
+            return f"{head}.{new[int(j)]}" if j.isdigit() and int(j) in new else key
+        for code in dict.fromkeys(o.cols[j] for j in empty):
+            if code not in o.no_base:
+                o.no_base.append(code)
+        o.cols = [o.cols[j] for j in keep]
+        o.headers = [o.headers[j] for j in keep]
+        o.keys = [o.keys[j] for j in keep]
+        if o.col_metrics:
+            o.col_metrics = [o.col_metrics[j] for j in keep if j < len(o.col_metrics)]
+        for ln in o.lines:
+            ln.cells = [_remap(ln.cells[j], f) if j < len(ln.cells) else None for j in keep]
+        if had_material and "var" in o.cols:
+            add_material(o, r)
+        changed = True
+    return changed
 
 
 def missing_bases(outs: list[BlockOut], cells: Cells) -> bool:

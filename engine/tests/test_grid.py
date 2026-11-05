@@ -93,3 +93,14 @@ def test_parse_names_rows_suppressed_as_empty():
     lay = Layout([("All Scenarios", "Actual")], rows, cols)
     p = parse(lay, vals, suppress_missing=True, suppress_zeros=False)
     assert len(p.rows) == 1 and p.suppressed_rows == ["un.SY.2CON / ac.C693"]
+
+
+def test_a_grid_without_any_data_is_no_data_not_unknown_members():
+    # FinPlan Actual for a KPI that only has Target (Streamix, 05.11.2026): every cell empty, the names unchanged
+    rows = [Axis("Account", ["Streamix Subs", "Streamix ARPU"]), Axis("Entity", ["BANORWAY"])]
+    cols = [Axis("Period", ["Jan", "Feb"])]
+    lay = Layout([("Scenario", "Actual")], rows, cols)
+    vals = ((None, None, "Actual", None), (None, None, "Jan", "Feb"),
+            ("Streamix Subs", "BANORWAY", None, None), ("Streamix ARPU", "BANORWAY", None, None))
+    p = parse(lay, vals, suppress_missing=True, suppress_zeros=False)
+    assert p.unknown_members == [] and p.empty is True and p.rows == []
