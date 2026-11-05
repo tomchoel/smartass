@@ -59,7 +59,7 @@ def test_two_material_lines_in_abs_variance_order_exact_formulas():
         '="•  Revenue YTD Oct 26 "&FIXED(I10/$D$40,1)&" MNOK; "&FIXED(K10/$D$40,1)&" MNOK vs PY ("&'
         'IF(L10="","n/a",FIXED(L10*$D$42,1)&" %")&")"',
     ]
-    assert [c for _, c in pts] == ["   Cause not yet explained", "   Cause not yet explained"]
+    assert [c for _, c in pts] == [None, None]          # no driver: no placeholder cause row
 
 
 def test_a_line_material_against_two_bases_is_one_point_and_at_most_four():

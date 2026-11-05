@@ -16,19 +16,39 @@ x entity x products) and '<query>:<id>:e' (account x entities, no product), so t
 metric grid (the cube's product total)."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from ...knowledge.semantic import expr_terms
 from ..context import Ctx
 from ..expr import Const, Expr, Mul, Neg, Ratio, Ref, Sub, Sum, pick
-from ..periods import label
+from ..periods import label, period_label
 from ..series import months, scenario
 from ..spec import ConceptBlock, Query
-from .common import HEAD, BlockOut, Line, ck, derived, scenario_heads
+from .common import HEAD, BlockOut, Line, ck, code_of, derived, scenario_heads
 
 BALANCE = "Periodic"
 HELPERS = {"value": ("base", "key"), "ly": ("base_ly", "key_ly")}
 HELPER_HEAD = {"base": "Base", "key": "Key share", "base_ly": "Base last year", "key_ly": "Key share last year"}
+
+
+_PAREN = re.compile(r"\s*\(([^()]*)\)")
+
+
+def sheet_text(label: str, code: str) -> str:
+    """An item label for the sheet, where the code column already holds the account: '(booked)' and a bracket that
+    only repeats the code ('Revenue (C30) (booked)' with code C30 -> 'Revenue') are dropped, '(attributed 100 %)'
+    becomes '(attributed)'. A bracket with more to say ('(C70, incl. commission C60140)', '(M5008 + M5010)',
+    '(estimated)') stays. The model label (key_values keys) is never changed."""
+    def keep(m: re.Match) -> str:
+        inner = m.group(1).strip()
+        if inner == "booked" or (code and inner == code):
+            return ""
+        if inner.startswith("attributed"):
+            return " (attributed)"
+        return m.group(0)
+    out = _PAREN.sub(keep, label).strip()
+    return out or label
 
 
 def tags(q: Query, concept) -> tuple[str, str]:
@@ -150,12 +170,16 @@ def build_concept(b: ConceptBlock, ctx: Ctx, key: str) -> BlockOut:
             if it.kind != "missing":
                 derive(cells, lkey)
             kind = "sum" if it.kind == "sum" else "line"
+            code = code_of(it.pick().account) if it.pick() is not None and it.pick().account else ""
+            shown = sheet_text(lab, code)
             out.lines.append(Line(lkey, lab, cells, kind=kind, level=1, entity=q.entity,
-                                  metric=metric_of(it.pick())))
+                                  metric=metric_of(it.pick()), code=code, display=shown if shown != lab else ""))
     total: list[Expr | None] = [None] * len(cols)
     for s in series_of(q):
         total[col(s)] = Sum(tuple(ref(k, col(s)) for k in c.total.of))
     out.lines.append(Line("total", c.total.label, derive(total, "total"), kind="grand", entity=q.entity))
+    out.steps = [f"i_{k}" for k in c.total.of] + ["total"]       # its waterfall: the total's items, then the total
+    out.period = period_label(months(q, "value", closed))
     for i, ch in enumerate(c.check):
         cells = [None] * len(cols)
         for s in series_of(q):

@@ -59,7 +59,8 @@ def test_answer_lines_and_key_values_use_display_names():
     assert outs["bridge"].title == "EBITDA bridge"
     assert [ln.label for ln in outs["bridge"].lines] == ["EBITDA Last year", "Revenue", "Opex",
                                                          "Other / unexplained", "EBITDA Actual"]
-    assert outs["trend"].headers == ["Revenue Actual", "Revenue Last year"]
+    assert outs["trend"].headers == ["Revenue AC", "Revenue PY"]
+    assert outs["trend"].keys == ["Revenue Actual", "Revenue Last year"]
     assert outs["ranking"].title == "Top 1 by C60 OTHER OPEX"
     assert outs["drivers"].title == "Drivers of Opex"
     kv = pre.result.key_values

@@ -4,7 +4,6 @@ from v2util import CLOSED, monthly_facts, resolver, spec_dict
 from smartass.model.blocks.common import ck, evaluate
 from smartass.model.blocks.trend import build_matrix, build_trend
 from smartass.model.context import Ctx
-from smartass.model.expr import Ref
 from smartass.model.spec import AnalysisSpec
 
 
@@ -18,7 +17,9 @@ def run(block):
 def test_trend_months_series_and_total():
     c, b = run({"type": "trend", "query": "fm", "metrics": ["Opex"]})
     out = build_trend(b, c, "b0")
-    assert out.headers == ["Opex Actual", "Opex Last year"] and out.chart == "line"
+    assert out.headers == ["Opex AC", "Opex PY"] and out.chart == "line"       # the sheet: short + scenario
+    assert out.keys == ["Opex Actual", "Opex Last year"]                        # key_values keys unchanged
+    assert out.period == "Jul–Sep 26"
     assert [ln.label for ln in out.lines] == ["Jul 26", "Aug 26", "Sep 26", "Total"]
     cells = evaluate([out], c.frame)
     assert cells.get(ck("b0", "p0", 0)) == -24.0          # 3 entities x (-7 - 1)
@@ -55,12 +56,10 @@ def fte_ctx(cumulative=False):
     return Ctx(s, resolver(), CLOSED, fr), s.blocks[0]
 
 
-def test_stock_metric_total_is_the_last_month_not_the_sum():
+def test_stock_metric_has_no_total():
     c, b = fte_ctx()
     out = build_trend(b, c, "b0")
-    cells = evaluate([out], c.frame)
-    assert cells.get(ck("b0", "total", 0)) == 102.0
-    assert out.lines[-1].cells[0] == Ref(ck("b0", "p2", 0))
+    assert [ln.key for ln in out.lines] == ["p0", "p1", "p2"]        # FTE never adds up over months: no Total
 
 
 def test_stock_metric_does_not_accumulate():

@@ -143,8 +143,10 @@ def test_formulas_keep_the_key_share_in_its_helper_column():
     key = p.cells[p.at(ck("b0", "i_cogs", _col(out, "Key share")))]
     assert key.startswith("=IF(") and at("i_rev", "Actual") in key and "Data_Q1[Product]" in key
     assert p.cells[p.at(ck("b0", "i_fin", _col(out, "Key share")))] == 1        # 100 %: an input, not a formula
+    from smartass.render.layout import col_number
+    helpers = {col_number(c) for c in p.helper_cols}            # the waterfall's chart helpers clamp at zero
     for (row, col), val in p.cells.items():
-        if isinstance(val, str) and val.startswith("="):
+        if isinstance(val, str) and val.startswith("=") and col not in helpers:
             bare = re.sub(r'"[^"]*"|\$?[A-Z]{1,3}\$?\d+|Data_Q1\[\w+\]', "", val)
             bare = bare.replace("=0,", ",")              # the empty-at-zero guard IF(<base>=0,"",...) is house style
             assert not re.search(r"\d", bare), (row, col, val)                    # no constants in formulas

@@ -4,7 +4,10 @@ main table's last column group, plus the cause row from the commentary drivers, 
 text), at most 5 in total. Plugs into layout(key_points=...); the number of points never depends on addr. Pure.
 The sentence uses the base the line is material against (vs PY/BU/FC); a stock metric (FTE) says FTE, no MNOK; an
 amount under 1 m says NOK in whole kroner (layout.unit_of: never '-0,0 MNOK'). A ledger lines main block (a
-lines-only answer) gets its top 3 groups with their share and the lines total with the gap to the cube."""
+lines-only answer) gets its top 3 groups with their share and the lines total with the gap to the cube. A trend main
+block gets one point per metric (its last month, the total for a NOK flow, against the base); a concept its total and
+its largest items. A base missing on every line says 'no PY (new)', never the whole value as the variance. A line
+without a driver gets no cause row."""
 from __future__ import annotations
 
 import textwrap
@@ -19,7 +22,7 @@ MAX_MATERIAL = 4
 TOP_LINES = 3                    # a lines main block: its top 3 groups
 BULLET = "•  "
 INDENT = "   "
-NO_CAUSE = INDENT + "Cause not yet explained"
+MAX_TREND = 4                    # a trend main block: one point per metric
 
 
 def _esc(s: str) -> str:
@@ -70,6 +73,8 @@ def _formula(o: BlockOut, ln: Line, addr: Callable[[str], str], stock: set[str],
     if not _cell(ln, di):
         return f + f'&"{u}"'
     code = SCEN.get(o.cols[base_of(o.cols, di)], "")
+    if cells and _missing(cells, ck(o.key, ln.key, di)):       # no base at all (a product launched this year)
+        return f + f'&"{u}; {_no_base(code)}"'
     f += f'&"{u}; "&{num(di)}&"{u} vs {code}'
     if not _cell(ln, pi):
         return f + '"'
@@ -77,11 +82,24 @@ def _formula(o: BlockOut, ln: Line, addr: Callable[[str], str], stock: set[str],
     return f + f' ("&IF({p}="","n/a",FIXED({p}*{h},1)&" %")&")"'
 
 
-def _cause(ln: Line, drivers: Iterable, material: bool) -> str | None:
-    names = {ln.label.strip().lower()} | ({ln.metric.lower()} if ln.metric else set())
+def _missing(cells, key: str) -> bool:
+    try:
+        return cells.get(key) is None
+    except KeyError:
+        return True
+
+
+def _no_base(code: str) -> str:
+    return "no PY (new)" if code == "PY" else f"no {code}"
+
+
+def _cause(ln: Line, drivers: Iterable, material: bool = False) -> str | None:
+    """The driver sentence of the line (or its metric), None without one: a line without a driver gets no cause row
+    (the critic asks for drivers; the sheet shows no placeholder)."""
+    names = {ln.label.strip().lower(), sheet_label(ln).strip().lower()} | ({ln.metric.lower()} if ln.metric else set())
     d = next((d for d in drivers if d.line.strip().lower() in names), None)
     if d is None:
-        return NO_CAUSE if material else None
+        return None
     if d.basis == "data":
         return f"{INDENT}{d.text} (data: {d.evidence})"
     return f"{INDENT}{d.text} (hypothesis — not verified in data)"
@@ -115,13 +133,118 @@ def key_points(main: BlockOut | None, res, drivers, addr: Callable[[str], str], 
     cells = getattr(res, "cells", None) or {}
     if main is not None and main.type == "lines":
         out += [(f, None) for f in _lines_points(main, addr, cells)]
+    elif main is not None and main.type == "trend":
+        out += _trend_points(main, res, drivers, addr, cells)
+    elif main is not None and main.type == "concept":
+        for ln, material, base in _concept_chosen(main, res, cells):
+            f = _formula(main, ln, addr, stock, base, cells)
+            if f is not None:
+                out.append((f, _cause(ln, drivers, material)))
     else:
         for ln, material, base in (_chosen(main, res) if main is not None else []):
             f = _formula(main, ln, addr, stock, base, cells)
             if f is not None:
                 out.append((f, _cause(ln, drivers, material)))
+    out = _once(out)
     out += [(BULLET + t, None) for t in free]
     return out[:MAX_POINTS]
+
+
+def _once(points: list[tuple[str, str | None]]) -> list[tuple[str, str | None]]:
+    """'no PY (new)' (or 'no BU') is said once, on the first point that has it: every line of a new product has no
+    PY, and saying it four times is noise."""
+    said: set[str] = set()
+    out = []
+    for f, cause in points:
+        for code in ("PY", "BU", "FC"):
+            t = f"; {_no_base(code)}"
+            if t in f:
+                if code in said:
+                    f = f.replace(t, "")
+                said.add(code)
+        out.append((f, cause))
+    return out
+
+
+def _concept_chosen(main: BlockOut, res, cells) -> list[tuple[Line, bool, str | None]]:
+    """A concept: its total first, then its material items by |variance|, else its largest items by |value| (the
+    items of the total), at most 4 points."""
+    by_key = {ln.key: ln for ln in main.lines}
+    total = by_key.get("total")
+    out = [(total, False, None)] if total is not None else []
+    picked = [(ln, m, b) for ln, m, b in _chosen(main, res) if m and ln.key != "total"]
+    if not picked:
+        vi = next((j for j, c in enumerate(main.cols) if c == "value"), None)
+        items = [by_key[k] for k in main.steps if k in by_key and k != "total"] or [
+            ln for ln in main.lines if ln.kind == "line" and ln.key.startswith("i_")]
+        val = {ln.key: abs(_value(cells, ck(main.key, ln.key, vi)) or 0.0) for ln in items} if vi is not None else {}
+        items = sorted((ln for ln in items if val.get(ln.key)), key=lambda ln: -val[ln.key])
+        picked = [(ln, False, None) for ln in items]
+    return (out + picked)[:MAX_MATERIAL]
+
+
+def _value(cells, key: str) -> float | None:
+    try:
+        v = cells.get(key)
+    except KeyError:
+        return None
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _unit_text(unit: str, value) -> tuple[str, str]:
+    """(unit word, FIXED decimals) for a trend metric by its unit class: NOK amounts in MNOK or NOK, counts as whole
+    numbers without a unit word, ARPU in whole NOK, FTE and % with one decimal."""
+    if unit == "nok":
+        u = unit_of(value)
+        return u, "mnok" if u == "MNOK" else "0"
+    return {"count": ("", "0"), "per_unit": ("NOK", "0"), "fte": ("FTE", "1"), "pct": ("%", "1")}.get(unit, ("", "1"))
+
+
+def _fixed(a: str, how: str, addr: Callable[[str], str]) -> str:
+    return f"FIXED({a}/{addr(UNIT_MNOK)},1)" if how == "mnok" else f"FIXED({a},{how})"
+
+
+def _trend_points(o: BlockOut, res, drivers, addr: Callable[[str], str], cells) -> list[tuple[str, str | None]]:
+    """One point per metric of a trend main block (at most 4): '<metric> <last month>: <value>', vs the base in
+    that month when the base has data (else 'no PY (new)'), and ' · total <period>: <sum>' for a NOK flow. The
+    series shown is AC, or the first series with data (a budget-only answer: 'BU', and 'no AC')."""
+    units = getattr(res, "units", None) or {}
+    months = [ln for ln in o.lines if ln.kind == "line"]
+    total = next((ln for ln in o.lines if ln.key == "total"), None)
+    out: list[tuple[str, str | None]] = []
+    for m in list(dict.fromkeys(o.col_metrics))[:MAX_TREND]:
+        js = [j for j, x in enumerate(o.col_metrics) if x == m]
+        has = {j: [ln for ln in months if _value(cells, ck(o.key, ln.key, j)) is not None] for j in js}
+        shown = next((j for j in js if o.cols[j] == "value" and has[j]), None)
+        if shown is None:
+            shown = next((j for j in js if has[j]), None)
+        if shown is None:
+            continue
+        last = has[shown][-1]
+        a = addr(ck(o.key, last.key, shown))
+        unit = units.get(m, "nok")
+        word, how = _unit_text(unit, _value(cells, ck(o.key, last.key, shown)))
+        tail = f" {word}" if word else ""
+        name = o.headers[shown].rsplit(" ", 1)[0]
+        scen = SCEN.get(o.cols[shown], "")
+        head = f"{name} {last.label}" if o.cols[shown] == "value" else f"{name} {scen} {last.label}"
+        f = f'="{BULLET}{_esc(head)}: "&{_fixed(a, how, addr)}&"{tail}'
+        bases = [j for j in js if j != shown and o.cols[j] in ("ly", "budget", "forecast")]
+        for b in bases[:1]:
+            code = SCEN.get(o.cols[b], "")
+            if not has[b]:
+                f += f"; {_no_base(code)}"
+            elif _value(cells, ck(o.key, last.key, b)) is not None:
+                f += f' vs {code} "&{_fixed(addr(ck(o.key, last.key, b)), how, addr)}&"{tail}'
+        if o.cols[shown] != "value":
+            f += "; no AC"
+        if (total is not None and unit == "nok" and shown < len(total.cells) and total.cells[shown] is not None
+                and o.period):
+            t = ck(o.key, "total", shown)
+            tw, thow = _unit_text(unit, _value(cells, t))
+            f += f' · total {_esc(o.period)}: "&{_fixed(addr(t), thow, addr)}&" {tw}'
+        out.append((f + '"', _cause(Line(m, m, [], metric=m, display=name), drivers)))
+    return out
 
 
 LINES_CONTROLS = ("total", "cube", "gap", "other", "blank")    # not groups: totals, controls and the remainder

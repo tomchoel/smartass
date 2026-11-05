@@ -36,7 +36,8 @@ def build_chart(b: ChartBlock, ctx: Ctx, key: str) -> BlockOut:
 
 
 CHARTABLE = ("bridge", "trend", "table")     # the implicit chart's preference: waterfall, line, column
-IMPLICIT_KIND = {"bridge": "waterfall", "trend": "line", "ranking": "bar", "lines": "bar", "drivers": "bar"}
+IMPLICIT_KIND = {"bridge": "waterfall", "concept": "waterfall", "trend": "line", "ranking": "bar", "lines": "bar",
+                 "drivers": "bar"}
 
 
 def implicit_chart(outs: list[BlockOut]) -> BlockOut | None:

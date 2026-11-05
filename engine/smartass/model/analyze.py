@@ -8,10 +8,10 @@ from dataclasses import dataclass, field, fields, replace
 
 from .blocks import BUILDERS
 from .blocks.chart import implicit_chart
-from .blocks.common import MAT_ABS, MAT_PCT, MAT_SMALL, BlockOut, evaluate
+from .blocks.common import MAT_ABS, MAT_PCT, MAT_SMALL, BlockOut, base_of, ck, evaluate
 from .blocks.concept import concept_findings
 from .context import Ctx
-from .expr import Cells, Expr, Param, Ratio
+from .expr import Cells, Expr, Param, Ratio, Sub, Var
 from .findings import bridge_findings, key_values, lines_findings, material
 from .frame import Frame
 from .periods import Closed
@@ -32,6 +32,8 @@ class Result:
     # labelled threshold cells the formulas reference (sheet: Thresholds)
     entity_label: str = ""      # the first query's entity name (the answer's subtitle)
     entity_labels: dict[str, str] = field(default_factory=dict)   # query id -> entity name (the data header)
+    units: dict[str, str] = field(default_factory=dict)   # metric token -> unit class (model/units.py): charts
+    # never mix units, Key points and the subtitle say NOK only for amounts
 
     @property
     def floors(self) -> dict[str, float]:
@@ -139,11 +141,30 @@ def compute(spec: AnalysisSpec, r: Resolver, closed: Closed, frame: Frame, kv_li
             outs.append(extra)
     apply_floors(outs, r)
     cells = evaluate(outs, frame)
+    if missing_bases(outs, cells):     # a base missing on every line: its variance is missing too (re-evaluated)
+        cells = evaluate(outs, frame)
     guard_result(outs, cells)
     return Result(outs, cells, soft + sign_findings(ctx) + bridge_findings(outs, cells, r) + lines_findings(outs, cells)
                   + concept_findings(outs, cells), material(outs, cells, r),
                   key_values(outs, cells, kv_limit), collect_params(outs), _entity_label(spec, r),
-                  {q.id: _label(r, q) for q in spec.queries})
+                  {q.id: _label(r, q) for q in spec.queries}, metric_units(spec, outs, r))
+
+
+def metric_units(spec: AnalysisSpec, outs: list[BlockOut], r: Resolver) -> dict[str, str]:
+    """The unit class of every metric a block shows (its columns' metrics and its lines' metrics), in the cube of
+    the block's query."""
+    from .units import unit_class
+    cube = {q.id: q.cube for q in spec.queries}
+    out: dict[str, str] = {}
+    for o in outs:
+        c = cube.get(o.query or "", "FinMax")
+        for m in [*o.col_metrics, *(ln.metric for ln in o.lines if ln.metric)]:
+            if m not in out:
+                try:
+                    out[m] = unit_class(r, m, c)
+                except Exception:   # noqa: BLE001 - a unit is cosmetic
+                    out[m] = "other"
+    return out
 
 
 def _entity_label(spec: AnalysisSpec, r: Resolver) -> str:
@@ -157,3 +178,28 @@ def _label(r: Resolver, q) -> str:
         return r.label(q.entity, q.cube)
     except Exception:   # noqa: BLE001 - a label is cosmetic
         return q.entity
+
+
+def missing_bases(outs: list[BlockOut], cells: Cells) -> bool:
+    """A variance column whose base column is missing (None) on every line of its block - no PY for a product
+    launched this year, a FinPlan answer with only budget data - gets Var cells: missing, not the whole current
+    value. A base missing on only some lines (one cost centre without last year) keeps current - 0, as before.
+    Returns True when a cell changed (the caller evaluates again)."""
+    changed = False
+    for o in outs:
+        for j, c in enumerate(o.cols):
+            if c != "var":
+                continue
+            try:
+                bi = base_of(o.cols, j)
+            except StopIteration:
+                continue
+            lines = [ln for ln in o.lines if ln.kind != "check" and bi < len(ln.cells) and ln.cells[bi] is not None]
+            if not lines or any(cells.get(ck(o.key, ln.key, bi)) is not None for ln in lines):
+                continue
+            for ln in o.lines:
+                e = ln.cells[j] if j < len(ln.cells) else None
+                if isinstance(e, Sub) and not isinstance(e, Var):
+                    ln.cells[j] = Var(e.a, e.b)
+                    changed = True
+    return changed

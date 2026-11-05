@@ -144,6 +144,18 @@ class Sub(Expr):
 
 
 @dataclass(frozen=True)
+class Var(Sub):
+    """A variance (current - base): missing (None) when the base is missing, so a line without a PY (a product
+    launched this year) never shows its whole value as the variance. A real 0 base keeps current - 0. The sheet
+    formula is a plain a-b; the layout guards it (IF(base=0,"",a-b)) only where the model base is missing."""
+
+    def evaluate(self, frame, cells):
+        if self.b.evaluate(frame, cells) is None:
+            return None
+        return super().evaluate(frame, cells)
+
+
+@dataclass(frozen=True)
 class Neg(Expr):
     a: Expr
 
