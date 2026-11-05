@@ -2,7 +2,7 @@
 """Material lines (they need a driver in the commentary) and key_values (the numbers the chat may quote)."""
 from __future__ import annotations
 
-from .blocks.common import BlockOut, base_of, ck
+from .blocks.common import GAP, BlockOut, base_of, ck, group_start
 from .expr import Cells
 from .resolver import Resolver
 from .validate import TOLERANCE, Finding
@@ -12,16 +12,18 @@ def material(outs: list[BlockOut], cells: Cells, r: Resolver) -> list[dict]:
     """A line is material when |variance| >= the metric's absolute threshold, or when |variance %| >= its
     percentage threshold and |variance| >= a tenth of the absolute threshold. A block is read through its column
     codes: it needs a 'var' column (a table with only 'var_pct' is skipped); each var column is judged against its
-    own base column, together with the first var_pct against the same base."""
+    own base column, together with the first var_pct against the same base. With column groups only the last group
+    (YTD) is judged, so a line is not listed twice."""
     hits = []
     seen: set[tuple] = set()
     for o in outs:
+        last = group_start(o.cols, len(o.cols))
         for vi, c in enumerate(o.cols):
-            if c != "var":
+            if c != "var" or vi < last:
                 continue
             base = o.cols[base_of(o.cols, vi)]
-            pi = next((j for j, x in enumerate(o.cols) if x == "var_pct" and o.cols[base_of(o.cols, j)] == base),
-                      None)
+            pi = next((j for j, x in enumerate(o.cols)
+                       if j >= last and x == "var_pct" and o.cols[base_of(o.cols, j)] == base), None)
             for ln in o.lines:
                 if ln.kind == "check" or not ln.metric:
                     continue
@@ -61,6 +63,9 @@ def bridge_findings(outs: list[BlockOut], cells: Cells, r: Resolver) -> list[Fin
     return out
 
 
+SKIP = (GAP, "material")     # spacer and marker columns are not numbers to quote
+
+
 def key_values(outs: list[BlockOut], cells: Cells, limit: int = 40) -> dict[str, dict[str, float | None]]:
     kv: dict[str, dict[str, float | None]] = {}
     for o in outs:
@@ -69,7 +74,9 @@ def key_values(outs: list[BlockOut], cells: Cells, limit: int = 40) -> dict[str,
                 continue
             if len(kv) >= limit:
                 return kv
-            kv[f"{o.title} · {ln.label}"] = {h: cells.get(ck(o.key, ln.key, j)) for j, h in enumerate(o.headers)}
+            codes = o.cols if len(o.cols) == len(o.keys) else [None] * len(o.keys)
+            kv[f"{o.title} · {ln.label}"] = {k: cells.get(ck(o.key, ln.key, j)) for j, k in enumerate(o.keys)
+                                             if codes[j] not in SKIP}
     return kv
 
 

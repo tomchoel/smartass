@@ -76,6 +76,21 @@ class TableBlock(_M):
     top: int | None = Field(None, ge=1)
     other: bool = True
     sort: Literal["none", "desc", "asc", "abs"] = "none"
+    periods: list[str] | None = None   # column groups: one per period expression (e.g. closed, closed-ytd)
+
+    @field_validator("periods")
+    @classmethod
+    def _groups_parse(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        if not v:
+            raise ValueError("table: periods needs at least one period expression (or leave it out)")
+        for x in v:
+            try:
+                resolve(x, (2000, 1))
+            except ValueError as e:
+                raise ValueError(f"table periods {x!r}: {e}") from e
+        return v
 
     @model_validator(mode="after")
     def _shape(self) -> "TableBlock":

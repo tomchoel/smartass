@@ -86,7 +86,18 @@ def guard_spec(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[Finding]
     for b in spec.blocks:
         if isinstance(b, ConceptBlock):
             _guard_concept(b, by_id[b.query], r)
+        if isinstance(b, TableBlock) and b.periods and b.query in by_id:
+            _guard_groups(b, by_id[b.query], closed_for(closed, by_id[b.query].cube))
     return soft
+
+
+def _guard_groups(b: TableBlock, q, cl) -> None:
+    """Every column group's months must be inside the query's months (the data holds only those)."""
+    have = set(resolve(q.periods, cl))
+    for expr in b.periods or []:
+        if not set(resolve(expr, cl)) <= have:
+            raise GuardError(f"table periods {expr!r} fall outside query {q.id!r} periods {q.periods!r}",
+                             "widen the query periods or drop the group")
 
 
 def _guard_concept(b: ConceptBlock, q, r: Resolver) -> None:

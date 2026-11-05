@@ -13,7 +13,8 @@ def test_ranking_top_other_total_share_and_check():
                                                        "top": 1}]))
     c = Ctx(s, resolver(), CLOSED, facts())
     out = build_ranking(s.blocks[0], c, "b0")
-    assert out.headers == ["Actual", "Last year", "Variance", "Variance %", "Share %"]
+    assert out.headers == ["AC Sep 26", "PY Sep 25", "ΔPY", "ΔPY %", "Share %"]
+    assert out.keys == ["Actual", "Last year", "Variance", "Variance %", "Share %"]
     assert [ln.key for ln in out.lines] == ["e0", "other", "total", "check"]
     cells = evaluate([out], c.frame)
     assert cells.get(ck("b0", "e0", 0)) == -75.0
@@ -26,4 +27,4 @@ def test_ranking_without_compare():
     s = AnalysisSpec.model_validate(spec_dict(blocks=[{"type": "ranking", "query": "fm", "metric": "Opex",
                                                        "compare": None}]))
     c = Ctx(s, resolver(), CLOSED, facts())
-    assert build_ranking(s.blocks[0], c, "b0").headers == ["Actual", "Share %"]
+    assert build_ranking(s.blocks[0], c, "b0").headers == ["AC Sep 26", "Share %"]

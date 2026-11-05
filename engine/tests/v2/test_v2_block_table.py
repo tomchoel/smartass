@@ -17,7 +17,8 @@ def run(blocks):
 def test_table_metric_rows_default_to_query_metrics():
     c, (b,) = run([{"type": "table", "query": "fm", "title": "P&L"}])
     out = build_table(b, c, "b0")
-    assert out.headers == ["Actual", "Last year", "Variance", "Variance %"]
+    assert out.headers == ["AC Sep 26", "PY Sep 25", "ΔPY", "ΔPY %"]
+    assert out.keys == ["Actual", "Last year", "Variance", "Variance %"]
     assert [ln.label for ln in out.lines] == ["Revenue", "Opex", "EBITDA"]
     cells = evaluate([out], c.frame)
     assert [cells.get(ck("b0", "m2", j)) for j in range(3)] == [65.0, 63.0, 2.0]
@@ -56,8 +57,9 @@ def plan_ctx(columns):
 def test_variance_compares_against_the_nearest_base_to_its_left():
     c, b = plan_ctx(["value", "budget", "var", "forecast", "var", "var_pct"])
     out = build_table(b, c, "b0")
-    assert out.headers == ["Actual", "Budget", "Variance vs Budget", "Forecast", "Variance vs Forecast",
-                           "Variance % vs Forecast"]
+    assert out.headers == ["AC Sep 26", "BU Sep 26", "ΔBU", "FC Q326", "ΔFC", "ΔFC %"]
+    assert out.keys == ["Actual", "Budget", "Variance vs Budget", "Forecast", "Variance vs Forecast",
+                        "Variance % vs Forecast"]
     cells = evaluate([out], c.frame)
     assert [cells.get(ck("b0", "m0", j)) for j in range(5)] == [70.0, 80.0, -10.0, 75.0, -5.0]
     assert cells.get(ck("b0", "m0", 5)) == pytest.approx(-5.0 / 75.0)
@@ -65,7 +67,9 @@ def test_variance_compares_against_the_nearest_base_to_its_left():
 
 def test_single_base_keeps_plain_variance_headers():
     c, b = plan_ctx(["value", "budget", "var", "var_pct"])
-    assert build_table(b, c, "b0").headers == ["Actual", "Budget", "Variance", "Variance %"]
+    out = build_table(b, c, "b0")
+    assert out.headers == ["AC Sep 26", "BU Sep 26", "ΔBU", "ΔBU %"]
+    assert out.keys == ["Actual", "Budget", "Variance", "Variance %"]
 
 
 def test_blocks_expose_column_codes_and_line_entities():

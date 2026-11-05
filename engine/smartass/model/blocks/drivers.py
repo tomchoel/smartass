@@ -12,7 +12,7 @@ from ..expr import Sub
 from ..periods import label
 from ..series import months
 from ..spec import DriversBlock
-from .common import BlockOut, Line, col_headers, metric_label, row_cells
+from .common import BlockOut, Line, metric_label, row_cells, scenario_heads
 
 @dataclass(frozen=True)
 class DrillRequest:
@@ -35,9 +35,9 @@ def build_drivers(b: DriversBlock, ctx: Ctx, key: str) -> BlockOut:
     q = ctx.query(b.query)
     r = ctx.resolver
     cols = ["value", b.base, "var", "var_pct"]
-    out = BlockOut(key, "drivers", b.title or f"Drivers of {metric_label(r, b.metric, q.cube)}", col_headers(cols),
-                   cols=cols,
-                   query=q.id)
+    heads, keys = scenario_heads(ctx, q, cols)
+    out = BlockOut(key, "drivers", b.title or f"Drivers of {metric_label(r, b.metric, q.cube)}", heads,
+                   cols=cols, query=q.id, keys=keys)
 
     def variance(entity: str) -> float:
         return ctx.value(Sub(ctx.pick(q, b.metric, "value", entity), ctx.pick(q, b.metric, b.base, entity))) or 0.0

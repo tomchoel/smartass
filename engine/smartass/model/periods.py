@@ -63,3 +63,15 @@ def resolve(expr: str, closed: Month) -> list[Month]:
         a, b = e.split("..", 1)
         return span(parse(a), parse(b))
     return [parse(e)]
+
+
+def period_label(months: list[Month]) -> str:
+    """A header label for a set of months: 'Oct 26' for one month, 'YTD Oct 26' for Jan..m of one year, else the
+    span 'Feb–Sep 26' or, across years, 'Nov 25–Oct 26'."""
+    ms = sorted(months)
+    a, b = ms[0], ms[-1]
+    if a == b:
+        return label(a)
+    if a[0] == b[0]:
+        return f"YTD {label(b)}" if a[1] == 1 else f"{ABBR[a[1] - 1]}–{label(b)}"
+    return f"{label(a)}–{label(b)}"
