@@ -25,10 +25,9 @@ styles), pytest + ruff, test set CLI.
 
 **Conventions** (as in plans 2B–2D):
 - Branch `v2/5-presentation` (it exists, with the spec commit). TDD.
-- Gates after every task:
-  - `uv run pytest -q` and `uv run ruff check .` in `engine/`;
-  - `uv run python -m smartass.testset run` until Task 15. Once headers change, run
-    `testset candidate --offline` and check that the diff shows **only** allowed differences (Task 15).
+- Gates after every task: `uv run pytest -q` and `uv run ruff check .` in `engine/`, and
+  `uv run python -m smartass.testset run` = 9/9. key_values keys stay stable (Task 1), so the test set stays a hard
+  gate throughout.
 - Never run python through a stdin heredoc: write a `.py` file and run it with `< /dev/null`.
 - Stage files explicitly.
 - Commits end with
@@ -111,7 +110,19 @@ to the previous `gap`.
 **Materiality.** `findings.material()` reads only the **last** group (YTD), so a material line is not listed
 twice.
 
+**Stable keys (display headers are not keys).** `BlockOut` gains `keys: list[str]`, parallel to `headers`.
+- Keys are today's names from the current `col_headers`: `Actual`, `Last year`, `Budget`, `Forecast`,
+  `Variance`, `Variance %`, `Share %`, and the `… vs …` forms.
+- `findings.key_values` keys by `o.keys`, never by `o.headers`.
+- The **last** group keeps the plain keys, so goldens and answer memory stay stable month to month. Earlier
+  groups get the key prefix `<expr> · `, e.g. `closed · Actual`.
+- `gap` and `material` columns are left out of `key_values`.
+
+As a result, the test set stays a hard gate through every task (`testset run` = 9/9).
+
 **Tests:**
+- [ ] `key_values` of a single-group table equals today's keys exactly. A month+YTD table has plain keys for YTD
+  and `closed · …` for the month group.
 - [ ] Headers for value/ly/var/var_pct over `closed-ytd` with closed Oct 26 are `AC YTD Oct 26`, `PY YTD Oct 25`,
   `ΔPY`, `ΔPY %`.
 - [ ] Headers for budget and forecast (FinPlan) are `BU YTD Oct 26` and `FC Q326`.
@@ -144,6 +155,10 @@ twice.
 **Code column.** `Line.code` is the first member of the metric in that cube, without its prefix (`ac.C30` → `C30`,
 `ac.EBITDA_BOI` → `EBITDA_BOI`; FinPlan aliases unchanged). Entity and product lines get the member code without
 its `un.SY.` or `pd.SY.` prefix.
+
+**key_values cap.** `Line.added: bool` marks the inserted chain lines. `findings.key_values` fills the 40-line cap
+with the non-added lines of every block first, then the added ones. Added lines can then never push a golden line
+out. Test this with a spec near the cap.
 
 **Departure.** `chain=False` is allowed. It shows up as a departure note (Task 6, Notes zone: "P&L chain shortened
 on request").
@@ -243,11 +258,17 @@ class ChartBlock(_M):
 - combo: value plus var_pct
 - variance: var
 
-**Guard (hard):** a spec with no chart block, and with `plan.depth != "quick"`, raises
+**Guard (hard, NEW questions only).** A **new** `fin_analyze(spec)` (server path `_new_question`, not patch,
+refresh or redraw), with no chart block and `plan.depth != "quick"`, raises
 `GuardError("the answer has no chart", "add a chart block, e.g. {type:'chart', kind:'waterfall', title:'<message>',
 source:{block:<bridge index>}}")`.
-- For `depth == "quick"`, with no chart block, `compute` appends an implicit `column` chart on the first table
-  block. The spec stored stays as given.
+- Implement it as a separate `guard_chart(spec)` called only from that path.
+- Every other path, including quick answers, stored pre-v5 specs, patches, `fin_refresh`, redraw and the test-set
+  replay, gets an **implicit chart** when there is none. `compute` appends a `column` chart on the first table
+  block: a waterfall on the first bridge, or a line on the first trend, when one exists. The spec stored stays as
+  given.
+- Test that a pre-v5 stored spec without a chart (one of the test-set case specs, as stored) prepares, refreshes
+  and redraws without an error, and gets the implicit chart.
 - The existing `chart: bool` on trend and bridge blocks counts as a chart block when true: line for trend,
   waterfall for bridge. The guard accepts it.
 - A `source.block` must point at an existing non-chart and non-commentary block. A chart of kind `waterfall` must
@@ -260,9 +281,9 @@ source:{block:<bridge index>}}")`.
 - [ ] Own-data chart: a BlockOut `chart_data` whose values equal a table with the same query and metrics.
 - [ ] `title` empty is refused.
 - [ ] `bar` defaults to sort desc.
-- [ ] Update the test-set case specs and the existing test fixtures that would now fail the guard: add a chart
-  block to each (prefer `chart: true` on an existing trend or bridge, else a column chart on the first table).
-  **This changes case specs, not numbers.** List the cases changed in the commit message.
+- [ ] The test-set case specs stay unchanged: they replay through the implicit-chart path. **Never** give a case an
+  own-data chart (`source.query`), because the offline replay has no recording for its grids.
+- [ ] Update only the unit-test fixtures that call the new-question path.
 - [ ] Commit: `feat(v2): chart blocks, chart guard and own chart data`.
 
 ### Task 5: Answer layout: zones, columns, formats (render)
@@ -617,7 +638,7 @@ The amount column is the one `LinePick` sums. Reuse its name constant from `mode
   11. arrange;
   12. the layout check (Task 13).
 - `reply()` adds `layout` (the findings from Task 13) and `charts` (titles drawn).
-- `key_values` keeps its shape: block title → line label → **new header** → value.
+- `key_values` keeps its shape and keys: block title → line label → **stable key** (Task 1) → value.
 - `INSTRUCTIONS` gets one line: "every answer has at least one chart block (kind by message); the sheet shows Key
   points first, the plan is not drawn".
 
@@ -663,24 +684,14 @@ A finding is reported in `reply.layout`. It never raises.
 
 Commit: `docs(v2): presentation rules, chart reference, default month+YTD table`.
 
-### Task 15: Test set candidates (STOP for Tom)
+### Task 15: Test set check (STOP for Tom only if needed)
 
-1. Run `uv run python -m smartass.testset candidate --offline b01 b02 b05 b06 b07 b09 b13 b15 b16`.
-2. Write a small script, `scratchpad/v5_golden_diff.py`, run as `< /dev/null`. For each case it maps the golden
-   `key_values` to the candidate's:
-   - a block title is the same, or the same with a chart-block change;
-   - a line label is the same;
-   - an old header maps to a new header by column code. The map: `Actual` → `AC *`, `Last year` → `PY *`,
-     `Budget` → `BU *`, `Forecast` → `FC *`, `Variance` → `Δ*`, `Variance %` → `Δ* %`, `Share %` →
-     `Share %`, plus the `… vs …` forms.
-3. Check the results:
-   - Every mapped value must be **identical** (the same float, or both None).
-   - Allowed extras are new chain lines, Material columns and month-group columns.
-   - **Any changed value, or any golden line without a match: STOP and report to the controller.**
-4. Report a per-case summary: renamed headers, added lines and columns, 0 value changes.
-5. The controller asks Tom to approve, then runs `approve` on all cases.
-
-**Do not approve without Tom.**
+1. Run `uv run python -m smartass.testset run`. It must be 9/9 with the goldens unchanged: the stable keys come
+   from Task 1, and the implicit charts from Task 4.
+2. Run `testset candidate --offline` for all cases and list the **added** key_values lines (chain lines, month
+   groups) per case.
+3. Ask Tom whether the goldens should also lock the added lines. If he says yes, run `approve`. The existing
+   values must be identical in either case, and any change to them means STOP.
 
 ### Task 16: Live check and finish (controller)
 
