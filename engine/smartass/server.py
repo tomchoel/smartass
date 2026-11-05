@@ -43,8 +43,8 @@ parameter seems missing, ask the user to run /mcp and reconnect smartass. Repeat
 Ledger lines: a lines block (cell with All Accounts, All Entities, All Time Periods; Periodic; FinLite) or
 fin_drill(cell) ranks suppliers, projects or accounts and ties them to the cube.
 Critic: after a standard/deep answer run fin_critic(q) (brief + rubric), fix by patch below 4, store
-fin_critic(q, score, notes); the method is in MCP prompts (plan, critic, monthly-pack, variance-commentary,
-gl-extract, prodreg-input) and past answers in fin_lookup(kind='answer').
+fin_critic(q, scores, notes) (six scores; the server computes the score); the method is in MCP prompts (plan,
+critic, monthly-pack, variance-commentary, gl-extract, prodreg-input) and past answers in fin_lookup(kind='answer').
 Sheet text is English; answer the user in their language. The user's own workbooks are never saved."""
 
 mcp = MCPServer("smartass", instructions=INSTRUCTIONS, lifespan=kit.lifespan)
@@ -298,23 +298,38 @@ async def _answer_for(q: int | None, target: str = "session") -> tuple[str, int]
     return path, q2
 
 
+def _critic_score(scores: list[int]) -> tuple[int, float]:
+    """(score, mean) of the six rubric scores: the mean rounded half up, so 4.5 is 5 and 3.5 is 4."""
+    if len(scores) != 6:
+        raise GuardError(f"{len(scores)} scores given, the rubric has 6 criteria",
+                         "pass one score per criterion, in the rubric's order 1-6")
+    if any(not 1 <= s <= 5 for s in scores):
+        raise GuardError(f"scores {scores} are outside 1-5", "score each rubric criterion 1-5")
+    mean = sum(scores) / 6
+    return int(mean + 0.5), round(mean, 2)
+
+
 @_register(kit.LOCAL)
-async def fin_critic(q: int | None = None, score: float | None = None, notes: str = "", target: str = "session",
-                     ctx: Context | None = None) -> dict:
+async def fin_critic(q: int | None = None, scores: list[int] | None = None, notes: str = "",
+                     target: str = "session", ctx: Context | None = None) -> dict:
     """The critic pass for a standard or deep answer or a pack question. target: the workbook of the answer
     (default: the workbook of your latest answer; 'active', an absolute path or an open workbook's name). Without
-    score: {brief, rubric} of the stored answer Q<q> (default: the active Q<n> Answer, else the latest) - score it on
-    the rubric's 6 criteria, fix by fin_analyze(patch=...) when below 4 (at most 2 rounds). With score (1-5, the
-    rounded mean) and notes: stores the score with the answer (answer memory, fin_lookup kind 'answer')."""
+    scores: {brief, rubric} of the stored answer Q<q> (default: the active Q<n> Answer, else the latest) - score it
+    on the rubric's 6 criteria, fix by fin_analyze(patch=...) when below 4 (at most 2 rounds). With scores (six
+    integers 1-5, criteria 1-6 in order) and notes (the weakest criterion and why): the server computes the score
+    (the mean rounded half up) and stores it with the answer (answer memory, fin_lookup kind 'answer'). Never
+    compute the score yourself; report the returned score."""
     from . import answers
-    if score is not None and not 1 <= float(score) <= 5:
-        raise GuardError(f"score {score} is outside 1-5", "score each rubric criterion 1-5 and pass their mean")
+    rated = _critic_score(list(scores)) if scores is not None else None
     workbook, q2 = await _answer_for(q, target)
-    if score is not None:
-        if not answers.set_score(workbook, q2, float(score), notes):
+    if rated is not None:
+        score, mean = rated
+        stored_notes = (f"Scores {' '.join(f'{i}={s}' for i, s in enumerate(scores, 1))} (mean {mean:.2f})."
+                        + (f" {notes.strip()}" if notes.strip() else ""))
+        if not answers.set_score(workbook, q2, float(score), stored_notes):
             raise GuardError(f"Q{q2} has no stored answer to score", "re-run it (fin_analyze patch or fin_refresh) "
                              "so it is stored, then score it")
-        return {"stored": True, "q": q2, "score": float(score)}
+        return {"stored": True, "q": q2, "score": score, "mean": mean, "scores": list(scores)}
     row = answers.get(workbook, q2)
     if row is None:
         raise GuardError(f"Q{q2} has no stored answer to review", "re-run it (fin_analyze patch or fin_refresh) "

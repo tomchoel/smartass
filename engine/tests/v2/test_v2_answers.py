@@ -91,22 +91,34 @@ def test_fin_critic_without_a_score_returns_the_brief_and_the_rubric(home, monke
     assert out["rubric"] == rubric and "Drivers backed by data" in out["rubric"]
 
 
-def test_fin_critic_with_a_score_stores_it(home, monkeypatch):
+def test_fin_critic_computes_the_rounded_mean_of_the_six_scores(home, monkeypatch):
     _wire(monkeypatch)
     answers.store(_run(1))
-    out = asyncio.run(server.fin_critic(q=1, score=4.5, notes="clear"))
-    assert out == {"stored": True, "q": 1, "score": 4.5}
-    assert answers.get("C:/a/Analysis.xlsx", 1)["score"] == 4.5
+    out = asyncio.run(server.fin_critic(q=1, scores=[5, 5, 5, 4, 5, 5], notes="weakest 4: drivers"))
+    assert out == {"stored": True, "q": 1, "score": 5, "mean": 4.83, "scores": [5, 5, 5, 4, 5, 5]}
+    row = answers.get("C:/a/Analysis.xlsx", 1)
+    assert row["score"] == 5
+    assert row["notes"].startswith("Scores 1=5 2=5 3=5 4=4 5=5 6=5 (mean 4.83).") and "weakest 4" in row["notes"]
 
 
-def test_fin_critic_refuses_a_score_outside_1_to_5_and_an_unstored_answer(home, monkeypatch):
+@pytest.mark.parametrize("scores, score", [([4, 4, 4, 5, 5, 5], 5), ([4, 4, 4, 4, 4, 5], 4), ([3, 3, 3, 4, 4, 4], 4),
+                                           ([3, 3, 3, 3, 4, 4], 3)])
+def test_fin_critic_rounds_half_up(home, monkeypatch, scores, score):
+    _wire(monkeypatch)
+    answers.store(_run(1))
+    assert asyncio.run(server.fin_critic(q=1, scores=scores))["score"] == score
+
+
+def test_fin_critic_refuses_bad_scores_and_an_unstored_answer(home, monkeypatch):
     from smartass.model.validate import GuardError
     _wire(monkeypatch)
     answers.store(_run(1))
-    with pytest.raises(GuardError, match="1"):
-        asyncio.run(server.fin_critic(q=1, score=6))
+    with pytest.raises(GuardError, match="1-5"):
+        asyncio.run(server.fin_critic(q=1, scores=[6, 5, 5, 5, 5, 5]))
+    with pytest.raises(GuardError, match="6"):
+        asyncio.run(server.fin_critic(q=1, scores=[5, 5, 5]))
     with pytest.raises(GuardError, match="Q2"):
-        asyncio.run(server.fin_critic(q=2, score=4))
+        asyncio.run(server.fin_critic(q=2, scores=[4] * 6))
 
 
 def test_excel_job_stores_the_run(home, monkeypatch):

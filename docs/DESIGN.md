@@ -26,7 +26,7 @@ v1 (the `sv_*` gate/recipe pipeline, retired 2026-11-04) is described in
 | `fin_refresh(target)` | Re-runs every v2 answer in the workbook; relative periods roll to the latest closed month |
 | `fin_lookup(query, kind, cube)` | Metrics by name or alias (description, members, `differs`), atlas members and product concepts (`kind="concept"`), with caveats; `kind="answer"`: past answers from answer memory |
 | `fin_drill(cell, group_by, top)` | A spec with one `lines` block: FinLite ledger lines ranked and tied to the cube |
-| `fin_critic(q, score, notes)` | The stored answer's critic brief + the rubric (`knowledge/agent/critic.md`); with `score` (1–5) stores it |
+| `fin_critic(q, scores, notes)` | The stored answer's critic brief + the rubric (`knowledge/agent/critic.md`); with `scores` (six criterion scores 1–5) computes the score (mean rounded half up) and stores it |
 | `fin_status(restart)` | Version, atlas age, knowledge build and refresh due, doctor problems; `restart=True` gives a fresh server process |
 | `xl_snapshot`, `xl_revert`, `xl_tidy` | Snapshot / undo around Excel MCP edits; TN style + tn-formelstil check |
 
