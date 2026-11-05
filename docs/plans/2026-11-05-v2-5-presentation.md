@@ -712,3 +712,39 @@ Commit: `docs(v2): presentation rules, chart reference, default month+YTD table`
 7. Restart the pane server.
 8. Append a "Live result" section to this plan, and update memory (`smartass-v2-design`, `excel-addin-pane` if the
    prompt changed).
+
+---
+
+## Live result (2026-11-05)
+
+Three live rounds against EPM, all in new scratch workbooks. Sheet = model was OK every time, and the numbers equal
+the earlier v1/v2 answers (Business EBITDA YTD Oct 26: 3 868 633 901 against 3 811 374 124 PY).
+- **Answers run:**
+  - FinMax P&L month+YTD with chain, bridge and waterfall (plus a patch);
+  - FinPlan actual vs Target and forecast (column chart, BU/FC headers);
+  - a Technology opex ranking (bar) and trend (line);
+  - a FinLite lines drill (bar, tie-out OK, gap 0).
+- **Found live and fixed:**
+  - number formats must be in the user's locale (pywin32 late-bound COM): `styling.local_format`;
+  - chart labels need U+00A0 for the MNOK scale: `chart_format`;
+  - `General` is `Standard` under nb-NO, so formats are reset with `ClearFormats`;
+  - multi-area series are refused, so they become a union reference text;
+  - a bridge over steps missing from its query: block metrics are added to the query;
+  - FinPlan has no other items in Target, so the chain stops at EBITDA there;
+  - duplicate chart sugar;
+  - waterfall axis and labels;
+  - cost charts' axis and labels;
+  - units by magnitude (NOK under 1 m);
+  - key points for lines answers;
+  - print area including charts;
+  - code repeated in labels;
+  - Lines print setup.
+- **Test set:** 9/9 throughout, goldens unchanged (stable key_values keys). The chain is completed only on new
+  questions and patches, so no case gained lines and no approval was needed.
+- **Gates at the end:** pytest 1192 passed, ruff clean, npm test 2/2.
+
+## Carried forward
+1. Line-chart data labels can touch the lines when two series are close.
+2. The standalone `fin_drill` lines path (`xl/drill_xl.py`) sets no page setup of its own.
+3. Known limits on Sources (column P) is outside the printed area.
+4. The accent colour (0,160,220) for chart highlights is a placeholder. Tom to confirm the TN accent.
