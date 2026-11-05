@@ -393,7 +393,8 @@ def _lines_header(ws, table: str, cell: dict, fetched: str) -> None:
         rng.Font.Color = styling._rgb(styling.tn.INK)
         for a in ("F1:F3", "H3", "J3"):
             ws.Range(a).Font.Color = styling._rgb(styling.tn.GREY)
-        ws.Range("G3").NumberFormat = VALUE_FORMAT
+        g3 = ws.Range("G3")
+        g3.NumberFormat = styling.local_format(g3, VALUE_FORMAT)
     com(look)
 
 

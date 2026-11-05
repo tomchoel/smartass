@@ -166,7 +166,8 @@ def write_sources(t, q: int, pre, ws_data, header, fetched: str, status: dict | 
             for rng in (head, ws.Range(f"{p}1")):
                 rng.Font.Bold = True
                 rng.Font.Color = styling._rgb(styling.tn.NAVY)
-            ws.Range(ws.Cells(2, TOTAL_COL), ws.Cells(end, TOTAL_COL)).NumberFormat = VALUE_FORMAT
+            tot = ws.Range(ws.Cells(2, TOTAL_COL), ws.Cells(end, TOTAL_COL))
+            tot.NumberFormat = styling.local_format(tot, VALUE_FORMAT)
         com(look)
         if com(lambda: ws.AutoFilterMode):                 # AutoFilter() without arguments toggles: off, then on
             com(lambda: setattr(ws, "AutoFilterMode", False))

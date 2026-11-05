@@ -465,7 +465,7 @@ def apply_report(ws, roles: dict) -> list[str]:
                 _retry(lambda: setattr(ws.Range(chunk), "NumberFormatLocal", fmt))
         for k, cells in formats.items():
             for chunk in tn._chunks(cells, sep):
-                _retry(lambda: setattr(ws.Range(chunk), "NumberFormat", NUM_FORMATS[k]))
+                _retry(lambda: setattr(ws.Range(chunk), "NumberFormatLocal", tn.to_local(NUM_FORMATS[k], dec, thou)))
         if code_cells:
             for chunk in tn._chunks(_blocks(code_cells), sep):
                 _retry(lambda: _code_look(ws.Range(chunk)))
@@ -712,6 +712,17 @@ def _format_numbers(rng, fmt: str, align: bool) -> None:
         part.NumberFormatLocal = fmt
         if align:
             part.HorizontalAlignment = tn.H_RIGHT
+
+
+def local_format(obj, fmt: str) -> str:
+    """fmt (en-US codes: ',' thousands, '.' decimal) in the user's locale. Through late-bound COM (pywin32 passes the
+    user's LCID) Excel reads Range.NumberFormat and DataLabels.NumberFormat in the user's locale too: '#,##0.0' was
+    refused under nb-NO (live 05.11.2026). obj: any Excel object with .Application. Without one (fakes): fmt."""
+    try:
+        tup = obj.Application.International
+        return tn.to_local(fmt, tup[2], tup[3])
+    except Exception:   # noqa: BLE001 - a fake or a detached object: the code as given
+        return fmt
 
 
 def _sheet_info(ws):

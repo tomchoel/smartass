@@ -353,10 +353,9 @@ class AnalysisSpec(_M):
             q = by_id.get(qid)
             if q is None:
                 raise ValueError(f"block {i} ({b.type}): unknown query '{qid}'")
-            missing = [m for m in block_metrics(b) if m not in q.metrics]
-            if missing:
-                raise ValueError(f"block {i} ({b.type}): metrics {missing} are not in query '{qid}' "
-                                 "(add them to its metrics)")
+            for m in block_metrics(b):        # a block's metric the query lacks is fetched too (live 05.11.2026: a
+                if m not in q.metrics:        # bridge over the P&L steps of a chained EBITDA table was refused)
+                    q.metrics.append(m)
             if isinstance(b, ConceptBlock) and q.cube not in ("FinMax", "FinLite"):
                 raise ValueError(f"block {i} (concept): a concept reads FinMax members; give it a FinMax or FinLite "
                                  f"query, not {q.cube}")

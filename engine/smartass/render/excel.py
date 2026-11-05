@@ -188,7 +188,8 @@ def _write_header(ws, header: Header) -> None:
         if h > 1:
             ws.Range(ws.Cells(2, 1), ws.Cells(h, 1)).Font.Color = styling._rgb(styling.tn.GREY)
         for r in numeric:
-            ws.Range(ws.Cells(r, 2), ws.Cells(r, 3)).NumberFormat = VALUE_FORMAT
+            rr = ws.Range(ws.Cells(r, 2), ws.Cells(r, 3))
+            rr.NumberFormat = styling.local_format(rr, VALUE_FORMAT)
     com(look)
 
 
@@ -203,7 +204,7 @@ def _style(ws, lo, n: int, w: int) -> None:
     if n > 1:
         def value():
             v = ws.Range(ws.Cells(r0 + 1, c0 + w - 1), ws.Cells(r0 + n - 1, c0 + w - 1))
-            v.NumberFormat = VALUE_FORMAT
+            v.NumberFormat = styling.local_format(v, VALUE_FORMAT)
             v.Font.Color = VALUE_BLUE
             v.HorizontalAlignment = styling.tn.H_RIGHT
         com(value)

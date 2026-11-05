@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from ..xl.jobs import com
 from ..xl.owned import CHART_NAME
-from ..xl.styling import GREEN
+from ..xl.styling import GREEN, local_format
 from ..xl.vendor import tn_rapportstil as tn
 from .layout import ChartSpec, SheetPlan
 
@@ -124,7 +124,7 @@ def _labels(s, role: str, millions: bool) -> None:
     com(lambda: setattr(s, "HasDataLabels", True))
     dl = com(lambda: s.DataLabels())
     com(lambda: setattr(dl, "NumberFormatLinked", False))
-    com(lambda: setattr(dl, "NumberFormat", label_format(role, millions)))
+    com(lambda: setattr(dl, "NumberFormat", local_format(dl, label_format(role, millions))))
 
 
 def _highlight(s, points: list[int], n: int) -> None:

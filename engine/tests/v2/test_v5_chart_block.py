@@ -177,8 +177,8 @@ def test_plan_title_defaults_to_empty():
 
 
 def test_own_data_metrics_must_be_in_the_query():
-    with pytest.raises(ValidationError, match="not in query"):
-        spec(TABLE, chart(source={"query": "fm", "metrics": ["FTE"]}))
+    s = spec(TABLE, chart(source={"query": "fm", "metrics": ["FTE"]}))     # fetched too (live 05.11.2026)
+    assert "FTE" in s.queries[0].metrics
     with pytest.raises(ValidationError, match="unknown query"):
         spec(TABLE, chart(source={"query": "zz", "metrics": ["Opex"]}))
     with pytest.raises(ValidationError, match="compare"):

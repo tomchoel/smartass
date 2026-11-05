@@ -266,7 +266,13 @@ def test_a_laid_out_answer_styles_without_lint_findings():
     assert roles["col_widths"]["H"] == 16          # the ranking uses H for numbers: a shared column stays 16
     assert roles["col_widths"]["M"] == 9 and roles["code_cols"] == ["B"]
     r, c = p.at(next(k for k in p.addr if k.startswith("b0.") and k.endswith(".7")))     # YTD ΔPY
-    assert ws.cells[(r, c)]["NumberFormat"] == styling.NUM_FORMATS["avvik"]
+    assert ws.cells[(r, c)]["NumberFormatLocal"] == _local(styling, "avvik")
+
+
+def _local(styling, kind):
+    """The kind's en-US code in the fake's locale: through late-bound COM Excel reads number formats locally."""
+    from fakexl import INTERNATIONAL
+    return styling.tn.to_local(styling.NUM_FORMATS[kind], INTERNATIONAL[2], INTERNATIONAL[3])
 
 
 def test_new_kinds_set_number_format_en_us():
@@ -287,10 +293,10 @@ def test_new_kinds_set_number_format_en_us():
                                                           "G": "markor"}}]}
     styling.apply_report(ws, roles)
     cell = ws.cells
-    assert cell[(2, 5)]["NumberFormat"] == styling.NUM_FORMATS["avvik"]
-    assert cell[(2, 6)]["NumberFormat"] == styling.NUM_FORMATS["avvikpst"]
-    assert cell[(2, 7)]["NumberFormat"] == styling.NUM_FORMATS["markor"]
-    assert "NumberFormat" not in cell[(2, 4)]
+    assert cell[(2, 5)]["NumberFormatLocal"] == _local(styling, "avvik")
+    assert cell[(2, 6)]["NumberFormatLocal"] == _local(styling, "avvikpst")
+    assert cell[(2, 7)]["NumberFormatLocal"] == _local(styling, "markor")
+    assert "NumberFormatLocal" not in cell[(2, 4)]
     assert cell[(2, 5)]["Style"] == styling._style_for("heltall", "")       # the base TN style of the kind
     assert cell[(2, 6)]["Style"] == styling._style_for("prosent1", "")
     assert cell[(2, 2)]["Font.Color"] == styling._rgb(styling.tn.GREY)
