@@ -265,7 +265,9 @@ def drop_empty_bases(outs: list[BlockOut], cells: Cells, r: Resolver) -> bool:
             continue
         empty = []
         for bi, c in enumerate(o.cols):
-            if c not in BASES:
+            # a trend's AC column empty on every month (a FinPlan KPI with only Target) goes too: the key points
+            # say 'no AC'; a table keeps its value column (its variances read it)
+            if c not in BASES and not (o.type == "trend" and c == "value"):
                 continue
             lines = [ln for ln in o.lines if ln.kind != "check" and bi < len(ln.cells) and ln.cells[bi] is not None]
             if lines and all(cells.get(ck(o.key, ln.key, bi)) is None for ln in lines):
@@ -301,7 +303,9 @@ def drop_empty_bases(outs: list[BlockOut], cells: Cells, r: Resolver) -> bool:
                 return key
             head, _, j = key.rpartition(".")
             return f"{head}.{new[int(j)]}" if j.isdigit() and int(j) in new else key
-        for code in dict.fromkeys(o.cols[j] for j in empty):
+        if len(keep) == 0 or all(o.cols[j] == "gap" for j in keep):
+            continue                   # nothing would be left: keep the block as it is
+        for code in dict.fromkeys(o.cols[j] for j in empty if o.cols[j] in BASES):
             if code not in o.no_base:
                 o.no_base.append(code)
         o.cols = [o.cols[j] for j in keep]

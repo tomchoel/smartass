@@ -176,7 +176,7 @@ def test_a_trend_of_subscriptions_and_arpu_is_split_into_one_chart_per_unit():
 def test_empty_series_are_left_out_with_a_lint_line_and_no_data_means_no_chart():
     s, res, p = _fp_run(_fp_frame(actual=False))
     assert [[r for _, _, r in c.series] for c in p.charts] == [["bu"], ["bu"]]
-    assert sum("has no data; left out" in x for x in p.chart_lint) == 2
+    assert sum("has no data; left out" in x for x in p.chart_lint) == 0     # 5c: the empty AC column is dropped first
     s, res, p = _fp_run(_fp_frame(actual=False, budget=False))
     assert all(not c.series for c in p.charts) and any("no series has data" in x for x in p.chart_lint)
 
@@ -259,6 +259,8 @@ def test_trend_main_block_gets_a_point_per_metric_with_its_unit():
     s, res, p = _fp_run(_fp_frame(actual=False))
     pts = _points(p)
     assert "Subscriptions BU Sep 26" in pts[0] and "no AC" in pts[0]
+    out = next(o for o in res.outs if o.type == "trend")
+    assert "value" not in out.cols and set(out.cols) == {"budget"}       # 5c: no empty AC columns on the sheet
 
 
 def test_trend_point_of_a_nok_flow_has_its_total_and_says_no_py_for_a_new_product():
