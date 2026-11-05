@@ -33,6 +33,7 @@ def wire(monkeypatch, log, fail_at=None):
     monkeypatch.setattr(pipeline, "write_status", rec("write_status", "OK"))
     monkeypatch.setattr(pipeline, "_write_sources", rec("write_sources"))
     monkeypatch.setattr(pipeline, "_save_spec", rec("save_spec"))
+    monkeypatch.setattr(pipeline, "_check", rec("check", []))
     monkeypatch.setattr(pipeline, "_arrange", rec("arrange"))
     monkeypatch.setattr(pipeline, "_save", rec("save"))
     monkeypatch.setattr(pipeline, "_rollback", rec("rollback"))
@@ -44,7 +45,8 @@ def test_job_order(monkeypatch):
     pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
     out = pipeline.excel_job(None, pre, target="session")
     assert log == ["target", "next_q", "add_sheet", "add_sheet", "write_data", "write_answer", "write_charts", "calculate",
-                   "read_block", "compare", "write_status", "write_sources", "save_spec", "arrange", "save"]
+                   "read_block", "compare", "write_status", "write_sources", "save_spec", "arrange", "check",
+                   "save"]
     assert out["q"] == 4 and out["sheets"] == ["Q4 Answer", "Q4 Data"]
 
 
@@ -111,3 +113,34 @@ def test_job_writes_live_key_points_and_free_points(monkeypatch):
     pts = [p.cells.get((row, TEXT_COL)) for row in range(r + 1, dict(p.zones)["charts"])]
     assert pts[0].startswith('="•  ') and "FIXED(" in pts[0]
     assert "•  Agent point" in pts
+
+
+def test_reply_carries_the_layout_findings_and_the_charts_drawn(monkeypatch):
+    log = []
+    wire(monkeypatch, log)
+
+    def charts(ws, plan, drawn=None):
+        drawn.extend(c.title for c in plan.charts)
+        return []
+    monkeypatch.setattr(pipeline, "write_charts", charts)
+    seen = {}
+
+    def check(plan, ws_answer, ws_data, sources_ok, header):
+        seen["ok"] = sources_ok
+        return ["layout: column E too narrow; fix: widen column E"]
+    monkeypatch.setattr(pipeline, "_check", check)
+    pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
+    out = pipeline.excel_job(None, pre, target="session")
+    assert out["layout"] == ["layout: column E too narrow; fix: widen column E"] and seen["ok"] is True
+    assert out["charts"] and all(isinstance(x, str) for x in out["charts"])
+    monkeypatch.setattr(pipeline, "_write_sources", lambda *a: "could not log the pull on the Sources sheet (x)")
+    pipeline.excel_job(None, pre, target="session")
+    assert seen["ok"] is False
+
+
+def test_the_real_check_seam_never_raises_on_odd_sheets():
+    from types import SimpleNamespace
+
+    from smartass.render.layout import SheetPlan
+    out = pipeline._check(SheetPlan(), object(), object(), True, SimpleNamespace(status={"fm": "D13"}))
+    assert out and all(f.startswith("layout:") for f in out)

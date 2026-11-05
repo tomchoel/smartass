@@ -209,14 +209,17 @@ def _points(rng: str) -> int:
     return n
 
 
-def write_charts(ws, plan: SheetPlan) -> list[str]:
-    """Draw every chart with series; returns the layout's chart lint plus one line per chart that failed."""
+def write_charts(ws, plan: SheetPlan, drawn: list | None = None) -> list[str]:
+    """Draw every chart with series; returns the layout's chart lint plus one line per chart that failed. drawn: the
+    title of every chart drawn is appended there (the reply's `charts`)."""
     warnings = list(plan.chart_lint)
     for spec in plan.charts:
         if not spec.series:             # the layout said why (chart_lint); its zone stays reserved
             continue
         try:
             _draw(ws, spec)
+            if drawn is not None:
+                drawn.append(spec.title)
         except Exception as e:   # noqa: BLE001 - a chart never fails the answer
             warnings.append(f"chart '{spec.title}' failed: {e}; fix: check the source block's rows and columns, "
                             "or patch the chart block (kind, series)")

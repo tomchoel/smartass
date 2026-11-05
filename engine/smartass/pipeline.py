@@ -161,7 +161,9 @@ def run_prepare(raw: dict, provider, lines: dict | None = None, complete: bool =
     return pre
 
 
-def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: list[str], lint: list[str]) -> dict:
+def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: list[str], lint: list[str],
+          layout: list[str] | None = None, charts: list[str] | None = None) -> dict:
+    """layout: the layout check's findings (render/check.py), each with its fix; charts: the titles drawn."""
     res = pre.result
     checks = {"sheet_equals_model": sheet_status(mismatches)}
     out = {
@@ -172,6 +174,8 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
         "material": res.material,
         "findings": [{"severity": f.severity, "text": f.text, "where": f.where} for f in res.findings],
         "checks": checks,
+        "layout": list(layout or []),
+        "charts": list(charts or []),
         "mismatches": mismatches[:20],
         "warnings": pre.warnings + lint,
         "caveats": list(pre.caveats),
@@ -418,9 +422,19 @@ def _write_sources(t, q: int, pre: Prepared, ws_data, header, fetched: str) -> s
     return "; ".join(notes) or None
 
 
+SOURCES_PROBLEMS = ("could not log", "has no row")      # _write_sources warnings that mean rows are missing
+
+
+def _check(plan, ws_answer, ws_data, sources_ok: bool, header) -> list[str]:
+    """The fast layout check (render/check.py): findings for the reply, never raised."""
+    from .render.check import check
+    return check(plan, ws_answer, ws_data, sources_ok, header.status)
+
+
 def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
           old_owned: dict | None = None) -> dict:
-    """Data sheet, layout, Answer sheet, charts, readback, spec + owned range, sheet order. Shared by excel_job and
+    """Data sheet, layout, Answer sheet, charts, readback, status, Sources, spec + owned range, sheet order, layout
+    check. Shared by excel_job and
     redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place. One timestamp
     per draw: the data header's Fetched and the answer's print footer never disagree."""
     fetched = datetime.now().astimezone()
@@ -440,15 +454,17 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     if redraw:                                  # a larger answer pushes the user's cells aside, never overwrites them
         _make_room(ws_answer, old_owned, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     lint = write_answer(ws_answer, plan, pre.warnings)
-    lint = list(lint or []) + write_charts(ws_answer, plan)
+    drawn: list[str] = []
+    lint = list(lint or []) + write_charts(ws_answer, plan, drawn=drawn)
     _calculate(t)
     mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan), plan.fractions)
     write_status(ws_answer, plan, mismatches)   # the 'Sheet = model' cell: OK or DIFF in <n> cells
     logged = _write_sources(t, q, pre, ws_data, header, datasheet.fetched_text(fetched, user))   # append-only: late
     _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     arranged = _arrange(t, f"Q{q} Answer")
+    found = _check(plan, ws_answer, ws_data, not (logged and any(x in logged for x in SOURCES_PROBLEMS)), header)
     return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data", *line_sheets], mismatches,
-                 lint + [w for w in (logged, arranged) if w])
+                 lint + [w for w in (logged, arranged) if w], layout=found, charts=drawn)
 
 
 def remember(pre: Prepared, out: dict) -> None:

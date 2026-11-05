@@ -38,6 +38,8 @@ step: Revenue, COGS, Opex, Other items (FinMax) - otherwise 'Other / unexplained
 whole); default q = the active Q<n> Answer, else the latest. 4) Monthly packs: fin_refresh() re-runs every v2
 answer in the workbook to the latest closed month (relative periods roll forward), no AI needed.
 5) Quote numbers only from key_values; explain material lines from drivers evidence or label them a hypothesis.
+Every answer has at least one chart block (kind by message); the sheet shows Key points first, the plan is not
+drawn. Fix each reply.layout finding by patch.
 6) Editing a workbook the user has open with Excel MCP: xl_snapshot first, then edit, xl_revert to undo; finish
 with xl_tidy (zero BLOCK findings). 7) After the server reloads, Claude Code may keep an old tool schema: if a
 parameter seems missing, ask the user to run /mcp and reconnect smartass. Repeated errors: fin_status(restart=True).
@@ -224,7 +226,8 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     Fetches over Smart View HTTP, computes, and builds Q<n> Answer (live formulas on table Data_Q<n>) + Q<n> Data in
     the session workbook (target 'session', 'new' or 'active', an absolute path or the name of an open workbook).
     A follow-up's target default: the workbook of your latest answer. Returns key_values (quote only these),
-    material lines, findings, checks and warnings."""
+    material lines, findings, checks, warnings, layout (check findings, each with its fix: patch them) and charts
+    (the chart titles drawn)."""
     if (spec is None) == (patch is None):
         raise GuardError("give spec (a new question) or patch (a follow-up), not both",
                          "pass spec=... for a new question, or patch=... (and q) to change an existing answer")
