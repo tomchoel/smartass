@@ -107,6 +107,7 @@ class SheetPlan:
     chart_lint: list[str] = field(default_factory=list)     # chart problems found while laying out (reply lint)
     helper_cols: list[str] = field(default_factory=list)    # chart helper columns (grey, right of every table)
     print_last_col: str = ""                                # the tables' last column (print area; helpers excluded)
+    footer: str = ""                                        # the print footer (pipeline: source and fetch date)
 
     def at(self, key: str) -> tuple[int, int]:
         a = self.addr[key]
@@ -323,7 +324,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     text(r, "Checks", "section")
     r += 1
     p.cells[(r, LABEL_COL)] = "Sheet = model"
-    p.rows.append({"row": r, "kind": "check", "num": {}})
+    p.rows.append({"row": r, "kind": "check", "num": {}, "status_col": col_letter(FIRST_COL)})
     p.status_cell = f"{col_letter(FIRST_COL)}{r}"
     r += 1
     check_rows: list[tuple[int, object, object]] = []

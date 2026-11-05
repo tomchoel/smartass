@@ -45,6 +45,7 @@ def wire(monkeypatch, log, fail_at=None, restore_fail=()):
     monkeypatch.setattr(pipeline, "_calculate", rec("calculate"))
     monkeypatch.setattr(pipeline, "read_block", rec("read_block", ()))
     monkeypatch.setattr(pipeline, "compare", rec("compare", []))
+    monkeypatch.setattr(pipeline, "write_status", rec("write_status", "OK"))
     monkeypatch.setattr(pipeline, "_save_spec", rec("save_spec"))
     monkeypatch.setattr(pipeline, "_arrange", rec("arrange", []))
     monkeypatch.setattr(pipeline, "_drop_backup", lambda t, b: log.append(f"drop {b}"))

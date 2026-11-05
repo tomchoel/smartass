@@ -30,6 +30,7 @@ def wire(monkeypatch, log, fail_at=None):
     monkeypatch.setattr(pipeline, "_calculate", rec("calculate"))
     monkeypatch.setattr(pipeline, "read_block", rec("read_block", ()))
     monkeypatch.setattr(pipeline, "compare", rec("compare", []))
+    monkeypatch.setattr(pipeline, "write_status", rec("write_status", "OK"))
     monkeypatch.setattr(pipeline, "_save_spec", rec("save_spec"))
     monkeypatch.setattr(pipeline, "_arrange", rec("arrange"))
     monkeypatch.setattr(pipeline, "_save", rec("save"))
@@ -42,7 +43,7 @@ def test_job_order(monkeypatch):
     pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
     out = pipeline.excel_job(None, pre, target="session")
     assert log == ["target", "next_q", "add_sheet", "add_sheet", "write_data", "write_answer", "write_charts", "calculate",
-                   "read_block", "compare", "save_spec", "arrange", "save"]
+                   "read_block", "compare", "write_status", "save_spec", "arrange", "save"]
     assert out["q"] == 4 and out["sheets"] == ["Q4 Answer", "Q4 Data"]
 
 

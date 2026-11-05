@@ -4,6 +4,8 @@ Q<n> Answer as one rectangle of values and formulas (Formula2), then v1's TN sty
 (v1 host().call(..., user_excel=True)); every COM call goes through v1 jobs.com (busy retry)."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from ..xl import styling
 from ..xl.jobs import com
 
@@ -117,7 +119,28 @@ def answer_roles(p: SheetPlan) -> dict:
              "col_widths": widths, "rows": p.rows}
     if p.helper_cols:                    # chart helpers: grey, inside the owned block, outside the print area
         roles |= {"helper_cols": list(p.helper_cols), "print_last_col": p.print_last_col}
+    if p.footer:                         # the v2 print setup (styling.print_setup) up to the tables' last column
+        roles |= {"print_footer": p.footer, "print_last_col": p.print_last_col or p.last_col}
     return roles
+
+
+def answer_footer(fetched: datetime) -> str:
+    """The answer's print footer: the source, the fetch date, the page number."""
+    return f"Source: Oracle EPM Cloud · fetched {fetched:%Y-%m-%d} · page &P of &N"
+
+
+def sheet_status(mismatches: list[str]) -> str:
+    """The 'Sheet = model' verdict, as the status cell and the reply's checks show it."""
+    return "OK" if not mismatches else f"DIFF in {len(mismatches)} cells"
+
+
+def write_status(ws, p: SheetPlan, mismatches: list[str]) -> str:
+    """After the readback: the verdict into the layout's empty 'Sheet = model' cell (text, never a formula)."""
+    status = sheet_status(mismatches)
+    if p.status_cell:
+        rng = ws.Range(p.status_cell)
+        com(lambda: setattr(rng, "Value2", status))
+    return status
 
 
 def read_block(ws, p: SheetPlan) -> tuple:

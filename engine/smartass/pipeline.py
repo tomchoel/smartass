@@ -9,6 +9,7 @@ import contextlib
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import partial
 
 from .model.analyze import Result, compute, plan_requests
@@ -162,7 +163,7 @@ def run_prepare(raw: dict, provider, lines: dict | None = None, complete: bool =
 
 def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: list[str], lint: list[str]) -> dict:
     res = pre.result
-    checks = {"sheet_equals_model": "OK" if not mismatches else f"DIFF in {len(mismatches)} cells"}
+    checks = {"sheet_equals_model": sheet_status(mismatches)}
     out = {
         "q": q,
         "workbook": workbook,
@@ -185,8 +186,8 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
     return out
 # ---------------------------------------------------------------- the Excel job (runs on a v1 user-Excel job thread)
 from .render.charts import write_charts  # noqa: E402
-from .render.excel import (col_number, read_block, read_data, rewrite_data, rewrite_grid,  # noqa: E402
-                           write_answer, write_data)
+from .render.excel import (answer_footer, col_number, read_block, read_data, rewrite_data,  # noqa: E402
+                           rewrite_grid, sheet_status, write_answer, write_data, write_status)
 from .render.layout import answer_subtitle, constant_columns, layout  # noqa: E402
 from .render.keypoints import free_points, key_points  # noqa: E402
 from .render.readback import compare  # noqa: E402
@@ -382,12 +383,14 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
                   subtitle=answer_subtitle(pre.spec, pre.result, pre.closed),
                   const=constant_columns(pre.frame), caveats=pre.caveats,
                   key_points=partial(key_points, stock=_stock(pre), free=free))
+    plan.footer = answer_footer(datetime.now())
     if redraw:                                  # a larger answer pushes the user's cells aside, never overwrites them
         _make_room(ws_answer, old_owned, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     lint = write_answer(ws_answer, plan, pre.warnings)
     lint = list(lint or []) + write_charts(ws_answer, plan)
     _calculate(t)
     mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan), plan.fractions)
+    write_status(ws_answer, plan, mismatches)   # the 'Sheet = model' cell: OK or DIFF in <n> cells
     _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     arranged = _arrange(t, f"Q{q} Answer")
     return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data", *line_sheets], mismatches,
