@@ -82,6 +82,21 @@ def test_layout_waterfall_gets_the_axis_and_the_notes_line():
     assert len(notes) == (1 if cs.axis_min is not None else 0)
 
 
+def test_a_thin_step_gets_a_dark_label():
+    data = BlockOut("b0", "bridge", "EBITDA bridge", ["Amount"], cols=["amount"],
+                    lines=[Line(k, k, [None]) for k in ("start", "s0", "s1", "other", "end")])
+    res = SimpleNamespace(cells={"b0.start.0": 3.8e9, "b0.s0.0": 0.12e9, "b0.s1.0": -0.09e9, "b0.other.0": -3e6,
+                                 "b0.end.0": 3.827e9})
+    cs = ChartSpec("waterfall", "Bridge")
+    _scale(cs, data, res, [(20 + i, ln) for i, ln in enumerate(data.lines)], [0])
+    assert cs.axis_min == 3.4e9 and cs.thin_steps == [4]                  # 3 m on a ~600 m span
+    roles = [("Base", "P", "base"), ("Up", "R", "up"), ("Down", "T", "down"), ("Total", "V", "total")]
+    log, _ = draw(spec("waterfall", roles, axis_min=3.4e9, thin_steps=[4]))
+    colours = dict(sets(log, "DataLabel.Font.Color"))
+    assert colours["c1.s2.Points(4).DataLabel.Font.Color"] == C.INK == colours["c1.s3.Points(4).DataLabel.Font.Color"]
+    assert not any(".s4.Points" in n for n in colours)                     # totals stay white
+
+
 # --- 2. category labels and all-negative charts -------------------------------------------------------------------
 
 def test_category_labels_sit_low_and_high_on_a_reversed_axis():
@@ -194,6 +209,25 @@ def test_the_print_area_reaches_the_right_edge_of_every_chart():
     from smartass.render.excel import answer_roles
     p.footer = "F"
     assert answer_roles(p)["print_area_col"] == p.print_area_col
+
+
+def test_the_print_area_never_takes_in_the_chart_helpers():
+    _, _, p = run([BRIDGE, {"type": "trend", "query": "fm", "metrics": ["Opex"]}])      # narrow: no wide table
+    assert p.helper_cols and [c.kind for c in p.charts] == ["waterfall", "line"]
+    assert col_number(p.print_area_col) < min(col_number(c) for c in p.helper_cols)
+    left, x = {}, 0.0
+    for c in range(1, 60):
+        left[c] = x
+        x += width_pt(p.widths.get(col_letter(c), 8.43))
+    for cs in p.charts:
+        assert left[col_number(p.print_area_col) + 1] >= left[col_number(cs.anchor_col)] + cs.width
+
+
+def test_a_variance_chart_never_reverses_its_axis():
+    data, res, rows = _out(["var"], [[-5e6], [-2e6]])
+    cs = ChartSpec("variance", "All worse")
+    _scale(cs, data, res, rows, [0])
+    assert cs.reverse_values is False
 
 
 # --- 6. codes not repeated in labels ------------------------------------------------------------------------------

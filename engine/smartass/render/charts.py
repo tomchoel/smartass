@@ -40,6 +40,8 @@ GOOD = tn.rgb(GREEN)
 BAD = tn.rgb(tn.BREACH_FONT)
 ACCENT = tn.rgb((0, 160, 220))             # TN accent (not in the vendored palette): highlighted points
 PCT_LINE = tn.rgb(tn.RULE_DARK)
+INK = tn.rgb(tn.INK)                       # a waterfall label beside a step too thin to hold white text
+THIN_LIFT = 10.0                           # pt: that label moved up off its 1 px bar
 PARTS = [tn.rgb(c) for c in (tn.NAVY, (84, 110, 150), (140, 160, 190), (190, 200, 215), (166, 166, 166))]
 
 FILL = {"ac": NAVY, "py": GREY, "var": GOOD, "fav": GOOD, "unfav": BAD, "up": GOOD, "up_neg": GOOD, "down": BAD,
@@ -145,7 +147,7 @@ WATERFALL_STEPS = ("up", "up_neg", "down", "down_neg")
 
 def _labels(s, role: str, spec: ChartSpec) -> None:
     """Data labels in the label format; on a waterfall white bold inside the bars (never navy on navy): a total
-    at its inside end, a step in its centre."""
+    at its inside end, a step in its centre, in ink on a step too thin to hold white text (spec.thin_steps)."""
     if role in HIDDEN:
         return
     com(lambda: setattr(s, "HasDataLabels", True))
@@ -156,6 +158,12 @@ def _labels(s, role: str, spec: ChartSpec) -> None:
         com(lambda: setattr(dl, "Position", XL_LABEL_INSIDE_END if role == "total" else XL_LABEL_CENTER))
         com(lambda: setattr(dl.Font, "Color", WHITE))
         com(lambda: setattr(dl.Font, "Bold", True))
+        for i in (spec.thin_steps if role in WATERFALL_STEPS else []):   # white on a 1 px bar is invisible
+            lab = com(lambda: s.Points(i).DataLabel)
+            com(lambda: setattr(lab.Font, "Color", INK))
+            top = com(lambda: lab.Top)
+            if isinstance(top, (int, float)) and top > THIN_LIFT:     # above the bar, not struck through by it
+                com(lambda: setattr(lab, "Top", top - THIN_LIFT))
 
 
 def _highlight(s, points: list[int], n: int) -> None:

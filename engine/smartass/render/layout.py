@@ -76,6 +76,7 @@ class ChartSpec:
     whole: bool = False       # NOK amounts under 1 m (millions False): labels in whole NOK ('#,##0')
     reverse_values: bool = False   # every plotted value <= 0 (costs): the value axis reversed, bars grow upwards
     axis_min: float | None = None  # a truncated bridge axis (waterfall): MinimumScale (MaximumScale when negative)
+    thin_steps: list[int] = field(default_factory=list)  # waterfall steps (1-based) too thin for a white label
     sort: str = "none"        # desc | asc | none (bar: the order on the sheet; desc keeps the largest on top)
     highlight: list[int] = field(default_factory=list)   # 1-based points coloured with the accent, the rest grey
     source: str = ""          # the key of the out whose rows the chart draws (b<i>)
@@ -485,7 +486,15 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     p.last_col = p.print_last_col
     p.last_row = r
     specs = [_chart(o, spec, res, outs, block_rows, stock, p.chart_lint) for o in chart_outs]
-    _place_helpers(p, specs, FIRST_COL + widest + 1, col_kind)
+    # the chart helpers go right of the tables AND of the charts' right edge, so the print area (which reaches the
+    # charts) never takes them in: anchors from provisional widths first (every column right of the tables as wide
+    # as a number or helper column, as it ends up), which the helpers do not move
+    p.last_col = col_letter(FIRST_COL + widest + 60)
+    p.widths = _widths(p, col_kind)
+    p.charts = _anchor(specs, charts_row, p.widths)
+    extent = col_number(_print_area_col(p))
+    p.last_col = p.print_last_col
+    _place_helpers(p, specs, max(FIRST_COL + widest + 1, extent + 2), col_kind)
     p.widths = _widths(p, col_kind)
     p.charts = _anchor(specs, charts_row, p.widths)
     p.print_area_col = _print_area_col(p)
@@ -501,7 +510,7 @@ def _print_area_col(p: SheetPlan) -> str:
         left[c] = x
         x += width_pt(p.widths.get(col_letter(c), DEFAULT_WIDTH))
     for cs in p.charts:
-        if not cs.series:               # not drawn
+        if not (cs.series or cs.helpers):       # not drawn (a waterfall gets its series with its helpers)
             continue
         right = left[col_number(cs.anchor_col)] + cs.width
         c = next(c for c in range(1, 199) if left[c + 1] >= right)
@@ -533,6 +542,7 @@ MAX_PARTS = 5
 
 TRUNCATE_RATIO = 0.25       # a bridge axis is truncated when its largest |step| < 25 % of its smallest |total|
 TRUNCATE_AT = 0.9            # ... at a round number below 90 % of its level nearest zero
+THIN_STEP = 0.05             # a step under 5 % of the value span: a bar too thin for a white label (dark instead)
 
 
 def nice_floor(x: float) -> float:
@@ -731,6 +741,10 @@ def _scale(cs: ChartSpec, data, res, rows, picked: list[int]) -> None:
         vals = _bridge_amounts(data, res) or []
         cs.axis_min = bridge_axis(vals) if vals else None
         levels = [b[0] for b in waterfall_bars(vals)] if vals else []
+        if levels:
+            reach = max(abs(v) for v in levels)
+            span = reach - abs(cs.axis_min) if cs.axis_min is not None else max(levels + [0]) - min(levels + [0])
+            cs.thin_steps = [i + 1 for i in range(1, len(vals) - 1) if span and abs(vals[i]) < THIN_STEP * span]
     else:
         if cs.kind == "variance":
             picked = [j for j in picked if data.cols[j] == "var"][:1]
@@ -740,7 +754,8 @@ def _scale(cs: ChartSpec, data, res, rows, picked: list[int]) -> None:
         levels = vals
     if cs.millions and vals and max(abs(v) for v in vals) < MILLION:
         cs.millions, cs.whole = False, True
-    cs.reverse_values = bool(levels) and all(v <= 0 for v in levels) and any(v < 0 for v in levels)
+    cs.reverse_values = (cs.kind != "variance" and bool(levels) and all(v <= 0 for v in levels)
+                         and any(v < 0 for v in levels))     # a variance keeps its sign's side (red left)
 
 
 def _place_helpers(p: SheetPlan, specs: list[ChartSpec], first: int, col_kind) -> None:
