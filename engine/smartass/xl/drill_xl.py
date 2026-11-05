@@ -254,6 +254,8 @@ def write_lines(t: Target, q: int, rows: list[dict], columns: list[str], title: 
             rng = f"{get_column_letter(j1)}1:{get_column_letter(j2)}1"
             com(lambda a=rng, w=w: setattr(ws.Range(a).EntireColumn, "ColumnWidth", w))
         com(lambda: _freeze_below(t, ws, hdr))
+    from ..render.excel import sheet_print     # every Lines sheet prints (also a standalone fin_drill); lazy: no cycle
+    sheet_print(ws, last_col, end, header_row=hdr)
     return {"sheet": name, "table": tname, "columns": cols, "rows": len(rows), "reused": reused,
             "columns_changed": changed}
 
