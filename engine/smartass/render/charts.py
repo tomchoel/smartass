@@ -76,14 +76,32 @@ def _add_series(ws, chart, spec: ChartSpec) -> list:
     out = []
     for name, rng, role in spec.series:
         s = com(lambda: chart.SeriesCollection().NewSeries())
-        com(lambda: setattr(s, "Values", ws.Range(rng)))
-        com(lambda: setattr(s, "XValues", ws.Range(spec.cat_range)))
+        com(lambda: setattr(s, "Values", _series_ref(ws, rng)))
+        com(lambda: setattr(s, "XValues", _series_ref(ws, spec.cat_range)))
         com(lambda: setattr(s, "Name", name))
         if spec.kind == "combo" and role == "pct":      # type and axis before any format
             com(lambda: setattr(s, "ChartType", XL_LINE))
             com(lambda: setattr(s, "AxisGroup", 2))
         out.append((s, role))
     return out
+
+
+def _series_ref(ws, rng: str):
+    """A series range: a Range for one block; a union reference text for rows with gaps ('D5:D7,D9'). Excel refuses
+    a multi-area Range as Series.Values (live 05.11.2026), but takes "=('Sheet'!$D$5:$D$7,'Sheet'!$D$9)"."""
+    if "," not in rng:
+        return ws.Range(rng)
+    return union_ref(com(lambda: ws.Name), rng)
+
+
+def union_ref(sheet: str, rng: str) -> str:
+    name = "'" + sheet.replace("'", "''") + "'"
+
+    def absolute(a: str) -> str:
+        col = "".join(ch for ch in a if ch.isalpha())
+        return f"${col}${a[len(col):]}"
+    parts = [":".join(absolute(x) for x in part.split(":")) for part in rng.split(",")]
+    return "=(" + ",".join(f"{name}!{p}" for p in parts) + ")"
 
 
 def _fill(s, role: str, k: int, line: bool) -> None:

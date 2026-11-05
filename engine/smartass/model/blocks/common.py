@@ -44,6 +44,9 @@ def code_of(member: str | None) -> str:
     for p in CODE_PREFIXES:
         if member.startswith(p):
             return member[len(p):]
+    if " " in member:       # a FinPlan alias: '2WHS Wholesale' -> '2WHS'; a name ('EBITDA before Other Items') -> ''
+        head = member.split(" ", 1)[0]
+        return head if any(ch.isdigit() for ch in head) else ""
     return member
 
 

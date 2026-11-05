@@ -77,3 +77,17 @@ def test_chart_format_keeps_en_us_and_fakes():
             International = tuple([None, None, ".", ","] + [None] * 40)
     assert styling.chart_format(_Us(), "#,##0.0,,") == "#,##0.0,,"
     assert styling.chart_format(object(), "#,##0.0,,") == "#,##0.0,,"
+
+
+def test_series_with_gaps_become_a_union_reference():
+    """Live 05.11.2026: Excel refuses a multi-area Range as Series.Values; a union reference text works."""
+    from smartass.render.charts import union_ref
+    assert union_ref("Q2 Answer", "D5:D7,D9") == "=('Q2 Answer'!$D$5:$D$7,'Q2 Answer'!$D$9)"
+    assert union_ref("It's", "C1,C3") == "=('It''s'!$C$1,'It''s'!$C$3)"
+
+
+def test_finplan_aliases_get_a_code_only_when_they_carry_one():
+    from smartass.model.blocks.common import code_of
+    assert code_of("2WHS Wholesale") == "2WHS"
+    assert code_of("EBITDA before Other Items") == ""
+    assert code_of("ac.C30") == "C30" and code_of("Gross_Profit") == "Gross_Profit"

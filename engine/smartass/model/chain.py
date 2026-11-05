@@ -12,6 +12,9 @@ from .spec import AnalysisSpec, TableBlock
 CHAIN = ["Revenue", "COGS", "Gross margin", "Opex", "EBITDA before other items", "Other items", "EBITDA"]
 KINDS = {"Gross margin": "sum", "EBITDA before other items": "sum", "EBITDA": "grand"}
 TOP = "EBITDA"
+# FinPlan Target carries no other items (live 05.11.2026: 2WHS rejected Total Other Items), so the chain stops at
+# EBITDA there unless the query asks for them
+NOT_IN_FINPLAN = ("Other items",)
 
 
 def _resolves(r, name: str, cube: str) -> bool:
@@ -43,7 +46,8 @@ def complete_chain(spec: AnalysisSpec, r) -> AnalysisSpec:
         if not chained(b, labels):
             continue
         in_query = {metric_label(r, m, q.cube): m for m in q.metrics}
-        add = [in_query.get(c, c) for c in CHAIN if c not in labels and (c in in_query or _resolves(r, c, q.cube))]
+        add = [in_query.get(c, c) for c in CHAIN if c not in labels and (c in in_query or _resolves(r, c, q.cube))
+               and not (q.cube == "FinPlan" and c in NOT_IN_FINPLAN and c not in in_query)]
         if not add:
             continue
         b.metrics = ms + add
