@@ -178,7 +178,8 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
   `reference/charts.md` holds the message → kind table; `tests/v2/test_v5_chart_docs.py` validates its examples.
 - **Key points** (`render/keypoints.py`): at most 5; a live number sentence per material line of the main table's
   last column group (at most 4), the commentary driver as the cause, then the agent's own points.
-- **Data and Sources:** `Q<n> Data` and Lines sheets carry a provenance header and tie-out (`render/datasheet.py`);
+- **Data and Sources:** `Q<n> Data` and Lines sheets carry a provenance header (`render/datasheet.py`): a control
+  total on Data, a tie-out to the cube on Lines;
   the Sources sheet (`xl/sources.py`) is an append-only log of pulls with a Known limits block.
 - **Layout check** (`render/check.py`, after every draw): zone order, a chart drawn, number formats, cut-off text
   or `###`, the Data header, the Sources rows. The findings go in the reply as `layout`, each with its fix, and the

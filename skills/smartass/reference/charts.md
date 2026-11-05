@@ -44,6 +44,8 @@ Rules the engine applies:
 
 - A waterfall needs a bridge block: `source {"block": <bridge index>}`. It has no own data.
 - A chart on a table with column groups (month and YTD) draws the **last** group (YTD).
+- A chart on a table leaves out its total and subtotal rows (EBITDA, Gross margin, EBITDA before other items) and
+  its checks; only a waterfall shows them. To chart EBITDA as a bar, use own data (no chain there).
 - `stacked` and `stacked100`: each row is a part, each series column is a stack. Give two series (e.g. `value`,
   `ly`) to compare two stacks. More than 5 parts gets a warning.
 - A `trend` or `bridge` with `chart: true` (the default) already draws a line or a waterfall. When you add a chart
@@ -87,11 +89,12 @@ Each example below is one chart block added to the `blocks` of this spec. `sourc
  "source": {"block": 2}, "series": ["value", "ly"]}
 ```
 
-**column**: AC against PY on the P&L table (YTD group), EBITDA in the accent.
+**column**: AC against PY for Revenue and EBITDA (own data, so EBITDA is a plain line), EBITDA in the accent.
 
 ```json
 {"type": "chart", "kind": "column", "title": "Revenue holds, EBITDA falls against last year",
- "source": {"block": 0}, "series": ["value", "ly"], "highlight": ["EBITDA"]}
+ "source": {"query": "q", "metrics": ["Revenue", "EBITDA"], "columns": ["value", "ly"]},
+ "series": ["value", "ly"], "highlight": ["EBITDA"]}
 ```
 
 **bar**: the cost centres ranked by opex.

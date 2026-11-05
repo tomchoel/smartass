@@ -33,7 +33,8 @@ validates, computes and draws it (design `docs/DESIGN.md`, `docs/specs/2026-11-0
   the message; `source` a block or own data laid out as Chart data; `series`, `highlight`, `sort`), drawn in IBCS
   style through COM. A new standard/deep question without a chart is refused (`guard_chart`); other paths get an
   implicit chart. Key points (at most 5) are live number sentences for the material lines, with the commentary
-  driver as the cause. `Q<n> Data` gets a provenance header and tie-out; a Sources sheet logs every pull with known
+  driver as the cause. `Q<n> Data` gets a provenance header and a control total,
+  Lines sheets a tie-out; a Sources sheet logs every pull with known
   limits. The reply has `layout` (the layout check's findings, each with a fix) and `charts`. Skill: answer-sheet
   rules, `reference/charts.md` (message → kind, one example per kind, tested against the schema), spec reference
   for `periods`, `chain`, `material`, `plan.title` and the chart block; plan guide and pane prompt require a chart

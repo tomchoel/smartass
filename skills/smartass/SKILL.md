@@ -5,7 +5,7 @@ description: Pull Telenor Norge financial data from Oracle EPM Cloud (FinMax/Fin
 
 # smartass: finance analyses in Excel
 
-Call the 9 `mcp__smartass__*` tools directly. Read-only towards EPM. Answers go to the
+Call the 9 `mcp__smartass__*` tools directly, never a side script. Read-only towards EPM. Answers go to the
 session workbook (`target="session"`, Q1, Q2 …); `"active"` only for the user's open workbook, `"new"` for a
 separate file. Method lives in MCP prompts: `plan`, `critic` and the playbooks `monthly-pack`,
 `variance-commentary`, `gl-extract`, `prodreg-input`.
