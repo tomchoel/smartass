@@ -64,4 +64,5 @@ test("PANE_PROMPT requires target=active on every fin_* call and forbids hand-re
   assert.match(prompt, /target="active" to EVERY/)
   assert.match(prompt, /never rebuild an analysis by hand with Excel MCP/)
   assert.match(prompt, /metric NAMES from fin_lookup/)
+  assert.match(prompt, /Every answer needs a chart block chosen by the message \(skill reference charts\.md\)/)
 })

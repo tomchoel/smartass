@@ -49,8 +49,8 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    drills, TN style (`xl/styling.py`), read-back (`render/readback.py`), the spec stored in hidden `_svmeta`, sheet
    order (`xl/sheetorder.py`), save (our files only).
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
-   `findings`, `checks`, `warnings`, `caveats`, `routes`, `closed`, `saved_user_workbook: false`, and for
-   depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
+   `findings`, `checks`, `layout` (layout check findings with fixes), `charts`, `warnings`, `caveats`, `routes`,
+   `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
    (`answers.py`) at the end of the Excel job and of every redraw.
 
 **Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; the answer is redrawn in
@@ -161,6 +161,29 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
   notes), FTS5 over question, purpose, metrics and entities; `get` and `search` give the latest run per workbook
   and Q; rows older than 24 months are purged. A failed store is a warning, never a failed answer.
 
+## Presentation (sub-spec 5, `docs/specs/2026-11-05-v2-5-presentation-design.md`)
+
+- **Answer zones** (`render/layout.py`, pure): title (`plan.title`, else the purpose), subtitle, Key points,
+  Charts, the tables (main table first), Checks, Notes (conventions, thresholds, findings, caveats), Chart data,
+  Source. The plan is not drawn. Column B holds codes, C labels, values from D.
+- **Tables:** scenario headers AC, PY, BU, FC and Δ (`blocks/common.scenario_heads`); `periods` gives one column
+  group per period expression (each inside the query's periods, `validate._guard_groups`); `chain`
+  (`model/chain.py`) completes the P&L chain of a metric table with EBITDA on new questions and patches, recorded
+  in `chain_added`; `material` adds a live Material column (●) on the thresholds in Notes.
+- **Charts** (`model/blocks/chart.py`, `render/chartdata.py`, `render/charts.py`): a `chart` block draws a block
+  on the sheet or its own data (a Chart data table). IBCS styling through COM: AC navy, PY grey, BU outlined, FC
+  hatched, variances green or red, labels instead of axes; the waterfall is a stacked column over helper columns,
+  never Excel's native waterfall. `guard_chart` refuses a new standard/deep question without a chart; every other
+  path gets `implicit_chart`. A failed chart is a warning, never a failed answer. Skill reference
+  `reference/charts.md` holds the message → kind table; `tests/v2/test_v5_chart_docs.py` validates its examples.
+- **Key points** (`render/keypoints.py`): at most 5; a live number sentence per material line of the main table's
+  last column group (at most 4), the commentary driver as the cause, then the agent's own points.
+- **Data and Sources:** `Q<n> Data` and Lines sheets carry a provenance header and tie-out (`render/datasheet.py`);
+  the Sources sheet (`xl/sources.py`) is an append-only log of pulls with a Known limits block.
+- **Layout check** (`render/check.py`, after every draw): zone order, a chart drawn, number formats, cut-off text
+  or `###`, the Data header, the Sources rows. The findings go in the reply as `layout`, each with its fix, and the
+  agent applies the fix by patch.
+
 ## HTTP API (`ops/httpapi.py`, `smartass serve`)
 
 Localhost only, per-user secret (`secret.bin`, DPAPI), one request at a time: `GET /health` (the doctor checks)
@@ -172,7 +195,7 @@ fields or an invalid spec, 401 secret, 409 busy, 413 over 1 MB, 503 Excel/EPM er
 - Unit tests: `cd engine; uv run pytest -q` (no Excel, EPM or browser; the stdio smoke test starts
   `child_server.py` with the warm-up off).
 - Test set: `uv run python -m smartass.testset run` replays recorded grids and compares with the approved golden
-  numbers (8 questions).
+  numbers (9 questions).
 - `smartass doctor` checks the install (config, Excel, Smart View, VBA access, EPM, drill browser, atlas,
   knowledge (build checks against the current atlas; WARN when knowledge.db is older than the atlas or the semantic
   files, or drafts await approval), output, HTTP API, update).

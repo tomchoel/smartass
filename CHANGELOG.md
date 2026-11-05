@@ -24,6 +24,21 @@ validates, computes and draws it (design `docs/DESIGN.md`, `docs/specs/2026-11-0
 
 ### Added
 
+- v2 presentation (sub-spec 5, Plan 5): the answer sheet has fixed zones (title from `plan.title`, Key points,
+  Charts, the tables, Checks, Notes, Chart data, Source); the plan is no longer drawn. Scenario headers (AC, PY, BU,
+  FC, Δ) and a code column. `TableBlock.periods` adds column groups (default P&L/cost table:
+  `{"type":"table","query":"q","periods":["closed","closed-ytd"]}`, month and YTD); `chain` completes the P&L chain
+  of a table with EBITDA (new questions and patches); `material` adds a live ● Material column on labelled
+  thresholds. New `chart` block (`kind` waterfall, line, column, bar, stacked, stacked100, combo, variance; `title`
+  the message; `source` a block or own data laid out as Chart data; `series`, `highlight`, `sort`), drawn in IBCS
+  style through COM. A new standard/deep question without a chart is refused (`guard_chart`); other paths get an
+  implicit chart. Key points (at most 5) are live number sentences for the material lines, with the commentary
+  driver as the cause. `Q<n> Data` gets a provenance header and tie-out; a Sources sheet logs every pull with known
+  limits. The reply has `layout` (the layout check's findings, each with a fix) and `charts`. Skill: answer-sheet
+  rules, `reference/charts.md` (message → kind, one example per kind, tested against the schema), spec reference
+  for `periods`, `chain`, `material`, `plan.title` and the chart block; plan guide and pane prompt require a chart
+  chosen by the message.
+
 - Excel task pane on v2 (Plan 3A): the TN Claude pane source now lives in `addin/tn-claude` (served from the repo
   on `https://localhost:3000`); its chat may use only `mcp__smartass`, `mcp__excel` and read-only tools, with a v2
   pane prompt (fin_analyze `target="active"`, xl_snapshot before Excel MCP edits, xl_tidy, never save). New CLI
