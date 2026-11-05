@@ -19,6 +19,7 @@ from .xl.host import InputError
 from .data.adhoc import adhoc_fetch
 from .data.provider import ComboProvider
 from .followup import find_question, merge_patch, v2_questions
+from .model.chain import restore_chain
 from .model.lines import LineSet
 from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError
@@ -149,8 +150,9 @@ async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target
                    complete: bool = False):
     """(Prepared, drill warnings). A stored or patched raw spec with lines blocks is re-drilled, so lines are fresh.
     Grids the HTTP route could not fetch are pulled as ad hoc grids in the user's Excel (one job), then the model is
-    prepared again with those results fixed; this fallback runs at most once. complete (new questions only): the
-    P&L chain is completed in the spec (pipeline.prepare), and the completed spec is what gets stored."""
+    prepared again with those results fixed; this fallback runs at most once. complete (new questions and follow-up
+    patches, not fin_refresh): the P&L chain is completed in the spec (pipeline.prepare), and the completed spec is
+    what gets stored."""
     notes: list[str] = []
     kw = {"complete": True} if complete else {}
     lines: dict = {}
@@ -230,7 +232,7 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     target = _default_target(target)
     stored, active, path = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
     q2, raw, owned = find_question(stored, q, active)
-    pre, notes = await _prepare(merge_patch(raw, patch), provider, target=path)
+    pre, notes = await _prepare(restore_chain(merge_patch(raw, patch)), provider, target=path, complete=True)
     return _with_notes(await _user(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up"), notes)
 
 

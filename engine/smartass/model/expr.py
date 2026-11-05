@@ -291,3 +291,33 @@ class CubeRef(Expr):
         from .lines import CUBE_CELL
         q = table.split("_", 1)[1]                      # 'Q3'
         return f"'{q} Lines {self.alias}'!{CUBE_CELL}"
+
+
+@dataclass(frozen=True)
+class Material(Expr):
+    """The Material marker of a line: 1 when |var| >= a, or when |var %| >= pct_t and |var| >= a10 (the
+    findings.material rule), else 0; a missing var is 0. All three thresholds are Param cells. A blank variance %
+    (Excel "") goes through N() so it counts as no percentage instead of an ABS() error."""
+    var: Expr
+    pct: Expr | None
+    a: Param
+    pct_t: Param
+    a10: Param
+
+    def evaluate(self, frame, cells):
+        v = self.var.evaluate(frame, cells)
+        if v is None:
+            return 0.0
+        if abs(v) >= self.a.value:
+            return 1.0
+        p = self.pct.evaluate(frame, cells) if self.pct is not None else None
+        return 1.0 if p is not None and abs(p) >= self.pct_t.value and abs(v) >= self.a10.value else 0.0
+
+    def to_excel(self, table, addr, const=None):
+        v = self.var.to_excel(table, addr, const)
+        a = self.a.to_excel(table, addr, const)
+        if self.pct is None:
+            return f"IF(ABS({v})>={a},1,0)"
+        p = self.pct.to_excel(table, addr, const)
+        t, s = self.pct_t.to_excel(table, addr, const), self.a10.to_excel(table, addr, const)
+        return f"IF(OR(ABS({v})>={a},AND(ABS(N({p}))>={t},ABS({v})>={s})),1,0)"

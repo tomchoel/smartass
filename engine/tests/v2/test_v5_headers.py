@@ -64,8 +64,8 @@ def test_col_headers_texts():
 def test_single_group_headers_and_keys_unchanged():
     c, s = ctx([{"type": "table", "query": "fm", "title": "P&L"}])
     out = build_table(s.blocks[0], c, "b0")
-    assert out.headers == ["AC YTD Oct 26", "PY YTD Oct 25", "ΔPY", "ΔPY %"]
-    assert out.keys == ["Actual", "Last year", "Variance", "Variance %"]
+    assert out.headers == ["AC YTD Oct 26", "PY YTD Oct 25", "ΔPY", "ΔPY %", "Material"]
+    assert out.keys == ["Actual", "Last year", "Variance", "Variance %", ""]
     kv = key_values([out], evaluate([out], c.frame))
     assert list(kv["P&L · Revenue"]) == ["Actual", "Last year", "Variance", "Variance %"]
 
@@ -78,9 +78,9 @@ def test_plan_headers_budget_and_forecast():
     s = AnalysisSpec.model_validate(d)
     c = Ctx(s, resolver(), OCT, Frame([]))
     out = build_table(s.blocks[0], c, "b0")
-    assert out.headers == ["AC YTD Oct 26", "BU YTD Oct 26", "ΔBU", "FC Q326", "ΔFC", "ΔFC %"]
+    assert out.headers == ["AC YTD Oct 26", "BU YTD Oct 26", "ΔBU", "FC Q326", "ΔFC", "ΔFC %", "Material"]
     assert out.keys == ["Actual", "Budget", "Variance vs Budget", "Forecast", "Variance vs Forecast",
-                        "Variance % vs Forecast"]
+                        "Variance % vs Forecast", ""]
 
 
 GROUPED = {"type": "table", "query": "fm", "title": "P&L", "periods": ["closed", "closed-ytd"]}
@@ -89,9 +89,9 @@ GROUPED = {"type": "table", "query": "fm", "title": "P&L", "periods": ["closed",
 def test_month_and_ytd_groups():
     c, s = ctx([GROUPED])
     out = build_table(s.blocks[0], c, "b0")
-    assert out.cols == ["value", "ly", "var", "var_pct", "gap", "value", "ly", "var", "var_pct"]
+    assert out.cols == ["value", "ly", "var", "var_pct", "gap", "value", "ly", "var", "var_pct", "material"]
     assert out.headers == ["AC Oct 26", "PY Oct 25", "ΔPY", "ΔPY %", "",
-                           "AC YTD Oct 26", "PY YTD Oct 25", "ΔPY", "ΔPY %"]
+                           "AC YTD Oct 26", "PY YTD Oct 25", "ΔPY", "ΔPY %", "Material"]
     assert [ln.key for ln in out.lines] == ["m0", "m1", "m2"]
     cells = evaluate([out], c.frame)
     rev = [cells.get(ck("b0", "m0", j)) for j in range(9)]

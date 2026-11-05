@@ -8,7 +8,7 @@ from ..chain import CHAIN, KINDS, chained
 from ..context import Ctx
 from ..periods import resolve
 from ..spec import KpiBlock, TableBlock
-from .common import (GAP, BlockOut, Line, entity_lines, metric_code, metric_label, product_lines, row_cells,
+from .common import (GAP, BlockOut, Line, add_material, entity_lines, metric_code, metric_label, product_lines, row_cells,
                      scenario_heads)
 
 
@@ -43,6 +43,8 @@ def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
                                   bm=bm_or_none)
     else:
         out.lines = metric_lines(b, ctx, q, cols, key, bm_or_none)
+    if b.material:
+        add_material(out, ctx.resolver)
     return out
 
 

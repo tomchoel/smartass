@@ -79,6 +79,7 @@ class TableBlock(_M):
     periods: list[str] | None = None   # column groups: one per period expression (e.g. closed, closed-ytd)
     chain: bool = True                 # metric rows with EBITDA: the whole P&L chain, in chain order
     chain_added: list[str] = []        # the chain metrics complete_chain added (quoted after the rest)
+    material: bool = True              # with a var column: a last Material marker column (1/0, live formula)
 
     @field_validator("periods")
     @classmethod

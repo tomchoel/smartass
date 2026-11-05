@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from ..context import Ctx
-from ..expr import Cells, Expr, Neg, Ref, Sub, Sum, share, var_pct
+from ..expr import Cells, Expr, Material, Neg, Param, Ref, Sub, Sum, share, var_pct
 from ..frame import Frame
 from ..periods import Month, period_label
 from ..resolver import metric_of_member
@@ -74,6 +74,36 @@ class BlockOut:
     def __post_init__(self):
         if not self.keys:
             self.keys = list(self.headers)
+
+
+MATERIAL = "material"   # the marker column: 1 when the line is material, else 0
+MARK_CODES = {MATERIAL}  # marker columns (0/1 numbers; the layout gives them the marker format)
+MAT_ABS, MAT_PCT, MAT_SMALL = "mat_abs.", "mat_pct.", "mat_small."
+
+
+def add_material(o: BlockOut, r) -> None:
+    """Append the Material column to a block with a var column: one Material cell per line over the last group's
+    first var and its var_pct against the same base (as findings.material judges it); check lines and lines
+    without a metric get None. Without a var in the last group nothing is added."""
+    last = group_start(o.cols, len(o.cols))
+    vi = next((j for j in range(last, len(o.cols)) if o.cols[j] == "var"), None)
+    if vi is None:
+        return
+    bi = base_of(o.cols, vi)
+    pi = next((j for j in range(last, len(o.cols))
+               if o.cols[j] == "var_pct" and base_of(o.cols, j) == bi), None)
+    for ln in o.lines:
+        cell: Expr | None = None
+        if ln.metric and ln.kind != "check" and ln.cells[vi] is not None:
+            a, pct = r.materiality(ln.metric)
+            cell = Material(Ref(ck(o.key, ln.key, vi)),
+                            Ref(ck(o.key, ln.key, pi)) if pi is not None and ln.cells[pi] is not None else None,
+                            Param(MAT_ABS + ln.metric, a), Param(MAT_PCT + ln.metric, pct),
+                            Param(MAT_SMALL + ln.metric, a / 10))
+        ln.cells.append(cell)
+    o.cols.append(MATERIAL)
+    o.headers.append("Material")
+    o.keys.append("")
 
 
 def metric_label(r, token: str, cube: str) -> str:

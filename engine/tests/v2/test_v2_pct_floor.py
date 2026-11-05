@@ -132,7 +132,7 @@ def test_the_floor_layout_has_no_block_findings():
 
 
 def test_no_floor_used_no_thresholds_section():
-    d = spec_dict(blocks=[{"type": "table", "query": "fm", "metrics": ["FTE"]}])
+    d = spec_dict(blocks=[{"type": "table", "query": "fm", "metrics": ["FTE"], "material": False}])
     d["queries"][0]["metrics"] = ["FTE"]
     s = AnalysisSpec.model_validate(d)
     res = compute(s, res_(), CLOSED, frame())

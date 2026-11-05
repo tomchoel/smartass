@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from .model.analyze import Result, compute, plan_requests
 from .model.blocks.concept import concept_caveats
-from .model.chain import complete_chain
+from .model.chain import complete_chain, restore_chain
 from .model.frame import Frame
 from .model.periods import parse
 from .model.requests import GridRequest
@@ -47,8 +47,11 @@ class Prepared:
 
 def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: dict | None = None,
             complete: bool = False) -> Prepared:
-    """complete (new questions only): the spec's chained tables get the whole P&L chain first (model/chain.py);
-    the completed spec is the one returned as raw, so it is stored and refresh, patch and redraw see the chain."""
+    """complete (new questions and follow-up patches): the spec's chained tables get the whole P&L chain first
+    (model/chain.py; a query a patch resent without the chain gets it back); the completed spec is the one returned
+    as raw, so it is stored and refresh, patch and redraw see the chain."""
+    if complete:
+        raw = restore_chain(raw)
     spec = AnalysisSpec.model_validate(raw)
     if complete:
         spec = complete_chain(spec, resolver)

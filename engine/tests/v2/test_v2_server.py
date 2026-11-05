@@ -93,7 +93,7 @@ def test_followup_patches_the_stored_spec_and_redraws(monkeypatch):
     stored = {2: {"spec": {"v2": {"question": "a", "plan": {"purpose": "old"}}}, "ids": {}, "owned": {"rows": 3, "cols": 2}}}
     calls, asyncio = _wire(monkeypatch, stored)
     seen = {}
-    monkeypatch.setattr(server, "run_prepare", lambda raw, provider, lines=None: seen.update(raw=raw) or raw)
+    monkeypatch.setattr(server, "run_prepare", lambda raw, provider, lines=None, **kw: seen.update(raw=raw) or raw)
     out = asyncio.run(server.fin_analyze(patch={"plan": {"purpose": "new"}}))
     assert seen["raw"]["plan"]["purpose"] == "new" and out["q"] == 2 and calls == [("redraw", 2)]
 

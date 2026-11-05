@@ -5,6 +5,8 @@ spec (complete_chain, before prepare), so they are fetched, stored and seen by r
 orders and types the chain on every path."""
 from __future__ import annotations
 
+import copy
+
 from .spec import AnalysisSpec, TableBlock
 
 CHAIN = ["Revenue", "COGS", "Gross margin", "Opex", "EBITDA before other items", "Other items", "EBITDA"]
@@ -48,3 +50,20 @@ def complete_chain(spec: AnalysisSpec, r) -> AnalysisSpec:
         b.chain_added = list(dict.fromkeys([*b.chain_added, *add]))
         q.metrics = [*q.metrics, *(m for m in add if m not in q.metrics)]
     return AnalysisSpec.model_validate(out.model_dump())
+
+
+def restore_chain(raw: dict) -> dict:
+    """A raw spec in which every table's query holds the chain metrics the table recorded in chain_added again: a
+    follow-up patch that resends queries without them would otherwise fail validation ('not in query') before
+    complete_chain runs. Only the record is used (no resolver); a copy, the raw given is not changed."""
+    out = copy.deepcopy(raw)
+    queries = {q.get("id"): q for q in out.get("queries") or [] if isinstance(q, dict)}
+    for b in out.get("blocks") or []:
+        if not isinstance(b, dict) or b.get("type") != "table" or not b.get("chain_added"):
+            continue
+        q = queries.get(b.get("query"))
+        if q is None:
+            continue
+        have = list(q.get("metrics") or [])
+        q["metrics"] = have + [m for m in b["chain_added"] if m not in have and m in (b.get("metrics") or [m])]
+    return out

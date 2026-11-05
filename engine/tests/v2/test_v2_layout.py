@@ -50,10 +50,10 @@ def test_refs_point_at_their_rows():
 def test_number_formats_by_column_code():
     _, res, p = plan([{"type": "table", "query": "fm", "columns": ["value", "ly", "var", "var_pct"]}])
     line = next(r for r in p.rows if r["kind"] == "line")
-    assert line["num"] == {"C": "heltall", "D": "heltall", "E": "heltall", "F": "prosent1"}
+    assert line["num"] == {"C": "heltall", "D": "heltall", "E": "heltall", "F": "prosent1", "G": "heltall"}
     header = next(r for r in p.rows if r["kind"] == "header")
-    assert header["num_cols"] == ["C", "D", "E", "F"]
-    assert p.last_col == "F"
+    assert header["num_cols"] == ["C", "D", "E", "F", "G"]          # G: the Material marker
+    assert p.last_col == "G"
 
 
 def test_check_lines_and_findings_rows():

@@ -8,8 +8,8 @@ import math
 import textwrap
 from dataclasses import dataclass, field
 
-from ..model.analyze import FLOOR_KEY, Result
-from ..model.blocks.common import ck
+from ..model.analyze import Result
+from ..model.blocks.common import MAT_PCT, MARK_CODES, ck
 from ..model.expr import Const
 from ..model.frame import FILTER_COLUMNS
 from ..model.spec import AnalysisSpec, CommentaryBlock
@@ -70,6 +70,8 @@ class SheetPlan:
 
 
 def _num(code: str, stock: bool) -> str:
+    if code in MARK_CODES:            # the Material marker: 0/1 (its own marker format comes with the zones)
+        return "heltall"
     if code in PCT_CODES:
         return "prosent1"
     return "tall1" if stock else "heltall"
@@ -172,15 +174,21 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
                                           [] if line else [1, len(rows)], "", millions=_millions(o, stock)))
         r += 1
 
-    if res.floors:                      # the variance % floors the formulas reference: labelled input cells
+    if res.params:                      # the thresholds the formulas reference (floors, materiality): labelled inputs
         text(r, "Thresholds", "section")
         r += 1
-        r = notes(r, "Variance % is left blank when |base| is below the floor of its metric.")
-        for metric, floor in res.floors.items():
-            p.cells[(r, LABEL_COL)] = f"Variance % floor: {metric}"
-            p.cells[(r, FIRST_COL)] = floor
-            p.params[FLOOR_KEY + metric] = f"${col_letter(FIRST_COL)}${r}"
-            p.rows.append({"row": r, "kind": "line", "num": {col_letter(FIRST_COL): _num("value", metric in stock)}})
+        if res.floors:
+            r = notes(r, "Variance % is left blank when |base| is below the floor of its metric.")
+        if any(k.startswith(MAT_PCT) for k in res.params):
+            r = notes(r, "Material is 1 when |variance| >= the materiality, or when |variance %| >= the materiality % "
+                         "and |variance| >= the materiality with %.")
+        for key, (label, value) in res.params.items():
+            metric = key.split(".", 1)[-1]
+            p.cells[(r, LABEL_COL)] = label
+            p.cells[(r, FIRST_COL)] = value
+            p.params[key] = f"${col_letter(FIRST_COL)}${r}"
+            num = "prosent1" if key.startswith(MAT_PCT) else _num("value", metric in stock)
+            p.rows.append({"row": r, "kind": "line", "num": {col_letter(FIRST_COL): num}})
             r += 1
         r += 1
     if res.findings:
