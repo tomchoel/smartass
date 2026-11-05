@@ -26,12 +26,13 @@ class Line:
     key: str
     label: str
     cells: list[Expr | None]
-    kind: Literal["line", "sum", "grand", "check"] = "line"
+    kind: Literal["line", "sum", "grand", "check", "heading"] = "line"   # heading: a concept sub-heading
     level: int = 0
     metric: str | None = None
     entity: str | None = None
     code: str = ""           # the member code shown beside the label (C30, EBITDA_BOI, 2BUS); '' for none
     added: bool = False       # a chain line complete_chain added (key_values fills the cap with these last)
+    display: str = ""         # the label on the sheet when it differs from the model label (key_values keep label)
 
 
 CODE_PREFIXES = ("ac.", "un.SY.", "pd.SY.")
@@ -77,6 +78,8 @@ class BlockOut:
     drills: list = field(default_factory=list)   # DrillRequest (blocks/drivers.py)
     keys: list[str] = field(default_factory=list)  # stable key_values keys parallel to headers (default: headers)
     chart_of: str | None = None    # a 'chart' out: the key of the block it draws (b<idx>); it has no lines itself
+    steps: list[str] = field(default_factory=list)   # concept: the line keys its waterfall draws (items, total)
+    period: str = ""               # the period label of the block's query ('Jan 25 – Oct 26'): the subtitle
 
     def __post_init__(self):
         if not self.keys:

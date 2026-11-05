@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from ..model.analyze import Result
 from ..model.blocks.common import GAP, MAT_ABS, MAT_PCT, MAT_SMALL, MARK_CODES, ck, group_start
-from ..model.expr import Const
+from ..model.expr import Const, Var
 from ..model.frame import FILTER_COLUMNS
 from ..model.periods import label as month_label
 from ..model.spec import AnalysisSpec, CommentaryBlock, TableBlock
@@ -81,6 +81,12 @@ class ChartSpec:
     highlight: list[int] = field(default_factory=list)   # 1-based points coloured with the accent, the rest grey
     source: str = ""          # the key of the out whose rows the chart draws (b<i>)
     helpers: dict[tuple[int, int], object] = field(default_factory=dict)   # chart helper cells (not model cells)
+    hues: list[int] = field(default_factory=list)   # per series: the metric's hue (charts.HUES); [] = the first
+    label_points: list[list[int]] = field(default_factory=list)   # per series (line): 1-based labelled points
+    label_below: list[bool] = field(default_factory=list)   # per series (line): every value <= 0, labels below it
+    unit: str = "nok"         # the unit class of every series (model/units.py): a chart never mixes units
+    auto_title: bool = False  # an implicit chart (or trend/bridge sugar): the engine names it by metric and base
+    _meta: object = field(default=None, repr=False, compare=False)   # (rows, picked columns) for the unit split
 
     @property
     def anchor_col(self) -> str:
@@ -137,6 +143,8 @@ def sheet_label(ln) -> str:
     """The label shown on the sheet: without the code when it repeats it ('4P&C_T People & Competence' with code
     4P&C_T -> 'People & Competence'; '2WHS Wholesale' with code 2WHS -> 'Wholesale'). The model label
     (key_values keys) is never changed."""
+    if getattr(ln, "display", ""):          # a sheet label of its own (a concept item without '(C30) (booked)')
+        return ln.display
     code = getattr(ln, "code", "") or ""
     label = ln.label
     if code and label.startswith(code + " ") and label[len(code) + 1:].strip():
@@ -209,7 +217,10 @@ def _point_rows(points) -> list[str]:
 
 
 def _last_period(o) -> str:
-    """The period of the out's last column group, from its value header ('AC YTD Oct 26' -> 'YTD Oct 26')."""
+    """The period of the out: its own (a trend 'Jan 25–Oct 26', a concept), else its last column group's from the
+    value header ('AC YTD Oct 26' -> 'YTD Oct 26')."""
+    if o is not None and getattr(o, "period", ""):
+        return o.period
     if o is None or "value" not in o.cols:
         return ""
     start = group_start(o.cols, len(o.cols) - 1)
@@ -219,7 +230,8 @@ def _last_period(o) -> str:
 
 
 def answer_subtitle(spec: AnalysisSpec, res: Result, closed: dict) -> str:
-    """'NOK · <cubes> · <entity of the first query> · <period of the main table's last group> · closed <month>'."""
+    """'NOK · <cubes> · <entity of the first query> · <period of the main table's last group> · closed <month>'.
+    NOK only when every metric shown is an amount; otherwise no unit word (the headers carry the units)."""
     cubes = sorted({q.cube for q in spec.queries}) or ["FinLite"]
     if not isinstance(closed, dict):           # one closed month for every cube
         closed = {c: closed for c in cubes}
@@ -227,7 +239,9 @@ def answer_subtitle(spec: AnalysisSpec, res: Result, closed: dict) -> str:
     labels = {month_label(m) for m in used.values()}
     when = (f"closed {labels.pop()}" if len(labels) == 1 else
             "closed " + ", ".join(f"{c} {month_label(m)}" for c, m in sorted(used.items())) if used else "")
-    parts = ["NOK", " + ".join(cubes), res.entity_label, _last_period(main_table(res)), when]
+    units = set((getattr(res, "units", None) or {}).values())
+    parts = ["NOK" if units <= {"nok"} else "", " + ".join(cubes), res.entity_label, _last_period(main_table(res)),
+             when]
     return " · ".join(x for x in parts if x)
 
 
@@ -298,7 +312,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     tables.sort(key=lambda o: order.get(o.key, len(order)))
     chart_data = [o for o in res.outs if o.type == "chart_data"]
     chart_data.sort(key=lambda o: order.get(o.key, len(order)))
-    main = key_point_table(tables) or next((o for o in tables if o.type == "lines" and o.lines), None)
+    main = (key_point_table(tables) or next((o for o in tables if o.type == "lines" and o.lines), None)
+            or next((o for o in tables if o.type == "trend" and o.lines), None))
     drivers = [d for b in spec.blocks if isinstance(b, CommentaryBlock) for d in b.drivers]
     widest = max([len(o.headers) for o in tables + chart_data] or [1])
     col_kind: dict[int, set[str]] = {}            # sheet column -> the column codes the tables put there
@@ -352,7 +367,16 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         header_row = r
         r += 1
         line_rows: list[tuple[int, object]] = []
-        for ln in o.lines:
+        for k, ln in enumerate(o.lines):
+            if ln.kind == "heading":           # a concept sub-heading: navy bold, a spacer row before it
+                if k:
+                    r += 1
+                p.cells[(r, LABEL_COL)] = sheet_label(ln)
+                p.rows.append({"row": r, "kind": "subhead"})
+                placed.append((r, o, ln))
+                line_rows.append((r, ln))
+                r += 1
+                continue
             if ln.code:
                 p.cells[(r, CODE_COL)] = ln.code
             p.cells[(r, LABEL_COL)] = ("   " * ln.level) + sheet_label(ln)
@@ -382,7 +406,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     text(r, "Key points", "section")
     r += 1
     kp_row = r
-    r += len(_point_rows(hook(main, res, drivers, lambda key: "A1"))) + 1
+    asked: set[str] = set()              # the param cells the key points use (Unit MNOK, Percent factor)
+    r += len(_point_rows(hook(main, res, drivers, lambda key: asked.add(key) or "A1"))) + 1
 
     # 4. Charts: two per zone row, in spec order (a trend/bridge chart at its block, chart blocks, the implicit one)
     zone("charts", r)
@@ -393,7 +418,9 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
                                                            and o.key not in charted):
             chart_outs.append(o)
     charts_row = r
-    r += math.ceil(len(chart_outs) / 2) * CHART_ROWS
+    dry = _dry_rows(tables + chart_data)     # a chart may split by unit: count the charts on provisional rows
+    n_charts = sum(1 for o in chart_outs for cs in _charts(o, spec, res, outs, dry, stock, []) if _drawn(cs))
+    r += math.ceil(n_charts / 2) * CHART_ROWS
 
     # 5. Tables, in spec order: the main table first
     zone("tables", r)
@@ -409,10 +436,12 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     p.status_cell = f"{col_letter(FIRST_COL)}{r}"
     r += 1
     check_rows: list[tuple[int, object, object]] = []
+    checked = [o for o in tables + chart_data if any(ln.kind == "check" for ln in o.lines)]
     for o in tables + chart_data:
         for ln in o.lines:
             if ln.kind == "check" and any(e is not None for e in ln.cells):
-                p.cells[(r, LABEL_COL)] = f"{o.title}: {ln.label}"
+                what = ln.label.removeprefix("Check: ")          # the zone is called Checks
+                p.cells[(r, LABEL_COL)] = what if len(checked) == 1 else f"{o.title}: {what}"
                 p.rows.append({"row": r, "kind": "check", "num": {}, "status_col": col_letter(FIRST_COL)})
                 check_rows.append((r, o, ln))
                 r += 1
@@ -422,7 +451,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     zone("notes", r)
     text(r, "Notes", "section")
     r += 1
-    r = notes(r, CONVENTIONS)
+    r = notes(r, conventions(spec, res, tables + chart_data))
     for b in spec.blocks:
         if isinstance(b, TableBlock) and b.rows == "metrics" and not b.chain:
             r = notes(r, f"{b.title or 'Table'}: the P&L chain is switched off (chain: false); the table shows a "
@@ -430,24 +459,29 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     for line in _axis_notes(chart_outs, outs, res, stock):
         r = notes(r, line)
     r += 1
-    text(r, "Thresholds", "section")
-    r += 1
-    if res.floors:
-        r = notes(r, "Variance % is left blank when |base| is below the floor of its metric.")
-    if any(k.startswith(MAT_PCT) for k in res.params):
-        r = notes(r, "Material (●) when |variance| >= the materiality, or when |variance %| >= the materiality % "
-                     "and |variance| >= the materiality with %.")
-    r = _threshold_table(p, r, res.params, stock, t_cols)
-    for key, (label, value) in res.params.items():          # a param of no known kind: a label/value row
-        if not key.startswith(THRESHOLD_KINDS):
+    # Thresholds: only the params a formula on the sheet uses (the model's floors and materiality, Unit MNOK and
+    # Percent factor when a key point uses them, Tolerance when there is a check line); none: no section
+    own = [(k, lab, v) for k, lab, v in ((UNIT_MNOK, "Unit: MNOK", 1_000_000),
+                                         (TOLERANCE, "Tolerance (NOK)", TOLERANCE_NOK),
+                                         (HUNDRED, "Percent factor", 100))
+           if k in asked or (k == TOLERANCE and check_rows)]
+    if res.params or own:
+        text(r, "Thresholds", "section")
+        r += 1
+        if res.floors:
+            r = notes(r, "Variance % is left blank when |base| is below the floor of its metric.")
+        if any(k.startswith(MAT_PCT) for k in res.params):
+            r = notes(r, "Material (●) when |variance| >= the materiality, or when |variance %| >= the "
+                         "materiality % and |variance| >= the materiality with %.")
+        r = _threshold_table(p, r, res.params, stock, t_cols)
+        for key, (label, value) in res.params.items():          # a param of no known kind: a label/value row
+            if not key.startswith(THRESHOLD_KINDS):
+                param(r, key, label, value, "heltall")
+                r += 1
+        for key, label, value in own:
             param(r, key, label, value, "heltall")
             r += 1
-    param(r, UNIT_MNOK, "Unit: MNOK", 1_000_000, "heltall")
-    r += 1
-    param(r, TOLERANCE, "Tolerance (NOK)", TOLERANCE_NOK, "heltall")
-    r += 1
-    param(r, HUNDRED, "Percent factor", 100, "heltall")
-    r += 2
+        r += 1
     if res.findings:
         text(r, "Findings", "section")
         r += 1
@@ -480,9 +514,12 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         for j, e in enumerate(ln.cells):
             if isinstance(e, Const):              # an input (a 100 % key share): a value, never a formula
                 p.cells[(row, FIRST_COL + j)] = e.value
+            elif isinstance(e, Var):              # its base is missing on every line: blank while the base is 0
+                base = e.b.to_excel(table, addr, const)
+                p.cells[(row, FIRST_COL + j)] = f'=IF({base}=0,"",{e.to_excel(table, addr, const)})'
             elif e is not None:
                 p.cells[(row, FIRST_COL + j)] = "=" + e.to_excel(table, addr, const)
-    tol = p.params[TOLERANCE]
+    tol = p.params.get(TOLERANCE, "")
     for row, o, ln in check_rows:
         refs = [p.addr[ck(o.key, ln.key, j)] for j, e in enumerate(ln.cells) if e is not None]
         size = f"ABS({refs[0]})" if len(refs) == 1 else "MAX(" + ",".join(f"ABS({a})" for a in refs) + ")"
@@ -492,7 +529,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     p.print_last_col = col_letter(FIRST_COL + widest - 1)
     p.last_col = p.print_last_col
     p.last_row = r
-    specs = [_chart(o, spec, res, outs, block_rows, stock, p.chart_lint) for o in chart_outs]
+    specs = [cs for o in chart_outs for cs in _charts(o, spec, res, outs, block_rows, stock, p.chart_lint)]
     # the chart helpers go right of the tables AND of the charts' right edge, so the print area (which reaches the
     # charts) never takes them in: anchors from provisional widths first (every column right of the tables as wide
     # as a number or helper column, as it ends up), which the helpers do not move
@@ -506,6 +543,46 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     p.charts = _anchor(specs, charts_row, p.widths)
     p.print_area_col = _print_area_col(p)
     return p
+
+
+def conventions(spec: AnalysisSpec, res: Result, outs) -> str:
+    """The conventions note, only what holds for this sheet: NOK and FinMax signs only when a FinMax/FinLite amount
+    is shown; FinPlan amounts without a sign claim (FinPlan's convention is not verified); FinPlan KPIs read Periodic
+    with their scenarios; Δ/▲▼ only with variance columns, the floor with variance %, ● with a Material column."""
+    cube = {q.id: q.cube for q in spec.queries}
+    units = getattr(res, "units", None) or {}
+    fm_nok = fp_nok = fp_kpi = False
+    codes: set[str] = set()
+    for o in outs:
+        c = cube.get(o.query or "", "FinLite")
+        ms = [*o.col_metrics, *(ln.metric for ln in o.lines if ln.metric)]
+        nok = not ms or any(units.get(m, "nok") == "nok" for m in ms)
+        kpi = any(units.get(m, "nok") != "nok" for m in ms)
+        codes |= set(o.cols)
+        if c == "FinPlan":
+            fp_nok |= nok
+            fp_kpi |= kpi
+        else:
+            fm_nok |= nok
+    parts = []
+    if fm_nok:
+        parts.append("NOK. FinMax signs: costs are negative.")
+    if fp_nok:
+        parts.append(("" if fm_nok else "NOK. ") + "FinPlan amounts as FinPlan holds them (its sign convention is "
+                     "not verified).")
+    if fp_kpi:
+        scen = [x for code, x in (("value", "AC = actual (Working)"), ("budget", "BU = Target (Final)"),
+                                  ("forecast", "FC = forecast (Final)")) if code in codes]
+        parts.append("FinPlan KPIs read Periodic per month" + ("; " + ", ".join(scen) if scen else "") + ".")
+    elif fp_nok and "budget" in codes:
+        parts.append("BU = Target (Final).")
+    if "var" in codes or "var_pct" in codes:
+        parts.append("Δ = current − comparison; ▲ better, ▼ worse.")
+    if "var_pct" in codes:
+        parts.append("Variance % blank when |base| < floor.")
+    if MARK_CODES & codes:
+        parts.append("● = material (thresholds below).")
+    return " ".join(parts) or "NOK."
 
 
 def _print_area_col(p: SheetPlan) -> str:
@@ -630,13 +707,182 @@ def _across(letters: list[str], row: int) -> str:
     return ",".join(f"{c}{row}" for c in letters)
 
 
+def _dry_rows(outs) -> dict:
+    """Provisional block rows (every out from row 1, columns from D) for counting the charts before the tables are
+    placed: _charts only needs the rows' order, not where they end up."""
+    return {o.key: (0, [(i + 1, ln) for i, ln in enumerate(o.lines)],
+                    [col_letter(FIRST_COL + j) for j in range(len(o.headers))]) for o in outs}
+
+
+def _val(res, key: str) -> float | None:
+    v = res.cells.get(key)
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _empty(vals) -> bool:
+    return all(v is None or v == 0 for v in vals)
+
+
+def _concept_amounts(data, res, rows) -> list[float]:
+    j = value_col(data)
+    return [_val(res, ck(data.key, ln.key, j)) or 0.0 for _, ln in rows]
+
+
+def value_col(data) -> int:
+    """The value column of the block's last column group (a bridge: its amount)."""
+    if "amount" in data.cols:
+        return data.cols.index("amount")
+    last = group_start(data.cols, len(data.cols) - 1)
+    return data.cols.index("value", last) if "value" in data.cols[last:] else data.cols.index("value")
+
+
+def series_metric(data, j: int, rows) -> str | None:
+    """The metric behind series column j: the trend's column metric, else the rows' metric when they share one."""
+    if j < len(data.col_metrics) and data.col_metrics[j]:
+        return data.col_metrics[j]
+    ms = {ln.metric for _, ln in rows if ln.metric}
+    return ms.pop() if len(ms) == 1 else None
+
+
+def unit_group_name(unit: str) -> str:
+    from ..model.units import UNIT_WORD
+    return UNIT_WORD.get(unit, "") or unit
+
+
+def _charts(o, spec, res, outs, block_rows, stock, lint: list[str]) -> list[ChartSpec]:
+    """The ChartSpecs of one chart out: one, or one per unit group when its series (a trend's metrics) or its rows
+    (a table's metric lines) mix units (NOK, counts, ARPU, %, FTE): a chart never mixes units. Titles of a split
+    chart name the group ('<title> — <metric>'). A problem is one lint line and a chart without series."""
+    from ..model.units import NOK
+    cs = _chart(o, spec, res, outs, block_rows, stock, lint)
+    data = outs.get(cs.source)
+    meta = getattr(cs, "_meta", None)
+    if not cs.series or data is None or meta is None:
+        return [cs]
+    rows, picked = meta
+    if cs.kind not in ("column", "bar", "line", "combo"):
+        return [cs]
+    units = getattr(res, "units", {}) or {}
+    groups: dict[str, tuple[list[int], list]] = {}
+    if cs.kind in ("column", "bar", "line"):
+        by_col = [(series_metric(data, j, rows), j) for j in picked]
+        if data.col_metrics:                                   # a trend: the series carry the metric
+            for m, j in by_col:
+                u = units.get(m, NOK) if m else NOK
+                groups.setdefault(u, ([], rows))[0].append(j)
+        else:                                                  # a table: the rows carry the metric
+            for r, ln in rows:
+                u = units.get(ln.metric, NOK) if ln.metric else NOK
+                groups.setdefault(u, (list(picked), []))[1].append((r, ln))
+    if len(groups) <= 1:
+        unit = next(iter(groups), NOK)
+        return [_finish(cs, data, res, rows, picked, unit, stock, lint, None)]
+    out = []
+    for unit, (js, rs) in groups.items():
+        part = ChartSpec(cs.kind, cs.title, source=cs.source, sort=cs.sort)
+        part.highlight = []
+        if data.col_metrics:
+            ms = list(dict.fromkeys(series_metric(data, j, rs) for j in js))
+            name = data.headers[js[0]].rsplit(" ", 1)[0] if len(ms) == 1 else unit_group_name(unit)
+        else:
+            name = sheet_label(rs[0][1]).strip() if len(rs) == 1 else unit_group_name(unit)
+        part.auto_title = cs.auto_title
+        part.series = [(data.headers[j], _runs(block_rows[data.key][2][j], [r for r, _ in rs]), ROLE.get(
+            data.cols[j], "ac")) for j in js]
+        part.cat_range = _runs(col_letter(LABEL_COL), [r for r, _ in rs])
+        part.millions = cs.millions
+        out.append(_finish(part, data, res, rs, js, unit, stock, lint, name))
+    return out
+
+
+BASE_WORD = {"py": "last year", "bu": "budget", "fc": "forecast"}
+
+
+def chart_title(cs: ChartSpec, data, kept: list[int], split_name: str | None) -> str:
+    """An agent's chart title stays (a split adds ' — <metric>'). An implicit chart is named by what it shows:
+    '<metric> vs budget' (last year, forecast), '<metric> per month' for a trend without a base; one or two metrics
+    by name, more (or a table's rows) by the block title. Never '<block title> — ...'."""
+    if not cs.auto_title:
+        return f"{cs.title} — {split_name}" if split_name else cs.title
+    names = list(dict.fromkeys(data.headers[j].rsplit(" ", 1)[0] for j in kept)) if data.col_metrics else []
+    subject = " and ".join(names) if 1 <= len(names) <= 2 else (split_name or data.title)
+    roles = [r for _, _, r in cs.series]
+    base = next((BASE_WORD[r] for r in roles if r in BASE_WORD), None)
+    monthly = " per month" if data.type == "trend" else ""
+    if base and "ac" in roles:
+        return f"{subject} vs {base}"
+    if base:
+        return f"{subject} {base}{monthly}"
+    return f"{subject}{monthly}"
+
+
+def _finish(cs: ChartSpec, data, res, rows, picked: list[int], unit: str, stock, lint,
+            split_name: str | None = None) -> ChartSpec:
+    """Per chart after the unit split: drop series with no data (lint), drop a trend's leading empty months, colour
+    each metric with its own hue, label a line's last point (and min/max on 12 points or fewer), units."""
+    from ..model.units import COUNT, NOK, PER_UNIT
+    kept, series = [], []
+    for j, s in zip(picked, cs.series):
+        vals = [_val(res, ck(data.key, ln.key, j)) for _, ln in rows]
+        if _empty(vals):
+            lint.append(f"chart '{cs.title}': series '{s[0]}' has no data; left out")
+            continue
+        kept.append(j)
+        series.append(s)
+    if not kept:
+        lint.append(f"chart '{cs.title}': no series has data; no chart drawn")
+        cs.series = []
+        return cs
+    if data.type == "trend":            # a product launched in Nov 25: the chart starts at its first month with data
+        first = next((i for i, (_, ln) in enumerate(rows)
+                      if not _empty([_val(res, ck(data.key, ln.key, j)) for j in kept])), 0)
+        rows = rows[first:]
+    row_nums = [r for r, _ in rows]
+    cols = [_letter(rng) for _, rng, _ in series]
+    cs.series = [(name, _runs(cols[k], row_nums), role) for k, (name, _, role) in enumerate(series)]
+    cs.cat_range = _runs(col_letter(LABEL_COL), row_nums)
+    metrics = [series_metric(data, j, rows) for j in kept]
+    # a metric keeps its hue across the charts a split makes (subscriptions navy, ARPU teal)
+    hue_of = {m: i for i, m in enumerate(dict.fromkeys([*data.col_metrics, *metrics]))}
+    cs.hues = [hue_of[m] for m in metrics]
+    if cs.kind == "line":
+        n = len(rows)
+        cs.label_points = []
+        for j in kept:
+            vals = [_val(res, ck(data.key, ln.key, j)) for _, ln in rows]
+            idx = [i for i, v in enumerate(vals) if v is not None]
+            pts = {idx[-1] + 1} if idx else set()
+            if idx and n <= LABEL_ALL_MAX:
+                pts |= {max(idx, key=lambda i: vals[i]) + 1, min(idx, key=lambda i: vals[i]) + 1}
+            cs.label_points.append(sorted(pts))
+            cs.label_below.append(bool(idx) and all(vals[i] <= 0 for i in idx))
+    if unit != NOK:
+        cs.millions, cs.whole = False, unit in (COUNT, PER_UNIT)
+    _scale(cs, data, res, rows, kept)
+    cs.unit = unit
+    cs.title = chart_title(cs, data, kept, split_name)
+    return cs
+
+
+LABEL_ALL_MAX = 12          # a line chart labels its last point, plus min and max on 12 points or fewer
+
+
+def _letter(rng: str) -> str:
+    """The column of a one-column range text: 'F12:F20,F22' -> 'F'."""
+    return "".join(ch for ch in rng.split(":")[0].split(",")[0] if ch.isalpha())
+
+
 def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
     """The ChartSpec of one chart out (rows and columns of the block it draws, its last column group); a problem is
-    one lint line and a chart without series (never a failed answer)."""
+    one lint line and a chart without series (never a failed answer). A concept draws the waterfall of the items in
+    its total (headings, memo, missing items and checks are never categories)."""
     from ..model.blocks.chart import default_series
     from ..model.spec import ChartBlock
     kind = o.chart or "column"
     src = o.chart_of if o.type == "chart" else o.key
+    data = outs.get(src)
+    if data is not None and data.type == "concept" and kind != "variance":
+        kind = "waterfall"
     cs = ChartSpec(kind, o.title, source=src or "", sort="desc" if kind == "bar" else "none")
     try:
         cb = None
@@ -645,7 +891,11 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
             cb = b if isinstance(b, ChartBlock) else None
         if cb is not None:
             cs.sort = cb.sort
-        data = outs.get(src)
+        cs.auto_title = cb is None
+        if cs.auto_title and data is not None and data.type == "concept":   # 'Direct contribution X YTD Oct 26'
+            total = next((ln for ln in data.lines if ln.key == "total"), None)
+            if total is not None:
+                cs.title = " ".join(x for x in (sheet_label(total), data.period) if x)
         if data is None or data.key not in block_rows:
             lint.append(f"chart '{o.title}': its source has no rows on the sheet; fix: point source.block at a "
                         "table, trend, bridge, ranking or kpi block")
@@ -658,7 +908,10 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
         last = group_start(cols, len(cols) - 1) if cols else 0
         cand = [j for j in range(last, len(cols)) if cols[j] != GAP and cols[j] not in MARK_CODES]
         have = ", ".join(dict.fromkeys(cols[j] for j in cand)) or "none"
-        if kind == "waterfall":
+        if data.type == "concept":
+            steps = {k: i for i, k in enumerate(data.steps)}
+            rows = sorted(((r, ln) for r, ln in line_rows if ln.key in steps), key=lambda x: steps[x[1].key])
+        elif kind == "waterfall":
             rows = list(line_rows)
         else:
             drop = DROP_KEYS.get(data.type, set())
@@ -669,10 +922,12 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
             lint.append(f"chart '{o.title}': the source block has no rows to chart; fix: point the chart at a "
                         "block with lines")
             return cs
-        if cb is not None and cb.series:
+        if cb is not None and cb.series and data.type != "concept":
             want = list(cb.series)
         elif cb is None and data.type in IMPLICIT_SERIES:
             want = list(IMPLICIT_SERIES[data.type])
+        elif data.type == "concept":
+            want = ["amount"] if kind == "waterfall" else ["var"]
         else:
             want = default_series(kind, cols)
         picked: list[int] = []
@@ -692,9 +947,9 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
         labels = [ln.label.strip().lower() for _, ln in rows]
         shown = [sheet_label(ln).strip().lower() for _, ln in rows]     # as column C shows it
         for h in (cb.highlight if cb is not None else []):
-            want = h.strip().lower()
-            if want in labels or want in shown:
-                cs.highlight.append((labels.index(want) if want in labels else shown.index(want)) + 1)
+            want_h = h.strip().lower()
+            if want_h in labels or want_h in shown:
+                cs.highlight.append((labels.index(want_h) if want_h in labels else shown.index(want_h)) + 1)
             else:
                 lint.append(f"chart '{o.title}': highlight '{h}' is not a line of the source; fix: use a line "
                             "label as shown in column C")
@@ -703,11 +958,11 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
                         "'column' or 'bar', or drop highlight")
             cs.highlight = []
         if kind == "waterfall":
-            if data.type != "bridge" or "amount" not in cols:
+            if data.type not in ("bridge", "concept") or (data.type == "bridge" and "amount" not in cols):
                 lint.append(f"chart '{o.title}': a waterfall needs a bridge block; fix: source {{block: <bridge "
                             "index>}")
                 return cs
-            cs.helpers = {"kind": "waterfall", "rows": row_nums, "col": letters[cols.index("amount")],
+            cs.helpers = {"kind": "waterfall", "rows": row_nums, "col": letters[value_col(data)],
                           "header_row": header_row}
         elif kind == "variance":
             v = next((j for j in picked if cols[j] == "var"), None)
@@ -732,9 +987,12 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
                     lint.append(f"chart '{o.title}': sort '{cs.sort}' not applied, the bars keep the table's "
                                 "order; fix: chart a ranking block (rows sorted by size) or set sort 'none'")
             cs.series = [(data.headers[j], _runs(letters[j], row_nums), ROLE.get(cols[j], "ac")) for j in picked]
-        _scale(cs, data, res, rows, picked)
+        cs._meta = (rows, picked)
+        if kind not in ("column", "bar", "line", "combo"):
+            _scale(cs, data, res, rows, picked)
     except Exception as e:   # noqa: BLE001 - a chart never fails the answer
         cs.series, cs.helpers = [], {}
+        cs._meta = None
         lint.append(f"chart '{o.title}' failed: {e}; fix: patch the chart block (kind, source, series)")
     return cs
 
@@ -742,11 +1000,12 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
 def _scale(cs: ChartSpec, data, res, rows, picked: list[int]) -> None:
     """Units and value axis from the model values the chart plots: MNOK labels only from 1 m (|max|), whole NOK
     below; a value axis reversed when every plotted value is <= 0 (costs: the bars grow away from the category
-    labels, which keep their minus sign); a waterfall's truncated axis (bridge_axis)."""
+    labels, which keep their minus sign); a bridge's truncated axis (bridge_axis; a concept's waterfall always
+    starts at zero)."""
     from .chartdata import waterfall_bars
     if cs.kind == "waterfall":
-        vals = _bridge_amounts(data, res) or []
-        cs.axis_min = bridge_axis(vals) if vals else None
+        vals = (_concept_amounts(data, res, rows) if data.type == "concept" else _bridge_amounts(data, res)) or []
+        cs.axis_min = bridge_axis(vals) if vals and data.type == "bridge" else None
         levels = [b[0] for b in waterfall_bars(vals)] if vals else []
         if levels:
             reach = max(abs(v) for v in levels)
@@ -810,6 +1069,13 @@ def _anchor(specs: list[ChartSpec], top: int, widths: dict[str, float]) -> list[
         x += width_pt(widths.get(col_letter(c), DEFAULT_WIDTH))
     want = left[CODE_COL] + CHART_WIDTH + CHART_GAP
     second = col_letter(next(c for c in range(CODE_COL + 1, 80) if left[c] >= want))
-    for i, cs in enumerate(specs):
+    i = 0
+    for cs in specs:            # a chart that is not drawn (no data: the lint says why) takes no slot
         cs.anchor = f"{'B' if i % 2 == 0 else second}{top + (i // 2) * CHART_ROWS}"
+        i += _drawn(cs)
     return specs
+
+
+def _drawn(cs: ChartSpec) -> bool:
+    """A chart write_charts will draw: it has series, or helpers that give it its series (waterfall, variance)."""
+    return bool(cs.series or cs.helpers)

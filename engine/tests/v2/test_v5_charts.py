@@ -102,7 +102,8 @@ def test_column_chart_takes_the_last_column_group():
 def test_series_roles_follow_the_column_codes():
     s, res, p = run([GROUPED, chart("combo", 0, title="Mix", series=["value", "var", "var_pct"])])
     cs = next(c for c in p.charts if c.title == "Mix")
-    assert [r for _, _, r in cs.series] == ["ac", "var", "pct"]
+    assert [r for _, _, r in cs.series] == ["ac", "var"]       # var % is blank under the floor: no data
+    assert any("has no data; left out" in x for x in p.chart_lint)
 
 
 def test_a_missing_series_is_dropped_with_a_lint_line():
@@ -305,11 +306,11 @@ def test_series_are_added_explicitly_before_any_format():
     assert [v for n, v in sets(log, ".Name") if ".s" in n] == ["AC", "PY"]
 
 
-def test_ibcs_fills_navy_grey_outlined_hatched():
+def test_ibcs_fills_navy_tint_outlined_hatched():
     log, _ = draw(spec("column", [("AC", "D", "ac"), ("PY", "E", "py"), ("BU", "F", "bu"), ("FC", "G", "fc")]))
     fore = dict(sets(log, ".Format.Fill.ForeColor.RGB"))
     assert fore["c1.s1.Format.Fill.ForeColor.RGB"] == NAVY
-    assert fore["c1.s2.Format.Fill.ForeColor.RGB"] == C.GREY
+    assert fore["c1.s2.Format.Fill.ForeColor.RGB"] == tn.rgb(C.tint(tn.NAVY))      # PY: a lighter navy
     assert fore["c1.s3.Format.Fill.ForeColor.RGB"] == C.WHITE
     assert dict(sets(log, ".Format.Line.ForeColor.RGB"))["c1.s3.Format.Line.ForeColor.RGB"] == NAVY
     assert ("call", "c1.s4.Format.Fill.Patterned", (26,)) in log            # msoPatternWideUpwardDiagonal

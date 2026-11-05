@@ -403,6 +403,9 @@ def apply_report(ws, roles: dict) -> list[str]:
                     "note": "TN Note", "blank": "TN Tom"}[kind]
             cols = {c: name for c in range(1, last + 1)}
             heights[r] = {"title": 28, "subtitle": 16, "section": 22}.get(kind, 15)
+        elif kind == "subhead":         # a sub-heading inside a table (concept sections): label only, no numbers
+            cols = {c: "TN Underseksjon" if c >= first_label else "TN Tom" for c in range(1, last + 1)}
+            heights[r] = 15
         elif kind == "text":
             cols = {c: "TN Tekst" if c >= first_label else "TN Tom" for c in range(1, last + 1)}
             width = sum(widths[c] for c in range(first_label, text_last + 1))

@@ -3,10 +3,13 @@
 added empty-handed (the series AddChart2 guesses are dropped), gets its series explicitly (NewSeries, Values,
 XValues), and only THEN its formats, because a type change resets formatting.
 
-- Scenarios: AC solid navy, PY solid grey, BU outlined (white, navy border), FC hatched; variances green or red by
-  effect; highlighted points in the TN accent, the rest grey.
+- Colours: each metric gets its own hue (HUES: navy, teal, amber, purple, grey-blue); within a metric the scenario
+  styling is IBCS: AC solid, PY a lighter tint of the same hue, BU outlined (bars) or dashed (lines), FC hatched
+  (bars) or dotted (lines); variances green or red by effect; highlighted points in the TN accent, the rest grey.
 - Labels instead of axes: data labels (MNOK '#,##0.0,,', through styling.chart_format: U+00A0 scaling), no
-  gridlines, no tick marks, no value axis labels; a legend only with more than 3 visible series (on top).
+  gridlines, no tick marks, no value axis labels; a line labels only its last point (plus min and max on 12 points
+  or fewer: spec.label_points). A legend on top whenever 2 or more series are visible (not on a waterfall or a
+  variance chart, whose bars are labelled by effect).
 - Waterfall: a stacked column over the chart helper columns (render/chartdata.py) with invisible bases; never
   Excel's native waterfall (its COM model does not reliably set totals). Variance: favourable and unfavourable
   series with 100 % overlap (no InvertIfNegative). Bar: ReversePlotOrder keeps the first (largest) row on top.
@@ -28,6 +31,7 @@ XL_LEGEND_TOP = -4160
 XL_VALUE, XL_CATEGORY = 2, 1
 XL_TICK_LOW, XL_TICK_HIGH = -4134, -4127   # xlTickLabelPositionLow / High
 XL_LABEL_CENTER, XL_LABEL_INSIDE_END = -4108, 3
+XL_LABEL_ABOVE, XL_LABEL_BELOW, XL_LABEL_RIGHT = 0, 1, -4152     # a line's min/max label above its point, the last one to its right
 LOW_KINDS = ("column", "bar", "line", "combo", "stacked", "stacked100", "variance", "waterfall")
 MSO_TRUE, MSO_FALSE = -1, 0
 MSO_PATTERN_WIDE_UPWARD_DIAGONAL = 26      # MsoPatternType (Office typelib)
@@ -43,6 +47,24 @@ PCT_LINE = tn.rgb(tn.RULE_DARK)
 INK = tn.rgb(tn.INK)                       # a waterfall label beside a step too thin to hold white text
 THIN_LIFT = 10.0                           # pt: that label moved up off its 1 px bar
 PARTS = [tn.rgb(c) for c in (tn.NAVY, (84, 110, 150), (140, 160, 190), (190, 200, 215), (166, 166, 166))]
+
+HUES = [tn.NAVY, (0, 128, 128), (214, 137, 16), (112, 48, 160), (84, 110, 150)]   # navy, teal, amber, purple,
+# grey-blue: one per metric in a chart
+PY_TINT = 0.55                             # PY: the hue blended this far towards white
+MSO_LINE_DASH, MSO_LINE_ROUND_DOT = 4, 3   # MsoLineDashStyle: BU dashed, FC dotted (line charts)
+NO_LEGEND = ("waterfall", "variance")
+
+
+def tint(c: tuple[int, int, int], t: float = PY_TINT) -> tuple[int, int, int]:
+    """The colour blended t of the way towards white."""
+    return tuple(round(x + (255 - x) * t) for x in c)
+
+
+def hue(spec: ChartSpec, k: int) -> tuple[int, int, int]:
+    """The RGB tuple of series k's metric."""
+    h = spec.hues[k] if k < len(spec.hues) else 0
+    return HUES[h % len(HUES)]
+
 
 FILL = {"ac": NAVY, "py": GREY, "var": GOOD, "fav": GOOD, "unfav": BAD, "up": GOOD, "up_neg": GOOD, "down": BAD,
         "down_neg": BAD, "total": NAVY}
@@ -110,12 +132,17 @@ def union_ref(sheet: str, rng: str) -> str:
     return "=(" + ",".join(f"{name}!{p}" for p in parts) + ")"
 
 
-def _fill(s, role: str, k: int, line: bool) -> None:
-    if line:                                             # a line series: the line is the scenario colour
-        colour = PCT_LINE if role == "pct" else FILL.get(role, NAVY)
-        com(lambda: setattr(s.Format.Line, "Visible", MSO_TRUE))
-        com(lambda: setattr(s.Format.Line.ForeColor, "RGB", colour))
-        com(lambda: setattr(s.Format.Line, "Weight", 2.25))
+def _fill(s, role: str, k: int, line: bool, spec: ChartSpec | None = None) -> None:
+    base = hue(spec, k) if spec is not None else tn.NAVY
+    main = tn.rgb(base)
+    if line:                                             # a line series: the metric's hue, styled by scenario
+        colour = PCT_LINE if role == "pct" else tn.rgb(tint(base)) if role == "py" else main
+        ln = s.Format.Line
+        com(lambda: setattr(ln, "Visible", MSO_TRUE))
+        com(lambda: setattr(ln.ForeColor, "RGB", colour))
+        com(lambda: setattr(ln, "Weight", 2.25))
+        if role in ("bu", "fc"):
+            com(lambda: setattr(ln, "DashStyle", MSO_LINE_DASH if role == "bu" else MSO_LINE_ROUND_DOT))
         return
     f, ln = s.Format.Fill, s.Format.Line
     if role in HIDDEN:
@@ -123,20 +150,21 @@ def _fill(s, role: str, k: int, line: bool) -> None:
         com(lambda: setattr(ln, "Visible", MSO_FALSE))
         return
     com(lambda: setattr(f, "Visible", MSO_TRUE))
-    if role == "bu":                                     # outlined: white with a navy border
+    if role == "bu":                                     # outlined: white with a border in the metric's hue
         com(lambda: f.Solid())
         com(lambda: setattr(f.ForeColor, "RGB", WHITE))
         com(lambda: setattr(ln, "Visible", MSO_TRUE))
-        com(lambda: setattr(ln.ForeColor, "RGB", NAVY))
+        com(lambda: setattr(ln.ForeColor, "RGB", main))
         com(lambda: setattr(ln, "Weight", 1.0))
-    elif role == "fc":                                   # hatched
+    elif role == "fc":                                   # hatched in the metric's hue
         com(lambda: f.Patterned(MSO_PATTERN_WIDE_UPWARD_DIAGONAL))
-        com(lambda: setattr(f.ForeColor, "RGB", NAVY))
+        com(lambda: setattr(f.ForeColor, "RGB", main))
         com(lambda: setattr(f.BackColor, "RGB", WHITE))
         com(lambda: setattr(ln, "Visible", MSO_TRUE))
-        com(lambda: setattr(ln.ForeColor, "RGB", NAVY))
+        com(lambda: setattr(ln.ForeColor, "RGB", main))
     else:
-        colour = PARTS[k % len(PARTS)] if role == "part" else FILL.get(role, NAVY)
+        colour = (PARTS[k % len(PARTS)] if role == "part" else main if role == "ac"
+                  else tn.rgb(tint(base)) if role == "py" else FILL.get(role, NAVY))
         com(lambda: f.Solid())
         com(lambda: setattr(f.ForeColor, "RGB", colour))
         com(lambda: setattr(ln, "Visible", MSO_FALSE))
@@ -145,7 +173,7 @@ def _fill(s, role: str, k: int, line: bool) -> None:
 WATERFALL_STEPS = ("up", "up_neg", "down", "down_neg")
 
 
-def _labels(s, role: str, spec: ChartSpec) -> None:
+def _labels(s, role: str, spec: ChartSpec, k: int = 0) -> None:
     """Data labels in the label format; on a waterfall white bold inside the bars (never navy on navy): a total
     at its inside end, a step in its centre, in ink on a step too thin to hold white text (spec.thin_steps)."""
     if role in HIDDEN:
@@ -154,6 +182,18 @@ def _labels(s, role: str, spec: ChartSpec) -> None:
     dl = com(lambda: s.DataLabels())
     com(lambda: setattr(dl, "NumberFormatLinked", False))
     com(lambda: setattr(dl, "NumberFormat", chart_format(dl, label_format(role, spec.millions, spec.whole))))
+    if spec.kind == "line" and k < len(spec.label_points):     # only the last point (and min/max): no clutter
+        keep = set(spec.label_points[k])
+        n = _points(spec.cat_range)
+        below = k < len(spec.label_below) and spec.label_below[k]  # a cost line: its labels below it
+        com(lambda: setattr(dl, "Position", XL_LABEL_BELOW if below else XL_LABEL_ABOVE))   # never on the line
+        for i in range(1, n + 1):
+            pt = com(lambda: s.Points(i))
+            if i not in keep:
+                com(lambda: setattr(pt, "HasDataLabel", False))
+            elif i == max(keep):
+                com(lambda: setattr(pt.DataLabel, "Position", XL_LABEL_RIGHT))
+        return
     if spec.kind == "waterfall" and (role == "total" or role in WATERFALL_STEPS):
         com(lambda: setattr(dl, "Position", XL_LABEL_INSIDE_END if role == "total" else XL_LABEL_CENTER))
         com(lambda: setattr(dl.Font, "Color", WHITE))
@@ -218,7 +258,9 @@ def _draw(ws, spec: ChartSpec) -> None:
         com(lambda: setattr(chart.ChartArea.Format.TextFrame2.TextRange.Font, "Name", tn.FONT))
         _title(chart, spec.title)
         visible = [r for _, r in series if r not in HIDDEN]
-        legend = spec.kind in ("stacked", "stacked100") or (spec.kind != "waterfall" and len(visible) > 3)
+        # a single series is named by the title, unless it is not AC (a budget-only line must say BU)
+        legend = spec.kind in ("stacked", "stacked100") or (spec.kind not in NO_LEGEND and (
+            len(visible) >= 2 or any(r not in ("ac", "part", "fav", "unfav", "var") for r in visible)))
         com(lambda: setattr(chart, "HasLegend", legend))       # stacked parts are named by the legend
         if legend:
             com(lambda: setattr(chart.Legend, "Position", XL_LEGEND_TOP))
@@ -231,8 +273,8 @@ def _draw(ws, spec: ChartSpec) -> None:
         n = _points(spec.cat_range)
         for k, (s, role) in enumerate(series):
             line = spec.kind == "line" or (spec.kind == "combo" and role == "pct")
-            _fill(s, role, k, line)
-            _labels(s, role, spec)
+            _fill(s, role, k, line, spec)
+            _labels(s, role, spec, k)
         target = next((s for s, role in series if role in ("ac", "part")), None)
         if spec.highlight and target is not None and spec.kind in ("column", "bar"):
             _highlight(target, spec.highlight, n)

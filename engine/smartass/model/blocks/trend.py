@@ -5,10 +5,11 @@ from __future__ import annotations
 
 from ..context import Ctx
 from ..expr import Expr, Ref, Sub, Sum
-from ..periods import label, resolve
+from ..periods import label, period_label, resolve
 from ..series import months
 from ..spec import MatrixBlock, TrendBlock
-from .common import HEAD, BlockOut, Line, ck, children_sum, counted, metric_label
+from ..units import NOK, short_name, unit_class
+from .common import HEAD, SCEN, BlockOut, Line, ck, children_sum, counted, metric_label
 
 
 def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
@@ -18,11 +19,16 @@ def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
     # a series lives on its own months: value and ly on the query's periods, budget and forecast on plan_periods
     own = {s: set(months(q, "value" if s == "ly" else s, cl)) for s in b.series}
     ms = sorted(set().union(*own.values()))
-    heads = [f"{metric_label(ctx.resolver, m, q.cube)} {HEAD[s]}" for m, s in combos]
+    names = {m: metric_label(ctx.resolver, m, q.cube) for m in b.metrics}
+    keys = [f"{names[m]} {HEAD[s]}" for m, s in combos]                  # the stable key_values keys
+    heads = [f"{short_name(names[m])} {SCEN[s]}" for m, s in combos]       # the sheet: 'Revenue AC'
     out = BlockOut(key, "trend", b.title or "Trend", heads,
                    cols=[s for _, s in combos], query=q.id, chart="line" if b.chart else None,
-                   col_metrics=[m for m, _ in combos])
+                   col_metrics=[m for m, _ in combos], keys=keys,
+                   period=period_label(ms) if ms else "")
     stock = [ctx.resolver.aggregation(m) == "last" for m, _ in combos]   # a stock is picked per month, never added
+    # only a NOK flow adds up over months: a count, ARPU, a percentage or a stock has no Total (blank)
+    flow = [unit_class(ctx.resolver, m, q.cube) == NOK and not stock[j] for j, (m, _) in enumerate(combos)]
     for i, mon in enumerate(ms):
         cells: list[Expr | None] = []
         for j, (m, s) in enumerate(combos):
@@ -32,11 +38,10 @@ def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
             this = ctx.pick(q, m, s, base_months=[mon])
             cells.append(Sum((Ref(ck(key, f"p{i - 1}", j)), this)) if b.cumulative and i and not stock[j] else this)
         out.lines.append(Line(f"p{i}", label(mon), cells))
-    if not b.cumulative and len(ms) > 1:
-        def total(j: int) -> Expr:
-            if stock[j]:
-                last = max(i for i, ln in enumerate(out.lines) if ln.cells[j] is not None)
-                return Ref(ck(key, f"p{last}", j))
+    if not b.cumulative and len(ms) > 1 and any(flow):
+        def total(j: int) -> Expr | None:
+            if not flow[j]:
+                return None
             return Sum(tuple(Ref(ck(key, f"p{i}", j)) for i in range(len(ms))))
         out.lines.append(Line("total", "Total", [total(j) for j in range(len(combos))], kind="grand"))
     return out
