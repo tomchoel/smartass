@@ -81,6 +81,7 @@ class BlockOut:
     steps: list[str] = field(default_factory=list)   # concept: the line keys its waterfall draws (items, total)
     period: str = ""               # the period label of the block's query ('Jan 25 – Oct 26'): the subtitle
     no_base: list[str] = field(default_factory=list)   # base codes dropped as empty on every line ('ly': no PY)
+    dropped: list[str] = field(default_factory=list)   # every column code dropped as empty (charts skip them)
 
     def __post_init__(self):
         if not self.keys:

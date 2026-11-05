@@ -933,6 +933,8 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
         picked: list[int] = []
         for code in want:
             hits = [j for j in cand if cols[j] == code] or [j for j in cand if cols[j] == ALIAS.get(code)]
+            if not hits and (code in data.dropped or ALIAS.get(code) in data.dropped):
+                continue                  # the model dropped it as empty on every line (no AC, no PY): not an error
             if not hits:
                 lint.append(f"chart '{o.title}': series '{code}' is not in the source (columns: {have}); fix: add "
                             f"'{code}' to the source block's columns or drop it from the chart's series")

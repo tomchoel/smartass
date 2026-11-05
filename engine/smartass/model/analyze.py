@@ -308,6 +308,7 @@ def drop_empty_bases(outs: list[BlockOut], cells: Cells, r: Resolver) -> bool:
         for code in dict.fromkeys(o.cols[j] for j in empty if o.cols[j] in BASES):
             if code not in o.no_base:
                 o.no_base.append(code)
+        o.dropped += [c for c in dict.fromkeys(o.cols[j] for j in empty) if c not in o.dropped]
         o.cols = [o.cols[j] for j in keep]
         o.headers = [o.headers[j] for j in keep]
         o.keys = [o.keys[j] for j in keep]
