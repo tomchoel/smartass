@@ -748,3 +748,5 @@ the earlier v1/v2 answers (Business EBITDA YTD Oct 26: 3 868 633 901 against 3 8
 2. The standalone `fin_drill` lines path (`xl/drill_xl.py`) sets no page setup of its own.
 3. Known limits on Sources (column P) is outside the printed area.
 4. The accent colour (0,160,220) for chart highlights is a placeholder. Tom to confirm the TN accent.
+5. A trend chart with several metrics draws every AC line in navy, so the metrics cannot be told apart. Give each metric its own shade, keep AC solid and PY grey, and show the plan dashed.
+6. The redraw of a pre-v5 workbook was checked on a scratch copy of the 04.11 Wholesale book (5 answers, 5 data and 4 lines tables). The header was inserted above every A1 table, the tables survived, 0 formulas show an error, and Sheet = model was OK for all 5. A workbook with many queries (Q4: 7) gets a 60-row header above its table.
