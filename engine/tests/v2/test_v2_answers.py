@@ -95,7 +95,7 @@ def test_fin_critic_computes_the_rounded_mean_of_the_six_scores(home, monkeypatc
     _wire(monkeypatch)
     answers.store(_run(1))
     out = asyncio.run(server.fin_critic(q=1, scores=[5, 5, 5, 4, 5, 5], notes="weakest 4: drivers"))
-    assert out == {"stored": True, "q": 1, "score": 5, "mean": 4.83, "scores": [5, 5, 5, 4, 5, 5]}
+    assert out == {"stored": True, "q": 1, "score": 5, "passed": True, "mean": 4.83, "scores": [5, 5, 5, 4, 5, 5]}
     row = answers.get("C:/a/Analysis.xlsx", 1)
     assert row["score"] == 5
     assert row["notes"].startswith("Scores 1=5 2=5 3=5 4=4 5=5 6=5 (mean 4.83).") and "weakest 4" in row["notes"]
@@ -107,6 +107,17 @@ def test_fin_critic_rounds_half_up(home, monkeypatch, scores, score):
     _wire(monkeypatch)
     answers.store(_run(1))
     assert asyncio.run(server.fin_critic(q=1, scores=scores))["score"] == score
+
+
+def test_fin_critic_rescoring_overwrites_and_passed_follows_the_score(home, monkeypatch):
+    _wire(monkeypatch)
+    answers.store(_run(1))
+    first = asyncio.run(server.fin_critic(q=1, scores=[3, 3, 3, 3, 4, 4], notes="weak drivers"))
+    assert first["score"] == 3 and first["passed"] is False
+    second = asyncio.run(server.fin_critic(q=1, scores=[4, 4, 4, 4, 4, 4], notes="drivers fixed"))
+    assert second["score"] == 4 and second["passed"] is True
+    row = answers.get("C:/a/Analysis.xlsx", 1)
+    assert row["score"] == 4 and row["notes"].endswith("drivers fixed")
 
 
 def test_fin_critic_refuses_bad_scores_and_an_unstored_answer(home, monkeypatch):

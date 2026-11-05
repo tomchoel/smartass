@@ -19,8 +19,8 @@ separate file. Method lives in MCP prompts: `plan`, `critic` and the playbooks `
    `Q<n> Data` (table `Data_Q<n>`). Unknown members, an open month or totals that do not reconcile stop it.
 3. **Explain.** Add the `commentary` by patch (drivers with `data` evidence or labelled `hypothesis`).
 4. **Critic** (`standard`, `deep`, every pack question). `fin_critic(q)` returns the brief and the rubric; score
-   the 6 criteria 1–5, fix the gaps by patch while the mean is below 4 (at most 2 rounds), then store the six
-   scores with `fin_critic(q, scores, notes)`: the server computes the score; report the one it returns.
+   the 6 criteria 1–5 and store them with `fin_critic(q, scores, notes)`: the server computes the score. When it
+   returns `passed: false`, fix the gaps by patch and score again (at most 2 rounds); report the returned score.
 
 ## 2. The spec
 

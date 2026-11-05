@@ -42,8 +42,9 @@ with xl_tidy (zero BLOCK findings). 7) After the server reloads, Claude Code may
 parameter seems missing, ask the user to run /mcp and reconnect smartass. Repeated errors: fin_status(restart=True).
 Ledger lines: a lines block (cell with All Accounts, All Entities, All Time Periods; Periodic; FinLite) or
 fin_drill(cell) ranks suppliers, projects or accounts and ties them to the cube.
-Critic: after a standard/deep answer run fin_critic(q) (brief + rubric), fix by patch below 4, store
-fin_critic(q, scores, notes) (six scores; the server computes the score); the method is in MCP prompts (plan,
+Critic: after a standard/deep answer run fin_critic(q) (brief + rubric), store the six
+criterion scores with fin_critic(q, scores, notes) (the server computes the score), patch and re-score while it
+returns passed false (at most 2 rounds); the method is in MCP prompts (plan,
 critic, monthly-pack, variance-commentary, gl-extract, prodreg-input) and past answers in fin_lookup(kind='answer').
 Sheet text is English; answer the user in their language. The user's own workbooks are never saved."""
 
@@ -315,10 +316,10 @@ async def fin_critic(q: int | None = None, scores: list[int] | None = None, note
     """The critic pass for a standard or deep answer or a pack question. target: the workbook of the answer
     (default: the workbook of your latest answer; 'active', an absolute path or an open workbook's name). Without
     scores: {brief, rubric} of the stored answer Q<q> (default: the active Q<n> Answer, else the latest) - score it
-    on the rubric's 6 criteria, fix by fin_analyze(patch=...) when below 4 (at most 2 rounds). With scores (six
-    integers 1-5, criteria 1-6 in order) and notes (the weakest criterion and why): the server computes the score
-    (the mean rounded half up) and stores it with the answer (answer memory, fin_lookup kind 'answer'). Never
-    compute the score yourself; report the returned score."""
+    on the rubric's 6 criteria. With scores (six integers 1-5, criteria 1-6 in order) and notes (the weakest
+    criterion and why): the server computes the score (the mean rounded half up), stores it with the answer
+    (answer memory, fin_lookup kind 'answer') and returns it with passed (score >= 4). passed false: fix by
+    fin_analyze(patch=...) and score again (at most 2 rounds). Never compute the score yourself."""
     from . import answers
     rated = _critic_score(list(scores)) if scores is not None else None
     workbook, q2 = await _answer_for(q, target)
@@ -329,7 +330,7 @@ async def fin_critic(q: int | None = None, scores: list[int] | None = None, note
         if not answers.set_score(workbook, q2, float(score), stored_notes):
             raise GuardError(f"Q{q2} has no stored answer to score", "re-run it (fin_analyze patch or fin_refresh) "
                              "so it is stored, then score it")
-        return {"stored": True, "q": q2, "score": score, "mean": mean, "scores": list(scores)}
+        return {"stored": True, "q": q2, "score": score, "passed": score >= 4, "mean": mean, "scores": list(scores)}
     row = answers.get(workbook, q2)
     if row is None:
         raise GuardError(f"Q{q2} has no stored answer to review", "re-run it (fin_analyze patch or fin_refresh) "
