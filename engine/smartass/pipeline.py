@@ -185,7 +185,9 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
         out["critic_brief"] = brief(pre.spec, res, list(pre.caveats), checks, stock=_stock(pre))
     return out
 # ---------------------------------------------------------------- the Excel job (runs on a v1 user-Excel job thread)
+from .render import datasheet  # noqa: E402
 from .render.charts import write_charts  # noqa: E402
+from .render.datasheet import header_rows  # noqa: E402
 from .render.excel import (answer_footer, col_number, read_block, read_data, rewrite_data,  # noqa: E402
                            rewrite_grid, sheet_status, write_answer, write_data, write_status)
 from .render.layout import answer_subtitle, constant_columns, layout  # noqa: E402
@@ -372,8 +374,11 @@ def _write_lines(t, q: int, ls) -> str:
 def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
           old_owned: dict | None = None) -> dict:
     """Data sheet, layout, Answer sheet, charts, readback, spec + owned range, sheet order. Shared by excel_job and
-    redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place."""
-    (rewrite_data if redraw else write_data)(ws_data, pre.frame, q)
+    redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place. One timestamp
+    per draw: the data header's Fetched and the answer's print footer never disagree."""
+    fetched = datetime.now().astimezone()
+    header = header_rows(q, pre.spec, pre, fetched, datasheet.windows_user())
+    (rewrite_data if redraw else write_data)(ws_data, pre.frame, q, header)   # its cells: Task 11 (Sources link)
     line_sheets = [f"Q{q} Lines {a}" for a in pre.frame.lines]
     for ls in pre.frame.lines.values():         # before the answer, so its formulas resolve
         _write_lines(t, q, ls)
@@ -383,7 +388,7 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
                   subtitle=answer_subtitle(pre.spec, pre.result, pre.closed),
                   const=constant_columns(pre.frame), caveats=pre.caveats,
                   key_points=partial(key_points, stock=_stock(pre), free=free))
-    plan.footer = answer_footer(datetime.now())
+    plan.footer = answer_footer(fetched)
     if redraw:                                  # a larger answer pushes the user's cells aside, never overwrites them
         _make_room(ws_answer, old_owned, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     lint = write_answer(ws_answer, plan, pre.warnings)

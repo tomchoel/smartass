@@ -11,6 +11,7 @@ from ..xl.jobs import com
 
 from ..model.errors import GuardError
 from ..model.frame import Frame
+from .datasheet import Header
 from .layout import (CODE_COL, FIRST_COL, LABEL_COL, W_A, W_CODE, W_NUM, SheetPlan, col_letter,  # noqa: F401
                      col_number, label_width)  # col_number, label_width: re-exported (charts, tests)
 
@@ -22,24 +23,39 @@ def data_grid(frame: Frame) -> list[tuple]:
     return [frame.columns(), *frame.rows()]
 
 
-def _put(ws, g: list[tuple]):
+def _put(ws, g: list[tuple], r0: int = 1):
     """Label columns as text first, then the values; returns the range. Only for a range that is not a table yet."""
     n, w = len(g), len(g[0])
-    labels = ws.Range(ws.Cells(1, 1), ws.Cells(n, w - 1))
+    labels = ws.Range(ws.Cells(r0, 1), ws.Cells(r0 + n - 1, w - 1))
     com(lambda: setattr(labels, "NumberFormat", "@"))
-    rng = ws.Range(ws.Cells(1, 1), ws.Cells(n, w))
+    rng = ws.Range(ws.Cells(r0, 1), ws.Cells(r0 + n - 1, w))
     com(lambda: setattr(rng, "Value2", tuple(g)))
     return rng
 
 
-def _create_table(ws, g: list[tuple], q: int) -> None:
-    rng = _put(ws, g)
+def _create_table(ws, g: list[tuple], q: int, r0: int = 1):
+    rng = _put(ws, g, r0)
     t = com(lambda: ws.ListObjects.Add(XL_SRC_RANGE, rng, None, XL_YES))
     com(lambda: setattr(t, "Name", f"Data_Q{q}"))
+    return t
 
 
-def write_data(ws, frame: Frame, q: int) -> None:
-    _create_table(ws, data_grid(frame), q)
+def write_data(ws, frame: Frame, q: int, header: Header | None = None) -> dict:
+    """A new Q<n> Data sheet: the table at A<len(header)+2> (A1 without a header), then the header (its formulas
+    name the table, so it must exist first), then the calm style. Returns where the cells plan 5 Task 11 and the
+    layout check need sit: {table_row, sources: {query id: cell}, status: {query id: cell}}."""
+    g = data_grid(frame)
+    r0 = header.table_row if header else 1
+    lo = _create_table(ws, g, q, r0)
+    if header:
+        _write_header(ws, header)
+    _style(ws, lo, len(g), len(g[0]))
+    return _cells(header, r0)
+
+
+def _cells(header: Header | None, r0: int) -> dict:
+    return {"table_row": r0, "sources": dict(header.sources) if header else {},
+            "status": dict(header.status) if header else {}}
 
 
 def _table(ws, q: int):
@@ -49,8 +65,22 @@ def _table(ws, q: int):
         return None
 
 
+def _need_table(ws, q: int):
+    lo = _table(ws, q)
+    if lo is None:
+        raise GuardError(f"table Data_Q{q} is missing on sheet 'Q{q} Data', so the answer cannot be redrawn in place",
+                         "ask the question again with fin_analyze(spec); the old sheets were left as they were")
+    return lo
+
+
+def _origin(lo) -> tuple[int, int]:
+    """The table's own top-left cell (its header row): the sheet may hold a provenance header above it."""
+    head = com(lambda: lo.HeaderRowRange)
+    return com(lambda: head.Row), com(lambda: head.Column)
+
+
 def read_data(ws, q: int) -> list[tuple] | None:
-    """Header + body of table Data_Q<q> as a grid, or None when the sheet has no such table."""
+    """Header + body of table Data_Q<q> as a grid (wherever the table sits), or None without such a table."""
     lo = _table(ws, q)
     if lo is None:
         return None
@@ -59,34 +89,137 @@ def read_data(ws, q: int) -> list[tuple] | None:
 
 
 def rewrite_grid(ws, g: list[tuple], q: int) -> None:
-    """Put grid g into the EXISTING table Data_Q<q>: resize it, write the values, clear rows left below when it
-    shrank. The table is never deleted, recreated or renamed, so formulas that point at it keep working.
-    Header and body are written as two rectangles: Value2 on one rectangle covering a table's header AND body deletes
-    the table in Excel (measured 04.11.2026, even with its own values) and every formula on it becomes #REF!.
-    No table: refused (GuardError) before anything is touched - clearing the sheet and creating a new table would
-    leave the answer's formulas, and its backup, pointing at a deleted table."""
-    lo = _table(ws, q)
-    if lo is None:
-        raise GuardError(f"table Data_Q{q} is missing on sheet 'Q{q} Data', so the answer cannot be redrawn in place",
-                         "ask the question again with fin_analyze(spec); the old sheets were left as they were")
+    """Put grid g into the EXISTING table Data_Q<q>, from the table's own origin (never A1): resize it, write the
+    values, clear rows left below when it shrank. The table is never deleted, recreated or renamed, so formulas that
+    point at it keep working. Header and body are written as two rectangles: Value2 on one rectangle covering a
+    table's header AND body deletes the table in Excel (measured 04.11.2026, even with its own values) and every
+    formula on it becomes #REF!. No table: refused (GuardError) before anything is touched - clearing the sheet and
+    creating a new table would leave the answer's formulas, and its backup, pointing at a deleted table. Touches
+    nothing above the table (the restore after a failed redraw calls it directly)."""
+    lo = _need_table(ws, q)
+    r0, c0 = _origin(lo)
     old_rows = com(lambda: lo.Range.Rows.Count)
     n, w = len(g), len(g[0])
-    labels = ws.Range(ws.Cells(1, 1), ws.Cells(n, w - 1))
+
+    def cells(r1, c1, r2, c2):
+        return ws.Range(ws.Cells(r0 + r1, c0 + c1), ws.Cells(r0 + r2, c0 + c2))
+    labels = cells(0, 0, n - 1, w - 2)
     com(lambda: setattr(labels, "NumberFormat", "@"))              # text first: 'Sep 26' never becomes a date
-    rng = ws.Range(ws.Cells(1, 1), ws.Cells(max(n, 2), w))          # a table keeps at least one body row
+    rng = cells(0, 0, max(n, 2) - 1, w - 1)                         # a table keeps at least one body row
     com(lambda: lo.Resize(rng))
-    head = ws.Range(ws.Cells(1, 1), ws.Cells(1, w))
+    head = cells(0, 0, 0, w - 1)
     com(lambda: setattr(head, "Value2", (tuple(g[0]),)))
     if n > 1:
-        body = ws.Range(ws.Cells(2, 1), ws.Cells(n, w))
+        body = cells(1, 0, n - 1, w - 1)
         com(lambda: setattr(body, "Value2", tuple(tuple(r) for r in g[1:])))
     if old_rows > n:
-        left = ws.Range(ws.Cells(n + 1, 1), ws.Cells(old_rows, w))
+        left = cells(n, 0, old_rows - 1, w - 1)
         com(lambda: left.Clear())
 
 
-def rewrite_data(ws, frame: Frame, q: int) -> None:
-    rewrite_grid(ws, data_grid(frame), q)
+def rewrite_data(ws, frame: Frame, q: int, header: Header | None = None) -> dict:
+    """A redraw: the existing table moves (whole rows inserted or deleted above it) to A<len(header)+2>, its values
+    are rewritten in place, then the header is written again (fetched time, control total). An old answer's table at
+    A1 gets the header rows inserted above it: inserting whole rows keeps the table, its name and the answer's
+    structured references."""
+    lo = _need_table(ws, q)
+    g = data_grid(frame)
+    if header:
+        _place(ws, lo, header.table_row)
+    rewrite_grid(ws, g, q)
+    if header:
+        _write_header(ws, header)
+    _style(ws, lo, len(g), len(g[0]))
+    return _cells(header, _origin(lo)[0])
+
+
+def _place(ws, lo, want: int) -> None:
+    """Whole rows inserted (or, for a smaller header, deleted) above the table until its header row is `want`,
+    then the rows above it cleared for the new header."""
+    row, _ = _origin(lo)
+    if row < want:
+        rows = ws.Rows(f"1:{want - row}")
+        com(lambda: rows.Insert())
+    elif row > want:
+        rows = ws.Rows(f"1:{row - want}")
+        com(lambda: rows.Delete())
+    above = ws.Rows(f"1:{want - 1}")
+    com(lambda: above.Clear())
+
+
+def _text(v):
+    if isinstance(v, str) and v and not v.startswith("="):
+        return "'" + v                   # text stays text: 'Sep 26' never becomes a date
+    return "" if v is None else v
+
+
+VALUE_FORMAT = '#,##0;(#,##0);"–"'
+VALUE_BLUE = 0xC00000                    # BGR: blue, the FAST colour of imported numbers
+LABEL_MAX, HEADER_MIN = 40, 16           # table columns fitted, at most 40; A:D at least 16 (header labels, totals)
+
+
+def _write_header(ws, header: Header) -> None:
+    """The label/value block in rows 1..len(header), columns A:D, as one rectangle; the title text in A1. The block
+    gets the General format first (rows inserted above an old table may carry its '@', and a formula in a text cell
+    stays text). The look: title bold navy, labels grey, values ink, the control totals as numbers."""
+    h = len(header)
+    g = [["", "", "", ""] for _ in range(h)]
+    for i, (lab, value) in enumerate(header):
+        if i == 0:
+            g[0][0] = _text(value)
+            continue
+        g[i][0] = _text(lab)
+        for j, x in enumerate(value if isinstance(value, tuple) else (value,)):
+            g[i][1 + j] = _text(x)
+    rng = ws.Range(ws.Cells(1, 1), ws.Cells(h, 4))
+    com(lambda: setattr(rng, "NumberFormat", "General"))
+    com(lambda: setattr(rng, "Formula", tuple(tuple(r) for r in g)))
+    numeric = [i + 1 for i, (lab, _) in enumerate(header) if lab in ("Control total", "Tolerance (NOK)")]
+
+    def look():
+        f = rng.Font
+        f.Name = styling.tn.FONT
+        f.Size = 9
+        f.Color = styling._rgb(styling.tn.INK)
+        title = ws.Cells(1, 1).Font
+        title.Bold = True
+        title.Size = 14
+        title.Color = styling._rgb(styling.tn.NAVY)
+        if h > 1:
+            ws.Range(ws.Cells(2, 1), ws.Cells(h, 1)).Font.Color = styling._rgb(styling.tn.GREY)
+        for r in numeric:
+            ws.Range(ws.Cells(r, 2), ws.Cells(r, 3)).NumberFormat = VALUE_FORMAT
+    com(look)
+
+
+def _style(ws, lo, n: int, w: int) -> None:
+    """The calm table look: TableStyleLight1 without banding and a bold header; Value in the blue import format,
+    right-aligned; columns fitted to the table (not the header above it), at most 40, A:D at least 16; panes frozen
+    below the table header (cosmetic: a failure is ignored)."""
+    r0, c0 = _origin(lo)
+    com(lambda: setattr(lo, "TableStyle", "TableStyleLight1"))
+    com(lambda: setattr(lo, "ShowTableStyleRowStripes", False))
+    com(lambda: setattr(lo.HeaderRowRange.Font, "Bold", True))
+    if n > 1:
+        def value():
+            v = ws.Range(ws.Cells(r0 + 1, c0 + w - 1), ws.Cells(r0 + n - 1, c0 + w - 1))
+            v.NumberFormat = VALUE_FORMAT
+            v.Font.Color = VALUE_BLUE
+            v.HorizontalAlignment = styling.tn.H_RIGHT
+        com(value)
+    for c in range(c0, c0 + w):
+        col = ws.Range(ws.Cells(r0, c), ws.Cells(r0 + max(n, 2) - 1, c))
+        com(lambda: col.Columns.AutoFit())
+        width = com(lambda: col.ColumnWidth) or 0
+        fit = min(width, LABEL_MAX)
+        if c <= 4:
+            fit = max(fit, HEADER_MIN)
+        if fit != width:
+            com(lambda: setattr(col.EntireColumn, "ColumnWidth", fit))
+    try:
+        styling._freeze(ws, r0, 0)
+    except Exception:   # noqa: BLE001 - freezing is cosmetic
+        pass
 
 
 def answer_grid(p: SheetPlan) -> tuple[int, int, list[list]]:

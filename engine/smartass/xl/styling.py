@@ -598,6 +598,7 @@ def _page_setup(ws, xl, last_row, last, roles):
     key = _page_setup_key(last_row, last, roles)
     if _has_page_setup(ws, key):
         return
+    keep_footer = _has_center_footer(ws)        # read before PrintCommunication goes off
     # every PageSetup property normally round-trips to the printer driver (measured 14 s for 12 settings);
     # PrintCommunication=False batches them into one exchange when it is switched back on
     try:
@@ -606,7 +607,7 @@ def _page_setup(ws, xl, last_row, last, roles):
         pass
     restored = False
     try:
-        done = _page_setup_props(ws, xl, last_row, last, roles)
+        done = _page_setup_props(ws, xl, last_row, last, roles, keep_footer)
     finally:
         try:
             _set(xl, "PrintCommunication", True)
@@ -620,7 +621,16 @@ def _page_setup(ws, xl, last_row, last, roles):
             pass
 
 
-def _page_setup_props(ws, xl, last_row, last, roles) -> bool:
+def _has_center_footer(ws) -> bool:
+    """A v2 answer's print_setup footer (source, date, page &P of &N) is there: the v1 setup (xl_tidy) then leaves
+    the footers alone, so the page never shows two page numbers."""
+    try:
+        return bool(str(_retry(lambda: ws.PageSetup.CenterFooter) or ""))   # one COM call
+    except Exception:   # noqa: BLE001 - no printer / not readable: v1 footers as before
+        return False
+
+
+def _page_setup_props(ws, xl, last_row, last, roles, keep_footer: bool = False) -> bool:
     try:
         ps = _get(ws, "PageSetup")
         _set(ps, "PrintArea", f"$A$1:${_cl(last)}${last_row}")
@@ -633,8 +643,9 @@ def _page_setup_props(ws, xl, last_row, last, roles) -> bool:
         cm = _call(xl, "CentimetersToPoints", 1.5)
         _set(ps, "LeftMargin", cm); _set(ps, "RightMargin", cm)
         _set(ps, "CenterHeader", '&"Arial"&8' + roles.get("print_header", "Intern"))
-        _set(ps, "RightFooter", '&"Arial"&8Side &P av &N')
-        _set(ps, "LeftFooter", '&"Arial"&8&F')
+        if not keep_footer:                     # a v2 CenterFooter already carries the page number
+            _set(ps, "RightFooter", '&"Arial"&8Side &P av &N')
+            _set(ps, "LeftFooter", '&"Arial"&8&F')
         return True
     except Exception:   # noqa: BLE001  (no printer installed etc.)
         return False

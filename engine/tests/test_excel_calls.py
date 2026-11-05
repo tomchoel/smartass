@@ -106,7 +106,7 @@ def test_arrange_sheets_same_order_fewer_calls(monkeypatch, moved, calls):
     assert n == calls
 
 
-@pytest.mark.parametrize("redraw, calls", [(False, 58), (True, 41)])          # before: 150, 150
+@pytest.mark.parametrize("redraw, calls", [(False, 59), (True, 41)])          # before: 150, 150 (+1: CenterFooter read)
 def test_answer_styling_same_look_fewer_calls(monkeypatch, redraw, calls):
     snap, n = run(report_case, monkeypatch, redraw)
     names = snap["sheets"]["Q1 Answer"].pop("names")

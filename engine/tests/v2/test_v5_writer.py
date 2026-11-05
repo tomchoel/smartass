@@ -118,3 +118,17 @@ def test_draw_writes_the_status_after_the_readback_and_sets_the_footer(monkeypat
     assert log.index("compare") + 1 == log.index("write_status")
     assert seen["m"] == ["D5: sheet 1, model 2"] and out["checks"]["sheet_equals_model"] == "DIFF in 1 cells"
     assert seen["plan"].footer.startswith("Source: Oracle EPM Cloud · fetched ")
+
+
+def test_v1_page_setup_keeps_a_v2_footer_and_adds_no_second_page_number():
+    """xl_tidy on a v2 answer (no print_footer role): v1's 'Side &P av &N' would sit beside 'page &P of &N'."""
+    _, _, p = run([GROUPED])
+    p.footer = answer_footer(datetime.datetime(2026, 11, 5))
+    ws = _ws()
+    styling.print_setup(ws, "G", 14, p.footer)
+    styling._page_setup(ws, ws.Parent.Application, 14, 7, {})
+    ps = ws.PageSetup
+    assert ps.CenterFooter == p.footer and ps.RightFooter == "" and ps.LeftFooter == ""
+    fresh = _ws()                                                 # a v1 sheet without a centre footer: as before
+    styling._page_setup(fresh, fresh.Parent.Application, 14, 7, {})
+    assert fresh.PageSetup.RightFooter == '&"Arial"&8Side &P av &N'

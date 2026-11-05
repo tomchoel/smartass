@@ -31,6 +31,7 @@ class Result:
     params: dict[str, tuple[str, float]] = field(default_factory=dict)   # Param key -> (label, value): the
     # labelled threshold cells the formulas reference (sheet: Thresholds)
     entity_label: str = ""      # the first query's entity name (the answer's subtitle)
+    entity_labels: dict[str, str] = field(default_factory=dict)   # query id -> entity name (the data header)
 
     @property
     def floors(self) -> dict[str, float]:
@@ -141,13 +142,17 @@ def compute(spec: AnalysisSpec, r: Resolver, closed: Closed, frame: Frame, kv_li
     guard_result(outs, cells)
     return Result(outs, cells, soft + sign_findings(ctx) + bridge_findings(outs, cells, r) + lines_findings(outs, cells)
                   + concept_findings(outs, cells), material(outs, cells, r),
-                  key_values(outs, cells, kv_limit), collect_params(outs), _entity_label(spec, r))
+                  key_values(outs, cells, kv_limit), collect_params(outs), _entity_label(spec, r),
+                  {q.id: _label(r, q) for q in spec.queries})
 
 
 def _entity_label(spec: AnalysisSpec, r: Resolver) -> str:
     if not spec.queries:
         return ""
-    q = spec.queries[0]
+    return _label(r, spec.queries[0])
+
+
+def _label(r: Resolver, q) -> str:
     try:
         return r.label(q.entity, q.cube)
     except Exception:   # noqa: BLE001 - a label is cosmetic
