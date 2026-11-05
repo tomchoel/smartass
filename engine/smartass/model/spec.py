@@ -77,6 +77,8 @@ class TableBlock(_M):
     other: bool = True
     sort: Literal["none", "desc", "asc", "abs"] = "none"
     periods: list[str] | None = None   # column groups: one per period expression (e.g. closed, closed-ytd)
+    chain: bool = True                 # metric rows with EBITDA: the whole P&L chain, in chain order
+    chain_added: list[str] = []        # the chain metrics complete_chain added (quoted after the rest)
 
     @field_validator("periods")
     @classmethod

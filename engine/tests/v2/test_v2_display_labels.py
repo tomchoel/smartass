@@ -55,7 +55,7 @@ def test_answer_lines_and_key_values_use_display_names():
     pre = prepare(spec, _resolver(), FakeProvider(facts()))
     outs = {o.type: o for o in pre.result.outs}
     assert [ln.label for ln in outs["kpi_tiles"].lines] == ["EBITDA", "Opex"]
-    assert [ln.label for ln in outs["table"].lines] == ["Revenue", "Opex", "C60 OTHER OPEX", "EBITDA"]
+    assert [ln.label for ln in outs["table"].lines] == ["Revenue", "Opex", "EBITDA", "C60 OTHER OPEX"]  # chain first
     assert outs["bridge"].title == "EBITDA bridge"
     assert [ln.label for ln in outs["bridge"].lines] == ["EBITDA Last year", "Revenue", "Opex",
                                                          "Other / unexplained", "EBITDA Actual"]
@@ -66,4 +66,4 @@ def test_answer_lines_and_key_values_use_display_names():
     assert "P&L · Revenue" in kv and "P&L · C60 OTHER OPEX" in kv and not any("ac.C30" in k for k in kv)
     assert not any("ac.EBITDA" in k or "opex_id" in k for k in kv)
     # the line still carries the token the data is picked by
-    assert [ln.metric for ln in outs["table"].lines] == ["ac.C30", "opex_id", "ac.C60", "ac.EBITDA"]
+    assert [ln.metric for ln in outs["table"].lines] == ["ac.C30", "opex_id", "ac.EBITDA", "ac.C60"]

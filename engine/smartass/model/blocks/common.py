@@ -30,6 +30,30 @@ class Line:
     level: int = 0
     metric: str | None = None
     entity: str | None = None
+    code: str = ""           # the member code shown beside the label (C30, EBITDA_BOI, 2BUS); '' for none
+    added: bool = False       # a chain line complete_chain added (key_values fills the cap with these last)
+
+
+CODE_PREFIXES = ("ac.", "un.SY.", "pd.SY.")
+
+
+def code_of(member: str | None) -> str:
+    """A member without its dimension prefix: 'ac.C30' -> 'C30', 'un.SY.2BUS' -> '2BUS'; others unchanged."""
+    if not member:
+        return ""
+    for p in CODE_PREFIXES:
+        if member.startswith(p):
+            return member[len(p):]
+    return member
+
+
+def metric_code(r, metric: str, cube: str) -> str:
+    """The code of a metric's first member in the cube ('' when it has none there)."""
+    try:
+        ms = r.members(metric, cube)
+    except KeyError:
+        return ""
+    return code_of(ms[0]) if ms else ""
 
 
 @dataclass
@@ -193,7 +217,7 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
     shown, rest = (kids[:top], kids[top:]) if top else (kids, [])
     lines = [Line(f"e{i}", r.label(e, q.cube),
                   row_cells(ctx, q, metric, cols, key, f"e{i}", entity=e, total_key="total", bm=bm),
-                  metric=metric, entity=e)
+                  metric=metric, entity=e, code=code_of(e))
              for i, e in enumerate(shown)]
     if rest and other:
         cells: list[Expr | None] = []
@@ -208,7 +232,7 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
         lines.append(Line("other", "Other", cells, metric=metric))
     lines.append(Line("total", r.label(q.entity, q.cube),
                       row_cells(ctx, q, metric, cols, key, "total", entity=q.entity, total_key="total", bm=bm),
-                      kind="grand", metric=metric, entity=q.entity))
+                      kind="grand", metric=metric, entity=q.entity, code=code_of(q.entity)))
     if counted(ctx, q, kids):
         vi = cols.index("value")
         check: list[Expr | None] = [None] * len(cols)
@@ -238,7 +262,7 @@ def product_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *,
     shown, rest = (prods[:top], prods[top:]) if top else (prods, [])
     lines = [Line(f"p{i}", r.label(p, q.cube),
                   row_cells(ctx, q, metric, cols, key, f"p{i}", total_key="total", product=p, bm=bm),
-                  metric=metric, entity=q.entity)
+                  metric=metric, entity=q.entity, code=code_of(p))
              for i, p in enumerate(shown)]
     if rest and other:
         cells: list[Expr | None] = []

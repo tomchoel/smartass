@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from .model.analyze import Result, compute, plan_requests
 from .model.blocks.concept import concept_caveats
+from .model.chain import complete_chain
 from .model.frame import Frame
 from .model.periods import parse
 from .model.requests import GridRequest
@@ -44,8 +45,14 @@ class Prepared:
     caveats: list[dict] = field(default_factory=list)  # {id, text, severity} of the facts the answer touched
 
 
-def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: dict | None = None) -> Prepared:
+def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: dict | None = None,
+            complete: bool = False) -> Prepared:
+    """complete (new questions only): the spec's chained tables get the whole P&L chain first (model/chain.py);
+    the completed spec is the one returned as raw, so it is stored and refresh, patch and redraw see the chain."""
     spec = AnalysisSpec.model_validate(raw)
+    if complete:
+        spec = complete_chain(spec, resolver)
+        raw = spec.model_dump()
     lines = lines or {}
     for i, b in enumerate(spec.blocks):
         if not isinstance(b, LinesBlock):
@@ -131,7 +138,7 @@ def caveats(spec: AnalysisSpec, reqs: list[GridRequest], resolver) -> list[dict]
     return fn(touched, ids, months)
 
 
-def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:
+def run_prepare(raw: dict, provider, lines: dict | None = None, complete: bool = False) -> Prepared:
     """prepare() for a worker thread: everything that touches sqlite (knowledge.db and the atlas) is opened, used and
     closed here, in the calling thread. knowledge.db is built first when it is missing (said in the warnings). Closed
     months are fetched once. Nothing after prepare needs the resolver: the labels are already in the BlockOut lines
@@ -144,7 +151,7 @@ def run_prepare(raw: dict, provider, lines: dict | None = None) -> Prepared:
         note_closed(config.HOME, closed["FinMax"])
     notes: list[str] = []
     with contextlib.closing(open_resolver(closed["FinPlan"][0] % 100, notes)) as resolver:
-        pre = prepare(raw, resolver, provider, closed=closed, lines=lines)
+        pre = prepare(raw, resolver, provider, closed=closed, lines=lines, complete=complete)
     pre.warnings[:0] = notes
     return pre
 

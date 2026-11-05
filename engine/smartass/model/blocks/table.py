@@ -4,10 +4,12 @@ columns, optionally in column groups (one per period, e.g. month and YTD, separa
 headline metrics with one comparison."""
 from __future__ import annotations
 
+from ..chain import CHAIN, KINDS, chained
 from ..context import Ctx
 from ..periods import resolve
 from ..spec import KpiBlock, TableBlock
-from .common import GAP, BlockOut, Line, entity_lines, metric_label, product_lines, row_cells, scenario_heads
+from .common import (GAP, BlockOut, Line, entity_lines, metric_code, metric_label, product_lines, row_cells,
+                     scenario_heads)
 
 
 def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
@@ -40,11 +42,26 @@ def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
         out.lines = product_lines(ctx, q, b.metric, cols, key, top=b.top, other=b.other, sort=b.sort,
                                   bm=bm_or_none)
     else:
-        for i, m in enumerate(b.metrics or q.metrics):
-            out.lines.append(Line(f"m{i}", metric_label(ctx.resolver, m, q.cube),
-                                  row_cells(ctx, q, m, cols, key, f"m{i}", bm=bm_or_none), metric=m,
-                                  entity=q.entity))
+        out.lines = metric_lines(b, ctx, q, cols, key, bm_or_none)
     return out
+
+
+def metric_lines(b: TableBlock, ctx: Ctx, q, cols: list[str], key: str, bm: list | None) -> list[Line]:
+    """One line per metric, keyed m{i} by its index in the table's metrics (stable for the goldens). A chained
+    table shows the chain metrics in chain order (Gross margin and EBITDA before other items as sums, EBITDA as the
+    grand total), then the other metrics as given."""
+    r = ctx.resolver
+    ms = list(b.metrics or q.metrics)
+    labels = [metric_label(r, m, q.cube) for m in ms]
+    order = list(range(len(ms)))
+    chain = chained(b, labels)
+    if chain:
+        pos = {c: i for i, c in enumerate(CHAIN)}
+        order.sort(key=lambda i: (0, pos[labels[i]]) if labels[i] in pos else (1, i))
+    return [Line(f"m{i}", labels[i], row_cells(ctx, q, ms[i], cols, key, f"m{i}", bm=bm),
+                 kind=KINDS.get(labels[i], "line") if chain else "line", metric=ms[i], entity=q.entity,
+                 code=metric_code(r, ms[i], q.cube), added=ms[i] in b.chain_added)
+            for i in order]
 
 
 def build_kpi(b: KpiBlock, ctx: Ctx, key: str) -> BlockOut:

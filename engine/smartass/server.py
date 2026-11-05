@@ -145,19 +145,23 @@ def _has_lines(raw: dict) -> bool:
     return any(isinstance(b, dict) and b.get("type") == "lines" for b in raw.get("blocks") or [])
 
 
-async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target: str = "session"):
+async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target: str = "session",
+                   complete: bool = False):
     """(Prepared, drill warnings). A stored or patched raw spec with lines blocks is re-drilled, so lines are fresh.
     Grids the HTTP route could not fetch are pulled as ad hoc grids in the user's Excel (one job), then the model is
-    prepared again with those results fixed; this fallback runs at most once."""
+    prepared again with those results fixed; this fallback runs at most once. complete (new questions only): the
+    P&L chain is completed in the spec (pipeline.prepare), and the completed spec is what gets stored."""
     notes: list[str] = []
+    kw = {"complete": True} if complete else {}
     lines: dict = {}
     if spec is not None or _has_lines(raw):
         lines, notes = await _line_sets(spec or AnalysisSpec.model_validate(raw))
-    pre = await asyncio.to_thread(run_prepare, raw, provider, lines=lines)
+    pre = await asyncio.to_thread(run_prepare, raw, provider, lines=lines, **kw)
     failed = getattr(pre, "failed", None)
     if failed:
         fixed = await _user(lambda h: adhoc_fetch(h, failed, target), "ad hoc fallback")
-        pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, {**pre.fetched, **fixed}), lines=lines)
+        pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, {**pre.fetched, **fixed}),
+                                      lines=lines, **kw)
     return pre, notes
 
 
@@ -204,7 +208,7 @@ def _default_target(target: str) -> str:
 
 
 async def _new_question(spec: AnalysisSpec, target: str) -> dict:
-    pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target)
+    pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target, complete=True)
     return _with_notes(await _user(lambda h: excel_job(h, pre, target), "fin_analyze"), notes)
 
 

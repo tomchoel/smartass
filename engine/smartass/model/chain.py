@@ -1,0 +1,50 @@
+# engine/smartass/model/chain.py
+"""The P&L chain of a metric-row table: Revenue, COGS, Gross margin, Opex, EBITDA before other items, Other items,
+EBITDA (semantic metric names). A new question's tables that show EBITDA get the missing chain metrics added to the
+spec (complete_chain, before prepare), so they are fetched, stored and seen by refresh, patch and redraw; build_table
+orders and types the chain on every path."""
+from __future__ import annotations
+
+from .spec import AnalysisSpec, TableBlock
+
+CHAIN = ["Revenue", "COGS", "Gross margin", "Opex", "EBITDA before other items", "Other items", "EBITDA"]
+KINDS = {"Gross margin": "sum", "EBITDA before other items": "sum", "EBITDA": "grand"}
+TOP = "EBITDA"
+
+
+def _resolves(r, name: str, cube: str) -> bool:
+    try:
+        r.members(name, cube)
+    except KeyError:                    # UnknownMetric: not defined (in this cube)
+        return False
+    return True
+
+
+def chained(b: TableBlock, labels: list[str]) -> bool:
+    """Does the chain apply to this table: metric rows, chain on, and a metric that resolves to EBITDA."""
+    return b.rows == "metrics" and b.chain and TOP in labels
+
+
+def complete_chain(spec: AnalysisSpec, r) -> AnalysisSpec:
+    """A new spec in which every chained table holds the whole chain its cube resolves: the missing chain metrics
+    are appended (in chain order, after the metrics given, so their m{i} keys do not move) to the table and its
+    query, and recorded in the table's chain_added. Idempotent; the spec given is not changed."""
+    from .blocks.common import metric_label     # blocks.table imports this module
+    out = spec.model_copy(deep=True)
+    queries = {q.id: q for q in out.queries}
+    for b in out.blocks:
+        if not isinstance(b, TableBlock):
+            continue
+        q = queries[b.query]
+        ms = list(b.metrics or q.metrics)
+        labels = [metric_label(r, m, q.cube) for m in ms]
+        if not chained(b, labels):
+            continue
+        in_query = {metric_label(r, m, q.cube): m for m in q.metrics}
+        add = [in_query.get(c, c) for c in CHAIN if c not in labels and (c in in_query or _resolves(r, c, q.cube))]
+        if not add:
+            continue
+        b.metrics = ms + add
+        b.chain_added = list(dict.fromkeys([*b.chain_added, *add]))
+        q.metrics = [*q.metrics, *(m for m in add if m not in q.metrics)]
+    return AnalysisSpec.model_validate(out.model_dump())

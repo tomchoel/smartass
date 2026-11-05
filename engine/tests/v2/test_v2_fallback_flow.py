@@ -30,7 +30,7 @@ class Flaky(FakeProvider):
 
 def _wire(monkeypatch, provider, jobs):
     monkeypatch.setattr(server, "run_prepare",
-                        lambda raw, prov, lines=None: prepare(raw, resolver(), prov, lines=lines))
+                        lambda raw, prov, lines=None, **kw: prepare(raw, resolver(), prov, lines=lines, **kw))
 
     async def user(fn, what):
         jobs.append(what)

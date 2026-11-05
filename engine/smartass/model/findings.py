@@ -67,16 +67,23 @@ SKIP = (GAP, "material")     # spacer and marker columns are not numbers to quot
 
 
 def key_values(outs: list[BlockOut], cells: Cells, limit: int = 40) -> dict[str, dict[str, float | None]]:
+    """'<block title> · <line label>' -> {stable column key: value}, at most limit lines. The cap is filled with the
+    lines given first and the chain lines complete_chain added after them (an added line never pushes a given one
+    out); the lines kept are listed in block order."""
+    lines = [(o, ln) for o in outs for ln in o.lines if ln.kind != "check"]
+    keep: set[str] = set()
+    for added in (False, True):
+        for o, ln in lines:
+            name = f"{o.title} · {ln.label}"
+            if ln.added == added and name not in keep and len(keep) < limit:
+                keep.add(name)
     kv: dict[str, dict[str, float | None]] = {}
-    for o in outs:
-        for ln in o.lines:
-            if ln.kind == "check":
-                continue
-            if len(kv) >= limit:
-                return kv
-            codes = o.cols if len(o.cols) == len(o.keys) else [None] * len(o.keys)
-            kv[f"{o.title} · {ln.label}"] = {k: cells.get(ck(o.key, ln.key, j)) for j, k in enumerate(o.keys)
-                                             if codes[j] not in SKIP}
+    for o, ln in lines:
+        name = f"{o.title} · {ln.label}"
+        if name not in keep or (ln.added and name in kv):
+            continue
+        codes = o.cols if len(o.cols) == len(o.keys) else [None] * len(o.keys)
+        kv[name] = {k: cells.get(ck(o.key, ln.key, j)) for j, k in enumerate(o.keys) if codes[j] not in SKIP}
     return kv
 
 
