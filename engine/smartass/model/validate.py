@@ -15,7 +15,8 @@ from .expr import Cells
 from .periods import Closed, closed_for, label, resolve
 from .resolver import Resolver, UnknownMetric
 from .series import months
-from .spec import AnalysisSpec, BridgeBlock, ConceptBlock, DriversBlock, KpiBlock, RankingBlock, TableBlock
+from .spec import (AnalysisSpec, BridgeBlock, ConceptBlock, DriversBlock, KpiBlock, RankingBlock, TableBlock,
+                   data_block, has_chart)
 
 TOLERANCE = 1.0  # NOK
 
@@ -45,7 +46,7 @@ def _span(ms) -> str:
 def _like_for_like(spec: AnalysisSpec, q, cl) -> None:
     if not q.plan_periods:
         return
-    asked = {s for b in spec.blocks if getattr(b, "query", None) == q.id for s in _plan_bases(b)}
+    asked = {s for b in map(data_block, spec.blocks) if getattr(b, "query", None) == q.id for s in _plan_bases(b)}
     actual = months(q, "value", cl)
     for s in sorted(asked):
         plan = months(q, s, cl)
@@ -83,12 +84,23 @@ def guard_spec(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[Finding]
         if spec.plan.depth != "quick" and q.cube != "FinPlan" and "ly" not in q.compare:
             soft.append(Finding("warning", f"query {q.id} has no last-year comparison", q.id))
     by_id = {q.id: q for q in spec.queries}
-    for b in spec.blocks:
+    for b in map(data_block, spec.blocks):
         if isinstance(b, ConceptBlock):
             _guard_concept(b, by_id[b.query], r)
         if isinstance(b, TableBlock) and b.periods and b.query in by_id:
             _guard_groups(b, by_id[b.query], closed_for(closed, by_id[b.query].cube))
     return soft
+
+
+def guard_chart(spec: AnalysisSpec) -> None:
+    """New questions only (server._new_question): a standard or deep answer needs a chart (a chart block, or a trend
+    or bridge with chart true). Every other path (quick, stored specs, patch, refresh, redraw, the test set) gets an
+    implicit chart from compute instead."""
+    if spec.plan.depth == "quick" or has_chart(spec):
+        return
+    raise GuardError("the answer has no chart",
+                     "add a chart block, e.g. {type:'chart', kind:'waterfall', title:'<message>', "
+                     "source:{block:<bridge index>}}")
 
 
 def _guard_groups(b: TableBlock, q, cl) -> None:

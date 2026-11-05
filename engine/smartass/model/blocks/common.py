@@ -70,6 +70,7 @@ class BlockOut:
     chart: str | None = None
     drills: list = field(default_factory=list)   # DrillRequest (blocks/drivers.py)
     keys: list[str] = field(default_factory=list)  # stable key_values keys parallel to headers (default: headers)
+    chart_of: str | None = None    # a 'chart' out: the key of the block it draws (b<idx>); it has no lines itself
 
     def __post_init__(self):
         if not self.keys:
@@ -82,24 +83,28 @@ MAT_ABS, MAT_PCT, MAT_SMALL = "mat_abs.", "mat_pct.", "mat_small."
 
 
 def add_material(o: BlockOut, r) -> None:
-    """Append the Material column to a block with a var column: one Material cell per line over the last group's
-    first var and its var_pct against the same base (as findings.material judges it); check lines and lines
-    without a metric get None. Without a var in the last group nothing is added."""
+    """Append the Material column to a block with a var column: one Material cell per line over every var of the
+    last group, each with the first var_pct against its own base (as findings.material judges it: 1 when the line
+    is material against any base); check lines and lines without a metric get None. Without a var in the last
+    group nothing is added."""
     last = group_start(o.cols, len(o.cols))
-    vi = next((j for j in range(last, len(o.cols)) if o.cols[j] == "var"), None)
-    if vi is None:
+    pairs = []
+    for vi in (j for j in range(last, len(o.cols)) if o.cols[j] == "var"):
+        bi = o.cols[base_of(o.cols, vi)]
+        pairs.append((vi, next((j for j in range(last, len(o.cols))
+                                if o.cols[j] == "var_pct" and o.cols[base_of(o.cols, j)] == bi), None)))
+    if not pairs:
         return
-    bi = base_of(o.cols, vi)
-    pi = next((j for j in range(last, len(o.cols))
-               if o.cols[j] == "var_pct" and base_of(o.cols, j) == bi), None)
     for ln in o.lines:
         cell: Expr | None = None
-        if ln.metric and ln.kind != "check" and ln.cells[vi] is not None:
+        refs = [(Ref(ck(o.key, ln.key, vi)),
+                 Ref(ck(o.key, ln.key, pi)) if pi is not None and ln.cells[pi] is not None else None)
+                for vi, pi in pairs if ln.cells[vi] is not None]
+        if ln.metric and ln.kind != "check" and refs:
             a, pct = r.materiality(ln.metric)
-            cell = Material(Ref(ck(o.key, ln.key, vi)),
-                            Ref(ck(o.key, ln.key, pi)) if pi is not None and ln.cells[pi] is not None else None,
-                            Param(MAT_ABS + ln.metric, a), Param(MAT_PCT + ln.metric, pct),
-                            Param(MAT_SMALL + ln.metric, a / 10))
+            (v, p), *more = refs
+            cell = Material(v, p, Param(MAT_ABS + ln.metric, a), Param(MAT_PCT + ln.metric, pct),
+                            Param(MAT_SMALL + ln.metric, a / 10), tuple(more))
         ln.cells.append(cell)
     o.cols.append(MATERIAL)
     o.headers.append("Material")

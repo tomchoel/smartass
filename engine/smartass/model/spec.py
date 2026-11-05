@@ -23,6 +23,7 @@ class _M(BaseModel):
 
 class Plan(_M):
     depth: Literal["quick", "standard", "deep"]
+    title: str = ""                   # the message title of the answer sheet ('' = purpose, else the question)
     purpose: str = ""
     hypotheses: list[str] = []
     audience: Literal["controller", "management", "analyst"] = "controller"
@@ -145,6 +146,7 @@ class BridgeBlock(_M):
     total: str
     steps: list[str] = Field(min_length=1)
     base: Compare = "ly"
+    chart: bool = True                # a waterfall beside the bridge (counts as the answer's chart)
 
 
 class RankingBlock(_M):
@@ -222,8 +224,76 @@ class ConceptBlock(_M):
     title: str = ""
 
 
+ChartKind = Literal["waterfall", "line", "column", "bar", "stacked", "stacked100", "combo", "variance"]
+ChartSeries = Literal["value", "ly", "budget", "forecast", "var", "var_pct", "amount"]
+
+
+class ChartSource(_M):
+    """What a chart draws: a block already on the sheet (block = its index in blocks), or its own data (query plus
+    metrics/periods/rows/columns as in a table block; laid out as a 'Chart data' table)."""
+    block: int | None = None
+    query: str | None = None
+    metrics: list[str] = []
+    periods: list[str] | None = None
+    rows: Literal["metrics", "entities", "products"] = "metrics"
+    metric: str | None = None
+    columns: list[Column] = ["value", "ly"]
+
+    @model_validator(mode="after")
+    def _one(self) -> "ChartSource":
+        if (self.block is None) == (self.query is None):
+            raise ValueError("chart source: give exactly one of block (a block index) or query (own data)")
+        return self
+
+
+class ChartBlock(_M):
+    type: Literal["chart"]
+    kind: ChartKind
+    title: str = Field(min_length=1)  # the message the chart shows
+    source: ChartSource
+    series: list[ChartSeries] = []    # [] = the kind's default (blocks/chart.py DEFAULT_SERIES)
+    highlight: list[str] = []         # line labels to colour; the rest grey
+    sort: Literal["desc", "asc", "none"] = "none"   # bar: desc unless given
+
+    @model_validator(mode="after")
+    def _shape(self) -> "ChartBlock":
+        if not self.title.strip():
+            raise ValueError("chart: title is the chart's message and may not be blank")
+        if self.kind == "bar" and "sort" not in self.model_fields_set:
+            self.sort = "desc"
+        if self.source.query is not None:
+            self.data_table()             # own data: the same column rules as a table
+            if self.kind == "waterfall" and "amount" not in self.series:
+                raise ValueError("chart: a waterfall points at a bridge block (source.block) or has its own data "
+                                 "with an 'amount' series")
+        return self
+
+    def data_table(self) -> "TableBlock | None":
+        """Own data as the table it is laid out as (no Material column, no chain); None for a block source."""
+        s = self.source
+        if s.query is None:
+            return None
+        return TableBlock(type="table", query=s.query, title=f"Chart data: {self.title}", rows=s.rows,
+                          metrics=list(s.metrics), metric=s.metric, columns=list(s.columns), periods=s.periods,
+                          chain=False, material=False)
+
+
 Block = Annotated[Union[TableBlock, KpiBlock, TrendBlock, BridgeBlock, RankingBlock, MatrixBlock, DriversBlock,
-                        LinesBlock, CommentaryBlock, ConceptBlock], Field(discriminator="type")]
+                        LinesBlock, CommentaryBlock, ConceptBlock, ChartBlock], Field(discriminator="type")]
+
+
+def data_block(b):
+    """The block as its data: an own-data chart is its table, every other block itself (a chart on another block
+    has no data of its own: None)."""
+    if isinstance(b, ChartBlock):
+        return b.data_table()
+    return b
+
+
+def has_chart(spec: "AnalysisSpec") -> bool:
+    """A chart block, a trend with chart true or a bridge with chart true."""
+    return any(isinstance(b, ChartBlock) or (isinstance(b, (TrendBlock, BridgeBlock)) and b.chart)
+               for b in spec.blocks)
 
 
 def block_metrics(b) -> list[str]:
@@ -273,7 +343,10 @@ class AnalysisSpec(_M):
             if not q.metrics and (not users or not all(isinstance(b, ConceptBlock) for b in users)):
                 raise ValueError(f"query {q.id} needs metrics (only a query that serves concept blocks alone may "
                                  "have none)")
-        for i, b in enumerate(self.blocks):
+        for i, c in enumerate(self.blocks):
+            if isinstance(c, ChartBlock):
+                self._chart_ref(i, c)
+            b = data_block(c)
             qid = getattr(b, "query", None)
             if qid is None:
                 continue
@@ -293,6 +366,19 @@ class AnalysisSpec(_M):
             if absent:
                 raise ValueError(f"block {i} ({b.type}): {absent} not in query '{qid}' compare")
         return self
+
+    def _chart_ref(self, i: int, c: ChartBlock) -> None:
+        j = c.source.block
+        if j is None:
+            return
+        if not 0 <= j < len(self.blocks):
+            raise ValueError(f"block {i} (chart): source.block {j} is not a block index (0..{len(self.blocks) - 1})")
+        t = self.blocks[j]
+        if isinstance(t, (ChartBlock, CommentaryBlock)):
+            raise ValueError(f"block {i} (chart): source.block {j} is a {t.type} block; point at a block with data")
+        if c.kind == "waterfall" and not isinstance(t, BridgeBlock):
+            raise ValueError(f"block {i} (chart): a waterfall points at a bridge block, not a {t.type} block "
+                             "(or give it its own data with an 'amount' series)")
 
 
 def json_schema() -> dict:

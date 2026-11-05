@@ -142,7 +142,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
                 r += 1
             r += 1
             continue
-        if o is None:
+        if o is None or o.type == "chart":       # chart blocks are drawn in the Charts zone (plan 5 Task 7)
             continue
         text(r, o.title, "section")
         r += 1
@@ -166,7 +166,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
             placed.append((r, o, ln))
             line_rows.append((r, ln.kind))
             r += 1
-        if o.chart:
+        if o.chart and o.type in ("trend", "bridge"):   # chart_data is laid out as a table for now
             rows = [row for row, kind in line_rows if o.chart == "waterfall" or kind not in ("grand", "check")]
             if rows:
                 line = o.chart == "line"

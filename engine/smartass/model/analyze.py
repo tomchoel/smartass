@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields, replace
 
 from .blocks import BUILDERS
+from .blocks.chart import implicit_chart
 from .blocks.common import MAT_ABS, MAT_PCT, MAT_SMALL, BlockOut, evaluate
 from .blocks.concept import concept_findings
 from .context import Ctx
@@ -16,7 +17,7 @@ from .frame import Frame
 from .periods import Closed
 from .requests import GridRequest, requests
 from .resolver import Resolver
-from .spec import AnalysisSpec
+from .spec import AnalysisSpec, ChartBlock, has_chart
 from .validate import Finding, guard_result, guard_spec, sign_findings
 
 
@@ -114,6 +115,7 @@ def _unique(names: list[str]) -> list[str]:
 
 def _uniquify(outs: list[BlockOut]) -> None:
     """Block titles and, within a block, line labels become unique so key_values cannot overwrite itself."""
+    outs = [o for o in outs if o.type != "chart"]     # a chart out has no lines (and its title is a message)
     for o, t in zip(outs, _unique([o.title for o in outs])):
         o.title = t
         for ln, lab in zip(o.lines, _unique([ln.label for ln in o.lines])):
@@ -123,8 +125,16 @@ def _uniquify(outs: list[BlockOut]) -> None:
 def compute(spec: AnalysisSpec, r: Resolver, closed: Closed, frame: Frame, kv_limit: int = 40) -> Result:
     soft = guard_spec(spec, r, closed)
     ctx = Ctx(spec, r, closed, frame)
-    outs = [BUILDERS[b.type](b, ctx, f"b{i}") for i, b in enumerate(spec.blocks) if b.type in BUILDERS]
+    # chart blocks are built after the rest (keys stay b<i>): a chart title never renames a table (_uniquify), and
+    # own chart data never takes a material line or a key_values slot from the table it repeats
+    order = sorted(range(len(spec.blocks)), key=lambda i: isinstance(spec.blocks[i], ChartBlock))
+    outs = [BUILDERS[spec.blocks[i].type](spec.blocks[i], ctx, f"b{i}") for i in order
+            if spec.blocks[i].type in BUILDERS]
     _uniquify(outs)
+    if not has_chart(spec):          # every answer has a chart; the stored spec stays as given
+        extra = implicit_chart(outs)
+        if extra is not None:
+            outs.append(extra)
     apply_floors(outs, r)
     cells = evaluate(outs, frame)
     guard_result(outs, cells)

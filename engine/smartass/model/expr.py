@@ -297,27 +297,37 @@ class CubeRef(Expr):
 class Material(Expr):
     """The Material marker of a line: 1 when |var| >= a, or when |var %| >= pct_t and |var| >= a10 (the
     findings.material rule), else 0; a missing var is 0. All three thresholds are Param cells. A blank variance %
-    (Excel "") goes through N() so it counts as no percentage instead of an ABS() error."""
+    (Excel "") goes through N() so it counts as no percentage instead of an ABS() error. more: further (var, pct)
+    pairs of the same line (a table with several bases): 1 when any pair is material, as findings.material lists
+    the line for any base."""
     var: Expr
     pct: Expr | None
     a: Param
     pct_t: Param
     a10: Param
+    more: tuple[tuple[Expr, Expr | None], ...] = ()
+
+    def _hit(self, var, pct, frame, cells) -> bool:
+        v = var.evaluate(frame, cells)
+        if v is None:
+            return False
+        if abs(v) >= self.a.value:
+            return True
+        p = pct.evaluate(frame, cells) if pct is not None else None
+        return p is not None and abs(p) >= self.pct_t.value and abs(v) >= self.a10.value
 
     def evaluate(self, frame, cells):
-        v = self.var.evaluate(frame, cells)
-        if v is None:
-            return 0.0
-        if abs(v) >= self.a.value:
-            return 1.0
-        p = self.pct.evaluate(frame, cells) if self.pct is not None else None
-        return 1.0 if p is not None and abs(p) >= self.pct_t.value and abs(v) >= self.a10.value else 0.0
+        return 1.0 if any(self._hit(v, p, frame, cells) for v, p in ((self.var, self.pct), *self.more)) else 0.0
+
+    def _cond(self, var, pct, table, addr, const) -> str:
+        v = var.to_excel(table, addr, const)
+        a = self.a.to_excel(table, addr, const)
+        if pct is None:
+            return f"ABS({v})>={a}"
+        p = pct.to_excel(table, addr, const)
+        t, s = self.pct_t.to_excel(table, addr, const), self.a10.to_excel(table, addr, const)
+        return f"OR(ABS({v})>={a},AND(ABS(N({p}))>={t},ABS({v})>={s}))"
 
     def to_excel(self, table, addr, const=None):
-        v = self.var.to_excel(table, addr, const)
-        a = self.a.to_excel(table, addr, const)
-        if self.pct is None:
-            return f"IF(ABS({v})>={a},1,0)"
-        p = self.pct.to_excel(table, addr, const)
-        t, s = self.pct_t.to_excel(table, addr, const), self.a10.to_excel(table, addr, const)
-        return f"IF(OR(ABS({v})>={a},AND(ABS(N({p}))>={t},ABS({v})>={s})),1,0)"
+        conds = [self._cond(v, p, table, addr, const) for v, p in ((self.var, self.pct), *self.more)]
+        return f"IF({conds[0] if len(conds) == 1 else 'OR(' + ','.join(conds) + ')'},1,0)"
