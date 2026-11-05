@@ -36,7 +36,7 @@ W_NUM, W_GAP, W_MARK, W_A, W_CODE, W_CODE_MAX = 16, 2, 9, 2, 9, 24
 DEFAULT_WIDTH = 8.43
 CONVENTIONS = ("NOK. FinMax signs: costs are negative. Δ = current − comparison; ▲ better, ▼ worse. Variance % "
                "blank when |base| < floor. ● = material (thresholds below).")
-UNIT_MNOK, TOLERANCE = "unit_mnok", "tolerance"
+UNIT_MNOK, TOLERANCE, HUNDRED = "unit_mnok", "tolerance", "hundred"
 TOLERANCE_NOK = 1.0
 NON_TABLE = ("chart", "chart_data")    # outs that are not laid out in the tables zone
 
@@ -337,6 +337,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     param(r, UNIT_MNOK, "Unit MNOK (NOK)", 1_000_000, "heltall")
     r += 1
     param(r, TOLERANCE, "Tolerance (NOK)", TOLERANCE_NOK, "heltall")
+    r += 1
+    param(r, HUNDRED, "Percent factor", 100, "heltall")
     r += 2
     if res.findings:
         text(r, "Findings", "section")

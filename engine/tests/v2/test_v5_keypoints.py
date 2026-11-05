@@ -1,0 +1,161 @@
+# engine/tests/v2/test_v5_keypoints.py
+"""Plan 5 Task 6: the Key points - live number sentences on the main table's last column group, the cause row from
+the commentary drivers, the agent's free points capped at 5 in total. Every figure is invented."""
+import re
+from types import SimpleNamespace
+
+import pytest
+from pydantic import ValidationError
+from test_v5_layout import GROUPED, run
+from v2util import spec_dict
+
+from smartass.model.blocks.common import BlockOut, Line
+from smartass.model.expr import Const
+from smartass.model.spec import AnalysisSpec, Driver
+from smartass.render.keypoints import key_points
+from smartass.render.layout import HUNDRED, TEXT_COL, UNIT_MNOK
+from smartass.xl.vendor import formelsjekk
+
+COLS = ["value", "ly", "var", "var_pct", "gap", "value", "ly", "var", "var_pct", "material"]
+HEADERS = ["AC Oct 26", "PY Oct 25", "ΔPY", "ΔPY %", "", "AC YTD Oct 26", "PY YTD Oct 25", "ΔPY", "ΔPY %",
+           "Material"]
+
+
+def _line(key, label, kind="line", metric=None):
+    cells = [Const(0.0) if c != "gap" else None for c in COLS]
+    return Line(key, label, cells, kind=kind, metric=metric or label)
+
+
+def _main(lines=None):
+    lines = lines or [_line("m0", "Revenue"), _line("m1", 'Opex "other"', metric="Opex"),
+                      _line("m2", "EBITDA", kind="grand")]
+    return BlockOut("b0", "table", "P&L", HEADERS, cols=list(COLS), lines=lines)
+
+
+def _res(material):
+    return SimpleNamespace(material=material)
+
+
+def _mat(line, v, base="ly"):
+    return {"block": "P&L", "line": line, "key": f"b0.{line}", "variance": v, "variance_pct": None, "base": base}
+
+
+ROWS = {"m0": 10, "m1": 11, "m2": 12}
+
+
+def addr(key: str) -> str:
+    if key == UNIT_MNOK:
+        return "$D$40"
+    if key == HUNDRED:
+        return "$D$42"
+    _, line, col = key.split(".")
+    return "DEFGHIJKLM"[int(col)] + str(ROWS[line])
+
+
+def test_two_material_lines_in_abs_variance_order_exact_formulas():
+    pts = key_points(_main(), _res([_mat("m0", 5.0e6), _mat("m1", -9.0e6)]), [], addr)
+    assert [f for f, _ in pts] == [
+        '="•  Opex ""other"" YTD Oct 26 "&FIXED(I11/$D$40,1)&" MNOK; "&FIXED(K11/$D$40,1)&" MNOK vs PY ("&'
+        'IF(L11="","n/a",FIXED(L11*$D$42,1)&" %")&")"',
+        '="•  Revenue YTD Oct 26 "&FIXED(I10/$D$40,1)&" MNOK; "&FIXED(K10/$D$40,1)&" MNOK vs PY ("&'
+        'IF(L10="","n/a",FIXED(L10*$D$42,1)&" %")&")"',
+    ]
+    assert [c for _, c in pts] == ["   Cause not yet explained", "   Cause not yet explained"]
+
+
+def test_a_line_material_against_two_bases_is_one_point_and_at_most_four():
+    lines = [_line(f"m{i}", f"L{i}") for i in range(6)]
+    mat = [_mat(f"m{i}", float(i + 1)) for i in range(6)] + [_mat("m5", 99.0, base="budget")]
+    rows = {f"m{i}": 10 + i for i in range(6)}
+    pts = key_points(_main(lines), _res(mat), [], lambda k: k if "." not in k else "A" + str(rows[k.split(".")[1]]))
+    assert [f.split(" YTD")[0] for f, _ in pts] == ['="•  L5', '="•  L4', '="•  L3', '="•  L2']
+
+
+def test_causes_data_hypothesis_and_metric_match():
+    drivers = [Driver(line="revenue", text="Price rise", basis="data", evidence="b2.r1.0"),
+               Driver(line="Opex", text="Consultants", basis="hypothesis")]
+    pts = key_points(_main(), _res([_mat("m0", 5.0e6), _mat("m1", -9.0e6)]), drivers, addr)
+    assert [c for _, c in pts] == ["   Consultants (hypothesis — not verified in data)",
+                                   "   Price rise (data: b2.r1.0)"]
+
+
+def test_no_material_lines_gives_the_grand_line_without_cause():
+    pts = key_points(_main(), _res([]), [], addr)
+    assert len(pts) == 1 and pts[0][0].startswith('="•  EBITDA YTD Oct 26 "&FIXED(I12/$D$40,1)') and pts[0][1] is None
+    drv = [Driver(line="EBITDA", text="Lower opex", basis="hypothesis")]
+    assert key_points(_main(), _res([]), drv, addr)[0][1] == "   Lower opex (hypothesis — not verified in data)"
+
+
+def test_no_grand_line_gives_the_first_line():
+    pts = key_points(_main([_line("m0", "Revenue"), _line("m1", "Opex")]), _res([]), [], addr)
+    assert pts[0][0].startswith('="•  Revenue ')
+
+
+def test_short_form_without_var_column():
+    o = BlockOut("b0", "table", "P&L", ["AC YTD Oct 26"], cols=["value"],
+                 lines=[Line("m0", "Revenue", [Const(0.0)], kind="grand", metric="Revenue")])
+    pts = key_points(o, _res([]), [], lambda k: "$D$40" if k == UNIT_MNOK else "D10")
+    assert pts == [('="•  Revenue YTD Oct 26 "&FIXED(D10/$D$40,1)&" MNOK"', None)]
+
+
+def test_stock_metric_has_no_mnok():
+    o = BlockOut("b0", "table", "FTE", ["AC YTD Oct 26"], cols=["value"],
+                 lines=[Line("m0", "FTE", [Const(0.0)], kind="grand", metric="FTE")])
+    pts = key_points(o, _res([]), [], lambda k: "D10", stock={"FTE"})
+    assert pts == [('="•  FTE YTD Oct 26 "&FIXED(D10,1)', None)]
+
+
+def test_free_key_points_follow_and_cap_the_total_at_five():
+    free = ["one", "two", "three", "=four"]
+    pts = key_points(_main(), _res([_mat("m0", 5.0), _mat("m1", 9.0)]), [], addr, free=free)
+    assert len(pts) == 5
+    assert pts[2:] == [("•  one", None), ("•  two", None), ("•  three", None)]
+    pts = key_points(_main(), _res([]), [], addr, free=free)
+    assert pts[1:] == [("•  one", None), ("•  two", None), ("•  three", None), ("•  =four", None)]
+
+
+def test_count_does_not_depend_on_addr():
+    res = _res([_mat("m0", 5.0), _mat("m1", 9.0)])
+    assert len(key_points(_main(), res, [], lambda k: "A1", free=["x"])) == \
+        len(key_points(_main(), res, [], addr, free=["x"]))
+
+
+def test_validator_refuses_more_than_five_key_points():
+    d = spec_dict(blocks=[GROUPED, {"type": "commentary", "key_points": ["a", "b", "c", "d", "e", "f"]}])
+    with pytest.raises(ValidationError):
+        AnalysisSpec.model_validate(d)
+    d["blocks"][1]["key_points"] = ["a", "b", "c", "d", "e"]
+    AnalysisSpec.model_validate(d)
+
+
+def _balanced(f: str) -> bool:
+    """Minimal Excel syntax: quotes pair up ("" is an escaped quote) and parentheses balance outside strings."""
+    depth, i, inside = 0, 0, False
+    while i < len(f):
+        ch = f[i]
+        if ch == '"':
+            if inside and f[i + 1:i + 2] == '"':
+                i += 2
+                continue
+            inside = not inside
+        elif not inside and ch in "()":
+            depth += 1 if ch == "(" else -1
+            if depth < 0:
+                return False
+        i += 1
+    return depth == 0 and not inside
+
+
+def test_layout_end_to_end_formulas_are_valid_and_pass_formelsjekk():
+    from functools import partial
+    d_kp = partial(key_points, free=["Agent point"])
+    s, res, p = run([GROUPED], key_points=d_kp)
+    assert HUNDRED in p.params and UNIT_MNOK in p.params
+    r = dict(p.zones)["key_points"]
+    f = p.cells[(r + 1, TEXT_COL)]
+    assert f.startswith('="•  EBITDA YTD Oct 26 "&FIXED(') and p.params[UNIT_MNOK] in f and p.params[HUNDRED] in f
+    assert p.cells[(r + 2, TEXT_COL)] == "•  Agent point"
+    for formula in (f, *(x for x, _ in key_points(_main(), _res([_mat("m1", 1.0)]), [], addr))):
+        assert _balanced(formula), formula
+        assert all(len(lit) <= 255 for lit in re.findall(r'"((?:[^"]|"")*)"', formula))
+        assert [x for x in formelsjekk.check_formula(formula) if x.severity == "block"] == []

@@ -138,7 +138,7 @@ def test_no_floor_used_no_floor_rows():
     res = compute(s, res_(), CLOSED, frame())
     p = layout(1, s, res, stock={"FTE"}, subtitle="x", const={})
     assert not any(k.startswith("floor.") for k in p.params)                  # plan 5: Thresholds always shows
-    assert set(p.params) == {"unit_mnok", "tolerance"}                       # the unit and the check tolerance
+    assert set(p.params) == {"unit_mnok", "tolerance", "hundred"}            # unit, check tolerance, percent factor
 
 
 def test_sheet_equals_model_with_a_blank_pct():

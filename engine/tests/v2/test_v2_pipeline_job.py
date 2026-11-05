@@ -93,3 +93,19 @@ def test_job_writes_each_line_set_before_the_answer(monkeypatch):
     assert log.index("write_data") < log.index("write_lines 4 b0") < log.index("write_answer")
     assert log.count("write_lines 4 b0") == 1
     assert out["sheets"] == ["Q4 Answer", "Q4 Data", "Q4 Lines b0"]
+
+
+def test_job_writes_live_key_points_and_free_points(monkeypatch):
+    from smartass.render.layout import TEXT_COL
+    log, plans = [], []
+    wire(monkeypatch, log)
+    monkeypatch.setattr(pipeline, "write_answer", lambda ws, plan, warnings: plans.append(plan) or [])
+    d = spec_dict()
+    d["blocks"].append({"type": "commentary", "key_points": ["Agent point"]})
+    pre = pipeline.prepare(d, resolver(), FakeProvider(facts()))
+    pipeline.excel_job(None, pre, target="session")
+    p = plans[0]
+    r = dict(p.zones)["key_points"]
+    pts = [p.cells.get((row, TEXT_COL)) for row in range(r + 1, dict(p.zones)["charts"])]
+    assert pts[0].startswith('="•  ') and "FIXED(" in pts[0]
+    assert "•  Agent point" in pts
