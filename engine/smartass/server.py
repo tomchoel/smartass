@@ -22,7 +22,7 @@ from .followup import find_question, merge_patch, v2_questions
 from .model.chain import restore_chain
 from .model.lines import LineSet
 from .model.spec import AnalysisSpec, LinesBlock
-from .model.validate import GuardError, guard_chart
+from .model.validate import GuardError, guard_chart, guard_key_points
 from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prepare
 
 TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "fin_critic", "xl_snapshot",
@@ -211,6 +211,7 @@ def _default_target(target: str) -> str:
 
 async def _new_question(spec: AnalysisSpec, target: str) -> dict:
     guard_chart(spec)                  # new questions only: every other path gets an implicit chart
+    guard_key_points(spec)             # new questions only: a stored spec keeps its first 5 (a warning)
     pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target, complete=True)
     return _with_notes(await _user(lambda h: excel_job(h, pre, target), "fin_analyze"), notes)
 

@@ -15,8 +15,8 @@ from .expr import Cells
 from .periods import Closed, closed_for, label, resolve
 from .resolver import Resolver, UnknownMetric
 from .series import months
-from .spec import (AnalysisSpec, BridgeBlock, ConceptBlock, DriversBlock, KpiBlock, RankingBlock, TableBlock,
-                   data_block, has_chart)
+from .spec import (AnalysisSpec, BridgeBlock, CommentaryBlock, ConceptBlock, DriversBlock, KpiBlock, RankingBlock,
+                   TableBlock, data_block, has_chart)
 
 TOLERANCE = 1.0  # NOK
 
@@ -101,6 +101,18 @@ def guard_chart(spec: AnalysisSpec) -> None:
     raise GuardError("the answer has no chart",
                      "add a chart block, e.g. {type:'chart', kind:'waterfall', title:'<message>', "
                      "source:{block:<bridge index>}}")
+
+
+MAX_KEY_POINTS = 5
+
+
+def guard_key_points(spec: AnalysisSpec) -> None:
+    """New questions only (server._new_question): a commentary block holds at most 5 key points. Stored specs
+    (patch, refresh, redraw) keep loading; there the first 5 are kept with a warning (keypoints.free_points)."""
+    for i, b in enumerate(spec.blocks):
+        if isinstance(b, CommentaryBlock) and len(b.key_points) > MAX_KEY_POINTS:
+            raise GuardError(f"block {i} (commentary): {len(b.key_points)} key points, at most {MAX_KEY_POINTS}",
+                             "keep the 5 that matter most; the engine adds the material lines itself")
 
 
 def _guard_groups(b: TableBlock, q, cl) -> None:

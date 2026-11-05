@@ -171,6 +171,17 @@ def main_table(res: Result):
     return next((o for o in res.outs if o.type not in NON_TABLE and o.lines), None)
 
 
+def key_point_table(tables: list):
+    """The main table of the Key points: the first out in spec order with a value column and lines that is not a
+    bridge or a trend (a table, kpi, ranking, concept ...), else None (then only the agent's free points)."""
+    return next((o for o in tables if o.lines and "value" in o.cols and o.type not in ("bridge", "trend")), None)
+
+
+def _point_rows(points) -> list[str]:
+    from .keypoints import point_rows
+    return point_rows(points)
+
+
 def _last_period(o) -> str:
     """The period of the out's last column group, from its value header ('AC YTD Oct 26' -> 'YTD Oct 26')."""
     if o is None or "value" not in o.cols:
@@ -221,7 +232,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     tables.sort(key=lambda o: order.get(o.key, len(order)))
     chart_data = [o for o in res.outs if o.type == "chart_data"]
     chart_data.sort(key=lambda o: order.get(o.key, len(order)))
-    main = main_table(res)
+    main = key_point_table(tables)
     drivers = [d for b in spec.blocks if isinstance(b, CommentaryBlock) for d in b.drivers]
     widest = max([len(o.headers) for o in tables + chart_data] or [1])
     col_kind: dict[int, set[str]] = {}            # sheet column -> the column codes the tables put there
@@ -290,9 +301,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     zone("key_points", r)
     text(r, "Key points", "section")
     r += 1
-    points = hook(main, res, drivers, lambda key: "A1") if main is not None else []
     kp_row = r
-    r += sum(1 + (cause is not None) for _, cause in points) + 1
+    r += len(_point_rows(hook(main, res, drivers, lambda key: "A1"))) + 1
 
     # 4. Charts: two per zone row, in spec order (a trend/bridge chart at its block, chart blocks, the implicit one)
     zone("charts", r)
@@ -393,14 +403,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         refs = [p.addr[ck(o.key, ln.key, j)] for j, e in enumerate(ln.cells) if e is not None]
         size = f"ABS({refs[0]})" if len(refs) == 1 else "MAX(" + ",".join(f"ABS({a})" for a in refs) + ")"
         p.cells[(row, FIRST_COL)] = f'=IF({size}<={tol},"OK","DIFF")'
-    if main is not None:
-        rr = kp_row
-        for formula, cause in hook(main, res, drivers, addr):
-            text(rr, formula, "text")
-            rr += 1
-            if cause is not None:
-                text(rr, cause, "text")
-                rr += 1
+    for i, row_text in enumerate(_point_rows(hook(main, res, drivers, addr))):
+        text(kp_row + i, row_text, "text")
     p.print_last_col = col_letter(FIRST_COL + widest - 1)
     p.last_col = p.print_last_col
     p.last_row = r

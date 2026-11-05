@@ -211,7 +211,7 @@ class Driver(_M):
 class CommentaryBlock(_M):
     type: Literal["commentary"]
     title: str = "Commentary"
-    key_points: list[str] = Field(default_factory=list, max_length=5)   # with the engine's points: 5 in total
+    key_points: list[str] = Field(default_factory=list, description="at most 5 (a new question refuses more)")
     drivers: list[Driver] = []
 
 

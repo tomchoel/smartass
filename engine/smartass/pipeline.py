@@ -17,7 +17,7 @@ from .model.chain import complete_chain, restore_chain
 from .model.frame import Frame
 from .model.periods import parse
 from .model.requests import GridRequest
-from .model.spec import AnalysisSpec, CommentaryBlock, LinesBlock
+from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError
 from .epm.svhttp import SvHttpError
 
@@ -188,7 +188,7 @@ from .render.charts import write_charts  # noqa: E402
 from .render.excel import (col_number, read_block, read_data, rewrite_data, rewrite_grid,  # noqa: E402
                            write_answer, write_data)
 from .render.layout import answer_subtitle, constant_columns, layout  # noqa: E402
-from .render.keypoints import key_points  # noqa: E402
+from .render.keypoints import free_points, key_points  # noqa: E402
 from .render.readback import compare  # noqa: E402
 
 DATA_TAB = 0xA6A6A6      # grey tab for data sheets (BGR), as v1 sheetorder.DATA_TAB
@@ -376,7 +376,8 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     line_sheets = [f"Q{q} Lines {a}" for a in pre.frame.lines]
     for ls in pre.frame.lines.values():         # before the answer, so its formulas resolve
         _write_lines(t, q, ls)
-    free = [t for b in pre.spec.blocks if isinstance(b, CommentaryBlock) for t in b.key_points]
+    free, too_many = free_points(pre.spec)
+    pre.warnings += [w for w in too_many if w not in pre.warnings]
     plan = layout(q, pre.spec, pre.result, stock=_stock(pre),
                   subtitle=answer_subtitle(pre.spec, pre.result, pre.closed),
                   const=constant_columns(pre.frame), caveats=pre.caveats,
