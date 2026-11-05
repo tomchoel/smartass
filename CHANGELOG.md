@@ -7,6 +7,9 @@ validates, computes and draws it (design `docs/DESIGN.md`, `docs/specs/2026-11-0
 
 ### Fixed
 
+- Critic score: `fin_critic(q, scores, notes)` takes the six criterion scores and computes the score itself (mean
+  rounded half up). The agent no longer computes it: a pane run stored 4 for a mean of 4.83.
+
 - Pane live-test fixes (v2): follow-ups (`fin_analyze(patch)`), `fin_refresh` and `fin_critic` default to the
   workbook of the latest answer in answers.db, not the old session file (explicit targets win; no stored answer
   keeps the session workbook); a target that is the name of an open workbook (e.g. an unsaved `Book1`, with or

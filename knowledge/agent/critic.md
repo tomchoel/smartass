@@ -17,9 +17,11 @@ A 3 is between: the criterion is mostly met with one clear miss. A 1 means the c
 
 ## Score and fix
 
-- The score is the rounded mean of the six. It must be **at least 4** for standard or deep answers and packs.
 - Every `gaps` item in the brief costs at least one point on its criterion until it is fixed.
-- Below 4: list the fixes (one line each, the criterion number first), apply them by `fin_analyze(patch=...)`, and
-  score again. At most **2 rounds**; after that, store the score and tell the user what is still open.
-- Store the final score with `fin_critic(q, score, notes)`; the notes name the weakest criterion and why.
+- Store the six criterion scores (order 1–6) with `fin_critic(q, scores, notes)`; the notes name the weakest
+  criterion and why. The server computes the score (the mean rounded half up, so 3.5 is 4) and returns it with
+  `passed` (score at least 4, required for standard or deep answers and packs). Never compute a mean yourself.
+- `passed` false: list the fixes (one line each, the criterion number first), apply them by
+  `fin_analyze(patch=...)`, and score again. At most **2 rounds**; after that, tell the user what is still open.
+- Report the returned `score`.
 - Never raise a score by removing a material line, a caveat or a comparison: fix the answer instead.

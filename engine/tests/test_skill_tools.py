@@ -57,7 +57,7 @@ def test_products_map_side_files_are_gone():
 
 def test_skill_covers_the_critic_loop_playbook_prompts_and_answer_memory():
     text = _text()
-    assert "fin_critic(q, score, notes)" in text and "rubric" in text
+    assert "fin_critic(q, scores, notes)" in text and "rubric" in text
     assert "prompt" in text and all(p in text for p in ("monthly-pack", "variance-commentary", "gl-extract",
                                                         "prodreg-input"))
     assert 'fin_lookup(query, kind="answer")' in text

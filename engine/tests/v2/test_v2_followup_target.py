@@ -120,7 +120,7 @@ def test_critic_defaults_to_the_workbook_of_the_latest_answer(home, monkeypatch)
     seen = _critic_wire(monkeypatch)
     out = asyncio.run(server.fin_critic())
     assert seen == ["Book1"] and out["workbook"] == "Book1" and out["brief"] == {"purpose": "Book1"}
-    assert asyncio.run(server.fin_critic(q=1, score=4.0))["stored"] is True
+    assert asyncio.run(server.fin_critic(q=1, scores=[4] * 6))["stored"] is True
     assert answers.get("Book1", 1)["score"] == 4.0 and answers.get("C:/s.xlsx", 1)["score"] is None
 
 

@@ -31,7 +31,7 @@ For each question, `fin_critic(q)` returns the brief and the rubric. Score the s
 - material lines with `backed: false` → add or deepen a `drivers` block, or a `lines` block, then a data driver;
 - caveats in `gaps` → name them in a key point;
 - a missing comparison → add `ly` (or move the plan view to FinPlan).
-Store the score with `fin_critic(q, score, notes)`. Below 4 after 2 rounds: tell the user what is still open.
+Store the score with `fin_critic(q, scores, notes)` (the six criterion scores). Below 4 after 2 rounds: tell the user what is still open.
 
 ## 4. The commentary patch
 
