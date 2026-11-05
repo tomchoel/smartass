@@ -357,6 +357,7 @@ def apply_report(ws, roles: dict) -> list[str]:
         wb, xl, dec, thou, sep, ur_last = _retry(info)
         ensure_styles(wb)
     last = _ci(roles["last_col"])
+    text_last = _ci(roles.get("print_last_col") or roles["last_col"])   # text rows end where the print area does
     labels = sorted(_ci(c) for c in roles.get("label_cols", ["B"]))
     first_label = labels[0]
     widths = {c: 8.43 for c in range(1, last + 1)}
@@ -404,11 +405,11 @@ def apply_report(ws, roles: dict) -> list[str]:
             heights[r] = {"title": 28, "subtitle": 16, "section": 22}.get(kind, 15)
         elif kind == "text":
             cols = {c: "TN Tekst" if c >= first_label else "TN Tom" for c in range(1, last + 1)}
-            width = sum(widths[c] for c in range(first_label, last + 1))
+            width = sum(widths[c] for c in range(first_label, text_last + 1))
             txt = val(r, first_label)
             n = (tn.wrap_lines(str(txt), width) or 4) if txt else 1
             heights[r] = max(15, n * 13 + 2)
-            if all(val(r, c) in (None, "") for c in range(first_label + 1, last + 1)):
+            if all(val(r, c) in (None, "") for c in range(first_label + 1, text_last + 1)):
                 merges.append((r, first_label))
         elif kind == "header":
             nc = {_ci(c) for c in spec.get("num_cols", [])} if "num_cols" in spec else \
@@ -498,7 +499,7 @@ def apply_report(ws, roles: dict) -> list[str]:
                 _retry(lambda: setattr(ws.Range(chunk), "RowHeight", h))
     with stage("D merges"):
         for r, c in merges:
-            _retry(lambda: _merge_text(ws.Range(f"{_cl(c)}{r}:{_cl(last)}{r}"), ws.Range(f"{_cl(c)}{r}")))
+            _retry(lambda: _merge_text(ws.Range(f"{_cl(c)}{r}:{_cl(text_last)}{r}"), ws.Range(f"{_cl(c)}{r}")))
     with stage("E check colours"):
         for chunk in tn._chunks(_check_ranges(checks), sep):          # one rule pair per chunk (was per cell: 7 s)
             _retry(lambda: _check_rules(ws.Range(chunk)))
@@ -507,7 +508,7 @@ def apply_report(ws, roles: dict) -> list[str]:
         _retry(lambda: setattr(ws.Tab, "Color", _rgb(tn.NAVY)))
         _freeze(ws, int(roles.get("freeze_rows") or 0), 0)
     with stage("G page setup"):
-        _page_setup(ws, xl, last_row, _ci(roles.get("print_last_col") or roles["last_col"]), roles)
+        _page_setup(ws, xl, last_row, text_last, roles)
     with stage("H lint"):
         return _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights)
 
@@ -518,6 +519,7 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
     assigned itself (size/bold/wrap from tn.style_defs). Styles and number formats are set by our own code, so the
     per-cell 'has a TN style / has a number format' checks cannot fail and are not repeated."""
     errs: list[str] = []
+    text_last = _ci(roles.get("print_last_col") or roles["last_col"])   # merged text rows end at the print area
 
     def read():                                       # used range, font and vertical borders: one COM call
         ur = ws.UsedRange
@@ -552,7 +554,7 @@ def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights
             size, bold = p.get("size", 10), bool(p.get("bold"))
             a = f"{_cl(c)}{r}"
             if (r, c) in merged:
-                w = sum(widths.get(k, 8.43) for k in range(c, last + 1))
+                w = sum(widths.get(k, 8.43) for k in range(c, text_last + 1))
                 lines = tn.wrap_lines(v, w, size, bold)
                 h = heights.get(r, 15)
                 if lines is None or lines * (size + 3) > h + 1:

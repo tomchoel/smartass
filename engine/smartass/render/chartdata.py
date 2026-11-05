@@ -11,7 +11,7 @@ end are totals (navy). waterfall_bars mirrors the formulas in Python (the tests 
 from __future__ import annotations
 
 WATERFALL_HEADS = ["Run", "Base", "Base <0", "Up", "Up <0", "Down", "Down <0", "Total"]
-WATERFALL_ROLES = [None, "base", "base", "up", "up", "down", "down", "total"]   # None: not a series
+WATERFALL_ROLES = [None, "base", "base", "up", "up_neg", "down", "down_neg", "total"]   # None: not a series
 VARIANCE_HEADS = ["Better", "Worse"]
 VARIANCE_ROLES = ["fav", "unfav"]
 

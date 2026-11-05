@@ -65,7 +65,7 @@ def test_bridge_waterfall_uses_helper_columns_right_of_the_widest_table():
     s, res, p = run([GROUPED, BRIDGE])
     (cs,) = [c for c in p.charts if c.kind == "waterfall"]
     roles = [r for _, _, r in cs.series]
-    assert roles == ["base", "base", "up", "up", "down", "down", "total"]
+    assert roles == ["base", "base", "up", "up_neg", "down", "down_neg", "total"]
     bridge = next(o for o in res.outs if o.type == "bridge")
     first_line = min(int(a[1:]) for k, a in p.addr.items() if k.startswith(bridge.key + "."))
     n = len(bridge.lines)
@@ -329,8 +329,8 @@ def test_no_gridlines_and_mnok_labels():
 
 
 def test_waterfall_bases_are_invisible_and_steps_coloured():
-    roles = [("Base", "P", "base"), ("Base <0", "Q", "base"), ("Up", "R", "up"), ("Up <0", "S", "up"),
-             ("Down", "T", "down"), ("Down <0", "U", "down"), ("Total", "V", "total")]
+    roles = [("Base", "P", "base"), ("Base <0", "Q", "base"), ("Up", "R", "up"), ("Up <0", "S", "up_neg"),
+             ("Down", "T", "down"), ("Down <0", "U", "down_neg"), ("Total", "V", "total")]
     log, _ = draw(spec("waterfall", roles))
     assert ("set", "c1.s1.Format.Fill.Visible", 0) in log and ("set", "c1.s2.Format.Fill.Visible", 0) in log
     fore = dict(sets(log, ".Format.Fill.ForeColor.RGB"))
@@ -399,3 +399,41 @@ def test_implicit_bar_on_drivers_shows_the_variance_in_tree_order_without_lint()
                 {"b0": (9, [(10, data.lines[0]), (11, data.lines[1])], ["D", "E", "F", "G"])}, set(), lint)
     assert cs.sort == "none" and lint == []
     assert cs.series == [("ΔPY", "F10:F11", "var")]
+
+
+def test_waterfall_labels_show_the_step_sign_above_and_below_zero():
+    roles = [("Base", "P", "base"), ("Base <0", "Q", "base"), ("Up", "R", "up"), ("Up <0", "S", "up_neg"),
+             ("Down", "T", "down"), ("Down <0", "U", "down_neg"), ("Total", "V", "total")]
+    log, _ = draw(spec("waterfall", roles))
+    fmts = dict(sets(log, "DataLabels().NumberFormat"))
+    assert fmts == {"c1.s3.DataLabels().NumberFormat": "#,##0.0,,;#,##0.0,,;;",      # +1 above zero: 1.0
+                    "c1.s4.DataLabels().NumberFormat": "#,##0.0,,;#,##0.0,,;;",      # +1 below zero: 1.0
+                    "c1.s5.DataLabels().NumberFormat": "-#,##0.0,,;-#,##0.0,,;;",    # -8 above zero: -8.0
+                    "c1.s6.DataLabels().NumberFormat": "-#,##0.0,,;-#,##0.0,,;;",    # -8 below zero: -8.0
+                    "c1.s7.DataLabels().NumberFormat": "#,##0.0,,;-#,##0.0,,;;"}
+    fore = dict(sets(log, ".Format.Fill.ForeColor.RGB"))
+    assert fore["c1.s4.Format.Fill.ForeColor.RGB"] == C.GOOD and fore["c1.s6.Format.Fill.ForeColor.RGB"] == C.BAD
+
+
+def test_variance_helper_series_follow_the_category_runs():
+    from smartass.render.layout import _place_helpers
+    p = SheetPlan(rows=[{"row": r, "kind": "line"} for r in (9, 10, 11, 12, 13)])
+    p.rows[0]["kind"] = "header"
+    cs = ChartSpec("variance", "V", cat_range="C10:C11,C13", helpers={
+        "kind": "variance", "rows": [10, 11, 13], "col": "F", "header_row": 9, "name": "ΔPY"})
+    _place_helpers(p, [cs], 9, {})
+    assert [rng for _, rng, _ in cs.series] == ["I10:I11,I13", "J10:J11,J13"]
+    assert all(rng.replace("I", "C").replace("J", "C") == cs.cat_range for _, rng, _ in cs.series)
+
+
+def test_highlight_only_on_column_and_bar():
+    log, _ = draw(spec("waterfall", [("Base", "P", "base"), ("Up", "R", "up")], highlight=[1]))
+    assert not any("Points(" in x[1] for x in log if x[0] == "set")
+    s, res, p = run([GROUPED, chart("variance", 0, title="V", highlight=["Opex"])])
+    assert any("highlight is drawn on column and bar charts only" in m for m in p.chart_lint)
+    assert next(c for c in p.charts if c.title == "V").highlight == []
+
+
+def test_stacked_parts_get_a_legend():
+    log, _ = draw(spec("stacked", [("A", "D", "part"), ("B", "E", "part")]))
+    assert ("set", "c1.HasLegend", True) in log

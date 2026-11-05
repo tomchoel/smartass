@@ -39,7 +39,8 @@ ACCENT = tn.rgb((0, 160, 220))             # TN accent (not in the vendored pale
 PCT_LINE = tn.rgb(tn.RULE_DARK)
 PARTS = [tn.rgb(c) for c in (tn.NAVY, (84, 110, 150), (140, 160, 190), (190, 200, 215), (166, 166, 166))]
 
-FILL = {"ac": NAVY, "py": GREY, "var": GOOD, "fav": GOOD, "unfav": BAD, "up": GOOD, "down": BAD, "total": NAVY}
+FILL = {"ac": NAVY, "py": GREY, "var": GOOD, "fav": GOOD, "unfav": BAD, "up": GOOD, "up_neg": GOOD, "down": BAD,
+        "down_neg": BAD, "total": NAVY}
 HIDDEN = ("base",)               # waterfall bases: no fill, no line, no label
 
 
@@ -48,8 +49,10 @@ def label_format(role: str, millions: bool) -> str:
     if role == "pct":
         return '0.0 %;-0.0 %;;'
     unit = "#,##0.0,," if millions else "#,##0.0"
-    if role in ("down", "unfav"):          # the visible part of a decrease is positive in the helper column
-        return f"-{unit};{unit};;" if role == "down" else f"{unit};-{unit};;"
+    if role in ("up", "up_neg"):           # an increase: its size, above or below zero
+        return f"{unit};{unit};;"
+    if role in ("down", "down_neg"):       # a decrease: minus its size, above or below zero
+        return f"-{unit};-{unit};;"
     return f"{unit};-{unit};;"
 
 
@@ -166,8 +169,9 @@ def _draw(ws, spec: ChartSpec) -> None:
         com(lambda: setattr(chart.ChartArea.Format.TextFrame2.TextRange.Font, "Name", tn.FONT))
         _title(chart, spec.title)
         visible = [r for _, r in series if r not in HIDDEN]
-        com(lambda: setattr(chart, "HasLegend", spec.kind != "waterfall" and len(visible) > 3))
-        if spec.kind != "waterfall" and len(visible) > 3:
+        legend = spec.kind in ("stacked", "stacked100") or (spec.kind != "waterfall" and len(visible) > 3)
+        com(lambda: setattr(chart, "HasLegend", legend))       # stacked parts are named by the legend
+        if legend:
             com(lambda: setattr(chart.Legend, "Position", XL_LEGEND_TOP))
         _axes(chart, spec)
         if spec.kind != "line":
@@ -180,8 +184,9 @@ def _draw(ws, spec: ChartSpec) -> None:
             line = spec.kind == "line" or (spec.kind == "combo" and role == "pct")
             _fill(s, role, k, line)
             _labels(s, role, spec.millions)
-        if spec.highlight and series:
-            _highlight(series[0][0], spec.highlight, n)
+        target = next((s for s, role in series if role in ("ac", "part")), None)
+        if spec.highlight and target is not None and spec.kind in ("column", "bar"):
+            _highlight(target, spec.highlight, n)
     except Exception:
         try:
             com(lambda: shape.Delete())                  # no half-drawn chart left behind

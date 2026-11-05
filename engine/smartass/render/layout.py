@@ -519,6 +519,10 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
             else:
                 lint.append(f"chart '{o.title}': highlight '{h}' is not a line of the source; fix: use a line "
                             "label as shown in column C")
+        if cs.highlight and kind not in ("column", "bar"):
+            lint.append(f"chart '{o.title}': highlight is drawn on column and bar charts only; fix: use kind "
+                        "'column' or 'bar', or drop highlight")
+            cs.highlight = []
         if kind == "waterfall":
             if data.type != "bridge" or "amount" not in cols:
                 lint.append(f"chart '{o.title}': a waterfall needs a bridge block; fix: source {{block: <bridge "
@@ -582,9 +586,8 @@ def _place_helpers(p: SheetPlan, specs: list[ChartSpec], first: int, col_kind) -
         for (row, letter), v in cells.items():
             p.cells[(row, col_number(letter))] = v
             by_row[row].setdefault("num", {})[letter] = num
-        r1, r2 = h["rows"][0], h["rows"][-1]
-        cs.series = [(heads[k] if wf else f"{h['name']} {heads[k].lower()}", f"{letters[k]}{r1}:{letters[k]}{r2}",
-                      role) for k, role in enumerate(roles) if role]
+        cs.series = [(heads[k] if wf else f"{h['name']} {heads[k].lower()}", _runs(letters[k], h["rows"]), role)
+                     for k, role in enumerate(roles) if role]      # the same rows (runs) as the categories
         cs.helpers = {(row, col_number(letter)): v for (row, letter), v in cells.items()}
         p.helper_cols += letters
         cursor += len(heads)
