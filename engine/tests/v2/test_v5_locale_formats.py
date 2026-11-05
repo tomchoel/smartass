@@ -106,3 +106,14 @@ def test_a_text_cell_starting_with_equals_is_written_as_text():
     _, _, g = answer_grid(p)
     assert g[0][0] == "'= 78 million against 8.7 million in stock)."
     assert g[1][0].startswith('="•') and g[2][2] == "=SUM(D1:D2)"
+
+
+def test_a_waterfall_may_point_at_a_concept_block():
+    """Live 05.11.2026: an explicit waterfall on a concept was refused although the implicit concept chart is one."""
+    from smartass.model.spec import AnalysisSpec
+    s = AnalysisSpec.model_validate({
+        "version": 2, "question": "q", "plan": {"depth": "quick"},
+        "queries": [{"id": "sx", "cube": "FinMax", "metrics": [], "entity": "un.SY", "periods": "closed-ytd"}],
+        "blocks": [{"type": "concept", "query": "sx", "concept": "streamix"},
+                   {"type": "chart", "kind": "waterfall", "title": "t", "source": {"block": 0}}]})
+    assert s.blocks[1].kind == "waterfall"

@@ -375,8 +375,8 @@ class AnalysisSpec(_M):
         t = self.blocks[j]
         if isinstance(t, (ChartBlock, CommentaryBlock)):
             raise ValueError(f"block {i} (chart): source.block {j} is a {t.type} block; point at a block with data")
-        if c.kind == "waterfall" and not isinstance(t, BridgeBlock):
-            raise ValueError(f"block {i} (chart): a waterfall needs a bridge, not a {t.type} block; point a "
+        if c.kind == "waterfall" and not isinstance(t, (BridgeBlock, ConceptBlock)):
+            raise ValueError(f"block {i} (chart): a waterfall needs a bridge or a concept, not a {t.type} block; point a "
                              "waterfall at a bridge block: source {block: <bridge index>}")
 
 
