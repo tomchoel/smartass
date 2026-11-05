@@ -118,7 +118,7 @@ def write_sources(t, q: int, pre, ws_data, header, fetched: str, status: dict | 
     alias -> the calculated OK/DIFF (Data header, lines sheet tie-out). notes: a warning is appended there (a v1 log
     left as it is). Returns {query id or alias: Sources row}."""
     from ..render.datasheet import query_info
-    from ..render.excel import VALUE_FORMAT
+    from ..render.excel import VALUE_FORMAT, sheet_print
     from . import styling
     from .jobs import com, fast_excel
     status, lines_status = status or {}, lines_status or {}
@@ -163,6 +163,9 @@ def write_sources(t, q: int, pre, ws_data, header, fetched: str, status: dict | 
         end = max(last + len(out), 2)
 
         def look():
+            for rng in (ws.Range(ws.Cells(1, 1), ws.Cells(end, width)), ws.Range(f"{p}1:{p}{len(lines) + 1}")):
+                rng.Font.Name = styling.tn.FONT            # the log and Known limits: TN font 9, as the Data sheet
+                rng.Font.Size = 9
             for rng in (head, ws.Range(f"{p}1")):
                 rng.Font.Bold = True
                 rng.Font.Color = styling._rgb(styling.tn.NAVY)
@@ -183,4 +186,5 @@ def write_sources(t, q: int, pre, ws_data, header, fetched: str, status: dict | 
         styling._freeze(ws, 1, 0)
     except Exception:   # noqa: BLE001 - freezing is cosmetic
         pass
+    sheet_print(ws, _col(width), end)          # the log A:N; Known limits (P, 80 wide) stays on screen only
     return out

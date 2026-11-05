@@ -122,15 +122,34 @@ def test_checks_rows_use_the_tolerance_param():
 
 def test_thresholds_hold_every_param_with_addresses():
     _, res, p = run([GROUPED], stock={"FTE"})
-    for key in [*res.params, "unit_mnok", "tolerance"]:
-        a = p.params[key]
-        r, c = int(a.split("$")[2]), FIRST_COL
-        assert a == f"$D${r}" and isinstance(p.cells[(r, c)], (int, float))
-    labels = {p.params[k]: k for k in p.params}
-    by_row = {int(a.split("$")[2]): k for a, k in labels.items()}
-    assert p.cells[(next(r for r, k in by_row.items() if k == "tolerance"), LABEL_COL)] == "Tolerance (NOK)"
-    assert p.cells[(next(r for r, k in by_row.items() if k == "unit_mnok"), FIRST_COL)] == 1_000_000
-    assert any("(NOK)" in str(p.cells[(r, LABEL_COL)]) for r, k in by_row.items() if k.startswith("mat_abs."))
+    for key in [*res.params, "unit_mnok", "tolerance", "hundred"]:
+        r, c = _cell(p.params[key])
+        assert isinstance(p.cells[(r, c)], (int, float)) and c >= FIRST_COL
+    head = next(r for (r, c), v in p.cells.items() if c == LABEL_COL and v == "Metric")
+    heads = [p.cells.get((head, c)) for c in range(FIRST_COL, FIRST_COL + 4)]
+    assert heads == ["Var % floor", "Materiality", "Materiality %", "Materiality with %"]
+    metrics = {k.split(".", 1)[1] for k in res.params}
+    rows = {_cell(p.params[k])[0] for k in res.params}
+    assert len(rows) == len(metrics) and min(rows) == head + 1     # one row per metric, under the header
+    for k in res.params:                                           # each param under its own column header
+        r, c = _cell(p.params[k])
+        want = {"floor": "Var % floor", "mat_abs": "Materiality", "mat_pct": "Materiality %",
+                "mat_small": "Materiality with %"}[k.split(".", 1)[0]]
+        assert p.cells[(head, c)] == want
+        assert p.cells[(r, LABEL_COL)].split(" (")[0] == k.split(".", 1)[1]
+    for key, label, value in (("unit_mnok", "Unit: MNOK (NOK)", 1_000_000), ("tolerance", "Tolerance (NOK)", 1.0),
+                              ("hundred", "Percent factor", 100)):
+        r, c = _cell(p.params[key])
+        assert (c, p.cells[(r, LABEL_COL)], p.cells[(r, c)]) == (FIRST_COL, label, value)
+        assert r > max(rows)
+    assert any("(NOK)" in str(p.cells[(_cell(p.params[k])[0], LABEL_COL)]) for k in p.params
+               if k.startswith("mat_abs."))
+
+
+def _cell(a):
+    """'$E$40' -> (40, 5)."""
+    _, col, row = a.split("$")
+    return int(row), L.col_number(col)
 
 
 def test_stock_threshold_labels_have_no_nok():
@@ -309,3 +328,17 @@ def test_new_formats_are_en_us_codes():
     f = styling.NUM_FORMATS
     assert "▲" in f["avvik"] and "▼" in f["avvik"] and "[Red]" in f["avvik"] and "#,##0" in f["avvik"]
     assert "0.0 %" in f["avvikpst"] and "●" in f["markor"]
+
+
+def test_thresholds_table_never_lands_on_a_gap_marker_or_helper_column():
+    """A grouped table has a gap (width 2) and a Material column (width 9): the thresholds skip them. A narrow
+    answer (a bridge) is widened so the thresholds sit inside the print area, left of the chart helpers."""
+    for blocks in ([GROUPED], [BRIDGE], [{"type": "ranking", "query": "fm", "metric": "Opex", "top": 1}]):
+        _, res, p = run(blocks)
+        if not res.params:
+            continue
+        last = L.col_number(p.print_last_col)
+        for k in res.params:
+            r, c = _cell(p.params[k])
+            letter = L.col_letter(c)
+            assert p.widths[letter] == L.W_NUM and c <= last and letter not in p.helper_cols, (blocks, k)

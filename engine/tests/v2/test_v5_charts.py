@@ -437,3 +437,41 @@ def test_highlight_only_on_column_and_bar():
 def test_stacked_parts_get_a_legend():
     log, _ = draw(spec("stacked", [("A", "D", "part"), ("B", "E", "part")]))
     assert ("set", "c1.HasLegend", True) in log
+
+
+def test_data_labels_get_the_chart_locale_format(monkeypatch):
+    """The DataLabels object with a real International (nb-NO): the label format goes through chart_format."""
+    from types import SimpleNamespace
+    log = []
+    ws = FakeWS(log)
+    nb = SimpleNamespace(International=tuple([None, None, ",", " "] + [None] * 40))
+    orig = Rec.__call__
+
+    def call(self, *a):
+        r = orig(self, *a)
+        if self._name.endswith(".DataLabels"):
+            object.__setattr__(r, "Application", nb)
+        return r
+    monkeypatch.setattr(Rec, "__call__", call)
+    C.write_charts(ws, SheetPlan(charts=[spec("column", [("AC", "D", "ac")])]))
+    fmts = [v for _, v in sets(log, "DataLabels().NumberFormat")]
+    assert fmts == ["#\xa0##0,0\xa0\xa0;-#\xa0##0,0\xa0\xa0;;"]
+
+
+def test_a_chart_block_on_a_bridge_replaces_the_bridges_own_waterfall():
+    """Live 05.11.2026: a bridge (chart true by default) plus a waterfall chart block on it drew two identical
+    waterfalls. The chart block wins (its title is the message); the bridge's sugar is not drawn."""
+    _, _, p = run([GROUPED, BRIDGE, chart("waterfall", 1, title="EBITDA up on revenue")])
+    assert [(c.kind, c.title) for c in p.charts] == [("waterfall", "EBITDA up on revenue")]
+    assert len(p.helper_cols) == 8                                        # one set of helper columns
+
+
+def test_a_chart_block_on_a_trend_replaces_the_trends_own_line():
+    _, _, p = run([{"type": "trend", "query": "fm", "metrics": ["Opex"], "chart": True},
+                   chart("column", 0, title="Opex by month")], periods="closed-ytd")
+    assert [c.title for c in p.charts] == ["Opex by month"]
+
+
+def test_bridge_sugar_alone_still_draws():
+    _, _, p = run([GROUPED, BRIDGE])
+    assert [c.kind for c in p.charts] == ["waterfall"]

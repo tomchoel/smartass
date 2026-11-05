@@ -725,6 +725,23 @@ def local_format(obj, fmt: str) -> str:
         return fmt
 
 
+CHART_THOUSANDS = "\xa0"
+
+
+def chart_format(obj, fmt: str) -> str:
+    """fmt (en-US codes) for a chart's DataLabels.NumberFormat. Excel parses that one differently from a cell's:
+    under nb-NO the thousands and scaling character must be U+00A0, not the plain space International returns
+    ('#\\xa0##0,0\\xa0\\xa0' shows 3 811,4 for 3 811 374 124.3; '# ##0,0  ' showed '3811374 124,3', live 05.11.2026).
+    So every ',' (outside quotes) becomes U+00A0 and '.' the locale decimal; spaces stay plain (a U+00A0 after a
+    digit placeholder would scale). An en-US Excel (',' thousands) keeps the code. Without an app (fakes): fmt."""
+    try:
+        tup = obj.Application.International
+        dec, thou = tup[2], tup[3]
+    except Exception:   # noqa: BLE001 - a fake or a detached object: the code as given
+        return fmt
+    return tn.to_local(fmt, dec, "," if thou == "," else CHART_THOUSANDS)
+
+
 def _sheet_info(ws):
     """(decimal sep, thousands sep, first row, first col, row count, col count) of ws's UsedRange: one COM call."""
     tup = ws.Parent.Application.International

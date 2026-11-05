@@ -182,3 +182,19 @@ def test_200_rows_check_fast():
     took = time.perf_counter() - t0
     print(f"layout check, 200 rows x 8 columns: {took * 1000:.1f} ms")
     assert took < 0.5 and out == []
+
+
+def test_a_clean_waterfall_draw_with_billions_has_no_narrow_columns():
+    """Live 05.11.2026: the waterfall helper columns (width 10) showed a 3.8 bn NOK bridge as ###. Every numeric
+    amount and variance cell, helper columns and bold total rows included, holds -3 811 374 124.3: the check stays
+    silent."""
+    from smartass.render.layout import col_number
+    bridge = {"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}
+    p, ws, data = drawn([GROUPED, bridge, {"type": "chart", "kind": "waterfall", "title": "EBITDA up",
+                                            "source": {"block": 1}}])
+    assert p.helper_cols
+    for d in p.rows:
+        for letter, num in (d.get("num") or {}).items():
+            if num in ("heltall", "avvik") and (d["row"], col_number(letter)) in ws.grid:
+                ws.grid[(d["row"], col_number(letter))] = -3_811_374_124.3
+    assert not [f for f in run(p, ws, data) if "too narrow" in f]

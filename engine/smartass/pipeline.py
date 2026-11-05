@@ -374,7 +374,14 @@ def _write_lines(t, q: int, ls, fetched: str = "") -> str:
     com(lambda: setattr(ws.Range("C2"), "Value", "Cube value"))
     com(lambda: setattr(ws.Range(CUBE_CELL.replace("$", "")), "Value", ls.cube_value))
     _lines_header(ws, res["table"], ls.cell, fetched)
+    from .render.excel import sheet_print
+    from .render.layout import col_letter, col_number
+    last = max(len(res["columns"]), col_number(datasheet.LINES_HEADER.split(":")[1].rstrip("0123456789")))
+    sheet_print(ws, col_letter(last), LINES_TABLE_ROW + res["rows"])     # the table and its F1:K3 provenance
     return want
+
+
+LINES_TABLE_ROW = 4                     # drill_xl.write_lines: the lines table header row
 
 
 def _lines_header(ws, table: str, cell: dict, fetched: str) -> None:

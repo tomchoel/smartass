@@ -33,7 +33,7 @@ CHART_HEIGHT = 260.0     # pt (fits a zone row of 18 rows x 15 pt)
 ROW_PT = 15.0
 LABEL_MIN, LABEL_MAX = 46, 80
 LINE_KINDS = ("line", "sum", "grand", "check")
-W_NUM, W_GAP, W_MARK, W_A, W_CODE, W_CODE_MAX, W_HELPER = 16, 2, 9, 2, 9, 24, 10
+W_NUM, W_GAP, W_MARK, W_A, W_CODE, W_CODE_MAX, W_HELPER = 16, 2, 9, 2, 9, 24, 16   # helpers hold NOK bn
 HELPER = "helper"           # col_kind of a chart helper column
 DEFAULT_WIDTH = 8.43
 CONVENTIONS = ("NOK. FinMax signs: costs are negative. Δ = current − comparison; ▲ better, ▼ worse. Variance % "
@@ -213,12 +213,52 @@ def _no_key_points(main, res, drivers, addr) -> list[tuple[str, str | None]]:
     return []
 
 
-def _param_label(key: str, label: str, stock: set[str]) -> str:
-    """'(NOK)' only on NOK metrics: a stock metric (FTE) threshold has no unit."""
-    metric = key.split(".", 1)[-1]
-    if key.startswith((MAT_ABS, MAT_SMALL)) and metric in stock:
-        return label.replace(" (NOK)", "")
-    return label
+FLOOR = "floor."                                        # model.analyze.FLOOR_KEY
+THRESHOLD_KINDS = (FLOOR, MAT_ABS, MAT_PCT, MAT_SMALL)   # the columns of the thresholds table, in this order
+THRESHOLD_HEADS = ("Var % floor", "Materiality", "Materiality %", "Materiality with %")
+PARAM_KIND = "param"                                    # col_kind of a thresholds table column
+
+
+def threshold_cols(kinds: dict[int, set[str]]) -> list[int]:
+    """The 4 sheet columns of the thresholds table: the first value columns from D that no table uses only as a
+    gap (width 2) or a Material marker (width 9), so a 5 000 000 threshold never shows as ###."""
+    out, c = [], FIRST_COL
+    while len(out) < len(THRESHOLD_KINDS):
+        k = kinds.get(c, set())
+        if not (k == {GAP} or (k and k <= MARK_CODES)):
+            out.append(c)
+        c += 1
+    return out
+
+
+def _threshold_table(p: SheetPlan, r: int, params: dict, stock: set[str], cols: list[int]) -> int:
+    """The thresholds as one compact table: a header row (Metric | Var % floor | Materiality | Materiality % |
+    Materiality with %), then one row per metric with a cell per threshold it has (no cell otherwise). The unit sits
+    on the metric: 'Opex (NOK)', a stock metric (FTE) without one. Returns the next free row."""
+    rows: dict[str, dict[int, tuple[str, float]]] = {}
+    for key, (_, value) in params.items():
+        k = next((i for i, x in enumerate(THRESHOLD_KINDS) if key.startswith(x)), None)
+        if k is not None:
+            rows.setdefault(key[len(THRESHOLD_KINDS[k]):], {})[k] = (key, value)
+    if not rows:
+        return r
+    letters = [col_letter(c) for c in cols]
+    p.cells[(r, LABEL_COL)] = "Metric"
+    for c, head in zip(cols, THRESHOLD_HEADS):
+        p.cells[(r, c)] = head
+    p.rows.append({"row": r, "kind": "header", "num_cols": letters})
+    r += 1
+    for metric, have in rows.items():
+        is_stock = metric in stock
+        p.cells[(r, LABEL_COL)] = metric if is_stock else f"{metric} (NOK)"
+        num = {}
+        for k, (key, value) in sorted(have.items()):
+            p.cells[(r, cols[k])] = value
+            p.params[key] = f"${letters[k]}${r}"
+            num[letters[k]] = "prosent1" if THRESHOLD_KINDS[k] == MAT_PCT else _num("value", is_stock)
+        p.rows.append({"row": r, "kind": "line", "num": num})
+        r += 1
+    return r
 
 
 def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: str,
@@ -237,6 +277,14 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     drivers = [d for b in spec.blocks if isinstance(b, CommentaryBlock) for d in b.drivers]
     widest = max([len(o.headers) for o in tables + chart_data] or [1])
     col_kind: dict[int, set[str]] = {}            # sheet column -> the column codes the tables put there
+    used: dict[int, set[str]] = {}
+    for o in tables + chart_data:
+        for j in range(len(o.headers)):
+            used.setdefault(FIRST_COL + j, set()).add(o.cols[j] if j < len(o.cols) else "")
+    t_cols = threshold_cols(used) if any(k.startswith(THRESHOLD_KINDS) for k in res.params) else []
+    for c in t_cols:                              # the thresholds table: value columns, inside the print area
+        col_kind.setdefault(c, set()).add(PARAM_KIND)
+    widest = max([widest, *(c - FIRST_COL + 1 for c in t_cols)])
     placed: list[tuple[int, object, object]] = []          # (row, BlockOut, Line) per model line, for pass 2
     block_rows: dict[str, tuple[int, list[tuple[int, object]], list[str]]] = {}   # out key -> header row, (row, Line), letters
     r = 1
@@ -308,8 +356,10 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     # 4. Charts: two per zone row, in spec order (a trend/bridge chart at its block, chart blocks, the implicit one)
     zone("charts", r)
     chart_outs = []
-    for o in sorted(res.outs, key=lambda o: order.get(o.key, len(order))):
-        if o.type == "chart" or o.type == "chart_data" or (o.chart and o.type in ("trend", "bridge")):
+    charted = {o.chart_of for o in res.outs if o.type == "chart" and o.chart_of}   # a chart block on it: its own
+    for o in sorted(res.outs, key=lambda o: order.get(o.key, len(order))):       # chart sugar is not drawn too
+        if o.type == "chart" or o.type == "chart_data" or (o.chart and o.type in ("trend", "bridge")
+                                                           and o.key not in charted):
             chart_outs.append(o)
     charts_row = r
     r += math.ceil(len(chart_outs) / 2) * CHART_ROWS
@@ -354,12 +404,12 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     if any(k.startswith(MAT_PCT) for k in res.params):
         r = notes(r, "Material (●) when |variance| >= the materiality, or when |variance %| >= the materiality % "
                      "and |variance| >= the materiality with %.")
-    for key, (label, value) in res.params.items():
-        metric = key.split(".", 1)[-1]
-        num = "prosent1" if key.startswith(MAT_PCT) else _num("value", metric in stock)
-        param(r, key, _param_label(key, label, stock), value, num)
-        r += 1
-    param(r, UNIT_MNOK, "Unit MNOK (NOK)", 1_000_000, "heltall")
+    r = _threshold_table(p, r, res.params, stock, t_cols)
+    for key, (label, value) in res.params.items():          # a param of no known kind: a label/value row
+        if not key.startswith(THRESHOLD_KINDS):
+            param(r, key, label, value, "heltall")
+            r += 1
+    param(r, UNIT_MNOK, "Unit: MNOK (NOK)", 1_000_000, "heltall")
     r += 1
     param(r, TOLERANCE, "Tolerance (NOK)", TOLERANCE_NOK, "heltall")
     r += 1

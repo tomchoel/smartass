@@ -110,14 +110,17 @@ def test_the_floor_sits_in_a_labelled_thresholds_cell():
     sections = {p.cells[(r["row"], 2)]: r["row"] for r in p.rows if r["kind"] == "section"}
     assert "Thresholds" in sections
     labels = {v: row for (row, col), v in p.cells.items() if col == 3 and isinstance(v, str)}
-    row = labels["Variance % floor: Revenue"]
-    assert p.cells[(row, 4)] == 500_000 and row > sections["Thresholds"]
-    assert p.cells[(labels["Variance % floor: Heads"], 4)] == 5.0
-    assert "Variance % floor: FTE" not in labels
+    head = labels["Metric"]                               # the compact thresholds table
+    fc = next(c for c in range(4, 8) if p.cells.get((head, c)) == "Var % floor")
+    row = labels["Revenue (NOK)"]
+    assert p.cells[(row, fc)] == 500_000 and head > sections["Thresholds"]
+    assert p.params["floor.Revenue"] == f"${col_letter(fc)}${row}"
+    assert p.cells[(labels["Heads"], fc)] == 5.0                                           # a stock: no (NOK)
+    assert "floor.FTE" not in p.params and "FTE (NOK)" not in labels               # FTE: no floor
     f = p.cells[p.at(ck("b0", "m0", 3))]
     r0, c0 = p.at(ck("b0", "m0", 1))
-    assert f == f'=IF(ABS({col_letter(c0)}{r0})<$D${row},"",({col_letter(c0 - 1)}{r0}-{col_letter(c0)}{r0})' \
-                f'/ABS({col_letter(c0)}{r0}))'
+    assert f == f'=IF(ABS({col_letter(c0)}{r0})<${col_letter(fc)}${row},"",({col_letter(c0 - 1)}{r0}-' \
+                f'{col_letter(c0)}{r0})/ABS({col_letter(c0)}{r0}))'
     assert p.cells[p.at(ck("b0", "m2", 3))].startswith("=IF(")                            # FTE: as before
     assert "=0," in p.cells[p.at(ck("b0", "m2", 3))]
     assert all("floor." not in k for k in p.addr)              # the readback compares model cells only

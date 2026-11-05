@@ -127,18 +127,24 @@ def test_layout_writes_labelled_thresholds_and_the_live_formula():
     res = compute(s, resolver(), CLOSED, facts())
     p = layout(3, s, res, stock=set(), subtitle="x", const={})
     labels = {v: row for (row, col), v in p.cells.items() if col == 3 and isinstance(v, str)}
-    ra, rp, rs = (labels[f"{x}: Opex{y}"] for x, y in
-                  (("Materiality", " (NOK)"), ("Materiality %", ""), ("Materiality with %", " (NOK)")))
-    assert (p.cells[(ra, 4)], p.cells[(rp, 4)], p.cells[(rs, 4)]) == (5.0, 0.05, 0.5)
-    pct_row = next(x for x in p.rows if x["row"] == rp)
-    assert pct_row["num"] == {"D": "prosent1"}
+    head = labels["Metric"]                               # the compact thresholds table: one row per metric
+    cols = {p.cells[(head, c)]: c for c in range(4, 8)}
+    assert list(cols) == ["Var % floor", "Materiality", "Materiality %", "Materiality with %"]
+    rt = labels["Opex (NOK)"]
+    ca, cp, cs = (cols[x] for x in ("Materiality", "Materiality %", "Materiality with %"))
+    assert (p.cells[(rt, ca)], p.cells[(rt, cp)], p.cells[(rt, cs)]) == (5.0, 0.05, 0.5)
+    a, pp, s = (f"${col_letter(c)}${rt}" for c in (ca, cp, cs))
+    assert (p.params["mat_abs.Opex"], p.params["mat_pct.Opex"], p.params["mat_small.Opex"]) == (a, pp, s)
+    row_num = next(x for x in p.rows if x["row"] == rt)["num"]
+    assert (row_num[col_letter(cp)], row_num[col_letter(ca)], row_num[col_letter(cs)]) == ("prosent1", "heltall",
+                                                                                           "heltall")
     o = res.outs[0]
     line = next(ln.key for ln in o.lines if ln.metric == "Opex")
     j = o.cols.index("material")
     r, c = p.at(ck("b0", line, j))
     v, pc = col_letter(c - 2), col_letter(c - 1)          # var, var_pct sit left of the marker
-    assert p.cells[(r, c)] == (f"=IF(OR(ABS({v}{r})>=$D${ra},AND(ABS(N({pc}{r}))>=$D${rp},"
-                               f"ABS({v}{r})>=$D${rs})),1,0)")
+    assert p.cells[(r, c)] == (f"=IF(OR(ABS({v}{r})>={a},AND(ABS(N({pc}{r}))>={pp},"
+                               f"ABS({v}{r})>={s})),1,0)")
     row = next(x for x in p.rows if x["row"] == r)
     assert "material" in MARK_CODES and row["num"][col_letter(c)] == "markor"
 

@@ -225,3 +225,26 @@ def test_draw_stamps_one_time_for_the_header_and_the_footer(monkeypatch):
     pipeline.excel_job(None, _pre(), "session")
     assert dict(seen["header"])["Fetched"] == "2026-11-04 23:59 +0100 · tom"
     assert seen["plan"].footer == "Source: Oracle EPM Cloud · fetched 2026-11-04 · page &P of &N"
+
+
+def test_the_table_body_is_tn_font_9_and_the_sheet_prints_one_page_wide():
+    pre, h = _header()
+    ws = _ws()
+    write_data(ws, pre.frame, 3, h)
+    t = len(h) + 2
+    g = data_grid(pre.frame)
+    assert ws.cells[(t + 1, 1)]["Font.Size"] == 9 and ws.cells[(t + len(g) - 1, len(g[0]))]["Font.Size"] == 9
+    assert ws.cells[(t + 1, 1)]["Font.Name"] == "Arial"
+    ps = ws.PageSetup
+    from smartass.render.layout import col_letter
+    assert ps.PrintArea == f"$A$1:${col_letter(max(4, len(g[0])))}${t + len(g) - 1}"
+    assert (ps.Orientation, ps.Zoom, ps.FitToPagesWide, ps.FitToPagesTall) == (2, False, 1, False)
+
+
+def test_a_redraw_sets_the_font_and_print_setup_too():
+    pre, h = _header()
+    ws = _ws()
+    write_data(ws, pre.frame, 3)                                  # an old answer: no header, default look
+    ws.PageSetup.Orientation = 1
+    rewrite_data(ws, pre.frame, 3, h)
+    assert ws.PageSetup.Orientation == 2 and ws.cells[(len(h) + 3, 1)]["Font.Size"] == 9

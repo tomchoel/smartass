@@ -76,3 +76,11 @@ def test_a_redrill_rewrites_the_header_in_place():
     assert [s.Name for s in wb.order].count("Q3 Lines b0") == 1
     assert _v(ws, "G2").startswith("2026-11-06") and _v(ws, "D2") == -31.0
     assert ws.ListObjects("Lines_Q3_b0").HeaderRowRange.Row == 4
+
+
+def test_the_lines_sheet_prints_landscape_one_page_wide_through_k():
+    ws = _draw(_lines())                                  # 7 columns (A:G): the print area still reaches K
+    ps = ws.PageSetup
+    assert ps.PrintArea == "$A$1:$K$6"                    # header row 4 + 2 lines
+    assert (ps.Orientation, ps.Zoom, ps.FitToPagesWide, ps.FitToPagesTall) == (2, False, 1, False)
+    assert "&P" in ps.CenterFooter

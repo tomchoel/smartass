@@ -292,3 +292,15 @@ def test_a_pull_without_its_row_is_a_warning(monkeypatch):
     write_data(ws, pre.frame, 3, h)
     monkeypatch.setattr(sources, "write_sources", lambda *a: {})
     assert "no row for fm" in pipeline._write_sources(t, 3, pre, ws, h, FETCHED)
+
+
+def test_the_log_is_tn_font_9_and_prints_a_to_n_landscape():
+    wb, t = _book()
+    pre = _pre()
+    rows, _ = _run(t, wb, pre, status={"fm": "OK"})
+    ws = wb.Worksheets("Sources")
+    r = rows["fm"]
+    assert ws.cells[(r, 1)]["Font.Size"] == 9 and ws.cells[(1, len(LOG))]["Font.Size"] == 9
+    assert ws.cells[(2, P)]["Font.Size"] == 9                    # Known limits too
+    ps = ws.PageSetup
+    assert ps.PrintArea == f"$A$1:$N${r}" and (ps.Orientation, ps.FitToPagesWide) == (2, 1)

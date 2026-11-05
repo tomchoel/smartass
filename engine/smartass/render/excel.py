@@ -200,6 +200,7 @@ def _style(ws, lo, n: int, w: int) -> None:
     r0, c0 = _origin(lo)
     com(lambda: setattr(lo, "TableStyle", "TableStyleLight1"))
     com(lambda: setattr(lo, "ShowTableStyleRowStripes", False))
+    table_font(lo.Range)                 # before AutoFit: the font size sets the fitted widths
     com(lambda: setattr(lo.HeaderRowRange.Font, "Bold", True))
     if n > 1:
         def value():
@@ -220,6 +221,28 @@ def _style(ws, lo, n: int, w: int) -> None:
     try:
         styling._freeze(ws, r0, 0)
     except Exception:   # noqa: BLE001 - freezing is cosmetic
+        pass
+    sheet_print(ws, col_letter(max(HEADER_COLS, c0 + w - 1)), r0 + max(n, 2) - 1)
+
+
+HEADER_COLS = 4                          # the Data header block is A:D
+SHEET_FOOTER = "Source: Oracle EPM Cloud · &A · page &P of &N"     # Data, Lines and Sources sheets (&A: sheet name)
+
+
+def table_font(rng) -> None:
+    """The TN font at size 9 (as the Data header block) on a data table's header and body."""
+    def look():
+        rng.Font.Name = styling.tn.FONT
+        rng.Font.Size = 9
+    com(look)
+
+
+def sheet_print(ws, last_col: str, last_row: int) -> None:
+    """A data sheet's page setup (styling.print_setup): A1:<last_col><last_row>, landscape, one page wide, the sheet
+    name and page number in the footer. Cosmetic: a failure is ignored."""
+    try:
+        styling.print_setup(ws, last_col, last_row, SHEET_FOOTER)
+    except Exception:   # noqa: BLE001 - no printer, a busy Excel: the data is written
         pass
 
 

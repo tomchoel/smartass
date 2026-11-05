@@ -5,8 +5,8 @@ XValues), and only THEN its formats, because a type change resets formatting.
 
 - Scenarios: AC solid navy, PY solid grey, BU outlined (white, navy border), FC hatched; variances green or red by
   effect; highlighted points in the TN accent, the rest grey.
-- Labels instead of axes: data labels (MNOK '#,##0.0,,'), no gridlines, no tick marks, no value axis labels; a legend
-  only with more than 3 visible series (on top).
+- Labels instead of axes: data labels (MNOK '#,##0.0,,', through styling.chart_format: U+00A0 scaling), no
+  gridlines, no tick marks, no value axis labels; a legend only with more than 3 visible series (on top).
 - Waterfall: a stacked column over the chart helper columns (render/chartdata.py) with invisible bases; never
   Excel's native waterfall (its COM model does not reliably set totals). Variance: favourable and unfavourable
   series with 100 % overlap (no InvertIfNegative). Bar: ReversePlotOrder keeps the first (largest) row on top.
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from ..xl.jobs import com
 from ..xl.owned import CHART_NAME
-from ..xl.styling import GREEN, local_format
+from ..xl.styling import GREEN, chart_format
 from ..xl.vendor import tn_rapportstil as tn
 from .layout import ChartSpec, SheetPlan
 
@@ -124,7 +124,7 @@ def _labels(s, role: str, millions: bool) -> None:
     com(lambda: setattr(s, "HasDataLabels", True))
     dl = com(lambda: s.DataLabels())
     com(lambda: setattr(dl, "NumberFormatLinked", False))
-    com(lambda: setattr(dl, "NumberFormat", local_format(dl, label_format(role, millions))))
+    com(lambda: setattr(dl, "NumberFormat", chart_format(dl, label_format(role, millions))))
 
 
 def _highlight(s, points: list[int], n: int) -> None:
