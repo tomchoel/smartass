@@ -11,7 +11,7 @@ from .blocks.chart import implicit_chart
 from .blocks.common import MAT_ABS, MAT_PCT, MAT_SMALL, BlockOut, base_of, ck, evaluate
 from .blocks.concept import concept_findings
 from .context import Ctx
-from .expr import Cells, Expr, Param, Ratio, Sub, Var
+from .expr import Cells, Expr, Material, Num, Param, Ratio, Ref, Sub, Var
 from .findings import bridge_findings, key_values, lines_findings, material
 from .frame import Frame
 from .periods import Closed
@@ -202,4 +202,14 @@ def missing_bases(outs: list[BlockOut], cells: Cells) -> bool:
                 if isinstance(e, Sub) and not isinstance(e, Var):
                     ln.cells[j] = Var(e.a, e.b)
                     changed = True
+                    _blank_safe(ln, ck(o.key, ln.key, j))
     return changed
+
+
+def _blank_safe(ln, key: str) -> None:
+    """The line's Material marker reads the (now possibly "") variance cell through N(), never ABS("")."""
+    def wrap(x):
+        return Num(x) if isinstance(x, Ref) and x.key == key else x
+    for i, c in enumerate(ln.cells):
+        if isinstance(c, Material):
+            ln.cells[i] = replace(c, var=wrap(c.var), more=tuple((wrap(v), p) for v, p in c.more))

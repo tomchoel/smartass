@@ -296,3 +296,31 @@ def test_a_base_missing_on_some_lines_keeps_current_minus_zero():
 
 def test_tiny_concept_fixture_is_unchanged():
     assert TINY.id == "tiny"
+
+
+def test_material_marker_reads_a_blank_variance_through_n():
+    from v2util import facts
+    frame = Frame([f for f in facts().facts if f.period != "Sep 25"])       # no last year on any line
+    d = spec_dict(blocks=[{"type": "table", "query": "fm", "title": "P&L"}])
+    s, res, p = run(d, frame=frame)
+    out = next(o for o in res.outs if o.type == "table")
+    vi, mi = out.cols.index("var"), out.cols.index("material")
+    ln = next(x for x in out.lines if x.cells[mi] is not None)
+    var_at = p.addr[ck(out.key, ln.key, vi)]
+    assert f"ABS(N({var_at}))" in p.cells[p.at(ck(out.key, ln.key, mi))]   # never ABS("") -> #VALUE!
+    assert res.cells.get(ck(out.key, ln.key, vi)) is None and res.cells.get(ck(out.key, ln.key, mi)) == 0.0
+
+
+def test_concept_key_points_never_pick_a_memo_item():
+    from types import SimpleNamespace
+
+    from smartass.model.blocks.common import BlockOut, Line
+    from smartass.render.keypoints import _concept_chosen
+    main = BlockOut("b0", "concept", "C", ["AC", "PY", "ΔPY"], cols=["value", "ly", "var"],
+                    lines=[Line("i_rev", "Revenue", [None] * 3, metric="Revenue"),
+                           Line("i_memo", "Memo: revenue", [None] * 3, metric="Revenue"),
+                           Line("total", "Total", [None] * 3, kind="grand")])
+    main.steps = ["i_rev", "total"]
+    res = SimpleNamespace(material=[{"key": "b0.i_memo", "variance": 9e9, "base": "ly"},
+                                    {"key": "b0.i_rev", "variance": 1e6, "base": "ly"}])
+    assert [ln.key for ln, _, _ in _concept_chosen(main, res, {})] == ["total", "i_rev"]

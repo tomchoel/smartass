@@ -156,6 +156,18 @@ class Var(Sub):
 
 
 @dataclass(frozen=True)
+class Num(Expr):
+    """A cell that may show "" (a guarded Var) read as a number: N(<cell>) on the sheet, its value in the model."""
+    a: Expr
+
+    def evaluate(self, frame, cells):
+        return self.a.evaluate(frame, cells)
+
+    def to_excel(self, table, addr, const=None):
+        return f"N({self.a.to_excel(table, addr, const)})"
+
+
+@dataclass(frozen=True)
 class Neg(Expr):
     a: Expr
 

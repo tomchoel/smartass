@@ -172,7 +172,8 @@ def _concept_chosen(main: BlockOut, res, cells) -> list[tuple[Line, bool, str | 
     by_key = {ln.key: ln for ln in main.lines}
     total = by_key.get("total")
     out = [(total, False, None)] if total is not None else []
-    picked = [(ln, m, b) for ln, m, b in _chosen(main, res) if m and ln.key != "total"]
+    steps = set(main.steps) - {"total"}           # memo items are outside the total: never a key point
+    picked = [(ln, m, b) for ln, m, b in _chosen(main, res) if m and ln.key in steps]
     if not picked:
         vi = next((j for j, c in enumerate(main.cols) if c == "value"), None)
         items = [by_key[k] for k in main.steps if k in by_key and k != "total"] or [
