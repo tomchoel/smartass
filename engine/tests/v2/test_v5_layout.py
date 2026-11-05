@@ -17,13 +17,21 @@ CONVENTIONS = ("NOK. FinMax signs: costs are negative. Δ = current − comparis
                "blank when |base| < floor. ● = material (thresholds below).")
 
 
-def run(blocks, periods="closed-ytd", stock=(), metrics=None, **kw):
+def scaled(frame, k: float):
+    """The frame with every value times k (MNOK-sized amounts: units by magnitude)."""
+    from dataclasses import replace
+
+    from smartass.model.frame import Frame
+    return Frame([replace(f, value=f.value * k) for f in frame.facts])
+
+
+def run(blocks, periods="closed-ytd", stock=(), metrics=None, scale=1.0, **kw):
     d = spec_dict(blocks=blocks)
     d["queries"][0]["periods"] = periods
     if metrics:
         d["queries"][0]["metrics"] = metrics
     s = AnalysisSpec.model_validate(d)
-    res = compute(s, resolver(), OCT, ytd_frame())
+    res = compute(s, resolver(), OCT, ytd_frame() if scale == 1.0 else scaled(ytd_frame(), scale))
     return s, res, layout(3, s, res, stock=set(stock), subtitle="SUB", **kw)
 
 

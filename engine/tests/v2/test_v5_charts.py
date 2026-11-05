@@ -87,7 +87,8 @@ def test_bridge_waterfall_uses_helper_columns_right_of_the_widest_table():
 
 
 def test_column_chart_takes_the_last_column_group():
-    s, res, p = run([GROUPED, chart("column", 0, title="Opex up")])
+    from test_v5_layout import scaled
+    s, res, p = run([GROUPED, chart("column", 0, title="Opex up")], frame=scaled(ytd_frame(), 1e6))
     cs = next(c for c in p.charts if c.title == "Opex up")
     assert [r for _, _, r in cs.series] == ["ac", "py"]
     table = next(o for o in res.outs if o.key == "b0")

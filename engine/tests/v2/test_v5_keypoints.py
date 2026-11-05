@@ -199,9 +199,9 @@ def test_layout_reserves_the_wrapped_rows_and_the_lint_stays_clean():
 
 def test_main_table_for_key_points_skips_a_bridge_first():
     from test_v5_layout import BRIDGE
-    s, res, p = run([BRIDGE, GROUPED], key_points=key_points)
+    s, res, p = run([BRIDGE, GROUPED], key_points=key_points, scale=1e6)
     f = p.cells[(dict(p.zones)["key_points"] + 1, TEXT_COL)]
-    assert f.startswith('="•  EBITDA YTD Oct 26 ')
+    assert f.startswith('="•  ') and " YTD Oct 26 " in f
     assert "MNOK vs PY" in f                                       # the P&L table, not the bridge's amount
 
 
@@ -265,12 +265,13 @@ def _balanced(f: str) -> bool:
 def test_layout_end_to_end_formulas_are_valid_and_pass_formelsjekk():
     from functools import partial
     d_kp = partial(key_points, free=["Agent point"])
-    s, res, p = run([GROUPED], key_points=d_kp)
+    s, res, p = run([GROUPED], key_points=d_kp, scale=1e6)
     assert HUNDRED in p.params and UNIT_MNOK in p.params
     r = dict(p.zones)["key_points"]
     f = p.cells[(r + 1, TEXT_COL)]
-    assert f.startswith('="•  EBITDA YTD Oct 26 "&FIXED(') and p.params[UNIT_MNOK] in f and p.params[HUNDRED] in f
-    assert p.cells[(r + 2, TEXT_COL)] == "•  Agent point"
+    assert f.startswith('="•  ') and ' YTD Oct 26 "&FIXED(' in f and p.params[UNIT_MNOK] in f and p.params[HUNDRED] in f
+    shown = [p.cells.get((r + i, TEXT_COL)) for i in range(1, 12)]
+    assert "•  Agent point" in shown                       # after the engine's points (MNOK-sized: material)
     for formula in (f, *(x for x, _ in key_points(_main(), _res([_mat("m1", 1.0)]), [], addr))):
         assert _balanced(formula), formula
         assert all(len(lit) <= 255 for lit in re.findall(r'"((?:[^"]|"")*)"', formula))

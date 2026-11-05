@@ -509,7 +509,8 @@ def apply_report(ws, roles: dict) -> list[str]:
         _freeze(ws, int(roles.get("freeze_rows") or 0), 0)
     with stage("G page setup"):
         if roles.get("print_footer"):         # a v2 answer: its own footer, no repeated title rows
-            print_setup(ws, _cl(text_last), last_row, roles["print_footer"], header=roles.get("print_header"))
+            print_setup(ws, roles.get("print_area_col") or _cl(text_last), last_row, roles["print_footer"],
+                        header=roles.get("print_header"))
         else:
             _page_setup(ws, xl, last_row, text_last, roles)
     with stage("H lint"):
@@ -654,16 +655,19 @@ def _page_setup_props(ws, xl, last_row, last, roles, keep_footer: bool = False) 
 PRINT_SETUP_VERSION = "a1"        # bump whenever print_setup changes what it sets
 
 
-def print_setup(ws, last_col: str, last_row: int, footer: str, header: str | None = None) -> None:
+def print_setup(ws, last_col: str, last_row: int, footer: str, header: str | None = None, *,
+                fit_wide: bool = True, title_rows: str = "") -> None:
     """A v2 answer's page setup: print area A1:<last_col><last_row> (the tables' last column, chart helpers
     outside), landscape, one page wide and as many tall as needed, no repeated title rows (the zones vary), no
     gridlines, `footer` centred (it carries the page number; the left and right footers are cleared). The display
     gridlines are apply_report's; ActiveWindow is never touched. Batched (PrintCommunication off) and skipped (one
     COM call) when the sheet-level name says this exact setup is already there; a new footer (date) sets it up
-    again."""
+    again. fit_wide False (a wide lines table): 100 % zoom, as many pages wide as needed, title_rows ('$4:$4')
+    repeated on every page."""
     header = "Intern" if header is None else header
     area = f"$A$1:${last_col}${last_row}"
-    key = '="' + "|".join((PRINT_SETUP_VERSION, area, header, footer)).replace('"', '""') + '"'
+    parts = (PRINT_SETUP_VERSION, area, header, footer) + (() if fit_wide else ("zoom100", title_rows))
+    key = '="' + "|".join(parts).replace('"', '""') + '"'
     if _has_page_setup(ws, key):
         return
     xl = _retry(lambda: ws.Parent.Application)
@@ -674,8 +678,9 @@ def print_setup(ws, last_col: str, last_row: int, footer: str, header: str | Non
     done = restored = False
     try:
         ps = _get(ws, "PageSetup")
-        for name, value in (("PrintArea", area), ("PrintTitleRows", ""), ("Orientation", 2), ("Zoom", False),
-                            ("FitToPagesWide", 1), ("FitToPagesTall", False), ("PrintGridlines", False),
+        scale = (("Zoom", False), ("FitToPagesWide", 1), ("FitToPagesTall", False)) if fit_wide else             (("Zoom", 100),)
+        for name, value in (("PrintArea", area), ("PrintTitleRows", title_rows), ("Orientation", 2), *scale,
+                            ("PrintGridlines", False),
                             ("CenterHorizontally", True), ("CenterHeader", '&"Arial"&8' + header),
                             ("LeftFooter", ""), ("RightFooter", ""), ("CenterFooter", footer)):
             _set(ps, name, value)

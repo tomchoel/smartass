@@ -78,9 +78,11 @@ def test_a_redrill_rewrites_the_header_in_place():
     assert ws.ListObjects("Lines_Q3_b0").HeaderRowRange.Row == 4
 
 
-def test_the_lines_sheet_prints_landscape_one_page_wide_through_k():
+def test_the_lines_sheet_prints_landscape_at_100_percent_with_the_header_on_every_page():
     ws = _draw(_lines())                                  # 7 columns (A:G): the print area still reaches K
     ps = ws.PageSetup
     assert ps.PrintArea == "$A$1:$K$6"                    # header row 4 + 2 lines
-    assert (ps.Orientation, ps.Zoom, ps.FitToPagesWide, ps.FitToPagesTall) == (2, False, 1, False)
+    assert (ps.Orientation, ps.Zoom) == (2, 100)          # never fitted to one page wide (44 columns unreadable)
+    assert not hasattr(ps, "FitToPagesWide")
+    assert ps.PrintTitleRows == "$4:$4"                   # the lines table header on every page
     assert "&P" in ps.CenterFooter

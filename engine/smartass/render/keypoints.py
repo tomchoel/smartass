@@ -2,7 +2,9 @@
 """The Key points (sub-spec 5 §1.4): one live formula per point that builds the number sentence from cells of the
 main table's last column group, plus the cause row from the commentary drivers, then the agent's free points (static
 text), at most 5 in total. Plugs into layout(key_points=...); the number of points never depends on addr. Pure.
-The sentence uses the base the line is material against (vs PY/BU/FC); a stock metric (FTE) says FTE, no MNOK."""
+The sentence uses the base the line is material against (vs PY/BU/FC); a stock metric (FTE) says FTE, no MNOK; an
+amount under 1 m says NOK in whole kroner (layout.unit_of: never '-0,0 MNOK'). A ledger lines main block (a
+lines-only answer) gets its top 3 groups with their share and the lines total with the gap to the cube."""
 from __future__ import annotations
 
 import textwrap
@@ -10,10 +12,11 @@ from collections.abc import Callable, Iterable
 
 from ..model.blocks.common import SCEN, BlockOut, Line, base_of, ck, group_start
 from ..model.spec import CommentaryBlock
-from .layout import HUNDRED, NOTE_WIDTH, UNIT_MNOK, _last_period
+from .layout import HUNDRED, NOTE_WIDTH, UNIT_MNOK, _last_period, sheet_label, unit_of
 
 MAX_POINTS = 5
 MAX_MATERIAL = 4
+TOP_LINES = 3                    # a lines main block: its top 3 groups
 BULLET = "•  "
 INDENT = "   "
 NO_CAUSE = INDENT + "Cause not yet explained"
@@ -43,20 +46,26 @@ def _cell(ln: Line, j: int | None) -> bool:
     return j is not None and j < len(ln.cells) and ln.cells[j] is not None
 
 
+def _amount(a: str, unit: str, addr: Callable[[str], str]) -> str:
+    """An amount cell as text in its unit: MNOK one decimal, NOK whole kroner, FTE one decimal."""
+    if unit == "MNOK":
+        return f"FIXED({a}/{addr(UNIT_MNOK)},1)"
+    return f"FIXED({a},0)" if unit == "NOK" else f"FIXED({a},1)"
+
+
 def _formula(o: BlockOut, ln: Line, addr: Callable[[str], str], stock: set[str],
-             base: str | None = None) -> str | None:
+             base: str | None = None, cells=None) -> str | None:
     vi, di, pi = _columns(o, base)
     if not _cell(ln, vi):
         return None
-    mnok = not (ln.metric and ln.metric in stock)
-    unit = addr(UNIT_MNOK) if mnok else ""
+    stocked = bool(ln.metric and ln.metric in stock)
+    unit = "FTE" if stocked else unit_of((cells or {}).get(ck(o.key, ln.key, vi)))
 
     def num(j: int) -> str:
-        a = addr(ck(o.key, ln.key, j))
-        return f"FIXED({a}/{unit},1)" if mnok else f"FIXED({a},1)"
+        return _amount(addr(ck(o.key, ln.key, j)), unit, addr)
 
-    u = " MNOK" if mnok else " FTE"
-    head = " ".join(x for x in (ln.label, _last_period(o)) if x)
+    u = " " + unit
+    head = " ".join(x for x in (sheet_label(ln), _last_period(o)) if x)
     f = f'="{BULLET}{_esc(head)} "&{num(vi)}'
     if not _cell(ln, di):
         return f + f'&"{u}"'
@@ -103,12 +112,46 @@ def key_points(main: BlockOut | None, res, drivers, addr: Callable[[str], str], 
     free points ('•  ' + text, so a point starting with '=' stays text), at most 5 in total."""
     stock = set(stock)
     out: list[tuple[str, str | None]] = []
-    for ln, material, base in (_chosen(main, res) if main is not None else []):
-        f = _formula(main, ln, addr, stock, base)
-        if f is not None:
-            out.append((f, _cause(ln, drivers, material)))
+    cells = getattr(res, "cells", None) or {}
+    if main is not None and main.type == "lines":
+        out += [(f, None) for f in _lines_points(main, addr, cells)]
+    else:
+        for ln, material, base in (_chosen(main, res) if main is not None else []):
+            f = _formula(main, ln, addr, stock, base, cells)
+            if f is not None:
+                out.append((f, _cause(ln, drivers, material)))
     out += [(BULLET + t, None) for t in free]
     return out[:MAX_POINTS]
+
+
+LINES_CONTROLS = ("total", "cube", "gap", "other", "blank")    # not groups: totals, controls and the remainder
+
+
+def _lines_points(o: BlockOut, addr: Callable[[str], str], cells) -> list[str]:
+    """A ledger lines main block: '<group>: <amount> (<share> %)' for its top 3 groups (ranked by size), then
+    'Ledger lines total <amount>; gap to cube <gap>'. Live formulas; each amount in its own unit (unit_of)."""
+    def amount(key: str) -> str:
+        return _amount(addr(ck(o.key, key, 0)), unit_of(cells.get(ck(o.key, key, 0))), addr)
+
+    def unit(key: str) -> str:
+        return " " + unit_of(cells.get(ck(o.key, key, 0)))
+    out = []
+    groups = [ln for ln in o.lines if ln.key not in LINES_CONTROLS and ln.kind == "line"][:TOP_LINES]
+    for ln in groups:
+        f = f'="{BULLET}{_esc(sheet_label(ln))}: "&{amount(ln.key)}&"{unit(ln.key)}'
+        if _cell(ln, 1):
+            p, h = addr(ck(o.key, ln.key, 1)), addr(HUNDRED)
+            f += f' ("&IF({p}="","n/a",FIXED({p}*{h},1)&" %")&")"'
+        else:
+            f += '"'
+        out.append(f)
+    keys = {ln.key for ln in o.lines}
+    if "total" in keys:
+        f = f'="{BULLET}Ledger lines total "&{amount("total")}&"{unit("total")}'
+        if "gap" in keys:
+            f += f'; gap to cube "&{amount("gap")}&"{unit("gap")}'
+        out.append(f + '"')
+    return out
 
 
 def point_rows(points: list[tuple[str, str | None]]) -> list[str]:

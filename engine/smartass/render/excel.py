@@ -237,10 +237,16 @@ def table_font(rng) -> None:
     com(look)
 
 
-def sheet_print(ws, last_col: str, last_row: int) -> None:
+def sheet_print(ws, last_col: str, last_row: int, header_row: int | None = None) -> None:
     """A data sheet's page setup (styling.print_setup): A1:<last_col><last_row>, landscape, one page wide, the sheet
-    name and page number in the footer. Cosmetic: a failure is ignored."""
+    name and page number in the footer. header_row (a Lines sheet: 40+ columns are unreadable fitted to one page):
+    100 % zoom, as many pages wide as needed, that table header row repeated on every page. Cosmetic: a failure is
+    ignored."""
     try:
+        if header_row:
+            styling.print_setup(ws, last_col, last_row, SHEET_FOOTER, fit_wide=False,
+                                title_rows=f"${header_row}:${header_row}")
+            return
         styling.print_setup(ws, last_col, last_row, SHEET_FOOTER)
     except Exception:   # noqa: BLE001 - no printer, a busy Excel: the data is written
         pass
@@ -277,7 +283,8 @@ def answer_roles(p: SheetPlan) -> dict:
     if p.helper_cols:                    # chart helpers: grey, inside the owned block, outside the print area
         roles |= {"helper_cols": list(p.helper_cols), "print_last_col": p.print_last_col}
     if p.footer:                         # the v2 print setup (styling.print_setup) up to the tables' last column
-        roles |= {"print_footer": p.footer, "print_last_col": p.print_last_col or p.last_col}
+        roles |= {"print_footer": p.footer, "print_last_col": p.print_last_col or p.last_col,
+                  "print_area_col": p.print_area_col or p.print_last_col or p.last_col}   # charts included
     return roles
 
 

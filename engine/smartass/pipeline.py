@@ -377,7 +377,8 @@ def _write_lines(t, q: int, ls, fetched: str = "") -> str:
     from .render.excel import sheet_print
     from .render.layout import col_letter, col_number
     last = max(len(res["columns"]), col_number(datasheet.LINES_HEADER.split(":")[1].rstrip("0123456789")))
-    sheet_print(ws, col_letter(last), LINES_TABLE_ROW + res["rows"])     # the table and its F1:K3 provenance
+    sheet_print(ws, col_letter(last), LINES_TABLE_ROW + res["rows"],     # the table and its F1:K3 provenance
+                header_row=LINES_TABLE_ROW)                                # 100 %, the header on every page
     return want
 
 

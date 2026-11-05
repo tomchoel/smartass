@@ -72,7 +72,10 @@ class ChartSpec:
     anchor: str = "B1"        # top-left cell of the chart in the Charts zone
     width: float = CHART_WIDTH
     height: float = CHART_HEIGHT
-    millions: bool = True     # data labels in MNOK; False for stocks (FTE) and percentages
+    millions: bool = True     # data labels in MNOK; False for stocks (FTE), percentages and amounts under 1 m
+    whole: bool = False       # NOK amounts under 1 m (millions False): labels in whole NOK ('#,##0')
+    reverse_values: bool = False   # every plotted value <= 0 (costs): the value axis reversed, bars grow upwards
+    axis_min: float | None = None  # a truncated bridge axis (waterfall): MinimumScale (MaximumScale when negative)
     sort: str = "none"        # desc | asc | none (bar: the order on the sheet; desc keeps the largest on top)
     highlight: list[int] = field(default_factory=list)   # 1-based points coloured with the accent, the rest grey
     source: str = ""          # the key of the out whose rows the chart draws (b<i>)
@@ -106,7 +109,8 @@ class SheetPlan:
     widths: dict[str, float] = field(default_factory=dict)  # column letter -> width (A, B, C, numbers, gap, marker)
     chart_lint: list[str] = field(default_factory=list)     # chart problems found while laying out (reply lint)
     helper_cols: list[str] = field(default_factory=list)    # chart helper columns (grey, right of every table)
-    print_last_col: str = ""                                # the tables' last column (print area; helpers excluded)
+    print_last_col: str = ""                                # the tables' last column (text rows; helpers excluded)
+    print_area_col: str = ""                                # the print area's last column: the tables or the charts
     footer: str = ""                                        # the print footer (pipeline: source and fetch date)
 
     def at(self, key: str) -> tuple[int, int]:
@@ -125,6 +129,25 @@ def _num(code: str, stock: bool) -> str:
     if code in PCT_CODES:
         return "prosent1"
     return "tall1" if stock else "heltall"
+
+
+def sheet_label(ln) -> str:
+    """The label shown on the sheet: without the code when it repeats it ('4P&C_T People & Competence' with code
+    4P&C_T -> 'People & Competence'; '2WHS Wholesale' with code 2WHS -> 'Wholesale'). The model label
+    (key_values keys) is never changed."""
+    code = getattr(ln, "code", "") or ""
+    label = ln.label
+    if code and label.startswith(code + " ") and label[len(code) + 1:].strip():
+        return label[len(code) + 1:].lstrip()
+    return label
+
+
+MILLION = 1_000_000.0
+
+
+def unit_of(value) -> str:
+    """'MNOK' for an amount of at least 1 m (or unknown), 'NOK' below (no '-0,0 MNOK' for 7 271 NOK)."""
+    return "NOK" if isinstance(value, (int, float)) and abs(value) < MILLION else "MNOK"
 
 
 def _millions(o, stock: set[str]) -> bool:
@@ -273,7 +296,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     tables.sort(key=lambda o: order.get(o.key, len(order)))
     chart_data = [o for o in res.outs if o.type == "chart_data"]
     chart_data.sort(key=lambda o: order.get(o.key, len(order)))
-    main = key_point_table(tables)
+    main = key_point_table(tables) or next((o for o in tables if o.type == "lines" and o.lines), None)
     drivers = [d for b in spec.blocks if isinstance(b, CommentaryBlock) for d in b.drivers]
     widest = max([len(o.headers) for o in tables + chart_data] or [1])
     col_kind: dict[int, set[str]] = {}            # sheet column -> the column codes the tables put there
@@ -324,7 +347,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         for ln in o.lines:
             if ln.code:
                 p.cells[(r, CODE_COL)] = ln.code
-            p.cells[(r, LABEL_COL)] = ("   " * ln.level) + ln.label
+            p.cells[(r, LABEL_COL)] = ("   " * ln.level) + sheet_label(ln)
             is_stock = ln.metric in stock if ln.metric else False
             num = {letters[j]: _num(o.cols[j], is_stock) for j in range(len(o.headers)) if o.cols[j] != GAP}
             p.rows.append({"row": r, "kind": ln.kind, "num": num})
@@ -396,6 +419,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         if isinstance(b, TableBlock) and b.rows == "metrics" and not b.chain:
             r = notes(r, f"{b.title or 'Table'}: the P&L chain is switched off (chain: false); the table shows a "
                          "deliberate subset of the lines.")
+    for line in _axis_notes(chart_outs, outs, res, stock):
+        r = notes(r, line)
     r += 1
     text(r, "Thresholds", "section")
     r += 1
@@ -463,7 +488,25 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     _place_helpers(p, specs, FIRST_COL + widest + 1, col_kind)
     p.widths = _widths(p, col_kind)
     p.charts = _anchor(specs, charts_row, p.widths)
+    p.print_area_col = _print_area_col(p)
     return p
+
+
+def _print_area_col(p: SheetPlan) -> str:
+    """The print area's last column: the tables', or further right to the column under a chart's right edge (two
+    charts side by side may be wider than the tables; one page wide still holds, Excel scales down)."""
+    last = col_number(p.print_last_col)
+    left, x = {}, 0.0
+    for c in range(1, 200):
+        left[c] = x
+        x += width_pt(p.widths.get(col_letter(c), DEFAULT_WIDTH))
+    for cs in p.charts:
+        if not cs.series:               # not drawn
+            continue
+        right = left[col_number(cs.anchor_col)] + cs.width
+        c = next(c for c in range(1, 199) if left[c + 1] >= right)
+        last = max(last, c)
+    return col_letter(last)
 
 
 def _widths(p: SheetPlan, col_kind: dict[int, set[str]]) -> dict[str, float]:
@@ -486,6 +529,68 @@ IMPLICIT_SERIES = {"drivers": ["var"]}                 # an implicit bar on a dr
 SORTED_SOURCES = ("ranking", "lines")                  # rows already ranked by size (descending)
 DROP_KEYS = {"lines": {"total", "cube", "gap"}}        # ledger lines rows that are controls, not parts
 MAX_PARTS = 5
+
+
+TRUNCATE_RATIO = 0.25       # a bridge axis is truncated when its largest |step| < 25 % of its smallest |total|
+TRUNCATE_AT = 0.9            # ... at a round number below 90 % of its level nearest zero
+
+
+def nice_floor(x: float) -> float:
+    """x > 0 rounded down to two significant digits: 3 330 000 000 -> 3 300 000 000."""
+    unit = 10.0 ** (math.floor(math.log10(x)) - 1)
+    return math.floor(x / unit + 1e-9) * unit
+
+
+def bridge_axis(amounts: list[float]) -> float | None:
+    """The truncated value axis of a bridge (start, steps..., end), the consulting convention when the steps are
+    small next to the totals: a round number below every running level (MinimumScale; for a bridge below zero the
+    MaximumScale, negative). None when the steps are large enough to read from zero, or the levels cross zero."""
+    from .chartdata import waterfall_bars
+    if len(amounts) < 3:
+        return None
+    totals, steps = (amounts[0], amounts[-1]), amounts[1:-1]
+    smallest = min(abs(t) for t in totals)
+    if not smallest or max(abs(s) for s in steps) >= TRUNCATE_RATIO * smallest:
+        return None
+    levels = [b[0] for b in waterfall_bars(amounts)]
+    if all(v > 0 for v in levels):
+        return nice_floor(TRUNCATE_AT * min(levels))
+    if all(v < 0 for v in levels):
+        return -nice_floor(TRUNCATE_AT * min(abs(v) for v in levels))
+    return None
+
+
+def _bridge_amounts(data, res) -> list[float] | None:
+    if data is None or data.type != "bridge" or "amount" not in data.cols:
+        return None
+    j = data.cols.index("amount")
+    vals = [res.cells.get(ck(data.key, ln.key, j)) for ln in data.lines]
+    return [float(v) if isinstance(v, (int, float)) else 0.0 for v in vals]
+
+
+def amount_text(v: float, millions: bool) -> str:
+    """An amount for a note: '3 300 MNOK' (one decimal only when needed) or '45 000 NOK'."""
+    if not millions:
+        return f"{v:,.0f}".replace(",", " ") + " NOK"
+    m = v / MILLION
+    return (f"{m:,.0f}" if abs(m - round(m)) < 1e-9 else f"{m:,.1f}").replace(",", " ") + " MNOK"
+
+
+def _axis_notes(chart_outs, outs, res, stock) -> list[str]:
+    """'Bridge axis starts at <x> MNOK' for every waterfall drawn on a truncated axis (named when there are more)."""
+    found = []
+    for o in chart_outs:
+        if (o.chart or "column") != "waterfall":
+            continue
+        data = outs.get(o.chart_of if o.type == "chart" else o.key)
+        amounts = _bridge_amounts(data, res)
+        axis = bridge_axis(amounts) if amounts else None
+        if axis is not None:
+            millions = _millions(data, stock) and max(abs(a) for a in amounts) >= MILLION
+            found.append((o.title, amount_text(axis, millions)))
+    if len(found) == 1:
+        return [f"Bridge axis starts at {found[0][1]}."]
+    return [f"Bridge axis starts at {x} ({title})." for title, x in found]
 
 
 def _runs(letter: str, rows: list[int]) -> str:
@@ -568,9 +673,11 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
         row_nums = [r for r, _ in rows]
         cs.cat_range = _runs(col_letter(LABEL_COL), row_nums)
         labels = [ln.label.strip().lower() for _, ln in rows]
+        shown = [sheet_label(ln).strip().lower() for _, ln in rows]     # as column C shows it
         for h in (cb.highlight if cb is not None else []):
-            if h.strip().lower() in labels:
-                cs.highlight.append(labels.index(h.strip().lower()) + 1)
+            want = h.strip().lower()
+            if want in labels or want in shown:
+                cs.highlight.append((labels.index(want) if want in labels else shown.index(want)) + 1)
             else:
                 lint.append(f"chart '{o.title}': highlight '{h}' is not a line of the source; fix: use a line "
                             "label as shown in column C")
@@ -599,7 +706,7 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
                             "block with fewer lines, or use a bar chart")
             sel = [letters[j] for j in picked]
             cs.cat_range = _across(sel, header_row)
-            cs.series = [(ln.label.strip(), _across(sel, r), "part") for r, ln in rows]
+            cs.series = [(sheet_label(ln).strip(), _across(sel, r), "part") for r, ln in rows]
         else:
             if kind == "bar" and cs.sort != "none" and data.type not in SORTED_SOURCES:
                 vals = [res.cells.get(ck(data.key, ln.key, picked[0])) for _, ln in rows]
@@ -608,10 +715,32 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
                     lint.append(f"chart '{o.title}': sort '{cs.sort}' not applied, the bars keep the table's "
                                 "order; fix: chart a ranking block (rows sorted by size) or set sort 'none'")
             cs.series = [(data.headers[j], _runs(letters[j], row_nums), ROLE.get(cols[j], "ac")) for j in picked]
+        _scale(cs, data, res, rows, picked)
     except Exception as e:   # noqa: BLE001 - a chart never fails the answer
         cs.series, cs.helpers = [], {}
         lint.append(f"chart '{o.title}' failed: {e}; fix: patch the chart block (kind, source, series)")
     return cs
+
+
+def _scale(cs: ChartSpec, data, res, rows, picked: list[int]) -> None:
+    """Units and value axis from the model values the chart plots: MNOK labels only from 1 m (|max|), whole NOK
+    below; a value axis reversed when every plotted value is <= 0 (costs: the bars grow away from the category
+    labels, which keep their minus sign); a waterfall's truncated axis (bridge_axis)."""
+    from .chartdata import waterfall_bars
+    if cs.kind == "waterfall":
+        vals = _bridge_amounts(data, res) or []
+        cs.axis_min = bridge_axis(vals) if vals else None
+        levels = [b[0] for b in waterfall_bars(vals)] if vals else []
+    else:
+        if cs.kind == "variance":
+            picked = [j for j in picked if data.cols[j] == "var"][:1]
+        js = [j for j in picked if data.cols[j] not in PCT_CODES]
+        vals = [res.cells.get(ck(data.key, ln.key, j)) for _, ln in rows for j in js]
+        vals = [float(v) for v in vals if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        levels = vals
+    if cs.millions and vals and max(abs(v) for v in vals) < MILLION:
+        cs.millions, cs.whole = False, True
+    cs.reverse_values = bool(levels) and all(v <= 0 for v in levels) and any(v < 0 for v in levels)
 
 
 def _place_helpers(p: SheetPlan, specs: list[ChartSpec], first: int, col_kind) -> None:

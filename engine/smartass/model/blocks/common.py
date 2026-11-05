@@ -51,7 +51,10 @@ def code_of(member: str | None) -> str:
 
 
 def metric_code(r, metric: str, cube: str) -> str:
-    """The code of a metric's first member in the cube ('' when it has none there)."""
+    """The code of a metric's first member in the cube ('' when it has none there). FinPlan metrics have none: their
+    members are names (Revenue, COGS, Gross_Profit, OPEX, EBITDA) that only repeat the label."""
+    if cube == "FinPlan":
+        return ""
     try:
         ms = r.members(metric, cube)
     except KeyError:

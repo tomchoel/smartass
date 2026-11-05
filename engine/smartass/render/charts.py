@@ -26,6 +26,9 @@ XL_LINE = 4
 XL_NONE = -4142                  # xlNone / xlTickMarkNone / xlTickLabelPositionNone
 XL_LEGEND_TOP = -4160
 XL_VALUE, XL_CATEGORY = 2, 1
+XL_TICK_LOW, XL_TICK_HIGH = -4134, -4127   # xlTickLabelPositionLow / High
+XL_LABEL_CENTER, XL_LABEL_INSIDE_END = -4108, 3
+LOW_KINDS = ("column", "bar", "line", "combo", "stacked", "stacked100", "variance", "waterfall")
 MSO_TRUE, MSO_FALSE = -1, 0
 MSO_PATTERN_WIDE_UPWARD_DIAGONAL = 26      # MsoPatternType (Office typelib)
 GAP_WIDTH = 50
@@ -44,11 +47,12 @@ FILL = {"ac": NAVY, "py": GREY, "var": GOOD, "fav": GOOD, "unfav": BAD, "up": GO
 HIDDEN = ("base",)               # waterfall bases: no fill, no line, no label
 
 
-def label_format(role: str, millions: bool) -> str:
-    """Data label format: MNOK with the scaling commas, zeros hidden (helper series are 0 off their points)."""
+def label_format(role: str, millions: bool, whole: bool = False) -> str:
+    """Data label format: MNOK with the scaling commas, whole NOK for amounts under 1 m, one decimal for stocks
+    (FTE); zeros hidden (helper series are 0 off their points)."""
     if role == "pct":
         return '0.0 %;-0.0 %;;'
-    unit = "#,##0.0,," if millions else "#,##0.0"
+    unit = "#,##0.0,," if millions else "#,##0" if whole else "#,##0.0"
     if role in ("up", "up_neg"):           # an increase: its size, above or below zero
         return f"{unit};{unit};;"
     if role in ("down", "down_neg"):       # a decrease: minus its size, above or below zero
@@ -136,13 +140,22 @@ def _fill(s, role: str, k: int, line: bool) -> None:
         com(lambda: setattr(ln, "Visible", MSO_FALSE))
 
 
-def _labels(s, role: str, millions: bool) -> None:
+WATERFALL_STEPS = ("up", "up_neg", "down", "down_neg")
+
+
+def _labels(s, role: str, spec: ChartSpec) -> None:
+    """Data labels in the label format; on a waterfall white bold inside the bars (never navy on navy): a total
+    at its inside end, a step in its centre."""
     if role in HIDDEN:
         return
     com(lambda: setattr(s, "HasDataLabels", True))
     dl = com(lambda: s.DataLabels())
     com(lambda: setattr(dl, "NumberFormatLinked", False))
-    com(lambda: setattr(dl, "NumberFormat", chart_format(dl, label_format(role, millions))))
+    com(lambda: setattr(dl, "NumberFormat", chart_format(dl, label_format(role, spec.millions, spec.whole))))
+    if spec.kind == "waterfall" and (role == "total" or role in WATERFALL_STEPS):
+        com(lambda: setattr(dl, "Position", XL_LABEL_INSIDE_END if role == "total" else XL_LABEL_CENTER))
+        com(lambda: setattr(dl.Font, "Color", WHITE))
+        com(lambda: setattr(dl.Font, "Bold", True))
 
 
 def _highlight(s, points: list[int], n: int) -> None:
@@ -154,15 +167,25 @@ def _highlight(s, points: list[int], n: int) -> None:
 
 
 def _axes(chart, spec: ChartSpec) -> None:
-    """No gridlines, no tick marks, no value axis labels (the data labels carry the numbers)."""
+    """No gridlines, no tick marks, no value axis labels (the data labels carry the numbers). Category labels at
+    the low end of the value axis, clear of negative bars; with every value <= 0 the value axis is reversed (the
+    bars grow away from the labels) and the labels sit at its high end, which is then next to zero (hidden Excel,
+    05.11.2026: Low on a reversed axis puts them at the far, most negative end). A waterfall on a truncated axis
+    starts at spec.axis_min (MinimumScale; the MaximumScale for a bridge below zero)."""
     val = com(lambda: chart.Axes(XL_VALUE))
     com(lambda: setattr(val, "HasMajorGridlines", False))
     com(lambda: setattr(val, "HasMinorGridlines", False))
     com(lambda: setattr(val, "MajorTickMark", XL_NONE))
     com(lambda: setattr(val, "TickLabelPosition", XL_NONE))
     com(lambda: setattr(val.Format.Line, "Visible", MSO_FALSE))
+    if spec.reverse_values:
+        com(lambda: setattr(val, "ReversePlotOrder", True))
+    if spec.axis_min is not None:
+        com(lambda: setattr(val, "MaximumScale" if spec.axis_min < 0 else "MinimumScale", spec.axis_min))
     cat = com(lambda: chart.Axes(XL_CATEGORY))
     com(lambda: setattr(cat, "MajorTickMark", XL_NONE))
+    if spec.kind in LOW_KINDS:
+        com(lambda: setattr(cat, "TickLabelPosition", XL_TICK_HIGH if spec.reverse_values else XL_TICK_LOW))
     if spec.kind in ("bar", "variance"):
         com(lambda: setattr(cat, "ReversePlotOrder", spec.sort != "asc"))
 
@@ -201,7 +224,7 @@ def _draw(ws, spec: ChartSpec) -> None:
         for k, (s, role) in enumerate(series):
             line = spec.kind == "line" or (spec.kind == "combo" and role == "pct")
             _fill(s, role, k, line)
-            _labels(s, role, spec.millions)
+            _labels(s, role, spec)
         target = next((s for s, role in series if role in ("ac", "part")), None)
         if spec.highlight and target is not None and spec.kind in ("column", "bar"):
             _highlight(target, spec.highlight, n)

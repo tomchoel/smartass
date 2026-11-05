@@ -75,11 +75,15 @@ def test_a_chart_far_below_keeps_its_own_header_row():
     assert p.charts[-1].anchor_row < top_table                               # every chart above the tables
     assert p.charts[-1].anchor_row == dict(p.zones)["charts"]
 def test_millions_axis_only_for_nok_amounts():
-    flow = run2([{"type": "trend", "query": "fm", "metrics": ["Opex"]}], monthly_facts(), "Jul 26..Sep 26")
-    assert flow.charts[0].millions is True
+    from test_v5_layout import scaled
+    flow = run2([{"type": "trend", "query": "fm", "metrics": ["Opex"]}], scaled(monthly_facts(), 1e6),
+                "Jul 26..Sep 26")
+    assert flow.charts[0].millions is True and flow.charts[0].whole is False
+    small = run2([{"type": "trend", "query": "fm", "metrics": ["Opex"]}], monthly_facts(), "Jul 26..Sep 26")
+    assert small.charts[0].millions is False and small.charts[0].whole is True       # NOK under 1 m: whole NOK
     fte = run2([{"type": "trend", "query": "fm", "metrics": ["FTE"]}], monthly_facts(), "Jul 26..Sep 26",
                stock={"FTE"})
     assert fte.charts[0].millions is False
-    bridge = run2([{"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}], facts(),
-                  stock={"FTE"})
+    bridge = run2([{"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}],
+                  scaled(facts(), 1e6), stock={"FTE"})
     assert bridge.charts[0].millions is True
