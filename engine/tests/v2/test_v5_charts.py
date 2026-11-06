@@ -326,8 +326,8 @@ def test_no_gridlines_and_mnok_labels():
     assert ("set", "c1.Axes(2).HasMajorGridlines", False) in log
     assert ("set", "c1.Axes(2).MajorTickMark", C.XL_NONE) in log
     fmts = sets(log, "DataLabels().NumberFormat")
-    assert fmts == [("c1.s1.DataLabels().NumberFormat", "#,##0.0,,;-#,##0.0,,;;"),
-                    ("c2.s1.DataLabels().NumberFormat", "#,##0.0;-#,##0.0;;")]
+    assert fmts == [("c1.s1.DataLabels().NumberFormat", "#,##0.0,,;\"−\"#,##0.0,,;;"),
+                    ("c2.s1.DataLabels().NumberFormat", "#,##0.0;\"−\"#,##0.0;;")]
     assert ("set", "c1.HasLegend", False) in log                           # one series: labelled directly
     assert ("set", "c1.ChartGroups(1).GapWidth", 50) in log
     assert ("set", "c1.ChartTitle.Text", "column chart") in log
@@ -363,7 +363,7 @@ def test_combo_puts_pct_on_a_secondary_line():
     i_type = log.index(("set", "c1.s2.ChartType", 4))
     i_fmt = min(i for i, e in enumerate(log) if e[0] == "set" and ".Format." in e[1])
     assert i_type < i_fmt
-    assert ("set", "c1.s2.DataLabels().NumberFormat", "0.0 %;-0.0 %;;") in log
+    assert ("set", "c1.s2.DataLabels().NumberFormat", '0.0 %;"−"0.0 %;;') in log
     assert ("set", "c1.s2.Format.Line.ForeColor.RGB", C.PCT_LINE) in log
 
 
@@ -413,9 +413,9 @@ def test_waterfall_labels_show_the_step_sign_above_and_below_zero():
     fmts = dict(sets(log, "DataLabels().NumberFormat"))
     assert fmts == {"c1.s3.DataLabels().NumberFormat": "#,##0.0,,;#,##0.0,,;;",      # +1 above zero: 1.0
                     "c1.s4.DataLabels().NumberFormat": "#,##0.0,,;#,##0.0,,;;",      # +1 below zero: 1.0
-                    "c1.s5.DataLabels().NumberFormat": "-#,##0.0,,;-#,##0.0,,;;",    # -8 above zero: -8.0
-                    "c1.s6.DataLabels().NumberFormat": "-#,##0.0,,;-#,##0.0,,;;",    # -8 below zero: -8.0
-                    "c1.s7.DataLabels().NumberFormat": "#,##0.0,,;-#,##0.0,,;;"}
+                    "c1.s5.DataLabels().NumberFormat": "\"−\"#,##0.0,,;\"−\"#,##0.0,,;;",    # -8 above zero: -8.0
+                    "c1.s6.DataLabels().NumberFormat": "\"−\"#,##0.0,,;\"−\"#,##0.0,,;;",    # -8 below zero: -8.0
+                    "c1.s7.DataLabels().NumberFormat": "#,##0.0,,;\"−\"#,##0.0,,;;"}
     fore = dict(sets(log, ".Format.Fill.ForeColor.RGB"))
     assert fore["c1.s4.Format.Fill.ForeColor.RGB"] == C.GOOD and fore["c1.s6.Format.Fill.ForeColor.RGB"] == C.BAD
 
@@ -460,7 +460,7 @@ def test_data_labels_get_the_chart_locale_format(monkeypatch):
     monkeypatch.setattr(Rec, "__call__", call)
     C.write_charts(ws, SheetPlan(charts=[spec("column", [("AC", "D", "ac")])]))
     fmts = [v for _, v in sets(log, "DataLabels().NumberFormat")]
-    assert fmts == ["#\xa0##0,0\xa0\xa0;-#\xa0##0,0\xa0\xa0;;"]
+    assert fmts == ['#\xa0##0,0\xa0\xa0;"−"#\xa0##0,0\xa0\xa0;;']
 
 
 def test_a_chart_block_on_a_bridge_replaces_the_bridges_own_waterfall():

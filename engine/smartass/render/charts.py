@@ -71,17 +71,20 @@ FILL = {"ac": NAVY, "py": GREY, "var": GOOD, "fav": GOOD, "unfav": BAD, "up": GO
 HIDDEN = ("base",)               # waterfall bases: no fill, no line, no label
 
 
+MINUS = '"−"'      # the typographic minus as a quoted literal: data labels read −16,2, never -16,2
+
+
 def label_format(role: str, millions: bool, whole: bool = False) -> str:
     """Data label format: MNOK with the scaling commas, whole NOK for amounts under 1 m, one decimal for stocks
     (FTE); zeros hidden (helper series are 0 off their points)."""
     if role == "pct":
-        return '0.0 %;-0.0 %;;'
+        return f'0.0 %;{MINUS}0.0 %;;'
     unit = "#,##0.0,," if millions else "#,##0" if whole else "#,##0.0"
     if role in ("up", "up_neg"):           # an increase: its size, above or below zero
         return f"{unit};{unit};;"
     if role in ("down", "down_neg"):       # a decrease: minus its size, above or below zero
-        return f"-{unit};-{unit};;"
-    return f"{unit};-{unit};;"
+        return f"{MINUS}{unit};{MINUS}{unit};;"
+    return f"{unit};{MINUS}{unit};;"
 
 
 def _place(ws, spec: ChartSpec):

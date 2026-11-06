@@ -149,3 +149,20 @@ def test_an_implicit_chart_title_never_says_vs_twice():
 def test_a_concepts_derived_query_ids_count_as_the_query():
     assert _of("q1", "q1") and _of("q1:fam_mobil_own", "q1")
     assert not _of("q10", "q1") and not _of("q10:fam", "q1")
+
+
+def test_a_rankings_key_points_put_the_parent_first_never_between_its_parts():
+    from smartass.render.keypoints import _chosen
+    main = BlockOut("b0", "ranking", "Top", ["AC", "PY", "dPY"], cols=["value", "ly", "var"])
+    main.lines = [Line("e0", "A", [None] * 3), Line("e1", "B", [None] * 3), Line("total", "T", [None] * 3, kind="grand")]
+    res = SimpleNamespace(material=[{"key": "b0.e0", "variance": -154.0, "base": "ly"},
+                                    {"key": "b0.total", "variance": -60.0, "base": "ly"},
+                                    {"key": "b0.e1", "variance": 29.0, "base": "ly"}])
+    assert [ln.key for ln, _, _ in _chosen(main, res)] == ["total", "e0", "e1"]
+
+
+def test_chart_labels_use_the_typographic_minus():
+    from smartass.render.charts import label_format
+    for role in ("ac", "down", "pct"):
+        f = label_format(role, True)
+        assert '"−"' in f and ";-" not in f and not f.startswith("-")

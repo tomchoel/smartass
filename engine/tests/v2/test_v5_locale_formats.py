@@ -65,10 +65,10 @@ def test_chart_format_scales_with_no_break_spaces_and_keeps_the_sections():
     ('#\xa0##0,0\xa0\xa0' shows 3 811,4 for 3 811 374 124.3); plain spaces showed '3811374 124,3'."""
     from smartass.render.charts import label_format
     nb = "#\xa0##0,0\xa0\xa0"
-    assert styling.chart_format(_Obj(), label_format("ac", True)) == f"{nb};-{nb};;"
-    assert styling.chart_format(_Obj(), label_format("down", True)) == f"-{nb};-{nb};;"
-    assert styling.chart_format(_Obj(), label_format("ac", False)) == "#\xa0##0,0;-#\xa0##0,0;;"
-    assert styling.chart_format(_Obj(), label_format("pct", True)) == "0,0 %;-0,0 %;;"   # the space stays plain
+    assert styling.chart_format(_Obj(), label_format("ac", True)) == f"{nb};\"−\"{nb};;"
+    assert styling.chart_format(_Obj(), label_format("down", True)) == f"\"−\"{nb};\"−\"{nb};;"
+    assert styling.chart_format(_Obj(), label_format("ac", False)) == "#\xa0##0,0;\"−\"#\xa0##0,0;;"
+    assert styling.chart_format(_Obj(), label_format("pct", True)) == '0,0 %;"−"0,0 %;;'   # the space stays plain
 
 
 def test_chart_format_keeps_en_us_and_fakes():

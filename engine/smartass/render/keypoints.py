@@ -141,6 +141,9 @@ def _chosen(main: BlockOut, res) -> list[tuple[Line, bool, str | None]]:
             seen[k] = (v, m.get("base"))
     if seen:
         keys = sorted(seen, key=lambda k: -seen[k][0])[:MAX_MATERIAL]
+        if main.type in ("ranking", "drivers"):   # the parent first, then its parts (never between them)
+            keys.sort(key=lambda k: not (by_key[k].kind == "grand" or (main.type == "drivers"
+                                                                      and by_key[k].level == 0)))
         return [(by_key[k], True, seen[k][1]) for k in keys]
     lines = [ln for ln in main.lines if ln.kind != "check"]
     top = next((ln for ln in lines if ln.kind == "grand"), lines[0] if lines else None)

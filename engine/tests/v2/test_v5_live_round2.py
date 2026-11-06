@@ -134,9 +134,9 @@ def test_small_amounts_are_whole_nok_on_charts():
     cs = ChartSpec("bar", "Suppliers")
     _scale(cs, data, res, rows, [0])
     assert (cs.millions, cs.whole) == (False, True)
-    assert C.label_format("ac", False, True) == "#,##0;-#,##0;;"
+    assert C.label_format("ac", False, True) == "#,##0;\"−\"#,##0;;"
     log, _ = draw(spec("bar", [("AC", "D", "ac")], millions=False, whole=True))
-    assert sets(log, "DataLabels().NumberFormat") == [("c1.s1.DataLabels().NumberFormat", "#,##0;-#,##0;;")]
+    assert sets(log, "DataLabels().NumberFormat") == [("c1.s1.DataLabels().NumberFormat", "#,##0;\"−\"#,##0;;")]
 
 
 def test_fte_charts_keep_one_decimal():
