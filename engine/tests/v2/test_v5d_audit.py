@@ -268,3 +268,17 @@ def test_two_lines_get_no_min_labels_one_line_keeps_its_low_point():
                 for k in range(n):
                     assert not (cs.label_min[k] in cs.label_points[k] and cs.label_min[k]
                                 not in (max(cs.label_points[k]),)) or len(cs.label_points[k]) <= 2
+
+
+def test_matrix_and_entity_tables_carry_codes_and_a_real_title():
+    s, res, p = run([{"type": "matrix", "query": "fm", "metric": "Opex"},
+                     {"type": "table", "query": "fm", "rows": "entities", "metric": "Opex"}])
+    mx = next(o for o in res.outs if o.type == "matrix")
+    assert all(ln.code for ln in mx.lines if ln.kind != "check")
+    tb = next(o for o in res.outs if o.type == "table")
+    assert tb.title == "Opex by unit"
+
+
+def test_a_member_without_a_label_shows_its_code():
+    assert L.sheet_label(Line("e0", "un.SY.4BUS_B", [None], code="4BUS_B")) == "4BUS_B"
+    assert L.sheet_label(Line("e0", "4BUS_B Business", [None], code="4BUS_B")) == "Business"

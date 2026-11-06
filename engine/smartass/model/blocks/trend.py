@@ -9,7 +9,7 @@ from ..periods import label, period_label, resolve
 from ..series import months
 from ..spec import MatrixBlock, TrendBlock
 from ..units import NOK, short_name, unit_class
-from .common import HEAD, SCEN, BlockOut, Line, ck, children_sum, counted, metric_label
+from .common import HEAD, SCEN, BlockOut, Line, ck, children_sum, code_of, counted, metric_label
 
 
 def build_trend(b: TrendBlock, ctx: Ctx, key: str) -> BlockOut:
@@ -56,10 +56,10 @@ def build_matrix(b: MatrixBlock, ctx: Ctx, key: str) -> BlockOut:
                    cols=["value"] * len(ms), query=q.id)
     for i, e in enumerate(kids):
         out.lines.append(Line(f"e{i}", r.label(e, q.cube), [ctx.pick(q, b.metric, "value", e, [m]) for m in ms],
-                              metric=b.metric, entity=e))
+                              metric=b.metric, entity=e, code=code_of(e)))
     out.lines.append(Line("total", r.label(q.entity, q.cube),
                           [ctx.pick(q, b.metric, "value", q.entity, [m]) for m in ms], kind="grand", metric=b.metric,
-                          entity=q.entity))
+                          entity=q.entity, code=code_of(q.entity)))
     live = counted(ctx, q, kids)
     if live:
         out.lines.append(Line("check", "Check: children = parent",

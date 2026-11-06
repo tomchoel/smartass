@@ -35,7 +35,9 @@ def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
         heads += h
         keys += k if g == len(groups) - 1 else [f"{expr} · {x}" for x in k]
     bm_or_none = bm if b.periods else None
-    out = BlockOut(key, "table", b.title or "Table", heads, cols=cols, query=q.id, keys=keys)
+    by = {"entities": "by unit", "products": "by product"}.get(b.rows)   # 'Opex by unit', never just 'Table'
+    default = f"{metric_label(ctx.resolver, b.metric, q.cube)} {by}" if by and b.metric else "Table"
+    out = BlockOut(key, "table", b.title or default, heads, cols=cols, query=q.id, keys=keys)
     if b.rows == "entities":
         out.lines = entity_lines(ctx, q, b.metric, cols, key, top=b.top, other=b.other, sort=b.sort, bm=bm_or_none)
     elif b.rows == "products":

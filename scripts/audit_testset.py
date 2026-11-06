@@ -21,6 +21,26 @@ from smartass.testset import runner  # noqa: E402
 from smartass.xl.target import Target  # noqa: E402
 
 
+def _synthetic():
+    """(title, Prepared) for the block types the test set has no case for: matrix, a table by entities, a ranking
+    by products. Figures from tests/v2 fixtures (invented)."""
+    tests = os.path.join(os.path.dirname(__file__), "..", "engine", "tests", "v2")
+    sys.path[:0] = [os.path.abspath(tests), os.path.abspath(os.path.join(tests, ".."))]
+    from test_v2_pipeline import FakeProvider
+    from test_v2_products import pfacts, presolver, pspec
+    from v2util import facts, resolver, spec_dict
+    out = []
+    for title, blocks in (("Matrix of Opex", [{"type": "matrix", "query": "fm", "metric": "Opex"}]),
+                          ("Table by entities", [{"type": "table", "query": "fm", "rows": "entities",
+                                                  "metric": "Opex"}])):
+        d = spec_dict(blocks=blocks, question=title)
+        out.append((title, pipeline.prepare(d, resolver(), FakeProvider(facts()))))
+    d = pspec()
+    d["question"] = "Ranking by products"
+    out.append(("Ranking by products", pipeline.prepare(d, presolver(), FakeProvider(pfacts()))))
+    return out
+
+
 def main() -> None:
     out_dir = os.path.abspath(sys.argv[1])
     ids = set(sys.argv[2:])          # --charts: also b01 with the chart kinds an agent picks
@@ -54,6 +74,19 @@ def main() -> None:
                  "series": ["value", "ly"]}]
             cases = [extra] if not ids else cases + [extra]
             ids.add("b01+charts")
+        if "--synthetic" in ids:           # block types the test set lacks, on the unit-test fixtures (no EPM)
+            ids.discard("--synthetic")
+            for title, pre in _synthetic():
+                try:
+                    res = pipeline.excel_job(None, pre, "session")
+                    print(f"synthetic Q{res['q']}: {title}")
+                    for k in ("warnings", "layout", "findings", "mismatches"):
+                        for x in res.get(k) or []:
+                            print(f"    {k}: {x}")
+                except Exception as e:   # noqa: BLE001
+                    print(f"synthetic {title}: FAILED {type(e).__name__}: {e}")
+            if not ids:
+                cases = []
         for case in cases:
             if ids and case["id"] not in ids:
                 continue

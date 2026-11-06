@@ -152,6 +152,8 @@ def sheet_label(ln) -> str:
     label = ln.label
     if code and label.startswith(code + " ") and label[len(code) + 1:].strip():
         return label[len(code) + 1:].lstrip()
+    if code and label.strip() in {f"{p}{code}" for p in ("ac.", "un.SY.", "pd.SY.")}:
+        return code                  # a member without a label ('un.SY.4BUS_B'): its code, not the raw member name
     return label
 
 
