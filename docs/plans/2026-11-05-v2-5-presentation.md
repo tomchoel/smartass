@@ -765,3 +765,26 @@ Tom: "fiks alt". Superseded above: a line without a driver gets no cause row (no
   label and subtitle follow).
 - A grid without one data cell is no data ("FinPlan: no data for ... in Actual"), not "Smart View did not know".
 - Font lint reads the drawn block only (cells a redraw cleared fall back to the Normal font).
+
+## 5d: visual audit of every answer type (06.11.2026)
+
+`scripts/audit_testset.py` draws the 9 test-set cases offline (replay, no EPM) into an unsaved workbook in a hidden
+Excel and renders every sheet to PNG (`render_answers.export`). All 21 sheets were read against the review checklist;
+fixed:
+
+- Thresholds: only the columns with a value; Unit/Tolerance/Percent factor in their own `Parameter | Value` table
+  ("NOK per MNOK"); a sheet with parameters only calls the section "Parameters".
+- Notes and caveats wrap at the width of the tables (was 78 characters, ~40 % of a wide table).
+- Text negatives with U+2212: key points (`SUBSTITUTE(FIXED(..),"-","−")`) and chart data labels (`"−"` literal in the
+  number format, checked in real Excel). Conditional number formats were tried for "(0)" and rejected: Excel shows
+  `-(…)` in a conditioned negative section and reads the code in the user's locale.
+- Bridge residual `ROUND(..,0)`: whole kroner, "–" instead of "(0)".
+- Charts leave out categories that print as zero (0,0 MNOK / 0 NOK); a waterfall keeps start and end. Ranking table
+  rows of zero stay (dropping them changes golden b06: Tom's call).
+- Drivers: code in column B, the implicit chart is a variance chart (green/red by effect) of the leaf drivers; key
+  points on the total and the leaves; a ranking's/drivers' parent is the first key point.
+- Truthful texts: an implicit chart title never says "vs" twice; the sign note names the cube (FinLite); a lines
+  answer's subtitle carries the drill cell's account, entity and month.
+- A concept's Data header and Sources row count its derived query ids (`q1:fam_…`): rows, route, control total.
+- Lines sheet: header names fit their columns; the cube value in the amount format.
+- Print: each section and the charts zone are kept on one page (manual breaks from simulated fit-to-width pages).
