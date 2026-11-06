@@ -31,7 +31,7 @@ XL_LEGEND_TOP = -4160
 XL_VALUE, XL_CATEGORY = 2, 1
 XL_TICK_LOW, XL_TICK_HIGH = -4134, -4127   # xlTickLabelPositionLow / High
 XL_LABEL_CENTER, XL_LABEL_INSIDE_END = -4108, 3
-XL_LABEL_ABOVE, XL_LABEL_BELOW, XL_LABEL_RIGHT = 0, 1, -4152     # a line's min/max label above its point, the last one to its right
+XL_LABEL_ABOVE, XL_LABEL_BELOW, XL_LABEL_RIGHT, XL_LABEL_LEFT = 0, 1, -4152, -4131     # a line's min/max label above its point, the last one to its right
 LOW_KINDS = ("column", "bar", "line", "combo", "stacked", "stacked100", "variance", "waterfall")
 MSO_TRUE, MSO_FALSE = -1, 0
 MSO_PATTERN_WIDE_UPWARD_DIAGONAL = 26      # MsoPatternType (Office typelib)
@@ -196,6 +196,10 @@ def _labels(s, role: str, spec: ChartSpec, k: int = 0) -> None:
                 com(lambda: setattr(pt, "HasDataLabel", False))
             elif i == max(keep):
                 com(lambda: setattr(pt.DataLabel, "Position", XL_LABEL_RIGHT))
+            elif k < len(spec.label_pos) and i in spec.label_pos[k]:   # clear of the other line (layout)
+                com(lambda: setattr(pt.DataLabel, "Position",
+                                    {"above": XL_LABEL_ABOVE, "left": XL_LABEL_LEFT}.get(spec.label_pos[k][i],
+                                                                                         XL_LABEL_BELOW)))
         return
     if spec.kind in ("stacked", "stacked100") and role == "part":   # inside the part: white on the dark ones
         com(lambda: setattr(dl, "Position", XL_LABEL_CENTER))
