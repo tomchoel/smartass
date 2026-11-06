@@ -864,3 +864,14 @@ def apply_data_sheet(ws, header_rows: int, label_cols: int, fte_rows: list[int] 
         ws.Tab.Color = _rgb(GREY_TAB)
     _retry(widths_and_tab)
     _freeze(ws, header_rows, label_cols)
+    def last_number_col() -> int:      # the grid's width: Smart View's POV row runs further right (D..M) and
+        vals = ws.Range(a(header_rows + 1, 1, last_r, last_c)).Value2       # would shrink the table to a strip
+        rows = vals if isinstance(vals, tuple) else ((vals,),)
+        cols = [j + 1 for row in rows for j, v in enumerate(row) if isinstance(v, (int, float))]
+        return max(cols) if cols else last_c
+    try:                               # prints like the other data sheets: landscape, one page wide, a footer (it
+        width = max(_retry(last_number_col), label_cols or 1) if last_r > header_rows else last_c
+        print_setup(ws, _cl(width), last_r, "Source: Oracle EPM Cloud · &A · page &P of &N",     # was portrait,
+                    title_rows=f"$1:${header_rows}" if header_rows else "")                     # 4 pages, bare)
+    except Exception:   # noqa: BLE001 - no printer: the data is styled
+        pass
