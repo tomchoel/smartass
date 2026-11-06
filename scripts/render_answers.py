@@ -30,23 +30,32 @@ def copy_open(fragment: str, out: str) -> bool:
     return False
 
 
+def export(wb, out_dir: str, tag: str) -> None:
+    """Each visible sheet of an open workbook to <tag>_<i>.pdf and its first 2 pages to PNG."""
+    for i in range(1, wb.Worksheets.Count + 1):
+        ws = wb.Worksheets(i)
+        if ws.Visible != -1:
+            continue
+        pdf = os.path.join(out_dir, f"{tag}_{i}.pdf")
+        try:
+            ws.ExportAsFixedFormat(0, pdf)
+        except Exception:   # noqa: BLE001 - an empty sheet has nothing to print
+            print(i, ws.Name, 'empty')
+            continue
+        d = fitz.open(pdf)
+        for p in range(min(2, d.page_count)):
+            d[p].get_pixmap(dpi=100).save(os.path.join(out_dir, f"{tag}_{i}_{p}.png"))
+        print(i, ws.Name, "pages", d.page_count, "print area", ws.PageSetup.PrintArea)
+        d.close()
+
+
 def render(path: str, out_dir: str, tag: str) -> None:
     app = w.DispatchEx("Excel.Application")
     app.Visible = False
     app.DisplayAlerts = False
     try:
         wb = app.Workbooks.Open(path, 0, True)
-        for i in range(1, wb.Worksheets.Count + 1):
-            ws = wb.Worksheets(i)
-            if ws.Visible != -1:
-                continue
-            pdf = os.path.join(out_dir, f"{tag}_{i}.pdf")
-            ws.ExportAsFixedFormat(0, pdf)
-            d = fitz.open(pdf)
-            for p in range(min(2, d.page_count)):
-                d[p].get_pixmap(dpi=100).save(os.path.join(out_dir, f"{tag}_{i}_{p}.png"))
-            print(i, ws.Name, "pages", d.page_count, "print area", ws.PageSetup.PrintArea)
-            d.close()
+        export(wb, out_dir, tag)
         wb.Close(False)
     finally:
         app.Quit()

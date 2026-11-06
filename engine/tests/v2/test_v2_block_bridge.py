@@ -18,4 +18,4 @@ def test_bridge_from_ly_to_actual_with_other():
     got = {ln.key: cells.get(ck("b0", ln.key, 0)) for ln in out.lines}
     assert got == {"start": 63.0, "s0": 10.0, "s1": -8.0, "other": 0.0, "end": 65.0}
     addr = {ck("b0", k, 0): f"D{i + 4}" for i, k in enumerate(got)}.__getitem__
-    assert out.lines[3].cells[0].to_excel("Data_Q1", addr) == "(D8-D4)-SUM(D5:D6)"
+    assert out.lines[3].cells[0].to_excel("Data_Q1", addr) == "ROUND((D8-D4)-SUM(D5:D6),0)"   # whole kroner: never "(0)"

@@ -18,8 +18,9 @@ def test_bridge_gets_a_waterfall_anchor():
     p = run([{"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}], facts())
     (c,) = p.charts
     assert c.kind == "waterfall" and c.title == "EBITDA bridge"
-    a, b = c.cat_range.split(":")
-    assert a[0] == b[0] == "C" and int(b[1:]) - int(a[1:]) == 4          # start, 2 steps, other, end
+    parts = c.cat_range.replace(",", ":").split(":")
+    a, b = parts[0], parts[-1]
+    assert a[0] == b[0] == "C" and int(b[1:]) - int(a[1:]) == 4          # start, 2 steps, other, end (zero: no bar)
     assert p.cells[(int(a[1:]) - 1, 4)] == "Amount"                      # the bridge header right above
     assert [r for _, _, r in c.series][-1] == "total"
     assert (c.anchor_col, c.anchor_row) == ("B", dict(p.zones)["charts"])     # plan 5: in the Charts zone

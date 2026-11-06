@@ -7,6 +7,7 @@ from v2util import CLOSED, facts, resolver, spec_dict
 from smartass.model.analyze import compute
 from smartass.model.spec import AnalysisSpec
 from smartass.render import charts as C
+from smartass.render import layout as L
 from smartass.render.chartdata import WATERFALL_ROLES, stacked_spans, waterfall_bars
 from smartass.render.layout import CHART_ROWS, ChartSpec, SheetPlan, col_number, layout
 from smartass.xl.vendor import tn_rapportstil as tn
@@ -68,8 +69,10 @@ def test_bridge_waterfall_uses_helper_columns_right_of_the_widest_table():
     assert roles == ["base", "base", "up", "up_neg", "down", "down_neg", "total"]
     bridge = next(o for o in res.outs if o.type == "bridge")
     first_line = min(int(a[1:]) for k, a in p.addr.items() if k.startswith(bridge.key + "."))
-    n = len(bridge.lines)
-    assert cs.cat_range == f"C{first_line}:C{first_line + n - 1}"
+    j = bridge.cols.index("amount")       # zero steps are no category (start and end always are)
+    rows = [first_line + i for i, ln in enumerate(bridge.lines)
+            if ln.kind in ("sum", "grand") or abs(res.cells.get(L.ck(bridge.key, ln.key, j)) or 0) >= 0.5]
+    assert cs.cat_range == L._runs("C", rows) and len(rows) < len(bridge.lines)
     widest = max(col_number("".join(ch for ch in a if ch.isalpha())) for a in p.addr.values())
     helper_cols = [col_number(c) for c in p.helper_cols]
     assert len(helper_cols) == 8 and min(helper_cols) >= widest + 2       # one empty column between

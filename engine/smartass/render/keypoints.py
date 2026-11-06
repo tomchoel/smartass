@@ -57,8 +57,13 @@ def _amount(a: str, unit: str, addr: Callable[[str], str], value=None) -> str:
     decimal."""
     if unit == "MNOK":
         small = isinstance(value, (int, float)) and 0 < abs(value) < SMALL_MNOK
-        return f"FIXED({a}/{addr(UNIT_MNOK)},{2 if small else 1})"
-    return f"FIXED({a},0)" if unit == "NOK" else f"FIXED({a},1)"
+        return _minus(f"FIXED({a}/{addr(UNIT_MNOK)},{2 if small else 1})")
+    return _minus(f"FIXED({a},0)" if unit == "NOK" else f"FIXED({a},1)")
+
+
+def _minus(expr: str) -> str:
+    """A number as text with the typographic minus (−, U+2212): text negatives are −1 000, never a hyphen."""
+    return f'SUBSTITUTE({expr},"-","−")'
 
 
 def shared_unit(values) -> str:
@@ -92,7 +97,7 @@ def _formula(o: BlockOut, ln: Line, addr: Callable[[str], str], stock: set[str],
     if not _cell(ln, pi):
         return f + '"'
     p, h = addr(ck(o.key, ln.key, pi)), addr(HUNDRED)
-    return f + f' ("&IF({p}="","n/a",FIXED({p}*{h},1)&" %")&")"'
+    return f + f' ("&IF({p}="","n/a",{_minus(f"FIXED({p}*{h},1)")}&" %")&")"'
 
 
 def _missing(cells, key: str) -> bool:
@@ -222,7 +227,7 @@ def _unit_text(unit: str, value, nok: str | None = None) -> tuple[str, str]:
 
 
 def _fixed(a: str, how: str, addr: Callable[[str], str]) -> str:
-    return f"FIXED({a}/{addr(UNIT_MNOK)},1)" if how == "mnok" else f"FIXED({a},{how})"
+    return _minus(f"FIXED({a}/{addr(UNIT_MNOK)},1)" if how == "mnok" else f"FIXED({a},{how})")
 
 
 def _trend_points(o: BlockOut, res, drivers, addr: Callable[[str], str], cells) -> list[tuple[str, str | None]]:
@@ -291,7 +296,7 @@ def _lines_points(o: BlockOut, addr: Callable[[str], str], cells) -> list[str]:
         f = f'="{BULLET}{_esc(sheet_label(ln))}: "&{amount(ln.key)}&"{unit(ln.key)}'
         if _cell(ln, 1):
             p, h = addr(ck(o.key, ln.key, 1)), addr(HUNDRED)
-            f += f' ("&IF({p}="","n/a",FIXED({p}*{h},1)&" %")&")"'
+            f += f' ("&IF({p}="","n/a",{_minus(f"FIXED({p}*{h},1)")}&" %")&")"'
         else:
             f += '"'
         out.append(f)

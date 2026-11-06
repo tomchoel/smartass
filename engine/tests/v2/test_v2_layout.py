@@ -44,7 +44,7 @@ def test_refs_point_at_their_rows():
     end, start = p.at("b0.end.0"), p.at("b0.start.0")
     s0, s1 = p.at("b0.s0.0"), p.at("b0.s1.0")
     col = "D"
-    assert p.cells[other] == f"=({col}{end[0]}-{col}{start[0]})-SUM({col}{s0[0]}:{col}{s1[0]})"
+    assert p.cells[other] == f"=ROUND(({col}{end[0]}-{col}{start[0]})-SUM({col}{s0[0]}:{col}{s1[0]}),0)"
 
 
 def test_number_formats_by_column_code():
@@ -75,5 +75,5 @@ def test_long_notes_are_wrapped_to_the_lint_width():
     res.findings.append(Finding("info", "word " * 40, "b0"))
     p = layout(3, s, res, stock=set(), subtitle="NOK · FinMax · closed Sep 26")
     notes = [p.cells[(r["row"], 2)] for r in p.rows if r["kind"] == "note"]
-    assert len(notes) >= 4 and all(len(n) <= 78 for n in notes)
+    assert len(notes) >= 4 and all(len(n) <= 140 for n in notes)   # wrapped at the table width (>= 78)
     assert " ".join(n.strip() for n in notes if n.startswith(("Info", "word"))).count("word") >= 40

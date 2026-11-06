@@ -4,6 +4,7 @@ None means missing (no fact), never zero. Formulas follow tn-formelstil: SUMIFS 
 variance % empty when the base is zero."""
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Callable
@@ -217,6 +218,20 @@ class Ratio(Expr):
         if self.floor is not None:
             return f'IF(ABS({d})<{self.floor.to_excel(table, addr, const)},"",({n})/{den})'
         return f'IF({d}=0,"",({n})/{den})'
+
+
+@dataclass(frozen=True)
+class Round(Expr):
+    """a rounded to whole kroner, half away from zero as Excel's ROUND: a residual of fractional kroner (a bridge's
+    'Other / unexplained') shows '–', never '(0)'."""
+    a: Expr
+
+    def evaluate(self, frame, cells):
+        x = self.a.evaluate(frame, cells)
+        return None if x is None else math.copysign(math.floor(abs(x) + 0.5), x) + 0.0
+
+    def to_excel(self, table, addr, const=None):
+        return f"ROUND({self.a.to_excel(table, addr, const)},0)"
 
 
 @dataclass(frozen=True)
