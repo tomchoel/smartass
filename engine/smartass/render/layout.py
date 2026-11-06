@@ -8,6 +8,7 @@ in Notes). Pure: no Excel."""
 from __future__ import annotations
 
 import math
+import re
 import textwrap
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -834,6 +835,9 @@ def chart_title(cs: ChartSpec, data, kept: list[int], split_name: str | None) ->
         return f"{cs.title} — {split_name}" if split_name else cs.title
     names = list(dict.fromkeys(data.headers[j].rsplit(" ", 1)[0] for j in kept)) if data.col_metrics else []
     subject = " and ".join(names) if 1 <= len(names) <= 2 else (split_name or data.title)
+    bars = getattr(cs, "bars", None)          # 'Top 15 by Opex' over 11 bars (zero ones left out): 'Top 11 ...'
+    if bars and re.match(r"Top \d+ ", subject):
+        subject = re.sub(r"^Top \d+ ", f"Top {bars} ", subject)
     roles = [r for _, _, r in cs.series]
     base = next((BASE_WORD[r] for r in roles if r in BASE_WORD), None)
     monthly = " per month" if data.type == "trend" else ""
@@ -978,6 +982,8 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
             return cs
         full = rows
         rows = _no_zero_categories(rows, data, res, picked, kind, cs.millions)
+        if len(rows) < len(full):
+            cs.bars = sum(1 for _, ln in rows if ln.key != "other")
         row_nums = [r for r, _ in rows]
         cs.cat_range = _runs(col_letter(LABEL_COL), row_nums)
         labels = [ln.label.strip().lower() for _, ln in rows]

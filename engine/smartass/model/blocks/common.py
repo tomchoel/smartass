@@ -3,6 +3,7 @@
 metric rows and entity rows (children, top N, Other, parent total, a children = parent check)."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -181,7 +182,7 @@ def col_headers(cols: list[str], *, period: str, ly_period: str, fc: str) -> lis
         if c == "budget":
             return f"BU {period}"
         if c == "forecast":
-            return f"FC {fc}".strip()
+            return f"FC {period}" + (f" ({fc})" if fc else "")      # as AC/BU: the period, then the forecast
         if c in ("var", "var_pct"):
             return f"Δ{SCEN[cols[base_of(cols, j)]]}" + (" %" if c == "var_pct" else "")
         return {"share": "Share %", "amount": "Amount"}.get(c, "")
@@ -189,11 +190,13 @@ def col_headers(cols: list[str], *, period: str, ly_period: str, fc: str) -> lis
 
 
 def forecast_name(ctx: Ctx, q: Query, cols: list[str]) -> str:
-    """The short forecast name for a FinPlan query with a forecast column ('Forecast Q326' -> 'Q326'), else ''."""
+    """The short forecast name for a FinPlan query with a forecast column ('Forecast Q326' -> 'Q3 26'), else ''."""
     if q.cube != "FinPlan" or "forecast" not in cols:
         return ""
     name = ctx.resolver.latest_forecast()
-    return name[len("Forecast "):] if name.startswith("Forecast ") else name
+    short = name[len("Forecast "):] if name.startswith("Forecast ") else name
+    m = re.fullmatch(r"Q(\d)(\d\d)", short)              # 'Q326' -> 'Q3 26'
+    return f"Q{m.group(1)} {m.group(2)}" if m else short
 
 
 def scenario_heads(ctx: Ctx, q: Query, cols: list[str],

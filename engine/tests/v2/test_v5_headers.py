@@ -58,7 +58,7 @@ def test_col_headers_texts():
         "AC YTD Oct 26", "PY YTD Oct 25", "ΔPY", "ΔPY %"]
     assert col_headers(["value", "budget", "var", "forecast", "var", "var_pct"], period="Oct 26",
                        ly_period="Oct 25", fc="Q326") == [
-        "AC Oct 26", "BU Oct 26", "ΔBU", "FC Q326", "ΔFC", "ΔFC %"]
+        "AC Oct 26", "BU Oct 26", "ΔBU", "FC Oct 26 (Q326)", "ΔFC", "ΔFC %"]
 
 
 def test_single_group_headers_and_keys_unchanged():
@@ -78,7 +78,7 @@ def test_plan_headers_budget_and_forecast():
     s = AnalysisSpec.model_validate(d)
     c = Ctx(s, resolver(), OCT, Frame([]))
     out = build_table(s.blocks[0], c, "b0")
-    assert out.headers == ["AC YTD Oct 26", "BU YTD Oct 26", "ΔBU", "FC Q326", "ΔFC", "ΔFC %", "Material"]
+    assert out.headers == ["AC YTD Oct 26", "BU YTD Oct 26", "ΔBU", "FC YTD Oct 26 (Q3 26)", "ΔFC", "ΔFC %", "Material"]
     assert out.keys == ["Actual", "Budget", "Variance vs Budget", "Forecast", "Variance vs Forecast",
                         "Variance % vs Forecast", ""]
 

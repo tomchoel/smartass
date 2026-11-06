@@ -43,7 +43,7 @@ def export(wb, out_dir: str, tag: str) -> None:
             print(i, ws.Name, 'empty')
             continue
         d = fitz.open(pdf)
-        for p in range(min(2, d.page_count)):
+        for p in range(min(6 if "Answer" in ws.Name else 2, d.page_count)):   # every page of an answer
             d[p].get_pixmap(dpi=100).save(os.path.join(out_dir, f"{tag}_{i}_{p}.png"))
         print(i, ws.Name, "pages", d.page_count, "print area", ws.PageSetup.PrintArea)
         d.close()
