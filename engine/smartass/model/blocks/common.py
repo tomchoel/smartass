@@ -251,15 +251,30 @@ def children_sum(ctx: Ctx, q: Query, metric: str, kids, series: str = "value",
     return Sub(pos, neg) if neg is not None else pos
 
 
+NEGLIGIBLE = 0.5                 # NOK: below this a cell shows '–' or '(0)' - rounding noise, not a figure
+
+
+def negligible(ctx: Ctx, q: Query, metric: str, cols: list[str], entity: str | None = None,
+               product: str | None = None) -> bool:
+    """Every value and base column of the line is missing or under NEGLIGIBLE (|x| < 0,5 NOK)."""
+    for c in dict.fromkeys(c for c in cols if c in ("value",) + BASES):
+        v = ctx.value(ctx.pick(q, metric, c, entity, product=product))
+        if v is not None and abs(v) >= NEGLIGIBLE:
+            return False
+    return True
+
+
 def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, top: int | None = None,
                  other: bool = True, sort: str = "none", bm: list | None = None) -> list[Line]:
     r = ctx.resolver
     kids = list(r.children(q.entity, q.cube))
+    every = list(kids)                                  # the check sums every child, shown or not
 
     def val(e: str) -> float:
         return ctx.value(ctx.pick(q, metric, "value", e)) or 0.0
 
-    if sort != "none" or top:
+    if sort != "none" or top:          # a ranking: a child with nothing in any column is no rank (Tom 06.11.2026)
+        kids = [e for e in kids if not negligible(ctx, q, metric, cols, entity=e)]
         order = {"desc": lambda e: -val(e), "asc": val, "abs": lambda e: -abs(val(e)),
                  "none": lambda e: -abs(val(e))}[sort]
         kids.sort(key=order)
@@ -282,10 +297,10 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
     lines.append(Line("total", r.label(q.entity, q.cube),
                       row_cells(ctx, q, metric, cols, key, "total", entity=q.entity, total_key="total", bm=bm),
                       kind="grand", metric=metric, entity=q.entity, code=code_of(q.entity)))
-    if counted(ctx, q, kids):
+    if counted(ctx, q, every):
         vi = cols.index("value")
         check: list[Expr | None] = [None] * len(cols)
-        check[vi] = Sub(children_sum(ctx, q, metric, counted(ctx, q, kids), base_months=bm[vi] if bm else None),
+        check[vi] = Sub(children_sum(ctx, q, metric, counted(ctx, q, every), base_months=bm[vi] if bm else None),
                         Ref(ck(key, "total", vi)))
         lines.append(Line("check", "Check: children = parent", check, kind="check"))
     return lines
@@ -305,6 +320,7 @@ def product_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *,
         return ctx.value(ctx.pick(q, metric, "value", product=p)) or 0.0
 
     if sort != "none" or top:
+        prods = [p for p in prods if not negligible(ctx, q, metric, cols, product=p)]
         order = {"desc": lambda p: -val(p), "asc": val, "abs": lambda p: -abs(val(p)),
                  "none": lambda p: -abs(val(p))}[sort]
         prods.sort(key=order)
