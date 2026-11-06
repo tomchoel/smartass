@@ -293,6 +293,17 @@ def _draw(ws, spec: ChartSpec) -> None:
             _labels(s, role, spec, k)
         target = next((s for s, role in series if role in ("ac", "part")), None)
         if spec.highlight and target is not None and spec.kind in ("column", "bar"):
+            # the legend shows a series' own fill: AC grey like its bars (the accent marks the point itself), a
+            # comparison outlined in grey - never a navy legend key over grey bars
+            com(lambda: setattr(target.Format.Fill.ForeColor, "RGB", GREY))
+            for s, role in series:
+                if s is not target and role in ("py", "bu", "fc"):
+                    f, ln = s.Format.Fill, s.Format.Line
+                    com(lambda f=f: f.Solid())
+                    com(lambda f=f: setattr(f.ForeColor, "RGB", WHITE))
+                    com(lambda ln=ln: setattr(ln, "Visible", MSO_TRUE))
+                    com(lambda ln=ln: setattr(ln.ForeColor, "RGB", GREY))
+                    com(lambda ln=ln: setattr(ln, "Weight", 1.0))
             _highlight(target, spec.highlight, n)
     except Exception:
         try:
