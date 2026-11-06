@@ -282,3 +282,14 @@ def test_matrix_and_entity_tables_carry_codes_and_a_real_title():
 def test_a_member_without_a_label_shows_its_code():
     assert L.sheet_label(Line("e0", "un.SY.4BUS_B", [None], code="4BUS_B")) == "4BUS_B"
     assert L.sheet_label(Line("e0", "4BUS_B Business", [None], code="4BUS_B")) == "Business"
+
+
+def test_a_matrix_leaves_out_a_child_with_nothing_in_any_month():
+    from v2util import CLOSED as _C
+    s = AnalysisSpec.model_validate(spec_dict(blocks=[{"type": "matrix", "query": "fm", "metric": "Opex"}]))
+    res = compute(s, resolver(), _C, facts())
+    mx = next(o for o in res.outs if o.type == "matrix")
+    assert all(any(isinstance(res.cells.get(ck(mx.key, ln.key, j)), (int, float))
+                   and abs(res.cells.get(ck(mx.key, ln.key, j))) >= 0.5 for j in range(len(mx.cols)))
+               for ln in mx.lines if ln.kind == "line")
+    assert any(ln.kind == "check" for ln in mx.lines)

@@ -54,7 +54,12 @@ def build_matrix(b: MatrixBlock, ctx: Ctx, key: str) -> BlockOut:
     kids = r.children(q.entity, q.cube)
     out = BlockOut(key, "matrix", b.title or metric_label(r, b.metric, q.cube), [label(m) for m in ms],
                    cols=["value"] * len(ms), query=q.id)
-    for i, e in enumerate(kids):
+    def empty(e) -> bool:              # nothing in any month (or only rounding noise): no row (Tom 06.11.2026)
+        vals = [ctx.value(ctx.pick(q, b.metric, "value", e, [m])) for m in ms]
+        return all(v is None or abs(v) < 0.5 for v in vals)
+
+    shown = [e for e in kids if not empty(e)] or list(kids)
+    for i, e in enumerate(shown):
         out.lines.append(Line(f"e{i}", r.label(e, q.cube), [ctx.pick(q, b.metric, "value", e, [m]) for m in ms],
                               metric=b.metric, entity=e, code=code_of(e)))
     out.lines.append(Line("total", r.label(q.entity, q.cube),

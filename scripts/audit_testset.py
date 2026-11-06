@@ -34,6 +34,9 @@ def _synthetic():
                           ("Table by entities", [{"type": "table", "query": "fm", "rows": "entities",
                                                   "metric": "Opex"}])):
         d = spec_dict(blocks=blocks, question=title)
+        if title.startswith("Matrix"):         # a long message title (live 04.11: it ran off the page)
+            d["plan"]["title"] = ("Explain the COGS (+23m) and Opex (+28m) underspend vs Target for 2WHS Wholesale "
+                                  "YTD Oct 26: which accounts, which cost centres and which suppliers drive it")
         out.append((title, pipeline.prepare(d, resolver(), FakeProvider(facts()))))
     d = pspec()
     d["question"] = "Ranking by products"

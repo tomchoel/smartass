@@ -313,12 +313,14 @@ def _blocks(cells: list[tuple[int, int, int]]) -> list[str]:
     return [f"{_cl(c1)}{r1}:{_cl(c2)}{r2}" for r1, r2, c1, c2 in out]
 
 
-def _merge_text(row, first) -> None:
+def _merge_text(row, first, style: str = "TN Tekst") -> None:
     """A text row merged over the table width, in one COM call: wrap, merge, the TN Tekst style again (a merge
     resets the hidden cells to Normal), top alignment of the first cell."""
     row.WrapText = True
     row.MergeCells = True
-    row.Style = "TN Tekst"
+    row.Style = style
+    if style != "TN Tekst":            # TN Tekst wraps by itself; another style (a title) resets WrapText
+        row.WrapText = True
     first.VerticalAlignment = tn.V_TOP
 
 
@@ -390,6 +392,7 @@ def apply_report(ws, roles: dict) -> list[str]:
     code_cells: list[tuple[int, int, int]] = []           # (row, col, col): code cells of table rows (grey, left)
     heights: dict[int, float] = {}
     merges: list[tuple[int, int]] = []
+    title_merges: list[tuple[int, int]] = []          # a wrapped title: merged over the width in its own style
     checks: list[tuple[int, int]] = []
     assigned: dict[tuple[int, int], str] = {}             # (row, col) -> TN style set below (for the fast lint)
 
@@ -403,6 +406,13 @@ def apply_report(ws, roles: dict) -> list[str]:
                     "note": "TN Note", "blank": "TN Tom"}[kind]
             cols = {c: name for c in range(1, last + 1)}
             heights[r] = {"title": 28, "subtitle": 16, "section": 22}.get(kind, 15)
+            txt = val(r, first_label) if kind == "title" else None
+            if txt:                     # a long message title wraps inside the table width, never off the page
+                width = sum(widths[c] for c in range(first_label, text_last + 1))
+                n = tn.wrap_lines(str(txt), width, 16, True) or 1
+                if n > 1:
+                    heights[r] = n * 21 + 4
+                    title_merges.append((r, first_label))
         elif kind == "subhead":         # a sub-heading inside a table (concept sections): label only, no numbers
             cols = {c: "TN Underseksjon" if c >= first_label else "TN Tom" for c in range(1, last + 1)}
             heights[r] = 15
@@ -503,6 +513,9 @@ def apply_report(ws, roles: dict) -> list[str]:
     with stage("D merges"):
         for r, c in merges:
             _retry(lambda: _merge_text(ws.Range(f"{_cl(c)}{r}:{_cl(text_last)}{r}"), ws.Range(f"{_cl(c)}{r}")))
+        for r, c in title_merges:
+            _retry(lambda: _merge_text(ws.Range(f"{_cl(c)}{r}:{_cl(text_last)}{r}"), ws.Range(f"{_cl(c)}{r}"),
+                                       "TN Tittel"))
     with stage("E check colours"):
         for chunk in tn._chunks(_check_ranges(checks), sep):          # one rule pair per chunk (was per cell: 7 s)
             _retry(lambda: _check_rules(ws.Range(chunk)))
@@ -520,7 +533,7 @@ def apply_report(ws, roles: dict) -> list[str]:
         else:
             _page_setup(ws, xl, last_row, text_last, roles)
     with stage("H lint"):
-        return _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights)
+        return _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges + title_merges, heights)
 
 
 def _lint_fast(ws, roles, raw, last, last_row, widths, assigned, merges, heights) -> list[str]:
