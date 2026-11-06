@@ -235,3 +235,20 @@ def test_key_points_name_every_base_of_the_group():
     cells = {ck("b0", "l0", j): v for j, v in enumerate([-100.0, -90.0, -10.0, -95.0, -5.0])}
     f = _formula(o, ln, lambda k: "X" + k[-1], set(), "budget", cells, "MNOK")
     assert " vs BU; " in f and f.endswith(' vs FC"')
+
+
+def test_a_child_with_only_rounding_noise_is_negligible_for_a_ranking():
+    from smartass.model.blocks.common import negligible
+    vals = {("value", "A"): -0.3, ("ly", "A"): None, ("value", "B"): -82_560.0, ("ly", "B"): 0.0,
+            ("value", "C"): 0.0, ("ly", "C"): 0.4}
+    ctx = SimpleNamespace(pick=lambda q, m, c, e=None, months=None, product=None: vals[(c, e)],
+                          value=lambda x: x)
+    cols = ["value", "ly", "var", "var_pct", "share"]
+    assert negligible(ctx, None, "Opex", cols, entity="A") and negligible(ctx, None, "Opex", cols, entity="C")
+    assert not negligible(ctx, None, "Opex", cols, entity="B")
+
+
+def test_the_highlight_accent_is_the_tn_template_blue():
+    from smartass.render import charts as C
+    from smartass.xl.vendor import tn_rapportstil as tn
+    assert C.ACCENT == tn.rgb((28, 22, 197))            # #1C16C5 (Tom 06.11.2026)
