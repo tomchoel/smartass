@@ -12,7 +12,7 @@ from smartass.render.datasheet import lines_header
 
 COLS = ["ACCOUNT", "AP_CUSTOMER_NAME", "GL_DESCRIPTION_LINE", "PROJECT", "CC_DESC", "AMOUNT", "GL_POSTED_DATE"]
 FETCHED = "2026-11-05 09:30 +0100 · tom"
-TIE = '=IF(NOT(ISNUMBER($D$2)),"no cube value",IF(ABS($G$3-$D$2)<=$K$3,"OK","DIFF"))'
+TIE = '=IF(NOT(ISNUMBER($D$3)),"no cube value",IF(ABS($G$3-$D$3)<=$K$3,"OK","DIFF"))'
 
 
 def _lines(cube=-30.0):
@@ -53,8 +53,8 @@ def test_the_lines_sheet_gets_the_header_in_f1_k3():
 
 def test_title_source_cube_cell_and_table_do_not_move():
     ws = _draw(_lines())
-    assert CUBE_CELL == "$D$2"
-    assert _v(ws, "C2") == "Cube value" and _v(ws, "D2") == -30.0
+    assert CUBE_CELL == "$D$3"
+    assert _v(ws, "C3") == "Cube value" and _v(ws, "D3") == -30.0 and _v(ws, "C2") is None   # row 3: A2 runs free
     assert _v(ws, "A1") == "Ledger lines behind ac.C60 / un.SY.2TEC / Yr 26"
     assert _v(ws, "A2").startswith("Source: Oracle EPM Cloud")
     lo = ws.ListObjects("Lines_Q3_b0")
@@ -64,7 +64,7 @@ def test_title_source_cube_cell_and_table_do_not_move():
 
 def test_a_missing_cube_value_says_so_instead_of_diff():
     ws = _draw(_lines(cube=None))
-    assert _v(ws, "D2") is None and "no cube value" in _v(ws, "I3")
+    assert _v(ws, "D3") is None and "no cube value" in _v(ws, "I3")
 
 
 def test_a_redrill_rewrites_the_header_in_place():
@@ -74,7 +74,7 @@ def test_a_redrill_rewrites_the_header_in_place():
     name = pipeline._write_lines(t, 3, _lines(cube=-31.0), "2026-11-06 08:00 +0100 · tom")
     ws = wb.Worksheets(name)
     assert [s.Name for s in wb.order].count("Q3 Lines b0") == 1
-    assert _v(ws, "G2").startswith("2026-11-06") and _v(ws, "D2") == -31.0
+    assert _v(ws, "G2").startswith("2026-11-06") and _v(ws, "D3") == -31.0
     assert ws.ListObjects("Lines_Q3_b0").HeaderRowRange.Row == 4
 
 

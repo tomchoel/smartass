@@ -298,15 +298,16 @@ def keep_spans(p: SheetPlan) -> list[tuple[int, int]]:
     marks = sorted(set(heads) | set(zones.values()) | {p.last_row + 1})
     filled = {r for (r, _c) in p.cells} | {r for r, k in kinds.items() if k not in (None, "blank")}
     out = []
-    starts = heads + ([zones["charts"]] if "charts" in zones and p.charts else [])
-    for s in sorted(set(starts)):
+    for s in heads:
         nxt = next((m for m in marks if m > s), p.last_row + 1)
         e = nxt - 1
-        if s != zones.get("charts"):
-            while e > s and e not in filled:
-                e -= 1
+        while e > s and e not in filled:
+            e -= 1
         out.append((s, e))
-    return out
+    from .layout import CHART_ROWS             # each row of (two) charts: a page may fall between rows, never through
+    for r in sorted({c.anchor_row for c in p.charts if getattr(c, "anchor_row", None)}):
+        out.append((r, min(r + CHART_ROWS - 1, p.last_row)))
+    return sorted(out)
 
 
 def answer_footer(fetched: datetime) -> str:

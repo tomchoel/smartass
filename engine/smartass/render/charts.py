@@ -197,6 +197,13 @@ def _labels(s, role: str, spec: ChartSpec, k: int = 0) -> None:
             elif i == max(keep):
                 com(lambda: setattr(pt.DataLabel, "Position", XL_LABEL_RIGHT))
         return
+    if spec.kind in ("stacked", "stacked100") and role == "part":   # inside the part: white on the dark ones
+        com(lambda: setattr(dl, "Position", XL_LABEL_CENTER))
+        com(lambda: setattr(dl.Font, "Color", WHITE if k % len(PARTS) < 2 else INK))
+        return
+    if spec.kind == "combo" and role == "pct":                       # above the line, clear of the columns
+        com(lambda: setattr(dl, "Position", XL_LABEL_ABOVE))
+        return
     if spec.kind == "waterfall" and (role == "total" or role in WATERFALL_STEPS):
         com(lambda: setattr(dl, "Position", XL_LABEL_INSIDE_END if role == "total" else XL_LABEL_CENTER))
         com(lambda: setattr(dl.Font, "Color", WHITE))
@@ -229,6 +236,12 @@ def _axes(chart, spec: ChartSpec) -> None:
     com(lambda: setattr(val, "MajorTickMark", XL_NONE))
     com(lambda: setattr(val, "TickLabelPosition", XL_NONE))
     com(lambda: setattr(val.Format.Line, "Visible", MSO_FALSE))
+    if spec.kind == "combo" and any(r == "pct" for _, _, r in spec.series):   # the % axis: no 0,1 / -0,4 ticks
+        sec = com(lambda: chart.Axes(XL_VALUE, 2))
+        com(lambda: setattr(sec, "HasMajorGridlines", False))
+        com(lambda: setattr(sec, "MajorTickMark", XL_NONE))
+        com(lambda: setattr(sec, "TickLabelPosition", XL_NONE))
+        com(lambda: setattr(sec.Format.Line, "Visible", MSO_FALSE))
     if spec.reverse_values:
         com(lambda: setattr(val, "ReversePlotOrder", True))
     if spec.axis_min is not None:

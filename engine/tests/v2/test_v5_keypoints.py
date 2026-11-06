@@ -130,7 +130,7 @@ def test_the_sentence_uses_the_base_the_line_is_material_against():
                               _mat("m1", 1.0, base="forecast")]), [], addr)
     rev, opex = (f for f, _ in pts)
     assert '&SUBSTITUTE(FIXED(H10/$D$40,1),"-","−")&" MNOK vs FC ("&IF(I10="","n/a"' in rev
-    assert opex.endswith('&SUBSTITUTE(FIXED(F11/$D$40,1),"-","−")&" MNOK vs BU"')          # no ΔBU % column: no bracket
+    assert opex.endswith('&SUBSTITUTE(FIXED(F11/$D$40,1),"-","−")&" MNOK vs BU; "&SUBSTITUTE(FIXED(H11/$D$40,1),"-","−")&" MNOK vs FC"')          # no ΔBU % column: no bracket
 
 
 def test_a_material_base_without_columns_falls_back_to_the_first_base():
@@ -141,7 +141,7 @@ def test_a_material_base_without_columns_falls_back_to_the_first_base():
 def test_fallback_point_uses_the_first_base():
     o = _two([_tline("m0", "EBITDA", kind="grand")])
     f = key_points(o, _res([]), [], addr)[0][0]
-    assert f.endswith('&SUBSTITUTE(FIXED(F10/$D$40,1),"-","−")&" MNOK vs BU"')
+    assert f.endswith('&SUBSTITUTE(FIXED(F10/$D$40,1),"-","−")&" MNOK vs BU; "&SUBSTITUTE(FIXED(H10/$D$40,1),"-","−")&" MNOK vs FC"')
 
 
 def test_no_main_table_gives_only_the_free_points():
