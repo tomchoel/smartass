@@ -253,7 +253,7 @@ def test_trend_main_block_gets_a_point_per_metric_with_its_unit():
     s, res, p = _fp_run(_fp_frame())
     pts = _points(p)
     assert len(pts) == 2
-    assert pts[0].startswith('="•  Fixed Streamix Subscriptions Sep 26: "&FIXED(') and ",0)" in pts[0]
+    assert pts[0].startswith('="•  Fixed Streamix Subscriptions Sep 26: "&SUBSTITUTE(FIXED(') and ",0)" in pts[0]
     assert "vs BU" in pts[0] and "MNOK" not in pts[0] and "total" not in pts[0]
     assert '" NOK' in pts[1]                                             # ARPU in NOK
     s, res, p = _fp_run(_fp_frame(actual=False))

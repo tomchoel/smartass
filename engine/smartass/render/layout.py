@@ -17,7 +17,7 @@ from ..model.blocks.common import GAP, MAT_ABS, MAT_PCT, MAT_SMALL, MARK_CODES, 
 from ..model.expr import Const, Var
 from ..model.frame import FILTER_COLUMNS
 from ..model.periods import label as month_label
-from ..model.spec import AnalysisSpec, CommentaryBlock, TableBlock
+from ..model.spec import AnalysisSpec, CommentaryBlock, LinesBlock, TableBlock
 from ..xl.vendor import tn_rapportstil as tn
 
 TEXT_COL = 2             # titles, subtitles, sections, notes and text: left-aligned with the code
@@ -240,8 +240,14 @@ def answer_subtitle(spec: AnalysisSpec, res: Result, closed: dict) -> str:
     when = (f"closed {labels.pop()}" if len(labels) == 1 else
             "closed " + ", ".join(f"{c} {month_label(m)}" for c, m in sorted(used.items())) if used else "")
     units = set((getattr(res, "units", None) or {}).values())
-    parts = ["NOK" if units <= {"nok"} else "", " + ".join(cubes), res.entity_label, _last_period(main_table(res)),
-             when]
+    entity, period = res.entity_label, _last_period(main_table(res))
+    cell = next((b.cell for b in spec.blocks if isinstance(b, LinesBlock)), None)
+    if cell and not entity:                    # a ledger-lines answer: its drill cell's account, entity and month
+        short = [str(cell.get(d, "")).removeprefix("ac.").removeprefix("un.SY.")
+                 for d in ("All Accounts", "All Entities")]
+        entity = " · ".join(x for x in short if x)
+        period = period or str(cell.get("All Time Periods", ""))
+    parts = ["NOK" if units <= {"nok"} else "", " + ".join(cubes), entity, period, when]
     return " · ".join(x for x in parts if x)
 
 
@@ -281,20 +287,22 @@ def _threshold_table(p: SheetPlan, r: int, params: dict, stock: set[str], cols: 
             rows.setdefault(key[len(THRESHOLD_KINDS[k]):], {})[k] = (key, value)
     if not rows:
         return r
+    kinds = sorted({k for have in rows.values() for k in have})   # only the kinds with a value: no empty column
+    pos = {k: i for i, k in enumerate(kinds)}
     letters = [col_letter(c) for c in cols]
     p.cells[(r, LABEL_COL)] = "Metric"
-    for c, head in zip(cols, THRESHOLD_HEADS):
-        p.cells[(r, c)] = head
-    p.rows.append({"row": r, "kind": "header", "num_cols": letters})
+    for k in kinds:
+        p.cells[(r, cols[pos[k]])] = THRESHOLD_HEADS[k]
+    p.rows.append({"row": r, "kind": "header", "num_cols": letters[:len(kinds)]})
     r += 1
     for metric, have in rows.items():
         is_stock = metric in stock
         p.cells[(r, LABEL_COL)] = metric if is_stock else f"{metric} (NOK)"
         num = {}
         for k, (key, value) in sorted(have.items()):
-            p.cells[(r, cols[k])] = value
-            p.params[key] = f"${letters[k]}${r}"
-            num[letters[k]] = "prosent1" if THRESHOLD_KINDS[k] == MAT_PCT else _num("value", is_stock)
+            p.cells[(r, cols[pos[k]])] = value
+            p.params[key] = f"${letters[pos[k]]}${r}"
+            num[letters[pos[k]]] = "prosent1" if THRESHOLD_KINDS[k] == MAT_PCT else _num("value", is_stock)
         p.rows.append({"row": r, "kind": "line", "num": num})
         r += 1
     return r
@@ -342,9 +350,19 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         else:
             p.literal.discard((row, TEXT_COL))
 
+    def note_width() -> int:
+        """Characters per note row: the width of the tables under the note (B code + C label + the value columns,
+        a gap or a marker column at its own width), at least NOTE_WIDTH - a note no longer wraps at 40 % of a wide
+        table. 0.95 char per column unit stays inside the styling lint's Arial measure (italic 9 pt)."""
+        units = W_CODE + LABEL_MIN
+        for c in range(FIRST_COL, FIRST_COL + widest):
+            k = col_kind.get(c, set()) | used.get(c, set())
+            units += W_GAP if k == {GAP} else W_MARK if (k and k <= MARK_CODES) else W_NUM
+        return max(NOTE_WIDTH, int(units * 0.95))
+
     def notes(row: int, value: str) -> int:
-        """A note longer than the lint width continues on following note rows, split at word boundaries."""
-        for part in textwrap.wrap(value, NOTE_WIDTH) or [""]:
+        """A note longer than the row width continues on following note rows, split at word boundaries."""
+        for part in textwrap.wrap(value, note_width()) or [""]:
             text(row, part, "note")
             row += 1
         return row
@@ -461,12 +479,15 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     r += 1
     # Thresholds: only the params a formula on the sheet uses (the model's floors and materiality, Unit MNOK and
     # Percent factor when a key point uses them, Tolerance when there is a check line); none: no section
-    own = [(k, lab, v) for k, lab, v in ((UNIT_MNOK, "Unit: MNOK", 1_000_000),
+    own = [(k, lab, v) for k, lab, v in ((UNIT_MNOK, "NOK per MNOK", 1_000_000),
                                          (TOLERANCE, "Tolerance (NOK)", TOLERANCE_NOK),
                                          (HUNDRED, "Percent factor", 100))
            if k in asked or (k == TOLERANCE and check_rows)]
-    if res.params or own:
-        text(r, "Thresholds", "section")
+    plain = [(key, label, value) for key, (label, value) in res.params.items()   # a param of no known kind
+             if not key.startswith(THRESHOLD_KINDS)] + own
+    has_thresholds = any(k.startswith(THRESHOLD_KINDS) for k in res.params)
+    if has_thresholds or plain:
+        text(r, "Thresholds" if has_thresholds else "Parameters", "section")
         r += 1
         if res.floors:
             r = notes(r, "Variance % is left blank when |base| is below the floor of its metric.")
@@ -474,11 +495,14 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
             r = notes(r, "Material (●) when |variance| >= the materiality, or when |variance %| >= the "
                          "materiality % and |variance| >= the materiality with %.")
         r = _threshold_table(p, r, res.params, stock, t_cols)
-        for key, (label, value) in res.params.items():          # a param of no known kind: a label/value row
-            if not key.startswith(THRESHOLD_KINDS):
-                param(r, key, label, value, "heltall")
+        if plain:                                   # the formula constants: their own Parameter | Value table
+            if has_thresholds:
                 r += 1
-        for key, label, value in own:
+            p.cells[(r, LABEL_COL)] = "Parameter"
+            p.cells[(r, FIRST_COL)] = "Value"
+            p.rows.append({"row": r, "kind": "header", "num_cols": [col_letter(FIRST_COL)]})
+            r += 1
+        for key, label, value in plain:
             param(r, key, label, value, "heltall")
             r += 1
         r += 1
@@ -552,6 +576,7 @@ def conventions(spec: AnalysisSpec, res: Result, outs) -> str:
     cube = {q.id: q.cube for q in spec.queries}
     units = getattr(res, "units", None) or {}
     fm_nok = fp_nok = fp_kpi = False
+    actual_cubes: set[str] = set()
     codes: set[str] = set()
     for o in outs:
         c = cube.get(o.query or "", "FinLite")
@@ -564,9 +589,11 @@ def conventions(spec: AnalysisSpec, res: Result, outs) -> str:
             fp_kpi |= kpi
         else:
             fm_nok |= nok
+            if nok:
+                actual_cubes.add(c)
     parts = []
     if fm_nok:
-        parts.append("NOK. FinMax signs: costs are negative.")
+        parts.append(f"NOK. {'/'.join(sorted(actual_cubes)) or 'FinMax'} signs: costs are negative.")
     if fp_nok:
         parts.append(("" if fm_nok else "NOK. ") + "FinPlan amounts as FinPlan holds them (its sign convention is "
                      "not verified).")
@@ -654,11 +681,12 @@ def bridge_axis(amounts: list[float]) -> float | None:
     return None
 
 
-def _bridge_amounts(data, res) -> list[float] | None:
+def _bridge_amounts(data, res, rows=None) -> list[float] | None:
     if data is None or data.type != "bridge" or "amount" not in data.cols:
         return None
     j = data.cols.index("amount")
-    vals = [res.cells.get(ck(data.key, ln.key, j)) for ln in data.lines]
+    lines = [ln for _, ln in rows] if rows is not None else data.lines     # the chart's categories, else all
+    vals = [res.cells.get(ck(data.key, ln.key, j)) for ln in lines]
     return [float(v) if isinstance(v, (int, float)) else 0.0 for v in vals]
 
 
@@ -810,7 +838,7 @@ def chart_title(cs: ChartSpec, data, kept: list[int], split_name: str | None) ->
     base = next((BASE_WORD[r] for r in roles if r in BASE_WORD), None)
     monthly = " per month" if data.type == "trend" else ""
     if base and "ac" in roles:
-        return f"{subject} vs {base}"
+        return f"{subject.split(' vs ')[0]} vs {base}"      # 'Actual vs plan' + budget: 'Actual vs budget'
     if base:
         return f"{subject} {base}{monthly}"
     return f"{subject}{monthly}"
@@ -913,6 +941,10 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
             rows = sorted(((r, ln) for r, ln in line_rows if ln.key in steps), key=lambda x: steps[x[1].key])
         elif kind == "waterfall":
             rows = list(line_rows)
+        elif data.type == "drivers":    # the bottom of the tree: the top and middle levels are sums of it
+            from ..model.blocks.drivers import leaf_keys
+            leaves = leaf_keys(data)
+            rows = [(r, ln) for r, ln in line_rows if ln.key in leaves]
         else:
             drop = DROP_KEYS.get(data.type, set())
             rows = [(r, ln) for r, ln in line_rows if ln.kind not in ("grand", "check") and ln.key not in drop]
@@ -944,18 +976,21 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
             lint.append(f"chart '{o.title}': no series to draw, chart skipped; fix: give series the source has "
                         f"({have})")
             return cs
+        full = rows
+        rows = _no_zero_categories(rows, data, res, picked, kind, cs.millions)
         row_nums = [r for r, _ in rows]
         cs.cat_range = _runs(col_letter(LABEL_COL), row_nums)
         labels = [ln.label.strip().lower() for _, ln in rows]
         shown = [sheet_label(ln).strip().lower() for _, ln in rows]     # as column C shows it
+        every = {x for _, ln in full for x in (ln.label.strip().lower(), sheet_label(ln).strip().lower())}
         for h in (cb.highlight if cb is not None else []):
             want_h = h.strip().lower()
             if want_h in labels or want_h in shown:
                 cs.highlight.append((labels.index(want_h) if want_h in labels else shown.index(want_h)) + 1)
-            else:
+            elif want_h not in every:         # a zero line left out of the chart has no bar to highlight
                 lint.append(f"chart '{o.title}': highlight '{h}' is not a line of the source; fix: use a line "
                             "label as shown in column C")
-        if cs.highlight and kind not in ("column", "bar"):
+        if cb is not None and cb.highlight and kind not in ("column", "bar"):
             lint.append(f"chart '{o.title}': highlight is drawn on column and bar charts only; fix: use kind "
                         "'column' or 'bar', or drop highlight")
             cs.highlight = []
@@ -999,6 +1034,34 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
     return cs
 
 
+ZERO_MNOK, ZERO_NOK = 50_000, 0.5     # under this a data label reads 0,0 (MNOK, one decimal) or 0 (whole NOK)
+
+
+def _no_zero_categories(rows, data, res, picked: list[int], kind: str, millions: bool):
+    """A category whose every plotted value would print as 0 (0,0 MNOK, or 0 NOK) is no bar, only an empty slot or
+    a '-0,0' label: left out of the chart (the table keeps the line). A waterfall keeps its start and end bars and
+    drops zero steps (the running total is unchanged); a stacked chart keeps its parts. Nothing is dropped when it
+    would leave no category."""
+    if kind in ("stacked", "stacked100", "line"):
+        return rows
+    cols = [value_col(data)] if kind == "waterfall" else [j for j in picked if data.cols[j] not in PCT_CODES]
+    if not cols:
+        return rows
+    every = [v for _, ln in rows for j in cols
+             if isinstance(v := res.cells.get(ck(data.key, ln.key, j)), (int, float))]
+    big = millions and any(abs(v) >= MILLION for v in every)      # _scale: MNOK labels only from 1 m
+    tiny = ZERO_MNOK if big else ZERO_NOK
+
+    def zero(ln) -> bool:
+        if kind == "waterfall" and ln.kind in ("sum", "grand"):
+            return False
+        vals = [res.cells.get(ck(data.key, ln.key, j)) for j in cols]
+        return all(not isinstance(v, (int, float)) or abs(v) < tiny for v in vals)
+
+    kept = [(r, ln) for r, ln in rows if not zero(ln)]
+    return kept or rows
+
+
 def _scale(cs: ChartSpec, data, res, rows, picked: list[int]) -> None:
     """Units and value axis from the model values the chart plots: MNOK labels only from 1 m (|max|), whole NOK
     below; a value axis reversed when every plotted value is <= 0 (costs: the bars grow away from the category
@@ -1006,7 +1069,7 @@ def _scale(cs: ChartSpec, data, res, rows, picked: list[int]) -> None:
     starts at zero)."""
     from .chartdata import waterfall_bars
     if cs.kind == "waterfall":
-        vals = (_concept_amounts(data, res, rows) if data.type == "concept" else _bridge_amounts(data, res)) or []
+        vals = (_concept_amounts(data, res, rows) if data.type == "concept" else _bridge_amounts(data, res, rows)) or []
         cs.axis_min = bridge_axis(vals) if vals and data.type == "bridge" else None
         levels = [b[0] for b in waterfall_bars(vals)] if vals else []
         if levels:

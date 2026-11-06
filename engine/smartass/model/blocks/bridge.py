@@ -4,7 +4,7 @@ variance, plus 'Other / unexplained' so the bridge always closes."""
 from __future__ import annotations
 
 from ..context import Ctx
-from ..expr import Ref, Sub, Sum
+from ..expr import Ref, Round, Sub, Sum
 from ..spec import BridgeBlock
 from .common import HEAD, BlockOut, Line, ck, metric_label
 
@@ -22,7 +22,7 @@ def build_bridge(b: BridgeBlock, ctx: Ctx, key: str) -> BlockOut:
                               entity=q.entity))
     steps = Sum(tuple(Ref(ck(key, f"s{i}", 0)) for i in range(len(b.steps))))
     out.lines.append(Line("other", "Other / unexplained",
-                          [Sub(Sub(Ref(ck(key, "end", 0)), Ref(ck(key, "start", 0))), steps)]))
+                          [Round(Sub(Sub(Ref(ck(key, "end", 0)), Ref(ck(key, "start", 0))), steps))]))
     out.lines.append(Line("end", f"{total} {HEAD['value']}", [ctx.pick(q, b.total, "value")], kind="grand",
                           metric=b.total, entity=q.entity))
     return out

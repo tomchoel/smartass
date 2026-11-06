@@ -57,8 +57,13 @@ def _amount(a: str, unit: str, addr: Callable[[str], str], value=None) -> str:
     decimal."""
     if unit == "MNOK":
         small = isinstance(value, (int, float)) and 0 < abs(value) < SMALL_MNOK
-        return f"FIXED({a}/{addr(UNIT_MNOK)},{2 if small else 1})"
-    return f"FIXED({a},0)" if unit == "NOK" else f"FIXED({a},1)"
+        return _minus(f"FIXED({a}/{addr(UNIT_MNOK)},{2 if small else 1})")
+    return _minus(f"FIXED({a},0)" if unit == "NOK" else f"FIXED({a},1)")
+
+
+def _minus(expr: str) -> str:
+    """A number as text with the typographic minus (−, U+2212): text negatives are −1 000, never a hyphen."""
+    return f'SUBSTITUTE({expr},"-","−")'
 
 
 def shared_unit(values) -> str:
@@ -92,7 +97,7 @@ def _formula(o: BlockOut, ln: Line, addr: Callable[[str], str], stock: set[str],
     if not _cell(ln, pi):
         return f + '"'
     p, h = addr(ck(o.key, ln.key, pi)), addr(HUNDRED)
-    return f + f' ("&IF({p}="","n/a",FIXED({p}*{h},1)&" %")&")"'
+    return f + f' ("&IF({p}="","n/a",{_minus(f"FIXED({p}*{h},1)")}&" %")&")"'
 
 
 def _missing(cells, key: str) -> bool:
@@ -122,7 +127,12 @@ def _chosen(main: BlockOut, res) -> list[tuple[Line, bool, str | None]]:
     """(line, material, base) for the material lines of the main table by |variance| descending (one point per
     line, at most 4, against the base of its largest variance); else the grand line, else the first line (first
     base)."""
-    by_key = {f"{main.key}.{ln.key}": ln for ln in main.lines}
+    lines = main.lines
+    if main.type == "drivers":          # the total and the leaf drivers; a middle level only sums its children
+        from ..model.blocks.drivers import leaf_keys
+        keep = leaf_keys(main) | {ln.key for ln in main.lines if ln.level == 0}
+        lines = [ln for ln in main.lines if ln.key in keep]
+    by_key = {f"{main.key}.{ln.key}": ln for ln in lines}
     seen: dict[str, tuple[float, str | None]] = {}
     for m in getattr(res, "material", None) or []:
         k = m.get("key")
@@ -131,6 +141,9 @@ def _chosen(main: BlockOut, res) -> list[tuple[Line, bool, str | None]]:
             seen[k] = (v, m.get("base"))
     if seen:
         keys = sorted(seen, key=lambda k: -seen[k][0])[:MAX_MATERIAL]
+        if main.type in ("ranking", "drivers"):   # the parent first, then its parts (never between them)
+            keys.sort(key=lambda k: not (by_key[k].kind == "grand" or (main.type == "drivers"
+                                                                      and by_key[k].level == 0)))
         return [(by_key[k], True, seen[k][1]) for k in keys]
     lines = [ln for ln in main.lines if ln.kind != "check"]
     top = next((ln for ln in lines if ln.kind == "grand"), lines[0] if lines else None)
@@ -222,7 +235,7 @@ def _unit_text(unit: str, value, nok: str | None = None) -> tuple[str, str]:
 
 
 def _fixed(a: str, how: str, addr: Callable[[str], str]) -> str:
-    return f"FIXED({a}/{addr(UNIT_MNOK)},1)" if how == "mnok" else f"FIXED({a},{how})"
+    return _minus(f"FIXED({a}/{addr(UNIT_MNOK)},1)" if how == "mnok" else f"FIXED({a},{how})")
 
 
 def _trend_points(o: BlockOut, res, drivers, addr: Callable[[str], str], cells) -> list[tuple[str, str | None]]:
@@ -291,7 +304,7 @@ def _lines_points(o: BlockOut, addr: Callable[[str], str], cells) -> list[str]:
         f = f'="{BULLET}{_esc(sheet_label(ln))}: "&{amount(ln.key)}&"{unit(ln.key)}'
         if _cell(ln, 1):
             p, h = addr(ck(o.key, ln.key, 1)), addr(HUNDRED)
-            f += f' ("&IF({p}="","n/a",FIXED({p}*{h},1)&" %")&")"'
+            f += f' ("&IF({p}="","n/a",{_minus(f"FIXED({p}*{h},1)")}&" %")&")"'
         else:
             f += '"'
         out.append(f)

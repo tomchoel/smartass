@@ -68,7 +68,7 @@ def test_answer_sheet_gets_a_caveats_section():
     sec = [row for row, v in labels.items() if v == "Caveats"]
     assert len(sec) == 1
     notes = [labels[r["row"]] for r in p.rows if r["kind"] == "note" and r["row"] > sec[0]]
-    assert notes[0].startswith("Warn: A long caveat text") and len(notes[0]) <= 78
+    assert notes[0].startswith("Warn: A long caveat text") and 78 < len(notes[0]) <= 140   # the table width
     assert any(n == "Info: Short." for n in notes)
     src = next(i for i, n in enumerate(notes) if n.startswith("Source:"))      # the source note (wrapped) comes last
     assert src > notes.index("Info: Short.")

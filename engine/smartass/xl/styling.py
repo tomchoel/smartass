@@ -512,8 +512,11 @@ def apply_report(ws, roles: dict) -> list[str]:
         _freeze(ws, int(roles.get("freeze_rows") or 0), 0)
     with stage("G page setup"):
         if roles.get("print_footer"):         # a v2 answer: its own footer, no repeated title rows
-            print_setup(ws, roles.get("print_area_col") or _cl(text_last), last_row, roles["print_footer"],
-                        header=roles.get("print_header"))
+            area_col = roles.get("print_area_col") or _cl(text_last)
+            area_w = sum((widths.get(c, 8.43) * 7 + 5) * 0.75 for c in range(1, _ci(area_col) + 1))
+            breaks = keep_breaks(heights, last_row, [tuple(s) for s in roles.get("keep", [])], area_w)
+            print_setup(ws, area_col, last_row, roles["print_footer"], header=roles.get("print_header"),
+                        breaks=breaks)
         else:
             _page_setup(ws, xl, last_row, text_last, roles)
     with stage("H lint"):
@@ -591,11 +594,41 @@ def _page_setup_key(last_row, last, roles) -> str:
     return f'="{PAGE_SETUP_VERSION}|$A$1:${_cl(last)}${last_row}|' + header.replace('"', '""') + '"'
 
 
-def _has_page_setup(ws, key: str) -> bool:
+def _old_setup_key(ws) -> str:
     try:
-        return str(_retry(lambda: ws.Names(PAGE_SETUP_NAME).RefersTo)) == key
+        return str(_retry(lambda: ws.Names(PAGE_SETUP_NAME).RefersTo))
     except Exception:   # noqa: BLE001 - name missing: not set up by us yet
-        return False
+        return ""
+
+
+def _has_page_setup(ws, key: str) -> bool:
+    return _old_setup_key(ws) == key
+
+
+# A4 landscape (842 x 595 pt) with the setup's margins: 1,5 cm left/right, Excel's default 0,75" top/bottom
+PRINT_WIDTH_PT, PRINT_HEIGHT_PT = 841.9 - 2 * 42.52, 595.3 - 2 * 54.0
+
+
+def keep_breaks(heights: dict[int, float], last_row: int, keep: list[tuple[int, int]], area_width_pt: float,
+                default_height: float = 15.0) -> list[int]:
+    """The rows to start a new page at so that no keep span (a section from its heading to its last line, the
+    charts zone) is cut by a page break, when the span fits on one page. Simulates the pages of a sheet printed one
+    page wide (Excel's zoom: the whole percent that fits the print area's width). A span taller than a page flows."""
+    zoom = min(100, int(PRINT_WIDTH_PT / area_width_pt * 100)) / 100 if area_width_pt > 0 else 1.0
+    page = PRINT_HEIGHT_PT / zoom * 0.97                  # a small margin for Excel's own rounding
+    starts = {a: b for a, b in keep if b >= a}
+    used, out = 0.0, []
+    for r in range(1, last_row + 1):
+        h = heights.get(r, default_height)
+        if r in starts and used > 0:
+            span = sum(heights.get(k, default_height) for k in range(r, starts[r] + 1))
+            if used + span > page and span <= page:
+                out.append(r)
+                used = 0.0
+        if used + h > page:                               # Excel's automatic break
+            used = 0.0
+        used += h
+    return out
 
 
 def _page_setup(ws, xl, last_row, last, roles):
@@ -661,7 +694,7 @@ PRINT_SETUP_VERSION = "a1"        # bump whenever print_setup changes what it se
 
 
 def print_setup(ws, last_col: str, last_row: int, footer: str, header: str | None = None, *,
-                fit_wide: bool = True, title_rows: str = "") -> None:
+                fit_wide: bool = True, title_rows: str = "", breaks: list[int] | tuple = ()) -> None:
     """A v2 answer's page setup: print area A1:<last_col><last_row> (the tables' last column, chart helpers
     outside), landscape, one page wide and as many tall as needed, no repeated title rows (the zones vary), no
     gridlines, `footer` centred (it carries the page number; the left and right footers are cleared). The display
@@ -671,10 +704,19 @@ def print_setup(ws, last_col: str, last_row: int, footer: str, header: str | Non
     repeated on every page."""
     header = "Intern" if header is None else header
     area = f"$A$1:${last_col}${last_row}"
-    parts = (PRINT_SETUP_VERSION, area, header, footer) + (() if fit_wide else ("zoom100", title_rows))
+    parts = (PRINT_SETUP_VERSION, area, header, footer) + (() if fit_wide else ("zoom100", title_rows)) \
+        + ((f"breaks {','.join(map(str, breaks))}",) if breaks else ())
     key = '="' + "|".join(parts).replace('"', '""') + '"'
-    if _has_page_setup(ws, key):
+    old = _old_setup_key(ws)
+    if old == key:
         return
+    if breaks or "breaks " in old:      # manual breaks (keep a section on one page): the old ones go first
+        try:
+            _retry(lambda: ws.ResetAllPageBreaks())
+            for r in breaks:
+                _retry(lambda r=r: ws.HPageBreaks.Add(ws.Range(f"A{r}")))
+        except Exception:   # noqa: BLE001 - no printer: the automatic breaks stay
+            pass
     xl = _retry(lambda: ws.Parent.Application)
     try:
         _set(xl, "PrintCommunication", False)

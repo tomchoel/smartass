@@ -80,6 +80,13 @@ TEXT_LABELS = {"ACCOUNT", "AP_INVOICE_NUMBER", "AP_VOUCHER_NUMBER", "GL_VOUCHER_
 WIDTHS = {"GL_DESCRIPTION_LINE": 45, "AP_CUSTOMER_NAME": 30, "ACCOUNT_NAME": 34, "BATCH_NAME": 34,
           "JOURNAL_NAME": 34, "PRODUCT_DESC": 30, "CC_DESC": 28, "PROJECT_DESC": 28}
 CHUNK = 5000
+
+
+def header_width(name: str) -> int:
+    """A column wide enough for its bold header name ('GL_POSTED_DATE' was cut to 'GL_POSTED_DA'): the table's
+    filter button takes ~3 units."""
+    from .vendor.tn_rapportstil import text_units
+    return int(text_units(name, 11, True)) + 4
 _EXCEL_EPOCH = dt.datetime(1899, 12, 30)
 
 
@@ -250,7 +257,7 @@ def write_lines(t: Target, q: int, rows: list[dict], columns: list[str], title: 
             if fmt is not None:
                 rng = f"{get_column_letter(j1)}{hdr + 1}:{get_column_letter(j2)}{end}"
                 com(lambda a=rng, f=fmt: setattr(ws.Range(a), "NumberFormatLocal", f))
-        for w, j1, j2 in _col_runs([WIDTHS.get(c, 14) for c in cols]):
+        for w, j1, j2 in _col_runs([max(WIDTHS.get(c, 14), header_width(c)) for c in cols]):
             rng = f"{get_column_letter(j1)}1:{get_column_letter(j2)}1"
             com(lambda a=rng, w=w: setattr(ws.Range(a).EntireColumn, "ColumnWidth", w))
         com(lambda: _freeze_below(t, ws, hdr))

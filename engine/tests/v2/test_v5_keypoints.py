@@ -54,10 +54,10 @@ def addr(key: str) -> str:
 def test_two_material_lines_in_abs_variance_order_exact_formulas():
     pts = key_points(_main(), _res([_mat("m0", 5.0e6), _mat("m1", -9.0e6)]), [], addr)
     assert [f for f, _ in pts] == [
-        '="•  Opex ""other"" YTD Oct 26 "&FIXED(I11/$D$40,1)&" MNOK; "&FIXED(K11/$D$40,1)&" MNOK vs PY ("&'
-        'IF(L11="","n/a",FIXED(L11*$D$42,1)&" %")&")"',
-        '="•  Revenue YTD Oct 26 "&FIXED(I10/$D$40,1)&" MNOK; "&FIXED(K10/$D$40,1)&" MNOK vs PY ("&'
-        'IF(L10="","n/a",FIXED(L10*$D$42,1)&" %")&")"',
+        '="•  Opex ""other"" YTD Oct 26 "&SUBSTITUTE(FIXED(I11/$D$40,1),"-","−")&" MNOK; "&SUBSTITUTE(FIXED(K11/$D$40,1),"-","−")&" MNOK vs PY ("&'
+        'IF(L11="","n/a",SUBSTITUTE(FIXED(L11*$D$42,1),"-","−")&" %")&")"',
+        '="•  Revenue YTD Oct 26 "&SUBSTITUTE(FIXED(I10/$D$40,1),"-","−")&" MNOK; "&SUBSTITUTE(FIXED(K10/$D$40,1),"-","−")&" MNOK vs PY ("&'
+        'IF(L10="","n/a",SUBSTITUTE(FIXED(L10*$D$42,1),"-","−")&" %")&")"',
     ]
     assert [c for _, c in pts] == [None, None]          # no driver: no placeholder cause row
 
@@ -80,7 +80,7 @@ def test_causes_data_hypothesis_and_metric_match():
 
 def test_no_material_lines_gives_the_grand_line_without_cause():
     pts = key_points(_main(), _res([]), [], addr)
-    assert len(pts) == 1 and pts[0][0].startswith('="•  EBITDA YTD Oct 26 "&FIXED(I12/$D$40,1)') and pts[0][1] is None
+    assert len(pts) == 1 and pts[0][0].startswith('="•  EBITDA YTD Oct 26 "&SUBSTITUTE(FIXED(I12/$D$40,1),"-","−")') and pts[0][1] is None
     drv = [Driver(line="EBITDA", text="Lower opex", basis="hypothesis")]
     assert key_points(_main(), _res([]), drv, addr)[0][1] == "   Lower opex (hypothesis — not verified in data)"
 
@@ -94,21 +94,21 @@ def test_short_form_without_var_column():
     o = BlockOut("b0", "table", "P&L", ["AC YTD Oct 26"], cols=["value"],
                  lines=[Line("m0", "Revenue", [Const(0.0)], kind="grand", metric="Revenue")])
     pts = key_points(o, _res([]), [], lambda k: "$D$40" if k == UNIT_MNOK else "D10")
-    assert pts == [('="•  Revenue YTD Oct 26 "&FIXED(D10/$D$40,1)&" MNOK"', None)]
+    assert pts == [('="•  Revenue YTD Oct 26 "&SUBSTITUTE(FIXED(D10/$D$40,1),"-","−")&" MNOK"', None)]
 
 
 def test_stock_metric_has_no_mnok():
     o = BlockOut("b0", "table", "FTE", ["AC YTD Oct 26"], cols=["value"],
                  lines=[Line("m0", "FTE", [Const(0.0)], kind="grand", metric="FTE")])
     pts = key_points(o, _res([]), [], lambda k: "D10", stock={"FTE"})
-    assert pts == [('="•  FTE YTD Oct 26 "&FIXED(D10,1)&" FTE"', None)]
+    assert pts == [('="•  FTE YTD Oct 26 "&SUBSTITUTE(FIXED(D10,1),"-","−")&" FTE"', None)]
 
 
 def test_stock_metric_with_variance_says_fte_twice_and_no_unit_division():
     o = _main([_line("m0", "FTE", kind="grand")])
     f = key_points(o, _res([]), [], addr, stock={"FTE"})[0][0]
-    assert f == ('="•  FTE YTD Oct 26 "&FIXED(I10,1)&" FTE; "&FIXED(K10,1)&" FTE vs PY ("&'
-                 'IF(L10="","n/a",FIXED(L10*$D$42,1)&" %")&")"')
+    assert f == ('="•  FTE YTD Oct 26 "&SUBSTITUTE(FIXED(I10,1),"-","−")&" FTE; "&SUBSTITUTE(FIXED(K10,1),"-","−")&" FTE vs PY ("&'
+                 'IF(L10="","n/a",SUBSTITUTE(FIXED(L10*$D$42,1),"-","−")&" %")&")"')
     assert "MNOK" not in f and "$D$40" not in f
 
 
@@ -129,8 +129,8 @@ def test_the_sentence_uses_the_base_the_line_is_material_against():
     pts = key_points(o, _res([_mat("m0", 5.0, base="forecast"), _mat("m1", 3.0, base="budget"),
                               _mat("m1", 1.0, base="forecast")]), [], addr)
     rev, opex = (f for f, _ in pts)
-    assert '&FIXED(H10/$D$40,1)&" MNOK vs FC ("&IF(I10="","n/a"' in rev
-    assert opex.endswith('&FIXED(F11/$D$40,1)&" MNOK vs BU"')          # no ΔBU % column: no bracket
+    assert '&SUBSTITUTE(FIXED(H10/$D$40,1),"-","−")&" MNOK vs FC ("&IF(I10="","n/a"' in rev
+    assert opex.endswith('&SUBSTITUTE(FIXED(F11/$D$40,1),"-","−")&" MNOK vs BU"')          # no ΔBU % column: no bracket
 
 
 def test_a_material_base_without_columns_falls_back_to_the_first_base():
@@ -141,7 +141,7 @@ def test_a_material_base_without_columns_falls_back_to_the_first_base():
 def test_fallback_point_uses_the_first_base():
     o = _two([_tline("m0", "EBITDA", kind="grand")])
     f = key_points(o, _res([]), [], addr)[0][0]
-    assert f.endswith('&FIXED(F10/$D$40,1)&" MNOK vs BU"')
+    assert f.endswith('&SUBSTITUTE(FIXED(F10/$D$40,1),"-","−")&" MNOK vs BU"')
 
 
 def test_no_main_table_gives_only_the_free_points():
@@ -269,7 +269,7 @@ def test_layout_end_to_end_formulas_are_valid_and_pass_formelsjekk():
     assert HUNDRED in p.params and UNIT_MNOK in p.params
     r = dict(p.zones)["key_points"]
     f = p.cells[(r + 1, TEXT_COL)]
-    assert f.startswith('="•  ') and ' YTD Oct 26 "&FIXED(' in f and p.params[UNIT_MNOK] in f and p.params[HUNDRED] in f
+    assert f.startswith('="•  ') and ' YTD Oct 26 "&SUBSTITUTE(FIXED(' in f and p.params[UNIT_MNOK] in f and p.params[HUNDRED] in f
     shown = [p.cells.get((r + i, TEXT_COL)) for i in range(1, 12)]
     assert "•  Agent point" in shown                       # after the engine's points (MNOK-sized: material)
     for formula in (f, *(x for x, _ in key_points(_main(), _res([_mat("m1", 1.0)]), [], addr))):

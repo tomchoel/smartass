@@ -134,9 +134,9 @@ def test_small_amounts_are_whole_nok_on_charts():
     cs = ChartSpec("bar", "Suppliers")
     _scale(cs, data, res, rows, [0])
     assert (cs.millions, cs.whole) == (False, True)
-    assert C.label_format("ac", False, True) == "#,##0;-#,##0;;"
+    assert C.label_format("ac", False, True) == "#,##0;\"−\"#,##0;;"
     log, _ = draw(spec("bar", [("AC", "D", "ac")], millions=False, whole=True))
-    assert sets(log, "DataLabels().NumberFormat") == [("c1.s1.DataLabels().NumberFormat", "#,##0;-#,##0;;")]
+    assert sets(log, "DataLabels().NumberFormat") == [("c1.s1.DataLabels().NumberFormat", "#,##0;\"−\"#,##0;;")]
 
 
 def test_fte_charts_keep_one_decimal():
@@ -184,13 +184,13 @@ def test_a_lines_only_answer_gets_its_top_three_and_the_total():
     pts = [p.cells.get((r + i, TEXT_COL)) for i in range(1, 6)]
     assert all(isinstance(x, str) and x.startswith('="•  ') for x in pts[:4]) and pts[4] is None
     g0, g1, g2 = (p.addr[f"b0.g{i}.0"] for i in range(3))
-    assert pts[0].startswith('="•  Accenture AS: "&FIXED(' + g0 + "/") and '" MNOK (' in pts[0]
+    assert pts[0].startswith('="•  Accenture AS: "&SUBSTITUTE(FIXED(' + g0 + "/") and '" MNOK (' in pts[0]
     # one unit for every point (5c): MNOK, two decimals under 50 000 (never '0,0 MNOK'), never NOK next to MNOK
-    assert pts[1].startswith('="•  Bouvet: "&FIXED(' + g1 + "/") and ",2)" in pts[1] and '" MNOK (' in pts[1]
-    assert pts[2].startswith('="•  Sopra Steria: "&FIXED(' + g2 + "/") and " NOK" not in pts[2].replace(" MNOK", "")
+    assert pts[1].startswith('="•  Bouvet: "&SUBSTITUTE(FIXED(' + g1 + "/") and ",2)" in pts[1] and '" MNOK (' in pts[1]
+    assert pts[2].startswith('="•  Sopra Steria: "&SUBSTITUTE(FIXED(' + g2 + "/") and " NOK" not in pts[2].replace(" MNOK", "")
     assert p.addr["b0.g0.1"] in pts[0] and '" %"' in pts[0]                     # the share, live
     tot, gap = p.addr["b0.total.0"], p.addr["b0.gap.0"]
-    assert pts[3].startswith('="•  Ledger lines total "&FIXED(' + tot + "/")
+    assert pts[3].startswith('="•  Ledger lines total "&SUBSTITUTE(FIXED(' + tot + "/")
     assert "; gap to cube " in pts[3] and f"FIXED({gap},0)" in pts[3]          # 1 NOK gap: whole NOK
 
 

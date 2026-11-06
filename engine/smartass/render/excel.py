@@ -284,8 +284,29 @@ def answer_roles(p: SheetPlan) -> dict:
         roles |= {"helper_cols": list(p.helper_cols), "print_last_col": p.print_last_col}
     if p.footer:                         # the v2 print setup (styling.print_setup) up to the tables' last column
         roles |= {"print_footer": p.footer, "print_last_col": p.print_last_col or p.last_col,
-                  "print_area_col": p.print_area_col or p.print_last_col or p.last_col}   # charts included
+                  "print_area_col": p.print_area_col or p.print_last_col or p.last_col,   # charts included
+                  "keep": keep_spans(p)}
     return roles
+
+
+def keep_spans(p: SheetPlan) -> list[tuple[int, int]]:
+    """The row spans a page break must not cut: each section from its heading to its last non-blank row, and the
+    charts zone (a chart cut in two prints as two halves)."""
+    kinds = {r["row"]: r.get("kind") for r in p.rows}
+    zones = dict(p.zones)
+    heads = sorted(r for r, k in kinds.items() if k == "section")
+    marks = sorted(set(heads) | set(zones.values()) | {p.last_row + 1})
+    filled = {r for (r, _c) in p.cells} | {r for r, k in kinds.items() if k not in (None, "blank")}
+    out = []
+    starts = heads + ([zones["charts"]] if "charts" in zones and p.charts else [])
+    for s in sorted(set(starts)):
+        nxt = next((m for m in marks if m > s), p.last_row + 1)
+        e = nxt - 1
+        if s != zones.get("charts"):
+            while e > s and e not in filled:
+                e -= 1
+        out.append((s, e))
+    return out
 
 
 def answer_footer(fetched: datetime) -> str:

@@ -60,10 +60,15 @@ def _span(expr: str, closed) -> str:
     return f"{text} ({expr})"
 
 
+def _of(qid: str, query_id: str) -> bool:
+    """A fact or grid of the query: its own id, or a derived one ('q1:fam_mobil_...', a concept's product set)."""
+    return qid == query_id or qid.startswith(query_id + ":")
+
+
 def query_info(query, pre) -> dict:
     """What one query pulled, as the texts the Data header and the Sources log both show: scenario (per series,
     '<scenario>/<version>'), POV, periods, route; and the static control total (the facts EPM returned)."""
-    reqs = [r for r in pre.requests if r.query == query.id]
+    reqs = [r for r in pre.requests if _of(r.query, query.id)]
     scen = list(dict.fromkeys(f"{r.scenario}/{r.version}" if r.version else r.scenario for r in reqs))
     balances = list(dict.fromkeys(r.balance for r in reqs))
     name = pre.result.entity_labels.get(query.id, query.entity)
@@ -73,14 +78,15 @@ def query_info(query, pre) -> dict:
     periods = _span(query.periods, closed)
     if query.plan_periods:
         periods += f" · plan {_span(query.plan_periods, closed)}"
-    got = [g for g in pre.fetched.values() if g.request.query == query.id]
+    got = [g for g in pre.fetched.values() if _of(g.request.query, query.id)]
     route = " + ".join(dict.fromkeys(ROUTES.get(g.route, g.route) for g in sorted(got, key=lambda g: g.route != "http")))
-    failed = [r for r in pre.failed if r.query == query.id]
+    failed = [r for r in pre.failed if _of(r.query, query.id)]
     if failed:
         route = " · ".join(x for x in (route, f"HTTP failed for {len(failed)} grid(s)") if x)
-    return {"scenario": ", ".join(scen), "pov": pov, "periods": periods, "route": route,
-            "rows": sum(1 for f in pre.frame.facts if f.query == query.id),
-            "total": pre.frame.total({"Query": (query.id,)}) or 0.0}
+    ids = tuple(dict.fromkeys(f.query for f in pre.frame.facts if _of(f.query, query.id))) or (query.id,)
+    return {"scenario": ", ".join(scen), "pov": pov, "periods": periods, "route": route, "ids": ids,
+            "rows": sum(1 for f in pre.frame.facts if _of(f.query, query.id)),
+            "total": pre.frame.total({"Query": ids}) or 0.0}
 
 
 def _query_rows(q: int, query, pre, fetched: str, first: int, tol: str):
@@ -88,14 +94,17 @@ def _query_rows(q: int, query, pre, fetched: str, first: int, tol: str):
     t = f"Data_Q{q}"
     info = query_info(query, pre)
     scen, pov, periods, route, static = info["scenario"], info["pov"], info["periods"], info["route"], info["total"]
+    derived = any(i != query.id for i in info["ids"])       # a concept: facts under "q1:fam_..." ids
     ct = first + 6
     rows = [("Query", f"{query.id}: {query.cube}" + (f" · {scen}" if scen else "")),
             ("POV", pov),
             ("Periods", periods),
             ("Route", route),
             ("Fetched", fetched),
-            ("Rows", f'=COUNTIFS({t}[Query],"{query.id}")'),
-            ("Control total", (static, f'=SUMIFS({t}[Value],{t}[Query],"{query.id}")',
+            ("Rows", f'=COUNTIFS({t}[Query],"{query.id}")' + (f'+COUNTIFS({t}[Query],"{query.id}:*")'
+                                                              if derived else "")),
+            ("Control total", (static, f'=SUMIFS({t}[Value],{t}[Query],"{query.id}")'
+                                       + (f'+SUMIFS({t}[Value],{t}[Query],"{query.id}:*")' if derived else ""),
                                f'=IF(ABS(B{ct}-C{ct})<={tol},"OK","DIFF")')),
             ("Sources", "")]
     return rows, f"B{first + 7}", f"D{ct}"
