@@ -166,3 +166,36 @@ def test_chart_labels_use_the_typographic_minus():
     for role in ("ac", "down", "pct"):
         f = label_format(role, True)
         assert '"−"' in f and ";-" not in f and not f.startswith("-")
+
+
+# --- print: a section is never cut by a page break --------------------------------------------------------------
+
+def test_keep_breaks_moves_a_section_that_would_straddle_a_page_to_the_next():
+    from smartass.xl.styling import PRINT_WIDTH_PT, keep_breaks
+    heights = {r: 15.0 for r in range(1, 80)}
+    # page at 100 %: ~30 rows of 15 pt. A section on rows 28-40 would be cut: it starts the next page
+    assert keep_breaks(heights, 79, [(28, 40)], PRINT_WIDTH_PT) == [28]
+    assert keep_breaks(heights, 79, [(5, 12)], PRINT_WIDTH_PT) == []           # fits where it is
+    assert keep_breaks(heights, 79, [(10, 75)], PRINT_WIDTH_PT) == []          # taller than a page: it flows
+
+
+def test_keep_breaks_follow_the_fit_to_width_zoom():
+    from smartass.xl.styling import PRINT_WIDTH_PT, keep_breaks
+    heights = {r: 15.0 for r in range(1, 80)}
+    # twice as wide as the page: 50 % zoom, a page holds ~60 rows, so rows 28-40 fit on page 1
+    assert keep_breaks(heights, 79, [(28, 40)], PRINT_WIDTH_PT * 2) == []
+
+
+def test_answer_roles_keep_each_section_and_the_charts_zone():
+    from smartass.render.excel import keep_spans
+    s, res, p = run([{"type": "table", "query": "fm", "title": "P&L"}])
+    p.footer = "f"
+    spans = keep_spans(p)
+    kinds = {r["row"]: r["kind"] for r in p.rows}
+    heads = [r for r, k in kinds.items() if k == "section"]
+    assert {a for a, _ in spans} >= set(heads)
+    zones = dict(p.zones)
+    if p.charts:
+        assert any(a == zones["charts"] for a, _ in spans)
+    for a, b in spans:
+        assert a <= b <= p.last_row
