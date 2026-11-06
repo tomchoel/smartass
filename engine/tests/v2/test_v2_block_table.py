@@ -57,7 +57,7 @@ def plan_ctx(columns):
 def test_variance_compares_against_the_nearest_base_to_its_left():
     c, b = plan_ctx(["value", "budget", "var", "forecast", "var", "var_pct"])
     out = build_table(b, c, "b0")
-    assert out.headers == ["AC Sep 26", "BU Sep 26", "ΔBU", "FC Q326", "ΔFC", "ΔFC %", "Material"]
+    assert out.headers == ["AC Sep 26", "BU Sep 26", "ΔBU", "FC Sep 26 (Q3 26)", "ΔFC", "ΔFC %", "Material"]
     assert out.keys == ["Actual", "Budget", "Variance vs Budget", "Forecast", "Variance vs Forecast",
                         "Variance % vs Forecast", ""]
     cells = evaluate([out], c.frame)

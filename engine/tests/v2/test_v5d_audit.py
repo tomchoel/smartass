@@ -199,3 +199,9 @@ def test_answer_roles_keep_each_section_and_the_charts_zone():
         assert any(a == zones["charts"] for a, _ in spans)
     for a, b in spans:
         assert a <= b <= p.last_row
+
+
+def test_a_ranking_chart_title_counts_the_bars_it_draws():
+    cs = SimpleNamespace(auto_title=True, title="", series=[("AC", "D1", "ac")], bars=11)
+    data = SimpleNamespace(col_metrics=[], headers=[], title="Top 15 by Opex", type="ranking")
+    assert L.chart_title(cs, data, [], None) == "Top 11 by Opex"
