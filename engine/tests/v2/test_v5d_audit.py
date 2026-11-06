@@ -252,3 +252,19 @@ def test_the_highlight_accent_is_the_tn_template_blue():
     from smartass.render import charts as C
     from smartass.xl.vendor import tn_rapportstil as tn
     assert C.ACCENT == tn.rgb((28, 22, 197))            # #1C16C5 (Tom 06.11.2026)
+
+
+def test_two_lines_get_no_min_labels_one_line_keeps_its_low_point():
+    from v2util import monthly_facts
+    for metrics, want_min in ((["Revenue"], True), (["Revenue", "Opex"], False)):
+        s = AnalysisSpec.model_validate(spec_dict(blocks=[{"type": "trend", "query": "fm", "metrics": metrics}]))
+        res = compute(s, resolver(), CLOSED, monthly_facts())
+        p = L.layout(1, s, res, stock=set(), subtitle="x")
+        for cs in (c for c in p.charts if c.kind == "line"):
+            n = len(cs.label_points)
+            if want_min and n == 1 and cs.label_min[0]:
+                assert cs.label_min[0] in cs.label_points[0]
+            if n > 1:
+                for k in range(n):
+                    assert not (cs.label_min[k] in cs.label_points[k] and cs.label_min[k]
+                                not in (max(cs.label_points[k]),)) or len(cs.label_points[k]) <= 2

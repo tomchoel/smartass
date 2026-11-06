@@ -85,6 +85,8 @@ class ChartSpec:
     hues: list[int] = field(default_factory=list)   # per series: the metric's hue (charts.HUES); [] = the first
     label_points: list[list[int]] = field(default_factory=list)   # per series (line): 1-based labelled points
     label_below: list[bool] = field(default_factory=list)   # per series (line): every value <= 0, labels below it
+    label_min: list[int] = field(default_factory=list)      # per series (line): its lowest point, labelled below it
+    label_pos: list[dict] = field(default_factory=list)      # per series (line): point -> "above" / "below"
     unit: str = "nok"         # the unit class of every series (model/units.py): a chart never mixes units
     auto_title: bool = False  # an implicit chart (or trend/bridge sugar): the engine names it by metric and base
     _meta: object = field(default=None, repr=False, compare=False)   # (rows, picked columns) for the unit split
@@ -884,10 +886,31 @@ def _finish(cs: ChartSpec, data, res, rows, picked: list[int], unit: str, stock,
             vals = [_val(res, ck(data.key, ln.key, j)) for _, ln in rows]
             idx = [i for i, v in enumerate(vals) if v is not None]
             pts = {idx[-1] + 1} if idx else set()
-            if idx and n <= LABEL_ALL_MAX:
-                pts |= {max(idx, key=lambda i: vals[i]) + 1, min(idx, key=lambda i: vals[i]) + 1}
+            if idx and n <= LABEL_ALL_MAX:          # several lines: no min labels (their lows sit close and
+                pts |= {max(idx, key=lambda i: vals[i]) + 1}               # a label lands on the other line)
+                if len(kept) == 1:
+                    pts |= {min(idx, key=lambda i: vals[i]) + 1}
             cs.label_points.append(sorted(pts))
             cs.label_below.append(bool(idx) and all(vals[i] <= 0 for i in idx))
+            cs.label_min.append(min(idx, key=lambda i: vals[i]) + 1 if idx and n <= LABEL_ALL_MAX else 0)
+        # a labelled point where another line also has a value: the higher line's label above, the lower's below
+        # (two minima in the same month: '2 153,9' sat on the PY line); alone: a low point below, a high one above
+        every = [[_val(res, ck(data.key, ln.key, j)) for _, ln in rows] for j in kept]
+        cs.label_pos = []
+        for k, pts in enumerate(cs.label_points):
+            pos = {}
+            for p in pts:
+                v = every[k][p - 1]
+                others = [s[p - 1] for o, s in enumerate(every) if o != k and s[p - 1] is not None]
+                if v is None:
+                    continue
+                if others:
+                    pos[p] = "above" if v >= max(others) else "below"
+                    if pos[p] == "above" and p == cs.label_min[k]:   # a V: above sits inside its own line
+                        pos[p] = "left"
+                elif p == cs.label_min[k]:
+                    pos[p] = "below"
+            cs.label_pos.append(pos)
     if unit != NOK:
         cs.millions, cs.whole = False, unit in (COUNT, PER_UNIT)
     _scale(cs, data, res, rows, kept)
