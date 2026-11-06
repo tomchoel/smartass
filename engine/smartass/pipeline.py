@@ -373,6 +373,8 @@ def _write_lines(t, q: int, ls, fetched: str = "") -> str:
     ws = _sheet(t, want)
     com(lambda: setattr(ws.Range("C2"), "Value", "Cube value"))
     com(lambda: setattr(ws.Range(CUBE_CELL.replace("$", "")), "Value", ls.cube_value))
+    amt_fmt, _ = drill_xl._local_formats(t.app)        # the cube value as the AMOUNT column shows it, not -66471995,74
+    com(lambda: setattr(ws.Range(CUBE_CELL.replace("$", "")), "NumberFormatLocal", amt_fmt))
     _lines_header(ws, res["table"], ls.cell, fetched)
     from .render.excel import sheet_print
     from .render.layout import col_letter, col_number

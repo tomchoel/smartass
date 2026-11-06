@@ -136,7 +136,7 @@ def test_page_setup_is_redone_when_the_print_area_changes(monkeypatch):
 def test_lines_sheet_same_look_fewer_calls(monkeypatch):
     snap, n = run(lines_case, monkeypatch)
     assert same(snap) == pinned("lines")["state"]
-    assert n == 41                                    # 22 + the page setup (5c: every Lines sheet prints)
+    assert n == 46                                    # 22 + the page setup (5c) + header-fit widths (5d)
 
 
 def test_answer_lint_findings_unchanged():
@@ -169,7 +169,7 @@ def lines_redrill_case(mod=None):
 def test_lines_redrill_same_table_fewer_calls(monkeypatch):
     snap, n = run(lines_redrill_case, monkeypatch)
     assert same(snap) == pinned("lines_redrill")["state"]
-    assert n == 41                                    # 22 + the page setup (5c: every Lines sheet prints)
+    assert n == 46                                    # 22 + the page setup (5c) + header-fit widths (5d)
 
 
 def test_page_setup_marker_is_not_added_when_print_communication_stays_off(monkeypatch):

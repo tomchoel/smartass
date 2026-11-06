@@ -17,7 +17,7 @@ from ..model.blocks.common import GAP, MAT_ABS, MAT_PCT, MAT_SMALL, MARK_CODES, 
 from ..model.expr import Const, Var
 from ..model.frame import FILTER_COLUMNS
 from ..model.periods import label as month_label
-from ..model.spec import AnalysisSpec, CommentaryBlock, TableBlock
+from ..model.spec import AnalysisSpec, CommentaryBlock, LinesBlock, TableBlock
 from ..xl.vendor import tn_rapportstil as tn
 
 TEXT_COL = 2             # titles, subtitles, sections, notes and text: left-aligned with the code
@@ -240,8 +240,14 @@ def answer_subtitle(spec: AnalysisSpec, res: Result, closed: dict) -> str:
     when = (f"closed {labels.pop()}" if len(labels) == 1 else
             "closed " + ", ".join(f"{c} {month_label(m)}" for c, m in sorted(used.items())) if used else "")
     units = set((getattr(res, "units", None) or {}).values())
-    parts = ["NOK" if units <= {"nok"} else "", " + ".join(cubes), res.entity_label, _last_period(main_table(res)),
-             when]
+    entity, period = res.entity_label, _last_period(main_table(res))
+    cell = next((b.cell for b in spec.blocks if isinstance(b, LinesBlock)), None)
+    if cell and not entity:                    # a ledger-lines answer: its drill cell's account, entity and month
+        short = [str(cell.get(d, "")).removeprefix("ac.").removeprefix("un.SY.")
+                 for d in ("All Accounts", "All Entities")]
+        entity = " · ".join(x for x in short if x)
+        period = period or str(cell.get("All Time Periods", ""))
+    parts = ["NOK" if units <= {"nok"} else "", " + ".join(cubes), entity, period, when]
     return " · ".join(x for x in parts if x)
 
 
@@ -570,6 +576,7 @@ def conventions(spec: AnalysisSpec, res: Result, outs) -> str:
     cube = {q.id: q.cube for q in spec.queries}
     units = getattr(res, "units", None) or {}
     fm_nok = fp_nok = fp_kpi = False
+    actual_cubes: set[str] = set()
     codes: set[str] = set()
     for o in outs:
         c = cube.get(o.query or "", "FinLite")
@@ -582,9 +589,11 @@ def conventions(spec: AnalysisSpec, res: Result, outs) -> str:
             fp_kpi |= kpi
         else:
             fm_nok |= nok
+            if nok:
+                actual_cubes.add(c)
     parts = []
     if fm_nok:
-        parts.append("NOK. FinMax signs: costs are negative.")
+        parts.append(f"NOK. {'/'.join(sorted(actual_cubes)) or 'FinMax'} signs: costs are negative.")
     if fp_nok:
         parts.append(("" if fm_nok else "NOK. ") + "FinPlan amounts as FinPlan holds them (its sign convention is "
                      "not verified).")
@@ -829,7 +838,7 @@ def chart_title(cs: ChartSpec, data, kept: list[int], split_name: str | None) ->
     base = next((BASE_WORD[r] for r in roles if r in BASE_WORD), None)
     monthly = " per month" if data.type == "trend" else ""
     if base and "ac" in roles:
-        return f"{subject} vs {base}"
+        return f"{subject.split(' vs ')[0]} vs {base}"      # 'Actual vs plan' + budget: 'Actual vs budget'
     if base:
         return f"{subject} {base}{monthly}"
     return f"{subject}{monthly}"
@@ -932,6 +941,10 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
             rows = sorted(((r, ln) for r, ln in line_rows if ln.key in steps), key=lambda x: steps[x[1].key])
         elif kind == "waterfall":
             rows = list(line_rows)
+        elif data.type == "drivers":    # the bottom of the tree: the top and middle levels are sums of it
+            from ..model.blocks.drivers import leaf_keys
+            leaves = leaf_keys(data)
+            rows = [(r, ln) for r, ln in line_rows if ln.key in leaves]
         else:
             drop = DROP_KEYS.get(data.type, set())
             rows = [(r, ln) for r, ln in line_rows if ln.kind not in ("grand", "check") and ln.key not in drop]

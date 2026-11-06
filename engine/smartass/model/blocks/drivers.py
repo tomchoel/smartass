@@ -12,7 +12,7 @@ from ..expr import Sub
 from ..periods import label
 from ..series import months
 from ..spec import DriversBlock
-from .common import BlockOut, Line, metric_label, row_cells, scenario_heads
+from .common import BlockOut, Line, code_of, metric_label, row_cells, scenario_heads
 
 @dataclass(frozen=True)
 class DrillRequest:
@@ -44,7 +44,7 @@ def build_drivers(b: DriversBlock, ctx: Ctx, key: str) -> BlockOut:
 
     def add(entity: str, level: int, lkey: str) -> None:
         out.lines.append(Line(lkey, r.label(entity, q.cube), row_cells(ctx, q, b.metric, cols, key, lkey, entity),
-                              level=level, metric=b.metric, entity=entity))
+                              level=level, metric=b.metric, entity=entity, code=code_of(entity)))
 
     def leaf(entity: str) -> None:
         if b.drill:
@@ -80,3 +80,12 @@ def build_drivers(b: DriversBlock, ctx: Ctx, key: str) -> BlockOut:
     add(q.entity, 0, "top")
     walk(q.entity, 0, "d")
     return out
+
+
+def leaf_keys(out: BlockOut) -> set[str]:
+    """The lines at the bottom of the shown tree (no deeper line right under them): the drivers a chart and the key
+    points name. The top line and the expanded middle levels are sums of these and would count them twice."""
+    lines = [ln for ln in out.lines if ln.kind != "check"]
+    keys = {ln.key for i, ln in enumerate(lines)
+            if ln.level > 0 and (i + 1 == len(lines) or lines[i + 1].level <= ln.level)}
+    return keys or {ln.key for ln in lines}

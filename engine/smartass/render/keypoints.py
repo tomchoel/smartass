@@ -127,7 +127,12 @@ def _chosen(main: BlockOut, res) -> list[tuple[Line, bool, str | None]]:
     """(line, material, base) for the material lines of the main table by |variance| descending (one point per
     line, at most 4, against the base of its largest variance); else the grand line, else the first line (first
     base)."""
-    by_key = {f"{main.key}.{ln.key}": ln for ln in main.lines}
+    lines = main.lines
+    if main.type == "drivers":          # the total and the leaf drivers; a middle level only sums its children
+        from ..model.blocks.drivers import leaf_keys
+        keep = leaf_keys(main) | {ln.key for ln in main.lines if ln.level == 0}
+        lines = [ln for ln in main.lines if ln.key in keep]
+    by_key = {f"{main.key}.{ln.key}": ln for ln in lines}
     seen: dict[str, tuple[float, str | None]] = {}
     for m in getattr(res, "material", None) or []:
         k = m.get("key")
