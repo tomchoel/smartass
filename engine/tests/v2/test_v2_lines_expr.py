@@ -36,4 +36,4 @@ def test_line_pick_formula_on_the_lines_table():
 def test_cube_ref():
     fr = frame()
     assert ev(CubeRef("b0"), fr) == -160.0
-    assert CubeRef("b0").to_excel("Data_Q3", str) == "'Q3 Lines b0'!$D$2"
+    assert CubeRef("b0").to_excel("Data_Q3", str) == "'Q3 Lines b0'!$D$3"

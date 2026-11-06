@@ -94,10 +94,17 @@ def _formula(o: BlockOut, ln: Line, addr: Callable[[str], str], stock: set[str],
     if cells and _missing(cells, ck(o.key, ln.key, di)):       # no base at all (a product launched this year)
         return f + f'&"{u}; {_no_base(code)}"'
     f += f'&"{u}; "&{num(di)}&"{u} vs {code}'
-    if not _cell(ln, pi):
-        return f + '"'
-    p, h = addr(ck(o.key, ln.key, pi)), addr(HUNDRED)
-    return f + f' ("&IF({p}="","n/a",{_minus(f"FIXED({p}*{h},1)")}&" %")&")"'
+    if _cell(ln, pi):
+        p, h = addr(ck(o.key, ln.key, pi)), addr(HUNDRED)
+        f += f' ("&IF({p}="","n/a",{_minus(f"FIXED({p}*{h},1)")}&" %")&")'
+    last = group_start(o.cols, len(o.cols))
+    for dj in range(last, len(o.cols)):             # the other bases of the group: 'vs BU; ... vs FC' in one point
+        if dj == di or o.cols[dj] != "var" or not _cell(ln, dj):
+            continue
+        if cells and _missing(cells, ck(o.key, ln.key, dj)):
+            continue
+        f += f'; "&{num(dj)}&"{u} vs {SCEN.get(o.cols[base_of(o.cols, dj)], "")}'
+    return f + '"'
 
 
 def _missing(cells, key: str) -> bool:

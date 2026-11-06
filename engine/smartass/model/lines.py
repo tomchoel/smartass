@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 AMOUNT = "AMOUNT"
-CUBE_CELL = "$D$2"
+CUBE_CELL = "$D$3"      # row 3 (was D2, where it cut the A2 source text); old C2:D2 are cleared on a redraw
 INITIATIVE, DERIVED = "INITIATIVE", "INITIATIVE_DERIVED"
 NO_DESC = "(no description)"
 

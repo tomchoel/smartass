@@ -1016,6 +1016,12 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
             cs.helpers = {"kind": "variance", "rows": row_nums, "col": letters[v], "header_row": header_row,
                           "name": data.headers[v]}
         elif kind in ("stacked", "stacked100"):
+            signs = {v > 0 for _, ln in rows for j in picked
+                     if isinstance(v := res.cells.get(ck(data.key, ln.key, j)), (int, float)) and abs(v) >= ZERO_NOK}
+            if len(signs) > 1:
+                lint.append(f"chart '{o.title}': its parts have both signs (revenue and costs), so a stack is no "
+                            "whole; fix: chart parts of one sign (e.g. the cost lines), or use kind 'column' or "
+                            "'variance'")
             if len(rows) > MAX_PARTS:
                 lint.append(f"chart '{o.title}': {len(rows)} parts (at most {MAX_PARTS} read well); fix: chart a "
                             "block with fewer lines, or use a bar chart")

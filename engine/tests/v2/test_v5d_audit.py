@@ -10,7 +10,7 @@ from v2util import CLOSED, facts, resolver, spec_dict
 from smartass.model.analyze import compute
 from smartass.model.blocks.common import BlockOut, Line, ck
 from smartass.model.blocks.drivers import leaf_keys
-from smartass.model.expr import Round
+from smartass.model.expr import Num, Round
 from smartass.model.spec import AnalysisSpec
 from smartass.render import layout as L
 from smartass.render.datasheet import _of
@@ -205,3 +205,33 @@ def test_a_ranking_chart_title_counts_the_bars_it_draws():
     cs = SimpleNamespace(auto_title=True, title="", series=[("AC", "D1", "ac")], bars=11)
     data = SimpleNamespace(col_metrics=[], headers=[], title="Top 15 by Opex", type="ranking")
     assert L.chart_title(cs, data, [], None) == "Top 11 by Opex"
+
+
+def test_a_stack_of_revenue_and_costs_gets_a_lint_line():
+    s, res, p = run([{"type": "table", "query": "fm", "title": "P&L"},
+                     {"type": "chart", "kind": "stacked", "title": "Parts", "source": {"block": 0},
+                      "series": ["value", "ly"]}])
+    assert any("both signs" in m for m in p.chart_lint)
+
+
+def test_each_row_of_charts_is_kept_on_one_page():
+    from smartass.render.excel import keep_spans
+    s, res, p = run([{"type": "table", "query": "fm", "title": "P&L"},
+                     {"type": "chart", "kind": "column", "title": "A", "source": {"block": 0}},
+                     {"type": "chart", "kind": "variance", "title": "B", "source": {"block": 0}},
+                     {"type": "chart", "kind": "column", "title": "C", "source": {"block": 0}}])
+    rows = sorted({c.anchor_row for c in p.charts})
+    assert len(rows) == 2
+    spans = keep_spans(p)
+    for r in rows:
+        assert (r, min(r + L.CHART_ROWS - 1, p.last_row)) in spans
+
+
+def test_key_points_name_every_base_of_the_group():
+    from smartass.render.keypoints import _formula
+    o = BlockOut("b0", "table", "T", ["AC", "BU", "dBU", "FC", "dFC"],
+                 cols=["value", "budget", "var", "forecast", "var"])
+    ln = Line("l0", "EBITDA", [Num(None)] * 5)          # any expression: the cell exists
+    cells = {ck("b0", "l0", j): v for j, v in enumerate([-100.0, -90.0, -10.0, -95.0, -5.0])}
+    f = _formula(o, ln, lambda k: "X" + k[-1], set(), "budget", cells, "MNOK")
+    assert " vs BU; " in f and f.endswith(' vs FC"')

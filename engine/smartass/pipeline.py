@@ -354,6 +354,9 @@ def read_stored(h, target: str = "session") -> tuple[dict, str | None, str]:
     return sheets._stored_specs(t), com(lambda: t.wb.ActiveSheet.Name), str(t.path)
 
 
+LINES_SOURCE = "Source: Oracle EPM Cloud, FinLite drill-through (Smart View). AMOUNT: FinMax sign, costs negative."
+
+
 def _write_lines(t, q: int, ls, fetched: str = "") -> str:
     """One line set -> table Lines_Q<q>_<alias> on 'Q<q> Lines <alias>' (v1 drill_xl.write_lines, which reuses the
     table in place), the cube value in C2/D2 where CubeRef reads it, and the provenance + tie-out in F1:K3
@@ -371,7 +374,10 @@ def _write_lines(t, q: int, ls, fetched: str = "") -> str:
         raise GuardError(f"the lines sheet came out as {res['sheet']!r}, not {want!r}",
                          "rename or delete the sheet with that name, then ask again")
     ws = _sheet(t, want)
-    com(lambda: setattr(ws.Range("C2"), "Value", "Cube value"))
+    com(lambda: ws.Range("C2:D2").ClearContents())    # an older draw kept the cube value here (over the A2 text)
+    com(lambda: setattr(ws.Range("A2"), "Value", LINES_SOURCE))   # short: it runs to E2 (F2 is the Fetched label)
+    cube_label = "C" + CUBE_CELL.replace("$", "")[1:]
+    com(lambda: setattr(ws.Range(cube_label), "Value", "Cube value"))
     com(lambda: setattr(ws.Range(CUBE_CELL.replace("$", "")), "Value", ls.cube_value))
     amt_fmt, _ = drill_xl._local_formats(t.app)        # the cube value as the AMOUNT column shows it, not -66471995,74
     com(lambda: setattr(ws.Range(CUBE_CELL.replace("$", "")), "NumberFormatLocal", amt_fmt))
