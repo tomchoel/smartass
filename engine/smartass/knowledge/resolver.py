@@ -3,6 +3,7 @@ plus the caveats for what an answer touched and search for fin_lookup (sub-spec 
 from __future__ import annotations
 
 import contextlib
+import json
 import re
 import sqlite3
 import threading
@@ -178,6 +179,26 @@ class KnowledgeResolver(AtlasTree):
         row = self.kdb.execute("SELECT text FROM member_note WHERE cube=? AND member=? COLLATE NOCASE",
                                (cube, member)).fetchone()
         return row[0] if row else ""
+
+    # ---- behaviour cards
+
+    def card(self, member: str, cube: str, parent: str | None = None) -> dict | None:
+        """The merged behaviour card of a member under a parent (derived, with manual fields over it); without a
+        parent the shallowest placement's. None when there is no card. {operator, time_balance, account_type,
+        storage, shared, note, provenance}; unknown fields are None."""
+        if parent is None:
+            parent = self.parent(member, cube)
+        if parent is None:
+            return None
+        row = self.kdb.execute(
+            "SELECT operator, time_balance, account_type, storage, shared, note, provenance FROM card "
+            "WHERE cube=? AND member=? COLLATE NOCASE AND parent=? COLLATE NOCASE ORDER BY dimension LIMIT 1",
+            (cube, member, parent)).fetchone()
+        if row is None:
+            return None
+        op, tb, at, st, shared, note, prov = row
+        return {"operator": op, "time_balance": tb, "account_type": at, "storage": st, "shared": bool(shared),
+                "note": note or "", "provenance": json.loads(prov or "{}")}
 
     # ---- caveats
 

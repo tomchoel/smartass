@@ -1,4 +1,5 @@
 """Knowledge layer phase B (docs/plans/2026-11-10-knowledge-b-cards-metrics.md)."""
+import pytest
 from smartass.knowledge.cards import account_type, operators, time_balance
 
 KIDS = {"P": ["A", "B", "C"], "Q": ["D", "E"], "Z": ["F", "G"], "N": ["H"]}
@@ -602,3 +603,135 @@ def test_the_year_is_the_last_full_year_at_or_before_the_closed_month():
     assert cards_fetch.year_for(Sv("Jan 26")) == 2025
     assert cards_fetch.year_for(Sv("Dec 25")) == 2025
     assert cards_fetch.year_for(Sv("Dec 26")) == 2026
+
+
+# --- Task 5: manual overrides merged over the derived cards in knowledge.db ------------------------------------------
+
+import sqlite3  # noqa: E402
+
+from smartass.knowledge.build import build  # noqa: E402
+from smartass.knowledge.resolver import KnowledgeResolver  # noqa: E402
+from smartass.knowledge.semantic import CardOverride, SemanticError, load_all  # noqa: E402
+
+STA_ATLAS = [("FinMax", "All Accounts", "ac.Statistics", "Statistics", "All Accounts", 2, 1),
+             ("FinMax", "All Accounts", "ac.STA", "STA", "ac.Statistics", 3, 1),
+             ("FinMax", "All Accounts", "ac.STA20Y", "STA20Y FTE", "ac.STA", 4, 1),
+             ("FinMax", "All Accounts", "ac.STA20Y", "STA20Y FTE", "ac.Export", 3, 2),
+             ("FinMax", "All Accounts", "ac.STA21Y_stage", "stage", "ac.Not_Mapped", 3, 3),
+             ("FinLite", "All Accounts", "ac.STA21Y_stage", "stage", "ac.Not_Mapped", 3, 1)]
+CARD_ROWS = [("FinMax", "All Accounts", "ac.STA", "ac.Statistics", "+", None, "statistic", 0, 1.0),
+             ("FinMax", "All Accounts", "ac.STA20Y", "ac.STA", "+", "balance_last", "statistic", 1, 1.0),
+             ("FinMax", "All Accounts", "ac.STA20Y", "ac.Export", None, "balance_last", "statistic", 1, 1.0),
+             ("FinMax", "All Accounts", "ac.STA21Y_stage", "ac.Not_Mapped", "+", "flow", None, 0, 1.0),
+             ("FinLite", "All Accounts", "ac.STA21Y_stage", "ac.Not_Mapped", "+", "flow", None, 0, 1.0)]
+
+
+def _knowledge(tmp_path, cards_toml: dict[str, str] | None = None, cards=True):
+    from kutil import copy_required_rules
+    a, sem, k = tmp_path / "atlas.db", tmp_path / "semantic", tmp_path / "knowledge.db"
+    con = atlas.connect(a)
+    con.executemany("INSERT INTO member VALUES (?,?,?,?,?,?,?)", STA_ATLAS)
+    if cards:
+        con.executemany("INSERT INTO card VALUES (?,?,?,?,?,?,?,?,?)", CARD_ROWS)
+    con.commit()
+    con.close()
+    copy_required_rules(sem)
+    for name, text in (cards_toml or {}).items():
+        (sem / "cards").mkdir(exist_ok=True)
+        (sem / "cards" / f"{name}.toml").write_text(text, encoding="utf-8")
+    return a, sem, k
+
+
+def _resolver(tmp_path, cards_toml=None, **kw):
+    a, sem, k = _knowledge(tmp_path, cards_toml, **kw)
+    report = build(sem, a, k)
+    assert report.ok, report.errors
+    return KnowledgeResolver(sqlite3.connect(k), sqlite3.connect(a), forecast_year=26), report
+
+
+STA_TILDE = """
+[[card]]
+cube = "FinMax"
+member = "ac.STA"
+parent = "ac.Statistics"
+operator = "~"
+note = "statistics never add up to the P&L"
+source = "probe 10.11"
+"""
+
+
+def test_card_override_model():
+    CardOverride(cube="FinMax", member="un.SY.X", parent="un.SY", operator="~", note="elimination", source="s")
+    with pytest.raises(ValueError):
+        CardOverride(cube="FinMax", member="x", operator="*", source="s")
+    with pytest.raises(ValueError):
+        CardOverride(cube="FinMax", member="x", operator="+", source="s", colour="red")
+
+
+def test_a_manual_card_wins_over_the_derived_one_field_by_field(tmp_path):
+    r, _ = _resolver(tmp_path, {"x": STA_TILDE})
+    c = r.card("ac.STA", "FinMax", "ac.Statistics")
+    assert c["operator"] == "~" and c["provenance"]["operator"].startswith("manual@")
+    assert c["account_type"] == "statistic" and c["provenance"]["account_type"].startswith("derived@")
+    assert c["note"] == "statistics never add up to the P&L"
+
+
+def test_without_an_override_the_derived_card_stands(tmp_path):
+    r, _ = _resolver(tmp_path)
+    c = r.card("ac.STA", "FinMax", "ac.Statistics")
+    assert c["operator"] == "+" and c["provenance"]["operator"].startswith("derived@")
+    assert r.card("ac.nothing", "FinMax") is None
+    assert r.card("AC.sta20y", "FinMax", "ac.sta")["time_balance"] == "balance_last"     # any case
+    assert r.card("ac.STA20Y", "FinMax", "ac.Export")["shared"] is True
+
+
+def test_an_override_without_parent_covers_every_placement_and_finlite_shares_finmax(tmp_path):
+    toml = '[[card]]\ncube = "FinMax"\nmember = "ac.STA21Y_stage"\ntime_balance = "balance_last"\nsource = "t"\n'
+    r, _ = _resolver(tmp_path, {"x": toml})
+    assert r.card("ac.STA21Y_stage", "FinMax")["time_balance"] == "balance_last"
+    assert r.card("ac.STA21Y_stage", "FinLite", "ac.Not_Mapped")["time_balance"] == "balance_last"
+    assert r.card("ac.STA21Y_stage", "FinMax")["provenance"]["time_balance"].startswith("manual@")
+
+
+def test_a_specific_parent_beats_a_general_override(tmp_path):
+    toml = ('[[card]]\ncube = "FinMax"\nmember = "ac.STA20Y"\noperator = "-"\nsource = "t"\n'
+            '[[card]]\ncube = "FinMax"\nmember = "ac.STA20Y"\nparent = "ac.STA"\noperator = "~"\nsource = "t"\n')
+    r, _ = _resolver(tmp_path, {"x": toml})
+    assert r.card("ac.STA20Y", "FinMax", "ac.STA")["operator"] == "~"
+    assert r.card("ac.STA20Y", "FinMax", "ac.Export")["operator"] == "-"
+
+
+def test_conflicting_overrides_and_unknown_members_stop_the_build(tmp_path):
+    toml = STA_TILDE + STA_TILDE.replace('"~"', '"-"')
+    a, sem, k = _knowledge(tmp_path, {"x": toml})
+    report = build(sem, a, k)
+    assert not report.ok and any("ac.STA" in e and "operator" in e for e in report.errors)
+    gone = '[[card]]\ncube = "FinMax"\nmember = "ac.Gone"\noperator = "~"\nsource = "t"\n'
+    a2, sem2, k2 = _knowledge(tmp_path / "two", {"x": gone})
+    report = build(sem2, a2, k2)
+    assert not report.ok and any("ac.Gone" in e for e in report.errors)
+    same = STA_TILDE + STA_TILDE                      # the same value twice is not a conflict
+    a3, sem3, k3 = _knowledge(tmp_path / "three", {"x": same})
+    assert build(sem3, a3, k3).ok
+
+
+def test_a_bad_cards_file_is_a_semantic_error(tmp_path):
+    from kutil import copy_required_rules
+    copy_required_rules(tmp_path)
+    (tmp_path / "cards").mkdir()
+    (tmp_path / "cards" / "x.toml").write_text('[[card]]\ncube = "FinMax"\nmember = "a"\noperator = "*"\nsource="s"\n')
+    with pytest.raises(SemanticError):
+        load_all(tmp_path)
+
+
+def test_an_atlas_without_cards_still_builds(tmp_path):
+    r, report = _resolver(tmp_path, cards=False)
+    assert r.card("ac.STA", "FinMax", "ac.Statistics") is None and report.ok
+
+
+def test_the_repo_card_overrides_are_valid_and_cover_the_stage_statistics():
+    from pathlib import Path
+    k = load_all(Path(__file__).resolve().parents[3] / "knowledge" / "semantic")
+    stage = [c for c in k.cards if c.member.endswith("_stage")]
+    assert stage and all(c.time_balance == "balance_last" and c.cube == "FinMax" for c in stage)
+    assert not any(c.member == "ac.STA" for c in k.cards)       # ac.STA under ac.Statistics is derived as '~'

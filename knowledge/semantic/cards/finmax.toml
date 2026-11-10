@@ -1,0 +1,19 @@
+# Manual behaviour-card fields that win over the derived ones (spec 2026-11-10 §3, phase B). Only real fixes here:
+# ac.STA under ac.Statistics ('~') is already derived from the data, and All Accounts stays unknown.
+
+# Known limit of the derivation (live 10.11): these statistics store the level in every month and Yr sums the months,
+# which from the numbers alone reads as a flow. They are levels: read the period end, never sum. A FinMax override
+# covers FinLite (same members). ac.STA12Y_stage and ac.STA22Y_stage have no data for this user, so they are not set.
+[[card]]
+cube = "FinMax"
+member = "ac.STA11Y_stage"
+time_balance = "balance_last"
+note = "monthly level; Yr sums the months - read December, never sum"
+source = "probe 10.11, same pattern as ac.STA21Y_stage (Yr 33 725.66 = twelve monthly levels)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STA21Y_stage"
+time_balance = "balance_last"
+note = "monthly level; Yr sums the months - read December, never sum"
+source = "probe 10.11 (Yr 33 725.66 = twelve monthly levels of about 2 800 FTE)"

@@ -1,0 +1,9 @@
+text = "16 578 of 21 597 FinMax entities return #NoAccess for this user (10.11): numbers and behaviour cards cover only the entities the user may read; a colleague with other rights sees other totals below division level."
+severity = "info"
+inherit = "self"
+source = "phase B card derivation 10.11"
+status = "approved"
+approved = { by = "auto", on = "2026-11-10" }
+
+[scope_members]
+FinMax = ["un.SY"]
