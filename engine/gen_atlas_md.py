@@ -33,7 +33,9 @@ def fmt(name, label):
 lines = ["# Cube atlas (generated)", "",
          f"Generated {time.strftime('%Y-%m-%d %H:%M')} from `%LOCALAPPDATA%\\smartass\\atlas.db` by `gen_atlas_md.py`. "
          "Top levels only; search everything with `fin_lookup`. Periods (current month, closed months, quarters) are not "
-         "listed here: ask `fin_status`, or `fin_lookup` (kind 'member').", ""]
+         "listed here: ask `fin_status`, or `fin_lookup` (kind 'member'). Member hits carry a behaviour card (time "
+         "balance, account type, children ignored in the consolidation): a level is read at the period end, never "
+         "summed.", ""]
 for (conn,) in db.execute("SELECT DISTINCT connection FROM build ORDER BY connection"):
     lines += [f"## {conn}", "", "| Dimension | Members | Built |", "|---|---:|---|"]
     builds = db.execute("SELECT dimension, n, built_at, error FROM build WHERE connection=? ORDER BY dimension",

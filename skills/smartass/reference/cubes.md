@@ -1,6 +1,6 @@
 # Cube atlas (generated)
 
-Generated 2026-10-13 21:41 from `%LOCALAPPDATA%\smartass\atlas.db` by `gen_atlas_md.py`. Top levels only; search everything with `fin_lookup`. Periods (current month, closed months, quarters) are not listed here: ask `fin_status`, or `fin_lookup` (kind 'member').
+Generated 2026-10-13 21:41 from `%LOCALAPPDATA%\smartass\atlas.db` by `gen_atlas_md.py`. Top levels only; search everything with `fin_lookup`. Periods (current month, closed months, quarters) are not listed here: ask `fin_status`, or `fin_lookup` (kind 'member'). Member hits carry a behaviour card (time balance, account type, children ignored in the consolidation): a level is read at the period end, never summed.
 
 ## FinLite
 
