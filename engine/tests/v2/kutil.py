@@ -100,16 +100,21 @@ def make_atlas(path) -> None:
     con.close()
 
 
+def copy_required_rules(root) -> None:
+    """The two rules every build requires and the engine reads: the repo's own."""
+    rules = Path(root) / "rules"
+    rules.mkdir(parents=True, exist_ok=True)
+    for name in ("scenarios", "materiality"):
+        shutil.copy(REPO_RULES / f"{name}.toml", rules / f"{name}.toml")
+
+
 def make_semantic(root, metrics=None, facts=None):
     for kind, files in (("metrics", metrics or METRICS), ("facts", FACTS if facts is None else facts)):
         d = root / kind
         d.mkdir(parents=True, exist_ok=True)
         for name, text in files.items():
             (d / f"{name}.toml").write_text(text, encoding="utf-8")
-    rules = root / "rules"                     # the engine reads these two rules: copy the repo's
-    rules.mkdir(parents=True, exist_ok=True)
-    for name in ("scenarios", "materiality"):
-        shutil.copy(REPO_RULES / f"{name}.toml", rules / f"{name}.toml")
+    copy_required_rules(root)
     return root
 
 

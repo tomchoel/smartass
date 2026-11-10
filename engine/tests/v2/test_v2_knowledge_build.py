@@ -56,6 +56,8 @@ def _semantic(tmp_path, files: dict[str, str]):
     for rel, text in files.items():
         (d / rel).parent.mkdir(parents=True, exist_ok=True)
         (d / rel).write_text(text, encoding="utf-8")
+    from kutil import copy_required_rules
+    copy_required_rules(d)
     return d
 
 

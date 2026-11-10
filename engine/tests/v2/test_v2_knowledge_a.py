@@ -4,6 +4,8 @@ import sqlite3
 
 import pytest
 
+from kutil import REPO_RULES
+
 from smartass.knowledge import atlas
 from smartass.knowledge.build import build
 from smartass.knowledge.expand import expand
@@ -103,7 +105,11 @@ FinMax = ["un.SY.2CON"]
 """
 
 
-def _write(d, files):
+def _write(d, files, rules=True):
+    """Write files under d; a semantic folder also gets the two rules every build requires (the repo's own)."""
+    if rules:
+        files = {"rules/scenarios.toml": (REPO_RULES / "scenarios.toml").read_text(encoding="utf-8"),
+                 "rules/materiality.toml": (REPO_RULES / "materiality.toml").read_text(encoding="utf-8"), **files}
     for rel, text in files.items():
         (d / rel).parent.mkdir(parents=True, exist_ok=True)
         (d / rel).write_text(text, encoding="utf-8")
@@ -229,9 +235,10 @@ def test_ensure_built_rebuilds_on_a_newer_atlas_only(tmp_path, monkeypatch):
 def test_rule_kinds_validate_their_data():
     Rule(id="scenarios", title="Scenarios", text="t", kind="scenarios",
          data={"FinMax": {"value": ["Actual", ""], "ly": ["Actual", ""]},
+               "FinLite": {"value": ["Actual", ""], "ly": ["Actual", ""]},
                "FinPlan": {"value": ["Actual", "Working"], "ly": ["Actual", "Working"],
                            "budget": ["Target", "Final"], "forecast": ["latest_forecast", "Final"]}})
-    with pytest.raises(ValueError, match="FinPlan"):
+    with pytest.raises(ValueError, match="Fin(Lite|Plan)"):
         Rule(id="scenarios", title="S", text="t", kind="scenarios",
              data={"FinMax": {"value": ["Actual", ""], "ly": ["Actual", ""]}})
     Rule(id="materiality", title="M", text="t", kind="materiality", data={"abs_nok": 5e6, "pct": 0.1})
@@ -449,7 +456,7 @@ def test_a_member_hit_carries_its_note(tmp_path, adb):
 
 def test_rules_are_listed_by_kind_rule(tmp_path, adb):
     r = _resolver(tmp_path, adb, {"rules/signs.toml": SIGNS})
-    assert [x["id"] for x in r.search("", kind="rule")["rules"]] == ["signs"]
+    assert [x["id"] for x in r.search("", kind="rule")["rules"]] == ["materiality", "scenarios", "signs"]
     assert r.search("", kind="any")["rules"] == []
 
 
@@ -483,3 +490,110 @@ def test_a_stale_atlas_is_a_warning_on_the_answer(monkeypatch):
     assert kr.freshness_notes(object()) == []
     monkeypatch.setattr(kr.atlas, "status", lambda db: {"oldest_age_days": None, "stale": True, "built": []})
     assert kr.freshness_notes(object()) == ["The atlas has never been built - run `smartass atlas build`."]
+
+
+# ---- review fixes: alias matching rules, required rules, FinLite notes
+
+def _ent(label, aliases, member, generic=()):
+    return (f'label = "{label}"\naliases = {list(aliases)!r}\ngeneric_aliases = {list(generic)!r}\n'
+            f'finmax = "{member}"\nsource = "s"\nstatus = "approved"\n').replace("'", '"')
+
+
+MATCH_FILES = {
+    "entities/company.toml": _ent("Company", ["telenor norge"], "un.SY", generic=["total", "company"]),
+    "entities/ssm.toml": _ent("SSM", ["ssm"], "un.SY.2CON"),
+    "entities/it.toml": _ent("IT", ["it"], "CC1"),
+    "entities/ei.toml": _ent("EI", ["ei", "e&i"], "CC2"),
+    "kpis/cost_per_fte.toml": ('name = "Cost per FTE"\naliases = ["cost per fte"]\ncube = "FinMax"\n'
+                               'numerator = "cogs"\ndenominator = "revenue"\nunit = "nok_per_fte"\n'
+                               'source = "s"\nstatus = "approved"\n'),
+    "vocab/costs.toml": ('kind = "vague"\nwords = ["costs", "cost"]\noptions = ["a", "b"]\nsource = "s"\n'
+                         'status = "approved"\n'),
+    "vocab/going.toml": ('kind = "vague"\nwords = ["how is it going"]\noptions = ["a", "b"]\nsource = "s"\n'
+                         'status = "approved"\n'),
+}
+
+
+def _ids(hit, key):
+    return sorted(x["id"] for x in hit[key])
+
+
+def test_alias_matching_rules(tmp_path, adb):
+    r = _resolver(tmp_path, adb, MATCH_FILES)
+    s = r.search
+    assert _ids(s("total opex for SSM"), "entities") == ["ssm"]            # generic gives way to a named area
+    assert _ids(s("the total"), "entities") == ["company"]                 # generic alone counts
+    assert _ids(s("company cars"), "entities") == ["company"]
+    assert _ids(s("is it high"), "entities") == []                         # short alias, lower case
+    assert _ids(s("what is it"), "entities") == []
+    assert _ids(s("how is it going"), "entities") == [] and _ids(s("how is it going"), "vocab") == ["going"]
+    assert _ids(s("kostnader i IT"), "entities") == ["it"]                 # UPPER CASE short alias
+    assert _ids(s("it"), "entities") == ["it"]                             # whole query
+    out = s("cost per fte in E&I")                                         # longest match wins across kinds
+    assert _ids(out, "kpis") == ["cost_per_fte"] and _ids(out, "entities") == ["ei"] and out["vocab"] == []
+    assert _ids(s("costs"), "vocab") == ["costs"]
+
+
+def test_scenarios_and_materiality_rules_are_required(tmp_path, adb):
+    sem = _write(tmp_path / "semantic", {"metrics/cogs.toml": COGS}, rules=False)
+    rep = build(sem, tmp_path / "atlas.db", tmp_path / "k.db")
+    assert any("rule kind 'scenarios' is required" in e for e in rep.errors)
+    assert any("rule kind 'materiality' is required" in e for e in rep.errors)
+
+
+def test_the_resolver_names_a_missing_rule(tmp_path, adb):
+    r = _resolver(tmp_path, adb, {})
+    r._rules.clear()
+    with pytest.raises(LookupError, match="scenarios"):
+        r.scenarios()
+    with pytest.raises(LookupError, match="materiality"):
+        r.materiality("ac.nothing")
+
+
+def test_a_draft_rule_is_not_the_rule_of_its_kind(tmp_path, adb):
+    r = _resolver(tmp_path, adb, {})
+    assert r.rule_of_kind("materiality").status == "approved"
+    for x in r._rules.values():
+        x.status = "draft"
+    assert r.rule_of_kind("materiality") is None
+
+
+def test_finlite_reads_the_finmax_notes(tmp_path, adb):
+    r = _resolver(tmp_path, adb, {"notes/finmax_accounts.toml": NOTE})
+    assert r.note("ac.C30", "FinLite") == "Revenue incl. interconnect."
+
+
+def test_scenarios_rule_needs_finlite_too():
+    data = {"FinMax": {"value": ["Actual", ""], "ly": ["Actual", ""]},
+            "FinPlan": {"value": ["Actual", "Working"], "ly": ["Actual", "Working"],
+                        "budget": ["Target", "Final"], "forecast": ["latest_forecast", "Final"]}}
+    with pytest.raises(ValueError, match="FinLite"):
+        Rule(id="scenarios", title="S", text="t", kind="scenarios", data=data)
+
+
+def test_series_says_what_is_missing():
+    from smartass.model import series
+    from smartass.model.resolver import StaticResolver
+    r = StaticResolver(metrics=[])
+    r.scenarios = lambda: {"FinMax": {"value": ["Actual", ""]}}
+    with pytest.raises(ValueError, match="no ly for FinMax"):
+        series.scenario("FinMax", "ly", r)
+
+
+def test_pnl_check_expressions_name_metrics(tmp_path, adb):
+    pnl = ('title = "P&L"\ntext = "t"\nkind = "pnl"\nstatus = "approved"\n[data]\nFinMax = ["revenue", "cogs"]\n'
+           'FinPlan = ["revenue"]\n[[data.checks.FinMax]]\nlabel = "x"\nexpr = "rev+cogs"\n')
+    pnl = pnl.replace('FinPlan = ["revenue"]', 'FinPlan = ["revenue"]')
+    rep = _build(tmp_path, adb, {"rules/pnl.toml": pnl})
+    assert any("rev" in e and "expr" in e for e in rep.errors)
+
+
+def test_a_stale_atlas_warning_survives_an_open_failure(tmp_path, monkeypatch):
+    from smartass.knowledge import resolver as kr
+    monkeypatch.setattr(kr, "ensure_built", lambda notes=None: tmp_path / "nope.db")
+    seen = []
+    monkeypatch.setattr(kr.atlas, "connect", lambda: type("D", (), {"close": lambda s: seen.append("closed")})())
+    monkeypatch.setattr(kr, "freshness_notes", lambda db: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        kr.open_resolver(26, [])
+    assert seen == ["closed"]

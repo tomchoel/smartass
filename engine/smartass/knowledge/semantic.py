@@ -472,7 +472,7 @@ class Rule(_Item):
             bad = [c for c in d if c not in SCENARIO_SERIES]
             if bad:
                 raise ValueError(f"rule {self.id}: scenarios has unknown cube(s) {bad}")
-            for cube in ("FinMax", "FinPlan"):
+            for cube in SCENARIO_SERIES:
                 need = SCENARIO_SERIES[cube]
                 got = d.get(cube, {})
                 if (not isinstance(got, dict) or set(got) != set(need)

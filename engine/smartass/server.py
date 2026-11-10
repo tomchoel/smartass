@@ -85,8 +85,11 @@ def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 
     if kind == "answer":
         from . import answers
         return {"answers": [_past(r) for r in answers.search(query, limit)]}
+    from .knowledge.resolver import freshness_notes
     with contextlib.closing(_resolver()) as r:
-        return r.search(query, kind, cube, limit)
+        out = r.search(query, kind, cube, limit)
+        warn = freshness_notes(r.db)
+    return {**out, "warnings": warn} if warn else out
 
 
 @_register(kit.LOCAL)
@@ -387,7 +390,7 @@ async def fin_status(restart: bool = False) -> dict:
             "atlas": {"oldest_age_days": st["oldest_age_days"], "stale": st["stale"],
                       "dimensions_built": len(st["built"])},
             "metrics": kn.get("metrics", 0),
-            "knowledge_layer": {k: kn.get(k) for k in ("rules", "entities", "kpis", "vocab", "notes", "built_at",
+            "knowledge_layer": {k: kn.get(k) for k in ("rules", "entities", "kpis", "vocab", "notes",
                                                        "atlas_built_at")},
             "knowledge": {"built_at": kn.get("built_at"), "metrics": kn.get("metrics", 0),
                           "facts": kn.get("facts", 0), "drafts": kn.get("drafts", 0),

@@ -91,7 +91,7 @@ class KnowledgeResolver(AtlasTree):
         m = self._metric(metric)
         if m:
             return tuple(m.materiality)
-        d = self.rule_of_kind("materiality").data           # a raw member takes the rule
+        d = self._required("materiality").data           # a raw member takes the rule
         return (float(d["abs_nok"]), float(d["pct"]))
 
     def pct_floor(self, metric):
@@ -116,25 +116,49 @@ class KnowledgeResolver(AtlasTree):
     # ---- rules, entities, KPIs, vocabulary, member notes
 
     def scenarios(self) -> dict:
-        return self.rule_of_kind("scenarios").data
+        return self._required("scenarios").data
 
-    def _terms_of(self, text: str, kind: str) -> list[str]:
-        """Item ids of a kind whose term is the phrase (any case), else whose term appears in it as whole words."""
-        t = text.strip()
-        exact = [i for (i,) in self.kdb.execute("SELECT DISTINCT item_id FROM term WHERE kind=? AND text=? "
-                                                 "COLLATE NOCASE", (kind, t))]
-        if exact or not t:
-            return exact
-        words = f" {' '.join(re.findall(r'[\w&%]+', t.casefold()))} "
-        return list(dict.fromkeys(i for term, i in self.kdb.execute("SELECT text, item_id FROM term WHERE kind=?",
-                                                                    (kind,))
-                                  if f" {' '.join(re.findall(r'[\w&%]+', term.casefold()))} " in words))
+    def _matches(self, text: str) -> dict[str, list[str]]:
+        """{kind: item ids} the phrase names, by the alias rules (catalog header, spec §4): terms match as whole
+        words; one shorter than 3 characters only as the whole phrase or written in UPPER CASE; a generic alias
+        ('total') only when no other entity matched; a match inside a longer match (any kind) is dropped."""
+        orig = re.findall(r"[\w&%]+", text)
+        words = [w.casefold() for w in orig]
+        found: list[tuple[int, int, str, str, bool]] = []      # start, end, kind, id, generic
+        if words:
+            for term, kind, item in self.kdb.execute("SELECT text, kind, item_id FROM term "
+                                                     "WHERE kind IN ('entity','entity_generic','kpi','vocab')"):
+                tw = re.findall(r"[\w&%]+", term.casefold())
+                n = len(tw)
+                short = len(term.strip()) < 3
+                for i in range(len(words) - n + 1):
+                    if words[i:i + n] != tw:
+                        continue
+                    if short and not (n == len(words) or [w.upper() for w in tw] == orig[i:i + n]):
+                        continue
+                    found.append((i, i + n, kind.removesuffix("_generic"), item, kind.endswith("_generic")))
+        found = [f for f in found
+                 if not any(g[1] - g[0] > f[1] - f[0] and g[0] <= f[0] and f[1] <= g[1] for g in found)]
+        if any(f[2] == "entity" and not f[4] for f in found):
+            found = [f for f in found if not f[4]]
+        out: dict[str, list[str]] = {"entity": [], "kpi": [], "vocab": []}
+        for _, _, kind, item, _ in sorted(found, key=lambda f: (f[0], f[0] - f[1])):
+            if item not in out[kind]:
+                out[kind].append(item)
+        return out
 
     def rule(self, rid: str):
         return self._rules.get(rid)
 
     def rule_of_kind(self, kind: str):
-        return next((r for r in self._rules.values() if r.kind == kind), None)
+        """The approved rule of a kind (a draft is not in force), else None."""
+        return next((r for r in self._rules.values() if r.kind == kind and r.status == "approved"), None)
+
+    def _required(self, kind: str):
+        r = self.rule_of_kind(kind)
+        if r is None:
+            raise LookupError(f"no approved rule of kind {kind!r} in knowledge/semantic/rules")
+        return r
 
     def _entity_hit(self, e) -> dict:
         out = {"id": e.id, "label": e.label, "aliases": e.aliases, "members": e.members(), "note": e.note,
@@ -150,6 +174,7 @@ class KnowledgeResolver(AtlasTree):
                 "caveats": self.caveats({}, {k.numerator, k.denominator})}
 
     def note(self, member: str, cube: str) -> str:
+        cube = "FinMax" if cube == "FinLite" else cube        # FinLite shares the FinMax members
         row = self.kdb.execute("SELECT text FROM member_note WHERE cube=? AND member=? COLLATE NOCASE",
                                (cube, member)).fetchone()
         return row[0] if row else ""
@@ -240,13 +265,14 @@ class KnowledgeResolver(AtlasTree):
                                 "label": h["label"], "parents": h["parents"], "depth": h["depth"],
                                 "note": self.note(h["name"], h["connection"]),
                                 "caveats": self.caveats({h["connection"]: {h["name"]}})})
+        hit = self._matches(text) if kind in ("any", "entity", "kpi", "vocab") else {}
         if kind in ("any", "entity"):
-            entities = [self._entity_hit(self._entities[i]) for i in self._terms_of(text, "entity")][:limit]
+            entities = [self._entity_hit(self._entities[i]) for i in hit["entity"]][:limit]
         if kind in ("any", "kpi"):
-            kpis = [self._kpi_hit(self._kpis[i]) for i in self._terms_of(text, "kpi")][:limit]
+            kpis = [self._kpi_hit(self._kpis[i]) for i in hit["kpi"]][:limit]
         if kind in ("any", "vocab"):
             vocab = [self._vocab[i].model_dump(exclude={"source", "approved", "verified"})
-                     for i in self._terms_of(text, "vocab")][:limit]
+                     for i in hit["vocab"]][:limit]
         if kind == "rule":
             rules = [{"id": r.id, "title": r.title, "text": r.text} for r in self._rules.values()
                      if not text.strip() or text.strip().casefold() in f"{r.id} {r.title} {r.text}".casefold()]
@@ -319,9 +345,9 @@ def open_resolver(forecast_year: int, notes: list[str] | None = None) -> Knowled
     """A KnowledgeResolver on knowledge.db (built when missing) and the local atlas; the caller closes it (close())."""
     path = ensure_built(notes)
     db = atlas.connect()
-    if notes is not None:
-        notes.extend(freshness_notes(db))
     try:
+        if notes is not None:
+            notes.extend(freshness_notes(db))
         return KnowledgeResolver(sqlite3.connect(path), db, forecast_year)
     except Exception:
         db.close()

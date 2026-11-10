@@ -84,6 +84,8 @@ def dbs(tmp_path):
                       "facts/bus_draft.toml": BUS_DRAFT}.items():
         (sem / rel).parent.mkdir(parents=True, exist_ok=True)
         (sem / rel).write_text(text, encoding="utf-8")
+    from kutil import copy_required_rules
+    copy_required_rules(sem)
     assert build(sem, tmp_path / "atlas.db", tmp_path / "knowledge.db").ok
     import sqlite3
     kdb = sqlite3.connect(tmp_path / "knowledge.db")

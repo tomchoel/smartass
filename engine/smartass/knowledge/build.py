@@ -152,6 +152,9 @@ def check_layer(k, atlas, report: BuildReport) -> None:
         ids = [r.id for r in k.rules if r.kind == kind]
         if len(ids) > 1:
             report.errors.append(f"rule kind {kind!r} must be defined once, found {', '.join(ids)}")
+    for kind in ("scenarios", "materiality"):
+        if not any(r.kind == kind for r in k.rules):
+            report.errors.append(f"rule kind {kind!r} is required (the model reads it): add it to knowledge/semantic/rules/")
     metric_ids = {m.id: m for m in k.metrics}
     for r in k.rules:
         if r.kind == "pnl":
@@ -160,6 +163,11 @@ def check_layer(k, atlas, report: BuildReport) -> None:
                 for mid in ids:
                     if mid not in metric_ids or cube not in metric_ids[mid].members():
                         report.errors.append(f"rule {r.id}: pnl.{cube} names {mid!r}, not a metric with {cube} members")
+                for chk in r.data.get("checks", {}).get(cube, []):
+                    for name in re.findall(r"[A-Za-z_]\w*", str(chk.get("expr", ""))):
+                        if name not in metric_ids or cube not in metric_ids[name].members():
+                            report.errors.append(f"rule {r.id}: pnl check {chk.get('label', '')!r} expr names "
+                                                 f"{name!r}, not a metric with {cube} members")
     entity_ids = {e.id for e in k.entities}
     for e in k.entities:
         for cube, member in e.members().items():
@@ -283,8 +291,10 @@ def _write(db: sqlite3.Connection, k, trees: LazyTrees, meta: dict, warnings: li
         db.execute("INSERT INTO rule VALUES (?,?,?)", (r.id, r.kind, r.model_dump_json()))
     for e in k.entities:
         db.execute("INSERT INTO entity VALUES (?,?)", (e.id, e.model_dump_json()))
+        own = {x.strip().casefold() for x in [e.id, e.label, *e.aliases]}
+        generic = {x.strip().casefold() for x in e.generic_aliases} - own
         db.executemany("INSERT INTO term VALUES (?,?,?)",
-                       [(x, "entity", e.id) for x in terms(e)])
+                       [(x, "entity_generic" if x.casefold() in generic else "entity", e.id) for x in terms(e)])
     for kp in k.kpis:
         db.execute("INSERT INTO kpi VALUES (?,?)", (kp.id, kp.model_dump_json()))
         db.executemany("INSERT INTO term VALUES (?,?,?)",

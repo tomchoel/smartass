@@ -29,28 +29,28 @@ FinPlan = ["revenue", "cogs", "gross_margin", "opex", "ebitda_boi", "other_items
 
 [[data.checks.FinMax]]
 label = "C30 + C40S = C48"
-expr = "rev+cogs-gm"
+expr = "revenue+cogs-gross_margin"
 
 [[data.checks.FinMax]]
 label = "C50S + C60 = C70"
-expr = "pers+oth-opex"
+expr = "personnel+other_opex-opex"
 
 [[data.checks.FinMax]]
 label = "C48 + C70 = EBITDA_BOI"
-expr = "gm+opex-boi"
+expr = "gross_margin+opex-ebitda_boi"
 
 [[data.checks.FinMax]]
 label = "EBITDA_BOI + C73 = EBITDA"
-expr = "boi+c73-ebitda"
+expr = "ebitda_boi+other_items-ebitda"
 
 [[data.checks.FinPlan]]
 label = "Revenue + COGS = Gross profit"
-expr = "rev+cogs-gp"
+expr = "revenue+cogs-gross_margin"
 
 [[data.checks.FinPlan]]
 label = "Gross profit + OPEX = EBITDA before other items"
-expr = "gp+opex-boi"
+expr = "gross_margin+opex-ebitda_boi"
 
 [[data.checks.FinPlan]]
 label = "EBITDA before other items + Other items = EBITDA"
-expr = "boi+oth-ebitda"
+expr = "ebitda_boi+other_items-ebitda"

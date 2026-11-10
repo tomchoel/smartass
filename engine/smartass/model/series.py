@@ -18,7 +18,9 @@ def scenario(cube: str, series: str, r: Resolver) -> tuple[str, str]:
         raise ValueError(f"unknown series {series!r}")
     table = r.scenarios().get(cube, {})
     if series not in table:
-        raise ValueError(f"{series} exists only in FinPlan")
+        if series in ("budget", "forecast") and cube in ("FinMax", "FinLite"):
+            raise ValueError(f"{series} exists only in FinPlan")
+        raise ValueError(f"no {series} for {cube} in the scenarios rule")
     scen, version = table[series]
     return (r.latest_forecast() if scen == "latest_forecast" else scen, version)
 
