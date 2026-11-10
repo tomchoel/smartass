@@ -1,0 +1,3269 @@
+[[note]]
+cube = "FinPlan"
+member = "P&L"
+text = "FinPlan resultatregnskap (plan, prognose og faktisk i FinPlans egne definisjoner)."
+
+[[note]]
+cube = "FinPlan"
+member = "Net Income"
+text = "Resultat under P&L: Net Income."
+
+[[note]]
+cube = "FinPlan"
+member = "Minority Interest in Income"
+text = "Resultat under Net Income: Minority Interest in Income. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Tax"
+text = "Resultat under Net Income: Tax. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Profit/Loss before Taxes"
+text = "Resultat under Net Income: Profit/Loss before Taxes."
+
+[[note]]
+cube = "FinPlan"
+member = "Net Interest Items"
+text = "Resultat under Profit/Loss before Taxes: Net Interest Items."
+
+[[note]]
+cube = "FinPlan"
+member = "Interest Expense on Long-Term Debt Excess"
+text = "Resultat under Net Interest Items: Interest Expense on Long-Term Debt Excess."
+
+[[note]]
+cube = "FinPlan"
+member = "Non-Cash Interest on Long-Term Interest Bearing Debt"
+text = "Resultat under Net Interest Items: Non-Cash Interest on Long-Term Interest Bearing Debt. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Interest Expense on Current Interest Bearing Liabilities"
+text = "Resultat under Net Interest Items: Interest Expense on Current Interest Bearing Liabilities. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Interest Earned on Other Liquid Assets"
+text = "Resultat under Net Interest Items: Interest Earned on Other Liquid Assets. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Other Net Interest Items"
+text = "Resultat under Net Interest Items: Other Net Interest Items. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Other Financial Items"
+text = "Resultat under Profit/Loss before Taxes: Other Financial Items."
+
+[[note]]
+cube = "FinPlan"
+member = "Share Profit/Loss Associated Companies"
+text = "Resultat under Profit/Loss before Taxes: Share Profit/Loss Associated Companies. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "EBIT"
+text = "Resultat under Profit/Loss before Taxes: EBIT."
+
+[[note]]
+cube = "FinPlan"
+member = "Write-downs"
+text = "Resultat under EBIT: Write-downs. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Depreciation Expense"
+text = "Resultat under EBIT: Depreciation Expense."
+
+[[note]]
+cube = "FinPlan"
+member = "Depreciation Right of use assets"
+text = "Resultat under Depreciation Expense: Depreciation Right of use assets."
+
+[[note]]
+cube = "FinPlan"
+member = "Depreciation Capex"
+text = "Resultat under Depreciation Expense: Depreciation Capex."
+
+[[note]]
+cube = "FinPlan"
+member = "EBITDA"
+text = "EBITDA = EBITDA før andre poster + andre poster. FinMax equivalent: ac.EBITDA. Avstemt mot FinMax EBITDA 2025: differanse 1 766.7 MNOK (+14.3%) – ulik gruppering av konti."
+
+[[note]]
+cube = "FinPlan"
+member = "Total Other Items"
+text = "Andre poster (engangseffekter, gevinst/tap, nedbemanning) – Target har ingen. FinMax equivalent: ac.C73. Avstemt mot FinMax C73 2025: differanse -2.2 MNOK (-16.2%) – ulik gruppering av konti. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Other Items"
+text = "Resultat under Total Other Items: Other Items. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Gain/Loss on Sale of Assets"
+text = "Resultat under Total Other Items: Gain/Loss on Sale of Assets. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "EBITDA before Other Items"
+text = "EBITDA før andre poster = Gross_Profit + OPEX. FinMax equivalent: ac.EBITDA_BOI. Avstemt mot FinMax EBITDA_BOI 2025: differanse 1 768.8 MNOK (+14.3%) – ulik gruppering av konti."
+
+[[note]]
+cube = "FinPlan"
+member = "OPEX"
+text = "Driftskostnader (lønn + andre driftskostnader). FinMax equivalent: ac.C70. Avstemt mot FinMax C70 2025: differanse 30.1 MNOK (+0.4%) – ulik gruppering av konti."
+
+[[note]]
+cube = "FinPlan"
+member = "Other OPEX"
+text = "Resultat under OPEX: Other OPEX."
+
+[[note]]
+cube = "FinPlan"
+member = "Other Expenses"
+text = "Resultat under Other OPEX: Other Expenses."
+
+[[note]]
+cube = "FinPlan"
+member = "Losses on receivables"
+text = "Resultat under Other OPEX: Losses on receivables."
+
+[[note]]
+cube = "FinPlan"
+member = "Lease of buildings"
+text = "Resultat under Other OPEX: Lease of buildings."
+
+[[note]]
+cube = "FinPlan"
+member = "Consultantcy & Temporary Contract Workers Costs"
+text = "Resultat under OPEX: Consultantcy & Temporary Contract Workers Costs."
+
+[[note]]
+cube = "FinPlan"
+member = "Consultants Costs"
+text = "Resultat under Consultantcy & Temporary Contract Workers Costs: Consultants Costs."
+
+[[note]]
+cube = "FinPlan"
+member = "Temporary Contract Workers Costs"
+text = "Resultat under Consultantcy & Temporary Contract Workers Costs: Temporary Contract Workers Costs."
+
+[[note]]
+cube = "FinPlan"
+member = "Operational and Maintenance Costs"
+text = "Resultat under OPEX: Operational and Maintenance Costs."
+
+[[note]]
+cube = "FinPlan"
+member = "Contractor Costs"
+text = "Resultat under Operational and Maintenance Costs: Contractor Costs."
+
+[[note]]
+cube = "FinPlan"
+member = "Other Operations and Maintenance Costs"
+text = "Resultat under Operational and Maintenance Costs: Other Operations and Maintenance Costs."
+
+[[note]]
+cube = "FinPlan"
+member = "Support Agreements Network/HW/SW"
+text = "Resultat under Operational and Maintenance Costs: Support Agreements Network/HW/SW."
+
+[[note]]
+cube = "FinPlan"
+member = "Operation and Maintenance IS/IT"
+text = "Resultat under Operational and Maintenance Costs: Operation and Maintenance IS/IT."
+
+[[note]]
+cube = "FinPlan"
+member = "IS License"
+text = "Resultat under Operation and Maintenance IS/IT: IS License."
+
+[[note]]
+cube = "FinPlan"
+member = "IS Maintenance"
+text = "Resultat under Operation and Maintenance IS/IT: IS Maintenance."
+
+[[note]]
+cube = "FinPlan"
+member = "IS Operation"
+text = "Resultat under Operation and Maintenance IS/IT: IS Operation."
+
+[[note]]
+cube = "FinPlan"
+member = "Own work Capitalised"
+text = "Resultat under OPEX: Own work Capitalised."
+
+[[note]]
+cube = "FinPlan"
+member = "Salaries and Personnel Costs"
+text = "Resultat under OPEX: Salaries and Personnel Costs."
+
+[[note]]
+cube = "FinPlan"
+member = "Sales, Marketing and Commissions"
+text = "Resultat under OPEX: Sales, Marketing and Commissions."
+
+[[note]]
+cube = "FinPlan"
+member = "Marketing Costs"
+text = "Resultat under Sales, Marketing and Commissions: Marketing Costs."
+
+[[note]]
+cube = "FinPlan"
+member = "Sales Costs"
+text = "Resultat under Sales, Marketing and Commissions: Sales Costs."
+
+[[note]]
+cube = "FinPlan"
+member = "Commissions"
+text = "Resultat under Sales, Marketing and Commissions: Commissions."
+
+[[note]]
+cube = "FinPlan"
+member = "Commissions Non-IFRS Spend"
+text = "Resultat under Commissions: Commissions Non-IFRS Spend."
+
+[[note]]
+cube = "FinPlan"
+member = "Commissions Fixed"
+text = "Resultat under Commissions: Commissions Fixed. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Commissions IFRS15 Spend"
+text = "Resultat under Commissions: Commissions IFRS15 Spend."
+
+[[note]]
+cube = "FinPlan"
+member = "Gross_Profit"
+text = "Bruttofortjeneste = Revenue + COGS. FinMax equivalent: ac.C48. Avstemt mot FinMax C48 2025: differanse 1 738.7 MNOK (+8.9%) – ulik gruppering av konti."
+
+[[note]]
+cube = "FinPlan"
+member = "COGS"
+text = "Varekost i FinPlan-definisjon. FinMax equivalent: ac.C40S. Avstemt mot FinMax C40S 2025: differanse 2 340.6 MNOK (+30.8%) – ulik gruppering av konti."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed COGS"
+text = "Resultat under COGS: Fixed COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other COGS"
+text = "Resultat under Fixed COGS: Fixed Other COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Hardware"
+text = "Resultat under Fixed Other COGS: Fixed Other Retail COGS: Hardware."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Hardware SDWAN"
+text = "Resultat under Fixed Other Retail COGS: Hardware: Fixed Other Retail COGS: Hardware SDWAN. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Hardware SDLAN"
+text = "Resultat under Fixed Other Retail COGS: Hardware: Fixed Other Retail COGS: Hardware SDLAN. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Hardware Security"
+text = "Resultat under Fixed Other Retail COGS: Hardware: Fixed Other Retail COGS: Hardware Security. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Hardware Other"
+text = "Resultat under Fixed Other Retail COGS: Hardware: Fixed Other Retail COGS: Hardware Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Other"
+text = "Resultat under Fixed Other COGS: Fixed Other Retail COGS: Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS"
+text = "Resultat under Fixed Other COGS: Fixed Wholesale COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: Other Capacity"
+text = "Resultat under Fixed Wholesale COGS: Fixed Wholesale COGS: Other Capacity. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: Total Other WS"
+text = "Resultat under Fixed Wholesale COGS: Fixed Wholesale COGS: Total Other WS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: Other"
+text = "Resultat under Fixed Wholesale COGS: Total Other WS: Fixed Wholesale COGS: Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: Build Operate Colocate"
+text = "Resultat under Fixed Wholesale COGS: Total Other WS: Fixed Wholesale COGS: Build Operate Colocate. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: Leased Lines WS"
+text = "Resultat under Fixed Wholesale COGS: Fixed Wholesale COGS: Leased Lines WS. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: International Interconnect and Transit"
+text = "Resultat under Fixed Wholesale COGS: Fixed Wholesale COGS: International Interconnect and Transit. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: Domestic Transit"
+text = "Resultat under Fixed Wholesale COGS: Fixed Wholesale COGS: Domestic Transit."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: Domestic Interconnect"
+text = "Resultat under Fixed Wholesale COGS: Fixed Wholesale COGS: Domestic Interconnect."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: LLUB"
+text = "Resultat under Fixed Wholesale COGS: Fixed Wholesale COGS: LLUB. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: Broadband"
+text = "Resultat under Fixed Wholesale COGS: Fixed Wholesale COGS: Broadband. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: E-line"
+text = "Resultat under Fixed Wholesale COGS: Broadband: Fixed Wholesale COGS: E-line. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: VULA"
+text = "Resultat under Fixed Wholesale COGS: Broadband: Fixed Wholesale COGS: VULA. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: FMBB"
+text = "Resultat under Fixed Wholesale COGS: Broadband: Fixed Wholesale COGS: FMBB. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: IP"
+text = "Resultat under Fixed Wholesale COGS: Broadband: Fixed Wholesale COGS: IP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: BAP Connect"
+text = "Resultat under Fixed Wholesale COGS: Broadband: Fixed Wholesale COGS: BAP Connect. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: SHDSL"
+text = "Resultat under Fixed Wholesale COGS: Broadband: Fixed Wholesale COGS: SHDSL. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: VDSL"
+text = "Resultat under Fixed Wholesale COGS: Broadband: Fixed Wholesale COGS: VDSL. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: ADSL"
+text = "Resultat under Fixed Wholesale COGS: Broadband: Fixed Wholesale COGS: ADSL. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale COGS: Telephone"
+text = "Resultat under Fixed Wholesale COGS: Fixed Wholesale COGS: Telephone. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Broadcast and Media Services COGS"
+text = "Resultat under Fixed Other COGS: Broadcast and Media Services COGS. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Media COGS Services"
+text = "Resultat under Broadcast and Media Services COGS: Media COGS Services. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Media COGS: Radio"
+text = "Resultat under Broadcast and Media Services COGS: Media COGS: Radio. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Media COGS: Digitalt Bakkenett"
+text = "Resultat under Broadcast and Media Services COGS: Media COGS: Digitalt Bakkenett. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Services COGS Total"
+text = "Resultat under Fixed COGS: Fixed Services COGS Total."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Services COGS Other"
+text = "Resultat under Fixed Services COGS Total: Fixed Services COGS Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Security"
+text = "Resultat under Fixed Services COGS Other: Fixed Other Retail COGS: Security."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Consultants Security"
+text = "Resultat under Fixed Other Retail COGS: Security: Fixed Other Retail COGS: Consultants Security. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Agreements Security Internal BU’s"
+text = "Resultat under Fixed Other Retail COGS: Security: Fixed Other Retail COGS: Agreements Security Internal BU’s."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Agreements Security"
+text = "Resultat under Fixed Other Retail COGS: Security: Fixed Other Retail COGS: Agreements Security."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: SDx"
+text = "Resultat under Fixed Services COGS Other: Fixed Other Retail COGS: SDx."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Wifi Connect"
+text = "Resultat under Fixed Other Retail COGS: SDx: Fixed Other Retail COGS: Wifi Connect."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Agreements SDWAN"
+text = "Resultat under Fixed Other Retail COGS: SDx: Fixed Other Retail COGS: Agreements SDWAN."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Agreements SDLAN"
+text = "Resultat under Fixed Other Retail COGS: SDx: Fixed Other Retail COGS: Agreements SDLAN."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Agreements Customer Owned"
+text = "Resultat under Fixed Services COGS Other: Fixed Other Retail COGS: Agreements Customer Owned."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Misc Other"
+text = "Resultat under Fixed Services COGS Other: Fixed Other Retail COGS: Misc Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: 5G Enterprise"
+text = "Resultat under Fixed Services COGS Other: Fixed Other Retail COGS: 5G Enterprise. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: OTC 5G Enterprise"
+text = "Resultat under Fixed Other Retail COGS: 5G Enterprise: Fixed Other Retail COGS: OTC 5G Enterprise. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Agreements 5G enterprises"
+text = "Resultat under Fixed Other Retail COGS: 5G Enterprise: Fixed Other Retail COGS: Agreements 5G enterprises. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Consultants"
+text = "Resultat under Fixed Services COGS Other: Fixed Other Retail COGS: Consultants."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Consultants SDWAN"
+text = "Resultat under Fixed Other Retail COGS: Consultants: Fixed Other Retail COGS: Consultants SDWAN. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Consultants SDLAN"
+text = "Resultat under Fixed Other Retail COGS: Consultants: Fixed Other Retail COGS: Consultants SDLAN. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Consultants 5G enterprises"
+text = "Resultat under Fixed Other Retail COGS: Consultants: Fixed Other Retail COGS: Consultants 5G enterprises. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Consultants Other"
+text = "Resultat under Fixed Other Retail COGS: Consultants: Fixed Other Retail COGS: Consultants Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Energy for production"
+text = "Resultat under Fixed Services COGS Other: Fixed Other Retail COGS: Energy for production."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Managed Services"
+text = "Resultat under Fixed Services COGS Other: Fixed Other Retail COGS: Managed Services. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Leased Lines Retail"
+text = "Resultat under Fixed Services COGS Other: Fixed Other Retail COGS: Leased Lines Retail. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Leased Lines Retail High Speed"
+text = "Resultat under Fixed Other Retail COGS: Leased Lines Retail: Fixed Other Retail COGS: Leased Lines Retail High Speed. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Leased Lines Retail Low Speed"
+text = "Resultat under Fixed Other Retail COGS: Leased Lines Retail: Fixed Other Retail COGS: Leased Lines Retail Low Speed. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail COGS: Leased Lines Retail Dark Fiber"
+text = "Resultat under Fixed Other Retail COGS: Leased Lines Retail: Fixed Other Retail COGS: Leased Lines Retail Dark Fiber. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Subscription and Traffic COGS"
+text = "Resultat under Fixed Services COGS Total: Fixed Subscription and Traffic COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS"
+text = "Resultat under Fixed Subscription and Traffic COGS: Fixed Broadband COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: Services"
+text = "Resultat under Fixed Broadband COGS: Fixed Broadband COGS: Services."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: Other"
+text = "Resultat under Fixed Broadband COGS: Services: Fixed Broadband COGS: Other. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: Security"
+text = "Resultat under Fixed Broadband COGS: Services: Fixed Broadband COGS: Security."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: IPVPN Add-on"
+text = "Resultat under Fixed Broadband COGS: Services: Fixed Broadband COGS: IPVPN Add-on. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: Fiber Access Total"
+text = "Resultat under Fixed Broadband COGS: Fixed Broadband COGS: Fiber Access Total."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: Fiber Access"
+text = "Resultat under Fixed Broadband COGS: Fiber Access Total: Fixed Broadband COGS: Fiber Access."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services COGS: EC"
+text = "Resultat under Fixed Broadband COGS: Fiber Access Total: Fixed Data Services COGS: EC. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services COGS: NC Fiber"
+text = "Resultat under Fixed Broadband COGS: Fiber Access Total: Fixed Data Services COGS: NC Fiber. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: DSL Access Total"
+text = "Resultat under Fixed Broadband COGS: Fixed Broadband COGS: DSL Access Total. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: Internet Dial Up"
+text = "Resultat under Fixed Broadband COGS: DSL Access Total: Fixed Broadband COGS: Internet Dial Up. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: VDSL"
+text = "Resultat under Fixed Broadband COGS: DSL Access Total: Fixed Broadband COGS: VDSL. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: ADSL"
+text = "Resultat under Fixed Broadband COGS: DSL Access Total: Fixed Broadband COGS: ADSL. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services COGS: NC DSL"
+text = "Resultat under Fixed Broadband COGS: DSL Access Total: Fixed Data Services COGS: NC DSL. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: Cable Access"
+text = "Resultat under Fixed Broadband COGS: Fixed Broadband COGS: Cable Access."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: FWA Access Total"
+text = "Resultat under Fixed Broadband COGS: Fixed Broadband COGS: FWA Access Total."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services COGS: NC Mobile"
+text = "Resultat under Fixed Broadband COGS: FWA Access Total: Fixed Data Services COGS: NC Mobile. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: FWA Access non-recurring"
+text = "Resultat under Fixed Broadband COGS: FWA Access Total: Fixed Broadband COGS: FWA Access non-recurring."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: FWA Access Recurring"
+text = "Resultat under Fixed Broadband COGS: FWA Access Total: Fixed Broadband COGS: FWA Access Recurring. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed TV COGS"
+text = "Resultat under Fixed Subscription and Traffic COGS: Fixed TV COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Access Independent COGS: Streamix"
+text = "Resultat under Fixed TV COGS: Fixed Access Independent COGS: Streamix."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband TV COGS"
+text = "Resultat under Fixed TV COGS: Fixed Broadband TV COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: VDSL TV"
+text = "Resultat under Fixed Broadband TV COGS: Fixed Broadband COGS: VDSL TV. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: Fiber TV"
+text = "Resultat under Fixed Broadband TV COGS: Fixed Broadband COGS: Fiber TV."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: SMATV"
+text = "Resultat under Fixed Broadband TV COGS: Fixed Broadband COGS: SMATV. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: Cable TV"
+text = "Resultat under Fixed Broadband TV COGS: Fixed Broadband COGS: Cable TV."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband COGS: FWA TV"
+text = "Resultat under Fixed Broadband TV COGS: Fixed Broadband COGS: FWA TV."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone COGS"
+text = "Resultat under Fixed Subscription and Traffic COGS: Fixed Phone COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone COGS: POTS"
+text = "Resultat under Fixed Phone COGS: Fixed Phone COGS: POTS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone COGS: VoIP"
+text = "Resultat under Fixed Phone COGS: Fixed Phone COGS: VoIP."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile COGS"
+text = "Resultat under COGS: Mobile COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other COGS"
+text = "Resultat under Mobile COGS: Mobile Other COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other COGS: Roaming - Inbound"
+text = "Resultat under Mobile Other COGS: Mobile Other COGS: Roaming - Inbound. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Electricity COGS"
+text = "Resultat under Mobile Other COGS: Electricity COGS. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile HW COGS ex device"
+text = "Resultat under Mobile Other COGS: Mobile HW COGS ex device."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Wholesale COGS"
+text = "Resultat under Mobile Other COGS: Mobile Wholesale COGS. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other COGS: MVNO"
+text = "Resultat under Mobile Wholesale COGS: Mobile Other COGS: MVNO. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other COGS: Service Providers in Norway"
+text = "Resultat under Mobile Wholesale COGS: Mobile Other COGS: Service Providers in Norway. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other COGS: Service Providers International"
+text = "Resultat under Mobile Wholesale COGS: Mobile Other COGS: Service Providers International. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other COGS: National Roaming"
+text = "Resultat under Mobile Wholesale COGS: Mobile Other COGS: National Roaming. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Device COGS"
+text = "Resultat under Mobile Other COGS: Mobile Device COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "iPad.Mobile"
+text = "Resultat under Mobile Device COGS: iPad.Mobile. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Handsets Internal Channels COGS"
+text = "Resultat under Mobile Device COGS: Mobile Handsets Internal Channels COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Handsets COGS"
+text = "Resultat under Mobile Device COGS: Mobile Handsets COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Phone Interconnect COGS"
+text = "Resultat under Mobile Other COGS: Mobile Phone Interconnect COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Phone Interconnect Messaging COGS"
+text = "Resultat under Mobile Phone Interconnect COGS: Mobile Phone Interconnect Messaging COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Phone Interconnect Voice COGS"
+text = "Resultat under Mobile Phone Interconnect COGS: Mobile Phone Interconnect Voice COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Services COGS Total"
+text = "Resultat under Mobile COGS: Mobile Services COGS Total."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Services COGS Other"
+text = "Resultat under Mobile Services COGS Total: Mobile Services COGS Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Energy for production COGS"
+text = "Resultat under Mobile Services COGS Other: Mobile Energy for production COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other COGS: Miscellaneous"
+text = "Resultat under Mobile Services COGS Other: Mobile Other COGS: Miscellaneous."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Phone Other COGS"
+text = "Resultat under Mobile Services COGS Other: Mobile Phone Other COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Broadband COGS"
+text = "Resultat under Mobile Services COGS Other: Mobile Broadband COGS. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other COGS: Telemetric / M2M"
+text = "Resultat under Mobile Services COGS Other: Mobile Other COGS: Telemetric / M2M."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other COGS: M2M / IoT Access"
+text = "Resultat under Mobile Other COGS: Telemetric / M2M: Mobile Other COGS: M2M / IoT Access."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other COGS: M2M / IoT Service"
+text = "Resultat under Mobile Other COGS: Telemetric / M2M: Mobile Other COGS: M2M / IoT Service."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Subscription and Traffic COGS"
+text = "Resultat under Mobile Services COGS Total: Mobile Subscription and Traffic COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Phone Roaming COGS"
+text = "Resultat under Mobile Subscription and Traffic COGS: Mobile Phone Roaming COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Phone Roaming Data COGS"
+text = "Resultat under Mobile Phone Roaming COGS: Mobile Phone Roaming Data COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Phone Roaming Messaging COGS"
+text = "Resultat under Mobile Phone Roaming COGS: Mobile Phone Roaming Messaging COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Phone Roaming Voice COGS"
+text = "Resultat under Mobile Phone Roaming COGS: Mobile Phone Roaming Voice COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services COGS"
+text = "Resultat under Mobile Subscription and Traffic COGS: Mobile Domestic Services COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Security and Storage COGS"
+text = "Resultat under Mobile Domestic Services COGS: Mobile Domestic Services Security and Storage COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Sikre Security COGS"
+text = "Resultat under Mobile Domestic Services Security and Storage COGS: Mobile Domestic Services Sikre Security COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Security COGS"
+text = "Resultat under Mobile Domestic Services Security and Storage COGS: Mobile Domestic Services Security COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Datacard/Twin COGS"
+text = "Resultat under Mobile Domestic Services COGS: Mobile Domestic Services Datacard/Twin COGS. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Cloud COGS"
+text = "Resultat under Mobile Domestic Services COGS: Mobile Domestic Services Cloud COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Teams etc COGS"
+text = "Resultat under Mobile Domestic Services COGS: Mobile Domestic Services Teams etc COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Fakturakontroll COGS"
+text = "Resultat under Mobile Domestic Services COGS: Mobile Domestic Services Fakturakontroll COGS. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Mobilt bedriftsnett COGS"
+text = "Resultat under Mobile Domestic Services COGS: Mobile Domestic Services Mobilt bedriftsnett COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services SMS/RCS services COGS"
+text = "Resultat under Mobile Domestic Services COGS: Mobile Domestic Services SMS/RCS services COGS."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services SMS/RCS access COGS"
+text = "Resultat under Mobile Domestic Services COGS: Mobile Domestic Services SMS/RCS access COGS. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Insurance COGS"
+text = "Resultat under Mobile Domestic Services COGS: Mobile Domestic Services Insurance COGS. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Security Svindelstopp COGS"
+text = "Resultat under Mobile Domestic Services COGS: Mobile Domestic Services Security Svindelstopp COGS. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Revenue"
+text = "Inntekter i FinPlan-definisjon (gruppert annerledes enn FinMax C30 – avstem). FinMax equivalent: ac.C30. Avstemt mot FinMax C30 2025: differanse -601.9 MNOK (-2.2%) – ulik gruppering av konti."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Revenue"
+text = "Resultat under Revenue: Fixed Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Revenue"
+text = "Resultat under Fixed Revenue: Fixed Other Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed TnFiber AS Revenue"
+text = "Resultat under Fixed Other Revenue: Fixed TnFiber AS Revenue. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Other Revenue"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Other Revenue. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Transport Wholesale connection fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Transport Wholesale connection fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Optical Capacity Wholesale connection fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Optical Capacity Wholesale connection fee. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Optical Capacity Wholesale lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Optical Capacity Wholesale lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Backhaul Mobile Connection Fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Backhaul Mobile Connection Fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Backhaul Wholesale connection fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Backhaul Wholesale connection fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Backhaul Mobile lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Backhaul Mobile lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Backhaul Wholesale lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Backhaul Wholesale lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Dark Fiber Wholesale connection fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Dark Fiber Wholesale connection fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Dark Fiber Wholesale lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Dark Fiber Wholesale lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Dark Fiber Business connection fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Dark Fiber Business connection fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Dark Fiber Business lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: Dark Fiber Business lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: SDU VULA lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: SDU VULA lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: IA WAN off-net connection fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: IA WAN off-net connection fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: IA WAN lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: IA WAN lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: MDU HFC lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: MDU HFC lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: MDU FTTH lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: MDU FTTH lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: SDU HFC lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: SDU HFC lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: SDU FTTH lease fee"
+text = "Resultat under Fixed TnFiber AS Revenue: TnFiber: SDU FTTH lease fee. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Hardware"
+text = "Resultat under Fixed Other Revenue: Fixed Other Retail Revenue: Hardware."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Hardware SDWAN"
+text = "Resultat under Fixed Other Retail Revenue: Hardware: Fixed Other Retail Revenue: Hardware SDWAN. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Hardware SDLAN"
+text = "Resultat under Fixed Other Retail Revenue: Hardware: Fixed Other Retail Revenue: Hardware SDLAN. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Hardware Security"
+text = "Resultat under Fixed Other Retail Revenue: Hardware: Fixed Other Retail Revenue: Hardware Security. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Hardware Other"
+text = "Resultat under Fixed Other Retail Revenue: Hardware: Fixed Other Retail Revenue: Hardware Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Other"
+text = "Resultat under Fixed Other Revenue: Fixed Other Retail Revenue: Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue"
+text = "Resultat under Fixed Other Revenue: Fixed Wholesale Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: NetOp"
+text = "Resultat under Fixed Wholesale Revenue: Fixed Wholesale Revenue: NetOp."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Domestic Transit"
+text = "Resultat under Fixed Wholesale Revenue: Fixed Wholesale Revenue: Domestic Transit. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: LLUB"
+text = "Resultat under Fixed Wholesale Revenue: Fixed Wholesale Revenue: LLUB. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Telephone"
+text = "Resultat under Fixed Wholesale Revenue: Fixed Wholesale Revenue: Telephone. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Capacity"
+text = "Resultat under Fixed Wholesale Revenue: Fixed Wholesale Revenue: Capacity."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Ethernet Connect"
+text = "Resultat under Fixed Wholesale Revenue: Capacity: Fixed Wholesale Revenue: Ethernet Connect."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: High Speed"
+text = "Resultat under Fixed Wholesale Revenue: Capacity: Fixed Wholesale Revenue: High Speed."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Leased Lines WS Other"
+text = "Resultat under Fixed Wholesale Revenue: High Speed: Fixed Wholesale Revenue: Leased Lines WS Other. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Leased Lines WS DF"
+text = "Resultat under Fixed Wholesale Revenue: High Speed: Fixed Wholesale Revenue: Leased Lines WS DF."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Leased Lines WS > 2 Mbit/s HS"
+text = "Resultat under Fixed Wholesale Revenue: High Speed: Fixed Wholesale Revenue: Leased Lines WS > 2 Mbit/s HS."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Low Speed"
+text = "Resultat under Fixed Wholesale Revenue: Capacity: Fixed Wholesale Revenue: Low Speed. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Leased Lines WS 2 Mbit/s"
+text = "Resultat under Fixed Wholesale Revenue: Low Speed: Fixed Wholesale Revenue: Leased Lines WS 2 Mbit/s. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Leased Lines WS < 2 Mbit/s"
+text = "Resultat under Fixed Wholesale Revenue: Low Speed: Fixed Wholesale Revenue: Leased Lines WS < 2 Mbit/s. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Backhaul"
+text = "Resultat under Fixed Wholesale Revenue: Capacity: Fixed Wholesale Revenue: Backhaul."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Domestic Interconnect"
+text = "Resultat under Fixed Wholesale Revenue: Fixed Wholesale Revenue: Domestic Interconnect."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Domestic Interconnect Main"
+text = "Resultat under Fixed Wholesale Revenue: Domestic Interconnect: Fixed Wholesale Revenue: Domestic Interconnect Main."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Domestic Interconnect Services"
+text = "Resultat under Fixed Wholesale Revenue: Domestic Interconnect: Fixed Wholesale Revenue: Domestic Interconnect Services."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Broadband"
+text = "Resultat under Fixed Wholesale Revenue: Fixed Wholesale Revenue: Broadband."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: FMBB"
+text = "Resultat under Fixed Wholesale Revenue: Broadband: Fixed Wholesale Revenue: FMBB."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: IP"
+text = "Resultat under Fixed Wholesale Revenue: Broadband: Fixed Wholesale Revenue: IP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: E-Line"
+text = "Resultat under Fixed Wholesale Revenue: Broadband: Fixed Wholesale Revenue: E-Line. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: BAP Connect"
+text = "Resultat under Fixed Wholesale Revenue: Broadband: Fixed Wholesale Revenue: BAP Connect. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: SHDSL"
+text = "Resultat under Fixed Wholesale Revenue: Broadband: Fixed Wholesale Revenue: SHDSL. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: VDSL"
+text = "Resultat under Fixed Wholesale Revenue: Broadband: Fixed Wholesale Revenue: VDSL. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: ADSL"
+text = "Resultat under Fixed Wholesale Revenue: Broadband: Fixed Wholesale Revenue: ADSL. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: VULA"
+text = "Resultat under Fixed Wholesale Revenue: Broadband: Fixed Wholesale Revenue: VULA."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Other"
+text = "Resultat under Fixed Wholesale Revenue: Fixed Wholesale Revenue: Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Revenue: Colocation"
+text = "Resultat under Fixed Wholesale Revenue: Fixed Wholesale Revenue: Colocation."
+
+[[note]]
+cube = "FinPlan"
+member = "Broadcast and Media Services Revenue"
+text = "Resultat under Fixed Other Revenue: Broadcast and Media Services Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Media Revenue: Services"
+text = "Resultat under Broadcast and Media Services Revenue: Media Revenue: Services."
+
+[[note]]
+cube = "FinPlan"
+member = "Media Revenue: Radio"
+text = "Resultat under Broadcast and Media Services Revenue: Media Revenue: Radio."
+
+[[note]]
+cube = "FinPlan"
+member = "Media Revenue: Digitalt Bakkenett"
+text = "Resultat under Broadcast and Media Services Revenue: Media Revenue: Digitalt Bakkenett."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Services Revenue Total"
+text = "Resultat under Fixed Revenue: Fixed Services Revenue Total."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Services Revenue Other"
+text = "Resultat under Fixed Services Revenue Total: Fixed Services Revenue Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail: Security"
+text = "Resultat under Fixed Services Revenue Other: Fixed Other Retail: Security."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Consultants Security"
+text = "Resultat under Fixed Other Retail: Security: Fixed Other Retail Revenue: Consultants Security. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Agreements Security Internal BU’s"
+text = "Resultat under Fixed Other Retail: Security: Fixed Other Retail Revenue: Agreements Security Internal BU’s. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Agreements Security"
+text = "Resultat under Fixed Other Retail: Security: Fixed Other Retail Revenue: Agreements Security."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: SDx"
+text = "Resultat under Fixed Services Revenue Other: Fixed Other Retail Revenue: SDx."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Agreements SDWAN"
+text = "Resultat under Fixed Other Retail Revenue: SDx: Fixed Other Retail Revenue: Agreements SDWAN."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Wifi Connect"
+text = "Resultat under Fixed Other Retail Revenue: SDx: Fixed Other Retail Revenue: Wifi Connect."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Agreements SDLAN"
+text = "Resultat under Fixed Other Retail Revenue: SDx: Fixed Other Retail Revenue: Agreements SDLAN."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Agreements Customer Owned"
+text = "Resultat under Fixed Services Revenue Other: Fixed Other Retail Revenue: Agreements Customer Owned."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Misc Other"
+text = "Resultat under Fixed Services Revenue Other: Fixed Other Retail Revenue: Misc Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: 5G Enterprise"
+text = "Resultat under Fixed Services Revenue Other: Fixed Other Retail Revenue: 5G Enterprise."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: OTC 5G Enterprise"
+text = "Resultat under Fixed Other Retail Revenue: 5G Enterprise: Fixed Other Retail Revenue: OTC 5G Enterprise."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Agreements 5G enterprises"
+text = "Resultat under Fixed Other Retail Revenue: 5G Enterprise: Fixed Other Retail Revenue: Agreements 5G enterprises."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Consultants"
+text = "Resultat under Fixed Services Revenue Other: Fixed Other Retail Revenue: Consultants."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Consultants SDWAN"
+text = "Resultat under Fixed Other Retail Revenue: Consultants: Fixed Other Retail Revenue: Consultants SDWAN. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Consultants SDLAN"
+text = "Resultat under Fixed Other Retail Revenue: Consultants: Fixed Other Retail Revenue: Consultants SDLAN. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Consultants 5G enterprises"
+text = "Resultat under Fixed Other Retail Revenue: Consultants: Fixed Other Retail Revenue: Consultants 5G enterprises. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Consultants Other"
+text = "Resultat under Fixed Other Retail Revenue: Consultants: Fixed Other Retail Revenue: Consultants Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Managed Services"
+text = "Resultat under Fixed Services Revenue Other: Fixed Other Retail Revenue: Managed Services. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Leased Lines Retail"
+text = "Resultat under Fixed Services Revenue Other: Fixed Other Retail Revenue: Leased Lines Retail."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Leased Lines Retail Low Speed"
+text = "Resultat under Fixed Other Retail Revenue: Leased Lines Retail: Fixed Other Retail Revenue: Leased Lines Retail Low Speed. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Leased Lines Retail Dark Fiber"
+text = "Resultat under Fixed Other Retail Revenue: Leased Lines Retail: Fixed Other Retail Revenue: Leased Lines Retail Dark Fiber."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail Revenue: Leased Lines Retail High Speed"
+text = "Resultat under Fixed Other Retail Revenue: Leased Lines Retail: Fixed Other Retail Revenue: Leased Lines Retail High Speed."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Subscription and Traffic Revenue"
+text = "Resultat under Fixed Services Revenue Total: Fixed Subscription and Traffic Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed TV Revenue"
+text = "Resultat under Fixed Subscription and Traffic Revenue: Fixed TV Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Access Independent Revenue: Streamix"
+text = "Resultat under Fixed TV Revenue: Fixed Access Independent Revenue: Streamix."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband TV Revenue"
+text = "Resultat under Fixed TV Revenue: Fixed Broadband TV Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: VDSL TV"
+text = "Resultat under Fixed Broadband TV Revenue: Fixed Broadband Revenue: VDSL TV. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: Fiber TV"
+text = "Resultat under Fixed Broadband TV Revenue: Fixed Broadband Revenue: Fiber TV."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: SMATV"
+text = "Resultat under Fixed Broadband TV Revenue: Fixed Broadband Revenue: SMATV. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: Cable TV"
+text = "Resultat under Fixed Broadband TV Revenue: Fixed Broadband Revenue: Cable TV."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: FWA TV"
+text = "Resultat under Fixed Broadband TV Revenue: Fixed Broadband Revenue: FWA TV."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue"
+text = "Resultat under Fixed Subscription and Traffic Revenue: Fixed Broadband Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: Services"
+text = "Resultat under Fixed Broadband Revenue: Fixed Broadband Revenue: Services."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: Other"
+text = "Resultat under Fixed Broadband Revenue: Services: Fixed Broadband Revenue: Other. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: IPVPN Add-on"
+text = "Resultat under Fixed Broadband Revenue: Services: Fixed Broadband Revenue: IPVPN Add-on."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: Security"
+text = "Resultat under Fixed Broadband Revenue: Services: Fixed Broadband Revenue: Security."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: DSL Access Total"
+text = "Resultat under Fixed Broadband Revenue: Fixed Broadband Revenue: DSL Access Total. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: Internet Dial up"
+text = "Resultat under Fixed Broadband Revenue: DSL Access Total: Fixed Broadband Revenue: Internet Dial up. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: VDSL"
+text = "Resultat under Fixed Broadband Revenue: DSL Access Total: Fixed Broadband Revenue: VDSL. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: ADSL"
+text = "Resultat under Fixed Broadband Revenue: DSL Access Total: Fixed Broadband Revenue: ADSL. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services Revenue: NC DSL"
+text = "Resultat under Fixed Broadband Revenue: DSL Access Total: Fixed Data Services Revenue: NC DSL. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: Fiber Access Total"
+text = "Resultat under Fixed Broadband Revenue: Fixed Broadband Revenue: Fiber Access Total."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services Revenue: Ethernet Connect"
+text = "Resultat under Fixed Broadband Revenue: Fiber Access Total: Fixed Data Services Revenue: Ethernet Connect."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: Fiber Access"
+text = "Resultat under Fixed Broadband Revenue: Fiber Access Total: Fixed Broadband Revenue: Fiber Access."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services Revenue: NC Fiber"
+text = "Resultat under Fixed Broadband Revenue: Fiber Access Total: Fixed Data Services Revenue: NC Fiber. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: Cable Access"
+text = "Resultat under Fixed Broadband Revenue: Fixed Broadband Revenue: Cable Access."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: FWA Access Total"
+text = "Resultat under Fixed Broadband Revenue: Fixed Broadband Revenue: FWA Access Total."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services Revenue: NC Mobile"
+text = "Resultat under Fixed Broadband Revenue: FWA Access Total: Fixed Data Services Revenue: NC Mobile. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: FWA Access Recurring"
+text = "Resultat under Fixed Broadband Revenue: FWA Access Total: Fixed Broadband Revenue: FWA Access Recurring."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Revenue: FWA Access non-recurring"
+text = "Resultat under Fixed Broadband Revenue: FWA Access Total: Fixed Broadband Revenue: FWA Access non-recurring."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone Revenue"
+text = "Resultat under Fixed Subscription and Traffic Revenue: Fixed Phone Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone Revenue: POTS"
+text = "Resultat under Fixed Phone Revenue: Fixed Phone Revenue: POTS. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone Revenue: VoIP"
+text = "Resultat under Fixed Phone Revenue: Fixed Phone Revenue: VoIP."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Revenue"
+text = "Resultat under Revenue: Mobile Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue"
+text = "Resultat under Mobile Revenue: Mobile Other Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Roaming - Inbound"
+text = "Resultat under Mobile Other Revenue: Mobile Other Revenue: Roaming - Inbound."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Non-Mobile Revenue"
+text = "Resultat under Mobile Other Revenue: Mobile Other Non-Mobile Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Services delivered to other BU"
+text = "Resultat under Mobile Other Revenue: Mobile Services delivered to other BU."
+
+[[note]]
+cube = "FinPlan"
+member = "Electricity Revenue"
+text = "Resultat under Mobile Other Revenue: Electricity Revenue. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile HW Revenue ex device"
+text = "Resultat under Mobile Other Revenue: Mobile HW Revenue ex device."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Wholesale Revenue"
+text = "Resultat under Mobile Other Revenue: Mobile Wholesale Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: MVNO"
+text = "Resultat under Mobile Wholesale Revenue: Mobile Other Revenue: MVNO."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: MVNO Voice"
+text = "Resultat under Mobile Other Revenue: MVNO: Mobile Other Revenue: MVNO Voice. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: MVNO Messaging"
+text = "Resultat under Mobile Other Revenue: MVNO: Mobile Other Revenue: MVNO Messaging. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: MVNO Data"
+text = "Resultat under Mobile Other Revenue: MVNO: Mobile Other Revenue: MVNO Data."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: MVNO Fixed Fees"
+text = "Resultat under Mobile Other Revenue: MVNO: Mobile Other Revenue: MVNO Fixed Fees. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Service Providers in Norway"
+text = "Resultat under Mobile Wholesale Revenue: Mobile Other Revenue: Service Providers in Norway."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Service Providers in Norway Fixed Fees"
+text = "Resultat under Mobile Other Revenue: Service Providers in Norway: Mobile Other Revenue: Service Providers in Norway Fixed Fees. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Service Providers in Norway Data"
+text = "Resultat under Mobile Other Revenue: Service Providers in Norway: Mobile Other Revenue: Service Providers in Norway Data."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Service Providers in Norway Messaging"
+text = "Resultat under Mobile Other Revenue: Service Providers in Norway: Mobile Other Revenue: Service Providers in Norway Messaging. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Service Providers in Norway Voice"
+text = "Resultat under Mobile Other Revenue: Service Providers in Norway: Mobile Other Revenue: Service Providers in Norway Voice. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Service Providers International"
+text = "Resultat under Mobile Wholesale Revenue: Mobile Other Revenue: Service Providers International. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Service Providers International Voice"
+text = "Resultat under Mobile Other Revenue: Service Providers International: Mobile Other Revenue: Service Providers International Voice. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Service Providers International Messaging"
+text = "Resultat under Mobile Other Revenue: Service Providers International: Mobile Other Revenue: Service Providers International Messaging. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Service Providers International Data"
+text = "Resultat under Mobile Other Revenue: Service Providers International: Mobile Other Revenue: Service Providers International Data. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: National Roaming"
+text = "Resultat under Mobile Wholesale Revenue: Mobile Other Revenue: National Roaming."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: National Roaming Voice"
+text = "Resultat under Mobile Other Revenue: National Roaming: Mobile Other Revenue: National Roaming Voice. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: National Roaming Messaging"
+text = "Resultat under Mobile Other Revenue: National Roaming: Mobile Other Revenue: National Roaming Messaging. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: National Roaming Data"
+text = "Resultat under Mobile Other Revenue: National Roaming: Mobile Other Revenue: National Roaming Data."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: National Roaming Fixed Fees"
+text = "Resultat under Mobile Other Revenue: National Roaming: Mobile Other Revenue: National Roaming Fixed Fees. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Site and Infrastructure Sharing Revenues"
+text = "Resultat under Mobile Wholesale Revenue: Mobile Site and Infrastructure Sharing Revenues. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Interconnect Wholesale"
+text = "Resultat under Mobile Wholesale Revenue: Mobile Other Revenue: Interconnect Wholesale."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Interconnect Revenue Retail"
+text = "Resultat under Mobile Other Revenue: Mobile Interconnect Revenue Retail."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Interconnect Traffic Messaging"
+text = "Resultat under Mobile Interconnect Revenue Retail: Mobile Interconnect Traffic Messaging."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Interconnect Traffic Voice"
+text = "Resultat under Mobile Interconnect Revenue Retail: Mobile Interconnect Traffic Voice."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Device Revenue"
+text = "Resultat under Mobile Other Revenue: Mobile Device Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Handsets Internal Channels Revenue"
+text = "Resultat under Mobile Device Revenue: Mobile Handsets Internal Channels Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Handset external revenue"
+text = "Resultat under Mobile Device Revenue: Mobile Handset external revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Handsets SWAP Revenue"
+text = "Resultat under Mobile Device Revenue: Mobile Handsets SWAP Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Services Revenue Total"
+text = "Resultat under Mobile Revenue: Mobile Services Revenue Total."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Services Revenue Other"
+text = "Resultat under Mobile Services Revenue Total: Mobile Services Revenue Other."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Miscellaneous"
+text = "Resultat under Mobile Services Revenue Other: Mobile Other Revenue: Miscellaneous."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: Telemetric / M2M"
+text = "Resultat under Mobile Services Revenue Other: Mobile Other Revenue: Telemetric / M2M."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: M2M / IoT Access"
+text = "Resultat under Mobile Other Revenue: Telemetric / M2M: Mobile Other Revenue: M2M / IoT Access."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Revenue: M2M / IoT Service"
+text = "Resultat under Mobile Other Revenue: Telemetric / M2M: Mobile Other Revenue: M2M / IoT Service."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Financial Services Revenues"
+text = "Resultat under Mobile Services Revenue Other: Mobile Financial Services Revenues. Target (budsjett) har ingen verdi her – sammenlign mot budsjett bare til EBITDA før/etter andre poster."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Subscription and Traffic Revenue"
+text = "Resultat under Mobile Services Revenue Total: Mobile Subscription and Traffic Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Roaming Revenue"
+text = "Resultat under Mobile Subscription and Traffic Revenue: Mobile Roaming Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Roaming Fixed Fees"
+text = "Resultat under Mobile Roaming Revenue: Mobile Roaming Fixed Fees."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Roaming Traffic Mobile Broadband"
+text = "Resultat under Mobile Roaming Revenue: Mobile Roaming Traffic Mobile Broadband."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Roaming Traffic Data"
+text = "Resultat under Mobile Roaming Revenue: Mobile Roaming Traffic Data."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Roaming Traffic Messaging"
+text = "Resultat under Mobile Roaming Revenue: Mobile Roaming Traffic Messaging."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Roaming Traffic Voice"
+text = "Resultat under Mobile Roaming Revenue: Mobile Roaming Traffic Voice."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Revenue"
+text = "Resultat under Mobile Subscription and Traffic Revenue: Mobile Domestic Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Fixed Fees and Traffic Revenue"
+text = "Resultat under Mobile Domestic Revenue: Mobile Domestic Fixed Fees and Traffic Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Traffic Content"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Traffic Content."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Traffic Data Mobile Broadband"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Traffic Data Mobile Broadband."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Traffic Data"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Traffic Data."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Traffic Messaging"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Traffic Messaging."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Traffic Voice"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Traffic Voice."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Fixed Fee Bundle Mobile Broadband"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Fixed Fee Bundle Mobile Broadband. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Fixed Fee Bundle"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Fixed Fee Bundle."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Fixed Fee Lock-in Mobile Broadband"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Fixed Fee Lock-in Mobile Broadband. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Fixed Fee Lock-in/Invoice"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Fixed Fee Lock-in/Invoice."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Fixed Fee Mobile Broadband"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Fixed Fee Mobile Broadband."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Fixed Fee Bundle ME/LE"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Fixed Fee Bundle ME/LE."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Fixed Fee Out of Bundle"
+text = "Resultat under Mobile Domestic Fixed Fees and Traffic Revenue: Mobile Domestic Fixed Fee Out of Bundle."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Revenue"
+text = "Resultat under Mobile Domestic Revenue: Mobile Domestic Services Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Security and Storage Revenue"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services Security and Storage Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Sikre Security Revenue"
+text = "Resultat under Mobile Domestic Services Security and Storage Revenue: Mobile Domestic Services Sikre Security Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Security Revenue"
+text = "Resultat under Mobile Domestic Services Security and Storage Revenue: Mobile Domestic Services Security Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Teams etc"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services Teams etc."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Fakturakontroll"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services Fakturakontroll."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Mobilt Bedriftsnett"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services Mobilt Bedriftsnett."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Datacard/Twin"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services Datacard/Twin."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Cloud"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services Cloud."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services SMS/RCS service"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services SMS/RCS service."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services SMS/RCS access"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services SMS/RCS access."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services API"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services API. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Insurance Revenue"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services Insurance Revenue."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Security Svindelstopp Revenue"
+text = "Resultat under Mobile Domestic Services Revenue: Mobile Domestic Services Security Svindelstopp Revenue. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Statistics"
+text = "Statistikk og KPI-er: årsverk, abonnement, ARPU, volumer. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Gross Profit"
+text = "KPI / statistikk under Slettes: Gross Profit. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "ac.FixPhoCogVoIP"
+text = "KPI / statistikk under Slettes: ac.FixPhoCogVoIP. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "ac.300.00.484"
+text = "KPI / statistikk under Slettes: ac.300.00.484. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "KPI's"
+text = "KPI / statistikk under Statistics: KPI's. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "KPI_Value_Stream"
+text = "KPI / statistikk under KPI's: KPI_Value_Stream. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "KPI_Business"
+text = "KPI / statistikk under KPI's: KPI_Business. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "KPI_Consumer"
+text = "KPI / statistikk under KPI's: KPI_Consumer. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "No of FTE Total Average"
+text = "KPI / statistikk under Statistics: No of FTE Total Average. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y)."
+
+[[note]]
+cube = "FinPlan"
+member = "Total FTEs incl P&C"
+text = "KPI / statistikk under Statistics: Total FTEs incl P&C. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y)."
+
+[[note]]
+cube = "FinPlan"
+member = "No of FTEs from P&C"
+text = "KPI / statistikk under Statistics: No of FTEs from P&C. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "No of FTE non-production"
+text = "KPI / statistikk under Statistics: No of FTE non-production. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y)."
+
+[[note]]
+cube = "FinPlan"
+member = "No of FTE production"
+text = "KPI / statistikk under Statistics: No of FTE production. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "No of FTEs+Consultants"
+text = "KPI / statistikk under Statistics: No of FTEs+Consultants. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y)."
+
+[[note]]
+cube = "FinPlan"
+member = "FTE.No"
+text = "KPI / statistikk under No of FTEs+Consultants: FTE.No. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "No of FTEs Total"
+text = "KPI / statistikk under No of FTEs+Consultants: No of FTEs Total. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y)."
+
+[[note]]
+cube = "FinPlan"
+member = "Change Cost"
+text = "KPI / statistikk under Statistics: Change Cost. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Change Other Cost"
+text = "KPI / statistikk under Change Cost: Change Other Cost. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Change Opex"
+text = "KPI / statistikk under Change Cost: Change Opex. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "OneOff_6"
+text = "KPI / statistikk under Comments: OneOff_6. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "OneOff_5"
+text = "KPI / statistikk under Comments: OneOff_5. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "OneOff_4"
+text = "KPI / statistikk under Comments: OneOff_4. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "OneOff_3"
+text = "KPI / statistikk under Comments: OneOff_3. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "OneOff_2"
+text = "KPI / statistikk under Comments: OneOff_2. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "OneOff_1"
+text = "KPI / statistikk under Comments: OneOff_1. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "OC_Comment"
+text = "KPI / statistikk under Comments: OC_Comment. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Volumes ARPU"
+text = "KPI / statistikk under Statistics: Volumes ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "Tipo subs IB jan27"
+text = "KPI / statistikk under Volumes ARPU: Tipo subs IB jan27. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Subscriptons Input"
+text = "KPI / statistikk under Volumes ARPU: Subscriptons Input. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Volume Input"
+text = "KPI / statistikk under Volumes ARPU: Volume Input. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail: Leased Lines Retail Volume"
+text = "KPI / statistikk under Volumes ARPU: Fixed Other Retail: Leased Lines Retail Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband subscriptions"
+text = "KPI / statistikk under Volumes ARPU: Fixed Broadband subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Telemetric / M2M Subscriptions"
+text = "KPI / statistikk under Volumes ARPU: Mobile Other Telemetric / M2M Subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services WAN Mobile Volume"
+text = "KPI / statistikk under Volumes ARPU: Fixed Data Services WAN Mobile Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed TV subscriptions"
+text = "KPI / statistikk under Volumes ARPU: Fixed TV subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone Subscriptions"
+text = "KPI / statistikk under Volumes ARPU: Fixed Phone Subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "Wholesale Volume"
+text = "KPI / statistikk under Volumes ARPU: Wholesale Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Calculations"
+text = "KPI / statistikk under Statistics: Calculations. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "calc_cCa"
+text = "KPI / statistikk under Calculations: calc_cCa. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "calc_cFa"
+text = "KPI / statistikk under Calculations: calc_cFa. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "calc_cCt"
+text = "KPI / statistikk under Calculations: calc_cCt. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "calc_cFt"
+text = "KPI / statistikk under Calculations: calc_cFt. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TV COGS Calc"
+text = "KPI / statistikk under Calculations: TV COGS Calc. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Capex Calc2"
+text = "KPI / statistikk under Calculations: Capex Calc2. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Calc Capex total"
+text = "KPI / statistikk under Calculations: Calc Capex total. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Capex Calc"
+text = "KPI / statistikk under Calculations: Capex Calc. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Calculations Free Cash Flow"
+text = "KPI / statistikk under Calculations: Calculations Free Cash Flow. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Calculations Balance Sheet"
+text = "KPI / statistikk under Calculations: Calculations Balance Sheet. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Forecast Salary and Personnel Cost"
+text = "KPI / statistikk under Calculations: Forecast Salary and Personnel Cost. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Wage Adjustment"
+text = "KPI / statistikk under Calculations: Wage Adjustment. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "No of FTEs"
+text = "KPI / statistikk under Calculations: No of FTEs. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y)."
+
+[[note]]
+cube = "FinPlan"
+member = "Essbase Import Total Other OPEX"
+text = "KPI / statistikk under Calculations: Essbase Import Total Other OPEX. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Essbase Import Total Operational and Maintenance Costs"
+text = "KPI / statistikk under Calculations: Essbase Import Total Operational and Maintenance Costs. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Essbase Import Total Capex"
+text = "KPI / statistikk under Calculations: Essbase Import Total Capex. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "APPM"
+text = "KPI / statistikk under Calculations: APPM. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Minutes Input"
+text = "KPI / statistikk under Calculations: Minutes Input. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "ARPU"
+text = "KPI / statistikk under Calculations: ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber"
+text = "KPI / statistikk under Statistics: TnFiber. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fixed Broadband Fiber Access Churn"
+text = "KPI / statistikk under TnFiber: TnFiber: Fixed Broadband Fiber Access Churn. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fixed Broadband Fiber Access Gross Add Total"
+text = "KPI / statistikk under TnFiber: TnFiber: Fixed Broadband Fiber Access Gross Add Total. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fixed Broadband Cable MDU Access Net Add"
+text = "KPI / statistikk under TnFiber: TnFiber: Fixed Broadband Cable MDU Access Net Add. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fixed Broadband Fiber MDU Access Net Add"
+text = "KPI / statistikk under TnFiber: TnFiber: Fixed Broadband Fiber MDU Access Net Add. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fixed Broadband Fiber MDU Access Gross Add"
+text = "KPI / statistikk under TnFiber: TnFiber: Fixed Broadband Fiber MDU Access Gross Add. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fixed Broadband Cable SDU Sum Churn"
+text = "KPI / statistikk under TnFiber: TnFiber: Fixed Broadband Cable SDU Sum Churn. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Cable Broadband MDU Churn egen Fiber"
+text = "KPI / statistikk under TnFiber: TnFiber: Cable Broadband MDU Churn egen Fiber. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Cable Broadband SDU Churn Other"
+text = "KPI / statistikk under TnFiber: TnFiber: Cable Broadband SDU Churn Other. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Cable Broadband SDU Churn egen Fiber"
+text = "KPI / statistikk under TnFiber: TnFiber: Cable Broadband SDU Churn egen Fiber. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fixed Broadband Cable SDU on-net Add"
+text = "KPI / statistikk under TnFiber: TnFiber: Fixed Broadband Cable SDU on-net Add. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fixed Broadband Cable SDU Access Gross Add"
+text = "KPI / statistikk under TnFiber: TnFiber: Fixed Broadband Cable SDU Access Gross Add. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fixed Broadband Fiber SDU Sum Churn"
+text = "KPI / statistikk under TnFiber: TnFiber: Fixed Broadband Fiber SDU Sum Churn. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fixed Broadband Fiber SDU Sum Tilvekst"
+text = "KPI / statistikk under TnFiber: TnFiber: Fixed Broadband Fiber SDU Sum Tilvekst. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Interest Cost"
+text = "KPI / statistikk under TnFiber: TnFiber: Interest Cost. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Commitment Fee"
+text = "KPI / statistikk under TnFiber: TnFiber: Commitment Fee. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Dividend payout"
+text = "KPI / statistikk under TnFiber: TnFiber: Dividend payout. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Available Capex Facility"
+text = "KPI / statistikk under TnFiber: TnFiber: Available Capex Facility. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Capex Facility drawdown"
+text = "KPI / statistikk under TnFiber: TnFiber: Capex Facility drawdown. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Cash Balance"
+text = "KPI / statistikk under TnFiber: TnFiber: Cash Balance. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Cash and Cash Equivalents"
+text = "KPI / statistikk under TnFiber: TnFiber: Cash and Cash Equivalents. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Public Subsidies"
+text = "KPI / statistikk under TnFiber: TnFiber: Public Subsidies. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Construction Capex"
+text = "KPI / statistikk under TnFiber: TnFiber: Construction Capex. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Capex"
+text = "KPI / statistikk under TnFiber: TnFiber: Capex. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Homes Passed"
+text = "KPI / statistikk under TnFiber: TnFiber: Homes Passed. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fiber gross add Total"
+text = "KPI / statistikk under TnFiber: TnFiber: Fiber gross add Total. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Leased Lines Wholesale Optical Channel Volume"
+text = "KPI / statistikk under TnFiber: TnFiber: Leased Lines Wholesale Optical Channel Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Leased Lines Mobile Backhaul Volume"
+text = "KPI / statistikk under TnFiber: TnFiber: Leased Lines Mobile Backhaul Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Leased Lines Wholesale Backhaul Volume"
+text = "KPI / statistikk under TnFiber: TnFiber: Leased Lines Wholesale Backhaul Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Leased Lines Wholesale Dark fiber Volume"
+text = "KPI / statistikk under TnFiber: TnFiber: Leased Lines Wholesale Dark fiber Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Leased Lines Retail Dark fiber Volume"
+text = "KPI / statistikk under TnFiber: TnFiber: Leased Lines Retail Dark fiber Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber:  VULA Churn Total"
+text = "KPI / statistikk under TnFiber: TnFiber:  VULA Churn Total. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: of which VULA New adds HP"
+text = "KPI / statistikk under TnFiber: TnFiber: of which VULA New adds HP. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: VULA Gross Adds Total"
+text = "KPI / statistikk under TnFiber: TnFiber: VULA Gross Adds Total. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: VULA Wholesale Volume"
+text = "KPI / statistikk under TnFiber: TnFiber: VULA Wholesale Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: WAN Ethernet Connect Fiber Volume"
+text = "KPI / statistikk under TnFiber: TnFiber: WAN Ethernet Connect Fiber Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Cable Broadband MDU subscriptions"
+text = "KPI / statistikk under TnFiber: TnFiber: Cable Broadband MDU subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fiber Broadband MDU subscriptions"
+text = "KPI / statistikk under TnFiber: TnFiber: Fiber Broadband MDU subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Cable Broadband SDU subscriptions"
+text = "KPI / statistikk under TnFiber: TnFiber: Cable Broadband SDU subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fiber Broadband here off Talkmore Subs"
+text = "KPI / statistikk under TnFiber: TnFiber: Fiber Broadband here off Talkmore Subs. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TnFiber: Fiber Broadband SDU subscriptions"
+text = "KPI / statistikk under TnFiber: TnFiber: Fiber Broadband SDU subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Test ARPU"
+text = "KPI / statistikk under Wholesale Volume: Test ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Domestic Interconnect Main APPM"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Domestic Interconnect Main APPM. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Service Providers in Norway Fixed Fees ARPU"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other Service Providers in Norway Fixed Fees ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "WS SP loss 2023"
+text = "KPI / statistikk under Wholesale Volume: WS SP loss 2023. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "VULA HP volume off-net Acc"
+text = "KPI / statistikk under Wholesale Volume: VULA HP volume off-net Acc. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "VULA HP volume (densification off-net)"
+text = "KPI / statistikk under Wholesale Volume: VULA HP volume (densification off-net). Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "VULA Churn to Telenor Acc"
+text = "KPI / statistikk under Wholesale Volume: VULA Churn to Telenor Acc. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale VULA Churn Total"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale VULA Churn Total. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale VULA Gross Adds Acc"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale VULA Gross Adds Acc. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale VULA Gross Adds Total"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale VULA Gross Adds Total. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Leased Lines WS ARPU Ethernet Backhaul"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Leased Lines WS ARPU Ethernet Backhaul. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Leased Lines WS Volume Ethernet Backhaul"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Leased Lines WS Volume Ethernet Backhaul. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Leased Lines WS ARPU > 2Mbit/s HS+DF"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Leased Lines WS ARPU > 2Mbit/s HS+DF. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Leased Lines WS Volume > 2Mbit/s HS+DF"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Leased Lines WS Volume > 2Mbit/s HS+DF. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Leased Lines WS ARPU DF"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Leased Lines WS ARPU DF. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Leased Lines WS ARPU > 2Mbit/s"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Leased Lines WS ARPU > 2Mbit/s. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Leased Lines WS ARPU 2Mbit/s"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Leased Lines WS ARPU 2Mbit/s. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Leased Lines WS Volume 2Mbit/s"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Leased Lines WS Volume 2Mbit/s. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Leased Lines WS ARPU < 2Mbit/s"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Leased Lines WS ARPU < 2Mbit/s. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Leased Lines WS Volume < 2Mbit/s"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Leased Lines WS Volume < 2Mbit/s. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale LLUB ARPU"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale LLUB ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale LLUB Volume"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale LLUB Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale FMBB ARPU"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale FMBB ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale FMBB Volume"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale FMBB Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale SHDSL ARPU"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale SHDSL ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale SHDSL Volume"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale SHDSL Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale VDSL ARPU"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale VDSL ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale VDSL Volume"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale VDSL Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale ADSL ARPU"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale ADSL ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale ADSL Volume"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale ADSL Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Telephone VoIP Volume"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Telephone VoIP Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Telephone Volume"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Telephone Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Service Providers International Voice Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other Service Providers International Voice Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Service Providers in Norway Voice Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other Service Providers in Norway Voice Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Service Providers in Norway Messaging Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other Service Providers in Norway Messaging Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Service Providers in Norway Data Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other Service Providers in Norway Data Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Service Providers in Norway SIM Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other Service Providers in Norway SIM Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Service Providers International Messaging Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other Service Providers International Messaging Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Service Providers International Data Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other Service Providers International Data Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other National Roaming Voice Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other National Roaming Voice Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other National Roaming Messaging Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other National Roaming Messaging Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other National Roaming SIM Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other National Roaming SIM Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other National Roaming Data Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other National Roaming Data Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other MVNO Voice Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other MVNO Voice Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other MVNO Messaging Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other MVNO Messaging Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other MVNO SIM Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other MVNO SIM Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other MVNO Data Volume"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other MVNO Data Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Domestic Transit Mobile Minutes"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Domestic Transit Mobile Minutes. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Domestic Transit Minutes"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Domestic Transit Minutes. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Domestic Interconnect Services Minutes"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Domestic Interconnect Services Minutes. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Domestic Interconnect Main Minutes"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Domestic Interconnect Main Minutes. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other Service Providers Total ARPU"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other Service Providers Total ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other MVNO Total ARPU"
+text = "KPI / statistikk under Wholesale Volume: Mobile Other MVNO Total ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale VULA ARPU"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale VULA ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale VULA Volume"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale VULA Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Ethernet Connect ARPU"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Ethernet Connect ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Wholesale Ethernet Connect Volume"
+text = "KPI / statistikk under Wholesale Volume: Fixed Wholesale Ethernet Connect Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other"
+text = "KPI / statistikk under Statistics: Fixed Other. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail: Leased Lines ARPU"
+text = "KPI / statistikk under Fixed Other: Fixed Other Retail: Leased Lines ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail: Leased Lines Retail Dark fiber ARPU"
+text = "KPI / statistikk under Fixed Other: Fixed Other Retail: Leased Lines Retail Dark fiber ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail: Leased Lines Retail High Speed ARPU"
+text = "KPI / statistikk under Fixed Other: Fixed Other Retail: Leased Lines Retail High Speed ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Other Retail: Leased Lines Retail Low Speed ARPU"
+text = "KPI / statistikk under Fixed Other: Fixed Other Retail: Leased Lines Retail Low Speed ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone"
+text = "KPI / statistikk under Statistics: Fixed Phone. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone Minutes Originated"
+text = "KPI / statistikk under Fixed Phone: Fixed Phone Minutes Originated. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone VoIP ARPU Channels Business"
+text = "KPI / statistikk under Fixed Phone: Fixed Phone VoIP ARPU Channels Business. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone POTS ARPU Channels Business"
+text = "KPI / statistikk under Fixed Phone: Fixed Phone POTS ARPU Channels Business. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone ARPU"
+text = "KPI / statistikk under Fixed Phone: Fixed Phone ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone VoIP ARPU"
+text = "KPI / statistikk under Fixed Phone: Fixed Phone VoIP ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone POTS ARPU"
+text = "KPI / statistikk under Fixed Phone: Fixed Phone POTS ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone ARPU Channels Business"
+text = "KPI / statistikk under Fixed Phone: Fixed Phone ARPU Channels Business. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Phone Channels Business"
+text = "KPI / statistikk under Fixed Phone: Fixed Phone Channels Business. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Copper"
+text = "KPI / statistikk under Statistics: Copper. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband VDSL TV ARPU"
+text = "KPI / statistikk under Copper: Fixed Broadband VDSL TV ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband VDSL ARPU"
+text = "KPI / statistikk under Copper: Fixed Broadband VDSL ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband ADSL ARPU"
+text = "KPI / statistikk under Copper: Fixed Broadband ADSL ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband xDSL ARPU"
+text = "KPI / statistikk under Copper: Fixed Broadband xDSL ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Copper total COGS"
+text = "KPI / statistikk under Copper: Fixed Copper total COGS. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Copper total Revenue"
+text = "KPI / statistikk under Copper: Fixed Copper total Revenue. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Other"
+text = "KPI / statistikk under Statistics: Other. Navnet finnes to ganger i Account (under «Other cash items» og «Statistics») – Smart View avviser det."
+
+[[note]]
+cube = "FinPlan"
+member = "SafeZone Total users"
+text = "KPI / statistikk under Other: SafeZone Total users. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Outsourced Customer Service Cost"
+text = "KPI / statistikk under Other: Outsourced Customer Service Cost. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Oppdatert users"
+text = "KPI / statistikk under Other: Oppdatert users. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "GWh.Power"
+text = "KPI / statistikk under Other: GWh.Power. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Internet capable phone share - % in base"
+text = "KPI / statistikk under Other: Internet capable phone share - % in base. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Smartphone share - % in base"
+text = "KPI / statistikk under Other: Smartphone share - % in base. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Smartphone users"
+text = "KPI / statistikk under Other: Smartphone users. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Average data volume across all subsriptions"
+text = "KPI / statistikk under Other: Average data volume across all subsriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Median data volume per data user (business): Users > 50 KB"
+text = "KPI / statistikk under Other: Median data volume per data user (business): Users > 50 KB. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Median data volume per data user (consumer): Users > 50 KB"
+text = "KPI / statistikk under Other: Median data volume per data user (consumer): Users > 50 KB. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Median data volume per data user (blended): Users > 50 KB"
+text = "KPI / statistikk under Other: Median data volume per data user (blended): Users > 50 KB. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Average data volume per data user: Users > 50 KB"
+text = "KPI / statistikk under Other: Average data volume per data user: Users > 50 KB. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Data Volume: Total"
+text = "KPI / statistikk under Other: Data Volume: Total. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Data Users: Total"
+text = "KPI / statistikk under Other: Data Users: Total. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Insurance - Total Customers"
+text = "KPI / statistikk under Other: Insurance - Total Customers. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Insurance - Paying Customers"
+text = "KPI / statistikk under Other: Insurance - Paying Customers. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Sikre - antall mobilabonnement"
+text = "KPI / statistikk under Other: Sikre - antall mobilabonnement. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Sikre - sikkerhetssenter"
+text = "KPI / statistikk under Other: Sikre - sikkerhetssenter. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "SAFE - Total Customers"
+text = "KPI / statistikk under Other: SAFE - Total Customers. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "SAFE - Paying Customers"
+text = "KPI / statistikk under Other: SAFE - Paying Customers. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mitt Spor Total Customers"
+text = "KPI / statistikk under Other: Mitt Spor Total Customers. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Strøm - Total Customers"
+text = "KPI / statistikk under Other: Strøm - Total Customers. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Cost per IT consultant"
+text = "KPI / statistikk under Other: Cost per IT consultant. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Cost per FTE"
+text = "KPI / statistikk under Other: Cost per FTE. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y)."
+
+[[note]]
+cube = "FinPlan"
+member = "TV"
+text = "KPI / statistikk under Statistics: TV. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband FWA TV ARPU"
+text = "KPI / statistikk under TV: Fixed Broadband FWA TV ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "ARPU TV Cable MDU"
+text = "KPI / statistikk under TV: ARPU TV Cable MDU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "ARPU TV Cable SDU"
+text = "KPI / statistikk under TV: ARPU TV Cable SDU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Cable TV ARPU"
+text = "KPI / statistikk under TV: Fixed Broadband Cable TV ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TV Cable MDU subscriptions"
+text = "KPI / statistikk under TV: TV Cable MDU subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TV Cable SDU subscriptions"
+text = "KPI / statistikk under TV: TV Cable SDU subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TV Cable MDU Revenue"
+text = "KPI / statistikk under TV: TV Cable MDU Revenue. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TV Cable SDU Revenue"
+text = "KPI / statistikk under TV: TV Cable SDU Revenue. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "ARPU TV Fiber MDU"
+text = "KPI / statistikk under TV: ARPU TV Fiber MDU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "ARPU TV Fiber SDU"
+text = "KPI / statistikk under TV: ARPU TV Fiber SDU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Fiber TV ARPU"
+text = "KPI / statistikk under TV: Fixed Broadband Fiber TV ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TV Fiber MDU subscriptions"
+text = "KPI / statistikk under TV: TV Fiber MDU subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TV Fiber SDU subscriptions"
+text = "KPI / statistikk under TV: TV Fiber SDU subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TV Fiber MDU Revenue"
+text = "KPI / statistikk under TV: TV Fiber MDU Revenue. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "TV Fiber SDU Revenue"
+text = "KPI / statistikk under TV: TV Fiber SDU Revenue. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Streamix ARPU"
+text = "KPI / statistikk under TV: Fixed Streamix ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed TV ARPU"
+text = "KPI / statistikk under TV: Fixed TV ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband"
+text = "KPI / statistikk under Statistics: Fixed Broadband. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Churn"
+text = "KPI / statistikk under Fixed Broadband: Fixed Broadband Churn. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Data Services"
+text = "KPI / statistikk under Fixed Broadband: Data Services. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "HFC"
+text = "KPI / statistikk under Fixed Broadband: HFC. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "FWA"
+text = "KPI / statistikk under Fixed Broadband: FWA. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fiber"
+text = "KPI / statistikk under Fixed Broadband: Fiber. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband ARPU"
+text = "KPI / statistikk under Fixed Broadband: Fixed Broadband ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband (HFC+FTTH)"
+text = "KPI / statistikk under Fixed Broadband: Fixed Broadband (HFC+FTTH). Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile"
+text = "KPI / statistikk under Statistics: Mobile. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other"
+text = "KPI / statistikk under Mobile: Mobile Other. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile ARPU"
+text = "KPI / statistikk under Mobile: Mobile ARPU. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Subscriptions"
+text = "KPI / statistikk under Mobile: Mobile Subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "P&L extended"
+text = "KPI / statistikk under Statistics: P&L extended. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "FCF ex M&A, inc HSF"
+text = "KPI / statistikk under P&L extended: FCF ex M&A, inc HSF. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Total Power COGS"
+text = "KPI / statistikk under P&L extended: Total Power COGS. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "SDx COGS"
+text = "KPI / statistikk under P&L extended: SDx COGS. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "5G enterprises COGS"
+text = "KPI / statistikk under P&L extended: 5G enterprises COGS. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Security COGS"
+text = "KPI / statistikk under P&L extended: Security COGS. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "SDx Revenue"
+text = "KPI / statistikk under P&L extended: SDx Revenue. Smart View avviser medlemmet (rc=1000) – bruk «Fixed Other Retail Revenue: SDx» i P&L."
+
+[[note]]
+cube = "FinPlan"
+member = "5G enterprises Revenue"
+text = "KPI / statistikk under P&L extended: 5G enterprises Revenue. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Security Revenue"
+text = "KPI / statistikk under P&L extended: Security Revenue. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Rental model Total"
+text = "KPI / statistikk under P&L extended: Rental model Total. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen. Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Broadband Revenue"
+text = "KPI / statistikk under P&L extended: Mobile Broadband Revenue. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Phone Revenue"
+text = "KPI / statistikk under P&L extended: Mobile Phone Revenue. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "OPEX alternative"
+text = "KPI / statistikk under P&L extended: OPEX alternative. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Total Services COGS Total"
+text = "KPI / statistikk under P&L extended: Total Services COGS Total. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Total Services Revenue Total"
+text = "KPI / statistikk under P&L extended: Total Services Revenue Total. Beløp i Statistics (FinPlans egen gruppering) – ikke en del av P&L-summen."
+
+[[note]]
+cube = "FinPlan"
+member = "Ratios"
+text = "Nøkkeltall i prosent eller forholdstall (marginer, OPEX/inntekter, CAPEX/salg)."
+
+[[note]]
+cube = "FinPlan"
+member = "Total Service GP"
+text = "Nøkkeltall under Ratios: Total Service GP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Insurance GP"
+text = "Nøkkeltall under Total Service GP: Mobile Domestic Services Insurance GP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Total Security Service GP"
+text = "Nøkkeltall under Total Service GP: Total Security Service GP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Security Services GP"
+text = "Nøkkeltall under Total Security Service GP: Fixed Security Services GP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Domestic Services Security and Storage GP"
+text = "Nøkkeltall under Total Security Service GP: Mobile Domestic Services Security and Storage GP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other GP: Telemetric / M2M"
+text = "Nøkkeltall under Total Service GP: Mobile Other GP: Telemetric / M2M. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other GP: M2M / IoT Service"
+text = "Nøkkeltall under Mobile Other GP: Telemetric / M2M: Mobile Other GP: M2M / IoT Service. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Other GP: M2M / IoT Access"
+text = "Nøkkeltall under Mobile Other GP: Telemetric / M2M: Mobile Other GP: M2M / IoT Access. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Entertainment and access Services GP"
+text = "Nøkkeltall under Total Service GP: Entertainment and access Services GP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Play Services GP"
+text = "Nøkkeltall under Entertainment and access Services GP: Fixed Play Services GP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "HW Rental Model Services GP"
+text = "Nøkkeltall under Entertainment and access Services GP: HW Rental Model Services GP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed TV GP"
+text = "Nøkkeltall under Entertainment and access Services GP: Fixed TV GP. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "CAPEX / Sales"
+text = "Nøkkeltall under Ratios: CAPEX / Sales. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Gross Margin %"
+text = "Nøkkeltall under Ratios: Fixed Gross Margin %. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "ac.EBITDA"
+text = "Nøkkeltall under Ratios: ac.EBITDA. Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "EBITDA % before Other Items"
+text = "Nøkkeltall under Ratios: EBITDA % before Other Items. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "OPEX / Revenues %"
+text = "Nøkkeltall under Ratios: OPEX / Revenues %. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Gross Profit"
+text = "Nøkkeltall under Gross Profit: Fixed Gross Profit."
+
+[[note]]
+cube = "FinPlan"
+member = "Mobile Gross Profit"
+text = "Nøkkeltall under Gross Profit: Mobile Gross Profit."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband VDSL Subscriptions"
+text = "Nøkkeltall under ac.300.00.484: Fixed Broadband VDSL Subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Cable Access Subscriptions"
+text = "Nøkkeltall under ac.300.00.484: Fixed Broadband Cable Access Subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed total fiber access subscriptions"
+text = "Nøkkeltall under ac.300.00.484: Fixed total fiber access subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services EC Fiber Volume"
+text = "Nøkkeltall under Fixed total fiber access subscriptions: Fixed Data Services EC Fiber Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services NC Fiber Volume"
+text = "Nøkkeltall under Fixed total fiber access subscriptions: Fixed Data Services NC Fiber Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Ingen verdi for BANORWAY i disse periodene."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband Fiber Access Subscriptions"
+text = "Nøkkeltall under Fixed total fiber access subscriptions: Fixed Broadband Fiber Access Subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed total FWA access subscriptions"
+text = "Nøkkeltall under ac.300.00.484: Fixed total FWA access subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Data Services NC Mobile Volume"
+text = "Nøkkeltall under Fixed total FWA access subscriptions: Fixed Data Services NC Mobile Volume. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom)."
+
+[[note]]
+cube = "FinPlan"
+member = "Fixed Broadband FWA Access Subscriptions"
+text = "Nøkkeltall under Fixed total FWA access subscriptions: Fixed Broadband FWA Access Subscriptions. Volum/KPI – finnes ikke i FinMax (unntatt årsverk: FinMax STA20Y). Bare i plan/prognose: faktiske volumer ligger ikke i FinPlan for BANORWAY (Actual er tom). Les som Periodic per måned: Accumulated summerer månedene for denne typen KPI (f.eks. Mobile Subscriptions hittil sep = 78 mill. mot 8,7 mill. i beholdning)."

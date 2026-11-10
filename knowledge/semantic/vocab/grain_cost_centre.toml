@@ -1,0 +1,19 @@
+source = "capabilities.toml [[grain]]"
+status = "approved"
+kind = "grain"
+words = [
+  "per cost centre",
+  "per cost center",
+  "by cost centre",
+  "by cost center",
+  "per kostnadssted",
+  "per department",
+  "per avdeling",
+]
+feasible = ["*"]
+note = "FinMax only: FinPlan has business areas, not cost centres, so no budget per cost centre"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "capabilities.toml"

@@ -1,0 +1,13 @@
+source = "catalog.toml [group_companies]"
+status = "approved"
+title = "Group companies"
+text = "Group companies get their own block in a supplier ranking, never in its top 10."
+kind = "group_companies"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"
+
+[data]
+patterns = ["^Telenor\\b", "\\bTSS\\b", "Shared Services", "Towers"]

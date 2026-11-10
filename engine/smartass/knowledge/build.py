@@ -155,7 +155,8 @@ def check_layer(k, atlas, report: BuildReport) -> None:
     metric_ids = {m.id: m for m in k.metrics}
     for r in k.rules:
         if r.kind == "pnl":
-            for cube, ids in r.data.items():
+            for cube in ("FinMax", "FinPlan"):
+                ids = r.data.get(cube, [])
                 for mid in ids:
                     if mid not in metric_ids or cube not in metric_ids[mid].members():
                         report.errors.append(f"rule {r.id}: pnl.{cube} names {mid!r}, not a metric with {cube} members")

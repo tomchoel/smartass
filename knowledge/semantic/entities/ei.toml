@@ -1,0 +1,21 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "Entertainment & Internet"
+aliases = [
+  "entertainment & internet",
+  "entertainment and internet",
+  "tv og internett",
+  "tv & internett",
+  "e&i",
+  "2ei",
+  "ei",
+]
+finmax = "un.SY.2EI"
+finplan = "2EI Entertainment & Internet"
+finplan_total = "1EI Entertainment & Internet"
+note = "FinPlan division total = 1EI Entertainment & Internet (incl. Ambition and IFRS adjustments); 2EI Entertainment & Internet is the operational unit."
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

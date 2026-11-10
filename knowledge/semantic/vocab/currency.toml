@@ -1,0 +1,24 @@
+source = "capabilities.toml [currency]"
+status = "approved"
+kind = "currency"
+words = ["dkk", "dollar", "dollars", "eur", "euro", "euros", "gbp", "kroner", "nok", "sek", "usd"]
+proxy = "the values in NOK (FinMax reports NOK and Local currency only; no EUR or other translation is loaded)"
+reporting = ["NOK"]
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "capabilities.toml"
+
+[codes]
+nok = "NOK"
+kroner = "NOK"
+eur = "EUR"
+euro = "EUR"
+euros = "EUR"
+usd = "USD"
+dollar = "USD"
+dollars = "USD"
+sek = "SEK"
+dkk = "DKK"
+gbp = "GBP"

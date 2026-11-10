@@ -1,0 +1,26 @@
+source = "catalog.toml [scenarios] + series.py"
+status = "approved"
+title = "Scenarios per cube"
+text = "Actuals: FinMax/FinLite scenario Actual. Plan lives only in FinPlan: actual = Actual/Working, budget = Target/Final, forecast = the latest Forecast Q<q><yy>/Final."
+kind = "scenarios"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"
+
+[data]
+
+[data.FinMax]
+value = ["Actual", ""]
+ly = ["Actual", ""]
+
+[data.FinLite]
+value = ["Actual", ""]
+ly = ["Actual", ""]
+
+[data.FinPlan]
+value = ["Actual", "Working"]
+ly = ["Actual", "Working"]
+budget = ["Target", "Final"]
+forecast = ["latest_forecast", "Final"]

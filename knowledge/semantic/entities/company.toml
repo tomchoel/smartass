@@ -1,0 +1,12 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "Telenor Norge (total)"
+aliases = ["telenor norge", "tn"]
+generic_aliases = ["total", "company", "selskapet"]
+finmax = "un.SY"
+finplan = "BANORWAY"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

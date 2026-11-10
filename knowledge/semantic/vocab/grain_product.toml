@@ -1,0 +1,11 @@
+source = "capabilities.toml [[grain]]"
+status = "approved"
+kind = "grain"
+words = ["per product", "by product", "per produkt", "product level", "per product line", "each product"]
+feasible = ["revenue", "cogs", "gross_margin", "gross_margin_pct"]
+proxy = "contribution margin (revenue - COGS) per product; opex is not allocated to products in FinMax (full cost per product only in Produktregnskapet, annually)"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "capabilities.toml"

@@ -1,0 +1,13 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "Security Solutions & Mobile"
+aliases = ["security solutions & mobile", "security solutions and mobile", "ssm", "2ssm"]
+finmax = "un.SY.2SSM"
+finplan = "2SSM Security Solutions & Mobile"
+finplan_total = "1SSM Security Solutions & Mobile"
+note = "FinPlan division total = 1SSM Security Solutions & Mobile (incl. Ambition and IFRS adjustments); 2SSM Security Solutions & Mobile is the operational unit."
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

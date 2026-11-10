@@ -1,0 +1,11 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "Nordics"
+aliases = ["nordics", "norden", "2nrd", "2nrd_n"]
+finmax = "un.SY.2NRD_N"
+finplan = "2NRD_N Nordics"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"
