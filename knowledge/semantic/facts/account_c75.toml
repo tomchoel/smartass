@@ -1,4 +1,4 @@
-text = "C75 Depreciations: Mostly booked on cost centres (Technology/IT); only partly product-tagged. FinPlan Target has no depreciation: compare against budget only down to EBITDA."
+text = "C75 Depreciations: Mostly booked on cost centres (Technology/IT); only partly product-tagged. FinPlan Target carries depreciation since FY26 (Depreciation Expense, verified 10.11), so D&A and EBIT can be compared against budget."
 severity = "warn"
 source = "accounts_map.json ac.C75 pitfalls (approved by Tom 2026-10-15)"
 status = "approved"

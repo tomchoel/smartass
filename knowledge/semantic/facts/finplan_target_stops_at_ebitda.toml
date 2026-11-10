@@ -1,4 +1,5 @@
-text = "FinPlan Target carries no depreciation and no other items, so budget comparisons stop at EBITDA (before or after other items)."
+text = "FinPlan Target has no value on these lines (other items, write-downs and the listed product lines): compare them against budget only at their total. Since FY26 Target does carry D&A, EBIT, profit before tax and CAPEX (verified live 10.11: Target FY26 D&A -6 910, EBIT 7 784, PBT 7 127 MNOK), so budget comparisons can go below EBITDA to EBIT and PBT."
+approved = { by = "auto", on = "2026-11-10", via = "phase B live check; text update approved by Tom 10.11" }
 severity = "warn"
 source = "finplan_map.json meta notes + pitfalls 'Target (budsjett) har ingen verdi her' (approved by Tom 2026-10-15)"
 status = "approved"

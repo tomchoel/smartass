@@ -1,7 +1,7 @@
 source = "catalog.toml [pnl] + [checks]"
 status = "approved"
 title = "P&L chain"
-text = "FinMax: C30 + C40S = C48; C50S + C60 = C70; C48 + C70 = EBITDA_BOI; + C73 = EBITDA; D&A C75 below. FinPlan: Revenue + COGS = Gross_Profit; + OPEX = EBITDA before Other Items; + Total Other Items = EBITDA (FinPlan stops at EBITDA). Join actual vs budget on the metric, never on the line key."
+text = "FinMax: C30 + C40S = C48; C50S + C60 = C70; C48 + C70 = EBITDA_BOI; + C73 = EBITDA; D&A C75 below. FinPlan: Revenue + COGS = Gross_Profit; + OPEX = EBITDA before Other Items; + Total Other Items = EBITDA (below it: Depreciation Expense + Write-downs = EBIT; Target carries D&A since FY26). Join actual vs budget on the metric, never on the line key."
 kind = "pnl"
 
 [approved]
