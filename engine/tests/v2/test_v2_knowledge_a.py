@@ -8,7 +8,7 @@ from smartass.knowledge import atlas
 from smartass.knowledge.build import build
 from smartass.knowledge.expand import expand
 from smartass.knowledge.resolver import KnowledgeResolver
-from smartass.knowledge.semantic import Fact
+from smartass.knowledge.semantic import Entity, Fact, Kpi, MemberNote, Rule, SemanticError, Vocab, load_all
 
 # A small FinMax tree: accounts EBITDA > C40S > C405 > C40510 ; entities un.SY > 2CON > CC1, CC2
 TREE = [("FinMax", "All Accounts", "ac.EBITDA", "EBITDA", "", 1, 1),
@@ -223,3 +223,58 @@ def test_ensure_built_rebuilds_on_a_newer_atlas_only(tmp_path, monkeypatch):
     ensure_built(notes)
     con.close()
     assert notes == [REBUILT_NOTE] and summary(k)["atlas_built_ts"] == "1790000500.5"
+
+
+
+def test_rule_kinds_validate_their_data():
+    Rule(id="scenarios", title="Scenarios", text="t", kind="scenarios",
+         data={"FinMax": {"value": ["Actual", ""], "ly": ["Actual", ""]},
+               "FinPlan": {"value": ["Actual", "Working"], "ly": ["Actual", "Working"],
+                           "budget": ["Target", "Final"], "forecast": ["latest_forecast", "Final"]}})
+    with pytest.raises(ValueError, match="FinPlan"):
+        Rule(id="scenarios", title="S", text="t", kind="scenarios",
+             data={"FinMax": {"value": ["Actual", ""], "ly": ["Actual", ""]}})
+    Rule(id="materiality", title="M", text="t", kind="materiality", data={"abs_nok": 5e6, "pct": 0.1})
+    with pytest.raises(ValueError, match="pct"):
+        Rule(id="materiality", title="M", text="t", kind="materiality", data={"abs_nok": 5e6})
+    Rule(id="signs", title="Signs", text="Costs are negative in FinMax.")          # kind text needs no data
+
+
+def test_entity_members_and_finplan_total():
+    e = Entity(id="business", label="Business", aliases=["bedrift"], finmax="un.SY.2BUS",
+               finplan="2BUS Business", finplan_total="1BUS Business", source="s", status="approved")
+    assert e.members() == {"FinMax": "un.SY.2BUS", "FinLite": "un.SY.2BUS", "FinPlan": "2BUS Business"}
+    with pytest.raises(ValueError):
+        Entity(id="x", label="X", source="s")                                       # no member in any cube
+
+
+def test_kpi_needs_two_metrics_and_a_known_unit():
+    Kpi(id="ebitda_margin", name="EBITDA margin", cube="FinMax", numerator="ebitda", denominator="revenue",
+        unit="pct", source="s")
+    with pytest.raises(ValueError):
+        Kpi(id="k", name="K", cube="FinMax", numerator="ebitda", denominator="ebitda", unit="pct", source="s")
+
+
+def test_vocab_kinds():
+    Vocab(id="costs", kind="vague", words=["costs", "kostnader"], options=["opex", "opex + COGS"], source="s")
+    with pytest.raises(ValueError, match="options"):
+        Vocab(id="costs", kind="vague", words=["costs"], source="s")
+    Vocab(id="per_customer", kind="grain", words=["per customer"], feasible=[], proxy="per business area",
+          source="s")
+    Vocab(id="currency", kind="currency", words=["eur"], codes={"eur": "EUR"}, reporting=["NOK"], source="s")
+
+
+def test_load_all_reads_every_kind_and_ids_are_unique(tmp_path):
+    d = _write(tmp_path / "semantic", {
+        "metrics/cogs.toml": COGS,
+        "rules/signs.toml": 'title = "Signs"\ntext = "Costs negative."\n',
+        "entities/cogs.toml": 'label = "X"\nfinmax = "un.SY"\nsource = "s"\n'})
+    with pytest.raises(SemanticError, match="duplicate id 'cogs'"):
+        load_all(d)
+
+
+def test_member_notes_load_from_a_list_file(tmp_path):
+    d = _write(tmp_path / "semantic", {"notes/finmax_accounts.toml":
+               '[[note]]\ncube = "FinMax"\nmember = "ac.C85"\ntext = "Profit before tax."\n'})
+    (n,) = load_all(d).notes
+    assert n == MemberNote(cube="FinMax", member="ac.C85", text="Profit before tax.")

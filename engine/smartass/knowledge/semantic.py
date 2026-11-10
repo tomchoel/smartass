@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -434,3 +435,171 @@ def load_concepts(directory: Path) -> list[Concept]:
     """Every concepts/*.toml under `directory`, validated (the id is the file stem). A missing directory loads
     nothing."""
     return [_load(p, Concept) for p in sorted((Path(directory) / "concepts").glob("*.toml"))]
+
+
+# ---- knowledge layer phase A (spec 2026-11-10 §2)
+
+class _Item(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    source: str = ""
+    status: Literal["approved", "draft"] = "approved"
+    approved: dict | None = None               # {"by": "tom" | "auto" | <colleague>, "on": "YYYY-MM-DD"}
+    verified: dict | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _check_id(cls, v: str) -> str:
+        return _id(v)
+
+
+SCENARIO_SERIES = {"FinMax": ("value", "ly"), "FinLite": ("value", "ly"),
+                   "FinPlan": ("value", "ly", "budget", "forecast")}
+
+
+class Rule(_Item):
+    """An always-true statement about the cubes. kind text: just the text; the other kinds carry data the engine
+    reads (one rule per such kind)."""
+    title: str
+    text: str
+    kind: Literal["text", "scenarios", "materiality", "pnl", "group_companies"] = "text"
+    data: dict = {}
+
+    @model_validator(mode="after")
+    def _check(self):
+        d = self.data
+        if self.kind == "scenarios":
+            for cube in ("FinMax", "FinPlan"):
+                need = SCENARIO_SERIES[cube]
+                got = d.get(cube, {})
+                if set(got) != set(need) or any(len(v) != 2 for v in got.values()):
+                    raise ValueError(f"rule {self.id}: scenarios.{cube} needs exactly {need} as [scenario, version]")
+        elif self.kind == "materiality":
+            if not (isinstance(d.get("abs_nok"), (int, float)) and isinstance(d.get("pct"), (int, float))):
+                raise ValueError(f"rule {self.id}: materiality needs numbers abs_nok and pct")
+        elif self.kind == "pnl":
+            for cube in ("FinMax", "FinPlan"):
+                if not isinstance(d.get(cube), list) or not d[cube]:
+                    raise ValueError(f"rule {self.id}: pnl.{cube} needs the metric ids in report order")
+        elif self.kind == "group_companies":
+            if not isinstance(d.get("patterns"), list):
+                raise ValueError(f"rule {self.id}: group_companies needs patterns")
+        elif d:
+            raise ValueError(f"rule {self.id}: a text rule has no data")
+        return self
+
+
+class Entity(_Item):
+    label: str
+    aliases: list[str] = []
+    generic_aliases: list[str] = []            # count only when no other entity is named ("total")
+    finmax: str | None = None                  # FinLite shares the FinMax member
+    finplan: str | None = None
+    finplan_total: str | None = None           # the FinPlan level-1 parent when `finplan` is not under BANORWAY
+    abolished: str = ""
+    successors: list[str] = []
+    note: str = ""
+
+    @model_validator(mode="after")
+    def _check(self):
+        if not (self.finmax or self.finplan):
+            raise ValueError(f"entity {self.id!r} needs a FinMax or FinPlan member")
+        return self
+
+    def members(self) -> dict[str, str]:
+        out = {}
+        if self.finmax:
+            out["FinMax"] = out["FinLite"] = self.finmax
+        if self.finplan:
+            out["FinPlan"] = self.finplan
+        return out
+
+
+class Kpi(_Item):
+    """A ratio of two metrics of one cube, computed in the workbook."""
+    name: str
+    aliases: list[str] = []
+    description: str = ""
+    cube: Literal["FinMax", "FinLite", "FinPlan"]
+    numerator: str
+    denominator: str
+    unit: Literal["pct", "nok", "nok_per_fte"]
+    basis: Literal["period", "average_stock"] = "period"
+    annualise: bool = False
+    sign: Literal[1, -1] = 1
+    better: Literal["higher", "lower", "none"] = "higher"
+    headline: bool = False
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.numerator == self.denominator:
+            raise ValueError(f"kpi {self.id!r}: numerator and denominator are the same metric")
+        return self
+
+
+class Vocab(_Item):
+    """Words the engine must interpret: vague (ask with options), grain (what is answerable per X), currency."""
+    kind: Literal["vague", "grain", "currency"]
+    words: list[str]
+    options: list[str] = []
+    feasible: list[str] = []                   # grain: metric/kpi ids answerable at it; ["*"] = all
+    proxy: str = ""
+    note: str = ""
+    codes: dict[str, str] = {}                 # currency: word -> ISO code
+    reporting: list[str] = []                  # currency: the codes the cubes report
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.kind == "vague" and len(self.options) < 2:
+            raise ValueError(f"vocab {self.id!r}: a vague word needs at least two options")
+        if self.kind == "currency" and not (self.codes and self.reporting):
+            raise ValueError(f"vocab {self.id!r}: currency needs codes and reporting")
+        return self
+
+
+class MemberNote(BaseModel):
+    """What one member means and how it is booked (folded from the 15.10 business maps)."""
+    model_config = ConfigDict(extra="forbid")
+    cube: Literal["FinMax", "FinLite", "FinPlan"]
+    member: str
+    text: str
+
+
+@dataclass
+class Knowledge:
+    metrics: list
+    facts: list
+    concepts: list
+    rules: list
+    entities: list
+    kpis: list
+    vocab: list
+    notes: list
+
+
+def _load_notes(directory: Path) -> list[MemberNote]:
+    out = []
+    for p in sorted((directory / "notes").glob("*.toml")):
+        try:
+            data = tomllib.loads(p.read_text(encoding="utf-8"))
+            out += [MemberNote(**n) for n in data.get("note", [])]
+        except (tomllib.TOMLDecodeError, ValidationError, TypeError) as e:
+            raise SemanticError(f"{p.name}: {e}") from e
+    return out
+
+
+def load_all(directory: Path) -> Knowledge:
+    """Every kind under `directory`, validated; ids are unique across all kinds with an id."""
+    directory = Path(directory)
+    metrics, facts = load_semantic(directory)
+    concepts = load_concepts(directory)
+    kinds = {"rules": Rule, "entities": Entity, "kpis": Kpi, "vocab": Vocab}
+    loaded = {k: [_load(p, cls) for p in sorted((directory / k).glob("*.toml"))] for k, cls in kinds.items()}
+    seen: dict[str, str] = {}
+    for kind, items in (("metrics", metrics), ("facts", facts), ("concepts", concepts), *loaded.items()):
+        for it in items:
+            if it.id in seen:
+                raise SemanticError(f"duplicate id {it.id!r}: {seen[it.id]}/{it.id}.toml and {kind}/{it.id}.toml")
+            seen[it.id] = kind
+    return Knowledge(metrics, facts, concepts, loaded["rules"], loaded["entities"], loaded["kpis"], loaded["vocab"],
+                     _load_notes(directory))
