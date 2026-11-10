@@ -2,6 +2,7 @@ text = "C84S Net Financial Items: Financial items sit mainly in Administration/F
 severity = "warn"
 source = "accounts_map.json ac.C84S pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C84S"]

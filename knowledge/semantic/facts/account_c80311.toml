@@ -2,6 +2,7 @@ text = "C80311 Interest income on customer instalment plan: Only partly product-
 severity = "warn"
 source = "accounts_map.json ac.C80311 pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C80311"]

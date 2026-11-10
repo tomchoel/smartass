@@ -2,6 +2,7 @@ text = "C76S Total Depreciations and Write Downs: Mostly booked on cost centres 
 severity = "warn"
 source = "accounts_map.json ac.C76S pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C76S"]

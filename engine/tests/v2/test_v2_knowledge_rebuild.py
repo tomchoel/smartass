@@ -26,7 +26,7 @@ def test_a_changed_semantic_file_rebuilds_with_a_warning(tmp_path, monkeypatch):
     p.write_text(p.read_text(encoding="utf-8").replace("Opex note.", "Opex note, changed."), encoding="utf-8")
     pre = pipeline.run_prepare(spec_dict(), FakeProvider(facts()))
     assert summary(k)["semantic_hash"] != old
-    assert "knowledge.db rebuilt: semantic files changed" in pre.warnings
+    assert "knowledge.db rebuilt: semantic files or the atlas changed" in pre.warnings
     assert any(c["text"] == "Opex note, changed." for c in pre.caveats)
 
 
@@ -38,7 +38,7 @@ def test_a_new_semantic_file_rebuilds(tmp_path, monkeypatch):
     notes: list[str] = []
     ensure_built(notes)
     assert summary(k)["semantic_hash"] != old
-    assert notes == ["knowledge.db rebuilt: semantic files changed"]
+    assert notes == ["knowledge.db rebuilt: semantic files or the atlas changed"]
 
 
 def test_a_failing_rebuild_stops_the_answer_naming_the_error(tmp_path, monkeypatch):

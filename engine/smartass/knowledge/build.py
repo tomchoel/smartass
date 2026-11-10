@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .expand import expand
 from .semantic import SemanticError, concept_terms, load_concepts, load_semantic
 
 SCHEMA = """
@@ -22,7 +23,7 @@ CREATE TABLE alias (metric_id TEXT, text TEXT);
 CREATE INDEX ix_alias_text ON alias(text COLLATE NOCASE);
 CREATE VIRTUAL TABLE alias_fts USING fts5(text, metric_id UNINDEXED);
 CREATE TABLE fact (id TEXT PRIMARY KEY, json TEXT);
-CREATE TABLE fact_scope (fact_id TEXT, cube TEXT, member TEXT, metric_id TEXT);
+CREATE TABLE fact_scope (fact_id TEXT, cube TEXT, member TEXT, metric_id TEXT, via TEXT);
 CREATE INDEX ix_fact_scope_member ON fact_scope(member COLLATE NOCASE);
 CREATE INDEX ix_fact_scope_metric ON fact_scope(metric_id);
 CREATE VIRTUAL TABLE member_fts USING fts5(name, label, cube UNINDEXED, dimension UNINDEXED);
@@ -31,7 +32,7 @@ CREATE TABLE concept_alias (concept_id TEXT, text TEXT);
 CREATE INDEX ix_concept_alias_text ON concept_alias(text COLLATE NOCASE);
 CREATE VIRTUAL TABLE concept_fts USING fts5(text, concept_id UNINDEXED);
 """
-SCHEMA_VERSION = "2c"      # part of the semantic hash: a new schema rebuilds knowledge.db like changed files
+SCHEMA_VERSION = "3a"      # part of the semantic hash: a new schema rebuilds knowledge.db like changed files
 # Member labels indexed for search: the account and entity trees (the dimensions questions name).
 SEARCH_DIMENSIONS = ("All Accounts", "All Entities", "Account", "Entity")
 
@@ -140,7 +141,8 @@ def check_concepts(metrics, facts, concepts, atlas: sqlite3.Connection, report: 
                                    f"{', '.join(gone[:10])}{' ...' if len(gone) > 10 else ''}")
 
 
-def _write(db: sqlite3.Connection, metrics, facts, atlas: sqlite3.Connection, meta: dict, concepts=()) -> None:
+def _write(db: sqlite3.Connection, metrics, facts, atlas: sqlite3.Connection, meta: dict, concepts=(),
+           entities=()) -> None:
     db.executescript(SCHEMA)
     for m in metrics:
         db.execute("INSERT INTO metric VALUES (?,?,?)", (m.id, m.name, m.model_dump_json()))
@@ -149,11 +151,18 @@ def _write(db: sqlite3.Connection, metrics, facts, atlas: sqlite3.Connection, me
         terms = list(dict.fromkeys([m.name, m.id.replace("_", " "), *m.aliases]))
         db.executemany("INSERT INTO alias VALUES (?,?)", [(m.id, t) for t in terms])
         db.executemany("INSERT INTO alias_fts (text, metric_id) VALUES (?,?)", [(t, m.id) for t in terms])
+    stops: dict[str, set[str]] = {}
+    for m in metrics:
+        for cube, ms in m.members().items():
+            stops.setdefault(cube, set()).update(ms)
+    for e in entities:
+        for cube, member in e.members().items():
+            stops.setdefault(cube, set()).add(member)
     for f in facts:
         db.execute("INSERT INTO fact VALUES (?,?)", (f.id, f.model_dump_json()))
-        db.executemany("INSERT INTO fact_scope VALUES (?,?,?,NULL)",
-                       [(f.id, cube, x) for cube, ms in f.scope_members.items() for x in ms])
-        db.executemany("INSERT INTO fact_scope VALUES (?,NULL,NULL,?)", [(f.id, mid) for mid in f.scope_metrics])
+        db.executemany("INSERT INTO fact_scope VALUES (?,?,?,NULL,?)",
+                       [(f.id, cube, member, via) for (cube, member), via in expand(f, atlas, stops).items()])
+        db.executemany("INSERT INTO fact_scope VALUES (?,NULL,NULL,?,NULL)", [(f.id, mid) for mid in f.scope_metrics])
     for c in concepts:
         db.execute("INSERT INTO concept VALUES (?,?,?)", (c.id, c.title, c.model_dump_json()))
         terms = concept_terms(c)

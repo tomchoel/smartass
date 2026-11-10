@@ -3,6 +3,7 @@ valid_from = "2026-06"
 severity = "warn"
 source = "catalog.toml [[entity]] ig (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "down"
 
 [scope_members]
 FinMax = ["un.SY.2IG"]

@@ -2,6 +2,7 @@ text = "C40685 Amortization of contract acquisition and fulfilment costs (cogs):
 severity = "warn"
 source = "accounts_map.json ac.C40685 pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C40685"]

@@ -2,6 +2,7 @@ text = "Adjustment or correction unit (IFRS, elimination, valuation), not an ope
 severity = "info"
 source = "org_map.json pitfalls 'Justerings-/korreksjonsenhet' (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "down"
 
 [scope_members]
 FinMax = [

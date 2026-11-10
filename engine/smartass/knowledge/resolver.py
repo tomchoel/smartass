@@ -107,16 +107,22 @@ class KnowledgeResolver(AtlasTree):
 
     # ---- caveats
 
-    def _in_scope(self, touched: dict[str, set[str]], metric_ids: set[str]) -> set[str]:
-        ids: set[str] = set()
+    def _in_scope(self, touched: dict[str, set[str]], metric_ids: set[str]) -> dict[str, set[str]]:
+        """{fact id: the members it came from when it reached a touched member by inheritance}."""
+        ids: dict[str, set[str]] = {}
         for cube, members in touched.items():
             for m in members:
-                ids.update(r[0] for r in self.kdb.execute(
-                    "SELECT fact_id FROM fact_scope WHERE cube=? AND member=? COLLATE NOCASE", (cube, m)))
+                for fid, member, via in self.kdb.execute(
+                        "SELECT fact_id, member, via FROM fact_scope WHERE cube=? AND member=? COLLATE NOCASE",
+                        (cube, m)):
+                    got = ids.setdefault(fid, set())
+                    if via and via.casefold() != member.casefold():
+                        got.add(via)
         if metric_ids:
             marks = ",".join("?" * len(metric_ids))
-            ids.update(r[0] for r in self.kdb.execute(
-                f"SELECT fact_id FROM fact_scope WHERE metric_id IN ({marks})", sorted(metric_ids)))
+            for (fid,) in self.kdb.execute(f"SELECT fact_id FROM fact_scope WHERE metric_id IN ({marks})",
+                                           sorted(metric_ids)):
+                ids.setdefault(fid, set())
         return ids
 
     @staticmethod
@@ -131,9 +137,12 @@ class KnowledgeResolver(AtlasTree):
         """{id, text, severity} for every approved fact whose scope holds a touched member (per cube, any case) or
         metric and whose validity overlaps a touched month (no months: no month filter). Draft facts in scope add one
         warn instead of their text. Sorted block, warn, info."""
-        hits = [self._facts[i] for i in self._in_scope(touched, set(metric_ids)) if i in self._facts]
+        scope = self._in_scope(touched, set(metric_ids))
+        hits = [self._facts[i] for i in scope if i in self._facts]
         hits = [f for f in hits if self._valid(f, months)]
-        out = [{"id": f.id, "text": f.text, "severity": f.severity} for f in hits if f.status == "approved"]
+        out = [{"id": f.id, "text": f.text, "severity": f.severity, **({"via": sorted(scope[f.id])} if scope[f.id]
+                                                                        else {})}
+               for f in hits if f.status == "approved"]
         drafts = sorted(f.id for f in hits if f.status == "draft")
         if drafts:
             out.append({"id": "unapproved_knowledge", "severity": "warn",
@@ -185,7 +194,20 @@ class KnowledgeResolver(AtlasTree):
 _BUILD_LOCK = threading.Lock()
 
 
-REBUILT_NOTE = "knowledge.db rebuilt: semantic files changed"
+REBUILT_NOTE = "knowledge.db rebuilt: semantic files or the atlas changed"
+
+
+def _atlas_stamp(path: Path) -> str:
+    """The atlas build time as build() writes it into meta ('' without an atlas)."""
+    import time
+    if not path.exists():
+        return ""
+    db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        t = db.execute("SELECT max(built_at) FROM build").fetchone()[0]
+    finally:
+        db.close()
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t)) if t else ""
 
 
 def ensure_built(notes: list[str] | None = None) -> Path:
@@ -199,7 +221,10 @@ def ensure_built(notes: list[str] | None = None) -> Path:
     semantic = Path(config.SEMANTIC_DIR)
     with _BUILD_LOCK:                           # two answers at once never write the same .tmp
         missing = not path.exists()
-        if not missing and str(summary(path).get("semantic_hash", "")) == semantic_hash(semantic):
+        meta = summary(path) if not missing else {}
+        fresh = (str(meta.get("semantic_hash", "")) == semantic_hash(semantic)
+                 and str(meta.get("atlas_built_at", "")) == _atlas_stamp(Path(config.ATLAS_DB)))
+        if not missing and fresh:
             return path
         report = build(semantic, Path(config.ATLAS_DB), path)
     if not report.ok:

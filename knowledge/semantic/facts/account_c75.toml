@@ -2,6 +2,7 @@ text = "C75 Depreciations: Mostly booked on cost centres (Technology/IT); only p
 severity = "warn"
 source = "accounts_map.json ac.C75 pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C75"]

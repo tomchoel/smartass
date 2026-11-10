@@ -2,6 +2,7 @@ text = "Revenue-bearing cost centre: revenue is booked on the cost centre itself
 severity = "info"
 source = "org_map.json pitfalls 'Inntektsbærende koststed' (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "down"
 
 [scope_members]
 FinMax = [
