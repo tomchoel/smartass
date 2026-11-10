@@ -735,3 +735,66 @@ def test_the_repo_card_overrides_are_valid_and_cover_the_stage_statistics():
     stage = [c for c in k.cards if c.member.endswith("_stage")]
     assert stage and all(c.time_balance == "balance_last" and c.cube == "FinMax" for c in stage)
     assert not any(c.member == "ac.STA" for c in k.cards)       # ac.STA under ac.Statistics is derived as '~'
+
+
+# --- Task 6: the model consolidates with the real operators ----------------------------------------------------------
+
+def _weight_resolver(tmp_path, ops):
+    """FinMax entity un.SY with children Ai, Bi, Ci and one shared child under two parents; ops: {child: operator}."""
+    a, sem, k = tmp_path / "atlas.db", tmp_path / "semantic", tmp_path / "knowledge.db"
+    from kutil import copy_required_rules
+    con = atlas.connect(a)
+    rows = [("FinMax", "All Entities", "un.SY", "SY", "All Entities", 1, 1)]
+    rows += [("FinMax", "All Entities", n, n, "un.SY", 2, i) for i, n in enumerate(["Ai", "Bi", "Ci"])]
+    rows += [("FinMax", "All Entities", "Ci", "Ci", "un.SY.Other", 3, 9)]
+    con.executemany("INSERT INTO member VALUES (?,?,?,?,?,?,?)", rows)
+    con.executemany("INSERT INTO card VALUES (?,?,?,?,?,?,?,?,?)",
+                    [("FinMax", "All Entities", n, p, op, None, None, int(n == "Ci"), 1.0) for (n, p), op in ops.items()])
+    con.commit()
+    con.close()
+    copy_required_rules(sem)
+    assert build(sem, a, k).ok
+    return KnowledgeResolver(sqlite3.connect(k), sqlite3.connect(a), forecast_year=26)
+
+
+def test_weight_follows_the_card_operator_per_parent(tmp_path):
+    r = _weight_resolver(tmp_path, {("Ai", "un.SY"): "~", ("Bi", "un.SY"): "-", ("Ci", "un.SY"): "+",
+                                    ("Ci", "un.SY.Other"): "~"})
+    assert r.weight("Ai", "FinMax", parent="un.SY") == 0.0
+    assert r.weight("Bi", "FinMax", parent="un.SY") == -1.0
+    assert r.weight("Ci", "FinMax", parent="un.SY") == 1.0
+    assert r.weight("Ci", "FinMax", parent="un.SY.Other") == 0.0           # per placement of a shared member
+    assert r.weight("Ai", "FinMax", parent="Elsewhere") == 1.0              # no card for this pair
+    assert r.weight("Ai", "FinMax") == 0.0                                  # no parent: the shallowest placement
+    assert r.weight("Nobody", "FinMax", parent="un.SY") == 1.0
+    assert r.weight("Ai", "FinMax", parent="un.sy") == 0.0                  # any case
+
+
+def test_an_unknown_operator_weighs_one(tmp_path):
+    r = _weight_resolver(tmp_path, {("Ai", "un.SY"): None})
+    assert r.weight("Ai", "FinMax", parent="un.SY") == 1.0
+
+
+def test_the_blocks_pass_the_entity_as_the_parent():
+    from v2util import CLOSED, spec_dict
+
+    from smartass.model.blocks.common import BlockOut, ck, counted, entity_lines, evaluate
+    from smartass.model.context import Ctx
+    from smartass.model.frame import Fact, Frame
+    from smartass.model.resolver import MetricDef, StaticResolver
+    from smartass.model.spec import AnalysisSpec
+
+    class Cards(StaticResolver):
+        def weight(self, member, cube, parent=None):
+            return 0.0 if (member, parent) == ("B", "P") else 1.0       # B is eliminated in P only
+    d = spec_dict(blocks=[{"type": "matrix", "query": "fm", "metric": "Revenue"}])
+    d["queries"][0].update(entity="P", periods="Sep 26")
+    r = Cards([MetricDef("Revenue", {"FinMax": ("ac.C30",)})], tree={"P": ("A", "B")})
+    fr = Frame([Fact("FinMax", "fm", "ac.C30", e, "Sep 26", "Actual", "", v)
+                for e, v in (("A", 100.0), ("B", 30.0), ("P", 100.0))])
+    c = Ctx(AnalysisSpec.model_validate(d), r, CLOSED, fr)
+    q = c.query("fm")
+    assert counted(c, q, ["A", "B"]) == ["A"]
+    lines = entity_lines(c, q, "Revenue", ["value"], "b0")
+    out = BlockOut("b0", "table", "t", ["Actual"], lines=lines)
+    assert evaluate([out], fr).get(ck("b0", "check", 0)) == 0.0

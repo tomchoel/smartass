@@ -200,6 +200,14 @@ class KnowledgeResolver(AtlasTree):
         return {"operator": op, "time_balance": tb, "account_type": at, "storage": st, "shared": bool(shared),
                 "note": note or "", "provenance": json.loads(prov or "{}")}
 
+    OPERATOR_WEIGHT = {"+": 1.0, "-": -1.0, "~": 0.0}
+
+    def weight(self, member: str, cube: str, parent: str | None = None) -> float:
+        """Consolidation weight of a member in its parent from the behaviour card: '+' 1.0, '-' -1.0, '~' 0.0; 1.0
+        when there is no card or its operator is unknown. Without a parent the shallowest placement's."""
+        card = self.card(member, cube, parent)
+        return self.OPERATOR_WEIGHT.get(card["operator"], 1.0) if card else 1.0
+
     # ---- caveats
 
     def _in_scope(self, touched: dict[str, set[str]], metric_ids: set[str]) -> dict[str, set[str]]:

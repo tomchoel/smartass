@@ -233,13 +233,13 @@ def row_cells(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, lkey: 
 
 def counted(ctx: Ctx, q: Query, kids) -> list[str]:
     """Children that take part in the consolidation (weight 0, '~', is ignored)."""
-    return [k for k in kids if ctx.resolver.weight(k, q.cube) != 0]
+    return [k for k in kids if ctx.resolver.weight(k, q.cube, q.entity) != 0]
 
 
 def children_sum(ctx: Ctx, q: Query, metric: str, kids, series: str = "value",
                  base_months: list | None = None) -> Expr:
     """What the children add up to in the parent: weight +1 children minus weight -1 children; weight 0 skipped."""
-    w = {k: ctx.resolver.weight(k, q.cube) for k in kids}
+    w = {k: ctx.resolver.weight(k, q.cube, q.entity) for k in kids}
     plus = tuple(k for k in kids if w[k] > 0)
     minus = tuple(k for k in kids if w[k] < 0)
     if not plus and not minus:
