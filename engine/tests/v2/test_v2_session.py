@@ -33,9 +33,13 @@ def test_info_takes_the_relay_ancestor(monkeypatch):
     class Relay(P):
         def cwd(self):
             return r"C:\work\My proj"
+
+        def parent(self):
+            return P(5, ["claude.exe"])
     monkeypatch.setattr(session, "_info", None)
     monkeypatch.setattr(psutil, "Process", lambda: Me(99, ["python", "child_server.py"]))
-    assert session.info() == {"id": "42-1000", "cwd": r"C:\work\My proj", "project": "My proj"}
+    assert session.info() == {"id": "42-1000", "cwd": r"C:\work\My proj", "project": "My proj",
+                              "client": "5-1000"}
 
 
 def test_two_sessions_survive_set_workbook(monkeypatch, tmp_path):

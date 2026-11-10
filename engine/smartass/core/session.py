@@ -4,8 +4,9 @@ Every client session starts its own relay (run_server.py) in the session's proje
 reloads of the server child, so (relay pid, start time) identifies the session and the relay's working folder names
 the project. Each session keeps ONE analysis workbook (analyser\\<project>\\<date time> <first question>.xlsx) for
 all its questions. After an /mcp reconnect the relay is new, so the last workbook of the same folder (cwd) is taken
-over (the '_last:<cwd>' entry); two sessions in one folder therefore share it, and Excel's per-workbook turn lock keeps
-them from writing at the same time. Every write of the state file is atomic (a temp file, then os.replace)."""
+over (the '_last:<cwd>' entry) - but only by the same client process (the relay's parent: the Claude Code or VS Code
+process that started it). A new session in the same folder, e.g. Copilot after Claude Code, gets its own new workbook
+(10.11: a Copilot session asked about Wholesale and got the folder's old Streamix workbook). Every write of the state file is atomic (a temp file, then os.replace)."""
 from __future__ import annotations
 
 import json
@@ -29,15 +30,24 @@ def _sid(p) -> str:
 
 
 def info() -> dict:
-    """{'id', 'project', 'cwd'} of this server's session (the relay ancestor; the server process itself if none)."""
+    """{'id', 'project', 'cwd', 'client'} of this server's session (the relay ancestor; the server process itself if
+    none). client = the relay's parent process (the agent that started it), '' when unknown."""
     global _info
     if _info is None:
         me = psutil.Process()
         relay = next((p for p in me.parents() if _alive_relay(p)), None)
         p = relay or me
         cwd = _cwd(p) or os.getcwd()
-        _info = {"id": _sid(p), "cwd": cwd, "project": safe_name(Path(cwd).name)}
+        _info = {"id": _sid(p), "cwd": cwd, "project": safe_name(Path(cwd).name), "client": _client(relay)}
     return _info
+
+
+def _client(relay) -> str:
+    try:
+        parent = relay.parent() if relay is not None else None
+        return _sid(parent) if parent is not None else ""
+    except (psutil.Error, OSError):
+        return ""
 
 
 def _cmdline(p) -> list[str]:
@@ -91,15 +101,17 @@ def _save(data: dict) -> None:
 
 def workbook() -> str | None:
     """This session's analysis workbook, if it has one and the file still exists. After an /mcp reconnect the id
-    lookup finds nothing: then the last workbook of the same folder (cwd), if the file still exists, re-bound under
-    the new id."""
+    lookup finds nothing: then the last workbook of the same folder (cwd), if the file still exists AND it was set by
+    the same client process, re-bound under the new id. Another client (a new session) gets None: a new workbook."""
     me = info()
     data = _load()
     own = data.get(me["id"], {}).get("workbook")
     if own and Path(own).exists():
         return own
-    last = data.get(f"{LAST_PREFIX}{me['cwd']}", {}).get("workbook")
-    if last and Path(last).exists():
+    entry = data.get(f"{LAST_PREFIX}{me['cwd']}", {})
+    last = entry.get("workbook")
+    same_client = bool(me.get("client")) and entry.get("client") == me.get("client")
+    if last and same_client and Path(last).exists():
         set_workbook(last)
         return last
     return None
@@ -111,7 +123,8 @@ def set_workbook(path: str) -> None:
     me = info()
     data = _load()
     data[me["id"]] = {"workbook": str(path), "project": me["project"], "cwd": me["cwd"]}
-    data[f"{LAST_PREFIX}{me['cwd']}"] = {"workbook": str(path), "ts": time.time()}     # survives /mcp reconnects
+    data[f"{LAST_PREFIX}{me['cwd']}"] = {"workbook": str(path), "ts": time.time(),      # survives /mcp reconnects
+                                         "client": me.get("client", "")}                # ... of the same client only
     live = set()
     for p in psutil.process_iter():
         try:
