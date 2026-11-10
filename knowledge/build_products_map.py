@@ -8,6 +8,7 @@ Kilder:
 Lager «Forretningskart 2 - Produkter.xlsx» (gjennomgang) og products_map.json (for skill og server).
 """
 import datetime as dt
+import glob
 import json
 import os
 import sqlite3
@@ -16,7 +17,38 @@ from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from build_accounts_map import ATLAS, DIVISIONS, latest, read_pull  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "engine"))
+from smartass.core import config as _cfg  # noqa: E402
+
+OUT_DIR = str(_cfg.OUT_DIR)
+ATLAS = str(_cfg.ATLAS_DB)
+DIVISIONS = {
+    "un.SY.2SSM": "SSM Security Solutions & Mobile", "un.SY.2EI": "E&I Entertainment & Internet",
+    "un.SY.2BUS": "Business", "un.SY.2WHS": "Wholesale", "un.SY.2TEC": "Technology", "un.SY.2IT": "IT",
+    "un.SY.2ADM": "Administrasjon", "un.SY.2NRD_N": "Nordics", "un.SY.2CWK": "CA, WS & Kystradio",
+    "un.SY.3KYS_C": "Kystradio", "un.SY.3FIB": "TnFiber IC", "un.SY.5OMS_A": "Omstilling",
+    "un.SY.2I15": "IFRS15-justering", "un.SY.2I16": "IFRS16-justering", "un.SY.E171": "IFRS16 elim. korr.",
+    "un.SY.DE11": "STAR", "un.SY.G916": "IMEI korr.", "un.SY.SYi": "Vurdering", "un.SY.2CON": "Consumer (nedlagt)",
+    "un.SY.2IG": "Infrastructure Growth (nedlagt)", "un.SY.OUTDATED": "Utgåtte noder",
+}
+
+
+def latest(title):
+    files = sorted(glob.glob(os.path.join(OUT_DIR, f"*_FinMax_{title}.xlsx")))
+    if not files:
+        sys.exit(f"Mangler uttrekk '{title}' i {OUT_DIR} - kjør sv_query med save_xlsx og den tittelen først.")
+    return files[-1]
+
+
+def read_pull(path):
+    import openpyxl
+    ws = openpyxl.load_workbook(path, read_only=True, data_only=True)["Data"]
+    rows = list(ws.iter_rows(values_only=True))
+    head = rows[0]
+    out = {}
+    for r in rows[1:]:
+        out[r[0]] = {head[i]: (r[i] if isinstance(r[i], (int, float)) else 0.0) for i in range(1, len(head) - 1)}
+    return out, os.path.basename(path)
 
 XLSX = os.path.join(HERE, "Forretningskart 2 - Produkter.xlsx")
 JSON_OUT = os.path.join(HERE, "products_map.json")

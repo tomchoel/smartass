@@ -15,7 +15,10 @@ from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from build_accounts_map import ATLAS  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "engine"))
+from smartass.core import config as _cfg  # noqa: E402
+
+ATLAS = str(_cfg.ATLAS_DB)
 
 CONCEPTS = os.path.join(HERE, "concepts.json")
 SOURCE = "auto-familie"
