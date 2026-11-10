@@ -50,7 +50,8 @@ New semantic kinds next to `metrics/`, `facts/`, `concepts/` (each a pydantic mo
 | `rules/` | cube choice, scenario rules (actual/plan per cube, open month), sign convention, P&L chain, materiality defaults, currency words, group-company patterns, checks | `catalog.toml` [pnl], [checks], [scenarios], [materiality], [group_companies]; `capabilities.toml` [currency]; `series.py` scenario constants |
 | `entities/` | an entity: id, cube members, level, synonyms, successors, valid_from/to | `catalog.toml` [[entity]], `org_map.json` |
 | `kpis/` | a FinPlan KPI (volume, ARPU, FTE): members, unit, balance, scenarios that hold it | `catalog.toml` [[kpi]], `finplan_map.json` |
-| `bundles/` | an account bundle: name, aliases, account members per cube | `accounts_map.json`, `capabilities.toml` [[measure]] |
+| `metrics/` (bundles) | an account bundle is a plain metric: aliases, FinMax/FinLite members | `capabilities.toml` [[measure]] accounts |
+| `notes/` | per member: meaning and booking pattern (234 FinMax accounts, 1 478 entities, 654 FinPlan accounts) | `accounts_map.json`, `org_map.json`, `finplan_map.json` |
 | `vocab/` | vague words and grain ("costs", "the business", "per month") → the options to offer | `capabilities.toml` [[grain]], vague-word lists |
 | `cards/` | behaviour cards (§3), generated + hand-set | new |
 
@@ -101,7 +102,9 @@ sources disagree on fails the build (§6).
 
 ## 4. Caveats that inherit
 
-`Fact` gains `inherit: "self" | "down" | "up" | "both"` (default `both`) and keeps `scope_metrics`.
+`Fact` gains `inherit: "self" | "down" | "up" | "both"` (default `self`; every fact sets it explicitly) and keeps
+`scope_metrics`. `up` climbs only to the nearest ancestor a metric or an entity names (C40510 stops at C40S),
+so one account trap does not ride into every EBITDA answer.
 
 - **down:** the fact applies to the member and every descendant (a reorg on 2CON reaches its cost centres).
 - **up:** the fact applies to every ancestor ("contains X": C40S carries the C40510 trap; a division carries a
