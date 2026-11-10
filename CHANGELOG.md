@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Knowledge layer phase A (0.2.22, spec `docs/specs/2026-11-10-knowledge-layer-design.md`)
+
+- One source: `knowledge/semantic` gains `rules/`, `entities/`, `kpis/`, `vocab/`, `notes/` and account-bundle
+  metrics, folded from catalog.toml, capabilities.toml and the three 15.10 business maps (all deleted with seed.py).
+- Caveats inherit over the atlas tree (`inherit` down / up / both) and say `via` the member they came from, also on
+  the Answer sheet: C40S carries the C40510 trap, a division its reorgs.
+- `fin_lookup` kinds `entity`, `kpi`, `vocab`, `rule`; member hits carry their meaning note; short and generic aliases
+  follow the catalogue's matching rules (longest match wins).
+- Scenarios and the default materiality come from the rules (raw-member default now 10 %, Tom's catalogue decision);
+  FTE materiality 10 FTE / 5 %.
+- The build stops on contradictions (entity placement, FinPlan division level 1xxx vs 2xxx, aliases across kinds,
+  rules defined once, required rules approved). A stale atlas warns on every answer; an atlas refresh that breaks the
+  knowledge keeps the old knowledge.db.
+
 v2 stands alone: one MCP server `smartass` with nine tools; the agent writes an AnalysisSpec v2 and the engine
 validates, computes and draws it (design `docs/DESIGN.md`, `docs/specs/2026-11-04-v2-overview.md`). v1 is retired.
 
