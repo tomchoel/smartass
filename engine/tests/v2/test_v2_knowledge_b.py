@@ -871,3 +871,143 @@ def test_the_pipeline_adds_the_card_caveats_once(tmp_path):
     spec = SimpleNamespace(blocks=[], queries=[])
     got = pipeline.caveats(spec, [req, req], r)
     assert [c["id"] for c in got if c["id"].startswith("card_")] == ["card_ac.STA21Y"]
+
+
+# --- review fixes: no atlas scans, new cards rebuild, ~ children out of shown lines, grouped caveats ------------------
+
+def test_card_lookups_never_touch_the_atlas_tree(tmp_path, monkeypatch):
+    import time
+    r = _lookup(tmp_path)
+
+    def boom(*a, **k):
+        raise AssertionError("atlas parent() scan")
+    monkeypatch.setattr(r, "parent", boom)
+    touched = {"FinMax": {f"un.SY.E{i}" for i in range(500)} | {"ac.STA21Y"}}
+    t = time.perf_counter()
+    got = r.card_caveats(touched)
+    assert time.perf_counter() - t < 0.2 and [c["id"] for c in got] == ["card_ac.STA21Y"]
+    assert r.compact_card("ac.STA", "FinMax")["children_ignored"] == ["ac.STA21Y"]
+    assert r.card("ac.STA21Y", "FinMax")["operator"] == "~"                   # no parent: read from knowledge.db
+
+
+def test_a_new_card_derivation_rebuilds_knowledge_db(tmp_path, monkeypatch):
+    from kutil import knowledge
+
+    from smartass.knowledge.resolver import REBUILT_NOTE, ensure_built
+    a, _, _k = knowledge(tmp_path, monkeypatch)
+    con = sqlite3.connect(a)
+    con.execute("DELETE FROM build")
+    con.execute("INSERT INTO build VALUES ('FinMax','All Accounts',1790000000.0,9,1.0,NULL)")
+    con.commit()
+    notes: list[str] = []
+    ensure_built(notes)
+    notes.clear()
+    ensure_built(notes)
+    assert notes == []
+    con.execute("INSERT INTO card VALUES ('FinMax','All Accounts','ac.C30','ac.C48','+',NULL,NULL,0,1790000900.0)")
+    con.commit()
+    ensure_built(notes)
+    assert notes == [REBUILT_NOTE]
+    from smartass.knowledge.build import summary
+    assert summary(_k)["atlas_built_ts"] == "1790000000.0|1790000900.0"
+    con.close()
+
+
+def test_the_fte_metric_also_covers_finlite(tmp_path):
+    r = _lookup(tmp_path)
+    assert r.card_caveats({"FinLite": {"ac.STA20Y"}, "FinMax": {"ac.STA20Y"}}) == []
+
+
+def test_many_levels_make_one_grouped_caveat(tmp_path):
+    r = _lookup(tmp_path)
+    r._levels |= {("FinMax", f"ac.x{i}") for i in range(5)}
+    r.card = lambda m, c, parent=None: {"time_balance": "balance_last"}
+    got = r.card_caveats({"FinMax": {f"ac.x{i}" for i in range(5)}})
+    assert [c["id"] for c in got] == ["card_levels"] and got[0]["text"].startswith("5 accounts are levels or averages:")
+    assert "and 2 more" in got[0]["text"]
+
+
+def test_the_average_caveat_says_the_average(tmp_path):
+    got = _lookup(tmp_path).card_caveats({"FinMax": {"ac.AVG1"}})
+    assert got[0]["text"] == "AVG1 average is an average (time balance average): read the period's average, never sum months."
+
+
+def test_an_own_cube_override_beats_a_parented_finmax_one_on_finlite_rows(tmp_path):
+    toml = ('[[card]]\ncube = "FinMax"\nmember = "ac.STA21Y_stage"\nparent = "ac.Not_Mapped"\n'
+            'time_balance = "average"\nsource = "t"\n'
+            '[[card]]\ncube = "FinLite"\nmember = "ac.STA21Y_stage"\ntime_balance = "balance_last"\nsource = "t"\n')
+    r, _ = _resolver(tmp_path, {"x": toml})
+    assert r.card("ac.STA21Y_stage", "FinLite", "ac.Not_Mapped")["time_balance"] == "balance_last"
+    assert r.card("ac.STA21Y_stage", "FinMax", "ac.Not_Mapped")["time_balance"] == "average"
+
+
+def _tilde_ctx(block):
+    from v2util import CLOSED, spec_dict
+
+    from smartass.model.context import Ctx
+    from smartass.model.frame import Fact, Frame
+    from smartass.model.resolver import MetricDef, StaticResolver
+    from smartass.model.spec import AnalysisSpec
+    d = spec_dict(blocks=[block])
+    d["queries"][0].update(entity="P", periods="Sep 26")
+    r = StaticResolver([MetricDef("Revenue", {"FinMax": ("ac.C30",)})], tree={"P": ("A", "B", "T")},
+                       weights={"T": 0.0})
+    fr = Frame([Fact("FinMax", "fm", "ac.C30", e, p, "Actual", "", v) for e, v in
+                (("A", 100.0), ("B", 30.0), ("T", 500.0), ("P", 130.0)) for p in ("Sep 26", "Sep 25")])
+    return Ctx(AnalysisSpec.model_validate(d), r, CLOSED, fr)
+
+
+def test_a_tilde_child_is_not_shown_ranked_or_in_other():
+    from smartass.model.blocks.common import ck, entity_lines
+    c = _tilde_ctx({"type": "matrix", "query": "fm", "metric": "Revenue"})
+    lines = entity_lines(c, c.query("fm"), "Revenue", ["value"], "b0")
+    assert [ln.entity for ln in lines if ln.kind not in ("grand", "check")] == ["A", "B"]
+    ranked = entity_lines(c, c.query("fm"), "Revenue", ["value"], "b0", top=1, sort="desc")
+    assert [ln.entity for ln in ranked if ln.key.startswith("e")] == ["A"]
+    other = next(ln for ln in ranked if ln.key == "other")
+    from smartass.model.blocks.common import BlockOut, evaluate
+    cells = evaluate([BlockOut("b0", "table", "t", ["Actual"], lines=ranked)], c.frame)
+    assert cells.get(ck("b0", "other", 0)) == 30.0 and other
+
+
+def test_a_tilde_child_is_not_a_driver():
+    from smartass.model.blocks.drivers import build_drivers
+    c = _tilde_ctx({"type": "drivers", "query": "fm", "metric": "Revenue", "base": "ly"})
+    out = build_drivers(c.spec.blocks[0], c, "b0")
+    assert "T" not in [ln.entity for ln in out.lines]
+
+
+# --- Task 8: new metrics, verified live ---------------------------------------------------------------------------
+
+def test_a_metric_verified_stamp_round_trips_through_its_toml(tmp_path):
+    from smartass.knowledge.semantic import Metric, load_semantic, to_toml, terms
+    m = Metric(id="ebit_x", name="EBIT X", aliases=["driftsresultat x"], description="d", status="approved",
+               approved={"by": "auto", "on": "2026-11-10", "via": "live check phase B"},
+               verified={"by": "auto", "on": "2026-11-10"}, finmax={"members": ["ac.EBIT"]})
+    (tmp_path / "metrics").mkdir()
+    (tmp_path / "metrics" / "ebit_x.toml").write_text(to_toml(m), encoding="utf-8")
+    [back], _ = load_semantic(tmp_path)
+    assert back == m and back.verified == {"by": "auto", "on": "2026-11-10"}
+    assert terms(back) == ["EBIT X", "driftsresultat x"]
+
+
+PHASE_B = ("ebit", "depreciation_writedowns", "profit_before_tax", "net_financial_items", "net_income", "capex",
+           "total_assets", "subscriptions_fixed", "subscriptions_internet", "subscriptions_tv",
+           "subscriptions_fixed_phone", "arpu_internet", "arpu_tv", "fte_finplan")
+
+
+def test_the_phase_b_metrics_are_verified_and_read_levels_at_the_period_end():
+    from smartass.core import config
+    from smartass.knowledge.semantic import load_semantic
+    metrics = {m.id: m for m in load_semantic(config.SEMANTIC_DIR)[0]}
+    for mid in PHASE_B:
+        m = metrics[mid]
+        assert m.status == "approved" and m.verified and m.approved["by"] == "auto", mid
+    assert (metrics["total_assets"].balance, metrics["total_assets"].aggregation) == ("Accumulated", "last")
+    assert (metrics["fte_finplan"].balance, metrics["fte_finplan"].aggregation) == ("Accumulated", "last")
+    for mid in PHASE_B:                 # FinMax statistics hold a level per month: Accumulated would add them up
+        if mid.startswith(("subscriptions_", "arpu_")):
+            assert (metrics[mid].balance, metrics[mid].aggregation) == ("Periodic", "last"), mid
+            assert metrics[mid].pct_floor is not None and metrics[mid].materiality[0] < 1000, mid
+    assert "FinPlan" not in metrics["net_income"].members()       # FinPlan Net Income has no tax (= PBT)
+    assert metrics["capex"].sign == "neutral"                     # capex is stored positive

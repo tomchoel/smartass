@@ -231,9 +231,9 @@ def row_cells(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, lkey: 
             else None if c == GAP else derived(c, cols, key, lkey, total_key, j) for j, c in enumerate(cols)]
 
 
-def counted(ctx: Ctx, q: Query, kids) -> list[str]:
-    """Children that take part in the consolidation (weight 0, '~', is ignored)."""
-    return [k for k in kids if ctx.resolver.weight(k, q.cube, q.entity) != 0]
+def counted(ctx: Ctx, q: Query, kids, parent: str | None = None) -> list[str]:
+    """Children that take part in the consolidation (weight 0, '~', is ignored); parent defaults to the query's."""
+    return [k for k in kids if ctx.resolver.weight(k, q.cube, parent or q.entity) != 0]
 
 
 def children_sum(ctx: Ctx, q: Query, metric: str, kids, series: str = "value",
@@ -269,6 +269,7 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
     r = ctx.resolver
     kids = list(r.children(q.entity, q.cube))
     every = list(kids)                                  # the check sums every child, shown or not
+    kids = counted(ctx, q, kids)                        # a '~' child is not in the parent: not shown, not in Other
 
     def val(e: str) -> float:
         return ctx.value(ctx.pick(q, metric, "value", e)) or 0.0

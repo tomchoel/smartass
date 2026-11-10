@@ -13,7 +13,7 @@ from ..model.periods import Month
 from ..model.resolver import MetricDef, UnknownMetric, metric_of_member, pct_floor_of
 from . import atlas
 from .atlas_tree import AtlasTree
-from .build import build, search_concepts, search_metrics, semantic_hash, summary
+from .build import atlas_stamp, build, card_targets, search_concepts, search_metrics, semantic_hash, summary
 from .semantic import Concept, Entity, Fact, Kpi, Metric, Rule, Vocab
 
 SEVERITY_ORDER = {"block": 0, "warn": 1, "info": 2}
@@ -40,6 +40,8 @@ class KnowledgeResolver(AtlasTree):
         self._entities = {i: Entity.model_validate_json(js) for i, js in kdb.execute("SELECT id, json FROM entity")}
         self._kpis = {i: Kpi.model_validate_json(js) for i, js in kdb.execute("SELECT id, json FROM kpi")}
         self._vocab = {i: Vocab.model_validate_json(js) for i, js in kdb.execute("SELECT id, json FROM vocab")}
+        self._levels = {(cube, m.casefold()) for cube, m in kdb.execute(
+            "SELECT DISTINCT cube, member FROM card WHERE time_balance IN ('balance_last', 'average')")}
         self._lookup: dict[str, Metric] = {}
         for mid, terms in self._terms().items():
             for t in terms:
@@ -186,14 +188,13 @@ class KnowledgeResolver(AtlasTree):
         """The merged behaviour card of a member under a parent (derived, with manual fields over it); without a
         parent the shallowest placement's. None when there is no card. {operator, time_balance, account_type,
         storage, shared, note, provenance}; unknown fields are None."""
-        if parent is None:
-            parent = self.parent(member, cube)
-        if parent is None:
-            return None
-        row = self.kdb.execute(
-            "SELECT operator, time_balance, account_type, storage, shared, note, provenance FROM card "
-            "WHERE cube=? AND member=? COLLATE NOCASE AND parent=? COLLATE NOCASE ORDER BY dimension LIMIT 1",
-            (cube, member, parent)).fetchone()
+        cols = "SELECT operator, time_balance, account_type, storage, shared, note, provenance FROM card "
+        if parent is None:        # no atlas call: the placement that has an operator, else the first by parent
+            row = self.kdb.execute(cols + "WHERE cube=? AND member=? COLLATE NOCASE "
+                                   "ORDER BY operator IS NULL, parent LIMIT 1", (cube, member)).fetchone()
+        else:
+            row = self.kdb.execute(cols + "WHERE cube=? AND member=? COLLATE NOCASE AND parent=? COLLATE NOCASE "
+                                   "ORDER BY dimension LIMIT 1", (cube, member, parent)).fetchone()
         if row is None:
             return None
         op, tb, at, st, shared, note, prov = row
@@ -213,25 +214,32 @@ class KnowledgeResolver(AtlasTree):
                 out[key] = list(dict.fromkeys(kids))
         return out
 
+    GROUP_OVER = 3
+
     def card_caveats(self, touched: dict[str, set[str]]) -> list[dict]:
-        """One info caveat per touched account that is a level (time balance last) or an average, unless a metric with
-        aggregation 'last' already covers it (the answer then reads the period end by itself). id card_<member>."""
-        covered = {(cube, x.casefold()) for m in self._metrics.values() if m.aggregation == "last"
-                   for cube, ms in m.members().items() for x in ms}
-        out: dict[str, dict] = {}
+        """Info caveats for touched accounts that are a level (time balance last) or an average, unless a metric with
+        aggregation 'last' already covers them (FinMax also covers FinLite). Up to 3: one caveat each, id
+        card_<member>; more: one grouped caveat card_levels naming the first 3. Only the members that have such a
+        card are looked at (no atlas call)."""
+        covered = {(c, x.casefold()) for m in self._metrics.values() if m.aggregation == "last"
+                   for cube, ms in m.members().items() for c in card_targets(cube) for x in ms}
+        found: dict[str, tuple[str, str]] = {}
         for cube, members in touched.items():
-            for member in sorted(members):
+            for member in sorted(m for m in members if (cube, m.casefold()) in self._levels
+                                 and (cube, m.casefold()) not in covered):
                 card = self.card(member, cube)
-                tb = card["time_balance"] if card else None
-                cid = f"card_{member}"
-                if tb not in ("balance_last", "average") or cid in out or (cube, member.casefold()) in covered:
-                    continue
-                label = self.label(member, cube)
-                out[cid] = {"id": cid, "severity": "info", "text": (
-                    f"{label} is a level (time balance last): read the period-end value, never sum months."
-                    if tb == "balance_last" else
-                    f"{label} is an average (time balance average): read the period value, never sum months.")}
-        return [out[k] for k in sorted(out)]
+                if card and card["time_balance"] in ("balance_last", "average"):
+                    found.setdefault(f"card_{member}", (self.label(member, cube), card["time_balance"]))
+        if len(found) > self.GROUP_OVER:
+            first = ", ".join(lab for lab, _ in list(found.values())[:3])
+            return [{"id": "card_levels", "severity": "info", "text": (
+                f"{len(found)} accounts are levels or averages: {first} and {len(found) - 3} more. Read the "
+                "period-end value of a level (or the period's average), never sum months.")}]
+        return [{"id": cid, "severity": "info", "text": (
+            f"{lab} is a level (time balance last): read the period-end value, never sum months."
+            if tb == "balance_last" else
+            f"{lab} is an average (time balance average): read the period's average, never sum months.")}
+            for cid, (lab, tb) in sorted(found.items())]
 
     OPERATOR_WEIGHT = {"+": 1.0, "-": -1.0, "~": 0.0}
 
@@ -360,10 +368,9 @@ def _atlas_stamp(path: Path) -> str:
         return ""
     db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     try:
-        t = db.execute("SELECT max(built_at) FROM build").fetchone()[0]
+        return atlas_stamp(db)
     finally:
         db.close()
-    return repr(float(t)) if t else ""
 
 
 def ensure_built(notes: list[str] | None = None) -> Path:

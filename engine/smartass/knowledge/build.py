@@ -42,6 +42,7 @@ CREATE VIRTUAL TABLE concept_fts USING fts5(text, concept_id UNINDEXED);
 CREATE TABLE card (cube TEXT, dimension TEXT, member TEXT, parent TEXT, operator TEXT, time_balance TEXT,
   account_type TEXT, storage TEXT, shared INT, note TEXT, provenance TEXT);
 CREATE INDEX ix_card_member ON card(cube, member COLLATE NOCASE);
+CREATE INDEX ix_card_parent ON card(cube, parent COLLATE NOCASE);
 """
 SCHEMA_VERSION = "3b"     # part of the semantic hash: a new schema rebuilds knowledge.db like changed files
 # Member labels indexed for search: the account and entity trees (the dimensions questions name).
@@ -237,6 +238,19 @@ def check_layer(k, atlas, report: BuildReport) -> None:
         report.warnings.append(f"duplicate member notes: {'; '.join(dup[:10])}{' ...' if len(dup) > 10 else ''}")
 
 
+def atlas_stamp(db: sqlite3.Connection) -> str:
+    """What knowledge.db was built from: the atlas build time, plus '|<newest card derivation>' once there are cards
+    (a standalone `smartass atlas cards` then rebuilds knowledge.db like a new atlas). '' without an atlas."""
+    t = db.execute("SELECT max(built_at) FROM build").fetchone()[0]
+    if not t:
+        return ""
+    try:
+        c = db.execute("SELECT max(derived_at) FROM card").fetchone()[0]
+    except sqlite3.OperationalError:
+        c = None
+    return repr(float(t)) + (f"|{float(c)!r}" if c else "")
+
+
 def card_targets(cube: str) -> tuple[str, ...]:
     """The cubes a card override of `cube` applies to: FinLite shares FinMax's members, so FinMax's cover both."""
     return ("FinMax", "FinLite") if cube == "FinMax" else (cube,)
@@ -311,7 +325,7 @@ def merged_cards(atlas: sqlite3.Connection, cards, today: str) -> list[tuple]:
         rows[key] = {**fields, "storage": None, "shared": int(shared or 0), "note": "",
                      "provenance": {f: stamp for f, v in fields.items() if v is not None}}
         by_name.setdefault((conn, name.casefold()), []).append(key)
-    for o in sorted(cards, key=lambda o: (bool(o.parent), o.cube == "FinLite")):
+    for o in sorted(cards, key=lambda o: (o.cube == "FinLite", bool(o.parent))):   # own cube beats the shared one
         for cube in card_targets(o.cube):
             keys = [kk for kk in by_name.get((cube, o.member.casefold()), [])
                     if not o.parent or kk[3].casefold() == o.parent.casefold()]
@@ -432,7 +446,7 @@ def build(semantic_dir: Path, atlas_db: Path, out_db: Path, extra_meta: dict | N
             return report
         atlas_built = atlas.execute("SELECT max(built_at) FROM build").fetchone()[0]
         meta = {"built_at": time.strftime("%Y-%m-%d %H:%M:%S"), "semantic_hash": semantic_hash(Path(semantic_dir)),
-                "atlas_built_ts": repr(float(atlas_built)) if atlas_built else "",
+                "atlas_built_ts": atlas_stamp(atlas),
                 "atlas_built_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(atlas_built)) if atlas_built
                 else "", "metrics": len(metrics), "facts": len(facts), "concepts": len(concepts),
                 "rules": len(k.rules), "entities": len(k.entities), "kpis": len(k.kpis), "vocab": len(k.vocab),
