@@ -1,6 +1,6 @@
-text = "FinPlan divisions have two levels: 1<CODE> (the division total, incl. Ambition 2INT_* and IFRS adjustments) and 2<CODE> (the operational unit). Which level matches FinMax un.SY.2<CODE> is not verified yet."
+text = "FinPlan divisions have two levels: 1<CODE> (division total, incl. Ambition 2INT_* and IFRS adjustments) and 2<CODE> (the operational unit). They differ by at most about 50 MNOK on a line (live 10.11: SSM OPEX FY25 Actual 1SSM -1 935 vs 2SSM -1 887; EI OPEX Target FY26 -234 vs -265; BUS and TEC identical): use 1<CODE> as the division in FinPlan. Neither level equals FinMax un.SY.2<CODE>: FinPlan groups accounts differently (BUS FY25 revenue FinPlan 8 114 vs FinMax 7 491, EBITDA 5 319 vs 4 552 MNOK), so compare across cubes only with a reconciliation line."
 severity = "warn"
-source = "atlas 2026-11-10"
+source = "atlas 2026-11-10 + live check 10.11 (FY25 Actual/Working YearTotal, Target FY26 vs FinMax Yr 25)"
 status = "approved"
 inherit = "down"
 approved = { by = "auto", on = "2026-11-10" }
