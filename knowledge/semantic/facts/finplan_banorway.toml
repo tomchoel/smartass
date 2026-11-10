@@ -2,7 +2,7 @@ text = "FinPlan entity BANORWAY is Telenor Norge (FinMax un.SY). Actual is Scena
 severity = "info"
 source = "finplan_map.json meta notes (approved by Tom 2026-10-15)"
 status = "approved"
-inherit = "down"
+inherit = "self"
 
 [scope_members]
 FinPlan = ["BANORWAY"]
