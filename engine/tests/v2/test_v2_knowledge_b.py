@@ -98,3 +98,217 @@ def test_account_type_uses_every_hierarchy_and_signs_only_inside_the_pnl():
     assert account_type(["Fixed Broadband subscriptions", "Statistics"], 9.0) == "statistic"   # FinPlan
     assert account_type(["ac.EBITDA", "Ratios", "Account"], 0.3) is None      # a ratio is no revenue
     assert account_type(["ac.X", "ac.Export"], 5.0) is None                   # outside the P&L no sign guess
+
+
+# --- Task 3: fetch the slices and store the cards in atlas.db --------------------------------------------------------
+
+from smartass.knowledge import atlas, cards_fetch  # noqa: E402
+
+
+class FakeSv:
+    """fetch(conn, pov, rows, cols) -> a Fetched-like grid in Smart View's shape: row 0 POV, rows 1..nc column
+    headers, then one row per member with its label in column 0 and the values from column nr on
+    (values[1 + nc + j][nr + k], as svhttp.Fetched). `values`: {(column member, row member): value}, or a function
+    (pov, column member, row member) -> value."""
+
+    def __init__(self, values):
+        self.values, self.calls = values, []
+
+    def get(self, pov, col, name):
+        if callable(self.values):
+            return self.values(pov, col, name)
+        return self.values.get((col, name), "#Missing")
+
+    def fetch(self, conn, pov, rows, cols):
+        self.calls.append((conn, dict(pov), list(rows[0].members), list(cols[0].members)))
+        names, cs = rows[0].members, cols[0].members
+
+        class L:
+            nr, nc = 1, 1
+        grid = [[None] * (1 + len(cs)), [None, *cs]] + [[n, *(self.get(pov, c, n) for c in cs)] for n in names]
+        return type("F", (), {"layout": L, "values": grid})()
+
+
+def _atlas(tmp_path, rows):
+    db = atlas.connect(tmp_path / "a.db")
+    db.executemany("INSERT INTO member VALUES (?,?,?,?,?,?,?)", rows)
+    db.commit()
+    return db
+
+
+def test_derive_dimension_stores_operators_and_shared(tmp_path):
+    db = _atlas(tmp_path, [
+        ("FinMax", "All Entities", "All Entities", "All Entities", None, 0, 0),
+        ("FinMax", "All Entities", "un.SY", "SY", "All Entities", 1, 1),
+        ("FinMax", "All Entities", "A", "A", "un.SY", 2, 2),
+        ("FinMax", "All Entities", "Ai", "Ai elim", "un.SY", 2, 3),
+        ("FinMax", "All Entities", "A", "A", "OTHER", 2, 4)])
+    sv = FakeSv({("ac.C70", "un.SY"): 10.0, ("ac.C70", "A"): 10.0, ("ac.C70", "Ai"): 4.0,
+                 ("ac.C70", "All Entities"): 10.0})
+    n = cards_fetch.derive_dimension(sv, db, "FinMax", "All Entities", chunk=2, year=2025)
+    rows = {(r[0], r[1]): r for r in db.execute("SELECT name, parent, operator, shared, account_type FROM card")}
+    assert rows[("A", "un.SY")][2] == "+" and rows[("Ai", "un.SY")][2] == "~"
+    assert rows[("A", "un.SY")][3] == 1 and rows[("Ai", "un.SY")][3] == 0
+    assert rows[("A", "un.SY")][4] is None                                # account type only for accounts
+    assert n == 4 and len(sv.calls) == 2                                  # 4 names, chunk 2: 2 grids, both columns
+    assert sv.calls[0][3] == ["ac.C70", "ac.C30"] and sv.calls[0][1]["All Time Periods"] == "Yr 25"
+
+
+def test_a_shared_account_is_typed_over_every_hierarchy(tmp_path):
+    """ac.STA20Y's first parent by atlas order is ac.Export (real atlas 10.11); its type comes from ac.STA."""
+    A = "All Accounts"
+    db = _atlas(tmp_path, [
+        ("FinMax", A, A, A, None, 0, 0),
+        ("FinMax", A, "ac.Export", "x", A, 1, 1),
+        ("FinMax", A, "ac.STA20Y", "fte", "ac.Export", 2, 2),
+        ("FinMax", A, "ac.Statistics", "s", A, 1, 3),
+        ("FinMax", A, "ac.STA", "s", "ac.Statistics", 2, 4),
+        ("FinMax", A, "ac.STA20Y", "fte", "ac.STA", 3, 5)])
+    sv = FakeSv({("Yr 25", "ac.STA20Y"): 2782.0, ("Yr 25", "ac.STA"): 2782.0})
+    cards_fetch.derive_dimension(sv, db, "FinMax", A, year=2025)
+    types = {r[0] for r in db.execute("SELECT account_type FROM card WHERE name='ac.STA20Y'")}
+    assert types == {"statistic"}
+    assert db.execute("SELECT operator FROM card WHERE name='ac.STA20Y' AND parent='ac.STA'").fetchone()[0] == "+"
+
+
+def test_a_noaccess_parent_is_unknown_not_a_zero_parent(tmp_path):
+    E = "All Entities"
+    db = _atlas(tmp_path, [("FinMax", E, "P", "P", E, 1, 1), ("FinMax", E, "A", "A", "P", 2, 2),
+                           ("FinMax", E, "B", "B", "P", 2, 3)])
+    sv = FakeSv({("ac.C70", "P"): "#NoAccess", ("ac.C70", "A"): 4.0, ("ac.C70", "B"): 1.0})
+    cards_fetch.derive_dimension(sv, db, "FinMax", E, year=2025)
+    assert {r[0] for r in db.execute("SELECT operator FROM card WHERE parent='P'")} == {None}
+
+
+def test_finplan_accounts_take_a_second_scenario_for_what_actual_lacks(tmp_path):
+    db = _atlas(tmp_path, [("FinPlan", "Account", "Statistics", "s", "Account", 1, 1),
+                           ("FinPlan", "Account", "Subs", "s", "Statistics", 2, 2)])
+
+    def val(pov, col, name):                       # only Target has data
+        return {"Statistics": 9.0, "Subs": 9.0}[name] if pov["Scenario"] == "Target" else "#Missing"
+    sv = FakeSv(val)
+    cards_fetch.derive_dimension(sv, db, "FinPlan", "Account", year=2025)
+    assert [(c[1]["Scenario"], c[1]["Years"], c[3]) for c in sv.calls] == [
+        ("Actual", "FY25", ["YearTotal"]), ("Target", "FY26", ["YearTotal"])]
+    assert db.execute("SELECT operator, account_type FROM card WHERE name='Subs'").fetchone() == ("+", "statistic")
+
+
+def test_finlite_copies_finmax_cards_where_its_tree_is_the_same(tmp_path):
+    E = "All Entities"
+    db = _atlas(tmp_path, [("FinLite", E, "A", "A", "P", 2, 1), ("FinLite", E, "B", "B", "Q", 2, 2)])
+    atlas.store_cards(db, "FinMax", E, [("A", "P", "+", None, None, 0), ("B", "P", "~", None, None, 0)])
+    atlas.store_cards(db, "FinLite", E, [("old", "P", "+", None, None, 0)])
+    assert cards_fetch.copy_finlite(db) == 1
+    assert db.execute("SELECT name, parent, operator FROM card WHERE connection='FinLite'").fetchall() == [
+        ("A", "P", "+")]
+
+
+def test_cards_status_counts(tmp_path):
+    db = atlas.connect(tmp_path / "a.db")
+    atlas.store_cards(db, "FinMax", "All Entities", [("A", "P", "+", None, None, 0), ("B", "P", None, None, None, 0)])
+    st = atlas.cards_status(db)
+    assert st[0]["rows"] == 2 and st[0]["operator"] == {"+": 1, "unknown": 1}
+
+
+def test_hidden_children_allow_only_plus_for_the_visible_ones():
+    kids = {"P": ["A", "B", "H"]}
+    got = operators(kids, {"P": 5.0, "A": 2.0, "B": 3.0}, blocked=[{"H"}])
+    assert got == {("P", "A"): "+", ("P", "B"): "+", ("P", "H"): None}
+    # real case 10.11 (FinMax ac.C70 Yr 25): un.L9 is empty, un.L9.C #NoAccess, un.L9.L9i -48 292. Read as 0 the
+    # probe called L9i '~' (a zero parent); with the hidden child nothing can be said.
+    real = {"un.L9": ["un.L9.C", "un.L9.506010", "un.L9.L9i"]}
+    got = operators(real, {"un.L9.L9i": -48292.28}, blocked=[{"un.L9.C"}])
+    assert set(got.values()) == {None}
+
+
+def test_the_nearest_branch_root_decides_the_account_type():
+    """Live atlas 10.11: the FinMax P&L is shared into equity (ac.C89T -> ac.C203 -> ... -> ac.C1_C2), so ac.C70
+    and ac.C30 have ac.C1_C2 above them too; the nearest root decides."""
+    c70 = ["ac.C70", "ac.EBITDA_BOI", "ac.EBITDA", "ac.EBIT", "ac.C85", "ac.C87", "ac.C89T", "ac.C203", "ac.C3_C8",
+           "ac.C207", "ac.C208", "ac.C20S", "ac.C2S", "ac.C1_C2"]
+    assert account_type(c70, -1.0) == "expense"
+    assert account_type({"ac.C85": 0, "ac.C87": 1, "ac.C89T": 2, "ac.C3_C8": 3, "ac.C203": 3, "ac.C1_C2": 8},
+                        -4.0) == "expense"                                     # P&L sign, not balance
+    assert account_type({"ac.C181": 0, "ac.C18S": 1, "ac.C1_C2": 4, "ac.Export": 1}, 3.0) == "balance"
+    assert cards_fetch.ancestry("x", {"x": ["e", "s"], "e": ["root"], "s": ["root"]}) == {"x": 0, "e": 1, "s": 1,
+                                                                                          "root": 2}
+
+
+def test_a_member_whose_name_clashes_with_an_alias_is_found_and_left_out():
+    class Clash(FakeSv):
+        def fetch(self, conn, pov, rows, cols):
+            if "SDx Revenue" in rows[0].members:
+                self.calls.append(("fail", len(rows[0].members)))
+                raise RuntimeError("Smart View provider: Found duplicate aliases or member name conflicting with "
+                                   "alias under parent 'ac.Statistics'.")
+            return super().fetch(conn, pov, rows, cols)
+    names = ["A", "B", "SDx Revenue", "C", "D"]
+    sv = Clash({("YearTotal", n): 1.0 for n in names})
+    vals, blocked = cards_fetch.grid(sv, "FinPlan", {}, "Account", names, "Period", ["YearTotal"])
+    assert blocked == {"YearTotal": {"SDx Revenue"}}
+    assert vals["A"]["YearTotal"] == 1.0 and vals["D"]["YearTotal"] == 1.0 and vals["SDx Revenue"]["YearTotal"] is None
+    import pytest
+    with pytest.raises(RuntimeError, match="other"):
+        cards_fetch.grid(type("S", (), {"fetch": lambda *a: (_ for _ in ()).throw(RuntimeError("other"))})(),
+                         "FinPlan", {}, "Account", names, "Period", ["YearTotal"])
+    known = {"SDx Revenue"}
+    sv.calls.clear()
+    cards_fetch.grid(sv, "FinPlan", {}, "Account", names, "Period", ["YearTotal"], clashes=known)
+    assert not [c for c in sv.calls if c[0] == "fail"]                  # a known clash is not searched again
+
+
+def test_a_mixed_pnl_total_has_no_account_type():
+    from smartass.knowledge.cards import account_types
+    kids = {"ac.C3_C8": ["ac.EBITDA"], "ac.EBITDA": ["ac.C30", "ac.C70"], "ac.C70": ["ac.X"]}
+    anc = {"ac.EBITDA": {"ac.EBITDA": 0, "ac.C3_C8": 1}, "ac.C30": {"ac.C30": 0, "ac.EBITDA": 1, "ac.C3_C8": 2},
+           "ac.C70": {"ac.C70": 0, "ac.EBITDA": 1, "ac.C3_C8": 2},
+           "ac.X": {"ac.X": 0, "ac.C70": 1, "ac.EBITDA": 2, "ac.C3_C8": 3}}
+    got = account_types(kids, anc, {"ac.EBITDA": 5.0, "ac.C30": 9.0, "ac.C70": -4.0, "ac.X": -4.0})
+    assert got == {"ac.EBITDA": None, "ac.C30": "revenue", "ac.C70": "expense", "ac.X": "expense"}
+
+
+def test_derive_all_runs_only_the_wanted_cubes_and_copies_finlite(tmp_path):
+    E = "All Entities"
+    db = _atlas(tmp_path, [("FinMax", E, "A", "A", "P", 2, 1), ("FinLite", E, "A", "A", "P", 2, 1)])
+    atlas.store_cards(db, "FinMax", E, [("A", "P", "+", None, None, 0)])
+    sv = FakeSv({})
+    done = cards_fetch.derive_all(sv, db, ["FinLite"], progress=lambda m: None)
+    assert sv.calls == [] and done == [{"connection": "FinLite", "dimension": "(copy of FinMax)", "rows": 1}]
+
+
+def test_derive_all_records_a_failing_dimension_and_goes_on(tmp_path):
+    db = _atlas(tmp_path, [("FinPlan", "Entity", "A", "A", "P", 2, 1), ("FinPlan", "Account", "X", "X", "Y", 2, 1)])
+
+    class Boom(FakeSv):
+        def fetch(self, conn, pov, rows, cols):
+            if rows[0].dimension == "Account":
+                raise RuntimeError("down")
+            return super().fetch(conn, pov, rows, cols)
+    done = cards_fetch.derive_all(Boom({}), db, ["FinPlan"], progress=lambda m: None)
+    assert done[0] == {"connection": "FinPlan", "dimension": "Account", "error": "down"}
+    assert done[1]["dimension"] == "Entity" and done[1]["rows"] == 1
+
+
+def test_atlas_build_derives_cards_for_the_cubes_built_and_never_fails_on_them():
+    from smartass.ops import atlas_build
+    seen, msgs = [], []
+    done = [{"connection": "FinMax", "dimension": "All Accounts", "members": 3},
+            {"connection": "FinPlan", "dimension": "Account", "error": "x"}, {"connection": "FinLite", "error": "y"}]
+    atlas_build.cards_after_build(done, derive=lambda cubes: seen.append(cubes) or [], progress=msgs.append)
+    assert seen == [["FinMax"]]
+
+    def boom(cubes):
+        raise RuntimeError("no browser")
+    assert atlas_build.cards_after_build(done, derive=boom, progress=msgs.append) == []
+    assert "no browser" in msgs[-1] and msgs[-1].startswith("warning")
+    assert atlas_build.cards_after_build([{"connection": "FinMax", "error": "z"}], derive=boom) == []
+
+
+def test_cli_atlas_cards(monkeypatch, capsys):
+    from smartass.ops import cli
+    got = []
+    monkeypatch.setattr(cards_fetch, "run", lambda cubes: got.append(cubes) or [
+        {"connection": "FinMax", "dimension": "All Accounts", "rows": 3}])
+    monkeypatch.setattr("smartass.core.logsetup.configure", lambda *a, **k: None)
+    assert cli.main(["atlas", "cards", "--cube", "FinMax"]) == 0
+    assert got == [["FinMax"]] and "cards: 1 derived, 0 failed" in capsys.readouterr().out
