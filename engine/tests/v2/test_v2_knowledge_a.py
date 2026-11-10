@@ -278,3 +278,47 @@ def test_member_notes_load_from_a_list_file(tmp_path):
                '[[note]]\ncube = "FinMax"\nmember = "ac.C85"\ntext = "Profit before tax."\n'})
     (n,) = load_all(d).notes
     assert n == MemberNote(cube="FinMax", member="ac.C85", text="Profit before tax.")
+
+
+PLAN_TREE = [("FinPlan", "Entity", "BANORWAY", "BANORWAY", "Entity", 1, 1),
+             ("FinPlan", "Entity", "1BUS Business", "1BUS Business", "BANORWAY", 2, 1),
+             ("FinPlan", "Entity", "2BUS Business", "2BUS Business", "1BUS Business", 3, 1),
+             ("FinPlan", "Entity", "2INT_B Ambition Business", "2INT_B Ambition Business", "1BUS Business", 3, 2),
+             ("FinMax", "All Entities", "un.SY.2BUS", "2BUS Business", "un.SY", 2, 3),
+             ("FinMax", "All Accounts", "ac.C30", "C30 Revenue", "ac.C48", 3, 2)]
+BUS = 'label = "Business"\naliases = ["bedrift"]\nfinmax = "un.SY.2BUS"\nfinplan = "2BUS Business"\nsource = "s"\n'
+REV = ('name = "Revenue"\naliases = ["revenue"]\ndescription = "R."\nsign = "income"\nstatus = "approved"\n'
+       '[finmax]\nmembers = ["ac.C30"]\n')
+
+
+def _build(tmp_path, adb, files):
+    adb.executemany("INSERT OR IGNORE INTO member VALUES (?,?,?,?,?,?,?)", PLAN_TREE)
+    adb.commit()
+    sem = _write(tmp_path / "semantic", {"metrics/cogs.toml": COGS, "metrics/revenue.toml": REV, **files})
+    return build(sem, tmp_path / "atlas.db", tmp_path / "knowledge.db")
+
+
+def test_a_finplan_entity_below_level_one_needs_its_total(tmp_path, adb):
+    rep = _build(tmp_path, adb, {"entities/business.toml": BUS})
+    assert any("2BUS Business" in e and "1BUS Business" in e and "finplan_total" in e for e in rep.errors)
+    rep = _build(tmp_path, adb, {"entities/business.toml": BUS + 'finplan_total = "1BUS Business"\n'})
+    assert rep.ok, rep.to_text()
+
+
+def test_a_kind_with_data_is_defined_once(tmp_path, adb):
+    mat = 'title = "M"\ntext = "t"\nkind = "materiality"\ndata = { abs_nok = 5e6, pct = 0.1 }\n'
+    rep = _build(tmp_path, adb, {"rules/materiality.toml": mat, "rules/materiality2.toml": mat})
+    assert any("materiality" in e and "once" in e for e in rep.errors)
+
+
+def test_a_kpi_names_metrics_of_its_cube(tmp_path, adb):
+    kpi = ('name = "GM %"\ncube = "FinMax"\nnumerator = "cogs"\ndenominator = "nope"\nunit = "pct"\n'
+           'source = "s"\n')
+    rep = _build(tmp_path, adb, {"kpis/gm_pct.toml": kpi})
+    assert any("nope" in e for e in rep.errors)
+
+
+def test_an_alias_belongs_to_one_item_across_kinds(tmp_path, adb):
+    ent = 'label = "Rev"\naliases = ["revenue"]\nfinmax = "un.SY.2BUS"\nsource = "s"\n'
+    rep = _build(tmp_path, adb, {"entities/rev_unit.toml": ent})
+    assert any("'revenue'" in e for e in rep.errors)
