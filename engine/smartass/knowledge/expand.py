@@ -1,5 +1,5 @@
-"""A fact's member scope expanded over the atlas tree (spec 2026-11-10 §4). Pure reads of atlas.db; the build
-stores the result in fact_scope with `via` = the member the fact names."""
+"""A fact's member scope expanded over the atlas tree (spec 2026-11-10 §4). The build loads each cube's member table
+into memory once (Tree) and stores the result in fact_scope with `via` = the member the fact names."""
 from __future__ import annotations
 
 import sqlite3
@@ -7,54 +7,91 @@ import sqlite3
 from .semantic import Fact
 
 
-def _rows(db: sqlite3.Connection, cube: str, member: str) -> list[tuple[str, str, str]]:
-    """(name, dimension, parent) of every placement of the member (a shared member sits under several parents)."""
-    return db.execute("SELECT name, dimension, coalesce(parent, '') FROM member WHERE connection=? AND name=? "
-                      "COLLATE NOCASE", (cube, member)).fetchall()
+class Tree:
+    """One cube's members in memory: placements by name (any case) and children by (dimension, parent)."""
+
+    def __init__(self, db: sqlite3.Connection, cube: str):
+        self.by_name: dict[str, list[tuple[str, str, str, int]]] = {}
+        self.kids: dict[tuple[str, str], list[str]] = {}
+        for dim, name, parent, depth in db.execute(
+                "SELECT dimension, name, coalesce(parent, ''), depth FROM member WHERE connection=?", (cube,)):
+            self.by_name.setdefault(name.casefold(), []).append((name, dim, parent, depth))
+            if parent:
+                self.kids.setdefault((dim, parent.casefold()), []).append(name)
+
+    def placements(self, member: str) -> list[tuple[str, str, str, int]]:
+        return self.by_name.get(member.casefold(), [])
+
+    def canonical(self, member: str) -> str:
+        p = self.placements(member)
+        return p[0][0] if p else member
 
 
-def descendants(db: sqlite3.Connection, cube: str, member: str) -> set[str]:
+class LazyTrees(dict):
+    """{cube: Tree}, each loaded on first use (only the cubes facts touch)."""
+
+    def __init__(self, db: sqlite3.Connection):
+        super().__init__()
+        self.db = db
+
+    def __missing__(self, cube: str) -> Tree:
+        self[cube] = tree = Tree(self.db, cube)
+        return tree
+
+
+def descendants(tree: Tree, member: str) -> set[str]:
     out: set[str] = set()
-    todo = [(r[0], r[1]) for r in _rows(db, cube, member)]
+    todo = [(dim, name) for name, dim, _p, _d in tree.placements(member)]
     while todo:
-        name, dim = todo.pop()
-        for (kid,) in db.execute("SELECT DISTINCT name FROM member WHERE connection=? AND dimension=? AND parent=?",
-                                 (cube, dim, name)):
+        dim, name = todo.pop()
+        for kid in tree.kids.get((dim, name.casefold()), []):
             if kid not in out:
                 out.add(kid)
-                todo.append((kid, dim))
+                todo.append((dim, kid))
     return out
 
 
-def ancestors(db: sqlite3.Connection, cube: str, member: str, stops: set[str]) -> set[str]:
-    """Up every parent chain to the nearest ancestor in `stops` (included); a chain without one gives its parent."""
+def ancestors(tree: Tree, member: str, stops: set[str]) -> set[str]:
+    """Up every parent chain (in the dimension of each placement) to the first ancestor in `stops` (included); a chain
+    without one gives its first parent. A cycle or a self-parent ends a chain."""
     out: set[str] = set()
     folded = {s.casefold() for s in stops}
-    for _name, _dim, parent in _rows(db, cube, member):
-        chain, p = [], parent
-        while p:
-            chain.append(p)
-            if p.casefold() in folded:
-                break
-            row = _rows(db, cube, p)
-            p = row[0][2] if row else ""
-        else:
-            chain = chain[:1]
-        out.update(chain)
+    for _name, dim, parent in ((n, d, p) for n, d, p, _ in tree.placements(member)):
+        if not parent:
+            continue
+        stack = [[parent]]
+        while stack:
+            path = stack.pop()
+            node = path[-1]
+            if node.casefold() in folded:
+                out.update(path)
+                continue
+            seen = {x.casefold() for x in path}
+            nexts = [p for _n, d, p, _ in tree.placements(node) if d == dim and p and p.casefold() not in seen]
+            if not nexts:
+                out.add(path[0])
+            stack.extend([*path, p] for p in dict.fromkeys(nexts))
     return out
 
 
-def expand(fact: Fact, db: sqlite3.Connection, stops: dict[str, set[str]]) -> dict[tuple[str, str], str]:
-    """{(cube, member): via} for the fact's member scope; `via` is the member the fact itself names."""
+def expand(fact: Fact, trees: dict[str, Tree] | sqlite3.Connection,
+           stops: dict[str, set[str]]) -> dict[tuple[str, str], str]:
+    """{(cube, member): via} for the fact's member scope; `via` is the member the fact itself names. Every named
+    member maps to itself; the atlas spelling is stored when the member exists."""
+    if isinstance(trees, sqlite3.Connection):
+        trees = LazyTrees(trees)
     out: dict[tuple[str, str], str] = {}
     for cube, members in fact.scope_members.items():
-        for m in members:
-            out.setdefault((cube, m), m)
+        tree = trees[cube]
+        named = {m: tree.canonical(m) for m in members}
+        for c in named.values():
+            out[(cube, c)] = c
+        for m, c in named.items():
             reach: set[str] = set()
             if fact.inherit in ("down", "both"):
-                reach |= descendants(db, cube, m)
+                reach |= descendants(tree, m)
             if fact.inherit in ("up", "both"):
-                reach |= ancestors(db, cube, m, stops.get(cube, set()))
+                reach |= ancestors(tree, m, stops.get(cube, set()))
             for x in reach:
-                out.setdefault((cube, x), m)
+                out.setdefault((cube, x), c)
     return out

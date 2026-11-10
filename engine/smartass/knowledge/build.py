@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .expand import expand
+from .expand import LazyTrees, expand
 from .semantic import SemanticError, concept_terms, load_concepts, load_semantic
 
 SCHEMA = """
@@ -141,8 +141,11 @@ def check_concepts(metrics, facts, concepts, atlas: sqlite3.Connection, report: 
                                    f"{', '.join(gone[:10])}{' ...' if len(gone) > 10 else ''}")
 
 
+MAX_SCOPE = 2000        # a fact reaching more members of one cube than this gets a build warning
+
+
 def _write(db: sqlite3.Connection, metrics, facts, atlas: sqlite3.Connection, meta: dict, concepts=(),
-           entities=()) -> None:
+           entities=(), warnings: list[str] | None = None) -> None:
     db.executescript(SCHEMA)
     for m in metrics:
         db.execute("INSERT INTO metric VALUES (?,?,?)", (m.id, m.name, m.model_dump_json()))
@@ -158,10 +161,20 @@ def _write(db: sqlite3.Connection, metrics, facts, atlas: sqlite3.Connection, me
     for e in entities:
         for cube, member in e.members().items():
             stops.setdefault(cube, set()).add(member)
+    trees = LazyTrees(atlas)                    # each cube's member table is read once per build
     for f in facts:
         db.execute("INSERT INTO fact VALUES (?,?)", (f.id, f.model_dump_json()))
+        scope = expand(f, trees, stops)
         db.executemany("INSERT INTO fact_scope VALUES (?,?,?,NULL,?)",
-                       [(f.id, cube, member, via) for (cube, member), via in expand(f, atlas, stops).items()])
+                       [(f.id, cube, member, via) for (cube, member), via in scope.items()])
+        if warnings is not None:
+            per_cube: dict[str, int] = {}
+            for cube, _member in scope:
+                per_cube[cube] = per_cube.get(cube, 0) + 1
+            for cube, n in sorted(per_cube.items()):
+                if n > MAX_SCOPE:
+                    warnings.append(f"fact {f.id}: inherit {f.inherit!r} expands to {n} {cube} members "
+                                    f"(over {MAX_SCOPE}); check the scope")
         db.executemany("INSERT INTO fact_scope VALUES (?,NULL,NULL,?,NULL)", [(f.id, mid) for mid in f.scope_metrics])
     for c in concepts:
         db.execute("INSERT INTO concept VALUES (?,?,?)", (c.id, c.title, c.model_dump_json()))
@@ -200,6 +213,7 @@ def build(semantic_dir: Path, atlas_db: Path, out_db: Path, extra_meta: dict | N
             return report
         atlas_built = atlas.execute("SELECT max(built_at) FROM build").fetchone()[0]
         meta = {"built_at": time.strftime("%Y-%m-%d %H:%M:%S"), "semantic_hash": semantic_hash(Path(semantic_dir)),
+                "atlas_built_ts": repr(float(atlas_built)) if atlas_built else "",
                 "atlas_built_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(atlas_built)) if atlas_built
                 else "", "metrics": len(metrics), "facts": len(facts), "concepts": len(concepts),
                 "drafts": report.drafts}
@@ -212,7 +226,7 @@ def build(semantic_dir: Path, atlas_db: Path, out_db: Path, extra_meta: dict | N
         db = sqlite3.connect(tmp)
         try:
             with db:
-                _write(db, metrics, facts, atlas, meta, concepts)
+                _write(db, metrics, facts, atlas, meta, concepts, warnings=report.warnings)
         finally:
             db.close()
         os.replace(tmp, out_db)

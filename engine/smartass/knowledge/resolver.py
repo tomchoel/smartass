@@ -110,14 +110,20 @@ class KnowledgeResolver(AtlasTree):
     def _in_scope(self, touched: dict[str, set[str]], metric_ids: set[str]) -> dict[str, set[str]]:
         """{fact id: the members it came from when it reached a touched member by inheritance}."""
         ids: dict[str, set[str]] = {}
+        direct: set[str] = set()
         for cube, members in touched.items():
+            hit = {m.casefold() for m in members}
             for m in members:
                 for fid, member, via in self.kdb.execute(
                         "SELECT fact_id, member, via FROM fact_scope WHERE cube=? AND member=? COLLATE NOCASE",
                         (cube, m)):
                     got = ids.setdefault(fid, set())
-                    if via and via.casefold() != member.casefold():
+                    if not via or via.casefold() == member.casefold():
+                        direct.add(fid)
+                    elif via.casefold() not in hit:
                         got.add(via)
+        for fid in direct:
+            ids[fid] = set()
         if metric_ids:
             marks = ",".join("?" * len(metric_ids))
             for (fid,) in self.kdb.execute(f"SELECT fact_id FROM fact_scope WHERE metric_id IN ({marks})",
@@ -198,8 +204,7 @@ REBUILT_NOTE = "knowledge.db rebuilt: semantic files or the atlas changed"
 
 
 def _atlas_stamp(path: Path) -> str:
-    """The atlas build time as build() writes it into meta ('' without an atlas)."""
-    import time
+    """The raw atlas build time as build() stores it in meta atlas_built_ts ('' without an atlas)."""
     if not path.exists():
         return ""
     db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
@@ -207,12 +212,12 @@ def _atlas_stamp(path: Path) -> str:
         t = db.execute("SELECT max(built_at) FROM build").fetchone()[0]
     finally:
         db.close()
-    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t)) if t else ""
+    return repr(float(t)) if t else ""
 
 
 def ensure_built(notes: list[str] | None = None) -> Path:
     """config.KNOWLEDGE_DB, compiled from config.SEMANTIC_DIR and the atlas first when it is missing, or rebuilt when
-    the semantic files changed since it was built (the hash in its meta differs); either is said in notes. A build
+    the semantic files or the atlas changed since it was built (the hash or the atlas build time in its meta differs); either is said in notes. A build
     with errors is a GuardError: the answer would rest on knowledge that does not match the files or the cubes (the
     previous knowledge.db is left untouched)."""
     from ..core import config
@@ -223,7 +228,7 @@ def ensure_built(notes: list[str] | None = None) -> Path:
         missing = not path.exists()
         meta = summary(path) if not missing else {}
         fresh = (str(meta.get("semantic_hash", "")) == semantic_hash(semantic)
-                 and str(meta.get("atlas_built_at", "")) == _atlas_stamp(Path(config.ATLAS_DB)))
+                 and str(meta.get("atlas_built_ts", "")) == _atlas_stamp(Path(config.ATLAS_DB)))
         if not missing and fresh:
             return path
         report = build(semantic, Path(config.ATLAS_DB), path)

@@ -140,3 +140,86 @@ def test_a_reorg_reaches_the_units_below(built):
 def test_a_direct_hit_has_no_via(built):
     (c,) = built.caveats({"FinMax": {"un.SY.2CON"}})
     assert "via" not in c
+
+
+def test_direct_members_are_never_via_even_below_another_named_member(adb):
+    got = expand(_fact("down", ["un.SY.2CON", "CC1"]), adb, stops={})
+    assert got[("FinMax", "CC1")] == "CC1" and got[("FinMax", "CC2")] == "un.SY.2CON"
+
+
+def test_the_atlas_spelling_is_stored(adb):
+    assert set(expand(_fact("self", ["UN.sy.2con"]), adb, stops={})) == {("FinMax", "un.SY.2CON")}
+
+
+def test_a_self_parent_row_cannot_loop(adb):
+    adb.execute("INSERT INTO member VALUES ('FinMax','All Entities','LOOP','Loop','LOOP',2,9)")
+    got = expand(_fact("up", ["LOOP"]), adb, stops={})
+    assert set(got) == {("FinMax", "LOOP")}
+
+
+def test_a_two_member_cycle_cannot_loop(adb):
+    adb.executemany("INSERT INTO member VALUES (?,?,?,?,?,?,?)",
+                    [("FinMax", "All Entities", "A", "A", "B", 2, 8), ("FinMax", "All Entities", "B", "B", "A", 2, 9)])
+    assert set(expand(_fact("up", ["A"]), adb, stops={})) == {("FinMax", "A"), ("FinMax", "B")}
+
+
+def test_a_shared_member_climbs_every_parent(adb):
+    adb.execute("INSERT INTO member VALUES ('FinMax','All Entities','CC1','CC1 unit','un.SY',3,3)")
+    got = expand(_fact("up", ["CC1"]), adb, stops={"FinMax": {"un.SY"}})
+    assert {m for _c, m in got} == {"CC1", "un.SY.2CON", "un.SY"}
+
+
+def test_ancestors_stay_in_the_dimension_of_the_placement(adb):
+    adb.execute("INSERT INTO member VALUES ('FinMax','Other','CC1','CC1','OTHERP',2,1)")
+    got = expand(_fact("up", ["ac.C40510"]), adb, stops={})
+    assert {m for _c, m in got} == {"ac.C40510", "ac.C405"}
+
+
+def test_a_large_tree_expands_without_per_member_sql(adb):
+    adb.executemany("INSERT INTO member VALUES ('FinMax','All Entities',?,?,'CC2',4,?)",
+                    [(f"X{i}", f"X{i}", i) for i in range(20000)])
+    calls = []
+    adb.set_trace_callback(calls.append)
+    import time
+    t0 = time.perf_counter()
+    got = expand(_fact("down", ["un.SY"]), adb, stops={})
+    assert len(got) > 20000 and time.perf_counter() - t0 < 1.5
+    assert len(calls) <= 2
+
+
+def test_the_build_warns_when_a_fact_reaches_too_many_members(tmp_path, adb, monkeypatch):
+    from smartass.knowledge import build as b
+    monkeypatch.setattr(b, "MAX_SCOPE", 2)
+    sem = _write(tmp_path / "semantic", {"metrics/cogs.toml": COGS, "facts/reorg.toml": REORG})
+    rep = build(sem, tmp_path / "atlas.db", tmp_path / "k.db")
+    assert rep.ok and any("expands to 3 FinMax members" in w for w in rep.warnings)
+
+
+def test_a_fact_that_names_the_touched_member_and_an_ancestor_says_no_via(tmp_path, adb):
+    sem = _write(tmp_path / "semantic", {"metrics/cogs.toml": COGS, "facts/reorg.toml": REORG})
+    build(sem, tmp_path / "atlas.db", tmp_path / "k.db")
+    r = KnowledgeResolver(sqlite3.connect(tmp_path / "k.db"), adb, 26)
+    (c,) = r.caveats({"FinMax": {"CC2", "un.SY.2CON"}})
+    assert "via" not in c
+
+
+def test_ensure_built_rebuilds_on_a_newer_atlas_only(tmp_path, monkeypatch):
+    from kutil import knowledge
+
+    from smartass.knowledge.build import summary
+    from smartass.knowledge.resolver import REBUILT_NOTE, ensure_built
+    a, _, k = knowledge(tmp_path, monkeypatch)
+    con = sqlite3.connect(a)
+    con.execute("DELETE FROM build")
+    con.execute("INSERT INTO build VALUES ('FinMax','All Accounts',1790000000.0,9,1.0,NULL)")
+    con.commit()
+    notes: list[str] = []
+    ensure_built(notes)                              # first call: the stamp differs from the one built without a build row
+    notes.clear()
+    ensure_built(notes)
+    assert notes == []
+    con.execute("UPDATE build SET built_at=1790000500.5")
+    con.commit()
+    ensure_built(notes)
+    con.close()
+    assert notes == [REBUILT_NOTE] and summary(k)["atlas_built_ts"] == "1790000500.5"
