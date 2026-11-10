@@ -29,7 +29,9 @@ TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_dri
               "xl_revert", "xl_tidy")
 
 INSTRUCTIONS = """smartass (read-only towards Oracle EPM: FinMax/FinLite actuals, FinPlan plan/forecast).
-1) fin_lookup: metric names and members (entities 'un.SY.<code>' in FinMax, '<code> <name>' in FinPlan).
+1) fin_lookup first when a word is not an exact member: metrics, entities (business areas, FinPlan division totals),
+KPIs, vague words (-> the options to ask), grains ('per customer' -> what is answerable), rules (kind 'rule').
+Every hit carries caveats; 'via' = inherited from that member. Pass them on.
 2) New question: fin_analyze(spec) with an AnalysisSpec v2 - plan (depth, purpose, hypotheses), queries (cube,
 metrics, entity, periods e.g. 'closed-ytd', compare ly | budget | forecast; budget/forecast only in FinPlan),
 blocks (table, kpi_tiles, trend, matrix, bridge, ranking, drivers, commentary). An EBITDA bridge uses every P&L

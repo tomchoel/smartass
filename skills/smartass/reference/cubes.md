@@ -1,6 +1,6 @@
 # Cube atlas (generated)
 
-Generated 2026-10-13 21:41 from `%LOCALAPPDATA%\smartass\atlas.db` by `gen_atlas_md.py`. Top levels only; search everything with `fin_lookup`.
+Generated 2026-10-13 21:41 from `%LOCALAPPDATA%\smartass\atlas.db` by `gen_atlas_md.py`. Top levels only; search everything with `fin_lookup`. Periods (current month, closed months, quarters) are not listed here: ask `fin_lookup` (kind 'rule') or `fin_status`.
 
 ## FinLite
 
@@ -654,67 +654,6 @@ Generated 2026-10-13 21:41 from `%LOCALAPPDATA%\smartass\atlas.db` by `gen_atlas
   - `ac.C88` C88 Profit/Loss from Discontinued operations (ac)
   - `ac.C87` C87 Profit/Loss after Taxes from continuing operations (ac)
   - `ac.C30R` C30R Rounding differences income statement (ac)
-
-### FinMax · `All Time Periods` — 17 children
-- `Jul + Aug 26` — 2 children
-  - `Aug 26`
-  - `Jul 26`
-- `Jan + Feb 26` — 2 children
-  - `Feb 26`
-  - `Jan 26`
-- `Jan + Feb 25` — 2 children
-  - `Feb 25`
-  - `Jan 25`
-- `Jul + Aug 25` — 2 children
-  - `Aug 25`
-  - `Jul 25`
-- `Jul + Aug 24` — 2 children
-  - `Aug 24`
-  - `Jul 24`
-- `Jan + Feb 24` — 2 children
-  - `Feb 24`
-  - `Jan 24`
-- `Jul + Aug 23` — 2 children
-  - `Aug 23`
-  - `Jul 23`
-- `Jan + Feb 23` — 2 children
-  - `Feb 23`
-  - `Jan 23`
-- `Jul + Aug 22` — 2 children
-  - `Aug 22`
-  - `Jul 22`
-- `Jul + Aug 21` — 2 children
-  - `Aug 21`
-  - `Jul 21`
-- `Jan + Feb 22` — 2 children
-  - `Feb 22`
-  - `Jan 22`
-- `Jan + Feb 21` — 2 children
-  - `Feb 21`
-  - `Jan 21`
-- `CurrRepQtr` — 1 children
-  - `Q3 26`
-- `Current Reporting Month` — 1 children
-  - `Sep 26`
-- `Current Year` — 4 children
-  - `Q4 Current`
-  - `Q3 Current`
-  - `Q2 Current`
-  - `Q1 Current`
-- `Opening Balances` — 6 children
-  - `Opening Balance 26`
-  - `Opening Balance 25`
-  - `Opening Balance 24`
-  - `Opening Balance 23`
-  - `Opening Balance 22`
-  - `Opening Balance 21`
-- `All Years` — 6 children
-  - `Yr 26`
-  - `Yr 25`
-  - `Yr 24`
-  - `Yr 23`
-  - `Yr 22`
-  - `Yr 21`
 
 ### FinPlan · `Entity` — 5 children
 - `BANORWAY+TIPO` — 2 children
