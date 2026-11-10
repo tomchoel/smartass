@@ -1310,7 +1310,7 @@ wheels = [
 
 [[package]]
 name = "smartass"
-version = "0.2.23"
+version = "0.2.24"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
