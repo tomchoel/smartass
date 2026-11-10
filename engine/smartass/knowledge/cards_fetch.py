@@ -12,7 +12,9 @@ from typing import Callable
 
 from ..epm.grid import INVALID, NOACCESS, Axis
 from . import atlas
-from .cards import account_types, operators
+from .cards import account_types, operators, settle_time_balance, time_balance
+
+PNL_TYPES = ("revenue", "expense")
 
 CHUNK = 2000
 ACCOUNT_DIMS = {"All Accounts", "Account"}
@@ -49,7 +51,7 @@ def slices(conn: str, dim: str, year: int) -> list[Slice]:
     return table[(conn, dim)]
 
 
-DERIVED = (("FinMax", "All Accounts"), ("FinMax", "All Entities"), ("FinPlan", "Account"), ("FinPlan", "Entity"))
+DERIVED = {"FinMax": ("All Accounts", "All Entities"), "FinPlan": ("Account", "Entity")}   # accounts first
 
 
 # FinPlan (live 10.11): 'Found duplicate aliases or member name conflicting with alias under parent ...' and
@@ -134,11 +136,12 @@ def ancestry(name: str, parents_of: dict[str, list[str]]) -> dict[str, int]:
 
 
 def derive_dimension(sv, db: sqlite3.Connection, conn: str, dim: str, chunk: int = CHUNK,
-                     year: int | None = None) -> int:
+                     year: int | None = None, clashes: set[str] | None = None) -> int:
     """Operators, account type and shared flag for every (member, parent) of one dimension; replaces its cards
-    (time balance is filled by derive_time_balance). Returns the number of card rows."""
+    (time balance is filled by derive_time_balance). `clashes`: see grid. Returns the number of card rows."""
     pairs, names, kids, parents_of = tree(db, conn, dim)
-    vals, blocks, clashes = [], [], set()
+    vals, blocks = [], []
+    clashes = set() if clashes is None else clashes
     for s in slices(conn, dim, year or last_full_year()):
         got, blocked = grid(sv, conn, s.pov, dim, names, s.cdim, list(s.cols), chunk, clashes)
         for c in s.cols:
@@ -157,9 +160,48 @@ def derive_dimension(sv, db: sqlite3.Connection, conn: str, dim: str, chunk: int
     return len(rows)
 
 
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def time_slices(conn: str, year: int) -> list[Slice]:
+    """(pov, Period, 12 months + the year total) for the account time balance; later slices only for the accounts
+    the earlier ones left undecided. FinMax: one Periodic grid is enough - Accumulated Jan equals Periodic Jan and
+    Accumulated Dec equals Periodic Yr (probe 10.11), so no Accumulated retrieves."""
+    yy = year % 100
+    if conn == "FinMax":
+        acc = slices("FinMax", "All Accounts", year)[0]
+        return [Slice(acc.pov, acc.cdim, (*(f"{m} {yy:02d}" for m in MONTHS), f"Yr {yy:02d}"))]
+    return [Slice(s.pov, "Period", (*MONTHS, "YearTotal")) for s in slices("FinPlan", "Account", year)]
+
+
+def derive_time_balance(sv, db: sqlite3.Connection, conn: str, chunk: int = CHUNK, year: int | None = None,
+                        clashes: set[str] | None = None) -> int:
+    """cards.time_balance for every account of FinMax or FinPlan, written to every card row of the member (run after
+    derive_dimension). Returns the number of accounts with a time balance."""
+    dim = "All Accounts" if conn == "FinMax" else "Account"
+    types = dict(db.execute("SELECT name, max(account_type) FROM card WHERE connection=? AND dimension=? GROUP BY name",
+                            (conn, dim)).fetchall())
+    names = list(types)
+    found: dict[str, str | None] = dict.fromkeys(names)
+    for s in time_slices(conn, year or last_full_year()):
+        todo = [n for n in names if found[n] is None and types[n] not in PNL_TYPES]
+        if not todo:
+            break
+        got, _ = grid(sv, conn, s.pov, dim, todo, s.cdim, list(s.cols), chunk, clashes)
+        for n in todo:
+            row = got[n]
+            found[n] = time_balance(row[s.cols[-1]], [row[c] for c in s.cols[:-1]], movements=conn == "FinMax")
+    found = {n: settle_time_balance(tb, types[n]) for n, tb in found.items()}
+    with db:
+        db.execute("UPDATE card SET time_balance=NULL WHERE connection=? AND dimension=?", (conn, dim))
+        db.executemany("UPDATE card SET time_balance=? WHERE connection=? AND dimension=? AND name=?",
+                       [(tb, conn, dim, n) for n, tb in found.items() if tb])
+    return sum(1 for tb in found.values() if tb)
+
+
 def copy_finlite(db: sqlite3.Connection) -> int:
     """FinLite shares FinMax's members: its cards are FinMax's wherever the FinLite atlas has the same (dimension,
-    name, parent). Replaces every FinLite card; returns the rows copied."""
+    name, parent). Replaces every FinLite card; returns the rows copied. Run after FinMax's time balance."""
     with db:
         db.execute("DELETE FROM card WHERE connection='FinLite'")
         cur = db.execute(
@@ -172,20 +214,27 @@ def copy_finlite(db: sqlite3.Connection) -> int:
 
 def derive_all(sv, db: sqlite3.Connection, connections: list[str] | None = None,
                progress: Callable[[str], None] = print, year: int | None = None) -> list[dict]:
-    """Every derived (cube, dimension) of the wanted connections, then the FinLite copy. Errors are recorded per
-    dimension and never stop the rest."""
+    """Per wanted cube: operators per dimension, then the account time balance; last the FinLite copy (so it gets
+    FinMax's time balance too). Errors are recorded per step and never stop the rest."""
     want = set(connections or ("FinMax", "FinLite", "FinPlan"))
     done: list[dict] = []
-    for conn, dim in DERIVED:
-        if conn not in want:
-            continue
+
+    def step(conn: str, what: str, fn: Callable[[], int]) -> None:
         t0 = time.monotonic()
         try:
-            n = derive_dimension(sv, db, conn, dim, year=year)
-            done.append({"connection": conn, "dimension": dim, "rows": n, "seconds": round(time.monotonic() - t0, 1)})
-        except Exception as e:   # noqa: BLE001 - one dimension's failure must not stop the others
-            done.append({"connection": conn, "dimension": dim, "error": str(e)[:300]})
+            done.append({"connection": conn, "dimension": what, "rows": fn(),
+                         "seconds": round(time.monotonic() - t0, 1)})
+        except Exception as e:   # noqa: BLE001 - one step's failure must not stop the others
+            done.append({"connection": conn, "dimension": what, "error": str(e)[:300]})
         progress(_line(done[-1]))
+    for conn, dims in DERIVED.items():
+        if conn not in want:
+            continue
+        clashes: dict[str, set[str]] = {d: set() for d in dims}
+        for dim in dims:
+            step(conn, dim, lambda c=conn, d=dim: derive_dimension(sv, db, c, d, year=year, clashes=clashes[d]))
+        step(conn, f"{dims[0]} (time balance)",
+             lambda c=conn, d=dims[0]: derive_time_balance(sv, db, c, year=year, clashes=clashes[d]))
     if want & {"FinMax", "FinLite"}:
         done.append({"connection": "FinLite", "dimension": "(copy of FinMax)", "rows": copy_finlite(db)})
         progress(_line(done[-1]))

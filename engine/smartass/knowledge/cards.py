@@ -14,11 +14,25 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 
 Op = str | None
-TOL_ABS, TOL_REL = 1.0, 1e-6
+TOL_ABS, TOL_REL, TOL_SMALL, TOL_FLOOR = 1.0, 1e-6, 1e-4, 1e-6
+
+
+def tol(scale: float) -> float:
+    """The tolerance at a magnitude: 1 (NOK rounding) for money, relative 1e-6 for billions, but never more than
+    1e-4 of the value itself, so ratios, ARPU and FTE (0.53, 739, 2 782) are not 'equal' within a whole unit
+    (live 10.11: EBITDA % 0.534 vs December 0.483 passed as equal with a flat 1.0)."""
+    return max(TOL_FLOOR, TOL_REL * scale, min(TOL_ABS, TOL_SMALL * scale))
 
 
 def close(a: float, b: float) -> bool:
-    return abs(a - b) <= max(TOL_ABS, TOL_REL * max(abs(a), abs(b)))
+    return abs(a - b) <= tol(max(abs(a), abs(b)))
+
+
+def same(a: float, b: float) -> bool:
+    """Equal but for float noise: FinPlan computes its year totals from the same doubles (live 10.11 the mean of
+    'No of FTE Total Average' matched to 1e-12, while EBITDA % - a ratio of the year totals - was within 1e-4 of the
+    mean of its months, so 'close' would call a ratio an average)."""
+    return abs(a - b) <= 1e-9 * max(1.0, abs(a), abs(b))
 
 
 def _one(kids: list[str], val: dict[str, float | None], parent: str,
@@ -41,7 +55,7 @@ def _one(kids: list[str], val: dict[str, float | None], parent: str,
         return {c: "+" for c in with_data}
     if len(visible) < len(kids):          # a hidden child may carry the gap: no '~' / '-' from this slice
         return {}
-    if close(pv, 0.0) and with_data:
+    if with_data and abs(pv) <= tol(max(abs(cv[c]) for c in with_data)):     # a zero parent, at the children's scale
         return {c: "~" for c in with_data}
     diff = pv - s
     hits = [(c, "~") for c in with_data if close(diff, -cv[c])] + \
@@ -76,14 +90,17 @@ STOCK_ACTIVE_MONTHS = 6    # ... and at least 6 of the 11 later months move (els
 
 
 def time_balance(year: float | None, months: list[float | None], movements: bool = False) -> str | None:
-    """flow | balance_last | None from the year total and the 12 months of one year.
+    """flow | balance_last | average | None from the year total and the 12 months of one year.
 
-    movements=False (FinPlan): the year equals the last month and not the sum -> balance_last; the sum and not the
-    last month -> flow; fewer than two months with data -> None (undecidable).
+    movements=False (FinPlan): the year equals exactly one of the last month (balance_last), the sum (flow) or the
+    mean of the months with data (average: live 10.11 'No of FTE Total Average', 'Fixed Broadband FWA Access ARPU
+    Recurring'); none or several (a flat series), or fewer than two months with data -> None. A ratio whose year is
+    computed from the year totals (EBITDA %) matches none -> None.
     movements=True (FinMax, every account booked as monthly movements, Yr = sum): a level is booked whole in January
     and followed by small changes, so January dominates, Yr / January is near 1 and most later months move ->
     balance_last. A January that dominates while the later months are (nearly) empty is a one-off booking or an
-    unchanged level: undecidable -> None. Otherwise flow."""
+    unchanged level: undecidable -> None. Otherwise flow. P&L accounts are flows whatever the numbers say: see
+    settle_time_balance."""
     ms = [m for m in months if m is not None]
     if year is None or not ms:
         return None
@@ -91,18 +108,22 @@ def time_balance(year: float | None, months: list[float | None], movements: bool
     if movements:
         jan = months[0] or 0.0
         later = [abs(m or 0.0) for m in months[1:]]
-        if abs(jan) > TOL_ABS and abs(jan) > STOCK_DOMINANCE * max(later, default=0.0) \
-                and 0.5 <= year / jan <= 2.0:
+        dominant = abs(jan) > TOL_ABS and abs(jan) > STOCK_DOMINANCE * max(later, default=0.0)
+        if dominant and 0.5 <= year / jan <= 2.0:
             return "balance_last" if sum(1 for m in later if m > 0) >= STOCK_ACTIVE_MONTHS else None
         return "flow" if close(year, total) else None
     if len(ms) < 2:
         return None
     last = next(m for m in reversed(months) if m is not None)
-    if close(year, last) and not close(year, total):
-        return "balance_last"
-    if close(year, total) and not close(year, last):
-        return "flow"
-    return None
+    hits = [k for k, v in (("balance_last", last), ("flow", total), ("average", total / len(ms))) if same(year, v)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def settle_time_balance(derived: str | None, account_type: str | None) -> str | None:
+    """Revenue and expense accounts are flows: a P&L account booked mostly in January (live 10.11: FinMax ac.31204
+    3.8 MNOK in January, a few hundred NOK later) looks like a level in the numbers, and a January-only booking is
+    undecidable from them."""
+    return "flow" if account_type in ("revenue", "expense") else derived
 
 
 # Branch roots per cube (FinMax/FinLite 'ac.*'; FinPlan plain names - no name is in both cubes). The nearest root

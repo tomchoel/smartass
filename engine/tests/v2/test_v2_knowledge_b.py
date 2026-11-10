@@ -312,3 +312,115 @@ def test_cli_atlas_cards(monkeypatch, capsys):
     monkeypatch.setattr("smartass.core.logsetup.configure", lambda *a, **k: None)
     assert cli.main(["atlas", "cards", "--cube", "FinMax"]) == 0
     assert got == [["FinMax"]] and "cards: 1 derived, 0 failed" in capsys.readouterr().out
+
+
+# --- Task 4: time balance per account -------------------------------------------------------------------------------
+
+MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def test_derive_time_balance_finmax_from_one_periodic_grid(tmp_path):
+    A = "All Accounts"
+    db = _atlas(tmp_path, [("FinMax", A, "ac.STA", "s", A, 1, 1), ("FinMax", A, "ac.STA20Y", "f", "ac.STA", 2, 2),
+                           ("FinMax", A, "ac.STA20Y", "f", "ac.Export", 2, 3), ("FinMax", A, "ac.C70", "o", A, 1, 4)])
+    atlas.store_cards(db, "FinMax", A, [("ac.STA20Y", "ac.STA", "+", None, "statistic", 1),
+                                        ("ac.STA20Y", "ac.Export", None, None, "statistic", 1),
+                                        ("ac.C70", A, None, None, "expense", 0)])
+    sta = dict(zip([f"{m} 25" for m in MON], [2857.3, -5.92, -13.2, -17.38, 0.65, -2.55, -11.4, -3.1, -45.8, 20.2,
+                                               7.44, -4.12]))
+    c70 = {f"{m} 25": -100.0 for m in MON}
+
+    def val(pov, col, name):
+        series = {"ac.STA20Y": sta, "ac.C70": c70}.get(name)
+        if series is None:
+            return "#Missing"
+        return sum(series.values()) if col == "Yr 25" else series[col]
+    sv = FakeSv(val)
+    n = cards_fetch.derive_time_balance(sv, db, "FinMax", year=2025)
+    tb = dict(db.execute("SELECT name || '/' || parent, time_balance FROM card"))
+    assert tb == {"ac.STA20Y/ac.STA": "balance_last", "ac.STA20Y/ac.Export": "balance_last", "ac.C70/All Accounts": "flow"}
+    assert n == 2 and len(sv.calls) == 1
+    assert sv.calls[0][3] == [f"{m} 25" for m in MON] + ["Yr 25"] and sv.calls[0][1]["All Balance Types"] == "Periodic"
+
+
+def test_derive_time_balance_finplan_falls_back_to_target(tmp_path):
+    db = _atlas(tmp_path, [("FinPlan", "Account", "Subs", "s", "Statistics", 2, 1),
+                           ("FinPlan", "Account", "OPEX", "o", "EBITDA", 2, 2)])
+    atlas.store_cards(db, "FinPlan", "Account", [("Subs", "Statistics", "+", None, "statistic", 0),
+                                                 ("OPEX", "EBITDA", "+", None, "expense", 0)])
+    subs = [700.0, 699.0, 698.0, 697.0, 696.0, 694.0, 692.0, 691.0, 690.0, 689.0, 688.0, 687.0]
+
+    def val(pov, col, name):
+        if name == "OPEX" and pov["Scenario"] == "Actual":
+            return -1200.0 if col == "YearTotal" else -100.0
+        if name == "Subs" and pov["Scenario"] == "Target":
+            return subs[-1] if col == "YearTotal" else subs[MON.index(col)]
+        return "#Missing"
+    sv = FakeSv(val)
+    cards_fetch.derive_time_balance(sv, db, "FinPlan", year=2025)
+    assert dict(db.execute("SELECT name, time_balance FROM card")) == {"Subs": "balance_last", "OPEX": "flow"}
+    assert [(c[1]["Scenario"], c[1]["Years"], c[3][-1]) for c in sv.calls] == [("Actual", "FY25", "YearTotal"),
+                                                                              ("Target", "FY26", "YearTotal")]
+    assert sv.calls[1][2] == ["Subs"]                                     # Target only for what Actual left open
+
+
+def test_finlite_gets_the_time_balance_too(tmp_path):
+    A = "All Accounts"
+    db = _atlas(tmp_path, [("FinMax", A, "ac.C70", "o", A, 1, 1), ("FinLite", A, "ac.C70", "o", A, 1, 1)])
+    sv = FakeSv(lambda pov, col, name: -1200.0 if col == "Yr 25" else -100.0 if name == "ac.C70" else "#Missing")
+    done = cards_fetch.derive_all(sv, db, ["FinMax", "FinLite"], progress=lambda m: None, year=2025)
+    assert db.execute("SELECT time_balance FROM card WHERE connection='FinLite' AND name='ac.C70'").fetchone() == (
+        "flow",)
+    assert [d["dimension"] for d in done] == ["All Accounts", "All Entities", "All Accounts (time balance)",
+                                              "(copy of FinMax)"]
+
+
+def test_time_balance_real_finplan_cases_10_11():
+    """FinPlan BANORWAY, Actual/Working FY25 and Target/Final FY26 (live 10.11): months then the YearTotal."""
+    def tb(row):
+        return time_balance(row[-1], row[:-1])
+    fte_avg = [2909.3, 2868.38, 2855.18, 2802.8, 2803.45, 2800.9, 2789.5, 2786.4, 2740.6, 2760.8, 2768.24, 2764.12,
+               2804.139166666667]
+    fwa_arpu = [738.3996949471823, 738.7201471417136, 738.6076040360317, 739.2705336475208, 738.7440901416387,
+                739.0299285822648, 741.0005219875544, 740.5686280958253, 740.120848743199, 739.8723807212073,
+                739.7974594405429, 739.1417880826715, 739.4394687972793]
+    assert tb(fte_avg) == "average" and tb(fwa_arpu) == "average"       # No of FTE Total Average; FWA ARPU Recurring
+    ebitda_pct = [0.5384128146010413, 0.5369949760678753, 0.5342829897255181, 0.5400535998976133, 0.5292658734744092,
+                  0.5409895477296583, 0.6016765204704133, 0.5490648543826423, 0.5213593509518368, 0.522311178105174,
+                  0.5215563394845106, 0.5347901936009707, 0.5392363107319369]     # Target FY26
+    assert tb(ebitda_pct) is None   # a ratio of the year totals: a flat tolerance of 1 called it balance_last, 1e-4
+    #                                 relative called it average
+    gross_add_acc = [500.0, 800.0, 1300.0, 1800.0, 2200.0, 2600.0, 3100.0, 3300.0, 3900.0, 4200.0, 4600.0, 4900.0,
+                     4900.0]
+    assert tb(gross_add_acc) == "balance_last"
+    fte_moves = [2909.3, -40.92, -13.2, -52.38, 0.65, -2.55, -11.4, -3.1, -45.8, 20.2, 7.44, -4.12, -4.12]
+    assert tb(fte_moves) == "balance_last"     # 'No of FTEs': movements in a TB-Last member - the cube's own rule
+    cost_per_fte = [-111557.6218, -113076.5877, -116903.2866, -120624.0505, -118020.8526, -103613.4321, -67788.5337,
+                    -103330.5642, -128445.2749, -117952.3016, -123580.4877, -106543.6777, -1331436.6711]
+    assert tb(cost_per_fte) == "flow"
+    assert tb([739.0] * 13) is None                                      # flat: last = mean, undecidable
+
+
+def test_pnl_accounts_are_flows_whatever_the_numbers_say():
+    from smartass.knowledge.cards import settle_time_balance
+    ac31204 = [3835408.0, 2102.03, None, None, None, 749.0, 749.0, 948.0, 948.0, 749.0, 749.0, 749.0]  # FinMax 10.11
+    raw = time_balance(3843151.03, ac31204, movements=True)
+    assert raw == "balance_last" and settle_time_balance(raw, "revenue") == "flow"
+    assert settle_time_balance(None, "expense") == "flow" and settle_time_balance("balance_last", "statistic") == \
+        "balance_last" and settle_time_balance(None, None) is None
+
+
+def test_small_values_are_not_equal_within_a_whole_unit():
+    got = operators({"KPI": ["a", "b"]}, {"KPI": 0.5, "a": 0.3, "b": 0.4})   # ratios: 0.7 is not 0.5
+    assert set(got.values()) == {None}
+    got = operators({"P": ["a", "b"]}, {"P": 1e9 + 0.4, "a": 6e8, "b": 4e8})  # NOK rounding still passes
+    assert set(got.values()) == {"+"}
+    got = operators({"Z": ["a", "b"]}, {"Z": 5.7e-7, "a": 3e6, "b": -1e6})   # a zero parent (ac.C40510i 10.11)
+    assert set(got.values()) == {"~"}
+
+
+def test_monthly_levels_that_the_cube_sums_read_as_flow():
+    """Known limit (live 10.11): FinMax ac.STA21Y_stage stores the FTE level in every month and Yr sums them
+    (33 725.66). From the numbers this is a flow like any steady monthly series; a manual card (Task 5) corrects it."""
+    stage = [2857.29, 2851.37, 2838.17, 2820.79, 2821.44, 2818.89, 2807.49, 2804.4, 2758.59, 2778.8, 2786.23, 2782.12]
+    assert time_balance(sum(stage), stage, movements=True) == "flow"
