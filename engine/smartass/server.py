@@ -80,7 +80,7 @@ def _past(row: dict) -> dict:
 
 def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 15) -> dict:
     """{metrics: [id, name, aliases, description, differs, members, caveats ...], members: [... with caveats],
-    concepts: [id, title, kind, blocks, notes ...]};
+    concepts: [id, title, kind, blocks, notes ...], entities, kpis, vocab, rules};
     kind 'answer': {answers: past answers from answers.db (workbook, q, question, when, score, top key values)}."""
     if kind == "answer":
         from . import answers
@@ -91,11 +91,14 @@ def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 
 
 @_register(kit.LOCAL)
 def fin_lookup(query: str, kind: str = "any", cube: str | None = None) -> dict:
-    """Find metrics (kind 'metric': by name or alias, e.g. 'driftskostnader'; with description, members and how the
-    cubes differ), cube members (kind 'member') and product concepts (kind 'concept', e.g. 'splitt': blocks and items
-    for a concept block); 'any' returns all three. Every metric and member hit carries its caveats (reorgs,
-    abolished units, account traps): pass them on. cube: FinMax | FinLite | FinPlan to narrow. kind 'answer': past
-    answers (question, when, critic score, top key values) for continuity. Local, instant."""
+    """Look up before you build. kind 'metric' (name or alias, e.g. 'driftskostnader': members per cube, how the
+    cubes differ), 'member' (cube members, each with its meaning note), 'entity' (a business area by name or alias:
+    FinMax/FinPlan members, FinPlan division total, successors of abolished areas), 'kpi' (ratios: numerator,
+    denominator, basis), 'vocab' (vague words -> the options to offer; 'per customer' etc. -> what is answerable),
+    'concept' (product concepts such as 'splitt'), 'rule' (the always-true cube rules; query '' lists them),
+    'answer' (past answers). 'any' = metric + member + concept + entity + kpi + vocab. Every hit carries its caveats
+    (reorgs, abolished units, account traps; 'via' names the member a caveat was inherited from): pass them on.
+    cube: FinMax | FinLite | FinPlan to narrow. Local, instant."""
     return lookup(query, kind, cube)
 
 

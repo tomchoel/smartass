@@ -410,3 +410,44 @@ def test_approve_and_status_cover_every_kind(tmp_path, adb):
     assert done == ["costs", "signs"]
     assert 'status = "approved"' in (sem / "vocab" / "costs.toml").read_text(encoding="utf-8")
     assert load_all(sem).vocab[0].approved == {"by": "tom", "on": "2026-11-10"}
+
+
+# ---- Task 7: the resolver serves the new kinds
+
+def _resolver(tmp_path, adb, files):
+    rep = _build(tmp_path, adb, files)
+    assert rep.ok, rep.to_text()
+    return KnowledgeResolver(sqlite3.connect(tmp_path / "knowledge.db"), adb, 26)
+
+
+VAGUE = ('kind = "vague"\nwords = ["kostnader", "costs"]\noptions = ["opex", "opex + COGS"]\nsource = "s"\n'
+         'status = "approved"\n')
+NOTE = '[[note]]\ncube = "FinMax"\nmember = "ac.C30"\ntext = "Revenue incl. interconnect."\n'
+SIGNS = 'title = "Signs"\ntext = "Costs are negative in FinMax."\nstatus = "approved"\n'
+
+
+def test_search_finds_an_entity_by_alias_with_its_members(tmp_path, adb):
+    r = _resolver(tmp_path, adb, {"entities/business.toml": BUS + 'finplan_total = "1BUS Business"\nstatus = "approved"\n'})
+    (e,) = r.search("bedrift", kind="entity")["entities"]
+    assert e["members"]["FinMax"] == "un.SY.2BUS" and e["finplan_total"] == "1BUS Business"
+    assert e["finplan_total_children"] == ["2BUS Business", "2INT_B Ambition Business"]
+
+
+def test_search_any_offers_the_options_of_a_vague_word(tmp_path, adb):
+    r = _resolver(tmp_path, adb, {"vocab/costs.toml": VAGUE})
+    (v,) = r.search("kostnader")["vocab"]
+    assert v["options"] == ["opex", "opex + COGS"]
+
+
+def test_a_member_hit_carries_its_note(tmp_path, adb):
+    r = _resolver(tmp_path, adb, {"notes/finmax_accounts.toml": NOTE})
+    assert r.note("ac.c30", "FinMax") == "Revenue incl. interconnect."         # any case, like Essbase
+    assert r.note("ac.C70", "FinMax") == ""
+    (m,) = [x for x in r.search("C30 Revenue", kind="member", cube="FinMax")["members"] if x["name"] == "ac.C30"]
+    assert m["note"] == "Revenue incl. interconnect."
+
+
+def test_rules_are_listed_by_kind_rule(tmp_path, adb):
+    r = _resolver(tmp_path, adb, {"rules/signs.toml": SIGNS})
+    assert [x["id"] for x in r.search("", kind="rule")["rules"]] == ["signs"]
+    assert r.search("", kind="any")["rules"] == []

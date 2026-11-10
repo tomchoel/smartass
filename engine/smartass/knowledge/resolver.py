@@ -3,6 +3,7 @@ plus the caveats for what an answer touched and search for fin_lookup (sub-spec 
 from __future__ import annotations
 
 import contextlib
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -12,7 +13,7 @@ from ..model.resolver import DEFAULT_MATERIALITY, MetricDef, UnknownMetric, metr
 from . import atlas
 from .atlas_tree import AtlasTree
 from .build import build, search_concepts, search_metrics, semantic_hash, summary
-from .semantic import Concept, Fact, Metric
+from .semantic import Concept, Entity, Fact, Kpi, Metric, Rule, Vocab
 
 SEVERITY_ORDER = {"block": 0, "warn": 1, "info": 2}
 DRAFT_CAVEAT = "unapproved knowledge change touches this answer"
@@ -34,6 +35,10 @@ class KnowledgeResolver(AtlasTree):
         self._concept_lookup = {t.casefold(): self._concepts[cid]
                                 for cid, t in kdb.execute("SELECT concept_id, text FROM concept_alias")
                                 if cid in self._concepts}
+        self._rules = {i: Rule.model_validate_json(js) for i, js in kdb.execute("SELECT id, json FROM rule ORDER BY id")}
+        self._entities = {i: Entity.model_validate_json(js) for i, js in kdb.execute("SELECT id, json FROM entity")}
+        self._kpis = {i: Kpi.model_validate_json(js) for i, js in kdb.execute("SELECT id, json FROM kpi")}
+        self._vocab = {i: Vocab.model_validate_json(js) for i, js in kdb.execute("SELECT id, json FROM vocab")}
         self._lookup: dict[str, Metric] = {}
         for mid, terms in self._terms().items():
             for t in terms:
@@ -105,6 +110,44 @@ class KnowledgeResolver(AtlasTree):
         """The product concept for an id, title or name (any case); None when there is none."""
         return self._concepts.get(name.strip()) or self._concept_lookup.get(name.strip().casefold())
 
+    # ---- rules, entities, KPIs, vocabulary, member notes
+
+    def _terms_of(self, text: str, kind: str) -> list[str]:
+        """Item ids of a kind whose term is the phrase (any case), else whose term appears in it as whole words."""
+        t = text.strip()
+        exact = [i for (i,) in self.kdb.execute("SELECT DISTINCT item_id FROM term WHERE kind=? AND text=? "
+                                                 "COLLATE NOCASE", (kind, t))]
+        if exact or not t:
+            return exact
+        words = f" {' '.join(re.findall(r'[\w&%]+', t.casefold()))} "
+        return list(dict.fromkeys(i for term, i in self.kdb.execute("SELECT text, item_id FROM term WHERE kind=?",
+                                                                    (kind,))
+                                  if f" {' '.join(re.findall(r'[\w&%]+', term.casefold()))} " in words))
+
+    def rule(self, rid: str):
+        return self._rules.get(rid)
+
+    def rule_of_kind(self, kind: str):
+        return next((r for r in self._rules.values() if r.kind == kind), None)
+
+    def _entity_hit(self, e) -> dict:
+        out = {"id": e.id, "label": e.label, "aliases": e.aliases, "members": e.members(), "note": e.note,
+               "abolished": e.abolished, "successors": e.successors, "status": e.status,
+               "caveats": self.caveats({c: {m} for c, m in e.members().items()})}
+        if e.finplan_total:
+            out["finplan_total"] = e.finplan_total
+            out["finplan_total_children"] = list(self.children(e.finplan_total, "FinPlan"))
+        return out
+
+    def _kpi_hit(self, k) -> dict:
+        return {**k.model_dump(exclude={"source", "approved", "verified"}),
+                "caveats": self.caveats({}, {k.numerator, k.denominator})}
+
+    def note(self, member: str, cube: str) -> str:
+        row = self.kdb.execute("SELECT text FROM member_note WHERE cube=? AND member=? COLLATE NOCASE",
+                               (cube, member)).fetchone()
+        return row[0] if row else ""
+
     # ---- caveats
 
     def _in_scope(self, touched: dict[str, set[str]], metric_ids: set[str]) -> dict[str, set[str]]:
@@ -174,8 +217,9 @@ class KnowledgeResolver(AtlasTree):
     def search(self, text: str, kind: str = "any", cube: str | None = None, limit: int = 10) -> dict:
         """Metrics by alias or name (exact, then FTS prefix), product concepts the same way, members by name or label
         from the atlas; every metric and member hit carries its caveats (no month filter).
-        kind: any | metric | member | concept."""
+        kind: any | metric | member | concept | entity | kpi | vocab | rule (rule: only by kind; '' lists all)."""
         metrics, members, concepts = [], [], []
+        entities, kpis, vocab, rules = [], [], [], []
         if kind in ("any", "concept") and cube in (None, "FinMax", "FinLite"):
             concepts = [self._concept_hit(self._concepts[cid]) for cid in search_concepts(self.kdb, text, limit)
                         if cid in self._concepts]
@@ -188,8 +232,20 @@ class KnowledgeResolver(AtlasTree):
             for h in atlas.search(self.db, text, connection=cube, limit=limit):
                 members.append({"cube": h["connection"], "dimension": h["dimension"], "name": h["name"],
                                 "label": h["label"], "parents": h["parents"], "depth": h["depth"],
+                                "note": self.note(h["name"], h["connection"]),
                                 "caveats": self.caveats({h["connection"]: {h["name"]}})})
-        return {"metrics": metrics, "members": members, "concepts": concepts}
+        if kind in ("any", "entity"):
+            entities = [self._entity_hit(self._entities[i]) for i in self._terms_of(text, "entity")][:limit]
+        if kind in ("any", "kpi"):
+            kpis = [self._kpi_hit(self._kpis[i]) for i in self._terms_of(text, "kpi")][:limit]
+        if kind in ("any", "vocab"):
+            vocab = [self._vocab[i].model_dump(exclude={"source", "approved", "verified"})
+                     for i in self._terms_of(text, "vocab")][:limit]
+        if kind == "rule":
+            rules = [{"id": r.id, "title": r.title, "text": r.text} for r in self._rules.values()
+                     if not text.strip() or text.strip().casefold() in f"{r.id} {r.title} {r.text}".casefold()]
+        return {"metrics": metrics, "members": members, "concepts": concepts, "entities": entities, "kpis": kpis,
+                "vocab": vocab, "rules": rules}
 
     def close(self) -> None:
         for db in (self.kdb, self.db):
