@@ -216,6 +216,9 @@ def test_draw_stamps_one_time_for_the_header_and_the_footer(monkeypatch):
         @classmethod
         def now(cls, tz=None):
             return cls(2026, 11, 4, 23, 59, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
+
+        def astimezone(self, tz=None):  # the machine's zone (UTC on CI) must not move the pinned Oslo time
+            return self if tz is None else super().astimezone(tz)
     log, seen = [], {}
     wire(monkeypatch, log)
     monkeypatch.setattr(pipeline, "datetime", Fixed)
