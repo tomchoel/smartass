@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ..epm.grid import INVALID, NOACCESS, Axis
+from ..epm.svhttp import ALIAS_CLASH
 from . import atlas
 from .cards import account_types, operators, settle_time_balance, time_balance
 
@@ -29,7 +30,16 @@ class Slice:
 
 
 def last_full_year() -> int:
+    """Without a session (tests): the calendar year before this one. A live run uses year_for(sv)."""
     return dt.date.today().year - 1
+
+
+def year_for(sv) -> int:
+    """The last full year at or before FinMax's closed month: 'Oct 26' -> 2025, 'Dec 26' -> 2026 (in January the
+    previous December may not be closed yet, so today - 1 can name a year that is not complete)."""
+    mon, yy = sv.closed_month("FinMax").split()
+    year = 2000 + int(yy)
+    return year if mon == "Dec" else year - 1
 
 
 def slices(conn: str, dim: str, year: int) -> list[Slice]:
@@ -54,9 +64,8 @@ def slices(conn: str, dim: str, year: int) -> list[Slice]:
 DERIVED = {"FinMax": ("All Accounts", "All Entities"), "FinPlan": ("Account", "Entity")}   # accounts first
 
 
-# FinPlan (live 10.11): 'Found duplicate aliases or member name conflicting with alias under parent ...' and
-# 'Duplicate name <m> found in grid; cannot resolve. Please replace it with qualified name.'
-AMBIGUOUS = ("duplicate aliases", "qualified name")
+MAX_CLASHES, MAX_CLASH_SHARE = 50, 0.05      # more is not a few odd members but a broken query: raise
+EMPTY_SHARE = 0.9                            # a slice where >= 90 % of the visible members have no number is empty
 
 
 def grid(sv, conn: str, pov: dict, dim: str, names: list[str], cdim: str, cols: list[str],
@@ -65,19 +74,36 @@ def grid(sv, conn: str, pov: dict, dim: str, names: list[str], cdim: str, cols: 
     """({member: {column: value or None}}, {column: members with no known value}) over chunked grids of `names` x
     `cols`. #Missing is None (never 0). No known value: #NoAccess / #Invalid, and a member the provider cannot
     resolve because its name clashes with an alias (FinPlan, live 10.11: the whole grid fails; the chunk is split
-    until the clashing members are found and left out). `clashes`: members already known to clash (not asked
-    again); the ones found here are added to it, so the next slice of the dimension skips the search."""
+    until the clashing members are found and left out). Before the first split the chunk's columns and POV are
+    tried with the dimension's top member alone: if that clashes too, the clash is not in the rows and is raised.
+    More than MAX_CLASHES or MAX_CLASH_SHARE of the names clashing is raised too. `clashes`: members already known
+    to clash (not asked again); the ones found here are added to it, so the next slice skips the search."""
     vals: dict[str, dict[str, float | None]] = {}
     blocked: dict[str, set[str]] = {c: set() for c in cols}
+    rows_checked: list[bool] = []
+
+    def clash(e: Exception) -> bool:
+        return any(m in str(e) for m in ALIAS_CLASH)
 
     def part(ns: list[str]) -> None:
         try:
             f = sv.fetch(conn, pov, [Axis(dim, ns)], [Axis(cdim, list(cols))])
         except Exception as e:   # noqa: BLE001 - only the alias clash is handled, anything else is raised
-            if not any(m in str(e) for m in AMBIGUOUS):
+            if not clash(e):
                 raise
+            if not rows_checked:
+                try:
+                    sv.fetch(conn, pov, [Axis(dim, [dim])], [Axis(cdim, list(cols))])
+                except Exception as e2:   # noqa: BLE001
+                    if clash(e2):
+                        raise e from None     # the clash is in the columns or the POV, not in the rows
+                    raise
+                rows_checked.append(True)
             if len(ns) == 1:
                 known.add(ns[0])
+                if len(known) > MAX_CLASHES or len(known) > MAX_CLASH_SHARE * len(names):
+                    raise ValueError(f"{len(known)} {conn}/{dim} members clash with aliases (more than "
+                                     f"{MAX_CLASHES} or {MAX_CLASH_SHARE:.0%}): not derived") from None
                 return
             part(ns[:len(ns) // 2])
             part(ns[len(ns) // 2:])
@@ -136,9 +162,11 @@ def ancestry(name: str, parents_of: dict[str, list[str]]) -> dict[str, int]:
 
 
 def derive_dimension(sv, db: sqlite3.Connection, conn: str, dim: str, chunk: int = CHUNK,
-                     year: int | None = None, clashes: set[str] | None = None) -> int:
+                     year: int | None = None, clashes: set[str] | None = None) -> dict:
     """Operators, account type and shared flag for every (member, parent) of one dimension; replaces its cards
-    (time balance is filled by derive_time_balance). `clashes`: see grid. Returns the number of card rows."""
+    (time balance is filled by derive_time_balance, the old one is kept until then). Operators that another slice
+    contradicts are reset to unknown. Raises - and keeps the old cards - when the atlas has no members or no slice
+    has data (an expired session, a lost access right). `clashes`: see grid. {"rows", "conflicts"}."""
     pairs, names, kids, parents_of = tree(db, conn, dim)
     if not names:                         # a failed atlas dump: keep the last good cards (and FinLite's copy of them)
         raise ValueError(f"no {conn}/{dim} members in the atlas; the cards are kept")
@@ -149,7 +177,11 @@ def derive_dimension(sv, db: sqlite3.Connection, conn: str, dim: str, chunk: int
         for c in s.cols:
             vals.append({n: got[n][c] for n in names})
             blocks.append(blocked[c])
-    ops = operators(kids, *vals, blocked=blocks)
+    visible = [[n for n in names if n not in bl] for bl in blocks]
+    if all(not vis or sum(1 for n in vis if v[n] is None) >= EMPTY_SHARE * len(vis) for v, vis in zip(vals, visible)):
+        raise ValueError(f"no data in any {conn}/{dim} slice (session or access rights?); the cards are kept")
+    bad: set[str] = set()
+    ops = operators(kids, *vals, blocked=blocks, conflicts=bad)
 
     def sign_value(n: str) -> float | None:
         return next((v[n] for v in vals if v.get(n)), None)
@@ -159,7 +191,7 @@ def derive_dimension(sv, db: sqlite3.Connection, conn: str, dim: str, chunk: int
         types = account_types(kids, {n: ancestry(n, parents_of) for n in names}, {n: sign_value(n) for n in names})
     rows = [(n, p, ops.get((p, n)), None, types.get(n), int(len(parents_of[n]) > 1)) for n, p in pairs if p]
     atlas.store_cards(db, conn, dim, rows)
-    return len(rows)
+    return {"rows": len(rows), "conflicts": len(bad)}
 
 
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -203,43 +235,67 @@ def derive_time_balance(sv, db: sqlite3.Connection, conn: str, chunk: int = CHUN
 
 def copy_finlite(db: sqlite3.Connection) -> int:
     """FinLite shares FinMax's members: its cards are FinMax's wherever the FinLite atlas has the same (dimension,
-    name, parent). Replaces every FinLite card; returns the rows copied. Run after FinMax's time balance."""
+    name, parent). Per dimension: one whose FinLite atlas has no members or a failed build keeps its old cards;
+    the others are replaced. Returns the rows copied. Run after FinMax's time balance."""
+    n = 0
     with db:
-        db.execute("DELETE FROM card WHERE connection='FinLite'")
-        cur = db.execute(
-            "INSERT INTO card SELECT 'FinLite', c.dimension, c.name, c.parent, c.operator, c.time_balance, "
-            "c.account_type, c.shared, c.derived_at FROM card c WHERE c.connection='FinMax' AND EXISTS ("
-            "SELECT 1 FROM member m WHERE m.connection='FinLite' AND m.dimension=c.dimension AND m.name=c.name "
-            "AND m.parent=c.parent)")
-    return cur.rowcount
+        for (dim,) in db.execute("SELECT DISTINCT dimension FROM card WHERE connection='FinMax'").fetchall():
+            has = db.execute("SELECT 1 FROM member WHERE connection='FinLite' AND dimension=? LIMIT 1", (dim,)).fetchone()
+            err = db.execute("SELECT error FROM build WHERE connection='FinLite' AND dimension=?", (dim,)).fetchone()
+            if not has or (err and err[0]):
+                continue
+            db.execute("DELETE FROM card WHERE connection='FinLite' AND dimension=?", (dim,))
+            n += db.execute(
+                "INSERT INTO card SELECT 'FinLite', c.dimension, c.name, c.parent, c.operator, c.time_balance, "
+                "c.account_type, c.shared, c.derived_at FROM card c WHERE c.connection='FinMax' AND c.dimension=? "
+                "AND EXISTS (SELECT 1 FROM member m WHERE m.connection='FinLite' AND m.dimension=c.dimension "
+                "AND m.name=c.name AND m.parent=c.parent)", (dim,)).rowcount
+    return n
+
+
+SIGN_IN = ("sign-in", "sign in", "sso", "browser", "login", "log in")   # the session is gone: stop the run
 
 
 def derive_all(sv, db: sqlite3.Connection, connections: list[str] | None = None,
                progress: Callable[[str], None] = print, year: int | None = None) -> list[dict]:
     """Per wanted cube: operators per dimension, then the account time balance; last the FinLite copy (so it gets
-    FinMax's time balance too). Errors are recorded per step and never stop the rest."""
+    FinMax's time balance too). An error is recorded per step and the rest goes on, except a sign-in / SSO /
+    browser error, which stops the run. `year`: default the last full year at or before the closed month."""
     want = set(connections or ("FinMax", "FinLite", "FinPlan"))
     done: list[dict] = []
 
-    def step(conn: str, what: str, fn: Callable[[], int]) -> None:
+    def step(conn: str, what: str, fn: Callable[[], int | dict]) -> bool:
+        """False: stop the run."""
         t0 = time.monotonic()
         try:
-            done.append({"connection": conn, "dimension": what, "rows": fn(),
+            got = fn()
+            done.append({"connection": conn, "dimension": what, **(got if isinstance(got, dict) else {"rows": got}),
                          "seconds": round(time.monotonic() - t0, 1)})
         except Exception as e:   # noqa: BLE001 - one step's failure must not stop the others
             done.append({"connection": conn, "dimension": what, "error": str(e)[:300]})
         progress(_line(done[-1]))
+        err = done[-1].get("error", "").lower()
+        return not (err and not any(m in err for m in ALIAS_CLASH) and any(m in err for m in SIGN_IN))
+
+    if year is None and want & DERIVED.keys():
+        try:
+            year = year_for(sv)
+        except Exception as e:   # noqa: BLE001 - no closed month: no year to read
+            done.append({"connection": "FinMax", "dimension": "(closed month)", "error": str(e)[:300]})
+            progress(_line(done[-1]))
+            return done
     for conn, dims in DERIVED.items():
         if conn not in want:
             continue
         clashes: dict[str, set[str]] = {d: set() for d in dims}
         for dim in dims:
-            step(conn, dim, lambda c=conn, d=dim: derive_dimension(sv, db, c, d, year=year, clashes=clashes[d]))
-        step(conn, f"{dims[0]} (time balance)",
-             lambda c=conn, d=dims[0]: derive_time_balance(sv, db, c, year=year, clashes=clashes[d]))
+            if not step(conn, dim, lambda c=conn, d=dim: derive_dimension(sv, db, c, d, year=year, clashes=clashes[d])):
+                return done
+        if not step(conn, f"{dims[0]} (time balance)",
+                    lambda c=conn, d=dims[0]: derive_time_balance(sv, db, c, year=year, clashes=clashes[d])):
+            return done
     if want & {"FinMax", "FinLite"}:
-        done.append({"connection": "FinLite", "dimension": "(copy of FinMax)", "rows": copy_finlite(db)})
-        progress(_line(done[-1]))
+        step("FinLite", "(copy of FinMax)", lambda: copy_finlite(db))
     return done
 
 
@@ -247,6 +303,7 @@ def _line(d: dict) -> str:
     if d.get("error"):
         return f"cards {d['connection']}/{d['dimension']}: {d['error']}"
     return f"cards {d['connection']}/{d['dimension']}: {d['rows']} rows" + (
+        f", {d['conflicts']} contradicted parent(s) reset" if d.get("conflicts") else "") + (
         f" ({d['seconds']} s)" if "seconds" in d else "")
 
 

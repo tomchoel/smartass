@@ -20,7 +20,8 @@ TOL_ABS, TOL_REL, TOL_SMALL, TOL_FLOOR = 1.0, 1e-6, 1e-4, 1e-6
 def tol(scale: float) -> float:
     """The tolerance at a magnitude: 1 (NOK rounding) for money, relative 1e-6 for billions, but never more than
     1e-4 of the value itself, so ratios, ARPU and FTE (0.53, 739, 2 782) are not 'equal' within a whole unit
-    (live 10.11: EBITDA % 0.534 vs December 0.483 passed as equal with a flat 1.0)."""
+    (live 10.11: EBITDA % 0.534 vs December 0.483 passed as equal with a flat 1.0). A '~' child smaller than the
+    tolerance at its parent's scale (a few NOK under a billion) cannot be seen and reads as '+'."""
     return max(TOL_FLOOR, TOL_REL * scale, min(TOL_ABS, TOL_SMALL * scale))
 
 
@@ -66,12 +67,40 @@ def _one(kids: list[str], val: dict[str, float | None], parent: str,
     return {**{k: "+" for k in with_data}, c: op}
 
 
+SIGN = {"+": 1.0, "-": -1.0, "~": 0.0}
+
+
+def contradicted(kids: dict[str, list[str]], ops: dict[tuple[str, str], Op], slices: list[dict[str, float | None]],
+                 blocked: list[set[str]] | None = None) -> set[str]:
+    """Parents whose children all have an operator that does not reproduce the parent in some slice where the parent
+    and all its children are visible (a '+' that held by coincidence in one slice: 0 = 4 - 4, then 0 vs 6 - 2).
+    The tolerance is taken at the largest of parent, result and children."""
+    out: set[str] = set()
+    for p, cs in kids.items():
+        known = [ops.get((p, c)) for c in cs]
+        if not cs or any(o is None for o in known):
+            continue
+        for i, val in enumerate(slices):
+            bl = blocked[i] if blocked and i < len(blocked) else set()
+            if p in bl or any(c in bl for c in cs):
+                continue
+            pv = val.get(p) or 0.0
+            xs = [val.get(c) or 0.0 for c in cs]
+            got = sum(SIGN[o] * x for o, x in zip(known, xs))
+            if abs(pv - got) > tol(max([abs(pv), abs(got), *map(abs, xs)])):
+                out.add(p)
+                break
+    return out
+
+
 def operators(kids: dict[str, list[str]], *slices: dict[str, float | None],
               prior: dict[tuple[str, str], Op] | None = None,
-              blocked: Iterable[set[str]] | None = None) -> dict[tuple[str, str], Op]:
+              blocked: Iterable[set[str]] | None = None,
+              conflicts: set[str] | None = None) -> dict[tuple[str, str], Op]:
     """{(parent, child): '+' | '~' | '-' | None} over every parent in `kids`. Later slices fill what earlier ones
-    left unknown (a child without data in one slice), never overwrite a known operator. `blocked`: per slice, the
-    members whose cell was #NoAccess / #Invalid."""
+    left unknown (a child without data in one slice), never overwrite a known operator. At the end a parent whose
+    operators another slice contradicts (see contradicted) is reset to unknown and added to `conflicts`.
+    `blocked`: per slice, the members whose cell was #NoAccess / #Invalid."""
     out: dict[tuple[str, str], Op] = {(p, c): None for p, cs in kids.items() for c in cs}
     if prior:
         out.update({k: v for k, v in prior.items() if v is not None})
@@ -82,6 +111,12 @@ def operators(kids: dict[str, list[str]], *slices: dict[str, float | None],
             for c, op in _one(cs, val, p, bl).items():
                 if out.get((p, c)) is None:
                     out[(p, c)] = op
+    bad = contradicted(kids, out, list(slices), blocks)
+    for p in bad:
+        for c in kids[p]:
+            out[(p, c)] = None
+    if conflicts is not None:
+        conflicts |= bad
     return out
 
 

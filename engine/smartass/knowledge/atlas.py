@@ -47,12 +47,17 @@ def store(db, conn: str, dim: str, members: list[dict], seconds: float, error: s
 
 
 def store_cards(db, conn: str, dim: str, rows: list[tuple]) -> None:
-    """rows: (name, parent, operator, time_balance, account_type, shared); replaces the dimension's cards. A purge
-    of the members keeps the cards (the last good derivation stays until the next one succeeds)."""
+    """rows: (name, parent, operator, time_balance, account_type, shared); replaces the dimension's cards. A row
+    without a time balance keeps the one its (name, parent) had (the time balance is derived in a later step, which
+    may fail). A purge of the members keeps the cards (the last good derivation stays until the next one succeeds)."""
     now = time.time()
     with db:
+        old = dict(((n, p), tb) for n, p, tb in db.execute(
+            "SELECT name, parent, time_balance FROM card WHERE connection=? AND dimension=?", (conn, dim)))
         db.execute("DELETE FROM card WHERE connection=? AND dimension=?", (conn, dim))
-        db.executemany("INSERT OR REPLACE INTO card VALUES (?,?,?,?,?,?,?,?,?)", [(conn, dim, *r, now) for r in rows])
+        db.executemany("INSERT OR REPLACE INTO card VALUES (?,?,?,?,?,?,?,?,?)",
+                       [(conn, dim, n, p, op, tb if tb is not None else old.get((n, p)), at, sh, now)
+                        for n, p, op, tb, at, sh in rows])
 
 
 def cards_status(db) -> list[dict]:

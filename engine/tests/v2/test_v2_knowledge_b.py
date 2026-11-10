@@ -145,7 +145,7 @@ def test_derive_dimension_stores_operators_and_shared(tmp_path):
         ("FinMax", "All Entities", "A", "A", "OTHER", 2, 4)])
     sv = FakeSv({("ac.C70", "un.SY"): 10.0, ("ac.C70", "A"): 10.0, ("ac.C70", "Ai"): 4.0,
                  ("ac.C70", "All Entities"): 10.0})
-    n = cards_fetch.derive_dimension(sv, db, "FinMax", "All Entities", chunk=2, year=2025)
+    n = cards_fetch.derive_dimension(sv, db, "FinMax", "All Entities", chunk=2, year=2025)["rows"]
     rows = {(r[0], r[1]): r for r in db.execute("SELECT name, parent, operator, shared, account_type FROM card")}
     assert rows[("A", "un.SY")][2] == "+" and rows[("Ai", "un.SY")][2] == "~"
     assert rows[("A", "un.SY")][3] == 1 and rows[("Ai", "un.SY")][3] == 0
@@ -242,7 +242,7 @@ def test_a_member_whose_name_clashes_with_an_alias_is_found_and_left_out():
                 raise RuntimeError("Smart View provider: Found duplicate aliases or member name conflicting with "
                                    "alias under parent 'ac.Statistics'.")
             return super().fetch(conn, pov, rows, cols)
-    names = ["A", "B", "SDx Revenue", "C", "D"]
+    names = ["A", "B", "SDx Revenue", "C", "D"] + [f"m{i}" for i in range(40)]   # 1 clash of 45: under the cap
     sv = Clash({("YearTotal", n): 1.0 for n in names})
     vals, blocked = cards_fetch.grid(sv, "FinPlan", {}, "Account", names, "Period", ["YearTotal"])
     assert blocked == {"YearTotal": {"SDx Revenue"}}
@@ -273,7 +273,7 @@ def test_derive_all_runs_only_the_wanted_cubes_and_copies_finlite(tmp_path):
     atlas.store_cards(db, "FinMax", E, [("A", "P", "+", None, None, 0)])
     sv = FakeSv({})
     done = cards_fetch.derive_all(sv, db, ["FinLite"], progress=lambda m: None)
-    assert sv.calls == [] and done == [{"connection": "FinLite", "dimension": "(copy of FinMax)", "rows": 1}]
+    assert sv.calls == [] and [(d["dimension"], d["rows"]) for d in done] == [("(copy of FinMax)", 1)]
 
 
 def test_derive_all_records_a_failing_dimension_and_goes_on(tmp_path):
@@ -284,7 +284,7 @@ def test_derive_all_records_a_failing_dimension_and_goes_on(tmp_path):
             if rows[0].dimension == "Account":
                 raise RuntimeError("down")
             return super().fetch(conn, pov, rows, cols)
-    done = cards_fetch.derive_all(Boom({}), db, ["FinPlan"], progress=lambda m: None)
+    done = cards_fetch.derive_all(Boom({("OPEX", "A"): 1.0}), db, ["FinPlan"], progress=lambda m: None, year=2025)
     assert done[0] == {"connection": "FinPlan", "dimension": "Account", "error": "down"}
     assert done[1]["dimension"] == "Entity" and done[1]["rows"] == 1
 
@@ -438,3 +438,167 @@ def test_a_dimension_without_members_keeps_its_cards(tmp_path):
     assert "no FinMax/All Entities members" in next(d["error"] for d in done if d["dimension"] == E)
     assert db.execute("SELECT connection, operator FROM card WHERE name='A' ORDER BY 1").fetchall() == [
         ("FinLite", "+"), ("FinMax", "+")]
+
+
+# --- Review fixes (rv_probe.py cases and I1-M10) ---------------------------------------------------------------------
+
+CLASH = "Duplicate name Revenue found in grid; cannot resolve. Please replace it with qualified name."
+
+
+def test_a_clash_in_the_column_or_pov_is_raised_not_searched():
+    """rv_probe case 4: the clash is a column member, so every row 'clashes'; the search cost 2N-1 fetches and
+    blocked every row. One retry with the dimension's own top member shows the rows are not the problem."""
+    import pytest
+
+    class ColClash(FakeSv):
+        def fetch(self, conn, pov, rows, cols):
+            self.calls.append(1)
+            raise RuntimeError(CLASH)
+    sv = ColClash({})
+    with pytest.raises(RuntimeError, match="qualified name"):
+        cards_fetch.grid(sv, "FinPlan", {}, "Entity", [f"m{i}" for i in range(100)], "Account", ["OPEX", "Revenue"],
+                         chunk=50)
+    assert len(sv.calls) == 2
+
+
+def test_too_many_clashes_are_raised():
+    import pytest
+
+    class Many(FakeSv):
+        def fetch(self, conn, pov, rows, cols):
+            if any(n.startswith("bad") for n in rows[0].members):
+                raise RuntimeError(CLASH)
+            return super().fetch(conn, pov, rows, cols)
+    names = [f"ok{i}" for i in range(90)] + [f"bad{i}" for i in range(10)]          # 10 % clash
+    with pytest.raises(ValueError, match="clash"):
+        cards_fetch.grid(Many({}), "FinPlan", {}, "Account", names, "Period", ["YearTotal"])
+
+
+def test_a_dimension_without_data_in_any_slice_keeps_its_cards(tmp_path):
+    """Every cell #NoAccess or #Missing (an expired session, a lost access right): no new cards. Measured live
+    10.11: FinMax entities have 94-97 % of all names without a number (16 578 #NoAccess), but 76 % / 87 % of the
+    visible ones, so the guard counts visible names only."""
+    import pytest
+    E = "All Entities"
+    db = _atlas(tmp_path, [("FinMax", E, "P", "P", E, 1, 1), ("FinMax", E, "A", "A", "P", 2, 2)])
+    atlas.store_cards(db, "FinMax", E, [("A", "P", "+", None, None, 0)])
+    for cell in ("#NoAccess", "#Missing"):
+        with pytest.raises(ValueError, match="no data"):
+            cards_fetch.derive_dimension(FakeSv(lambda pov, col, name, c=cell: c), db, "FinMax", E, year=2025)
+    assert db.execute("SELECT operator FROM card WHERE name='A'").fetchone() == ("+",)
+
+
+def test_mostly_hidden_members_still_derive_when_the_visible_ones_have_data(tmp_path):
+    E = "All Entities"
+    db = atlas.connect(tmp_path / "b.db")
+    db.executemany("INSERT INTO member VALUES (?,?,?,?,?,?,?)", [("FinMax", E, f"m{i}", "m", "P", 2, i)
+                                                                 for i in range(20)])
+    db.commit()
+    cells = {f"m{i}": v for i, v in enumerate(["#NoAccess"] * 18 + [1.0, "#Missing"])}   # 90 % hidden
+    got = cards_fetch.derive_dimension(FakeSv(lambda pov, col, name: cells[name]), db, "FinMax", E, year=2025)
+    assert got["rows"] == 20
+
+
+def test_rederiving_operators_keeps_the_time_balance_until_a_new_one_is_derived(tmp_path):
+    """rv_probe case 3: the time balance step fails (SSO) after the operators were stored: the old time balance
+    stays; the run stops at the sign-in error (M6)."""
+    A = "All Accounts"
+    db = _atlas(tmp_path, [("FinMax", A, "ac.STA", "s", A, 1, 1), ("FinMax", A, "ac.STA20Y", "f", "ac.STA", 2, 2)])
+    atlas.store_cards(db, "FinMax", A, [("ac.STA20Y", "ac.STA", "+", "balance_last", "statistic", 0),
+                                        ("ac.STA", A, "+", "balance_last", "statistic", 0)])
+
+    class Half(FakeSv):
+        def fetch(self, conn, pov, rows, cols):
+            if len(cols[0].members) > 2:
+                raise RuntimeError("SSO expired")
+            return super().fetch(conn, pov, rows, cols)
+    done = cards_fetch.derive_all(Half({("Yr 25", "ac.STA20Y"): 5.0, ("Yr 25", "ac.STA"): 5.0}), db, ["FinMax"],
+                                  progress=lambda m: None, year=2025)
+    assert done[-1]["error"] == "SSO expired" and done[-1]["dimension"] == "All Accounts (time balance)"
+    assert not any(d["dimension"] == "(copy of FinMax)" for d in done)            # stopped
+    assert set(db.execute("SELECT name, time_balance FROM card WHERE connection='FinMax'")) == {
+        ("ac.STA20Y", "balance_last"), ("ac.STA", "balance_last")}
+
+
+def test_store_cards_carries_the_time_balance_of_each_row():
+    import sqlite3
+    db = sqlite3.connect(":memory:")
+    db.executescript(atlas.SCHEMA)
+    atlas.store_cards(db, "FinMax", "A", [("x", "p", "+", "flow", None, 0), ("y", "p", "+", "flow", None, 0)])
+    atlas.store_cards(db, "FinMax", "A", [("x", "p", "~", None, None, 0), ("z", "p", "+", None, None, 0),
+                                          ("y", "p", "+", "balance_last", None, 0)])
+    assert set(db.execute("SELECT name, operator, time_balance FROM card")) == {
+        ("x", "~", "flow"), ("z", "+", None), ("y", "+", "balance_last")}
+
+
+def test_finlite_copy_skips_a_dimension_whose_finlite_atlas_failed(tmp_path):
+    """rv_probe case 1: FinLite's All Entities dump failed (no members): its cards stay; All Accounts is copied."""
+    db = _atlas(tmp_path, [("FinLite", "All Accounts", "X", "X", "P", 1, 1)])
+    atlas.store_cards(db, "FinMax", "All Entities", [("A", "P", "+", None, None, 0)])
+    atlas.store_cards(db, "FinMax", "All Accounts", [("X", "P", "+", "flow", "expense", 0)])
+    atlas.store_cards(db, "FinLite", "All Entities", [("A", "P", "+", None, None, 0)])
+    assert cards_fetch.copy_finlite(db) == 1
+    assert set(db.execute("SELECT dimension, name FROM card WHERE connection='FinLite'")) == {
+        ("All Entities", "A"), ("All Accounts", "X")}
+    # a build error on the FinLite dimension keeps its cards too, even with members left
+    db.execute("INSERT INTO build VALUES ('FinLite', 'All Accounts', 0, 1, 0, 'timed out')")
+    db.commit()
+    atlas.store_cards(db, "FinMax", "All Accounts", [("X", "P", "~", None, None, 0)])
+    cards_fetch.copy_finlite(db)
+    assert db.execute("SELECT operator FROM card WHERE connection='FinLite' AND name='X'").fetchone() == ("+",)
+
+
+def test_a_coincidental_plus_contradicted_by_another_slice_is_reset():
+    """rv_probe case 2: slice 1 (P 0 = 4 - 4) says '+'; slice 2 (P 0, children 6 and -2) contradicts it."""
+    from smartass.knowledge.cards import contradicted
+    kids = {"P": ["A", "B"], "Q": ["C"]}
+    sl = [{"P": 0.0, "A": 4.0, "B": -4.0, "Q": 1.0, "C": 1.0}, {"P": 0.0, "A": 6.0, "B": -2.0, "Q": 2.0, "C": 2.0}]
+    bad: set = set()
+    ops = operators(kids, *sl, conflicts=bad)
+    assert ops == {("P", "A"): None, ("P", "B"): None, ("Q", "C"): "+"} and bad == {"P"}
+    first = {("P", "A"): "+", ("P", "B"): "+", ("Q", "C"): "+"}           # what slice 1 alone gave
+    assert contradicted(kids, first, sl) == {"P"}
+    assert contradicted(kids, first, sl, blocked=[set(), {"B"}]) == set()      # B hidden in slice 2: no check
+
+
+def test_derive_dimension_resets_and_counts_conflicts(tmp_path):
+    E = "All Entities"
+    db = _atlas(tmp_path, [("FinMax", E, "P", "P", E, 1, 1), ("FinMax", E, "A", "A", "P", 2, 2),
+                           ("FinMax", E, "B", "B", "P", 2, 3)])
+    vals = {("ac.C70", "P"): 0.0, ("ac.C70", "A"): 4.0, ("ac.C70", "B"): -4.0,
+            ("ac.C30", "P"): 0.0, ("ac.C30", "A"): 6.0, ("ac.C30", "B"): -2.0}
+    got = cards_fetch.derive_dimension(FakeSv(vals), db, "FinMax", E, year=2025)
+    assert got["conflicts"] == 1
+    assert {r[0] for r in db.execute("SELECT operator FROM card WHERE parent='P'")} == {None}
+
+
+def test_copy_failure_is_a_step_error_and_a_sign_in_error_stops_the_run(tmp_path, monkeypatch):
+    E = "All Entities"
+    db = _atlas(tmp_path, [("FinMax", "All Accounts", "ac.C70", "o", "All Accounts", 1, 1),
+                           ("FinMax", E, "un.SY", "s", E, 1, 1)])
+
+    def boom(db):
+        raise RuntimeError("disk full")
+    monkeypatch.setattr(cards_fetch, "copy_finlite", boom)
+    sv = FakeSv(lambda pov, col, name: -1.0)
+    done = cards_fetch.derive_all(sv, db, ["FinMax"], progress=lambda m: None, year=2025)
+    assert done[-1] == {"connection": "FinLite", "dimension": "(copy of FinMax)", "error": "disk full"}
+
+    class NoBrowser(FakeSv):
+        def fetch(self, conn, pov, rows, cols):
+            raise RuntimeError("No headless browser could start for the drill")
+    done = cards_fetch.derive_all(NoBrowser({}), db, None, progress=lambda m: None, year=2025)
+    assert len(done) == 1 and "browser" in done[0]["error"]
+
+
+def test_the_year_is_the_last_full_year_at_or_before_the_closed_month():
+    class Sv:
+        def __init__(self, m):
+            self.m = m
+
+        def closed_month(self, conn="FinMax"):
+            return self.m
+    assert cards_fetch.year_for(Sv("Oct 26")) == 2025
+    assert cards_fetch.year_for(Sv("Jan 26")) == 2025
+    assert cards_fetch.year_for(Sv("Dec 25")) == 2025
+    assert cards_fetch.year_for(Sv("Dec 26")) == 2026
