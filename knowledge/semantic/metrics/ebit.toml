@@ -1,0 +1,21 @@
+name = "EBIT"
+aliases = ["ebit", "operating profit", "operating result", "driftsresultat", "driftsresultatet"]
+description = "EBIT = EBITDA + total depreciation and write-downs (C76S)"
+unit = "NOK"
+sign = "neutral"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+verified = { by = "auto", on = "2026-11-10" }
+differs = "FinMax ac.EBIT = EBITDA + C76S (un.SY 2025: 12 395 - 5 889 = 6 506 MNOK). FinPlan EBIT = EBITDA + Depreciation Expense + Write-downs (BANORWAY Actual FY25 7 452 MNOK) and is planned: Target FY26 7 784 MNOK. FinPlan groups accounts differently from FinMax; compare across cubes only with a reconciliation line."
+
+[finmax]
+members = ["ac.EBIT"]
+
+[finlite]
+members = ["ac.EBIT"]
+
+[finplan]
+members = ["EBIT"]

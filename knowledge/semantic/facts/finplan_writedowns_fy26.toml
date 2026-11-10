@@ -1,0 +1,8 @@
+text = "FinPlan Write-downs holds 27 490 MNOK (9 163 in January) in Actual and Forecast FY26 for BANORWAY that EBIT does not include (EBIT = EBITDA + Depreciation Expense). Do not add Write-downs to a FinPlan total; FY25 Actual is -1.8 MNOK and Target FY26 is 0."
+severity = "warn"
+source = "live check phase B 2026-11-10: BANORWAY Actual/Working FY26, Forecast Q326/Final FY26"
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+
+[scope_members]
+FinPlan = ["Write-downs"]

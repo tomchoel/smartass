@@ -1,0 +1,16 @@
+name = "Internet ARPU"
+aliases = ["arpu", "internet arpu", "broadband arpu", "bredbånds-arpu", "arpu bredbånd", "arpu internett", "STF40E"]
+description = "Fixed internet (broadband) blended ARPU, NOK per month, fixed only (STF40E monthly); the last month of the period"
+unit = "NOK"
+sign = "neutral"
+balance = "Periodic"
+aggregation = "last"
+materiality = [10.0, 0.05]
+pct_floor = 1.0
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+verified = { by = "auto", on = "2026-11-10" }
+differs = "FinMax only, NOK per subscription per month, Telenor Norge (un.SY). This is the monthly ARPU of the last month of the period, not the period average (FinMax Yr and Accumulated add 12 monthly ARPUs; the YTD ARPU is a separate account). FinLite has no statistics; FinPlan ARPU has no Actual, so it is not mapped. Mobile ARPU is not in FinMax un.SY (STM10M is empty). Oct 26: 574.9 NOK (YTD ARPU STF46E: 568.2)."
+
+[finmax]
+members = ["ac.STF40E"]

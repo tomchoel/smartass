@@ -1,0 +1,15 @@
+name = "Total assets"
+aliases = ["total assets", "assets", "balance sheet total", "sum eiendeler", "eiendeler", "totalbalanse", "C1S"]
+description = "Total assets (C1S) at the period end: Accumulated includes the opening balance, so the last month is the balance"
+unit = "NOK"
+sign = "neutral"
+balance = "Accumulated"
+aggregation = "last"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+verified = { by = "auto", on = "2026-11-10" }
+differs = "FinMax only (un.SY: 30 522 MNOK at Dec 25 = Opening Balance 26; 30 323 at Oct 26). Periodic holds the monthly movement, never the balance. FinLite has no 2026 opening balance and FinPlan Total Assets is not a balance (FY26 Actual -212 MNOK, assets differ from liabilities and equity), so neither is mapped."
+
+[finmax]
+members = ["ac.C1S"]

@@ -1,0 +1,21 @@
+name = "Depreciation and write-downs"
+aliases = ["depreciation and write-downs", "depreciation and writedowns", "total depreciation", "avskrivninger og nedskrivninger", "av- og nedskrivninger", "C76S"]
+description = "Total depreciations and write-downs (C76S = C75 depreciation + C76 write-downs): the step from EBITDA to EBIT"
+unit = "NOK"
+sign = "cost"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+verified = { by = "auto", on = "2026-11-10" }
+differs = "FinMax C76S equals C75 in un.SY (C76 write-downs are 0: 2025 -5 889 MNOK). FinPlan maps only Depreciation Expense (Actual FY25 -6 708, Target FY26 -6 910 MNOK): FinPlan Write-downs holds 27 490 MNOK in Actual and Forecast FY26 that EBIT does not include, so it is left out."
+
+[finmax]
+members = ["ac.C76S"]
+
+[finlite]
+members = ["ac.C76S"]
+
+[finplan]
+members = ["Depreciation Expense"]

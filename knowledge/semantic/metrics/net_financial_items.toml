@@ -1,0 +1,21 @@
+name = "Net financial items"
+aliases = ["net financial items", "financial items", "net finance cost", "finansposter", "netto finansposter", "C84S"]
+description = "Net financial items (C84S): financial revenue less financial expenses, FX and fair-value changes; share of associates (C77) is not included"
+unit = "NOK"
+sign = "neutral"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+verified = { by = "auto", on = "2026-11-10" }
+differs = "FinMax C84S (un.SY 2025 -430 MNOK). FinPlan has no single member: Net Interest Items + Other Financial Items (Actual FY25 -511, Target FY26 -657 MNOK); associates are separate in both cubes."
+
+[finmax]
+members = ["ac.C84S"]
+
+[finlite]
+members = ["ac.C84S"]
+
+[finplan]
+members = ["Net Interest Items", "Other Financial Items"]

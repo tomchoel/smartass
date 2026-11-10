@@ -1,0 +1,21 @@
+name = "Profit before tax"
+aliases = ["profit before tax", "profit before taxes", "pbt", "pre-tax profit", "resultat før skatt", "resultat for skatt", "C85"]
+description = "Profit/loss before taxes = EBIT + net financial items (C84S) + share of associates (C77)"
+unit = "NOK"
+sign = "neutral"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+verified = { by = "auto", on = "2026-11-10" }
+differs = "FinMax C85 = EBIT + C84S + C77 (un.SY 2025: 6 506 - 430 + 0 = 6 076 MNOK). FinPlan Profit/Loss before Taxes = EBIT + Net Interest Items + Other Financial Items + Share Profit/Loss Associated Companies (Actual FY25 6 915, Target FY26 7 127 MNOK). FinPlan groups accounts differently from FinMax; compare across cubes only with a reconciliation line."
+
+[finmax]
+members = ["ac.C85"]
+
+[finlite]
+members = ["ac.C85"]
+
+[finplan]
+members = ["Profit/Loss before Taxes"]

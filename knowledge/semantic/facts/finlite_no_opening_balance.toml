@@ -1,0 +1,9 @@
+text = "FinLite carries no 2026 opening balance: balance-sheet accounts Accumulated in 2026 show only the year's movement (C1S Oct 26: -57 MNOK against 30 323 in FinMax). Read balances in FinMax."
+severity = "warn"
+source = "live check phase B 2026-11-10: ac.C1S/ac.C2S un.SY Accumulated Yr 25 / Oct 26, FinMax vs FinLite"
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+inherit = "self"
+
+[scope_members]
+FinLite = ["ac.C1_C2", "ac.C1S", "ac.C2S", "ac.C14S", "ac.C18S"]

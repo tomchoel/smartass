@@ -57,6 +57,7 @@ class Metric(BaseModel):
     pct_floor: float | None = None          # |base| below it: no variance % (default: materiality abs / 10 for NOK)
     status: Literal["approved", "draft"] = "draft"
     approved: dict | None = None
+    verified: dict | None = None            # {"by", "on"}: the members were checked against live data
     finmax: Members | None = None
     finlite: Members | None = None
     finplan: Members | None = None

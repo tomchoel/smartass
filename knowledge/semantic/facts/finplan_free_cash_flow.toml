@@ -1,0 +1,8 @@
+text = "FinPlan has no usable free cash flow: Free Cash Flow is empty for BANORWAY in Actual and Target (only a stray -1 572 MNOK YearTotal in Forecast Q326). FCF ex M&A, inc HSF exists in Target (FY26 5 600 MNOK) and forecasts only, never in Actual, and FinMax has no cash-flow account; so there is no free cash flow metric."
+severity = "warn"
+source = "live check phase B 2026-11-10: BANORWAY Actual/Working FY25-26, Target/Final FY25-26, Forecast Q326/Final FY26"
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+
+[scope_members]
+FinPlan = ["Free Cash Flow", "Free Cash Flow (all shareholders)", "FCF ex M&A, inc HSF"]
