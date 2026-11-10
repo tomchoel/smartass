@@ -366,7 +366,8 @@ def test_derive_time_balance_finplan_falls_back_to_target(tmp_path):
 
 def test_finlite_gets_the_time_balance_too(tmp_path):
     A = "All Accounts"
-    db = _atlas(tmp_path, [("FinMax", A, "ac.C70", "o", A, 1, 1), ("FinLite", A, "ac.C70", "o", A, 1, 1)])
+    db = _atlas(tmp_path, [("FinMax", A, "ac.C70", "o", A, 1, 1), ("FinLite", A, "ac.C70", "o", A, 1, 1),
+                           ("FinMax", "All Entities", "un.SY", "s", "All Entities", 1, 1)])
     sv = FakeSv(lambda pov, col, name: -1200.0 if col == "Yr 25" else -100.0 if name == "ac.C70" else "#Missing")
     done = cards_fetch.derive_all(sv, db, ["FinMax", "FinLite"], progress=lambda m: None, year=2025)
     assert db.execute("SELECT time_balance FROM card WHERE connection='FinLite' AND name='ac.C70'").fetchone() == (
@@ -424,3 +425,16 @@ def test_monthly_levels_that_the_cube_sums_read_as_flow():
     (33 725.66). From the numbers this is a flow like any steady monthly series; a manual card (Task 5) corrects it."""
     stage = [2857.29, 2851.37, 2838.17, 2820.79, 2821.44, 2818.89, 2807.49, 2804.4, 2758.59, 2778.8, 2786.23, 2782.12]
     assert time_balance(sum(stage), stage, movements=True) == "flow"
+
+
+def test_a_dimension_without_members_keeps_its_cards(tmp_path):
+    """A failed atlas dump stores the dimension with no members: deriving it must not wipe the last good cards."""
+    E = "All Entities"
+    db = _atlas(tmp_path, [("FinMax", "All Accounts", "ac.C70", "o", "All Accounts", 1, 1),
+                           ("FinLite", E, "A", "A", "P", 2, 1)])
+    atlas.store_cards(db, "FinMax", E, [("A", "P", "+", None, None, 0)])
+    sv = FakeSv(lambda pov, col, name: -1200.0 if col == "Yr 25" else -100.0)
+    done = cards_fetch.derive_all(sv, db, ["FinMax", "FinLite"], progress=lambda m: None, year=2025)
+    assert "no FinMax/All Entities members" in next(d["error"] for d in done if d["dimension"] == E)
+    assert db.execute("SELECT connection, operator FROM card WHERE name='A' ORDER BY 1").fetchall() == [
+        ("FinLite", "+"), ("FinMax", "+")]

@@ -140,6 +140,8 @@ def derive_dimension(sv, db: sqlite3.Connection, conn: str, dim: str, chunk: int
     """Operators, account type and shared flag for every (member, parent) of one dimension; replaces its cards
     (time balance is filled by derive_time_balance). `clashes`: see grid. Returns the number of card rows."""
     pairs, names, kids, parents_of = tree(db, conn, dim)
+    if not names:                         # a failed atlas dump: keep the last good cards (and FinLite's copy of them)
+        raise ValueError(f"no {conn}/{dim} members in the atlas; the cards are kept")
     vals, blocks = [], []
     clashes = set() if clashes is None else clashes
     for s in slices(conn, dim, year or last_full_year()):
