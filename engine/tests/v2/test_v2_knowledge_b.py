@@ -798,3 +798,76 @@ def test_the_blocks_pass_the_entity_as_the_parent():
     lines = entity_lines(c, q, "Revenue", ["value"], "b0")
     out = BlockOut("b0", "table", "t", ["Actual"], lines=lines)
     assert evaluate([out], fr).get(ck("b0", "check", 0)) == 0.0
+
+
+# --- Task 7: cards in fin_lookup and in caveats -----------------------------------------------------------------------
+
+LOOKUP_ATLAS = [("FinMax", "All Accounts", "ac.Statistics", "Statistics", "All Accounts", 2, 1),
+                ("FinMax", "All Accounts", "ac.STA", "STA statistics", "ac.Statistics", 3, 1),
+                ("FinMax", "All Accounts", "ac.STA20Y", "STA20Y FTE", "ac.STA", 4, 1),
+                ("FinMax", "All Accounts", "ac.STA21Y", "STA21Y FTE other", "ac.STA", 4, 2),
+                ("FinMax", "All Accounts", "ac.STA22Y", "STA22Y FTE minus", "ac.STA", 4, 3),
+                ("FinMax", "All Accounts", "ac.STA23Y", "STA23Y plain", "ac.STA", 4, 4),
+                ("FinMax", "All Accounts", "ac.AVG1", "AVG1 average", "ac.Statistics", 3, 2)]
+LOOKUP_CARDS = [("FinMax", "All Accounts", "ac.STA", "ac.Statistics", "+", "balance_last", "statistic", 0, 1.0),
+                ("FinMax", "All Accounts", "ac.STA20Y", "ac.STA", "+", "balance_last", "statistic", 0, 1.0),
+                ("FinMax", "All Accounts", "ac.STA21Y", "ac.STA", "~", "balance_last", "statistic", 0, 1.0),
+                ("FinMax", "All Accounts", "ac.STA22Y", "ac.STA", "-", "balance_last", "statistic", 0, 1.0),
+                ("FinMax", "All Accounts", "ac.STA23Y", "ac.STA", "+", None, None, 0, 1.0),
+                ("FinMax", "All Accounts", "ac.AVG1", "ac.Statistics", "+", "average", "statistic", 0, 1.0)]
+FTE_METRIC = '''name = "FTE"
+description = "A level."
+unit = "FTE"
+balance = "Accumulated"
+aggregation = "last"
+status = "approved"
+[finmax]
+members = ["ac.STA20Y"]
+'''
+
+
+def _lookup(tmp_path):
+    from kutil import copy_required_rules
+    a, sem, k = tmp_path / "atlas.db", tmp_path / "semantic", tmp_path / "knowledge.db"
+    con = atlas.connect(a)
+    con.executemany("INSERT INTO member VALUES (?,?,?,?,?,?,?)", LOOKUP_ATLAS)
+    con.executemany("INSERT INTO card VALUES (?,?,?,?,?,?,?,?,?)", LOOKUP_CARDS)
+    con.commit()
+    con.close()
+    copy_required_rules(sem)
+    (sem / "metrics").mkdir()
+    (sem / "metrics" / "fte.toml").write_text(FTE_METRIC, encoding="utf-8")
+    assert build(sem, a, k).ok
+    return KnowledgeResolver(sqlite3.connect(k), sqlite3.connect(a), forecast_year=26)
+
+
+def test_member_hits_carry_a_compact_card(tmp_path):
+    r = _lookup(tmp_path)
+    hit = next(m for m in r.search("STA", kind="member", cube="FinMax")["members"] if m["name"] == "ac.STA")
+    assert hit["card"] == {"time_balance": "balance_last", "account_type": "statistic",
+                           "children_ignored": ["ac.STA21Y"], "children_subtracted": ["ac.STA22Y"]}
+    plain = next(m for m in r.search("STA23Y", kind="member", cube="FinMax")["members"] if m["name"] == "ac.STA23Y")
+    assert plain["card"] == {}                                    # nothing known: None fields are omitted
+    root = r.search("Statistics", kind="member", cube="FinMax")["members"][0]
+    assert root["name"] == "ac.Statistics" and "children_ignored" not in root["card"]
+
+
+def test_a_level_gets_a_time_balance_caveat_unless_a_last_metric_covers_it(tmp_path):
+    r = _lookup(tmp_path)
+    got = r.card_caveats({"FinMax": {"ac.STA21Y", "ac.STA20Y", "ac.AVG1", "ac.STA23Y", "un.SY"}})
+    assert [c["id"] for c in got] == ["card_ac.AVG1", "card_ac.STA21Y"]       # STA20Y is the FTE metric (last)
+    lvl = next(c for c in got if c["id"] == "card_ac.STA21Y")
+    assert lvl["severity"] == "info" and lvl["text"] == (
+        "STA21Y FTE other is a level (time balance last): read the period-end value, never sum months.")
+    assert "average" in next(c for c in got if c["id"] == "card_ac.AVG1")["text"]
+
+
+def test_the_pipeline_adds_the_card_caveats_once(tmp_path):
+    from types import SimpleNamespace
+
+    from smartass import pipeline
+    r = _lookup(tmp_path)
+    req = SimpleNamespace(cube="FinLite", entities=["un.SY"], accounts=["ac.STA21Y"], products=[], periods=["Sep 26"])
+    spec = SimpleNamespace(blocks=[], queries=[])
+    got = pipeline.caveats(spec, [req, req], r)
+    assert [c["id"] for c in got if c["id"].startswith("card_")] == ["card_ac.STA21Y"]

@@ -200,6 +200,39 @@ class KnowledgeResolver(AtlasTree):
         return {"operator": op, "time_balance": tb, "account_type": at, "storage": st, "shared": bool(shared),
                 "note": note or "", "provenance": json.loads(prov or "{}")}
 
+    def compact_card(self, member: str, cube: str) -> dict:
+        """The card a member hit carries: its time balance and account type, and which of its own children the
+        consolidation ignores ('~') or subtracts ('-'). Fields that are not known are left out; {} for no card."""
+        card = self.card(member, cube) or {}
+        out = {k: card[k] for k in ("time_balance", "account_type") if card.get(k)}
+        for key, op in (("children_ignored", "~"), ("children_subtracted", "-")):
+            kids = [r[0] for r in self.kdb.execute(
+                "SELECT member FROM card WHERE cube=? AND parent=? COLLATE NOCASE AND operator=? "
+                "ORDER BY member", (cube, member, op))]
+            if kids:
+                out[key] = list(dict.fromkeys(kids))
+        return out
+
+    def card_caveats(self, touched: dict[str, set[str]]) -> list[dict]:
+        """One info caveat per touched account that is a level (time balance last) or an average, unless a metric with
+        aggregation 'last' already covers it (the answer then reads the period end by itself). id card_<member>."""
+        covered = {(cube, x.casefold()) for m in self._metrics.values() if m.aggregation == "last"
+                   for cube, ms in m.members().items() for x in ms}
+        out: dict[str, dict] = {}
+        for cube, members in touched.items():
+            for member in sorted(members):
+                card = self.card(member, cube)
+                tb = card["time_balance"] if card else None
+                cid = f"card_{member}"
+                if tb not in ("balance_last", "average") or cid in out or (cube, member.casefold()) in covered:
+                    continue
+                label = self.label(member, cube)
+                out[cid] = {"id": cid, "severity": "info", "text": (
+                    f"{label} is a level (time balance last): read the period-end value, never sum months."
+                    if tb == "balance_last" else
+                    f"{label} is an average (time balance average): read the period value, never sum months.")}
+        return [out[k] for k in sorted(out)]
+
     OPERATOR_WEIGHT = {"+": 1.0, "-": -1.0, "~": 0.0}
 
     def weight(self, member: str, cube: str, parent: str | None = None) -> float:
@@ -293,6 +326,7 @@ class KnowledgeResolver(AtlasTree):
                 members.append({"cube": h["connection"], "dimension": h["dimension"], "name": h["name"],
                                 "label": h["label"], "parents": h["parents"], "depth": h["depth"],
                                 "note": self.note(h["name"], h["connection"]),
+                                "card": self.compact_card(h["name"], h["connection"]),
                                 "caveats": self.caveats({h["connection"]: {h["name"]}})})
         hit = self._matches(text) if kind in ("any", "entity", "kpi", "vocab") else {}
         if kind in ("any", "entity"):
