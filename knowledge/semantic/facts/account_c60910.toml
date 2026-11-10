@@ -2,6 +2,7 @@ text = "C60910 Other services from Shared Service Centre & other BU: Internal pu
 severity = "warn"
 source = "accounts_map.json ac.C60910 pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C60910"]

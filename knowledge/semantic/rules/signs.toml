@@ -1,0 +1,10 @@
+source = "catalog.toml header"
+status = "approved"
+title = "Signs and variance"
+text = "FinMax signs: revenue positive, costs negative, so a higher value is better on every P&L line. Variance = current - comparison (positive = better); variance % is empty on a tiny base."
+kind = "text"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

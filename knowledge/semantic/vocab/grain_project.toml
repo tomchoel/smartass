@@ -1,0 +1,33 @@
+source = "capabilities.toml [[grain]]"
+status = "approved"
+kind = "grain"
+words = [
+  "per project",
+  "by project",
+  "which projects",
+  "initiatives",
+  "per prosjekt",
+  "hvilke prosjekter",
+  "initiativer",
+]
+feasible = [
+  "consultants",
+  "consultants_and_temps",
+  "contractors",
+  "legal",
+  "legal_fees",
+  "legal_disputes",
+  "audit_fees",
+  "travel",
+  "management_fee",
+  "licence_fees",
+  "energy",
+  "shared_services",
+]
+proxy = "the same measure per cost centre; project detail exists only in the ledger lines of account-level cost types"
+note = "from ledger lines (FinLite drill)"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "capabilities.toml"

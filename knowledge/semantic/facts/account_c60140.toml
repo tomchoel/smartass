@@ -2,6 +2,7 @@ text = "C60140 Commission: May be booked on a product, e.g. the Splitt finance c
 severity = "warn"
 source = "accounts_map.json ac.C60140 pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C60140"]

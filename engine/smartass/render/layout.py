@@ -313,6 +313,14 @@ def _threshold_table(p: SheetPlan, r: int, params: dict, stock: set[str], cols: 
     return r
 
 
+def via_suffix(c: dict) -> str:
+    """' (via X, Y)' for a caveat inherited from other members: up to 3 named, else the count."""
+    via = c.get("via") or []
+    if not via:
+        return ""
+    return f" (via {', '.join(via)})" if len(via) <= 3 else f" (via {len(via)} members)"
+
+
 def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: str,
            const: dict[str, str] | None = None, caveats: list[dict] | None = None,
            key_points: KeyPoints | None = None) -> SheetPlan:
@@ -521,7 +529,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         text(r, "Caveats", "section")
         r += 1
         for c in caveats:
-            r = notes(r, f"{c['severity'].capitalize()}: {c['text']}")
+            r = notes(r, f"{c['severity'].capitalize()}: {c['text']}{via_suffix(c)}")
         r += 1
 
     # 8. Chart data: own chart data as tables (titled 'Chart data: <title>' by the model)

@@ -1,0 +1,19 @@
+source = "catalog.toml [[kpi]]"
+status = "approved"
+name = "Personnel cost per FTE"
+aliases = ["salary per fte", "payroll per fte", "lønnskostnad per årsverk"]
+description = "Personnel cost per FTE = C50S / average FTE (opening level + each month end), annualised, shown positive"
+cube = "FinMax"
+numerator = "personnel"
+denominator = "fte"
+unit = "nok_per_fte"
+basis = "average_stock"
+annualise = true
+sign = -1
+better = "lower"
+headline = true
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

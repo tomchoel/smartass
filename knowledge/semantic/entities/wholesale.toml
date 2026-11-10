@@ -1,0 +1,11 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "Wholesale"
+aliases = ["wholesale", "grossist", "grossistmarkedet", "whs", "2whs"]
+finmax = "un.SY.2WHS"
+finplan = "2WHS Wholesale"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

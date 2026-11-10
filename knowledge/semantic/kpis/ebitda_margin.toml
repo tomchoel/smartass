@@ -1,0 +1,18 @@
+source = "catalog.toml [[kpi]]"
+status = "approved"
+name = "EBITDA margin"
+aliases = ["ebitda-margin", "ebitda %"]
+cube = "FinMax"
+numerator = "ebitda"
+denominator = "revenue"
+unit = "pct"
+basis = "period"
+annualise = false
+sign = 1
+better = "higher"
+headline = false
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

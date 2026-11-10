@@ -1,10 +1,9 @@
 """Plan 2C task 5: the skill and its reference name the concept block and product rows; the test set has b09 on the
 mobile subscriptions family concept."""
-import json
 from pathlib import Path
 
 from smartass.core import config
-from smartass.knowledge.seed import seed_concepts
+from smartass.knowledge.semantic import load_concepts
 from smartass.model.spec import AnalysisSpec, ConceptBlock
 from smartass.testset import runner
 
@@ -30,8 +29,7 @@ def test_b09_is_the_mobile_subscriptions_concept():
     assert case["question"] == "What do we earn on mobile subscriptions?"
     spec = AnalysisSpec.model_validate(case["spec"])
     (block,) = [b for b in spec.blocks if isinstance(b, ConceptBlock)]
-    concepts = {c.id for c in seed_concepts(json.loads((config.KNOWLEDGE_DIR / "concepts.json").read_text(
-        encoding="utf-8")))}
+    concepts = {c.id for c in load_concepts(config.SEMANTIC_DIR)}
     assert block.concept == "fam_mobil_own_subscriptions_mobile_consumer" and block.concept in concepts
     q = spec.queries[0]
     assert (q.cube, q.entity, q.periods, q.compare) == ("FinMax", "un.SY", "closed-ytd", ["ly"])

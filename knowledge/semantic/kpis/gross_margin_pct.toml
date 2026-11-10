@@ -1,0 +1,18 @@
+source = "catalog.toml [[kpi]]"
+status = "approved"
+name = "Gross margin %"
+aliases = ["gross margin percent", "gross margin percentage", "bruttomargin %"]
+cube = "FinMax"
+numerator = "gross_margin"
+denominator = "revenue"
+unit = "pct"
+basis = "period"
+annualise = false
+sign = 1
+better = "higher"
+headline = false
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

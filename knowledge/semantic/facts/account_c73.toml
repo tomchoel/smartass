@@ -2,6 +2,7 @@ text = "C73 Other income and expenses: Kept outside EBITDA before other items. F
 severity = "warn"
 source = "accounts_map.json ac.C73 pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C73"]

@@ -1,0 +1,10 @@
+source = "capabilities.toml [[grain]]"
+status = "approved"
+kind = "grain"
+words = ["per month", "by month", "monthly", "month by month", "per måned", "månedlig", "trend"]
+feasible = ["*"]
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "capabilities.toml"

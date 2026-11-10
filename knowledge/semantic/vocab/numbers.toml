@@ -1,0 +1,21 @@
+source = "capabilities.toml [[measure]]"
+status = "approved"
+kind = "vague"
+words = [
+  "numbers",
+  "figures",
+  "results",
+  "tall",
+  "tallene",
+  "resultater",
+  "how are we doing",
+  "how is it going",
+  "status",
+  "performance",
+]
+options = ["P&L to EBITDA (revenue, COGS, opex, EBITDA)", "revenue and EBITDA", "opex"]
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "capabilities.toml"

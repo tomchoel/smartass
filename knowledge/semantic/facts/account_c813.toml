@@ -2,6 +2,7 @@ text = "C813 Financial Expenses: Losses on instalment receivables (C81313–C813
 severity = "warn"
 source = "accounts_map.json ac.C813 pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C813"]

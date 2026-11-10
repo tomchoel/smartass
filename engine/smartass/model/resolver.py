@@ -3,6 +3,7 @@
 tests and seeds."""
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
@@ -10,7 +11,37 @@ Sign = Literal["income", "cost", "neutral"]
 Status = Literal["approved", "draft"]
 Balance = Literal["Periodic", "Accumulated"]
 Aggregation = Literal["sum", "last"]
-DEFAULT_MATERIALITY = (5_000_000.0, 0.05)
+
+
+_RULES: dict = {}
+
+
+def _rules() -> list[dict]:
+    """Every rule file of the semantic folder, parsed again when a file's mtime or size changes (edits are seen
+    without a restart; the stat of a handful of files is cheap)."""
+    from ..core import config
+    d = config.SEMANTIC_DIR / "rules"
+    files = sorted(d.glob("*.toml"))
+    key = (str(d), tuple((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in files))
+    if key not in _RULES:
+        _RULES.clear()
+        _RULES[key] = [tomllib.loads(p.read_text(encoding="utf-8")) for p in files]
+    return _RULES[key]
+
+
+def rule_data(kind: str) -> dict:
+    """The data of the one approved rule of this kind in the semantic folder (knowledge/semantic/rules/*.toml). The
+    model reads the same file the build checks, so a rule is defined once; a draft rule is not in force."""
+    from ..core import config
+    for d in _rules():
+        if d.get("kind") == kind and d.get("status", "draft") == "approved":
+            return d["data"]
+    raise LookupError(f"no approved rule of kind {kind!r} in {config.SEMANTIC_DIR / 'rules'}")
+
+
+def default_materiality() -> tuple[float, float]:
+    d = rule_data("materiality")
+    return (float(d["abs_nok"]), float(d["pct"]))
 
 
 class UnknownMetric(KeyError):
@@ -29,6 +60,7 @@ class Resolver(Protocol):
     def weight(self, member: str, cube: str) -> float: ...
     def label(self, member: str, cube: str) -> str: ...
     def latest_forecast(self) -> str: ...
+    def scenarios(self) -> dict: ...          # the `scenarios` rule data: cube -> series -> [scenario, version]
     def concept(self, name: str): ...          # a product concept (knowledge.semantic.Concept) or None
     def metric_of(self, member: str, cube: str) -> str | None: ...   # the metric of an account (or its parent)
     def pct_floor(self, metric: str) -> float | None: ...  # |base| below it: no variance %; None = no floor
@@ -61,7 +93,7 @@ class MetricDef:
     members: dict[str, tuple[str, ...]]
     sign: Sign = "neutral"
     status: Status = "approved"
-    materiality: tuple[float, float] = DEFAULT_MATERIALITY
+    materiality: tuple[float, float] = field(default_factory=default_materiality)
     balance: Balance = "Periodic"
     aggregation: Aggregation = "sum"
     unit: str = "NOK"                       # NOK | FTE | count | ratio
@@ -113,7 +145,7 @@ class StaticResolver:
 
     def materiality(self, metric: str) -> tuple[float, float]:
         m = self._m.get(metric.lower())
-        return m.materiality if m else DEFAULT_MATERIALITY
+        return m.materiality if m else default_materiality()
 
     def pct_floor(self, metric: str) -> float | None:
         m = self._m.get(metric.lower())
@@ -142,6 +174,9 @@ class StaticResolver:
 
     def latest_forecast(self) -> str:
         return self.forecast
+
+    def scenarios(self) -> dict:
+        return rule_data("scenarios")
 
     def metric_of(self, member: str, cube: str) -> str | None:
         parent = next((p for p, kids in self.tree.items() if any(k.casefold() == member.casefold() for k in kids)),

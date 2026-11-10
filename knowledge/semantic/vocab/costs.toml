@@ -1,0 +1,14 @@
+source = "capabilities.toml [[measure]]"
+status = "approved"
+kind = "vague"
+words = ["costs", "cost", "kostnader", "kostnad", "spending", "spend", "spent", "expenses", "utgifter"]
+options = [
+  "opex (C70: personnel + other opex)",
+  "opex + COGS (all costs to EBITDA)",
+  "personnel cost only (C50S)",
+]
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "capabilities.toml"

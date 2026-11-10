@@ -21,7 +21,7 @@ from typing import Callable
 
 from ..model.periods import Month, label
 from .build import SEARCH_DIMENSIONS, BuildReport, _atlas, build, summary
-from .semantic import Fact, Metric, load_semantic, to_toml
+from .semantic import Fact, Metric, load_all, load_semantic, to_toml
 
 SNAPSHOT = "atlas_snapshot.json"
 STATE = "state.json"
@@ -256,19 +256,26 @@ def refresh(semantic_dir: Path, atlas_db: Path, knowledge_db: Path, home: Path, 
 
 # ---- approve and status
 
+def _items(semantic_dir: Path) -> dict:
+    """{id: (item, folder)} of every kind with an id (ids are unique across kinds)."""
+    k = load_all(semantic_dir)
+    kinds = {"metrics": k.metrics, "facts": k.facts, "concepts": k.concepts, "rules": k.rules,
+             "entities": k.entities, "kpis": k.kpis, "vocab": k.vocab}
+    return {x.id: (x, folder) for folder, xs in kinds.items() for x in xs}
+
+
 def approve(semantic_dir: Path, atlas_db: Path, knowledge_db: Path, ids: list[str], by: str,
             on: str | None = None) -> tuple[list[str], BuildReport]:
     """Set status approved and approved = {by, on} on the named drafts ('all' = every draft), then rebuild.
     An unknown id raises KeyError before anything is written."""
     on = on or dt.date.today().isoformat()
-    metrics, facts = load_semantic(semantic_dir)
-    items = {x.id: (x, "metrics" if isinstance(x, Metric) else "facts") for x in [*metrics, *facts]}
+    items = _items(semantic_dir)
     if "all" in ids:
         chosen = [i for i, (x, _) in items.items() if x.status == "draft"]
     else:
         unknown = [i for i in ids if i not in items]
         if unknown:
-            raise KeyError(f"unknown metric or fact id(s): {', '.join(unknown)}")
+            raise KeyError(f"unknown id(s): {', '.join(unknown)}")
         chosen = [i for i in ids if items[i][0].status == "draft"]
     for i in chosen:
         x, kind = items[i]
@@ -278,8 +285,7 @@ def approve(semantic_dir: Path, atlas_db: Path, knowledge_db: Path, ids: list[st
 
 
 def status(semantic_dir: Path, knowledge_db: Path, home: Path) -> dict:
-    metrics, facts = load_semantic(semantic_dir)
     st = _state(home)
     return {"knowledge_db": str(knowledge_db), "meta": summary(knowledge_db),
-            "drafts": sorted(x.id for x in [*metrics, *facts] if x.status == "draft"),
+            "drafts": sorted(i for i, (x, _kind) in _items(semantic_dir).items() if x.status == "draft"),
             "last_report": st.get("last_report"), **due(home, knowledge_db)}

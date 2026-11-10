@@ -1,0 +1,13 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "Consumer Norway"
+aliases = ["consumer", "privat", "privatmarkedet", "2con"]
+finmax = "un.SY.2CON"
+abolished = "2026-06-01"
+successors = ["ssm", "ei"]
+note = "Emptied into 2SSM and 2EI on 1 June 2026; history is restated, so 2CON shows no data."
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

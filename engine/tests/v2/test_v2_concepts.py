@@ -1,4 +1,4 @@
-"""Plan 2C task 3: product concepts as semantic files - schema, the seed from knowledge/concepts.json, the build into
+"""Plan 2C task 3: product concepts as semantic files - schema, the repo concept files, the build into
 knowledge.db (aliases unique, never a metric's alias) and fin_lookup."""
 import json
 import sqlite3
@@ -9,8 +9,7 @@ from kutil import knowledge
 
 from smartass.core import config
 from smartass.knowledge.build import build
-from smartass.knowledge.seed import seed, seed_concepts, seed_metrics
-from smartass.knowledge.semantic import Concept, SemanticError, concept_terms, load_concepts, to_toml
+from smartass.knowledge.semantic import Concept, SemanticError, concept_terms, load_concepts, load_semantic, to_toml
 
 TINY = '''title = "Tiny offer - direct contribution"
 names = ["tiny", "tiny offer"]
@@ -71,13 +70,9 @@ note = "Not visible in FinMax."
 '''
 
 
-def _concepts_json() -> dict:
-    return json.loads((config.KNOWLEDGE_DIR / "concepts.json").read_text(encoding="utf-8"))
-
-
 @pytest.fixture(scope="module")
 def seeded():
-    return seed_concepts(_concepts_json())
+    return load_concepts(config.SEMANTIC_DIR)
 
 
 # ---- schema
@@ -119,9 +114,9 @@ def test_concept_toml_round_trips(tmp_path):
     assert load_concepts(tmp_path) == [c]
 
 
-# ---- the seed from concepts.json
+# ---- the repo concept files (knowledge/semantic/concepts)
 
-def test_the_seed_gives_24_approved_concepts_that_load(seeded, tmp_path):
+def test_the_repo_has_24_approved_concepts_that_round_trip(seeded, tmp_path):
     assert len(seeded) == 24
     assert {c.kind for c in seeded} == {"product_offer", "product_family"}
     assert sum(c.id.startswith("fam_") for c in seeded) == 22
@@ -160,7 +155,7 @@ def test_splitt_has_its_blocks_and_keys(seeded):
 def test_no_item_is_left_missing_for_want_of_a_readable_key(seeded):
     """Every estimated item of concepts.json has a machine-readable key; only the source's own missing items are
     missing."""
-    src = {it["key"]: it["kind"] for c in _concepts_json()["concepts"] for b in c["blocks"] for it in b["items"]
+    src = {it["key"]: it["kind"] for c in json.loads((config.KNOWLEDGE_DIR / "concepts.json").read_text(encoding="utf-8"))["concepts"] for b in c["blocks"] for it in b["items"]
            if it["kind"] == "missing"}
     ours = [it for c in seeded for b in c.block for it in b.item if it.kind == "missing"]
     assert len(ours) == 24 and {it.key for it in ours} == set(src)
@@ -192,28 +187,13 @@ def test_concept_texts_are_english(seeded):
 
 
 def test_concept_aliases_are_unique_and_never_a_metric_alias(seeded):
-    from smartass.knowledge.seed import _read
-    metrics = seed_metrics(_read(config.KNOWLEDGE_DIR, "catalog.toml"), _read(config.KNOWLEDGE_DIR,
-                                                                            "capabilities.toml"))
+    metrics, _ = load_semantic(config.SEMANTIC_DIR)
     metric_terms = {t.casefold() for m in metrics for t in (m.id.replace("_", " "), m.name, *m.aliases)}
     seen: dict[str, str] = {}
     for c in seeded:
         for t in concept_terms(c):
             assert t.casefold() not in metric_terms, (c.id, t)
             assert seen.setdefault(t.casefold(), c.id) == c.id, (c.id, t, seen[t.casefold()])
-
-
-def test_the_repo_concept_files_are_the_seed(seeded):
-    files = sorted((config.SEMANTIC_DIR / "concepts").glob("*.toml"))
-    assert [p.stem for p in files] == sorted(c.id for c in seeded)
-    by = {c.id: c for c in seeded}
-    for p in files:
-        assert p.read_text(encoding="utf-8") == to_toml(by[p.stem]), p.name
-
-
-def test_seed_writes_the_concepts(tmp_path):
-    seed(config.KNOWLEDGE_DIR, tmp_path)
-    assert len(list((tmp_path / "concepts").glob("*.toml"))) == 24
 
 
 # ---- build and lookup

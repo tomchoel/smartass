@@ -1,0 +1,10 @@
+source = "capabilities.toml [[grain]]"
+status = "approved"
+kind = "grain"
+words = ["per customer", "by customer", "per kunde", "customer level", "per client", "each customer"]
+proxy = "the same measure per business area / segment; there is no customer dimension in FinMax or FinPlan"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "capabilities.toml"

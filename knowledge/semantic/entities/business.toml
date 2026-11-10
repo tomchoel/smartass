@@ -1,0 +1,13 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "Business"
+aliases = ["business", "bedrift", "bedriftsmarked", "bedriftsmarkedet", "b2b", "2bus"]
+finmax = "un.SY.2BUS"
+finplan = "2BUS Business"
+finplan_total = "1BUS Business"
+note = "FinPlan division total = 1BUS Business (incl. Ambition and IFRS adjustments); 2BUS Business is the operational unit."
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

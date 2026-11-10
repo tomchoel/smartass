@@ -2,6 +2,7 @@ text = "C60145 Amortization of contract acquisition and fulfilment costs (opex):
 severity = "warn"
 source = "accounts_map.json ac.C60145 pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C60145"]

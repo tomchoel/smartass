@@ -2,7 +2,7 @@
 
 Når brukeren godkjenner et område, lagres en liste over medlemmene som var med. Ved senere ombygging (etter månedlig
 atlas-oppdatering) markeres bare NYE medlemmer som ikke gjennomgått, i stedet for at hele området blir utkast igjen.
-    python review.py approve <område> "<kommentar>"     # område: accounts | products | org | finplan
+    python review.py approve <område> "<kommentar>"     # område: products
 """
 import datetime as dt
 import json
@@ -11,8 +11,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATUS = os.path.join(HERE, "review_status.json")
-JSON_OF = {"accounts": ("accounts_map.json", "accounts", "member"), "products": ("products_map.json", "products", "member"),
-           "org": ("org_map.json", "entities", "member"), "finplan": ("finplan_map.json", "accounts", "member")}
+JSON_OF = {"products": ("products_map.json", "products", "member")}
 
 
 def _load() -> dict:

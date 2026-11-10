@@ -167,13 +167,11 @@ def test_the_formula_check_has_no_block_findings():
 
 
 def test_every_seeded_concept_builds_and_passes_the_formula_check():
-    import json
-
     from smartass.core import config
-    from smartass.knowledge.seed import seed_concepts
+    from smartass.knowledge.semantic import load_concepts
     from smartass.render.layout import col_letter
     from smartass.xl.vendor.formelsjekk import check_cells
-    concepts = seed_concepts(json.loads((config.KNOWLEDGE_DIR / "concepts.json").read_text(encoding="utf-8")))
+    concepts = load_concepts(config.SEMANTIC_DIR)
     members = {x for c in concepts for xs in c.members().values() for x in xs}
     r = resolver(extra_members=members | {"un.SY"}, concepts={c.id: c for c in concepts})
     for c in concepts:

@@ -1,0 +1,10 @@
+source = "skill smartass §6"
+status = "approved"
+title = "Which cube"
+text = "Actuals: FinMax (FTE ac.STA20Y). FinLite is lighter (no FTE) and the drill source for ledger lines. Plan (budget, forecast) only in FinPlan. History is restated to today's organisation."
+kind = "text"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

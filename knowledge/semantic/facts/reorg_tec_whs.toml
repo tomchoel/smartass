@@ -3,6 +3,7 @@ valid_from = "2026-06"
 severity = "info"
 source = "org_map.json moved 'TEC → WHS' (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "both"
 
 [scope_members]
 FinMax = ["un.SY.T370", "un.SY.5BMT_T", "un.SY.VB10", "un.SY.VB20", "un.SY.VG10", "un.SY.VB50", "un.SY.VB60"]

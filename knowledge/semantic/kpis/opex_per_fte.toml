@@ -1,0 +1,25 @@
+source = "catalog.toml [[kpi]]"
+status = "approved"
+name = "Opex per FTE"
+aliases = [
+  "cost per fte",
+  "costs per fte",
+  "cost per employee",
+  "kostnad per årsverk",
+  "kostnader per årsverk",
+]
+description = "Opex per FTE = opex (C70) / average FTE (opening level + each month end), annualised, shown positive"
+cube = "FinMax"
+numerator = "opex"
+denominator = "fte"
+unit = "nok_per_fte"
+basis = "average_stock"
+annualise = true
+sign = -1
+better = "lower"
+headline = false
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

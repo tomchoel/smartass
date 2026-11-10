@@ -96,19 +96,21 @@ def _knowledge() -> Check:
     import os
 
     from ..knowledge.build import BuildReport, _atlas, semantic_hash, check, summary
-    from ..knowledge.semantic import SemanticError, load_semantic
+    from ..knowledge.semantic import SemanticError, load_all
     try:
-        metrics, facts = load_semantic(config.SEMANTIC_DIR)
+        sem = load_all(config.SEMANTIC_DIR)
     except (OSError, SemanticError) as e:
         return Check("knowledge", "FAIL", f"{type(e).__name__}: {e}",
                      "Fix the semantic file named in the error (knowledge\\semantic), or update smartass.")
-    detail = f"{len(metrics)} metrics, {len(facts)} facts"
+    detail = (f"{len(sem.metrics)} metrics, {len(sem.facts)} facts, {len(sem.concepts)} concepts, "
+              f"{len(sem.rules)} rules, {len(sem.entities)} entities, {len(sem.kpis)} kpis, "
+              f"{len(sem.vocab)} vocab, {len(sem.notes)} notes")
     if not config.ATLAS_DB.exists():
         return Check("knowledge", "WARN", f"{detail}; members not checked (no atlas)",
                      "Re-run installer\\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.")
     report = BuildReport(out=config.KNOWLEDGE_DB)
     with contextlib.closing(_atlas(config.ATLAS_DB)) as db:
-        check(metrics, facts, db, report)
+        check(sem.metrics, sem.facts, db, report, sem.concepts, sem)
     if report.errors:
         return Check("knowledge", "FAIL", f"{len(report.errors)} build error(s): " + "; ".join(report.errors[:3]),
                      "Fix the semantic files (a reorg or rename?), then run `smartass knowledge build`.")

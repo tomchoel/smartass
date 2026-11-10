@@ -1,0 +1,17 @@
+source = "catalog.toml [materiality]"
+status = "approved"
+title = "Materiality"
+text = "A variance is material at 10% of |comparison| (from NOK 500 000) or at NOK 5 000 000; revenue, personnel and EBITDA are always commented."
+kind = "materiality"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"
+
+[data]
+abs_nok = 5000000.0
+pct = 0.1
+pct_floor_nok = 500000.0
+rule = "either"
+always = ["revenue", "personnel", "ebitda"]

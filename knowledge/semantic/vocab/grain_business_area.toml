@@ -1,0 +1,19 @@
+source = "capabilities.toml [[grain]]"
+status = "approved"
+kind = "grain"
+words = [
+  "per business area",
+  "by business area",
+  "per division",
+  "by division",
+  "per divisjon",
+  "per segment",
+  "by segment",
+  "per forretningsområde",
+]
+feasible = ["*"]
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "capabilities.toml"

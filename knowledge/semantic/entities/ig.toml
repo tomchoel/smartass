@@ -1,0 +1,15 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "Infrastructure Growth"
+aliases = ["infrastructure growth", "2ig", "ig"]
+finmax = "un.SY.2IG"
+finplan = "2IG Infrastructure Growth"
+finplan_total = "2OTH Other entities"
+abolished = "2026-06-01"
+successors = ["technology", "adm", "ei", "ssm", "business"]
+note = "Dissolved on 1 June 2026; its units went to TEC (most), ADM, E&I, SSM and BUS. History is restated."
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

@@ -1,0 +1,16 @@
+name = "Energy"
+aliases = ["energy", "electricity", "energi", "strøm", "strømkostnader"]
+description = "Energy"
+unit = "NOK"
+sign = "cost"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "tom", on = "2026-10-15", via = "capabilities.toml" }
+
+[finmax]
+members = ["ac.C60025"]
+
+[finlite]
+members = ["ac.C60025"]

@@ -1,0 +1,22 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "Norway Adm"
+aliases = [
+  "norway adm",
+  "administration",
+  "administrasjon",
+  "administrasjonen",
+  "staff units",
+  "stab",
+  "stabsenheter",
+  "2adm",
+  "adm",
+  "admin",
+]
+finmax = "un.SY.2ADM"
+finplan = "2ADM Norway Adm"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

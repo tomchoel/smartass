@@ -2,6 +2,7 @@ text = "C75130 Amortisation/Depreciation of Right of use Assets: IFRS 16: partly
 severity = "warn"
 source = "accounts_map.json ac.C75130 pitfalls (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "up"
 
 [scope_members]
 FinMax = ["ac.C75130"]

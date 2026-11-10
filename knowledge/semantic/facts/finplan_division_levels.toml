@@ -1,0 +1,9 @@
+text = "FinPlan divisions have two levels: 1<CODE> (the division total, incl. Ambition 2INT_* and IFRS adjustments) and 2<CODE> (the operational unit). Which level matches FinMax un.SY.2<CODE> is not verified yet."
+severity = "warn"
+source = "atlas 2026-11-10"
+status = "approved"
+inherit = "down"
+approved = { by = "auto", on = "2026-11-10" }
+
+[scope_members]
+FinPlan = ["1BUS Business", "1SSM Security Solutions & Mobile", "1EI Entertainment & Internet", "1TEC Technology"]

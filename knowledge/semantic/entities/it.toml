@@ -1,0 +1,11 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "IT"
+aliases = ["it division", "it-divisjonen", "2it", "it"]
+finmax = "un.SY.2IT"
+finplan = "2IT IT"
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"

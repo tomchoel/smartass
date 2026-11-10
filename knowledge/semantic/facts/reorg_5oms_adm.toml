@@ -3,6 +3,7 @@ valid_from = "2026-06"
 severity = "info"
 source = "org_map.json moved '5OMS → ADM' (approved by Tom 2026-10-15)"
 status = "approved"
+inherit = "both"
 
 [scope_members]
 FinMax = ["un.SY.5OMS_A"]

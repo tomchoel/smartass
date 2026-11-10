@@ -93,7 +93,7 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
 - **Source, in git:** `knowledge/semantic/metrics/<id>.toml` (name, aliases, description, unit, sign, balance,
   aggregation, materiality, members per cube, `differs`, status) and `facts/<id>.toml` (text, scope members per cube
   and/or metrics, `valid_from`/`valid_to`, severity info / warn / block, source, status). `semantic.py` validates
-  them (pydantic, strict); `seed.py` generated the first 11 metrics and 37 facts from the approved catalogue and maps.
+  them (pydantic, strict). Since 10.11 (`docs/specs/2026-11-10-knowledge-layer-design.md`, phase A) `knowledge/semantic` is the ONLY source: also `rules/` (scenarios, materiality, P&L chain, signs, cube choice, group companies; one rule per data kind), `entities/` (business areas: members per cube, FinPlan division total `finplan_total`, aliases incl. generic ones, successors), `kpis/` (ratios of two metrics), `vocab/` (vague words with options, grains, currency), `notes/` (meaning and booking pattern per member, 2 366) and account bundles as plain metrics. Facts carry `inherit` (self / down / up to the nearest metric or entity member / both); the build expands them over the atlas (`expand.py`) and a caveat says `via` the member it came from. catalog.toml, capabilities.toml, the three business maps and seed.py are gone.
 - **Build:** `build.py` compiles the files with the atlas into `%LOCALAPPDATA%\smartass\knowledge.db` (metrics,
   members, aliases + FTS5, facts, fact scopes, member labels, meta), written to `.tmp` and swapped in. Errors (a
   metric member not in the atlas, an alias on two metrics) keep the old db; warnings (a historical fact member,
@@ -114,7 +114,7 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
   an answer has seen a closed month newer than the last refresh (`knowledge/state.json`).
 - **Rebuild on change:** `ensure_built` compares the semantic hash in knowledge.db meta (file paths and bytes, plus
   the schema version) with the files and rebuilds first when they differ ("knowledge.db rebuilt: semantic files
-  changed" in the warnings); a failing rebuild is a GuardError naming the error and keeps the old db.
+  changed" in the warnings); a failing rebuild is a GuardError naming the error and keeps the old db. A newer atlas (`atlas_built_ts`) also rebuilds; if only the atlas changed and the rebuild fails, the old db is kept and the answer warns. An atlas older than 30 days is a warning on every answer and lookup.
 - **Product concepts (Plan 2C):** `knowledge/semantic/concepts/<id>.toml`, seeded from `knowledge/concepts.json` by
   `seed_concepts()` (24 approved concepts: `splitt`, `streamix`, 22 booked-only `fam_*` families; texts translated
   to English). A concept has `[[block]]`s of `[[block.item]]`s (booked: account x products or entities; attributed;

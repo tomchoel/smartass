@@ -5,7 +5,7 @@ unit = "FTE"
 sign = "neutral"
 balance = "Accumulated"
 aggregation = "last"
-materiality = [5000000.0, 0.1]
+materiality = [10.0, 0.05]
 status = "approved"
 approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
 

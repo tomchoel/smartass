@@ -29,7 +29,9 @@ TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_dri
               "xl_revert", "xl_tidy")
 
 INSTRUCTIONS = """smartass (read-only towards Oracle EPM: FinMax/FinLite actuals, FinPlan plan/forecast).
-1) fin_lookup: metric names and members (entities 'un.SY.<code>' in FinMax, '<code> <name>' in FinPlan).
+1) fin_lookup first when a word is not an exact member: metrics, entities (business areas, FinPlan division totals),
+KPIs, vague words (-> the options to ask), grains ('per customer' -> what is answerable), rules (kind 'rule').
+Every hit carries caveats; 'via' = inherited from that member. Pass them on.
 2) New question: fin_analyze(spec) with an AnalysisSpec v2 - plan (depth, purpose, hypotheses), queries (cube,
 metrics, entity, periods e.g. 'closed-ytd', compare ly | budget | forecast; budget/forecast only in FinPlan),
 blocks (table, kpi_tiles, trend, matrix, bridge, ranking, drivers, commentary). An EBITDA bridge uses every P&L
@@ -80,22 +82,28 @@ def _past(row: dict) -> dict:
 
 def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 15) -> dict:
     """{metrics: [id, name, aliases, description, differs, members, caveats ...], members: [... with caveats],
-    concepts: [id, title, kind, blocks, notes ...]};
+    concepts: [id, title, kind, blocks, notes ...], entities, kpis, vocab, rules};
     kind 'answer': {answers: past answers from answers.db (workbook, q, question, when, score, top key values)}."""
     if kind == "answer":
         from . import answers
         return {"answers": [_past(r) for r in answers.search(query, limit)]}
+    from .knowledge.resolver import freshness_notes
     with contextlib.closing(_resolver()) as r:
-        return r.search(query, kind, cube, limit)
+        out = r.search(query, kind, cube, limit)
+        warn = freshness_notes(r.db)
+    return {**out, "warnings": warn} if warn else out
 
 
 @_register(kit.LOCAL)
 def fin_lookup(query: str, kind: str = "any", cube: str | None = None) -> dict:
-    """Find metrics (kind 'metric': by name or alias, e.g. 'driftskostnader'; with description, members and how the
-    cubes differ), cube members (kind 'member') and product concepts (kind 'concept', e.g. 'splitt': blocks and items
-    for a concept block); 'any' returns all three. Every metric and member hit carries its caveats (reorgs,
-    abolished units, account traps): pass them on. cube: FinMax | FinLite | FinPlan to narrow. kind 'answer': past
-    answers (question, when, critic score, top key values) for continuity. Local, instant."""
+    """Look up before you build. kind 'metric' (name or alias, e.g. 'driftskostnader': members per cube, how the
+    cubes differ), 'member' (cube members, each with its meaning note), 'entity' (a business area by name or alias:
+    FinMax/FinPlan members, FinPlan division total, successors of abolished areas), 'kpi' (ratios: numerator,
+    denominator, basis), 'vocab' (vague words -> the options to offer; 'per customer' etc. -> what is answerable),
+    'concept' (product concepts such as 'splitt'), 'rule' (the always-true cube rules; query '' lists them),
+    'answer' (past answers). 'any' = metric + member + concept + entity + kpi + vocab. Every hit carries its caveats
+    (reorgs, abolished units, account traps; 'via' names the member a caveat was inherited from): pass them on.
+    cube: FinMax | FinLite | FinPlan to narrow. Local, instant."""
     return lookup(query, kind, cube)
 
 
@@ -384,6 +392,8 @@ async def fin_status(restart: bool = False) -> dict:
             "atlas": {"oldest_age_days": st["oldest_age_days"], "stale": st["stale"],
                       "dimensions_built": len(st["built"])},
             "metrics": kn.get("metrics", 0),
+            "knowledge_layer": {k: kn.get(k) for k in ("rules", "entities", "kpis", "vocab", "notes",
+                                                       "atlas_built_at")},
             "knowledge": {"built_at": kn.get("built_at"), "metrics": kn.get("metrics", 0),
                           "facts": kn.get("facts", 0), "drafts": kn.get("drafts", 0),
                           "refresh_month": refresh["refresh_month"], "refresh_due": refresh["due"],

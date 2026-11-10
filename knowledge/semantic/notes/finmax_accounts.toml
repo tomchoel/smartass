@@ -1,0 +1,1169 @@
+[[note]]
+cube = "FinMax"
+member = "ac.C85"
+text = "Resultat før skatt for Telenor Norge. Delvis produktmerket (61%); reserve-merket 18%; mest i SSM Security Solutions & Mobile (21%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C84S"
+text = "Netto finansposter: renter, valuta, verdiendringer og gevinst/tap på finansielle eiendeler. Delvis produktmerket (13%); mest i Administrasjon (56%). Finansposter ligger hovedsakelig i Administrasjon/Finance og uten produkt. Avbetalingsrenter (C80311) ligger i SSM/5SAL_C."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C84"
+text = "Gevinst/tap ved salg og nedskrivning av finansielle eiendeler (aksjer, fordringer). Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C84400"
+text = "Del av C84: Loss on Sale of Financial Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C84300"
+text = "Del av C84: Profit on Sale of Financial Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C84250"
+text = "Del av C84: Write-down of Non-current Financial Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C84200"
+text = "Del av C84: Write-down of Current Financial Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C84100"
+text = "Del av C84: Write-down of Shares in Subsidiaries. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83"
+text = "Verdiendring på finansielle instrumenter og sikringsposter (hedge accounting). Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83477"
+text = "Del av C83: Loss in cash flow hedge instruments. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83475"
+text = "Del av C83: Loss in cash flow hedge items. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83473"
+text = "Del av C83: Loss in fair value hedge instruments. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83471"
+text = "Del av C83: Loss in fair value hedge items. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83470"
+text = "Del av C83: Loss in fair value of other financial instruments. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83377"
+text = "Del av C83: Gain in cash flow hedge instruments. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83375"
+text = "Del av C83: Gain in cash flow hedge items. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83373"
+text = "Del av C83: Gain in fair value hedge instruments. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83371"
+text = "Del av C83: Gain in fair value hedge items. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C83370"
+text = "Del av C83: Gain in fair value of other financial instruments. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82"
+text = "Netto valutagevinst/-tap (realisert og urealisert), mot konsernbank og eksternt. Uten produkt (koststed); mest i Administrasjon (92%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82895"
+text = "Del av C82: Unrealized Foreign exchange gain loss on derivatives within Telenor. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82890"
+text = "Del av C82: Unrealized Foreign exchange gain loss on derivatives external. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82870"
+text = "Del av C82: Unrealized Exchange Gain / Loss Financing and Investing activities. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82860"
+text = "Del av C82: Unrealized Exchange Gain / Loss Operating activities. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82490"
+text = "Del av C82: Foreign exchange loss in net investment hedges. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82480"
+text = "Del av C82: Foreign exchange loss in fair value hedges. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82470"
+text = "Del av C82: Foreign exchange loss in cash flow hedges. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82450"
+text = "Del av C82: Foreign exchange loss on derivatives. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82430"
+text = "Del av C82: Foreign exchange loss on interest bearing placements. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82420"
+text = "Del av C82: Foreign exchange loss on interest bearing debt. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82410"
+text = "Del av C82: Foreign Exchange Loss vs. Group Treasury. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82415"
+text = "Del av C82: Foreign Exchange Loss within Telenor. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82400"
+text = "Del av C82: Other Foreign Exchange Loss. Uten produkt (koststed); mest i Administrasjon (95%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82390"
+text = "Del av C82: Foreign exchange gain in net investment hedges. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82380"
+text = "Del av C82: Foreign exchange gain in fair value hedges. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82370"
+text = "Del av C82: Foreign exchange gain in cash flow hedges. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82350"
+text = "Del av C82: Foreign exchange gain on derivatives. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82330"
+text = "Del av C82: Foreign exchange gain on interest bearing placements. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82320"
+text = "Del av C82: Foreign exchange gain on interest bearing debt. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82315"
+text = "Del av C82: Foreign exchange gain within Telenor. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82310"
+text = "Del av C82: Foreign exchange gain vs. Group Treasury. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C82300"
+text = "Del av C82: Other Foreign Exchange Gains. Uten produkt (koststed); mest i Administrasjon (96%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81"
+text = "Sum finanskostnader. Uten produkt (koststed); mest i Administrasjon (65%); 31% i justeringsenheter."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C815"
+text = "Aktiverte renter (reduserer finanskostnaden; rente henført til anlegg under utførelse). Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81500"
+text = "Del av C815: Capitalisation of interest. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C813"
+text = "Finanskostnader: rentekostnader, leierenter (IFRS 16), ARO-renter, pensjonsrente og tap på kunders avbetalingsfordringer. Uten produkt (koststed); mest i Administrasjon (65%); 31% i justeringsenheter. Tap på avbetalingsfordringer (C81313–C81315) og finansieringskostnad for håndsett var ikke synlige i un.SY i 2025 – kan ligge i annen juridisk enhet."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81390"
+text = "Andre finanskostnader (gebyrer, provisjoner o.l.). Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81385"
+text = "Netto rentekostnad på ytelsesbasert pensjon. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81370"
+text = "Renteeffekt på forpliktelser for fjerning/opprydding av anlegg (ARO). Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81350"
+text = "Del av C813: Interest Costs on overdue payment. Uten produkt (koststed); mest i Administrasjon (91%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81335"
+text = "Del av C813: Interest Expenses on fair value hedge items. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81330"
+text = "Del av C813: Interest Expenses on cash flow hedge derivatives. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81325"
+text = "Del av C813: Interest Expenses on fair value hedge derivatives. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81320"
+text = "Del av C813: Interest Expenses on derivatives. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81315"
+text = "Konstaterte tap på kunders avbetalingsfordringer (delbetaling av utstyr, f.eks. Splitt). Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81314"
+text = "Endring i avsetning for tap på kunders avbetalingsplaner. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81313"
+text = "Inngått på tidligere avskrevne avbetalingsfordringer. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81310"
+text = "Del av C813: Interest Expenses on bank overdrafts in cash pool system. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81300"
+text = "Rentekostnader på lån og annen rentebærende gjeld. Uten produkt (koststed); mest i Administrasjon (86%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C81340"
+text = "Rentekostnad på leieforpliktelser (IFRS 16). Uten produkt (koststed); mest i IFRS16-justering (69%); 69% i justeringsenheter. IFRS 16 – delvis i justeringsenhetene 2I16/E171."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80"
+text = "Sum finansinntekter: renter, utbytte og forsinkelsesrenter. Delvis produktmerket (90%); mest i SSM Security Solutions & Mobile (66%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80390"
+text = "Del av C80: Financial income related to raising of finance. Produktmerket; mest i Business (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80635"
+text = "Del av C80: Interest Income on fair value hedge items. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80630"
+text = "Del av C80: Interest Income on cash flow hedge derivatives. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80350"
+text = "Forsinkelsesrenter fra kunder. Delvis produktmerket (48%); mest i Business (38%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80330"
+text = "Renteinntekt på forfalte kundefordringer. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80325"
+text = "Del av C80: Interest Income on fair value hedge derivatives. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80320"
+text = "Del av C80: Interest Income on derivatives. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80311"
+text = "Renteinntekt på kunders avbetalingsplaner (delbetaling av utstyr, f.eks. Splitt). Delvis produktmerket (66%); mest i SSM Security Solutions & Mobile (100%). Bare delvis produktmerket. Splitt-definisjonen henfører hele beløpet til Splitt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80310"
+text = "Del av C80: Interest Income on bank deposits in cash pool system. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80300"
+text = "Renteinntekter på bankinnskudd og plasseringer. Produktmerket; mest i SSM Security Solutions & Mobile (84%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80140"
+text = "Del av C80: Dividend from JCE. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80160"
+text = "Del av C80: Dividend from Financial Investments. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80120"
+text = "Del av C80: Dividend from Associated Companies. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C80100"
+text = "Utbytte fra datterselskaper. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C77"
+text = "Andel resultat i tilknyttede selskaper og felleskontrollert virksomhet (egenkapitalmetoden). Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C779"
+text = "Del av C77: Jointly controlled entities (JCE) - share of profit or loss. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C77990"
+text = "Del av C779: JCE - Shares, impairim. loss. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C77979"
+text = "Del av C779: JCE - Goodwill, impairim. Loss. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C77973"
+text = "Del av C779: JCE - Excess values, amort. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C77971"
+text = "Del av C779: JCE - Share of net income. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C778"
+text = "Del av C77: Total Share of associates comapies accounted for using the equity meth. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C7789"
+text = "Del av C778: Gain/loss on disposal of Associated Companies. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C77893"
+text = "Del av C7789: Sales price of Associated Companies. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C77890"
+text = "Del av C7789: Book vale of Associated Companies sold. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C7785"
+text = "Del av C778: Share of the profit /(loss) in Associated Companies. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C77859"
+text = "Del av C7785: Write Downs Associated Companies. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C77854"
+text = "Del av C7785: Amortizations Associated Companies. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C77852"
+text = "Del av C7785: Net Share Profit/Loss after Tax Ass. Comp. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.EBIT"
+text = "Driftsresultat (EBITDA minus av- og nedskrivninger). Delvis produktmerket (63%); reserve-merket 18%; mest i SSM Security Solutions & Mobile (22%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76S"
+text = "Sum av- og nedskrivninger. Delvis produktmerket (30%); mest i Technology (39%); 33% i justeringsenheter. Mest på koststed (Technology/IT); bare delvis produktmerket. Full produktfordeling krever Produktregnskapet."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76"
+text = "Nedskrivninger og reverseringer (varige, immaterielle, bruksrett, goodwill). Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76940"
+text = "Del av C76: Reversal of impairment of other assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76920"
+text = "Del av C76: Reversal of write downs of Right of use Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76910"
+text = "Del av C76: Reversal of write down of Tangible Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76900"
+text = "Del av C76: Reversal of write downs of Intangible Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76800"
+text = "Del av C76: Write-down prepaid lease. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76140"
+text = "Del av C76: Impairment of other assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76139"
+text = "Del av C76: Write Downs excess value Right of use Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76130"
+text = "Del av C76: Write Downs of Right of use Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76129"
+text = "Del av C76: Write Downs excess value Intangible Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76120"
+text = "Del av C76: Write Downs of Intangible Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76119"
+text = "Del av C76: Write Downs excess values Tangible Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76111"
+text = "Del av C76: Impairment Goodwill. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C76110"
+text = "Del av C76: Write Downs of Tangible Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C75"
+text = "Ordinære avskrivninger: varige driftsmidler, immaterielle eiendeler, bruksrett (IFRS 16) og merverdier. Delvis produktmerket (30%); mest i Technology (39%); 33% i justeringsenheter. Mest på koststed (Technology/IT), bare delvis produktmerket. FinPlan Target har ikke avskrivninger – sammenlign mot budsjett bare til EBITDA."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C75700"
+text = "Del av C75: Amortization prepaid lease. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C75129"
+text = "Del av C75: Amortization of excess value Intangible Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C75120"
+text = "Avskrivning immaterielle eiendeler (programvare, lisenser, frekvenser). Uten produkt (koststed); mest i IT (64%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C75119"
+text = "Del av C75: Depreciation of excess value Tangible Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C75110"
+text = "Avskrivning varige driftsmidler (nett, utstyr, bygg). Delvis produktmerket (71%); mest i Technology (85%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C75130"
+text = "Avskrivning bruksrettseiendeler (leie etter IFRS 16). Uten produkt (koststed); mest i IFRS16-justering (79%); 79% i justeringsenheter. IFRS 16 – delvis i justeringsenhetene 2I16/E171."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C75139"
+text = "Del av C75: Amortisation/Depreciation of excess value Right of use Assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.EBITDA"
+text = "Resultat før av- og nedskrivninger, finans og skatt (inkl. andre poster C73). Delvis produktmerket (76%); reserve-merket 11%; mest i SSM Security Solutions & Mobile (27%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73"
+text = "Andre inntekter og kostnader («other items»): gevinst/tap på salg og utrangering av anlegg, nedbemanning, tapskontrakter, engangseffekter. Delvis produktmerket (52%); mest i Administrasjon (49%). Holdes utenfor EBITDA før andre poster. FinPlan Target har ikke andre poster."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C737"
+text = "Andre inntekter utenfor ordinær drift. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73700"
+text = "Del av C737: Other Income. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C736"
+text = "Andre engangseffekter (bl.a. pensjon). Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73600"
+text = "Del av C736: One-time effects to pension costs. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73610"
+text = "Del av C736: Other expenses. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C735"
+text = "Nedbemanning og tapsbringende kontrakter. Uten produkt (koststed); mest i Omstilling (100%); 100% i justeringsenheter."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73500"
+text = "Del av C735: Other items - Workforce reductions and loss contracts. Uten produkt (koststed); mest i Omstilling (100%); 100% i justeringsenheter."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C733"
+text = "Gevinst/tap på salg av aksjer i datterselskaper. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73390"
+text = "Del av C733: Tax free part of the gain on sale of shares in subsidiaries. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73330"
+text = "Del av C733: Sales value of shares in subsidiaries. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73300"
+text = "Del av C733: Book value of shares in subsidiaries, sold or liquidated. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C731"
+text = "Gevinst/tap på salg og utrangering av varige/immaterielle eiendeler og bruksrett. Delvis produktmerket (64%); mest i Technology (85%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73138"
+text = "Del av C731: Sales value of intangibles and goodwill within Telenor. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73137"
+text = "Del av C731: Sales value of intangibles and goodwill. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73136"
+text = "Del av C731: Book value of intangibles and goodwill sold within Telenor. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73135"
+text = "Del av C731: Book value of intangibles and goodwill sold. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73134"
+text = "Del av C731: Sales value of property, plant and equipment within Telenor. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73133"
+text = "Del av C731: Sales value of property, plant and equipment. Delvis produktmerket (22%); mest i Technology (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73131"
+text = "Del av C731: Book value of property plant and equipment sold within Telenor. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73130"
+text = "Del av C731: Book value of property plant and equipment sold. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73129"
+text = "Del av C731: Scrapping of intangibles assets. Uten produkt (koststed); mest i IT (90%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73120"
+text = "Del av C731: Scrapping of property plant and equipment. Delvis produktmerket (71%); mest i Technology (99%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73140"
+text = "Del av C731: Book value of ROU asset derecognised. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73141"
+text = "Del av C731: Book value of ROU asset derecognised within Telenor. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73142"
+text = "Del av C731: Book value of lease liability derecognised. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73143"
+text = "Del av C731: Book value of lease liability derecognised within Telenor. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73144"
+text = "Del av C731: Sales value of ROU assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C73145"
+text = "Del av C731: Sales value ROU assets within Telenor. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.EBITDA_BOI"
+text = "EBITDA før andre poster: den operasjonelle EBITDA (C48 + C70). Delvis produktmerket (76%); reserve-merket 11%; mest i SSM Security Solutions & Mobile (27%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C70"
+text = "Sum driftskostnader: lønn og personal (C50S) + andre driftskostnader (C60). Delvis produktmerket (19%); mest i SSM Security Solutions & Mobile (27%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60"
+text = "Andre driftskostnader: salg og markedsføring, drift og vedlikehold, konsulenter, lokaler, energi og øvrig. Delvis produktmerket (33%); mest i SSM Security Solutions & Mobile (29%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C609"
+text = "Øvrige driftskostnader (konsulenter og innleie, lokaler, energi, reise, frakt, tap på fordringer, interne tjenester). Uten produkt (koststed); mest i Administrasjon (53%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C693"
+text = "Konsulenter og innleid arbeidskraft (IT- og andre konsulenter). Uten produkt (koststed); mest i Administrasjon (42%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60095"
+text = "Del av C693: CCA – Joint operation personnel cost charge-in. Uten produkt (koststed); mest i Nordics (83%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60110"
+text = "Del av C693: Temporary Contract workers. Uten produkt (koststed); mest i SSM Security Solutions & Mobile (55%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60090"
+text = "Del av C693: Other Consultancy. Uten produkt (koststed); mest i Administrasjon (54%); 35% i justeringsenheter."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60080"
+text = "Del av C693: Consultancy IS/IT. Uten produkt (koststed); mest i IT (82%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C694"
+text = "Andre kostnader: lokaler, energi, reise, porto/frakt, lisenser, tap på fordringer, management fee, tjenester fra delt tjenestesenter. Uten produkt (koststed); mest i Administrasjon (42%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C49400"
+text = "Del av C694: Other operating expenses - Own work capitalised on assets. Produktmerket; mest i Business (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60930"
+text = "Margin på tjenester fra delt tjenestesenter og andre forretningsenheter. mest i Vurdering (100%); 100% i justeringsenheter."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60920"
+text = "Investeringer/avskrivninger fakturert fra delt tjenestesenter og andre forretningsenheter. mest i Vurdering (100%); 100% i justeringsenheter."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60910"
+text = "Tjenester kjøpt fra delt tjenestesenter og andre forretningsenheter i Telenor. Uten produkt (koststed); mest i Vurdering (100%); 100% i justeringsenheter. Interne kjøp fra andre Telenor-enheter – ikke ekstern kostnad."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60800"
+text = "Del av C694: Acquisition-related costs. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60700"
+text = "Abonnementer, gaver, forsikringer o.l. Delvis produktmerket (61%); mest i E&I Entertainment & Internet (20%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60600"
+text = "Del av C694: ARO - Cost for asset retirement on asset with ARO. Produktmerket; mest i Technology (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60500"
+text = "Del av C694: Cost for asset retirement - without corresponding obligation (ARO). Produktmerket; mest i Technology (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60400"
+text = "Del av C694: Legal disputes. Uten produkt (koststed); mest i Infrastructure Growth (nedlagt) (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60300"
+text = "Avsetning for tap på kundefordringer. Produktmerket; mest i SSM Security Solutions & Mobile (94%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60200"
+text = "Inngått på tidligere avskrevne fordringer. Delvis produktmerket (29%); mest i SSM Security Solutions & Mobile (60%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60190"
+text = "Konstaterte tap på kundefordringer. Uten produkt (koststed); mest i SSM Security Solutions & Mobile (60%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60180"
+text = "Lisensavgifter og gebyrer for tjenester. Uten produkt (koststed); mest i SSM Security Solutions & Mobile (46%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60170"
+text = "Management fee (konserninterne tjenester). Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60130"
+text = "Reise og diett. Uten produkt (koststed); mest i Business (22%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60120"
+text = "Porto, frakt og telekommunikasjon. Delvis produktmerket (12%); mest i E&I Entertainment & Internet (28%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60040"
+text = "Del av C694: Office equipment and supplies (not leased or capitalised). Uten produkt (koststed); mest i Administrasjon (48%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60030"
+text = "Del av C694: Operating lease equipment (cars, office equipment, HW/SW etc.). Delvis produktmerket (36%); mest i SSM Security Solutions & Mobile (84%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60025"
+text = "Energikostnad (strøm til nett og lokaler). Produktmerket; mest i Administrasjon (95%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60020"
+text = "Andre kostnader til bygg og eiendom (drift, vedlikehold). Uten produkt (koststed); mest i Technology (82%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60010"
+text = "Leie av lokaler og grunn (utenfor IFRS 16). Uten produkt (koststed); mest i Kystradio (76%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60003"
+text = "Del av C694: Variable lease payments (OPEX). Uten produkt (koststed); mest i Administrasjon (99%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60005"
+text = "Del av C694: Short term leases. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60007"
+text = "Del av C694: Low value leases. Uten produkt (koststed); mest i Technology (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C601"
+text = "Salg, markedsføring og provisjoner. Delvis produktmerket (47%); mest i SSM Security Solutions & Mobile (64%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60160"
+text = "Reklame. Uten produkt (koststed); mest i SSM Security Solutions & Mobile (84%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60150"
+text = "Salgs-, markedsførings- og representasjonskostnader. Uten produkt (koststed); mest i Administrasjon (42%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60140"
+text = "Provisjoner (forhandler- og salgsprovisjoner). Delvis produktmerket (33%); mest i SSM Security Solutions & Mobile (48%). Kan ligge på produkt, f.eks. Splitt-finanskomponenten FV081."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60145"
+text = "Amortisering av kostnader for å skaffe og oppfylle kundekontrakter (IFRS 15), driftskostnad. Delvis produktmerket (74%); mest i SSM Security Solutions & Mobile (64%). IFRS 15-kontraktskostnader, amortiseres. Delvis i IFRS15-enheten 2I15."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C600"
+text = "Drift og vedlikehold. Delvis produktmerket (45%); mest i IT (41%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60070"
+text = "Annen drift og vedlikehold. Delvis produktmerket (16%); mest i Technology (32%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60065"
+text = "Drift og vedlikehold fra delt tjenestesenter og andre forretningsenheter. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60060"
+text = "Drift og vedlikehold fra entreprenører (nett). Delvis produktmerket (71%); reserve-merket 11%; mest i Technology (98%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C60050"
+text = "Drift og vedlikehold IS/IT. Uten produkt (koststed); mest i IT (87%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C50S"
+text = "Sum lønn og personalkostnader, fratrukket aktivert eget arbeid. Uten produkt (koststed); mest i Business (24%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C49200"
+text = "Aktivert eget arbeid (lønn) – reduserer personalkostnad. Uten produkt (koststed); mest i IT (59%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C50"
+text = "Lønn og personalkostnader. Uten produkt (koststed); mest i Business (21%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C50950"
+text = "Del av C50: CCA – Joint operation personnel cost charge-out. Uten produkt (koststed); mest i Administrasjon (50%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C50900"
+text = "Andre personalkostnader. Delvis produktmerket (30%); mest i Administrasjon (40%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C50700"
+text = "Aksjebasert avlønning. Uten produkt (koststed); mest i Administrasjon (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C50600"
+text = "Ytelsespensjon inkl. arbeidsgiveravgift. Uten produkt (koststed); mest i Technology (30%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C50500"
+text = "Innskuddspensjon inkl. arbeidsgiveravgift. Uten produkt (koststed); mest i Administrasjon (22%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C50300"
+text = "Arbeidsgiveravgift. Uten produkt (koststed); mest i SSM Security Solutions & Mobile (20%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C50200"
+text = "Bonus. Uten produkt (koststed); mest i Business (32%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C50100"
+text = "Lønn og feriepenger. Uten produkt (koststed); mest i Business (21%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C48"
+text = "Bidrag: inntekter (C30) + vare- og trafikkostnader (C40S). Produktmerket; mest i SSM Security Solutions & Mobile (35%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40S"
+text = "Sum vare- og trafikkostnader (varekost), fratrukket aktivert eget arbeid. Produktmerket; reserve-merket 24%; mest i TnFiber IC (31%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40"
+text = "Vare- og trafikkostnader: varer for videresalg, leid og kjøpt nettkapasitet, trafikkostnader, lagerendring. Produktmerket; reserve-merket 24%; mest i TnFiber IC (31%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40900"
+text = "Del av C40: Taxes expense related to traffic. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40700"
+text = "Annen varekost. Produktmerket; mest i E&I Entertainment & Internet (93%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40675"
+text = "Del av C40: Reversal of write down on finished goods. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40670"
+text = "Del av C40: Write down on finished goods. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40655"
+text = "Del av C40: Reversal of write down on work in progress. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40650"
+text = "Del av C40: Write down on work in progress. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40610"
+text = "Endring i beholdning av varer i arbeid og ferdigvarer. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40510"
+text = "Forbruk av varer for videresalg (håndsett, utstyr, CPE) og råvarer. Produktmerket; reserve-merket 60%; mest i SSM Security Solutions & Mobile (48%). Håndsett-varekost ligger på produkt (bl.a. M5008/M5010), men ikke per tilbud (f.eks. Splitt) – fordel med nøkkel."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40330"
+text = "Trafikkostnader internasjonalt (samtrafikk, roaming). Produktmerket; mest i SSM Security Solutions & Mobile (58%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40310"
+text = "Trafikkostnader nasjonalt (samtrafikk). Produktmerket; mest i Wholesale (50%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40270"
+text = "Del av C40: Other purchase of Satellite Capacity. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40250"
+text = "Del av C40: Other purchase of Network Capacity International. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40230"
+text = "Del av C40: Other purchase of Network Capacity National Local loop/last mile. Produktmerket; mest i Technology (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40210"
+text = "Del av C40: Other purchase of Network Capacity National Backbone. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40170"
+text = "Del av C40: Leased Satellite Capacity. Produktmerket; mest i Kystradio (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40150"
+text = "Leid nettkapasitet internasjonalt. Produktmerket; mest i Business (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40130"
+text = "Leid nettkapasitet nasjonalt, aksessnett / siste mil. Produktmerket; mest i TnFiber IC (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40110"
+text = "Leid nettkapasitet nasjonalt, stamnett. Produktmerket; mest i Wholesale (74%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40685"
+text = "Amortisering av kontraktskostnader (IFRS 15), varekost. Produktmerket; mest i Business (60%). IFRS 15-kontraktskostnader, amortiseres. Delvis i IFRS15-enheten 2I15."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C40100"
+text = "Del av C40: Variable lease payments (COGS). Produktmerket; mest i Technology (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C49100"
+text = "Del av C40S: Cost of Materials - Own work capitalised on assets. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C30"
+text = "Sum inntekter. Produktmerket; mest i SSM Security Solutions & Mobile (37%). Historikken er omarbeidet til 2026-organisasjonen (reorg 1. juni 2026)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C30004"
+text = "Andre inntekter. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C30003"
+text = "Inntekter fra finansielle instrumenter. Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C30002"
+text = "Leieinntekter etter IFRS 16 (utleier). Produktmerket; mest i TnFiber IC (90%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.C30001"
+text = "Inntekter fra kundekontrakter (IFRS 15). Produktmerket; mest i SSM Security Solutions & Mobile (37%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.39"
+text = "Annen driftsrelatert inntekt. Produktmerket; mest i SSM Security Solutions & Mobile (36%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.37"
+text = "Leieinntekter (utleie av utstyr, lokaler, infrastruktur). Produktmerket; mest i E&I Entertainment & Internet (100%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.36"
+text = "Inntektsformidling (benyttes kun av Networks). Produktmerket; mest i SSM Security Solutions & Mobile (80%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.35"
+text = "Innholdstjenester (TV-innhold, strømming, tredjepartstjenester). Ingen bevegelse i Telenor Norge (un.SY) i 2025. Ikke bokført i un.SY i 2025 – kan ligge i annen enhet eller være ubrukt."
+
+[[note]]
+cube = "FinMax"
+member = "ac.32"
+text = "Trafikkinntekter (bruk: tale, data, SMS, roaming). Produktmerket; mest i Business (41%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.31"
+text = "Abonnement og andre avtaleinntekter (faste månedsavgifter). Produktmerket; mest i SSM Security Solutions & Mobile (35%)."
+
+[[note]]
+cube = "FinMax"
+member = "ac.30"
+text = "Varesalg (håndsett, utstyr, tilbehør). Produktmerket; mest i Business (50%)."

@@ -1,0 +1,13 @@
+source = "catalog.toml [[entity]]"
+status = "approved"
+label = "Technology"
+aliases = ["technology", "teknologi", "tech", "2tec"]
+finmax = "un.SY.2TEC"
+finplan = "2TEC Technology"
+finplan_total = "1TEC Technology"
+note = "FinPlan division total = 1TEC Technology (incl. Ambition and IFRS adjustments); 2TEC Technology is the operational unit."
+
+[approved]
+by = "tom"
+on = "2026-10-15"
+via = "catalog.toml"
