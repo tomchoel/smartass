@@ -47,8 +47,20 @@ def test_a_prompt_returns_the_markdown_with_a_preface():
 
 def test_resources_are_listed_and_readable():
     uris = {str(r.uri) for r in asyncio.run(server.mcp.list_resources())}
-    assert uris == {*(f"smartass://playbooks/{n}" for n in PLAYBOOKS), "smartass://conventions"}
+    refs = {f"smartass://reference/{n}.md" for n in server.SKILL_REFS}
+    files = {(d / "reference" / f"{n}.md").as_uri() for d in server._skill_dirs() for n in server.SKILL_REFS}
+    assert uris == {*(f"smartass://playbooks/{n}" for n in PLAYBOOKS), "smartass://conventions", *refs, *files}
     got = list(asyncio.run(server.mcp.read_resource("smartass://playbooks/gl-extract")))
     assert "fin_drill" in got[0].content
     conv = list(asyncio.run(server.mcp.read_resource("smartass://conventions")))[0].content
     assert "FinPlan" in conv and "(1 000 000)" in conv and "costs" in conv
+
+
+def test_skill_references_are_resources_by_name_and_by_the_installed_file_uri():
+    """Copilot reads the skill's relative link reference/spec.md as an MCP resource by its file:// URI (10.11:
+    'Unknown resource: file:///C:/Users/.../.agents/skills/smartass/reference/spec.md')."""
+    by_name = list(asyncio.run(server.mcp.read_resource("smartass://reference/spec.md")))[0].content
+    uri = (server._skill_dirs()[0] / "reference" / "spec.md").as_uri()
+    assert uri.startswith("file:///") and uri.endswith("/.agents/skills/smartass/reference/spec.md")
+    by_file = list(asyncio.run(server.mcp.read_resource(uri)))[0].content
+    assert by_name == by_file and "AnalysisSpec" in by_name

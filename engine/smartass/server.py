@@ -467,6 +467,33 @@ for _n, _d in PLAYBOOKS.items():
     _playbook_resource(_n, _d)
 
 
+SKILL_REFS = ("spec", "charts", "concepts", "cubes", "drill", "operations")
+
+
+def _skill_dirs() -> list:
+    """Where agents keep their copy of the smartass skill (Claude Code, Copilot/agents). Some clients (Copilot) read a
+    skill's relative link 'reference/spec.md' as an MCP resource of this server, by its file:// URI."""
+    from pathlib import Path
+    return [Path.home() / d / "skills" / "smartass" for d in (".agents", ".claude", ".copilot")]
+
+
+def _reference_resource(name: str) -> None:
+    def read() -> str:
+        from .core import config
+        return (config.REPO_DIR / "skills" / "smartass" / "reference" / f"{name}.md").read_text(encoding="utf-8")
+    read.__name__ = f"reference_{name}"
+    desc = f"smartass skill reference: {name}.md"
+    mcp.resource(f"smartass://reference/{name}.md", name=f"reference/{name}.md", description=desc,
+                 mime_type="text/markdown")(read)
+    for d in _skill_dirs():
+        mcp.resource((d / "reference" / f"{name}.md").as_uri(), name=f"reference/{name}.md ({d.parent.parent.name})",
+                     description=desc, mime_type="text/markdown")(read)
+
+
+for _n in SKILL_REFS:
+    _reference_resource(_n)
+
+
 @mcp.resource("smartass://conventions", name="conventions", mime_type="text/markdown",
               description="Finance conventions: cube choice, NOK format, signs, variance, P&L chain, members.")
 def conventions() -> str:
