@@ -1,6 +1,6 @@
 name = "Depreciation and amortisation"
 aliases = ["depreciation", "amortisation", "amortization", "d&a", "avskrivninger", "avskrivning", "C75"]
-description = "Depreciation and amortisation"
+description = "Depreciation and amortisation (FinMax C75; FinPlan Depreciation Expense, planned in Target since FY26)"
 unit = "NOK"
 sign = "cost"
 balance = "Periodic"
@@ -14,3 +14,6 @@ members = ["ac.C75"]
 
 [finlite]
 members = ["ac.C75"]
+
+[finplan]
+members = ["Depreciation Expense"]

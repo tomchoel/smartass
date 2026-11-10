@@ -50,12 +50,18 @@ source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + S
 cube = "FinMax"
 member = "ac.STF40E"
 time_balance = "balance_last"
-note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
-source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+note = "monthly ARPU rate stored per month; Yr and Accumulated add 12 rates - read one month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26 monthly ARPU vs the separate YTD ARPU account)"
 
 [[card]]
 cube = "FinMax"
 member = "ac.STF50E"
 time_balance = "balance_last"
-note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
-source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+note = "monthly ARPU rate stored per month; Yr and Accumulated add 12 rates - read one month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26 monthly ARPU vs the separate YTD ARPU account)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.C1S"
+note = "balance sheet total: stored as Periodic movements; read Accumulated at the period end (metric total_assets)"
+source = "phase B review 10.11"

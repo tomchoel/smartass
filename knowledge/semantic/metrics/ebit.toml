@@ -9,7 +9,7 @@ materiality = [5000000.0, 0.1]
 status = "approved"
 approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
 verified = { by = "auto", on = "2026-11-10" }
-differs = "FinMax ac.EBIT = EBITDA + C76S (un.SY 2025: 12 395 - 5 889 = 6 506 MNOK). FinPlan EBIT = EBITDA + Depreciation Expense + Write-downs (BANORWAY Actual FY25 7 452 MNOK) and is planned: Target FY26 7 784 MNOK. FinPlan groups accounts differently from FinMax; compare across cubes only with a reconciliation line."
+differs = "FinMax ac.EBIT = EBITDA + C76S (un.SY 2025: 12 395 - 5 889 = 6 506 MNOK). FinPlan EBIT = EBITDA + Depreciation Expense (+ Write-downs in the outline, but the FY26 Write-downs do not reach EBIT; BANORWAY Actual FY25 7 452 MNOK) and is planned: Target FY26 7 784 MNOK. FinPlan groups accounts differently from FinMax; compare across cubes only with a reconciliation line."
 
 [finmax]
 members = ["ac.EBIT"]

@@ -1,0 +1,5 @@
+title = "Access rights"
+text = "EPM security is per user: each reader sees only the entities they may read (#NoAccess elsewhere). Totals below division level, ledger drills and the derived behaviour cards cover only what the person running them may read; a colleague with other rights can see other numbers."
+source = "phase B card derivation 10.11 (most FinMax entities were #NoAccess for the first user)"
+status = "approved"
+approved = { by = "auto", on = "2026-11-10" }

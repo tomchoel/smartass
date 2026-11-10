@@ -1,5 +1,5 @@
 name = "Fixed subscriptions"
-aliases = ["fixed subscriptions", "subscriptions", "subs", "abonnenter", "abonnement", "faste abonnementer", "STF_SUBS"]
+aliases = ["fixed subscriptions", "faste abonnementer", "STF_SUBS"]
 description = "Fixed end-user subscriptions (000), fixed only: internet + TV + fixed telephony (STF_SUBS); level at the period end"
 unit = "count"
 sign = "neutral"
