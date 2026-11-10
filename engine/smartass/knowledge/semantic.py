@@ -93,6 +93,9 @@ class Fact(BaseModel):
     text: str
     scope_members: dict[str, list[str]] = {}
     scope_metrics: list[str] = []
+    # self: only the named members; down: and every descendant; up: and the ancestors up to (and including) the
+    # nearest one a metric or an entity names (only the parent when none does); both: down + up.
+    inherit: Literal["self", "down", "up", "both"] = "self"
     valid_from: str = ""
     valid_to: str = ""
     severity: Literal["info", "warn", "block"] = "info"
