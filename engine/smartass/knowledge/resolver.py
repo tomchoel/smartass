@@ -304,10 +304,23 @@ def ensure_built(notes: list[str] | None = None) -> Path:
     return path
 
 
+def freshness_notes(db) -> list[str]:
+    """Warnings for the answer when the knowledge may be out of date (spec 2026-11-10 §6: warn, never stop)."""
+    st = atlas.status(db)
+    if st["stale"]:
+        age = st["oldest_age_days"]
+        return [f"The atlas is {age:.0f} days old (over {atlas.MAX_AGE_DAYS}): new or renamed members may be "
+                "missing - run `smartass atlas build`."] if age is not None else [
+                "The atlas has never been built - run `smartass atlas build`."]
+    return []
+
+
 def open_resolver(forecast_year: int, notes: list[str] | None = None) -> KnowledgeResolver:
     """A KnowledgeResolver on knowledge.db (built when missing) and the local atlas; the caller closes it (close())."""
     path = ensure_built(notes)
     db = atlas.connect()
+    if notes is not None:
+        notes.extend(freshness_notes(db))
     try:
         return KnowledgeResolver(sqlite3.connect(path), db, forecast_year)
     except Exception:

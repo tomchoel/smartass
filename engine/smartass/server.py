@@ -387,6 +387,8 @@ async def fin_status(restart: bool = False) -> dict:
             "atlas": {"oldest_age_days": st["oldest_age_days"], "stale": st["stale"],
                       "dimensions_built": len(st["built"])},
             "metrics": kn.get("metrics", 0),
+            "knowledge_layer": {k: kn.get(k) for k in ("rules", "entities", "kpis", "vocab", "notes", "built_at",
+                                                       "atlas_built_at")},
             "knowledge": {"built_at": kn.get("built_at"), "metrics": kn.get("metrics", 0),
                           "facts": kn.get("facts", 0), "drafts": kn.get("drafts", 0),
                           "refresh_month": refresh["refresh_month"], "refresh_due": refresh["due"],

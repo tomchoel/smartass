@@ -470,3 +470,16 @@ def test_raw_members_take_the_materiality_rule():
     from smartass.model.resolver import default_materiality, rule_data
     assert default_materiality() == (rule_data("materiality")["abs_nok"], rule_data("materiality")["pct"])
     assert default_materiality() == (5_000_000.0, 0.10)
+
+
+# ---- Task 9: freshness said out loud
+
+def test_a_stale_atlas_is_a_warning_on_the_answer(monkeypatch):
+    from smartass.knowledge import resolver as kr
+    monkeypatch.setattr(kr.atlas, "status", lambda db: {"oldest_age_days": 41.0, "stale": True, "built": []})
+    assert kr.freshness_notes(object()) == [
+        "The atlas is 41 days old (over 30): new or renamed members may be missing - run `smartass atlas build`."]
+    monkeypatch.setattr(kr.atlas, "status", lambda db: {"oldest_age_days": 3.0, "stale": False, "built": []})
+    assert kr.freshness_notes(object()) == []
+    monkeypatch.setattr(kr.atlas, "status", lambda db: {"oldest_age_days": None, "stale": True, "built": []})
+    assert kr.freshness_notes(object()) == ["The atlas has never been built - run `smartass atlas build`."]
