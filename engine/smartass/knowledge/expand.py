@@ -19,8 +19,10 @@ class Tree:
             if parent:
                 self.kids.setdefault((dim, parent.casefold()), []).append(name)
 
-    def placements(self, member: str) -> list[tuple[str, str, str, int]]:
-        return self.by_name.get(member.casefold(), [])
+    def placements(self, member: str, dims: set[str] | None = None) -> list[tuple[str, str, str, int]]:
+        """(name, dimension, parent, depth) of every placement of the member, only those in `dims` when given."""
+        rows = self.by_name.get(member.casefold(), [])
+        return [r for r in rows if r[1] in dims] if dims else rows
 
     def canonical(self, member: str) -> str:
         p = self.placements(member)

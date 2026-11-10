@@ -322,3 +322,91 @@ def test_an_alias_belongs_to_one_item_across_kinds(tmp_path, adb):
     ent = 'label = "Rev"\naliases = ["revenue"]\nfinmax = "un.SY.2BUS"\nsource = "s"\n'
     rep = _build(tmp_path, adb, {"entities/rev_unit.toml": ent})
     assert any("'revenue'" in e for e in rep.errors)
+
+
+# ---- review fixes (entity dimensions, division totals, one term list, every kind approvable)
+
+def test_an_entity_member_must_sit_in_the_entity_dimension(tmp_path, adb):
+    ent = 'label = "Rev"\nfinmax = "ac.C30"\nsource = "s"\n'          # an account, not an entity
+    rep = _build(tmp_path, adb, {"entities/rev_unit.toml": ent})
+    assert any("ac.C30" in e and "not in the atlas" in e for e in rep.errors)
+
+
+PLAN_TREE_DEEP = [("FinPlan", "Entity", "1X Division", "1X Division", "BANORWAY", 2, 5),
+                  ("FinPlan", "Entity", "2X Mid", "2X Mid", "1X Division", 3, 5),
+                  ("FinPlan", "Entity", "3X Leaf", "3X Leaf", "2X Mid", 4, 5),
+                  ("FinPlan", "Entity", "OTHERROOT", "OTHERROOT", "Entity", 1, 6),
+                  ("FinPlan", "Entity", "9Y Stray", "9Y Stray", "OTHERROOT", 2, 6)]
+
+
+def _deep(tmp_path, adb, finplan, total=""):
+    adb.executemany("INSERT OR IGNORE INTO member VALUES (?,?,?,?,?,?,?)", PLAN_TREE_DEEP)
+    ent = f'label = "Deep"\nfinplan = "{finplan}"\nsource = "s"\n' + (f'finplan_total = "{total}"\n' if total else "")
+    return _build(tmp_path, adb, {"entities/deep.toml": ent})
+
+
+def test_a_deep_finplan_entity_needs_the_level_one_total(tmp_path, adb):
+    rep = _deep(tmp_path, adb, "3X Leaf")
+    assert any("division total" in e and "1X Division" in e for e in rep.errors)
+    assert _deep(tmp_path, adb, "3X Leaf", "1X Division").ok
+    assert _deep(tmp_path, adb, "1X Division").ok                      # the division itself
+    assert any("finplan_total" in e and "Nope" in e for e in _deep(tmp_path, adb, "3X Leaf", "Nope").errors)
+
+
+def test_a_finplan_chain_that_never_reaches_banorway_is_an_error(tmp_path, adb):
+    rep = _deep(tmp_path, adb, "9Y Stray")
+    assert any("OTHERROOT" in e and "BANORWAY" in e for e in rep.errors)
+
+
+def test_the_same_term_across_kinds_is_an_error(tmp_path, adb):
+    ent = 'label = "COGS"\nfinmax = "un.SY.2BUS"\nsource = "s"\n'
+    assert any("'cogs'" in e.casefold() for e in _build(tmp_path, adb, {"entities/c.toml": ent}).errors)
+    voc = 'kind = "vague"\nwords = ["business"]\noptions = ["a", "b"]\nsource = "s"\n'
+    rep = _build(tmp_path, adb, {"entities/business.toml": BUS.replace('aliases = ["bedrift"]\n', ''),
+                                 "vocab/v.toml": voc})
+    assert any("'business'" in e for e in rep.errors)
+
+
+def test_pnl_rule_ids_are_checked_and_notes_duplicates_warn(tmp_path, adb):
+    pnl = ('title = "P"\ntext = "t"\nkind = "pnl"\n[data]\nFinMax = ["revenue", "ghost"]\nFinPlan = ["revenue"]\n')
+    notes = ('[[note]]\ncube = "FinMax"\nmember = "ac.C30"\ntext = "a"\n'
+             '[[note]]\ncube = "FinMax"\nmember = "ac.c30"\ntext = "b"\n')
+    rep = _build(tmp_path, adb, {"rules/pnl.toml": pnl})
+    assert any("ghost" in e for e in rep.errors)
+    rep = _build(tmp_path, adb, {"notes/m.toml": notes})
+    assert any("2 notes" in w and "ac.C30" in w for w in rep.warnings)
+
+
+def test_rule_data_is_strict():
+    with pytest.raises(ValueError):
+        Rule(id="m", title="M", text="t", kind="materiality", data={"abs_nok": True, "pct": 0.1})
+    with pytest.raises(ValueError):
+        Rule(id="m", title="M", text="t", kind="materiality", data={"abs_nok": 0, "pct": 0.1})
+    sc = {"FinMax": {"value": ["Actual", ""], "ly": ["Actual", ""]},
+          "FinPlan": {"value": ["Actual", "Working"], "ly": ["Actual", "Working"], "budget": ["Target", "Final"],
+                      "forecast": ["latest_forecast", "Final"]}}
+    with pytest.raises(ValueError):
+        Rule(id="s", title="S", text="t", kind="scenarios", data={**sc, "FinXx": sc["FinMax"]})
+    with pytest.raises(ValueError):
+        Rule(id="s", title="S", text="t", kind="scenarios", data={**sc, "FinMax": {"value": ["A", 1], "ly": ["A", ""]}})
+    with pytest.raises(ValueError):
+        Vocab(id="v", kind="grain", words=[], source="s")
+
+
+def test_items_default_to_draft():
+    assert Entity(id="x", label="X", finmax="un.SY").status == "draft"
+
+
+def test_approve_and_status_cover_every_kind(tmp_path, adb):
+    from smartass.knowledge.refresh import approve, status
+    voc = 'kind = "vague"\nwords = ["costs"]\noptions = ["a", "b"]\nsource = "s"\n'
+    rule = 'title = "Signs"\ntext = "Costs negative."\n'
+    sem = _write(tmp_path / "semantic", {"metrics/cogs.toml": COGS, "vocab/costs.toml": voc,
+                                          "rules/signs.toml": rule, "entities/bus.toml": BUS})
+    adb.executemany("INSERT OR IGNORE INTO member VALUES (?,?,?,?,?,?,?)", PLAN_TREE)
+    adb.commit()
+    assert status(sem, tmp_path / "k.db", tmp_path)["drafts"] == ["bus", "costs", "signs"]
+    done, rep = approve(sem, tmp_path / "atlas.db", tmp_path / "k.db", ["costs", "signs"], "tom", "2026-11-10")
+    assert done == ["costs", "signs"]
+    assert 'status = "approved"' in (sem / "vocab" / "costs.toml").read_text(encoding="utf-8")
+    assert load_all(sem).vocab[0].approved == {"by": "tom", "on": "2026-11-10"}

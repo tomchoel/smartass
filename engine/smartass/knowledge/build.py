@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .expand import LazyTrees, expand
-from .semantic import SemanticError, concept_terms, load_all
+from .semantic import SemanticError, load_all, terms
 
 SCHEMA = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
@@ -72,12 +72,12 @@ def _atlas(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
 
 
-def _missing(atlas, cube: str, members) -> list[str]:
+def _missing(atlas, cube: str, members, dims: set[str] | None = None) -> list[str]:
     """The members the atlas does not have for the cube (any case, like Essbase). `atlas` is a connection or the
     build's LazyTrees (the cube's member table is then read once, not queried per member)."""
     trees = atlas if isinstance(atlas, LazyTrees) else LazyTrees(atlas)
     tree = trees[cube]
-    return [m for m in members if not tree.placements(m)]
+    return [m for m in members if not tree.placements(m, dims)]
 
 
 def semantic_hash(semantic_dir: Path) -> str:
@@ -123,6 +123,28 @@ def check(metrics, facts, atlas, report: BuildReport, concepts=(), k=None) -> No
 DATA_KINDS = ("scenarios", "materiality", "pnl", "group_companies")
 
 
+ENTITY_DIMS = {"FinMax": {"All Entities"}, "FinLite": {"All Entities"}, "FinPlan": {"Entity"}}
+FINPLAN_TOP = "BANORWAY"
+
+
+def _level_one(tree, member: str) -> tuple[str | None, str]:
+    """(the level-1 node of a FinPlan entity chain, '') or (None, the root the chain ended at without BANORWAY)."""
+    node, seen, real = member, set(), member
+    while True:
+        if node.casefold() == FINPLAN_TOP.casefold():
+            return node, ""
+        seen.add(node.casefold())
+        rows = tree.placements(node, ENTITY_DIMS["FinPlan"])
+        if rows:
+            real = rows[0][0]
+        parent = rows[0][2] if rows else ""
+        if parent.casefold() == FINPLAN_TOP.casefold():
+            return rows[0][0], ""
+        if not parent or parent.casefold() in seen:
+            return None, real
+        node = parent
+
+
 def check_layer(k, atlas, report: BuildReport) -> None:
     """Spec 2026-11-10 §6: contradictions stop the build."""
     trees = atlas if isinstance(atlas, LazyTrees) else LazyTrees(atlas)
@@ -131,20 +153,33 @@ def check_layer(k, atlas, report: BuildReport) -> None:
         if len(ids) > 1:
             report.errors.append(f"rule kind {kind!r} must be defined once, found {', '.join(ids)}")
     metric_ids = {m.id: m for m in k.metrics}
+    for r in k.rules:
+        if r.kind == "pnl":
+            for cube, ids in r.data.items():
+                for mid in ids:
+                    if mid not in metric_ids or cube not in metric_ids[mid].members():
+                        report.errors.append(f"rule {r.id}: pnl.{cube} names {mid!r}, not a metric with {cube} members")
     entity_ids = {e.id for e in k.entities}
     for e in k.entities:
         for cube, member in e.members().items():
-            if cube != "FinLite" and _missing(trees, cube, [member]):
-                report.errors.append(f"entity {e.id}: {cube} member {member!r} is not in the atlas")
+            if cube != "FinLite" and _missing(trees, cube, [member], ENTITY_DIMS[cube]):
+                report.errors.append(f"entity {e.id}: {cube} member {member!r} is not in the atlas "
+                                     f"(entity dimension {sorted(ENTITY_DIMS[cube])[0]!r})")
         for s in e.successors:
             if s not in entity_ids:
                 report.errors.append(f"entity {e.id}: successor {s!r} is not an entity")
-        if e.finplan and not _missing(trees, "FinPlan", [e.finplan]):
-            first = sorted(trees["FinPlan"].placements(e.finplan), key=lambda p: p[3])[0]
-            under = first[2]
-            if under not in ("BANORWAY", "Entity", "") and e.finplan_total != under:
-                report.errors.append(f"entity {e.id}: FinPlan {e.finplan!r} sits under {under!r}, not BANORWAY; "
-                                     f"set finplan_total = {under!r} (the division total) or fix finplan")
+        tree = trees["FinPlan"]
+        if e.finplan_total and not tree.placements(e.finplan_total, ENTITY_DIMS["FinPlan"]):
+            report.errors.append(f"entity {e.id}: finplan_total {e.finplan_total!r} is not in the atlas")
+        elif e.finplan and tree.placements(e.finplan, ENTITY_DIMS["FinPlan"]):
+            top, root = _level_one(tree, e.finplan)
+            if top is None:
+                report.errors.append(f"entity {e.id}: FinPlan {e.finplan!r} never reaches {FINPLAN_TOP} "
+                                     f"(its chain ends at {root!r})")
+            elif (e.finplan.casefold() not in (top.casefold(), FINPLAN_TOP.casefold())
+                  and (e.finplan_total or "").casefold() != top.casefold()):
+                report.errors.append(f"entity {e.id}: FinPlan {e.finplan!r} sits below the level-1 node {top!r} "
+                                     f"(the division total); set finplan_total = {top!r}")
     for kp in k.kpis:
         for side in (kp.numerator, kp.denominator):
             m = metric_ids.get(side)
@@ -155,15 +190,13 @@ def check_layer(k, atlas, report: BuildReport) -> None:
             if f != "*" and f not in metric_ids and f not in {x.id for x in k.kpis}:
                 report.errors.append(f"vocab {v.id}: feasible {f!r} is not a metric or kpi")
     owner: dict[str, str] = {}
-    for m in k.metrics:
-        for term in {m.name, *m.aliases}:
-            owner.setdefault(term.casefold(), f"metric {m.id}")
+    for kind, items in (("metric", k.metrics), ("concept", k.concepts)):       # their own clashes are checked above
+        for it in items:
+            for term in terms(it):
+                owner.setdefault(term.casefold(), f"{kind} {it.id}")
     for kind, items in (("entity", k.entities), ("kpi", k.kpis), ("vocab", k.vocab)):
         for it in items:
-            terms = {*getattr(it, "aliases", []), *getattr(it, "generic_aliases", []), *getattr(it, "words", [])}
-            if kind == "kpi":
-                terms.add(it.name)
-            for term in terms:
+            for term in terms(it):
                 was = owner.setdefault(term.casefold(), f"{kind} {it.id}")
                 if was != f"{kind} {it.id}":
                     report.errors.append(f"alias {term!r} belongs to {was} and {kind} {it.id}")
@@ -174,6 +207,12 @@ def check_layer(k, atlas, report: BuildReport) -> None:
     if gone:
         report.warnings.append(f"{len(gone)} member note(s) name members not in the atlas: {', '.join(gone[:10])}"
                                f"{' ...' if len(gone) > 10 else ''}")
+    count: dict[tuple[str, str], list[str]] = {}
+    for n in k.notes:
+        count.setdefault((n.cube, n.member.casefold()), []).append(n.member)
+    dup = [f"{len(v)} notes for {c} {v[0]}" for (c, _m), v in count.items() if len(v) > 1]
+    if dup:
+        report.warnings.append(f"duplicate member notes: {'; '.join(dup[:10])}{' ...' if len(dup) > 10 else ''}")
 
 
 CONCEPT_CUBE = "FinMax"      # concept members are FinMax names (FinLite shares them)
@@ -192,7 +231,7 @@ def check_concepts(metrics, facts, concepts, atlas: sqlite3.Connection, report: 
             metric_terms.setdefault(t.casefold(), m.id)
     owner: dict[str, str] = {}
     for c in concepts:
-        for t in concept_terms(c):
+        for t in terms(c):
             k = t.casefold()
             if k in metric_terms:
                 report.errors.append(f"concept {c.id}: alias {t!r} is also an alias of metric {metric_terms[k]}")
@@ -215,9 +254,9 @@ def _write(db: sqlite3.Connection, k, trees: LazyTrees, meta: dict, warnings: li
         db.execute("INSERT INTO metric VALUES (?,?,?)", (m.id, m.name, m.model_dump_json()))
         db.executemany("INSERT INTO metric_member VALUES (?,?,?)",
                        [(m.id, cube, x) for cube, ms in m.members().items() for x in ms])
-        terms = list(dict.fromkeys([m.name, m.id.replace("_", " "), *m.aliases]))
-        db.executemany("INSERT INTO alias VALUES (?,?)", [(m.id, t) for t in terms])
-        db.executemany("INSERT INTO alias_fts (text, metric_id) VALUES (?,?)", [(t, m.id) for t in terms])
+        mterms = terms(m)
+        db.executemany("INSERT INTO alias VALUES (?,?)", [(m.id, x) for x in mterms])
+        db.executemany("INSERT INTO alias_fts (text, metric_id) VALUES (?,?)", [(x, m.id) for x in mterms])
     stops: dict[str, set[str]] = {}
     for m in metrics:
         for cube, ms in m.members().items():
@@ -244,25 +283,25 @@ def _write(db: sqlite3.Connection, k, trees: LazyTrees, meta: dict, warnings: li
     for e in k.entities:
         db.execute("INSERT INTO entity VALUES (?,?)", (e.id, e.model_dump_json()))
         db.executemany("INSERT INTO term VALUES (?,?,?)",
-                       [(x, "entity", e.id) for x in dict.fromkeys([e.id, e.label, *e.aliases, *e.generic_aliases])])
+                       [(x, "entity", e.id) for x in terms(e)])
     for kp in k.kpis:
         db.execute("INSERT INTO kpi VALUES (?,?)", (kp.id, kp.model_dump_json()))
         db.executemany("INSERT INTO term VALUES (?,?,?)",
-                       [(x, "kpi", kp.id) for x in dict.fromkeys([kp.id.replace("_", " "), kp.name, *kp.aliases])])
+                       [(x, "kpi", kp.id) for x in terms(kp)])
     for v in k.vocab:
         db.execute("INSERT INTO vocab VALUES (?,?,?)", (v.id, v.kind, v.model_dump_json()))
-        db.executemany("INSERT INTO term VALUES (?,?,?)", [(x, "vocab", v.id) for x in dict.fromkeys(v.words)])
+        db.executemany("INSERT INTO term VALUES (?,?,?)", [(x, "vocab", v.id) for x in terms(v)])
     db.executemany("INSERT INTO member_note VALUES (?,?,?)", [(n.cube, n.member, n.text) for n in k.notes])
     for c in concepts:
         db.execute("INSERT INTO concept VALUES (?,?,?)", (c.id, c.title, c.model_dump_json()))
-        terms = concept_terms(c)
-        db.executemany("INSERT INTO concept_alias VALUES (?,?)", [(c.id, t) for t in terms])
-        db.executemany("INSERT INTO concept_fts (text, concept_id) VALUES (?,?)", [(t, c.id) for t in terms])
+        cterms = terms(c)
+        db.executemany("INSERT INTO concept_alias VALUES (?,?)", [(c.id, x) for x in cterms])
+        db.executemany("INSERT INTO concept_fts (text, concept_id) VALUES (?,?)", [(x, c.id) for x in cterms])
     marks = ",".join("?" * len(SEARCH_DIMENSIONS))
     rows = atlas.execute(f"SELECT DISTINCT name, label, connection, dimension FROM member WHERE dimension IN ({marks})",
                          SEARCH_DIMENSIONS)
     db.executemany("INSERT INTO member_fts (name, label, cube, dimension) VALUES (?,?,?,?)", rows)
-    db.executemany("INSERT INTO meta VALUES (?,?)", [(k, str(v)) for k, v in meta.items()])
+    db.executemany("INSERT INTO meta VALUES (?,?)", [(key, str(val)) for key, val in meta.items()])
 
 
 CARRIED_META = ("refresh_month",)      # kept from the previous knowledge.db by every rebuild (set by a refresh)
@@ -297,7 +336,7 @@ def build(semantic_dir: Path, atlas_db: Path, out_db: Path, extra_meta: dict | N
                 "rules": len(k.rules), "entities": len(k.entities), "kpis": len(k.kpis), "vocab": len(k.vocab),
                 "notes": len(k.notes), "drafts": report.drafts}
         old = summary(out_db)
-        meta.update({k: old[k] for k in CARRIED_META if k in old})
+        meta.update({key: old[key] for key in CARRIED_META if key in old})
         meta.update(extra_meta or {})
         out_db.parent.mkdir(parents=True, exist_ok=True)
         tmp = out_db.with_name(out_db.name + ".tmp")

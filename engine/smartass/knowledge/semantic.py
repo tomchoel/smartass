@@ -388,12 +388,12 @@ def _doc(data: dict, path: str = "") -> list[str]:
     return lines
 
 
-def to_toml(item: "Metric | Fact | Concept") -> str:
+def to_toml(item: "Metric | Fact | Concept | _Item") -> str:
     """The item as its source file (without `id`, which is the file stem). Every set field is written, defaults
     included, so a file reads on its own; None and empty values are left out. Per-cube members (a metric's
     finmax/finlite/finplan, a fact's scope_members) are tables; a concept's total, checks, blocks and items are
     tables and arrays of tables."""
-    if isinstance(item, Concept):
+    if isinstance(item, (Concept, _Item)):
         return "\n".join(_doc(item.model_dump(exclude={"id"}))) + "\n"
     data = {k: v for k, v in item.model_dump(exclude={"id"}).items() if v not in (None, "", [], {})}
     if isinstance(item, Metric):
@@ -443,7 +443,7 @@ class _Item(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
     source: str = ""
-    status: Literal["approved", "draft"] = "approved"
+    status: Literal["approved", "draft"] = "draft"
     approved: dict | None = None               # {"by": "tom" | "auto" | <colleague>, "on": "YYYY-MM-DD"}
     verified: dict | None = None
 
@@ -469,20 +469,28 @@ class Rule(_Item):
     def _check(self):
         d = self.data
         if self.kind == "scenarios":
+            bad = [c for c in d if c not in SCENARIO_SERIES]
+            if bad:
+                raise ValueError(f"rule {self.id}: scenarios has unknown cube(s) {bad}")
             for cube in ("FinMax", "FinPlan"):
                 need = SCENARIO_SERIES[cube]
                 got = d.get(cube, {})
-                if set(got) != set(need) or any(len(v) != 2 for v in got.values()):
+                if (not isinstance(got, dict) or set(got) != set(need)
+                        or any(not (isinstance(v, list) and len(v) == 2 and all(isinstance(x, str) for x in v))
+                               for v in got.values())):
                     raise ValueError(f"rule {self.id}: scenarios.{cube} needs exactly {need} as [scenario, version]")
         elif self.kind == "materiality":
-            if not (isinstance(d.get("abs_nok"), (int, float)) and isinstance(d.get("pct"), (int, float))):
-                raise ValueError(f"rule {self.id}: materiality needs numbers abs_nok and pct")
+            ok = all(isinstance(d.get(k), (int, float)) and not isinstance(d.get(k), bool) and d[k] > 0
+                     for k in ("abs_nok", "pct"))
+            if not ok:
+                raise ValueError(f"rule {self.id}: materiality needs numbers abs_nok and pct above 0")
         elif self.kind == "pnl":
             for cube in ("FinMax", "FinPlan"):
-                if not isinstance(d.get(cube), list) or not d[cube]:
+                if (not isinstance(d.get(cube), list) or not d[cube]
+                        or not all(isinstance(x, str) for x in d[cube])):
                     raise ValueError(f"rule {self.id}: pnl.{cube} needs the metric ids in report order")
         elif self.kind == "group_companies":
-            if not isinstance(d.get("patterns"), list):
+            if not (isinstance(d.get("patterns"), list) and all(isinstance(x, str) for x in d["patterns"])):
                 raise ValueError(f"rule {self.id}: group_companies needs patterns")
         elif d:
             raise ValueError(f"rule {self.id}: a text rule has no data")
@@ -540,7 +548,7 @@ class Kpi(_Item):
 class Vocab(_Item):
     """Words the engine must interpret: vague (ask with options), grain (what is answerable per X), currency."""
     kind: Literal["vague", "grain", "currency"]
-    words: list[str]
+    words: list[str] = Field(min_length=1)
     options: list[str] = []
     feasible: list[str] = []                   # grain: metric/kpi ids answerable at it; ["*"] = all
     proxy: str = ""
@@ -563,6 +571,29 @@ class MemberNote(BaseModel):
     cube: Literal["FinMax", "FinLite", "FinPlan"]
     member: str
     text: str
+
+
+def terms(item) -> list[str]:
+    """What an item is found by, without case duplicates: the one list the build checks for clashes and stores."""
+    if isinstance(item, Concept):
+        return concept_terms(item)
+    if isinstance(item, Metric):
+        raw = [item.name, item.id.replace("_", " "), *item.aliases]
+    elif isinstance(item, Entity):
+        raw = [item.id, item.label, *item.aliases, *item.generic_aliases]
+    elif isinstance(item, Kpi):
+        raw = [item.id.replace("_", " "), item.name, *item.aliases]
+    elif isinstance(item, Vocab):
+        raw = list(item.words)
+    else:
+        return []
+    out, seen = [], set()
+    for x in raw:
+        x = x.strip()
+        if x and x.casefold() not in seen:
+            seen.add(x.casefold())
+            out.append(x)
+    return out
 
 
 @dataclass
