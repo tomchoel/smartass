@@ -17,3 +17,45 @@ member = "ac.STA21Y_stage"
 time_balance = "balance_last"
 note = "monthly level; Yr sums the months - read December, never sum"
 source = "probe 10.11 (Yr 33 725.66 = twelve monthly levels of about 2 800 FTE)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF_SUBS"
+time_balance = "balance_last"
+note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF20Y"
+time_balance = "balance_last"
+note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF21"
+time_balance = "balance_last"
+note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF22"
+time_balance = "balance_last"
+note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF40E"
+time_balance = "balance_last"
+note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF50E"
+time_balance = "balance_last"
+note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
