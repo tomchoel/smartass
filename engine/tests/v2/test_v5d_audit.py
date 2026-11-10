@@ -105,7 +105,6 @@ def test_line_and_stacked_charts_keep_every_category_and_nothing_is_emptied():
 def test_a_bridge_waterfall_drops_zero_steps_but_keeps_start_and_end():
     s, res, p = run([{"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}])
     (cs,) = p.charts
-    bridge = next(o for o in res.outs if o.type == "bridge")
     first = p.at("b0.start.0")[0]
     end = p.at("b0.end.0")[0]
     assert cs.cat_range.startswith(f"C{first}") and cs.cat_range.endswith(f"C{end}")

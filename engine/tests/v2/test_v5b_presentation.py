@@ -12,7 +12,6 @@ from v2util import CLOSED, monthly_facts, resolver, spec_dict
 from smartass.model.analyze import compute
 from smartass.model.blocks.common import ck
 from smartass.model.blocks.concept import sheet_text
-from smartass.model.expr import Var
 from smartass.model.frame import Fact, Frame
 from smartass.model.resolver import MetricDef, StaticResolver
 from smartass.model.spec import AnalysisSpec
@@ -334,7 +333,6 @@ def test_one_unit_for_all_key_points_of_a_concept():
     assert shared_unit([None]) == "MNOK"
     s, res, p = run(cspec(), r=cresolver(), frame=cfacts())
     pts = _points(p)
-    units = {u for x in pts for u in ("MNOK", "NOK") if f'" {u}' in x.replace(" MNOK", " MNOK")}
     assert not (any('" NOK' in x for x in pts) and any('" MNOK' in x for x in pts))
 
 
