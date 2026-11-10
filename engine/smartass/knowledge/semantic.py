@@ -38,6 +38,11 @@ class Members(BaseModel):
     members: list[str]
 
 
+def _default_materiality() -> tuple[float, float]:
+    from ..model.resolver import default_materiality         # imported late: the model package imports this one
+    return default_materiality()
+
+
 class Metric(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
@@ -48,7 +53,7 @@ class Metric(BaseModel):
     sign: Literal["income", "cost", "neutral"] = "neutral"
     balance: Literal["Periodic", "Accumulated"] = "Periodic"
     aggregation: Literal["sum", "last"] = "sum"
-    materiality: tuple[float, float] = (5_000_000.0, 0.10)
+    materiality: tuple[float, float] = Field(default_factory=lambda: _default_materiality())   # the rule
     pct_floor: float | None = None          # |base| below it: no variance % (default: materiality abs / 10 for NOK)
     status: Literal["approved", "draft"] = "draft"
     approved: dict | None = None

@@ -66,9 +66,9 @@ Before an edit `xl_snapshot(workbook, sheet, range)`; undo with `xl_revert(chang
 ## 6. Finance rules
 
 - **Cube:** actuals FinMax, drill FinLite, plan only FinPlan.
-- **Format and signs:** full NOK `1 000 000`, negatives `(1 000 000)`; FinMax signs (costs negative); variance = current - comparison (`fin_lookup` kind 'rule': full rules).
+- **Format and signs:** full NOK `1 000 000`, negatives `(1 000 000)`; FinMax signs (costs negative); variance = current - comparison.
 - **P&L chain (FinMax):** C30 + C40S = C48; C50S + C60 = C70; C48 + C70 = EBITDA_BOI; + C73 = EBITDA.
-  (fin_lookup kind 'rule' has the full rules.)
+  Full rules: `fin_lookup` kind 'rule'.
 - **Members:** `un.SY.<code>`, `ac.<code>`, `Mon YY`; history restated to today's organisation:
   [reference/cubes.md](reference/cubes.md). Never write to the Produktregnskapet archive.
 

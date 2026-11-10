@@ -1,6 +1,6 @@
 # Cube atlas (generated)
 
-Generated 2026-10-13 21:41 from `%LOCALAPPDATA%\smartass\atlas.db` by `gen_atlas_md.py`. Top levels only; search everything with `fin_lookup`. Periods (current month, closed months, quarters) are not listed here: ask `fin_lookup` (kind 'rule') or `fin_status`.
+Generated 2026-10-13 21:41 from `%LOCALAPPDATA%\smartass\atlas.db` by `gen_atlas_md.py`. Top levels only; search everything with `fin_lookup`. Periods (current month, closed months, quarters) are not listed here: ask `fin_status`, or `fin_lookup` (kind 'member').
 
 ## FinLite
 

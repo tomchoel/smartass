@@ -3,7 +3,6 @@
 tests and seeds."""
 from __future__ import annotations
 
-import functools
 import tomllib
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
@@ -14,16 +13,30 @@ Balance = Literal["Periodic", "Accumulated"]
 Aggregation = Literal["sum", "last"]
 
 
-@functools.cache
-def rule_data(kind: str) -> dict:
-    """The data of the one rule of this kind in the semantic folder (knowledge/semantic/rules/*.toml). The model
-    reads the same file the build checks, so a rule is defined once."""
+_RULES: dict = {}
+
+
+def _rules() -> list[dict]:
+    """Every rule file of the semantic folder, parsed again when a file's mtime or size changes (edits are seen
+    without a restart; the stat of a handful of files is cheap)."""
     from ..core import config
-    for p in sorted((config.SEMANTIC_DIR / "rules").glob("*.toml")):
-        d = tomllib.loads(p.read_text(encoding="utf-8"))
-        if d.get("kind") == kind:
+    d = config.SEMANTIC_DIR / "rules"
+    files = sorted(d.glob("*.toml"))
+    key = (str(d), tuple((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in files))
+    if key not in _RULES:
+        _RULES.clear()
+        _RULES[key] = [tomllib.loads(p.read_text(encoding="utf-8")) for p in files]
+    return _RULES[key]
+
+
+def rule_data(kind: str) -> dict:
+    """The data of the one approved rule of this kind in the semantic folder (knowledge/semantic/rules/*.toml). The
+    model reads the same file the build checks, so a rule is defined once; a draft rule is not in force."""
+    from ..core import config
+    for d in _rules():
+        if d.get("kind") == kind and d.get("status", "draft") == "approved":
             return d["data"]
-    raise LookupError(f"no rule of kind {kind!r} in {config.SEMANTIC_DIR / 'rules'}")
+    raise LookupError(f"no approved rule of kind {kind!r} in {config.SEMANTIC_DIR / 'rules'}")
 
 
 def default_materiality() -> tuple[float, float]:

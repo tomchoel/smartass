@@ -10,7 +10,7 @@ from smartass.knowledge import atlas
 from smartass.knowledge.build import build
 from smartass.knowledge.expand import expand
 from smartass.knowledge.resolver import KnowledgeResolver
-from smartass.knowledge.semantic import Entity, Fact, Kpi, MemberNote, Rule, SemanticError, Vocab, load_all
+from smartass.knowledge.semantic import Entity, Fact, Kpi, MemberNote, Metric, Rule, SemanticError, Vocab, load_all
 
 # A small FinMax tree: accounts EBITDA > C40S > C405 > C40510 ; entities un.SY > 2CON > CC1, CC2
 TREE = [("FinMax", "All Accounts", "ac.EBITDA", "EBITDA", "", 1, 1),
@@ -597,3 +597,109 @@ def test_a_stale_atlas_warning_survives_an_open_failure(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         kr.open_resolver(26, [])
     assert seen == ["closed"]
+
+
+# ---- final review: an atlas refresh never blocks answers
+
+def _break_atlas(a):
+    con = sqlite3.connect(a)
+    con.execute("DELETE FROM member WHERE name='ac.C30'")        # metrics name it: the new atlas breaks the build
+    con.execute("UPDATE build SET built_at=1790000900.5")
+    con.commit()
+    con.close()
+
+
+def _atlas_with_build_row(a):
+    con = sqlite3.connect(a)
+    con.execute("DELETE FROM build")
+    con.execute("INSERT INTO build VALUES ('FinMax','All Accounts',1790000000.0,9,1.0,NULL)")
+    con.commit()
+    con.close()
+
+
+def test_a_broken_new_atlas_keeps_the_old_knowledge_db(tmp_path, monkeypatch):
+    from kutil import knowledge
+
+    from smartass.knowledge.resolver import ensure_built
+    a, _, k = knowledge(tmp_path, monkeypatch)
+    _atlas_with_build_row(a)
+    ensure_built([])                                    # stamps the atlas
+    before = k.read_bytes()
+    _break_atlas(a)
+    notes: list[str] = []
+    assert ensure_built(notes) == k
+    assert k.read_bytes() == before
+    assert len(notes) == 1 and notes[0].startswith("knowledge.db kept from ") and "ac.C30" in notes[0]
+    assert "smartass knowledge build" in notes[0]
+
+
+def test_a_broken_build_after_a_semantic_change_is_a_guard_error(tmp_path, monkeypatch):
+    from kutil import knowledge
+
+    from smartass.knowledge.resolver import ensure_built
+    from smartass.model.validate import GuardError
+    a, sem, _ = knowledge(tmp_path, monkeypatch)
+    _atlas_with_build_row(a)
+    ensure_built([])
+    _break_atlas(a)
+    (sem / "facts" / "extra.toml").write_text('text = "x"\nsource = "t"\nscope_metrics = ["nope"]\n', encoding="utf-8")
+    with pytest.raises(GuardError):
+        ensure_built([])
+
+
+def test_a_missing_member_of_an_abolished_entity_is_a_warning(tmp_path, adb):
+    ent = ('label = "Gone"\nfinmax = "un.SY.OLD"\nsource = "s"\nstatus = "approved"\nabolished = "2026-06-01"\n')
+    rep = _build(tmp_path, adb, {"entities/gone.toml": ent})
+    assert rep.ok, rep.to_text()
+    assert any("un.SY.OLD" in w for w in rep.warnings)
+
+
+def test_required_rules_must_be_approved(tmp_path, adb):
+    mat = (REPO_RULES / "materiality.toml").read_text(encoding="utf-8").replace('status = "approved"', 'status = "draft"')
+    rep = _build(tmp_path, adb, {"rules/materiality.toml": mat})
+    assert any("materiality" in e and "approved" in e for e in rep.errors)
+
+
+def test_rule_data_sees_edits_and_skips_drafts(tmp_path, monkeypatch):
+    import os
+
+    from smartass.core import config
+    from smartass.model.resolver import rule_data
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    f = rules / "materiality.toml"
+    body = 'title = "M"\ntext = "t"\nkind = "materiality"\nstatus = "approved"\n[data]\nabs_nok = 1.0\npct = 0.2\n'
+    f.write_text(body, encoding="utf-8")
+    monkeypatch.setattr(config, "SEMANTIC_DIR", tmp_path)
+    assert rule_data("materiality")["pct"] == 0.2
+    f.write_text(body.replace("0.2", "0.3"), encoding="utf-8")
+    os.utime(f, (f.stat().st_mtime + 5, f.stat().st_mtime + 5))
+    assert rule_data("materiality")["pct"] == 0.3
+    f.write_text(body.replace("approved", "draft"), encoding="utf-8")
+    os.utime(f, (f.stat().st_mtime + 5, f.stat().st_mtime + 5))
+    with pytest.raises(LookupError):
+        rule_data("materiality")
+
+
+def test_a_metric_takes_the_materiality_rule_by_default():
+    from smartass.model.resolver import default_materiality
+    m = Metric(id="x", name="X", description="d", finmax={"members": ["ac.C30"]})
+    assert tuple(m.materiality) == default_materiality()
+
+
+def test_caveats_on_the_sheet_say_where_they_came_from():
+    from v2util import CLOSED, facts, resolver, spec_dict
+
+    from smartass.model.analyze import compute
+    from smartass.model.spec import AnalysisSpec
+    from smartass.render.layout import layout
+    s = AnalysisSpec.model_validate(spec_dict())
+    res = compute(s, resolver(), CLOSED, facts())
+    cav = [{"id": "a", "text": "One.", "severity": "warn", "via": ["X1", "X2"]},
+           {"id": "b", "text": "Two.", "severity": "warn", "via": ["A", "B", "C", "D"]},
+           {"id": "c", "text": "Three.", "severity": "info"}]
+    p = layout(3, s, res, stock=set(), subtitle="x", caveats=cav)
+    texts = [v for v in p.cells.values() if isinstance(v, str)]
+    assert any(t.startswith("Warn: One.") and "(via X1, X2)" in t for t in texts)
+    assert any("(via 4 members)" in t for t in texts)
+    assert any(t == "Info: Three." for t in texts)

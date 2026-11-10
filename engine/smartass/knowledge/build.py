@@ -53,6 +53,11 @@ class BuildReport:
     metrics: int = 0
     facts: int = 0
     concepts: int = 0
+    rules: int = 0
+    entities: int = 0
+    kpis: int = 0
+    vocab: int = 0
+    notes: int = 0
     drafts: int = 0
     built: bool = False
 
@@ -62,7 +67,8 @@ class BuildReport:
 
     def to_text(self) -> str:
         head = (f"knowledge.db {'built' if self.built else 'NOT built'}: {self.metrics} metrics, {self.facts} facts, "
-                f"{self.concepts} concepts, {self.drafts} drafts, {len(self.errors)} errors, {len(self.warnings)} warnings ({self.out})")
+                f"{self.concepts} concepts, {self.rules} rules, {self.entities} entities, {self.kpis} KPIs, "
+                f"{self.vocab} vocab, {self.notes} notes, {self.drafts} drafts, {len(self.errors)} errors, {len(self.warnings)} warnings ({self.out})")
         return "\n".join([head, *(f"ERROR {e}" for e in self.errors), *(f"WARN  {w}" for w in self.warnings)])
 
 
@@ -153,8 +159,9 @@ def check_layer(k, atlas, report: BuildReport) -> None:
         if len(ids) > 1:
             report.errors.append(f"rule kind {kind!r} must be defined once, found {', '.join(ids)}")
     for kind in ("scenarios", "materiality"):
-        if not any(r.kind == kind for r in k.rules):
-            report.errors.append(f"rule kind {kind!r} is required (the model reads it): add it to knowledge/semantic/rules/")
+        if not any(r.kind == kind and r.status == "approved" for r in k.rules):
+            report.errors.append(f"rule kind {kind!r} is required (the model reads it) and must be approved: "
+                                 "add it to knowledge/semantic/rules/")
     metric_ids = {m.id: m for m in k.metrics}
     for r in k.rules:
         if r.kind == "pnl":
@@ -172,8 +179,10 @@ def check_layer(k, atlas, report: BuildReport) -> None:
     for e in k.entities:
         for cube, member in e.members().items():
             if cube != "FinLite" and _missing(trees, cube, [member], ENTITY_DIMS[cube]):
-                report.errors.append(f"entity {e.id}: {cube} member {member!r} is not in the atlas "
-                                     f"(entity dimension {sorted(ENTITY_DIMS[cube])[0]!r})")
+                (report.warnings if e.abolished else report.errors).append(
+                    f"entity {e.id}: {cube} member {member!r} is not in the atlas "
+                    f"(entity dimension {sorted(ENTITY_DIMS[cube])[0]!r})" + (" - abolished, so expected"
+                                                                                if e.abolished else ""))
         for s in e.successors:
             if s not in entity_ids:
                 report.errors.append(f"entity {e.id}: successor {s!r} is not an entity")
@@ -329,6 +338,9 @@ def build(semantic_dir: Path, atlas_db: Path, out_db: Path, extra_meta: dict | N
         report.errors.append(str(e))
         return report
     report.metrics, report.facts, report.concepts = len(metrics), len(facts), len(concepts)
+    if k is not None:
+        report.rules, report.entities, report.kpis = len(k.rules), len(k.entities), len(k.kpis)
+        report.vocab, report.notes = len(k.vocab), len(k.notes)
     try:
         atlas = _atlas(atlas_db)
     except FileNotFoundError as e:

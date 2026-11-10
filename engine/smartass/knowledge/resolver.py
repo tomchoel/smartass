@@ -307,7 +307,8 @@ def ensure_built(notes: list[str] | None = None) -> Path:
     """config.KNOWLEDGE_DB, compiled from config.SEMANTIC_DIR and the atlas first when it is missing, or rebuilt when
     the semantic files or the atlas changed since it was built (the hash or the atlas build time in its meta differs); either is said in notes. A build
     with errors is a GuardError: the answer would rest on knowledge that does not match the files or the cubes (the
-    previous knowledge.db is left untouched)."""
+    previous knowledge.db is left untouched). Exception: when only the atlas changed and the
+    rebuild fails, the existing knowledge.db is kept and a note says so (a refresh never blocks answers)."""
     from ..core import config
     from ..model.validate import GuardError
     path = Path(config.KNOWLEDGE_DB)
@@ -315,18 +316,24 @@ def ensure_built(notes: list[str] | None = None) -> Path:
     with _BUILD_LOCK:                           # two answers at once never write the same .tmp
         missing = not path.exists()
         meta = summary(path) if not missing else {}
-        fresh = (str(meta.get("semantic_hash", "")) == semantic_hash(semantic)
-                 and str(meta.get("atlas_built_ts", "")) == _atlas_stamp(Path(config.ATLAS_DB)))
+        same_semantic = str(meta.get("semantic_hash", "")) == semantic_hash(semantic)
+        fresh = same_semantic and str(meta.get("atlas_built_ts", "")) == _atlas_stamp(Path(config.ATLAS_DB))
         if not missing and fresh:
             return path
         report = build(semantic, Path(config.ATLAS_DB), path)
+    if not report.ok and not missing and same_semantic:
+        if notes is not None:       # only the atlas changed: never block answers on a refresh, keep what works
+            notes.append(f"knowledge.db kept from {meta.get('built_at', '?')}: the new atlas breaks it: "
+                         f"{'; '.join(report.errors[:3])} - fix knowledge/semantic and run `smartass knowledge build`")
+        return path
     if not report.ok:
         what = "is missing and could not be built" if missing else "is out of date and could not be rebuilt"
         raise GuardError(f"knowledge.db {what}: {'; '.join(report.errors[:3])}",
                          "run `smartass knowledge build` in a terminal and fix the errors it lists")
     if notes is not None:
-        notes.append(f"knowledge.db was missing and has been built ({report.metrics} metrics, {report.facts} facts) "
-                     f"in {path.parent}" if missing else REBUILT_NOTE)
+        notes.append(f"knowledge.db was missing and has been built ({report.metrics} metrics, {report.facts} facts, "
+                     f"{report.rules} rules, {report.entities} entities, {report.kpis} KPIs, {report.vocab} vocab, "
+                     f"{report.notes} notes) in {path.parent}" if missing else REBUILT_NOTE)
     return path
 
 
