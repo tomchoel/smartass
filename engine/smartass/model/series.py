@@ -1,6 +1,7 @@
 # engine/smartass/model/series.py
 """A query's series (value, ly, budget, forecast) as scenario, version and months. Actual vs plan lives entirely in
-FinPlan: budget and forecast exist only there (FinPlan actuals are version Working, plans version Final)."""
+FinPlan: budget and forecast exist only there (FinPlan actuals are version Working, plans version Final).
+The table lives in the `scenarios` rule (knowledge/semantic/rules)."""
 from __future__ import annotations
 
 from .periods import Month, resolve, shift
@@ -12,18 +13,14 @@ PLAN_SERIES = ("budget", "forecast")
 
 
 def scenario(cube: str, series: str, r: Resolver) -> tuple[str, str]:
-    if cube == "FinPlan":
-        table = {"value": ("Actual", "Working"), "ly": ("Actual", "Working"), "budget": ("Target", "Final")}
-        if series in table:
-            return table[series]
-        if series == "forecast":
-            return (r.latest_forecast(), "Final")
-        raise ValueError(f"unknown series {series!r}")
+    """(scenario, version) of a series in a cube, from the `scenarios` rule (knowledge/semantic/rules)."""
     if series not in ("value", "ly", "budget", "forecast"):
         raise ValueError(f"unknown series {series!r}")
-    if series in ("budget", "forecast"):
+    table = r.scenarios().get(cube, {})
+    if series not in table:
         raise ValueError(f"{series} exists only in FinPlan")
-    return ("Actual", "")
+    scen, version = table[series]
+    return (r.latest_forecast() if scen == "latest_forecast" else scen, version)
 
 
 def months(q: Query, series: str, closed: Month, base: list[Month] | None = None) -> list[Month]:

@@ -451,3 +451,22 @@ def test_rules_are_listed_by_kind_rule(tmp_path, adb):
     r = _resolver(tmp_path, adb, {"rules/signs.toml": SIGNS})
     assert [x["id"] for x in r.search("", kind="rule")["rules"]] == ["signs"]
     assert r.search("", kind="any")["rules"] == []
+
+
+# ---- Task 8: scenarios and default materiality from the rules
+
+def test_series_reads_the_scenarios_rule_from_the_repo():
+    from smartass.model import series
+    from smartass.model.resolver import StaticResolver
+    r = StaticResolver(metrics=[], forecast="Forecast Q326")
+    assert series.scenario("FinPlan", "budget", r) == ("Target", "Final")
+    assert series.scenario("FinPlan", "forecast", r) == ("Forecast Q326", "Final")
+    assert series.scenario("FinMax", "ly", r) == ("Actual", "")
+    with pytest.raises(ValueError, match="only in FinPlan"):
+        series.scenario("FinMax", "budget", r)
+
+
+def test_raw_members_take_the_materiality_rule():
+    from smartass.model.resolver import default_materiality, rule_data
+    assert default_materiality() == (rule_data("materiality")["abs_nok"], rule_data("materiality")["pct"])
+    assert default_materiality() == (5_000_000.0, 0.10)

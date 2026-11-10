@@ -2,10 +2,14 @@
 and an atlas with the v2util tree. Every figure is invented."""
 from __future__ import annotations
 
+import shutil
 import sqlite3
+from pathlib import Path
 
 from smartass.knowledge import atlas
 from smartass.knowledge.build import build
+
+REPO_RULES = Path(__file__).resolve().parents[3] / "knowledge" / "semantic" / "rules"
 
 ATLAS_ROWS = [("FinMax", "All Entities", "un.SY.2BUS", "2BUS Business Norway", "un.SY", 2, 1),
               ("FinMax", "All Entities", "un.SY.4BUS_B", "4BUS_B Business", "un.SY.2BUS", 3, 1),
@@ -102,6 +106,10 @@ def make_semantic(root, metrics=None, facts=None):
         d.mkdir(parents=True, exist_ok=True)
         for name, text in files.items():
             (d / f"{name}.toml").write_text(text, encoding="utf-8")
+    rules = root / "rules"                     # the engine reads these two rules: copy the repo's
+    rules.mkdir(parents=True, exist_ok=True)
+    for name in ("scenarios", "materiality"):
+        shutil.copy(REPO_RULES / f"{name}.toml", rules / f"{name}.toml")
     return root
 
 

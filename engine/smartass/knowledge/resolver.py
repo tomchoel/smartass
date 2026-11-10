@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 
 from ..model.periods import Month
-from ..model.resolver import DEFAULT_MATERIALITY, MetricDef, UnknownMetric, metric_of_member, pct_floor_of
+from ..model.resolver import MetricDef, UnknownMetric, metric_of_member, pct_floor_of
 from . import atlas
 from .atlas_tree import AtlasTree
 from .build import build, search_concepts, search_metrics, semantic_hash, summary
@@ -89,7 +89,10 @@ class KnowledgeResolver(AtlasTree):
 
     def materiality(self, metric):
         m = self._metric(metric)
-        return tuple(m.materiality) if m else DEFAULT_MATERIALITY
+        if m:
+            return tuple(m.materiality)
+        d = self.rule_of_kind("materiality").data           # a raw member takes the rule
+        return (float(d["abs_nok"]), float(d["pct"]))
 
     def pct_floor(self, metric):
         """|base| below it: no variance %. A raw member (no semantic metric) has no floor: its unit is unknown."""
@@ -111,6 +114,9 @@ class KnowledgeResolver(AtlasTree):
         return self._concepts.get(name.strip()) or self._concept_lookup.get(name.strip().casefold())
 
     # ---- rules, entities, KPIs, vocabulary, member notes
+
+    def scenarios(self) -> dict:
+        return self.rule_of_kind("scenarios").data
 
     def _terms_of(self, text: str, kind: str) -> list[str]:
         """Item ids of a kind whose term is the phrase (any case), else whose term appears in it as whole words."""
