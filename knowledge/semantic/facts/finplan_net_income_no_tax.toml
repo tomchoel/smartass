@@ -1,0 +1,8 @@
+text = "FinPlan Net Income carries no tax for BANORWAY (Tax and Minority Interest are empty in Actual and 0 in Target), so it equals Profit/Loss before Taxes (Actual FY25 6 915, Target FY26 7 127 MNOK). Net income after tax is only in FinMax/FinLite (C87)."
+severity = "warn"
+source = "live check phase B 2026-11-10: BANORWAY Actual/Working FY25-26, Target/Final FY26"
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+
+[scope_members]
+FinPlan = ["Net Income", "Tax", "Minority Interest in Income"]

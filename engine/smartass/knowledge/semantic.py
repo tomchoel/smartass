@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -57,6 +57,7 @@ class Metric(BaseModel):
     pct_floor: float | None = None          # |base| below it: no variance % (default: materiality abs / 10 for NOK)
     status: Literal["approved", "draft"] = "draft"
     approved: dict | None = None
+    verified: dict | None = None            # {"by", "on"}: the members were checked against live data
     finmax: Members | None = None
     finlite: Members | None = None
     finplan: Members | None = None
@@ -578,6 +579,24 @@ class MemberNote(BaseModel):
     text: str
 
 
+class CardOverride(BaseModel):
+    """A manual field of a behaviour card (phase B): wins over the derived one. `parent` empty = every placement of
+    the member. An override for FinMax also covers FinLite (it shares the members); one for FinLite only FinLite."""
+    model_config = ConfigDict(extra="forbid")
+    cube: Literal["FinMax", "FinLite", "FinPlan"]
+    member: str
+    parent: str = ""
+    operator: Literal["+", "-", "~"] | None = None
+    time_balance: Literal["flow", "balance_last", "balance_first", "average"] | None = None
+    account_type: Literal["revenue", "expense", "statistic", "balance"] | None = None
+    storage: Literal["stored", "dynamic_calc", "shared", "label_only"] | None = None
+    note: str = ""
+    source: str
+
+
+CARD_FIELDS = ("operator", "time_balance", "account_type", "storage")
+
+
 def terms(item) -> list[str]:
     """What an item is found by, without case duplicates: the one list the build checks for clashes and stores."""
     if isinstance(item, Concept):
@@ -611,6 +630,18 @@ class Knowledge:
     kpis: list
     vocab: list
     notes: list
+    cards: list = field(default_factory=list)
+
+
+def _load_cards(directory: Path) -> list[CardOverride]:
+    out = []
+    for p in sorted((directory / "cards").glob("*.toml")):
+        try:
+            data = tomllib.loads(p.read_text(encoding="utf-8"))
+            out += [CardOverride(**c) for c in data.get("card", [])]
+        except (tomllib.TOMLDecodeError, ValidationError, TypeError) as e:
+            raise SemanticError(f"{p.name}: {e}") from e
+    return out
 
 
 def _load_notes(directory: Path) -> list[MemberNote]:
@@ -638,4 +669,4 @@ def load_all(directory: Path) -> Knowledge:
                 raise SemanticError(f"duplicate id {it.id!r}: {seen[it.id]}/{it.id}.toml and {kind}/{it.id}.toml")
             seen[it.id] = kind
     return Knowledge(metrics, facts, concepts, loaded["rules"], loaded["entities"], loaded["kpis"], loaded["vocab"],
-                     _load_notes(directory))
+                     _load_notes(directory), _load_cards(directory))

@@ -1,6 +1,6 @@
 """The atlas half of a Resolver: member existence, spelling, tree, labels and the latest forecast, read from v1's
-atlas.db (every member of the three cubes). The atlas has no consolidation operators, so every child weighs 1.0 (a
-parent that is not the plain sum of its children stops at the reconciliation guard)."""
+atlas.db (every member of the three cubes). The consolidation operators are behaviour cards in knowledge.db: this
+class weighs every child 1.0, KnowledgeResolver overrides weight() with the cards."""
 from __future__ import annotations
 
 import re
@@ -42,7 +42,7 @@ class AtlasTree:
                               "ORDER BY depth LIMIT 1", (cube, member)).fetchone()
         return row[0] if row and row[0] else None
 
-    def weight(self, member: str, cube: str) -> float:
+    def weight(self, member: str, cube: str, parent: str | None = None) -> float:
         return 1.0
 
     def label(self, member: str, cube: str) -> str:

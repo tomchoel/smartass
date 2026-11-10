@@ -97,7 +97,8 @@ def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 
 @_register(kit.LOCAL)
 def fin_lookup(query: str, kind: str = "any", cube: str | None = None) -> dict:
     """Look up before you build. kind 'metric' (name or alias, e.g. 'driftskostnader': members per cube, how the
-    cubes differ), 'member' (cube members, each with its meaning note), 'entity' (a business area by name or alias:
+    cubes differ), 'member' (cube members, each with its meaning note and a behaviour
+    card: time balance, account type, children ignored/subtracted in the consolidation), 'entity' (a business area by name or alias:
     FinMax/FinPlan members, FinPlan division total, successors of abolished areas), 'kpi' (ratios: numerator,
     denominator, basis), 'vocab' (vague words -> the options to offer; 'per customer' etc. -> what is answerable),
     'concept' (product concepts such as 'splitt'), 'rule' (the always-true cube rules; query '' lists them),

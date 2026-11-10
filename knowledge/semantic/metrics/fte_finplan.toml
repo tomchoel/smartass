@@ -1,0 +1,15 @@
+name = "FTE (FinPlan)"
+aliases = ["fte finplan", "fte budget", "budget fte", "årsverk budsjett", "budsjetterte årsverk", "årsverk prognose", "No of FTEs Total"]
+description = "FinPlan FTEs excluding consultants at the period end (No of FTEs Total): the plan and forecast counterpart of FinMax STA20Y"
+unit = "FTE"
+sign = "neutral"
+balance = "Accumulated"
+aggregation = "last"
+materiality = [10.0, 0.05]
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+verified = { by = "auto", on = "2026-11-10" }
+differs = "FinPlan No of FTEs Total is a month-end level (YearTotal = December). It tracks FinMax STA20Y within about 1 % (Dec 25: 2 764 FinPlan vs 2 782 FinMax; Oct 26: 2 664 vs 2 647); Target FY26 2 780 at December. Total FTEs incl P&C is not used: in Target it includes consultants (3 029 at Dec 26) while in Actual it equals No of FTEs Total. No of FTE Total Average is the year average (Actual FY25 2 804)."
+
+[finplan]
+members = ["No of FTEs Total"]

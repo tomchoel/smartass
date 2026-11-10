@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Knowledge layer phase B (0.2.23)
+
+- Behaviour cards derived from data (`smartass atlas cards`, after every full atlas build): operator per (member,
+  parent), time balance, account type; manual overrides in `knowledge/semantic/cards/`. Consolidation uses the real
+  operators (`~` children out of totals, lines, rankings and drivers). Smart View member-information requests do not
+  work on this provider (probe 10.11) and are not allowed.
+- New metrics, verified live: EBIT, D&A incl. write-downs, profit before tax, net financial items, net income
+  (FinMax), capex, total assets, fixed subscriptions (total, internet, TV, telephony), internet/TV ARPU, FinPlan FTE,
+  FinPlan EBITDA margin; D&A gets its FinPlan member. FinPlan Target carries D&A, EBIT, PBT and CAPEX since FY26.
+- Facts on FinMax scenarios (only Actual has data), FinPlan net income (no tax), balance sheet, free cash flow (empty),
+  write-downs FY26 and volume units; an access rule (numbers depend on the reader's EPM rights).
+
 ### Knowledge layer phase A (0.2.22, spec `docs/specs/2026-11-10-knowledge-layer-design.md`)
 
 - One source: `knowledge/semantic` gains `rules/`, `entities/`, `kpis/`, `vocab/`, `notes/` and account-bundle

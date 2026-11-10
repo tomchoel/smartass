@@ -1,0 +1,18 @@
+name = "Net income"
+aliases = ["net income", "net profit", "profit after tax", "årsresultat", "netto resultat", "resultat etter skatt", "C87"]
+description = "Profit/loss after taxes from continuing operations (C87 = C85 + income tax C86)"
+unit = "NOK"
+sign = "neutral"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+verified = { by = "auto", on = "2026-11-10" }
+differs = "FinMax/FinLite only. Income tax (C86) is booked in December, so a single month or a YTD before December shows no tax (un.SY 2025: 6 076 - 1 231 = 4 845 MNOK; Dec 25 alone -1 079). C89T is not net income: it adds the group contribution (C893, -4 082 MNOK in Dec 25). FinPlan Net Income carries no tax and equals Profit/Loss before Taxes, so it is not mapped."
+
+[finmax]
+members = ["ac.C87"]
+
+[finlite]
+members = ["ac.C87"]

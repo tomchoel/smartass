@@ -1,0 +1,16 @@
+name = "Internet subscriptions"
+aliases = ["internet subscriptions", "broadband subscriptions", "broadband subs", "bredbåndsabonnenter", "bredbåndsabonnement", "bredbåndskunder", "STF21"]
+description = "Fixed internet (broadband) end-user subscriptions (000), STF21; level at the period end"
+unit = "count"
+sign = "neutral"
+balance = "Periodic"
+aggregation = "last"
+materiality = [10.0, 0.05]
+pct_floor = 1.0
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+verified = { by = "auto", on = "2026-11-10" }
+differs = "FinMax only, in thousands (000), Telenor Norge (un.SY) end-user subscriptions. Each month holds the month-end level, so the period end is read and months are never added (Yr and Accumulated in FinMax are sums of 12 levels). FinLite has no statistics. FinPlan volumes have no Actual and other units (millions or units), so they are not mapped. Mobile subscriptions are not in FinMax un.SY (STM20Y is empty). Oct 26: 585 (000)."
+
+[finmax]
+members = ["ac.STF21"]

@@ -41,6 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
                    help="only this cube (repeatable; default all three)")
     b.add_argument("--dimension", action="append", help="only this dimension (repeatable; no purge of the cube)")
+    ac = at_sub.add_parser("cards", help="derive behaviour cards from data (read-only, about 2 minutes)")
+    ac.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
+                    help="only this cube (repeatable; default all three; FinLite copies FinMax)")
     kn = sub.add_parser("knowledge", help="the semantic layer: compile knowledge.db from the semantic files + atlas")
     kn_sub = kn.add_subparsers(dest="knowledge_cmd", required=True)
     kb = kn_sub.add_parser("build", help="build knowledge.db and print the build report (errors keep the old db)")
@@ -100,6 +103,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         from ..core import config, logsetup
         logsetup.configure(config.HOME / "logs" / "atlas.log")
+        if a.atlas_cmd == "cards":
+            from ..knowledge import cards_fetch
+            done = cards_fetch.run(a.cube)
+            failed = [d for d in done if d.get("error")]
+            print(f"cards: {len(done) - len(failed)} derived, {len(failed)} failed ({config.ATLAS_DB})")
+            return 1 if failed else 0
         done = atlas_build.run_build(a.cube, a.dimension)
         failed = [d for d in done if d.get("error")]
         print(f"atlas: {len(done) - len(failed)} built, {len(failed)} failed ({config.ATLAS_DB})")

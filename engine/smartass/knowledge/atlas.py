@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS build (
   connection TEXT, dimension TEXT, built_at REAL, n INT, seconds REAL, error TEXT,
   PRIMARY KEY (connection, dimension)
 );
+-- behaviour cards derived from data (knowledge/cards_fetch.py): one row per (member, parent) occurrence
+CREATE TABLE IF NOT EXISTS card (
+  connection TEXT, dimension TEXT, name TEXT, parent TEXT, operator TEXT, time_balance TEXT, account_type TEXT,
+  shared INT, derived_at REAL, PRIMARY KEY (connection, dimension, name, parent)
+);
 """
 
 
@@ -39,6 +44,34 @@ def store(db, conn: str, dim: str, members: list[dict], seconds: float, error: s
             [(conn, dim, m["name"], m["label"], m["parent"], m["depth"], m["order"]) for m in members])
         db.execute("INSERT OR REPLACE INTO build VALUES (?,?,?,?,?,?)",
                    (conn, dim, time.time(), len(members), seconds, error))
+
+
+def store_cards(db, conn: str, dim: str, rows: list[tuple]) -> None:
+    """rows: (name, parent, operator, time_balance, account_type, shared); replaces the dimension's cards. A row
+    without a time balance keeps the one its (name, parent) had (the time balance is derived in a later step, which
+    may fail). A purge of the members keeps the cards (the last good derivation stays until the next one succeeds)."""
+    now = time.time()
+    with db:
+        old = dict(((n, p), tb) for n, p, tb in db.execute(
+            "SELECT name, parent, time_balance FROM card WHERE connection=? AND dimension=?", (conn, dim)))
+        db.execute("DELETE FROM card WHERE connection=? AND dimension=?", (conn, dim))
+        db.executemany("INSERT OR REPLACE INTO card VALUES (?,?,?,?,?,?,?,?,?)",
+                       [(conn, dim, n, p, op, tb if tb is not None else old.get((n, p)), at, sh, now)
+                        for n, p, op, tb, at, sh in rows])
+
+
+def cards_status(db) -> list[dict]:
+    """Per connection and dimension: rows, operator counts, time balance counts, derivation time."""
+    out = []
+    for c, d, n, at in db.execute("SELECT connection, dimension, count(*), max(derived_at) FROM card "
+                                  "GROUP BY 1, 2 ORDER BY 1, 2").fetchall():
+        def counts(col: str) -> dict:
+            return {(k or "unknown"): v for k, v in db.execute(
+                f"SELECT {col}, count(*) FROM card WHERE connection=? AND dimension=? GROUP BY 1", (c, d))}
+        out.append({"connection": c, "dimension": d, "rows": n, "operator": counts("operator"),
+                    "time_balance": counts("time_balance"), "account_type": counts("account_type"),
+                    "derived_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(at))})
+    return out
 
 
 def purge(db, conn: str) -> None:

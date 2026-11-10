@@ -8,7 +8,7 @@ aggregation = "sum"
 materiality = [5000000.0, 0.1]
 status = "approved"
 approved = { by = "tom", on = "2026-10-15", via = "catalog.toml" }
-differs = "Profit/earnings/resultat is read as EBITDA (the cubes' bottom line for plan comparisons; FinPlan stops at EBITDA). FinPlan groups accounts differently from FinMax (e.g. EBITDA 2025: 14.16 bn FinPlan vs 12.40 bn FinMax); compare across cubes only with a reconciliation line."
+differs = "Profit/earnings/resultat is read as EBITDA (the cubes' usual bottom line; FinPlan Target also carries D&A, EBIT and PBT since FY26 - use the ebit / profit_before_tax metrics for those). FinPlan groups accounts differently from FinMax (e.g. EBITDA 2025: 14.16 bn FinPlan vs 12.40 bn FinMax); compare across cubes only with a reconciliation line."
 
 [finmax]
 members = ["ac.EBITDA"]

@@ -821,3 +821,13 @@ def test_a_lost_request_goes_again_on_a_new_session_and_the_old_one_is_dropped(d
     assert len(sids) == 2 and sids[0] != sids[1]           # the second try had a session of its own
     assert sv._idle["FinMax"] == [sids[1]]                 # the lost one is not reused
 
+
+
+def test_an_alias_clash_does_not_spend_a_reconnect(db_path):
+    """FinPlan's 'Duplicate name ... qualified name' is deterministic: cards_fetch.grid splits the chunk itself."""
+    clash = ('<exception errcode="1000" type="error"><desc>Duplicate name oWUKONORGE WUKONORGE Elim found in grid; '
+             'cannot resolve. Please replace it with qualified name.</desc></exception>')
+    t = FakeTransport(clash, answer(GRID))
+    with pytest.raises(svhttp.SvHttpError, match="qualified name"):
+        _q(_sv(t, db_path))
+    assert t.tags().count("ConnectToProvider") == 1 and t.tags().count("ExecuteGrid") == 1

@@ -61,7 +61,8 @@ async def build(call: Call, connections: list[str] | None = None, dimensions: li
 
 
 def run_build(connections: list[str] | None = None, dimensions: list[str] | None = None) -> list[dict]:
-    """The CLI path: its own hidden Excel for the build, closed at the end (Smart View options restored)."""
+    """The CLI path: its own hidden Excel for the build, closed at the end (Smart View options restored). A full
+    build (no `dimensions`) then derives the behaviour cards of the cubes built (cards_after_build)."""
     from ..xl.host import ExcelHost
 
     async def main():
@@ -70,9 +71,33 @@ def run_build(connections: list[str] | None = None, dimensions: list[str] | None
             return await build(h.call, connections, dimensions)
         finally:
             await asyncio.to_thread(h.shutdown)
-    return asyncio.run(main())
+    done = asyncio.run(main())
+    if not dimensions:
+        cards_after_build(done)
+    return done
+
+
+def cards_after_build(done: list[dict], derive: Callable | None = None, progress: Callable[[str], None] = print
+                      ) -> list[dict]:
+    """Behaviour cards for the cubes this build stored without error (FinLite copies FinMax). A card failure is a
+    warning only: the atlas is kept and the build's result does not change."""
+    ok = sorted({d["connection"] for d in done if d.get("dimension") and not d.get("error")})
+    if not ok:
+        return []
+    if derive is None:
+        from ..knowledge import cards_fetch
+        derive = cards_fetch.run
+    try:
+        res = derive(ok)
+    except Exception as e:   # noqa: BLE001 - cards never fail the atlas build
+        progress(f"warning: behaviour cards not derived ({e}); the atlas is kept")
+        return []
+    for d in res:
+        if d.get("error"):
+            progress(f"warning: cards {d['connection']}/{d['dimension']}: {d['error']}")
+    return res
 
 
 def status() -> dict:
     with contextlib.closing(atlas.connect()) as db:
-        return {**atlas.status(db), "atlas_db": str(config.ATLAS_DB)}
+        return {**atlas.status(db), "cards": atlas.cards_status(db), "atlas_db": str(config.ATLAS_DB)}

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .expand import LazyTrees, expand
-from .semantic import SemanticError, load_all, terms
+from .semantic import CARD_FIELDS, SemanticError, load_all, terms
 
 SCHEMA = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
@@ -39,8 +39,12 @@ CREATE TABLE concept (id TEXT PRIMARY KEY, title TEXT, json TEXT);
 CREATE TABLE concept_alias (concept_id TEXT, text TEXT);
 CREATE INDEX ix_concept_alias_text ON concept_alias(text COLLATE NOCASE);
 CREATE VIRTUAL TABLE concept_fts USING fts5(text, concept_id UNINDEXED);
+CREATE TABLE card (cube TEXT, dimension TEXT, member TEXT, parent TEXT, operator TEXT, time_balance TEXT,
+  account_type TEXT, storage TEXT, shared INT, note TEXT, provenance TEXT);
+CREATE INDEX ix_card_member ON card(cube, member COLLATE NOCASE);
+CREATE INDEX ix_card_parent ON card(cube, parent COLLATE NOCASE);
 """
-SCHEMA_VERSION = "3a2"      # part of the semantic hash: a new schema rebuilds knowledge.db like changed files
+SCHEMA_VERSION = "3b"     # part of the semantic hash: a new schema rebuilds knowledge.db like changed files
 # Member labels indexed for search: the account and entity trees (the dimensions questions name).
 SEARCH_DIMENSIONS = ("All Accounts", "All Entities", "Account", "Entity")
 
@@ -218,6 +222,7 @@ def check_layer(k, atlas, report: BuildReport) -> None:
                 was = owner.setdefault(term.casefold(), f"{kind} {it.id}")
                 if was != f"{kind} {it.id}":
                     report.errors.append(f"alias {term!r} belongs to {was} and {kind} {it.id}")
+    check_cards(getattr(k, "cards", []), trees, report)
     by_cube: dict[str, list[str]] = {}
     for n in k.notes:
         by_cube.setdefault(n.cube, []).append(n.member)
@@ -231,6 +236,46 @@ def check_layer(k, atlas, report: BuildReport) -> None:
     dup = [f"{len(v)} notes for {c} {v[0]}" for (c, _m), v in count.items() if len(v) > 1]
     if dup:
         report.warnings.append(f"duplicate member notes: {'; '.join(dup[:10])}{' ...' if len(dup) > 10 else ''}")
+
+
+def atlas_stamp(db: sqlite3.Connection) -> str:
+    """What knowledge.db was built from: the atlas build time, plus '|<newest card derivation>' once there are cards
+    (a standalone `smartass atlas cards` then rebuilds knowledge.db like a new atlas). '' without an atlas."""
+    t = db.execute("SELECT max(built_at) FROM build").fetchone()[0]
+    if not t:
+        return ""
+    try:
+        c = db.execute("SELECT max(derived_at) FROM card").fetchone()[0]
+    except sqlite3.OperationalError:
+        c = None
+    return repr(float(t)) + (f"|{float(c)!r}" if c else "")
+
+
+def card_targets(cube: str) -> tuple[str, ...]:
+    """The cubes a card override of `cube` applies to: FinLite shares FinMax's members, so FinMax's cover both."""
+    return ("FinMax", "FinLite") if cube == "FinMax" else (cube,)
+
+
+def check_cards(cards, trees, report: BuildReport) -> None:
+    """A card override names a member (and a parent it sits under) the atlas has, and no two overrides of one
+    (cube, member, parent) give a field different values."""
+    seen: dict[tuple[str, str, str, str], tuple[str, str]] = {}
+    for c in cards:
+        places = trees[c.cube].placements(c.member)
+        if not places:
+            report.errors.append(f"card override: {c.cube} member {c.member!r} is not in the atlas")
+            continue
+        if c.parent and not any(p[2].casefold() == c.parent.casefold() for p in places):
+            report.errors.append(f"card override: {c.cube} member {c.member!r} has no placement under {c.parent!r}")
+        for f in CARD_FIELDS:
+            v = getattr(c, f)
+            if v is None:
+                continue
+            key = (c.cube, c.member.casefold(), c.parent.casefold(), f)
+            if key in seen and seen[key][0] != v:
+                report.errors.append(f"card override conflict: {c.cube} {c.member!r} under {c.parent or '*'!r} "
+                                     f"{f}: {seen[key][0]!r} ({seen[key][1]}) vs {v!r} ({c.source})")
+            seen.setdefault(key, (v, c.source))
 
 
 CONCEPT_CUBE = "FinMax"      # concept members are FinMax names (FinLite shares them)
@@ -261,7 +306,53 @@ def check_concepts(metrics, facts, concepts, atlas: sqlite3.Connection, report: 
                                    f"{', '.join(gone[:10])}{' ...' if len(gone) > 10 else ''}")
 
 
-MAX_SCOPE = 2000        # a fact reaching more members of one cube than this gets a build warning
+def merged_cards(atlas: sqlite3.Connection, cards, today: str) -> list[tuple]:
+    """The knowledge.db card rows: the atlas's derived cards with the manual overrides applied field by field (a
+    manual field wins). Provenance per field is a JSON {field: "derived@<date>" | "manual@<date>"}. An override
+    without parent covers every placement of the member; one with a parent beats it. A member with no derived row
+    (no card yet) gets a row for the placement the override names."""
+    try:
+        derived = atlas.execute("SELECT connection, dimension, name, parent, operator, time_balance, account_type, "
+                                "shared, derived_at FROM card").fetchall()
+    except sqlite3.OperationalError:            # an atlas from before phase B
+        derived = []
+    rows: dict[tuple[str, str, str, str], dict] = {}
+    by_name: dict[tuple[str, str], list[tuple[str, str, str, str]]] = {}
+    for conn, dim, name, parent, op, tb, at, shared, ts in derived:
+        stamp = f"derived@{time.strftime('%Y-%m-%d', time.localtime(ts))}" if ts else "derived"
+        fields = {"operator": op, "time_balance": tb, "account_type": at}
+        key = (conn, dim, name, parent or "")
+        rows[key] = {**fields, "storage": None, "shared": int(shared or 0), "note": "",
+                     "provenance": {f: stamp for f, v in fields.items() if v is not None}}
+        by_name.setdefault((conn, name.casefold()), []).append(key)
+    for o in sorted(cards, key=lambda o: (o.cube == "FinLite", bool(o.parent))):   # own cube beats the shared one
+        for cube in card_targets(o.cube):
+            keys = [kk for kk in by_name.get((cube, o.member.casefold()), [])
+                    if not o.parent or kk[3].casefold() == o.parent.casefold()]
+            if not keys:
+                for dim, name, parent in atlas.execute(
+                        "SELECT dimension, name, coalesce(parent, '') FROM member WHERE connection=? AND name=? "
+                        "COLLATE NOCASE", (cube, o.member)).fetchall():
+                    if parent and (not o.parent or parent.casefold() == o.parent.casefold()):
+                        kk = (cube, dim, name, parent)
+                        rows[kk] = {"operator": None, "time_balance": None, "account_type": None, "storage": None,
+                                    "shared": 0, "note": "", "provenance": {}}
+                        by_name.setdefault((cube, name.casefold()), []).append(kk)
+                        keys.append(kk)
+            for kk in keys:
+                row = rows[kk]
+                for f in CARD_FIELDS:
+                    v = getattr(o, f)
+                    if v is not None:
+                        row[f] = v
+                        row["provenance"][f] = f"manual@{today}"
+                if o.note:
+                    row["note"] = o.note
+    return [(c, d, n, p, r["operator"], r["time_balance"], r["account_type"], r["storage"], r["shared"], r["note"],
+             json.dumps(r["provenance"], sort_keys=True)) for (c, d, n, p), r in sorted(rows.items())]
+
+
+MAX_SCOPE = 2000       # a fact reaching more members of one cube than this gets a build warning
 
 
 def _write(db: sqlite3.Connection, k, trees: LazyTrees, meta: dict, warnings: list[str] | None = None) -> None:
@@ -312,6 +403,8 @@ def _write(db: sqlite3.Connection, k, trees: LazyTrees, meta: dict, warnings: li
         db.execute("INSERT INTO vocab VALUES (?,?,?)", (v.id, v.kind, v.model_dump_json()))
         db.executemany("INSERT INTO term VALUES (?,?,?)", [(x, "vocab", v.id) for x in terms(v)])
     db.executemany("INSERT INTO member_note VALUES (?,?,?)", [(n.cube, n.member, n.text) for n in k.notes])
+    db.executemany("INSERT INTO card VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                   merged_cards(atlas, getattr(k, "cards", []), time.strftime("%Y-%m-%d")))
     for c in concepts:
         db.execute("INSERT INTO concept VALUES (?,?,?)", (c.id, c.title, c.model_dump_json()))
         cterms = terms(c)
@@ -353,7 +446,7 @@ def build(semantic_dir: Path, atlas_db: Path, out_db: Path, extra_meta: dict | N
             return report
         atlas_built = atlas.execute("SELECT max(built_at) FROM build").fetchone()[0]
         meta = {"built_at": time.strftime("%Y-%m-%d %H:%M:%S"), "semantic_hash": semantic_hash(Path(semantic_dir)),
-                "atlas_built_ts": repr(float(atlas_built)) if atlas_built else "",
+                "atlas_built_ts": atlas_stamp(atlas),
                 "atlas_built_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(atlas_built)) if atlas_built
                 else "", "metrics": len(metrics), "facts": len(facts), "concepts": len(concepts),
                 "rules": len(k.rules), "entities": len(k.entities), "kpis": len(k.kpis), "vocab": len(k.vocab),

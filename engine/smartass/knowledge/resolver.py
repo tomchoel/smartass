@@ -3,6 +3,7 @@ plus the caveats for what an answer touched and search for fin_lookup (sub-spec 
 from __future__ import annotations
 
 import contextlib
+import json
 import re
 import sqlite3
 import threading
@@ -12,7 +13,7 @@ from ..model.periods import Month
 from ..model.resolver import MetricDef, UnknownMetric, metric_of_member, pct_floor_of
 from . import atlas
 from .atlas_tree import AtlasTree
-from .build import build, search_concepts, search_metrics, semantic_hash, summary
+from .build import atlas_stamp, build, card_targets, search_concepts, search_metrics, semantic_hash, summary
 from .semantic import Concept, Entity, Fact, Kpi, Metric, Rule, Vocab
 
 SEVERITY_ORDER = {"block": 0, "warn": 1, "info": 2}
@@ -39,6 +40,8 @@ class KnowledgeResolver(AtlasTree):
         self._entities = {i: Entity.model_validate_json(js) for i, js in kdb.execute("SELECT id, json FROM entity")}
         self._kpis = {i: Kpi.model_validate_json(js) for i, js in kdb.execute("SELECT id, json FROM kpi")}
         self._vocab = {i: Vocab.model_validate_json(js) for i, js in kdb.execute("SELECT id, json FROM vocab")}
+        self._levels = {(cube, m.casefold()) for cube, m in kdb.execute(
+            "SELECT DISTINCT cube, member FROM card WHERE time_balance IN ('balance_last', 'average')")}
         self._lookup: dict[str, Metric] = {}
         for mid, terms in self._terms().items():
             for t in terms:
@@ -179,6 +182,73 @@ class KnowledgeResolver(AtlasTree):
                                (cube, member)).fetchone()
         return row[0] if row else ""
 
+    # ---- behaviour cards
+
+    def card(self, member: str, cube: str, parent: str | None = None) -> dict | None:
+        """The merged behaviour card of a member under a parent (derived, with manual fields over it); without a
+        parent the shallowest placement's. None when there is no card. {operator, time_balance, account_type,
+        storage, shared, note, provenance}; unknown fields are None."""
+        cols = "SELECT operator, time_balance, account_type, storage, shared, note, provenance FROM card "
+        if parent is None:        # no atlas call: the placement that has an operator, else the first by parent
+            row = self.kdb.execute(cols + "WHERE cube=? AND member=? COLLATE NOCASE "
+                                   "ORDER BY operator IS NULL, parent LIMIT 1", (cube, member)).fetchone()
+        else:
+            row = self.kdb.execute(cols + "WHERE cube=? AND member=? COLLATE NOCASE AND parent=? COLLATE NOCASE "
+                                   "ORDER BY dimension LIMIT 1", (cube, member, parent)).fetchone()
+        if row is None:
+            return None
+        op, tb, at, st, shared, note, prov = row
+        return {"operator": op, "time_balance": tb, "account_type": at, "storage": st, "shared": bool(shared),
+                "note": note or "", "provenance": json.loads(prov or "{}")}
+
+    def compact_card(self, member: str, cube: str) -> dict:
+        """The card a member hit carries: its time balance and account type, and which of its own children the
+        consolidation ignores ('~') or subtracts ('-'). Fields that are not known are left out; {} for no card."""
+        card = self.card(member, cube) or {}
+        out = {k: card[k] for k in ("time_balance", "account_type") if card.get(k)}
+        for key, op in (("children_ignored", "~"), ("children_subtracted", "-")):
+            kids = [r[0] for r in self.kdb.execute(
+                "SELECT member FROM card WHERE cube=? AND parent=? COLLATE NOCASE AND operator=? "
+                "ORDER BY member", (cube, member, op))]
+            if kids:
+                out[key] = list(dict.fromkeys(kids))
+        return out
+
+    GROUP_OVER = 3
+
+    def card_caveats(self, touched: dict[str, set[str]]) -> list[dict]:
+        """Info caveats for touched accounts that are a level (time balance last) or an average, unless a metric with
+        aggregation 'last' already covers them (FinMax also covers FinLite). Up to 3: one caveat each, id
+        card_<member>; more: one grouped caveat card_levels naming the first 3. Only the members that have such a
+        card are looked at (no atlas call)."""
+        covered = {(c, x.casefold()) for m in self._metrics.values() if m.aggregation == "last"
+                   for cube, ms in m.members().items() for c in card_targets(cube) for x in ms}
+        found: dict[str, tuple[str, str]] = {}
+        for cube, members in touched.items():
+            for member in sorted(m for m in members if (cube, m.casefold()) in self._levels
+                                 and (cube, m.casefold()) not in covered):
+                card = self.card(member, cube)
+                if card and card["time_balance"] in ("balance_last", "average"):
+                    found.setdefault(f"card_{member}", (self.label(member, cube), card["time_balance"]))
+        if len(found) > self.GROUP_OVER:
+            first = ", ".join(lab for lab, _ in list(found.values())[:3])
+            return [{"id": "card_levels", "severity": "info", "text": (
+                f"{len(found)} accounts are levels or averages: {first} and {len(found) - 3} more. Read the "
+                "period-end value of a level (or the period's average), never sum months.")}]
+        return [{"id": cid, "severity": "info", "text": (
+            f"{lab} is a level (time balance last): read the period-end value, never sum months."
+            if tb == "balance_last" else
+            f"{lab} is an average (time balance average): read the period's average, never sum months.")}
+            for cid, (lab, tb) in sorted(found.items())]
+
+    OPERATOR_WEIGHT = {"+": 1.0, "-": -1.0, "~": 0.0}
+
+    def weight(self, member: str, cube: str, parent: str | None = None) -> float:
+        """Consolidation weight of a member in its parent from the behaviour card: '+' 1.0, '-' -1.0, '~' 0.0; 1.0
+        when there is no card or its operator is unknown. Without a parent the shallowest placement's."""
+        card = self.card(member, cube, parent)
+        return self.OPERATOR_WEIGHT.get(card["operator"], 1.0) if card else 1.0
+
     # ---- caveats
 
     def _in_scope(self, touched: dict[str, set[str]], metric_ids: set[str]) -> dict[str, set[str]]:
@@ -264,6 +334,7 @@ class KnowledgeResolver(AtlasTree):
                 members.append({"cube": h["connection"], "dimension": h["dimension"], "name": h["name"],
                                 "label": h["label"], "parents": h["parents"], "depth": h["depth"],
                                 "note": self.note(h["name"], h["connection"]),
+                                "card": self.compact_card(h["name"], h["connection"]),
                                 "caveats": self.caveats({h["connection"]: {h["name"]}})})
         hit = self._matches(text) if kind in ("any", "entity", "kpi", "vocab") else {}
         if kind in ("any", "entity"):
@@ -297,10 +368,9 @@ def _atlas_stamp(path: Path) -> str:
         return ""
     db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     try:
-        t = db.execute("SELECT max(built_at) FROM build").fetchone()[0]
+        return atlas_stamp(db)
     finally:
         db.close()
-    return repr(float(t)) if t else ""
 
 
 def ensure_built(notes: list[str] | None = None) -> Path:

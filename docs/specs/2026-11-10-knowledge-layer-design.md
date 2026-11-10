@@ -1,6 +1,6 @@
 # smartass · knowledge layer: one source, behaviour cards, inherited caveats, a learning loop
 
-Status: phase A done 10.11.2026 (v0.2.22). Design approved by Tom 10.11.2026 (grill rounds Q1–Q10, 06–10.11). Builds on sub-spec 2
+Status: phase A done 10.11.2026 (v0.2.22), phase B done 10.11.2026 (v0.2.23). Design approved by Tom 10.11.2026 (grill rounds Q1–Q10, 06–10.11). Builds on sub-spec 2
 (`2026-11-04-v2-2-knowledge-design.md`); where the two differ, this spec wins.
 
 ## 0. Why

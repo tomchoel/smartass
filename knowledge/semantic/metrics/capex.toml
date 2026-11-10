@@ -1,0 +1,18 @@
+name = "Capex"
+aliases = ["capex", "capital expenditure", "investments", "investeringer", "investering", "P1A600"]
+description = "Capex excluding licences, spectrum and leases (FinMax P1A600; FinPlan CAPEX = Capex excl licences and spectrum). Stored positive."
+unit = "NOK"
+sign = "neutral"
+balance = "Periodic"
+aggregation = "sum"
+materiality = [5000000.0, 0.1]
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+verified = { by = "auto", on = "2026-11-10" }
+differs = "FinMax P1A600 (un.SY 2025 3 045 MNOK; Oct 26 YTD 2 746) excludes lease capex P1A650 (2 273) and licences P1A800 (12); total ac.Capex 2025 = 5 366 MNOK. FinLite has no capex. FinPlan CAPEX has no Actual: only Target (FY26 4 500 MNOK) and forecasts (Q326 4 418), and BANORWAY is wider than un.SY, so capex vs budget compares FinPlan forecast with Target."
+
+[finmax]
+members = ["ac.P1A600"]
+
+[finplan]
+members = ["CAPEX"]

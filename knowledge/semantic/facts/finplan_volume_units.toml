@@ -1,0 +1,8 @@
+text = "FinPlan subscription volumes use mixed units for BANORWAY: Fixed Broadband and Fixed TV subscriptions in millions (0.69 / 0.54 at Dec 26 Target), Fixed Phone Subscriptions in units (46 151), and Mobile Subscriptions about 8.7 per month with a YearTotal that adds the months. FinMax statistics (STF21, STF22, STF20Y) are in thousands and Telenor Norge only (585 / 450 / 43 at Oct 26), so FinPlan and FinMax volumes are not comparable without a conversion."
+severity = "warn"
+source = "live check phase B 2026-11-10: BANORWAY Target/Final FY25-26, Forecast Q326; FinMax un.SY Actual"
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+
+[scope_members]
+FinPlan = ["Fixed Broadband subscriptions", "Fixed TV subscriptions", "Fixed Phone Subscriptions", "Mobile Subscriptions"]

@@ -37,6 +37,10 @@ CUBES = {"FinMax": (config.SVHTTP_FINMAX_SERVER, "FinMax", "FinMax"),
          "FinPlan": (config.SVHTTP_FINPLAN_SERVER, "FinPlan", "FinPlan")}
 
 
+# FinPlan (live 10.11): a member name that clashes with an alias fails the whole grid, the same on every session:
+# 'Found duplicate aliases or member name conflicting with alias under parent ...' and
+# 'Duplicate name <m> found in grid; cannot resolve. Please replace it with qualified name.'
+ALIAS_CLASH = ("duplicate aliases", "qualified name")
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
@@ -287,7 +291,8 @@ class SvHttp:
 
     def _execute(self, conn: str, lay: Layout) -> list[list]:
         return self._ask(conn, lambda sid, cube: svxml.execute_grid(sid, cube, lay), svxml.grid_values,
-                         lambda e: "Grid is Invalid" in str(e))   # unknown member: deterministic
+                         lambda e: "Grid is Invalid" in str(e)        # unknown member: deterministic
+                         or any(m in str(e) for m in ALIAS_CLASH))   # alias clash: deterministic too
 
 
 def _check_grid(lay: Layout, values: list[list]) -> None:

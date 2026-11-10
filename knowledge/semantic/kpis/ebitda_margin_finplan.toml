@@ -1,0 +1,23 @@
+name = "EBITDA margin (FinPlan)"
+aliases = ["ebitda margin finplan", "ebitda margin budget", "budget ebitda margin", "ebitda-margin budsjett", "ebitda-margin prognose"]
+description = "EBITDA / Revenue in FinPlan (BANORWAY), for plan and forecast comparisons. FinPlan groups accounts differently from FinMax: Actual FY25 53.3 % in FinPlan vs 45.6 % in FinMax (un.SY); Target FY26 53.9 %."
+cube = "FinPlan"
+numerator = "ebitda"
+denominator = "revenue"
+unit = "pct"
+basis = "period"
+annualise = false
+sign = 1
+better = "higher"
+headline = false
+source = "live check phase B"
+status = "approved"
+
+[approved]
+by = "auto"
+on = "2026-11-10"
+via = "live check phase B"
+
+[verified]
+by = "auto"
+on = "2026-11-10"

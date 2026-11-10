@@ -1,0 +1,9 @@
+text = "FinPlan Balance (Total Assets, Total Liabilities & Equity) is not a usable balance for BANORWAY: Actual FY25 Total Assets is 16 891 MNOK against 4 486 for liabilities and equity (FinMax un.SY 30 522), Actual FY26 is -212 MNOK, and Target has none. Read the balance sheet in FinMax (C1S, Accumulated)."
+severity = "warn"
+source = "live check phase B 2026-11-10: BANORWAY Periodic and Accumulated, Actual FY25-26, Target FY26, Forecast Q326"
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+inherit = "down"
+
+[scope_members]
+FinPlan = ["Balance"]

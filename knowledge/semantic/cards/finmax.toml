@@ -1,0 +1,67 @@
+# Manual behaviour-card fields that win over the derived ones (spec 2026-11-10 §3, phase B). Only real fixes here:
+# ac.STA under ac.Statistics ('~') is already derived from the data, and All Accounts stays unknown.
+
+# Known limit of the derivation (live 10.11): these statistics store the level in every month and Yr sums the months,
+# which from the numbers alone reads as a flow. They are levels: read the period end, never sum. A FinMax override
+# covers FinLite (same members). ac.STA12Y_stage and ac.STA22Y_stage have no data for this user, so they are not set.
+[[card]]
+cube = "FinMax"
+member = "ac.STA11Y_stage"
+time_balance = "balance_last"
+note = "monthly level; Yr sums the months - read December, never sum"
+source = "probe 10.11, same pattern as ac.STA21Y_stage (Yr 33 725.66 = twelve monthly levels)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STA21Y_stage"
+time_balance = "balance_last"
+note = "monthly level; Yr sums the months - read December, never sum"
+source = "probe 10.11 (Yr 33 725.66 = twelve monthly levels of about 2 800 FTE)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF_SUBS"
+time_balance = "balance_last"
+note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF20Y"
+time_balance = "balance_last"
+note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF21"
+time_balance = "balance_last"
+note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF22"
+time_balance = "balance_last"
+note = "statistic stored as the month-end level in every month; Yr and Accumulated add the 12 levels - read the last month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26: STF_SUBS = STF20Y + STF21 + STF22)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF40E"
+time_balance = "balance_last"
+note = "monthly ARPU rate stored per month; Yr and Accumulated add 12 rates - read one month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26 monthly ARPU vs the separate YTD ARPU account)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.STF50E"
+time_balance = "balance_last"
+note = "monthly ARPU rate stored per month; Yr and Accumulated add 12 rates - read one month, never sum"
+source = "phase B Task 8 live check 10.11 (Oct 26 monthly ARPU vs the separate YTD ARPU account)"
+
+[[card]]
+cube = "FinMax"
+member = "ac.C1S"
+note = "balance sheet total: stored as Periodic movements; read Accumulated at the period end (metric total_assets)"
+source = "phase B review 10.11"

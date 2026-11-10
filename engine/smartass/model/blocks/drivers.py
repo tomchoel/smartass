@@ -12,7 +12,7 @@ from ..expr import Sub
 from ..periods import label
 from ..series import months
 from ..spec import DriversBlock
-from .common import BlockOut, Line, code_of, metric_label, row_cells, scenario_heads
+from .common import BlockOut, Line, code_of, counted, metric_label, row_cells, scenario_heads
 
 @dataclass(frozen=True)
 class DrillRequest:
@@ -59,7 +59,7 @@ def build_drivers(b: DriversBlock, ctx: Ctx, key: str) -> BlockOut:
                 cut(months(q, "value", closed)), cut(months(q, b.base, closed)), b.base))
 
     def walk(entity: str, level: int, prefix: str) -> None:
-        kids = r.children(entity, q.cube)
+        kids = tuple(counted(ctx, q, r.children(entity, q.cube), entity))   # '~' children are not drivers
         if level >= b.depth or not kids:
             leaf(entity)
             return

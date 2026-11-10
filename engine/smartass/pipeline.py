@@ -140,7 +140,12 @@ def caveats(spec: AnalysisSpec, reqs: list[GridRequest], resolver) -> list[dict]
             months.update(_cell_months(b.cell.get("All Time Periods", "")))
     metric = getattr(resolver, "metric", None)
     ids = {m.id for q in spec.queries for name in q.metrics if metric and (m := metric(name)) is not None}
-    return fn(touched, ids, months)
+    out = fn(touched, ids, months)
+    cards = getattr(resolver, "card_caveats", None)
+    if cards is not None:                   # a level read as a flow is the commonest wrong answer: say it
+        have = {c["id"] for c in out}
+        out = out + [c for c in cards(touched) if c["id"] not in have]
+    return out
 
 
 def run_prepare(raw: dict, provider, lines: dict | None = None, complete: bool = False) -> Prepared:

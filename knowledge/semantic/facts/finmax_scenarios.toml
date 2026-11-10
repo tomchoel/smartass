@@ -1,0 +1,9 @@
+text = "FinMax/FinLite scenarios: only Actual carries data (checked C70 un.SY, Yr 25 and Yr 26). Target and ForecastQ1-Q4 are empty, so plan and forecast come from FinPlan. Act Dev Last Yr (Actual minus the same period last year) and Act Dev Last Per (Actual minus the previous period) are calculated variances; Act v Tgt and Act v FCQ1-Q4 return Actual unchanged because their targets are empty, and All Scenarios equals Actual."
+severity = "info"
+source = "live check phase B 2026-11-10: ac.C70 and ac.EBITDA, un.SY, Periodic, Yr 25 / Yr 26 / Oct-Dec 26, FinMax and FinLite"
+status = "approved"
+approved = { by = "auto", on = "2026-11-10", via = "live check phase B" }
+
+[scope_members]
+FinMax = ["Actual", "Act Dev Last Yr", "Act Dev Last Per", "Act v Tgt", "Act v FCQ1", "Act v FCQ2", "Act v FCQ3", "Act v FCQ4", "All Scenarios"]
+FinLite = ["Actual", "Act Dev Last Yr", "Act Dev Last Per", "Act v Tgt", "Act v FCQ1", "Act v FCQ2", "Act v FCQ3", "Act v FCQ4", "All Scenarios"]
