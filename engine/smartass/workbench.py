@@ -5,9 +5,9 @@ Runs inside a user-Excel job (server wraps it in _user)."""
 from __future__ import annotations
 
 
-def _find_book(workbook):
+def _find_book(workbook, allow_archive: bool = False):
     from .xl.workbench import books
-    return books.find_book(workbook, write=True)            # also pauses AutoSave, as v1 does for edits
+    return books.find_book(workbook, write=True, allow_archive=allow_archive)            # also pauses AutoSave, as v1 does for edits
 
 
 def _wait_ready(app):
@@ -45,8 +45,9 @@ def _history_revert(change_id, workbook, force):
     return history.revert(change_id, workbook, force=force)
 
 
-def snapshot(workbook: str | None, sheet: str | None, address: str | None, label: str = "xl_snapshot") -> dict:
-    b = _find_book(workbook)
+def snapshot(workbook: str | None, sheet: str | None, address: str | None, label: str = "xl_snapshot",
+             allow_archive: bool = False) -> dict:
+    b = _find_book(workbook, allow_archive)
     ws = b.sheet(sheet)
     _wait_ready(b.app)
     rng, addr = _range(ws, address)
@@ -62,9 +63,9 @@ def revert(change_id: str | None, workbook: str | None, force: bool = False) -> 
     return _history_revert(change_id, workbook, force)
 
 
-def _format_sheet(workbook, sheet, last_col, rows):
+def _format_sheet(workbook, sheet, last_col, rows, allow_archive: bool = False):
     from .xl.workbench import fmt
-    return fmt.format_sheet(workbook, sheet, last_col, rows)
+    return fmt.format_sheet(workbook, sheet, last_col, rows, allow_archive=allow_archive)
 
 
 def _check(workbook, sheet):
@@ -72,11 +73,12 @@ def _check(workbook, sheet):
     return fmt.check(workbook, sheet)
 
 
-def tidy(workbook, sheet, rows: dict | None = None, last_col: str | None = None) -> dict:
+def tidy(workbook, sheet, rows: dict | None = None, last_col: str | None = None,
+         allow_archive: bool = False) -> dict:
     """TN style first when rows + last_col are given (v1 snapshots before styling, so it can be reverted), then
     always the tn-formelstil check ({ok, block, warn, counts, ...} - ok None means the checker itself failed)."""
     out: dict = {}
     if rows and last_col:
-        out["styled"] = _format_sheet(workbook, sheet, last_col, rows)
+        out["styled"] = _format_sheet(workbook, sheet, last_col, rows, allow_archive)
     out["check"] = _check(workbook, sheet)
     return out
