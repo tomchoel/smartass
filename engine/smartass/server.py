@@ -406,11 +406,13 @@ async def fin_status(restart: bool = False) -> dict:
 
 
 @_register(kit.WRITE)
-async def xl_snapshot(workbook: str | None = None, sheet: str | None = None, range: str | None = None) -> dict:
+async def xl_snapshot(workbook: str | None = None, sheet: str | None = None, range: str | None = None,
+                      allow_archive: bool = False) -> dict:
     """Save the current state of a range (default: the sheet's used range) of an open workbook, changing nothing.
-    Call before any Excel MCP edit to a workbook the user has open; xl_revert(change_id) undoes the edit."""
+    Call before any Excel MCP edit to a workbook the user has open; xl_revert(change_id) undoes the edit.
+    allow_archive=true only when the user explicitly asked to edit a file in the Produktregnskapet archive."""
     from .workbench import snapshot
-    return await _user(lambda h: snapshot(workbook, sheet, range), "xl_snapshot")
+    return await _user(lambda h: snapshot(workbook, sheet, range, allow_archive=allow_archive), "xl_snapshot")
 
 
 @_register(kit.WRITE)
@@ -422,12 +424,13 @@ async def xl_revert(change_id: str | None = None, workbook: str | None = None, f
 
 @_register(kit.WRITE)
 async def xl_tidy(workbook: str | None = None, sheet: str | None = None, rows: dict | None = None,
-                  last_col: str | None = None) -> dict:
+                  last_col: str | None = None, allow_archive: bool = False) -> dict:
     """TN report style (when rows + last_col are given) and the tn-formelstil formula check; zero BLOCK findings
     before work is done. rows: {"1": "title", "4": "header", "5-12": "line", "13": "sum", ...}; last_col e.g. "F".
-    Kinds: title, subtitle, section, text, header, line, sum, grand, note, blank (subtotal, total, heading accepted)."""
+    Kinds: title, subtitle, section, text, header, line, sum, grand, note, blank (subtotal, total, heading accepted).
+    allow_archive=true only when the user explicitly asked to edit a file in the Produktregnskapet archive."""
     from .workbench import tidy
-    return await _user(lambda h: tidy(workbook, sheet, rows, last_col), "xl_tidy")
+    return await _user(lambda h: tidy(workbook, sheet, rows, last_col, allow_archive=allow_archive), "xl_tidy")
 
 
 # ---------------------------------------------------------------- playbooks: MCP prompts and resources (sub-spec 2 §6)
