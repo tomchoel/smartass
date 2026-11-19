@@ -208,26 +208,44 @@ def _next_row(ws) -> tuple:
     return ws, ws.Cells(ws.Rows.Count, 1).End(-4162).Row + 1
 
 
-def save_spec(t: target.Target, q: int, spec: dict, ids: dict[str, str] | None = None, owned: dict | None = None) -> None:
-    """Keep the question's last answer spec (unexpanded) + pull ids + the tool-owned range of its answer sheet
-    ({"rows", "cols"}) in the hidden sheet, for patch-only follow-ups."""
-    if not _sheet_exists(t, META_SHEET):
-        return
-    ws = jobs.com(lambda: t.wb.Worksheets(META_SHEET))
-    key = f"SPEC Q{q}"
-    used = jobs.com(lambda: ws.UsedRange)
-    vals = jobs.com(lambda: used.Value)
+SPEC_CHUNK = 30000                                      # a cell holds max 32 767 characters
+
+
+def _spec_row(wb, key: str) -> tuple:
+    """(the hidden sheet or None, the row of key there or else the first free row, how many columns that row used),
+    inside ONE COM call."""
+    ws = next((s for s in wb.Worksheets if s.Name == META_SHEET), None)
+    if ws is None:
+        return None, 2, 0
+    used = ws.UsedRange
+    vals = used.Value
     vals = vals if isinstance(vals, tuple) else ((vals,),)
-    top = int(jobs.com(lambda: used.Row))                   # UsedRange starts at the first used row (save_meta: row 2)
-    r = next((top + i for i, row in enumerate(vals) if row and row[0] == key), None)
-    if r is None:
-        r = jobs.com(lambda: ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1
-    else:
-        jobs.com(lambda: ws.Rows(r).ClearContents())
+    top = int(used.Row)                                 # UsedRange starts at the first used row (save_meta: row 2)
+    for i, row in enumerate(vals):
+        if row and row[0] == key:
+            return ws, top + i, len(row)
+    return ws, int(ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1, 0
+
+
+def save_spec(t: target.Target, q: int, spec: dict, ids: dict[str, str] | None = None, owned: dict | None = None,
+              create: bool = False) -> bool:
+    """Keep the question's last answer spec (unexpanded) + pull ids + the tool-owned range of its answer sheet
+    ({"rows", "cols"}) in the hidden sheet, for patch-only follow-ups: one read (the row), one write (A and every
+    30 000-character chunk in one rectangle, as wide as the row was, so an earlier longer spec leaves no chunk).
+    Without the hidden sheet: nothing (v1), or create it first (create: True is returned then)."""
+    key = f"SPEC Q{q}"
+    ws, r, width = jobs.com(lambda: _spec_row(t.wb, key))
+    created = ws is None
+    if created:
+        if not create:
+            return False
+        ws = jobs.com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))   # positional
+        jobs.com(lambda: _name_hidden(ws, META_SHEET))
     blob = json.dumps({"spec": spec, "ids": ids or {}, "owned": owned}, ensure_ascii=False)
-    jobs.com(lambda: setattr(ws.Cells(r, 1), "Value", "'" + key))
-    for k in range(0, len(blob), 30000):
-        jobs.com(lambda: setattr(ws.Cells(r, 2 + k // 30000), "Value", "'" + blob[k:k + 30000]))
+    row = ["'" + key, *("'" + blob[k:k + SPEC_CHUNK] for k in range(0, len(blob), SPEC_CHUNK))]
+    row += [""] * (width - len(row))
+    jobs.com(lambda: setattr(ws.Range(ws.Cells(r, 1), ws.Cells(r, len(row))), "Value", (tuple(row),)))
+    return created
 
 
 def _stored_specs(t: target.Target) -> dict[int, dict]:

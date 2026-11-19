@@ -234,12 +234,11 @@ def _calculate(t) -> None:
     sheets.wait_calculated(t.app)
 
 
-def _save_spec(t, q: int, raw: dict, owned: dict | None = None) -> None:
-    from .xl import jobs, sheets
-    if not sheets._sheet_exists(t, sheets.META_SHEET):      # v1 save_spec returns silently without it; same creation as save_meta
-        ws = jobs.com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))
-        jobs.com(lambda: sheets._name_hidden(ws, sheets.META_SHEET))
-    sheets.save_spec(t, q, {"v2": raw}, ids={}, owned=owned)
+def _save_spec(t, q: int, raw: dict, owned: dict | None = None) -> bool:
+    """The spec in _svmeta (the hidden sheet made first when there is none, as save_meta makes it): True when it
+    was made."""
+    from .xl import sheets
+    return sheets.save_spec(t, q, {"v2": raw}, ids={}, owned=owned, create=True)
 
 
 def _arrange(t, sheet: str) -> str | None:
