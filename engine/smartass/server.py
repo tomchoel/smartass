@@ -25,7 +25,8 @@ from .model.chain import restore_chain
 from .model.lines import LineSet
 from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError, guard_chart, guard_key_points
-from .pipeline import RestoreError, excel_job, file_job, read_stored, redraw_job, run_prepare, with_timings
+from .pipeline import (RestoreError, excel_job, file_job, file_redraw_job, read_stored, redraw_job, run_prepare,
+                       with_timings)
 
 TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "fin_critic", "xl_snapshot",
               "xl_revert", "xl_tidy")
@@ -242,10 +243,16 @@ def _default_target(target: str) -> str:
 
 
 def _answer_job():
-    """The job that draws a new answer: excel_job (config.RENDER 'com', the default) or file_job ('file'). Follow-ups
-    and fin_refresh keep redraw_job."""
+    """The job that draws a new answer: excel_job (config.RENDER 'com', the default) or file_job ('file')."""
     from .core import config
     return file_job if config.RENDER == "file" else excel_job
+
+
+def _redraw_job():
+    """The job that redraws a follow-up or a refreshed answer: redraw_job (config.RENDER 'com', the default) or
+    file_redraw_job ('file', which replaces the question's sheets whole)."""
+    from .core import config
+    return file_redraw_job if config.RENDER == "file" else redraw_job
 
 
 async def _new_question(spec: AnalysisSpec, target: str) -> dict:
@@ -277,7 +284,8 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     q2, raw, owned = find_question(stored, q, active)
     patched = restore_chain(merge_patch(raw, patch))
     pre, notes = await _prepare(patched, provider, target=path, complete=True)
-    return _with_notes(await _draw_job(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up",
+    job = _redraw_job()
+    return _with_notes(await _draw_job(lambda h: job(h, pre, q2, owned, path), "fin_analyze follow-up",
                                    patched.get("question")), notes)
 
 
@@ -303,6 +311,7 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
     target = _default_target(target)
     stored, _, path = await _user(lambda h: read_stored(h, target), "fin_refresh")
     done, workbook, broken = [], None, None
+    job = _redraw_job()
     for q in v2_questions(stored):
         if broken is not None:                  # a failed restore may have left the workbook damaged: draw nothing more
             done.append({"q": q, "ok": False, "skipped": True,
@@ -311,7 +320,7 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
         try:
             pre, notes = await _prepare(stored[q]["spec"]["v2"], provider, target=path)
             out = _with_notes(await _draw_job(
-                lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), path),
+                lambda h, q=q, pre=pre: job(h, pre, q, stored[q].get("owned"), path),
                 "fin_refresh", stored[q]["spec"]["v2"].get("question")), notes)
             workbook = out.get("workbook", workbook)
             done.append({"q": q, "ok": True, "closed": out.get("closed"),

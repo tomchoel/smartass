@@ -16,6 +16,20 @@ from .host import InputError
 _Q = re.compile(r"^Q(\d+) (Answer|FinMax|FinLite|FinPlan|Lines)\b")   # our sheets only, not the user's "Q3 Forecast"
 _LINES = re.compile(r"^Q(\d+) Lines\b")
 _TOPIC = re.compile(r"^Q(\d+) [A-Z][A-Za-z0-9 &/-]{1,24}$")             # an answer's topic sheet ('Q3 By project')
+_DRAWN_LINES = re.compile(r"^Q(\d+) Lines b\d+$")                         # a v2 lines block's sheet ('Q3 Lines b0')
+
+
+def answer_sheets(names, q: int) -> list[str]:
+    """The sheets a v2 answer Q<q> drew, in workbook order: 'Q<q> Answer', 'Q<q> Data' and every 'Q<q> Lines b<i>'
+    (a lines block's). A user's own 'Q<q> Notes' or 'Q<q> Lines notes' is not one of them."""
+    return [n for n in names if n in (f"Q{q} Answer", f"Q{q} Data")
+            or ((m := _DRAWN_LINES.match(n)) is not None and int(m.group(1)) == q)]
+
+
+def answer_tables(q: int, tables) -> list[str]:
+    """Of these table names (the tables on the answer's sheets), the ones the answer made: 'Data_Q<q>' and every
+    'Lines_Q<q>_<alias>'."""
+    return [n for n in tables if n == f"Data_Q{q}" or n.startswith(f"Lines_Q{q}_")]
 
 
 def question_of(name: str, names) -> int | None:
