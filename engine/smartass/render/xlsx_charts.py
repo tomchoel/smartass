@@ -10,7 +10,7 @@ Series and category ranges point at the Answer sheet itself, absolute, a range w
 the move-in); the categories are cached as text, the values as not yet known, and Excel reads both from the cells.
 
 Every option is put together before the chart is added, and XlsxWriter's warnings count as errors, so a chart that
-cannot be built is one lint line (write_charts' wording) and the others are still drawn.
+cannot be built is one lint line (FAILED's wording) and the others are still drawn.
 
 A per-point label setting is not written to the file: a custom c:dLbl as XlsxWriter writes it carries no number
 format, and Excel then shows the raw value (live, 19.11.2026: 11580000 beside 10,3). In the file a line's labels
@@ -148,7 +148,7 @@ def _point_fixes(spec: ChartSpec, role: str, k: int, n: int) -> list[tuple[int, 
 
 def _highlight(spec: ChartSpec, series: list[dict], roles: list[str], n: int) -> None:
     """Column and bar: the AC (or first part) series grey with the highlighted points in the accent; a comparison
-    series white with a 1 pt grey border (charts._draw)."""
+    series white with a 1 pt grey border (as the COM drawing did)."""
     target = next((i for i, r in enumerate(roles) if r in ("ac", "part")), None)
     if not spec.highlight or target is None or spec.kind not in ("column", "bar"):
         return
@@ -241,7 +241,7 @@ def _add(workbook, worksheet, sheet: str, spec: ChartSpec, chart_no: int) -> lis
 def add_charts(workbook, worksheet, sheet_name: str, plan: SheetPlan) -> tuple[list[str], list[str], list[LabelFix]]:
     """Every chart of the plan with series on worksheet (the Answer sheet, named sheet_name). Returns (the titles
     drawn, the lint, the label fixes COM makes after the move-in). The lint is the layout's chart lint
-    (plan.chart_lint) first, then a line per chart that failed, as charts.write_charts reports them; the caller adds
+    (plan.chart_lint) first, then a line per chart that failed, one lint line each; the caller adds
     no chart_lint of its own. A skipped or failed chart has no fixes and does not count in LabelFix.chart."""
     drawn: list[str] = []
     fixes: list[LabelFix] = []

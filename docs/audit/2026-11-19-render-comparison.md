@@ -1,5 +1,9 @@
 # Live comparison of the two renderers (phase 3, Task 6)
 
+Since 0.3.0 (Task 9) the file renderer is the only one: the COM renderer, `SV_RENDER` and
+`scripts/compare_renders.py` are deleted (the script is in the git history, e.g. commit 84f1d6f). This file keeps
+its result.
+
 Date: 19.11.2026, on the owner's PC (Excel 16.0, nb-NO). The parity gate is `scripts/compare_renders.py`. It draws
 the nine test-set cases twice, once with `SV_RENDER=com` (pipeline.excel_job, the reference) and once with
 `SV_RENDER=file` (pipeline.file_job). Each renderer draws into its own new workbook in the analyser folder. The

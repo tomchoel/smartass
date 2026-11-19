@@ -5,7 +5,6 @@ print area, codes not repeated in labels, no FinPlan metric codes, Lines sheets 
 invented."""
 from types import SimpleNamespace
 
-from test_v5_charts import draw, sets, spec
 from test_v5_keypoints import HEADERS, COLS, _line, addr
 from test_v5_layout import BRIDGE, GROUPED, run
 from v2util import CLOSED, resolver, spec_dict
@@ -58,20 +57,6 @@ def test_the_note_names_the_axis_start():
     assert amount_text(45_000.0, False) == "45 000 NOK" and amount_text(1.5e6, True) == "1.5 MNOK"
 
 
-def test_a_truncated_waterfall_sets_the_scale_and_white_labels():
-    roles = [("Base", "P", "base"), ("Up", "R", "up"), ("Down", "T", "down"), ("Total", "V", "total")]
-    log, _ = draw(spec("waterfall", roles, axis_min=3.3e9), spec("waterfall", roles, axis_min=-3.3e9))
-    assert ("set", "c1.Axes(2).MinimumScale", 3.3e9) in log
-    assert ("set", "c2.Axes(2).MaximumScale", -3.3e9) in log
-    pos = dict(sets(log, "DataLabels().Position"))
-    assert pos["c1.s4.DataLabels().Position"] == C.XL_LABEL_INSIDE_END                 # total: inside end
-    assert pos["c1.s2.DataLabels().Position"] == C.XL_LABEL_CENTER == pos["c1.s3.DataLabels().Position"]
-    colours = dict(sets(log, "DataLabels().Font.Color"))
-    assert {colours[f"c1.s{i}.DataLabels().Font.Color"] for i in (2, 3, 4)} == {C.WHITE}   # never navy on navy
-    assert ("set", "c1.s4.DataLabels().Font.Bold", True) in log
-    assert not any(n.startswith("c1.s1.DataLabels") for n, _ in sets(log, "Position"))  # the base has none
-
-
 def test_layout_waterfall_gets_the_axis_and_the_notes_line():
     s, res, p = run([GROUPED, BRIDGE], scale=1e6)
     (cs,) = [c for c in p.charts if c.kind == "waterfall"]
@@ -89,25 +74,10 @@ def test_a_thin_step_gets_a_dark_label():
                                  "b0.end.0": 3.827e9})
     cs = ChartSpec("waterfall", "Bridge")
     _scale(cs, data, res, [(20 + i, ln) for i, ln in enumerate(data.lines)], [0])
-    assert cs.axis_min == 3.4e9 and cs.thin_steps == [4]                  # 3 m on a ~600 m span
-    roles = [("Base", "P", "base"), ("Up", "R", "up"), ("Down", "T", "down"), ("Total", "V", "total")]
-    log, _ = draw(spec("waterfall", roles, axis_min=3.4e9, thin_steps=[4]))
-    colours = dict(sets(log, "DataLabel.Font.Color"))
-    assert colours["c1.s2.Points(4).DataLabel.Font.Color"] == C.INK == colours["c1.s3.Points(4).DataLabel.Font.Color"]
-    assert not any(".s4.Points" in n for n in colours)                     # totals stay white
+    assert cs.axis_min == 3.4e9 and cs.thin_steps == [4]                  # 3 m on a ~600 m span (drawn: test_xlsx_charts)
 
 
 # --- 2. category labels and all-negative charts -------------------------------------------------------------------
-
-def test_category_labels_sit_low_and_high_on_a_reversed_axis():
-    log, _ = draw(spec("column", [("AC", "D", "ac")]), spec("bar", [("AC", "D", "ac")], reverse_values=True),
-                  spec("line", [("AC", "D", "ac")], reverse_values=True))
-    assert ("set", "c1.Axes(1).TickLabelPosition", C.XL_TICK_LOW) in log
-    assert not any(n == "c1.Axes(2).ReversePlotOrder" for n, _ in sets(log, "ReversePlotOrder"))
-    for c in ("c2", "c3"):
-        assert ("set", f"{c}.Axes(2).ReversePlotOrder", True) in log
-        assert ("set", f"{c}.Axes(1).TickLabelPosition", C.XL_TICK_HIGH) in log   # next to zero (hidden Excel)
-
 
 def _out(cols, values):
     lines = [Line(f"l{i}", f"L{i}", [None] * len(cols)) for i in range(len(values))]
@@ -135,8 +105,6 @@ def test_small_amounts_are_whole_nok_on_charts():
     _scale(cs, data, res, rows, [0])
     assert (cs.millions, cs.whole) == (False, True)
     assert C.label_format("ac", False, True) == "#,##0;\"−\"#,##0;;"
-    log, _ = draw(spec("bar", [("AC", "D", "ac")], millions=False, whole=True))
-    assert sets(log, "DataLabels().NumberFormat") == [("c1.s1.DataLabels().NumberFormat", "#,##0;\"−\"#,##0;;")]
 
 
 def test_fte_charts_keep_one_decimal():

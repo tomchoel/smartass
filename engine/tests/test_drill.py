@@ -569,24 +569,6 @@ def test_kill_replaces_hung_worker_and_new_worker_runs(monkeypatch):
     b.shutdown()
 
 
-def test_cell_keeps_keys_as_text():
-    assert dx._cell("ACCOUNT", "43200") == "'43200"
-    assert dx._cell("Period", "Jul-26") == "'Jul-26"
-    assert dx._cell("GL_DESCRIPTION_LINE", "=HYPERLINK(1)") == "'=HYPERLINK(1)"
-    assert dx._cell("AMOUNT", -5.0) == -5.0 and dx._cell("X", None) is None
-    # any text Excel would otherwise coerce (logical, time, percent, Norwegian decimal) stays text too
-    for v in ("TRUE", "12:30", "50%", "1,5", "Mar-26"):
-        assert dx._cell("JOURNAL_NAME", v) == "'" + v
-    assert dx._cell("ACCOUNT", 43200) == "'43200"
-
-
-def test_cell_writes_dates_as_excel_serials():
-    # pywin32 shifts naive datetimes by the UTC offset (10:25 became 08:25); a serial number is exact
-    import datetime as dt_
-    assert dx._cell("GL_POSTED_DATE", dt_.datetime(2026, 7, 6, 10, 25, 27)) == pytest.approx(46209 + (10 * 3600 + 25 * 60 + 27) / 86400)
-    assert dx._cell("BOOKING_DATE", dt_.datetime(1900, 3, 1)) == 61.0
-
-
 def test_gl_posted_date_is_oslo_wall_clock():
     import datetime as dt_
     assert dl._value("ATTR17", "2026-07-06T10:25:27.000+00:00") == dt_.datetime(2026, 7, 6, 12, 25, 27)   # CEST
@@ -655,12 +637,6 @@ def test_question_grouping_includes_lines(monkeypatch):
     assert sheets._Q.match("Q3 Lines b") and not sheets._Q.match("Q3 Forecast")
     t = _target(["Q2 Answer", "Q2 FinLite", "Q2 Lines", "Sources"])
     assert sheets.next_question(t) == 3
-
-
-def test_redrill_clear_ranges():
-    # old table A4:AS1235 (1231 rows, 45 cols) -> new 1000 rows, 20 cols: clear the rows below and the cols right
-    assert dx._stale_ranges(4, 1235, 45, 1004, 20) == ["A1005:AS1235", "U4:AS1004"]
-    assert dx._stale_ranges(4, 1235, 45, 1300, 45) == []                       # grows: nothing stale
 
 
 def test_where_columns_checked_against_table():
@@ -760,12 +736,6 @@ def test_server_lines_of_normalises_each_piece_once(monkeypatch):
 
 
 # ------------------------------------------------------------------ re-drill decisions (last review round)
-def test_same_header_decides_reuse():
-    assert dx.same_header(("Period", "AMOUNT"), ["Period", "AMOUNT"])
-    assert not dx.same_header(("Period", "AMOUNT"), ["Period", "AMOUNT", "ACCOUNT"])
-    assert not dx.same_header(("AMOUNT", "Period"), ["Period", "AMOUNT"]) and not dx.same_header(None, ["A"])
-
-
 def test_chrome_start_failure_releases_the_profile_lock(monkeypatch, tmp_path):
     from smartass.epm import drill_browser as db
     stopped = []

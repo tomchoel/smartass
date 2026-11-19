@@ -1,8 +1,8 @@
 # engine/smartass/pipeline.py
 """fin_analyze in three steps. prepare(): validate, guard, fetch every grid request in parallel (HTTP, no Excel),
-compute the model. excel_job(): runs in the user's Excel (v1 host job) - target, Q<n>, Data + Answer sheets,
-styling, readback, spec saved in _svmeta, sheet order, save our own file. file_job() (config.RENDER "file"): the
-same answer with its sheets built as an .xlsx without Excel and moved into the workbook in one copy. reply(): the
+compute the model. excel_job(): runs in the user's Excel (v1 host job) - target, Q<n>, the answer's sheets
+built as an .xlsx without Excel and moved into the workbook in one copy, finished there, read back, Sources, spec
+saved in _svmeta, sheet order, save our own file; redraw_job() replaces a question's sheets the same way. reply(): the
 result dict the agent quotes from (key_values only - never numbers it computed itself)."""
 from __future__ import annotations
 
@@ -200,16 +200,12 @@ def reply(pre: Prepared, q: int, workbook: str, sheets: list[str], mismatches: l
         out["critic_brief"] = brief(pre.spec, res, list(pre.caveats), checks, stock=_stock(pre))
     return out
 # ---------------------------------------------------------------- the Excel job (runs on a v1 user-Excel job thread)
-from .render import datasheet  # noqa: E402
-from .render.charts import write_charts  # noqa: E402
+from .render import datasheet, xlsx  # noqa: E402
 from .render.datasheet import header_rows  # noqa: E402
-from .render.excel import (VALUE_FORMAT, answer_footer, col_number, read_block, read_data, rewrite_data,  # noqa: E402
-                           rewrite_grid, sheet_status, write_answer, write_data, write_status)
+from .render.excel import answer_footer, data_grid, read_block, sheet_status, write_status  # noqa: E402
 from .render.layout import answer_subtitle, constant_columns, layout  # noqa: E402
 from .render.keypoints import free_points, key_points  # noqa: E402
 from .render.readback import compare  # noqa: E402
-
-DATA_TAB = 0xA6A6A6      # grey tab for data sheets (BGR), as v1 sheetorder.DATA_TAB
 
 
 def _target(h, target: str, title: str):
@@ -217,28 +213,11 @@ def _target(h, target: str, title: str):
     return xltarget.resolve_target(h, target, allow_archive=False, title=title)
 
 
-def _next_q(t) -> int:
-    from .xl import sheets
-    return sheets.next_question(t)
-
-
-def _add_sheet(t, name: str, q: int, color=None):
-    from .xl import sheets
-    return sheets.add_sheet(t, name, after_q=q, color=color)
-
-
-def _calculate(t) -> None:
-    from .xl import sheets
-    from .xl.jobs import com
-    com(lambda: t.app.Calculate())
-    sheets.wait_calculated(t.app)
-
-
-def _save_spec(t, q: int, raw: dict, owned: dict | None = None) -> bool:
+def _save_spec(t, q: int, raw: dict) -> bool:
     """The spec in _svmeta (the hidden sheet made first when there is none, as save_meta makes it): True when it
-    was made."""
+    was made. No drawn range is stored: a follow-up replaces the question's sheets whole."""
     from .xl import sheets
-    return sheets.save_spec(t, q, {"v2": raw}, ids={}, owned=owned, create=True)
+    return sheets.save_spec(t, q, {"v2": raw}, ids={}, create=True)
 
 
 def _arrange(t, sheet: str, book=None, active: str | None = None) -> str | None:
@@ -303,54 +282,6 @@ def _rollback(t) -> None:
     sheets.rollback(t)
 
 
-def _backup(t, name: str) -> str:
-    from .xl import owned
-    return owned.backup(t, name)
-
-
-def _restore(t, name: str, bname: str) -> None:
-    """The backup becomes the sheet again. v1's restore first deletes the (broken) sheet `name`, which fails when it
-    is already gone (the Data sheet is deleted before it is rebuilt): then only un-hide and rename the backup."""
-    from .xl import owned
-    from .xl import sheets
-    from .xl.jobs import com
-    if sheets._sheet_exists(t, name):
-        owned.restore(t, name, bname)
-        return
-    b = com(lambda: t.wb.Worksheets(bname))
-    com(lambda: setattr(b, "Visible", -1))                          # xlSheetVisible
-    com(lambda: setattr(b, "Name", name))
-
-
-def _delete_sheet(t, name: str) -> None:
-    from .xl import sheets
-    sheets.drop_parked(t, {name: name})                 # alerts off while deleting, restored after
-
-
-def _drop_backup(t, bname: str) -> None:
-    _delete_sheet(t, bname)
-
-
-def _read_data(ws, q: int):
-    return read_data(ws, q)
-
-
-def _sheet(t, name: str):
-    from .xl.jobs import com
-    return com(lambda: t.wb.Worksheets(name))
-
-
-def _make_room(ws, old: dict | None, new: dict) -> None:
-    """Insert rows/columns when the larger new answer would cover the user's own cells (v1 owned.make_room)."""
-    from .xl import owned as owned_mod
-    owned_mod.make_room(ws, old, new)
-
-
-def _clear(ws, owned: dict | None) -> None:
-    from .xl import owned as owned_mod
-    owned_mod.clear(ws, owned)                          # the drawn range and our charts (everything when none stored)
-
-
 def _session_workbook() -> str | None:
     from .core import session
     return session.workbook()
@@ -373,62 +304,6 @@ def read_stored(h, target: str = "session") -> tuple[dict, str | None, str]:
 
 
 LINES_SOURCE = "Source: Oracle EPM Cloud, FinLite drill-through (Smart View). AMOUNT: FinMax sign, costs negative."
-
-
-def _write_lines(t, q: int, ls, fetched: str = "") -> str:
-    """One line set -> table Lines_Q<q>_<alias> on 'Q<q> Lines <alias>' (v1 drill_xl.write_lines, which reuses the
-    table in place), the cube value in C2/D2 where CubeRef reads it, and the provenance + tie-out in F1:K3
-    (datasheet.lines_header; fetched: the draw's one timestamp text)."""
-    from .xl import drill_xl
-    from .xl.jobs import com
-
-    from .model.lines import CUBE_CELL
-    cell = " / ".join(ls.cell.values()) if ls.cell else ls.alias
-    res = drill_xl.write_lines(t, q, ls.rows, ls.columns, title=f"Ledger lines behind {cell}",
-                               source="Source: Oracle EPM Cloud (FinLite drill-through) via Smart View.",
-                               alias=ls.alias)
-    want = f"Q{q} Lines {ls.alias}"
-    if res["sheet"] != want:                    # CubeRef addresses the sheet by this name
-        raise GuardError(f"the lines sheet came out as {res['sheet']!r}, not {want!r}",
-                         "rename or delete the sheet with that name, then ask again")
-    ws = _sheet(t, want)
-    com(lambda: ws.Range("C2:D2").ClearContents())    # an older draw kept the cube value here (over the A2 text)
-    com(lambda: setattr(ws.Range("A2"), "Value", LINES_SOURCE))   # short: it runs to E2 (F2 is the Fetched label)
-    cube_label = "C" + CUBE_CELL.replace("$", "")[1:]
-    com(lambda: setattr(ws.Range(cube_label), "Value", "Cube value"))
-    com(lambda: setattr(ws.Range(CUBE_CELL.replace("$", "")), "Value", ls.cube_value))
-    amt_fmt, _ = drill_xl._local_formats(t.app)        # the cube value as the AMOUNT column shows it, not -66471995,74
-    com(lambda: setattr(ws.Range(CUBE_CELL.replace("$", "")), "NumberFormatLocal", amt_fmt))
-    _lines_header(ws, res["table"], ls.cell, fetched)
-    from .render.excel import sheet_print
-    from .render.layout import col_letter, col_number
-    last = max(len(res["columns"]), col_number(datasheet.LINES_HEADER.split(":")[1].rstrip("0123456789")))
-    sheet_print(ws, col_letter(last), LINES_TABLE_ROW + res["rows"],     # the table and its F1:K3 provenance
-                header_row=LINES_TABLE_ROW)                                # 100 %, the header on every page
-    return want
-
-
-LINES_TABLE_ROW = 4                     # drill_xl.write_lines: the lines table header row
-
-
-def _lines_header(ws, table: str, cell: dict, fetched: str) -> None:
-    """F1:K3 as one rectangle (text with a leading apostrophe: never a date or a formula), labels grey, values ink."""
-    from .xl import styling
-    from .xl.jobs import com
-    grid = tuple(tuple(r) for r in _lines_grid(table, cell, fetched))
-    rng = ws.Range(datasheet.LINES_HEADER)
-
-    def look():
-        rng.ClearFormats()          # General: the name is locale-bound
-        rng.Formula = grid
-        rng.Font.Name = styling.tn.FONT
-        rng.Font.Size = 9
-        rng.Font.Color = styling._rgb(styling.tn.INK)
-        for a in ("F1:F3", "H3", "J3"):
-            ws.Range(a).Font.Color = styling._rgb(styling.tn.GREY)
-        g3 = ws.Range("G3")
-        g3.NumberFormat = styling.local_format(g3, VALUE_FORMAT)
-    com(look)
 
 
 def _lines_grid(table: str, cell: dict, fetched: str) -> list[list]:
@@ -469,43 +344,6 @@ def _check(plan, ws_answer, ws_data, sources_ok: bool, header) -> list[str]:
     """The fast layout check (render/check.py): findings for the reply, never raised."""
     from .render.check import check
     return check(plan, ws_answer, ws_data, sources_ok, header.status)
-
-
-def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
-          old_owned: dict | None = None) -> dict:
-    """Data sheet, layout, Answer sheet, charts, readback, status, Sources, spec + owned range, sheet order, layout
-    check. Shared by excel_job and
-    redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place. One timestamp
-    per draw: the data header's Fetched and the answer's print footer never disagree."""
-    from .xl import jobs
-    fetched = datetime.now().astimezone()
-    user = datasheet.windows_user()
-    header = header_rows(q, pre.spec, pre, fetched, user)
-    with stage("data sheet"):
-        (rewrite_data if redraw else write_data)(ws_data, pre.frame, q, header)
-    line_sheets = [f"Q{q} Lines {a}" for a in pre.frame.lines]
-    for ls in pre.frame.lines.values():         # before the answer, so its formulas resolve
-        with stage("lines"):
-            _write_lines(t, q, ls, datasheet.fetched_text(fetched, user))
-    plan = _answer_plan(q, pre, fetched)
-    if redraw:                                  # a larger answer pushes the user's cells aside, never overwrites them
-        _make_room(ws_answer, old_owned, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
-    with stage("answer"):
-        lint = write_answer(ws_answer, plan, pre.warnings)
-    drawn: list[str] = []
-    with stage("charts"):
-        lint = list(lint or []) + write_charts(ws_answer, plan, drawn=drawn)
-    _calculate(t)
-    mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan), plan.fractions)
-    write_status(ws_answer, plan, mismatches)   # the 'Sheet = model' cell: OK or DIFF in <n> cells
-    with stage("sources"), jobs.fast_excel(getattr(t, "app", None)):   # append-only: late; the file job is quiet already
-        logged = _write_sources(t, q, pre, ws_data, header, datasheet.fetched_text(fetched, user))
-    _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
-    arranged = _arrange(t, f"Q{q} Answer")
-    with stage("read back"):
-        found = _check(plan, ws_answer, ws_data, not (logged and any(x in logged for x in SOURCES_PROBLEMS)), header)
-    return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data", *line_sheets], mismatches,
-                 lint + [w for w in (logged, arranged) if w], layout=found, charts=drawn)
 
 
 def _answer_plan(q: int, pre: Prepared, fetched: datetime):
@@ -560,71 +398,6 @@ def with_timings(job):
     return timed
 
 
-def excel_job(h, pre: Prepared, target: str = "session") -> dict:
-    with stage("open target"):
-        t = _target(h, target, pre.spec.question[:60])
-    with autosave_paused(t) as notes:
-        try:
-            q = _next_q(t)
-            ws_answer = _add_sheet(t, f"Q{q} Answer", q)
-            ws_data = _add_sheet(t, f"Q{q} Data", q, DATA_TAB)
-            with stage("draw"):
-                out = _draw(t, q, pre, ws_answer, ws_data)
-            with stage("save"):
-                _save(t)
-        except Exception:
-            _rollback(t)
-            raise
-    remember(pre, out)
-    return _with_notes(out, notes)
-
-
-def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "session") -> dict:
-    """A follow-up or refresh: back up Q<q> Answer (only), clear what smartass drew there, rewrite the existing
-    Data table in place (the Data sheet is never copied, deleted or renamed: the table name and every formula that
-    points at it survive). On failure: rollback, the Answer backup becomes the sheet again, the old data is written
-    back into the table - each step on its own, so one failing step never hides the error or skips the others."""
-    with stage("open target"):
-        t = _target(h, target, pre.spec.question[:60])
-    with autosave_paused(t) as notes:
-        a_name, d_name = f"Q{q} Answer", f"Q{q} Data"
-        ws_data = _sheet(t, d_name)
-        old_data = _read_data(ws_data, q)
-        b_answer = _backup(t, a_name)
-        try:
-            ws_answer = _sheet(t, a_name)
-            _clear(ws_answer, owned)
-            with stage("draw"):
-                out = _draw(t, q, pre, ws_answer, ws_data, redraw=True, old_owned=owned)
-        except Exception as e:
-            problems = []
-            steps = [("rollback", lambda: _rollback(t)), (f"restore {a_name}", lambda: _restore(t, a_name, b_answer))]
-            if old_data is not None:
-                steps.append((f"rewrite {d_name}", lambda: rewrite_grid(_sheet(t, d_name), old_data, q)))
-            for what, step in steps:
-                try:
-                    step()
-                except Exception as e2:   # noqa: BLE001 - collect, never hide the original error
-                    problems.append(f"{what}: {e2}")
-            if problems:
-                raise RestoreError(f"{e}; the restore was incomplete - " + "; ".join(problems)) from e
-            raise
-        _drop_backup(t, b_answer)
-        with stage("save"):
-            _save(t)
-        out["followup"] = True
-        if not owned:
-            out["warnings"] = list(out.get("warnings", [])) + [
-                "old answer without a stored range: the whole Answer sheet was redrawn"]
-    remember(pre, out)
-    return _with_notes(out, notes)
-
-
-# ---------------------------------------------------------------- the file job (config.RENDER "file")
-from .render import xlsx  # noqa: E402
-from .render.excel import data_grid  # noqa: E402
-
-
 def _book(t):
     """The workbook's sheets, read once for the whole file job (movein.Book)."""
     from .xl import movein
@@ -650,7 +423,7 @@ def _answer_sheets(t, q: int) -> tuple:
 
 def _lines_sheet(q: int, ls, fetched: str) -> xlsx.LinesSheet:
     """One line set as the built file's 'Q<q> Lines <alias>' sheet: the title, source, cube value and F1:K3 block
-    _write_lines gives the sheet today."""
+    the COM writer gave it before 0.3.0."""
     from .xl.drill_xl import table_name
     table = table_name(q, ls.alias)
     cell = " / ".join(ls.cell.values()) if ls.cell else ls.alias
@@ -723,7 +496,7 @@ def _fit_text_rows(ws, plan, block: tuple) -> None:
 def _file_draw(t, q: int, pre: Prepared, book, parked=None, left: list | None = None) -> dict:
     """The answer's sheets built as a file (Answer look and charts, Data, Lines), moved in after the question's
     place and finished there (tables, formulas, chart labels, calculated); then the read-back, status, Key point
-    heights, Sources, spec, sheet order and layout check as in _draw - all of it with the user's Excel quiet, and
+    heights, Sources, spec, sheet order and layout check - all of it with the user's Excel quiet, and
     shown twice on the way when the workbook is on screen: the formatted Answer once it is in, its numbers and
     charts once they are calculated; the Answer stays active. book (movein.Book): the workbook's sheets as read once
     for the job, kept up to date by every step. parked (a follow-up, movein.Parked): the new sheets go where the
@@ -754,9 +527,10 @@ def _file_draw(t, q: int, pre: Prepared, book, parked=None, left: list | None = 
                 movein.move_in(t, built, after, first, book=book, left=left)
                 if parked is not None:
                     _take_places(t, parked, built.sheets, book)
+                if screen.active:               # the active workbook (on screen or not) ends on its new Answer
+                    screen.land = answer
                 if screen.shown:                # the formatted, still empty answer on screen
                     movein.show(t.app, t.wb, answer)
-                    screen.land = answer
             with stage("finish"):
                 movein.finish(t, built)
                 movein.calculate(t, built.sheets)
@@ -774,10 +548,10 @@ def _file_draw(t, q: int, pre: Prepared, book, parked=None, left: list | None = 
                 made = len(t.sheets_added)
                 logged = _write_sources(t, q, pre, ws_data, header, stamp)
                 book.sheets += [movein.Sheet(n, None, -1, False) for n in t.sheets_added[made:]]   # a new log, last
-            if _save_spec(t, q, pre.raw, None):         # no owned range: a follow-up replaces the whole sheets
+            if _save_spec(t, q, pre.raw):
                 book.sheets.append(movein.Sheet(sheets.META_SHEET, None, 0, False))
             with stage("arrange"):
-                arranged = _arrange(t, answer, book, answer if screen.shown else None)
+                arranged = _arrange(t, answer, book, answer if screen.active else None)
                 found = _check(plan, ws_answer, ws_data, not (logged and any(x in logged for x in SOURCES_PROBLEMS)),
                                header)
     finally:
@@ -842,12 +616,13 @@ def _dropped(t, parked) -> bool:
 KEPT = "; the new answer is in place (the old one is gone)"
 
 
-def _kept(t, e: BaseException) -> None:
+def _kept(t, e: BaseException, save: bool = True) -> None:
     """A follow-up that failed once its old sheets were dropped: the new answer is in place and the error says so;
-    our own file is saved first, as on success. The error keeps its class."""
+    our own file (never the user's) is saved first, as on success - not when it was the save that failed (save
+    False). The error keeps its class."""
     from .xl.jobs import com
     note = KEPT
-    if _is_ours(t):
+    if save and _is_ours(t):
         try:
             com(lambda: t.wb.Save(), limit=30, check=False)
             note += " and saved"
@@ -869,8 +644,8 @@ def _question_parts(book, q: int) -> tuple[list[str], list[str]]:
     return want, sheets.answer_tables(q, [n for n, _, s in book.tables() if s in names])
 
 
-def file_job(h, pre: Prepared, target: str = "session") -> dict:
-    """excel_job's answer, drawn the file way (_file_draw); the same reply. The workbook's sheets are read once. On
+def excel_job(h, pre: Prepared, target: str = "session") -> dict:
+    """A new answer (_file_draw) as the next Q<n> of the target workbook. The workbook's sheets are read once. On
     any failure the sheets it brought in are removed (they are in t.sheets_added) and the error is raised. A
     temporary workbook that would not close is tried once more at the end (a warning says so)."""
     from .xl import movein
@@ -893,20 +668,19 @@ def file_job(h, pre: Prepared, target: str = "session") -> dict:
     return _with_notes(out, notes)
 
 
-def file_redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "session") -> dict:
-    """redraw_job's follow-up or refresh, the file way: the sheets of Q<q> (Answer, Data, every Lines b<i>) and their
-    tables are parked under 'old ...' names, the new answer is drawn by _file_draw where they were, and the old
-    ones are dropped; the Sources log gets its new rows and _svmeta's row for Q<q> is rewritten (no owned range).
-    owned (a stored owned range, also one the COM renderer stored) is accepted and ignored: the sheets are replaced
-    whole. The workbook's sheets are read once. A missing Answer or Data sheet is an InputError naming it, before
+def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
+    """A follow-up or refresh: the sheets of Q<q> (Answer, Data, every Lines b<i>) and their tables are parked under
+    'old ...' names, the new answer is drawn by _file_draw where they were, and the old ones are dropped; the Sources
+    log gets its new rows and _svmeta's row for Q<q> is rewritten. A drawn range an earlier version stored with the
+    spec is not used: the sheets are replaced whole. The workbook's sheets are read once. A missing Answer or Data sheet is an InputError naming it, before
     anything is renamed. On a failure the new sheets are removed first (rollback), then the old ones get their
     names back (restore; never a rollback after it, as the old names are then the ones in t.sheets_added);
     RestoreError only when the restore failed. A failure once the old sheets are dropped keeps the new answer (a
     rollback then would leave neither): our own file is saved and the error, of its own class, says the new answer
-    is in place (the Sources rows and the spec may be missing then). A temporary workbook that would not close is
+    is in place (the Sources rows and the spec may be missing then); so does a failing save of our file, which is
+    not tried again. A temporary workbook that would not close is
     tried once more at the end (a warning says so)."""
     from .xl import movein
-    del owned
     with stage("open target"):
         t = _target(h, target, pre.spec.question[:60])
     left: list = []
@@ -929,7 +703,11 @@ def file_redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = 
             finally:
                 notes += movein.close_left(left)
         with stage("save"):
-            _save(t)
+            try:
+                _save(t)
+            except Exception as e:
+                _kept(t, e, save=False)
+                raise
         out["followup"] = True
     remember(pre, out)
     return _with_notes(out, notes)

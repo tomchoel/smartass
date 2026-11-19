@@ -112,7 +112,7 @@ def test_refresh_adds_one_brief_per_question(monkeypatch):
     monkeypatch.setattr(server, "_provider", lambda: "provider")
     monkeypatch.setattr(server, "read_stored", lambda h, target="session": (stored, None, "C:/a/x.xlsx"))
     monkeypatch.setattr(server, "run_prepare", lambda raw, provider, lines=None: raw)
-    monkeypatch.setattr(server, "redraw_job", lambda h, pre, q, owned, target="session": {
+    monkeypatch.setattr(server, "redraw_job", lambda h, pre, q, target="session": {
         "q": q, "workbook": "W", "closed": {}, **({"critic_brief": {"purpose": f"p{q}"}} if q == 2 else {})})
     out = asyncio.run(server.fin_refresh())
     r = out["refreshed"]

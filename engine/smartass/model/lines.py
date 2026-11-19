@@ -1,5 +1,5 @@
 """Ledger lines behind one cube cell (a FinLite drill), as one set per lines block. Written to Excel as table
-Lines_Q<n>_<alias> on sheet 'Q<n> Lines <alias>' (v1 drill_xl.write_lines), with the cube value in D2."""
+Lines_Q<n>_<alias> on sheet 'Q<n> Lines <alias>' (the built file's Lines sheet, render/xlsx.py), with the cube value in D2."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

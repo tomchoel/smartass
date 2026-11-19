@@ -1,16 +1,14 @@
 # engine/tests/v2/test_v5_charts.py
 """Plan 5 Task 7: ChartSpec v2 from the layout (last column group, roles by column code, helper columns, series
-validation) and the IBCS drawing through a COM fake that records every call. Every figure is invented."""
+validation); the drawing itself is in test_xlsx_charts.py. Every figure is invented."""
 from test_v5_headers import OCT, ytd_frame
 from v2util import CLOSED, facts, resolver, spec_dict
 
 from smartass.model.analyze import compute
 from smartass.model.spec import AnalysisSpec
-from smartass.render import charts as C
 from smartass.render import layout as L
 from smartass.render.chartdata import WATERFALL_ROLES, stacked_spans, waterfall_bars
 from smartass.render.layout import CHART_ROWS, ChartSpec, SheetPlan, col_number, layout
-from smartass.xl.vendor import tn_rapportstil as tn
 
 GROUPED = {"type": "table", "query": "fm", "title": "P&L", "periods": ["closed", "closed-ytd"]}
 BRIDGE = {"type": "bridge", "query": "fm", "total": "EBITDA", "steps": ["Revenue", "Opex"]}
@@ -187,208 +185,6 @@ def test_two_charts_side_by_side_and_a_third_below():
 
 # --- drawing through the COM fake ---------------------------------------------------------------------------------
 
-class Rec:
-    """Records attribute sets and calls; any attribute (or call result) is another Rec, cached."""
-    def __init__(self, log, name):
-        object.__setattr__(self, "_log", log)
-        object.__setattr__(self, "_name", name)
-        object.__setattr__(self, "_kids", {})
-
-    def __getattr__(self, k):
-        if k.startswith("__"):
-            raise AttributeError(k)
-        kids = object.__getattribute__(self, "_kids")
-        if k not in kids:
-            kids[k] = Rec(self._log, f"{self._name}.{k}")
-        return kids[k]
-
-    def __setattr__(self, k, v):
-        self._log.append(("set", f"{self._name}.{k}", v))
-
-    def __call__(self, *a):
-        self._log.append(("call", self._name, a))
-        key = f"({','.join(map(str, a))})"
-        kids = object.__getattribute__(self, "_kids")
-        if key not in kids:
-            kids[key] = Rec(self._log, f"{self._name}{key}")
-        return kids[key]
-
-
-class Coll:
-    def __init__(self, log, chart, auto):
-        self.log, self.chart, self.n, self.made = log, chart, auto, 0
-
-    @property
-    def Count(self):
-        return self.n
-
-    def NewSeries(self):
-        self.made += 1
-        self.log.append(("new_series", self.chart, self.made))
-        return Rec(self.log, f"{self.chart}.s{self.made}")
-
-
-class FakeChart(Rec):
-    def __init__(self, log, name, auto=1):
-        super().__init__(log, name)
-        object.__setattr__(self, "coll", Coll(log, name, auto))
-
-    def SeriesCollection(self, i=None):
-        if i is None:
-            return self.coll
-        coll, log = self.coll, self._log
-
-        class Item:
-            def Delete(_):
-                log.append(("delete_auto",))
-                coll.n -= 1
-        return Item()
-
-
-class FakeShapes:
-    def __init__(self, log, fail_on=()):
-        self.log, self.n, self.fail_on = log, 0, set(fail_on)
-
-    def AddChart2(self, style, xl_type, left, top, w, h):
-        self.n += 1
-        if self.n in self.fail_on:
-            raise RuntimeError("Excel said no")
-        self.log.append(("add", xl_type, w, h))
-        shape = Rec(self.log, f"shape{self.n}")
-        object.__setattr__(shape, "Chart", FakeChart(self.log, f"c{self.n}"))
-        return shape
-
-
-class FakeWS(Rec):
-    def __init__(self, log, fail_on=()):
-        super().__init__(log, "ws")
-        object.__setattr__(self, "Shapes", FakeShapes(log, fail_on))
-
-    def Range(self, a):
-        self._log.append(("range", a))
-        return Rec(self._log, f"Range({a})")
-
-
-def sets(log, suffix):
-    return [(x[1], x[2]) for x in log if x[0] == "set" and x[1].endswith(suffix)]
-
-
-def spec(kind, series, **kw):
-    return ChartSpec(kind, kw.pop("title", f"{kind} chart"), cat_range="C10:C14",
-                     series=[(n, f"{c}10:{c}14", r) for n, c, r in series], anchor=kw.pop("anchor", "B5"), **kw)
-
-
-def draw(*specs, fail_on=(), lint=()):
-    log = []
-    ws = FakeWS(log, fail_on)
-    out = C.write_charts(ws, SheetPlan(charts=list(specs), chart_lint=list(lint)))
-    return log, out
-
-
-NAVY = tn.rgb(tn.NAVY)
-
-
-def test_chart_types_per_kind():
-    kinds = ["column", "bar", "line", "stacked", "stacked100", "combo", "variance", "waterfall"]
-    log, out = draw(*[spec(k, [("AC", "D", "ac")]) for k in kinds])
-    assert out == []
-    assert [e[1] for e in log if e[0] == "add"] == [51, 57, 4, 52, 53, 51, 57, 52]
-    assert all((e[2], e[3]) == (480, 260) for e in log if e[0] == "add")
-    names = [v for n, v in sets(log, ".Name") if n.startswith("shape")]
-    assert names == ["smartass chart"] * len(kinds)
-
-
-def test_series_are_added_explicitly_before_any_format():
-    log, _ = draw(spec("column", [("AC", "D", "ac"), ("PY", "E", "py")]))
-    assert ("delete_auto",) in log
-    news = [i for i, e in enumerate(log) if e[0] == "new_series"]
-    fmt = [i for i, e in enumerate(log) if e[0] == "set" and (".Format." in e[1] or "HasTitle" in e[1]
-                                                               or "GapWidth" in e[1])]
-    assert len(news) == 2 and max(news) < min(fmt)
-    assert ("range", "D10:D14") in log and ("range", "E10:E14") in log and ("range", "C10:C14") in log
-    assert [v for n, v in sets(log, ".Name") if ".s" in n] == ["AC", "PY"]
-
-
-def test_ibcs_fills_navy_tint_outlined_hatched():
-    log, _ = draw(spec("column", [("AC", "D", "ac"), ("PY", "E", "py"), ("BU", "F", "bu"), ("FC", "G", "fc")]))
-    fore = dict(sets(log, ".Format.Fill.ForeColor.RGB"))
-    assert fore["c1.s1.Format.Fill.ForeColor.RGB"] == NAVY
-    assert fore["c1.s2.Format.Fill.ForeColor.RGB"] == tn.rgb(C.tint(tn.NAVY))      # PY: a lighter navy
-    assert fore["c1.s3.Format.Fill.ForeColor.RGB"] == C.WHITE
-    assert dict(sets(log, ".Format.Line.ForeColor.RGB"))["c1.s3.Format.Line.ForeColor.RGB"] == NAVY
-    assert ("call", "c1.s4.Format.Fill.Patterned", (26,)) in log            # msoPatternWideUpwardDiagonal
-    assert ("set", "c1.HasLegend", True) in log                            # 4 series: legend on top
-    assert ("set", "c1.Legend.Position", C.XL_LEGEND_TOP) in log
-
-
-def test_no_gridlines_and_mnok_labels():
-    log, _ = draw(spec("column", [("AC", "D", "ac")]), spec("column", [("FTE", "D", "ac")], millions=False))
-    assert ("set", "c1.Axes(2).HasMajorGridlines", False) in log
-    assert ("set", "c1.Axes(2).MajorTickMark", C.XL_NONE) in log
-    fmts = sets(log, "DataLabels().NumberFormat")
-    assert fmts == [("c1.s1.DataLabels().NumberFormat", "#,##0.0,,;\"−\"#,##0.0,,;;"),
-                    ("c2.s1.DataLabels().NumberFormat", "#,##0.0;\"−\"#,##0.0;;")]
-    assert ("set", "c1.HasLegend", False) in log                           # one series: labelled directly
-    assert ("set", "c1.ChartGroups(1).GapWidth", 50) in log
-    assert ("set", "c1.ChartTitle.Text", "column chart") in log
-
-
-def test_waterfall_bases_are_invisible_and_steps_coloured():
-    roles = [("Base", "P", "base"), ("Base <0", "Q", "base"), ("Up", "R", "up"), ("Up <0", "S", "up_neg"),
-             ("Down", "T", "down"), ("Down <0", "U", "down_neg"), ("Total", "V", "total")]
-    log, _ = draw(spec("waterfall", roles))
-    assert ("set", "c1.s1.Format.Fill.Visible", 0) in log and ("set", "c1.s2.Format.Fill.Visible", 0) in log
-    fore = dict(sets(log, ".Format.Fill.ForeColor.RGB"))
-    assert fore["c1.s3.Format.Fill.ForeColor.RGB"] == C.GOOD and fore["c1.s5.Format.Fill.ForeColor.RGB"] == C.BAD
-    assert fore["c1.s7.Format.Fill.ForeColor.RGB"] == NAVY
-    assert ("set", "c1.HasLegend", False) in log                           # 5 visible series, still no legend
-    assert ("set", "c1.ChartGroups(1).Overlap", 100) in log
-    assert not any(n.startswith("c1.s1.DataLabels") for n, _ in sets(log, "NumberFormat"))
-
-
-def test_variance_overlaps_and_bar_reverses():
-    log, _ = draw(spec("variance", [("ΔPY better", "P", "fav"), ("ΔPY worse", "Q", "unfav")]),
-                  spec("bar", [("AC", "D", "ac")], sort="desc"), spec("bar", [("AC", "D", "ac")], sort="asc"))
-    assert ("set", "c1.ChartGroups(1).Overlap", 100) in log
-    fore = dict(sets(log, ".Format.Fill.ForeColor.RGB"))
-    assert fore["c1.s1.Format.Fill.ForeColor.RGB"] == C.GOOD and fore["c1.s2.Format.Fill.ForeColor.RGB"] == C.BAD
-    assert ("set", "c2.Axes(1).ReversePlotOrder", True) in log
-    assert ("set", "c3.Axes(1).ReversePlotOrder", False) in log
-    assert not any("InvertIfNegative" in n for n, _ in sets(log, "InvertIfNegative"))
-
-
-def test_combo_puts_pct_on_a_secondary_line():
-    log, _ = draw(spec("combo", [("AC", "D", "ac"), ("ΔPY %", "F", "pct")]))
-    assert ("set", "c1.s2.ChartType", 4) in log and ("set", "c1.s2.AxisGroup", 2) in log
-    i_type = log.index(("set", "c1.s2.ChartType", 4))
-    i_fmt = min(i for i, e in enumerate(log) if e[0] == "set" and ".Format." in e[1])
-    assert i_type < i_fmt
-    assert ("set", "c1.s2.DataLabels().NumberFormat", '0.0 %;"−"0.0 %;;') in log
-    assert ("set", "c1.s2.Format.Line.ForeColor.RGB", C.PCT_LINE) in log
-
-
-def test_highlight_colours_points_accent_and_the_rest_grey():
-    log, _ = draw(spec("bar", [("AC", "D", "ac")], highlight=[2]))
-    pts = dict(sets(log, ".Format.Fill.ForeColor.RGB"))
-    assert pts["c1.s1.Points(2).Format.Fill.ForeColor.RGB"] == C.ACCENT
-    assert pts["c1.s1.Points(1).Format.Fill.ForeColor.RGB"] == C.GREY
-    assert "c1.s1.Points(5).Format.Fill.ForeColor.RGB" in pts
-
-
-def test_a_failing_chart_is_one_lint_line_and_the_others_are_drawn():
-    log, out = draw(spec("column", [("AC", "D", "ac")], title="First"),
-                    spec("bar", [("AC", "D", "ac")], title="Second"), fail_on=(1,), lint=["chart 'X': layout note"])
-    assert out[0] == "chart 'X': layout note"
-    (msg,) = out[1:]
-    assert msg.startswith("chart 'First' failed: Excel said no; fix:")
-    assert [e[1] for e in log if e[0] == "add"] == [57]
-
-
-def test_a_chart_without_series_is_not_drawn():
-    log, out = draw(ChartSpec("column", "Empty", anchor="B5"))
-    assert out == [] and not any(e[0] == "add" for e in log)
-
-
 def test_implicit_bar_on_drivers_shows_the_variance_in_tree_order_without_lint():
     from smartass.render.layout import _chart
     from smartass.model.blocks.common import BlockOut, Line
@@ -406,20 +202,6 @@ def test_implicit_bar_on_drivers_shows_the_variance_in_tree_order_without_lint()
     assert cs.series == [("ΔPY", "F10:F11", "var")]
 
 
-def test_waterfall_labels_show_the_step_sign_above_and_below_zero():
-    roles = [("Base", "P", "base"), ("Base <0", "Q", "base"), ("Up", "R", "up"), ("Up <0", "S", "up_neg"),
-             ("Down", "T", "down"), ("Down <0", "U", "down_neg"), ("Total", "V", "total")]
-    log, _ = draw(spec("waterfall", roles))
-    fmts = dict(sets(log, "DataLabels().NumberFormat"))
-    assert fmts == {"c1.s3.DataLabels().NumberFormat": "#,##0.0,,;#,##0.0,,;;",      # +1 above zero: 1.0
-                    "c1.s4.DataLabels().NumberFormat": "#,##0.0,,;#,##0.0,,;;",      # +1 below zero: 1.0
-                    "c1.s5.DataLabels().NumberFormat": "\"−\"#,##0.0,,;\"−\"#,##0.0,,;;",    # -8 above zero: -8.0
-                    "c1.s6.DataLabels().NumberFormat": "\"−\"#,##0.0,,;\"−\"#,##0.0,,;;",    # -8 below zero: -8.0
-                    "c1.s7.DataLabels().NumberFormat": "#,##0.0,,;\"−\"#,##0.0,,;;"}
-    fore = dict(sets(log, ".Format.Fill.ForeColor.RGB"))
-    assert fore["c1.s4.Format.Fill.ForeColor.RGB"] == C.GOOD and fore["c1.s6.Format.Fill.ForeColor.RGB"] == C.BAD
-
-
 def test_variance_helper_series_follow_the_category_runs():
     from smartass.render.layout import _place_helpers
     p = SheetPlan(rows=[{"row": r, "kind": "line"} for r in (9, 10, 11, 12, 13)])
@@ -432,35 +214,9 @@ def test_variance_helper_series_follow_the_category_runs():
 
 
 def test_highlight_only_on_column_and_bar():
-    log, _ = draw(spec("waterfall", [("Base", "P", "base"), ("Up", "R", "up")], highlight=[1]))
-    assert not any("Points(" in x[1] for x in log if x[0] == "set")
     s, res, p = run([GROUPED, chart("variance", 0, title="V", highlight=["Opex"])])
     assert any("highlight is drawn on column and bar charts only" in m for m in p.chart_lint)
     assert next(c for c in p.charts if c.title == "V").highlight == []
-
-
-def test_stacked_parts_get_a_legend():
-    log, _ = draw(spec("stacked", [("A", "D", "part"), ("B", "E", "part")]))
-    assert ("set", "c1.HasLegend", True) in log
-
-
-def test_data_labels_get_the_chart_locale_format(monkeypatch):
-    """The DataLabels object with a real International (nb-NO): the label format goes through chart_format."""
-    from types import SimpleNamespace
-    log = []
-    ws = FakeWS(log)
-    nb = SimpleNamespace(International=tuple([None, None, ",", " "] + [None] * 40))
-    orig = Rec.__call__
-
-    def call(self, *a):
-        r = orig(self, *a)
-        if self._name.endswith(".DataLabels"):
-            object.__setattr__(r, "Application", nb)
-        return r
-    monkeypatch.setattr(Rec, "__call__", call)
-    C.write_charts(ws, SheetPlan(charts=[spec("column", [("AC", "D", "ac")])]))
-    fmts = [v for _, v in sets(log, "DataLabels().NumberFormat")]
-    assert fmts == ['#\xa0##0,0\xa0\xa0;"−"#\xa0##0,0\xa0\xa0;;']
 
 
 def test_a_chart_block_on_a_bridge_replaces_the_bridges_own_waterfall():

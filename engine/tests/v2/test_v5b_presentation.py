@@ -6,7 +6,7 @@ figure is invented."""
 from functools import partial
 
 from test_v2_block_concept import TINY, cfacts, cresolver, cspec
-from test_v5_charts import draw, sets, spec
+from test_xlsx_charts import spec
 from v2util import CLOSED, monthly_facts, resolver, spec_dict
 
 from smartass.model.analyze import compute
@@ -19,7 +19,6 @@ from smartass.model.units import COUNT, NOK, OTHER, PCT, PER_UNIT, short_name, u
 from smartass.render import charts as C
 from smartass.render.keypoints import key_points
 from smartass.render.layout import answer_subtitle, layout, sheet_label
-from smartass.xl.vendor import tn_rapportstil as tn
 
 
 def run(d, r=None, frame=None, stock=()):
@@ -79,28 +78,18 @@ def test_an_explicit_column_chart_on_a_concept_becomes_its_waterfall():
 # --- 3. colours and legend ---------------------------------------------------------------------------------------
 
 def test_each_metric_its_own_hue_py_a_tint_and_a_legend_from_two_series():
+    """The rules; the drawn fills are in test_xlsx_charts.py."""
     cs = spec("column", [("Rev AC", "D", "ac"), ("Rev PY", "E", "py"), ("Opex AC", "F", "ac")])
     cs.hues = [0, 0, 1]
-    log, _ = draw(cs)
-    fore = dict(sets(log, ".Format.Fill.ForeColor.RGB"))
-    assert fore["c1.s1.Format.Fill.ForeColor.RGB"] == tn.rgb(C.HUES[0])
-    assert fore["c1.s2.Format.Fill.ForeColor.RGB"] == tn.rgb(C.tint(C.HUES[0]))
-    assert fore["c1.s3.Format.Fill.ForeColor.RGB"] == tn.rgb(C.HUES[1])
-    assert ("set", "c1.HasLegend", True) in log and ("set", "c1.Legend.Position", C.XL_LEGEND_TOP) in log
-    log, _ = draw(spec("column", [("AC", "D", "ac")]))
-    assert ("set", "c1.HasLegend", False) in log                    # one AC series: the title names it
+    assert [C.hue(cs, k) for k in range(3)] == [C.HUES[0], C.HUES[0], C.HUES[1]]
+    assert C.tint(C.HUES[0]) != C.HUES[0] and C.legend_shown(cs)
+    assert not C.legend_shown(spec("column", [("AC", "D", "ac")]))          # one AC series: the title names it
 
 
-def test_line_scenarios_dashed_budget_dotted_forecast_and_a_lone_budget_line_gets_a_legend():
-    cs = spec("line", [("Subs BU", "D", "bu"), ("Subs FC", "E", "fc")])
-    log, _ = draw(cs)
-    dash = dict(sets(log, ".Format.Line.DashStyle"))
-    assert dash["c1.s1.Format.Line.DashStyle"] == C.MSO_LINE_DASH
-    assert dash["c1.s2.Format.Line.DashStyle"] == C.MSO_LINE_ROUND_DOT
-    log, _ = draw(spec("line", [("Subs BU", "D", "bu")]))
-    assert ("set", "c1.HasLegend", True) in log                     # a dashed line must say it is budget
-    log, _ = draw(spec("waterfall", [("Base", "D", "base"), ("Up", "E", "up"), ("Total", "F", "total")]))
-    assert ("set", "c1.HasLegend", False) in log
+def test_a_lone_budget_line_gets_a_legend_and_a_waterfall_never():
+    """The legend rule (the dashed budget and dotted forecast lines are drawn in test_xlsx_charts.py)."""
+    assert C.legend_shown(spec("line", [("Subs BU", "D", "bu")]))          # a dashed line must say it is budget
+    assert not C.legend_shown(spec("waterfall", [("Base", "D", "base"), ("Up", "E", "up"), ("Total", "F", "total")]))
 
 
 def test_short_name_drops_whole_leading_words_never_an_ellipsis():
@@ -208,15 +197,6 @@ def test_trend_chart_starts_at_the_first_month_with_data_and_labels_only_ends():
     assert [ln.label for ln in out.lines] == ["Aug 26", "Sep 26", "Total"] and out.period == "Aug–Sep 26"
     assert out.cols == ["value"] and out.no_base == ["ly"]
     assert res.cells.get(ck(out.key, "total", 0)) == 170.0
-
-
-def test_line_labels_are_switched_off_except_the_chosen_points():
-    cs = spec("line", [("Rev AC", "D", "ac")])
-    cs.label_points = [[5]]
-    log, _ = draw(cs)
-    off = [n for n, v in sets(log, ".HasDataLabel") if v is False]
-    assert len(off) == 4 and not any("Points(5)" in n for n in off)
-    assert ("set", "c1.s1.Points(5).DataLabel.Position", C.XL_LABEL_RIGHT) in log
 
 
 # --- 8-9. trend totals and headers ----------------------------------------------------------------------------------
@@ -349,7 +329,6 @@ def test_concept_key_points_never_pick_a_memo_item():
     res = SimpleNamespace(material=[{"key": "b0.i_memo", "variance": 9e9, "base": "ly"},
                                     {"key": "b0.i_rev", "variance": 1e6, "base": "ly"}])
     assert [ln.key for ln, _, _ in _concept_chosen(main, res, {})] == ["total", "i_rev"]
-
 
 
 def test_an_agent_chart_title_stays_and_a_split_adds_the_metric():

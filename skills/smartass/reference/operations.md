@@ -12,6 +12,11 @@
   + Oracle's `smartview_body.bas` loaded into an unsaved workbook) does ad hoc fallback grids; the answer is drawn
   in the user's Excel (session workbook, or `target="active"`). Only the engine's own Excel is ever killed or
   restarted; the PIDs it started are in `%LOCALAPPDATA%\smartass\pids.json` with the owning server.
+- **How an answer reaches Excel.** The answer's sheets are built as an .xlsx without Excel (under
+  `%LOCALAPPDATA%\smartass\tmp`, deleted when the answer is in), moved into the workbook in one copy and finished
+  there (tables, formulas, chart labels), with Excel quiet: about 2-3 s in the Excel job per answer. A follow-up or
+  `fin_refresh` replaces the question's `Q<n>` sheets whole: anything typed on them goes with them, so keep your
+  own notes on your own sheets. Nothing of the user's is saved; Excel's settings and active sheet are put back.
 - **Fetch route.** Smart View HTTP first: with the user's OAuth token where a pod has one (`smartass login`, no
   browser), else through the shared hidden Edge (signs in silently). A grid HTTP could not fetch is pulled as an ad
   hoc grid in Excel instead (`routes` in the reply; a warning says why).
@@ -38,6 +43,7 @@
 | Drill cache, drill browser profile, failed drill pages | `drill.db`, `drill_edge\`, `logs\drill_fail_*` |
 | Text repairs of your own | `text_fixes.json` |
 | Answer workbooks | `paths.analyser` (`<OneDrive>\smartass\analyser\<project>\`) |
+| An answer's file while it is moved in (deleted after) | `tmp\` |
 
 The spec of every answer is stored in the workbook (hidden `_svmeta`); that is what follow-ups and `fin_refresh`
 read.

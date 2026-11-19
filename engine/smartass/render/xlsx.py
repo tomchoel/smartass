@@ -9,8 +9,9 @@ FormulaBlock, and the charts drawn with their lint and label fixes (BuiltFile.ch
 
 Every text is written with write_string (XlsxWriter's string conversions are off), so 'Sep 26', '0047', 'TRUE' or
 '=SUM(A1)' stay text. XlsxWriter has no named cell styles: every cell gets a direct format (look.style_props plus the
-CellLook overrides), one format object per distinct combination. Values are today's COM writers' (render/excel.py,
-xl/drill_xl.py, pipeline._write_lines/_lines_header); docs/audit/2026-11-19-render-map.md sections 2, 4.3, 4.4, 6.1."""
+CellLook overrides), one format object per distinct combination. Values are those of the COM writers this file replaced
+(removed in 0.3.0; the file was proved equal to them: docs/audit/2026-11-19-render-comparison.md);
+docs/audit/2026-11-19-render-map.md sections 2, 4.3, 4.4, 6.1."""
 from __future__ import annotations
 
 import datetime as dt
@@ -42,8 +43,8 @@ ANSWER_TAB, DATA_TAB = "#1F3864", "#A6A6A6"
 PRINT_HEADER = '&"Arial"&8Intern'       # styling.print_setup's CenterHeader
 MARGIN = 1.5 / 2.54                     # 1.5 cm left and right, in inches
 DATE_FMT = "dd.mm.yyyy"                 # drill_xl._local_formats' date format, its dots literal (Base.date_format)
-VALUE_BLUE = "#0000C0"                  # render.excel.VALUE_BLUE (BGR 0xC00000)
-LINES_ROW = 4                           # the lines table header row (drill_xl.write_lines, pipeline.LINES_TABLE_ROW)
+VALUE_BLUE = "#0000C0"                  # blue, the FAST colour of imported numbers
+LINES_ROW = 4                           # the lines table header row
 OPTIONS = {"strings_to_formulas": False, "strings_to_numbers": False, "strings_to_urls": False,
            "nan_inf_to_errors": True}      # a NaN or infinite fact is #NUM! / #DIV/0! in its cell, not a failed build
 INK, GREY, NAVY = look._hex(tn.INK), look._hex(tn.GREY), look._hex(tn.NAVY)
@@ -114,7 +115,7 @@ class LinesSheet:
     columns: list[str]
     rows: list[dict]
     cube_value: float | None
-    header_block: list[list]            # the F1:K3 rectangle _lines_header writes today (text with its ')
+    header_block: list[list]            # the F1:K3 rectangle (pipeline._lines_grid: text with its ')
 
 
 @dataclass
@@ -147,7 +148,7 @@ def value_text(v) -> str:
 
 
 def _lines_cols(ls: LinesSheet) -> list[str]:
-    """Above config.DRILL_XL_FULL lines only the key columns go to Excel (drill_xl.write_lines)."""
+    """Above config.DRILL_XL_FULL lines only the key columns go to Excel (full detail stays in drill.db)."""
     if len(ls.rows) <= config.DRILL_XL_FULL:
         return list(ls.columns)
     return [c for c in ls.columns if c in KEY_LABELS]
@@ -278,7 +279,7 @@ def _area(last_col: int, last_row: int) -> str:
 
 def _data(wb, fmt: _Formats, q: int, data: DataSheet) -> tuple[TableSpec, FormulaBlock]:
     """Q<n> Data: the header block's look (its contents formulas on the table: a block), the facts as values at
-    A<table_row> (render.excel.write_data's look), the widths from the texts, frozen below the table header."""
+    A<table_row> (the Data table's look), the widths from the texts, frozen below the table header."""
     ws = wb.add_worksheet(data.name)
     header, g = data.header, data.grid
     h, r0 = len(header), header.table_row
@@ -365,7 +366,7 @@ def _line_value(ws, r: int, c: int, label: str, v, f) -> None:
 
 def _lines(wb, fmt: _Formats, ls: LinesSheet, date_fmt: str | int = DATE_FMT) -> tuple[TableSpec, FormulaBlock]:
     """Q<n> Lines <alias>: A1 title (bold), A2 source, the cube value beside its label, the column names in row 4,
-    the lines from row 5 (drill_xl.write_lines + pipeline._write_lines); F1:K3's look, its contents a block."""
+    the lines from row 5; F1:K3's look, its contents a block."""
     ws = wb.add_worksheet(ls.name)
     cols = _lines_cols(ls)
     ws.write_string(0, 0, ls.title, fmt({"bold": True}))

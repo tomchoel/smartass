@@ -44,18 +44,25 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    (`data/adhoc.py` → `xl/pull_adhoc.py`), then prepare runs again with those facts fixed.
 3. **Compute** (`model/analyze.py`): facts → `model/frame.py` → block builders (`model/blocks/*`) → expression
    trees (`model/expr.py`) → values, findings, material lines and `key_values` (`model/findings.py`).
-4. **Excel job** (one job in the user's Excel): `Q<n> Data` (table `Data_Q<n>`), `Q<n> Answer` from a pure
-   `render/layout.py` plan written by `render/excel.py`, charts (`render/charts.py`), `Q<n> Lines <alias>` for
-   drills, TN style (`xl/styling.py`), read-back (`render/readback.py`), the spec stored in hidden `_svmeta`, sheet
-   order (`xl/sheetorder.py`), save (our files only).
+4. **Excel job** (one job in the user's Excel, `pipeline.excel_job`): the answer's sheets are built as one .xlsx
+   without Excel (`render/xlsx.py`, charts `render/xlsx_charts.py` on the rules of `render/charts.py`) from a pure
+   `render/layout.py` plan - `Q<n> Answer` (its look: `render/look.py`), `Q<n> Data`, `Q<n> Lines <alias>` for
+   drills - under `%LOCALAPPDATA%\smartass\tmp`, then moved into the workbook in one copy and finished there
+   (`xl/movein.py`: the tables `Data_Q<n>` / `Lines_Q<n>_<alias>`, the formulas, the chart labels, calculate), with
+   the user's Excel quiet and left as it was found. Then read-back (`render/readback.py`), the Sources log
+   (`xl/sources.py`), the spec stored in hidden `_svmeta`, sheet order (`xl/sheetorder.py`), save (our files only).
+   About 2-3 s and 34-37 COM calls per answer (docs/audit/2026-11-19-file-render-bench.md).
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
    `findings`, `checks`, `layout` (layout check findings with fixes), `charts`, `warnings`, `caveats`, `routes`,
    `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
    (`answers.py`) at the end of the Excel job and of every redraw.
 
-**Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; the answer is redrawn in
-place inside its owned range (`xl/owned.py`), so the user's cells outside it survive; a failed redraw restores the
-backup. `fin_refresh` redraws every stored v2 question; one failure never stops the rest.
+**Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; `pipeline.redraw_job`
+replaces the question's sheets whole: the old ones are parked under 'old ...' names, the new answer is moved in where
+they were, and the old ones are dropped. Cells a user typed on a `Q<n>` sheet go with it (their own notes belong on
+their own sheets). A failed redraw removes the new sheets and gives the old ones their names back; once the old ones
+are dropped the new answer stays and the error says so. `fin_refresh` redraws every stored v2 question; one failure
+never stops the rest.
 
 ## Packages
 
@@ -64,10 +71,10 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
 | `core/` | `config` (paths, settings, DPAPI secret), `logsetup`, `timing` (stages, progress), `session` (session workbooks, `sessions.json`), `serverkit` (guard, Excel jobs, lifespan) |
 | `model/` | spec, periods, requests, series, resolver interface, frame, expressions, blocks, validate, findings, lines (pure; no Excel, no network) |
 | `data/` | providers (HTTP, ad hoc combo), recorder (offline replay for the test set) |
-| `render/` | layout (pure), COM writer, charts, read-back |
+| `render/` | layout and look (pure), the built file (`xlsx`, `xlsx_charts`), chart rules, read-back, layout check |
 | `epm/` | Smart View HTTP/XML, grids, `ops` (bridge grids, atlas dumps), SSO, the drill browser and lines |
 | `knowledge/` | atlas (SQLite), semantic files (`semantic`, `seed`), `build` (knowledge.db), `KnowledgeResolver`, monthly `refresh` |
-| `xl/` | the hidden Excel (`host`, `hostproc`, `dialogs`), the user's Excel (`instances`, `target`, `jobs`, `login`, `sheets`), `styling`, `formulas`, `owned`, `sheetorder`, `drill_xl`, snapshots (`workbench/history`), vendored TN style and formula checker |
+| `xl/` | the hidden Excel (`host`, `hostproc`, `dialogs`), the user's Excel (`instances`, `target`, `jobs`, `login`, `sheets`), `styling`, `formulas`, `movein`, `sources`, `sheetorder`, `drill_xl`, snapshots (`workbench/history`), vendored TN style and formula checker |
 | `ops/` | `cli`, `doctor`, `setup_user`, `update`, `httpapi`, `atlas_build` |
 | `testset/` | the B-question test set: specs in git, recordings and golden numbers outside git |
 

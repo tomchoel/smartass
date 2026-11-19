@@ -7,7 +7,6 @@ import json
 import pytest
 from pydantic import ValidationError
 from test_v2_pipeline import FakeProvider
-from test_v2_redraw import wire
 from v2util import CLOSED, facts, resolver, spec_dict
 
 from smartass import pipeline, server
@@ -291,15 +290,18 @@ def test_fin_drill_is_quick_and_needs_no_chart(monkeypatch):
     assert seen["raw"]["blocks"][0]["type"] == "lines"
 
 
-def test_a_stored_pre_v5_spec_prepares_and_redraws_with_an_implicit_chart(monkeypatch):
+def test_a_stored_pre_v5_spec_prepares_and_is_drawn_with_an_implicit_chart(monkeypatch, tmp_path):
+    from test_file_job import Wired
+
+    from smartass.core import config
     stored = spec_dict(blocks=[TABLE])                              # standard, no chart: stored before plan 5
-    pre =pipeline.prepare(json.loads(json.dumps(stored)), resolver(), FakeProvider(facts()))
+    pre = pipeline.prepare(json.loads(json.dumps(stored)), resolver(), FakeProvider(facts()))
     assert pre.result.outs[-1].type == "chart" and pre.result.outs[-1].chart_of == "b0"
     assert [b["type"] for b in pre.raw["blocks"]] == ["table"]       # the stored spec stays as given
-    log = []
-    wire(monkeypatch, log)
-    out = pipeline.redraw_job(None, pre, q=2, owned=None, target="session")
-    assert out["q"] == 2 and "write_charts" in log
+    monkeypatch.setattr(config, "HOME", tmp_path)
+    Wired(monkeypatch)
+    out = pipeline.excel_job(None, pre, target="session")
+    assert out["charts"] and out["checks"]["sheet_equals_model"] == "OK"        # the implicit chart is in the file
     # a refresh re-prepares the stored spec without complete and without the guard
     again = pipeline.prepare(pre.raw, resolver(), FakeProvider(facts()))
     assert again.result.outs[-1].type == "chart"

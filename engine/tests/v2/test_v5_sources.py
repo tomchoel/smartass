@@ -10,7 +10,6 @@ from v2util import facts, resolver, spec_dict
 
 from smartass import pipeline
 from smartass.render.datasheet import Header, header_rows
-from smartass.render.excel import rewrite_data, write_data
 from smartass.xl import sources
 
 WHEN = datetime.datetime(2026, 11, 5, 9, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
@@ -34,10 +33,21 @@ def _book(names=("Q3 Answer", "Q3 Data")):
     return wb, SimpleNamespace(wb=wb, app=wb.Application, sheets_added=[])
 
 
+def _data_sheet(ws, h) -> None:
+    """The Q<n> Data header as a moved-in file leaves it: a new sheet every draw (a follow-up replaces it), its texts
+    and numbers in place (the formulas over the table are left out: the fake has no table)."""
+    ws.cells.clear()
+    for r, (lab, value) in enumerate(h, 1):
+        for c, x in enumerate([lab, *(value if isinstance(value, tuple) else (value,))], 1):
+            if x not in (None, "") and not (isinstance(x, str) and x.startswith("=")):
+                ws.put(r, c, x)
+
+
 def _run(t, wb, pre, q=3, redraw=False, status=None):
+    """One draw's log rows; redraw (a follow-up) draws the same way: its Data sheet is new too."""
     ws = wb.Worksheets(f"Q{q} Data")
     h = header_rows(q, pre.spec, pre, WHEN, "tom")
-    (rewrite_data if redraw else write_data)(ws, pre.frame, q, h)
+    _data_sheet(ws, h)
     return sources.write_sources(t, q, pre, ws, h, FETCHED, status or {}), h
 
 
@@ -192,28 +202,33 @@ def test_sheetorder_keeps_a_v2_sources_sheet_last_in_the_users_workbook():
     assert [s.Name for s in wb.order][-1] == "Sources"
 
 
-def test_draw_logs_the_sources_after_calculate_for_new_answers_and_redraws(monkeypatch):
-    from test_v2_pipeline_job import wire
-    log, seen = [], []
-    wire(monkeypatch, log)
-    monkeypatch.setattr(pipeline, "_write_sources",
-                        lambda t, q, pre, ws, header, fetched: seen.append((q, fetched)) or log.append("sources"))
+def test_the_job_logs_the_sources_after_calculating_with_the_draws_timestamp(monkeypatch, tmp_path):
+    from test_file_job import Wired
+
+    from smartass.core import config
+    monkeypatch.setattr(config, "HOME", tmp_path)
+    wired, seen = Wired(monkeypatch), []
+    monkeypatch.setattr(pipeline, "_write_sources", wired.rec(
+        "sources", lambda t, q, pre, ws, header, fetched: seen.append((q, fetched))))
     pipeline.excel_job(None, _pre(), "session")
-    assert log.index("calculate") < log.index("sources") < log.index("arrange")
-    assert seen[0][0] == 4 and seen[0][1].startswith(f"{datetime.date.today():%Y-%m-%d}")
+    assert wired.calls.index("calculate") < wired.calls.index("sources") < wired.calls.index("arrange")
+    assert seen[0][0] == 1 and seen[0][1].startswith(f"{datetime.date.today():%Y-%m-%d}")
 
 
-def test_a_failing_sources_log_is_a_warning_not_a_failed_answer(monkeypatch):
-    from test_v2_pipeline_job import wire
-    log, real = [], pipeline._write_sources
-    wire(monkeypatch, log)
+def test_a_failing_sources_log_is_a_warning_not_a_failed_answer(monkeypatch, tmp_path):
+    from test_file_job import Wired
+
+    from smartass.core import config
+    monkeypatch.setattr(config, "HOME", tmp_path)
+    real = pipeline._write_sources                      # before Wired replaces it
+    wired = Wired(monkeypatch)
     monkeypatch.setattr(pipeline, "_write_sources", real)
 
     def boom(*a):
         raise RuntimeError("no Sources")
     monkeypatch.setattr(sources, "write_sources", boom)
     out = pipeline.excel_job(None, _pre(), "session")
-    assert any("Sources" in w for w in out["warnings"]) and "rollback" not in log
+    assert any("Sources" in w for w in out["warnings"]) and "rollback" not in wired.calls
 
 
 def test_the_real_draw_seam_reads_the_status_and_links_the_row():
@@ -221,7 +236,7 @@ def test_the_real_draw_seam_reads_the_status_and_links_the_row():
     pre = _pre()
     ws = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    write_data(ws, pre.frame, 3, h)
+    _data_sheet(ws, h)
     r, c = int(h.status["fm"][1:]), ord(h.status["fm"][0]) - 64
     ws.put(r, c, "OK")                                              # as Excel shows it after calculating
     assert pipeline._write_sources(t, 3, pre, ws, h, FETCHED) is None
@@ -242,7 +257,7 @@ def test_a_v1_log_is_left_as_it_is_and_v2_logs_on_sources_sv():
     pre = _pre()
     ws = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    write_data(ws, pre.frame, 3, h)
+    _data_sheet(ws, h)
     notes = []
     rows = sources.write_sources(t, 3, pre, ws, h, FETCHED, {}, None, notes)
     assert v1.cells == before and rows == {"fm": 2}
@@ -296,7 +311,7 @@ def test_a_pull_without_its_row_is_a_warning(monkeypatch):
     pre = _pre()
     ws = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    write_data(ws, pre.frame, 3, h)
+    _data_sheet(ws, h)
     monkeypatch.setattr(sources, "write_sources", lambda *a: {})
     assert "no row for fm" in pipeline._write_sources(t, 3, pre, ws, h, FETCHED)
 
@@ -310,7 +325,7 @@ def test_the_log_is_tn_font_9_and_prints_a_to_n_landscape():
     assert ws.cells[(r, 1)]["Font.Size"] == 9 and ws.cells[(1, len(LOG))]["Font.Size"] == 9
     assert ws.cells[(2, P)]["Font.Size"] == 9                    # Known limits too
     ps = ws.PageSetup
-    assert ps.PrintArea == "$A$1:$N$1048576" and (ps.Orientation, ps.FitToPagesWide) == (2, 1)   # A:N, set once
+    assert ps.PrintArea == "$A$1:$N$1048575" and (ps.Orientation, ps.FitToPagesWide) == (2, 1)   # A:N, set once
 
 
 
@@ -362,7 +377,7 @@ def test_logging_into_a_log_that_is_there_takes_three_com_calls(monkeypatch):
     _run(t, wb, pre)
     ws = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    rewrite_data(ws, pre.frame, 3, h)
+    _data_sheet(ws, h)
     calls = fakexl.count_com(monkeypatch)
     assert pipeline._write_sources(t, 3, pre, ws, h, FETCHED) is None
     assert len(calls) == 3
@@ -478,10 +493,10 @@ def test_a_log_of_the_earlier_version_keeps_its_rows_links_and_filter_and_gets_t
     assert ("Value", "A1:N1") not in ws.log and [s.Name for s in wb.order].count("Sources") == 1
     assert (_font(ws, r, 1, "Name"), _font(ws, r, 1, "Size"), ws.cells[(r, 11)].get("NumberFormat")) == (
         "Arial", 9, VALUE_FORMAT)
-    assert ws.PageSetup.PrintArea == "$A$1:$N$1048576" and sources.FURNITURE_NAME in ws.Names.items
+    assert ws.PageSetup.PrintArea == "$A$1:$N$1048575" and sources.FURNITURE_NAME in ws.Names.items
     data = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    rewrite_data(data, pre.frame, 3, h)
+    _data_sheet(data, h)
     calls = fakexl.count_com(monkeypatch)
     sources.write_sources(t, 3, pre, data, h, FETCHED, {})
     assert len(calls) == 2                                          # the furniture is not set again
@@ -492,7 +507,7 @@ def test_a_real_link_an_earlier_version_left_on_the_data_header_is_replaced_by_t
     pre = _pre()
     ws = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    write_data(ws, pre.frame, 3, h)
+    _data_sheet(ws, h)
     cell = ws.Range(h.sources["fm"])
     ws.Hyperlinks.Add(cell, "", "'Sources'!A9", "This pull on the Sources sheet", "Sources row 9")
     cell.HorizontalAlignment = -4131

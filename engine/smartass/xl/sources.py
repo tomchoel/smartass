@@ -11,11 +11,12 @@ Layout (fixed: rows never move, so every 'row <r>' text and link target stays ri
            with this answer's caveats; NO_LIMITS while there is none). Rewritten in place, column P only, and only
            when the answer adds a line.
 Sheet name: 'Sources', or 'Sources SV' when 'Sources' is not a v2 log (the user's own sheet, or a v1 log - left as
-it is; log_kind tells them apart).
+it is; _kind tells them apart).
 
 The furniture is set once, when the log is created: the header row, the whole columns' TN font 9 and the control
 total's number format, fixed column widths (WIDTHS, Known limits LIMITS_WIDTH), the AutoFilter (Excel takes the rows
-added below it in when it filters), the frozen header row, the print setup of A:N and the sheet-level name
+added below it in when it filters), the frozen header row, the print setup of A1:N1048575 (a finite last row:
+whole columns are stored as $A:$N, which openpyxl cannot read) and the sheet-level name
 FURNITURE_NAME that says all of it is there. A log of an earlier version (real hyperlinks, AutoFit widths, a print
 area up to its last row then) gets the column formats, the print setup and the name once, on its next append; its
 rows, links, widths and filter stay as they are. Per answer the log costs one read (the sheet, its last row, the
@@ -27,7 +28,7 @@ from dataclasses import dataclass, field
 
 LIMITS_TITLE = "Known limits"
 NO_LIMITS = "None recorded for the answers in this workbook."
-OURS_A1 = ("Fetched",)                   # A1 of a Sources sheet smartass wrote (v1 and v2 logs; log_kind tells them apart)
+OURS_A1 = ("Fetched",)                   # A1 of a Sources sheet smartass wrote (v1 and v2 logs; _kind tells them apart)
 SEVERITIES = ("warn", "block")
 LOG_COLUMNS = ("Fetched", "Q", "Query id", "Question", "Cube", "Scenario/Version", "POV", "Periods", "Route", "Rows",
                "Control total", "Status", "Data sheet", "Supersedes")
@@ -41,23 +42,18 @@ FURNITURE_NAME, FURNITURE_VERSION = "smartass_sources", "1"
 SCAN = 500                               # Known limits lines read back at most
 XL_UP = -4162
 MAX_ROW = 1048576
+PRINT_ROWS = MAX_ROW - 1                 # the print area's last row (A1:N1048575, not the whole columns)
 V1_NOTE = ("the Sources sheet holds a v1 log, left as it is; the v2 log is on 'Sources SV'")
 
 
 def _kind(ws) -> str:
-    """log_kind inside a COM call."""
+    """'v2' (A1:B1 = Fetched, Q), 'v1' (A1 Fetched, B1 'Question no'), 'empty' or 'user'; inside a COM call."""
     a1, b1 = ws.Range("A1:B1").Value[0]
     if a1 == "Fetched":
         return "v2" if b1 == "Q" else "v1"
     if a1 in (None, "") and ws.UsedRange.Address == "$A$1":
         return "empty"
     return "user"
-
-
-def log_kind(ws) -> str:
-    """'v2' (A1:B1 = Fetched, Q), 'v1' (A1 Fetched, B1 'Question no'), 'empty' or 'user' - one call."""
-    from .jobs import com
-    return com(lambda: _kind(ws))
 
 
 def limits(caveats, old=()) -> list[str]:
@@ -173,7 +169,7 @@ def _furnish(t, log: Log) -> None:
             styling._freeze(ws, 1, 0)
         except Exception:   # noqa: BLE001 - freezing is cosmetic
             pass
-    sheet_print(ws, last, MAX_ROW)             # the log A:N, whatever it grows to; Known limits stays on screen only
+    sheet_print(ws, last, PRINT_ROWS)          # the log A:N, whatever it grows to; Known limits stays on screen only
 
 
 def lines_info(ls, q: int) -> dict:

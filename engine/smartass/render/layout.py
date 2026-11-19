@@ -63,7 +63,7 @@ def col_number(letters: str) -> int:
 
 @dataclass
 class ChartSpec:
-    """One chart (ChartSpec v2, sub-spec 5 §3.3): what charts.write_charts draws. series are (name, range, role)
+    """One chart (ChartSpec v2, sub-spec 5 §3.3): what xlsx_charts.add_charts draws. series are (name, range, role)
     with role ac | py | bu | fc | var | pct (scenario fills), fav | unfav (variance), base | up | down | total
     (stacked waterfall) or part (stacked); [] = not drawn (the zone stays reserved, the lint says why)."""
     kind: str                 # waterfall | line | column | bar | stacked | stacked100 | combo | variance
@@ -1187,5 +1187,5 @@ def _anchor(specs: list[ChartSpec], top: int, widths: dict[str, float]) -> list[
 
 
 def _drawn(cs: ChartSpec) -> bool:
-    """A chart write_charts will draw: it has series, or helpers that give it its series (waterfall, variance)."""
+    """A chart xlsx_charts.add_charts will draw: it has series, or helpers that give it its series (waterfall, variance)."""
     return bool(cs.series or cs.helpers)

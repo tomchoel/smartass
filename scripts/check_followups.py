@@ -1,4 +1,4 @@
-r"""Live check of the file renderer's follow-ups (light and fast phase 3, Task 7). With SV_RENDER=file: one new answer
+r"""Live check of the follow-ups (light and fast phase 3, Tasks 7 and 9): one new answer
 (a test-set case, through the server's own new-question run, as scripts/bench_answers.py runs them) in ONE new
 workbook of the engine's own (target 'new'), and a second answer after it (so Q1's sheets are not side by side and a
 follow-up has to move a sheet to its old place), then six follow-ups on Q1 in a row through the server's own
@@ -16,7 +16,7 @@ shows are compared), and Excel still answering. Never a figure from
 EPM: the replies are dropped. The first failure stops the run (exit 2) with its message, amounts masked.
 
 Usage (from the repo root; Excel open, signed in to EPM):
-    $env:SV_RENDER = "file"; engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--second b07]
+    engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--second b07]
         [--keep]
 Only the workbook this script created is touched, and closed at the end (without saving: the engine saved it after
 every answer) unless --keep; the user's own workbooks and Excel are never saved or closed. At the end only the
@@ -38,7 +38,7 @@ from smartass.testset import runner
 FOLLOW_UPS = 6
 OTHER_PERIOD = "Jan 26..Jun 26"         # the period a follow-up switches to (and back from) by turns
 COM = "excel job.com calls."            # the Excel job's COM-call counts, as server._draw_job logs them
-MOVE_IN = "excel job.draw.move in"      # a stage only the file renderer has
+MOVE_IN = "excel job.draw.move in"      # a stage every answer's Excel job has
 STAGES = ("draw.build", "draw.move in", "draw.finish", "draw.read back", "draw.sources", "draw.arrange", "save")
 HYPERLINK = re.compile(r'^=HYPERLINK\("#((?:[^"]|"")*)","((?:[^"]|"")*)"\)$')
 
@@ -144,18 +144,18 @@ async def check(case: dict, second: dict, keep: bool) -> int:
     from smartass.model.spec import AnalysisSpec
 
     statuses: list[str] = []
-    real_redraw = server.file_redraw_job
+    real_redraw = server.redraw_job
 
     notes: list[tuple[int, int]] = []                      # (layout findings, warnings) of each redraw's reply
     texts: set[str] = set()                                # their texts, amounts masked
 
-    def file_redraw_job(h, pre, q, owned, target):       # the server's own job; its reply's check is noted
-        out = real_redraw(h, pre, q, owned, target)
+    def redraw_job(h, pre, q, target):                     # the server's own job; its reply's check is noted
+        out = real_redraw(h, pre, q, target)
         statuses.append(out["checks"]["sheet_equals_model"])
         notes.append((len(out.get("layout") or []), len(out.get("warnings") or [])))
         texts.update(scrub(x)[:120] for x in [*(out.get("layout") or []), *(out.get("warnings") or [])])
         return out
-    server.file_redraw_job = file_redraw_job
+    server.redraw_job = redraw_job
 
     async def fin_analyze(spec=None, patch=None, q=None, target="session"):   # the names runlog keys on
         if spec is not None:
@@ -185,7 +185,7 @@ async def check(case: dict, second: dict, keep: bool) -> int:
             if not done or not all(d.get("ok") for d in done):
                 raise Stop(f"{label}: " + "; ".join(scrub(d.get("error")) for d in done if not d.get("ok")))
             if len(statuses) - before != len(done):
-                raise Stop(f"{label}: {len(done)} answers refreshed, {len(statuses) - before} by file_redraw_job")
+                raise Stop(f"{label}: {len(done)} answers refreshed, {len(statuses) - before} by redraw_job")
             status = "; ".join(dict.fromkeys(statuses[before:]))          # 'OK' when every answer is OK
             drawn = max(d["q"] for d in done)
             found = tuple(sum(x) for x in zip(*notes[before:])) if notes[before:] else (0, 0)
@@ -197,9 +197,9 @@ async def check(case: dict, second: dict, keep: bool) -> int:
             found = (len(out.get("layout") or []), len(out.get("warnings") or []))
             texts.update(scrub(x)[:120] for x in [*(out.get("layout") or []), *(out.get("warnings") or [])])
             if want_followup and (out.get("followup") is not True or len(statuses) == before):
-                raise Stop(f"{label}: the reply did not come from file_redraw_job")
+                raise Stop(f"{label}: the reply did not come from redraw_job")
         if MOVE_IN not in timings:
-            raise Stop(f"{label}: no '{MOVE_IN}' stage in the run log - not the file renderer")
+            raise Stop(f"{label}: no '{MOVE_IN}' stage in the run log - not this engine's Excel job")
         seen = await user(lambda h: _inspect(h, path, q), what="check_followups: inspect")
         if baseline:
             order = seen["names"]
@@ -233,7 +233,7 @@ async def check(case: dict, second: dict, keep: bool) -> int:
         if problems:
             raise Stop(f"{label}: " + "; ".join(problems))
 
-    print(f"check_followups {datetime.now():%Y-%m-%d %H:%M}, render {config.RENDER}, cases {case['id']} and "
+    print(f"check_followups {datetime.now():%Y-%m-%d %H:%M}, cases {case['id']} and "
           f"{second['id']}", flush=True)
     try:
         spec = AnalysisSpec.model_validate(case["spec"])
@@ -249,7 +249,7 @@ async def check(case: dict, second: dict, keep: bool) -> int:
     except Stop as e:
         failed = str(e)
     finally:
-        server.file_redraw_job = real_redraw
+        server.redraw_job = real_redraw
         if path is not None and not keep:
             try:
                 await user(lambda h: _close(h, path), what="check_followups: close")
@@ -285,8 +285,6 @@ def main(argv=None) -> int:
     for c in (args.case, args.second):
         if c not in cases:
             ap.error(f"unknown case id {c} (known: {' '.join(cases)})")
-    if config.RENDER != "file":
-        ap.error(f"SV_RENDER is {config.RENDER!r}: set it to 'file' (this checks the file renderer's follow-ups)")
     if not cases[args.case]["spec"].get("queries"):
         ap.error(f"case {args.case} has no queries: a period follow-up needs one")
     sys.stdout.reconfigure(encoding="utf-8")

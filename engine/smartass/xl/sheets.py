@@ -3,10 +3,8 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from dataclasses import dataclass
 
-import pywintypes
 
 from . import jobs, target
 from ..epm.grid import Axis, Layout, parse
@@ -349,16 +347,3 @@ def lookup_formula(p: Pull, row_members: list[str], col_members: list[str]) -> s
     row_match = "XMATCH(1," + "*".join(f"({s}${L(1 + d)}:.${L(1 + d)}={lab(rlab[d])})" for d in range(nr)) + ")"
     col_match = (f"XMATCH({col_lookup},{col_arr})" if nc == 1 else f"XMATCH(1,{col_arr})")
     return f"=INDEX({s}$A:${W},{row_match},{col_match})"
-
-
-def wait_calculated(app, limit: float = 60.0) -> None:
-    """Wait until Excel has finished recalculating (CalculationState == xlDone)."""
-    t0 = time.monotonic()
-    while time.monotonic() - t0 < limit:
-        try:
-            if app.CalculationState == 0:
-                return
-        except pywintypes.com_error as e:
-            if not jobs.is_busy(e):
-                raise
-        time.sleep(0.3)

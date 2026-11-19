@@ -68,7 +68,7 @@ def _wire(monkeypatch, stored, fail_prepare=()):
         return raw
     monkeypatch.setattr(server, "run_prepare", prep)
 
-    def redraw(h, pre, q, owned, target="session"):
+    def redraw(h, pre, q, target="session"):
         calls.append(("redraw", q))
         assert target == "C:/a/x.xlsx"                      # the path read with the specs, not the word 'session'
         assert pre is not None
@@ -114,7 +114,7 @@ def test_refresh_stops_after_a_failed_restore_and_reports_the_rest_as_skipped(mo
     stored = {q: {"spec": {"v2": {"question": f"q{q}"}}, "ids": {}, "owned": None} for q in (2, 3, 4)}
     calls, asyncio = _wire(monkeypatch, stored)
 
-    def redraw(h, pre, q, owned, target="session"):
+    def redraw(h, pre, q, target="session"):
         calls.append(("redraw", q))
         if q == 3:
             raise RestoreError("boom; the restore was incomplete - restore Q3 Answer: x")

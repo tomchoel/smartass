@@ -28,6 +28,13 @@ Spec: the median `excel job._total` at most **3 s** without a lines sheet and **
 **The gate is missed in round 3, both without a lines sheet (3.29 s) and with one (5.19 s).** Rounds 1 and 2 are
 within it. Per Step 2 nothing was switched over or deleted.
 
+## Controller ruling
+
+The gate decides whether the file renderer may replace the old one, and it clearly may: the miss in round 3
+(3.29 s / 5.19 s at 61 sheets, against 46 s before) is accepted for the switch-over. The part that grows with the
+sheet count (per-sheet reads inside one COM call, the spec store) is removed by the next task (an in-process
+executor), and the save's growth is Excel's own; the re-gate moves to that next task.
+
 ## Before and after, per round (answers without a lines block)
 
 | round | baseline (COM) excel job s | file excel job s | baseline _total s | file _total s | baseline COM calls | file COM calls |

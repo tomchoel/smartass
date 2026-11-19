@@ -54,17 +54,21 @@ class NameTaken(InputError):
 
 @dataclass
 class Quiet:
-    """What quiet yields: shown - the workbook was the active one of a visible Excel when the job began (show may
-    paint it); land - a sheet of that workbook to end on when the body succeeds (else the user's sheet)."""
+    """What quiet yields: active - the workbook was its Excel's active one when the job began, visible or not;
+    shown - and that Excel was visible (show may paint it); land - a sheet of that workbook to end on when the body
+    succeeds (else the user's sheet)."""
     shown: bool = False
     land: str | None = None
+    active: bool = False
 
 
-def _shown(app, wb) -> bool:
-    if wb is None or not app.Visible:
-        return False
+def _active(app, wb) -> tuple[bool, bool]:
+    """(active, shown): wb is its Excel's active workbook; and that Excel is visible."""
+    if wb is None:
+        return False, False
     active = app.ActiveWorkbook
-    return active is not None and str(active.FullName) == str(wb.FullName)
+    is_active = active is not None and str(active.FullName) == str(wb.FullName)
+    return is_active, is_active and bool(app.Visible)
 
 
 @contextlib.contextmanager
@@ -74,9 +78,9 @@ def quiet(app, wb=None):
     body succeeded, else the user's active sheet - and the four settings are put back in reverse order: in one call,
     each setting on its own inside it (and each in a call of its own when that call fails). A restore that fails is
     logged and never replaces the error that is on its way out. Three calls around a body that succeeds."""
-    before, sheet, shown = jobs.com(lambda: ([getattr(app, name) for name, _ in QUIET], app.ActiveSheet,
-                                             _shown(app, wb)))
-    state, ok = Quiet(shown), False
+    before, sheet, (active, shown) = jobs.com(lambda: ([getattr(app, name) for name, _ in QUIET], app.ActiveSheet,
+                                                       _active(app, wb)))
+    state, ok = Quiet(shown, active=active), False
 
     def off():
         for name, value in QUIET:
@@ -500,6 +504,8 @@ def park(t, sheets: list[str], tables: list[str], book: Book | None = None) -> P
         raise
     for name, new in parked.sheets.items():
         by_sheet[name.casefold()].name = new
+        if book.active is not None and book.active.casefold() == name.casefold():
+            book.active = new                                    # the active sheet is the parked one now
     for name, new in parked.tables.items():
         lo, s = by_table[name.casefold()]
         s.tables = [(new if x is lo else n, x) for n, x in s.tables]
@@ -548,3 +554,5 @@ def drop(t, parked: Parked, book: Book | None = None, alerts_off: bool = False) 
     if book is not None:
         gone = {n.casefold() for n in names}
         book.sheets = [s for s in book.sheets if s.name.casefold() not in gone]
+        if book.active is not None and book.active.casefold() in gone:
+            book.active = None

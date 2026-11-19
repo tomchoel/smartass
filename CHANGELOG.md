@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Answers built as a file (0.3.0)
+
+- An answer's sheets (`Q<n> Answer` with its charts, `Q<n> Data`, `Q<n> Lines <alias>`) are built as an .xlsx
+  without Excel (`render/xlsx.py`, `render/xlsx_charts.py`), moved into the workbook in one copy and finished there
+  (`xl/movein.py`), with the user's Excel quiet and left as it was found. The live comparison of all nine test-set
+  cases found the same cells, formats and charts as the old COM writers
+  (`docs/audit/2026-11-19-render-comparison.md`).
+- Measured live (`scripts/bench_answers.py --rounds 3`, all nine cases, one workbook growing to 28 answers): the
+  Excel job of an answer without a lines sheet went from 15.6 / 25.8 / 46.0 s per round
+  (`docs/audit/2026-11-19-baseline-v2.md`) to 2.0 / 2.7 / 3.3 s; over all cases from 33.7 s to 2.8 s, the whole
+  answer from 34.9 s to 4.1 s, and from 280 COM calls to 34. The gate of 3 s (5 s with a lines sheet) per round
+  held in rounds 1 and 2 and was missed in round 3: 3.29 s, and 5.19 s with a lines sheet. What grows is the save of
+  the file (Excel's own) and reads that walk every sheet of a 61-sheet workbook inside one COM call; the controller
+  accepted the miss, and the re-gate moves to the next task (`docs/audit/2026-11-19-file-render-bench.md`).
+- Follow-ups and `fin_refresh` replace the question's sheets whole (the old ones are parked, the new ones moved in
+  where they were, the old ones dropped). Cells typed on a `Q<n>` sheet go with it; a failure puts the old answer
+  back, and once the old sheets are gone it keeps the new one and says so (also when the final save fails).
+- The answer lands on the new Answer whenever its workbook is the active one, also in an Excel that is not visible.
+- The Sources log's print area is `A1:N1048575` (a finite last row), so openpyxl reads our files without a warning.
+- Removed: the COM writers (`render/excel.py`'s Data/Answer writers, `render/charts.py`'s drawing,
+  `drill_xl.write_lines`), `xl/owned.py` (the stored drawn range is no longer used), `config.RENDER` /
+  `SV_RENDER`, and `scripts/compare_renders.py`. `SV_FASTCOM` stays.
+
 ### Bearer route: grids without the hidden browser (optional, per pod)
 
 - Smart View HTTP requests go over plain HTTPS with the user's own OAuth access token where a pod has a scope and a

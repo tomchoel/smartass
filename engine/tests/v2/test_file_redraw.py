@@ -1,8 +1,9 @@
 # engine/tests/v2/test_file_redraw.py
-"""Phase 3 Task 7: pipeline.file_redraw_job, a follow-up or refresh the file way - the sheets of Q<n> parked, the new
-answer moved in where they were, the old ones dropped; on a failure the new sheets removed and the old ones given
-their names back. Also server.py picking the job by config.RENDER for fin_analyze(patch=...) and fin_refresh, and
-the two carry-over fixes in _fit_text_rows. All on fakes; every figure is invented."""
+"""Phase 3 Tasks 7 and 9: pipeline.redraw_job, a follow-up or refresh - the sheets of Q<n> parked, the new answer
+moved in where they were, the old ones dropped; on a failure the new sheets removed and the old ones given their names
+back, and once the old ones are gone the new answer kept and said so (never saving the user's workbook). Also
+server.py using it for fin_analyze(patch=...) and fin_refresh, and the two carry-over fixes in _fit_text_rows. All on
+fakes; every figure is invented."""
 from __future__ import annotations
 
 import asyncio
@@ -80,11 +81,11 @@ class Book:
 
     def answer(self, pre) -> dict:
         self.pre = pre
-        return pipeline.file_job(H, pre)
+        return pipeline.excel_job(H, pre)
 
-    def follow_up(self, pre, q: int, owned=None) -> dict:
+    def follow_up(self, pre, q: int) -> dict:
         self.pre = pre
-        return pipeline.file_redraw_job(H, pre, q, owned, PATH)
+        return pipeline.redraw_job(H, pre, q, PATH)
 
 
 @pytest.fixture
@@ -238,7 +239,7 @@ def test_the_sources_log_keeps_its_rows_and_logs_the_new_pull(own_book):
     assert q3 and fakexl.hyperlink(new[q3[0]][12]) == ("#'Q3 Lines b0'!A1", "Q3 Lines b0")   # names as text
 
 
-def test_the_stored_spec_of_the_question_is_rewritten_without_an_owned_range(own_book):
+def test_the_stored_spec_of_the_question_is_rewritten_without_a_drawn_range(own_book):
     t = SimpleNamespace(wb=own_book.wb)
     before = sheets._stored_specs(t)
     pre = _pre(spec_dict(question="Business P&L, the follow-up"))
@@ -248,8 +249,9 @@ def test_the_stored_spec_of_the_question_is_rewritten_without_an_owned_range(own
     assert {q: after[q] for q in (1, 2)} == {q: before[q] for q in (1, 2)}
 
 
-def test_a_workbook_drawn_by_the_old_renderer_is_redrawn_by_the_file_job(monkeypatch, tmp_home):
-    """The COM renderer's sheets have the same names and tables; its stored owned range is ignored."""
+def test_a_workbook_drawn_by_the_old_renderer_is_redrawn(monkeypatch, tmp_home):
+    """The COM renderer's sheets have the same names and tables; the drawn range it stored with the spec is not
+    used, and the rewritten spec stores none."""
     wb = fakexl.Workbook(["Q1 Answer", "Q1 Data", "Q1 Lines b0", "Sources", "Q1 Notes"])
     data, lines = wb.Worksheets("Q1 Data"), wb.Worksheets("Q1 Lines b0")
     data.ListObjects.Add(1, data.Range("A7:C9"), None, 1).Name = "Data_Q1"
@@ -262,7 +264,7 @@ def test_a_workbook_drawn_by_the_old_renderer_is_redrawn_by_the_file_job(monkeyp
     wb.Worksheets("Q1 Notes").put(1, 1, "my own notes")
     mine = fakexl.sheet_state(wb.Worksheets("Q1 Notes"))
     b = Book(monkeypatch, wb, ours=False)
-    out = b.follow_up(_pre(), 1, owned=sheets._stored_specs(old)[1]["owned"])
+    out = b.follow_up(_pre(), 1)
     assert out["sheets"] == ["Q1 Answer", "Q1 Data"] and out["checks"]["sheet_equals_model"] == "OK"
     assert _names(wb) == ["Q1 Answer", "Q1 Data", "Sources", "Q1 Notes", "_svmeta"]
     assert fakexl.sheet_state(wb.Worksheets("Q1 Notes")) == mine                    # the user's sheet, not swept
@@ -330,6 +332,45 @@ def test_a_failure_after_the_drop_keeps_the_new_answer_saves_our_file_and_says_s
     assert "Q3 Answer" in _names(own_book.wb) and "Q3 Lines b0" not in _names(own_book.wb)
 
 
+def test_a_save_that_fails_after_the_drop_keeps_the_new_answer_and_says_so_without_saving_again(own_book,
+                                                                                                monkeypatch):
+    """Task 8B review 2: the save comes after the old sheets are gone; its failure must say the new answer is there
+    (and the save is not tried a second time)."""
+    def save(t):
+        raise HostError("the file is locked")
+    monkeypatch.setattr(pipeline, "_save", save)
+    saved = own_book.wb.saved
+    with pytest.raises(HostError, match="locked") as e:
+        own_book.follow_up(_pre(), 3)
+    assert not isinstance(e.value, pipeline.RestoreError)
+    assert str(e.value) == "the file is locked" + pipeline.KEPT and own_book.wb.saved == saved
+    assert "Q3 Answer" in _names(own_book.wb) and not [n for n in _names(own_book.wb) if n.startswith("old ")]
+
+
+def test_a_failure_after_the_drop_never_saves_the_users_workbook(monkeypatch, tmp_home):
+    """Task 8B review 6: _kept saves our own file only."""
+    b = Book(monkeypatch, fakexl.Workbook(["Intro", "Sources", "Budget"]), ours=False)
+    b.answer(_pre())
+
+    def check(*a):
+        raise HostError("the job was abandoned")
+    monkeypatch.setattr(pipeline, "_check", check)
+    with pytest.raises(HostError, match="abandoned") as e:
+        b.follow_up(_pre(), 1)
+    assert str(e.value) == "the job was abandoned" + pipeline.KEPT and "saved" not in str(e.value)
+    assert b.wb.saved == 0 and "Q1 Answer" in _names(b.wb)
+
+
+def test_a_follow_up_in_the_active_workbook_of_a_hidden_excel_ends_on_the_new_answer(own_book):
+    """Task 8B review 1: quiet lands on the new Answer whenever the target is the active workbook, visible or not
+    (the Book's active sheet, renamed by the park, is not trusted)."""
+    wb = own_book.wb
+    wb.Application.Visible = False
+    wb.Worksheets("Notes").Activate()
+    own_book.follow_up(_pre(), 3)
+    assert wb.Application.ActiveWorkbook is wb and wb.active is wb.Worksheets("Q3 Answer") and wb.active in wb.order
+
+
 def test_a_follow_up_makes_at_most_37_com_calls_and_reads_the_sheets_once(own_book, monkeypatch):
     from smartass.core.timing import COM_PREFIX
     from smartass.xl import sheetorder
@@ -339,7 +380,7 @@ def test_a_follow_up_makes_at_most_37_com_calls_and_reads_the_sheets_once(own_bo
     monkeypatch.setattr(sheetorder, "_read_sheets", lambda wb, busy: pytest.fail("the order read again"))
     calls = fakexl.count_com(monkeypatch)
     own_book.pre = _pre()
-    out, timings = pipeline.with_timings(lambda h: pipeline.file_redraw_job(h, own_book.pre, 3, None, PATH))(H)
+    out, timings = pipeline.with_timings(lambda h: pipeline.redraw_job(h, own_book.pre, 3, PATH))(H)
     assert len(calls) <= 37, {k: v for k, v in timings.items() if k.startswith(COM_PREFIX)}    # 35 (19.11.2026)
     assert len(reads) == 1 and out["checks"]["sheet_equals_model"] == "OK"
 
@@ -416,22 +457,19 @@ def test_the_sheets_of_a_question_are_its_answer_data_and_lines_blocks_only():
         "Data_Q3", "Lines_Q3_b0"]
 
 
-# ------------------------------------------------------------------ server.py picks the job
-def _wire_server(monkeypatch, render: str, stored: dict, job):
+# ------------------------------------------------------------------ server.py uses redraw_job
+def _wire_server(monkeypatch, stored: dict, job):
     async def user(fn, what):
         return fn(None)
 
     async def prepare(raw, provider, spec=None, target="session", complete=False):
         return SimpleNamespace(raw=raw, target=target), []
-    monkeypatch.setattr(config, "RENDER", render)
     monkeypatch.setattr(server, "_user", user)
     monkeypatch.setattr(server, "_provider", lambda: "provider")
     monkeypatch.setattr(server, "_prepare", prepare)
     monkeypatch.setattr(server, "_default_target", lambda target: target)
     monkeypatch.setattr(server, "read_stored", lambda h, target: (stored, "Q1 Answer", PATH))
-    monkeypatch.setattr(server, "redraw_job", lambda h, pre, q, owned, target: job("redraw_job", pre, q, owned, target))
-    monkeypatch.setattr(server, "file_redraw_job",
-                        lambda h, pre, q, owned, target: job("file_redraw_job", pre, q, owned, target))
+    monkeypatch.setattr(server, "redraw_job", lambda h, pre, q, target: job(pre, q, target))
 
 
 def _stored(*qs) -> dict:
@@ -439,34 +477,32 @@ def _stored(*qs) -> dict:
             for q in qs}
 
 
-@pytest.mark.parametrize("render, want", [("com", "redraw_job"), ("file", "file_redraw_job")])
-def test_fin_refresh_and_the_follow_up_path_use_the_file_job_when_configured(monkeypatch, render, want):
+def test_fin_refresh_and_the_follow_up_path_use_redraw_job(monkeypatch):
+    """A drawn range an earlier version stored with the spec does not reach the job."""
     seen = []
 
-    def job(name, pre, q, owned, target):
-        seen.append((name, q, owned, target))
+    def job(pre, q, target):
+        seen.append((q, target))
         return {"q": q, "workbook": target, "closed": {}}
-    _wire_server(monkeypatch, render, _stored(1, 2), job)
+    _wire_server(monkeypatch, _stored(1, 2), job)
     out = asyncio.run(server.fin_analyze(patch={"question": "Question 1, by month"}, q=1, target=PATH))
-    assert out["q"] == 1 and seen == [(want, 1, {"rows": 3, "cols": 2}, PATH)]
+    assert out["q"] == 1 and seen == [(1, PATH)]
     seen.clear()
     out = asyncio.run(server.fin_refresh(target=PATH))
-    assert [d["ok"] for d in out["refreshed"]] == [True, True]
-    assert seen == [(want, 1, {"rows": 3, "cols": 2}, PATH), (want, 2, {"rows": 3, "cols": 2}, PATH)]
-    assert server._redraw_job() is getattr(server, want)
+    assert [d["ok"] for d in out["refreshed"]] == [True, True] and seen == [(1, PATH), (2, PATH)]
 
 
-def test_fin_refresh_with_the_file_job_goes_on_after_a_failure_and_stops_after_a_failed_restore(monkeypatch):
+def test_fin_refresh_goes_on_after_a_failure_and_stops_after_a_failed_restore(monkeypatch):
     seen = []
 
-    def job(name, pre, q, owned, target):
+    def job(pre, q, target):
         seen.append(q)
         if q == 1:
             raise HostError("Excel is busy")
         if q == 3:
             raise pipeline.RestoreError("refused; the restore was incomplete - sheet 'old Q3 Data' -> 'Q3 Data'")
         return {"q": q, "workbook": target, "closed": {}}
-    _wire_server(monkeypatch, "file", _stored(1, 2, 3, 4), job)
+    _wire_server(monkeypatch, _stored(1, 2, 3, 4), job)
     out = asyncio.run(server.fin_refresh(target=PATH))
     got = {d["q"]: d for d in out["refreshed"]}
     assert seen == [1, 2, 3] and [got[q]["ok"] for q in (1, 2, 3, 4)] == [False, True, False, False]

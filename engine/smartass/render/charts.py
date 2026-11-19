@@ -1,7 +1,6 @@
 # engine/smartass/render/charts.py
-"""IBCS charts for v2 answers (sub-spec 5 §3.3), one per ChartSpec at its anchor in the Charts zone. Each chart is
-added empty-handed (the series AddChart2 guesses are dropped), gets its series explicitly (NewSeries, Values,
-XValues), and only THEN its formats, because a type change resets formatting.
+"""The rules of the IBCS charts of v2 answers (sub-spec 5 §3.3), one per ChartSpec at its anchor in the Charts zone;
+render/xlsx_charts.py draws them in the built file, and xl/movein.py sets what only COM can set after the move-in.
 
 - Colours: each metric gets its own hue (HUES: navy, teal, amber, purple, grey-blue); within a metric the scenario
   styling is IBCS: AC solid, PY a lighter tint of the same hue, BU outlined (bars) or dashed (lines), FC hatched
@@ -13,28 +12,16 @@ XValues), and only THEN its formats, because a type change resets formatting.
 - Waterfall: a stacked column over the chart helper columns (render/chartdata.py) with invisible bases; never
   Excel's native waterfall (its COM model does not reliably set totals). Variance: favourable and unfavourable
   series with 100 % overlap (no InvertIfNegative). Bar: ReversePlotOrder keeps the first (largest) row on top.
-Every chart is named 'smartass chart' (owned.CHART_NAME) so a follow-up can drop it. A chart that fails is one
-lint line with its fix; the others are still drawn."""
+Every chart is named 'smartass chart' (xlsx_charts.CHART_NAME). A chart that fails is one lint line with its fix;
+the others are still drawn. Pure: no Excel here."""
 from __future__ import annotations
 
-from ..xl.jobs import com
-from ..xl.owned import CHART_NAME
-from ..xl.styling import GREEN, chart_format
+from ..xl.styling import GREEN
 from ..xl.vendor import tn_rapportstil as tn
-from .layout import ChartSpec, SheetPlan
+from .layout import ChartSpec
 
 XL_TYPE = {"column": 51, "bar": 57, "line": 4, "stacked": 52, "stacked100": 53, "combo": 51, "variance": 57,
            "waterfall": 52}
-XL_LINE = 4
-XL_NONE = -4142                  # xlNone / xlTickMarkNone / xlTickLabelPositionNone
-XL_LEGEND_TOP = -4160
-XL_VALUE, XL_CATEGORY = 2, 1
-XL_TICK_LOW, XL_TICK_HIGH = -4134, -4127   # xlTickLabelPositionLow / High
-XL_LABEL_CENTER, XL_LABEL_INSIDE_END = -4108, 3
-XL_LABEL_ABOVE, XL_LABEL_BELOW, XL_LABEL_RIGHT, XL_LABEL_LEFT = 0, 1, -4152, -4131     # a line's min/max label above its point, the last one to its right
-LOW_KINDS = ("column", "bar", "line", "combo", "stacked", "stacked100", "variance", "waterfall")
-MSO_TRUE, MSO_FALSE = -1, 0
-MSO_PATTERN_WIDE_UPWARD_DIAGONAL = 26      # MsoPatternType (Office typelib)
 GAP_WIDTH = 50
 
 NAVY = tn.rgb(tn.NAVY)
@@ -51,7 +38,6 @@ PARTS = [tn.rgb(c) for c in (tn.NAVY, (84, 110, 150), (140, 160, 190), (190, 200
 HUES = [tn.NAVY, (0, 128, 128), (214, 137, 16), (112, 48, 160), (84, 110, 150)]   # navy, teal, amber, purple,
 # grey-blue: one per metric in a chart
 PY_TINT = 0.55                             # PY: the hue blended this far towards white
-MSO_LINE_DASH, MSO_LINE_ROUND_DOT = 4, 3   # MsoLineDashStyle: BU dashed, FC dotted (line charts)
 NO_LEGEND = ("waterfall", "variance")
 
 
@@ -95,45 +81,8 @@ def legend_shown(spec: ChartSpec) -> bool:
         len(visible) >= 2 or any(r not in ("ac", "part", "fav", "unfav", "var") for r in visible)))
 
 
-def _place(ws, spec: ChartSpec):
-    cell = ws.Range(spec.anchor)
-    left, top = com(lambda: cell.Left), com(lambda: cell.Top)
-    shape = com(lambda: ws.Shapes.AddChart2(-1, XL_TYPE[spec.kind], left, top, spec.width, spec.height))
-    com(lambda: setattr(shape, "Name", CHART_NAME))
-    return shape, com(lambda: shape.Chart)
-
-
-def _drop_auto_series(chart) -> None:
-    """AddChart2 guesses a series from the selection; drop it, as v1 answer_write does."""
-    for _ in range(50):
-        if not com(lambda: chart.SeriesCollection().Count):
-            return
-        com(lambda: chart.SeriesCollection(1).Delete())
-
-
-def _add_series(ws, chart, spec: ChartSpec) -> list:
-    out = []
-    for name, rng, role in spec.series:
-        s = com(lambda: chart.SeriesCollection().NewSeries())
-        com(lambda: setattr(s, "Values", _series_ref(ws, rng)))
-        com(lambda: setattr(s, "XValues", _series_ref(ws, spec.cat_range)))
-        com(lambda: setattr(s, "Name", name))
-        if spec.kind == "combo" and role == "pct":      # type and axis before any format
-            com(lambda: setattr(s, "ChartType", XL_LINE))
-            com(lambda: setattr(s, "AxisGroup", 2))
-        out.append((s, role))
-    return out
-
-
-def _series_ref(ws, rng: str):
-    """A series range: a Range for one block; a union reference text for rows with gaps ('D5:D7,D9'). Excel refuses
-    a multi-area Range as Series.Values (live 05.11.2026), but takes "=('Sheet'!$D$5:$D$7,'Sheet'!$D$9)"."""
-    if "," not in rng:
-        return ws.Range(rng)
-    return union_ref(com(lambda: ws.Name), rng)
-
-
 def union_ref(sheet: str, rng: str) -> str:
+    """A range with gaps ('D5:D7,D9') as one absolute union reference on sheet."""
     name = "'" + sheet.replace("'", "''") + "'"
 
     def absolute(a: str) -> str:
@@ -143,211 +92,4 @@ def union_ref(sheet: str, rng: str) -> str:
     return "=(" + ",".join(f"{name}!{p}" for p in parts) + ")"
 
 
-def _fill(s, role: str, k: int, line: bool, spec: ChartSpec | None = None) -> None:
-    base = hue(spec, k) if spec is not None else tn.NAVY
-    main = tn.rgb(base)
-    if line:                                             # a line series: the metric's hue, styled by scenario
-        colour = PCT_LINE if role == "pct" else tn.rgb(tint(base)) if role == "py" else main
-        ln = s.Format.Line
-        com(lambda: setattr(ln, "Visible", MSO_TRUE))
-        com(lambda: setattr(ln.ForeColor, "RGB", colour))
-        com(lambda: setattr(ln, "Weight", 2.25))
-        if role in ("bu", "fc"):
-            com(lambda: setattr(ln, "DashStyle", MSO_LINE_DASH if role == "bu" else MSO_LINE_ROUND_DOT))
-        return
-    f, ln = s.Format.Fill, s.Format.Line
-    if role in HIDDEN:
-        com(lambda: setattr(f, "Visible", MSO_FALSE))
-        com(lambda: setattr(ln, "Visible", MSO_FALSE))
-        return
-    com(lambda: setattr(f, "Visible", MSO_TRUE))
-    if role == "bu":                                     # outlined: white with a border in the metric's hue
-        com(lambda: f.Solid())
-        com(lambda: setattr(f.ForeColor, "RGB", WHITE))
-        com(lambda: setattr(ln, "Visible", MSO_TRUE))
-        com(lambda: setattr(ln.ForeColor, "RGB", main))
-        com(lambda: setattr(ln, "Weight", 1.0))
-    elif role == "fc":                                   # hatched in the metric's hue
-        com(lambda: f.Patterned(MSO_PATTERN_WIDE_UPWARD_DIAGONAL))
-        com(lambda: setattr(f.ForeColor, "RGB", main))
-        com(lambda: setattr(f.BackColor, "RGB", WHITE))
-        com(lambda: setattr(ln, "Visible", MSO_TRUE))
-        com(lambda: setattr(ln.ForeColor, "RGB", main))
-    else:
-        colour = (PARTS[k % len(PARTS)] if role == "part" else main if role == "ac"
-                  else tn.rgb(tint(base)) if role == "py" else FILL.get(role, NAVY))
-        com(lambda: f.Solid())
-        com(lambda: setattr(f.ForeColor, "RGB", colour))
-        com(lambda: setattr(ln, "Visible", MSO_FALSE))
-
-
 WATERFALL_STEPS = ("up", "up_neg", "down", "down_neg")
-
-
-def _labels(s, role: str, spec: ChartSpec, k: int = 0) -> None:
-    """Data labels in the label format; on a waterfall white bold inside the bars (never navy on navy): a total
-    at its inside end, a step in its centre, in ink on a step too thin to hold white text (spec.thin_steps)."""
-    if role in HIDDEN:
-        return
-    com(lambda: setattr(s, "HasDataLabels", True))
-    dl = com(lambda: s.DataLabels())
-    com(lambda: setattr(dl, "NumberFormatLinked", False))
-    com(lambda: setattr(dl, "NumberFormat", chart_format(dl, label_format(role, spec.millions, spec.whole))))
-    if spec.kind == "line" and k < len(spec.label_points):     # only the last point (and min/max): no clutter
-        keep = set(spec.label_points[k])
-        n = _points(spec.cat_range)
-        below = k < len(spec.label_below) and spec.label_below[k]  # a cost line: its labels below it
-        com(lambda: setattr(dl, "Position", XL_LABEL_BELOW if below else XL_LABEL_ABOVE))   # never on the line
-        for i in range(1, n + 1):
-            pt = com(lambda: s.Points(i))
-            if i not in keep:
-                com(lambda: setattr(pt, "HasDataLabel", False))
-            elif i == max(keep):
-                com(lambda: setattr(pt.DataLabel, "Position", XL_LABEL_RIGHT))
-            elif k < len(spec.label_pos) and i in spec.label_pos[k]:   # clear of the other line (layout)
-                com(lambda: setattr(pt.DataLabel, "Position",
-                                    {"above": XL_LABEL_ABOVE, "left": XL_LABEL_LEFT}.get(spec.label_pos[k][i],
-                                                                                         XL_LABEL_BELOW)))
-        return
-    if spec.kind in ("stacked", "stacked100") and role == "part":   # inside the part: white on the dark ones
-        com(lambda: setattr(dl, "Position", XL_LABEL_CENTER))
-        com(lambda: setattr(dl.Font, "Color", WHITE if k % len(PARTS) < 2 else INK))
-        return
-    if spec.kind == "combo" and role == "pct":                       # above the line, clear of the columns
-        com(lambda: setattr(dl, "Position", XL_LABEL_ABOVE))
-        return
-    if spec.kind == "waterfall" and (role == "total" or role in WATERFALL_STEPS):
-        com(lambda: setattr(dl, "Position", XL_LABEL_INSIDE_END if role == "total" else XL_LABEL_CENTER))
-        com(lambda: setattr(dl.Font, "Color", WHITE))
-        com(lambda: setattr(dl.Font, "Bold", True))
-        for i in (spec.thin_steps if role in WATERFALL_STEPS else []):   # white on a 1 px bar is invisible
-            lab = com(lambda: s.Points(i).DataLabel)
-            com(lambda: setattr(lab.Font, "Color", INK))
-            top = com(lambda: lab.Top)
-            if isinstance(top, (int, float)) and top > THIN_LIFT:     # above the bar, not struck through by it
-                com(lambda: setattr(lab, "Top", top - THIN_LIFT))
-
-
-def _highlight(s, points: list[int], n: int) -> None:
-    """The highlighted points in the accent, every other point grey."""
-    for i in range(1, n + 1):
-        colour = ACCENT if i in points else GREY
-        pt = com(lambda: s.Points(i))
-        com(lambda: setattr(pt.Format.Fill.ForeColor, "RGB", colour))
-
-
-def _axes(chart, spec: ChartSpec) -> None:
-    """No gridlines, no tick marks, no value axis labels (the data labels carry the numbers). Category labels at
-    the low end of the value axis, clear of negative bars; with every value <= 0 the value axis is reversed (the
-    bars grow away from the labels) and the labels sit at its high end, which is then next to zero (hidden Excel,
-    05.11.2026: Low on a reversed axis puts them at the far, most negative end). A waterfall on a truncated axis
-    starts at spec.axis_min (MinimumScale; the MaximumScale for a bridge below zero)."""
-    val = com(lambda: chart.Axes(XL_VALUE))
-    com(lambda: setattr(val, "HasMajorGridlines", False))
-    com(lambda: setattr(val, "HasMinorGridlines", False))
-    com(lambda: setattr(val, "MajorTickMark", XL_NONE))
-    com(lambda: setattr(val, "TickLabelPosition", XL_NONE))
-    com(lambda: setattr(val.Format.Line, "Visible", MSO_FALSE))
-    if spec.kind == "combo" and any(r == "pct" for _, _, r in spec.series):   # the % axis: no 0,1 / -0,4 ticks
-        sec = com(lambda: chart.Axes(XL_VALUE, 2))
-        com(lambda: setattr(sec, "HasMajorGridlines", False))
-        com(lambda: setattr(sec, "MajorTickMark", XL_NONE))
-        com(lambda: setattr(sec, "TickLabelPosition", XL_NONE))
-        com(lambda: setattr(sec.Format.Line, "Visible", MSO_FALSE))
-    if spec.reverse_values:
-        com(lambda: setattr(val, "ReversePlotOrder", True))
-    if spec.axis_min is not None:
-        com(lambda: setattr(val, "MaximumScale" if spec.axis_min < 0 else "MinimumScale", spec.axis_min))
-    cat = com(lambda: chart.Axes(XL_CATEGORY))
-    com(lambda: setattr(cat, "MajorTickMark", XL_NONE))
-    if spec.kind in LOW_KINDS:
-        com(lambda: setattr(cat, "TickLabelPosition", XL_TICK_HIGH if spec.reverse_values else XL_TICK_LOW))
-    if spec.kind in ("bar", "variance"):
-        com(lambda: setattr(cat, "ReversePlotOrder", spec.sort != "asc"))
-
-
-def _title(chart, text: str) -> None:
-    st = tn.style_defs()["TN Seksjon"]                   # the TN section title: Arial bold navy
-    com(lambda: setattr(chart, "HasTitle", True))
-    com(lambda: setattr(chart.ChartTitle, "Text", text))
-    font = com(lambda: chart.ChartTitle.Font)
-    com(lambda: setattr(font, "Name", tn.FONT))
-    com(lambda: setattr(font, "Size", st["size"] + 1))
-    com(lambda: setattr(font, "Bold", True))
-    com(lambda: setattr(font, "Color", tn.rgb(st["color"])))
-
-
-def _draw(ws, spec: ChartSpec) -> None:
-    shape, chart = _place(ws, spec)
-    try:
-        _drop_auto_series(chart)
-        series = _add_series(ws, chart, spec)
-        # formats only after every series and type is set
-        com(lambda: setattr(chart.ChartArea.Format.TextFrame2.TextRange.Font, "Name", tn.FONT))
-        _title(chart, spec.title)
-        legend = legend_shown(spec)
-        com(lambda: setattr(chart, "HasLegend", legend))       # stacked parts are named by the legend
-        if legend:
-            com(lambda: setattr(chart.Legend, "Position", XL_LEGEND_TOP))
-        _axes(chart, spec)
-        if spec.kind != "line":
-            group = com(lambda: chart.ChartGroups(1))
-            com(lambda: setattr(group, "GapWidth", GAP_WIDTH))
-            if spec.kind in ("variance", "waterfall"):
-                com(lambda: setattr(group, "Overlap", 100))
-        n = _points(spec.cat_range)
-        for k, (s, role) in enumerate(series):
-            line = spec.kind == "line" or (spec.kind == "combo" and role == "pct")
-            _fill(s, role, k, line, spec)
-            _labels(s, role, spec, k)
-        target = next((s for s, role in series if role in ("ac", "part")), None)
-        if spec.highlight and target is not None and spec.kind in ("column", "bar"):
-            # the legend shows a series' own fill: AC grey like its bars (the accent marks the point itself), a
-            # comparison outlined in grey - never a navy legend key over grey bars
-            com(lambda: setattr(target.Format.Fill.ForeColor, "RGB", GREY))
-            for s, role in series:
-                if s is not target and role in ("py", "bu", "fc"):
-                    f, ln = s.Format.Fill, s.Format.Line
-                    com(lambda f=f: f.Solid())
-                    com(lambda f=f: setattr(f.ForeColor, "RGB", WHITE))
-                    com(lambda ln=ln: setattr(ln, "Visible", MSO_TRUE))
-                    com(lambda ln=ln: setattr(ln.ForeColor, "RGB", GREY))
-                    com(lambda ln=ln: setattr(ln, "Weight", 1.0))
-            _highlight(target, spec.highlight, n)
-    except Exception:
-        try:
-            com(lambda: shape.Delete())                  # no half-drawn chart left behind
-        except Exception:   # noqa: BLE001
-            pass
-        raise
-
-
-def _points(rng: str) -> int:
-    """Number of cells in a one-column (or one-row) range text: 'C5:C7,C9' -> 4."""
-    n = 0
-    for part in rng.split(","):
-        a, _, b = part.partition(":")
-        if not b:
-            n += 1
-            continue
-        ra = int("".join(ch for ch in a if ch.isdigit()))
-        rb = int("".join(ch for ch in b if ch.isdigit()))
-        n += abs(rb - ra) + 1
-    return n
-
-
-def write_charts(ws, plan: SheetPlan, drawn: list | None = None) -> list[str]:
-    """Draw every chart with series; returns the layout's chart lint plus one line per chart that failed. drawn: the
-    title of every chart drawn is appended there (the reply's `charts`)."""
-    warnings = list(plan.chart_lint)
-    for spec in plan.charts:
-        if not spec.series:             # the layout said why (chart_lint); its zone stays reserved
-            continue
-        try:
-            _draw(ws, spec)
-            if drawn is not None:
-                drawn.append(spec.title)
-        except Exception as e:   # noqa: BLE001 - a chart never fails the answer
-            warnings.append(f"chart '{spec.title}' failed: {e}; fix: check the source block's rows and columns, "
-                            "or patch the chart block (kind, series)")
-    return warnings
