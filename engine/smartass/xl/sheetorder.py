@@ -14,6 +14,7 @@ hidden sheets and, in active mode, the user's sheets are pinned and never moved.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 
@@ -160,14 +161,17 @@ def _read_sheets(wb, busy) -> tuple[list[tuple[str, bool, object]], str | None]:
     return rows, active
 
 
-def arrange_sheets(wb, mode: str = "full", activate: str | None = None) -> dict:
+def arrange_sheets(wb, mode: str = "full", activate: str | None = None, known: tuple | None = None) -> dict:
     """Put the workbook's sheets in the fixed order (see module doc) with positional Move (keyword Before=/After= are
     ignored through late-bound COM), set the Answer/data tab colours, and activate `activate` (else the sheet that was
     active). Returns {'moved': [...], 'order': [...]}; raises only if Excel refuses a move.
     COM calls: one read of the order (names, visibility, tab colours, active sheet), one per sheet that moves or
-    whose tab colour is wrong, one Activate unless that sheet is already active - 1 call for an ordered workbook."""
+    whose tab colour is wrong, one Activate unless that sheet is already active - 1 call for an ordered workbook.
+    known: (rows, active sheet) as _read_sheets gives them, from a caller that knows the sheets already (the file
+    job's Book) and keeps Excel quiet itself: no read, no fast mode, and the order is not read back after the moves
+    - 0 calls for an ordered workbook."""
     from .jobs import com, fast_excel, is_busy
-    rows, active = com(lambda: _read_sheets(wb, is_busy))
+    rows, active = known if known is not None else com(lambda: _read_sheets(wb, is_busy))
     names = [n for n, _, _ in rows]
     visible = {n: v for n, v, _ in rows}
     tabs = {n: c for n, _, c in rows}
@@ -182,13 +186,13 @@ def arrange_sheets(wb, mode: str = "full", activate: str | None = None) -> dict:
     target = sheet_order(names, visible, mode, sources)
     moves = plan_moves(names, target, pinned_sheets(names, visible, mode, sources))
     if moves:
-        with fast_excel(com(lambda: wb.Application)):
+        with fast_excel(com(lambda: wb.Application)) if known is None else contextlib.nullcontext():
             for n, where, anchor in moves:
                 if where == "before":                   # positional Before
                     com(lambda n=n, a=anchor: wb.Worksheets(n).Move(wb.Worksheets(a)))
                 else:                                   # positional After
                     com(lambda n=n, a=anchor: wb.Worksheets(n).Move(None, wb.Worksheets(a)))
-        got = com(lambda: [str(s.Name) for s in wb.Worksheets])
+        got = com(lambda: [str(s.Name) for s in wb.Worksheets]) if known is None else target
         if got != target:
             log.warning("sheet order after moves %s != target %s", got, target)
     for n in target:

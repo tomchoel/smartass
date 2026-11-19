@@ -290,21 +290,24 @@ def test_a_failed_drop_puts_the_old_sheets_back_in_their_places(own_book, monkey
     order = _names(wb)
     q3 = {n: fakexl.sheet_state(wb.Worksheets(n)) for n in ("Q3 Answer", "Q3 Data", "Q3 Lines b0")}
 
-    def drop(t, parked):
+    before = fakexl.snapshot(wb)
+
+    def drop(t, parked, *a, **k):
         raise HostError("the delete was refused")
     monkeypatch.setattr(movein, "drop", drop)
     with pytest.raises(HostError, match="refused"):
         own_book.follow_up(_pre(), 3)
     assert _names(wb) == order and _tables(wb) == ["Data_Q1", "Data_Q2", "Data_Q3", "Lines_Q3_b0"]
     assert {n: fakexl.sheet_state(wb.Worksheets(n)) for n in q3} == q3
+    assert fakexl.snapshot(wb) == before                # the drop comes before Sources and the spec: both as they were
 
 
 def test_a_drop_that_deletes_and_then_fails_keeps_the_new_answer(own_book, monkeypatch):
     """The old sheets are gone once the Delete went through: a rollback then would leave neither answer."""
     wb, real = own_book.wb, movein.drop
 
-    def drop(t, parked):
-        real(t, parked)
+    def drop(t, parked, *a, **k):
+        real(t, parked, *a, **k)
         raise HostError("could not restore Application.DisplayAlerts")
     monkeypatch.setattr(movein, "drop", drop)
     with pytest.raises(HostError, match="DisplayAlerts") as e:
@@ -314,14 +317,31 @@ def test_a_drop_that_deletes_and_then_fails_keeps_the_new_answer(own_book, monke
     assert "Data_Q3" in _tables(wb)
 
 
-def test_a_failure_after_the_drop_keeps_the_new_answer(own_book, monkeypatch):
+def test_a_failure_after_the_drop_keeps_the_new_answer_saves_our_file_and_says_so(own_book, monkeypatch):
     def check(*a):
         raise HostError("the job was abandoned")
     monkeypatch.setattr(pipeline, "_check", check)
+    saved = own_book.wb.saved
     with pytest.raises(HostError, match="abandoned") as e:
         own_book.follow_up(_pre(), 3)
     assert not isinstance(e.value, pipeline.RestoreError)
+    assert str(e.value).startswith("the job was abandoned") and "the new answer is in place" in str(e.value)
+    assert own_book.wb.saved == saved + 1
     assert "Q3 Answer" in _names(own_book.wb) and "Q3 Lines b0" not in _names(own_book.wb)
+
+
+def test_a_follow_up_makes_at_most_37_com_calls_and_reads_the_sheets_once(own_book, monkeypatch):
+    from smartass.core.timing import COM_PREFIX
+    from smartass.xl import sheetorder
+    reads, real = [], movein._read_book
+    monkeypatch.setattr(movein, "_read_book", lambda wb: reads.append(wb) or real(wb))
+    monkeypatch.setattr(movein, "_inventory", lambda wb: pytest.fail("the sheets read again"))
+    monkeypatch.setattr(sheetorder, "_read_sheets", lambda wb, busy: pytest.fail("the order read again"))
+    calls = fakexl.count_com(monkeypatch)
+    own_book.pre = _pre()
+    out, timings = pipeline.with_timings(lambda h: pipeline.file_redraw_job(h, own_book.pre, 3, None, PATH))(H)
+    assert len(calls) <= 37, {k: v for k, v in timings.items() if k.startswith(COM_PREFIX)}    # 35 (19.11.2026)
+    assert len(reads) == 1 and out["checks"]["sheet_equals_model"] == "OK"
 
 
 def test_a_failed_follow_up_rolls_back_before_it_restores_and_never_after(own_book, monkeypatch):

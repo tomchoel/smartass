@@ -66,18 +66,18 @@ class Wired:
             self.built.append(real_build(path, *a, **k))
             return self.built[-1]
 
-        def move_in(t, built, after, first=False):
+        def move_in(t, built, after, first=False, book=None, left=None):
             t.sheets_added.extend(built.sheets)
 
         def rollback(t):
             self.rolled_back = list(t.sheets_added)
         put = monkeypatch.setattr
         put(pipeline, "_target", self.rec("target", ret=self.t))
-        put(pipeline, "_next_q", self.rec("next_q", ret=1))
+        put(pipeline, "_book", self.rec("book", ret=movein.Book([movein.Sheet("Sources")])))
         put(movein, "base", self.rec("base", ret=BASE))
         put(xlsx, "build", self.rec("build", build))
-        put(movein, "quiet", lambda app: contextlib.nullcontext())
-        put(pipeline, "_after", lambda t, q: None)
+        put(movein, "quiet", lambda app, wb=None: contextlib.nullcontext(movein.Quiet()))
+        put(pipeline, "_place", lambda book, q: (None, True))
         put(movein, "move_in", self.rec("move_in", move_in))
         put(movein, "finish", self.rec("finish"))
         put(movein, "calculate", self.rec("calculate"))
@@ -113,7 +113,7 @@ def wired(monkeypatch, tmp_home):
 
 def test_the_file_job_runs_its_steps_in_order(wired, tmp_home):
     out = pipeline.file_job(H, _pre())
-    assert wired.calls == ["target", "next_q", "base", "build", "move_in", "finish", "calculate", "read_block", "status",
+    assert wired.calls == ["target", "book", "base", "build", "move_in", "finish", "calculate", "read_block", "status",
                            "sources", "save_spec", "arrange", "check", "save", "remember"]
     assert out["sheets"] == ["Q1 Answer", "Q1 Data"] and out["checks"]["sheet_equals_model"] == "OK"
     assert wired.path.parent == tmp_home / "tmp" and wired.path.suffix == ".xlsx" and not wired.path.exists()
@@ -260,8 +260,8 @@ def test_the_answer_lands_where_add_sheet_would_put_it(fake_target, calculated, 
         ws.wb = fake_target.wb
     real, got = movein.move_in, []
 
-    def move_in(t, built, after, first=False):
-        real(t, built, after, first)
+    def move_in(t, built, after, first=False, **kw):
+        real(t, built, after, first, **kw)
         got.append([ws.Name for ws in t.wb.order if ws.Name != f"Q{q} Data"])
     monkeypatch.setattr(movein, "move_in", move_in)
     _job(_pre(), calculated)
@@ -315,6 +315,75 @@ def test_the_lines_sheet_carries_todays_title_source_and_provenance(fake_target,
     assert (v("C3"), v("D3")) == ("Cube value", -100.0)
     assert v("F1") == "Drill cell" and (1, 6) in ws.prefixed and v("G2").endswith(" · tom")
     assert v("G3") == "=SUM(Lines_Q1_b0[AMOUNT])" and (3, 7) not in ws.prefixed
+
+
+# ------------------------------------------------------------------ Task 8B: fewer calls, one look, the answer shown
+def test_a_second_answer_into_the_workbook_makes_at_most_36_com_calls(fake_target, calculated, monkeypatch):
+    _job(_pre(), calculated)                            # the first answer furnishes the Sources log
+    calls = fakexl.count_com(monkeypatch)
+    out, timings = _job(_pre(), calculated)
+    assert len(calls) <= 36, {k: v for k, v in timings.items() if k.startswith(COM_PREFIX)}    # 34 (19.11.2026)
+    assert timings[COM_PREFIX + "draw.sources"] == 3 and out["checks"]["sheet_equals_model"] == "OK"
+    assert [ws.Name for ws in fake_target.wb.order] == ["Q1 Answer", "Q2 Answer", "Q1 Data", "Q2 Data", "Sources",
+                                                        "_svmeta"]
+
+
+def test_the_sheets_are_read_once_per_job(fake_target, calculated, monkeypatch):
+    from smartass.xl import sheetorder
+    _job(_pre(), calculated)
+    reads, real = [], movein._read_book
+    monkeypatch.setattr(movein, "_read_book", lambda wb: reads.append(wb) or real(wb))
+    monkeypatch.setattr(movein, "_inventory", lambda wb: pytest.fail("the sheets read again"))
+    monkeypatch.setattr(sheetorder, "_read_sheets", lambda wb, busy: pytest.fail("the order read again"))
+    _job(_pre(), calculated)
+    assert len(reads) == 1
+
+
+def _shows(monkeypatch, app) -> list:
+    """Every movein.show, as an event of the fake Excel (in order with the copy, the formulas and the calculation)."""
+    real = movein.show
+
+    def show(app_, wb, name):
+        app.events.append((name, "show"))
+        return real(app_, wb, name)
+    monkeypatch.setattr(movein, "show", show)
+    return app.events
+
+
+def test_the_answer_is_shown_after_the_move_in_and_again_once_it_is_calculated(fake_target, calculated, monkeypatch):
+    app = fake_target.app
+    events = _shows(monkeypatch, app)
+    _job(_pre(), calculated)
+    kinds = [k for _, k, *_ in events if k in ("Copy", "Formula2", "Calculate", "show")]
+    first, second = (i for i, k in enumerate(kinds) if k == "show")
+    assert kinds.index("Copy") < first < kinds.index("Formula2") and second > max(
+        i for i, k in enumerate(kinds) if k == "Calculate")
+    assert app.ActiveWorkbook is fake_target.wb and fake_target.wb.active.Name == "Q1 Answer"
+    assert app.ScreenUpdating is True
+
+
+def test_a_workbook_that_is_not_on_screen_is_never_shown_and_the_users_workbook_stays_active(fake_target, calculated,
+                                                                                            monkeypatch):
+    app = fake_target.app
+    mine = fakexl.Workbook(["Mine"], app=app)               # the user works in another workbook meanwhile
+    mine.Name, mine.FullName = "mine.xlsx", r"C:\Users\me\mine.xlsx"
+    events = _shows(monkeypatch, app)
+    _job(_pre(), calculated)
+    assert not [e for e in events if e[1] == "show"] and app.ActiveWorkbook is mine
+
+
+def test_a_temp_workbook_that_did_not_close_is_closed_at_the_end_and_said(fake_target, calculated, monkeypatch, tmp_home):
+    real, fails = fakexl.Workbook.Close, []
+
+    def close(wb, save=None):
+        if wb is not fake_target.wb and not fails:
+            fails.append(wb.Name)
+            raise fakexl.ComError("busy")
+        return real(wb, save)
+    monkeypatch.setattr(fakexl.Workbook, "Close", close)
+    out, _ = _job(_pre(), calculated)
+    assert fails and any("closed at the end of the job" in w for w in out["warnings"])
+    assert len(fake_target.app.Workbooks) == 1 and not _temp_files(tmp_home)
 
 
 # ------------------------------------------------------------------ the Key point heights and the page breaks

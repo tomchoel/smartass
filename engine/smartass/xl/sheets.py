@@ -42,7 +42,11 @@ def question_of(name: str, names) -> int | None:
 
 
 def next_question(t: target.Target) -> int:
-    names = [s.Name for s in t.wb.Worksheets]
+    return next_question_in([s.Name for s in t.wb.Worksheets])
+
+
+def next_question_in(names: list[str]) -> int:
+    """The next question number of a workbook with these sheets."""
     return max((n for x in names if (n := question_of(x, names)) is not None), default=0) + 1
 
 
@@ -126,15 +130,20 @@ def unique_sheet_name(t: target.Target, base: str) -> str:
 
 
 def place_after(t: target.Target, after_q: int | None = None):
-    """The sheet a new sheet of question `after_q` goes after: the last sheet of that question, else the last sheet
-    that is not Sources / Sources SV / _svmeta; None when there is none (the new sheet then goes first)."""
+    """The sheet a new sheet of question `after_q` goes after (place_after_in), or None."""
     sheets = list(t.wb.Worksheets)
+    name = place_after_in([s.Name for s in sheets], after_q)
+    return next(s for s in sheets if s.Name == name) if name is not None else None
+
+
+def place_after_in(names: list[str], after_q: int | None = None) -> str | None:
+    """Of these sheet names, the one a new sheet of question `after_q` goes after: the last sheet of that question,
+    else the last sheet that is not Sources / Sources SV / _svmeta; None when there is none (it then goes first)."""
     if after_q is not None:
-        names = [s.Name for s in sheets]
-        group = [s for s in sheets if question_of(s.Name, names) == after_q]
+        group = [n for n in names if question_of(n, names) == after_q]
         if group:
             return group[-1]
-    others = [s for s in sheets if s.Name not in ("Sources", "Sources SV", META_SHEET)]
+    others = [n for n in names if n not in ("Sources", "Sources SV", META_SHEET)]
     return others[-1] if others else None
 
 
