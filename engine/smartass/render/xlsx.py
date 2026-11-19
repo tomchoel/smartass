@@ -35,6 +35,9 @@ from .layout import SheetPlan, col_letter, col_number
 
 MAX_ROWS = 1_048_576                    # rows of an Excel sheet
 TEXT_UNIT_PX = 7                        # tn.text_units measures in 7 px digits (Calibri 11's)
+AUTOFIT_MARGIN = 1.04                   # AutoFit over tn.text_units: lowercase Arial 9 renders wider than its glyph
+                                        # table ('s' as 'a', 'm' and 'i' wider; Excel, 19.11.2026): a 48-character
+                                        # id read 2.25 characters under AutoFit, 4 % keeps it within 1.0
 ANSWER_TAB, DATA_TAB = "#1F3864", "#A6A6A6"
 PRINT_HEADER = '&"Arial"&8Intern'       # styling.print_setup's CenterHeader
 MARGIN = 1.5 / 2.54                     # 1.5 cm left and right, in inches
@@ -317,7 +320,7 @@ def _data(wb, fmt: _Formats, q: int, data: DataSheet) -> tuple[TableSpec, Formul
         for j in range(w):
             ws.write_blank(r0 - 1 + i, j, None, fmt(table))
     for j, width in enumerate(widths):                            # AutoFit over the table, at most 40, A:D at least 16
-        fit = min(width * TEXT_UNIT_PX / ws.max_digit_width, LABEL_MAX)        # in the destination's digits
+        fit = min(width * TEXT_UNIT_PX / ws.max_digit_width * AUTOFIT_MARGIN, LABEL_MAX)   # destination's digits
         ws.set_column(j, j, max(fit, HEADER_MIN) if j < HEADER_COLS else fit)
     ws.freeze_panes(r0, 0)
     ws.set_tab_color(DATA_TAB)

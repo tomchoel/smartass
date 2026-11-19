@@ -475,7 +475,7 @@ def fitted(g, j: int, digit: int = 7) -> float:
     and the shown values measured (text units are 7 px), at most 40 characters, A:D at least 16."""
     units = max([tn.text_units(str(g[0][j]), 9, bold=True)]
                 + [tn.text_units(_shown(row[j], j == len(row) - 1), 9) for row in g[1:] if row[j] not in (None, "")])
-    fit = min(units * 7 / digit, 40)
+    fit = min(units * 7 / digit * 1.04, 40)        # AutoFit's margin over the glyph table (xlsx.AUTOFIT_MARGIN)
     return max(fit, 16) if j < 4 else fit
 
 
@@ -513,6 +513,22 @@ def test_data_widths_are_measured_in_the_destinations_digits_with_the_header_bol
     ws = openpyxl.load_workbook(path)["Q3 Data"]
     for j in range(len(data.grid[0])):
         assert _widths(ws)[col_letter(j + 1)] == written_width(fitted(data.grid, j, 8), 8), col_letter(j + 1)
+
+
+ID_SHAPED = "q6:fam_other_own_connections_retail_customers:qx"   # invented: 40 lowercase, 1 digit, 2 ':', 5 '_'
+ID_AUTOFIT = 37.63      # Excel's AutoFit of ID_SHAPED in Arial 9 under a Telenor 11 Normal (8 px digits), 19.11.2026
+
+
+def test_a_long_lowercase_id_is_never_narrower_than_autofit_by_more_than_a_character(tmp_path, plan):
+    """tn.text_units reads lowercase Arial 9 too narrow: Excel renders 's' as wide as 'a', 'm' and 'i' wider than
+    their 1/1000-em widths (measured 19.11.2026); a 48-character id came out 2.25 characters under AutoFit (b09).
+    The Data widths carry a 4 % margin: never more than 1.0 below AutoFit, at most 3.0 above it."""
+    assert len(ID_SHAPED) == 48 and sum(c.islower() for c in ID_SHAPED) == 40 and ID_SHAPED.count("_") == 5
+    path = tmp_path / "answer.xlsx"
+    build(path, "Q3 Answer", plan, _data(account=ID_SHAPED), [], base=telenor())
+    width = _widths(openpyxl.load_workbook(path)["Q3 Data"])[col_letter(ACCOUNT_COL)]
+    shown = (width * 8 - 5) / 8                                   # the ColumnWidth Excel shows (5 px padding)
+    assert ID_AUTOFIT - 1.0 <= shown <= ID_AUTOFIT + 3.0
 
 
 def test_the_lines_date_takes_the_destinations_date_format(tmp_path, plan):
