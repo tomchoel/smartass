@@ -10,7 +10,9 @@ One warm-up answer (the first case, target 'new') creates ONE new workbook in th
 round then lands in that session workbook (target 'session'). Rounds run outer and cases inner, so the growing
 workbook weighs on every case alike. The warm-up has its own row and is not in the medians. A failed run is listed
 with its error (amounts masked), never hidden; when the warm-up and the first measured run both fail the bench stops
-(the cause is the environment, not a case). Never saves or closes a workbook of the user's; at the end only the
+(the cause is the environment, not a case). A case that guard_chart refuses (no chart block) runs the same steps as
+server._new_question minus that one guard, still logged as fin_analyze, and its row is marked '(no chart block)';
+the case files are not changed. Never saves or closes a workbook of the user's; at the end only the
 engine's own hidden Excel and browser are shut down, as the server's lifespan does.
 """
 import argparse
@@ -105,6 +107,24 @@ def table(warm: dict | None, runs: list[dict]) -> str:
     return "\n".join(rows)
 
 
+ROUND_COLUMNS = (("_total", "_total s"), ("excel job._total", "excel job s"), ("excel job.draw", "draw s"),
+                 ("excel job.draw.data sheet", "draw.data sheet s"), ("excel job.draw.sources", "draw.sources s"),
+                 ("excel job.draw.answer", "draw.answer s"), ("excel job.save", "save s"), ("prepare", "prepare s"))
+
+
+def round_table(runs: list[dict]) -> str:
+    """Per round the medians over the ok runs without a lines block (no drill), to show how the answers change as
+    the one workbook grows; the COM calls show whether the work itself changed."""
+    head = ["round", "runs"] + [title for _, title in ROUND_COLUMNS] + ["COM calls"]
+    rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    for n in sorted({r["round"] for r in runs}):
+        rs = [r for r in runs if r["round"] == n and r["ok"] and JOB + "draw.lines" not in r["timings"]]
+        cells = [str(n), str(len(rs))] + [_secs(_median(r["timings"].get(k) for r in rs)) for k, _ in ROUND_COLUMNS]
+        cells.append(_count(_median(com_calls(r["timings"]) for r in rs)))
+        rows.append("| " + " | ".join(cells) + " |")
+    return "\n".join(rows)
+
+
 def stage_table(runs: list[dict]) -> str:
     """Every timed key over the ok runs, by its share of the bench's seconds. Stages nest (draw holds draw.answer),
     so the shares of a stage and its parts overlap; drills.* are summed over concurrent drills."""
@@ -121,22 +141,35 @@ def stage_table(runs: list[dict]) -> str:
     return "\n".join(rows)
 
 
-async def _run(tool, case: dict, target: str, start: datetime) -> dict:
+def _has_chart(spec) -> bool:
+    """False when guard_chart refuses the spec (a new question without a chart block)."""
+    from smartass.model.validate import GuardError, guard_chart
+    try:
+        guard_chart(spec)
+    except GuardError:
+        return False
+    return True
+
+
+async def _run(tool, case: dict, target: str, start: datetime, round_no: int = 0) -> dict:
     """One answer; its run-log line (the reply itself is dropped: it carries figures)."""
     from smartass.model.spec import AnalysisSpec
     path = config.RUN_LOG
     offset = path.stat().st_size if path.exists() else 0
     t0 = time.monotonic()
     error = None
+    label = case["id"]
     try:
         spec = AnalysisSpec.model_validate(case["spec"])
-        await tool(spec, target)
+        chart = _has_chart(spec)
+        label = case["id"] if chart else f"{case['id']} (no chart block)"
+        await tool(spec, target, chart=chart)
     except Exception as e:   # noqa: BLE001 - a failed case is listed with its error, the bench goes on
         error = e
     lines = read_lines(path, offset, start)
     question = case["spec"].get("question")
     line = next((x for x in reversed(lines) if x.get("question") in (question, None)), None)
-    rec = {"case": case["id"], "wall": time.monotonic() - t0, "timings": (line or {}).get("timings") or {}}
+    rec = {"case": label, "round": round_no, "wall": time.monotonic() - t0, "timings": (line or {}).get("timings") or {}}
     if error is not None:
         rec.update(ok=False, error=scrub(error))
     elif line is None:
@@ -183,8 +216,14 @@ async def bench(cases: list[dict], rounds: int) -> int:
     from smartass import server
     from smartass.core import serverkit as kit
 
-    async def fin_analyze(spec, target):            # the name runlog.begin keys on (serverkit.RUN_LOGGED)
-        return await server._new_question(spec, target)
+    async def fin_analyze(spec, target, chart=True):    # the name runlog.begin keys on (serverkit.RUN_LOGGED)
+        if chart:
+            return await server._new_question(spec, target)
+        # server._new_question's own steps minus guard_chart (the case has no chart block; the draw adds one)
+        server.guard_key_points(spec)
+        pre, notes = await server._prepare(spec.model_dump(), server._provider(), spec, target, complete=True)
+        return server._with_notes(await server._draw_job(lambda h: server.excel_job(h, pre, target), "fin_analyze",
+                                                         spec.question), notes)
 
     tool = kit.guard(fin_analyze)
     start = datetime.now().astimezone().replace(microsecond=0)
@@ -195,7 +234,7 @@ async def bench(cases: list[dict], rounds: int) -> int:
         _progress("warm-up", warm)
         for n in range(1, rounds + 1):
             for case in cases:
-                rec = await _run(tool, case, "session", start)
+                rec = await _run(tool, case, "session", start, n)
                 runs.append(rec)
                 _progress(f"round {n}", rec)
                 blocked = len(runs) == 1 and not warm["ok"] and not rec["ok"]
@@ -206,6 +245,8 @@ async def bench(cases: list[dict], rounds: int) -> int:
         print(f"\n## Baseline v2 answers, {start:%Y-%m-%d}\n")
         print(f"Engine {__version__}; {rounds} rounds of {len(cases)} cases; medians over the ok rounds.\n")
         print(table(warm, runs))
+        print("\n### Per round (ok runs without a lines block)\n")
+        print(round_table(runs))
         print("\n### Stages\n")
         print(stage_table(runs), flush=True)
         print(f"\nExcel: {await _build(kit)}", flush=True)
