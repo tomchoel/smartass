@@ -257,6 +257,19 @@ def test_the_label_fixes_set_position_colour_and_lift(t, built):
     assert thin.Font.Color == NAVY_BGR and thin.Top == 40.0 and not hasattr(thin, "Position")
 
 
+def test_a_thin_step_label_at_most_its_lift_from_the_top_is_coloured_but_not_moved(t, built):
+    """As charts._labels: only a label more than the lift below the chart's top is lifted (live, 19.11.2026: the
+    empty points of a waterfall's other step series kept their position in the COM drawing)."""
+    built.label_fixes = [LabelFix(1, 1, 2, font_color="#1F3864", lift_pt=10.0)]
+    movein.move_in(t, built, after=None)
+    ws = t.wb.Worksheets("Q3 Answer")
+    labels = charts_on(ws)
+    empty = ws.ChartObjects(1).Chart.SeriesCollection(1).Points(2).DataLabel
+    object.__setattr__(empty, "Top", 10.0)
+    movein.finish(t, built)
+    assert labels[(1, 1, 2)].Font.Color == NAVY_BGR and labels[(1, 1, 2)].Top == 10.0
+
+
 @pytest.mark.parametrize("position,code", [("right", -4152), ("above", 0), ("below", 1), ("left", -4131)])
 def test_each_label_position_is_excels_constant(t, built, position, code):
     built.label_fixes = [LabelFix(1, 1, 1, position=position)]

@@ -203,9 +203,12 @@ def _bgr(colour: str) -> int:
 
 
 def _find_label(ws, fix: LabelFix) -> tuple:
-    """The point's DataLabel, and its Top when the fix lifts it (read first, so a rerun sets the same value)."""
+    """The point's DataLabel, and its Top when the fix lifts it (read first, so a rerun sets the same value): None
+    when the label is not more than the lift below the chart's top, which charts._labels leaves where it is (the
+    empty points of a waterfall's other step series)."""
     lab = ws.ChartObjects(fix.chart).Chart.SeriesCollection(fix.series).Points(fix.point).DataLabel
-    return lab, (lab.Top if fix.lift_pt else None)
+    top = lab.Top if fix.lift_pt else None
+    return lab, (top if isinstance(top, (int, float)) and top > fix.lift_pt else None)
 
 
 def _label(ws, fix: LabelFix) -> None:
