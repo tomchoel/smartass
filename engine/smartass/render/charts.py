@@ -5,7 +5,7 @@ render/xlsx_charts.py draws them in the built file, and xl/movein.py sets what o
 - Colours: each metric gets its own hue (HUES: navy, teal, amber, purple, grey-blue); within a metric the scenario
   styling is IBCS: AC solid, PY a lighter tint of the same hue, BU outlined (bars) or dashed (lines), FC hatched
   (bars) or dotted (lines); variances green or red by effect; highlighted points in the TN accent, the rest grey.
-- Labels instead of axes: data labels (MNOK '#,##0.0,,', through styling.chart_format: U+00A0 scaling), no
+- Labels instead of axes: data labels (MNOK '#,##0.0,,', en-US codes in the file), no
   gridlines, no tick marks, no value axis labels; a line labels only its last point (plus min and max on 12 points
   or fewer: spec.label_points). A legend on top whenever 2 or more series are visible (not on a waterfall or a
   variance chart, whose bars are labelled by effect).

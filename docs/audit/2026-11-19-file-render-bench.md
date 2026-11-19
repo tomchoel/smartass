@@ -26,14 +26,17 @@ Spec: the median `excel job._total` at most **3 s** without a lines sheet and **
 | 3 | 8 (Q20-Q27) | **3.29** | 7 | **5.19** | **missed** |
 
 **The gate is missed in round 3, both without a lines sheet (3.29 s) and with one (5.19 s).** Rounds 1 and 2 are
-within it. Per Step 2 nothing was switched over or deleted.
+within it. Per Step 2 the work stopped there, before anything was switched over or deleted, until the controller's
+ruling below.
 
 ## Controller ruling
 
-The gate decides whether the file renderer may replace the old one, and it clearly may: the miss in round 3
-(3.29 s / 5.19 s at 61 sheets, against 46 s before) is accepted for the switch-over. The part that grows with the
-sheet count (per-sheet reads inside one COM call, the spec store) is removed by the next task (an in-process
-executor), and the save's growth is Excel's own; the re-gate moves to that next task.
+> The gate miss in round 3 (3.29 s / 5.19 s at 61 sheets, against 46 s before) is ACCEPTED for the switch-over.
+> Reason: the gate decides whether the file renderer may replace the old one, and it clearly may; the part that
+> grows with the sheet count (per-sheet reads inside one COM call, the spec store) is removed by the next task (an
+> in-process executor), so do NOT build a COM-side workaround for it now; the save's growth is Excel's own.
+
+The re-gate moves to that next task.
 
 ## Before and after, per round (answers without a lines block)
 

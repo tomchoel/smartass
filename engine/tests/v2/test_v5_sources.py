@@ -515,3 +515,8 @@ def test_a_real_link_an_earlier_version_left_on_the_data_header_is_replaced_by_t
     src = int(h.sources["fm"][1:])
     assert not ws.Hyperlinks and _target(ws, src, 2) == f"'Sources'!A{rows['fm']}"
     assert ws.cells[(src, 2)]["HorizontalAlignment"] == -4131
+
+
+def test_the_log_kind_reader_without_callers_is_gone():
+    """Task 8B review 5: sources.log_kind had no callers left; _kind (inside a COM call) is the one reader."""
+    assert not hasattr(sources, "log_kind") and callable(sources._kind)

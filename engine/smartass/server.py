@@ -252,7 +252,7 @@ async def _new_question(spec: AnalysisSpec, target: str) -> dict:
 async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = None, q: int | None = None,
                       target: str = "session", ctx: Context | None = None) -> dict:
     """Run one analysis. New question: spec = AnalysisSpec v2. Follow-up: patch = JSON merge patch on the stored
-    spec of Q<q> (default: the active Q<n> Answer, else the latest); the same sheets are rebuilt in place.
+    spec of Q<q> (default: the active Q<n> Answer, else the latest); the question's sheets are replaced (same names).
     Fetches over Smart View HTTP, computes, and builds Q<n> Answer (live formulas on table Data_Q<n>) + Q<n> Data in
     the session workbook (target 'session', 'new' or 'active', an absolute path or the name of an open workbook).
     A follow-up's target default: the workbook of your latest answer. Returns key_values (quote only these),

@@ -91,7 +91,7 @@ floors used sit in labelled cells in the answer's **Thresholds** section, and th
 
 `fin_analyze(patch=..., q=n)` applies a JSON merge patch to the stored spec: objects merge, lists such as
 `blocks` or `metrics` are replaced whole, `null` removes a field. Default q is the active `Q<n> Answer`, else the
-latest. The same sheets are rebuilt in place.
+latest. The question's sheets are replaced (same names); anything typed on them goes with them.
 
 ## Members
 

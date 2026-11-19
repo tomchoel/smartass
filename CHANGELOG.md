@@ -7,8 +7,8 @@
 - An answer's sheets (`Q<n> Answer` with its charts, `Q<n> Data`, `Q<n> Lines <alias>`) are built as an .xlsx
   without Excel (`render/xlsx.py`, `render/xlsx_charts.py`), moved into the workbook in one copy and finished there
   (`xl/movein.py`), with the user's Excel quiet and left as it was found. The live comparison of all nine test-set
-  cases found the same cells, formats and charts as the old COM writers
-  (`docs/audit/2026-11-19-render-comparison.md`).
+  cases passed against the old COM writers: every difference left is on its allowed list (cell style names, a
+  0.2 pt chart height, Data widths within AutoFit's band; `docs/audit/2026-11-19-render-comparison.md`).
 - Measured live (`scripts/bench_answers.py --rounds 3`, all nine cases, one workbook growing to 28 answers): the
   Excel job of an answer without a lines sheet went from 15.6 / 25.8 / 46.0 s per round
   (`docs/audit/2026-11-19-baseline-v2.md`) to 2.0 / 2.7 / 3.3 s; over all cases from 33.7 s to 2.8 s, the whole

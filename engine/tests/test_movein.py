@@ -576,6 +576,21 @@ def test_park_renames_in_one_call_and_tells_the_book(tq, monkeypatch):
     assert len(calls) == 1 and book.names() == _names(tq.wb) == ["Q1 Answer", "Notes", "Sources"]
 
 
+def test_the_books_active_sheet_follows_the_park_and_goes_with_the_drop(tq):
+    """Task 8B review 1: the Book's active sheet is never a stale name."""
+    tq.wb.active = tq.wb.Worksheets("Q3 Answer")
+    book = movein.read_book(tq)
+    assert book.active == "Q3 Answer"
+    parked = movein.park(tq, SHEETS, ["Data_Q3", "Lines_Q3_b0"], book=book)
+    assert book.active == "old Q3 Answer"
+    movein.drop(tq, parked, book=book)
+    assert book.active is None
+    tq.wb.active = tq.wb.Worksheets("Notes")
+    book = movein.read_book(tq)
+    movein.drop(tq, movein.park(tq, ["Q1 Answer"], [], book=book), book=book)
+    assert book.active == "Notes"                                    # a sheet that stays keeps it
+
+
 def test_park_takes_a_free_name_when_an_old_one_is_left_over(tq):
     tq.wb.order.append(fakexl.Worksheet(tq.wb, "old Q3 Answer"))
     _add_table(tq.wb.Worksheets("Notes"), "Data_Q3_old", "D1:E3")
