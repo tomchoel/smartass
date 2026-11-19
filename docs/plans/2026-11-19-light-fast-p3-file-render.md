@@ -457,6 +457,121 @@ def test_a_users_workbook_is_never_saved(): ...               # as today
 - [ ] **Step 5: Live check of the save rule:** draw one answer with `SV_RENDER=file` into a new answer workbook and confirm the file on disk has the new sheets within 30 s without an explicit `Save` (open the local file read-only with openpyxl after the wait). If it does not, keep the explicit `Save` and say so in the report.
 - [ ] **Step 6: Commit** `perf(xl): Sources log, spec store and save in a handful of calls`.
 
+### Task 8A: `xl/fastcom.py` - a late-bound COM wrapper that learns each interface once
+
+Added by the controller on 2026-11-19 after probing the owner's Excel (ledger: "Controller probes"). It comes before
+the rest of the performance work because it speeds up every COM call the engine makes, in both renderers and in the
+`xl_*` tools.
+
+**What was measured (owner's Excel, 10 workbooks open):** a pure COM round trip costs 0.4 ms and a raw
+`IDispatch.Invoke` that returns an object 2.2-3.5 ms, but the same step through pywin32's standard late-bound wrapper
+(`win32com.client.dynamic.CDispatch`) costs 7-14 ms: for every object a call returns it fetches the type information
+again, builds a new description, and binds each attribute name again on first use (`_LazyAddAttr_`: four
+`ITypeComp.Bind` calls per name), and it compiles a new method stub per object. A `jobs.com` call is typically 3-5
+such hops, which is the 56-73 ms per call seen in both renderers. A prototype that shares what is learnt per
+interface gave x2.5-3.2 on chains like `ws.Range("B2").Font.Name` with identical results on every case tried.
+
+**Files:**
+- Create: `engine/smartass/xl/fastcom.py`
+- Modify: every place the engine turns a raw COM pointer or a standard pywin32 object into the Excel object it works
+  with (find them: `win32com.client.Dispatch`, `DispatchEx`, `GetObject`, `GetActiveObject`, `dynamic.Dispatch`,
+  `AccessibleObjectFromWindow` / `ObjectFromLresult` in `engine/smartass` - at least `xl/instances.py`, `xl/host.py`,
+  `xl/target.py`); `docs/troubleshooting.md` (one short entry for the switch)
+- Create: `scripts/check_fastcom.py` (live equivalence + timing check; kept)
+- Test: `engine/tests/test_fastcom.py`
+
+**Interfaces:**
+- Produces:
+  - `fastcom.wrap(obj, name: str | None = None)` -> the object wrapped fast. `obj` is a `PyIDispatch` or any pywin32
+    dispatch object (its `_oleobj_` is used). Wrapping an already fast object returns it unchanged. With the
+    environment variable `SV_FASTCOM=0` (read once, as `config.FASTCOM`) it returns the standard wrapper
+    (`win32com.client.dynamic.Dispatch`): the switch exists to rule the wrapper out when diagnosing.
+  - `class fastcom.Fast(dynamic.CDispatch)`: pywin32's own late-bound wrapper with one change - what it learns about
+    an interface is shared by every object of that interface. Everything an attribute get, a call, a method result
+    or an iteration returns that is a COM object is wrapped `Fast` too.
+- Behaviour that must NOT change (the engine's 5 000 lines of Excel code rely on pywin32's late-bound semantics):
+  the same attribute names, property / method distinction, optional arguments, default members
+  (`Worksheets("name")`, `Cells(r, c)`), property puts, iteration, `pythoncom.com_error` raised unchanged, tuple /
+  date / currency conversions. No early binding (`gencache` / makepy) - its generated classes rename parameterised
+  properties (`GetOffset`, `GetEnd` ...) and would break existing code that only real Excel exercises.
+
+**Design that the prototype used (controller's spike; read `engine/.venv/Lib/site-packages/win32com/client/dynamic.py`
+and `build.py` of the pinned pywin32 before writing it):**
+
+```python
+_IFACE = {}     # interface IID -> shared state: the olerepr (name maps) and the compiled method stubs
+
+class Fast(dynamic.CDispatch):
+    def __init__(self, ob, iface, userName=None, typeinfo=None): ...
+        # CDispatch.__init__(self, ob, iface.olerepr, userName, lazydata=...) and _builtMethods_ = iface.methods
+    def _wrap_dispatch_(self, ob, userName=None, returnCLSID=None):
+        return wrap(ob, userName)
+    def _make_method_(self, name): ...
+        # as CDispatch._make_method_, but "Dispatch" in the generated stub's globals is a function that calls
+        # wrap(), and the compiled function is stored in the shared iface.methods
+
+def wrap(ob, userName=None):
+    ti = ob.GetTypeInfo(); iid = ti.GetTypeAttr()[0]          # two cheap calls per new object
+    iface = _IFACE.get(iid) or first_time(iid, ob, ti)        # dynamic.MakeOleRepr(ob, ti, lazydata) once per IID
+    return Fast(ob, iface, userName, ti)
+    # any com_error on the way: fall back to dynamic.Dispatch(ob, userName)
+```
+
+- **Threading (required):** user-Excel jobs run on their own STA threads (`xl/host.py`), so a COM pointer learnt on
+  one thread must never be used on another. The shared state per interface is pure Python only (the olerepr's maps,
+  the compiled stubs, guarded by a lock where it is mutated). The type information used to bind a name that is not
+  in the shared maps yet comes from **the object at hand** (its own `GetTypeInfo()` / `GetTypeComp()`, fetched on
+  that thread, the typecomp only when a new name must be bound) - never from a pointer cached by another thread.
+- The shared olerepr is filled lazily by whichever object first uses a name; after warm-up no type-information
+  call is made beyond the two in `wrap`.
+
+- [ ] **Step 1: Write the failing unit tests** against a COM server every Windows has, in-process, no Excel:
+  `Scripting.FileSystemObject` and `Scripting.Dictionary` (`scrrun.dll`). Compare `fastcom.wrap(raw)` with
+  `dynamic.Dispatch(raw)` on the same operations:
+
+```python
+def test_results_equal_the_standard_wrapper(tmp_path):      # GetFolder(p).Files.Count, .Name, .Path, SubFolders
+def test_objects_returned_by_gets_calls_and_iteration_are_fast(tmp_path):   # isinstance(x, fastcom.Fast) for each
+def test_an_interface_is_learnt_once(tmp_path):
+    # wrap two Folder objects; after using the same names on both, len(fastcom._IFACE) and the shared method-stub
+    # dict did not grow for the second, and (counting with a spy on ITypeComp.Bind via a wrapper class or by
+    # monkeypatching Fast._LazyAddAttr_) no bind happened for the second object
+def test_a_property_put_and_a_method_with_arguments_work():  # Dictionary: d.Add("k", 1); d.Item("k"); d.CompareMode = 1
+def test_a_com_error_is_raised_unchanged():                   # fso.GetFolder(missing) -> pythoncom.com_error, same hresult
+def test_wrapping_twice_returns_the_same_object_and_the_switch_gives_the_standard_wrapper(monkeypatch):
+def test_an_object_wrapped_on_one_thread_does_not_hand_its_type_information_to_another():
+    # learn the interface on thread A (CoInitialize there), then on thread B wrap a NEW object of the same
+    # interface and use a name NOT yet bound: it must work, and the typeinfo used must be thread B's own object
+def test_an_object_without_type_information_falls_back_to_the_standard_wrapper():   # a fake PyIDispatch-like raising com_error
+```
+
+- [ ] **Step 2: Run** `uv run --frozen pytest -q tests/test_fastcom.py`. Expected: FAIL, module missing.
+- [ ] **Step 3: Implement `fastcom.py`**, then wrap at every root so everything downstream is fast. A root is wrapped
+  once; nothing else in the engine changes.
+- [ ] **Step 4: Run the whole suite.** Expected: green (the fakexl tests are unaffected: fakes are not COM objects -
+  `wrap` must pass through anything that is neither a `PyIDispatch` nor has `_oleobj_`).
+- [ ] **Step 5: Write and run `scripts/check_fastcom.py` (live, in a HIDDEN Excel of its own via `DispatchEx`, never
+  the user's Excel; a scratch workbook that is never saved).** For each idiom the engine uses, run it through the
+  standard wrapper and through `fastcom` and require equal results (or the same `com_error` hresult), then time both:
+  ranges (`Range("A1:C3")`, `Range(Cells(1,1), Cells(3,3))`, `Cells(r, c)`, `Rows(n)` / `Columns(n)`, `UsedRange`,
+  `Offset`, `Resize`, `End(-4162)`, `EntireRow`), `Value` / `Value2` / `Formula` / `Formula2` get and set with
+  scalars and 2D tuples, `NumberFormat` / `NumberFormatLocal`, `Font` / `Interior` / `Borders(9)` sets,
+  `ColumnWidth` / `RowHeight`, `Merge` / `MergeCells`, `FormatConditions.Add` + `Delete`, `Worksheets.Add(None,
+  after)` / `Name` / `Tab.Color` / `Visible` / `Move` / `Delete`, `Worksheets([names]).Copy(None, after)` with a
+  list argument, `ListObjects.Add(1, rng, None, 1)` + `Name` + `TableStyle` + `Range` / `DataBodyRange`,
+  `Names.Add` and iteration over `wb.Names` / `Worksheets` / `ListObjects`, `Hyperlinks.Add`, `AutoFilter`,
+  `PageSetup` gets and sets, `HPageBreaks.Add`, `ChartObjects()` / `Shapes.AddChart2` + a series' `Formula` /
+  `Points(i).DataLabel`, `Application.Calculation` / `ScreenUpdating` / `EnableEvents` / `DisplayAlerts` /
+  `International` (as the engine reads it) / `CentimetersToPoints` / `WorksheetFunction.CountA`, `Workbooks.Add` /
+  `Open(path, 0, True)` / `Close(False)` / `LinkSources(1)`, a missing sheet and a missing table (same error). Print
+  one line per idiom: equal yes/no and the two medians; exit 1 on any inequality. Take the list of idioms from the
+  code (grep `com(lambda` in `engine/smartass`) rather than only from this list.
+- [ ] **Step 6: Live in the owner's Excel** (the same safety rules as the earlier live tasks): run
+  `scripts/check_followups.py` once with `SV_RENDER=file` and once with `SV_RENDER=com`; both must end with every
+  answer `sheet_equals_model` OK. Report the Excel-job seconds and COM calls of each next to the figures from before
+  this task (file renderer follow-up: 12-15 s at 121 calls; COM renderer new answer: 15-45 s at about 280 calls).
+- [ ] **Step 7: Commit** `perf(xl): a late-bound COM wrapper that learns each interface once`.
+
 ### Task 9: Speed gate, switch over, delete the old writers
 
 **Files:**
