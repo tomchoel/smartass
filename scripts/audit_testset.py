@@ -57,7 +57,7 @@ def main() -> None:
         pid = win32process.GetWindowThreadProcessId(app.Hwnd)[1]
         t = Target(app=app, wb=wb, pid=pid, hwnd=app.Hwnd, created=False)
         pipeline._target = lambda h, target, title: t            # the audit book, never a session/user workbook
-        pipeline._save = lambda t: None                          # never saved
+        pipeline._save = lambda t, autosave=False: None                         # never saved
         pipeline.remember = lambda pre, out: None                # no answer memory from an audit
         cases = runner.load_cases()
         if "--charts" in ids:              # the chart kinds an agent picks (the test set only has implicit charts)

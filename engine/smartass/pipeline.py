@@ -260,19 +260,26 @@ def _is_ours(t) -> bool:
     return bool(getattr(t, "created", False)) or kit._is_our_analysis_file(str(t.path))
 
 
+class Notes(list):
+    """The job's notes for the reply; autosave: AutoSave was on before the job (autosave_paused)."""
+    autosave = False
+
+
 @contextlib.contextmanager
 def autosave_paused(t):
     """AutoSave (OneDrive/SharePoint files) off while v2 writes, so a half-written answer is never stored.
-    Our own analysis file: restored afterwards (we save it ourselves). The user's workbook: left off, with a note
-    (AutoSave would otherwise save our edits into their file; v1 does the same)."""
+    Our own analysis file: switched back on afterwards, and then AutoSave saves it (_save makes no Save call). The
+    user's workbook: left off, with a note (AutoSave would otherwise save our edits into their file; v1 does the
+    same). Yields the job's Notes."""
     from .xl.jobs import com
-    notes: list[str] = []
+    notes = Notes()
     try:
         prev = bool(com(lambda: t.wb.AutoSaveOn))
     except Exception:   # noqa: BLE001 - a local file or an Excel without AutoSave
         prev = False
     if prev:
         com(lambda: setattr(t.wb, "AutoSaveOn", False))
+    notes.autosave = prev
     try:
         yield notes
     finally:
@@ -284,9 +291,11 @@ def autosave_paused(t):
                          "save yourself or switch it back on.")
 
 
-def _save(t) -> None:
+def _save(t, autosave: bool = False) -> None:
+    """Our own analysis file saved (never the user's): with Workbook.Save, unless AutoSave was on before the job
+    (autosave): autosave_paused switches it back on and it saves the file."""
     from .xl.jobs import com
-    if _is_ours(t):                                     # only the engine's own analysis file, never the user's
+    if _is_ours(t) and not autosave:
         com(lambda: t.wb.Save())
 
 
@@ -563,7 +572,7 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
             with stage("draw"):
                 out = _draw(t, q, pre, ws_answer, ws_data)
             with stage("save"):
-                _save(t)
+                _save(t, notes.autosave)
         except Exception:
             _rollback(t)
             raise
@@ -603,7 +612,7 @@ def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "sess
             raise
         _drop_backup(t, b_answer)
         with stage("save"):
-            _save(t)
+            _save(t, notes.autosave)
         out["followup"] = True
         if not owned:
             out["warnings"] = list(out.get("warnings", [])) + [
@@ -831,7 +840,7 @@ def file_job(h, pre: Prepared, target: str = "session") -> dict:
             with stage("draw"):
                 out = _file_draw(t, q, pre)
             with stage("save"):
-                _save(t)
+                _save(t, notes.autosave)
         except Exception:
             _rollback(t)
             raise
@@ -868,7 +877,7 @@ def file_redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = 
                     raise RestoreError(f"{e}; the restore was incomplete - {e2}") from e
                 raise
         with stage("save"):
-            _save(t)
+            _save(t, notes.autosave)
         out["followup"] = True
     remember(pre, out)
     return _with_notes(out, notes)
