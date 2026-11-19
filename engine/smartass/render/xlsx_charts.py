@@ -223,7 +223,7 @@ def add_charts(workbook, worksheet, sheet_name: str, plan: SheetPlan) -> tuple[l
             continue
         try:
             with warnings.catch_warnings():
-                warnings.simplefilter("error")          # XlsxWriter warns and drops what it refuses
+                warnings.filterwarnings("error", module="xlsxwriter")   # it warns and drops what it refuses
                 lint += _add(workbook, worksheet, sheet_name, spec)
             drawn.append(spec.title)
         except Exception as e:   # noqa: BLE001 - a chart never fails the answer
