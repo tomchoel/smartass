@@ -488,9 +488,9 @@ AUTH_REFUSED = (301, 302, 303, 307, 401, 403)     # EPM's gate did not take the 
 
 class BearerTransport:
     """Posts provider XML over plain HTTPS with the user's OAuth access token: no browser, no sign-in page (live
-    2026-11-19: /HyperionPlanning/SmartView takes the token; a FinPlan grid is cell for cell the browser route's;
-    on the pod alone 0.8 s cold against 17 s - but the data-source lookup on the home pod still signs in through
-    the browser until that pod has a scope too). Only for a pod with a configured scope; a pod without one, a pod
+    2026-11-19 on plan1 and stratmodel: /HyperionPlanning/SmartView takes the token; grids, the closed month and
+    drill links are cell for cell the browser route's; a cold first grid 0.7 s against about 20 s). Only for a pod
+    with a configured scope; a pod without one, a pod
     the user has not signed in to, and a token EPM refuses all go to `fallback` (the browser transport) - and stay there for
     SVHTTP_BEARER_RETRY_S, so a missing sign-in costs one log line, not one per request.
 

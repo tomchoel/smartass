@@ -61,10 +61,11 @@ The bearer route: on a pod that has a scope, grids are fetched over plain HTTPS 
 no hidden browser has to sign in there first. It is optional; without it, and whenever it cannot authenticate, grids
 sign in through the hidden browser as before. Drill-through uses the browser (over the token it is untested).
 
-Measured 19.11.2026 with a scope for the FinPlan pod only: a cold FinPlan grid took 7.7 s instead of about 17 s -
-the grid itself goes over the token, but the list of data sources is asked from the home pod (plan1), which still
-signs in through the browser. FinMax, FinLite and the closed month are on plan1 and gain nothing yet. With a scope
-for every pod a cold grid needs no browser at all (0.8 s when the FinPlan pod was asked alone).
+Measured 19.11.2026 with scopes for plan1 (FinMax, FinLite) and stratmodel (FinPlan): from a cold start a FinMax
+grid took 0.7 s, a FinPlan grid 0.7 s and the closed month 0.1 s, with no browser started; through the browser's
+sign-in the first grid took about 20 s. Every grid compared was the browser route's cell for cell. A drill link
+(GetDrillThroughReports) also goes over the token; the drill lines themselves still load in the hidden browser
+(a 2 839-line drill: 28 s including the browser's start, reconciled exactly).
 
 - **Set-up (per user, `config.toml`):** `[oauth]` `idcs` (the identity domain's base URL) and `client_id` (a public
   client an administrator registered there, with the device-code and refresh-token grants), and one scope per pod

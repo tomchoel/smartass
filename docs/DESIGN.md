@@ -89,11 +89,11 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
   over plain HTTPS with the user's OAuth access token instead of through the browser. One device-code sign-in per
   pod (`smartass login`), stored DPAPI-protected; the refresh token is single use, so every refresh runs under a
   cross-process lock, and the servers renew it daily. A pod without a scope or a sign-in, and a refused token, fall
-  back to the browser transport. Drill-through stays in the browser (untested over the token). Live 19.11.2026,
-  scope for the FinPlan pod only: same grid cell for cell; cold 7.7 s against 17 s, because the data-source lookup
-  on plan1 (no scope yet) still signs in through the browser - asked alone, the FinPlan pod answered in 0.8 s.
-  FinMax and FinLite gain nothing until plan1 has a scope. The same token also opens the documented Planning REST
-  API (`exportdataslice`, member properties), which is not used yet.
+  back to the browser transport. Live 19.11.2026 with scopes for plan1 and stratmodel: FinMax, FinLite and FinPlan
+  grids, the closed month and drill links are the browser route's cell for cell, and a cold start needs no browser
+  (first grid 0.7 s against about 20 s). Drill lines (SUI query + getData) still load in the browser; the SUI GET
+  answers over the token too, getData over the token is untested. The same token also opens the documented Planning
+  REST API (`exportdataslice`, member properties), which is not used yet.
 - **Atlas**: `atlas.db`, rebuilt with `smartass atlas build` (or copied from the monthly release by `smartass
   setup`).
 
