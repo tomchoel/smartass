@@ -73,13 +73,38 @@ def test_the_allowed_differences_are_listed_but_do_not_fail():
     assert cr.report(findings, {"cases": 1, "masked": 0, "errors": {}, "cells": 9})[1] == 0
 
 
-def test_data_column_widths_within_one_character_are_allowed_beyond_it_not():
+def test_a_data_width_may_be_one_character_under_and_three_over_autofit():
     a, b = _sheet(), _sheet()
-    b["column widths"] = {"1:2": 16.9, "3:3": 11}
+    a["column widths"] = {"1:4": 16, "5:5": 9.5}
+    b["column widths"] = {"1:1": 15.0, "2:2": 14.9, "3:3": 19.0, "4:4": 19.1, "5:5": 9.5}
     (ra, da), (rb, db) = _side(a), _side(b)
     da["cases"]["b02"], db["cases"]["b02"] = {"Data": a}, {"Data": b}
     findings, _ = cr.diff({"com": ra, "file": rb}, {"com": da, "file": db})
-    assert [(f.where, bool(f.allowed)) for f in findings] == [("A", True), ("B", True), ("C", False)]
+    assert [(f.where, bool(f.allowed)) for f in findings] == [("A", True), ("B", False), ("C", True), ("D", False)]
+
+
+def _chart_pair(**changes):
+    a, b = _sheet(), _sheet()
+    for side, (k, v) in ((s, kv) for s, kvs in changes.items() for kv in kvs.items()):
+        {"com": a, "file": b}[side]["charts"][0][k] = v
+    return _diff(a, b)[0]
+
+
+def test_a_chart_size_within_half_a_point_is_allowed_beyond_it_not():
+    assert [bool(f.allowed) for f in _chart_pair(com={"height": 260.0}, file={"height": 260.2})] == [True]
+    assert [bool(f.allowed) for f in _chart_pair(com={"width": 480.0}, file={"width": 480.6})] == [False]
+
+
+def test_only_a_line_chart_groups_overlap_is_allowed_to_differ():
+    line = _chart_pair(com={"type": 4, "overlap": 100}, file={"type": 4, "overlap": 0})
+    column = _chart_pair(com={"overlap": -27}, file={"overlap": 0})
+    assert [bool(f.allowed) for f in line] == [True] and [bool(f.allowed) for f in column] == [False]
+
+
+def test_a_value_axis_bound_is_never_shown():
+    findings = _chart_pair(com={"value axis minimum": 12345.6}, file={"value axis minimum": 12000})
+    text, bad = cr.report(findings, {"cases": 1, "masked": 0, "errors": {}, "cells": 9})
+    assert bad == 1 and "12345" not in text and "12000" not in text and "value axis minimum | differs" in text
 
 
 def test_a_case_that_failed_on_one_side_is_a_finding_and_its_sheets_are_not_compared():

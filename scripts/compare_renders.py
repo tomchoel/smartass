@@ -26,8 +26,10 @@ types, fill and line colours, data labels with their number format, font and pos
 and top-left cell, and the label position and font colour of every labelled point of line and stacked charts); per
 answer the reply's keys, sheets, chart titles, layout findings, warnings (numbers masked) and the sheet = model status.
 
-Printed: counts, addresses, property names and format values; never a cell value (a formula only when it is one).
-Allowed: the cell style's name, the hidden sheet name smartass_pagesetup, Data column widths within 1.0 character.
+Printed: counts, addresses, property names and format values; never a cell value (a formula only when it is one),
+a chart title or a value axis bound (a waterfall's comes from the figures): those only as 'differs'.
+Allowed (controller rulings): the cell style's name, the hidden sheet name smartass_pagesetup, a Data column width
+1.0 character under to 3.0 over AutoFit's, a chart's width and height within 0.5 pt, a line chart group's Overlap.
 Exit 0 when every difference is allowed, 1 otherwise, 2 when a run could not proceed."""
 from __future__ import annotations
 
@@ -58,7 +60,9 @@ ERRORS = {-2146826281: "#DIV/0!", -2146826246: "#N/A", -2146826259: "#NAME?", -2
           -2146826215: "#CALC!"}
 POINT_LABEL_TYPES = {4, 65, 52, 53}     # line (and with markers), stacked and 100 % stacked columns
 TOLERANCE = 0.005
-DATA_WIDTH = 1.0                        # Data column widths: allowed within this many characters (AutoFit)
+DATA_NARROWER, DATA_WIDER = 1.0, 3.0    # a Data width may be this many characters under / over AutoFit's (ruled)
+CHART_SIZE = 0.5                        # pt: a chart's width and height (XlsxWriter sizes in whole pixels; ruled)
+LINE_TYPES = {4, 65}                    # xlLine, xlLineMarkers: a line group's Overlap means nothing (ruled)
 
 
 # ---------------------------------------------------------------------------------------------------- addresses
@@ -655,7 +659,18 @@ CHART_KEYS = ("type", "top left", "width", "height", "has title", "title", "has 
               "value axis minimum", "value axis maximum")
 SERIES_KEYS = ("formula", "type", "axis group", "fill", "line", "has data labels", "label number format",
                "label font", "label position", "labelled points")
-HIDDEN = {"title"}                      # compared by hash: shown as 'differs'
+HIDDEN = {"title", "value axis minimum", "value axis maximum"}   # never shown, only that they differ: a title is a
+                                        # hash, a waterfall's axis bound comes from the figures
+
+
+def _chart_allowed(p: str, x: dict, y: dict) -> str | None:
+    """The ruled chart allowances: the size within CHART_SIZE pt, the Overlap of a line chart's group."""
+    a, b = x.get(p), y.get(p)
+    if p in ("width", "height") and all(isinstance(v, (int, float)) for v in (a, b)) and abs(a - b) <= CHART_SIZE:
+        return f"chart size within {CHART_SIZE} pt"
+    if p == "overlap" and x.get("type") in LINE_TYPES and y.get("type") in LINE_TYPES:
+        return "the Overlap of a line chart group"
+    return None
 
 
 def diff_sheet(case: str, kind: str, a: dict, b: dict) -> list[Finding]:
@@ -691,8 +706,8 @@ def diff_sheet(case: str, kind: str, a: dict, b: dict) -> list[Finding]:
                 continue
             allowed = None
             if (prop == "column widths" and kind == "Data" and isinstance(x, (int, float))
-                    and isinstance(y, (int, float)) and abs(x - y) <= DATA_WIDTH):
-                allowed = f"Data column width within {DATA_WIDTH} character"
+                    and isinstance(y, (int, float)) and x - DATA_NARROWER <= y <= x + DATA_WIDER):
+                allowed = f"Data column width {DATA_NARROWER} under to {DATA_WIDER} over AutoFit"
             out.append(Finding(case, kind, prop, str(i) if prop == "row heights" else col_letter(i), x, y, allowed))
     for key in SHEET_KEYS:
         if a.get(key) != b.get(key):
@@ -721,7 +736,8 @@ def diff_charts(case: str, kind: str, ca: list, cb: list) -> list[Finding]:
             continue
         for p in CHART_KEYS:
             if x.get(p) != y.get(p):
-                out.append(Finding(case, kind, f"chart {p}", where, x.get(p), y.get(p), show=p not in HIDDEN))
+                out.append(Finding(case, kind, f"chart {p}", where, x.get(p), y.get(p), _chart_allowed(p, x, y),
+                                   show=p not in HIDDEN))
         sx, sy = x.get("series") or [], y.get("series") or []
         if len(sx) != len(sy):
             out.append(Finding(case, kind, "chart series count", where, len(sx), len(sy)))
