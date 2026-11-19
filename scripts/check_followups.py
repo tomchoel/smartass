@@ -1,18 +1,21 @@
 r"""Live check of the file renderer's follow-ups (light and fast phase 3, Task 7). With SV_RENDER=file: one new answer
 (a test-set case, through the server's own new-question run, as scripts/bench_answers.py runs them) in ONE new
-workbook of the engine's own (target 'new'), then six follow-ups on it in a row through the server's own follow-up
-path - server.fin_analyze(patch=..., q=..., target=<that workbook>): read_stored, find_question, merge_patch,
-_prepare and the redraw job - with a harmless patch that changes the answer (the question's title, then the period of
-its queries, by turns), then fin_refresh's path once (server.fin_refresh on that workbook).
+workbook of the engine's own (target 'new'), and a second answer after it (so Q1's sheets are not side by side and a
+follow-up has to move a sheet to its old place), then six follow-ups on Q1 in a row through the server's own
+follow-up path - server.fin_analyze(patch=..., q=1, target=<that workbook>): read_stored, find_question,
+merge_patch, _prepare and the redraw job - with a harmless patch that changes the answer (the question's title, then
+the period of its queries, by turns), then fin_refresh's path once (server.fin_refresh on that workbook: both
+answers).
 
 Per step it prints the seconds, the Excel job's COM-call count, sheet = model (OK / DIFF in n cells) and the workbook
-checks a fake Excel cannot prove: no 'old ...' sheet and no '..._old' table left, the sheet order as after the first
-answer, the new Answer active, every Sources link of the question still naming its sheet (Excel does not rewrite a
+checks a fake Excel cannot prove: no 'old ...' sheet and no '..._old' table left, the sheet order as after the
+second answer, the last drawn Answer active, every Sources link of the question still naming its sheet (Excel does not rewrite a
 hyperlink's SubAddress when the sheet is parked under another name), and Excel still answering. Never a figure from
 EPM: the replies are dropped. The first failure stops the run (exit 2) with its message, amounts masked.
 
 Usage (from the repo root; Excel open, signed in to EPM):
-    $env:SV_RENDER = "file"; engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--keep]
+    $env:SV_RENDER = "file"; engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--second b07]
+        [--keep]
 Only the workbook this script created is touched, and closed at the end (without saving: the engine saved it after
 every answer) unless --keep; the user's own workbooks and Excel are never saved or closed. At the end only the
 engine's own hidden Excel and browser are shut down, as the server's lifespan does.
@@ -117,7 +120,7 @@ def _patch(i: int, first: dict) -> dict:
     return {"queries": queries}
 
 
-async def check(case: dict, keep: bool) -> int:
+async def check(case: dict, second: dict, keep: bool) -> int:
     from smartass import pipeline, server
     from smartass.core import serverkit as kit
     from smartass.model.spec import AnalysisSpec
@@ -142,7 +145,7 @@ async def check(case: dict, keep: bool) -> int:
     user = kit._call_user
     path, q, order, failed = None, None, None, None
 
-    async def step(label: str, tool: str, call, want_followup: bool) -> None:
+    async def step(label: str, tool: str, call, want_followup: bool, baseline: bool = False) -> None:
         nonlocal path, q, order
         offset = config.RUN_LOG.stat().st_size if config.RUN_LOG.exists() else 0
         before = len(statuses)
@@ -158,17 +161,21 @@ async def check(case: dict, keep: bool) -> int:
             done = (out or {}).get("refreshed") or []
             if not done or not all(d.get("ok") for d in done):
                 raise Stop(f"{label}: " + "; ".join(scrub(d.get("error")) for d in done if not d.get("ok")))
-            status = statuses[-1] if len(statuses) > before else "no job ran"
+            if len(statuses) - before != len(done):
+                raise Stop(f"{label}: {len(done)} answers refreshed, {len(statuses) - before} by file_redraw_job")
+            status = "; ".join(dict.fromkeys(statuses[before:]))          # 'OK' when every answer is OK
+            drawn = max(d["q"] for d in done)
         else:
             status = out["checks"]["sheet_equals_model"]
             if path is None:
                 path, q = out["workbook"], out["q"]
+            drawn = out["q"]
             if want_followup and (out.get("followup") is not True or len(statuses) == before):
                 raise Stop(f"{label}: the reply did not come from file_redraw_job")
         if MOVE_IN not in timings:
             raise Stop(f"{label}: no '{MOVE_IN}' stage in the run log - not the file renderer")
         seen = await user(lambda h: _inspect(h, path, q), what="check_followups: inspect")
-        if order is None:
+        if baseline:
             order = seen["names"]
         problems = []
         if status != "OK":
@@ -179,8 +186,8 @@ async def check(case: dict, keep: bool) -> int:
             problems.append("an '..._old' table is left")
         if seen["names"] != order:
             problems.append("the sheet order changed")
-        if seen["active"] != f"Q{q} Answer":
-            problems.append(f"the active sheet is {seen['active']!r}, not 'Q{q} Answer'")
+        if seen["active"] != f"Q{drawn} Answer":
+            problems.append(f"the active sheet is {seen['active']!r}, not 'Q{drawn} Answer'")
         stale = [s for s in seen["links"] if s.strip("'").split("'!")[0] not in seen["names"]]
         if stale:
             problems.append(f"{len(stale)} Sources link(s) of Q{q} name a sheet that is gone")
@@ -193,10 +200,13 @@ async def check(case: dict, keep: bool) -> int:
         if problems:
             raise Stop(f"{label}: " + "; ".join(problems))
 
-    print(f"check_followups {datetime.now():%Y-%m-%d %H:%M}, render {config.RENDER}, case {case['id']}", flush=True)
+    print(f"check_followups {datetime.now():%Y-%m-%d %H:%M}, render {config.RENDER}, cases {case['id']} and "
+          f"{second['id']}", flush=True)
     try:
         spec = AnalysisSpec.model_validate(case["spec"])
-        await step("new answer", "fin_analyze", lambda: analyze(spec=spec, target="new"), False)
+        await step("new answer", "fin_analyze", lambda: analyze(spec=spec, target="new"), False, baseline=True)
+        spec2 = AnalysisSpec.model_validate(second["spec"])
+        await step("second answer", "fin_analyze", lambda: analyze(spec=spec2, target=path), False, baseline=True)
         stored, _, _ = await user(lambda h: pipeline.read_stored(h, path), what="check_followups: stored")
         first = stored[q]["spec"]["v2"]
         for i in range(1, FOLLOW_UPS + 1):
@@ -234,16 +244,18 @@ def main(argv=None) -> int:
     cases = {c["id"]: c for c in runner.load_cases()}
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--case", default="b01", help=f"the test-set case of the new answer (known: {' '.join(cases)})")
+    ap.add_argument("--second", default="b07", help="the case of the second answer, drawn before the follow-ups")
     ap.add_argument("--keep", action="store_true", help="leave the workbook this script created open")
     args = ap.parse_args(argv)
-    if args.case not in cases:
-        ap.error(f"unknown case id {args.case} (known: {' '.join(cases)})")
+    for c in (args.case, args.second):
+        if c not in cases:
+            ap.error(f"unknown case id {c} (known: {' '.join(cases)})")
     if config.RENDER != "file":
         ap.error(f"SV_RENDER is {config.RENDER!r}: set it to 'file' (this checks the file renderer's follow-ups)")
     if not cases[args.case]["spec"].get("queries"):
         ap.error(f"case {args.case} has no queries: a period follow-up needs one")
     sys.stdout.reconfigure(encoding="utf-8")
-    return asyncio.run(check(cases[args.case], args.keep))
+    return asyncio.run(check(cases[args.case], cases[args.second], args.keep))
 
 
 if __name__ == "__main__":
