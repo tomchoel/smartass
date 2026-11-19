@@ -5,7 +5,7 @@ Q<n> Data (the provenance header's look, the facts as values) and one Q<n> Lines
 value, the lines as values). The file holds no Excel Table: a sheet that contains one cannot be copied between
 workbooks, so the tables are created after the sheets are copied into the user's workbook, and the formulas (they
 name the tables) are written then too, each block with one Range.Formula2. build returns both as TableSpec and
-FormulaBlock, and the charts drawn with their lint (BuiltFile.charts, chart_lint).
+FormulaBlock, and the charts drawn with their lint and label fixes (BuiltFile.charts, chart_lint, label_fixes).
 
 Every text is written with write_string (XlsxWriter's string conversions are off), so 'Sep 26', '0047', 'TRUE' or
 '=SUM(A1)' stay text. XlsxWriter has no named cell styles: every cell gets a direct format (look.style_props plus the
@@ -91,7 +91,8 @@ class BuiltFile:
     tables: list[TableSpec]
     formulas: list[FormulaBlock]
     charts: list[str] = field(default_factory=list)         # the titles of the charts drawn (the reply's charts)
-    chart_lint: list[str] = field(default_factory=list)     # plan.chart_lint, the chart limits and failures
+    chart_lint: list[str] = field(default_factory=list)     # plan.chart_lint and the charts that failed
+    label_fixes: list[xlsx_charts.LabelFix] = field(default_factory=list)   # set by COM after the move-in
 
 
 def check_rows(sheet: str, last_row: int) -> None:
@@ -139,7 +140,8 @@ def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines:
     with xlsxwriter.Workbook(str(path), OPTIONS) as wb:
         fmt = _Formats(wb)
         formulas.append(_answer(wb, fmt, answer_name, plan))
-        charts, chart_lint = xlsx_charts.add_charts(wb, wb.get_worksheet_by_name(answer_name), answer_name, plan)
+        charts, chart_lint, label_fixes = xlsx_charts.add_charts(wb, wb.get_worksheet_by_name(answer_name),
+                                                                 answer_name, plan)
         table, block = _data(wb, fmt, q, data)
         tables.append(table)
         formulas.append(block)
@@ -148,7 +150,7 @@ def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines:
             tables.append(table)
             formulas.append(block)
     return BuiltFile(path=Path(path), sheets=[answer_name, data.name, *(ls.name for ls in lines)], tables=tables,
-                     formulas=formulas, charts=charts, chart_lint=chart_lint)
+                     formulas=formulas, charts=charts, chart_lint=chart_lint, label_fixes=label_fixes)
 
 
 class _Formats:

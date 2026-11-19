@@ -10,22 +10,25 @@ Series and category ranges point at the Answer sheet itself, absolute, a range w
 the move-in); the categories are cached as text, the values as not yet known, and Excel reads both from the cells.
 
 Every option is put together before the chart is added, and XlsxWriter's warnings count as errors, so a chart that
-cannot be built is one lint line (write_charts' wording) and the others are still drawn. Two COM settings have no
-file equivalent; each is one lint line on the chart it applies to, never an error:
-- a line's labels keep the series position (above, below on a cost line): the last one is not moved to the right
-  of its point, nor one the layout moves clear of another line. XlsxWriter's custom labels take a position but
-  carry no number format, so a moved label could show its value unformatted;
-- the label of a waterfall step too thin for white text is in dark ink, but not lifted 10 pt above the bar."""
+cannot be built is one lint line (write_charts' wording) and the others are still drawn.
+
+A per-point label setting is not written to the file: a custom c:dLbl as XlsxWriter writes it carries no number
+format, and Excel then shows the raw value (live, 19.11.2026: 11580000 beside 10,3). In the file a line's labels
+keep the series position, its unlabelled points deleted (a deleted label shows nothing, so it needs no format), and
+a thin waterfall step is labelled like its neighbours. What COM must set on single points after the move-in
+(charts._labels) is returned as LabelFix: a line's last label to the right of its point and a label the layout
+moves clear of another line; a thin step's label in ink, lifted 10 pt above its bar."""
 from __future__ import annotations
 
 import warnings
+from dataclasses import dataclass
 
 from xlsxwriter.utility import xl_cell_to_rowcol
 
 from ..xl.vendor import tn_rapportstil as tn
 from . import look
-from .charts import (ACCENT, FILL, GAP_WIDTH, GREY, HIDDEN, INK, NAVY, NO_LEGEND, PARTS, PCT_LINE, WATERFALL_STEPS,
-                     WHITE, XL_TYPE, hue, label_format, tint, union_ref)
+from .charts import (ACCENT, FILL, GAP_WIDTH, GREY, HIDDEN, INK, NAVY, PARTS, PCT_LINE, THIN_LIFT, WATERFALL_STEPS,
+                     WHITE, XL_TYPE, hue, label_format, legend_shown, tint, union_ref)
 from .layout import ChartSpec, SheetPlan
 
 CHART_NAME = "smartass chart"
@@ -41,10 +44,6 @@ _SECTION = tn.style_defs()["TN Seksjon"]
 TITLE = {"name": tn.FONT, "size": _SECTION["size"] + 1, "bold": True, "color": look._hex(_SECTION["color"])}
 HIDDEN_AXIS = {"major_gridlines": {"visible": False}, "major_tick_mark": "none", "label_position": "none",
                "line": {"none": True}}
-LINE_LIMIT = ("chart '{}': the file keeps each labelled point of a line at the series position (above, or below a "
-              "cost line); the last label is not moved to the right of its point")
-THIN_LIMIT = ("chart '{}': labels of steps too thin for white text are in dark ink inside the bar; the file cannot "
-              "lift them 10 pt above it")
 FAILED = ("chart '{}' failed: {}; fix: check the source block's rows and columns, or patch the chart block (kind, "
           "series)")
 
@@ -70,12 +69,15 @@ def _count(rng: str) -> int:
     return n
 
 
-def legend_shown(spec: ChartSpec) -> bool:
-    """render/charts.py's legend rule: stacked always, waterfall and variance never, otherwise two or more visible
-    series, or one that is not AC (a budget-only line must say BU)."""
-    visible = [r for _, _, r in spec.series if r not in HIDDEN]
-    return spec.kind in ("stacked", "stacked100") or (spec.kind not in NO_LEGEND and (
-        len(visible) >= 2 or any(r not in ("ac", "part", "fav", "unfav", "var") for r in visible)))
+@dataclass(frozen=True)
+class LabelFix:
+    """One data label setting COM makes on a single point after the move-in (the file cannot carry it)."""
+    chart: int                      # 1-based, among the charts drawn on the sheet, in drawing order
+    series: int                     # 1-based series index inside that chart, as Excel numbers them
+    point: int                      # 1-based point
+    position: str | None = None     # "right" | "above" | "below" | "left" (line charts)
+    font_color: str | None = None   # "#262626" (thin waterfall steps)
+    lift_pt: float = 0.0            # 10.0 on thin waterfall steps
 
 
 def _look(spec: ChartSpec, role: str, k: int, line: bool) -> dict:
@@ -116,11 +118,29 @@ def _labels(spec: ChartSpec, role: str, k: int, n: int) -> dict | None:
     elif spec.kind == "waterfall" and (role == "total" or role in WATERFALL_STEPS):
         lab["position"] = "inside_end" if role == "total" else "center"
         lab["font"] |= {"color": _hex(WHITE), "bold": True}
-        thin = [i for i in spec.thin_steps if 1 <= i <= n] if role in WATERFALL_STEPS else []
-        if thin:                                                       # white on a 1 px bar is invisible
-            ink = {"position": "center", "font": dict(TEXT) | {"color": _hex(INK), "bold": True}}
-            lab["custom"] = [ink if i in thin else None for i in range(1, n + 1)]
     return lab
+
+
+def _point_fixes(spec: ChartSpec, role: str, k: int, n: int) -> list[tuple[int, dict]]:
+    """(point, setting) for series k where a single point's label differs from its series (charts._labels): on a
+    line the last labelled point to the right, a point the layout moves clear of another line above / left / below
+    when that is not the series position; on a waterfall each thin step's label in ink, lifted off its bar."""
+    if spec.kind == "line" and k < len(spec.label_points) and spec.label_points[k]:
+        keep = set(spec.label_points[k])
+        series_pos = "below" if k < len(spec.label_below) and spec.label_below[k] else "above"
+        moved = spec.label_pos[k] if k < len(spec.label_pos) else {}
+        out = []
+        for i in sorted(keep):
+            if i == max(keep):
+                out.append((i, {"position": "right"}))
+            elif i in moved:
+                pos = moved[i] if moved[i] in ("above", "left") else "below"
+                if pos != series_pos:
+                    out.append((i, {"position": pos}))
+        return out
+    if spec.kind == "waterfall" and role in WATERFALL_STEPS:
+        return [(i, {"font_color": _hex(INK), "lift_pt": THIN_LIFT}) for i in spec.thin_steps if 1 <= i <= n]
+    return []
 
 
 def _highlight(spec: ChartSpec, series: list[dict], roles: list[str], n: int) -> None:
@@ -153,12 +173,14 @@ def _axes(spec: ChartSpec) -> tuple[dict, dict]:
     return value, category
 
 
-def _options(spec: ChartSpec, sheet: str) -> tuple[list[dict], list[dict], list[str]]:
-    """Every series' options, split into the chart's own and the combo's % line, and the limit lines."""
+def _options(spec: ChartSpec, sheet: str, chart_no: int) -> tuple[list[dict], list[dict], list[LabelFix]]:
+    """Every series' options, split into the chart's own and the combo's % line, and the label fixes of chart
+    chart_no. Excel numbers the series in the order XlsxWriter writes them (c:idx = c:order): the chart's own
+    first, then the combo's lines; a waterfall's invisible bases count."""
     if spec.kind not in XL_TYPE:
         raise ValueError(f"unknown chart kind {spec.kind!r}")
     n = _count(spec.cat_range)
-    series, roles, limits = [], [], []
+    series, roles = [], []
     for k, (name, rng, role) in enumerate(spec.series):
         line = spec.kind == "line" or (spec.kind == "combo" and role == "pct")
         s = {"name": name, "values": _ref(sheet, rng), "values_data": [None] * _count(rng),
@@ -175,17 +197,16 @@ def _options(spec: ChartSpec, sheet: str) -> tuple[list[dict], list[dict], list[
         raise ValueError("a combo chart needs a column series beside its % line")
     if spec.kind != "line":
         bars[0] |= {"gap": GAP_WIDTH} | ({"overlap": 100} if spec.kind in ("variance", "waterfall") else {})
-    if spec.kind == "line" and any(spec.label_points[k] for k in range(min(len(spec.label_points), len(roles)))):
-        limits.append(LINE_LIMIT.format(spec.title))
-    thin = any(1 <= i <= n for i in spec.thin_steps)
-    if spec.kind == "waterfall" and thin and any(r in WATERFALL_STEPS for r in roles):
-        limits.append(THIN_LIMIT.format(spec.title))
-    return bars, lines, limits
+    pct = [spec.kind == "combo" and r == "pct" for r in roles]
+    order = [k for k, p in enumerate(pct) if not p] + [k for k, p in enumerate(pct) if p]
+    fixes = [LabelFix(chart_no, order.index(k) + 1, i, **setting)
+             for k, role in enumerate(roles) for i, setting in _point_fixes(spec, role, k, n)]
+    return bars, lines, fixes
 
 
-def _add(workbook, worksheet, sheet: str, spec: ChartSpec) -> list[str]:
-    """Build one chart and place it; returns its limit lines. Nothing is placed when it fails."""
-    bars, lines, limits = _options(spec, sheet)
+def _add(workbook, worksheet, sheet: str, spec: ChartSpec, chart_no: int) -> list[LabelFix]:
+    """Build one chart and place it; returns its label fixes. Nothing is placed when it fails."""
+    bars, lines, fixes = _options(spec, sheet, chart_no)
     kind, subtype = XLSX_TYPE[XL_TYPE[spec.kind]]
     chart = workbook.add_chart({"type": kind, "name": CHART_NAME} | ({"subtype": subtype} if subtype else {}))
     for s in bars:
@@ -209,14 +230,16 @@ def _add(workbook, worksheet, sheet: str, spec: ChartSpec) -> list[str]:
     chart.set_size({"width": round(spec.width * PX_PER_PT), "height": round(spec.height * PX_PER_PT)})
     row, col = xl_cell_to_rowcol(spec.anchor)
     worksheet.insert_chart(row, col, chart)
-    return limits
+    return fixes
 
 
-def add_charts(workbook, worksheet, sheet_name: str, plan: SheetPlan) -> tuple[list[str], list[str]]:
+def add_charts(workbook, worksheet, sheet_name: str, plan: SheetPlan) -> tuple[list[str], list[str], list[LabelFix]]:
     """Every chart of the plan with series on worksheet (the Answer sheet, named sheet_name). Returns (the titles
-    drawn, the lint): the layout's chart lint (plan.chart_lint) first, then per chart its limit lines or the line
-    saying it failed, as charts.write_charts reports them; the caller adds no chart_lint of its own."""
+    drawn, the lint, the label fixes COM makes after the move-in). The lint is the layout's chart lint
+    (plan.chart_lint) first, then a line per chart that failed, as charts.write_charts reports them; the caller adds
+    no chart_lint of its own. A skipped or failed chart has no fixes and does not count in LabelFix.chart."""
     drawn: list[str] = []
+    fixes: list[LabelFix] = []
     lint = list(plan.chart_lint)
     for spec in plan.charts:
         if not spec.series:             # the layout said why (chart_lint); its zone stays reserved
@@ -224,8 +247,9 @@ def add_charts(workbook, worksheet, sheet_name: str, plan: SheetPlan) -> tuple[l
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("error", module="xlsxwriter")   # it warns and drops what it refuses
-                lint += _add(workbook, worksheet, sheet_name, spec)
+                chart_fixes = _add(workbook, worksheet, sheet_name, spec, len(drawn) + 1)
             drawn.append(spec.title)
+            fixes += chart_fixes
         except Exception as e:   # noqa: BLE001 - a chart never fails the answer
             lint.append(FAILED.format(spec.title, e))
-    return drawn, lint
+    return drawn, lint, fixes

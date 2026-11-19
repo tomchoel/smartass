@@ -14,7 +14,7 @@ from test_xlsx import build_with
 
 from smartass.render import xlsx_charts
 from smartass.render.layout import ChartSpec, SheetPlan
-from smartass.render.xlsx_charts import add_charts
+from smartass.render.xlsx_charts import LabelFix, add_charts
 
 C = "{http://schemas.openxmlformats.org/drawingml/2006/chart}"
 A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
@@ -32,13 +32,26 @@ def spec(kind, series, rows="5:9", **kw) -> ChartSpec:
                      series=[(n, rng(c), r) for n, c, r in series], anchor=kw.pop("anchor", "B30"), **kw)
 
 
-def draw(tmp_path, *specs, lint=()):
-    """The specs drawn on an empty 'Q3 Answer' sheet: (titles drawn, lint, the chart XML roots in order)."""
+def draw_all(tmp_path, *specs, lint=()):
+    """The specs drawn on an empty 'Q3 Answer' sheet: (titles drawn, lint, label fixes, the chart XML roots)."""
     path = tmp_path / "charts.xlsx"
     with xlsxwriter.Workbook(str(path)) as wb:
         ws = wb.add_worksheet(SHEET)
-        titles, out = add_charts(wb, ws, SHEET, SheetPlan(charts=list(specs), chart_lint=list(lint)))
-    return titles, out, charts_of(path)
+        titles, out, fixes = add_charts(wb, ws, SHEET, SheetPlan(charts=list(specs), chart_lint=list(lint)))
+    return titles, out, fixes, charts_of(path)
+
+
+def draw(tmp_path, *specs, lint=()):
+    """draw_all without the label fixes."""
+    titles, out, _, roots = draw_all(tmp_path, *specs, lint=lint)
+    return titles, out, roots
+
+
+def excel_series(root, n: int):
+    """The series Excel numbers n (1-based): the c:ser whose c:order is n - 1, checked equal to its c:idx."""
+    (ser,) = [x for x in sers(root) if val(x, C + "order") == str(n - 1)]
+    assert val(ser, C + "idx") == str(n - 1)
+    return ser
 
 
 def charts_of(path) -> list:
@@ -231,12 +244,13 @@ def test_a_bar_chart_sorted_ascending_keeps_the_category_order(tmp_path):
     assert_category_axis(root, reversed_=False)
 
 
-def test_a_line_chart_labels_only_its_chosen_points_and_reports_the_positions_it_cannot_place(tmp_path):
+def test_a_line_chart_labels_only_its_chosen_points_and_returns_the_single_positions_for_com(tmp_path):
     s = spec("line", [("AC", "D", "ac"), ("PY", "E", "py"), ("BU", "F", "bu"), ("FC", "G", "fc")],
-             label_points=[[3, 5], [5], [], [1, 5]], label_below=[False, True, False, False],
-             label_pos=[{3: "below"}, {}, {}, {}], whole=True, millions=False, title="Opex trend")
-    titles, lint, (root,) = draw(tmp_path, s)
-    assert titles == ["Opex trend"]
+             label_points=[[3, 5], [5], [], [1, 3, 5]], label_below=[False, True, False, False],
+             label_pos=[{3: "below"}, {}, {}, {1: "above", 3: "left"}], whole=True, millions=False,
+             title="Opex trend")
+    titles, lint, fixes, (root,) = draw_all(tmp_path, s)
+    assert titles == ["Opex trend"] and lint == []                         # nothing the file cannot do is lint
     assert_drawn_as_specified(root, s)
     g = group(root, "lineChart")
     assert g is not None and val(g, C + "grouping") == "standard" and g.find(C + "gapWidth") is None
@@ -249,20 +263,25 @@ def test_a_line_chart_labels_only_its_chosen_points_and_reports_the_positions_it
     assert label_format(ac) == '#,##0;"−"#,##0;;'                          # whole NOK
     assert val(labels(ac), C + "dLblPos") == "t" and val(labels(py), C + "dLblPos") == "b"   # a cost line: below
     assert {i: d.find(C + "delete") is not None for i, d in custom(ac).items()} == {0: True, 1: True, 3: True}
-    assert set(custom(py)) == {0, 1, 2, 3} and set(custom(bu)) == {0, 1, 2, 3, 4} and set(custom(fc)) == {1, 2, 3}
-    assert all(d.find(C + "delete") is not None for x in (py, bu, fc) for d in custom(x).values())
+    assert set(custom(py)) == {0, 1, 2, 3} and set(custom(bu)) == {0, 1, 2, 3, 4} and set(custom(fc)) == {1, 3}
+    assert all(d.find(C + "delete") is not None for x in (py, bu, fc) for d in custom(x).values())   # labelled: none
     assert legend(root) == "t"
     (ax,) = value_axes(root)
     assert_value_axis_hidden(ax)
     assert_category_axis(root)
-    (msg,) = lint                                                          # one line for the chart, never an error
-    assert "'Opex trend'" in msg and "position" in msg
+    assert fixes == [LabelFix(1, 1, 3, position="below"),                 # moved clear of the other line
+                     LabelFix(1, 1, 5, position="right"),                 # the last label: right of its point
+                     LabelFix(1, 2, 5, position="right"),
+                     LabelFix(1, 4, 3, position="left"),                  # point 1 "above" is the series position
+                     LabelFix(1, 4, 5, position="right")]
+    assert [name(excel_series(root, f.series)) for f in fixes] == ["AC", "AC", "PY", "FC", "FC"]
 
 
-def test_a_line_without_chosen_points_has_no_limit_line(tmp_path):
-    _, lint, (root,) = draw(tmp_path, spec("line", [("BU", "D", "bu")]))
+def test_a_line_without_chosen_points_has_no_label_fixes(tmp_path):
+    _, lint, fixes, (root,) = draw_all(tmp_path, spec("line", [("BU", "D", "bu")]))
     (bu,) = sers(root)
-    assert lint == [] and labels(bu).find(C + "dLbl") is None and labels(bu).find(C + "dLblPos") is None
+    assert lint == [] and fixes == []
+    assert labels(bu).find(C + "dLbl") is None and labels(bu).find(C + "dLblPos") is None
     assert legend(root) == "t"                                             # a BU-only line must say BU
 
 
@@ -318,6 +337,12 @@ def test_a_combo_chart_draws_pct_as_a_line_on_a_hidden_secondary_axis(tmp_path):
     assert_value_axis_hidden(primary)
     assert_value_axis_hidden(secondary)
     assert val(secondary, C + "axId") in {x.get("val") for x in lines.findall(C + "axId")}   # the % line's axis
+    assert name(excel_series(root, 1)) == "Revenue" and name(excel_series(root, 2)) == "Margin %"
+
+
+def test_a_combo_numbers_its_columns_before_its_lines(tmp_path):
+    _, _, (root,) = draw(tmp_path, spec("combo", [("Margin %", "E", "pct"), ("Revenue", "D", "ac")]))
+    assert name(excel_series(root, 1)) == "Revenue" and name(excel_series(root, 2)) == "Margin %"
     assert legend(root) == "t"
 
 
@@ -377,17 +402,26 @@ def test_base_series_of_a_waterfall_are_invisible(tmp_path):
         assert fill(b) == "none" and line(b) == {"colour": "none"} and labels(b) is None   # no fill, no line, no label
 
 
-def test_thin_waterfall_steps_get_dark_ink_without_the_lift_and_one_lint_line(tmp_path):
-    _, lint, (root,) = draw(tmp_path, waterfall(thin_steps=[3]))
+def test_thin_waterfall_steps_are_labelled_like_their_neighbours_and_returned_for_com(tmp_path):
+    _, lint, fixes, (root,) = draw_all(tmp_path, waterfall(thin_steps=[3]))
+    assert lint == []
+    for x in sers(root):                  # no per-point label: in Excel it would lose the number format
+        assert labels(x) is None or labels(x).find(C + "dLbl") is None
     steps = [x for x in sers(root) if name(x) in ("Up", "Up <0", "Down", "Down <0")]
-    for x in steps:
-        (d,) = custom(x).values()
-        assert val(d, C + "idx") == "2" and val(d, C + "dLblPos") == "ctr" and val(d, C + "showVal") == "1"
-        assert label_font(d) == {"face": "Arial", "sz": "900", "b": "1", "colour": "262626"}
-    total = next(x for x in sers(root) if name(x) == "Total")
-    assert labels(total).find(C + "dLbl") is None                         # a total is never thin
-    (msg,) = lint
-    assert "'EBITDA bridge'" in msg and "10 pt" in msg
+    assert all(val(labels(x), C + "dLblPos") == "ctr" and label_font(labels(x))["colour"] == "FFFFFF" for x in steps)
+    assert fixes == [LabelFix(1, n, 3, font_color="#262626", lift_pt=10.0) for n in (3, 4, 5, 6)]   # bases are 1, 2
+    assert [name(excel_series(root, f.series)) for f in fixes] == ["Up", "Up <0", "Down", "Down <0"]
+
+
+def test_label_fixes_count_only_the_charts_drawn(tmp_path):
+    empty = ChartSpec("column", "Plan only", cat_range="C5:C9", series=[], anchor="B30")
+    line_ = spec("line", [("AC", "D", "ac")], label_points=[[5]], title="Trend")
+    titles, lint, fixes, roots = draw_all(tmp_path, empty, spec("pie", [("AC", "D", "ac")], title="Pie"),
+                                          waterfall(thin_steps=[2]), spec("column", [("AC", "D", "ac")]), line_)
+    assert titles == ["EBITDA bridge", "column chart", "Trend"] and len(roots) == 3 and len(lint) == 1
+    assert {f.chart for f in fixes} == {1, 3}                              # the skipped and the failed do not count
+    assert [f for f in fixes if f.chart == 3] == [LabelFix(3, 1, 5, position="right")]
+    assert title(roots[2])[0] == "Trend"
 
 
 def test_a_reversed_value_axis_puts_the_category_labels_at_its_high_end(tmp_path):
@@ -491,7 +525,7 @@ def test_an_option_xlsxwriter_refuses_fails_that_chart_only(tmp_path, monkeypatc
 # ------------------------------------------------------------------ in the built file
 def test_the_built_file_carries_the_answer_charts_and_reports_them(tmp_path):
     built = build_with(tmp_path)
-    assert built.charts == ["P&L vs last year"] and built.chart_lint == []
+    assert built.charts == ["P&L vs last year"] and built.chart_lint == [] and built.label_fixes == []
     (root,) = charts_of(built.path)
     ac, py = sers(root)
     assert_refs(ac, "'Q3 Answer'!$I$26:$I$27", "'Q3 Answer'!$C$26:$C$27")
