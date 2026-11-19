@@ -69,6 +69,18 @@ def as_list(value, name: str, fallback: list) -> tuple[list, str | None]:
     return list(fallback), f"{name} must be a list of strings, got {value!r} - using {list(fallback)}"
 
 
+def oauth_scopes(value) -> dict[str, str]:
+    """[oauth.scopes] as {'https://host': scope}: keys are pod base URLs (any case, port or path); an entry that is
+    not a URL with a host, or has an empty scope, is left out."""
+    from urllib.parse import urlsplit
+    out = {}
+    for k, v in (value.items() if isinstance(value, dict) else ()):
+        host = (urlsplit(str(k).strip()).hostname or "").lower()
+        if host and isinstance(v, str) and v.strip():
+            out[f"https://{host}"] = v.strip()
+    return out
+
+
 def _app_path(exe: str) -> str | None:
     import winreg
     for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
@@ -254,6 +266,13 @@ SVHTTP_FINMAX_SERVER = str(_pick("SV_HTTP_FINMAX_SERVER", "svhttp.finmax_server"
 SVHTTP_FINPLAN_SERVER = str(_pick("SV_HTTP_FINPLAN_SERVER", "svhttp.finplan_server", "FinPlan_for_DataLoad"))
 _allow_test = _pick("SV_HTTP_ALLOW_TEST", "svhttp.allow_test", False)
 SVHTTP_ALLOW_TEST = _allow_test is True or str(_allow_test).strip().lower() in ("1", "true", "yes")
+# OAuth bearer route (epm/oauth.py): off until all three are set. The scope names ONE environment's service instance,
+# so there is one per pod base URL: [oauth.scopes] "https://<pod host>" = "urn:opc:serviceInstanceID=...::all".
+OAUTH_IDCS = str(_pick("SMARTASS_OAUTH_IDCS", "oauth.idcs", "") or "").strip().rstrip("/")
+OAUTH_CLIENT_ID = str(_pick("SMARTASS_OAUTH_CLIENT_ID", "oauth.client_id", "") or "").strip()
+OAUTH_SCOPES = oauth_scopes(get(SETTINGS, "oauth.scopes"))
+OAUTH_DIR = HOME / "oauth"                         # one DPAPI-protected sign-in per pod (this Windows user)
+SVHTTP_BEARER_RETRY_S = 120.0                      # after the bearer route could not authenticate: browser route this long
 DRILL_CAPTURE_TIMEOUT_S = 45
 DRILL_RELOAD_WAIT_S = 25                           # after the one reload of a page that never asked for data
 DRILL_SETUP_S = 95                                 # sign-in + capture of one drill (S8: no call past 120 s)

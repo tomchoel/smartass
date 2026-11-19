@@ -78,6 +78,25 @@ def _drill_browser() -> Check:
                  "Install Microsoft Edge, or ask IT why the Edge UserDataDir policy is set.")
 
 
+def _oauth() -> Check:
+    """The bearer route's sign-ins, from the token files only (no network). Not being set up is fine: grids then
+    sign in through the hidden browser, as before."""
+    from ..epm import oauth
+    if not oauth.configured():
+        return Check("oauth", "OK", "not set up (grids sign in through the hidden browser)")
+    host = lambda pod: pod.removeprefix("https://").split(".")[0]   # noqa: E731
+    st = oauth.status()
+    parts = [f"{host(s['pod'])}: " + ("signed in" if s["state"] == "signed_in" else
+                                      "sign-in ended" if s["state"] == "ended" else "not signed in") for s in st]
+    home = oauth.origin(config.EPM_BASE or "")
+    if home and home not in oauth.pods():
+        parts.append(f"{host(home)}: no scope (hidden browser)")
+    if any(s["state"] != "signed_in" for s in st):
+        return Check("oauth", "WARN", "; ".join(parts),
+                     "Run `smartass login` (one approval in the browser); grids use the hidden browser meanwhile.")
+    return Check("oauth", "OK", "; ".join(parts))
+
+
 def _atlas(max_age_days: float = 35) -> Check:
     p = config.ATLAS_DB
     if not p.exists():
@@ -215,7 +234,7 @@ def _vba_access(read=_read_hkcu) -> Check:
                  "access to the VBA project object model' (close Excel first; a policy value needs IT).")
 
 
-CHECKS = (_config, _excel, _smartview, _smartview_startup, _vba_access, _epm, _drill_browser, _atlas, _knowledge,
+CHECKS = (_config, _excel, _smartview, _smartview_startup, _vba_access, _epm, _oauth, _drill_browser, _atlas, _knowledge,
           _output, _http, _update)
 
 

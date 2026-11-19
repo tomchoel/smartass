@@ -59,9 +59,19 @@ def _warm_up() -> None:
         log.info("drill warm-up not started: %s", str(e)[:200])
 
 
+def _keep_signed_in() -> None:
+    """Renew the bearer route's EPM sign-ins in the background while the server runs (epm/oauth.py)."""
+    try:
+        from ..epm import oauth
+        oauth.start_keep_fresh()
+    except Exception as e:   # noqa: BLE001 - best effort
+        log.info("oauth keep-fresh not started: %s", str(e)[:200])
+
+
 @asynccontextmanager
 async def lifespan(_server):
     _warm_up()
+    _keep_signed_in()
     try:
         yield {}
     finally:

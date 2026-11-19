@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Bearer route: grids without the hidden browser (optional, per pod)
+
+- Smart View HTTP requests go over plain HTTPS with the user's own OAuth access token where a pod has a scope and a
+  sign-in (`svhttp.BearerTransport` in front of the browser transport). Anything it cannot authenticate falls back
+  to the browser route; drill-through is unchanged (untested over the token).
+- Live 19.11 with a scope for the FinPlan pod only: the same grid cell for cell; cold 7.7 s against about 17 s (the
+  data-source lookup on plan1 still signs in through the browser; the FinPlan pod alone answered in 0.8 s). FinMax,
+  FinLite and the closed month gain nothing until plan1 has a scope.
+- `smartass login` (`--status`, `--force`, `--forget`): Oracle's device-code sign-in, one approval per pod; the
+  sign-in is DPAPI-protected under `oauth\` in the home folder. The refresh token is single use: refreshes run
+  under a cross-process lock, and the MCP server and `smartass serve` renew sign-ins daily (an unused one ends
+  after 7 days).
+- Off until `config.toml` has `[oauth]` `idcs`, `client_id` and `[oauth.scopes]`; doctor check `oauth`.
+
 ### Knowledge layer phase B (0.2.23)
 
 - Behaviour cards derived from data (`smartass atlas cards`, after every full atlas build): operator per (member,

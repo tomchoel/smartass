@@ -20,6 +20,13 @@ folder = ""
 [http]           # localhost-only API (the secret is per user, in config.toml)
 port = 47811
 
+[oauth]          # bearer route: grids over plain HTTPS with the user's own OAuth token, no hidden browser (smartass login).
+idcs = ""        # Off until idcs, client_id and at least one scope are set. The identity domain's base URL,
+client_id = ""   # and a PUBLIC client registered there with device-code + refresh-token grants (no secret exists).
+# One scope per pod (a token covers one environment), keyed by the pod's base URL:
+# [oauth.scopes]
+# "https://<pod host>" = "urn:opc:serviceInstanceID=<id>urn:opc:resource:consumer::all"
+
 [svhttp]         # Smart View HTTP route: data sources by Server name (several share app FinMax, one is the test pod)
 finmax_server = "FinMax"                  # plan1 prod (FinMax and FinLite)
 finplan_server = "FinPlan_for_DataLoad"   # stratmodel

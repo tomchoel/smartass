@@ -64,7 +64,8 @@ Errors: 400 (bad JSON, unknown fields, invalid spec or input, with its message),
 ## Command line
 
 `smartass doctor [--json | --bundle]`, `smartass atlas status`, `smartass atlas build [--cube X] [--dimension D]`,
-`smartass setup`, `smartass update`, `smartass serve`.
+`smartass setup`, `smartass update`, `smartass serve`, `smartass login [--status | --force | --forget]` (EPM sign-in for
+the bearer route, see `docs\troubleshooting.md`, "oauth").
 
 ## Layout
 

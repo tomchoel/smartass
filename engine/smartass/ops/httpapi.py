@@ -154,5 +154,7 @@ def serve() -> int:
             return 0
         raise
     log.info("serving on 127.0.0.1:%s", config.HTTP_PORT)
+    from ..epm import oauth
+    oauth.start_keep_fresh()                         # the bearer route's sign-ins are renewed while this runs
     srv.serve_forever()
     return 0
