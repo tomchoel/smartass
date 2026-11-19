@@ -572,6 +572,92 @@ def test_an_object_without_type_information_falls_back_to_the_standard_wrapper()
   this task (file renderer follow-up: 12-15 s at 121 calls; COM renderer new answer: 15-45 s at about 280 calls).
 - [ ] **Step 7: Commit** `perf(xl): a late-bound COM wrapper that learns each interface once`.
 
+### Task 8B: performance pass on the file job - cut the housekeeping, show the answer arriving
+
+Replaces the plan's Task 8 (controller, 2026-11-19). Measured in the owner's Excel after Task 8A, with
+`scripts/check_followups.py` (render file) and every `jobs.com` call timed by source line (10 answers, 1 266 calls,
+38.9 s inside COM calls): **a follow-up's Excel job is 4.2-4.6 s at 121 COM calls**. Per answer:
+
+| stage | calls | seconds | the big call sites (file:line at commit 4dfc08b, calls per answer, ms per answer) |
+|---|---|---|---|
+| `draw.sources` | 53 | 1.43 | `styling.py:41` 16 calls 620 ms; `styling.py:251` 200 ms; `styling.py:761` 190 ms; `sources.py:165` 85 ms; `styling.py:198/241/227/215` 40-50 ms each |
+| `draw.move in` | 10 | 0.93 | `movein.py:146` 270 ms, `:148` 230 ms, `:154` 210 ms, `:159` 85 ms, `:156` |
+| `save` | 1 | 0.42 | `pipeline.py:291` (`wb.Save()`) |
+| `draw` (outside sub-stages) | 18 | 0.30 | `pipeline.py:790`, `:795` (take places) 60 ms each; `sheets.py:228/230` (spec store) 30 ms each |
+| `draw.arrange` | 9 | 0.27 | `sheetorder.py:170` 60 ms, `:206` 33 ms, `check.py:88` 64 ms |
+| `draw.finish` | 21 | 0.25 | `movein.py:229/231` 7 calls each, `:203`, `:249` |
+| outside the job's stages | 9 | 0.2 | `target.py:89` (bridge), `jobs.py:161` |
+
+**Goal:** in `scripts/check_followups.py` (owner's Excel, render file) every follow-up's Excel job is **at most 2.5 s**
+and at most **60 COM calls**; a new answer into an existing workbook the same; all answers `sheet_equals_model` OK.
+
+**Files:** `engine/smartass/xl/sources.py`, `xl/sheets.py` (`save_spec`), `xl/movein.py`, `xl/sheetorder.py` (only if
+needed), `engine/smartass/pipeline.py` (`_file_draw`, `file_job`, `file_redraw_job`, `_save`), `render/xlsx.py` (only
+for the Sources link below), `scripts/bench_answers.py` / `scripts/check_followups.py` (columns), tests beside each.
+The old COM renderer (`excel_job`, `redraw_job`, `_draw`) must keep working until Task 9: where a shared function
+changes (`sources.write_sources`, `sheets.save_spec`, `_save`), both renderers use the new version and both stay green.
+
+**What to change (each with a test that pins the call count on the fake Excel and the unchanged content):**
+
+1. **Sources log: at most 8 COM calls per answer into an existing log** (53 today).
+   - The log sheet's fixed furniture - header row, fonts of the header, column widths, AutoFilter, freeze, print setup -
+     is set **once, when the sheet is created**, never again. Fixed column widths replace `AutoFit` (take today's
+     typical widths; D at most 60, P = 80 as today).
+   - One read to find the last used row and the earlier rows of this question; the new rows (queries and line sets)
+     written with **one** `Formula2`/`Value2` rectangle; the links in column M and the "row <r>" back-reference written
+     as `=HYPERLINK("#'<sheet>'!A1","<text>")` formulas inside that same rectangle instead of `Hyperlinks.Add` calls
+     (one call per link today). The number format of the control-total column and the row font come from formatting
+     the whole columns once at creation.
+   - The Data header's "Sources row <r>" link: also a `HYPERLINK` formula, written as part of the Data header's
+     formula block (the row number is known after the one read; write that single cell with the Sources rectangle's
+     call budget if it cannot be known at build time). Known limits (column P): merged and rewritten only when this
+     answer adds a caveat that is not there yet.
+   - What the log shows must stay what it shows today (same columns, same texts, working links); the comparison of
+     Task 6 did not cover the Sources sheet, so pin it with unit tests on the fake Excel (content before and after).
+2. **Spec store: one call for the read, one for the write** (`sheets.save_spec` writes A and every chunk in one
+   rectangle).
+3. **Save:** when AutoSave was on before the job and the file is our own, switch AutoSave back on and **do not call
+   `Save`**; otherwise `wb.Save()` as today. Verify live once that the file on disk has the new sheets within 30 s
+   (open the local file read-only with openpyxl after the wait); if it does not, keep the explicit save and say so.
+4. **No sheet moves and no second look:** the copied sheets land where they belong (new answer: where
+   `sheets.place_after` puts them; follow-up: where the old ones were), so `_arrange` finds nothing to move. Read the
+   sheet names **once** per job and pass that inventory to the steps that need it (`_question_parts`, `movein.park`,
+   `taken`, `_parked_place`, `_take_places`, `arrange`) instead of each reading it again.
+5. **Move-in:** look at what `movein.py:146-159` spend 0.9 s on (open, copy, close, link) and remove what is not
+   needed: e.g. open with links not updated and not added to the recent list, do not hide a window that is never
+   shown when screen updating is off, break the link without a second `LinkSources` read. Do not replace the
+   one-call copy (it is the proven route) and never copy a sheet that holds a table.
+6. **Finish:** `movein.py:229/231` run 7 times per answer - batch them if they are per-row or per-fix calls that one
+   range call can replace.
+7. **Show the answer arriving (owner's wish: he wants to see it work, without paying for cell-by-cell drawing):**
+   the job keeps screen updating off while it works, but at two points it lets Excel paint once:
+   (a) right after the move-in, with the new Answer sheet activated - the formatted, still empty answer is on screen;
+   (b) after the formulas are written and calculated - the numbers and charts fill in.
+   The Answer sheet stays the active sheet at the end (as `_arrange` does today). Implement it as a small
+   `movein.show(app, sheet)` (activate + one repaint) and call it at those two points; it must be skipped when the
+   target workbook is not the active workbook of a visible Excel (never steal focus from another workbook), and it
+   must cost at most 3 COM calls each. Report what it costs in seconds live.
+8. **Carried-over review findings to fix here** (each with a test):
+   - a follow-up that fails after the old sheets are dropped raises the bare error although the new answer is drawn
+     and unsaved: add to the error that the new answer is in place, and save our own file before re-raising;
+   - Sources rows and the spec are written before the drop: if the drop fails before its delete, the old sheets come
+     back but the log and the spec describe the new answer - make the order safe (write them after the drop) or
+     assert the intended behaviour in the existing test;
+   - `movein.move_in`: a temp workbook that fails to close is only logged - try once more at the end of the job and
+     say so in a warning;
+   - `movein.taken` also refuses a chart sheet or a defined name that collides with an answer sheet or table name.
+
+**Steps**
+- [ ] 1. For each item: the failing test first (call counts with `fakexl.count_com`, content unchanged), then the
+  change, then the suite. One commit per item or coherent group.
+- [ ] 2. Run the whole suite and ruff. Expected: green.
+- [ ] 3. Live: `scripts/check_followups.py` in the owner's Excel (render file). Report per step the Excel-job seconds
+  and COM calls next to the figures above, and the per-stage seconds. Then once with the old renderer
+  (`SV_RENDER=com`, `scripts/bench_answers.py --rounds 1 --case b02`) to show it still draws with the shared
+  functions changed.
+- [ ] 4. If the goal (2.5 s, 60 calls) is missed, report the stage table and what is left - do not stop short of
+  the items above to chase it.
+
 ### Task 9: Speed gate, switch over, delete the old writers
 
 **Files:**
