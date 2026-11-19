@@ -85,6 +85,15 @@ backup. `fin_refresh` redraws every stored v2 question; one failure never stops 
 - **SSO watcher** (`sso_watcher.ps1`, Startup folder) clicks 'Telenor SSO' in any Excel's Login dialog.
 - **Drill browser**: headless Edge with its own profile, one drill at a time across sessions, shared with the HTTP
   route for sign-in.
+- **Bearer route** (`epm/oauth.py`, `svhttp.BearerTransport`; optional, per pod): the Smart View HTTP requests go
+  over plain HTTPS with the user's OAuth access token instead of through the browser. One device-code sign-in per
+  pod (`smartass login`), stored DPAPI-protected; the refresh token is single use, so every refresh runs under a
+  cross-process lock, and the servers renew it daily. A pod without a scope or a sign-in, and a refused token, fall
+  back to the browser transport. Drill-through stays in the browser (untested over the token). Live 19.11.2026,
+  scope for the FinPlan pod only: same grid cell for cell; cold 7.7 s against 17 s, because the data-source lookup
+  on plan1 (no scope yet) still signs in through the browser - asked alone, the FinPlan pod answered in 0.8 s.
+  FinMax and FinLite gain nothing until plan1 has a scope. The same token also opens the documented Planning REST
+  API (`exportdataslice`, member properties), which is not used yet.
 - **Atlas**: `atlas.db`, rebuilt with `smartass atlas build` (or copied from the monthly release by `smartass
   setup`).
 
@@ -197,6 +206,6 @@ fields or an invalid spec, 401 secret, 409 busy, 413 over 1 MB, 503 Excel/EPM er
   `child_server.py` with the warm-up off).
 - Test set: `uv run python -m smartass.testset run` replays recorded grids and compares with the approved golden
   numbers (9 questions).
-- `smartass doctor` checks the install (config, Excel, Smart View, VBA access, EPM, drill browser, atlas,
+- `smartass doctor` checks the install (config, Excel, Smart View, VBA access, EPM, oauth sign-ins, drill browser, atlas,
   knowledge (build checks against the current atlas; WARN when knowledge.db is older than the atlas or the semantic
   files, or drafts await approval), output, HTTP API, update).

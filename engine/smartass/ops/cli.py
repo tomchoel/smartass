@@ -1,5 +1,5 @@
-"""smartass command line: doctor, serve (HTTP API + update at login), setup (installer), update, atlas, xl (task pane),
-knowledge."""
+"""smartass command line: doctor, serve (HTTP API + update at login), setup (installer), update, login (EPM sign-in
+for the bearer route), atlas, xl (task pane), knowledge."""
 from __future__ import annotations
 
 import argparse
@@ -34,6 +34,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("setup", help="per-user setup (run by installer\\install.ps1)")
     u = sub.add_parser("update", help="install the release from the release folder")
     u.add_argument("--force", action="store_true")
+    lg = sub.add_parser("login", help="sign in to EPM for the fast route (one browser approval per pod)")
+    lg.add_argument("--status", action="store_true", help="show the sign-ins, change nothing")
+    lg.add_argument("--force", action="store_true", help="sign in again, also where a sign-in exists")
+    lg.add_argument("--forget", action="store_true", help="delete the stored sign-ins from this PC")
     at = sub.add_parser("atlas", help="the local member atlas: status, or build it from Smart View")
     at_sub = at.add_subparsers(dest="atlas_cmd", required=True)
     at_sub.add_parser("status", help="what the atlas holds and whether it is stale")
@@ -91,6 +95,9 @@ def main(argv: list[str] | None = None) -> int:
         if update.start_if_available():
             return 0                                  # the installer restarts `serve` when it is done
         return httpapi.serve()
+    if a.cmd == "login":
+        from . import login
+        return login.show() if a.status else login.forget() if a.forget else login.run(force=a.force)
     if a.cmd == "setup":
         from . import setup_user
         for line in setup_user.run():

@@ -55,6 +55,33 @@ by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe
   An OK here only means the server answers; the login itself is checked on the first query.
 - **Fix:** Connect to the Telenor network (or VPN) and check the proxy.
 
+## oauth
+
+The bearer route: on a pod that has a scope, grids are fetched over plain HTTPS with your own OAuth access token, so
+no hidden browser has to sign in there first. It is optional; without it, and whenever it cannot authenticate, grids
+sign in through the hidden browser as before. Drill-through uses the browser (over the token it is untested).
+
+Measured 19.11.2026 with a scope for the FinPlan pod only: a cold FinPlan grid took 7.7 s instead of about 17 s -
+the grid itself goes over the token, but the list of data sources is asked from the home pod (plan1), which still
+signs in through the browser. FinMax, FinLite and the closed month are on plan1 and gain nothing yet. With a scope
+for every pod a cold grid needs no browser at all (0.8 s when the FinPlan pod was asked alone).
+
+- **Set-up (per user, `config.toml`):** `[oauth]` `idcs` (the identity domain's base URL) and `client_id` (a public
+  client an administrator registered there, with the device-code and refresh-token grants), and one scope per pod
+  under `[oauth.scopes]`: `"https://<pod host>" = "urn:opc:serviceInstanceID=<id>urn:opc:resource:consumer::all"`.
+  A token covers one environment, so a pod without a scope keeps using the browser
+  (`oauth  ...: no scope (hidden browser)`). The administrator adds an environment to the client as a resource and
+  reads its scope there.
+- **Symptom:** `WARN  oauth  <pod>: not signed in` or `<pod>: sign-in ended`.
+- **Cause:** no sign-in was made on this PC, or it was not used for 7 days (Oracle's lifetime for a refresh token;
+  the MCP server and `smartass serve` renew it daily while they run), or the identity domain withdrew it.
+- **Fix:** Run `smartass login`: a page opens in your browser and the code is on the clipboard; paste it and
+  approve with Telenor SSO. `smartass login --status` shows the sign-ins, `--forget` deletes them from this PC.
+- The sign-in is stored per pod in `%LOCALAPPDATA%\smartass\oauth\`, DPAPI-protected for your Windows user; smartass
+  never sees a password. The token is only ever sent with the read-only Smart View requests.
+- Log line `svhttp: no bearer route to <pod> (...); using the browser route`: the reason is in the brackets; the
+  bearer route is tried again after two minutes.
+
 ## drill_browser
 
 - **Symptom:** `FAIL  drill_browser  msedge: ...; chrome: ...`.

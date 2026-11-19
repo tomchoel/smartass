@@ -7,7 +7,7 @@ import pytest
 from svxml_util import answer
 
 from smartass.knowledge import atlas
-from smartass.epm import drill_browser, svhttp, svxml
+from smartass.epm import drill_browser, oauth, svhttp, svxml
 from smartass.core import config
 from smartass.epm.grid import Axis
 from smartass.xl.host import InputError
@@ -831,3 +831,163 @@ def test_an_alias_clash_does_not_spend_a_reconnect(db_path):
     with pytest.raises(svhttp.SvHttpError, match="qualified name"):
         _q(_sv(t, db_path))
     assert t.tags().count("ConnectToProvider") == 1 and t.tags().count("ExecuteGrid") == 1
+
+
+# ---------------------------------------------------------------- BearerTransport (OAuth access token, no browser)
+class _Tokens:
+    """epm/oauth.py as the transport sees it: scope_for and access_token (which may raise)."""
+
+    def __init__(self, *tokens, scopes=("https://strat.example", "https://plan1.example")):
+        self.tokens, self.scopes, self.asked = list(tokens), scopes, []
+
+    def scope_for(self, base):
+        return "urn:scope" if base in self.scopes else None
+
+    def access_token(self, base, reject=None):
+        self.asked.append((base, reject))
+        t = self.tokens.pop(0) if len(self.tokens) > 1 else self.tokens[0]
+        if isinstance(t, Exception):
+            raise t
+        return t
+
+
+class _Fallback:
+    def __init__(self):
+        self.sent = []
+
+    def post(self, base, body):
+        self.sent.append((base, body))
+        return "<res_ConnectToProvider><sID>browser</sID></res_ConnectToProvider>"
+
+
+def _bearer(tokens, *answers):
+    """(transport, fallback, what was sent): answers are (status, text) or an exception, in order."""
+    sent, queue, fb = [], list(answers), _Fallback()
+
+    def send(base, body, token):
+        sent.append((base, token))
+        a = queue.pop(0) if len(queue) > 1 else queue[0]
+        if isinstance(a, Exception):
+            raise a
+        return a
+    return svhttp.BearerTransport(fb, tokens=tokens, send=send), fb, sent
+
+
+OK_XML = (200, "<res_ConnectToProvider><sID>s1</sID></res_ConnectToProvider>")
+GATE_401 = (401, "<html><h1>401 Authorization Required</h1></html>")
+
+
+def test_bearer_posts_with_the_token_and_never_touches_the_browser():
+    t, fb, sent = _bearer(_Tokens("at-1"), OK_XML)
+    assert "<sID>s1</sID>" in t.post("https://strat.example/", svxml.connect())
+    assert sent == [("https://strat.example", "at-1")] and fb.sent == []
+
+
+def test_bearer_refuses_writes_before_it_asks_for_a_token():
+    tokens = _Tokens("at-1")
+    t, fb, sent = _bearer(tokens, OK_XML)
+    with pytest.raises(ValueError, match="refused"):
+        t.post("https://strat.example", "<req_SubmitData></req_SubmitData>")
+    assert tokens.asked == [] and sent == [] and fb.sent == []
+
+
+def test_a_pod_without_a_scope_goes_to_the_browser_route():
+    tokens = _Tokens("at-1", scopes=("https://strat.example",))
+    t, fb, sent = _bearer(tokens, OK_XML)
+    assert "browser" in t.post("https://plan1.example", svxml.connect())
+    assert sent == [] and tokens.asked == [] and len(fb.sent) == 1
+
+
+def test_a_refused_token_gets_one_new_one_then_the_browser_route_for_a_while(monkeypatch):
+    tokens = _Tokens("at-1", "at-2")
+    t, fb, sent = _bearer(tokens, GATE_401, OK_XML)
+    assert "<sID>s1</sID>" in t.post("https://strat.example", svxml.connect())
+    assert sent == [("https://strat.example", "at-1"), ("https://strat.example", "at-2")]
+    assert tokens.asked == [("https://strat.example", None), ("https://strat.example", "at-1")] and fb.sent == []
+
+    tokens = _Tokens("at-1", "at-2")
+    t, fb, sent = _bearer(tokens, GATE_401)                        # refused twice: EPM never ran it
+    assert "browser" in t.post("https://strat.example", svxml.connect())
+    assert len(sent) == 2 and len(fb.sent) == 1
+    assert "browser" in t.post("https://strat.example", svxml.connect())
+    assert len(sent) == 2 and len(tokens.asked) == 2 and len(fb.sent) == 2      # no new try yet
+    monkeypatch.setattr(config, "SVHTTP_BEARER_RETRY_S", 0.0)
+    t._off.clear()
+    t.post("https://strat.example", svxml.connect())
+    assert len(sent) == 4                                          # tried again when the wait is over
+
+
+@pytest.mark.parametrize("problem", [oauth.NotSignedIn("not signed in: run 'smartass login'"),
+                                     oauth.OAuthError("the identity domain did not answer")])
+def test_no_token_means_the_browser_route_not_an_error(problem):
+    t, fb, sent = _bearer(_Tokens(problem), OK_XML)
+    assert "browser" in t.post("https://strat.example", svxml.connect())
+    assert sent == [] and len(fb.sent) == 1
+
+
+def test_a_token_that_cannot_be_renewed_after_a_refusal_goes_to_the_browser_route():
+    t, fb, sent = _bearer(_Tokens("at-1", oauth.NotSignedIn("ended")), GATE_401)
+    assert "browser" in t.post("https://strat.example", svxml.connect())
+    assert len(sent) == 1 and len(fb.sent) == 1
+
+
+@pytest.mark.parametrize("answer_", [TimeoutError("timed out"), ConnectionResetError("reset"),
+                                     (502, "<html>Bad Gateway</html>")])
+def test_a_request_that_may_have_reached_epm_is_lost_not_sent_again(answer_):
+    t, fb, sent = _bearer(_Tokens("at-1"), answer_)
+    with pytest.raises(svhttp.RequestLost):
+        t.post("https://strat.example", svxml.connect())
+    assert len(sent) == 1 and fb.sent == []
+
+
+def test_bearer_accepts_a_provider_answer_with_any_http_status():
+    t, fb, sent = _bearer(_Tokens("at-1"), (500, EXPIRED))
+    assert t.post("https://strat.example", svxml.connect()) == EXPIRED and fb.sent == []
+
+
+def test_a_grid_over_the_bearer_route_is_the_same_contract(db_path):
+    fake = FakeTransport(answer(GRID))
+    t = svhttp.BearerTransport(_Fallback(), tokens=_Tokens("at-1"),
+                               send=lambda base, body, token: (200, fake.post(base, body)))
+    lay, parsed, _ = _q(_sv(t, db_path))
+    assert [r[1:] for r in parsed.rows] == [[100.0, 110.0], [50.0, None]] and t.fallback.sent == []
+    assert fake.tags() == ["GetProvisionedDataSources", "ConnectToProvider", "OpenApplication", "OpenCube", "ExecuteGrid"]
+
+
+def test_the_shared_route_is_bearer_in_front_of_the_browser(monkeypatch):
+    monkeypatch.setattr(svhttp, "_shared", None)
+    sv = svhttp.shared()
+    assert isinstance(sv.t, svhttp.BearerTransport) and isinstance(sv.t.fallback, svhttp.BrowserTransport)
+    assert sv.t._tokens is oauth
+
+
+def test_bearer_sends_the_token_and_keeps_one_cookie_jar_per_pod(monkeypatch):
+    """The real sender against a fake opener: Authorization on every request, redirects never followed, an HTTP
+    error is an answer (status, text), and each pod has its own opener (cookie jar)."""
+    import io
+    import urllib.error
+    seen = []
+
+    class Opener:
+        def __init__(self, n):
+            self.n = n
+
+        def open(self, req, timeout):
+            seen.append((self.n, req.full_url, req.get_header("Authorization"), req.get_header("Content-type"), req.data))
+            if b"GetProvisionedDataSources" in req.data:
+                raise urllib.error.HTTPError(req.full_url, 401, "no", {}, io.BytesIO(b"<html>401</html>"))
+            return _Resp(200, b"<res_ConnectToProvider><sID>s1</sID></res_ConnectToProvider>")
+
+    class _Resp(io.BytesIO):
+        def __init__(self, status, data):
+            super().__init__(data)
+            self.status = status
+    built = []
+    monkeypatch.setattr(svhttp.urllib.request, "build_opener", lambda *h: built.append(h) or Opener(len(built)))
+    t = svhttp.BearerTransport(_Fallback(), tokens=_Tokens("at-1"))
+    assert t._https("https://strat.example", svxml.connect(), "at-1")[0] == 200
+    assert t._https("https://strat.example", svxml.provisioned_data_sources(), "at-1") == (401, "<html>401</html>")
+    t._https("https://plan1.example", svxml.connect(), "at-1")
+    assert [n for n, *_ in seen] == [1, 1, 2] and len(built) == 2
+    assert seen[0][1:4] == ("https://strat.example/HyperionPlanning/SmartView", "Bearer at-1", "text/xml")
+    assert any(h is svhttp._NoRedirect for h in built[0])

@@ -6,23 +6,28 @@ Error contract for extract.route: InputError only for a query that is wrong what
 used twice, no members, no row/column axis); everything else - including an incomplete or stale atlas, which COM
 does not need - is SvHttpError, so the caller falls back to Smart View in Excel.
 
-The transport is BrowserTransport: it posts from inside the drill's hidden Edge (Telenor SSO), one tab per EPM pod,
-on the drill browser's worker thread. Tests use a fake transport."""
+Two transports. BearerTransport posts over plain HTTPS with the user's OAuth access token (epm/oauth.py; no browser)
+for every pod that has a scope and a sign-in, and hands everything else to BrowserTransport, which posts from inside
+the drill's hidden Edge (Telenor SSO), one tab per EPM pod, on the drill browser's worker thread. Tests use a fake
+transport."""
 from __future__ import annotations
 
 import concurrent.futures as cf
 import datetime as dt
+import http.cookiejar
 import logging
 import re
 import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import urlsplit
 
 from ..knowledge import atlas
-from . import drill_browser, svxml
+from . import drill_browser, oauth, svxml
 from ..core import config
 from .drill_browser import DrillError
 from .grid import INVALID, MISSING, NOACCESS, Axis, Layout, full_pov, parse, validate_axes, verify_labels
@@ -473,14 +478,92 @@ class BrowserTransport:
         raise SvHttpError(f"Smart View provider at {base}: {why} twice (sign-in failed?)")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+AUTH_REFUSED = (301, 302, 303, 307, 401, 403)     # EPM's gate did not take the token: the request never ran
+
+
+class BearerTransport:
+    """Posts provider XML over plain HTTPS with the user's OAuth access token: no browser, no sign-in page (live
+    2026-11-19: /HyperionPlanning/SmartView takes the token; a FinPlan grid is cell for cell the browser route's;
+    on the pod alone 0.8 s cold against 17 s - but the data-source lookup on the home pod still signs in through
+    the browser until that pod has a scope too). Only for a pod with a configured scope; a pod without one, a pod
+    the user has not signed in to, and a token EPM refuses all go to `fallback` (the browser transport) - and stay there for
+    SVHTTP_BEARER_RETRY_S, so a missing sign-in costs one log line, not one per request.
+
+    One cookie jar per pod, as a browser has: EPM opens a server session for every request that brings no cookie.
+    The cookie alone does not authenticate (302 without the token). Like every transport here it sends nothing
+    that svxml.check_read_only refuses - the same token would be accepted by EPM's write endpoints."""
+
+    def __init__(self, fallback: Transport, tokens=oauth, send: Callable[[str, str, str], tuple[int, str]] | None = None):
+        self.fallback = fallback
+        self._tokens = tokens
+        self._send = send or self._https
+        self._off: dict[str, float] = {}               # pod -> monotonic time until which the browser route is used
+        self._openers: dict[str, urllib.request.OpenerDirector] = {}
+        self._lock = threading.Lock()
+
+    def post(self, base: str, body: str) -> str:
+        svxml.check_read_only(body)
+        base = base.rstrip("/")
+        if self._tokens.scope_for(base) is None or time.monotonic() < self._off.get(base, 0.0):
+            return self.fallback.post(base, body)
+        try:
+            token = self._tokens.access_token(base)
+        except oauth.OAuthError as e:
+            return self._fall_back(base, body, str(e))
+        status = 0
+        for attempt in (1, 2):
+            try:
+                status, text = self._send(base, body, token)
+            except OSError as e:                  # it may have reached EPM: never again on this sID (as a lost tab)
+                raise RequestLost(f"Smart View provider at {base}: lost the request ({type(e).__name__})") from None
+            if "<res_" in text or "<exception" in text:
+                return text                                       # provider XML, whatever the status: svxml judges
+            if status not in AUTH_REFUSED:
+                raise RequestLost(f"Smart View provider at {base}: answered HTTP {status} without provider XML")
+            if attempt == 1:                                      # the hour may have ended early: one new token
+                try:
+                    token = self._tokens.access_token(base, reject=token)
+                except oauth.OAuthError as e:
+                    return self._fall_back(base, body, str(e))
+        return self._fall_back(base, body, f"EPM refused the access token (HTTP {status})")
+
+    def _fall_back(self, base: str, body: str, why: str) -> str:
+        self._off[base] = time.monotonic() + config.SVHTTP_BEARER_RETRY_S
+        log.warning("svhttp: no bearer route to %s (%s); using the browser route", base, why[:200])
+        return self.fallback.post(base, body)
+
+    def _opener(self, base: str) -> urllib.request.OpenerDirector:
+        with self._lock:
+            op = self._openers.get(base)
+            if op is None:
+                op = self._openers[base] = urllib.request.build_opener(
+                    _NoRedirect, urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+            return op
+
+    def _https(self, base: str, body: str, token: str) -> tuple[int, str]:
+        req = urllib.request.Request(base + "/HyperionPlanning/SmartView", data=body.encode("utf-8"), method="POST",
+                                     headers={"Authorization": "Bearer " + token, "Content-Type": "text/xml"})
+        try:
+            with self._opener(base).open(req, timeout=_fetch_ms() / 1000) as r:
+                return r.status, r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8", "replace")
+
+
 _shared: SvHttp | None = None
 _shared_lock = threading.Lock()
 
 
 def shared() -> SvHttp:
-    """The process's one HTTP route (on the shared drill browser, looked up on every post)."""
+    """The process's one HTTP route: the bearer transport in front of the shared drill browser (looked up on every
+    post, and only started when a request needs it)."""
     global _shared
     with _shared_lock:
         if _shared is None:
-            _shared = SvHttp(BrowserTransport(lambda: drill_browser.shared_browser()))
+            _shared = SvHttp(BearerTransport(BrowserTransport(lambda: drill_browser.shared_browser())))
         return _shared
