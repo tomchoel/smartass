@@ -797,6 +797,17 @@ def _take_places(t, parked, sheets: list[str]) -> None:
             com(lambda n=n, a=anchor: t.wb.Worksheets(n).Move(None, t.wb.Worksheets(a)))
 
 
+def _dropped(t, parked) -> bool:
+    """True when none of the parked sheets is in the workbook any more (the drop's Delete went through); False also
+    when the workbook cannot be read (then the restore is tried, and says what it could not put back)."""
+    from .xl.jobs import com
+    try:
+        have = com(lambda: {str(s.Name).casefold() for s in t.wb.Worksheets}, limit=30, check=False)
+    except Exception:   # noqa: BLE001
+        return False
+    return not any(n.casefold() in have for n in parked.sheets.values())
+
+
 def _question_parts(t, q: int) -> tuple[list[str], list[str]]:
     """(sheets, tables) a follow-up replaces, in one read: 'Q<q> Answer' and 'Q<q> Data' (always named, so park
     refuses a missing one by its name), every 'Q<q> Lines b<i>' present, and the answer's tables on those sheets
@@ -833,9 +844,11 @@ def file_redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = 
     tables are parked under 'old ...' names, the new answer is drawn by _file_draw where they were, and the old
     ones are dropped; the Sources log gets its new rows and _svmeta's row for Q<q> is rewritten (no owned range).
     owned (a stored owned range, also one the COM renderer stored) is accepted and ignored: the sheets are replaced
-    whole. A missing Answer or Data sheet is an InputError naming it, before anything is renamed. On any failure the
+    whole. A missing Answer or Data sheet is an InputError naming it, before anything is renamed. On a failure the
     new sheets are removed first (rollback), then the old ones get their names back (restore; never a rollback
-    after it, as the old names are then the ones in t.sheets_added); RestoreError only when the restore failed."""
+    after it, as the old names are then the ones in t.sheets_added); RestoreError only when the restore failed. A
+    failure once the old sheets are dropped keeps the new answer (it is whole: Sources and spec are written) and
+    raises the error as it is: a rollback then would leave neither answer."""
     from .xl import movein
     del owned
     with stage("open target"):
@@ -846,6 +859,8 @@ def file_redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = 
             try:
                 out = _file_draw(t, q, pre, parked)
             except Exception as e:
+                if _dropped(t, parked):
+                    raise
                 _rollback(t)
                 try:
                     movein.restore(t, parked)

@@ -301,6 +301,31 @@ def test_a_failed_drop_puts_the_old_sheets_back_in_their_places(own_book, monkey
     assert {n: fakexl.sheet_state(wb.Worksheets(n)) for n in q3} == q3
 
 
+def test_a_drop_that_deletes_and_then_fails_keeps_the_new_answer(own_book, monkeypatch):
+    """The old sheets are gone once the Delete went through: a rollback then would leave neither answer."""
+    wb, real = own_book.wb, movein.drop
+
+    def drop(t, parked):
+        real(t, parked)
+        raise HostError("could not restore Application.DisplayAlerts")
+    monkeypatch.setattr(movein, "drop", drop)
+    with pytest.raises(HostError, match="DisplayAlerts") as e:
+        own_book.follow_up(_pre(), 3)
+    assert not isinstance(e.value, pipeline.RestoreError)
+    assert {"Q3 Answer", "Q3 Data"} <= set(_names(wb)) and not [n for n in _names(wb) if n.startswith("old ")]
+    assert "Data_Q3" in _tables(wb)
+
+
+def test_a_failure_after_the_drop_keeps_the_new_answer(own_book, monkeypatch):
+    def check(*a):
+        raise HostError("the job was abandoned")
+    monkeypatch.setattr(pipeline, "_check", check)
+    with pytest.raises(HostError, match="abandoned") as e:
+        own_book.follow_up(_pre(), 3)
+    assert not isinstance(e.value, pipeline.RestoreError)
+    assert "Q3 Answer" in _names(own_book.wb) and "Q3 Lines b0" not in _names(own_book.wb)
+
+
 def test_a_failed_follow_up_rolls_back_before_it_restores_and_never_after(own_book, monkeypatch):
     seen = []
     real_rollback, real_restore = pipeline._rollback, movein.restore
