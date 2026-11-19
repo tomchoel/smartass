@@ -182,6 +182,17 @@ are. If one of these symptoms shows up, the cause below is already known; no new
 | Matrix: `S10.8.coldexcel` is LIMIT | A cold start needs no Excel running, and the owner's Excel is open during runs. | Run it with all Excels closed if needed. |
 | Matrix: `S5.drill.report` FAILs with "needs S#.build" under `--only drill` | It builds on S2.build's workbook from the same run. | Include `S2.build` in `--only`, or run the full matrix. |
 
+## An Excel step behaves differently since 2026-11-19 (the fast COM wrapper)
+
+- **Symptom:** an Excel step fails or gives an odd result it did not give before 2026-11-19, e.g. an
+  `AttributeError` that names a COM object, or a method where a value was expected.
+- **Cause to rule out:** since 2026-11-19 the engine drives Excel through `engine\smartass\xl\fastcom.py`: pywin32's
+  own late-bound wrapper, except that what it learns about each interface is shared by all objects of it (about
+  x1.7 faster Excel jobs).
+- **Check:** set the environment variable `SV_FASTCOM=0` for the smartass server, restart it and repeat the step: the
+  standard pywin32 wrapper is used. If the problem goes away, report the step; `scripts\check_fastcom.py` compares
+  both wrappers idiom by idiom in a hidden Excel of its own.
+
 ## Still stuck
 
 Run `smartass doctor --bundle` and send the zip it prints to the maintainer. It contains the doctor result,

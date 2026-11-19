@@ -10,12 +10,11 @@ from pathlib import Path
 import psutil
 import pythoncom
 import pywintypes
-import win32com.client as wc
 import win32file
 import win32gui
 import win32process
 
-from . import login
+from . import fastcom, login
 from ..core import config
 from .host import ExcelHost, HostError
 
@@ -65,7 +64,7 @@ def _app_from_window(ex7: int):
     """Excel.Application behind a workbook window (AccessibleObjectFromWindow), or None if that Excel refuses."""
     try:
         _, lres = win32gui.SendMessageTimeout(ex7, WM_GETOBJECT, 0, OBJID_NATIVEOM, 2, 3000)
-        win = wc.Dispatch(pythoncom.ObjectFromLresult(lres, pythoncom.IID_IDispatch, 0))
+        win = fastcom.wrap(pythoncom.ObjectFromLresult(lres, pythoncom.IID_IDispatch, 0))
         return win.Application
     except Exception:   # noqa: BLE001 - modal dialog, cell edit mode, busy, or not a workbook window
         return None
