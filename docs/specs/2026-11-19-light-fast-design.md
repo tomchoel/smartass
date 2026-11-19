@@ -10,7 +10,9 @@ engine that is only there for historical reasons. Since 19.11 the user's own OAu
 (PR #8), which makes most of the machinery around sign-in, hidden Excel and hidden browser unnecessary. This design
 says what replaces it and what is deleted.
 
-Where the time goes today (last 60 answers in `runs.jsonl`, and the spikes):
+Where the time goes. The "today" column for the Excel job comes from the last stage timings the engine logged
+(`runs.jsonl`, 2-3 November, the v1 pipeline): **the v2 engine logs no stage timings**, so its real figures are
+unknown and phase 0 measures them. The other rows were measured on 19.11.
 
 | Step | Today | Measured with the new way |
 |---|---|---|
@@ -21,15 +23,30 @@ Where the time goes today (last 60 answers in `runs.jsonl`, and the spikes):
 | Fallback when HTTP fails | about 50 s (hidden Excel + Smart View) | 0.2-0.3 s (Planning REST) |
 | Atlas build (member lists) | minutes in hidden Excel, + 2 min for cards | about 33 s over REST, with account type and time balance |
 
+Reliability is the second reason. Since 5 November `server.log` holds 37 failed `fin_analyze` / `fin_refresh` calls;
+26 of them were Excel/COM failures (10 "Excel was busy", 11 COM attribute errors such as `Range.Value2` and
+`Add.Name`, 5 other COM errors). A job of a few dozen COM calls has far fewer places to fail than one of several
+hundred.
+
+What the Excel spike covered: opening the built file, the one copy call, closing it, breaking the link, making the
+table, writing the formula block, and for a follow-up the replacement of the old sheets. It did **not** cover finding
+the target workbook, the read-back, `_svmeta`, sheet ordering or the save, and it ran in a clean hidden Excel.
+
 ## Goals
 
-1. A new answer without drill lines is in Excel within **4 s** of the tool call when the server is warm (median 13 s
-   today); a cold server adds at most 1 s.
+Goals 1 and 2 are targets to steer by, not merge gates: phase 0 gives the real baseline, and each phase reports
+against it. The gate for phase 3 is the Excel job alone, measured in the owner's real Excel: **at most 2 s** for an
+answer without lines sheets and **at most 3.5 s** with one 50 000-line sheet.
+
+1. A new answer without drill lines is in Excel within **4 s** of the tool call when the server is warm; a cold
+   server adds at most 1 s.
 2. An answer with one drill of a few thousand lines within **12 s**.
 3. No hidden Excel, no VBA, no SSO clicker, no hidden browser, no Playwright. The only Excel smartass touches is the
    user's own.
-4. The engine is about a third smaller, and a colleague can install it with `uv sync`, `smartass setup` and
-   `smartass login`: no Smart View, no "trust access to the VBA project", no Edge policy.
+4. The engine is about a third smaller, and it installs with `uv sync`, `smartass setup` and `smartass login`: no
+   Smart View, no "trust access to the VBA project", no Edge policy. 0.3 is verified on the owner's PC only. Rolling
+   it out to colleagues is a later step that waits for the owner's choice of OAuth client and a test with a
+   colleague's EPM role; it does not hold back any deletion in this design.
 5. Same numbers. The test set's golden numbers pass unchanged, and every answer still passes
    `checks.sheet_equals_model`.
 
@@ -56,9 +73,10 @@ Where the time goes today (last 60 answers in `runs.jsonl`, and the spikes):
   through Excel fails silently without the sensitivity label).
 - Used from Claude Code and Copilot through MCP. The Excel task pane and the localhost HTTP API are not used.
 - The owner uses it now; colleagues later. Install must stay simple, but no update or release machinery is needed yet.
-- Owner decision 2026-11-19: **the Q sheets belong to smartass.** A follow-up may replace them whole; the user's own
-  notes and formulas live on the user's own sheets, which are never changed - except that their references to a
-  replaced Q sheet or table are kept pointing at the new one.
+- Owner decisions 2026-11-19: **the Q sheets belong to smartass** - a follow-up may replace them whole, and the
+  user's own notes and formulas live on the user's own sheets, which are never changed. **Nothing of the user's that
+  points at a Q sheet needs to survive its replacement** (formulas, names, charts, pivots): such references are not
+  re-pointed.
 
 ## Approaches
 
@@ -147,10 +165,13 @@ changes is how the plan reaches Excel:
    the model (`checks.sheet_equals_model`, as today); store the spec in `_svmeta`; order the sheets; save (our own
    files only).
 
-**A follow-up, a refresh or a redraw of Q<n>** replaces its sheets: rename the old sheets and the old table and names
-out of the way ("old ..."), move the new ones in and finish them, re-point the references on every sheet smartass
-does not own with one `Cells.Replace` per renamed sheet and table, then delete the old sheets. If any step before
-the delete fails, the new sheets are removed and the old names restored: the answer is as it was.
+**A follow-up, a refresh or a redraw of Q<n>** replaces its sheets: rename the old sheets, tables and names out of
+the way ("old ..."), move the new ones in and finish them, then delete the old sheets. If any step before the delete
+fails, the new sheets are removed and the old names restored: the answer is as it was. References from the user's
+own sheets to the replaced sheets are not kept (owner decision above).
+
+**Every table is made inside the workbook**, not only `Data_Q<n>`: a Lines sheet's `Lines_Q<n>_<alias>` table, which
+the answer's formulas sum over, is created the same way after the copy.
 
 **The table rule.** A sheet that contains an Excel Table is never copied between workbooks. Spike: after a second
 copy of a table-bearing sheet into the same workbook, replacing sheets crashed EXCEL.EXE (access violation) in 13 of
@@ -167,9 +188,11 @@ in `render/charts.py`, the answer path of `xl/styling.py`, `xl/owned.py` (owned 
 - **Removed:** `addin/tn-claude` (task pane and its server), `smartass serve` with `ops/httpapi.py`, the HTTP
   secret and its Startup entry, the `smartass xl` sub-commands (the pane's), `ops/update.py` and the release-folder
   settings. The sign-in renewal already runs in the MCP server.
-- **Install:** `uv sync`; `smartass setup` (user config, MCP entries for Claude Code and Copilot, skill link, atlas);
-  `smartass login`. The `[oauth]` settings move to `engine/defaults.toml` once the owner has settled which OAuth
-  client colleagues use.
+- **Install:** `uv sync`; `smartass setup` (user config, MCP entries for Claude Code and Copilot, skill link);
+  `smartass login`, which builds the atlas when there is none (about half a minute, plus the cards). The atlas is no
+  longer copied from a release folder; `smartass atlas build` rebuilds it at any time, and a tool call without an
+  atlas says which command to run. The `[oauth]` settings move to `engine/defaults.toml` once the owner has settled
+  which OAuth client colleagues use.
 - **Doctor:** config, EPM reachable, oauth sign-ins, atlas, knowledge, output folder.
 - **Dependencies:** `playwright` out, `xlsxwriter` in; `mcp`, `pydantic`, `pywin32`, `psutil`, `openpyxl` stay.
 - Version 0.3.0; `docs/DESIGN.md`, the skill's `reference/` and `docs/troubleshooting.md` rewritten to what is
@@ -182,9 +205,10 @@ matched it live.**
 
 | Phase | Delivers | Proof before the old part is deleted |
 |---|---|---|
+| 0. Baseline | stage timings logged again for every v2 answer; the test-set questions timed on today's engine | - |
 | 1. Drill over the token | drill lines without a browser; sign-in started from the tool call | the test set's drill questions and three live cells (one over 5 000 lines, one split cell, one "too wide"): same lines, same tie to the cube as the browser route |
 | 2. REST second engine, atlas over REST | fallback without Excel; `atlas build` in under a minute | 20 grids from the run log fetched on both routes: identical `Fetched`; a rebuilt atlas equal to today's apart from members added since |
-| 3. File-built answers | the Excel job in 1-2 s | every test-set question drawn both ways: same cell values, formulas and formats on the Answer sheet, charts compared by eye once; six follow-ups in a row in the owner's real Excel with Smart View loaded |
+| 3. File-built answers | the Excel job within the gate above | every test-set question drawn both ways: same cell values, formulas and formats on the Answer sheet, charts compared by eye once; six follow-ups in a row in the owner's real Excel with Smart View loaded |
 | 4. Slim down | pane, HTTP API, updater and hidden-Excel leftovers gone; install and docs for 0.3.0 | `smartass doctor` clean on a fresh checkout; the whole suite and the test set green |
 
 Phases 1 and 2 do not depend on phase 3 and can be built in parallel.
@@ -206,7 +230,7 @@ Phases 1 and 2 do not depend on phase 3 and can be built in parallel.
 | The Excel findings come from one Excel build, in a clean hidden instance | Phase 3 starts with the six-follow-ups check in the owner's real Excel (Smart View and other add-ins loaded), before anything else is built on it. If it fails there, phase 3 falls back to approach B's batched writes behind the same plan. |
 | The temp workbook flashes or steals focus when it is opened | Screen updating off, window hidden, active sheet and selection restored; judged by the owner in phase 3's first demo. |
 | The spike's drill view definition differed from the browser's (not examined) | First task of phase 1: explain the difference before relying on it. |
-| A colleague's role may not read member metadata over REST | `EnumMembers` walk as fallback, or the atlas copied at setup as today. |
+| A colleague's role may not read member metadata over REST | `EnumMembers` walk as fallback; checked when colleagues are brought in. |
 | An unused sign-in ends after 7 days | Renewed daily while a server runs; otherwise the tool call starts a new login. An identity-domain admin can raise the lifetime. |
 
 ## Left to the builder
@@ -224,4 +248,6 @@ answer; the paging budget of the REST engine; test layout.
 - REST `exportdataslice` is only a fallback, not the first route.
 - A missing sign-in starts the login from the tool call instead of failing.
 - The pane's `smartass xl` sub-commands go with the pane.
-- Four phases in the order above.
+- The atlas is built at the first login instead of copied from a release folder.
+- Speed goals are targets; the only timing gate is the Excel job in phase 3.
+- Phases 0 to 4 in the order above.
