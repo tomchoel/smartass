@@ -89,7 +89,7 @@ def _inspect(h, path: str, q: int) -> dict:
         tables = [str(lo.Name) for s in t.wb.Worksheets for lo in s.ListObjects]
         active = (str(t.app.ActiveSheet.Name)
                   if str(t.app.ActiveWorkbook.FullName).casefold() == str(t.wb.FullName).casefold() else None)
-        links, unshown = [], 0
+        links, unshown, logged = [], 0, []
         if "Sources" in names:
             ws = t.wb.Worksheets("Sources")
             for link in ws.Hyperlinks:                     # the rows an earlier version logged: real links
@@ -103,12 +103,14 @@ def _inspect(h, path: str, q: int) -> dict:
                 for row, seen in zip(formulas, shown):
                     if row[0] != f"Q{q}":
                         continue
+                    logged.append(str(seen[10] or ""))                 # Status (L): OK / DIFF, never blank
                     for f, v in zip(row[11:], seen[11:]):
                         m = HYPERLINK.match(str(f or ""))
                         if m:
                             links.append(m.group(1).replace('""', '"'))
                             unshown += v != m.group(2).replace('""', '"')
         return {"names": names, "tables": tables, "active": active, "links": links, "unshown": unshown,
+                "statuses": logged,
                 "ready": bool(t.app.Ready)}
     return jobs.com(read)
 
@@ -144,9 +146,14 @@ async def check(case: dict, second: dict, keep: bool) -> int:
     statuses: list[str] = []
     real_redraw = server.file_redraw_job
 
+    notes: list[tuple[int, int]] = []                      # (layout findings, warnings) of each redraw's reply
+    texts: set[str] = set()                                # their texts, amounts masked
+
     def file_redraw_job(h, pre, q, owned, target):       # the server's own job; its reply's check is noted
         out = real_redraw(h, pre, q, owned, target)
         statuses.append(out["checks"]["sheet_equals_model"])
+        notes.append((len(out.get("layout") or []), len(out.get("warnings") or [])))
+        texts.update(scrub(x)[:120] for x in [*(out.get("layout") or []), *(out.get("warnings") or [])])
         return out
     server.file_redraw_job = file_redraw_job
 
@@ -181,11 +188,14 @@ async def check(case: dict, second: dict, keep: bool) -> int:
                 raise Stop(f"{label}: {len(done)} answers refreshed, {len(statuses) - before} by file_redraw_job")
             status = "; ".join(dict.fromkeys(statuses[before:]))          # 'OK' when every answer is OK
             drawn = max(d["q"] for d in done)
+            found = tuple(sum(x) for x in zip(*notes[before:])) if notes[before:] else (0, 0)
         else:
             status = out["checks"]["sheet_equals_model"]
             if path is None:
                 path, q = out["workbook"], out["q"]
             drawn = out["q"]
+            found = (len(out.get("layout") or []), len(out.get("warnings") or []))
+            texts.update(scrub(x)[:120] for x in [*(out.get("layout") or []), *(out.get("warnings") or [])])
             if want_followup and (out.get("followup") is not True or len(statuses) == before):
                 raise Stop(f"{label}: the reply did not come from file_redraw_job")
         if MOVE_IN not in timings:
@@ -209,13 +219,17 @@ async def check(case: dict, second: dict, keep: bool) -> int:
             problems.append(f"{len(stale)} Sources link(s) of Q{q} name a sheet that is gone")
         if seen["unshown"]:
             problems.append(f"{seen['unshown']} Sources link(s) of Q{q} do not show their text")
+        if [s for s in seen["statuses"] if s not in ("OK", "DIFF")]:
+            problems.append(f"a Sources row of Q{q} has no OK/DIFF status")
         if not seen["ready"]:
             problems.append("Excel is not ready")
         com = com_calls(timings)
         stages = "  ".join(f"{s.split('.')[-1]} {timings.get('excel job.' + s, 0):.2f}" for s in STAGES)
+        counts = "/".join(f"{k} {seen['statuses'].count(k)}" for k in ("OK", "DIFF"))
         print(f"{label:<14} {secs:6.1f} s  excel job {timings.get('excel job._total', 0):5.2f} s  COM calls "
               f"{'-' if com is None else com:>4}  [{stages}]  sheet = model {status}  Sources links "
-              f"{len(seen['links'])}  {'checks OK' if not problems else 'DIFF: ' + '; '.join(problems)}", flush=True)
+              f"{len(seen['links'])}  status {counts}  layout {found[0]} warnings {found[1]}  "
+              f"{'checks OK' if not problems else 'DIFF: ' + '; '.join(problems)}", flush=True)
         if problems:
             raise Stop(f"{label}: " + "; ".join(problems))
 
@@ -242,6 +256,8 @@ async def check(case: dict, second: dict, keep: bool) -> int:
             except Exception as e:   # noqa: BLE001
                 print(f"could not close the workbook this script created: {scrub(e)}", flush=True)
         _shutdown(kit)
+    for x in sorted(texts):
+        print(f"  reply note: {x}", flush=True)
     if failed:
         print(f"\nSTOPPED: {failed}", flush=True)
         return 2
