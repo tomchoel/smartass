@@ -5,31 +5,30 @@ the nine test-set cases twice, once with `SV_RENDER=com` (pipeline.excel_job, th
 `SV_RENDER=file` (pipeline.file_job). Each renderer draws into its own new workbook in the analyser folder. The
 three cases without a chart block run as `bench_answers.py` runs them. The script then reads every Q sheet pair back
 through the user's Excel and diffs them. It prints counts, addresses, property names and format values. It never
-prints a cell value, and it prints a formula only when the cell holds one.
+prints a cell value, a chart title or a value-axis bound, and it prints a formula only when the cell holds one.
 
 Command of the final run (from the repo root):
 
     engine\.venv\Scripts\python.exe scripts\compare_renders.py
 
-Exit code of the final run: **1**. Three difference groups are outside the allowed list. They are listed under
-"Proposed allowances" below, and the script keeps failing on them until the controller rules.
+Exit code of the final run: **0**. Every difference is on the allowed list, which includes the three allowances the
+controller ruled on after the first final run (see "Rulings").
 
 ## The two workbooks of the final run (left open, to compare by eye)
 
-- COM renderer: `2026-11-19_1952 Wholesale P&L year to date vs last year.xlsx`
-- File renderer: `2026-11-19_1958 Wholesale P&L year to date vs last year.xlsx`
+- COM renderer: `2026-11-19_2024 Wholesale P&L year to date vs last year.xlsx`
+- File renderer: `2026-11-19_2030 Wholesale P&L year to date vs last year.xlsx`
 
-Both are in the analyser folder and hold Q1 to Q9 (b01 to b16, in the test-set order). The script closed the six
-workbooks of the earlier iteration runs after it had read them.
+Both are in the analyser folder and hold Q1 to Q9 (b01 to b16, in the test-set order). The script closed the eight
+workbooks of the earlier runs after it had read them.
 
 ## Final output
 
 ```
 cases compared: 9; cells per side: 148197; texts with the run's timestamp masked: 18; failed reads: 0
-difference groups: 51, not allowed: 3
-DIFF | Answer | chart height | com 260.0 -> file 260.2 | 9 in b01 b02 b05 b06 b07 b09 b13 b15 b16: b01 chart at $B$8, b02 chart at $B$7, b05 chart at $B$10, b06 chart at $B$10, b07 chart at $B$7, b09 chart at $B$10 ...
-DIFF | Answer | chart overlap | com 100 -> file 0 | 1 in b07: b07 chart at $B$7
-DIFF | Data | column widths | com 39.38 -> file 37.13 | 1 in b09: b09 B
+difference groups: 47, not allowed: 0
+allowed (chart size within 0.5 pt) | Answer | chart height | com 260.0 -> file 260.2 | 9 in b01 b02 b05 b06 b07 b09 b13 b15 b16: b01 chart at $B$8, b02 chart at $B$7, b05 chart at $B$10, b06 chart at $B$10, b07 chart at $B$7, b09 chart at $B$10 ...
+allowed (the Overlap of a line chart group) | Answer | chart overlap | com 100 -> file 0 | 1 in b07: b07 chart at $B$7
 allowed (the hidden sheet name smartass_pagesetup) | Answer | sheet name | com ["'Q# Answer'!smartass_pagesetup", '="a1|$A$1:$H$86|Intern|Source: Oracle EPM Cloud · fetched 2026-11-19 · page &P of &N|breaks 26,76"', False] -> file None | 1 in b01: b01 'Q# Answer'!smartass_pagesetup
 allowed (the hidden sheet name smartass_pagesetup) | Answer | sheet name | com ["'Q# Answer'!smartass_pagesetup", '="a1|$A$1:$G$50|Intern|Source: Oracle EPM Cloud · fetched 2026-11-19 · page &P of &N|breaks 29"', False] -> file None | 2 in b02 b13: b02 'Q# Answer'!smartass_pagesetup, b13 'Q# Answer'!smartass_pagesetup
 allowed (the hidden sheet name smartass_pagesetup) | Answer | sheet name | com ["'Q# Answer'!smartass_pagesetup", '="a1|$A$1:$I$64|Intern|Source: Oracle EPM Cloud · fetched 2026-11-19 · page &P of &N|breaks 28,57"', False] -> file None | 1 in b05: b05 'Q# Answer'!smartass_pagesetup
@@ -57,18 +56,15 @@ allowed (the cell style name) | Answer | style | com 'TN Prosent 1d · Hovedsum'
 allowed (the cell style name) | Answer | style | com 'TN Tekst tallkolonne' -> file 'Normal' | 11 in b01 b02 b05 b06 b07 b09 b13 b15 b16: b01 D52, b02 D30, b05 D38, b06 D45, b06 D46, b07 D40 ...
 allowed (the cell style name) | Answer | style | com 'TN Note' -> file 'Normal' | 881 in b01 b02 b05 b06 b07 b09 b13 b15 b16: b01 A55, b01 B55, b01 C55, b01 D55, b01 E55, b01 F55 ...
 allowed (the cell style name) | Answer | style | com 'TN Underseksjon' -> file 'Normal' | 45 in b09: b09 B30, b09 C30, b09 D30, b09 E30, b09 F30, b09 G30 ...
-allowed (Data column width within 1.0 character) | Data | column widths | com 6.88 -> file 6.75 | 9 in b01 b02 b05 b06 b07 b09 b13 b15 b16: b01 E, b02 E, b05 E, b06 E, b07 E, b09 F ...
-allowed (Data column width within 1.0 character) | Data | column widths | com 8.63 -> file 8.5 | 8 in b01 b02 b06 b07 b09 b13 b15 b16: b01 F, b02 F, b06 F, b07 F, b09 G, b13 F ...
-allowed (Data column width within 1.0 character) | Data | column widths | com 7.75 -> file 7.63 | 9 in b01 b02 b05 b06 b07 b09 b13 b15 b16: b01 G, b02 G, b05 G, b06 G, b07 G, b09 H ...
-allowed (Data column width within 1.0 character) | Data | column widths | com 8 -> file 7.88 | 9 in b01 b02 b05 b06 b07 b09 b13 b15 b16: b01 H, b02 H, b05 H, b06 H, b07 H, b09 I ...
-allowed (Data column width within 1.0 character) | Data | column widths | com 9 -> file 8.63 | 2 in b01 b09: b01 I, b09 J
-allowed (Data column width within 1.0 character) | Data | column widths | com 8.88 -> file 8.5 | 1 in b02: b02 I
-allowed (Data column width within 1.0 character) | Data | column widths | com 18.88 -> file 18.75 | 1 in b05: b05 C
-allowed (Data column width within 1.0 character) | Data | column widths | com 10.38 -> file 10.13 | 1 in b05: b05 F
-allowed (Data column width within 1.0 character) | Data | column widths | com 9.88 -> file 9.5 | 3 in b05 b06 b15: b05 I, b06 I, b15 I
-allowed (Data column width within 1.0 character) | Data | column widths | com 10.13 -> file 9.75 | 1 in b07: b07 I
-allowed (Data column width within 1.0 character) | Data | column widths | com 8 -> file 7.63 | 1 in b13: b13 I
-allowed (Data column width within 1.0 character) | Data | column widths | com 6.25 -> file 6.13 | 1 in b16: b16 I
+allowed (Data column width 1.0 under to 3.0 over AutoFit) | Data | column widths | com 6.88 -> file 6.75 | 9 in b01 b02 b05 b06 b07 b09 b13 b15 b16: b01 E, b02 E, b05 E, b06 E, b07 E, b09 F ...
+allowed (Data column width 1.0 under to 3.0 over AutoFit) | Data | column widths | com 8.63 -> file 8.5 | 8 in b01 b02 b06 b07 b09 b13 b15 b16: b01 F, b02 F, b06 F, b07 F, b09 G, b13 F ...
+allowed (Data column width 1.0 under to 3.0 over AutoFit) | Data | column widths | com 7.75 -> file 7.63 | 9 in b01 b02 b05 b06 b07 b09 b13 b15 b16: b01 G, b02 G, b05 G, b06 G, b07 G, b09 H ...
+allowed (Data column width 1.0 under to 3.0 over AutoFit) | Data | column widths | com 8 -> file 7.88 | 9 in b01 b02 b05 b06 b07 b09 b13 b15 b16: b01 H, b02 H, b05 H, b06 H, b07 H, b09 I ...
+allowed (Data column width 1.0 under to 3.0 over AutoFit) | Data | column widths | com 18.88 -> file 19.5 | 1 in b05: b05 C
+allowed (Data column width 1.0 under to 3.0 over AutoFit) | Data | column widths | com 10.38 -> file 10.5 | 1 in b05: b05 F
+allowed (Data column width 1.0 under to 3.0 over AutoFit) | Data | column widths | com 39.38 -> file 38.63 | 1 in b09: b09 B
+allowed (Data column width 1.0 under to 3.0 over AutoFit) | Data | column widths | com 9.25 -> file 9.63 | 1 in b09: b09 E
+allowed (Data column width 1.0 under to 3.0 over AutoFit) | Data | column widths | com 6.25 -> file 6.13 | 1 in b16: b16 I
 allowed (the hidden sheet name smartass_pagesetup) | Data | sheet name | com ["'Q# Data'!smartass_pagesetup", '="a1|$A$1:$I$134|Intern|Source: Oracle EPM Cloud · &A · page &P of &N"', False] -> file None | 1 in b01: b01 'Q# Data'!smartass_pagesetup
 allowed (the hidden sheet name smartass_pagesetup) | Data | sheet name | com ["'Q# Data'!smartass_pagesetup", '="a1|$A$1:$I$32|Intern|Source: Oracle EPM Cloud · &A · page &P of &N"', False] -> file None | 1 in b02: b02 'Q# Data'!smartass_pagesetup
 allowed (the hidden sheet name smartass_pagesetup) | Data | sheet name | com ["'Q# Data'!smartass_pagesetup", '="a1|$A$1:$I$194|Intern|Source: Oracle EPM Cloud · &A · page &P of &N"', False] -> file None | 1 in b05: b05 'Q# Data'!smartass_pagesetup
@@ -101,6 +97,8 @@ Run artefacts are not counted as differences, and none was added to the allowed 
 | ac6c117 | Lines date: drill_xl's local 'dd.mm.åååå' is stored by Excel as its built-in short date 14 (read in en-US: 'm/d/yyyy'). The file wrote a code. `movein.date_format` decides it from Application.International in base's one call. | 5678 cells (b16) |
 | 55f99c2 | Excel's merge gives the merged cells the bottom border of the cells above as their own top border. The first Key point under its section heading therefore had a navy top border in the COM drawing and none in the file. It is the same line on screen, and the cells now carry the same borders. | 54 cells (all nine cases) |
 | e11d92f | A Data table without facts: `table_font` covers the whole table range, so the empty body row is Arial 9. After 93774d3 the file left it in the Normal style. The separator row above the table (A5:D5, Arial in the COM drawing) matched as well after this fix. I did not trace why. | 13 font-name and 12 font-size cells (b16) |
+| a4fa090 | Data widths: `tn.text_units` reads lowercase Arial 9 too narrow. Measured in Excel: 's' renders as wide as 'a', and 'm' and 'i' render wider than their 1/1000-em widths. b09's 48-character query id came out 37.13 against AutoFit's 39.38, and a narrower column cuts the text. A 4 % margin (`AUTOFIT_MARGIN`) keeps every width at most 1.0 character under AutoFit; the cap of 40 and the floor of 16 on A:D stay. The test uses an invented id of the same shape (48 characters: 40 lowercase, 1 digit, 2 colons, 5 underscores; AutoFit 37.63). | 1 column (b09 B); final run: 38.63 against 39.38 |
+| 2744e4c | The script applies the controller's rulings (below), and it reports a value-axis minimum or maximum only as "differs", because a waterfall's bound is derived from EPM figures. | - |
 
 Every fix has unit tests (engine/tests/v2/test_xlsx.py, test_xlsx_charts.py, test_file_job.py and
 engine/tests/test_movein.py). The COM writers are unchanged.
@@ -109,21 +107,18 @@ Candidate (d), the file job reports no style lint: no difference showed. The rep
 cases, because apply_report found nothing to lint in any of them. The file job would still miss a style lint finding
 if apply_report ever reported one.
 
-## Proposed allowances (the script still fails on them)
+## Rulings on the first final run's three proposals
 
-1. **Chart height 260.25 pt against 260 (all 9 charts).** XlsxWriter sizes a chart in whole pixels: 260 pt is
-   346.67 px, and XlsxWriter writes 347 px. The difference is a third of a pixel, so it cannot be seen. The file
-   cannot hold 260 pt exactly. The alternative to an allowance is one COM call per chart after the move-in
-   (`ChartObject.Height = spec.height` in movein.finish). That would add a call to a job whose point is fewer calls.
-   Proposed rule: chart width and height within 0.75 pt (one pixel).
-2. **Overlap of a line chart's group: 100 against 0 (b07).** AddChart2 leaves 100 in the COM chart's line group. The
-   file format has no overlap for a line chart (`c:lineChart` has no `c:overlap`), so the file cannot write it, and
-   a line has no bars for it to act on. Proposed rule: Overlap and GapWidth are not compared on a line chart group.
-3. **Data column B of b09: 37.13 against AutoFit's 39.38 (2.25 characters).** The column holds one 48-character
-   query id in lowercase with underscores. `tn.text_units` measures it at about 297 px, and AutoFit gives the column
-   315 px. A per-character model cannot know the screen's glyph hinting, and every other Data width of the nine
-   cases is within 1.0 character. Options: a wider tolerance for texts beyond 40 characters, or AutoFit through COM
-   after the move-in (one call per Data column, against the call budget).
+The first final run (19:52/19:58) exited 1 on three groups. The controller ruled:
+
+1. **Chart width and height: allowed within 0.5 pt.** XlsxWriter sizes a chart in whole pixels: 260 pt is
+   346.67 px, and XlsxWriter writes 347 px. The final run reads 260.2 against 260.0 on all 9 charts. Larger
+   differences still fail.
+2. **Overlap of a LINE chart's group: allowed.** It has no meaning for a line, and the file format cannot hold it
+   (b07: 100 against 0). Clustered and stacked groups must still match, and they do.
+3. **b09 Data column B: not allowed as it stood.** It is fixed in a4fa090. The Data width tolerance is now
+   asymmetric: the file may be at most 1.0 character under AutoFit and at most 3.0 over it. In the final run the
+   widths range from 0.75 under (b09 B) to 0.62 over (b05 C).
 
 ## How the script reads (notes for the reviewer)
 
