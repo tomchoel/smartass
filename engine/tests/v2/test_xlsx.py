@@ -241,10 +241,7 @@ def test_the_data_sheet_holds_the_facts_as_values_below_an_empty_header(built):
     assert ws.freeze_panes == f"A{r0 + 1}" and ws.sheet_view.showGridLines is False
     assert ws.sheet_properties.tabColor.rgb.endswith("A6A6A6")
     for j in range(w):
-        fit = min(max(tn.text_units(_shown(row[j], i > 0 and j == w - 1), 9)
-                      for i, row in enumerate(g) if row[j] not in (None, "")), 40)
-        want = max(fit, 16) if j < 4 else fit
-        assert _widths(ws)[col_letter(j + 1)] == pytest.approx(want, abs=0.75), col_letter(j + 1)
+        assert _widths(ws)[col_letter(j + 1)] == written_width(fitted(g, j), 7), col_letter(j + 1)
     assert ws.print_area == f"'Q3 Data'!$A$1:${col_letter(max(4, w))}${end}"
     assert ws.page_setup.orientation == "landscape" and ws.sheet_properties.pageSetUpPr.fitToPage
     assert ws.page_margins.left == pytest.approx(1.5 / 2.54) and ws.print_options.horizontalCentered
@@ -255,10 +252,13 @@ def test_the_data_sheet_holds_the_facts_as_values_below_an_empty_header(built):
 
 
 def test_a_data_table_without_facts_keeps_one_empty_body_row(tmp_path):
+    """The empty body row has no format of its own, as the COM drawing leaves it (live, 19.11.2026, b16)."""
     data = _data()
     built = build_with(tmp_path, grid=data.grid[:1])
     r0 = data.header.table_row
     assert built.tables[0].ref == f"A{r0}:{col_letter(len(data.grid[0]))}{r0 + 1}"
+    ws = openpyxl.load_workbook(built.path)["Q3 Data"]
+    assert not any(ws.cell(r0 + 1, j + 1).has_style for j in range(len(data.grid[0])))
 
 
 def test_a_nan_or_infinite_fact_or_amount_is_an_error_cell_not_a_failed_build(tmp_path):
@@ -444,6 +444,20 @@ def telenor():
     return xlsx.Base("Telenor", 11, row_px=19, col_px=72)
 
 
+def fitted(g, j: int, digit: int = 7) -> float:
+    """Column j of the Data grid as AutoFit sizes it in a workbook whose digits are digit px wide: the bold header
+    and the shown values measured (text units are 7 px), at most 40 characters, A:D at least 16."""
+    units = max([tn.text_units(str(g[0][j]), 9, bold=True)]
+                + [tn.text_units(_shown(row[j], j == len(row) - 1), 9) for row in g[1:] if row[j] not in (None, "")])
+    fit = min(units * 7 / digit, 40)
+    return max(fit, 16) if j < 4 else fit
+
+
+def written_width(chars: float, digit: int) -> float:
+    """The width XlsxWriter writes for chars characters of digit px (5 px padding), as openpyxl reads it back."""
+    return (int(chars * digit + 0.5) + 5) * 256 // digit / 256
+
+
 def _first_font(path) -> str:
     with zipfile.ZipFile(path) as z:
         return re.search(r"<font>(.*?)</font>", z.read("xl/styles.xml").decode("utf-8")).group(1)
@@ -462,6 +476,28 @@ def test_the_file_is_built_in_the_destination_workbooks_normal_style(tmp_path, p
     assert (title.name, title.sz, title.b) == ("Telenor", 11, True) and (source.name, source.sz) == ("Telenor", 11)
     assert all('defaultRowHeight="14.25"' in _xml(path, n) for n in (1, 2, 3))
     assert _widths(wb["Q3 Answer"])["D"] == 16.625              # 16 digits of 8 px + 5 px padding = 133 px
+
+
+def test_data_widths_are_measured_in_the_destinations_digits_with_the_header_bold(tmp_path, plan):
+    """The file's text widths are 7 px units; in a workbook of 8 px digits AutoFit gives 7/8 of them (live,
+    19.11.2026, b05: 21.38 against AutoFit's 18.88), and it measures the bold header."""
+    data = _data()
+    path = tmp_path / "answer.xlsx"
+    build(path, "Q3 Answer", plan, data, [], base=telenor())
+    ws = openpyxl.load_workbook(path)["Q3 Data"]
+    for j in range(len(data.grid[0])):
+        assert _widths(ws)[col_letter(j + 1)] == written_width(fitted(data.grid, j, 8), 8), col_letter(j + 1)
+
+
+def test_the_lines_date_format_follows_the_destinations_date_separator(tmp_path, plan):
+    """drill_xl writes the date as the local 'dd.mm.yyyy': with '.' as the date separator that is en-US
+    'dd/mm/yyyy' (live, 19.11.2026), with another separator the dots are literal."""
+    for sep, want in ((".", "dd/mm/yyyy"), ("-", "dd.mm.yyyy")):
+        path = tmp_path / f"answer{sep}.xlsx"
+        base = xlsx.Base("Telenor", 11, row_px=19, col_px=72, date_sep=sep)
+        build(path, "Q3 Answer", plan, _data(), [_lines([_line(0)])], base=base)
+        got = openpyxl.load_workbook(path)["Q3 Lines b0"].cell(5, COLUMNS.index("GL_POSTED_DATE") + 1)
+        assert got.number_format == want, sep
 
 
 def test_a_standard_column_xlsxwriter_has_no_digit_width_for_keeps_its_default_without_a_warning(tmp_path, plan):

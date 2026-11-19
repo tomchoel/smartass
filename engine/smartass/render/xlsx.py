@@ -34,10 +34,11 @@ from .excel import HEADER_COLS, HEADER_MIN, LABEL_MAX, SHEET_FOOTER, VALUE_FORMA
 from .layout import SheetPlan, col_letter, col_number
 
 MAX_ROWS = 1_048_576                    # rows of an Excel sheet
+TEXT_UNIT_PX = 7                        # tn.text_units measures in 7 px digits (Calibri 11's)
 ANSWER_TAB, DATA_TAB = "#1F3864", "#A6A6A6"
 PRINT_HEADER = '&"Arial"&8Intern'       # styling.print_setup's CenterHeader
 MARGIN = 1.5 / 2.54                     # 1.5 cm left and right, in inches
-DATE_FMT = "dd.mm.yyyy"                 # drill_xl._local_formats' date format as an en-US code
+DATE_FMT = "dd.mm.yyyy"                 # drill_xl._local_formats' date format, its dots literal (date_format)
 VALUE_BLUE = "#0000C0"                  # render.excel.VALUE_BLUE (BGR 0xC00000)
 LINES_ROW = 4                           # the lines table header row (drill_xl.write_lines, pipeline.LINES_TABLE_ROW)
 OPTIONS = {"strings_to_formulas": False, "strings_to_numbers": False, "strings_to_urls": False,
@@ -52,13 +53,15 @@ STANDARD_COLUMNS = (56, 64, 72, 80, 96, 104, 120)      # px: the standard column
 
 @dataclass(frozen=True)
 class Base:
-    """The destination workbook's Normal style as the file's defaults. A copied sheet keeps its column widths in
-    pixels, and a cell without a format of its own takes the destination's Normal style: built in the destination's
-    font, row height and digit width, the moved sheets measure as the COM-drawn ones (live, 19.11.2026)."""
+    """The destination workbook's Normal style as the file's defaults, and its Excel's date separator. A copied sheet
+    keeps its column widths in pixels, and a cell without a format of its own takes the destination's Normal style:
+    built in the destination's font, row height and digit width, the moved sheets measure as the COM-drawn ones
+    (live, 19.11.2026)."""
     font_name: str
     font_size: float
     row_px: int                         # the standard row height in pixels (StandardHeight / 0.75)
     col_px: int                         # a standard column in pixels: XlsxWriter derives the digit width from it
+    date_sep: str = "."                 # the Excel's date separator (International xlDateSeparator)
 
 
 def _options(base: Base | None) -> dict:
@@ -71,6 +74,12 @@ def _options(base: Base | None) -> dict:
                                                     "font_scheme": "none"},
                       "default_row_height": base.row_px,
                       "default_column_width": base.col_px if base.col_px in STANDARD_COLUMNS else 64}
+
+
+def date_format(base: Base | None) -> str:
+    """drill_xl's local date format 'dd.mm.yyyy' as an en-US code: where '.' is the date separator, its dots are the
+    separator ('dd/mm/yyyy'); elsewhere, and without a base, they are literal."""
+    return "dd/mm/yyyy" if base is not None and base.date_sep == "." else DATE_FMT
 
 
 class TooManyRows(ValueError):
@@ -175,7 +184,7 @@ def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines:
         tables.append(table)
         formulas.append(block)
         for ls in lines:
-            table, block = _lines(wb, fmt, ls)
+            table, block = _lines(wb, fmt, ls, date_format(base))
             tables.append(table)
             formulas.append(block)
     return BuiltFile(path=Path(path), sheets=[answer_name, data.name, *(ls.name for ls in lines)], tables=tables,
@@ -289,7 +298,7 @@ def _data(wb, fmt: _Formats, q: int, data: DataSheet) -> tuple[TableSpec, Formul
     widths = [0.0] * w
     for j, name in enumerate(g[0]):
         ws.write_string(r0 - 1, j, str(name), head[j])
-        widths[j] = tn.text_units(str(name), 9)
+        widths[j] = tn.text_units(str(name), 9, bold=True)        # AutoFit measures the header as it shows: bold
     for i, row in enumerate(g[1:], 1):
         for j, v in enumerate(row):
             last = j == w - 1
@@ -302,12 +311,9 @@ def _data(wb, fmt: _Formats, q: int, data: DataSheet) -> tuple[TableSpec, Formul
             else:
                 ws.write_string(r0 - 1 + i, j, str(v), f)
             widths[j] = max(widths[j], tn.text_units(value_text(v) if last else str(v), 9))
-    end = _table_end(r0, len(g) - 1)
-    for i in range(len(g), end - r0 + 1):                         # no facts: the empty body row, formatted
-        for j in range(w):
-            ws.write_blank(r0 - 1 + i, j, None, value if j == w - 1 else label)
+    end = _table_end(r0, len(g) - 1)                              # no facts: one empty body row, unformatted
     for j, width in enumerate(widths):                            # AutoFit over the table, at most 40, A:D at least 16
-        fit = min(width, LABEL_MAX)
+        fit = min(width * TEXT_UNIT_PX / ws.max_digit_width, LABEL_MAX)        # in the destination's digits
         ws.set_column(j, j, max(fit, HEADER_MIN) if j < HEADER_COLS else fit)
     ws.freeze_panes(r0, 0)
     ws.set_tab_color(DATA_TAB)
@@ -350,7 +356,7 @@ def _line_value(ws, r: int, c: int, label: str, v, f) -> None:
         ws.write_string(r, c, str(v), f)
 
 
-def _lines(wb, fmt: _Formats, ls: LinesSheet) -> tuple[TableSpec, FormulaBlock]:
+def _lines(wb, fmt: _Formats, ls: LinesSheet, date_fmt: str = DATE_FMT) -> tuple[TableSpec, FormulaBlock]:
     """Q<n> Lines <alias>: A1 title (bold), A2 source, the cube value beside its label, the column names in row 4,
     the lines from row 5 (drill_xl.write_lines + pipeline._write_lines); F1:K3's look, its contents a block."""
     ws = wb.add_worksheet(ls.name)
@@ -376,7 +382,7 @@ def _lines(wb, fmt: _Formats, ls: LinesSheet) -> tuple[TableSpec, FormulaBlock]:
             ws.write_blank(r, c, None, fmt(p))
     for j, c in enumerate(cols):
         ws.write_string(LINES_ROW - 1, j, c)
-    date = fmt({"num_format": DATE_FMT})
+    date = fmt({"num_format": date_fmt})
     col_fmt = [amount if c in AMOUNT_LABELS else date if c in DATE_LABELS else None for c in cols]
     for i, row in enumerate(ls.rows):
         for j, c in enumerate(cols):

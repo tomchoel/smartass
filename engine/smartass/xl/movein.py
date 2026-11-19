@@ -36,6 +36,7 @@ POSITION = {"right": -4152, "above": 0, "below": 1, "left": -4131}       # xlLab
 SHEET_NAME_MAX = 31
 LABEL_WAIT_S = 10                       # a label is cosmetic: a busy Excel is not waited for as long as for the rest
 STANDARD_PX = 64                        # XlsxWriter's standard column (Calibri 11), when the destination's is unknown
+DATE_SEPARATOR = 16                     # xlDateSeparator (17) in the 0-based Application.International array
 
 
 class NameTaken(InputError):
@@ -164,20 +165,21 @@ def _read_base(wb) -> tuple:
     ws = wb.Worksheets(1)
     last = ws.Columns(ws.Columns.Count)
     return (str(font.Name), float(font.Size), float(ws.StandardHeight), float(ws.StandardWidth),
-            float(last.ColumnWidth), float(last.Width))
+            float(last.ColumnWidth), float(last.Width), str(wb.Application.International[DATE_SEPARATOR]))
 
 
 def base(t) -> Base:
-    """The destination's Normal font and standard sizes, the base the file is built in (render/xlsx.Base), in one
-    call: the first sheet's standard row height, and its last column's width in pixels when that column has the
-    standard width (else XlsxWriter's 64 px, logged: the copied widths are then off by the digit widths' ratio)."""
-    name, size, height, standard, chars, points = jobs.com(lambda: _read_base(t.wb))
+    """The destination's Normal font, standard sizes and date separator, the base the file is built in
+    (render/xlsx.Base), in one call: the first sheet's standard row height, and its last column's width in pixels
+    when that column has the standard width (else XlsxWriter's 64 px, logged: the copied widths are then off by the
+    digit widths' ratio)."""
+    name, size, height, standard, chars, points, date_sep = jobs.com(lambda: _read_base(t.wb))
     col_px = round(points / 0.75)
     if chars != standard:
         log.warning("no standard column to measure in %s (%s, standard %s characters): columns in %s px units",
                     t.wb.Name, chars, standard, STANDARD_PX)
         col_px = STANDARD_PX
-    return Base(name, int(size) if size.is_integer() else size, round(height / 0.75), col_px)
+    return Base(name, int(size) if size.is_integer() else size, round(height / 0.75), col_px, date_sep)
 
 
 def _add_table(wb, spec: TableSpec):

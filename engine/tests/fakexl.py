@@ -22,7 +22,7 @@ from types import SimpleNamespace
 MAXR, MAXC = 1048576, 16384
 CLIP_R, CLIP_C = 400, 80                 # cell-level settings on whole rows/columns: only this block is tracked
 SEP = ";"                                # nb-NO list separator (Range unions)
-INTERNATIONAL = tuple([None, None, ",", "\xa0", SEP] + [None] * 13 + ["å", "M", "D"] + [None] * 30)
+INTERNATIONAL = tuple([None, None, ",", "\xa0", SEP] + [None] * 11 + [".", None] + ["å", "M", "D"] + [None] * 30)
 
 
 def col_index(letters: str) -> int:

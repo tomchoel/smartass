@@ -493,7 +493,7 @@ def _destination(normal=("Telenor", 11.0), height=14.25, width=8.38, digit=8):
 def test_the_base_is_the_destinations_normal_font_and_standard_sizes_in_one_call(monkeypatch):
     t = _destination()
     calls = fakexl.count_com(monkeypatch)
-    assert movein.base(t) == Base("Telenor", 11, row_px=19, col_px=72)      # 14.25 pt; 8.38 digits of 8 px + 5
+    assert movein.base(t) == Base("Telenor", 11, row_px=19, col_px=72, date_sep=".")   # 14.25 pt; 8.38 x 8 px + 5
     assert len(calls) == 1
     assert movein.base(_destination(("Aptos Narrow", 11.0), 15.0, 8.43, 7)) == Base("Aptos Narrow", 11, 20, 64)
 
