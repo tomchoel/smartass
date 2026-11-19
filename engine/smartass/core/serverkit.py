@@ -13,7 +13,7 @@ from pathlib import Path
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from . import config, logsetup
+from . import config, logsetup, runlog
 from ..xl import instances
 from ..xl.host import ExcelHost, HostError, InputError
 
@@ -21,6 +21,7 @@ logsetup.configure(config.SERVER_LOG)
 logsetup.add_secret(config.HTTP_SECRET)
 log = logging.getLogger("smartview")
 
+RUN_LOGGED = ("fin_analyze", "fin_drill", "fin_refresh")   # tools with a line in config.RUN_LOG (core/runlog.py)
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)          # reads EPM, writes nothing
 LOCAL = ToolAnnotations(read_only_hint=True, open_world_hint=False)        # local atlas / status only
 # Writes to the user's workbook or to files (never to EPM): not read-only, so clients do not auto-approve them.
@@ -121,13 +122,14 @@ def explain(tool_name: str, e: Exception) -> str:
 
 def guard(fn):
     """ANY exception reaches the model as readable text with a next step (the SDK otherwise reports only
-    'Error executing tool X' for non-ToolError exceptions)."""
+    'Error executing tool X' for non-ToolError exceptions). The answer tools (RUN_LOGGED) get a run-log line."""
     import functools
     import inspect
 
     import anyio.to_thread
 
     is_async = inspect.iscoroutinefunction(fn)
+    logged = fn.__name__ in RUN_LOGGED
 
     @functools.wraps(fn)          # keeps __wrapped__, so the SDK builds the same input schema
     async def guarded(*args, **kwargs):
@@ -135,16 +137,25 @@ def guard(fn):
         # tools that declare ctx get progress notes from their slow stages (None for the others: no stale ctx)
         _ctx.set(next((v for v in kwargs.values() if isinstance(v, Context)), None))
         _t0.set(time.monotonic())
+        if logged:
+            runlog.begin(fn.__name__)
         try:
             if is_async:
-                return await fn(*args, **kwargs)
-            # The SDK runs sync tools in a worker thread; keep that.
-            return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
+                out = await fn(*args, **kwargs)
+            else:   # The SDK runs sync tools in a worker thread; keep that.
+                out = await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
         except ToolError as e:
+            if logged:
+                runlog.finish(ok=False, error=str(e))
             raise ToolError(with_next_step(logsetup.redact(e))) from None
         except Exception as e:   # noqa: BLE001
             log.exception("tool %s failed", fn.__name__)
+            if logged:
+                runlog.finish(ok=False, error=str(e))
             raise ToolError(explain(fn.__name__, e)) from None
+        if logged:
+            runlog.finish(ok=True)
+        return out
     return guarded
 
 

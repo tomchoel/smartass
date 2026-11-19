@@ -18,3 +18,7 @@ output/
 
 # PowerShell module-analysis cache created when PS runs with engine/ as LOCALAPPDATA-relative cwd
 engine/Microsoft/
+
+# local build workspaces (git worktrees, subagent ledgers)
+.worktrees/
+.superpowers/
