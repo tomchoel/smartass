@@ -42,6 +42,7 @@ AXIS_LINE = "#D9D9D9"                                 # AddChart2's category axi
 TEXT = {"name": tn.FONT, "size": 9, "color": TEXT_GREY}
 _SECTION = tn.style_defs()["TN Seksjon"]
 TITLE = {"name": tn.FONT, "size": _SECTION["size"] + 1, "bold": True, "color": look._hex(_SECTION["color"])}
+CLUSTERED_OVERLAP = -27                               # AddChart2's (Office 2013) clustered column and bar default
 HIDDEN_AXIS = {"major_gridlines": {"visible": False}, "major_tick_mark": "none", "label_position": "none",
                "line": {"none": True}}
 FAILED = ("chart '{}' failed: {}; fix: check the source block's rows and columns, or patch the chart block (kind, "
@@ -195,8 +196,10 @@ def _options(spec: ChartSpec, sheet: str, chart_no: int) -> tuple[list[dict], li
     lines = [s | {"y2_axis": True} for s, r in zip(series, roles) if spec.kind == "combo" and r == "pct"]
     if not bars:
         raise ValueError("a combo chart needs a column series beside its % line")
-    if spec.kind != "line":
-        bars[0] |= {"gap": GAP_WIDTH} | ({"overlap": 100} if spec.kind in ("variance", "waterfall") else {})
+    if spec.kind != "line":                               # stacked: XlsxWriter's overlap 100, as AddChart2's
+        overlap = 100 if spec.kind in ("variance", "waterfall") else (
+            CLUSTERED_OVERLAP if XLSX_TYPE[XL_TYPE[spec.kind]][1] is None else None)
+        bars[0] |= {"gap": GAP_WIDTH} | ({"overlap": overlap} if overlap is not None else {})
     pct = [spec.kind == "combo" and r == "pct" for r in roles]
     order = [k for k, p in enumerate(pct) if not p] + [k for k, p in enumerate(pct) if p]
     fixes = [LabelFix(chart_no, order.index(k) + 1, i, **setting)

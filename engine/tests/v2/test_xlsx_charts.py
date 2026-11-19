@@ -192,7 +192,7 @@ def test_a_column_chart_is_clustered_with_ac_solid_and_py_tinted_in_the_metric_h
     assert_drawn_as_specified(root, s)
     g = group(root)
     assert val(g, C + "barDir") == "col" and val(g, C + "grouping") == "clustered"
-    assert val(g, C + "gapWidth") == "50" and g.find(C + "overlap") is None
+    assert val(g, C + "gapWidth") == "50" and val(g, C + "overlap") == "-27"      # AddChart2's clustered default
     ac, py = sers(g)
     assert [name(ac), name(py)] == ["AC YTD Oct 26", "PY YTD Oct 25"]
     assert_refs(ac, "'Q3 Answer'!$D$5:$D$9", "'Q3 Answer'!$C$5:$C$9")
@@ -229,6 +229,7 @@ def test_a_bar_chart_keeps_the_first_row_on_top_and_outlines_bu(tmp_path):
     assert label_format(sers(root)[0]) == MNOK
     g = group(root)
     assert val(g, C + "barDir") == "bar" and val(g, C + "grouping") == "clustered" and val(g, C + "gapWidth") == "50"
+    assert val(g, C + "overlap") == "-27"
     ac, bu = sers(g)
     assert fill(ac) == "1F3864"
     assert fill(bu) == "FFFFFF" and line(bu) == {"colour": "1F3864", "w": "12700", "dash": None}   # 1 pt navy
@@ -327,6 +328,7 @@ def test_a_combo_chart_draws_pct_as_a_line_on_a_hidden_secondary_axis(tmp_path):
     assert_drawn_as_specified(root, s)
     bars, lines = group(root), group(root, "lineChart")
     assert val(bars, C + "grouping") == "clustered" and val(bars, C + "gapWidth") == "50"
+    assert val(bars, C + "overlap") == "-27"
     (rev,), (pct,) = sers(bars), sers(lines)
     assert name(rev) == "Revenue" and name(pct) == "Margin %"
     assert_refs(pct, "'Q3 Answer'!$E$5:$E$9", "'Q3 Answer'!$C$5:$C$9")
