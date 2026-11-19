@@ -346,6 +346,16 @@ def test_the_lines_sheet_as_today(built):
     assert built.tables[1].ref == f"A4:{col_letter(len(COLUMNS))}7"
 
 
+def test_a_missing_cube_value_is_a_blank_in_the_amount_format_and_a_plain_date_is_a_date(tmp_path):
+    ls = _lines([_line(0) | {"GL_POSTED_DATE": datetime.date(2026, 9, 30)}])
+    ls.cube_value = None
+    built = build(tmp_path / "answer.xlsx", "Q3 Answer", _plan(), _data(), [ls])
+    ws = openpyxl.load_workbook(built.path)["Q3 Lines b0"]
+    assert ws["D3"].value is None and ws["D3"].number_format == AMT_FMT
+    posted = ws.cell(5, COLUMNS.index("GL_POSTED_DATE") + 1)
+    assert posted.value == datetime.datetime(2026, 9, 30) and posted.number_format == "dd.mm.yyyy"
+
+
 @pytest.mark.parametrize("n, cols", [(0, "all"), (50, "all"), (51, "key")])
 def test_lines_at_the_edges(tmp_path, n, cols, monkeypatch):               # Review Focus 5
     monkeypatch.setattr(config, "DRILL_XL_FULL", 50)                       # keep the test fast
