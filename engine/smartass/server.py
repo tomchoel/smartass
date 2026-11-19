@@ -13,6 +13,8 @@ from mcp.server.mcpserver import Context, MCPServer
 
 from . import __version__
 from .knowledge import atlas
+from .core import runlog
+from .core.timing import COM_PREFIX
 from .core import serverkit as kit
 from .xl.host import InputError
 
@@ -23,7 +25,7 @@ from .model.chain import restore_chain
 from .model.lines import LineSet
 from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError, guard_chart, guard_key_points
-from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prepare
+from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prepare, with_timings
 
 TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "fin_critic", "xl_snapshot",
               "xl_revert", "xl_tidy")
@@ -129,6 +131,17 @@ async def _user(fn, what: str):
     return await kit._call_user(_clean(fn), what=what)
 
 
+async def _draw_job(fn, what: str, question: str | None) -> dict:
+    """A job that draws an answer in the user's Excel (excel_job, redraw_job); its stage timings and the answer's
+    q / workbook go into the run log (core/runlog.py)."""
+    out, timings = await _user(with_timings(fn), what)
+    runlog.add({f"excel job.{k}": v for k, v in timings.items()})
+    runlog.add({f"{COM_PREFIX}excel job": sum(v for k, v in timings.items()       # the job's COM calls: top stages
+                                              if k.startswith(COM_PREFIX) and "." not in k[len(COM_PREFIX):])})
+    runlog.note(q=out.get("q"), workbook=out.get("workbook"), question=question)
+    return out
+
+
 async def _drill(cell: dict):
     """The FinLite ledger lines behind one cube cell (v1 drill: Smart View link, hidden browser, reconciliation)."""
     from .epm import drillstep
@@ -164,17 +177,25 @@ async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target
     prepared again with those results fixed; this fallback runs at most once. complete (new questions and follow-up
     patches, not fin_refresh): the P&L chain is completed in the spec (pipeline.prepare), and the completed spec is
     what gets stored."""
-    notes: list[str] = []
-    kw = {"complete": True} if complete else {}
-    lines: dict = {}
-    if spec is not None or _has_lines(raw):
-        lines, notes = await _line_sets(spec or AnalysisSpec.model_validate(raw))
-    pre = await asyncio.to_thread(run_prepare, raw, provider, lines=lines, **kw)
-    failed = getattr(pre, "failed", None)
-    if failed:
-        fixed = await _user(lambda h: adhoc_fetch(h, failed, target), "ad hoc fallback")
-        pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, {**pre.fetched, **fixed}),
-                                      lines=lines, **kw)
+    with runlog.span("prepare"):
+        notes: list[str] = []
+        kw = {"complete": True} if complete else {}
+        lines: dict = {}
+        if spec is not None or _has_lines(raw):
+            from .epm import drilltime
+            try:
+                with runlog.span("prepare.drill"):
+                    lines, notes = await _line_sets(spec or AnalysisSpec.model_validate(raw))
+            finally:                            # also after a failed drill: the next run must not inherit them
+                runlog.add({f"drills.{k}": v for k, v in drilltime.take().items()})
+        with runlog.span("prepare.fetch"):
+            pre = await asyncio.to_thread(run_prepare, raw, provider, lines=lines, **kw)
+        failed = getattr(pre, "failed", None)
+        if failed:
+            fixed = await _user(lambda h: adhoc_fetch(h, failed, target), "ad hoc fallback")
+            with runlog.span("prepare.fetch"):
+                pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, {**pre.fetched, **fixed}),
+                                              lines=lines, **kw)
     return pre, notes
 
 
@@ -224,7 +245,7 @@ async def _new_question(spec: AnalysisSpec, target: str) -> dict:
     guard_chart(spec)                  # new questions only: every other path gets an implicit chart
     guard_key_points(spec)             # new questions only: a stored spec keeps its first 5 (a warning)
     pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target, complete=True)
-    return _with_notes(await _user(lambda h: excel_job(h, pre, target), "fin_analyze"), notes)
+    return _with_notes(await _draw_job(lambda h: excel_job(h, pre, target), "fin_analyze", spec.question), notes)
 
 
 @_register(kit.WRITE)
@@ -246,8 +267,10 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     target = _default_target(target)
     stored, active, path = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
     q2, raw, owned = find_question(stored, q, active)
-    pre, notes = await _prepare(restore_chain(merge_patch(raw, patch)), provider, target=path, complete=True)
-    return _with_notes(await _user(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up"), notes)
+    patched = restore_chain(merge_patch(raw, patch))
+    pre, notes = await _prepare(patched, provider, target=path, complete=True)
+    return _with_notes(await _draw_job(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up",
+                                   patched.get("question")), notes)
 
 
 @_register(kit.WRITE)
@@ -279,8 +302,9 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
             continue
         try:
             pre, notes = await _prepare(stored[q]["spec"]["v2"], provider, target=path)
-            out = _with_notes(await _user(lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), path),
-                                          "fin_refresh"), notes)
+            out = _with_notes(await _draw_job(
+                lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), path),
+                "fin_refresh", stored[q]["spec"]["v2"].get("question")), notes)
             workbook = out.get("workbook", workbook)
             done.append({"q": q, "ok": True, "closed": out.get("closed"),
                          **({"critic_brief": out["critic_brief"]} if "critic_brief" in out else {})})

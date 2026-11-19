@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
 
+from .core import timing
+from .core.timing import Timer, stage
 from .model.analyze import Result, compute, plan_requests
 from .model.blocks.concept import concept_caveats
 from .model.chain import complete_chain, restore_chain
@@ -462,10 +464,12 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     fetched = datetime.now().astimezone()
     user = datasheet.windows_user()
     header = header_rows(q, pre.spec, pre, fetched, user)
-    (rewrite_data if redraw else write_data)(ws_data, pre.frame, q, header)
+    with stage("data sheet"):
+        (rewrite_data if redraw else write_data)(ws_data, pre.frame, q, header)
     line_sheets = [f"Q{q} Lines {a}" for a in pre.frame.lines]
     for ls in pre.frame.lines.values():         # before the answer, so its formulas resolve
-        _write_lines(t, q, ls, datasheet.fetched_text(fetched, user))
+        with stage("lines"):
+            _write_lines(t, q, ls, datasheet.fetched_text(fetched, user))
     free, too_many = free_points(pre.spec)
     pre.warnings += [w for w in too_many if w not in pre.warnings]
     plan = layout(q, pre.spec, pre.result, stock=_stock(pre),
@@ -475,16 +479,20 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     plan.footer = answer_footer(fetched)
     if redraw:                                  # a larger answer pushes the user's cells aside, never overwrites them
         _make_room(ws_answer, old_owned, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
-    lint = write_answer(ws_answer, plan, pre.warnings)
+    with stage("answer"):
+        lint = write_answer(ws_answer, plan, pre.warnings)
     drawn: list[str] = []
-    lint = list(lint or []) + write_charts(ws_answer, plan, drawn=drawn)
+    with stage("charts"):
+        lint = list(lint or []) + write_charts(ws_answer, plan, drawn=drawn)
     _calculate(t)
     mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan), plan.fractions)
     write_status(ws_answer, plan, mismatches)   # the 'Sheet = model' cell: OK or DIFF in <n> cells
-    logged = _write_sources(t, q, pre, ws_data, header, datasheet.fetched_text(fetched, user))   # append-only: late
+    with stage("sources"):                     # append-only: late
+        logged = _write_sources(t, q, pre, ws_data, header, datasheet.fetched_text(fetched, user))
     _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     arranged = _arrange(t, f"Q{q} Answer")
-    found = _check(plan, ws_answer, ws_data, not (logged and any(x in logged for x in SOURCES_PROBLEMS)), header)
+    with stage("read back"):
+        found = _check(plan, ws_answer, ws_data, not (logged and any(x in logged for x in SOURCES_PROBLEMS)), header)
     return reply(pre, q, str(t.path), [f"Q{q} Answer", f"Q{q} Data", *line_sheets], mismatches,
                  lint + [w for w in (logged, arranged) if w], layout=found, charts=drawn)
 
@@ -514,15 +522,32 @@ def _with_notes(out: dict, notes: list[str]) -> dict:
     return out
 
 
+def with_timings(job):
+    """job(h) -> (its result, its Timer summary). The job runs on the host's COM thread, which does not share the
+    tool call's run log (core/runlog.py), so its stage timings travel back with the result. The thread's earlier
+    timer (normally none) is put back afterwards, so jobs outside this wrapper stay silent as before."""
+    def timed(h):
+        before = Timer.current()
+        t = Timer.start()
+        try:
+            return job(h), t.summary()
+        finally:
+            timing._local.timer = before
+    return timed
+
+
 def excel_job(h, pre: Prepared, target: str = "session") -> dict:
-    t = _target(h, target, pre.spec.question[:60])
+    with stage("open target"):
+        t = _target(h, target, pre.spec.question[:60])
     with autosave_paused(t) as notes:
         try:
             q = _next_q(t)
             ws_answer = _add_sheet(t, f"Q{q} Answer", q)
             ws_data = _add_sheet(t, f"Q{q} Data", q, DATA_TAB)
-            out = _draw(t, q, pre, ws_answer, ws_data)
-            _save(t)
+            with stage("draw"):
+                out = _draw(t, q, pre, ws_answer, ws_data)
+            with stage("save"):
+                _save(t)
         except Exception:
             _rollback(t)
             raise
@@ -535,7 +560,8 @@ def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "sess
     Data table in place (the Data sheet is never copied, deleted or renamed: the table name and every formula that
     points at it survive). On failure: rollback, the Answer backup becomes the sheet again, the old data is written
     back into the table - each step on its own, so one failing step never hides the error or skips the others."""
-    t = _target(h, target, pre.spec.question[:60])
+    with stage("open target"):
+        t = _target(h, target, pre.spec.question[:60])
     with autosave_paused(t) as notes:
         a_name, d_name = f"Q{q} Answer", f"Q{q} Data"
         ws_data = _sheet(t, d_name)
@@ -544,7 +570,8 @@ def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "sess
         try:
             ws_answer = _sheet(t, a_name)
             _clear(ws_answer, owned)
-            out = _draw(t, q, pre, ws_answer, ws_data, redraw=True, old_owned=owned)
+            with stage("draw"):
+                out = _draw(t, q, pre, ws_answer, ws_data, redraw=True, old_owned=owned)
         except Exception as e:
             problems = []
             steps = [("rollback", lambda: _rollback(t)), (f"restore {a_name}", lambda: _restore(t, a_name, b_answer))]
@@ -559,7 +586,8 @@ def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "sess
                 raise RestoreError(f"{e}; the restore was incomplete - " + "; ".join(problems)) from e
             raise
         _drop_backup(t, b_answer)
-        _save(t)
+        with stage("save"):
+            _save(t)
         out["followup"] = True
         if not owned:
             out["warnings"] = list(out.get("warnings", [])) + [
