@@ -87,6 +87,14 @@ def label_format(role: str, millions: bool, whole: bool = False) -> str:
     return f"{unit};{MINUS}{unit};;"
 
 
+def legend_shown(spec: ChartSpec) -> bool:
+    """The legend rule: stacked parts are named by the legend; a waterfall or a variance chart never has one;
+    otherwise a single series is named by the title, unless it is not AC (a budget-only line must say BU)."""
+    visible = [r for _, _, r in spec.series if r not in HIDDEN]
+    return spec.kind in ("stacked", "stacked100") or (spec.kind not in NO_LEGEND and (
+        len(visible) >= 2 or any(r not in ("ac", "part", "fav", "unfav", "var") for r in visible)))
+
+
 def _place(ws, spec: ChartSpec):
     cell = ws.Range(spec.anchor)
     left, top = com(lambda: cell.Left), com(lambda: cell.Top)
@@ -277,10 +285,7 @@ def _draw(ws, spec: ChartSpec) -> None:
         # formats only after every series and type is set
         com(lambda: setattr(chart.ChartArea.Format.TextFrame2.TextRange.Font, "Name", tn.FONT))
         _title(chart, spec.title)
-        visible = [r for _, r in series if r not in HIDDEN]
-        # a single series is named by the title, unless it is not AC (a budget-only line must say BU)
-        legend = spec.kind in ("stacked", "stacked100") or (spec.kind not in NO_LEGEND and (
-            len(visible) >= 2 or any(r not in ("ac", "part", "fav", "unfav", "var") for r in visible)))
+        legend = legend_shown(spec)
         com(lambda: setattr(chart, "HasLegend", legend))       # stacked parts are named by the legend
         if legend:
             com(lambda: setattr(chart.Legend, "Position", XL_LEGEND_TOP))
