@@ -772,6 +772,10 @@ class _Workbooks(list):
         wb.Name, wb.FullName, wb.opened_with = Path(path).name, str(path), args
         for ws, src in zip(wb.order, book.worksheets):
             ws.Visible = _VISIBLE[src.sheet_state]
+            tab = src.sheet_properties.tabColor
+            if tab is not None and tab.rgb:                # 'FF1F3864' -> BGR, as Excel reads Tab.Color
+                r, g, b = (int(tab.rgb[i:i + 2], 16) for i in (2, 4, 6))
+                ws.Tab.Color = r + (g << 8) + (b << 16)
             for row in src.iter_rows():
                 for c in row:
                     if c.value is not None:
@@ -793,6 +797,7 @@ class Application:
         self.PrintCommunication = True
         self.StatusBar = False
         self.ActiveWorkbook = None
+        self.Visible = True
 
     @property
     def ActiveSheet(self):
@@ -814,6 +819,7 @@ class Workbook:
         self.Names = _Names(self)
         self.Name, self.FullName = "book.xlsx", r"C:\fake\book.xlsx"
         self.links: list[str] = []                       # LinkSources(xlExcelLinks)
+        self.Charts: list = []                           # chart sheets (objects with a Name)
         self.window = _Window(self)
         self.window_state: dict[str, dict] = {}
         self.selection: dict[str, str] = {}

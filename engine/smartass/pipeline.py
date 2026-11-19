@@ -626,11 +626,11 @@ from .render import xlsx  # noqa: E402
 from .render.excel import data_grid  # noqa: E402
 
 
-def _after(t, q: int):
+def _after(t, q: int) -> str | None:
     """The sheet the new answer's sheets go after: where sheets.add_sheet would put them (None: go first)."""
     from .xl import sheets
     from .xl.jobs import com
-    return com(lambda: sheets.place_after(t, q))
+    return com(lambda: (lambda ws: None if ws is None else str(ws.Name))(sheets.place_after(t, q)))
 
 
 def _answer_sheets(t, q: int) -> tuple:
@@ -770,8 +770,8 @@ def _parked_place(t, parked):
     names = {n.casefold() for n in parked.sheets.values()}
 
     def place():
-        ws = list(t.wb.Worksheets)
-        i = next(i for i, s in enumerate(ws) if str(s.Name).casefold() in names)
+        ws = [str(s.Name) for s in t.wb.Worksheets]
+        i = next(i for i, s in enumerate(ws) if s.casefold() in names)
         return ws[i - 1] if i else None
     return com(place)
 
