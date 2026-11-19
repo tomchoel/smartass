@@ -22,7 +22,18 @@ from types import SimpleNamespace
 MAXR, MAXC = 1048576, 16384
 CLIP_R, CLIP_C = 400, 80                 # cell-level settings on whole rows/columns: only this block is tracked
 SEP = ";"                                # nb-NO list separator (Range unions)
-INTERNATIONAL = tuple([None, None, ",", "\xa0", SEP] + [None] * 11 + [".", None] + ["å", "M", "D"] + [None] * 30)
+def _international() -> tuple:
+    """nb-NO's Application.International (0-based): separators, the date codes and its short date dd.mm.yyyy."""
+    v: list = [None] * 51
+    v[2], v[3], v[4] = ",", "\xa0", SEP           # xlDecimalSeparator, xlThousandsSeparator, xlListSeparator
+    v[16] = "."                                    # xlDateSeparator
+    v[18:21] = ["å", "M", "D"]                     # xlYearCode, xlMonthCode, xlDayCode
+    v[31] = 1.0                                    # xlDateOrder: day, month, year
+    v[40] = v[41] = v[42] = True                   # xlMonthLeadingZero, xlDayLeadingZero, xl4DigitYears
+    return tuple(v)
+
+
+INTERNATIONAL = _international()
 
 
 def col_index(letters: str) -> int:

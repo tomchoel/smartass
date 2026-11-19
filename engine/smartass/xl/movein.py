@@ -36,7 +36,9 @@ POSITION = {"right": -4152, "above": 0, "below": 1, "left": -4131}       # xlLab
 SHEET_NAME_MAX = 31
 LABEL_WAIT_S = 10                       # a label is cosmetic: a busy Excel is not waited for as long as for the rest
 STANDARD_PX = 64                        # XlsxWriter's standard column (Calibri 11), when the destination's is unknown
-DATE_SEPARATOR = 16                     # xlDateSeparator (17) in the 0-based Application.International array
+DATE_SETTINGS = (16, 31, 40, 41, 42)    # 0-based Application.International: xlDateSeparator, xlDateOrder,
+                                        # xlMonthLeadingZero, xlDayLeadingZero, xl4DigitYears
+SHORT_DATE = 14                         # Excel's built-in short date (the system's)
 
 
 class NameTaken(InputError):
@@ -164,22 +166,32 @@ def _read_base(wb) -> tuple:
     font = wb.Styles("Normal").Font
     ws = wb.Worksheets(1)
     last = ws.Columns(ws.Columns.Count)
+    intl = wb.Application.International
     return (str(font.Name), float(font.Size), float(ws.StandardHeight), float(ws.StandardWidth),
-            float(last.ColumnWidth), float(last.Width), str(wb.Application.International[DATE_SEPARATOR]))
+            float(last.ColumnWidth), float(last.Width), tuple(intl[i] for i in DATE_SETTINGS))
 
 
 def base(t) -> Base:
-    """The destination's Normal font, standard sizes and date separator, the base the file is built in
+    """The destination's Normal font, standard sizes and date format, the base the file is built in
     (render/xlsx.Base), in one call: the first sheet's standard row height, and its last column's width in pixels
     when that column has the standard width (else XlsxWriter's 64 px, logged: the copied widths are then off by the
     digit widths' ratio)."""
-    name, size, height, standard, chars, points, date_sep = jobs.com(lambda: _read_base(t.wb))
+    name, size, height, standard, chars, points, dates = jobs.com(lambda: _read_base(t.wb))
     col_px = round(points / 0.75)
     if chars != standard:
         log.warning("no standard column to measure in %s (%s, standard %s characters): columns in %s px units",
                     t.wb.Name, chars, standard, STANDARD_PX)
         col_px = STANDARD_PX
-    return Base(name, int(size) if size.is_integer() else size, round(height / 0.75), col_px, date_sep)
+    return Base(name, int(size) if size.is_integer() else size, round(height / 0.75), col_px, date_format(*dates))
+
+
+def date_format(sep: str, order, month_zero: bool, day_zero: bool, century: bool) -> str | int:
+    """How Excel stores drill_xl's local date format 'dd.mm.yyyy' (set through NumberFormatLocal): as its built-in
+    short date where that is the locale's short date (day first, '.' between, leading zeros, four-digit years: nb-NO;
+    live, 19.11.2026), else as a code whose dots are the date separator ('dd/mm/yyyy') or literal."""
+    if sep == "." and int(order) == 1 and month_zero and day_zero and century:
+        return SHORT_DATE
+    return "dd/mm/yyyy" if sep == "." else "dd.mm.yyyy"
 
 
 def _add_table(wb, spec: TableSpec):

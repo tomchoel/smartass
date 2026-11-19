@@ -489,15 +489,15 @@ def test_data_widths_are_measured_in_the_destinations_digits_with_the_header_bol
         assert _widths(ws)[col_letter(j + 1)] == written_width(fitted(data.grid, j, 8), 8), col_letter(j + 1)
 
 
-def test_the_lines_date_format_follows_the_destinations_date_separator(tmp_path, plan):
-    """drill_xl writes the date as the local 'dd.mm.yyyy': with '.' as the date separator that is en-US
-    'dd/mm/yyyy' (live, 19.11.2026), with another separator the dots are literal."""
-    for sep, want in ((".", "dd/mm/yyyy"), ("-", "dd.mm.yyyy")):
-        path = tmp_path / f"answer{sep}.xlsx"
-        base = xlsx.Base("Telenor", 11, row_px=19, col_px=72, date_sep=sep)
+def test_the_lines_date_takes_the_destinations_date_format(tmp_path, plan):
+    """The base's date format (movein.base: how Excel stores drill_xl's local 'dd.mm.yyyy'): Excel's built-in short
+    date 14 in nb-NO (live, 19.11.2026: the COM-drawn dates read 'm/d/yyyy' in en-US), else a code."""
+    for i, (fmt, want) in enumerate(((14, "mm-dd-yy"), ("dd/mm/yyyy", "dd/mm/yyyy"))):   # openpyxl's name for 14
+        path = tmp_path / f"answer{i}.xlsx"
+        base = xlsx.Base("Telenor", 11, row_px=19, col_px=72, date_format=fmt)
         build(path, "Q3 Answer", plan, _data(), [_lines([_line(0)])], base=base)
         got = openpyxl.load_workbook(path)["Q3 Lines b0"].cell(5, COLUMNS.index("GL_POSTED_DATE") + 1)
-        assert got.number_format == want, sep
+        assert got.number_format == want, fmt
 
 
 def test_a_standard_column_xlsxwriter_has_no_digit_width_for_keeps_its_default_without_a_warning(tmp_path, plan):

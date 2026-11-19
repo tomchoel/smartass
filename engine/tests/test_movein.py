@@ -493,14 +493,25 @@ def _destination(normal=("Telenor", 11.0), height=14.25, width=8.38, digit=8):
 def test_the_base_is_the_destinations_normal_font_and_standard_sizes_in_one_call(monkeypatch):
     t = _destination()
     calls = fakexl.count_com(monkeypatch)
-    assert movein.base(t) == Base("Telenor", 11, row_px=19, col_px=72, date_sep=".")   # 14.25 pt; 8.38 x 8 px + 5
+    assert movein.base(t) == Base("Telenor", 11, row_px=19, col_px=72, date_format=14)   # 14.25 pt; 8.38 x 8 + 5
     assert len(calls) == 1
-    assert movein.base(_destination(("Aptos Narrow", 11.0), 15.0, 8.43, 7)) == Base("Aptos Narrow", 11, 20, 64)
+    assert movein.base(_destination(("Aptos Narrow", 11.0), 15.0, 8.43, 7)) == Base("Aptos Narrow", 11, 20, 64, 14)
+
+
+@pytest.mark.parametrize("sep,order,zeros,century,want", [
+    (".", 1.0, True, True, 14),                   # nb-NO: drill_xl's 'dd.mm.yyyy' is the short date, built-in 14
+    (".", 0.0, True, True, "dd/mm/yyyy"),         # the dots are the date separator, not the short date
+    (".", 1.0, False, True, "dd/mm/yyyy"),
+    (".", 1.0, True, False, "dd/mm/yyyy"),
+    ("/", 0.0, False, True, "dd.mm.yyyy"),        # en-US: the dots are literal
+])
+def test_the_lines_date_format_is_how_excel_stores_drill_xls_local_format(sep, order, zeros, century, want):
+    assert movein.date_format(sep, order, zeros, zeros, century) == want
 
 
 def test_a_last_column_that_is_not_standard_leaves_xlsxwriters_column_unit(caplog):
     t = _destination()
     t.wb.order[0].colw[fakexl.MAXC] = 20
     with caplog.at_level(logging.WARNING, logger="smartview.movein"):
-        assert movein.base(t) == Base("Telenor", 11, row_px=19, col_px=64)
+        assert movein.base(t) == Base("Telenor", 11, row_px=19, col_px=64, date_format=14)
     assert "standard column" in caplog.text

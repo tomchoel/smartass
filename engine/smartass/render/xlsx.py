@@ -38,7 +38,7 @@ TEXT_UNIT_PX = 7                        # tn.text_units measures in 7 px digits 
 ANSWER_TAB, DATA_TAB = "#1F3864", "#A6A6A6"
 PRINT_HEADER = '&"Arial"&8Intern'       # styling.print_setup's CenterHeader
 MARGIN = 1.5 / 2.54                     # 1.5 cm left and right, in inches
-DATE_FMT = "dd.mm.yyyy"                 # drill_xl._local_formats' date format, its dots literal (date_format)
+DATE_FMT = "dd.mm.yyyy"                 # drill_xl._local_formats' date format, its dots literal (Base.date_format)
 VALUE_BLUE = "#0000C0"                  # render.excel.VALUE_BLUE (BGR 0xC00000)
 LINES_ROW = 4                           # the lines table header row (drill_xl.write_lines, pipeline.LINES_TABLE_ROW)
 OPTIONS = {"strings_to_formulas": False, "strings_to_numbers": False, "strings_to_urls": False,
@@ -53,7 +53,7 @@ STANDARD_COLUMNS = (56, 64, 72, 80, 96, 104, 120)      # px: the standard column
 
 @dataclass(frozen=True)
 class Base:
-    """The destination workbook's Normal style as the file's defaults, and its Excel's date separator. A copied sheet
+    """The destination workbook's Normal style as the file's defaults, and its Excel's date format. A copied sheet
     keeps its column widths in pixels, and a cell without a format of its own takes the destination's Normal style:
     built in the destination's font, row height and digit width, the moved sheets measure as the COM-drawn ones
     (live, 19.11.2026)."""
@@ -61,7 +61,7 @@ class Base:
     font_size: float
     row_px: int                         # the standard row height in pixels (StandardHeight / 0.75)
     col_px: int                         # a standard column in pixels: XlsxWriter derives the digit width from it
-    date_sep: str = "."                 # the Excel's date separator (International xlDateSeparator)
+    date_format: str | int = "dd.mm.yyyy"   # the Lines date as Excel stores drill_xl's (movein.date_format)
 
 
 def _options(base: Base | None) -> dict:
@@ -74,12 +74,6 @@ def _options(base: Base | None) -> dict:
                                                     "font_scheme": "none"},
                       "default_row_height": base.row_px,
                       "default_column_width": base.col_px if base.col_px in STANDARD_COLUMNS else 64}
-
-
-def date_format(base: Base | None) -> str:
-    """drill_xl's local date format 'dd.mm.yyyy' as an en-US code: where '.' is the date separator, its dots are the
-    separator ('dd/mm/yyyy'); elsewhere, and without a base, they are literal."""
-    return "dd/mm/yyyy" if base is not None and base.date_sep == "." else DATE_FMT
 
 
 class TooManyRows(ValueError):
@@ -184,7 +178,7 @@ def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines:
         tables.append(table)
         formulas.append(block)
         for ls in lines:
-            table, block = _lines(wb, fmt, ls, date_format(base))
+            table, block = _lines(wb, fmt, ls, base.date_format if base is not None else DATE_FMT)
             tables.append(table)
             formulas.append(block)
     return BuiltFile(path=Path(path), sheets=[answer_name, data.name, *(ls.name for ls in lines)], tables=tables,
@@ -356,7 +350,7 @@ def _line_value(ws, r: int, c: int, label: str, v, f) -> None:
         ws.write_string(r, c, str(v), f)
 
 
-def _lines(wb, fmt: _Formats, ls: LinesSheet, date_fmt: str = DATE_FMT) -> tuple[TableSpec, FormulaBlock]:
+def _lines(wb, fmt: _Formats, ls: LinesSheet, date_fmt: str | int = DATE_FMT) -> tuple[TableSpec, FormulaBlock]:
     """Q<n> Lines <alias>: A1 title (bold), A2 source, the cube value beside its label, the column names in row 4,
     the lines from row 5 (drill_xl.write_lines + pipeline._write_lines); F1:K3's look, its contents a block."""
     ws = wb.add_worksheet(ls.name)
