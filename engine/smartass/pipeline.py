@@ -267,26 +267,20 @@ def _is_ours(t) -> bool:
     return bool(getattr(t, "created", False)) or kit._is_our_analysis_file(str(t.path))
 
 
-class Notes(list):
-    """The job's notes for the reply; autosave: AutoSave was on before the job (autosave_paused)."""
-    autosave = False
-
-
 @contextlib.contextmanager
 def autosave_paused(t):
     """AutoSave (OneDrive/SharePoint files) off while v2 writes, so a half-written answer is never stored.
-    Our own analysis file: switched back on afterwards, and then AutoSave saves it (_save makes no Save call). The
-    user's workbook: left off, with a note (AutoSave would otherwise save our edits into their file; v1 does the
-    same). Yields the job's Notes."""
+    Our own analysis file: restored afterwards (we save it ourselves: switched back on, AutoSave did not save the
+    last answer within 30 s live, 19.11.2026). The user's workbook: left off, with a note (AutoSave would otherwise
+    save our edits into their file; v1 does the same)."""
     from .xl.jobs import com
-    notes = Notes()
+    notes: list[str] = []
     try:
         prev = bool(com(lambda: t.wb.AutoSaveOn))
     except Exception:   # noqa: BLE001 - a local file or an Excel without AutoSave
         prev = False
     if prev:
         com(lambda: setattr(t.wb, "AutoSaveOn", False))
-    notes.autosave = prev
     try:
         yield notes
     finally:
@@ -298,11 +292,9 @@ def autosave_paused(t):
                          "save yourself or switch it back on.")
 
 
-def _save(t, autosave: bool = False) -> None:
-    """Our own analysis file saved (never the user's): with Workbook.Save, unless AutoSave was on before the job
-    (autosave): autosave_paused switches it back on and it saves the file."""
+def _save(t) -> None:
     from .xl.jobs import com
-    if _is_ours(t) and not autosave:
+    if _is_ours(t):                                     # only the engine's own analysis file, never the user's
         com(lambda: t.wb.Save())
 
 
@@ -579,7 +571,7 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
             with stage("draw"):
                 out = _draw(t, q, pre, ws_answer, ws_data)
             with stage("save"):
-                _save(t, notes.autosave)
+                _save(t)
         except Exception:
             _rollback(t)
             raise
@@ -619,7 +611,7 @@ def redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = "sess
             raise
         _drop_backup(t, b_answer)
         with stage("save"):
-            _save(t, notes.autosave)
+            _save(t)
         out["followup"] = True
         if not owned:
             out["warnings"] = list(out.get("warnings", [])) + [
@@ -850,15 +842,14 @@ def _dropped(t, parked) -> bool:
 KEPT = "; the new answer is in place (the old one is gone)"
 
 
-def _kept(t, e: BaseException, autosave: bool) -> None:
+def _kept(t, e: BaseException) -> None:
     """A follow-up that failed once its old sheets were dropped: the new answer is in place and the error says so;
-    our own file is saved first (as on success: AutoSave saves it when it was on). The error keeps its class."""
+    our own file is saved first, as on success. The error keeps its class."""
     from .xl.jobs import com
     note = KEPT
     if _is_ours(t):
         try:
-            if not autosave:
-                com(lambda: t.wb.Save(), limit=30, check=False)
+            com(lambda: t.wb.Save(), limit=30, check=False)
             note += " and saved"
         except Exception as e2:   # noqa: BLE001 - the draw's error stays the one raised
             log.warning("could not save %s after a failed follow-up: %s", t.wb.Name, e2)
@@ -892,7 +883,7 @@ def file_job(h, pre: Prepared, target: str = "session") -> dict:
                 book = _book(t)
                 out = _file_draw(t, _next_q_in(book), pre, book, left=left)
             with stage("save"):
-                _save(t, notes.autosave)
+                _save(t)
         except Exception:
             _rollback(t)
             raise
@@ -927,7 +918,7 @@ def file_redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = 
                 out = _file_draw(t, q, pre, book, parked, left)
             except Exception as e:
                 if _dropped(t, parked):
-                    _kept(t, e, notes.autosave)
+                    _kept(t, e)
                     raise
                 _rollback(t)
                 try:
@@ -938,7 +929,7 @@ def file_redraw_job(h, pre: Prepared, q: int, owned: dict | None, target: str = 
             finally:
                 notes += movein.close_left(left)
         with stage("save"):
-            _save(t, notes.autosave)
+            _save(t)
         out["followup"] = True
     remember(pre, out)
     return _with_notes(out, notes)
