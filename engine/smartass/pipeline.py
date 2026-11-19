@@ -437,15 +437,15 @@ def _write_sources(t, q: int, pre: Prepared, ws_data, header, fetched: str) -> s
     its row) is returned as a warning text, never raised (no rollback); None = every pull is logged."""
     from .xl import sources
     from .xl.jobs import com
+
+    def read():
+        return ({qid: ws_data.Range(cell).Value for qid, cell in header.status.items()},
+                {a: t.wb.Worksheets(f"Q{q} Lines {a}").Range(datasheet.LINES_STATUS).Value for a in pre.frame.lines})
     try:
-        status, tie, notes = {}, {}, []
-        for qid, cell in header.status.items():
-            v = com(lambda cell=cell: ws_data.Range(cell).Value)
-            status[qid] = v if v in ("OK", "DIFF") else ""
-        for alias in pre.frame.lines:
-            ws = _sheet(t, f"Q{q} Lines {alias}")
-            v = com(lambda ws=ws: ws.Range(datasheet.LINES_STATUS).Value)
-            tie[alias] = v if isinstance(v, str) else ""
+        notes: list[str] = []
+        got, ties = com(read) if header.status or pre.frame.lines else ({}, {})       # one call for every status
+        status = {qid: v if v in ("OK", "DIFF") else "" for qid, v in got.items()}
+        tie = {a: v if isinstance(v, str) else "" for a, v in ties.items()}
         rows = sources.write_sources(t, q, pre, ws_data, header, fetched, status, tie, notes)
     except Exception as e:   # noqa: BLE001
         return f"could not log the pull on the Sources sheet ({e}); the answer is built"
@@ -470,6 +470,7 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     check. Shared by excel_job and
     redraw_job; the caller owns rollback and save. A redraw rewrites the existing Data table in place. One timestamp
     per draw: the data header's Fetched and the answer's print footer never disagree."""
+    from .xl import jobs
     fetched = datetime.now().astimezone()
     user = datasheet.windows_user()
     header = header_rows(q, pre.spec, pre, fetched, user)
@@ -490,7 +491,7 @@ def _draw(t, q: int, pre: Prepared, ws_answer, ws_data, redraw: bool = False,
     _calculate(t)
     mismatches = compare(plan.addr, pre.result.cells, read_block(ws_answer, plan), plan.fractions)
     write_status(ws_answer, plan, mismatches)   # the 'Sheet = model' cell: OK or DIFF in <n> cells
-    with stage("sources"):                     # append-only: late
+    with stage("sources"), jobs.fast_excel(getattr(t, "app", None)):   # append-only: late; the file job is quiet already
         logged = _write_sources(t, q, pre, ws_data, header, datasheet.fetched_text(fetched, user))
     _save_spec(t, q, pre.raw, {"rows": plan.last_row, "cols": col_number(plan.last_col)})
     arranged = _arrange(t, f"Q{q} Answer")

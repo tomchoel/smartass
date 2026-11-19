@@ -122,6 +122,21 @@ def compress(cells) -> str:
     return ",".join(rect_text(*x) for x in sorted(rects))
 
 
+_HYPERLINK = re.compile(r'^=HYPERLINK\("(#(?:[^"]|"")*)","((?:[^"]|"")*)"\)$')
+
+
+def hyperlink(v) -> tuple[str, str] | None:
+    """(target, text) of a cell value that is a =HYPERLINK("#<target>","<text>") formula (quotes undoubled)."""
+    m = _HYPERLINK.match(v) if isinstance(v, str) else None
+    return (m.group(1).replace('""', '"'), m.group(2).replace('""', '"')) if m else None
+
+
+def shown(v):
+    """What Excel shows for a value: a HYPERLINK formula's text, anything else as it is."""
+    link = hyperlink(v)
+    return link[1] if link else v
+
+
 class ComError(Exception):
     """Not a 'busy' error: jobs.com passes it straight through."""
 
@@ -268,6 +283,17 @@ class Range:
     @property
     def FormatConditions(self):
         return _FormatConditions(self)
+
+    @property
+    def Hyperlinks(self):
+        """Range.Hyperlinks: the sheet's links on these cells; Delete removes them and, as Excel, the cells' formats."""
+        inside = set(self.cells())
+        mine = [h for h in self.ws.Hyperlinks if h.cell in inside]
+
+        def delete():
+            self.ws.Hyperlinks[:] = [h for h in self.ws.Hyperlinks if h.cell not in inside]
+            self.ClearFormats()
+        return SimpleNamespace(Count=len(mine), Delete=delete)
 
     # -- values
     def _get_value(self):

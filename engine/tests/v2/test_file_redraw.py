@@ -220,24 +220,22 @@ def test_other_questions_and_the_users_own_sheets_are_untouched(own_book):
 
 
 def _log(ws) -> dict:
-    """The Sources log, A:N of every row: {row: values}."""
+    """The Sources log, A:N of every row that holds a value: {row: values}."""
     return {r: tuple(ws.cells.get((r, c), {}).get("Value") for c in range(1, 15))
-            for r in sorted({r for r, c in ws.cells if c <= 14})}
+            for r in sorted({r for (r, c), p in ws.cells.items() if c <= 14 and "Value" in p})}
 
 
 def test_the_sources_log_keeps_its_rows_and_logs_the_new_pull(own_book):
     ws = own_book.wb.Worksheets("Sources")
     old = _log(ws)
-    old_links = [(h.cell, h.SubAddress) for h in ws.Hyperlinks]
     q3 = [r for r, v in old.items() if v[1] == "Q3"]
     own_book.follow_up(_pre(), 3)
     new = _log(ws)
     assert {r: new[r] for r in old} == old                                   # earlier rows are never edited
     added = [v for r, v in new.items() if r not in old]
     assert len(added) == 1 and added[0][1:3] == ("Q3", "fm")                  # the new pull, query id 'fm'
-    assert added[0][12] == "Q3 Data" and not added[0][13]                    # a first pull of that query in Q3
-    assert set(old_links) <= {(h.cell, h.SubAddress) for h in ws.Hyperlinks}    # the links hold names as text
-    assert q3 and ws.Hyperlinks.at(q3[0], 13).SubAddress == "'Q3 Lines b0'!A1"
+    assert fakexl.hyperlink(added[0][12]) == ("#'Q3 Data'!A1", "Q3 Data") and not added[0][13]   # a first pull in Q3
+    assert q3 and fakexl.hyperlink(new[q3[0]][12]) == ("#'Q3 Lines b0'!A1", "Q3 Lines b0")   # names as text
 
 
 def test_the_stored_spec_of_the_question_is_rewritten_without_an_owned_range(own_book):

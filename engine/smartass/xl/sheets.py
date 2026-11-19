@@ -324,15 +324,6 @@ def lookup_formula(p: Pull, row_members: list[str], col_members: list[str]) -> s
     return f"=INDEX({s}$A:${W},{row_match},{col_match})"
 
 
-def _sources_name(t: target.Target) -> str:
-    """'Sources', unless that sheet is not a v2 log - the user's own sheet, or a v1 log (left as it is) - then
-    'Sources SV'. Ours: the v2 log header in row 1, or the sheet is empty (a new workbook's first sheet)."""
-    from .sources import log_kind
-    if _sheet_exists(t, "Sources") and log_kind(jobs.com(lambda: t.wb.Worksheets("Sources"))) not in ("v2", "empty"):
-        return "Sources SV"
-    return "Sources"
-
-
 def wait_calculated(app, limit: float = 60.0) -> None:
     """Wait until Excel has finished recalculating (CalculationState == xlDone)."""
     t0 = time.monotonic()
