@@ -7,10 +7,12 @@ merge_patch, _prepare and the redraw job - with a harmless patch that changes th
 the period of its queries, by turns), then fin_refresh's path once (server.fin_refresh on that workbook: both
 answers).
 
-Per step it prints the seconds, the Excel job's COM-call count, sheet = model (OK / DIFF in n cells) and the workbook
-checks a fake Excel cannot prove: no 'old ...' sheet and no '..._old' table left, the sheet order as after the
-second answer, the last drawn Answer active, every Sources link of the question still naming its sheet (Excel does not rewrite a
-hyperlink's SubAddress when the sheet is parked under another name), and Excel still answering. Never a figure from
+Per step it prints the seconds, the Excel job's seconds, COM-call count and seconds per stage, sheet = model (OK /
+DIFF in n cells) and the workbook checks a fake Excel cannot prove: no 'old ...' sheet and no '..._old' table left,
+the sheet order as after the second answer, the last drawn Answer active, every Sources link of the question still
+naming its sheet (Excel does not rewrite a hyperlink's SubAddress, nor a HYPERLINK formula's text, when the sheet is
+parked under another name), each HYPERLINK link showing its text (no click needed: the formula and what the cell
+shows are compared), and Excel still answering. Never a figure from
 EPM: the replies are dropped. The first failure stops the run (exit 2) with its message, amounts masked.
 
 Usage (from the repo root; Excel open, signed in to EPM):
@@ -37,6 +39,8 @@ FOLLOW_UPS = 6
 OTHER_PERIOD = "Jan 26..Jun 26"         # the period a follow-up switches to (and back from) by turns
 COM = "excel job.com calls."            # the Excel job's COM-call counts, as server._draw_job logs them
 MOVE_IN = "excel job.draw.move in"      # a stage only the file renderer has
+STAGES = ("draw.build", "draw.move in", "draw.finish", "draw.read back", "draw.sources", "draw.arrange", "save")
+HYPERLINK = re.compile(r'^=HYPERLINK\("#((?:[^"]|"")*)","((?:[^"]|"")*)"\)$')
 
 
 class Stop(Exception):
@@ -85,14 +89,26 @@ def _inspect(h, path: str, q: int) -> dict:
         tables = [str(lo.Name) for s in t.wb.Worksheets for lo in s.ListObjects]
         active = (str(t.app.ActiveSheet.Name)
                   if str(t.app.ActiveWorkbook.FullName).casefold() == str(t.wb.FullName).casefold() else None)
-        links = []
+        links, unshown = [], 0
         if "Sources" in names:
             ws = t.wb.Worksheets("Sources")
-            for link in ws.Hyperlinks:
+            for link in ws.Hyperlinks:                     # the rows an earlier version logged: real links
                 r = int(link.Range.Row)
                 if ws.Cells(r, 2).Value == f"Q{q}":
                     links.append(str(link.SubAddress))
-        return {"names": names, "tables": tables, "active": active, "links": links,
+            last = int(ws.Cells(ws.Rows.Count, 1).End(-4162).Row)
+            if last > 1:                                   # this version's rows: HYPERLINK formulas in M and N
+                formulas = ws.Range(f"B2:N{last}").Formula
+                shown = ws.Range(f"B2:N{last}").Value
+                for row, seen in zip(formulas, shown):
+                    if row[0] != f"Q{q}":
+                        continue
+                    for f, v in zip(row[11:], seen[11:]):
+                        m = HYPERLINK.match(str(f or ""))
+                        if m:
+                            links.append(m.group(1).replace('""', '"'))
+                            unshown += v != m.group(2).replace('""', '"')
+        return {"names": names, "tables": tables, "active": active, "links": links, "unshown": unshown,
                 "ready": bool(t.app.Ready)}
     return jobs.com(read)
 
@@ -188,15 +204,18 @@ async def check(case: dict, second: dict, keep: bool) -> int:
             problems.append("the sheet order changed")
         if seen["active"] != f"Q{drawn} Answer":
             problems.append(f"the active sheet is {seen['active']!r}, not 'Q{drawn} Answer'")
-        stale = [s for s in seen["links"] if s.strip("'").split("'!")[0] not in seen["names"]]
+        stale = [s for s in seen["links"] if s.strip("'").split("'!")[0].replace("''", "'") not in seen["names"]]
         if stale:
             problems.append(f"{len(stale)} Sources link(s) of Q{q} name a sheet that is gone")
+        if seen["unshown"]:
+            problems.append(f"{seen['unshown']} Sources link(s) of Q{q} do not show their text")
         if not seen["ready"]:
             problems.append("Excel is not ready")
         com = com_calls(timings)
-        print(f"{label:<14} {secs:6.1f} s  excel job {timings.get('excel job._total', 0):5.1f} s  COM calls "
-              f"{'-' if com is None else com:>4}  sheet = model {status}  Sources links {len(seen['links'])}  "
-              f"{'checks OK' if not problems else 'DIFF: ' + '; '.join(problems)}", flush=True)
+        stages = "  ".join(f"{s.split('.')[-1]} {timings.get('excel job.' + s, 0):.2f}" for s in STAGES)
+        print(f"{label:<14} {secs:6.1f} s  excel job {timings.get('excel job._total', 0):5.2f} s  COM calls "
+              f"{'-' if com is None else com:>4}  [{stages}]  sheet = model {status}  Sources links "
+              f"{len(seen['links'])}  {'checks OK' if not problems else 'DIFF: ' + '; '.join(problems)}", flush=True)
         if problems:
             raise Stop(f"{label}: " + "; ".join(problems))
 
