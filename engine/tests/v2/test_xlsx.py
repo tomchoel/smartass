@@ -4,6 +4,7 @@ Table, no Answer contents; what must happen after the move-in (tables, formula b
 read back with openpyxl, and through the XML inside the zip where openpyxl cannot tell. Every figure is invented."""
 import datetime
 import re
+import warnings
 import zipfile
 
 import openpyxl
@@ -434,3 +435,39 @@ def test_an_answer_without_lines_has_two_sheets_and_one_table(tmp_path):
                                                                                                          "Data_Q7")]
     assert re.fullmatch(r"A\d+:[A-Z]+\d+", built.tables[0].ref)
     assert openpyxl.load_workbook(built.path).sheetnames == built.sheets
+
+
+
+# ------------------------------------------------------------------ the destination's Normal style (Task 6)
+def telenor():
+    """The TN template's Normal: Telenor 11, 14.25 pt rows (19 px), standard columns 72 px (8 px digits)."""
+    return xlsx.Base("Telenor", 11, row_px=19, col_px=72)
+
+
+def _first_font(path) -> str:
+    with zipfile.ZipFile(path) as z:
+        return re.search(r"<font>(.*?)</font>", z.read("xl/styles.xml").decode("utf-8")).group(1)
+
+
+def test_the_file_is_built_in_the_destination_workbooks_normal_style(tmp_path, plan):
+    """A copied sheet keeps its column widths in pixels and a cell without a format of its own takes the
+    destination's Normal style (live, 19.11.2026: Answer widths 16 -> 14, blank Data cells in the theme font, Data
+    rows 15 pt against 14.25), so the file's default font, row height and digit width are the destination's."""
+    path = tmp_path / "answer.xlsx"
+    build(path, "Q3 Answer", plan, _data(), [_lines([_line(0)])], base=telenor())
+    font = _first_font(path)
+    assert '<name val="Telenor"/>' in font and '<sz val="11"/>' in font and "scheme" not in font
+    wb = openpyxl.load_workbook(path)
+    title, source = wb["Q3 Lines b0"]["A1"].font, wb["Q3 Lines b0"]["A2"].font
+    assert (title.name, title.sz, title.b) == ("Telenor", 11, True) and (source.name, source.sz) == ("Telenor", 11)
+    assert all('defaultRowHeight="14.25"' in _xml(path, n) for n in (1, 2, 3))
+    assert _widths(wb["Q3 Answer"])["D"] == 16.625              # 16 digits of 8 px + 5 px padding = 133 px
+
+
+def test_a_standard_column_xlsxwriter_has_no_digit_width_for_keeps_its_default_without_a_warning(tmp_path, plan):
+    path = tmp_path / "answer.xlsx"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        build(path, "Q3 Answer", plan, _data(), [], base=xlsx.Base("Arial", 10, row_px=17, col_px=70))
+    assert '<name val="Arial"/>' in _first_font(path)
+    assert _widths(openpyxl.load_workbook(path)["Q3 Answer"])["D"] == 16.7109375     # 7 px digits, as without a base

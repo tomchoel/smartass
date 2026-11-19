@@ -706,12 +706,13 @@ def _file_draw(t, q: int, pre: Prepared) -> dict:
     path = _temp_path()
     try:
         with stage("build"):
+            base = movein.base(t)               # the destination's Normal style: the moved sheets measure as drawn
             header = header_rows(q, pre.spec, pre, fetched, user)
             plan = _answer_plan(q, pre, fetched)
             lines = [_lines_sheet(q, ls, stamp) for ls in pre.frame.lines.values()]
             data = xlsx.DataSheet(f"Q{q} Data", header, data_grid(pre.frame))
             try:
-                built = xlsx.build(path, f"Q{q} Answer", plan, data, lines)
+                built = xlsx.build(path, f"Q{q} Answer", plan, data, lines, base=base)
             except xlsx.TooManyRows as e:
                 raise GuardError(str(e), "narrow the query or the lines cell (a shorter period, a lower account or "
                                  "entity) so it fits on one sheet") from None

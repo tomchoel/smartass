@@ -10,7 +10,7 @@ import pytest
 import xlsxwriter
 
 import fakexl
-from smartass.render.xlsx import BuiltFile, FormulaBlock, TableSpec
+from smartass.render.xlsx import Base, BuiltFile, FormulaBlock, TableSpec
 from smartass.render.xlsx_charts import LabelFix
 from smartass.xl import jobs, movein
 from smartass.xl.host import HostError, InputError
@@ -465,3 +465,29 @@ def test_restore_puts_back_every_name_it_can_and_then_says_which_it_could_not(tq
     tq.wb.order.pop()
     assert {n for n in _names(tq.wb)} == {*before["order"]} - {"Q3 Data"} | {"old Q3 Data"}
     assert _tables(tq.wb) == {"Data_Q3": "old Q3 Data", "Lines_Q3_b0": "Q3 Lines b0", "Users_table": "Notes"}
+
+
+
+# ------------------------------------------------------------------ the destination's base (Task 6)
+def _destination(normal=("Telenor", 11.0), height=14.25, width=8.38, digit=8):
+    wb = fakexl.Workbook(["Notes", "Sources"])
+    wb.normal = normal
+    ws = wb.order[0]
+    ws.StandardHeight, ws.StandardWidth, ws.digit_px = height, width, digit
+    return Target(app=wb.Application, wb=wb, pid=0, hwnd=0)
+
+
+def test_the_base_is_the_destinations_normal_font_and_standard_sizes_in_one_call(monkeypatch):
+    t = _destination()
+    calls = fakexl.count_com(monkeypatch)
+    assert movein.base(t) == Base("Telenor", 11, row_px=19, col_px=72)      # 14.25 pt; 8.38 digits of 8 px + 5
+    assert len(calls) == 1
+    assert movein.base(_destination(("Aptos Narrow", 11.0), 15.0, 8.43, 7)) == Base("Aptos Narrow", 11, 20, 64)
+
+
+def test_a_last_column_that_is_not_standard_leaves_xlsxwriters_column_unit(caplog):
+    t = _destination()
+    t.wb.order[0].colw[fakexl.MAXC] = 20
+    with caplog.at_level(logging.WARNING, logger="smartview.movein"):
+        assert movein.base(t) == Base("Telenor", 11, row_px=19, col_px=64)
+    assert "standard column" in caplog.text

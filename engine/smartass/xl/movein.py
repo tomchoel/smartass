@@ -19,7 +19,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from ..render.xlsx import BuiltFile, TableSpec
+from ..render.xlsx import Base, BuiltFile, TableSpec
 from ..render.xlsx_charts import LabelFix
 from . import jobs
 from .host import HostError, InputError
@@ -35,6 +35,7 @@ TABLE_STYLE = "TableStyleLight1"
 POSITION = {"right": -4152, "above": 0, "below": 1, "left": -4131}       # xlLabelPositionRight, Above, Below, Left
 SHEET_NAME_MAX = 31
 LABEL_WAIT_S = 10                       # a label is cosmetic: a busy Excel is not waited for as long as for the rest
+STANDARD_PX = 64                        # XlsxWriter's standard column (Calibri 11), when the destination's is unknown
 
 
 class NameTaken(InputError):
@@ -156,6 +157,27 @@ def move_in(t, built: BuiltFile, after, first: bool = False) -> None:
         except Exception as e:   # noqa: BLE001 - the answer is in; a failure on the way out stays the error
             log.warning("could not close the temporary workbook %s: %s", path, e)
     jobs.com(lambda: _break_links(t.wb, built.path.name))
+
+
+def _read_base(wb) -> tuple:
+    font = wb.Styles("Normal").Font
+    ws = wb.Worksheets(1)
+    last = ws.Columns(ws.Columns.Count)
+    return (str(font.Name), float(font.Size), float(ws.StandardHeight), float(ws.StandardWidth),
+            float(last.ColumnWidth), float(last.Width))
+
+
+def base(t) -> Base:
+    """The destination's Normal font and standard sizes, the base the file is built in (render/xlsx.Base), in one
+    call: the first sheet's standard row height, and its last column's width in pixels when that column has the
+    standard width (else XlsxWriter's 64 px, logged: the copied widths are then off by the digit widths' ratio)."""
+    name, size, height, standard, chars, points = jobs.com(lambda: _read_base(t.wb))
+    col_px = round(points / 0.75)
+    if chars != standard:
+        log.warning("no standard column to measure in %s (%s, standard %s characters): columns in %s px units",
+                    t.wb.Name, chars, standard, STANDARD_PX)
+        col_px = STANDARD_PX
+    return Base(name, int(size) if size.is_integer() else size, round(height / 0.75), col_px)
 
 
 def _add_table(wb, spec: TableSpec):

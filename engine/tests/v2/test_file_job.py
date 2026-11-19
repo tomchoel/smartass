@@ -29,6 +29,7 @@ from smartass.xl.target import Target
 H = None                                        # the host: every seam that would use it is replaced
 STAGES = ["open target", "draw", "draw.build", "draw.move in", "draw.finish", "draw.read back", "draw.sources",
           "draw.arrange", "save"]
+BASE = xlsx.Base("Telenor", 11, row_px=19, col_px=72)
 SUPPLIERS = [{"AP_CUSTOMER_NAME": "Bouvet", "AMOUNT": -30.0}, {"AP_CUSTOMER_NAME": "Accenture", "AMOUNT": -70.0}]
 
 
@@ -60,9 +61,9 @@ class Wired:
         self.built: list[xlsx.BuiltFile] = []
         real_build = xlsx.build
 
-        def build(path, *a):
-            self.path = path
-            self.built.append(real_build(path, *a))
+        def build(path, *a, **k):
+            self.path, self.base = path, k.get("base")
+            self.built.append(real_build(path, *a, **k))
             return self.built[-1]
 
         def move_in(t, built, after, first=False):
@@ -73,6 +74,7 @@ class Wired:
         put = monkeypatch.setattr
         put(pipeline, "_target", self.rec("target", ret=self.t))
         put(pipeline, "_next_q", self.rec("next_q", ret=1))
+        put(movein, "base", self.rec("base", ret=BASE))
         put(xlsx, "build", self.rec("build", build))
         put(movein, "quiet", lambda app: contextlib.nullcontext())
         put(pipeline, "_after", lambda t, q: None)
@@ -111,10 +113,15 @@ def wired(monkeypatch, tmp_home):
 
 def test_the_file_job_runs_its_steps_in_order(wired, tmp_home):
     out = pipeline.file_job(H, _pre())
-    assert wired.calls == ["target", "next_q", "build", "move_in", "finish", "calculate", "read_block", "status",
+    assert wired.calls == ["target", "next_q", "base", "build", "move_in", "finish", "calculate", "read_block", "status",
                            "sources", "save_spec", "arrange", "check", "save", "remember"]
     assert out["sheets"] == ["Q1 Answer", "Q1 Data"] and out["checks"]["sheet_equals_model"] == "OK"
     assert wired.path.parent == tmp_home / "tmp" and wired.path.suffix == ".xlsx" and not wired.path.exists()
+
+
+def test_the_file_is_built_in_the_destinations_base(wired):
+    pipeline.file_job(H, _pre())
+    assert wired.base == BASE
 
 
 def test_the_temporary_file_has_a_new_name_every_time(wired):
@@ -134,7 +141,7 @@ def test_a_failure_after_the_move_in_removes_the_new_sheets_and_the_temp_file(wi
 
 
 def test_a_build_that_fails_leaves_no_partial_file_and_copies_nothing(wired, tmp_home, monkeypatch):
-    def half(path, *a):
+    def half(path, *a, **k):
         path.write_bytes(b"PK half a file")
         raise ValueError("the build broke")
     monkeypatch.setattr(xlsx, "build", wired.rec("build", half))
@@ -144,7 +151,7 @@ def test_a_build_that_fails_leaves_no_partial_file_and_copies_nothing(wired, tmp
 
 
 def test_more_lines_than_a_sheet_has_rows_is_a_refusal_with_its_fix(wired, tmp_home, monkeypatch):  # Focus 5
-    def too_many(path, *a):
+    def too_many(path, *a, **k):
         raise xlsx.TooManyRows("sheet 'Q1 Lines b0' would need 1 100 000 rows; an Excel sheet has 1 048 576")
     monkeypatch.setattr(xlsx, "build", wired.rec("build", too_many))
     with pytest.raises(GuardError, match="1 100 000 rows") as e:

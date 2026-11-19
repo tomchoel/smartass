@@ -283,8 +283,12 @@ class Range:
         if k == "PrefixCharacter":
             return "'" if self.rects[0][:2] in self.ws.prefixed else ""
         if k == "ColumnWidth":
-            vals = {self.ws.colw.get(c, 8.43) for _, c1, _, c2 in self.rects for c in range(c1, min(c2, CLIP_C) + 1)}
+            vals = {self.ws.colw.get(c, self.ws.StandardWidth) for _, c1, _, c2 in self.rects
+                    for c in range(c1, max(c1, min(c2, CLIP_C)) + 1)}
             return vals.pop() if len(vals) == 1 else None
+        if k == "Width":                                 # points: whole pixels of the sheet's digit width + 5
+            return sum((int(self.ws.colw.get(c, self.ws.StandardWidth) * self.ws.digit_px + 0.5) + 5) * 0.75
+                       for _, c1, _, c2 in self.rects for c in range(c1, max(c1, min(c2, CLIP_C)) + 1))
         if k == "RowHeight":
             vals = {self.ws.rowh.get(r, 15) for r1, _, r2, _ in self.rects for r in range(r1, min(r2, CLIP_R) + 1)}
             return vals.pop() if len(vals) == 1 else None
@@ -541,6 +545,7 @@ class Worksheet:
         self.log: list = []
         self.prefixed: set[tuple[int, int]] = set()     # cells written with a leading apostrophe (text as text)
         self.page_breaks: list[int] | None = None       # manual page breaks: None until reset
+        self.StandardHeight, self.StandardWidth, self.digit_px = 15.0, 8.43, 7     # Calibri 11, as a new workbook
 
     @property
     def Parent(self):
@@ -775,6 +780,7 @@ class Workbook:
         self.window = _Window(self)
         self.window_state: dict[str, dict] = {}
         self.selection: dict[str, str] = {}
+        self.normal = ("Calibri", 11.0)                  # the Normal style's font
         self.active = self.order[0]
         self.Application.ActiveWorkbook = self
         if isinstance(getattr(self.Application, "Workbooks", None), _Workbooks):
@@ -785,6 +791,10 @@ class Workbook:
 
     def Windows(self, i):
         return self.window
+
+    def Styles(self, name):
+        assert name == "Normal", name
+        return SimpleNamespace(Font=SimpleNamespace(Name=self.normal[0], Size=self.normal[1]))
 
     @property
     def ActiveSheet(self):

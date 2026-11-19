@@ -47,6 +47,32 @@ OK_LOOK = {"font_color": look._hex(styling.GREEN), "bold": True}
 NOT_OK_LOOK = {"font_color": look._hex(tn.BREACH_FONT), "bold": True, "bg_color": look._hex(tn.BREACH_FILL)}
 
 
+STANDARD_COLUMNS = (56, 64, 72, 80, 96, 104, 120)      # px: the standard columns XlsxWriter knows the digit width of
+
+
+@dataclass(frozen=True)
+class Base:
+    """The destination workbook's Normal style as the file's defaults. A copied sheet keeps its column widths in
+    pixels, and a cell without a format of its own takes the destination's Normal style: built in the destination's
+    font, row height and digit width, the moved sheets measure as the COM-drawn ones (live, 19.11.2026)."""
+    font_name: str
+    font_size: float
+    row_px: int                         # the standard row height in pixels (StandardHeight / 0.75)
+    col_px: int                         # a standard column in pixels: XlsxWriter derives the digit width from it
+
+
+def _options(base: Base | None) -> dict:
+    """OPTIONS with the base as the default format, row height and column unit (none: XlsxWriter's Calibri 11). The
+    font is not the theme's (no scheme), so no workbook shows its own theme font instead. A standard column width
+    XlsxWriter has no digit width for keeps its 64 px."""
+    if base is None:
+        return OPTIONS
+    return OPTIONS | {"default_format_properties": {"font_name": base.font_name, "font_size": base.font_size,
+                                                    "font_scheme": "none"},
+                      "default_row_height": base.row_px,
+                      "default_column_width": base.col_px if base.col_px in STANDARD_COLUMNS else 64}
+
+
 class TooManyRows(ValueError):
     """A sheet would need more rows than Excel has."""
 
@@ -126,9 +152,11 @@ def _table_end(first: int, body: int) -> int:
     return first + max(body, 1)
 
 
-def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines: list[LinesSheet]) -> BuiltFile:
-    """Write the answer's sheets to path, in the order Answer, Data, the Lines sheets. Refuses (TooManyRows,
-    ValueError) before any file is written. Returns the tables and formula blocks to create after the move-in."""
+def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines: list[LinesSheet],
+          base: Base | None = None) -> BuiltFile:
+    """Write the answer's sheets to path, in the order Answer, Data, the Lines sheets, in the destination's base
+    (movein.base). Refuses (TooManyRows, ValueError) before any file is written. Returns the tables and formula
+    blocks to create after the move-in."""
     m = re.fullmatch(r"Q(\d+) Answer", answer_name)
     if m is None:
         raise ValueError(f"answer sheet {answer_name!r}: the name must be 'Q<n> Answer'")
@@ -138,7 +166,7 @@ def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines:
         check_rows(ls.name, _table_end(LINES_ROW, len(ls.rows)))
     tables: list[TableSpec] = []
     formulas: list[FormulaBlock] = []
-    with xlsxwriter.Workbook(str(path), OPTIONS) as wb:
+    with xlsxwriter.Workbook(str(path), _options(base)) as wb:
         fmt = _Formats(wb)
         formulas.append(_answer(wb, fmt, answer_name, plan))
         charts, chart_lint, label_fixes = xlsx_charts.add_charts(wb, wb.get_worksheet_by_name(answer_name),
