@@ -14,6 +14,7 @@ from test_v5_live_round2 import _lines_answer
 from smartass.render.excel import answer_footer, answer_grid, answer_roles, keep_spans
 from smartass.render.keypoints import key_points
 from smartass.render.layout import SheetPlan, col_letter, col_number, width_pt
+from smartass.render import look as look_mod
 from smartass.render.look import answer_look, style_props, text_heights
 from smartass.xl import styling
 from smartass.xl.vendor import tn_rapportstil as tn
@@ -234,6 +235,23 @@ def test_look_equals_what_apply_report_does(case):
     assert bare.heights | text_heights(plan, bare, block) == look.heights
     if plan.footer:                                          # laid out: the texts change no style and no merge
         assert bare.cells == look.cells and bare.merges == look.merges
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda f: f.__name__)
+def test_the_breaks_after_the_read_back_are_the_breaks_of_the_look_with_its_texts(case):
+    plan, values = case()
+    texts = {rc: v for rc, v in values.items() if isinstance(v, str)}
+    bare, full = answer_look(plan), answer_look(plan, texts=texts)
+    ws = fakexl_sheet_with(plan, values)
+    block = ws.Range("A1:" + plan.last_col + str(plan.last_row)).Value2
+    assert look_mod.page_breaks(plan, bare) == bare.breaks
+    assert look_mod.page_breaks(plan, bare, text_heights(plan, bare, block)) == full.breaks
+
+
+def test_longer_key_points_can_move_the_page_breaks():
+    plan, values = lines_ranking()
+    texts = {rc: v for rc, v in values.items() if isinstance(v, str)}
+    assert answer_look(plan).breaks != answer_look(plan, texts=texts).breaks      # the case above proves the move
 
 
 def test_the_cases_reach_every_rule():

@@ -40,7 +40,8 @@ MARGIN = 1.5 / 2.54                     # 1.5 cm left and right, in inches
 DATE_FMT = "dd.mm.yyyy"                 # drill_xl._local_formats' date format as an en-US code
 VALUE_BLUE = "#0000C0"                  # render.excel.VALUE_BLUE (BGR 0xC00000)
 LINES_ROW = 4                           # the lines table header row (drill_xl.write_lines, pipeline.LINES_TABLE_ROW)
-OPTIONS = {"strings_to_formulas": False, "strings_to_numbers": False, "strings_to_urls": False}
+OPTIONS = {"strings_to_formulas": False, "strings_to_numbers": False, "strings_to_urls": False,
+           "nan_inf_to_errors": True}      # a NaN or infinite fact is #NUM! / #DIV/0! in its cell, not a failed build
 INK, GREY, NAVY = look._hex(tn.INK), look._hex(tn.GREY), look._hex(tn.NAVY)
 OK_LOOK = {"font_color": look._hex(styling.GREEN), "bold": True}
 NOT_OK_LOOK = {"font_color": look._hex(tn.BREACH_FONT), "bold": True, "bg_color": look._hex(tn.BREACH_FILL)}

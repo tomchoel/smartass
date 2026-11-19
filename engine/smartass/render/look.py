@@ -220,11 +220,22 @@ def answer_look(plan: SheetPlan, texts: dict[tuple[int, int], str] | None = None
             cells[(r, c)] = CellLook(cells[(r, c)].style, wrap=True, valign="top" if c == c1 else None)
 
     area_col = plan.print_area_col or plan.print_last_col or plan.last_col
-    area_width = sum(width_pt(widths.get(c, DEFAULT_WIDTH)) for c in range(1, col_number(area_col) + 1))
-    return SheetLook(cells=cells, heights=heights, widths={col_letter(c): w for c, w in sorted(given.items())},
-                     merges=sorted(merges), status_runs=_runs(checks), text_rows=text_rows,
-                     print_area=f"$A$1:${area_col}${last_row}",
-                     breaks=styling.keep_breaks(heights, last_row, keep_spans(plan), area_width), footer=plan.footer)
+    out = SheetLook(cells=cells, heights=heights, widths={col_letter(c): w for c, w in sorted(given.items())},
+                    merges=sorted(merges), status_runs=_runs(checks), text_rows=text_rows,
+                    print_area=f"$A$1:${area_col}${last_row}", breaks=[], footer=plan.footer)
+    out.breaks = page_breaks(plan, out)
+    return out
+
+
+def page_breaks(plan: SheetPlan, look: SheetLook, heights: dict[int, float] | None = None) -> list[int]:
+    """The rows that start a new printed page (styling.keep_breaks over the print area's width) for the look's row
+    heights with heights laid over them: text_heights after the read-back gives the breaks of the calculated
+    sheet. Every row of the block has a height in look.heights."""
+    area_col = plan.print_area_col or plan.print_last_col or plan.last_col
+    area_width = sum(width_pt(look.widths.get(col_letter(c), DEFAULT_WIDTH))
+                     for c in range(1, col_number(area_col) + 1))
+    return styling.keep_breaks(look.heights | (heights or {}), max(look.heights, default=0), keep_spans(plan),
+                               area_width)
 
 
 def _line_row(r: int, spec: dict, last: int, first_label: int, labels: list[int], codes: set[int],

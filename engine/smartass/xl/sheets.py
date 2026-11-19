@@ -111,17 +111,23 @@ def unique_sheet_name(t: target.Target, base: str) -> str:
     return name
 
 
-def add_sheet(t: target.Target, name: str, after_q: int | None = None, color: int | None = None):
-    """Add a sheet after the last sheet of question `after_q` (or at the end, before 'Sources')."""
+def place_after(t: target.Target, after_q: int | None = None):
+    """The sheet a new sheet of question `after_q` goes after: the last sheet of that question, else the last sheet
+    that is not Sources / Sources SV / _svmeta; None when there is none (the new sheet then goes first)."""
     sheets = list(t.wb.Worksheets)
-    anchor = None
     if after_q is not None:
         names = [s.Name for s in sheets]
         group = [s for s in sheets if question_of(s.Name, names) == after_q]
-        anchor = group[-1] if group else None
-    if anchor is None:
-        others = [s for s in sheets if s.Name not in ("Sources", "Sources SV", META_SHEET)]
-        anchor = others[-1] if others else None
+        if group:
+            return group[-1]
+    others = [s for s in sheets if s.Name not in ("Sources", "Sources SV", META_SHEET)]
+    return others[-1] if others else None
+
+
+def add_sheet(t: target.Target, name: str, after_q: int | None = None, color: int | None = None):
+    """Add a sheet after the last sheet of question `after_q` (or at the end, before 'Sources'): place_after."""
+    sheets = list(t.wb.Worksheets)
+    anchor = place_after(t, after_q)
     # positional (Before, After): the keyword After= is silently ignored through late-bound COM here (measured
     # 15.10.2026: the sheet landed before the ACTIVE sheet instead). Only 'Sources'/meta sheets yet: go first.
     ws = jobs.com(lambda: t.wb.Worksheets.Add(None, anchor) if anchor is not None else t.wb.Worksheets.Add(sheets[0]))

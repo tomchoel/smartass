@@ -93,11 +93,13 @@ def _taken_text(found: list[str], book: str) -> str:
     return f"{', '.join(found[:-1])} and {found[-1]} already exist in {book}: rename or delete them, then ask again"
 
 
-def _anchor(wb, after) -> tuple:
+def _anchor(wb, after, first: bool = False) -> tuple:
     """(Before, After) for Copy: after 'after' (None: the workbook's last sheet), or after the last visible sheet
     before it when it is hidden (a copy after a hidden sheet is not verified); before the first visible sheet when
-    none comes before."""
+    none comes before, or when first."""
     sheets = list(wb.Worksheets)
+    if first:
+        return next((s for s in sheets if s.Visible not in HIDDEN), sheets[0]), None
     names = [str(s.Name) for s in sheets]
     i = len(sheets) - 1 if after is None else names.index(str(after.Name))
     for s in reversed(sheets[:i + 1]):
@@ -125,8 +127,9 @@ def _break_links(wb, file_name: str) -> None:
             wb.BreakLink(link, LINKS)
 
 
-def move_in(t, built: BuiltFile, after) -> None:
-    """Copy the built file's sheets into t.wb after the worksheet 'after' (None: after the last sheet), in one call.
+def move_in(t, built: BuiltFile, after, first: bool = False) -> None:
+    """Copy the built file's sheets into t.wb after the worksheet 'after' (None: after the last sheet; first: before
+    the first visible sheet instead, where sheets.add_sheet puts a sheet when no sheet is there to follow), in one call.
     A name of the answer already in the workbook is NameTaken and a file holding a table a ValueError, both before
     anything is copied. The copied names are added to t.sheets_added (what a rollback deletes) just before the copy,
     so a copy that fails half-way is rolled back too. The temporary workbook is closed whatever happens; only the
@@ -134,7 +137,7 @@ def move_in(t, built: BuiltFile, after) -> None:
     found = taken(t.wb, built.sheets, [spec.name for spec in built.tables])
     if found:
         raise NameTaken(_taken_text(found, jobs.com(lambda: str(t.wb.Name))))
-    before, after_sheet = jobs.com(lambda: _anchor(t.wb, after))
+    before, after_sheet = jobs.com(lambda: _anchor(t.wb, after, first))
     path, names = str(built.path), list(built.sheets)
     src = jobs.com(lambda: t.app.Workbooks.Open(path, 0, True), limit=120)       # no link update, read-only
     try:

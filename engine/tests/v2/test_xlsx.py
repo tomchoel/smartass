@@ -260,6 +260,19 @@ def test_a_data_table_without_facts_keeps_one_empty_body_row(tmp_path):
     assert built.tables[0].ref == f"A{r0}:{col_letter(len(data.grid[0]))}{r0 + 1}"
 
 
+def test_a_nan_or_infinite_fact_or_amount_is_an_error_cell_not_a_failed_build(tmp_path):
+    data = _data()
+    g = list(data.grid)
+    g[1] = g[1][:-1] + (float("nan"),)
+    g[2] = g[2][:-1] + (float("inf"),)
+    ls = _lines([_line(0) | {"AMOUNT": float("nan")}])
+    built = build(tmp_path / "answer.xlsx", "Q3 Answer", _plan(), DataSheet("Q3 Data", data.header, g), [ls])
+    book = openpyxl.load_workbook(built.path)
+    r0, w = data.header.table_row, len(g[0])
+    assert [book["Q3 Data"].cell(r0 + i, w).value for i in (1, 2)] == ["=#NUM!", "=1/0"]     # Excel: #NUM!, #DIV/0!
+    assert book["Q3 Lines b0"].cell(5, COLUMNS.index("AMOUNT") + 1).value == "=#NUM!"
+
+
 def test_value_text_is_the_number_as_the_value_format_shows_it():
     assert [xlsx.value_text(v) for v in (1234567.4, -1234.6, 0.0, 0.4, None)] == ["1,234,567", "(1,235)", "–", "0",
                                                                                   ""]

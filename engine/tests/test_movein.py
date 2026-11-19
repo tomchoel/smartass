@@ -177,6 +177,12 @@ def test_a_link_to_a_sheet_left_behind_is_broken_and_the_users_own_links_stay(t,
     assert "Scratch" not in _names(t.wb)
 
 
+def test_first_copies_before_the_first_visible_sheet(t, built):
+    t.wb.order[0].Visible = 0                            # the user hid their first sheet
+    movein.move_in(t, built, None, first=True)
+    assert _names(t.wb) == ["Q1 Answer", *SHEETS, "Q1 Data", "Notes", "Sources", "_svmeta"]
+
+
 def test_a_built_file_with_a_table_is_refused_before_anything_is_copied(t, tmp_path):
     built = _file(tmp_path / "tabled.xlsx", table=True)
     before = fakexl.snapshot(t.wb)

@@ -255,6 +255,7 @@ DRILL_PAGE = 5000                                  # rows per getData call: EPM'
 DRILL_SPLIT_AT = min(DRILL_PAGE, int(os.environ.get("SV_DRILL_SPLIT_AT", str(DRILL_PAGE))))
 DRILL_MAX_LINES = int(os.environ.get("SV_DRILL_MAX_LINES", "300000"))
 DRILL_XL_FULL = int(os.environ.get("SV_DRILL_XL_FULL", "50000"))   # above this: key columns only in Excel
+RENDER = os.environ.get("SV_RENDER", "com")      # a new answer: "com" (pipeline.excel_job) | "file" (file_job)
 DRILL_KEEP_DAYS = 90
 DRILL_LOGIN_TIMEOUT_S = 60                         # per attempt; one retry in a fresh tab (spec §6)
 SVHTTP_TIMEOUT_S = float(os.environ.get("SV_HTTP_TIMEOUT", "120"))   # one Smart View HTTP request incl. a sign-in

@@ -540,6 +540,7 @@ class Worksheet:
         self.AutoFilterMode, self.autofilter = False, None
         self.log: list = []
         self.prefixed: set[tuple[int, int]] = set()     # cells written with a leading apostrophe (text as text)
+        self.page_breaks: list[int] | None = None       # manual page breaks: None until reset
 
     @property
     def Parent(self):
@@ -585,6 +586,13 @@ class Worksheet:
 
     def Calculate(self):
         _event(self, "Calculate")
+
+    def ResetAllPageBreaks(self):
+        self.page_breaks = []
+
+    @property
+    def HPageBreaks(self):
+        return SimpleNamespace(Add=lambda rng: self.page_breaks.append(rng.Row))
 
     def Delete(self):
         _SheetGroup(self.wb, [self]).Delete()

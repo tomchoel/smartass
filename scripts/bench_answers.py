@@ -5,6 +5,8 @@ printed: the replies carry figures from EPM and are never printed or kept.
 
 Usage (from the repo root; Excel open, signed in to EPM):
     engine\.venv\Scripts\python.exe scripts\bench_answers.py --rounds 3 [--case b01 ...]
+The environment variable SV_RENDER picks how the answers are drawn (config.RENDER): "com" (default, excel_job) or
+"file" (file_job); each renderer's stages have their own columns, and a stage the run did not have shows "-".
 
 One warm-up answer (the first case, target 'new') creates ONE new workbook in the analyser folder; every measured
 round then lands in that session workbook (target 'session'). Rounds run outer and cases inner, so the growing
@@ -108,8 +110,16 @@ def table(warm: dict | None, runs: list[dict]) -> str:
 
 
 ROUND_COLUMNS = (("_total", "_total s"), ("excel job._total", "excel job s"), ("excel job.draw", "draw s"),
-                 ("excel job.draw.data sheet", "draw.data sheet s"), ("excel job.draw.sources", "draw.sources s"),
-                 ("excel job.draw.answer", "draw.answer s"), ("excel job.save", "save s"), ("prepare", "prepare s"))
+                 ("excel job.draw.data sheet", "draw.data sheet s"), ("excel job.draw.answer", "draw.answer s"),
+                 ("excel job.draw.build", "draw.build s"), ("excel job.draw.move in", "draw.move in s"),
+                 ("excel job.draw.finish", "draw.finish s"), ("excel job.draw.read back", "draw.read back s"),
+                 ("excel job.draw.sources", "draw.sources s"), ("excel job.draw.arrange", "draw.arrange s"),
+                 ("excel job.save", "save s"), ("prepare", "prepare s"))
+
+
+def _has_lines(timings: dict) -> bool:
+    """A run with a lines block: the COM job's lines stage, or (either job) a drill timed in drills.*."""
+    return JOB + "draw.lines" in timings or any(k.startswith("drills.") for k in timings)
 
 
 def round_table(runs: list[dict]) -> str:
@@ -118,7 +128,7 @@ def round_table(runs: list[dict]) -> str:
     head = ["round", "runs"] + [title for _, title in ROUND_COLUMNS] + ["COM calls"]
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for n in sorted({r["round"] for r in runs}):
-        rs = [r for r in runs if r["round"] == n and r["ok"] and JOB + "draw.lines" not in r["timings"]]
+        rs = [r for r in runs if r["round"] == n and r["ok"] and not _has_lines(r["timings"])]
         cells = [str(n), str(len(rs))] + [_secs(_median(r["timings"].get(k) for r in rs)) for k, _ in ROUND_COLUMNS]
         cells.append(_count(_median(com_calls(r["timings"]) for r in rs)))
         rows.append("| " + " | ".join(cells) + " |")
@@ -159,17 +169,20 @@ async def _run(tool, case: dict, target: str, start: datetime, round_no: int = 0
     t0 = time.monotonic()
     error = None
     label = case["id"]
+    status = None
     try:
         spec = AnalysisSpec.model_validate(case["spec"])
         chart = _has_chart(spec)
         label = case["id"] if chart else f"{case['id']} (no chart block)"
-        await tool(spec, target, chart=chart)
+        out = await tool(spec, target, chart=chart)
+        status = ((out or {}).get("checks") or {}).get("sheet_equals_model")     # 'OK' / 'DIFF in n cells' only
     except Exception as e:   # noqa: BLE001 - a failed case is listed with its error, the bench goes on
         error = e
     lines = read_lines(path, offset, start)
     question = case["spec"].get("question")
     line = next((x for x in reversed(lines) if x.get("question") in (question, None)), None)
-    rec = {"case": label, "round": round_no, "wall": time.monotonic() - t0, "timings": (line or {}).get("timings") or {}}
+    rec = {"case": label, "round": round_no, "wall": time.monotonic() - t0,
+           "timings": (line or {}).get("timings") or {}, "status": status}
     if error is not None:
         rec.update(ok=False, error=scrub(error))
     elif line is None:
@@ -180,7 +193,7 @@ async def _run(tool, case: dict, target: str, start: datetime, round_no: int = 0
 
 
 def _progress(label: str, rec: dict) -> None:
-    state = "ok" if rec["ok"] else f"FAILED: {rec['error']}"
+    state = f"ok, sheet = model {rec.get('status')}" if rec["ok"] else f"FAILED: {rec['error']}"
     print(f"<!-- {label} {rec['case']}: {rec['wall']:.1f}s {state} -->", flush=True)
 
 
@@ -222,7 +235,8 @@ async def bench(cases: list[dict], rounds: int) -> int:
         # server._new_question's own steps minus guard_chart (the case has no chart block; the draw adds one)
         server.guard_key_points(spec)
         pre, notes = await server._prepare(spec.model_dump(), server._provider(), spec, target, complete=True)
-        return server._with_notes(await server._draw_job(lambda h: server.excel_job(h, pre, target), "fin_analyze",
+        job = server._answer_job()                     # SV_RENDER: excel_job or file_job
+        return server._with_notes(await server._draw_job(lambda h: job(h, pre, target), "fin_analyze",
                                                          spec.question), notes)
 
     tool = kit.guard(fin_analyze)
@@ -243,7 +257,8 @@ async def bench(cases: list[dict], rounds: int) -> int:
             if blocked:
                 break
         print(f"\n## Baseline v2 answers, {start:%Y-%m-%d}\n")
-        print(f"Engine {__version__}; {rounds} rounds of {len(cases)} cases; medians over the ok rounds.\n")
+        print(f"Engine {__version__}; render {config.RENDER}; {rounds} rounds of {len(cases)} cases; medians over the "
+              "ok rounds.\n")
         print(table(warm, runs))
         print("\n### Per round (ok runs without a lines block)\n")
         print(round_table(runs))

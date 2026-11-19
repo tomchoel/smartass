@@ -25,7 +25,7 @@ from .model.chain import restore_chain
 from .model.lines import LineSet
 from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError, guard_chart, guard_key_points
-from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prepare, with_timings
+from .pipeline import RestoreError, excel_job, file_job, read_stored, redraw_job, run_prepare, with_timings
 
 TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "fin_critic", "xl_snapshot",
               "xl_revert", "xl_tidy")
@@ -241,11 +241,19 @@ def _default_target(target: str) -> str:
     return wb
 
 
+def _answer_job():
+    """The job that draws a new answer: excel_job (config.RENDER 'com', the default) or file_job ('file'). Follow-ups
+    and fin_refresh keep redraw_job."""
+    from .core import config
+    return file_job if config.RENDER == "file" else excel_job
+
+
 async def _new_question(spec: AnalysisSpec, target: str) -> dict:
     guard_chart(spec)                  # new questions only: every other path gets an implicit chart
     guard_key_points(spec)             # new questions only: a stored spec keeps its first 5 (a warning)
     pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target, complete=True)
-    return _with_notes(await _draw_job(lambda h: excel_job(h, pre, target), "fin_analyze", spec.question), notes)
+    job = _answer_job()
+    return _with_notes(await _draw_job(lambda h: job(h, pre, target), "fin_analyze", spec.question), notes)
 
 
 @_register(kit.WRITE)
