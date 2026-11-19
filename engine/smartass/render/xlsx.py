@@ -312,7 +312,10 @@ def _data(wb, fmt: _Formats, q: int, data: DataSheet) -> tuple[TableSpec, Formul
             else:
                 ws.write_string(r0 - 1 + i, j, str(v), f)
             widths[j] = max(widths[j], tn.text_units(value_text(v) if last else str(v), 9))
-    end = _table_end(r0, len(g) - 1)                              # no facts: one empty body row, unformatted
+    end = _table_end(r0, len(g) - 1)                  # no facts: one empty body row in the table font (table_font)
+    for i in range(len(g), end - r0 + 1):
+        for j in range(w):
+            ws.write_blank(r0 - 1 + i, j, None, fmt(table))
     for j, width in enumerate(widths):                            # AutoFit over the table, at most 40, A:D at least 16
         fit = min(width * TEXT_UNIT_PX / ws.max_digit_width, LABEL_MAX)        # in the destination's digits
         ws.set_column(j, j, max(fit, HEADER_MIN) if j < HEADER_COLS else fit)

@@ -274,13 +274,17 @@ def test_the_data_sheet_holds_the_facts_as_values_below_an_empty_header(built):
 
 
 def test_a_data_table_without_facts_keeps_one_empty_body_row(tmp_path):
-    """The empty body row has no format of its own, as the COM drawing leaves it (live, 19.11.2026, b16)."""
+    """The empty body row has only the table font (table_font over the whole table range), no number format,
+    colour or alignment of the Value column, as the COM drawing leaves it (live, 19.11.2026, b16)."""
     data = _data()
     built = build_with(tmp_path, grid=data.grid[:1])
     r0 = data.header.table_row
     assert built.tables[0].ref == f"A{r0}:{col_letter(len(data.grid[0]))}{r0 + 1}"
     ws = openpyxl.load_workbook(built.path)["Q3 Data"]
-    assert not any(ws.cell(r0 + 1, j + 1).has_style for j in range(len(data.grid[0])))
+    for j in range(len(data.grid[0])):
+        cell = ws.cell(r0 + 1, j + 1)
+        assert (cell.font.name, cell.font.sz, cell.number_format) == ("Arial", 9, "General"), j
+        assert _rgb(cell.font.color) is None and cell.alignment.horizontal is None, j      # the default ink
 
 
 def test_a_nan_or_infinite_fact_or_amount_is_an_error_cell_not_a_failed_build(tmp_path):
