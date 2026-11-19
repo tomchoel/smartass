@@ -197,8 +197,8 @@ class _Formats:
             self.cache[key] = self.wb.add_format(dict(props))
         return self.cache[key]
 
-    def look(self, cl: look.CellLook):
-        p = look.style_props(cl.style)
+    def look(self, cl: look.CellLook, extra: dict | None = None):
+        p = look.style_props(cl.style) | (extra or {})
         for name, value in (("num_format", cl.num_format), ("font_color", cl.font_color), ("align", cl.align),
                             ("text_wrap", cl.wrap), ("valign", cl.valign)):
             if value is not None:
@@ -247,9 +247,9 @@ def _answer(wb, fmt: _Formats, name: str, plan: SheetPlan) -> FormulaBlock:
     for r, h in lk.heights.items():
         _row_height(ws, r, h)
     for r, c1, c2 in lk.merges:                                  # the first cell's look; the others keep their own
-        ws.merge_range(r - 1, c1 - 1, r - 1, c2 - 1, "", fmt.look(lk.cells[(r, c1)]))
+        ws.merge_range(r - 1, c1 - 1, r - 1, c2 - 1, "", fmt.look(lk.cells[(r, c1)], _top_from_above(lk, r, c1)))
         for c in range(c1 + 1, c2 + 1):
-            ws.write_blank(r - 1, c - 1, None, fmt.look(lk.cells[(r, c)]))
+            ws.write_blank(r - 1, c - 1, None, fmt.look(lk.cells[(r, c)], _top_from_above(lk, r, c)))
     for c, a, b in lk.status_runs:
         for criteria, props in (("==", OK_LOOK), ("!=", NOT_OK_LOOK)):
             ws.conditional_format(a - 1, c - 1, b - 1, c - 1, {"type": "cell", "criteria": criteria,
@@ -260,6 +260,13 @@ def _answer(wb, fmt: _Formats, name: str, plan: SheetPlan) -> FormulaBlock:
     r0, c0, g = answer_grid(plan)
     ref = f"{col_letter(c0)}{r0}:{col_letter(c0 + len(g[0]) - 1)}{r0 + len(g) - 1}"
     return FormulaBlock(name, ref, g)
+
+
+def _top_from_above(lk: look.SheetLook, r: int, c: int) -> dict:
+    """A merged cell's own top border: Excel's merge gives it the bottom border of the cell above (live,
+    19.11.2026: the first Key point under its section heading), so the file writes that border too."""
+    above = look.style_props(lk.cells[(r - 1, c)].style) if r > 1 else {}
+    return {"top": above["bottom"], "top_color": above["bottom_color"]} if "bottom" in above else {}
 
 
 def _area(last_col: int, last_row: int) -> str:

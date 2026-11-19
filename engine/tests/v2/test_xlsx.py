@@ -154,8 +154,12 @@ def test_every_answer_cell_has_the_format_of_its_look(tmp_path, case):
     lk = answer_look(p)
     path = build_with(tmp_path, plan=p).path
     ws = openpyxl.load_workbook(_unmerged(path, tmp_path))["Q3 Answer"]
+    merged = {(r, c) for r, c1, c2 in lk.merges for c in range(c1, c2 + 1)}
     for (r, c), cl in lk.cells.items():
         want = style_props(cl.style)
+        above = style_props(lk.cells[(r - 1, c)].style) if (r, c) in merged and r > 1 else {}
+        if "bottom" in above:                           # a merged cell's top: the border above it (Excel's merge)
+            want |= {"top": above["bottom"], "top_color": above["bottom_color"]}
         cell = ws.cell(r, c)
         f, a = cell.font, cell.alignment
         assert cell.value is None
@@ -198,6 +202,24 @@ def test_merges_and_check_colours_reach_the_file(tmp_path):
             [("cellIs", "equal", ['"OK"'], "#00703C", True, None),
              ("cellIs", "notEqual", ['"OK"'], "#C00000", True, "#FDE9E9")] for c, a, b in lk.status_runs}
     assert rules == want
+
+
+def test_a_merged_row_below_a_bottom_border_takes_that_border_as_its_top(tmp_path):
+    """Excel's merge gives the merged cells the border of the cells above as their own top border (live,
+    19.11.2026: the first Key point under its section heading in all nine cases); the file writes it."""
+    plan, _ = small_sheet()
+    plan.footer = FOOTER
+    lk = answer_look(plan)
+    ws = openpyxl.load_workbook(build_with(tmp_path, plan=plan).path)["Q3 Answer"]
+    under = {(r, c1, c2): style_props(lk.cells[(r - 1, c1)].style) for r, c1, c2 in lk.merges if r > 1}
+    assert any("bottom" in p for p in under.values()) and any("bottom" not in p for p in under.values())
+    for (r, c1, c2), p in under.items():
+        for c in range(c1, c2 + 1):
+            top = ws.cell(r, c).border.top
+            if "bottom" in p:
+                assert (top.style, _rgb(top.color)) == (BORDER[p["bottom"]], p["bottom_color"]), (r, c)
+            else:
+                assert top.style is None, (r, c)
 
 
 def test_the_answer_prints_as_today(built, plan):
