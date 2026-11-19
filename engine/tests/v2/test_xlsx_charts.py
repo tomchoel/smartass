@@ -149,6 +149,23 @@ def assert_category_axis(root, label_pos="low", reversed_=False):
     assert val(cat.find(C + "scaling"), C + "orientation") == ("maxMin" if reversed_ else "minMax")
 
 
+def absolute(rng: str) -> str:
+    """The test's own reading of a range on the Answer sheet: absolute, a union for gaps."""
+    parts = ["'Q3 Answer'!" + ":".join(re.sub(r"([A-Z]+)(\d+)", r"$\1$\2", c) for c in p.split(":"))
+             for p in rng.split(",")]
+    return parts[0] if len(parts) == 1 else "(" + ",".join(parts) + ")"
+
+
+def assert_drawn_as_specified(root, s: ChartSpec):
+    """The brief's list for every kind: the title text, every series' name, values and categories on the Answer
+    sheet, every value axis hidden."""
+    assert title(root)[0] == s.title
+    assert [(name(x), ref(x, "val"), ref(x, "cat")) for x in sers(root)] == [
+        (n, absolute(rng), absolute(s.cat_range)) for n, rng, _ in s.series]
+    for ax in value_axes(root):
+        assert_value_axis_hidden(ax)
+
+
 def assert_refs(ser, values, categories):
     assert ref(ser, "val") == values and ref(ser, "cat") == categories
 
@@ -159,6 +176,7 @@ def test_a_column_chart_is_clustered_with_ac_solid_and_py_tinted_in_the_metric_h
              title="Revenue vs last year")
     titles, lint, (root,) = draw(tmp_path, s)
     assert titles == ["Revenue vs last year"] and lint == []
+    assert_drawn_as_specified(root, s)
     g = group(root)
     assert val(g, C + "barDir") == "col" and val(g, C + "grouping") == "clustered"
     assert val(g, C + "gapWidth") == "50" and g.find(C + "overlap") is None
@@ -183,6 +201,7 @@ def test_a_column_chart_is_clustered_with_ac_solid_and_py_tinted_in_the_metric_h
 def test_a_column_chart_over_rows_with_gaps_points_at_a_union(tmp_path):
     s = spec("column", [("AC", "D", "ac")], rows="5:7,9")
     _, _, (root,) = draw(tmp_path, s)
+    assert_drawn_as_specified(root, s)
     (ac,) = sers(root)
     assert_refs(ac, "('Q3 Answer'!$D$5:$D$7,'Q3 Answer'!$D$9)", "('Q3 Answer'!$C$5:$C$7,'Q3 Answer'!$C$9)")
     assert val(ac.find(f"{C}cat//{C}strCache"), C + "ptCount") == "4"      # the labels are text: four of them
@@ -193,6 +212,8 @@ def test_a_bar_chart_keeps_the_first_row_on_top_and_outlines_bu(tmp_path):
     s = spec("bar", [("AC", "D", "ac"), ("BU", "E", "bu")], sort="desc")
     _, lint, (root,) = draw(tmp_path, s)
     assert lint == []
+    assert_drawn_as_specified(root, s)
+    assert label_format(sers(root)[0]) == MNOK
     g = group(root)
     assert val(g, C + "barDir") == "bar" and val(g, C + "grouping") == "clustered" and val(g, C + "gapWidth") == "50"
     ac, bu = sers(g)
@@ -216,6 +237,7 @@ def test_a_line_chart_labels_only_its_chosen_points_and_reports_the_positions_it
              label_pos=[{3: "below"}, {}, {}, {}], whole=True, millions=False, title="Opex trend")
     titles, lint, (root,) = draw(tmp_path, s)
     assert titles == ["Opex trend"]
+    assert_drawn_as_specified(root, s)
     g = group(root, "lineChart")
     assert g is not None and val(g, C + "grouping") == "standard" and g.find(C + "gapWidth") is None
     ac, py, bu, fc = sers(g)
@@ -247,6 +269,8 @@ def test_a_line_without_chosen_points_has_no_limit_line(tmp_path):
 def test_a_stacked_chart_colours_its_parts_and_always_has_a_legend(tmp_path):
     s = spec("stacked", [("Mobile", "D", "part"), ("Fixed", "E", "part"), ("Other", "F", "part")])
     _, lint, (root,) = draw(tmp_path, s)
+    assert_drawn_as_specified(root, s)
+    assert all(label_format(x) == MNOK for x in sers(root))
     g = group(root)
     assert lint == [] and val(g, C + "grouping") == "stacked" and val(g, C + "barDir") == "col"
     assert val(g, C + "gapWidth") == "50" and val(g, C + "overlap") == "100"
@@ -261,14 +285,18 @@ def test_a_stacked_chart_colours_its_parts_and_always_has_a_legend(tmp_path):
 def test_a_stacked_chart_over_a_header_row_points_at_that_row(tmp_path):
     s = ChartSpec("stacked", "Mix", cat_range="D10:F10", series=[("2025", "D12:F12", "part")], anchor="B30")
     _, _, (root,) = draw(tmp_path, s)
+    assert_drawn_as_specified(root, s)
     (part,) = sers(root)
     assert_refs(part, "'Q3 Answer'!$D$12:$F$12", "'Q3 Answer'!$D$10:$F$10")
     assert val(part.find(f"{C}cat//{C}strCache"), C + "ptCount") == "3"
 
 
 def test_a_stacked100_chart_is_percent_stacked_with_a_legend_for_one_part(tmp_path):
-    _, _, (root,) = draw(tmp_path, spec("stacked100", [("Mobile", "D", "part")]))
+    s = spec("stacked100", [("Mobile", "D", "part")], millions=False)
+    _, _, (root,) = draw(tmp_path, s)
+    assert_drawn_as_specified(root, s)
     g = group(root)
+    assert label_format(sers(g)[0]) == '#,##0.0;"−"#,##0.0;;'                # a stock: one decimal
     assert val(g, C + "grouping") == "percentStacked" and val(g, C + "gapWidth") == "50"
     assert fill(sers(g)[0]) == "1F3864" and legend(root) == "t"
 
@@ -277,6 +305,7 @@ def test_a_combo_chart_draws_pct_as_a_line_on_a_hidden_secondary_axis(tmp_path):
     s = spec("combo", [("Revenue", "D", "ac"), ("Margin %", "E", "pct")])
     _, lint, (root,) = draw(tmp_path, s)
     assert lint == []
+    assert_drawn_as_specified(root, s)
     bars, lines = group(root), group(root, "lineChart")
     assert val(bars, C + "grouping") == "clustered" and val(bars, C + "gapWidth") == "50"
     (rev,), (pct,) = sers(bars), sers(lines)
@@ -295,6 +324,7 @@ def test_a_combo_chart_draws_pct_as_a_line_on_a_hidden_secondary_axis(tmp_path):
 def test_a_variance_chart_overlaps_better_and_worse_without_a_legend(tmp_path):
     s = spec("variance", [("Better", "P", "fav"), ("Worse", "Q", "unfav")])
     _, lint, (root,) = draw(tmp_path, s)
+    assert_drawn_as_specified(root, s)
     g = group(root)
     assert lint == [] and val(g, C + "barDir") == "bar" and val(g, C + "grouping") == "clustered"
     assert val(g, C + "gapWidth") == "50" and val(g, C + "overlap") == "100"
@@ -317,8 +347,10 @@ def waterfall(**kw) -> ChartSpec:
 
 
 def test_a_waterfall_is_stacked_with_green_steps_up_red_steps_down_and_white_labels(tmp_path):
-    _, lint, (root,) = draw(tmp_path, waterfall())
+    s = waterfall()
+    _, lint, (root,) = draw(tmp_path, s)
     assert lint == []
+    assert_drawn_as_specified(root, s)
     g = group(root)
     assert val(g, C + "grouping") == "stacked" and val(g, C + "gapWidth") == "50" and val(g, C + "overlap") == "100"
     base, base_neg, up, up_neg, down, down_neg, total = sers(g)
