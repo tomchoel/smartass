@@ -5,12 +5,18 @@ attributes, style, alignment, conditional formats), on columns (width), rows (he
 setup, names, window state) or the workbook (sheet order, names). snapshot(wb) returns the whole state in a compact,
 comparable form (cells with equal settings collapsed into rectangles), so a test can pin a writer's exact effect and
 prove that a batched version leaves the same workbook. count_com(monkeypatch) counts jobs.com calls.
+
+For the move-in of a built file: Application.Workbooks (Open reads an .xlsx: values, sheet visibility, tables; Close),
+wb.Worksheets([names]).Copy / .Delete as Excel does them, LinkSources / BreakLink, and Application.events: every
+step asked of the fake Excel, in order across sheets and workbooks (not part of snapshot).
 """
 from __future__ import annotations
 
+import copy
 import datetime
 import hashlib
 import re
+from pathlib import Path
 from types import SimpleNamespace
 
 MAXR, MAXC = 1048576, 16384
@@ -107,6 +113,13 @@ def compress(cells) -> str:
 
 class ComError(Exception):
     """Not a 'busy' error: jobs.com passes it straight through."""
+
+
+def _event(ws, *what) -> None:
+    """One step in the Application's event list (everything asked of the fake Excel, in order, across workbooks)."""
+    events = getattr(ws.wb.Application, "events", None)
+    if events is not None:
+        events.append((ws.Name, *what))
 
 
 # ------------------------------------------------------------------ ranges
@@ -265,8 +278,10 @@ class Range:
                 self.ws.put(r, c, v)
 
     def __getattr__(self, k):
-        if k in ("Value", "Value2", "Formula"):
+        if k in ("Value", "Value2", "Formula", "Formula2"):
             return self._get_value()
+        if k == "PrefixCharacter":
+            return "'" if self.rects[0][:2] in self.ws.prefixed else ""
         if k == "ColumnWidth":
             vals = {self.ws.colw.get(c, 8.43) for _, c1, _, c2 in self.rects for c in range(c1, min(c2, CLIP_C) + 1)}
             return vals.pop() if len(vals) == 1 else None
@@ -280,7 +295,8 @@ class Range:
 
     def __setattr__(self, k, v):
         self.ws.log.append((k, ";".join(rect_text(*x) for x in self.rects)))
-        if k in ("Value", "Value2", "Formula"):
+        _event(self.ws, k, ";".join(rect_text(*x) for x in self.rects))
+        if k in ("Value", "Value2", "Formula", "Formula2"):
             self._check_tables(v)
             self._set_value(v)
         elif k == "ColumnWidth":
@@ -349,12 +365,12 @@ class Range:
         pass
 
     def _check_tables(self, v) -> None:
-        """As Excel: a formula naming a table that does not exist (yet) is refused (0x800A03EC)."""
+        """As Excel: a formula naming a table that does not exist (yet) in the workbook is refused (0x800A03EC)."""
         flat = [x for row in v for x in row] if isinstance(v, (tuple, list)) else [v]
-        names = {lo.Name for lo in self.ws.ListObjects}
+        names = {lo.Name for ws in self.ws.wb.order for lo in ws.ListObjects}
         for x in flat:
             if isinstance(x, str) and x.startswith("="):
-                for name in re.findall(r"(Data_Q\d+)\[", x):
+                for name in re.findall(r"((?:Data|Lines)_Q\d+(?:_\w+)?)\[", x):
                     if name not in names:
                         raise ComError(f"formula names a missing table {name}: {x}")
 
@@ -416,6 +432,7 @@ class _Lines:
 class ListObject:
     def __init__(self, ws, rng):
         self.ws, self.rect, self.Name, self.TableStyle = ws, rng.rects[0], "Table1", None
+        self.ShowTableStyleRowStripes = True
 
     @property
     def Range(self):
@@ -444,6 +461,10 @@ class _ListObjects(list):
         super().__init__()
         self.ws = ws
 
+    @property
+    def Count(self):
+        return len(self)
+
     def __call__(self, key):
         if isinstance(key, int):
             return self[key - 1]
@@ -454,6 +475,7 @@ class _ListObjects(list):
 
     def Add(self, source_type, rng, link_source=None, has_headers=None):
         self.ws.log.append(("ListObjects.Add", ";".join(rect_text(*x) for x in rng.rects)))
+        _event(self.ws, "ListObjects.Add", ";".join(rect_text(*x) for x in rng.rects))
         lo = ListObject(self.ws, rng)
         self.append(lo)
         return lo
@@ -517,6 +539,7 @@ class Worksheet:
         self.Hyperlinks = _Hyperlinks(self)
         self.AutoFilterMode, self.autofilter = False, None
         self.log: list = []
+        self.prefixed: set[tuple[int, int]] = set()     # cells written with a leading apostrophe (text as text)
 
     @property
     def Parent(self):
@@ -531,6 +554,9 @@ class Worksheet:
             return
         if isinstance(x, str) and x.startswith("'"):
             x = x[1:]
+            self.prefixed.add((r, c))
+        else:
+            self.prefixed.discard((r, c))
         self.cell((r, c))["Value"] = x
 
     def Range(self, a, b=None):
@@ -552,8 +578,16 @@ class Worksheet:
         return Range(self, [(min(rs), min(cs), max(rs), max(cs))])
 
     def Activate(self):
+        if self not in self.wb.order:
+            raise ComError("the sheet was deleted")
         self.wb.Activate()
         self.wb.active = self
+
+    def Calculate(self):
+        _event(self, "Calculate")
+
+    def Delete(self):
+        _SheetGroup(self.wb, [self]).Delete()
 
     def Move(self, *args, **kw):
         assert not kw
@@ -574,6 +608,7 @@ class _Window:
     def __setattr__(self, k, v):
         if k == "Visible":
             object.__setattr__(self, k, v)
+            _event(self.wb.order[0], "Window.Visible", v)
             return
         self.wb.window_state.setdefault(self.wb.active.Name, {})[k] = v
 
@@ -586,6 +621,8 @@ class _Sheets:
         self.wb = wb
 
     def __call__(self, key):
+        if isinstance(key, (list, tuple)):
+            return _SheetGroup(self.wb, [self(k) for k in key])
         if isinstance(key, int):
             return self.wb.order[key - 1]
         for s in self.wb.order:
@@ -611,8 +648,96 @@ class _Sheets:
         return ws
 
 
+class _SheetGroup:
+    """wb.Worksheets([name, ...]): several sheets in one call (Copy, Delete)."""
+
+    def __init__(self, wb, sheets):
+        self.wb, self.sheets = wb, list(sheets)
+
+    def Copy(self, *args, **kw):
+        """As Excel: positional (Before, After) only; into another workbook a sheet with a table is refused (Excel can
+        crash), a taken name becomes 'name (2)' silently, a formula pointing at a sheet left behind leaves a link to
+        the source file, and the destination workbook is activated on the first copy."""
+        assert not kw, "Worksheets.Copy: positional (Before, After) only"
+        before = args[0] if args else None
+        after = args[1] if len(args) > 1 else None
+        anchor = before if before is not None else after
+        dest = anchor.wb
+        if dest is not self.wb and any(s.ListObjects for s in self.sheets):
+            raise ComError("a sheet with a table copied between workbooks (Excel can crash)")
+        taken = {s.Name.lower() for s in dest.order}
+        k = dest.order.index(anchor) + (0 if before is not None else 1)
+        copies = []
+        for s in self.sheets:
+            name, i = s.Name, 2
+            while name.lower() in taken:
+                name, i = f"{s.Name} ({i})", i + 1
+            taken.add(name.lower())
+            c = Worksheet(dest, name)
+            c.cells, c.colw, c.rowh = copy.deepcopy(s.cells), dict(s.colw), dict(s.rowh)
+            c.prefixed, c.Visible, c.Tab.Color = set(s.prefixed), s.Visible, s.Tab.Color
+            dest.order.insert(k, c)
+            k += 1
+            copies.append(c)
+        left = {s.Name for s in self.wb.order} - {s.Name for s in self.sheets}
+        formulas = [p.get("Value") for s in self.sheets for p in s.cells.values()]
+        if dest is not self.wb and any(isinstance(f, str) and f.startswith("=") and
+                                       any(f"'{n}'!" in f or f"{n}!" in f for n in left) for f in formulas):
+            dest.links.append(self.wb.FullName)
+        dest.Activate()
+        dest.active = copies[0]
+        _event(copies[0], "Copy", [s.Name for s in self.sheets])
+
+    def Delete(self):
+        """As Excel: with DisplayAlerts on, a delete asks the user first (the fake refuses instead of waiting)."""
+        if self.wb.Application.DisplayAlerts:
+            raise ComError("a sheet delete with DisplayAlerts on waits for the user")
+        for s in self.sheets:
+            self.wb.order.remove(s)
+        if self.wb.active in self.sheets:
+            self.wb.active = self.wb.order[0]
+        _event(self.sheets[0], "Delete", [s.Name for s in self.sheets])
+
+
+_VISIBLE = {"visible": -1, "hidden": 0, "veryHidden": 2}
+
+
+class _Workbooks(list):
+    """Application.Workbooks: every open workbook; Open reads a file (values, sheet visibility, tables)."""
+
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+
+    @property
+    def Count(self):
+        return len(self)
+
+    def Open(self, path, *args, **kw):
+        """Positional only, as late-bound COM needs: (Filename, UpdateLinks, ReadOnly, ...)."""
+        assert not kw, "Workbooks.Open: positional arguments only"
+        import openpyxl
+        book = openpyxl.load_workbook(path)
+        wb = Workbook(book.sheetnames, app=self.app, styles_ver=False)
+        wb.Name, wb.FullName, wb.opened_with = Path(path).name, str(path), args
+        for ws, src in zip(wb.order, book.worksheets):
+            ws.Visible = _VISIBLE[src.sheet_state]
+            for row in src.iter_rows():
+                for c in row:
+                    if c.value is not None:
+                        ws.cell((c.row, c.column))["Value"] = c.value
+            for name, ref in src.tables.items():
+                lo = ListObject(ws, Range(ws, [parse_area(ref)]))
+                lo.Name = name
+                ws.ListObjects.append(lo)
+        _event(wb.order[0], "Open", str(path))
+        return wb
+
+
 class Application:
     def __init__(self):
+        self.Workbooks = _Workbooks(self)
+        self.events: list = []
         self.International = INTERNATIONAL
         self.ScreenUpdating, self.Calculation, self.DisplayAlerts, self.EnableEvents = True, -4105, True, True
         self.PrintCommunication = True
@@ -638,11 +763,14 @@ class Workbook:
         self.Worksheets = _Sheets(self)
         self.Names = _Names(self)
         self.Name, self.FullName = "book.xlsx", r"C:\fake\book.xlsx"
+        self.links: list[str] = []                       # LinkSources(xlExcelLinks)
         self.window = _Window(self)
         self.window_state: dict[str, dict] = {}
         self.selection: dict[str, str] = {}
         self.active = self.order[0]
         self.Application.ActiveWorkbook = self
+        if isinstance(getattr(self.Application, "Workbooks", None), _Workbooks):
+            self.Application.Workbooks.append(self)
         if styles_ver:
             from smartass.xl import styling
             self.Names.Add(Name="_tnStylesVer", RefersTo=f'="{styling._styles_version()}"', Visible=False)
@@ -656,6 +784,24 @@ class Workbook:
 
     def Activate(self):
         self.Application.ActiveWorkbook = self
+
+    def LinkSources(self, kind):
+        assert kind == 1                                   # xlExcelLinks
+        return tuple(self.links) or None
+
+    def BreakLink(self, name, kind):
+        assert kind == 1
+        self.links.remove(name)
+        _event(self.order[0], "BreakLink", name)
+
+    def Close(self, save=None):
+        """As Excel: the workbook leaves Workbooks; the one opened before it becomes active."""
+        assert save is False, "a fake workbook is only closed without saving"
+        app = self.Application
+        app.Workbooks.remove(self)
+        if app.ActiveWorkbook is self:
+            app.ActiveWorkbook = app.Workbooks[-1] if app.Workbooks else None
+        _event(self.order[0], "Close")
 
 
 # ------------------------------------------------------------------ state + counting
