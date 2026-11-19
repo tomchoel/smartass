@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 from dataclasses import dataclass, field
 
 from ..render.xlsx import BuiltFile, TableSpec
@@ -33,6 +34,7 @@ SRC_RANGE, HAS_HEADERS = 1, 1           # xlSrcRange, xlYes (ListObjects.Add)
 TABLE_STYLE = "TableStyleLight1"
 POSITION = {"right": -4152, "above": 0, "below": 1, "left": -4131}       # xlLabelPositionRight, Above, Below, Left
 SHEET_NAME_MAX = 31
+LABEL_WAIT_S = 10                       # a label is cosmetic: a busy Excel is not waited for as long as for the rest
 
 
 class NameTaken(InputError):
@@ -115,16 +117,20 @@ def _hide_unless_tabled(src) -> list[str]:
     return tables
 
 
-def _break_links(wb) -> None:
+def _break_links(wb, file_name: str) -> None:
+    """Break the links the copy left to the temporary file, by its (unique) file name; the user's own links to other
+    workbooks stay."""
     for link in wb.LinkSources(LINKS) or ():
-        wb.BreakLink(link, LINKS)
+        if re.split(r"[\\/]", str(link))[-1].casefold() == file_name.casefold():
+            wb.BreakLink(link, LINKS)
 
 
 def move_in(t, built: BuiltFile, after) -> None:
     """Copy the built file's sheets into t.wb after the worksheet 'after' (None: after the last sheet), in one call.
     A name of the answer already in the workbook is NameTaken and a file holding a table a ValueError, both before
     anything is copied. The copied names are added to t.sheets_added (what a rollback deletes) just before the copy,
-    so a copy that fails half-way is rolled back too. The temporary workbook is closed whatever happens."""
+    so a copy that fails half-way is rolled back too. The temporary workbook is closed whatever happens; only the
+    links to it are broken."""
     found = taken(t.wb, built.sheets, [spec.name for spec in built.tables])
     if found:
         raise NameTaken(_taken_text(found, jobs.com(lambda: str(t.wb.Name))))
@@ -137,13 +143,16 @@ def move_in(t, built: BuiltFile, after) -> None:
             raise ValueError(f"the built file {built.path.name} holds an Excel Table ({', '.join(tables)}): a sheet "
                              "with a table is never copied between workbooks; the tables are made after the copy")
         t.sheets_added.extend(names)
-        jobs.com(lambda: src.Worksheets(names).Copy(before, after_sheet))
+        if before is not None:
+            jobs.com(lambda: src.Worksheets(names).Copy(before))
+        else:
+            jobs.com(lambda: src.Worksheets(names).Copy(None, after_sheet))
     finally:
         try:
             jobs.com(lambda: src.Close(False), limit=30, check=False)
         except Exception as e:   # noqa: BLE001 - the answer is in; a failure on the way out stays the error
             log.warning("could not close the temporary workbook %s: %s", path, e)
-    jobs.com(lambda: _break_links(t.wb))
+    jobs.com(lambda: _break_links(t.wb, built.path.name))
 
 
 def _add_table(wb, spec: TableSpec):
@@ -175,7 +184,7 @@ def _find_label(ws, fix: LabelFix) -> tuple:
 
 
 def _label(ws, fix: LabelFix) -> None:
-    lab, top = jobs.com(lambda: _find_label(ws, fix))
+    lab, top = jobs.com(lambda: _find_label(ws, fix), limit=LABEL_WAIT_S)
 
     def apply():
         if fix.position:
@@ -184,7 +193,7 @@ def _label(ws, fix: LabelFix) -> None:
             lab.Font.Color = _bgr(fix.font_color)
         if top is not None:
             lab.Top = top - fix.lift_pt
-    jobs.com(apply)
+    jobs.com(apply, limit=LABEL_WAIT_S)
 
 
 def finish(t, built: BuiltFile) -> None:
@@ -236,10 +245,16 @@ def _free(base: str, used: set[str], limit: int | None = None, sep: str = " ") -
 
 def park(t, sheets: list[str], tables: list[str]) -> Parked:
     """Rename a question's sheets to 'old <name>' and its tables to '<name>_old' (a free name when that is taken),
-    so the new answer can take their names. All or nothing: a park that fails puts back what it renamed."""
+    so the new answer can take their names. A name the workbook does not have is an InputError, before any rename.
+    All or nothing: a park that fails puts back what it renamed."""
     have_sheets, have_tables = jobs.com(lambda: _inventory(t.wb))
     by_sheet = {n.casefold(): ws for n, ws in have_sheets}
     by_table = {n.casefold(): lo for n, lo, _ in have_tables}
+    missing = ([f"the sheet '{n}'" for n in sheets if n.casefold() not in by_sheet]
+               + [f"the table '{n}'" for n in tables if n.casefold() not in by_table])
+    if missing:
+        raise InputError(f"{' and '.join(missing)} to replace {'is' if len(missing) == 1 else 'are'} not in the "
+                         "workbook any more: ask the question again as a new one")
     used_sheets, used_tables = set(by_sheet), set(by_table)
     parked = Parked()
     try:

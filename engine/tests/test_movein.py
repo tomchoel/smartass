@@ -159,10 +159,21 @@ def test_after_a_hidden_sheet_the_copy_lands_after_the_last_visible_one(t, built
     assert all(t.wb.Worksheets(n).Visible == -1 for n in SHEETS)
 
 
-def test_a_link_to_a_sheet_left_behind_is_broken(t, tmp_path):
+def test_with_no_visible_sheet_up_to_a_hidden_anchor_the_copy_goes_before_the_first_visible_one(built):
+    wb = fakexl.Workbook(["_svmeta", "Notes"], styles_ver=False)
+    wb.Worksheets("_svmeta").Visible = 0
+    wb.active = wb.Worksheets("Notes")
+    t = Target(app=wb.Application, wb=wb, pid=0, hwnd=0)
+    movein.move_in(t, built, after=wb.Worksheets("_svmeta"))
+    assert _names(wb) == ["_svmeta", *SHEETS, "Notes"]
+
+
+def test_a_link_to_a_sheet_left_behind_is_broken_and_the_users_own_links_stay(t, tmp_path):
+    users = r"C:\Users\someone\Budget 2026.xlsx"
+    t.wb.links.append(users)                                  # the user's formulas that read another workbook
     built = _file(tmp_path / "linked.xlsx", extra="Scratch", link=True)
     movein.move_in(t, built, after=None)
-    assert [e[2] for e in _events(t, "BreakLink")] == [str(built.path)] and t.wb.LinkSources(1) is None
+    assert [e[2] for e in _events(t, "BreakLink")] == [str(built.path)] and t.wb.LinkSources(1) == (users,)
     assert "Scratch" not in _names(t.wb)
 
 
@@ -276,6 +287,15 @@ def test_formula_grids_keep_text_as_text(t, built):                             
     assert answer.Range("C3").Value == "0047" and answer.Range("C3").PrefixCharacter == "'"
     assert answer.Range("C2").PrefixCharacter == "" and data.Range("A2").PrefixCharacter == "'"
     assert data.Range("B2").Value == "=SUM(Data_Q3[Value])" and data.Range("B2").PrefixCharacter == ""
+
+
+def test_text_that_looks_like_a_formula_number_or_date_stays_text(t, built):     # Review Focus 1
+    texts = ["=SUM(A1)", "+1", "-2", "@x", "1-2", "3/4", "1E5", "0047", "TRUE"]
+    built.formulas = [FormulaBlock("Q3 Answer", "B5:J5", [["'" + x for x in texts]])]
+    movein.move_in(t, built, after=None)
+    movein.finish(t, built)
+    row = [t.wb.Worksheets("Q3 Answer").Cells(5, c) for c in range(2, 11)]
+    assert [c.Value for c in row] == texts and {c.PrefixCharacter for c in row} == {"'"}
 
 
 def test_calculate_does_the_answer_last(t):
@@ -417,6 +437,15 @@ def test_a_park_that_fails_half_way_puts_back_what_it_renamed(tq):
     before = fakexl.snapshot(tq.wb)
     with pytest.raises(fakexl.ComError, match="rename the table"):
         movein.park(tq, SHEETS, ["Data_Q3", "Lines_Q3_b0"])
+    assert fakexl.snapshot(tq.wb) == before
+
+
+def test_park_refuses_a_name_the_workbook_does_not_have_and_renames_nothing(tq):
+    before = fakexl.snapshot(tq.wb)
+    with pytest.raises(InputError, match="Q3 Lines b1"):
+        movein.park(tq, ["Q3 Answer", "Q3 Lines b1"], ["Data_Q3"])
+    with pytest.raises(InputError, match="Lines_Q3_b1"):
+        movein.park(tq, ["Q3 Answer"], ["Lines_Q3_b1"])
     assert fakexl.snapshot(tq.wb) == before
 
 
