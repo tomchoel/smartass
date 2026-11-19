@@ -229,6 +229,11 @@ def test_look_equals_what_apply_report_does(case):
     if plan.footer:                                          # the v2 page setup (v1 has its own, xl_tidy's)
         assert ws.PageSetup.PrintArea == look.print_area and ws.PageSetup.CenterFooter == look.footer
         assert page_breaks(ws) == look.breaks
+    bare = answer_look(plan)                                 # the file builder's path: no texts, then the read-back
+    block = ws.Range("A1:" + plan.last_col + str(plan.last_row)).Value2
+    assert bare.heights | text_heights(plan, bare, block) == look.heights
+    if plan.footer:                                          # laid out: the texts change no style and no merge
+        assert bare.cells == look.cells and bare.merges == look.merges
 
 
 def test_the_cases_reach_every_rule():
