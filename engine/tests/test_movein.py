@@ -517,6 +517,15 @@ def test_show_lets_excel_paint_once_with_the_sheet_active_in_two_calls(papp, mon
     assert papp.painted == [False, True, False, True]          # off, the one paint, off again, the user's setting
 
 
+def test_a_show_whose_screen_updating_off_fails_is_cosmetic_too(papp, caplog):
+    user = papp.Workbooks[0]
+    with caplog.at_level(logging.WARNING), movein.quiet(papp, user):
+        papp.fail_on = ("ScreenUpdating", False)
+        movein.show(papp, user, "Q1 Answer")
+        papp.fail_on = None
+    assert any("could not show" in r.getMessage() for r in caplog.records)
+
+
 def test_a_show_that_fails_is_cosmetic(papp, caplog):
     user = papp.Workbooks[0]
     with caplog.at_level(logging.WARNING), movein.quiet(papp, user):

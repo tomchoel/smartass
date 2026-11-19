@@ -126,14 +126,14 @@ def show(app, wb, name: str) -> None:
     """Let Excel paint once with the sheet name of wb active, screen updating off again afterwards: two calls
     (activate + screen updating on, then off). Only for a workbook quiet found shown (never steal focus from another
     workbook). Cosmetic: a failure is logged."""
-    try:
-        jobs.com(lambda: (wb.Worksheets(name).Activate(), setattr(app, "ScreenUpdating", True)))
-    except jobs.JobAborted:
-        raise
-    except Exception as e:   # noqa: BLE001
-        log.warning("could not show %s: %s", name, e)
-    finally:
-        jobs.com(lambda: setattr(app, "ScreenUpdating", False))
+    for call in (lambda: (wb.Worksheets(name).Activate(), setattr(app, "ScreenUpdating", True)),
+                 lambda: setattr(app, "ScreenUpdating", False)):     # off again, also when the first call failed
+        try:
+            jobs.com(call)
+        except jobs.JobAborted:
+            raise
+        except Exception as e:   # noqa: BLE001
+            log.warning("could not show %s: %s", name, e)
 
 
 @dataclass
