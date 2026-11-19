@@ -39,10 +39,12 @@ DASH = {"bu": "dash", "fc": "round_dot"}              # msoLineDash, msoLineRoun
 PX_PER_PT = 4 / 3                                     # 96 dpi
 TEXT_GREY = "#595959"                                 # AddChart2's (Office 2013) axis, legend and label text
 AXIS_LINE = "#D9D9D9"                                 # AddChart2's category axis line
+LABEL_GREY = "#404040"                                # AddChart2's data label text (live, 19.11.2026)
 TEXT = {"name": tn.FONT, "size": 9, "color": TEXT_GREY}
+LABEL_TEXT = TEXT | {"color": LABEL_GREY}
 _SECTION = tn.style_defs()["TN Seksjon"]
 TITLE = {"name": tn.FONT, "size": _SECTION["size"] + 1, "bold": True, "color": look._hex(_SECTION["color"])}
-CLUSTERED_OVERLAP = -27                               # AddChart2's (Office 2013) clustered column and bar default
+CLUSTERED_OVERLAP = -27                               # AddChart2's (Office 2013) clustered column default
 HIDDEN_AXIS = {"major_gridlines": {"visible": False}, "major_tick_mark": "none", "label_position": "none",
                "line": {"none": True}}
 FAILED = ("chart '{}' failed: {}; fix: check the source block's rows and columns, or patch the chart block (kind, "
@@ -105,7 +107,7 @@ def _labels(spec: ChartSpec, role: str, k: int, n: int) -> dict | None:
     """Series k's data labels (charts._labels): the label format, and the position and font of its kind."""
     if role in HIDDEN:
         return None
-    lab = {"value": True, "num_format": label_format(role, spec.millions, spec.whole), "font": dict(TEXT)}
+    lab = {"value": True, "num_format": label_format(role, spec.millions, spec.whole), "font": dict(LABEL_TEXT)}
     if spec.kind == "line" and k < len(spec.label_points):     # only the chosen points; the others deleted
         keep = set(spec.label_points[k])
         below = k < len(spec.label_below) and spec.label_below[k]
@@ -196,9 +198,9 @@ def _options(spec: ChartSpec, sheet: str, chart_no: int) -> tuple[list[dict], li
     lines = [s | {"y2_axis": True} for s, r in zip(series, roles) if spec.kind == "combo" and r == "pct"]
     if not bars:
         raise ValueError("a combo chart needs a column series beside its % line")
-    if spec.kind != "line":                               # stacked: XlsxWriter's overlap 100, as AddChart2's
+    if spec.kind != "line":                   # AddChart2's: a clustered bar 0, stacked 100 (XlsxWriter's too)
         overlap = 100 if spec.kind in ("variance", "waterfall") else (
-            CLUSTERED_OVERLAP if XLSX_TYPE[XL_TYPE[spec.kind]][1] is None else None)
+            CLUSTERED_OVERLAP if XLSX_TYPE[XL_TYPE[spec.kind]] == ("column", None) else None)
         bars[0] |= {"gap": GAP_WIDTH} | ({"overlap": overlap} if overlap is not None else {})
     pct = [spec.kind == "combo" and r == "pct" for r in roles]
     order = [k for k, p in enumerate(pct) if not p] + [k for k, p in enumerate(pct) if p]

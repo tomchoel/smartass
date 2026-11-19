@@ -202,6 +202,7 @@ def test_a_column_chart_is_clustered_with_ac_solid_and_py_tinted_in_the_metric_h
     assert label_format(ac) == label_format(py) == MNOK
     assert val(labels(ac), C + "showVal") == "1" and labels(ac).find(C + "dLblPos") is None   # Excel's outside end
     assert label_font(labels(ac))["face"] == "Arial"
+    assert label_font(labels(ac))["colour"] == "404040"     # AddChart2's data label text (live: COM #404040)
     text, font = title(root)
     assert text == "Revenue vs last year" and font == {"face": "Arial", "sz": "1200", "b": "1", "colour": "1F3864"}
     assert legend(root) == "t"                                             # two visible series
@@ -229,7 +230,7 @@ def test_a_bar_chart_keeps_the_first_row_on_top_and_outlines_bu(tmp_path):
     assert label_format(sers(root)[0]) == MNOK
     g = group(root)
     assert val(g, C + "barDir") == "bar" and val(g, C + "grouping") == "clustered" and val(g, C + "gapWidth") == "50"
-    assert val(g, C + "overlap") == "-27"
+    assert g.find(C + "overlap") is None                   # AddChart2's clustered bar: 0 (live, 19.11.2026)
     ac, bu = sers(g)
     assert fill(ac) == "1F3864"
     assert fill(bu) == "FFFFFF" and line(bu) == {"colour": "1F3864", "w": "12700", "dash": None}   # 1 pt navy
@@ -263,6 +264,7 @@ def test_a_line_chart_labels_only_its_chosen_points_and_returns_the_single_posit
     assert all(val(x.find(C + "marker"), C + "symbol") == "none" for x in (ac, py, bu, fc))
     assert label_format(ac) == '#,##0;"−"#,##0;;'                          # whole NOK
     assert val(labels(ac), C + "dLblPos") == "t" and val(labels(py), C + "dLblPos") == "b"   # a cost line: below
+    assert all(label_font(labels(x))["colour"] == "404040" for x in (ac, py))           # AddChart2's label text
     assert {i: d.find(C + "delete") is not None for i, d in custom(ac).items()} == {0: True, 1: True, 3: True}
     assert set(custom(py)) == {0, 1, 2, 3} and set(custom(bu)) == {0, 1, 2, 3, 4} and set(custom(fc)) == {1, 3}
     assert all(d.find(C + "delete") is not None for x in (py, bu, fc) for d in custom(x).values())   # labelled: none
