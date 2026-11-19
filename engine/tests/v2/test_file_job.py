@@ -19,6 +19,7 @@ import fakexl
 from smartass import followup, pipeline, server
 from smartass.core import config
 from smartass.core.timing import COM_PREFIX
+from smartass.model.errors import GuardError
 from smartass.model.lines import LineSet
 from smartass.render import look, xlsx
 from smartass.xl import movein, sheets
@@ -140,6 +141,15 @@ def test_a_build_that_fails_leaves_no_partial_file_and_copies_nothing(wired, tmp
     with pytest.raises(ValueError, match="broke"):
         pipeline.file_job(H, _pre())
     assert "move_in" not in wired.calls and wired.calls[-1] == "rollback" and not _temp_files(tmp_home)
+
+
+def test_more_lines_than_a_sheet_has_rows_is_a_refusal_with_its_fix(wired, tmp_home, monkeypatch):  # Focus 5
+    def too_many(path, *a):
+        raise xlsx.TooManyRows("sheet 'Q1 Lines b0' would need 1 100 000 rows; an Excel sheet has 1 048 576")
+    monkeypatch.setattr(xlsx, "build", wired.rec("build", too_many))
+    with pytest.raises(GuardError, match="1 100 000 rows") as e:
+        pipeline.file_job(H, _pre())
+    assert "narrow" in e.value.fix and wired.calls[-1] == "rollback" and not _temp_files(tmp_home)
 
 
 def test_the_spec_is_stored_without_an_owned_range(wired, monkeypatch):

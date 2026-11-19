@@ -710,7 +710,11 @@ def _file_draw(t, q: int, pre: Prepared) -> dict:
             plan = _answer_plan(q, pre, fetched)
             lines = [_lines_sheet(q, ls, stamp) for ls in pre.frame.lines.values()]
             data = xlsx.DataSheet(f"Q{q} Data", header, data_grid(pre.frame))
-            built = xlsx.build(path, f"Q{q} Answer", plan, data, lines)
+            try:
+                built = xlsx.build(path, f"Q{q} Answer", plan, data, lines)
+            except xlsx.TooManyRows as e:
+                raise GuardError(str(e), "narrow the query or the lines cell (a shorter period, a lower account or "
+                                 "entity) so it fits on one sheet") from None
         with movein.quiet(t.app):
             with stage("move in"):
                 after = _after(t, q)
