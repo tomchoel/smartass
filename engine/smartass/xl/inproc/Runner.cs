@@ -505,11 +505,12 @@ public static class SmartassRunner___HASH__
 
     const int ChunkCells = 100000;                              // as runner.CHUNK_CELLS
     const int XlCellTypeFormulas = -4123;
+    const int XlCellTypeLastCell = 11;
 
     // mentions on one worksheet's cells (runner._cells): the used range's Formula2 read in chunks of rows of at most
-    // ChunkCells cells, only the chunks Intersect finds a formula in (SpecialCells once; no formula - HasFormula
-    // False -: done; any other refusal: "unread"); a protected sheet refuses SpecialCells, so each of its chunks is
-    // read (a hidden formula makes the read throw: "unread").
+    // ChunkCells cells, only the chunks Intersect finds a formula in (SpecialCells once; none, while SpecialCells
+    // answers on the sheet: done; a refusal: "unread"); a protected sheet refuses SpecialCells, so each of its chunks
+    // is read (a hidden formula makes the read throw: "unread").
     static void MentionsInCells(object ws, string name, string[] want, List<object> rows)
     {
         object used = Invoke(ws, "UsedRange", Get, new object[0]);
@@ -522,10 +523,13 @@ public static class SmartassRunner___HASH__
             try { formulas = Invoke(used, "SpecialCells", Get, new object[] { XlCellTypeFormulas }); }
             catch (Exception)
             {
-                // "No cells were found" has the code of any other refusal and a text in Excel's language: none only
-                // when the used range has no formula; any other refusal is the caller's "unread"
-                if (Equals(Invoke(used, "HasFormula", Get, new object[0]), false)) return;
-                throw;
+                // "No cells were found" has the code of any other refusal and a text in Excel's language: no formula
+                // only when SpecialCells answers on the sheet at all (its last cell); a refusal is the caller's "unread"
+                bool answers = true;
+                try { Invoke(used, "SpecialCells", Get, new object[] { XlCellTypeLastCell }); }
+                catch (Exception) { answers = false; }
+                if (!answers) throw;
+                return;
             }
         }
         object app = Invoke(ws, "Application", Get, new object[0]);

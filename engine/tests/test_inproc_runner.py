@@ -523,10 +523,10 @@ def test_mentions_does_not_take_a_busy_excel_for_a_sheet_without_a_formula(book,
     assert ("cell", "Summary", "A1", "='old Q1 Answer'!E12") in _mentions(app)
 
 
-def test_mentions_takes_only_a_used_range_without_a_formula_for_none_and_says_any_other_refusal(book, monkeypatch):
+def test_mentions_takes_no_formula_only_where_special_cells_answers_and_says_any_refusal(book, monkeypatch):
     """Final review: SpecialCells gives the same error code for "No cells were found" as for any other refusal, and
-    the text is in Excel's language. So a sheet has no formula only when its used range says so (HasFormula False,
-    as Excel gives it for a sheet of values or an empty one); any other refusal is an "unread" row, never silence."""
+    the text is in Excel's language. So a sheet has no formula only when SpecialCells answers there at all (its last
+    cell, as Excel gives it for a sheet of values or an empty one); a refusal is an "unread" row, never silence."""
     app, _ = book
     wb = _mentions_book(app)
     values, empty = fakexl.Worksheet(wb, "Values"), fakexl.Worksheet(wb, "Empty")

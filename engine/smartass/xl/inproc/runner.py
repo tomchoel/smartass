@@ -73,6 +73,7 @@ NOT_A_VALUE = "a COM object cannot be asked back"
 NOT_A_DATE = "a date cannot be asked back (read Value2)"
 TAKEN = "taken: "                        # how the verb exist's refusal ends: the names, ", " between
 XL_FORMULAS = -4123                      # xlCellTypeFormulas (the verb mentions' SpecialCells)
+XL_LAST_CELL = 11                        # xlCellTypeLastCell: SpecialCells answers on a sheet, or refuses it
 CHUNK_CELLS = 100_000                    # the verb mentions reads a sheet's formulas at most this many cells at once
 METHOD_OR_GET = pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET
 
@@ -807,9 +808,10 @@ def _cells(ws, name: str, says, rows: list) -> None:
     """mentions on one worksheet's cells: the used range's formulas read in chunks of rows of at most CHUNK_CELLS
     cells, and of those only the chunks that hold a formula (SpecialCells(xlCellTypeFormulas) once, Intersect per
     chunk). SpecialCells raises on a sheet without a formula with the code of any other refusal and a text in Excel's
-    language: the sheet is done only when its used range has no formula (HasFormula False); any other refusal is the
-    caller's "unread". A protected sheet refuses SpecialCells: every chunk is read, and a hidden formula makes the
-    read fail (the caller's "unread")."""
+    language: the sheet is done only when SpecialCells answers there at all (its last cell, one cheap call; not
+    UsedRange.HasFormula, which took 14 s on a used range to the last row); a refusal is the caller's "unread". A
+    protected sheet refuses SpecialCells: every chunk is read, and a hidden formula makes the read fail (the caller's
+    "unread")."""
     used = ws.UsedRange
     r0, c0 = int(used.Row), int(used.Column)
     nr, nc = int(used.Rows.Count), int(used.Columns.Count)
@@ -819,9 +821,12 @@ def _cells(ws, name: str, says, rows: list) -> None:
             formulas = _call(used, "SpecialCells", [XL_FORMULAS])
         except Exception as e:   # noqa: BLE001
             _readable(e)
-            if used.HasFormula is False:              # "No cells were found" (its code is any refusal's): none here
-                return
-            raise                                       # any other refusal: the caller's "unread"
+            try:                                        # SpecialCells answers on this sheet: there was no formula
+                _call(used, "SpecialCells", [XL_LAST_CELL])
+            except Exception as e2:   # noqa: BLE001 - it refuses SpecialCells: the caller's "unread"
+                _readable(e2)
+                raise e from None
+            return
     app = ws.Application
     step = max(1, CHUNK_CELLS // nc)
     arrays: set[str] = set()
