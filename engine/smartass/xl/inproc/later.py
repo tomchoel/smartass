@@ -87,11 +87,11 @@ def clear(app, limit: float = CLEAR_LIMIT_S) -> None:
         _skipped(None, f"the first contact with an Excel was not made (which Excel it is cannot be told: {e})")
         return
     ex = runner._EXCELS.get(key)
-    if ex is not None and ex.ready is False:
-        return                                              # the add-in does not load in that Excel
-    builds = _builds(app)
+    builds = _builds(app)                                   # also where this build does not load: another may
     listed = builds is not None
     if not listed:
+        if ex is not None and ex.ready is False:
+            return                                          # this build's add-in does not load in that Excel
         builds = [ex.hash if ex is not None and ex.ready else _build_hash()]
     for h in builds:
         macro = f"SmartassClear_{h}"

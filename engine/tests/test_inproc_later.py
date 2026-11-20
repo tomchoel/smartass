@@ -223,6 +223,16 @@ def test_the_first_contact_runs_the_waiting_save_of_every_smartass_build_in_that
     assert asked == ["SmartassClear_aaaa1111", "SmartassClear_bbbb2222"]
 
 
+def test_another_builds_waiting_save_runs_first_also_where_this_build_does_not_load(monkeypatch):
+    """This server's own add-in failed to load in that Excel (a compile error, a ping that does not match): another
+    build's waiting save is run all the same."""
+    asked = []
+    app = _two_servers(monkeypatch, lambda macro: asked.append(macro) or "clear", ((BUILD_B, "f0", "Q"),))
+    runner._EXCELS[(id(app), 0.0)] = runner._Excel(id(app), ready=False)
+    later.clear(app)
+    assert asked == ["SmartassClear_bbbb2222"]
+
+
 def test_an_excel_where_no_smartass_build_is_loaded_is_not_asked(monkeypatch):
     asked = []
     app = _two_servers(monkeypatch, lambda macro: asked.append(macro) or "clear", None)
