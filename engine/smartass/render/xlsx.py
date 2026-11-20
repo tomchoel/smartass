@@ -42,11 +42,12 @@ AUTOFIT_MARGIN = 1.04                   # AutoFit over tn.text_units: lowercase 
 ANSWER_TAB, DATA_TAB = "#1F3864", "#A6A6A6"
 PRINT_HEADER = '&"Arial"&8Intern'       # styling.print_setup's CenterHeader
 MARGIN = 1.5 / 2.54                     # 1.5 cm left and right, in inches
-DATE_FMT = "dd.mm.yyyy"                 # drill_xl._local_formats' date format, its dots literal (Base.date_format)
+DATE_FMT = "dd.mm.yyyy"                 # the old COM writer's local date format, its dots literal (Base.date_format)
 VALUE_BLUE = "#0000C0"                  # blue, the FAST colour of imported numbers
 LINES_ROW = 4                           # the lines table header row
 OPTIONS = {"strings_to_formulas": False, "strings_to_numbers": False, "strings_to_urls": False,
-           "nan_inf_to_errors": True}      # a NaN or infinite fact is #NUM! / #DIV/0! in its cell, not a failed build
+           "nan_inf_to_errors": True,      # a NaN or infinite fact is #NUM! / #DIV/0! in its cell, not a failed build
+           "in_memory": True}              # the parts are assembled in memory, never in the system temp folder
 INK, GREY, NAVY = look._hex(tn.INK), look._hex(tn.GREY), look._hex(tn.NAVY)
 OK_LOOK = {"font_color": look._hex(styling.GREEN), "bold": True}
 NOT_OK_LOOK = {"font_color": look._hex(tn.BREACH_FONT), "bold": True, "bg_color": look._hex(tn.BREACH_FILL)}
@@ -332,7 +333,7 @@ def _data(wb, fmt: _Formats, q: int, data: DataSheet) -> tuple[TableSpec, Formul
 
 
 def _header_grid(header: Header) -> list[list]:
-    """The header rows as render.excel._write_header writes them: the title text in A1, label in A, values from B;
+    """The header rows as the Data sheet shows them: the title text in A1, label in A, values from B;
     text with its leading apostrophe."""
     g = [["", "", "", ""] for _ in header]
     for i, (lab, value) in enumerate(header):
@@ -346,7 +347,7 @@ def _header_grid(header: Header) -> list[list]:
 
 
 def _line_value(ws, r: int, c: int, label: str, v, f) -> None:
-    """One line value as drill_xl._cell gives it: a datetime as a serial number (time zone dropped), text and the
+    """One line value as the Lines sheet holds it: a datetime as a serial number (time zone dropped), text and the
     TEXT_LABELS columns as text, numbers as numbers."""
     if v is None:
         ws.write_blank(r, c, None, f)

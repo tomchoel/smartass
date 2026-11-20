@@ -116,6 +116,23 @@ def _rgb(colour) -> str | None:
 
 
 # ------------------------------------------------------------------ the file
+def test_the_build_writes_nothing_outside_its_own_file(tmp_path, monkeypatch, plan):
+    """XlsxWriter assembles a workbook's parts (the ledger lines too) in the system temp folder unless in_memory: the
+    data must leave the process only as the one file under the smartass home, which the job deletes."""
+    import tempfile
+    made, real = [], tempfile.mkstemp
+
+    def mkstemp(*a, **k):                                   # XlsxWriter's part files (deleted again after the zip)
+        fd, name = real(*a, **k)
+        made.append(name)
+        return fd, name
+    monkeypatch.setattr(tempfile, "mkstemp", mkstemp)
+    out = tmp_path / "out"
+    out.mkdir()
+    built = build(out / "answer.xlsx", "Q3 Answer", plan, _data(), [_lines([_line(i) for i in range(3)])])
+    assert made == [] and list(out.iterdir()) == [built.path] and xlsx.OPTIONS["in_memory"] is True
+
+
 def test_the_built_file_has_no_table_and_three_sheets_in_order(built):
     with zipfile.ZipFile(built.path) as z:
         assert not [n for n in z.namelist() if n.startswith("xl/tables/")]
