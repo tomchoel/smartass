@@ -23,9 +23,13 @@
   2.7 s per round (2.0 / 2.7 / 3.3 s before), with one 4.1 / 3.9 / 4.3 s (4.2 / 4.1 / 5.2 s): the 3 s / 5 s gate
   holds in every round now. A follow-up 1.64-1.91 s (2.08-2.41 s), `fin_refresh` of two answers 3.4 s (4.3 s);
   5 batches and 9 COM calls per answer (33-34 calls before). Over COM (the fallback) a follow-up is 2.5-2.9 s.
+- The label of a thin waterfall step is now lifted 10 pt as the chart rules mean it: the lift was set before the
+  calculation, which put the label back where Excel places it (measured in a hidden Excel); it is now read and set
+  once the answer is calculated, while the other point labels are positioned before it, as before.
 - `scripts/check_insert.py` now also runs whole jobs through both executors in a hidden Excel and compares the
-  workbooks item by item (76 of 76 checks the same); `scripts/check_inproc.py` proves the verb `each` and the
-  job's reads equal in both executors (34 of 34).
+  workbooks item by item (76 of 76 checks the same), and makes a follow-up and a new answer fail in their finish
+  batch through both: the workbook, Excel's settings and the active sheet are as before. `scripts/check_inproc.py`
+  proves the verb `each` and the job's reads equal in both executors (34 of 34).
 
 ### The answer's sheets inserted with one call (phase 3b)
 

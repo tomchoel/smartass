@@ -31,6 +31,10 @@ provider.
    own, compared sheet by sheet; sheet = model, the warnings and layout findings per step, the draw's seconds and
    batches. (A quiet() around the routes is gone with Task 2b: the parts above put the four settings off and back
    as a batch does, with no landing.)
+   Failures (Task 2b): a follow-up and a new answer whose finish batch fails, through both executors - the
+   workbook, the four settings and the active sheet as they were before, no 'old ...' sheet left.
+   Labels (Task 2b): every fixed chart label's Top in the job's order against the standalone one, and where Excel
+   itself puts the lifted ones (printed as a measurement).
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 
 Prints OK / DIFF per item (never a cell value: addresses and property names only); exit 0 only when all are OK.
