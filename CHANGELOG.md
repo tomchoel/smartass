@@ -41,7 +41,7 @@
   are dropped anyway and the warning says the formulas pointing at them were not checked. Not covered: conditional
   formats, data validation, pivot tables on a `Data_Q<n>` table, linked chart titles, sparklines, form controls'
   links, linked shapes, other workbooks. `fin_refresh` now gives each question's warnings and layout findings.
-- Measured live (docs/audit/2026-11-20-inproc-bench.md; the Excel job, in-process):
+- Measured (docs/audit/2026-11-20-inproc-bench.md; the Excel job in-process unless said):
   - Quiet Excel, the four-batch job: a follow-up 1.66-2.0 s (`scripts/check_followups.py`, owner's Excel; measured
     before the re-pointing came, whose scan adds the cost given last).
   - The gate run in a quiet Excel (`scripts/bench_answers.py --rounds 3`, 06:00), measured on the five-batch code
