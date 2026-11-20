@@ -900,8 +900,8 @@ def mentions_check(app, raw) -> None:
 
 def repoint_bench(app, raw) -> None:
     """Task 3 (--repoint-bench): what a follow-up's look for formulas costs when nothing points at the answer - 30
-    sheets of 2 000 formulas, one of 200 000, 2 000 defined names - in both executors (in-process median of 3, over
-    COM one run)."""
+    sheets of 2 000 formulas, one of 200 000, 2 000 defined names - and then with a filtered sheet of 200 000 cells
+    added (read whole: Find skips filtered rows), in both executors (in-process median of 3, over COM one run)."""
     print()
     wb = raw.Workbooks.Add()
     name = str(wb.Name)
@@ -913,17 +913,24 @@ def repoint_bench(app, raw) -> None:
         big.Range("A1:T10000").Formula2 = "=ROW()+COLUMN()"
         for i in range(2000):
             wb.Names.Add(f"Budget_{i}", "=Sheet1!$A$" + str(i + 1))
-        for executor in ("inproc", "com"):
-            config.INPROC = executor == "inproc"
-            ts = []
-            for _ in range(3 if executor == "inproc" else 1):
-                b = Batch(quiet=False)
-                b.ret(b.verb("mentions", b.workbook(name), MENTION_TEXTS, MENTION_SKIP), "rows")
-                t0 = time.perf_counter()
-                res = runner.run(app, b)
-                ts.append((time.perf_counter() - t0) * 1000)
-            print(f"mentions, nothing points at the answer (31 sheets, 260 000 formulas, 2 000 names), {executor:<6}: "
-                  f"{statistics.median(ts):8.1f} ms ({res.where}, {len(res.values['rows'])} rows)")
+        for label in ("31 sheets, 260 000 formulas, 2 000 names", "and a filtered sheet of 200 000 cells"):
+            if label.startswith("and"):
+                f = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+                f.Range("A1:J1").Value2 = tuple(f"k{i}" for i in range(10))
+                f.Range("A2:A20001").Formula2 = "=MOD(ROW(),2)"
+                f.Range("B2:J20001").Formula2 = "=ROW()*COLUMN()"
+                f.Range("A1:J20001").AutoFilter(1, "1")
+            for executor in ("inproc", "com"):
+                config.INPROC = executor == "inproc"
+                ts = []
+                for _ in range(3 if executor == "inproc" else 1):
+                    b = Batch(quiet=False)
+                    b.ret(b.verb("mentions", b.workbook(name), MENTION_TEXTS, MENTION_SKIP), "rows")
+                    t0 = time.perf_counter()
+                    res = runner.run(app, b)
+                    ts.append((time.perf_counter() - t0) * 1000)
+                print(f"mentions, nothing points at the answer ({label}), {executor:<6}: "
+                      f"{statistics.median(ts):8.1f} ms ({res.where}, {len(res.values['rows'])} rows)")
     finally:
         config.INPROC = True
         wb.Close(False)

@@ -36,7 +36,8 @@ provider.
    Labels (Task 2b): every fixed chart label's Top in the job's order against the standalone one, and where Excel
    itself puts the lifted ones (printed as a measurement).
    Re-pointing (Task 3): a summary sheet's formulas pointing at Q1 (a cell, a table column, a cross-sheet SUM, the
-   Answer, a defined name, a chart series) and a cell on Q2's Answer survive two follow-ups and a refresh-style
+   Answer, a legacy array, a dynamic array, defined names - one with a function and a decimal in the user's
+   notation -, a chart series, a chart sheet) and a cell on Q2's Answer survive two follow-ups and a refresh-style
    redraw through both executors - as the user wrote them, showing their targets' values, no link, no 'old ...'
    sheet - and a follow-up whose drop fails points them back.
 4. Timing: the move-in alone, both routes, --rounds rounds each.
@@ -1230,59 +1231,84 @@ def _structured(name: str) -> str:
 
 def _point_at_q1(xl: Excel, wb) -> dict:
     """(Task 3) The user's formulas that point at Q1, as a summary sheet of their own holds them: a cell reference, a
-    table reference, a cross-sheet SUM, a reference to the Answer, a defined name and a cell using it, a chart series,
-    and a cell on Q2's Answer (another answer). Returns {where: (formula as Excel keeps it, how to read its target)}."""
+    table reference, a cross-sheet SUM, a reference to the Answer, a legacy array, a dynamic array's anchor, a defined
+    name that is a plain reference and one with a function and a decimal in the user's notation (RefersToLocal), cells
+    using both, a chart series, a chart sheet, and a cell on Q2's Answer (another answer). Returns {where: (how it is
+    read, its text as Excel keeps it, how to read its target or None)}."""
     data = wb.Worksheets("Q1 Data")
     lo = data.ListObjects("Data_Q1")
     heads = [str(h) for h in lo.HeaderRowRange.Value[0]]
     k = next(i for i in range(1, len(heads) + 1) if _is_num(lo.DataBodyRange.Cells(1, i).Value2))
     cell, column = str(lo.DataBodyRange.Cells(1, k).Address), str(lo.ListColumns(k).DataBodyRange.Address)
-    s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
-    s.Name = "Summary"
+    answer = next(a for a in ("A1", "B1", "A2", "B2", "B3") if wb.Worksheets("Q1 Answer").Range(a).Value2 is not None)
+    intl = xl.raw.International                                     # read whole: 0-based
+    sep, dec = str(intl[4]), str(intl[2])                           # the user's list and decimal separators
 
-    def target_cell():
-        return wb.Worksheets("Q1 Data").Range(cell).Value2
+    def value(sheet, addr):
+        return lambda: wb.Worksheets(sheet).Range(addr).Value2
 
-    def target_sum():
+    def total():
         return sum(v for (v,) in wb.Worksheets("Q1 Data").Range(column).Value2 if _is_num(v))
 
-    answer = next(a for a in ("A1", "B1", "A2", "B2", "B3") if wb.Worksheets("Q1 Answer").Range(a).Value2 is not None)
+    def least():
+        return min(v for (v,) in wb.Worksheets("Q1 Data").Range(column).Value2 if _is_num(v))
 
-    def target_title():
-        return wb.Worksheets("Q1 Answer").Range(answer).Value2
+    def plus():
+        return value("Q1 Data", cell)() + 1.5
+    s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+    s.Name = "Summary"
     wb.Names.Add("Q1First", f"='Q1 Data'!{cell}")
-    refs = {"Summary!A1": (f"='Q1 Data'!{cell}", target_cell),
-            "Summary!A2": (f"=SUM(Data_Q1[{_structured(heads[k - 1])}])", target_sum),
-            "Summary!A3": (f"=SUM('Q1 Data'!{column})", target_sum),
-            "Summary!A4": (f"='Q1 Answer'!{answer}", target_title),
-            "Summary!A5": ("=Q1First", target_cell),
-            "Q2 Answer!Z1": (f"='Q1 Data'!{cell}", target_cell)}
-    for where, (formula, _) in refs.items():
+    wb.Names.Add("Q1Plus", f"='Q1 Data'!{cell}")
+    wb.Names("Q1Plus").RefersToLocal = f"=SUM('Q1 Data'!{cell}{sep}1{dec}5)"
+    cells = {"Summary!A1": (f"='Q1 Data'!{cell}", value("Q1 Data", cell)),
+             "Summary!A2": (f"=SUM(Data_Q1[{_structured(heads[k - 1])}])", total),
+             "Summary!A3": (f"=SUM('Q1 Data'!{column})", total),
+             "Summary!A4": (f"='Q1 Answer'!{answer}", value("Q1 Answer", answer)),
+             "Summary!A5": ("=Q1First", value("Q1 Data", cell)),
+             "Summary!A6": ("=Q1Plus", plus),
+             "Summary!E1": (f"=SORT('Q1 Data'!{column})", least),
+             "Q2 Answer!Z1": (f"='Q1 Data'!{cell}", value("Q1 Data", cell))}
+    for where, (formula, _) in cells.items():
         sheet, addr = where.split("!")
         wb.Worksheets(sheet).Range(addr).Formula2 = formula
+    s.Range("C1:C2").FormulaArray = f"='Q1 Data'!{cell}*1"
     s.ChartObjects().Add(300, 10, 300, 200).Chart.SetSourceData(data.Range(column))
-    got = {where: (str(wb.Worksheets(where.split("!")[0]).Range(where.split("!")[1]).Formula2), fn)
-           for where, (_, fn) in refs.items()}
-    got["the name Q1First"] = (str(wb.Names("Q1First").RefersTo), None)
-    got["the chart series"] = (str(s.ChartObjects(1).Chart.SeriesCollection(1).Formula), None)
-    return got
+    sheet_chart = wb.Charts.Add()
+    sheet_chart.SetSourceData(data.Range(column))
+    sheet_chart.Name = "Q1 Chart"
+    s.Activate()
+    refs = {where: ("cell", fn) for where, (_, fn) in cells.items()}
+    refs["Summary!C1"] = ("array", value("Q1 Data", cell))
+    refs["the name Q1First"] = ("name", None)
+    refs["the name Q1Plus"] = ("name", None)
+    refs["a chart series on Summary"] = ("series", None)
+    refs["a chart series on Q1 Chart"] = ("chart", None)
+    return {where: (how, _read(wb, where, how)[0], target) for where, (how, target) in refs.items()}
+
+
+def _read(wb, where: str, how: str) -> tuple:
+    """(the text of the formula at where, the value it shows or None) as Excel keeps them: a cell's Formula2, a legacy
+    array's FormulaArray, a name's RefersTo and RefersToLocal, a series' formula."""
+    if how == "name":
+        n = wb.Names(where.rpartition(" ")[2])
+        return f"{n.RefersTo} | {n.RefersToLocal}", None
+    if how == "series":
+        return str(wb.Worksheets("Summary").ChartObjects(1).Chart.SeriesCollection(1).Formula), None
+    if how == "chart":
+        return str(wb.Charts("Q1 Chart").SeriesCollection(1).Formula), None
+    sheet, addr = where.split("!")
+    rng = wb.Worksheets(sheet).Range(addr)
+    return str(rng.FormulaArray if how == "array" else rng.Formula2), rng.Value2
 
 
 def _pointing_problems(wb, refs: dict, q2: bool = True) -> list[str]:
     """What is wrong with the formulas that point at Q1 now: a formula that is not as the user wrote it, a value that
     is not its target's (compared, never printed), a link to another workbook, an 'old ...' sheet left."""
     bad = []
-    for where, (formula, target) in refs.items():
+    for where, (how, formula, target) in refs.items():
         if where.startswith("Q2 ") and not q2:
             continue                                    # Q2's own redraw replaced its Answer, and the cell with it
-        if where == "the name Q1First":
-            now, value = str(wb.Names("Q1First").RefersTo), None
-        elif where == "the chart series":
-            now, value = str(wb.Worksheets("Summary").ChartObjects(1).Chart.SeriesCollection(1).Formula), None
-        else:
-            sheet, addr = where.split("!")
-            rng = wb.Worksheets(sheet).Range(addr)
-            now, value = str(rng.Formula2), rng.Value2
+        now, value = _read(wb, where, how)
         if now != formula:
             bad.append(f"{where} reads {now!r}")
         elif target is not None:
