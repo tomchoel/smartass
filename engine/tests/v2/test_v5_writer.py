@@ -99,7 +99,8 @@ def test_the_answer_roles_pass_widths_and_code_cols():
     assert all(roles["col_widths"][k] == w for k, w in p.widths.items())
 
 
-def test_the_job_writes_the_status_after_the_readback_and_sets_the_footer(monkeypatch, tmp_path):
+def test_the_job_closes_out_with_the_status_after_the_readback_and_sets_the_footer(monkeypatch, tmp_path):
+    """The read-back's mismatches go to the close-out batch, which writes the status (write_status)."""
     from test_file_job import Wired
     from test_v2_pipeline import FakeProvider
     from v2util import facts, resolver, spec_dict
@@ -117,10 +118,10 @@ def test_the_job_writes_the_status_after_the_readback_and_sets_the_footer(monkey
         return real(path, name, plan, *a, **k)
     monkeypatch.setattr(xlsx, "build", build)
     monkeypatch.setattr(pipeline, "compare", lambda *a: log.append("compare") or ["D5: sheet 1, model 2"])
-    monkeypatch.setattr(pipeline, "write_status",
-                        lambda ws, plan, m: log.append("write_status") or seen.update(m=m))
+    monkeypatch.setattr(pipeline, "_close_out", wired.rec("close_out", lambda job, built, plan, pre, header, stamp,
+                                                          read, m, book: seen.update(m=m) or (None, None, [])))
     out = pipeline.excel_job(None, pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts())), "session")
-    assert log.index("compare") + 1 == log.index("write_status")
+    assert log.index("finish") + 1 == log.index("compare") and log.index("compare") + 1 == log.index("close_out")
     assert seen["m"] == ["D5: sheet 1, model 2"] and out["checks"]["sheet_equals_model"] == "DIFF in 1 cells"
     assert seen["plan"].footer.startswith("Source: Oracle EPM Cloud · fetched ")
 

@@ -2,14 +2,13 @@
 """What the answer's sheets share with Excel: the Data grid, the Answer's cells as one Formula2-ready rectangle (text
 with a leading apostrophe, so 'Sep 26' never becomes a date) and its apply_report roles, the shared formats and
 footers, a data sheet's page setup (styling.print_setup), and after the move-in the read-back block and the 'Sheet =
-model' status cell. The sheets themselves are built as a file (render/xlsx.py) and moved in (xl/movein.py); the COM
-calls here go through v1 jobs.com (busy retry)."""
+model' status cell. The sheets themselves are built as a file (render/xlsx.py) and moved in (xl/movein.py); the
+read-back and the status are recorded into the job's batches (xl/inproc)."""
 from __future__ import annotations
 
 from datetime import datetime
 
 from ..xl import styling
-from ..xl.jobs import com
 
 from ..model.frame import Frame
 from .layout import (CODE_COL, FIRST_COL, LABEL_COL, W_A, W_CODE, W_NUM, SheetPlan, col_letter,  # noqa: F401
@@ -108,15 +107,20 @@ def sheet_status(mismatches: list[str]) -> str:
 
 
 def write_status(ws, p: SheetPlan, mismatches: list[str]) -> str:
-    """After the readback: the verdict into the layout's empty 'Sheet = model' cell (text, never a formula)."""
+    """After the readback: the verdict into the layout's empty 'Sheet = model' cell (text, never a formula); ws: the
+    Answer sheet's node in the close-out batch (the set is recorded)."""
     status = sheet_status(mismatches)
     if p.status_cell:
-        rng = ws.Range(p.status_cell)
-        com(lambda: setattr(rng, "Value2", status))
+        ws.Range(p.status_cell).Value2 = status
     return status
 
 
-def read_block(ws, p: SheetPlan) -> tuple:
-    rng = ws.Range(f"A1:{p.last_col}{p.last_row}")
-    v = com(lambda: rng.Value2)
-    return v if isinstance(v, tuple) else ((v,),)
+def read_block(ws, p: SheetPlan, b, key: str = "block"):
+    """The read of A1:<last col><last row> (Value2) recorded into b (ws: the Answer sheet's node there); the function
+    returned gives the block from the batch's result, always a grid."""
+    b.ret(ws.Range(f"A1:{p.last_col}{p.last_row}").Value2, key)
+
+    def block(res) -> tuple:
+        v = res.values[key]
+        return v if isinstance(v, tuple) else ((v,),)
+    return block

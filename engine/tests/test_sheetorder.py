@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 
 import pytest
 
@@ -77,70 +76,62 @@ def test_active_mode_never_moves_user_sheets():
     assert simulate(names, moves) == order
 
 
-# ------------------------------------------------------------------ fake COM
-class FakeSheets:
-    def __init__(self, wb):
-        self.wb = wb
+# ------------------------------------------------------------------ on the fake Excel (batches through the COM executor)
+def _fake(names, hidden=(), a1=None):
+    import fakexl
+    wb = fakexl.Workbook(list(names), styles_ver=False)
+    for ws in wb.order:
+        ws.Visible = 0 if ws.Name in hidden else -1
+    for name, value in (a1 or {}).items():
+        wb.Worksheets(name).put(1, 1, value)
+    wb.moves = []
+    real = fakexl.Worksheet.Move
 
-    def __call__(self, key):
-        return next(s for s in self.wb.order if s.Name == key)
-
-    def __iter__(self):
-        return iter(list(self.wb.order))
-
-
-class FakeSheet:
-    def __init__(self, wb, name, visible=-1, a1=None):
-        self.wb, self.Name, self.Visible = wb, name, visible
-        self.Tab = SimpleNamespace(Color=False)
-        self.Range = lambda a: SimpleNamespace(Value=a1)
-
-    def Move(self, *args, **kw):
-        assert not kw, "keyword Before=/After= is ignored through late-bound COM: positional only"
-        before = args[0] if args else None
-        after = args[1] if len(args) > 1 else None
-        assert self.Visible == -1, "hidden sheets must never be moved"
-        self.wb.order.remove(self)
-        k = self.wb.order.index(before if before is not None else after)
-        self.wb.order.insert(k if before is not None else k + 1, self)
-        self.wb.moves += 1
-
-    def Activate(self):
-        self.wb.ActiveSheet = self
+    def move(ws, *args, **kw):
+        assert ws.Visible == -1, "hidden sheets must never be moved"
+        wb.moves.append(ws.Name)
+        return real(ws, *args, **kw)
+    for ws in wb.order:
+        ws.Move = lambda *a, ws=ws, **k: move(ws, *a, **k)
+    return wb
 
 
-class FakeWb:
-    def __init__(self, names, hidden=(), a1=None):
-        self.order = [FakeSheet(self, n, 0 if n in hidden else -1, (a1 or {}).get(n)) for n in names]
-        self.Worksheets = FakeSheets(self)
-        self.ActiveSheet = self.order[0]
-        self.Application = SimpleNamespace(ScreenUpdating=True, Calculation=-4105)
-        self.moves = 0
-
-    @property
-    def names(self):
-        return [s.Name for s in self.order]
+def _names(wb) -> list[str]:
+    return [s.Name for s in wb.order]
 
 
 def test_arrange_sheets_fake_com_full():
-    wb = FakeWb(SCRAMBLED, hidden=("_svmeta",))
+    wb = _fake(SCRAMBLED, hidden=("_svmeta",))
     out = arrange_sheets(wb, "full", activate="Q10 Answer")
-    assert wb.names == sheet_order(SCRAMBLED, vis(SCRAMBLED))
-    assert out["order"] == wb.names and wb.moves == len(out["moved"])
-    assert wb.ActiveSheet.Name == "Q10 Answer"
+    assert _names(wb) == sheet_order(SCRAMBLED, vis(SCRAMBLED))
+    assert out["order"] == _names(wb) and wb.moves == out["moved"]
+    assert wb.active.Name == "Q10 Answer"
     tabs = {s.Name: s.Tab.Color for s in wb.order}
     assert tabs["Q1 Answer"] == 0x64381F and tabs["Q1 FinLite 2"] == 0xA6A6A6 and tabs["Q1 Lines"] == 0xA6A6A6
     assert tabs["Sources"] is False and tabs["Intervjuguide"] is False
-    assert wb.Application.ScreenUpdating is True and wb.Application.Calculation == -4105   # restored
+    app = wb.Application
+    assert app.ScreenUpdating is True and app.Calculation == -4105 and app.EnableEvents is True   # restored
     again = arrange_sheets(wb, "full")
-    assert again["moved"] == [] and wb.ActiveSheet.Name == "Q10 Answer"
+    assert again["moved"] == [] and wb.active.Name == "Q10 Answer"
 
 
 def test_arrange_sheets_fake_com_active_keeps_user_sources():
     names = ["Sources", "Q1 FinMax", "Mine tall", "Q1 Answer"]
-    wb = FakeWb(names, a1={"Sources": "Min egen kildeliste"})
+    wb = _fake(names, a1={"Sources": "Min egen kildeliste"})
     arrange_sheets(wb, "active", activate="Q1 Answer")
-    assert wb.names == ["Sources", "Q1 Answer", "Mine tall", "Q1 FinMax"]
+    assert _names(wb) == ["Sources", "Q1 Answer", "Mine tall", "Q1 FinMax"]
+
+
+def test_a_move_excel_refuses_is_raised_by_arrange_sheets():
+    import fakexl
+    wb = _fake(["Q2 Answer", "Q1 Answer"])
+
+    def refuse(*a, **k):
+        raise fakexl.ComError("the move was refused")
+    for ws in wb.order:
+        ws.Move = refuse
+    with pytest.raises(RuntimeError, match="refused"):
+        arrange_sheets(wb, "full")
 
 
 def test_plan_moves_rejects_mismatch():

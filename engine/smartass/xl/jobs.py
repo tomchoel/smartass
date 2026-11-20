@@ -58,6 +58,16 @@ def com(call, limit: float = 60.0, check: bool = True):
         raise
 
 
+def book_name(t) -> str:
+    """The name of t's workbook, as a batch finds it (Workbooks(name)): read once per Target (a busy Excel waited
+    for, also for an abandoned job's clean-up) and kept on it - a job never renames its workbook."""
+    name = getattr(t, "book_name", None)
+    if name is None:
+        name = str(com(lambda: t.wb.Name, check=False))
+        t.book_name = name
+    return name
+
+
 TURN_WAIT_S = 600
 MAX_EXCELS = 4                     # the user's Excel(s) + extra windows started for parallel agents
 

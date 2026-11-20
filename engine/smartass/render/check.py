@@ -1,7 +1,7 @@
 # engine/smartass/render/check.py
-"""The fast layout check after every draw (sub-spec 5 §5, D6): the SheetPlan plus a few COM reads (the chart count,
-one Value2 read of the drawn block, one read per Data header status cell). Each finding is one line with its fix,
-returned in the reply as `layout`; a finding is a warning, never a stop, and the check never raises.
+"""The fast layout check after every draw (sub-spec 5 §5, D6): the SheetPlan plus what the job's finish batch read
+(the chart count, the Value2 block of the drawn Answer, each Data header status cell). Each finding is one line with
+its fix, returned in the reply as `layout`; a finding is a warning, never a stop, and the check never raises.
 
 Rules:
   1. zones in the fixed order (§1.1), no Plan zone;
@@ -58,14 +58,11 @@ def shown_width(v: float, num: str, bold: bool = False) -> float:
     return tn.text_units(shown_text(v, num), 10, bold)
 
 
-def _grid(plan, ws):
-    """{(row, col): value} of A1:<last_col><last_row> in one Value2 read."""
-    from ..xl.jobs import com
-    rng = ws.Range(f"A1:{plan.last_col}{plan.last_row}")
-    v = com(lambda: rng.Value2)
-    if not isinstance(v, tuple):
-        v = ((v,),)
-    return {(r + 1, c + 1): x for r, row in enumerate(v) for c, x in enumerate(row) if x is not None}
+def _grid(block) -> dict:
+    """{(row, col): value} of the A1:<last_col><last_row> block as read (Value2)."""
+    if not isinstance(block, tuple):
+        raise ValueError("the drawn block was not read")
+    return {(r + 1, c + 1): x for r, row in enumerate(block) for c, x in enumerate(row) if x is not None}
 
 
 def _zones(plan) -> list[str]:
@@ -81,11 +78,12 @@ def _zones(plan) -> list[str]:
     return out
 
 
-def _charts(plan, ws) -> list[str]:
-    from ..xl.jobs import com
+def _charts(plan, count) -> list[str]:
     if not plan.charts:
         return ["layout: no chart block; fix: add a chart block chosen by the message (skill reference charts.md)"]
-    if not com(lambda: ws.ChartObjects().Count):
+    if count is None:
+        raise ValueError("Excel did not give the chart count")
+    if not count:
         return ["layout: no chart was drawn; fix: see the chart warnings, patch the chart block (kind, source)"]
     return []
 
@@ -148,20 +146,21 @@ def _key_points(plan, grid) -> list[str]:
     return out
 
 
-def _data(data_ws, status_cells) -> list[str]:
-    from ..xl.jobs import com
+def _data(status) -> list[str]:
+    if status is None:
+        raise ValueError("the Data header status cells were not read")
     out = []
-    for qid, cell in (status_cells or {}).items():
-        v = com(lambda cell=cell: data_ws.Range(cell).Value)
+    for qid, (cell, v) in status.items():
         if v != "OK":
             out.append(f"layout: the Data header control total of query {qid} says {v or 'nothing'} ({cell}); "
                        "fix: fin_refresh, and never edit the Data table by hand")
     return out
 
 
-def check(plan, ws, data_ws, sources_ok: bool, status_cells: dict | None = None) -> list[str]:
-    """One line per finding with its fix (module doc). status_cells: query id -> the Data header status cell
-    (datasheet.Header.status). Never raises: a rule that cannot run says so."""
+def check(plan, block, charts, status: dict | None, sources_ok: bool) -> list[str]:
+    """One line per finding with its fix (module doc). block: the Answer's A1:<last_col><last_row> as Value2 read it;
+    charts: the sheet's chart count; status: query id -> (the Data header status cell, its value)
+    (datasheet.Header.status); None where the job could not read it. Never raises: a rule that cannot run says so."""
     out: list[str] = []
 
     def run(name, fn, *a):
@@ -170,9 +169,9 @@ def check(plan, ws, data_ws, sources_ok: bool, status_cells: dict | None = None)
         except Exception as e:   # noqa: BLE001 - the check never fails an answer
             out.append(f"layout: check '{name}' could not run ({e})")
     run("zones", _zones, plan)
-    run("charts", _charts, plan, ws)
+    run("charts", _charts, plan, charts)
     try:
-        grid = _grid(plan, ws)
+        grid = _grid(block)
     except Exception as e:   # noqa: BLE001
         out.append(f"layout: check could not read the sheet ({e})")
         grid = None
@@ -180,7 +179,7 @@ def check(plan, ws, data_ws, sources_ok: bool, status_cells: dict | None = None)
         run("formats", _formats, plan, grid)
         run("widths", _narrow, plan, grid)
         run("key points", _key_points, plan, grid)
-    run("data header", _data, data_ws, status_cells)
+    run("data header", _data, status)
     if not sources_ok:
         out.append("layout: the Sources rows of this answer are missing; fix: see the Sources warning and ask again")
     return out

@@ -704,6 +704,26 @@ def _page_setup_props(ws, xl, last_row, last, roles, keep_footer: bool = False) 
 
 
 PRINT_SETUP_VERSION = "a1"        # bump whenever print_setup changes what it sets
+PRINT_MARGIN_CM = 1.5
+
+
+def setup_key(last_col: str, last_row: int, footer: str, header: str | None = None, *, fit_wide: bool = True,
+              title_rows: str = "", breaks: list[int] | tuple = ()) -> str:
+    """The value of the sheet-level name PAGE_SETUP_NAME that says this exact print setup is there."""
+    header = "Intern" if header is None else header
+    parts = (PRINT_SETUP_VERSION, f"$A$1:${last_col}${last_row}", header, footer) \
+        + (() if fit_wide else ("zoom100", title_rows)) + ((f"breaks {','.join(map(str, breaks))}",) if breaks else ())
+    return '="' + "|".join(parts).replace('"', '""') + '"'
+
+
+def print_settings(last_col: str, last_row: int, footer: str, header: str | None = None, *, fit_wide: bool = True,
+                   title_rows: str = "") -> list[tuple[str, object]]:
+    """The PageSetup properties print_setup sets, in order (the margins come after them, in points)."""
+    header = "Intern" if header is None else header
+    scale = (("Zoom", False), ("FitToPagesWide", 1), ("FitToPagesTall", False)) if fit_wide else (("Zoom", 100),)
+    return [("PrintArea", f"$A$1:${last_col}${last_row}"), ("PrintTitleRows", title_rows), ("Orientation", 2),
+            *scale, ("PrintGridlines", False), ("CenterHorizontally", True),
+            ("CenterHeader", '&"Arial"&8' + header), ("LeftFooter", ""), ("RightFooter", ""), ("CenterFooter", footer)]
 
 
 def print_setup(ws, last_col: str, last_row: int, footer: str, header: str | None = None, *,
@@ -714,12 +734,8 @@ def print_setup(ws, last_col: str, last_row: int, footer: str, header: str | Non
     gridlines are apply_report's; ActiveWindow is never touched. Batched (PrintCommunication off) and skipped (one
     COM call) when the sheet-level name says this exact setup is already there; a new footer (date) sets it up
     again. fit_wide False (a wide lines table): 100 % zoom, as many pages wide as needed, title_rows ('$4:$4')
-    repeated on every page."""
-    header = "Intern" if header is None else header
-    area = f"$A$1:${last_col}${last_row}"
-    parts = (PRINT_SETUP_VERSION, area, header, footer) + (() if fit_wide else ("zoom100", title_rows)) \
-        + ((f"breaks {','.join(map(str, breaks))}",) if breaks else ())
-    key = '="' + "|".join(parts).replace('"', '""') + '"'
+    repeated on every page. (record_print_setup sets the same inside a batch: the Sources log's furniture.)"""
+    key = setup_key(last_col, last_row, footer, header, fit_wide=fit_wide, title_rows=title_rows, breaks=breaks)
     old = _old_setup_key(ws)
     if old == key:
         return
@@ -738,13 +754,10 @@ def print_setup(ws, last_col: str, last_row: int, footer: str, header: str | Non
     done = restored = False
     try:
         ps = _get(ws, "PageSetup")
-        scale = (("Zoom", False), ("FitToPagesWide", 1), ("FitToPagesTall", False)) if fit_wide else             (("Zoom", 100),)
-        for name, value in (("PrintArea", area), ("PrintTitleRows", title_rows), ("Orientation", 2), *scale,
-                            ("PrintGridlines", False),
-                            ("CenterHorizontally", True), ("CenterHeader", '&"Arial"&8' + header),
-                            ("LeftFooter", ""), ("RightFooter", ""), ("CenterFooter", footer)):
+        for name, value in print_settings(last_col, last_row, footer, header, fit_wide=fit_wide,
+                                          title_rows=title_rows):
             _set(ps, name, value)
-        cm = _call(xl, "CentimetersToPoints", 1.5)
+        cm = _call(xl, "CentimetersToPoints", PRINT_MARGIN_CM)
         _set(ps, "LeftMargin", cm)
         _set(ps, "RightMargin", cm)
         done = True
@@ -761,6 +774,38 @@ def print_setup(ws, last_col: str, last_row: int, footer: str, header: str | Non
             _retry(lambda: ws.Names.Add(Name=PAGE_SETUP_NAME, RefersTo=key, Visible=False))
         except Exception:   # noqa: BLE001 - only an optimisation
             pass
+
+
+def record_print_setup(b, ws, last_col: str, last_row: int, footer: str, old: str) -> tuple[str, range] | None:
+    """print_setup recorded into the batch b on the sheet node ws, every operation one that may fail (no printer:
+    the sheet keeps its setup), PrintCommunication on again in the batch's always() (also when an operation after it
+    fails). old: the key the sheet's PAGE_SETUP_NAME holds (read before; "" when none). Returns None when the setup is
+    there already, else (its key, the range of its operations): the caller adds the name (setup_name) once none of
+    them was skipped, as print_setup adds it only when all of it went through."""
+    key = setup_key(last_col, last_row, footer)
+    if old == key:
+        return None
+    with b.attempt():
+        start = b.position
+        if "breaks " in old:                         # an earlier setup's manual breaks go
+            ws.ResetAllPageBreaks()
+        b.app.PrintCommunication = False
+        ps = ws.PageSetup
+        for name, value in print_settings(last_col, last_row, footer):
+            setattr(ps, name, value)
+        cm = b.app.CentimetersToPoints(PRINT_MARGIN_CM)
+        ps.LeftMargin = cm
+        ps.RightMargin = cm
+        span = range(start, b.position)
+    with b.always(), b.attempt():
+        b.app.PrintCommunication = True
+    return key, span
+
+
+def setup_name(ws, key: str) -> None:
+    """The sheet-level name that says the print setup with this key is there (record_print_setup), recorded on the
+    sheet node ws (positional: Name, RefersTo, Visible)."""
+    ws.Names.Add(PAGE_SETUP_NAME, key, False)
 
 
 # ---------------------------------------------------------------- apply_data_sheet

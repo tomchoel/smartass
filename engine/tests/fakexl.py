@@ -257,9 +257,19 @@ class Range:
 
     @property
     def Columns(self):
-        _, c1, _, c2 = self.rects[0]
-        return SimpleNamespace(Count=c2 - c1 + 1, AutoFit=lambda: self.ws.log.append(("AutoFit", ";".join(
-            rect_text(*x) for x in self.rects))))
+        """Range.Columns: Count, AutoFit, and Columns(i) - the range's i-th column."""
+        r1, c1, r2, c2 = self.rects[0]
+        rng = self
+
+        class Columns:
+            Count = c2 - c1 + 1
+
+            def AutoFit(self):
+                rng.ws.log.append(("AutoFit", ";".join(rect_text(*x) for x in rng.rects)))
+
+            def __call__(self, i):
+                return Range(rng.ws, [(r1, c1 + i - 1, r2, c1 + i - 1)])
+        return Columns()
 
     @property
     def Address(self):

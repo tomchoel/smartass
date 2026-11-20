@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import jobs, target
@@ -57,28 +58,29 @@ def pending_drill_question(t: target.Target) -> int | None:
 
 
 def rollback(t: target.Target) -> list[str]:
-    """Delete the sheets this request added (after a failure), so no half-built analysis is left behind.
-    Runs even for an abandoned job (no generation check) and restores the user's DisplayAlerts setting."""
-    removed = []
-    prev = None
-    try:
-        prev = jobs.com(lambda: t.app.DisplayAlerts, limit=30, check=False)
-        jobs.com(lambda: setattr(t.app, "DisplayAlerts", False), limit=30, check=False)
+    """Delete the sheets this request added (after a failure), so no half-built analysis is left behind: one quiet
+    batch (DisplayAlerts off meanwhile and the user's setting put back by the batch itself), each Delete an operation
+    that may fail (a sheet that never came in), the status bar cleared. Runs even for an abandoned job (check=False).
+    Returns the names deleted."""
+    from .inproc.batch import Batch
+    from .inproc.runner import run
+    from .jobs import book_name
+    if not t.sheets_added:                              # nothing came in: nothing to run
+        return []
+    b = Batch()
+    spans = []
+    with b.attempt():
+        wbn = b.workbook(book_name(t))
         for name in reversed(t.sheets_added):
-            try:
-                jobs.com(lambda: t.wb.Worksheets(name).Delete(), limit=30, check=False)
-                removed.append(name)
-            except Exception:   # noqa: BLE001
-                pass
-    except Exception:   # noqa: BLE001
-        pass
-    finally:
-        try:
-            if prev is not None:
-                jobs.com(lambda: setattr(t.app, "DisplayAlerts", prev), limit=10, check=False)
-            jobs.com(lambda: setattr(t.app, "StatusBar", False), limit=5, check=False)
-        except Exception:   # noqa: BLE001
-            pass
+            start = b.position
+            wbn.Worksheets(name).Delete()
+            spans.append((name, range(start, b.position)))
+        b.app.StatusBar = False
+    try:
+        failed = {i for i, _, _ in run(t.app, b, limit=30, check=False).skipped}
+    except Exception:   # noqa: BLE001 - nothing could be deleted
+        failed = set(range(b.position))
+    removed = [name for name, span in spans if not failed & set(span) and 0 not in failed]
     t.sheets_added.clear()
     return removed
 
@@ -217,40 +219,84 @@ def _next_row(ws) -> tuple:
 SPEC_CHUNK = 30000                                      # a cell holds max 32 767 characters
 
 
-def _spec_row(wb, key: str) -> tuple:
-    """(the hidden sheet or None, the row of key there or else the first free row, how many columns that row used),
-    inside ONE COM call."""
-    ws = next((s for s in wb.Worksheets if s.Name == META_SHEET), None)
-    if ws is None:
-        return None, 2, 0
-    used = ws.UsedRange
-    vals = used.Value
-    vals = vals if isinstance(vals, tuple) else ((vals,),)
-    top = int(used.Row)                                 # UsedRange starts at the first used row (save_meta: row 2)
-    for i, row in enumerate(vals):
-        if row and row[0] == key:
-            return ws, top + i, len(row)
-    return ws, int(ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1, 0
+@dataclass
+class SpecRows:
+    """Where the stored specs are (record_spec_rows): sheet - the hidden sheet is there; top - its used range's first
+    row; width - its used range's columns; keys - column A of its used range, from top; free - the first row below
+    column A's last value."""
+    sheet: bool = False
+    top: int = 2
+    width: int = 0
+    keys: tuple = ()
+    free: int = 2
+
+    def row(self, key: str) -> tuple[int, int]:
+        """(the row of key, else the first free row; how many columns to write over: the used range's width when the
+        key is there, so an earlier longer spec leaves no chunk)."""
+        for i, k in enumerate(self.keys):
+            if k == key:
+                return self.top + i, self.width
+        return self.free, 0
+
+
+def record_spec_rows(b, wbn, key: str = "spec") -> Callable:
+    """The hidden sheet's SpecRows, read in b (only column A of its used range: the specs themselves are not read)."""
+    with b.attempt():                                   # no hidden sheet: nothing to read
+        ws = wbn.Worksheets(META_SHEET)
+        used = ws.UsedRange
+        b.ret(used.Row, f"{key}.top")
+        b.ret(used.Columns.Count, f"{key}.width")
+        b.ret(used.Columns(1).Value2, f"{key}.keys")
+        b.ret(ws.Cells(ws.Rows.Count, 1).End(-4162).Row, f"{key}.last")
+
+    def rows(res) -> SpecRows:
+        v = res.values
+        if f"{key}.last" not in v:
+            return SpecRows()
+        if f"{key}.keys" not in v:                      # the sheet is there, its rows cannot be told
+            raise ValueError(f"the stored specs on {META_SHEET} could not be read")
+        keys = v.get(f"{key}.keys")
+        keys = tuple(r[0] for r in keys) if isinstance(keys, tuple) else (keys,)
+        return SpecRows(True, int(v[f"{key}.top"]), int(v[f"{key}.width"]), keys, int(v[f"{key}.last"]) + 1)
+    return rows
 
 
 def save_spec(t: target.Target, q: int, spec: dict, ids: dict[str, str] | None = None, owned: dict | None = None,
-              create: bool = False) -> bool:
+              create: bool = False, b=None, rows: SpecRows | None = None) -> bool:
     """Keep the question's last answer spec (unexpanded) + pull ids + the tool-owned range of its answer sheet
-    ({"rows", "cols"}) in the hidden sheet, for patch-only follow-ups: one read (the row), one write (A and every
-    30 000-character chunk in one rectangle, as wide as the row was, so an earlier longer spec leaves no chunk).
-    Without the hidden sheet: nothing (v1), or create it first (create: True is returned then)."""
+    ({"rows", "cols"}) in the hidden sheet, for patch-only follow-ups: one write (A and every 30 000-character chunk
+    in one rectangle, as wide as the row was, so an earlier longer spec leaves no chunk) at the row rows says
+    (record_spec_rows; else read in a batch of its own). Without the hidden sheet: nothing (v1), or create it first,
+    the workbook's last sheet, hidden (create: True is returned then). Recorded into b, else run in a batch of its
+    own."""
+    from .inproc.batch import MISSING, Batch
+    from .inproc.runner import run
+    from .jobs import book_name
+    if rows is None:
+        rb = Batch(quiet=False)
+        get = record_spec_rows(rb, rb.workbook(book_name(t)))
+        rows = get(run(t.app, rb))
+    created = not rows.sheet
+    if created and not create:
+        return False
+    own = b is None
+    b = Batch() if own else b
+    wbn = b.workbook(book_name(t))
     key = f"SPEC Q{q}"
-    ws, r, width = jobs.com(lambda: _spec_row(t.wb, key))
-    created = ws is None
+    r, width = rows.row(key)
     if created:
-        if not create:
-            return False
-        ws = jobs.com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))   # positional
-        jobs.com(lambda: _name_hidden(ws, META_SHEET))
+        wss = wbn.Worksheets
+        ws = wss.Add(MISSING, wbn.Worksheets(wss.Count))       # positional: after the last sheet
+        ws.Name = META_SHEET
+        ws.Visible = 0                                  # xlSheetHidden
+    else:
+        ws = wbn.Worksheets(META_SHEET)
     blob = json.dumps({"spec": spec, "ids": ids or {}, "owned": owned}, ensure_ascii=False)
     row = ["'" + key, *("'" + blob[k:k + SPEC_CHUNK] for k in range(0, len(blob), SPEC_CHUNK))]
     row += [""] * (width - len(row))
-    jobs.com(lambda: setattr(ws.Range(ws.Cells(r, 1), ws.Cells(r, len(row))), "Value", (tuple(row),)))
+    ws.Range(ws.Cells(r, 1), ws.Cells(r, len(row))).Value = (tuple(row),)
+    if own:
+        run(t.app, b)
     return created
 
 

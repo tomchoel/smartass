@@ -1,6 +1,7 @@
 # engine/tests/v2/test_v5_check.py
 """Plan 5 Task 13: the fast layout check - each rule fires on a crafted fake and stays silent on a clean draw from
-the real layout(). No Excel: a tiny sheet fake that answers the check's few reads. Every figure is invented."""
+the real layout(). No Excel: a tiny sheet fake that answers the few reads the job's finish batch makes for it (the
+block, the chart count, the status cells); the check itself reads nothing. Every figure is invented."""
 import time
 from types import SimpleNamespace
 
@@ -66,8 +67,26 @@ def drawn(blocks=None, value=1234.5):
     return p, Sheet(grid), Sheet({(13, 4): "OK"})
 
 
+def reads(p, ws, data, cells) -> tuple:
+    """What the finish batch reads for the check, from the fake sheets: (block, chart count, status), None where a
+    read fails."""
+    try:
+        block = ws.Range(f"A1:{p.last_col}{p.last_row}").Value2
+    except Exception:   # noqa: BLE001
+        block = None
+    try:
+        charts = ws.ChartObjects().Count
+    except Exception:   # noqa: BLE001
+        charts = None
+    try:
+        status = {q: (c, data.Range(c).Value) for q, c in cells.items()}
+    except Exception:   # noqa: BLE001
+        status = None
+    return block, charts, status
+
+
 def run(p, ws, data, ok=True, cells=None):
-    return check(p, ws, data, ok, {"fm": "D13"} if cells is None else cells)
+    return check(p, *reads(p, ws, data, {"fm": "D13"} if cells is None else cells), ok)
 
 
 @pytest.mark.parametrize("kind", sorted(BLOCKS))
@@ -89,10 +108,11 @@ def test_a_large_nok_total_fits_a_number_column():
     assert not [f for f in run(p, ws, data) if "too narrow" in f]
 
 
-def test_a_clean_draw_reads_little():
+def test_the_check_reads_nothing_itself():
     p, ws, data = drawn()
-    run(p, ws, data)
-    assert ws.reads <= 2 and data.reads == 1                         # ChartObjects + one Value2; one status cell
+    got = reads(p, ws, data, {"fm": "D13"})
+    assert (ws.reads, data.reads) == (2, 1)                         # the finish batch: one Value2, the count; one cell
+    assert check(p, *got, True) == [] and (ws.reads, data.reads) == (2, 1)
 
 
 def test_zones_out_of_order_or_a_plan_zone_fire():
@@ -178,7 +198,7 @@ def test_200_rows_check_fast():
     p.widths = {x: 16 for x in letters}
     p.last_col, p.last_row = letters[-1], 240
     t0 = time.perf_counter()
-    out = check(p, Sheet(grid), Sheet({(13, 4): "OK"}), True, {"fm": "D13"})
+    out = run(p, Sheet(grid), Sheet({(13, 4): "OK"}))
     took = time.perf_counter() - t0
     print(f"layout check, 200 rows x 8 columns: {took * 1000:.1f} ms")
     assert took < 0.5 and out == []
