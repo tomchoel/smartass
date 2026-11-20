@@ -37,6 +37,7 @@ public static class SmartassRunner___HASH__
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     static readonly Regex Token = new Regex(@"^[0-9a-f]{32}\z");
     const int DelayMaxMs = 10000;
+    const int WriteTries = 20, WriteWaitMs = 25;               // the outcome's rename, while a reader holds the file
     static Pending pending;                                    // the save asked for and not run yet (Excel's thread)
     static bool saving;                                        // that save is running: Excel answers calls meanwhile
     static string unwritten;                                   // the outcome of a save that could not be written
@@ -249,7 +250,8 @@ public static class SmartassRunner___HASH__
         return sb.ToString();
     }
 
-    // The outcome written to saved\<pid>.json beside the jobs folder, whole (a temporary file renamed).
+    // The outcome written to saved\<pid>.json beside the jobs folder, whole (a temporary file renamed; live: a reader
+    // that holds the file makes the rename fail, so it is tried WriteTries times); a failure is the caller's (unwritten).
     static void WriteOutcome(Pending p, string record)
     {
         string folder = Path.Combine(Path.GetDirectoryName(JobsFolder), "saved");
@@ -257,16 +259,23 @@ public static class SmartassRunner___HASH__
         string path = Path.Combine(folder, Process.GetCurrentProcess().Id.ToString(Inv) + ".json");
         string tmp = path + "." + p.Token + ".tmp";
         File.WriteAllText(tmp, record, new UTF8Encoding(false));
-        try
-        {
-            if (File.Exists(path)) File.Replace(tmp, path, null);
-            else File.Move(tmp, path);
+        Exception last = null;
+        for (int i = 0; i < WriteTries; i++)                     // a reader holding the file (a script's poll, fin_status)
+        {                                                         // blocks the rename for a moment: tried again
+            try
+            {
+                if (File.Exists(path)) File.Replace(tmp, path, null);
+                else File.Move(tmp, path);
+                return;
+            }
+            catch (Exception e)
+            {
+                last = e;
+                System.Threading.Thread.Sleep(WriteWaitMs);
+            }
         }
-        catch (Exception)
-        {
-            try { if (File.Exists(path)) File.Delete(path); File.Move(tmp, path); }
-            catch (Exception) { try { File.Delete(tmp); } catch (Exception) { } throw; }
-        }
+        try { File.Delete(tmp); } catch (Exception) { }
+        throw last;
     }
 
     static bool FromCell()

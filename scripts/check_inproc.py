@@ -833,6 +833,17 @@ def save_later_checks(app, raw, ex) -> None:
           and bool(wb3.Saved) is False, f"{out and out['error']!r}")
     wb3.Close(False)
 
+    # (review fixes) a reader holding the outcome file while the save ends (a script's poll): it is still written
+    wb.Worksheets(1).Range("E1").Value2 = "held"
+    token, got, _ = ask(name, 300)
+    time.sleep(0.2)
+    held = open(outcome, "rb")                              # no FILE_SHARE_DELETE: the rename must wait for it
+    time.sleep(0.4)
+    held.close()
+    out = told(token, 5)
+    check("save later: an outcome file a reader holds as the save ends is written once it lets go",
+          out is not None and out["ok"] and "unwritten" not in out, f"{out and out['how']!r}")
+
     # (review fixes) a job's first contact: SmartassClear runs a waiting save first, waits for one that runs
     wb.Worksheets(1).Range("E1").Value2 = "clear"
     token, got, _ = ask(name, 2000)
