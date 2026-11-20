@@ -103,6 +103,17 @@ def _count(what: str) -> None:
         counts[key] = counts.get(key, 0) + 1
 
 
+def note(name: str, seconds: float) -> None:
+    """A part of the current stage measured elsewhere (inside Excel: a batch's marks) as a stage of its own under
+    it. No timer/stage: nothing."""
+    t = Timer.current()
+    if t is None or not t.stack:
+        return
+    full = ".".join(t.stack + [name])
+    t.stages[full] = t.stages.get(full, 0.0) + seconds
+    t.counts[full] = t.counts.get(full, 0) + 1
+
+
 def say(text: str) -> None:
     """A progress note to the user of the running job (if any), and the log. Never raises."""
     log.info("note: %s", text)

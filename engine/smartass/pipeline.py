@@ -670,6 +670,19 @@ def _sheet_names(t) -> set[str] | None:
         return None
 
 
+def _note_marks(res) -> None:
+    """Where a batch's time inside Excel went, noted under the current stage as 'excel.<step>' (core/timing.note):
+    each mark is recorded right after its step, so a step's time runs from the mark before it; 'excel.quiet' is the
+    four settings turned off (up to the first mark), 'excel.end' the time after the last mark (the settings put back,
+    the result written)."""
+    from .core import timing
+    prev = 0.0
+    for name, ms in res.marks.items():
+        timing.note(f"excel.{name}", max(ms - prev, 0.0) / 1000)
+        prev = ms
+    timing.note("excel.end", max(res.ms - prev, 0.0) / 1000)
+
+
 def _paint(look) -> None:
     """Let Excel paint the workbook between two batches (movein.PAINT_PAUSE) when it is the active one of a visible
     Excel."""
@@ -686,28 +699,34 @@ def _move_in(job, built, book) -> None:
     from .xl.inproc.runner import run
     t, look, parked = job.t, job.look, job.parked
     b = Batch()
+    b.mark("quiet")
     wbn = b.workbook(job.name)
     autosave_at = b.position
     if look.autosave:
         wbn.AutoSaveOn = False
+        b.mark("autosave")
     if parked is not None:
         movein.record_park(b, wbn, parked, book)
+        b.mark("park")
     after, first = _place(book, job.q) if parked is None else _parked_place(book, parked)
     at = movein.move_in(t, built, after, first, book=book, names=look.names, b=b)
+    b.mark("insert")
     job.built = built
     if parked is not None:
         _take_places(parked, built.sheets, book, wbn)
+        b.mark("moves")
     if look.screen.active:                              # the active workbook (on screen or not) shows its new Answer
         with b.attempt():
             wbn.Worksheets(built.sheets[0]).Activate()
     job.moved = True
     try:
-        run(t.app, b, limit=movein.INSERT_WAIT_S)
+        res = run(t.app, b, limit=movein.INSERT_WAIT_S)
     except BaseException as e:
         job.paused = look.autosave and job.after(e, autosave_at + 1) is not False
         job.inserted = job.after(e, at)
         raise
     job.paused, job.inserted = look.autosave, True
+    _note_marks(res)
     _paint(look)
 
 
@@ -720,9 +739,12 @@ def _finish(job, built, plan, pre: Prepared, header, book) -> tuple:
     from .xl.inproc.runner import run
     t, q, look = job.t, job.q, job.look
     b = Batch()
+    b.mark("quiet")
     wbn = b.workbook(job.name)
     movein.finish(t, built, b)
+    b.mark("tables and formulas")
     movein.calculate(t, built.sheets, b)
+    b.mark("calculate")
     answer = wbn.Worksheets(built.sheets[0])
     block = read_block(answer, plan, b)
     tops = movein.read_labels(b, wbn, built)
@@ -732,7 +754,9 @@ def _finish(job, built, plan, pre: Prepared, header, book) -> tuple:
     log_ = sources.log_of(look.kind, book.names(), f"Q{q} Data")
     with b.attempt():                                   # the log is provenance: unreadable, it is a warning
         read_log = sources.record_read(b, wbn, log_)
+    b.mark("reads")
     res = run(t.app, b)
+    _note_marks(res)
     _paint(look)
     try:
         got_log = read_log(res)
@@ -754,20 +778,27 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     block, tops, (status, ties), charts, log_ = read
     answer = built.sheets[0]
     b = Batch()
+    b.mark("quiet")
     wbn = b.workbook(job.name)
     ws = wbn.Worksheets(answer)
     write_status(ws, plan, mismatches)
     breaks = _fit_text_rows(ws, plan, block, b)
     fixes = movein.fix_labels(b, wbn, built, tops)
+    b.mark("status, heights, labels")
     drop_at = movein.drop(t, job.parked, book, b) if job.parked is not None else None
+    if drop_at is not None:
+        b.mark("drop")
     recorded = _write_sources(t, q, pre, b, wbn, log_, header, stamp, status, ties, look, book)
+    b.mark("sources")
     if _save_spec(t, q, pre.raw, b, look.spec_rows):
         book.sheets.append(movein.Sheet(sheets.META_SHEET, 0, False))
+    b.mark("spec")
     ours = log_.name == "Sources" if log_ is not None else look.kind in ("v1", "v2")
     arranged = _arrange(t, answer, book, b, wbn, look.screen.active, ours)
     if look.screen.active:                              # the active workbook ends on its new Answer
         with b.attempt():
             ws.Activate()
+    b.mark("order")
     try:
         res = run(t.app, b)
     except BaseException as e:
@@ -775,6 +806,7 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
             e, drop_at)
         raise
     job.dropped = drop_at is not None
+    _note_marks(res)
     movein.label_skips(res, fixes)
     _refused_breaks(t, answer, breaks, res)
     logged = _sources_warning(pre, recorded, res)

@@ -245,6 +245,11 @@ async def check(case: dict, second: dict, keep: bool) -> int:
               f"{'-' if runs is None else runs:>2}  COM calls {'-' if com is None else com:>4}  [{stages}]  sheet = model {status}  Sources links "
               f"{len(seen['links'])}  status {counts}  layout {found[0]} warnings {found[1]}  "
               f"{'checks OK' if not problems else 'DIFF: ' + '; '.join(problems)}", flush=True)
+        inside = "  ".join(
+            f"{s.split('.')[-1]} [" + " ".join(f"{k.rsplit('.excel.', 1)[1]} {v:.2f}" for k, v in timings.items()
+                                               if k.startswith(f"excel job.{s}.excel.")) + "]"
+            for s in ("draw.move in", "draw.finish", "draw.close out"))
+        print(f"{'':<14} inside Excel: {inside}", flush=True)
         if problems:
             raise Stop(f"{label}: " + "; ".join(problems))
 
