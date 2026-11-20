@@ -80,7 +80,7 @@ from smartass.render.layout import ChartSpec  # noqa: E402
 from smartass.xl import fastcom, jobs, movein  # noqa: E402
 from smartass.xl.hostproc import windows_of  # noqa: E402
 from smartass.xl.inproc import runner  # noqa: E402
-from smartass.xl.inproc.batch import Batch  # noqa: E402
+from smartass.xl.inproc.batch import MISSING, Batch  # noqa: E402
 from smartass.xl.sheetorder import ANSWER_TAB, DATA_TAB  # noqa: E402
 from smartass.xl.target import Target  # noqa: E402
 
@@ -876,8 +876,8 @@ def compare_fixtures(xl: Excel) -> None:
             if phase != "after the move-in":
                 for t, built in sides.values():
                     with _settings_off(xl):
-                        movein.finish(t, built)
-                        movein.calculate(t, built.sheets)
+                        movein.finish(t, built)            # the job's order: labels, calculate, lifts
+
             rects = book_rects([t.wb for t, _ in sides.values()], names)
             snaps = {side: read_book(xl.app, t.wb, rects) for side, (t, _) in sides.items()}
             for snap in snaps.values():
@@ -1220,49 +1220,74 @@ def failed_jobs(xl: Excel) -> None:
 
 # ---------------------------------------------------------------------------------------------------- 3c. label order
 def label_order(xl: Excel) -> None:
-    """(Task 2b) The chart labels in the job's order (finish with the positions and colours, calculate, read_labels,
-    then lift_labels in the close-out) against the standalone order (finish: positions, tops read and lifts set, all
-    before calculate): every fixed label's Top on the 'every chart kind' answer, printed as a measurement."""
+    """(Task 2b, review M3) The chart labels in the job's order (movein.finish: positions and colours, calculate, the
+    lifts by nudge right after it, one batch) against 0.3.0's order (positions, the tops read and the lifts set, all
+    before the calculation) and against no lift at all (where Excel itself puts the labels): every fixed label's Top
+    on the 'every chart kind' answer, as a measurement (in this script's hidden Excel: an Excel started this way
+    would not become visible here, 20.11.2026)."""
     build = fixtures()["every chart kind"]
     folder = TMP / "build"
     folder.mkdir(exist_ok=True)
     built0 = build(folder / f"{uuid.uuid4().hex}.xlsx")
     tops = {}
-    for side in ("before", "job", "unlifted"):
+    for side in ("job", "0.3.0", "unlifted"):
         built = _copy_of(built0, side)
-        wb = xl.fresh(f"labels_{side}")
+        if side == "unlifted":
+            built.label_fixes = [dataclasses.replace(f, lift_pt=0.0) for f in built.label_fixes]
+        wb = xl.fresh(f"labels_{side.replace('.', '')}")
         t = Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0)
         movein.move_in(t, built, "Sources", book=movein.read_book(t))
-        if side == "before":
+        if side != "0.3.0":
             movein.finish(t, built)
-            movein.calculate(t, built.sheets)
-        else:
+        else:                                           # 0.3.0: labels (a read, the lift) before the calculation
+            lifted = [f for f in built.label_fixes if f.lift_pt]
             b = Batch()
             wbn = b.workbook(jobs.book_name(t))
-            fixes = movein.finish(t, built, b)
-            movein.calculate(t, built.sheets, b)
-            get = movein.read_labels(b, wbn, built)
+            built_nolift = dataclasses.replace(built, label_fixes=[f for f in built.label_fixes])
+            for spec in built.tables:
+                ws_ = wbn.Worksheets(spec.sheet)
+                lo = ws_.ListObjects.Add(movein.SRC_RANGE, ws_.Range(spec.ref), MISSING, movein.HAS_HEADERS)
+                lo.Name = spec.name
+            for block in built.formulas:
+                wbn.Worksheets(block.sheet).Range(block.ref).Formula2 = tuple(tuple(r) for r in block.grid)
+            movein.fix_labels(b, wbn, built_nolift)
+            ans = wbn.Worksheets(built.sheets[0])
+            with b.attempt():
+                for i, f in enumerate(lifted):
+                    b.ret(movein._label(ans, f).Top, f"top {i}")
             res = runner.run(xl.app, b)
-            movein.label_skips(res, fixes)
-            if side == "job":                            # 'unlifted': where Excel itself puts the labels
-                fb = Batch()                             # as in the close-out: a cell and a row height first
-                answer = fb.workbook(jobs.book_name(t)).Worksheets(built.sheets[0])
-                answer.Range("ZZ1").Value2 = "OK"
-                answer.Range("2:2").RowHeight = 30
-                lifts = movein.lift_labels(fb, fb.workbook(jobs.book_name(t)), built, get(res))
-                movein.label_skips(runner.run(xl.app, fb), lifts)
+            b = Batch()
+            ans = b.workbook(jobs.book_name(t)).Worksheets(built.sheets[0])
+            with b.attempt():
+                for i, f in enumerate(lifted):
+                    top = res.values.get(f"top {i}")
+                    if isinstance(top, (int, float)) and top > f.lift_pt:
+                        movein._label(ans, f).Top = top - f.lift_pt
+            runner.run(xl.app, b)
+            movein.calculate(t, built.sheets)
         ws = wb.Worksheets(built.sheets[0])
         tops[side] = [g(lambda f=f: ws.ChartObjects(f.chart).Chart.SeriesCollection(f.series).Points(f.point)
                         .DataLabel.Top) for f in built.label_fixes]
         xl.close(wb)
         built.path.unlink(missing_ok=True)
     lifts = [i for i, f in enumerate(built0.label_fixes) if f.lift_pt]
-    diffs = [(i, tops["before"][i], tops["job"][i]) for i in range(len(built0.label_fixes))
-             if tops["before"][i] != tops["job"][i]]
-    info(f"labels: {len(built0.label_fixes)} fixes ({len(lifts)} lifted); Top in the standalone order vs the job's: "
-         + ("equal" if not diffs else "; ".join(f"fix {i}: {a:.2f} -> {b_:.2f}" for i, a, b_ in diffs)))
-    info("labels: the lifted ones where Excel itself puts them (no lift): "
-         + "; ".join(f"fix {i}: {tops['unlifted'][i]:.2f} (lift {built0.label_fixes[i].lift_pt:g} pt)" for i in lifts))
+    where = "a visible" if xl.raw.Visible else "a hidden"
+    for side in ("job", "0.3.0"):
+        rows = [f"fix {i}: {tops[side][i] - tops['unlifted'][i]:+.2f} pt" for i in lifts]
+        info(f"labels ({where} Excel), {side} order against no lift: " + "; ".join(rows)
+             + f" (lift {', '.join(f'{built0.label_fixes[i].lift_pt:g}' for i in lifts)} pt)")
+    same = [i for i in range(len(built0.label_fixes)) if i not in lifts and tops["job"][i] == tops["unlifted"][i]
+            == tops["0.3.0"][i]]
+    info(f"labels: the {len(built0.label_fixes) - len(lifts)} labels without a lift equal on every side: "
+         f"{len(same) == len(built0.label_fixes) - len(lifts)}")
+    check("labels: the job's order lifts every lifted label by its lift",
+          all(_is_num(tops['job'][i]) and _is_num(tops['unlifted'][i])
+              and abs(tops["unlifted"][i] - tops["job"][i] - built0.label_fixes[i].lift_pt) < 0.01 for i in lifts),
+          "; ".join(f"fix {i}: job {tops['job'][i]} unlifted {tops['unlifted'][i]}" for i in lifts))
+
+
+def _is_num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
 # ---------------------------------------------------------------------------------------------------- 4. timing

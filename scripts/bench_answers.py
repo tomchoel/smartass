@@ -116,7 +116,8 @@ def table(warm: dict | None, runs: list[dict]) -> str:
 ROUND_COLUMNS = (("_total", "_total s"), ("excel job._total", "excel job s"), ("excel job.draw", "draw s"),
                  ("excel job.draw.look", "draw.look s"), ("excel job.draw.build", "draw.build s"),
                  ("excel job.draw.move in", "draw.move in s"), ("excel job.draw.finish", "draw.finish s"),
-                 ("excel job.draw.close out", "draw.close out s"), ("excel job.save", "save s"),
+                 ("excel job.draw.paint", "draw.paint s"), ("excel job.draw.close out", "draw.close out s"),
+                 ("excel job.save", "save s"),
                  ("prepare", "prepare s"))
 
 

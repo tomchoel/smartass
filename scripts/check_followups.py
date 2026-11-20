@@ -18,7 +18,10 @@ EPM: the replies are dropped. The first failure stops the run (exit 2) with its 
 Usage (from the repo root; Excel open, signed in to EPM; SV_INPROC=0 runs every batch over COM):
     engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--second b07]
         [--keep]
-At the end it says which executor ran the batches (the in-process add-in, or COM).
+At the end it says which executor ran the batches (the in-process add-in, or COM). Per step it also watches the
+file's modification time (AutoSave is left alone: exactly one write per job, the Save, none between the batches) and
+reads Workbook.Saved afterwards (True); after fin_refresh it reads the saved file itself with openpyxl (read-only):
+every answer's sheets there and the last answer's row on its Sources log.
 Only the workbook this script created is touched, and closed at the end (without saving: the engine saved it after
 every answer) unless --keep; the user's own workbooks and Excel are never saved or closed. At the end only the
 engine's own hidden Excel and browser are shut down, as the server's lifespan does.
@@ -27,8 +30,10 @@ import argparse
 import asyncio
 import copy
 import json
+import os
 import re
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -41,8 +46,66 @@ OTHER_PERIOD = "Jan 26..Jun 26"         # the period a follow-up switches to (an
 COM = "excel job.com calls."            # the Excel job's COM-call counts, as server._draw_job logs them
 BATCHES = "excel job.batches."          # ... and its batches (xl/inproc runs)
 MOVE_IN = "excel job.draw.move in"      # a stage every answer's Excel job has
-STAGES = ("draw.look", "draw.build", "draw.move in", "draw.finish", "draw.close out", "save")
+STAGES = ("draw.look", "draw.build", "draw.move in", "draw.finish", "draw.paint", "draw.close out", "save")
 HYPERLINK = re.compile(r'^=HYPERLINK\("#((?:[^"]|"")*)","((?:[^"]|"")*)"\)$')
+
+
+class Writes:
+    """How often a file is written while a step runs: its modification time watched every 10 ms on a thread of its
+    own (AutoSave left alone, controller ruling R3: one write per job, the Save, none between the batches)."""
+
+    def __init__(self, path: str | None):
+        self.path, self.count, self._stop = path, 0, threading.Event()
+        self._t = threading.Thread(target=self._watch, daemon=True) if path else None
+
+    def _mtime(self):
+        try:
+            return os.stat(self.path).st_mtime_ns
+        except OSError:
+            return None
+
+    def _watch(self) -> None:
+        last = self._mtime()
+        while not self._stop.wait(0.01):
+            now = self._mtime()
+            if now != last:
+                self.count += 1
+                last = now
+
+    def __enter__(self):
+        if self._t:
+            self._t.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        if self._t:
+            self._t.join()
+            time.sleep(0.05)
+            self._stop.clear()
+
+
+def on_disk(path: str, q_last: int, qs: list[int]) -> list[str]:
+    """What the saved file holds, read with openpyxl (read-only, from the local path): every answer's sheets and the
+    last answer's row on the Sources log. Problems, never a value."""
+    import openpyxl
+    problems = []
+    book = openpyxl.load_workbook(path, read_only=True)
+    try:
+        names = book.sheetnames
+        for q in qs:
+            for n in (f"Q{q} Answer", f"Q{q} Data"):
+                if n not in names:
+                    problems.append(f"the saved file has no '{n}'")
+        if "Sources" not in names:
+            problems.append("the saved file has no Sources sheet")
+        else:
+            rows = [r[1] for r in book["Sources"].iter_rows(min_row=2, max_col=2, values_only=True) if r[0]]
+            if not rows or rows[-1] != f"Q{q_last}":
+                problems.append(f"the saved file's last Sources row is not Q{q_last}'s")
+    finally:
+        book.close()
+    return problems
 
 
 class Stop(Exception):
@@ -125,7 +188,7 @@ def _inspect(h, path: str, q: int) -> dict:
                             unshown += v != m.group(2).replace('""', '"')
         return {"names": names, "tables": tables, "active": active, "links": links, "unshown": unshown,
                 "statuses": logged,
-                "ready": bool(t.app.Ready)}
+                "ready": bool(t.app.Ready), "saved": bool(t.wb.Saved)}
     return jobs.com(read)
 
 
@@ -188,7 +251,8 @@ async def check(case: dict, second: dict, keep: bool) -> int:
         before = len(statuses)
         t0 = time.monotonic()
         try:
-            out = await call()
+            with Writes(path) as writes:
+                out = await call()
         except Exception as e:   # noqa: BLE001
             raise Stop(f"{label} failed: {scrub(e)}") from None
         secs = time.monotonic() - t0
@@ -237,11 +301,17 @@ async def check(case: dict, second: dict, keep: bool) -> int:
             problems.append(f"a Sources row of Q{q} has no OK/DIFF status")
         if not seen["ready"]:
             problems.append("Excel is not ready")
+        if not seen["saved"]:
+            problems.append("Workbook.Saved is False after the job")
+        jobs_run = len(done) if tool == "fin_refresh" else 1
+        if writes.path and writes.count != jobs_run:
+            problems.append(f"the file was written {writes.count} times during the step, not {jobs_run}")
         com = com_calls(timings)
         runs = com_calls(timings, BATCHES)
         stages = "  ".join(f"{s.split('.')[-1]} {timings.get('excel job.' + s, 0):.2f}" for s in STAGES)
         counts = "/".join(f"{k} {seen['statuses'].count(k)}" for k in ("OK", "DIFF"))
-        print(f"{label:<14} {secs:6.1f} s  excel job {timings.get('excel job._total', 0):5.2f} s  batches "
+        print(f"{label:<14} {secs:6.1f} s  writes {'-' if not writes.path else writes.count}  excel job "
+              f"{timings.get('excel job._total', 0):5.2f} s  batches "
               f"{'-' if runs is None else runs:>2}  COM calls {'-' if com is None else com:>4}  [{stages}]  sheet = model {status}  Sources links "
               f"{len(seen['links'])}  status {counts}  layout {found[0]} warnings {found[1]}  "
               f"{'checks OK' if not problems else 'DIFF: ' + '; '.join(problems)}", flush=True)
@@ -266,6 +336,10 @@ async def check(case: dict, second: dict, keep: bool) -> int:
             patch = _patch(i, first)
             await step(f"follow-up {i}", "fin_analyze", lambda p=patch: analyze(patch=p, q=q, target=path), True)
         await step("fin_refresh", "fin_refresh", lambda: refresh(target=path), True)
+        disk = on_disk(path, 2, [1, 2])         # fin_refresh redraws Q1, then Q2
+        print(f"{'saved file':<14} {'checks OK' if not disk else 'DIFF: ' + '; '.join(disk)}", flush=True)
+        if disk:
+            raise Stop("the saved file: " + "; ".join(disk))
     except Stop as e:
         failed = str(e)
     finally:
