@@ -74,12 +74,12 @@
   later; on disk it carries the label as one made the old way does. Second answers 1.2-1.6 s, follow-ups 1.5-2.1 s,
   `fin_refresh` 3.4-4.1 s. 0.4.0's bench in a fresh Excel held the 3 s / 5 s gate in every round (1.3 / 1.9 / 2.0
   s and 3.6 / 3.1 / 3.6 s). Details: docs/audit/2026-11-20-first-answer.md.
-- Two of those seconds were not Excel's and are cut. The session's parent processes are read from one snapshot of
-  the process table: psutil took one per ancestor, 1.5 s on the first answer of every server start (a plain script:
-  1.75-2.15 s before, 0.20-0.22 s after). And a server process that meets an Excel holding its build of the add-in
-  already (loaded by an earlier server) uses it as it is instead of registering it again: the look of a new
-  server's first answer took 0.45-0.49 s in a hidden Excel, now 0.04-0.09 s (the look's reads themselves take a few
-  ms). The live figure after these cuts is still to be measured.
+- Two of those costs are cut. The session's parent processes are read from one snapshot of the process table:
+  psutil took one per ancestor, 1.5 s on the first answer of every server start (a plain script: 1.75-2.15 s before,
+  0.20-0.22 s after). And a server process that meets an Excel holding its build of the add-in already (loaded by an
+  earlier server) uses it as it is instead of registering it again: the look of a new server's first answer took
+  0.45-0.49 s in a hidden Excel, now 0.04-0.09 s (the look's reads themselves take a few ms; that this was most of
+  the live look's 0.8-1.1 s is inferred). The live figure after these cuts is still to be measured.
 
 ### The answer's Excel work runs inside Excel (0.4.0)
 

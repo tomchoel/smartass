@@ -101,12 +101,12 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    reply): the first answer of a new workbook 5.3-6.1 s against 7.5 s made from the template by 0.4.0 in the same
    Excel (goal 5 s or under): open target 2.1-2.6 s, of which "new workbook" 2.0 s with no Excel in it; `draw.open`
    1.05-1.08 s (Excel opening the file: Excel's own); look 0.83-1.14 s (0.03 s in an existing workbook);
-   everything else 0.9 s together. Two of those seconds were not Excel's and are cut since (phase 3c Task 1b,
-   measured in a plain script and a hidden Excel; the live figure after them is owed): the session's parents read
-   from one snapshot of the process table instead of one per ancestor (1.5 s, once per server process: 0.2 s now),
-   and the add-in that an earlier server process loaded in that Excel used as it is instead of registered again
-   (the look of a new server's first answer: 0.44-0.49 s, 0.04-0.09 s now, in a hidden Excel). Ledger and figures:
-   docs/audit/2026-11-20-first-answer.md.
+   everything else 0.9 s together. Since then (phase 3c Task 1b; the live figure after it is owed) the session's
+   parents are read from one snapshot of the process table instead of one per ancestor: 1.5 s of "new workbook",
+   once per server process, measured 1.75-2.15 s before and 0.20-0.22 s after in a plain script. And a server process
+   that meets an Excel holding its build of the add-in uses it as it is instead of registering it again: in a hidden
+   Excel the look of a new server's first answer went from 0.45-0.49 s to 0.04-0.09 s. That this was most of the live
+   look is inferred, not measured live. Ledger and figures: docs/audit/2026-11-20-first-answer.md.
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
    `findings`, `checks`, `layout` (layout check findings with fixes), `charts`, `warnings`, `caveats`, `routes`,
    `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
