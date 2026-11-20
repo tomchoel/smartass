@@ -218,12 +218,33 @@ hundred test workbooks. 27 of 27 answers ok.
 | 2 | 1 | 13.7 | 6.0 | 4.5 | 0.0 | 1.0 | 2.6 | 0.3 | 0.2 | 0.3 | 1.0 | 7.7 | 8 | 4 |
 | 3 | 1 | 13.6 | 5.9 | 4.2 | 0.0 | 1.0 | 2.5 | 0.2 | 0.2 | 0.2 | 1.1 | 7.7 | 8 | 4 |
 
-Reading: over the 3 s / 5 s gate in rounds 2 and 3 (and in every round with a lines sheet). The job's own parts are
-as small as in the morning (look 0.03 s, finish 0.25 s, close out 0.26 s, 8 COM calls, 4 batches); Excel's own two
-steps are not: the insert took a median of 1.05 s (0.56 s at 06:00) and the save 0.80 s (about 0.3 s). The same call
-on the same kind of file took half the time in the morning, so this run does not show a regression of the code, and
-it does not show the gate either. The gate rests on the 06:00 run (five-batch code). Owed: one run in a freshly
-started Excel.
+Reading: over the 3 s / 5 s gate in rounds 2 and 3 (and in every round with a lines sheet). Against the 06:00 run
+(1.9 / 2.4 / 2.7 s): the move-in is the same (0.9 / 1.1 / 1.1 s now, 0.9 / 1.1 / 1.3 s then); the save took longer
+(0.5 / 0.8 / 1.1 s against 0.3 / 0.5 / 0.6 s), so did opening the target (about +0.3 s in rounds 2 and 3), and the
+one paint pause is 0.15 s where the morning code had two of 0.04 s. So the gate rests on the 06:00 run (five-batch
+code) only. Owed: one run in a freshly started Excel.
+
+## 0.3.0 against 0.4.0, back to back (17:25-17:30, same Excel, no other workbook open)
+
+`scripts/check_followups.py` from the main checkout (0.3.0, f32352f) and from the frozen checkout of this branch
+(652ac47, `SV_INPROC=1`), alternating, each twice; Excel-job seconds per step, every step "checks OK" in all four runs.
+
+| step | 0.3.0 run 1 | 0.4.0 run 1 | 0.3.0 run 2 | 0.4.0 run 2 |
+|---|---|---|---|---|
+| new answer | 12.69 | 10.61 | 12.66 | 11.28 |
+| second answer | 3.56 | 2.30 | 3.89 | 2.19 |
+| follow-up 1 | 4.12 | 3.73 | 4.45 | 3.42 |
+| follow-up 2 | 4.34 | 3.06 | 4.38 | 3.78 |
+| follow-up 3 | 5.36 | 3.16 | 5.22 | 3.28 |
+| follow-up 4 | 4.30 | 3.59 | 4.86 | 3.47 |
+| follow-up 5 | 4.39 | 3.58 | 5.25 | 3.26 |
+| follow-up 6 | 4.59 | 2.97 | 4.78 | 3.22 |
+| fin_refresh | 9.24 | 5.74 | 8.53 | 6.40 |
+
+0.4.0 is faster at every step under the same conditions (a follow-up about 3.3 s against about 4.6 s). 0.3.0 itself
+took 2.2-2.8 s per follow-up the night before (docs/audit/2026-11-19-file-render-bench.md and the Task 8B / 9 runs),
+so on this afternoon the same code ran about 1.8 times slower than at night: the absolute figures of this section and
+of the 17:20 bench are not comparable with the night's and the morning's.
 
 The follow-up check on the same head (17:14, nine workbooks of another session open): every step OK through both
 executors, the summary sheet's formulas (cell, table, cross-sheet SUM, defined name, chart series, a reference from

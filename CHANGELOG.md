@@ -49,11 +49,13 @@
     (0.3.0: 2.0 / 2.7 / 3.3 s and 4.2 / 4.1 / 5.2 s). The 3 s / 5 s gate holds in every round.
   - With another session working in the same Excel (20.11.2026 11:15): follow-ups 2.5-2.9 s in-process against
     4.9-6.2 s over COM; the bench then 4.7 / 2.7 / 5.9 s without a lines sheet, not a gate run.
-  - The final code (four batches, the re-pointing) in the owner's Excel with no other workbook open, 20.11.2026
-    17:20, the same Excel process running since the evening before: 2.3 / 3.2 / 3.6 s without a lines sheet and
-    5.2 / 6.0 / 5.9 s with one - over the gate in rounds 2 and 3. Excel's own two steps took twice the morning's
-    time (the insert a median of 1.05 s against 0.56 s, the save 0.80 s against 0.3 s), so the gate is shown only
-    by the morning run; a run in a freshly started Excel is still owed.
+  - The final code (four batches, the re-pointing), 20.11.2026 17:20-17:30, the owner's Excel with no other workbook
+    open: the bench 2.3 / 3.2 / 3.6 s without a lines sheet and 5.2 / 6.0 / 5.9 s with one - over the gate in rounds 2
+    and 3 (the move-in as in the morning run, 0.9 / 1.1 / 1.1 s; the save 0.5 / 0.8 / 1.1 s against 0.3 / 0.5 / 0.6 s).
+    Back to back with 0.3.0 in the same Excel, same minutes (`check_followups.py`, each twice): a second answer
+    2.2-2.3 s against 3.6-3.9 s, follow-ups 3.0-3.8 s against 4.1-5.4 s, `fin_refresh` of two answers 5.7-6.4 s
+    against 8.5-9.2 s, a new workbook's first answer 10.6-11.3 s against 12.7 s. 0.3.0 itself took 2.2-2.8 s per
+    follow-up the night before, so that afternoon everything ran slower; the gate is shown only by the morning run.
   - The scan for pointing formulas when nothing points at the answer: 0.06-1.0 s in-process, 0.3-4.5 s over COM,
     by workbook size (10 sheets and 5 000 formulas to 60 sheets and 260 000 formulas).
 - Thin waterfall labels now sit 10 pt higher than 0.3.0 drew them in a hidden Excel: 0.3.0 set the lift before the
