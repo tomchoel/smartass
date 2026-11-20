@@ -52,12 +52,15 @@ HYPERLINK = re.compile(r'^=HYPERLINK\("#((?:[^"]|"")*)","((?:[^"]|"")*)"\)$')
 
 class Writes:
     """How often a file is written while a step runs: its modification time watched every 10 ms on a thread of its
-    own (AutoSave left alone, controller ruling R3: one write per job, the Save, none between the batches)."""
+    own (AutoSave left alone, controller ruling R3: written only by the Save, never between the batches). A save
+    changes it once or twice, and about 2 s after a save the file is stamped once more whatever AutoSave does
+    (measured 20.11.2026, with AutoSave on and with it off): --settle 10 lets that late stamp fall between the
+    steps."""
 
     def __init__(self, path: str | None):
         self.path, self.count, self._stop = path, 0, threading.Event()
         self.at: list[float] = []                       # when (time.monotonic) each write was seen
-        self._t = threading.Thread(target=self._watch, daemon=True) if path else None
+        self._t = None
 
     def _mtime(self):
         try:
@@ -75,7 +78,8 @@ class Writes:
                 last = now
 
     def __enter__(self):
-        if self._t:
+        if self.path:
+            self._t = threading.Thread(target=self._watch, daemon=True)
             self._t.start()
         return self
 
@@ -217,7 +221,7 @@ def _patch(i: int, first: dict) -> dict:
     return {"queries": queries}
 
 
-async def check(case: dict, second: dict, keep: bool) -> int:
+async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> int:
     from smartass import pipeline, server
     from smartass.core import serverkit as kit
     from smartass.model.spec import AnalysisSpec
@@ -255,12 +259,19 @@ async def check(case: dict, second: dict, keep: bool) -> int:
         return await server.fin_refresh(target=target)
     analyze, refresh = kit.guard(fin_analyze), kit.guard(fin_refresh)
     user = kit._call_user
-    path, q, order, failed = None, None, None, None
+    path, q, order, failed, disk_check = None, None, None, None, False
+    between, last_end = Writes(None), [0.0]               # every write of the file, also between the steps
 
     async def step(label: str, tool: str, call, want_followup: bool, baseline: bool = False) -> None:
         nonlocal path, q, order
         offset = config.RUN_LOG.stat().st_size if config.RUN_LOG.exists() else 0
         before = len(statuses)
+        if path is not None and between.path is None:       # the file's writes watched from the first answer on
+            between.path = path
+            between.__enter__()
+        if settle:
+            await asyncio.sleep(settle)                    # --settle: a quiet spell before the step
+        gap = [a for a in between.at if a > last_end[0]]   # writes since the step before ended
         t0 = time.monotonic()
         try:
             with Writes(path) as writes:
@@ -268,6 +279,10 @@ async def check(case: dict, second: dict, keep: bool) -> int:
         except Exception as e:   # noqa: BLE001
             raise Stop(f"{label} failed: {scrub(e)}") from None
         secs = time.monotonic() - t0
+        last_end[0] = time.monotonic()
+        if gap:
+            print(f"{'':<14} the file was written {len(gap)} time(s) between the steps (at "
+                  f"{', '.join(f'-{t0 - a:.2f}' for a in gap)} s before this one)", flush=True)
         line = run_line(offset, tool) or {}
         timings = line.get("timings") or {}
         if tool == "fin_refresh":
@@ -315,12 +330,14 @@ async def check(case: dict, second: dict, keep: bool) -> int:
             problems.append("Excel is not ready")
         if not seen["saved"]:
             problems.append("Workbook.Saved is False after the job")
-        jobs_run = len(done) if tool == "fin_refresh" else 1
-        if writes.path and writes.count != jobs_run:
+        windows = [(a, b) for a, b in saves if a >= t0]
+        late = 0.3 if settle else 3.5           # without --settle the late stamp of the save before can land here
+        outside = [a for a in writes.at if not any(s - 0.05 <= a <= e + late for s, e in saves)]
+        if writes.path and (outside or not writes.count):
             when = ", ".join(f"+{a - t0:.2f}" for a in writes.at)
-            in_save = ", ".join(f"+{a - t0:.2f}..+{b - t0:.2f}" for a, b in saves if a >= t0)
-            problems.append(f"the file was written {writes.count} times during the step, not {jobs_run} (at {when} s;"
-                            f" the save batch at {in_save} s)")
+            in_save = ", ".join(f"+{a - t0:.2f}..+{b - t0:.2f}" for a, b in windows)
+            problems.append(f"the file was written outside the save batch ({len(outside)} of {writes.count} writes, at "
+                            f"{when} s; the save batch at {in_save} s)")
         com = com_calls(timings)
         runs = com_calls(timings, BATCHES)
         stages = "  ".join(f"{s.split('.')[-1]} {timings.get('excel job.' + s, 0):.2f}" for s in STAGES)
@@ -351,20 +368,28 @@ async def check(case: dict, second: dict, keep: bool) -> int:
             patch = _patch(i, first)
             await step(f"follow-up {i}", "fin_analyze", lambda p=patch: analyze(patch=p, q=q, target=path), True)
         await step("fin_refresh", "fin_refresh", lambda: refresh(target=path), True)
-        disk = on_disk(path, 2, [1, 2])         # fin_refresh redraws Q1, then Q2
-        print(f"{'saved file':<14} {'checks OK' if not disk else 'DIFF: ' + '; '.join(disk)}", flush=True)
-        if disk:
-            raise Stop("the saved file: " + "; ".join(disk))
+        disk_check = True                       # read once Excel has closed it (Excel holds it open)
     except Stop as e:
         failed = str(e)
     finally:
         server.redraw_job = real_redraw
         pipeline._save = real_save
+        if between.path is not None:
+            between.__exit__()
         if path is not None and not keep:
             try:
                 await user(lambda h: _close(h, path), what="check_followups: close")
             except Exception as e:   # noqa: BLE001
                 print(f"could not close the workbook this script created: {scrub(e)}", flush=True)
+                disk_check = False
+            if disk_check:
+                try:
+                    disk = on_disk(path, 2, [1, 2])     # fin_refresh redraws Q1, then Q2
+                except OSError as e:
+                    disk = [f"the saved file could not be read ({scrub(e)})"]
+                print(f"{'saved file':<14} {'checks OK' if not disk else 'DIFF: ' + '; '.join(disk)}", flush=True)
+                if disk and not failed:
+                    failed = "the saved file: " + "; ".join(disk)
         _shutdown(kit)
     for x in sorted(texts):
         print(f"  reply note: {x}", flush=True)
@@ -392,6 +417,8 @@ def main(argv=None) -> int:
     ap.add_argument("--case", default="b01", help=f"the test-set case of the new answer (known: {' '.join(cases)})")
     ap.add_argument("--second", default="b07", help="the case of the second answer, drawn before the follow-ups")
     ap.add_argument("--keep", action="store_true", help="leave the workbook this script created open")
+    ap.add_argument("--settle", type=float, default=0.0, help="seconds to wait before each step (writes of the file "
+                    "that come late after a save then fall between the steps)")
     args = ap.parse_args(argv)
     for c in (args.case, args.second):
         if c not in cases:
@@ -399,7 +426,7 @@ def main(argv=None) -> int:
     if not cases[args.case]["spec"].get("queries"):
         ap.error(f"case {args.case} has no queries: a period follow-up needs one")
     sys.stdout.reconfigure(encoding="utf-8")
-    return asyncio.run(check(cases[args.case], cases[args.second], args.keep))
+    return asyncio.run(check(cases[args.case], cases[args.second], args.keep, args.settle))
 
 
 if __name__ == "__main__":
