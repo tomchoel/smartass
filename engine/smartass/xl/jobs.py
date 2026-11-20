@@ -47,12 +47,13 @@ def _check_alive():
         raise JobAborted("This request was abandoned after a timeout; its partial sheets are being removed.")
 
 
-def com(call, limit: float = 60.0, check: bool = True):
+def com(call, limit: float = 60.0, check: bool = True, charged: bool = True):
     """A COM call in the user's Excel, retried while Excel is busy - the job's abort checked before every try (check)
-    -; then a readable HostError (BUSY)."""
+    -; then a readable HostError (BUSY). The seconds Excel rejected it count against the job's start (spent), unless
+    charged is False (a save of ours is known to run: runner.asked)."""
     timing.count_com()
     try:
-        return retry_busy(call, limit, _check_alive if check else None)
+        return retry_busy(call, limit, _check_alive if check else None, spent if charged else None)
     except pywintypes.com_error as e:
         if is_busy(e):
             raise HostError(BUSY) from None
@@ -62,11 +63,13 @@ def com(call, limit: float = 60.0, check: bool = True):
 @contextlib.contextmanager
 def starting():
     """A job's start: finding its workbook (the reads before its turn), the first contact with its Excel
-    (inproc/later.clear) and the wait for Excel to be ready. Its waits for an Excel that rejects calls (a cell in edit
-    mode, a dialog) share one START_WAIT_S (start_wait), so the start gives up with the busy message after 30 s of
-    them in all, as before the save after the reply; the add-in's own answer that a save of ours runs is waited for
-    longer (runner.asked), and the time the start spends otherwise (another agent's turn, a login, Excel starting or
-    opening a file) is not counted. A start inside a start (a session's workbook resolved by its path) is the outer
+    (inproc/later.clear) and the wait for Excel to be ready. Only the seconds Excel rejects calls there (a cell in
+    edit mode, a dialog) and the wait for Ready count (spent), against one START_WAIT_S (start_limit): the start gives
+    up with the busy message after 30 s of them in all, as before the save after the reply. A save of ours is waited
+    for longer: the add-in's answer that one runs (runner.asked), a save the first contact runs itself (a call that
+    answers is never counted), and Excel's rejections while a save this process asked for may still run
+    (inproc/later.saving). Time the start spends otherwise (another agent's turn, a login, Excel starting or opening
+    a file) is not counted either. A start inside a start (a session's workbook resolved by its path) is the outer
     one's."""
     if getattr(_job, "start_left", None) is not None:
         yield
@@ -79,9 +82,13 @@ def starting():
 
 
 def start_limit(limit: float) -> float:
-    """limit, or what is left of the job's start's waits (starting) when that is less."""
+    """limit, or what is left of the job's start's waits (starting) when that is less - not while a save after the
+    reply this process asked for may still run (inproc/later.saving): Excel's rejections may be that save."""
     left = getattr(_job, "start_left", None)
-    return limit if left is None else max(min(limit, left), 0.0)
+    if left is None:
+        return limit
+    from .inproc import later
+    return limit if later.saving() else max(min(limit, left), 0.0)
 
 
 def spent(seconds: float) -> None:
@@ -90,15 +97,6 @@ def spent(seconds: float) -> None:
     if left is not None:
         _job.start_left = max(left - seconds, 0.0)
 
-
-@contextlib.contextmanager
-def start_wait(limit: float):
-    """A wait for a busy Excel at the job's start: yields its limit (start_limit) and counts the time it took (spent)."""
-    t0 = time.monotonic()
-    try:
-        yield start_limit(limit)
-    finally:
-        spent(time.monotonic() - t0)
 
 
 def book_name(t) -> str:

@@ -134,6 +134,25 @@ def test_without_a_relay_the_server_itself_is_the_session(monkeypatch, tmp_path)
     assert seen["snapshots"] == 1                                   # pid 0, its own parent, ends the walk
 
 
+def test_an_ancestor_whose_start_cannot_be_read_ends_the_walk(monkeypatch, tmp_path):
+    """psutil's parents() raised out of info() there; the walk stops: never a wrong ancestor."""
+    class Denied(Proc):
+        def create_time(self):
+            raise psutil.AccessDenied(self.pid)
+    monkeypatch.chdir(tmp_path)
+    fake_table(monkeypatch, [Proc(99, ["python", "child_server.py"], 7), Denied(7, ["cmd.exe"], 42),
+                             Proc(42, ["python", "run_server.py"], 5, cwd=r"C:\p")])
+    assert session.info() == {"id": "99-1000", "cwd": str(tmp_path), "project": tmp_path.name, "client": ""}
+
+
+def test_without_psutils_ppid_map_the_table_is_read_with_process_iter(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.delattr(psutil._psplatform, "ppid_map", raising=False)
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs=None: [SimpleNamespace(pid=99, info={"ppid": 7}),
+                                                                    SimpleNamespace(pid=7, info={"ppid": 0})])
+    assert session._ppids() == {99: 7, 7: 0}
+
+
 def test_a_relay_whose_parent_is_gone_has_no_client(monkeypatch):
     fake_table(monkeypatch, [Proc(99, ["python", "child_server.py"], 42),
                              Proc(42, ["python", "run_server.py"], 5, cwd=r"C:\p")])

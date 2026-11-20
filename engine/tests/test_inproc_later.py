@@ -233,6 +233,39 @@ def test_another_builds_waiting_save_runs_first_also_where_this_build_does_not_l
     assert asked == ["SmartassClear_bbbb2222"]
 
 
+def test_a_first_contact_without_the_list_of_builds_is_logged_once_per_excel(monkeypatch, caplog):
+    """Review (Task 1b): when the builds loaded there cannot be read, only this build's Clear is asked (or none, where
+    this build does not load) - said once per Excel process, not skipped without a word."""
+    asked = []
+    app = _two_servers(monkeypatch, lambda macro: asked.append(macro) or "clear", None)
+    del app.RegisteredFunctions
+    with caplog.at_level(logging.WARNING, logger="smartview.inproc"):
+        later.clear(app)
+        later.clear(app)
+        runner._EXCELS[(id(app), 0.0)] = runner._Excel(id(app), ready=False)
+        later.clear(app)
+        later.clear(app)
+    said = [r.getMessage() for r in caplog.records if "first contact" in r.getMessage()]
+    assert asked == ["SmartassClear_aaaa1111"] * 2 and len(said) == 2
+    assert "only this build's add-in" in said[0] and "not made" in said[1]
+
+
+def test_an_unwritten_outcome_of_another_build_is_kept_apart_and_none_is_lost(monkeypatch):
+    """Review (Task 1b): another build's outcome that its add-in could not write was filed as this server's own, and a
+    second one overwrote the first: both are kept, read in turn, and another server's is marked as such."""
+    def record(token):
+        return later.UNWRITTEN + json.dumps({"token": token, "workbook": "a.xlsx", "full_name": r"C:\a\a.xlsx",
+                                             "ok": False, "error": "locked", "started": 1.0, "unwritten": "disk"})
+    answers = {"SmartassClear_aaaa1111": record("a" * 32), "SmartassClear_bbbb2222": record("b" * 32)}
+    app = _two_servers(monkeypatch, lambda macro: answers[macro], ((BUILD_A, "f0", "Q"), (BUILD_B, "f0", "Q")))
+    monkeypatch.setattr(later, "_unwritten", {})
+    later.clear(app)
+    first, second = later.take(app), later.take(app)
+    assert (first["token"], first.get("other_server", False)) == ("a" * 32, False)
+    assert (second["token"], second["other_server"]) == ("b" * 32, True)
+    assert later.take(app) is None
+
+
 def test_an_excel_where_no_smartass_build_is_loaded_is_not_asked(monkeypatch):
     asked = []
     app = _two_servers(monkeypatch, lambda macro: asked.append(macro) or "clear", None)

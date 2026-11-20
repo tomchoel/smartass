@@ -23,6 +23,7 @@ class FakeProc:
 class FakeWb:
     def __init__(self, full_name):
         self.FullName = full_name
+        self.Name = Path(full_name).name
 
 
 class FakeApp:

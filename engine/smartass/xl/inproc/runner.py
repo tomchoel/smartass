@@ -394,8 +394,7 @@ def _identify(app, check: bool = True) -> tuple:
         return last[1]
     import psutil
     import win32process
-    with jobs.start_wait(60.0) as limit:
-        hwnd = jobs.com(lambda: int(app.Hwnd), limit=limit, check=check)
+    hwnd = jobs.com(lambda: int(app.Hwnd), limit=jobs.start_limit(60.0), check=check)
     pid = win32process.GetWindowThreadProcessId(hwnd)[1]
     key = (pid, psutil.Process(pid).create_time())
     try:
@@ -592,32 +591,25 @@ def _run_inproc(app, ex: _Excel, job: dict, limit: float, check: bool = True) ->
                 pass
 
 
-def asked(call, limit: float, check: bool = True, rejected: float | None = None):
+def asked(call, limit: float, check: bool = True):
     """call() - an Application.Run of the add-in - through jobs.com, asked again every BUSY_POLL_S while the add-in
     answers BUSY: its save after the reply is running (Excel answers calls in the middle of a save of a OneDrive
     file, live 20.11.2026, so the add-in refuses them itself, having read and run nothing), as jobs.com asks a busy
-    Excel again; HostError(jobs.BUSY) once limit has passed. rejected: how long Excel's own rejections of the call
-    (a cell in edit mode, a dialog - or a save) are asked again in all until the add-in has answered BUSY once (the
-    job's start: jobs.start_limit, and the time until then is counted against it); from then on a save of ours is
-    known to run, and limit holds."""
-    t0 = time.monotonic()
-    end = t0 + limit
-    refused_end = end if rejected is None else min(end, t0 + rejected)
+    Excel again; HostError(jobs.BUSY) once limit has passed. At a job's start Excel's own rejections of the call (a
+    cell in edit mode, a dialog) are asked again for what is left of it (jobs.start_limit) and count against it, until
+    the add-in has answered BUSY once: from then on a save of ours is known to run, its rejections are not counted,
+    and limit holds. A call that answers is never counted, also when it ran a waiting save itself (Clear)."""
+    end = time.monotonic() + limit
     saving = False
-    try:
-        while True:
-            got = jobs.com(call, limit=max(refused_end - time.monotonic(), 0.0), check=check)
-            if not (isinstance(got, str) and got.startswith(BUSY)):
-                return got
-            if not saving:
-                saving, refused_end = True, end
-                jobs.spent(time.monotonic() - t0)
-            if time.monotonic() >= end:
-                raise HostError(jobs.BUSY)
-            time.sleep(BUSY_POLL_S)
-    finally:
-        if not saving:
-            jobs.spent(time.monotonic() - t0)
+    while True:
+        left = max(end - time.monotonic(), 0.0)
+        got = jobs.com(call, limit=left if saving else jobs.start_limit(left), check=check, charged=not saving)
+        if not (isinstance(got, str) and got.startswith(BUSY)):
+            return got
+        saving = True
+        if time.monotonic() >= end:
+            raise HostError(jobs.BUSY)
+        time.sleep(BUSY_POLL_S)
 
 
 def _parse(record: str) -> dict:

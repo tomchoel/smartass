@@ -19,6 +19,7 @@ from . import instances, jobs, login
 from ..core import config
 from .host import ExcelHost, HostError, InputError
 from .hostproc import retry_busy
+
 NAME_WAIT_S = 60                    # a busy Excel is waited for this long when the workbook's name or path is read
 
 # ------------------------------------------------------------------ target workbook
@@ -78,8 +79,7 @@ def _read(call, check: bool = True):
     again while Excel is busy (not counted as a call of the job), for NAME_WAIT_S or what is left of the job's start
     (jobs.starting), the job's abort checked before every try (check); then the busy message (jobs.BUSY)."""
     try:
-        with jobs.start_wait(NAME_WAIT_S) as limit:
-            return retry_busy(call, limit, jobs._check_alive if check else None)
+        return retry_busy(call, jobs.start_limit(NAME_WAIT_S), jobs._check_alive if check else None, jobs.spent)
     except pywintypes.com_error as e:
         if jobs.is_busy(e):
             raise HostError(jobs.BUSY) from None
@@ -88,9 +88,12 @@ def _read(call, check: bool = True):
 
 def _wait_ready(app, limit: float = jobs.EDIT_WAIT_S, pid: int | None = None, name: str | None = None):
     """app's Excel ready for the job (not in cell edit mode, no dialog): asked every 0.5 s for limit or what is left
-    of the job's start (jobs.starting), the job's abort checked each time; then the busy message."""
-    with jobs.start_wait(limit) as limit:
-        t0 = time.monotonic()
+    of the job's start (jobs.starting; the time it was not ready counts against it), the job's abort checked each
+    time; then the busy message."""
+    limit = jobs.start_limit(limit)
+    t0 = time.monotonic()
+    waited = False
+    try:
         while True:
             jobs._check_alive()
             try:
@@ -99,9 +102,13 @@ def _wait_ready(app, limit: float = jobs.EDIT_WAIT_S, pid: int | None = None, na
             except pywintypes.com_error as e:
                 if not jobs.is_busy(e):
                     raise
+            waited = True
             if time.monotonic() - t0 >= limit:
                 break
             time.sleep(0.5)
+    finally:
+        if waited:
+            jobs.spent(time.monotonic() - t0)
     if pid:
         raise instances.busy_error(pid, name or "The workbook")
     raise HostError("Your Excel is in edit mode (a cell is being typed in) or showing a dialog. Press Enter or Esc, "
@@ -407,9 +414,7 @@ def _find_named(excels, name: str) -> Target:
     hits: list[Target] = []
     names: list[str] = []
     for pid, hwnd, app in excels:
-        for wb, n in _books(app, "Name"):
-            if n.lower().endswith((".xlam", ".xla")):
-                continue
+        for wb, n, _full in open_books(app):
             names.append(n)
             if want in (n.lower(), Path(n).stem.lower()):
                 hits.append(Target(app, wb, pid, hwnd))
@@ -424,18 +429,24 @@ def _find_named(excels, name: str) -> Target:
 
 def _find_open(excels, path: Path) -> Target | None:
     for pid, hwnd, app in excels:
-        for wb, full in _books(app, "FullName"):
+        for wb, _name, full in open_books(app):
             if instances._norm(full) == instances._norm(path):
                 return Target(app, wb, pid, hwnd)
     return None
 
 
-def _books(app, attr: str) -> list[tuple]:
-    """(workbook, its attr - Name or FullName) of every workbook open in app's Excel: plain reads made before the job's
-    turn there (to find which Excel holds the target), read again whole while Excel is busy (_read) - it rejects calls
-    while it saves, also a save after the last reply (live, 20.11.2026)."""
+def open_books(app) -> list[tuple]:
+    """(workbook, its Name, its FullName) of every workbook open in app's Excel, add-ins (.xlam, .xla) left out: read
+    as one before the job's turn there (which Excel holds the target; find_book's scan for an xl_* tool), again while
+    Excel is busy (_read: not counted as calls of the job) - it rejects calls while it saves, also a save after the
+    last reply (live, 20.11.2026)."""
     def read():
-        return [(wb, str(getattr(wb, attr))) for wb in app.Workbooks]
+        out = []
+        for wb in app.Workbooks:
+            name = str(wb.Name)
+            if not name.lower().endswith((".xlam", ".xla")):
+                out.append((wb, name, str(wb.FullName)))
+        return out
     return _read(read)
 
 
@@ -445,8 +456,7 @@ def active_book(app, limit: float = 20) -> tuple:
     def read():
         wb = app.ActiveWorkbook
         return (None, None) if wb is None else (wb, str(wb.Name))
-    with jobs.start_wait(limit) as limit:
-        return jobs.com(read, limit=limit)
+    return jobs.com(read, limit=jobs.start_limit(limit))
 
 
 BUSY_WAIT_S = 10                    # a busy Excel that holds the target gets this long to answer before we say why

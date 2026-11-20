@@ -30,22 +30,33 @@ def is_busy(e: BaseException) -> bool:
     return hr in RETRY_HRESULTS or VBA_E_IGNORE in (hr, info[5] if info and len(info) > 5 else None)
 
 
-def retry_busy(call: Callable[[], Any], limit_s: float = 120, alive: Callable[[], Any] | None = None):
+def retry_busy(call: Callable[[], Any], limit_s: float = 120, alive: Callable[[], Any] | None = None,
+               rejected: Callable[[float], Any] | None = None):
     """Run any COM call, retrying while Excel is busy (is_busy) for up to limit_s; then the COM error is raised.
     pywin32 has no IMessageFilter, so this is the retry loop instead. alive: called before every try (jobs.com: the
-    job's abort, which raises)."""
-    delay, t0 = 0.1, time.monotonic()
-    while True:
-        if alive is not None:
-            alive()
-        try:
-            return call()
-        except pywintypes.com_error as e:
-            if not is_busy(e) or time.monotonic() - t0 >= limit_s:
-                raise
-            pythoncom.PumpWaitingMessages()
-            time.sleep(delay)
-            delay = min(delay * 2, 2.0)
+    job's abort, which raises). rejected: told at the end the seconds Excel rejected the call (the rejected tries and
+    the pauses after them; not the try that answered, however long it took)."""
+    delay, t0, waited = 0.1, time.monotonic(), 0.0
+    try:
+        while True:
+            if alive is not None:
+                alive()
+            t_try = time.monotonic()
+            try:
+                return call()
+            except pywintypes.com_error as e:
+                if not is_busy(e):
+                    raise
+                if time.monotonic() - t0 >= limit_s:
+                    waited += time.monotonic() - t_try
+                    raise
+                pythoncom.PumpWaitingMessages()
+                time.sleep(delay)
+                delay = min(delay * 2, 2.0)
+                waited += time.monotonic() - t_try
+    finally:
+        if rejected is not None and waited:
+            rejected(waited)
 
 
 def _excel_pids() -> set[int]:

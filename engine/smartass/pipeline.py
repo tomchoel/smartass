@@ -281,6 +281,7 @@ NO_PATH = "; which file it was is not known, so it was not saved: save it yourse
 SAVE_UNKNOWN = ("smartass could not tell how its save after the last answer went ({}): this answer is saved in the "
                 "job")
 ANOTHER_NOW = "; the workbook open by that name now is another file, so it was not saved"
+OTHER_SERVER = " (asked by another smartass server in this Excel)"     # an outcome another build's add-in told
 
 
 def _save(job) -> None:
@@ -394,17 +395,18 @@ def _earlier_save(job) -> None:
         return
     timing.aside("previous save", float(out.get("seconds") or 0.0))
     if out.get("unknown"):
-        job.notes.append(SAVE_UNKNOWN.format(out.get("error")))
+        job.notes.append(SAVE_UNKNOWN.format(out.get("error")) + (OTHER_SERVER if out.get("other_server") else ""))
         job.sync_save = True                            # which file it was is not known: this one is saved in the job
         return
+    book = out["workbook"] + (OTHER_SERVER if out.get("other_server") else "")
     if out.get("autosave_error"):
-        log.warning("could not switch AutoSave back on in %s: %s", out["workbook"], out["autosave_error"])
+        log.warning("could not switch AutoSave back on in %s: %s", book, out["autosave_error"])
     if out["ok"]:
         return
     if out.get("closed"):
-        job.notes.append(SAVE_CLOSED.format(out["workbook"]))
+        job.notes.append(SAVE_CLOSED.format(book))
         return
-    job.notes.append(SAVE_FAILED.format(out["workbook"], out.get("error") or "no reason given"))
+    job.notes.append(SAVE_FAILED.format(book, out.get("error") or "no reason given"))
     job.resave = (out["workbook"], len(job.notes) - 1, out)
 
 

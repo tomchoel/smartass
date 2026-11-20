@@ -33,6 +33,8 @@ def clock(monkeypatch):
             token.aborted = True
     monkeypatch.setattr(time, "monotonic", lambda: now["t"])
     monkeypatch.setattr(time, "sleep", sleep)
+    monkeypatch.setattr(later, "_queued", {})                 # no save asked for here: the start's 30 s hold
+    monkeypatch.setattr(later, "_asked_at", {})
     jobs.bind_job(token)
     yield now
     jobs.release_turns()
@@ -117,9 +119,38 @@ def test_the_time_a_start_spends_otherwise_is_not_counted(clock):
     """Another agent's turn (up to 10 min), a login or Excel opening a file are not waits for a busy Excel: a wait
     after them still has the start's 30 s."""
     app = App(rejects=Rejects(clock, until=clock["t"] + 320))
+    t0 = clock["t"]
     with jobs.starting():
         time.sleep(300)                                                      # another agent's turn, say
         target._wait_ready(app)                                              # rejects 20 s more, then ready
+    assert clock["t"] - t0 >= 320
+
+
+def test_a_save_the_first_contact_runs_itself_is_not_counted_against_the_start(clock, monkeypatch):
+    """Review (Task 1b): a job sent within the 0.3 s delay has the previous save run inside its first contact (the
+    add-in's Clear saves, then answers "clear"). A 35 s save there, then one rejected call of the wait for Ready: the
+    job goes on - only Excel's rejections count towards the start's 30 s."""
+    t0 = clock["t"]
+
+    def run(macro):
+        clock["t"] += 35.0
+        return "clear"
+    app = _no_add_in_loaded(monkeypatch, run)
+    with jobs.starting():
+        later.clear(app)
+        target._wait_ready(App(rejects=Rejects(clock, until=t0 + 35.4)))
+    assert clock["t"] - t0 >= 35
+
+
+def test_while_a_save_asked_for_here_may_still_run_the_start_waits_longer_for_rejections(clock, monkeypatch):
+    """Review (Task 1b): a save this process asked for after its last reply and whose outcome no job has read yet may
+    be what Excel is busy with: its rejections are waited for as long as each wait's own limit, not the start's 30 s."""
+    path = Path(r"C:\a\answer.xlsx")
+    monkeypatch.setattr(later, "_queued", {"t1": (7, 0.0)})
+    monkeypatch.setattr(later, "_asked_at", {"t1": time.time()})
+    app = App([Book("answer.xlsx", str(path))], rejects=Rejects(clock, until=clock["t"] + 45))
+    with jobs.starting():
+        assert target._find_open([(7, 70, app)], path) is not None
 
 
 def _no_add_in_loaded(monkeypatch, run):
@@ -158,19 +189,19 @@ def test_a_save_of_ours_that_runs_is_waited_for_beyond_the_starts_30_s(clock, mo
 
 
 # ------------------------------------------------------------------ an abandoned job stops in every wait
-def _rejected_com(clock, monkeypatch):
+def _rejected_com(clock, monkeypatch, tmp_path):
     jobs.com(lambda: Rejects(clock)(1), limit=600)
 
 
-def _asked(clock, monkeypatch):
+def _asked(clock, monkeypatch, tmp_path):
     runner.asked(lambda: Rejects(clock)(1), 600)
 
 
-def _ready(clock, monkeypatch):
+def _ready(clock, monkeypatch, tmp_path):
     target._wait_ready(App(ready=False), limit=600)
 
 
-def _turn(clock, monkeypatch):
+def _turn(clock, monkeypatch, tmp_path):
     other = jobs.Turn(4711)
     assert other.try_acquire()
     mine = jobs.Turn(4711)
@@ -183,14 +214,14 @@ def _turn(clock, monkeypatch):
     raise jobs.JobAborted("checked")
 
 
-def _busy_holder(clock, monkeypatch):
+def _busy_holder(clock, monkeypatch, tmp_path):
     monkeypatch.setattr(jobs, "hold_turn", lambda *a, **k: True)
     monkeypatch.setattr(instances, "excel_instances", lambda: [instances.XlInstance(7, 70, ["answer"], None)])
     monkeypatch.setattr(target, "BUSY_WAIT_S", 600)
     target._wait_busy_holder(7, Path(r"C:\a\answer.xlsx"))
 
 
-def _login(clock, monkeypatch):
+def _login(clock, monkeypatch, tmp_path):
     monkeypatch.setattr(login, "login_open", lambda pid: [1])
     monkeypatch.setattr(dialogs, "is_hung", lambda w: False)
     monkeypatch.setattr(dialogs, "scan", lambda pid: [])
@@ -198,13 +229,34 @@ def _login(clock, monkeypatch):
     login.wait_login_cleared(7, limit=600)
 
 
-@pytest.mark.parametrize("wait", [_rejected_com, _asked, _ready, _turn, _busy_holder, _login],
+class _Proc:
+    pid = 4242
+
+    def poll(self):
+        return None
+
+
+def _spawn(clock, monkeypatch, tmp_path):
+    monkeypatch.setattr(target, "_launch_excel", lambda path: _Proc())
+    monkeypatch.setattr(instances, "interactive_excels", lambda: [])
+    target._spawn_excel(tmp_path / "tn_template.xltx", set())
+
+
+def _launched(clock, monkeypatch, tmp_path):
+    book = tmp_path / "answer.xlsx"
+    book.write_bytes(b"x")
+    monkeypatch.setattr(target, "_launch_excel", lambda path: _Proc())
+    monkeypatch.setattr(instances, "interactive_excels", lambda: [])
+    target._open_path(None, book, [], [])
+
+
+@pytest.mark.parametrize("wait", [_rejected_com, _asked, _ready, _turn, _busy_holder, _login, _spawn, _launched],
                          ids=lambda f: f.__name__.strip("_"))
-def test_an_abandoned_job_stops_in_every_wait(clock, monkeypatch, wait):
+def test_an_abandoned_job_stops_in_every_wait(clock, monkeypatch, tmp_path, wait):
     """Review 2 (Task 2): the job's abort was checked only between the add-in's busy answers; a call Excel rejects
     was asked again for up to the limit without it."""
     clock["abort_at"] = 3
     t0 = clock["t"]
     with pytest.raises(jobs.JobAborted):
-        wait(clock, monkeypatch)
+        wait(clock, monkeypatch, tmp_path)
     assert clock["t"] - t0 < 60

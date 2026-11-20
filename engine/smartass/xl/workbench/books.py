@@ -8,7 +8,7 @@ import pywintypes
 from openpyxl.utils import get_column_letter as L
 
 from ..instances import busy_error, busy_holder, excel_instances, interactive_excels, is_archive, local_path
-from ..jobs import com, hold_turn, start_wait, starting
+from ..jobs import com, hold_turn, starting
 from ..host import HostError, InputError
 
 log = logging.getLogger("smartview.workbench")
@@ -39,22 +39,6 @@ class Book:
             raise InputError(f"No sheet '{name}' in '{self.name}'. Sheets: {names}") from None
 
 
-def _books(app) -> list[tuple]:
-    """(workbook, its Name, its FullName) of every workbook but add-ins open in app's Excel: read as one, again while
-    Excel is busy - it rejects calls while it saves, also a save after the last reply (live, 20.11.2026), and
-    find_book reads them before the job's turn there - for 60 s or what is left of the job's start (starting); then
-    the busy message."""
-    def read():
-        out = []
-        for wb in app.Workbooks:
-            n = str(wb.Name)
-            if not n.lower().endswith((".xlam", ".xla")):
-                out.append((wb, n, str(wb.FullName)))
-        return out
-    with start_wait(60.0) as limit:
-        return com(read, limit=limit)
-
-
 def find_book(workbook: str | None, write: bool = False, allow_archive: bool = False) -> Book:
     """The user's active workbook (workbook=None) or an open one by name / file name / full path, in any Excel. Its
     reads before the turn and the first contact share the job's start (jobs.starting)."""
@@ -63,7 +47,7 @@ def find_book(workbook: str | None, write: bool = False, allow_archive: bool = F
 
 
 def _find_book(workbook: str | None, write: bool, allow_archive: bool) -> Book:
-    from ..target import active_book
+    from ..target import active_book, open_books
     instances = excel_instances()
     excels = [(i.pid, i.hwnd, i.app) for i in instances if i.app is not None]
     if not excels:
@@ -86,7 +70,7 @@ def _find_book(workbook: str | None, write: bool, allow_archive: bool) -> Book:
         want = workbook.strip().lower()
         stem = lambda s: re.sub(r"\.(xlsx|xlsm|xlsb|xls)$", "", s)
         cands = []
-        books = [(pid, app, wb, name, full) for pid, _h, app in excels for wb, name, full in _books(app)]
+        books = [(pid, app, wb, name, full) for pid, _h, app in excels for wb, name, full in open_books(app)]
         for pid, app, wb, name, full in books:
             n, fn = name.lower(), full.lower()
             if want in (n, fn, local_path(full).lower()) or stem(want) == stem(n):
@@ -128,24 +112,26 @@ def _autosave_off(b: Book) -> None:
 
 
 def list_names(excels=None) -> list[str]:
-    return [name for _p, _h, app in (excels or interactive_excels()) for _wb, name, _full in _books(app)]
+    from ..target import open_books
+    return [name for _p, _h, app in (excels or interactive_excels()) for _wb, name, _full in open_books(app)]
 
 
 def workbooks() -> list[dict]:
+    from ..target import open_books
     out = []
     for pid, _h, app in interactive_excels():
         active = com(lambda: app.ActiveWorkbook, limit=20)
         aname = str(active.Name) if active is not None else None
-        for wb, _name, _full in _books(app):
+        for wb, name, full in open_books(app):
             try:
-                sel = _addr(com(lambda: app.Selection)) if str(wb.Name) == aname else None
+                sel = _addr(com(lambda: app.Selection)) if name == aname else None
             except Exception:   # noqa: BLE001 - selection may be a chart/shape
                 sel = None
-            out.append({"name": str(wb.Name), "path": local_path(str(wb.FullName)), "excel_pid": pid,
-                        "active": str(wb.Name) == aname, "sheets": [s.Name for s in wb.Worksheets],
+            out.append({"name": name, "path": local_path(full), "excel_pid": pid,
+                        "active": name == aname, "sheets": [s.Name for s in wb.Worksheets],
                         "active_sheet": str(wb.ActiveSheet.Name), "selection": sel,
                         "unsaved_changes": not bool(wb.Saved), "read_only": bool(wb.ReadOnly),
-                        "archive": is_archive(local_path(str(wb.FullName)))})
+                        "archive": is_archive(local_path(full))})
     return out
 
 

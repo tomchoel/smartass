@@ -240,6 +240,18 @@ def test_a_failed_save_of_another_file_of_the_same_name_is_not_said_saved(fake_t
     assert fake_target.wb.saved == 1                        # this job's own file, in the job
 
 
+def test_another_smartass_servers_failed_save_is_said_as_its_own(fake_target, calculated, addin, monkeypatch):
+    """Review (Task 1b): the outcome of another build's save (another smartass server in this Excel, told by this
+    job's first contact) is said as that server's, not as this one's."""
+    monkeypatch.setattr(later, "_unwritten", {id(fake_target.app): [
+        {"token": "5" * 32, "workbook": "older answer.xlsx", "full_name": "", "ok": False, "error": "locked",
+         "closed": False, "seconds": 0.2, "started": 1.0, "unwritten": "disk", "other_server": True}]})
+    out, _ = _job(_pre(), calculated)
+    assert [w for w in out["warnings"] if "older answer" in w] == [
+        "the save of older answer.xlsx (asked by another smartass server in this Excel) after the last answer failed "
+        "(locked); which file it was is not known, so it was not saved: save it yourself"]
+
+
 def test_an_outcome_that_cannot_be_read_is_said_and_the_job_saves_in_the_foreground(fake_target, calculated, addin):
     """Review M3: a malformed outcome never fails a finished job."""
     from smartass.core import config as cfg

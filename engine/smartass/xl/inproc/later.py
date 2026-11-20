@@ -51,7 +51,7 @@ _asked_at: dict[str, float] = {}                # token -> when it was asked for
 FRESH_S = 60                                    # a save asked for longer ago with no outcome is not "to come" (its
                                                 # Excel quit first, say)
 _done: dict[str, dict] = {}                     # token -> the outcome a job read, for wait()
-_unwritten: dict[int, dict] = {}                # pid -> an outcome the add-in could not write (told by clear)
+_unwritten: dict[int, list[dict]] = {}          # pid -> outcomes an add-in could not write (told by clear), in turn
 UNWRITTEN = "unwritten: "                       # clear's answer then, before the outcome's record
 CLEAR_LIMIT_S = 120                             # a save that runs is waited for this long (as a batch)
 KEEP_DAYS = 7                                   # an outcome older than this is removed (with those of gone Excels)
@@ -87,16 +87,22 @@ def clear(app, limit: float = CLEAR_LIMIT_S) -> None:
         _skipped(None, f"the first contact with an Excel was not made (which Excel it is cannot be told: {e})")
         return
     ex = runner._EXCELS.get(key)
+    own = ex.hash if ex is not None and ex.ready else _build_hash()
     builds = _builds(app)                                   # also where this build does not load: another may
     listed = builds is not None
     if not listed:
-        if ex is not None and ex.ready is False:
-            return                                          # this build's add-in does not load in that Excel
-        builds = [ex.hash if ex is not None and ex.ready else _build_hash()]
+        unread = "the smartass builds loaded there could not be read"
+        if ex is not None and ex.ready is False:            # this build's add-in does not load in that Excel
+            _skipped((key, "not made"), f"the first contact with Excel pid {key[0]} was not made ({unread}, and this "
+                                        "build's add-in does not load there)")
+            return
+        _skipped((key, "own only"), f"the first contact with Excel pid {key[0]} asks only this build's add-in "
+                                    f"({unread})")
+        builds = [own]
     for h in builds:
         macro = f"SmartassClear_{h}"
         try:
-            got = runner.asked(lambda: app.Run(macro), limit, rejected=jobs.start_limit(limit))
+            got = runner.asked(lambda: app.Run(macro), limit)
         except HostError:
             raise
         except Exception as e:   # noqa: BLE001 - not listed: the macro is not there, no add-in in that Excel
@@ -110,10 +116,13 @@ def clear(app, limit: float = CLEAR_LIMIT_S) -> None:
             except ValueError:
                 out = None
             out = out if _valid(out) else _unknown()
+            if h != own:
+                out["other_server"] = True                  # another smartass server's save: said as such
             with _lock:
-                _unwritten[key[0]] = out
-            log.warning("the outcome of the save after the reply in Excel pid %s could not be written (%s); the "
-                        "next answer there reads it from memory", key[0], out.get("unwritten"))
+                _unwritten.setdefault(key[0], []).append(out)
+            log.warning("the outcome of %s save after the reply in Excel pid %s could not be written (%s); the next "
+                        "answer there reads it from memory", "another smartass server's" if h != own else "the",
+                        key[0], out.get("unwritten"))
 
 
 XLL_NAME = re.compile(r"smartass_run_([0-9a-f]{8})\.xll\Z", re.IGNORECASE)
@@ -124,8 +133,7 @@ def _builds(app) -> list[str] | None:
     functions there (Application.RegisteredFunctions, a few ms: (file, export, type) per function); None when that
     cannot be read."""
     try:
-        with jobs.start_wait(60.0) as wait:
-            rows = jobs.com(lambda: app.RegisteredFunctions, limit=wait)
+        rows = jobs.com(lambda: app.RegisteredFunctions, limit=jobs.start_limit(60.0))
     except HostError:
         raise
     except Exception:   # noqa: BLE001 - not known: the caller asks this build's add-in, as before
@@ -139,12 +147,23 @@ def _builds(app) -> list[str] | None:
 
 
 def _skipped(key, text: str) -> None:
-    """A first contact that could not be made, logged once per Excel process (key; None: one not known)."""
+    """A first contact that could not be made (in whole or in part), logged once per Excel process and kind (key;
+    None: an Excel not known)."""
     with _lock:
         if key in _skips:
             return
         _skips.add(key)
     log.warning("%s: a save after the reply still waiting there may run during this job", text)
+
+
+def saving() -> bool:
+    """A save after the reply this process asked for may still be waiting or running in an Excel: asked for less than
+    CLEAR_LIMIT_S ago and its outcome read by no job yet (one that ran already counts too until then: its outcome
+    file is not opened here, as a reader holding it fails the add-in's rename). The next job's start then waits for
+    Excel's rejections as for that save (jobs.start_limit), bounded by each wait's own limit."""
+    now = time.time()
+    with _lock:
+        return any(now - _asked_at.get(t, 0.0) <= CLEAR_LIMIT_S for t in _queued)
 
 
 @functools.lru_cache(maxsize=1)
@@ -200,7 +219,10 @@ def take(app) -> dict | None:
     except Exception:   # noqa: BLE001 - which Excel this is cannot be told: no outcome of its
         return None
     with _lock:
-        kept = _unwritten.pop(pid, None)
+        waiting = _unwritten.get(pid)
+        kept = waiting.pop(0) if waiting else None
+        if waiting is not None and not waiting:
+            del _unwritten[pid]
     if kept is not None:
         _seen(kept)
         return kept
