@@ -1,6 +1,9 @@
 """Running a batch (xl/inproc/runner.py): the COM executor on the fake Excel, and the in-process executor's Python side
 with a fake Application.Run that executes the job file through the COM executor, as the add-in does inside Excel."""
 import json
+import os
+import threading
+import time
 from pathlib import Path
 
 import pythoncom
@@ -96,7 +99,7 @@ def test_a_failing_operation_names_itself_after_finally_ran_and_the_settings_cam
         runner.run(app, b)
     assert e.value.index == 4
     assert e.value.text == 'Workbooks("book.xlsx").Worksheets("Nope")'
-    assert "Nope" in e.value.message and "Nope" in str(e.value)
+    assert e.value.message.startswith("operation 4 (call Worksheets): ") and "Nope" in str(e.value)
     assert wb.Worksheets("S").cells[(1, 1)]["Value"] == "before"
     assert (2, 1) not in wb.Worksheets("S").cells
     assert wb.Worksheets("T").cells[(1, 1)]["Value"] == "finally"
@@ -139,7 +142,7 @@ def test_a_try_operation_that_fails_is_skipped_and_reported(book):
     assert [(i, t) for i, t, _ in res.skipped] == [(2, 'Workbooks("book.xlsx").Worksheets("S").ListObjects("Old")'),
                                                   (3, 'Workbooks("book.xlsx").Worksheets("S").ListObjects("Old").Delete()')]
     assert "Old" in res.skipped[0][2]
-    assert res.skipped[1][2] == runner.UNBOUND.format(3)
+    assert res.skipped[1][2] == "operation 3 (call Delete): " + runner.UNBOUND.format(3)
     assert wb.Worksheets("S").cells[(1, 1)]["Value"] == 7
 
 
@@ -153,7 +156,7 @@ def test_a_finally_operation_on_an_object_never_made_is_skipped_and_reported(boo
         runner.run(app, b)
     assert e.value.index == 1
     assert e.value.skipped == [(2, r'Application.Workbooks.Open("C:\nowhere\x.xlsx", 0, True).Close(False)',
-                                runner.UNBOUND.format(2))]
+                                "operation 2 (call Close): " + runner.UNBOUND.format(2))]
 
 
 def test_a_com_object_asked_back_is_an_error(book):
@@ -487,3 +490,163 @@ def test_a_busy_excel_is_an_error_and_not_a_fallback(inproc, monkeypatch):
     with pytest.raises(HostError, match="busy"):
         runner.run(app, b, limit=0.01)
     assert (1, 1) not in wb.Worksheets("S").cells
+
+
+# ------------------------------------------------------------------ review fixes: outcomes, claims, the load
+def ran_then(answer):
+    """A fake add-in that claims and runs the job, then gives the answer given (a broken or missing result)."""
+    def run(path, app):
+        job = json.loads(path.read_text(encoding="utf-8"))
+        path.unlink()
+        runner.execute(app, job)
+        return answer
+    return run
+
+
+@pytest.mark.parametrize("answer", ["{broken", '{"ok": true}', None, -2146826246, "file"])
+def test_a_result_that_cannot_be_read_is_an_unknown_outcome_and_never_run_again(inproc, answer):
+    app, wb = excel_book()
+    runner.run(app, Batch())
+    app.fail_run = lambda path: ran_then(answer)(path, app)        # "file": the result file is not there
+    b = Batch()
+    b.workbook("book.xlsx").Worksheets("S").Range("A1").Value2 = "once"
+    with pytest.raises(runner.BatchError, match="outcome is unknown") as e:
+        runner.run(app, b)
+    assert e.value.index is None and e.value.where == "inproc"
+    assert [ev for ev in app.events if ev[1] == "Value2"] == [("S", "Value2", "A1")]
+
+
+def test_a_result_file_that_cannot_be_read_is_an_unknown_outcome(inproc, monkeypatch):
+    app, wb = excel_book()
+    runner.run(app, Batch())
+
+    def unreadable(path):
+        path.unlink()
+        Path(f"{path}.out").write_text("{}", encoding="utf-8")
+        return "file"
+    app.fail_run = unreadable
+    real = Path.read_text
+    monkeypatch.setattr(Path, "read_text", lambda self, *a, **k: (_ for _ in ()).throw(PermissionError("locked"))
+                        if self.name.endswith(".out") else real(self, *a, **k))
+    with pytest.raises(runner.BatchError, match="outcome is unknown.*locked"):
+        runner.run(app, Batch())
+
+
+def test_a_job_the_add_in_could_not_claim_runs_once_over_com(inproc, caplog):
+    app, wb = excel_book()
+    runner.run(app, Batch())
+    app.fail_run = lambda path: "not run: the job file could not be deleted: it is in use"
+    b = Batch()
+    b.workbook("book.xlsx").Worksheets("S").Range("A1").Value2 = "once"
+    assert runner.run(app, b).where == "com"
+    assert [ev for ev in app.events if ev[1] == "Value2"] == [("S", "Value2", "A1")]
+    assert "could not be deleted" in caplog.text
+    app.fail_run = None
+    assert runner.run(app, Batch()).where == "inproc"                 # a claim that failed once is not for good
+
+
+def test_a_refused_job_means_the_com_executor_for_that_excel(inproc):
+    app, wb = excel_book()
+    runner.run(app, Batch())
+    app.fail_run = lambda path: "not run: refused: not in the jobs folder"
+    assert runner.run(app, Batch()).where == "com"
+    app.fail_run = None
+    assert runner.run(app, Batch()).where == "com"
+
+
+def test_a_run_that_fails_after_the_job_was_taken_is_an_unknown_outcome(inproc):
+    app, wb = excel_book()
+    runner.run(app, Batch())
+
+    def taken_then_error(path):
+        path.unlink()
+        raise pywintypes.com_error(-2147352567, "Exception occurred.", None, None)
+    app.fail_run = taken_then_error
+    with pytest.raises(runner.BatchError, match="outcome is unknown"):
+        runner.run(app, Batch())
+
+
+def test_a_failure_outside_the_operations_is_not_called_before_the_first(inproc):
+    app, wb = excel_book()
+    runner.run(app, Batch())
+    app.fail_run = lambda path: (path.unlink(), json.dumps(
+        {"ok": False, "started": 2, "index": -1, "message": "x", "values": {}, "marks": {}, "ms": 1.0,
+         "skipped": []}))[1]
+    b = Batch()
+    b.mark("a")
+    b.mark("b")
+    with pytest.raises(runner.BatchError) as e:
+        runner.run(app, b)
+    assert e.value.text == "outside the operations"
+
+
+def test_job_and_result_files_are_removed_and_old_leftovers_swept(inproc):
+    app, wb = excel_book()
+    runner.run(app, Batch())
+    folder = config.INPROC_DIR / "jobs"
+    old, new = folder / ("a" * 32 + ".json"), folder / ("b" * 32 + ".json.out")
+    for p in (old, new):
+        p.write_text("{}", encoding="utf-8")
+    os.utime(old, (time.time() - 3600, time.time() - 3600))
+    b = Batch()
+    b.ret(b.workbook("book.xlsx").Worksheets("S").Name, "s" * 31000)             # a long record: the result file
+    runner.run(app, b)
+    assert sorted(p.name for p in folder.iterdir()) == [new.name]
+
+
+def test_a_batch_does_not_wait_long_for_another_jobs_load(inproc, monkeypatch, caplog):
+    app, wb = excel_book()
+    monkeypatch.setattr(runner, "LOCK_WAIT_S", 0.05)
+    ex = runner._EXCELS.setdefault((id(app), 0.0), runner._Excel(id(app)))
+    ex.lock.acquire()
+    try:
+        assert runner.run(app, Batch()).where == "com"
+        assert runner.run(app, Batch()).where == "com"
+    finally:
+        ex.lock.release()
+    assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
+    assert runner.run(app, Batch()).where == "inproc"
+
+
+def test_a_register_xll_that_does_not_return_means_com_for_that_excel(inproc, monkeypatch, caplog):
+    app, wb = excel_book()
+    monkeypatch.setattr(runner, "REGISTER_LIMIT_S", 0.05)
+    release = threading.Event()
+    calls = []
+
+    def blocked(path):
+        calls.append(path)
+        release.wait(5)
+        return True
+    monkeypatch.setattr(app, "RegisterXLL", blocked)
+    try:
+        assert runner.run(app, Batch()).where == "com"
+        assert runner.run(app, Batch()).where == "com"
+    finally:
+        release.set()
+    assert len(calls) == 1
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1 and "did not return" in warnings[0]
+
+
+def test_a_busy_excel_during_the_load_is_tried_again_next_batch(inproc, monkeypatch):
+    app, wb = excel_book()
+    real, tries = app.RegisterXLL, []
+
+    def busy_once(path):
+        tries.append(path)
+        if len(tries) == 1:
+            raise pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+        return real(path)
+    monkeypatch.setattr(app, "RegisterXLL", busy_once)
+    assert runner.run(app, Batch()).where == "com"
+    assert runner.run(app, Batch()).where == "inproc"
+
+
+def test_an_unknown_excel_process_is_warned_about_once(inproc, monkeypatch, caplog):
+    monkeypatch.setattr(runner, "_unknown_warned", False)
+    monkeypatch.setattr(runner, "_identify", lambda app: (_ for _ in ()).throw(RuntimeError("no window")))
+    app, wb = excel_book()
+    for _ in range(3):
+        assert runner.run(app, Batch()).where == "com"
+    assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1

@@ -10,7 +10,7 @@ macro gone registers once more. Anything that keeps it from loading or answering
 compiler, a compile error, RegisterXLL False or failing, a wrong ping) means the COM executor for that Excel process,
 with one warning. A batch falls back to the COM executor only when nothing of it ran: the job file is still there,
 or the add-in's result says it failed before its first operation. Once the add-in has taken the job, a failure is a
-BatchError and the batch is never run again.
+BatchError and the batch is never run again (see _run_inproc for how "nothing ran" is told).
 
 The COM executor (execute) interprets the batch's plain data over the COM objects, inside one jobs.com. A busy Excel
 is waited for on the rejected operation only (a rejected call did not run), never by running the batch again. A call
@@ -37,6 +37,7 @@ import struct
 import threading
 import time
 import uuid
+import weakref
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -58,6 +59,10 @@ QUIET = (("ScreenUpdating", False), ("EnableEvents", False), ("DisplayAlerts", F
 LINKS = 1                               # xlExcelLinks (LinkSources, BreakLink)
 RESTORE_LIMIT_S = 30
 LOAD_LIMIT_S = 60                       # RegisterXLL and the ping: how long a busy Excel is waited for
+REGISTER_LIMIT_S = 60                   # a RegisterXLL that has not returned by then: no add-in in that Excel
+LOCK_WAIT_S = 10                        # a batch waits this long for another job's load of the add-in, then COM
+LEFTOVER_S = 600                        # job / result files older than this are leftovers of a crash: removed
+NOT_RUN = "not run: "                   # the add-in's answer when it read, deleted and ran nothing
 OMITTED = pythoncom.ArgNotFound         # MISSING: sent as DISP_E_PARAMNOTFOUND, as C#'s Type.Missing
 UNBOUND = "no object {}: the operation that makes it failed or did not run"
 NOT_A_VALUE = "a COM object cannot be asked back"
@@ -109,7 +114,10 @@ def _result(out: dict, batch, where: str) -> Result:
     skipped = [(i, batch.text(i), m) for i, m in out.get("skipped", [])]
     if not out["ok"]:
         i = out.get("index")
-        text = batch.text(i) if i is not None and i >= 0 else "before the first operation"
+        if i is not None and i >= 0:
+            text = batch.text(i)
+        else:
+            text = "before the first operation" if out.get("started", 0) == 0 else "outside the operations"
         raise BatchError(i, text, out.get("message") or "", skipped, where)
     return Result({k: _tuples(v) for k, v in out["values"].items()}, dict(out["marks"]), float(out["ms"]), skipped,
                   where)
@@ -149,16 +157,16 @@ def execute(app, job: dict, limit: float = 120) -> dict:
                     break
                 except Exception as e:   # noqa: BLE001 - the failure is the result
                     if op.get("try"):
-                        skipped.append([i, _message(e)])
+                        skipped.append([i, _failure(i, op, e)])
                         continue
-                    out = {"ok": False, "index": i, "message": _message(e)}
+                    out = {"ok": False, "index": i, "message": _failure(i, op, e)}
                     break
         finally:
             for j, op in enumerate(final):
                 try:
                     retry_busy(lambda op=op: _do(app, op, refs, values, marks, t0), limit)
                 except Exception as e:   # noqa: BLE001
-                    skipped.append([len(ops) + j, _message(e)])
+                    skipped.append([len(ops) + j, _failure(len(ops) + j, op, e)])
     except Exception as e:   # noqa: BLE001 - the settings could not be read or set: nothing ran
         out = {"ok": False, "index": -1, "message": _message(e)}
     finally:
@@ -277,6 +285,12 @@ def _plain(v):
     raise _Failed(NOT_A_VALUE)
 
 
+def _failure(i: int, op: dict, e: BaseException) -> str:
+    """"operation <index> (<kind> <name>): <message>": how a failing operation's text starts in both executors (the
+    message after it is each executor's own: pywin32's and the add-in's texts for the same COM error can differ)."""
+    return f"operation {i} ({op.get('k', '?')} {op.get('name', '?')}): {_message(e)}"
+
+
 def _message(e: BaseException) -> str:
     """Excel's own text for a failed call (the description and the error code), else the exception's."""
     if isinstance(e, pywintypes.com_error):
@@ -292,12 +306,13 @@ def _message(e: BaseException) -> str:
 # ------------------------------------------------------------------ the in-process executor
 @dataclass
 class _Excel:
-    """One Excel process: whether the add-in is loaded there (None: not tried yet) and its macro names."""
+    """One Excel process: whether the add-in is loaded there (None: not decided yet) and its macro names."""
     pid: int
     ready: bool | None = None
     hash: str = ""
     xll: str = ""
     lock: threading.Lock = field(default_factory=threading.Lock)
+    waited: bool = False                  # a batch gave up waiting for the lock (warned once)
 
     @property
     def run_macro(self) -> str:
@@ -310,10 +325,12 @@ class _Excel:
 
 _EXCELS: dict[tuple, _Excel] = {}       # (pid, process start time) -> _Excel
 _EXCELS_LOCK = threading.Lock()
-_last = threading.local()               # this thread's last (app, key): a job's batches share one app object
+_last = threading.local()               # this thread's last (weak app, key): a job's batches share one app object
+_unknown_warned = False
 
 
 def _ready(app) -> _Excel | None:
+    global _unknown_warned
     if not config.INPROC:
         return None
     try:
@@ -321,27 +338,40 @@ def _ready(app) -> _Excel | None:
     except HostError:
         raise
     except Exception as e:   # noqa: BLE001 - which Excel process this is cannot be told: over COM
-        log.warning("in-process executor not used: the Excel process is not known (%s)", e)
+        if not _unknown_warned:                   # without a process there is nothing to key "once per Excel" on
+            _unknown_warned = True
+            log.warning("in-process executor not used: the Excel process is not known (%s)", e)
         return None
     with _EXCELS_LOCK:
         ex = _EXCELS.setdefault(key, _Excel(key[0]))
-    with ex.lock:
+    if not ex.lock.acquire(timeout=LOCK_WAIT_S):  # another job is still loading it (or stuck doing so)
+        if not ex.waited:
+            ex.waited = True
+            log.warning("in-process executor not used for a batch in Excel pid %s: its add-in is still being "
+                        "loaded after %s s; the batch runs over COM", ex.pid, LOCK_WAIT_S)
+        return None
+    try:
         if ex.ready is None:
             _load(app, ex)
+    finally:
+        ex.lock.release()
     return ex if ex.ready else None
 
 
 def _identify(app) -> tuple:
     """(pid, start time) of app's Excel process, from its main window."""
     last = getattr(_last, "seen", None)
-    if last is not None and last[0] is app:
+    if last is not None and last[0]() is app:
         return last[1]
     import psutil
     import win32process
     hwnd = jobs.com(lambda: int(app.Hwnd))
     pid = win32process.GetWindowThreadProcessId(hwnd)[1]
     key = (pid, psutil.Process(pid).create_time())
-    _last.seen = (app, key)
+    try:
+        _last.seen = (weakref.ref(app), key)
+    except TypeError:
+        pass
     return key
 
 
@@ -357,8 +387,8 @@ def _is_64bit(pid: int) -> bool:
 
 
 def _load(app, ex: _Excel) -> None:
-    """Build (once per hash) and load the add-in in this Excel; on any failure the COM executor for this Excel,
-    with one warning. An abandoned job leaves it undecided."""
+    """Build (once per hash) and load the add-in in this Excel; on a failure the COM executor for this Excel, with
+    one warning. A busy Excel or an abandoned job leaves it undecided (the next batch tries again)."""
     try:
         if not _is_64bit(ex.pid):
             raise build.BuildError("Excel is 32-bit; the add-in is built for 64-bit Excel")
@@ -370,15 +400,60 @@ def _load(app, ex: _Excel) -> None:
     except jobs.JobAborted:
         raise
     except Exception as e:   # noqa: BLE001 - whatever it is, the COM executor does the work
+        if isinstance(e, HostError) or (isinstance(e, pywintypes.com_error) and is_busy(e)):
+            log.info("in-process executor not loaded yet in Excel pid %s: %s", ex.pid, e)
+            return
         _give_up(ex, _message(e) if isinstance(e, pywintypes.com_error) else str(e))
 
 
+class _Blocked(Exception):
+    """RegisterXLL did not return in time."""
+
+
 def _register(app, ex: _Excel) -> None:
-    if jobs.com(lambda: app.RegisterXLL(ex.xll), limit=LOAD_LIMIT_S) is not True:
+    if _register_xll(app, ex.xll, REGISTER_LIMIT_S) is not True:
         raise build.BuildError(f"RegisterXLL({ex.xll}) did not load it")
     got = jobs.com(lambda: app.Run(ex.ping_macro), limit=LOAD_LIMIT_S)
     if got != ex.hash:
         raise build.BuildError(f"the add-in answered {got!r} to its ping, not {ex.hash!r}")
+
+
+def _register_xll(app, path: str, limit: float):
+    """app.RegisterXLL(path) on a thread of its own, waited for at most limit seconds (a dialog in Excel would hold
+    it). On time out _Blocked: that thread stays blocked in Excel until Excel answers, and the caller gives up on
+    the add-in for that Excel process."""
+    jobs._check_alive()
+    if isinstance(app, dynamic.CDispatch):           # a COM object: handed to the other thread through a stream
+        stream = pythoncom.CoMarshalInterThreadInterfaceInStream(pythoncom.IID_IDispatch, app._oleobj_)
+
+        def call():
+            pythoncom.CoInitialize()
+            try:
+                excel = dynamic.Dispatch(pythoncom.CoGetInterfaceAndReleaseStream(stream, pythoncom.IID_IDispatch))
+                try:
+                    return retry_busy(lambda: excel.RegisterXLL(path), LOAD_LIMIT_S)
+                finally:
+                    excel = None
+            finally:
+                pythoncom.CoUninitialize()
+    else:                                              # the fakes of the tests
+        def call():
+            return app.RegisterXLL(path)
+    box: dict = {}
+
+    def worker():
+        try:
+            box["value"] = call()
+        except BaseException as e:   # noqa: BLE001 - handed to the waiting thread
+            box["error"] = e
+    t = threading.Thread(target=worker, name="smartass RegisterXLL", daemon=True)
+    t.start()
+    t.join(limit)
+    if t.is_alive():
+        raise _Blocked(f"RegisterXLL did not return within {limit:.0f} s (a dialog in Excel?)")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
 
 
 def _give_up(ex: _Excel, why: str) -> None:
@@ -386,49 +461,78 @@ def _give_up(ex: _Excel, why: str) -> None:
     log.warning("in-process executor not used in Excel pid %s: %s; its Excel work runs over COM", ex.pid, why)
 
 
+def _unknown(detail: str) -> BatchError:
+    """The add-in may have run operations of the batch, and what it did cannot be told: never run it again."""
+    return BatchError(None, "the batch in Excel", f"the batch's outcome is unknown: {detail}", where="inproc")
+
+
+def _sweep(folder: Path) -> None:
+    """Job and result files left by an earlier run (a crash) hold a batch's values: removed after LEFTOVER_S."""
+    now = time.time()
+    for p in folder.iterdir():
+        try:
+            if now - p.stat().st_mtime > LEFTOVER_S:
+                p.unlink()
+        except OSError:
+            pass
+
+
 def _run_inproc(app, ex: _Excel, job: dict, limit: float) -> dict | None:
-    """The add-in's result record, or None when nothing of the batch ran and the COM executor is to run it."""
-    folder = config.INPROC_DIR / "jobs"
+    """The add-in's result record, or None when nothing of the batch ran and the COM executor is to run it.
+
+    Whether it started is told by what the add-in returned: a record (its "started"), "file" (a record in the result
+    file), or "not run: ..." (nothing read, deleted or run). Anything else after the add-in was reached is an unknown
+    outcome (BatchError), never run again. Only when Application.Run itself failed (the macro is not there) and the
+    job file is untouched (the add-in deletes it before it runs anything) did nothing run: the add-in is registered
+    once more and asked again."""
+    folder = build.jobs_folder()
     folder.mkdir(parents=True, exist_ok=True)
+    _sweep(folder)
     path = folder / f"{uuid.uuid4().hex}.json"
     out_path = Path(f"{path}.out")
     path.write_text(json.dumps(_wire(job)), encoding="utf-8")
     try:
         for again in (False, True):
-            err, record = "Application.Run gave no result", None
             try:
                 got = jobs.com(lambda: app.Run(ex.run_macro, str(path)), limit=limit)
-                if isinstance(got, str) and got.startswith("{"):
-                    record = got
-                elif got == "file":
-                    record = out_path.read_text(encoding="utf-8")
-                else:
-                    err = f"Application.Run gave {got!r}"
             except HostError:
                 raise                                   # busy (the Run was rejected: nothing ran) or abandoned
-            except Exception as e:   # noqa: BLE001 - what it means depends on the files below
+            except Exception as e:   # noqa: BLE001 - did the add-in get the job? Its file says
+                if not path.exists():
+                    raise _unknown(f"Application.Run failed after the add-in took the job ({_message(e)})") from None
                 err = _message(e)
-            if record is None and out_path.exists():
-                record = out_path.read_text(encoding="utf-8")
-            if record is not None:
-                out = json.loads(record)
-                if not out["ok"] and out.get("started", 0) == 0:
-                    log.warning("the add-in failed before the batch's first operation (%s); it runs over COM",
-                                out.get("message"))
-                    return None
-                return out
-            if not path.exists():
-                raise BatchError(None, "the batch in Excel", f"the add-in took the job and wrote no result ({err})",
-                                 where="inproc")
-            if again:
-                break
-            try:                                        # the macro is not there: load the add-in once more
-                _register(app, ex)
-            except jobs.JobAborted:
-                raise
-            except Exception as e:   # noqa: BLE001
-                err = _message(e) if isinstance(e, pywintypes.com_error) else str(e)
-                break
+                if again:
+                    break
+                try:                                    # the macro is not there: load the add-in once more
+                    _register(app, ex)
+                    continue
+                except jobs.JobAborted:
+                    raise
+                except Exception as e2:   # noqa: BLE001
+                    err = _message(e2) if isinstance(e2, pywintypes.com_error) else str(e2)
+                    break
+            if isinstance(got, str) and got.startswith(NOT_RUN):
+                log.warning("the add-in did not run the batch (%s); it runs over COM", got[len(NOT_RUN):])
+                if got.startswith(NOT_RUN + "refused"):
+                    _give_up(ex, got)                   # the add-in and this engine disagree on the job folder
+                return None
+            if got == "file":
+                try:
+                    record = out_path.read_text(encoding="utf-8")
+                except OSError as e:
+                    raise _unknown(f"the result file could not be read ({e})") from None
+                finally:
+                    out_path.unlink(missing_ok=True)
+            elif isinstance(got, str) and got.startswith("{"):
+                record = got
+            else:
+                raise _unknown(f"the add-in answered {str(got)[:200]!r}")
+            out = _parse(record)
+            if not out["ok"] and out["started"] == 0:
+                log.warning("the add-in failed before the batch's first operation (%s); it runs over COM",
+                            out.get("message"))
+                return None
+            return out
         _give_up(ex, err)
         return None
     finally:
@@ -437,6 +541,22 @@ def _run_inproc(app, ex: _Excel, job: dict, limit: float) -> dict | None:
                 p.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def _parse(record: str) -> dict:
+    """The add-in's result record, checked; an unreadable one is an unknown outcome."""
+    try:
+        out = json.loads(record)
+        ok, started = out["ok"], out["started"]
+        if not (isinstance(ok, bool) and isinstance(started, int) and isinstance(out["values"], dict)
+                and isinstance(out["marks"], dict) and isinstance(out["ms"], (int, float))
+                and isinstance(out["skipped"], list)):
+            raise ValueError("a field of the wrong type")
+        if not ok and not (isinstance(out["index"], int) and isinstance(out["message"], str)):
+            raise ValueError("a failure without its operation")
+    except (ValueError, KeyError, TypeError) as e:
+        raise _unknown(f"the add-in's result could not be read ({e})") from None
+    return out
 
 
 def _wire(v):

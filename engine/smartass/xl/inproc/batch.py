@@ -23,6 +23,14 @@ COM ignores them), truth tests, ==, iteration or len() of a node (all raise), ca
 operation; otherwise when it runs). Values: None, bool, int (64-bit), finite float, str, a grid (a tuple or list of
 equal rows of those) and a list of scalars (as Worksheets([...]) takes). MISSING is an omitted optional argument.
 
+How the two executors call Excel (runner.py): the add-in makes every operation an IDispatch::Invoke with LCID 0 -
+gets and calls with DISPATCH_METHOD | DISPATCH_PROPERTYGET, sets with DISPATCH_PROPERTYPUT. The COM executor makes
+calls the same raw way, but gets and sets through pywin32's attribute access (PROPERTYGET / PROPERTYPUT, LCID 0). They
+agree on every idiom scripts/check_inproc.py runs; a get of a name pywin32's type library calls a method would differ
+(pywin32 hands back the method instead of calling it): write such a member as a call, node.Name(). A failing
+operation's message starts "operation <index> (<kind> <name>): " in both executors; the text after it is each
+executor's own (pywin32's and the add-in's words for the same COM error can differ).
+
 Plain data (to_dict, version 1): {"version", "quiet", "ops": [...], "finally": [...]}. Each operation is one of
     {"k": "get",  "on": id, "name": n, "as": id}
     {"k": "call", "on": id, "name": n, "args": [v, ...], "as": id}

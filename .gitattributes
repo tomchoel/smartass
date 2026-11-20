@@ -4,6 +4,7 @@
 *.xlsx binary
 *.xll binary
 *.dll binary
+engine/smartass/xl/inproc/Runner.cs text eol=lf
 .githooks/* text eol=lf
 engine/smartass/xl/vendor/tn_rapportstil.py -text
 engine/smartass/xl/vendor/formelsjekk.py -text

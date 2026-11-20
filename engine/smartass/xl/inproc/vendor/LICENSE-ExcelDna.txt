@@ -1,7 +1,9 @@
 Excel-DNA (ExcelDna64.xll, ExcelDna.Integration.dll), version 1.9.0, from the NuGet packages ExcelDna.AddIn and
-ExcelDna.Integration (https://excel-dna.net, https://github.com/Excel-DNA/ExcelDna). Licence: zlib.
+ExcelDna.Integration (https://excel-dna.net, https://github.com/Excel-DNA/ExcelDna). Its LICENSE.txt follows.
 
-Copyright (C) 2005-2023 Govert van Drimmelen
+zLib license
+
+Copyright (C) 2005-2021 Govert van Drimmelen
 
 This software is provided 'as-is', without any express or implied
 warranty.  In no event will the authors be held liable for any damages

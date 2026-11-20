@@ -4,7 +4,9 @@ fresh workbooks. Each check compares what came back (values with their types, th
 operations) and the workbooks afterwards, read with plain COM (sheet order, cell values, formulas via Formula2,
 number formats, fonts, fills, column widths, tables, defined names, links), and that the four quiet settings are as
 they were before. Then: the ping, two builds loaded side by side, broken builds (a .dna pointing at a missing dll, a
-dll with no functions: no window in Excel, the COM executor takes over), and the fixed cost of an empty batch.
+dll with no functions: no window in Excel, the COM executor takes over), the add-in's guards (a formula calling it,
+paths outside its jobs folder, a job file it cannot delete: nothing read, deleted or run), and the fixed cost of an
+empty batch.
 
 The Excel is one this script starts itself (DispatchEx, refused unless its pid is new; check_fastcom.start_excel) and
 quits at the end; if Quit hangs, only that process is killed. The user's Excel is never touched. Nothing is saved: the
@@ -18,6 +20,7 @@ Usage (from the repo root):
 """
 import argparse
 import datetime as dt
+import json
 import logging
 import os
 import shutil
@@ -26,6 +29,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 
 TMP = Path(tempfile.mkdtemp(prefix="check_inproc_"))
@@ -467,6 +471,66 @@ def addin_checks(app, raw, pid: int, ctime: float, ex) -> None:
               f"RegisterXLL -> {loaded!r}; windows {shown}; warnings {handler.seen}")
 
 
+def guard_checks(app, raw, ex) -> None:
+    """The add-in runs nothing but a job file of its jobs folder, given by Application.Run: a formula calling it, a
+    path outside the folder, a wrong name, ".." and other path tricks, a missing file and a job file it cannot delete
+    are refused, and nothing is deleted or run."""
+    print()
+    wb = raw.Workbooks.Add()
+    name = str(wb.Name)
+    target = wb.Worksheets(1).Range("Z1")
+    folder = build.jobs_folder()
+    folder.mkdir(parents=True, exist_ok=True)
+
+    def job_file(where: Path) -> Path:
+        b = Batch()
+        b.workbook(name).Worksheets(1).Range("Z1").Value2 = "ran"
+        where.parent.mkdir(parents=True, exist_ok=True)
+        where.write_text(json.dumps(runner._wire(b.to_dict())), encoding="utf-8")
+        return where
+
+    hexname = uuid.uuid4().hex + ".json"
+    real = job_file(folder / hexname)
+    cell = wb.Worksheets(1).Range("A1")
+    cell.Formula = f'=SmartassRun_{ex.hash}("{real}")'
+    shown = cell.Value2
+    check("a formula calling the add-in runs nothing", real.exists() and target.Value2 is None
+          and shown == -2146826246, f"the cell shows {shown!r} (#N/A is -2146826246); the job file is still there")
+    cell.Clear()
+
+    outside = job_file(TMP / "outside" / (uuid.uuid4().hex + ".json"))
+    wrong = job_file(folder / "abc.json")
+    tricks = {
+        "outside the folder": str(outside),
+        "a wrong name": str(wrong),
+        "a .. path": str(folder / ".." / folder.name / hexname),
+        "a ..\\ name": str(folder) + "\\..\\" + folder.name + "\\" + hexname,
+        "forward slashes": str(real).replace("\\", "/"),
+        "a network path": "\\\\localhost\\" + str(real).replace(":", "$", 1),
+        "a stream": str(real) + ":x",
+        "a relative path": hexname,
+        "a missing file": str(folder / (uuid.uuid4().hex + ".json")),
+    }
+    for what, path in tricks.items():
+        got = raw.Run(ex.run_macro, path)
+        check(f"refused: {what}", isinstance(got, str) and got.startswith("not run:") and real.exists()
+              and outside.exists() and wrong.exists() and target.Value2 is None, f"{path} -> {got!r}")
+
+    held = open(real, "rb")                            # no FILE_SHARE_DELETE: the add-in cannot delete it
+    try:
+        got = raw.Run(ex.run_macro, str(real))
+    finally:
+        held.close()
+    check("a job file the add-in cannot delete is not run", isinstance(got, str) and "could not be deleted" in got
+          and real.exists() and target.Value2 is None, f"-> {got!r}")
+    got = raw.Run(ex.run_macro, str(real))
+    check("the same job file once it can be claimed runs", isinstance(got, str) and got.startswith("{")
+          and not real.exists() and target.Value2 == "ran", f"-> {got[:60]!r}")
+    for p in (outside, wrong):
+        p.unlink(missing_ok=True)
+    wb.Close(False)
+
+
 def detector_check(raw, pid: int, ctime: float) -> None:
     """Without the .xll.config the same missing-dll build shows Excel-DNA's log window: the window watch can see one."""
     xll = broken_build("broken_without_config", None, config_file=False)
@@ -537,6 +601,7 @@ def main(argv=None) -> int:
             return 1
         battery(app, raw, sources)
         fixed_cost(app, raw, args.runs)
+        guard_checks(app, raw, ex)
         addin_checks(app, raw, pid, ctime, ex)
         detector_check(raw, pid, ctime)
     finally:

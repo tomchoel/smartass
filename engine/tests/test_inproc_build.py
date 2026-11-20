@@ -1,6 +1,8 @@
 """Building the add-in (xl/inproc/build.py) with a fake compiler: the hash and names, the atomic build, pruning, the
 compile-error marker."""
+import os
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -14,8 +16,8 @@ def src(tmp_path, monkeypatch):
     """Copies of the sources (Runner.cs, the vendored files) and a home of its own; csc 'exists'."""
     s = tmp_path / "src"
     (s / "vendor").mkdir(parents=True)
-    (s / "Runner.cs").write_text('// [ExcelFunction(Name = "SmartassRun___HASH__")] const string Hash = "__HASH__";',
-                                 encoding="utf-8")
+    (s / "Runner.cs").write_text('// [ExcelFunction(Name = "SmartassRun___HASH__")] const string Hash = "__HASH__"; '
+                                 'const string JobsFolder = @"__JOBS__";', encoding="utf-8")
     (s / "vendor" / "ExcelDna64.xll").write_bytes(b"MZ xll \x00\x01")
     (s / "vendor" / "ExcelDna.Integration.dll").write_bytes(b"MZ dll \x00\x02")
     monkeypatch.setattr(build, "RUNNER_CS", s / "Runner.cs")
@@ -56,6 +58,26 @@ def test_the_hash_covers_the_sources_and_the_batch_version(src, monkeypatch):
     assert build.hash8() != h
 
 
+@pytest.mark.parametrize("part", ["DNA", "CONFIG", "FLAGS", "INPROC_DIR"])
+def test_the_hash_covers_the_dna_the_config_the_flags_and_the_jobs_folder(src, monkeypatch, tmp_path, part):
+    h = build.hash8()
+    if part == "FLAGS":
+        monkeypatch.setattr(build, "FLAGS", (*build.FLAGS, "-debug-"))
+    elif part == "INPROC_DIR":
+        monkeypatch.setattr(config, "INPROC_DIR", tmp_path / "elsewhere")
+    else:
+        monkeypatch.setattr(build, part, getattr(build, part) + "<!-- -->")
+    assert build.hash8() != h
+
+
+def test_line_endings_do_not_change_the_hash(src):
+    cs = src / "Runner.cs"
+    cs.write_bytes(b"line one\nline two\n")
+    h = build.hash8()
+    cs.write_bytes(b"line one\r\nline two\r\n")
+    assert build.hash8() == h
+
+
 def test_a_build_is_a_folder_named_by_its_hash_with_the_add_in_its_dna_config_and_dll(src, compiler):
     xll, h = build.ensure()
     name = f"smartass_run_{h}"
@@ -69,7 +91,10 @@ def test_a_build_is_a_folder_named_by_its_hash_with_the_add_in_its_dna_config_an
     assert 'name="ExcelDna.Integration" switchValue="Off"' in cfg
     assert '<add name="LogDisplay"' in cfg and 'initializeData="Off"' in cfg
     (cmd, source), = compiler
-    assert source == f'// [ExcelFunction(Name = "SmartassRun_{h}")] const string Hash = "{h}";'
+    jobs = build.jobs_folder()
+    assert source == (f'// [ExcelFunction(Name = "SmartassRun_{h}")] const string Hash = "{h}"; '
+                      f'const string JobsFolder = @"{jobs}";')
+    assert jobs == config.INPROC_DIR / "jobs" and jobs.is_absolute()
     assert cmd[0] == str(build.CSC)
     assert {"-nologo", "-target:library", "-langversion:5", f"-r:{build.INTEGRATION}",
             "-r:System.Web.Extensions.dll"} <= set(cmd)
@@ -126,6 +151,17 @@ def test_a_compile_error_is_kept_in_a_marker_and_not_retried(src, monkeypatch):
     assert sorted(p.name for p in config.INPROC_DIR.iterdir()) == [marker.name]
 
 
+def test_a_compile_error_marker_expires_after_a_day(src, compiler):
+    marker = config.INPROC_DIR / f"smartass_run_{build.hash8()}.failed"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("csc was killed by the virus scanner", encoding="utf-8")
+    with pytest.raises(build.BuildError, match="virus"):
+        build.ensure()
+    os.utime(marker, (time.time() - 2 * 86400, time.time() - 2 * 86400))
+    xll, _ = build.ensure()
+    assert xll.is_file() and not marker.exists() and len(compiler) == 1
+
+
 def test_no_compiler_is_a_build_error_without_a_marker(src, compiler, tmp_path, monkeypatch):
     monkeypatch.setattr(build, "CSC", tmp_path / "nowhere" / "csc.exe")
     with pytest.raises(build.BuildError, match="compiler"):
@@ -139,3 +175,4 @@ def test_the_shipped_sources_are_there():
         assert p.is_file(), p
     cs = build.RUNNER_CS.read_text(encoding="utf-8")
     assert 'Name = "SmartassRun___HASH__"' in cs and 'Name = "SmartassPing___HASH__"' in cs
+    assert 'const string JobsFolder = @"__JOBS__";' in cs

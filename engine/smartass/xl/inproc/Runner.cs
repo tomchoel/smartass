@@ -1,5 +1,7 @@
 // The in-process executor of smartass batches (engine/smartass/xl/inproc): a template. build.py puts the build's hash
-// in place of __HASH__, so every build has its own function names (a loaded add-in's names stay taken in that Excel).
+// in place of __HASH__, so every build has its own function names (a loaded add-in's names stay taken in that Excel),
+// and the jobs folder in place of __JOBS__. SmartassRun is a function, not a command, because its result is its
+// return value (a command returns nothing); it refuses a cell caller and any path but a job file of that folder.
 // C# 5 (the .NET Framework compiler that ships with Windows); the batch format is described in batch.py, the result
 // record in runner.py, and the COM executor there does the same over COM from Python.
 using System;
@@ -11,6 +13,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 using ExcelDna.Integration;
 
@@ -20,6 +23,9 @@ public static class SmartassRunner___HASH__
     const int Version = 1;
     const int Links = 1;                                       // xlExcelLinks
     const int InlineMax = 30000;                               // below Excel's 32 767 characters per string
+    const string JobsFolder = @"__JOBS__";                     // build.py: the one folder job files are run from
+    const string NotRun = "not run: ";
+    static readonly Regex JobName = new Regex(@"^[0-9a-f]{32}\.json$");
     const string Unbound = "no object {0}: the operation that makes it failed or did not run";
     const string NotAValue = "a COM object cannot be asked back";
     const string NotADate = "a date cannot be asked back (read Value2)";
@@ -34,12 +40,69 @@ public static class SmartassRunner___HASH__
         return Hash;
     }
 
-    // Runs the job at jobPath; never throws. The job file is deleted once it is read: from then on the caller never
-    // runs the batch again. The result record is the return value when it fits an Excel string (InlineMax);
-    // otherwise it is written to jobPath + ".out" (UTF-8, no BOM) and the return value is "file". (Opening a file
-    // Excel has just written costs the caller about 20 ms: the virus scanner reads it first.)
+    // Runs the job at jobPath; never throws. Nothing is read, deleted or run unless the call comes from outside a cell
+    // (Application.Run) and jobPath is a job file of the one jobs folder compiled in: JobsFolder\<32 hex>.json, given
+    // as its full, plain path. Otherwise the return value starts with "not run:" (or, in a cell, is #N/A) and nothing
+    // is touched. The job file is then claimed: read and deleted (a job whose file cannot be deleted is not run: the
+    // caller could take it for one that never started and run it again). The result record is the return value when
+    // it fits an Excel string (InlineMax); otherwise it is written to jobPath + ".out" (UTF-8, no BOM) and the return
+    // value is "file". (Opening a file Excel has just written costs the caller about 20 ms: the virus scanner reads
+    // it first.)
     [ExcelFunction(Name = "SmartassRun___HASH__", IsMacroType = true, IsHidden = true)]
     public static object Run(string jobPath)
+    {
+        if (FromCell()) return ExcelError.ExcelErrorNA;
+        string refused = Refusal(jobPath);
+        if (refused != null) return NotRun + "refused: " + refused;
+        string text;
+        try
+        {
+            text = File.ReadAllText(jobPath, Encoding.UTF8);
+        }
+        catch (Exception e)
+        {
+            return NotRun + "the job could not be read: " + e.Message;
+        }
+        try
+        {
+            File.Delete(jobPath);
+        }
+        catch (Exception e)
+        {
+            return NotRun + "the job file could not be deleted: " + e.Message;
+        }
+        if (File.Exists(jobPath)) return NotRun + "the job file could not be deleted";
+        return Execute(jobPath, text);
+    }
+
+    static bool FromCell()
+    {
+        try
+        {
+            return XlCall.Excel(XlCall.xlfCaller) is ExcelReference;
+        }
+        catch (Exception)
+        {
+            return true;                                          // the caller cannot be told: refused
+        }
+    }
+
+    static string Refusal(string jobPath)
+    {
+        if (string.IsNullOrEmpty(jobPath)) return "no job path";
+        if (jobPath.StartsWith(@"\\") || jobPath.IndexOf('/') >= 0) return "not a local plain path";
+        if (jobPath.Length < 3 || jobPath[1] != ':' || jobPath.IndexOf(':', 2) >= 0) return "not a plain file path";
+        string full;
+        try { full = Path.GetFullPath(jobPath); }
+        catch (Exception) { return "not a valid path"; }
+        if (!string.Equals(full, jobPath, StringComparison.OrdinalIgnoreCase)) return "not a full plain path";
+        if (!string.Equals(Path.GetDirectoryName(full), JobsFolder, StringComparison.OrdinalIgnoreCase))
+            return "not in the jobs folder";
+        if (!JobName.IsMatch(Path.GetFileName(full))) return "not a job file name";
+        return null;
+    }
+
+    static object Execute(string jobPath, string text)
     {
         var sw = Stopwatch.StartNew();
         var values = new List<KeyValuePair<string, object>>();
@@ -53,8 +116,6 @@ public static class SmartassRunner___HASH__
         object app = null;
         try
         {
-            string text = File.ReadAllText(jobPath, Encoding.UTF8);
-            try { File.Delete(jobPath); } catch (Exception) { }
             var json = new JavaScriptSerializer();
             json.MaxJsonLength = int.MaxValue;
             json.RecursionLimit = 64;
@@ -71,13 +132,17 @@ public static class SmartassRunner___HASH__
             {
                 for (int i = 0; i < ops.Count; i++)
                 {
-                    var op = (Dictionary<string, object>)ops[i];
-                    started = i + 1;
+                    started = i + 1;                              // before anything about the operation can fail
+                    var op = ops[i] as Dictionary<string, object>;
                     try { Do(op, refs, values, marks, sw); }
                     catch (Exception e)
                     {
-                        if (op.ContainsKey("try") && (bool)op["try"]) { skipped.Add(new object[] { i, Message(e) }); continue; }
-                        ok = false; index = i; message = Message(e);
+                        if (op != null && op.ContainsKey("try") && Equals(op["try"], true))
+                        {
+                            skipped.Add(new object[] { i, Failure(i, op, e) });
+                            continue;
+                        }
+                        ok = false; index = i; message = Failure(i, op, e);
                         break;
                     }
                 }
@@ -86,8 +151,9 @@ public static class SmartassRunner___HASH__
             {
                 for (int j = 0; j < fin.Count; j++)
                 {
-                    try { Do((Dictionary<string, object>)fin[j], refs, values, marks, sw); }
-                    catch (Exception e) { skipped.Add(new object[] { ops.Count + j, Message(e) }); }
+                    var op = fin[j] as Dictionary<string, object>;
+                    try { Do(op, refs, values, marks, sw); }
+                    catch (Exception e) { skipped.Add(new object[] { ops.Count + j, Failure(ops.Count + j, op, e) }); }
                 }
                 refs.Clear();
             }
@@ -120,11 +186,19 @@ public static class SmartassRunner___HASH__
         {
             File.WriteAllText(jobPath + ".out", record, new UTF8Encoding(false));
         }
-        catch (Exception)
+        catch (Exception e)
         {
-            return "no result file";
+            return "no result: the result file could not be written: " + e.Message;
         }
         return "file";
+    }
+
+    // "operation <index> (<kind> <name>): <message>": how a failing operation's text starts in both executors.
+    static string Failure(int index, Dictionary<string, object> op, Exception e)
+    {
+        string kind = op != null && op.ContainsKey("k") ? Convert.ToString(op["k"], Inv) : "?";
+        string name = op != null && op.ContainsKey("name") ? Convert.ToString(op["name"], Inv) : "?";
+        return "operation " + index.ToString(Inv) + " (" + kind + " " + name + "): " + Message(e);
     }
 
     // ------------------------------------------------------------------ the settings
@@ -169,6 +243,7 @@ public static class SmartassRunner___HASH__
     static void Do(Dictionary<string, object> op, Dictionary<int, object> refs,
                    List<KeyValuePair<string, object>> values, List<KeyValuePair<string, object>> marks, Stopwatch sw)
     {
+        if (op == null) throw new Exception("not an operation");
         string k = (string)op["k"];
         string name = (string)op["name"];
         if (k == "mark") { marks.Add(new KeyValuePair<string, object>(name, sw.Elapsed.TotalMilliseconds)); return; }
@@ -208,10 +283,10 @@ public static class SmartassRunner___HASH__
     const int DispidPropertyPut = -3, DispException = unchecked((int)0x80020009);
     static readonly int VariantSize = IntPtr.Size == 8 ? 24 : 16;
 
-    class ExcelError : Exception
+    class CallError : Exception
     {
         public readonly int Code;
-        public ExcelError(string message, int code) : base(message) { Code = code; }
+        public CallError(string message, int code) : base(message) { Code = code; }
     }
 
     static object Invoke(object target, string name, BindingFlags flags, object[] args)
@@ -221,7 +296,7 @@ public static class SmartassRunner___HASH__
         var none = Guid.Empty;
         var ids = new int[1];
         int hr = d.GetIDsOfNames(ref none, new string[] { name }, 1, Lcid, ids);
-        if (hr < 0) throw new ExcelError("Unknown name.", hr);              // as pywin32 says it
+        if (hr < 0) throw new CallError("Unknown name.", hr);              // as pywin32 says it
         bool put = flags == BindingFlags.SetProperty;
         int n = args.Length;
         IntPtr argv = Marshal.AllocCoTaskMem(VariantSize * Math.Max(n, 1));
@@ -248,9 +323,9 @@ public static class SmartassRunner___HASH__
             if (hr == DispException)
             {
                 int code = info.scode != 0 ? info.scode : info.wCode;
-                throw new ExcelError(info.bstrDescription ?? "Exception occurred.", code != 0 ? code : hr);
+                throw new CallError(info.bstrDescription ?? "Exception occurred.", code != 0 ? code : hr);
             }
-            if (hr < 0) throw new ExcelError(Marshal.GetExceptionForHR(hr).Message, hr);
+            if (hr < 0) throw new CallError(Marshal.GetExceptionForHR(hr).Message, hr);
             return put ? null : Marshal.GetObjectForNativeVariant(result);
         }
         finally
@@ -372,7 +447,7 @@ public static class SmartassRunner___HASH__
     static string Message(Exception e)
     {
         while ((e is TargetInvocationException) && e.InnerException != null) e = e.InnerException;
-        var x = e as ExcelError;
+        var x = e as CallError;
         if (x != null) return x.Message + " (0x" + x.Code.ToString("X8", Inv) + ")";
         var c = e as COMException;
         if (c != null) return c.Message + " (0x" + c.ErrorCode.ToString("X8", Inv) + ")";
