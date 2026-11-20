@@ -12,6 +12,17 @@
   + Oracle's `smartview_body.bas` loaded into an unsaved workbook) does ad hoc fallback grids; the answer is drawn
   in the user's Excel (session workbook, or `target="active"`). Only the engine's own Excel is ever killed or
   restarted; the PIDs it started are in `%LOCALAPPDATA%\smartass\pids.json` with the owning server.
+- **How an answer reaches Excel.** The answer's sheets are built as an .xlsx without Excel (under
+  `%LOCALAPPDATA%\smartass\tmp`, deleted when the answer is in), moved into the workbook in one copy and finished
+  there (tables, formulas, chart labels), with Excel quiet. The Excel job takes 2-3 s for an answer without a lines
+  sheet in a workbook of normal size (3.3 s at 61 sheets), 4-5 s with a lines sheet, and about 6-7 s for the first
+  answer of a new workbook (the workbook is created). A follow-up or `fin_refresh` replaces the question's `Q<n>`
+  sheets and tables whole: anything typed on them goes with them, so keep your own notes on your own sheets.
+  **Known limit** (to be fixed in the next phase): a formula on the user's own sheet that points at a `Q<n>` sheet
+  or its table (`='Q3 Answer'!E12`, `=SUM(Data_Q3[Value])`) shows #REF! after a follow-up or refresh of that
+  question, because the old sheet is deleted. Until then, link to values by pasting them, or re-link after a
+  refresh. Nothing of the user's is saved and Excel's settings are put back; when the answer's workbook is the
+  active one it ends on the new Answer, otherwise the user's active sheet is put back.
 - **Fetch route.** Smart View HTTP first: with the user's OAuth token where a pod has one (`smartass login`, no
   browser), else through the shared hidden Edge (signs in silently). A grid HTTP could not fetch is pulled as an ad
   hoc grid in Excel instead (`routes` in the reply; a warning says why).
@@ -38,6 +49,7 @@
 | Drill cache, drill browser profile, failed drill pages | `drill.db`, `drill_edge\`, `logs\drill_fail_*` |
 | Text repairs of your own | `text_fixes.json` |
 | Answer workbooks | `paths.analyser` (`<OneDrive>\smartass\analyser\<project>\`) |
+| An answer's file while it is moved in (deleted after) | `tmp\` |
 
 The spec of every answer is stored in the workbook (hidden `_svmeta`); that is what follow-ups and `fin_refresh`
 read.

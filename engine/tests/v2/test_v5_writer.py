@@ -92,26 +92,31 @@ def test_widths_b_is_9_and_gap_columns_2():
     assert lines and all((r, excel.col_number(gaps[0])) not in p.cells for r in lines)   # gaps hold no cells
 
 
-def test_write_answer_passes_widths_and_code_cols(monkeypatch):
-    seen = {}
-    monkeypatch.setattr(styling, "apply_report", lambda ws, roles: seen.update(roles) or [])
+def test_the_answer_roles_pass_widths_and_code_cols():
     _, _, p = run([GROUPED])
-    from test_v2_excel_writer import WS
-    excel.write_answer(WS(), p, [])
-    assert seen["code_cols"] == ["B"]
-    assert all(seen["col_widths"][k] == w for k, w in p.widths.items())
+    roles = answer_roles(p)
+    assert roles["code_cols"] == ["B"]
+    assert all(roles["col_widths"][k] == w for k, w in p.widths.items())
 
 
-def test_draw_writes_the_status_after_the_readback_and_sets_the_footer(monkeypatch):
+def test_the_job_writes_the_status_after_the_readback_and_sets_the_footer(monkeypatch, tmp_path):
+    from test_file_job import Wired
     from test_v2_pipeline import FakeProvider
-    from test_v2_pipeline_job import wire
     from v2util import facts, resolver, spec_dict
 
     from smartass import pipeline
-    log, seen = [], {}
-    wire(monkeypatch, log)
+    from smartass.core import config
+    from smartass.render import xlsx
+    monkeypatch.setattr(config, "HOME", tmp_path)
+    wired, seen = Wired(monkeypatch), {}
+    log = wired.calls
+    real = xlsx.build
+
+    def build(path, name, plan, *a, **k):
+        seen.update(plan=plan)
+        return real(path, name, plan, *a, **k)
+    monkeypatch.setattr(xlsx, "build", build)
     monkeypatch.setattr(pipeline, "compare", lambda *a: log.append("compare") or ["D5: sheet 1, model 2"])
-    monkeypatch.setattr(pipeline, "write_answer", lambda ws, plan, w: seen.update(plan=plan) or [])
     monkeypatch.setattr(pipeline, "write_status",
                         lambda ws, plan, m: log.append("write_status") or seen.update(m=m))
     out = pipeline.excel_job(None, pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts())), "session")

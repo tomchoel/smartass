@@ -5,18 +5,35 @@ attributes, style, alignment, conditional formats), on columns (width), rows (he
 setup, names, window state) or the workbook (sheet order, names). snapshot(wb) returns the whole state in a compact,
 comparable form (cells with equal settings collapsed into rectangles), so a test can pin a writer's exact effect and
 prove that a batched version leaves the same workbook. count_com(monkeypatch) counts jobs.com calls.
+
+For the move-in of a built file: Application.Workbooks (Open reads an .xlsx: values, sheet visibility, tables; Close),
+wb.Worksheets([names]).Copy / .Delete as Excel does them, LinkSources / BreakLink, and Application.events: every
+step asked of the fake Excel, in order across sheets and workbooks (not part of snapshot).
 """
 from __future__ import annotations
 
+import copy
 import datetime
 import hashlib
 import re
+from pathlib import Path
 from types import SimpleNamespace
 
 MAXR, MAXC = 1048576, 16384
 CLIP_R, CLIP_C = 400, 80                 # cell-level settings on whole rows/columns: only this block is tracked
 SEP = ";"                                # nb-NO list separator (Range unions)
-INTERNATIONAL = tuple([None, None, ",", "\xa0", SEP] + [None] * 13 + ["å", "M", "D"] + [None] * 30)
+def _international() -> tuple:
+    """nb-NO's Application.International (0-based): separators, the date codes and its short date dd.mm.yyyy."""
+    v: list = [None] * 51
+    v[2], v[3], v[4] = ",", "\xa0", SEP           # xlDecimalSeparator, xlThousandsSeparator, xlListSeparator
+    v[16] = "."                                    # xlDateSeparator
+    v[18:21] = ["å", "M", "D"]                     # xlYearCode, xlMonthCode, xlDayCode
+    v[31] = 1.0                                    # xlDateOrder: day, month, year
+    v[40] = v[41] = v[42] = True                   # xlMonthLeadingZero, xlDayLeadingZero, xl4DigitYears
+    return tuple(v)
+
+
+INTERNATIONAL = _international()
 
 
 def col_index(letters: str) -> int:
@@ -105,8 +122,30 @@ def compress(cells) -> str:
     return ",".join(rect_text(*x) for x in sorted(rects))
 
 
+_HYPERLINK = re.compile(r'^=HYPERLINK\("(#(?:[^"]|"")*)","((?:[^"]|"")*)"\)$')
+
+
+def hyperlink(v) -> tuple[str, str] | None:
+    """(target, text) of a cell value that is a =HYPERLINK("#<target>","<text>") formula (quotes undoubled)."""
+    m = _HYPERLINK.match(v) if isinstance(v, str) else None
+    return (m.group(1).replace('""', '"'), m.group(2).replace('""', '"')) if m else None
+
+
+def shown(v):
+    """What Excel shows for a value: a HYPERLINK formula's text, anything else as it is."""
+    link = hyperlink(v)
+    return link[1] if link else v
+
+
 class ComError(Exception):
     """Not a 'busy' error: jobs.com passes it straight through."""
+
+
+def _event(ws, *what) -> None:
+    """One step in the Application's event list (everything asked of the fake Excel, in order, across workbooks)."""
+    events = getattr(ws.wb.Application, "events", None)
+    if events is not None:
+        events.append((ws.Name, *what))
 
 
 # ------------------------------------------------------------------ ranges
@@ -245,6 +284,17 @@ class Range:
     def FormatConditions(self):
         return _FormatConditions(self)
 
+    @property
+    def Hyperlinks(self):
+        """Range.Hyperlinks: the sheet's links on these cells; Delete removes them and, as Excel, the cells' formats."""
+        inside = set(self.cells())
+        mine = [h for h in self.ws.Hyperlinks if h.cell in inside]
+
+        def delete():
+            self.ws.Hyperlinks[:] = [h for h in self.ws.Hyperlinks if h.cell not in inside]
+            self.ClearFormats()
+        return SimpleNamespace(Count=len(mine), Delete=delete)
+
     # -- values
     def _get_value(self):
         r1, c1, r2, c2 = self.rects[0]
@@ -265,11 +315,17 @@ class Range:
                 self.ws.put(r, c, v)
 
     def __getattr__(self, k):
-        if k in ("Value", "Value2", "Formula"):
+        if k in ("Value", "Value2", "Formula", "Formula2"):
             return self._get_value()
+        if k == "PrefixCharacter":
+            return "'" if self.rects[0][:2] in self.ws.prefixed else ""
         if k == "ColumnWidth":
-            vals = {self.ws.colw.get(c, 8.43) for _, c1, _, c2 in self.rects for c in range(c1, min(c2, CLIP_C) + 1)}
+            vals = {self.ws.colw.get(c, self.ws.StandardWidth) for _, c1, _, c2 in self.rects
+                    for c in range(c1, max(c1, min(c2, CLIP_C)) + 1)}
             return vals.pop() if len(vals) == 1 else None
+        if k == "Width":                                 # points: whole pixels of the sheet's digit width + 5
+            return sum((int(self.ws.colw.get(c, self.ws.StandardWidth) * self.ws.digit_px + 0.5) + 5) * 0.75
+                       for _, c1, _, c2 in self.rects for c in range(c1, max(c1, min(c2, CLIP_C)) + 1))
         if k == "RowHeight":
             vals = {self.ws.rowh.get(r, 15) for r1, _, r2, _ in self.rects for r in range(r1, min(r2, CLIP_R) + 1)}
             return vals.pop() if len(vals) == 1 else None
@@ -280,7 +336,8 @@ class Range:
 
     def __setattr__(self, k, v):
         self.ws.log.append((k, ";".join(rect_text(*x) for x in self.rects)))
-        if k in ("Value", "Value2", "Formula"):
+        _event(self.ws, k, ";".join(rect_text(*x) for x in self.rects))
+        if k in ("Value", "Value2", "Formula", "Formula2"):
             self._check_tables(v)
             self._set_value(v)
         elif k == "ColumnWidth":
@@ -349,12 +406,12 @@ class Range:
         pass
 
     def _check_tables(self, v) -> None:
-        """As Excel: a formula naming a table that does not exist (yet) is refused (0x800A03EC)."""
+        """As Excel: a formula naming a table that does not exist (yet) in the workbook is refused (0x800A03EC)."""
         flat = [x for row in v for x in row] if isinstance(v, (tuple, list)) else [v]
-        names = {lo.Name for lo in self.ws.ListObjects}
+        names = {lo.Name for ws in self.ws.wb.order for lo in ws.ListObjects}
         for x in flat:
             if isinstance(x, str) and x.startswith("="):
-                for name in re.findall(r"(Data_Q\d+)\[", x):
+                for name in re.findall(r"((?:Data|Lines)_Q\d+(?:_\w+)?)\[", x):
                     if name not in names:
                         raise ComError(f"formula names a missing table {name}: {x}")
 
@@ -416,6 +473,7 @@ class _Lines:
 class ListObject:
     def __init__(self, ws, rng):
         self.ws, self.rect, self.Name, self.TableStyle = ws, rng.rects[0], "Table1", None
+        self.ShowTableStyleRowStripes = True
 
     @property
     def Range(self):
@@ -444,6 +502,10 @@ class _ListObjects(list):
         super().__init__()
         self.ws = ws
 
+    @property
+    def Count(self):
+        return len(self)
+
     def __call__(self, key):
         if isinstance(key, int):
             return self[key - 1]
@@ -454,6 +516,7 @@ class _ListObjects(list):
 
     def Add(self, source_type, rng, link_source=None, has_headers=None):
         self.ws.log.append(("ListObjects.Add", ";".join(rect_text(*x) for x in rng.rects)))
+        _event(self.ws, "ListObjects.Add", ";".join(rect_text(*x) for x in rng.rects))
         lo = ListObject(self.ws, rng)
         self.append(lo)
         return lo
@@ -517,6 +580,9 @@ class Worksheet:
         self.Hyperlinks = _Hyperlinks(self)
         self.AutoFilterMode, self.autofilter = False, None
         self.log: list = []
+        self.prefixed: set[tuple[int, int]] = set()     # cells written with a leading apostrophe (text as text)
+        self.page_breaks: list[int] | None = None       # manual page breaks: None until reset
+        self.StandardHeight, self.StandardWidth, self.digit_px = 15.0, 8.43, 7     # Calibri 11, as a new workbook
 
     @property
     def Parent(self):
@@ -531,6 +597,9 @@ class Worksheet:
             return
         if isinstance(x, str) and x.startswith("'"):
             x = x[1:]
+            self.prefixed.add((r, c))
+        else:
+            self.prefixed.discard((r, c))
         self.cell((r, c))["Value"] = x
 
     def Range(self, a, b=None):
@@ -552,8 +621,23 @@ class Worksheet:
         return Range(self, [(min(rs), min(cs), max(rs), max(cs))])
 
     def Activate(self):
+        if self not in self.wb.order:
+            raise ComError("the sheet was deleted")
         self.wb.Activate()
         self.wb.active = self
+
+    def Calculate(self):
+        _event(self, "Calculate")
+
+    def ResetAllPageBreaks(self):
+        self.page_breaks = []
+
+    @property
+    def HPageBreaks(self):
+        return SimpleNamespace(Add=lambda rng: self.page_breaks.append(rng.Row))
+
+    def Delete(self):
+        _SheetGroup(self.wb, [self]).Delete()
 
     def Move(self, *args, **kw):
         assert not kw
@@ -574,6 +658,7 @@ class _Window:
     def __setattr__(self, k, v):
         if k == "Visible":
             object.__setattr__(self, k, v)
+            _event(self.wb.order[0], "Window.Visible", v)
             return
         self.wb.window_state.setdefault(self.wb.active.Name, {})[k] = v
 
@@ -586,6 +671,8 @@ class _Sheets:
         self.wb = wb
 
     def __call__(self, key):
+        if isinstance(key, (list, tuple)):
+            return _SheetGroup(self.wb, [self(k) for k in key])
         if isinstance(key, int):
             return self.wb.order[key - 1]
         for s in self.wb.order:
@@ -611,13 +698,106 @@ class _Sheets:
         return ws
 
 
+class _SheetGroup:
+    """wb.Worksheets([name, ...]): several sheets in one call (Copy, Delete)."""
+
+    def __init__(self, wb, sheets):
+        self.wb, self.sheets = wb, list(sheets)
+
+    def Copy(self, *args, **kw):
+        """As Excel: positional (Before, After) only; into another workbook a sheet with a table is refused (Excel can
+        crash), a taken name becomes 'name (2)' silently, a formula pointing at a sheet left behind leaves a link to
+        the source file, and the destination workbook is activated on the first copy."""
+        assert not kw, "Worksheets.Copy: positional (Before, After) only"
+        before = args[0] if args else None
+        after = args[1] if len(args) > 1 else None
+        anchor = before if before is not None else after
+        dest = anchor.wb
+        if dest is not self.wb and any(s.ListObjects for s in self.sheets):
+            raise ComError("a sheet with a table copied between workbooks (Excel can crash)")
+        taken = {s.Name.lower() for s in dest.order}
+        k = dest.order.index(anchor) + (0 if before is not None else 1)
+        copies = []
+        for s in self.sheets:
+            name, i = s.Name, 2
+            while name.lower() in taken:
+                name, i = f"{s.Name} ({i})", i + 1
+            taken.add(name.lower())
+            c = Worksheet(dest, name)
+            c.cells, c.colw, c.rowh = copy.deepcopy(s.cells), dict(s.colw), dict(s.rowh)
+            c.prefixed, c.Visible, c.Tab.Color = set(s.prefixed), s.Visible, s.Tab.Color
+            dest.order.insert(k, c)
+            k += 1
+            copies.append(c)
+        left = {s.Name for s in self.wb.order} - {s.Name for s in self.sheets}
+        formulas = [p.get("Value") for s in self.sheets for p in s.cells.values()]
+        if dest is not self.wb and any(isinstance(f, str) and f.startswith("=") and
+                                       any(f"'{n}'!" in f or f"{n}!" in f for n in left) for f in formulas):
+            dest.links.append(self.wb.FullName)
+        dest.Activate()
+        dest.active = copies[0]
+        _event(copies[0], "Copy", [s.Name for s in self.sheets])
+
+    def Delete(self):
+        """As Excel: with DisplayAlerts on, a delete asks the user first (the fake refuses instead of waiting)."""
+        if self.wb.Application.DisplayAlerts:
+            raise ComError("a sheet delete with DisplayAlerts on waits for the user")
+        for s in self.sheets:
+            self.wb.order.remove(s)
+        if self.wb.active in self.sheets:
+            self.wb.active = self.wb.order[0]
+        _event(self.sheets[0], "Delete", [s.Name for s in self.sheets])
+
+
+_VISIBLE = {"visible": -1, "hidden": 0, "veryHidden": 2}
+
+
+class _Workbooks(list):
+    """Application.Workbooks: every open workbook; Open reads a file (values, sheet visibility, tables)."""
+
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+
+    @property
+    def Count(self):
+        return len(self)
+
+    def Open(self, path, *args, **kw):
+        """Positional only, as late-bound COM needs: (Filename, UpdateLinks, ReadOnly, ...)."""
+        assert not kw, "Workbooks.Open: positional arguments only"
+        import openpyxl
+        book = openpyxl.load_workbook(path)
+        wb = Workbook(book.sheetnames, app=self.app, styles_ver=False)
+        wb.Name, wb.FullName, wb.opened_with = Path(path).name, str(path), args
+        for ws, src in zip(wb.order, book.worksheets):
+            ws.Visible = _VISIBLE[src.sheet_state]
+            tab = src.sheet_properties.tabColor
+            if tab is not None and tab.rgb:                # 'FF1F3864' -> BGR, as Excel reads Tab.Color
+                r, g, b = (int(tab.rgb[i:i + 2], 16) for i in (2, 4, 6))
+                ws.Tab.Color = r + (g << 8) + (b << 16)
+            for row in src.iter_rows():
+                for c in row:
+                    if c.value is not None:
+                        ws.cell((c.row, c.column))["Value"] = c.value
+            for name, ref in src.tables.items():
+                lo = ListObject(ws, Range(ws, [parse_area(ref)]))
+                lo.Name = name
+                ws.ListObjects.append(lo)
+        _event(wb.order[0], "Open", str(path))
+        return wb
+
+
 class Application:
     def __init__(self):
+        self.Workbooks = _Workbooks(self)
+        self.events: list = []
         self.International = INTERNATIONAL
         self.ScreenUpdating, self.Calculation, self.DisplayAlerts, self.EnableEvents = True, -4105, True, True
         self.PrintCommunication = True
         self.StatusBar = False
         self.ActiveWorkbook = None
+        self.Visible = True
 
     @property
     def ActiveSheet(self):
@@ -638,11 +818,16 @@ class Workbook:
         self.Worksheets = _Sheets(self)
         self.Names = _Names(self)
         self.Name, self.FullName = "book.xlsx", r"C:\fake\book.xlsx"
+        self.links: list[str] = []                       # LinkSources(xlExcelLinks)
+        self.Charts: list = []                           # chart sheets (objects with a Name)
         self.window = _Window(self)
         self.window_state: dict[str, dict] = {}
         self.selection: dict[str, str] = {}
+        self.normal = ("Calibri", 11.0)                  # the Normal style's font
         self.active = self.order[0]
         self.Application.ActiveWorkbook = self
+        if isinstance(getattr(self.Application, "Workbooks", None), _Workbooks):
+            self.Application.Workbooks.append(self)
         if styles_ver:
             from smartass.xl import styling
             self.Names.Add(Name="_tnStylesVer", RefersTo=f'="{styling._styles_version()}"', Visible=False)
@@ -650,12 +835,34 @@ class Workbook:
     def Windows(self, i):
         return self.window
 
+    def Styles(self, name):
+        assert name == "Normal", name
+        return SimpleNamespace(Font=SimpleNamespace(Name=self.normal[0], Size=self.normal[1]))
+
     @property
     def ActiveSheet(self):
         return self.active
 
     def Activate(self):
         self.Application.ActiveWorkbook = self
+
+    def LinkSources(self, kind):
+        assert kind == 1                                   # xlExcelLinks
+        return tuple(self.links) or None
+
+    def BreakLink(self, name, kind):
+        assert kind == 1
+        self.links.remove(name)
+        _event(self.order[0], "BreakLink", name)
+
+    def Close(self, save=None):
+        """As Excel: the workbook leaves Workbooks; the one opened before it becomes active."""
+        assert save is False, "a fake workbook is only closed without saving"
+        app = self.Application
+        app.Workbooks.remove(self)
+        if app.ActiveWorkbook is self:
+            app.ActiveWorkbook = app.Workbooks[-1] if app.Workbooks else None
+        _event(self.order[0], "Close")
 
 
 # ------------------------------------------------------------------ state + counting

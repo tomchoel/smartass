@@ -3,13 +3,13 @@ both ways with the Q<n> Data header (fakes only, no Excel). Every figure is inve
 import datetime
 from types import SimpleNamespace
 
+import fakexl
 from fakexl import Workbook
 from test_v2_pipeline import FakeProvider
 from v2util import facts, resolver, spec_dict
 
 from smartass import pipeline
 from smartass.render.datasheet import Header, header_rows
-from smartass.render.excel import rewrite_data, write_data
 from smartass.xl import sources
 
 WHEN = datetime.datetime(2026, 11, 5, 9, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
@@ -33,10 +33,21 @@ def _book(names=("Q3 Answer", "Q3 Data")):
     return wb, SimpleNamespace(wb=wb, app=wb.Application, sheets_added=[])
 
 
+def _data_sheet(ws, h) -> None:
+    """The Q<n> Data header as a moved-in file leaves it: a new sheet every draw (a follow-up replaces it), its texts
+    and numbers in place (the formulas over the table are left out: the fake has no table)."""
+    ws.cells.clear()
+    for r, (lab, value) in enumerate(h, 1):
+        for c, x in enumerate([lab, *(value if isinstance(value, tuple) else (value,))], 1):
+            if x not in (None, "") and not (isinstance(x, str) and x.startswith("=")):
+                ws.put(r, c, x)
+
+
 def _run(t, wb, pre, q=3, redraw=False, status=None):
+    """One draw's log rows; redraw (a follow-up) draws the same way: its Data sheet is new too."""
     ws = wb.Worksheets(f"Q{q} Data")
     h = header_rows(q, pre.spec, pre, WHEN, "tom")
-    (rewrite_data if redraw else write_data)(ws, pre.frame, q, h)
+    _data_sheet(ws, h)
     return sources.write_sources(t, q, pre, ws, h, FETCHED, status or {}), h
 
 
@@ -45,7 +56,14 @@ def _v(ws, r, c):
 
 
 def _log_row(ws, r):
-    return [_v(ws, r, c) for c in range(1, len(LOG) + 1)]
+    """A log row as Excel shows it (a HYPERLINK formula as its text)."""
+    return [fakexl.shown(_v(ws, r, c)) for c in range(1, len(LOG) + 1)]
+
+
+def _target(ws, r, c):
+    """Where the HYPERLINK formula of a cell goes ('Q3 Data'!A1), None when it is not one."""
+    link = fakexl.hyperlink(_v(ws, r, c))
+    return link[0].lstrip("#") if link else None
 
 
 P = sources.LIMITS_COL        # Known limits: column P, right of the log
@@ -86,16 +104,15 @@ def test_a_second_call_for_the_same_q_appends_and_supersedes_the_first_row():
     assert len([s for s in wb.order if s.Name.startswith("Sources")]) == 1
 
 
-def test_hyperlinks_go_both_ways():
+def test_the_links_go_both_ways_as_hyperlink_formulas():
     wb, t = _book()
     rows, h = _run(t, wb, _pre())
     ws, data = wb.Worksheets("Sources"), wb.Worksheets("Q3 Data")
     r = rows["fm"]
-    link = ws.Hyperlinks.at(r, 13)
-    assert link.SubAddress == "'Q3 Data'!A1" and _v(ws, r, 13) == "Q3 Data"
-    src = h.sources["fm"]
-    back = data.Hyperlinks.at(int(src[1:]), 2)
-    assert back.SubAddress == f"'Sources'!A{r}" and _v(data, int(src[1:]), 2) == f"Sources row {r}"
+    assert _v(ws, r, 13) == "=HYPERLINK(\"#'Q3 Data'!A1\",\"Q3 Data\")" and _log_row(ws, r)[12] == "Q3 Data"
+    src = int(h.sources["fm"][1:])
+    assert _v(data, src, 2) == f"=HYPERLINK(\"#'Sources'!A{r}\",\"Sources row {r}\")"
+    assert len(ws.Hyperlinks) == len(data.Hyperlinks) == 0                  # no Hyperlinks.Add any more
 
 
 def test_a_redraw_re_adds_the_data_sheet_link_its_header_rewrite_cleared():
@@ -105,7 +122,7 @@ def test_a_redraw_re_adds_the_data_sheet_link_its_header_rewrite_cleared():
     rows, h = _run(t, wb, pre, redraw=True)
     data = wb.Worksheets("Q3 Data")
     src = int(h.sources["fm"][1:])
-    assert len(data.Hyperlinks) == 1 and data.Hyperlinks.at(src, 2).SubAddress == f"'Sources'!A{rows['fm']}"
+    assert _target(data, src, 2) == f"'Sources'!A{rows['fm']}" and not data.Hyperlinks
 
 
 def test_known_limits_are_deduplicated_and_merged_with_the_lines_already_there():
@@ -130,9 +147,9 @@ def test_rows_never_move_when_known_limits_grow():
     many = [{"id": f"x{i}", "text": f"Limit number {i}.", "severity": "warn"} for i in range(8)]
     _run(t, wb, _pre(caveats=many), q=4)
     assert _log_row(ws, 1) == LOG and _log_row(ws, first["fm"]) == old
-    assert ws.Hyperlinks.at(first["fm"], 13).SubAddress == "'Q3 Data'!A1"
+    assert _target(ws, first["fm"], 13) == "'Q3 Data'!A1"
     data3 = wb.Worksheets("Q3 Data")
-    back = data3.Hyperlinks.at(int(h3.sources["fm"][1:]), 2).SubAddress
+    back = _target(data3, int(h3.sources["fm"][1:]), 2)
     assert back == f"'Sources'!A{first['fm']}" and _v(ws, int(back.split("A")[-1]), 3) == "fm"
     assert _v(ws, 10, P) == "Limit number 7."
 
@@ -185,28 +202,33 @@ def test_sheetorder_keeps_a_v2_sources_sheet_last_in_the_users_workbook():
     assert [s.Name for s in wb.order][-1] == "Sources"
 
 
-def test_draw_logs_the_sources_after_calculate_for_new_answers_and_redraws(monkeypatch):
-    from test_v2_pipeline_job import wire
-    log, seen = [], []
-    wire(monkeypatch, log)
-    monkeypatch.setattr(pipeline, "_write_sources",
-                        lambda t, q, pre, ws, header, fetched: seen.append((q, fetched)) or log.append("sources"))
+def test_the_job_logs_the_sources_after_calculating_with_the_draws_timestamp(monkeypatch, tmp_path):
+    from test_file_job import Wired
+
+    from smartass.core import config
+    monkeypatch.setattr(config, "HOME", tmp_path)
+    wired, seen = Wired(monkeypatch), []
+    monkeypatch.setattr(pipeline, "_write_sources", wired.rec(
+        "sources", lambda t, q, pre, ws, header, fetched: seen.append((q, fetched))))
     pipeline.excel_job(None, _pre(), "session")
-    assert log.index("calculate") < log.index("sources") < log.index("arrange")
-    assert seen[0][0] == 4 and seen[0][1].startswith(f"{datetime.date.today():%Y-%m-%d}")
+    assert wired.calls.index("calculate") < wired.calls.index("sources") < wired.calls.index("arrange")
+    assert seen[0][0] == 1 and seen[0][1].startswith(f"{datetime.date.today():%Y-%m-%d}")
 
 
-def test_a_failing_sources_log_is_a_warning_not_a_failed_answer(monkeypatch):
-    from test_v2_pipeline_job import wire
-    log, real = [], pipeline._write_sources
-    wire(monkeypatch, log)
+def test_a_failing_sources_log_is_a_warning_not_a_failed_answer(monkeypatch, tmp_path):
+    from test_file_job import Wired
+
+    from smartass.core import config
+    monkeypatch.setattr(config, "HOME", tmp_path)
+    real = pipeline._write_sources                      # before Wired replaces it
+    wired = Wired(monkeypatch)
     monkeypatch.setattr(pipeline, "_write_sources", real)
 
     def boom(*a):
         raise RuntimeError("no Sources")
     monkeypatch.setattr(sources, "write_sources", boom)
     out = pipeline.excel_job(None, _pre(), "session")
-    assert any("Sources" in w for w in out["warnings"]) and "rollback" not in log
+    assert any("Sources" in w for w in out["warnings"]) and "rollback" not in wired.calls
 
 
 def test_the_real_draw_seam_reads_the_status_and_links_the_row():
@@ -214,14 +236,14 @@ def test_the_real_draw_seam_reads_the_status_and_links_the_row():
     pre = _pre()
     ws = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    write_data(ws, pre.frame, 3, h)
+    _data_sheet(ws, h)
     r, c = int(h.status["fm"][1:]), ord(h.status["fm"][0]) - 64
     ws.put(r, c, "OK")                                              # as Excel shows it after calculating
     assert pipeline._write_sources(t, 3, pre, ws, h, FETCHED) is None
     src = wb.Worksheets("Sources")
     row = next(rr for rr in range(1, 20) if _v(src, rr, 3) == "fm")
     assert _v(src, row, 12) == "OK"
-    assert ws.Hyperlinks.at(int(h.sources["fm"][1:]), 2).SubAddress == f"'Sources'!A{row}"
+    assert _target(ws, int(h.sources["fm"][1:]), 2) == f"'Sources'!A{row}"
 
 
 def test_a_v1_log_is_left_as_it_is_and_v2_logs_on_sources_sv():
@@ -235,7 +257,7 @@ def test_a_v1_log_is_left_as_it_is_and_v2_logs_on_sources_sv():
     pre = _pre()
     ws = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    write_data(ws, pre.frame, 3, h)
+    _data_sheet(ws, h)
     notes = []
     rows = sources.write_sources(t, 3, pre, ws, h, FETCHED, {}, None, notes)
     assert v1.cells == before and rows == {"fm": 2}
@@ -266,7 +288,7 @@ def test_a_drill_logs_its_own_row_with_the_lines_total_and_tie_out():
     assert row[1:3] == ["Q3", "b0"] and row[4] == "FinLite" and row[8] == "drill"
     assert row[7] == LINE_CELL["All Time Periods"] and LINE_CELL["All Entities"] in row[6]
     assert row[9] == 2 and row[10] == -100.0 and row[11] == "OK" and row[12] == "Q3 Lines b0"
-    assert ws.Hyperlinks.at(2, 13).SubAddress == "'Q3 Lines b0'!A1"
+    assert _target(ws, 2, 13) == "'Q3 Lines b0'!A1"
     again = sources.write_sources(t, 3, pre, wb.Worksheets("Q3 Data"), Header(), FETCHED, {}, {"b0": "DIFF"})
     assert again == {"b0": 3} and _log_row(ws, 3)[13] == "row 2" and _log_row(ws, 3)[11] == "DIFF"
 
@@ -289,7 +311,7 @@ def test_a_pull_without_its_row_is_a_warning(monkeypatch):
     pre = _pre()
     ws = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    write_data(ws, pre.frame, 3, h)
+    _data_sheet(ws, h)
     monkeypatch.setattr(sources, "write_sources", lambda *a: {})
     assert "no row for fm" in pipeline._write_sources(t, 3, pre, ws, h, FETCHED)
 
@@ -303,4 +325,198 @@ def test_the_log_is_tn_font_9_and_prints_a_to_n_landscape():
     assert ws.cells[(r, 1)]["Font.Size"] == 9 and ws.cells[(1, len(LOG))]["Font.Size"] == 9
     assert ws.cells[(2, P)]["Font.Size"] == 9                    # Known limits too
     ps = ws.PageSetup
-    assert ps.PrintArea == f"$A$1:$N${r}" and (ps.Orientation, ps.FitToPagesWide) == (2, 1)
+    assert ps.PrintArea == "$A$1:$N$1048575" and (ps.Orientation, ps.FitToPagesWide) == (2, 1)   # A:N, set once
+
+
+
+# ------------------------------------------------------------------ Task 8B: the log's look, pinned before the fast log
+def _font(ws, r, c, k):
+    return ws.cells.get((r, c), {}).get(f"Font.{k}")
+
+
+def test_the_log_shows_the_tn_font_9_a_navy_bold_header_and_the_control_total_format():
+    """What the log looks like on the used rows (characterisation: the same before and after Task 8B)."""
+    from smartass.render.excel import VALUE_FORMAT
+    from smartass.xl import styling
+    navy = styling._rgb(styling.tn.NAVY)
+    wb, t = _book()
+    pre = _pre()
+    _run(t, wb, pre, status={"fm": "OK"})
+    rows, _ = _run(t, wb, pre, redraw=True, status={"fm": "OK"})
+    ws = wb.Worksheets("Sources")
+    end = rows["fm"]
+    for r in range(1, end + 1):
+        for c in range(1, len(LOG) + 1):
+            assert (_font(ws, r, c, "Name"), _font(ws, r, c, "Size")) == (styling.tn.FONT, 9), (r, c)
+    for r in range(1, 4):
+        assert (_font(ws, r, P, "Name"), _font(ws, r, P, "Size")) == (styling.tn.FONT, 9), r
+    assert all(_font(ws, 1, c, "Bold") is True and _font(ws, 1, c, "Color") == navy for c in range(1, len(LOG) + 1))
+    assert _font(ws, 1, P, "Bold") is True and _font(ws, 1, P, "Color") == navy
+    assert not _font(ws, 2, 1, "Bold") and not _font(ws, 2, P, "Bold")
+    assert all(ws.cells[(r, 11)].get("NumberFormat") == VALUE_FORMAT for r in range(2, end + 1))
+    assert ws.colw[sources.LIMITS_COL] == sources.LIMITS_WIDTH and ws.colw.get(4, 0) <= sources.QUESTION_MAX
+    assert ws.AutoFilterMode and ws.wb.window_state["Sources"]["FreezePanes"] is True
+    assert ws.wb.window_state["Sources"]["SplitRow"] == 1
+
+
+
+# ------------------------------------------------------------------ Task 8B: a fast log, its furniture set once
+def _second(t, wb, pre=None, **kw):
+    """A log that is there (one answer logged), then the calls and the sheet log of a second write."""
+    pre = pre or _pre()
+    _run(t, wb, pre)
+    ws = wb.Worksheets("Sources")
+    ws.log.clear()
+    return pre, ws
+
+
+def test_logging_into_a_log_that_is_there_takes_three_com_calls(monkeypatch):
+    """One read of the calculated status cells, one read of the log, one write (rows, links, Known limits)."""
+    wb, t = _book(("Q3 Answer", "Q3 Data", "Q3 Lines b0"))
+    pre = _pre()
+    _run(t, wb, pre)
+    ws = wb.Worksheets("Q3 Data")
+    h = header_rows(3, pre.spec, pre, WHEN, "tom")
+    _data_sheet(ws, h)
+    calls = fakexl.count_com(monkeypatch)
+    assert pipeline._write_sources(t, 3, pre, ws, h, FETCHED) is None
+    assert len(calls) == 3
+    calls.clear()
+    sources.write_sources(t, 3, pre, ws, h, FETCHED, {})
+    assert len(calls) == 2
+
+
+def test_the_furniture_is_set_once_and_a_second_answer_only_appends():
+    wb, t = _book()
+    pre, ws = _second(t, wb)
+    widths, setup, af = dict(ws.colw), dict(ws.PageSetup.__dict__), (ws.AutoFilterMode, ws.autofilter)
+    rows, _ = _run(t, wb, pre, redraw=True)
+    r = rows["fm"]
+    assert {(k, a) for k, a in ws.log} == {("Formula2", f"A{r}:N{r}")}               # the row, in one rectangle
+    assert all((_font(ws, r, c, "Name"), _font(ws, r, c, "Size")) == ("Arial", 9) for c in (13, 14))   # the links
+    assert ws.colw == widths and ws.PageSetup.__dict__ == setup and (ws.AutoFilterMode, ws.autofilter) == af
+
+
+def test_fixed_widths_replace_autofit():
+    wb, t = _book()
+    _run(t, wb, _pre())
+    ws = wb.Worksheets("Sources")
+    assert not [x for x in ws.log if x[0] == "AutoFit"]
+    assert [ws.colw[c] for c in range(1, len(LOG) + 1)] == list(sources.WIDTHS) and ws.colw[P] == sources.LIMITS_WIDTH
+    assert ws.colw[4] <= sources.QUESTION_MAX
+
+
+def test_a_superseding_row_links_to_the_row_it_supersedes():
+    wb, t = _book()
+    pre = _pre()
+    first, _ = _run(t, wb, pre)
+    second, _ = _run(t, wb, pre, redraw=True)
+    ws = wb.Worksheets("Sources")
+    assert _log_row(ws, second["fm"])[13] == f"row {first['fm']}"
+    assert _target(ws, second["fm"], 14) == f"'Sources'!A{first['fm']}"
+
+
+def test_known_limits_are_written_only_when_an_answer_adds_a_line():
+    wb, t = _book()
+    pre, ws = _second(t, wb)
+    _run(t, wb, pre, redraw=True)
+    assert not [x for x in ws.log if x[1].startswith("P")]
+    more = _pre(caveats=CAVEATS + [{"id": "e", "text": "FinPlan Working is a draft.", "severity": "warn"}])
+    _run(t, wb, more, redraw=True)
+    assert ("Value", "P1:P4") in ws.log and _v(ws, 4, P) == "FinPlan Working is a draft."
+
+
+def test_the_placeholder_is_cleared_when_the_first_limit_comes():
+    wb, t = _book()
+    _run(t, wb, _pre(caveats=[]))
+    ws = wb.Worksheets("Sources")
+    assert _v(ws, 2, P) == sources.NO_LIMITS
+    _run(t, wb, _pre(caveats=[CAVEATS[0]]), redraw=True)
+    assert [_v(ws, r, P) for r in (1, 2, 3)] == ["Known limits", CAVEATS[0]["text"], None]
+
+
+def test_a_link_doubles_the_apostrophes_of_a_sheet_name_and_the_quotes_of_both_texts():
+    f = sources.link("O'Brien's \"Q3\"", "A1", 'O\'Brien\'s "Q3"')
+    assert f == '=HYPERLINK("#\'O\'\'Brien\'\'s ""Q3""\'!A1","O\'Brien\'s ""Q3""")'
+    assert fakexl.hyperlink(f) == ("#'O''Brien''s \"Q3\"'!A1", 'O\'Brien\'s "Q3"')
+
+
+def _old_log(wb, rows: int = 2):
+    """A v2 log as the version before Task 8B left it: the header, rows with REAL hyperlinks, the TN font and the
+    control-total format on each used cell, AutoFit widths, the AutoFilter and the print area up to its last row,
+    Known limits with the placeholder, and no furniture name."""
+    from smartass.render.excel import VALUE_FORMAT
+    from smartass.xl import styling
+    ws = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+    ws.Name = "Sources"
+    end = rows + 1
+    for c, x in enumerate(LOG, 1):
+        ws.put(1, c, x)
+    for i in range(rows):
+        r = 2 + i
+        for c, x in enumerate(("2026-11-01 10:00 · tom", "Q3", "fm", "An older question", "FinMax", "Actual", "pov",
+                               "Sep 26", "HTTP", 12, 1000.0 * r, "OK"), 1):
+            ws.put(r, c, x)
+        ws.Hyperlinks.Add(ws.Cells(r, 13), "", "'Q3 Data'!A1", "Q3 Data", "Q3 Data")
+        if i:
+            ws.put(r, 14, f"row {r - 1}")
+    ws.put(1, P, sources.LIMITS_TITLE)
+    ws.put(2, P, sources.NO_LIMITS)
+    rng = ws.Range(f"A1:N{end}")
+    rng.Font.Name, rng.Font.Size = styling.tn.FONT, 9
+    ws.Range("A1:N1").Font.Bold = True
+    ws.Range(f"K2:K{end}").NumberFormat = VALUE_FORMAT
+    for c, w in enumerate((16.4, 3.0, 7.9, 30.1), 1):
+        ws.colw[c] = w
+    ws.colw[P] = sources.LIMITS_WIDTH
+    ws.Range(f"A1:N{end}").AutoFilter()
+    ws.PageSetup.PrintArea = f"$A$1:$N${end}"
+    ws.Names.Add(Name=styling.PAGE_SETUP_NAME, RefersTo=f'="v1|$A$1:$N${end}"', Visible=False)
+    ws.log.clear()
+    return ws
+
+
+def test_a_log_of_the_earlier_version_keeps_its_rows_links_and_filter_and_gets_the_furniture_once(monkeypatch):
+    from smartass.render.excel import VALUE_FORMAT
+    wb, t = _book()
+    ws = _old_log(wb)
+    old = {rc: dict(p) for rc, p in ws.cells.items()}
+    links = [(h.cell, h.SubAddress, h.TextToDisplay) for h in ws.Hyperlinks]
+    widths, af = dict(ws.colw), (ws.AutoFilterMode, ws.autofilter)
+    pre = _pre(caveats=[])
+    rows, _ = _run(t, wb, pre)
+    r = rows["fm"]
+    assert r == 4 and _log_row(ws, 4)[13] == "row 3" and _target(ws, 4, 13) == "'Q3 Data'!A1"
+    assert all(ws.cells[rc].get("Value") == p.get("Value") for rc, p in old.items())       # nothing rewritten
+    assert [(h.cell, h.SubAddress, h.TextToDisplay) for h in ws.Hyperlinks] == links       # the real links stay
+    assert ws.colw == widths and (ws.AutoFilterMode, ws.autofilter) == af                  # not toggled off
+    assert ("Value", "A1:N1") not in ws.log and [s.Name for s in wb.order].count("Sources") == 1
+    assert (_font(ws, r, 1, "Name"), _font(ws, r, 1, "Size"), ws.cells[(r, 11)].get("NumberFormat")) == (
+        "Arial", 9, VALUE_FORMAT)
+    assert ws.PageSetup.PrintArea == "$A$1:$N$1048575" and sources.FURNITURE_NAME in ws.Names.items
+    data = wb.Worksheets("Q3 Data")
+    h = header_rows(3, pre.spec, pre, WHEN, "tom")
+    _data_sheet(data, h)
+    calls = fakexl.count_com(monkeypatch)
+    sources.write_sources(t, 3, pre, data, h, FETCHED, {})
+    assert len(calls) == 2                                          # the furniture is not set again
+
+
+def test_a_real_link_an_earlier_version_left_on_the_data_header_is_replaced_by_the_formula():
+    wb, t = _book()
+    pre = _pre()
+    ws = wb.Worksheets("Q3 Data")
+    h = header_rows(3, pre.spec, pre, WHEN, "tom")
+    _data_sheet(ws, h)
+    cell = ws.Range(h.sources["fm"])
+    ws.Hyperlinks.Add(cell, "", "'Sources'!A9", "This pull on the Sources sheet", "Sources row 9")
+    cell.HorizontalAlignment = -4131
+    rows = sources.write_sources(t, 3, pre, ws, h, FETCHED, {})
+    src = int(h.sources["fm"][1:])
+    assert not ws.Hyperlinks and _target(ws, src, 2) == f"'Sources'!A{rows['fm']}"
+    assert ws.cells[(src, 2)]["HorizontalAlignment"] == -4131
+
+
+def test_the_log_kind_reader_without_callers_is_gone():
+    """Task 8B review 5: sources.log_kind had no callers left; _kind (inside a COM call) is the one reader."""
+    assert not hasattr(sources, "log_kind") and callable(sources._kind)

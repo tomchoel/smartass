@@ -97,7 +97,7 @@ def test_followup_re_drills_the_patched_spec(monkeypatch):
     stored = {3: {"spec": {"v2": spec_with({"type": "lines", "cell": CELL}).model_dump()}, "ids": {},
                   "owned": {"rows": 3, "cols": 2}}}
     monkeypatch.setattr(server, "read_stored", lambda h, target="session": (stored, "Q3 Answer", "C:/a/x.xlsx"))
-    monkeypatch.setattr(server, "redraw_job", lambda h, pre, q, owned, target="session": {"q": q, "warnings": []})
+    monkeypatch.setattr(server, "redraw_job", lambda h, pre, q, target="session": {"q": q, "warnings": []})
     asyncio.run(server.fin_analyze(patch={"blocks": [{"type": "lines", "cell": CELL, "top": 3}]}))
     assert cells == [CELL] and prepared["raw"]["blocks"][0]["top"] == 3 and list(prepared["lines"]) == ["b0"]
 

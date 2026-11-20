@@ -203,7 +203,7 @@ def test_patch_path_completes_the_chain_and_refresh_does_not(monkeypatch):
     monkeypatch.setattr(server, "_provider", lambda: "provider")
     monkeypatch.setattr(server, "read_stored", lambda h, target="session": (stored, "Q2 Answer", "C:/a/x.xlsx"))
     monkeypatch.setattr(server, "run_prepare", lambda raw, provider, lines=None, **kw: seen.append(kw) or raw)
-    monkeypatch.setattr(server, "redraw_job", lambda h, pre, q, owned, target="session": {"q": q, "closed": {}})
+    monkeypatch.setattr(server, "redraw_job", lambda h, pre, q, target="session": {"q": q, "closed": {}})
     asyncio.run(server.fin_analyze(patch={"plan": {"purpose": "x"}}))
     assert seen == [{"complete": True}]
     seen.clear()

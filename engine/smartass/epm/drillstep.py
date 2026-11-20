@@ -165,15 +165,6 @@ async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], 
     return out, warnings, None
 
 
-def write(t, q: int, alias: str, result: DrillResult, title: str) -> dict:
-    """The Excel half (inside a host job): 'Q<q> Lines[ alias]' (table Lines_Q<q>[_alias]). 0 lines empties an
-    existing table, so Excel matches the drill. The v1 Sources row is gone: v2 logs its pulls with xl/sources.py."""
-    from ..xl import drill_xl
-    if result.rows:
-        return drill_xl.write_lines(t, q, result.rows, result.columns, title=title, source=result.source, alias=alias)
-    return drill_xl.clear_lines(t, q, title=title, source=result.source, alias=alias)
-
-
 async def _drill_fetch(url: str, max_lines: int) -> dict:
     """Lines of one drill piece: from the warm tab (drill_direct, two requests) first; the page route (a page per
     piece, tab pump) when the direct route fails. No data at this cell -> an empty piece with EPM's note."""

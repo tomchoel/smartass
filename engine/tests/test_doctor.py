@@ -85,3 +85,12 @@ def test_vba_access_check_names_the_trust_center_fix():
 
 def test_vba_access_is_a_doctor_check():
     assert doctor._vba_access in doctor.CHECKS
+
+
+def test_the_com_writers_are_gone():
+    import smartass, pathlib
+    root = pathlib.Path(smartass.__file__).parent
+    assert not (root / "xl" / "owned.py").exists()
+    src = (root / "pipeline.py").read_text(encoding="utf-8")
+    assert "RENDER" not in src and "owned" not in src and "_backup(" not in src
+    assert not hasattr(__import__("smartass.render.excel", fromlist=["x"]), "write_answer")

@@ -40,7 +40,8 @@ blocks (table, kpi_tiles, trend, matrix, bridge, ranking, drivers, commentary). 
 step: Revenue, COGS, Opex, Other items (FinMax) - otherwise 'Other / unexplained' is large.
 3) Follow-up: fin_analyze(patch=..., q=n) - a JSON merge patch on the stored spec (lists like blocks are replaced
 whole); default q = the active Q<n> Answer, else the latest. 4) Monthly packs: fin_refresh() re-runs every v2
-answer in the workbook to the latest closed month (relative periods roll forward), no AI needed.
+answer in the workbook to the latest closed month (relative periods roll forward). Refresh replaces Q<n> sheets:
+user formulas on them turn #REF! - warn.
 5) Quote numbers only from key_values; explain material lines from drivers evidence or label them a hypothesis.
 Every answer has at least one chart block (kind by message); the sheet shows Key points first, the plan is not
 drawn. Fix each reply.layout finding by patch.
@@ -252,7 +253,7 @@ async def _new_question(spec: AnalysisSpec, target: str) -> dict:
 async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = None, q: int | None = None,
                       target: str = "session", ctx: Context | None = None) -> dict:
     """Run one analysis. New question: spec = AnalysisSpec v2. Follow-up: patch = JSON merge patch on the stored
-    spec of Q<q> (default: the active Q<n> Answer, else the latest); the same sheets are rebuilt in place.
+    spec of Q<q> (default: the active Q<n> Answer, else the latest); the question's sheets are replaced (same names).
     Fetches over Smart View HTTP, computes, and builds Q<n> Answer (live formulas on table Data_Q<n>) + Q<n> Data in
     the session workbook (target 'session', 'new' or 'active', an absolute path or the name of an open workbook).
     A follow-up's target default: the workbook of your latest answer. Returns key_values (quote only these),
@@ -266,10 +267,10 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     provider = _provider()
     target = _default_target(target)
     stored, active, path = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
-    q2, raw, owned = find_question(stored, q, active)
+    q2, raw, _ = find_question(stored, q, active)
     patched = restore_chain(merge_patch(raw, patch))
     pre, notes = await _prepare(patched, provider, target=path, complete=True)
-    return _with_notes(await _draw_job(lambda h: redraw_job(h, pre, q2, owned, path), "fin_analyze follow-up",
+    return _with_notes(await _draw_job(lambda h: redraw_job(h, pre, q2, path), "fin_analyze follow-up",
                                    patched.get("question")), notes)
 
 
@@ -290,7 +291,8 @@ async def fin_drill(cell: dict, group_by: str = "supplier", top: int = 10, targe
 async def fin_refresh(target: str = "session", ctx: Context | None = None) -> dict:
     """Re-run every v2 answer in the workbook with its stored spec (no patch): relative periods such as
     'closed-ytd' roll forward to the latest closed month. A failing question is reported and does not stop the rest.
-    target default: the workbook of your latest answer."""
+    Each question's sheets are replaced: a formula on the user's own sheet that points at them shows #REF! afterwards
+    (tell the user; paste values or re-link). target default: the workbook of your latest answer."""
     provider = _provider()
     target = _default_target(target)
     stored, _, path = await _user(lambda h: read_stored(h, target), "fin_refresh")
@@ -303,7 +305,7 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
         try:
             pre, notes = await _prepare(stored[q]["spec"]["v2"], provider, target=path)
             out = _with_notes(await _draw_job(
-                lambda h, q=q, pre=pre: redraw_job(h, pre, q, stored[q].get("owned"), path),
+                lambda h, q=q, pre=pre: redraw_job(h, pre, q, path),
                 "fin_refresh", stored[q]["spec"]["v2"].get("question")), notes)
             workbook = out.get("workbook", workbook)
             done.append({"q": q, "ok": True, "closed": out.get("closed"),

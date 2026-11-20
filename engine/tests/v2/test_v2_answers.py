@@ -133,12 +133,14 @@ def test_fin_critic_refuses_bad_scores_and_an_unstored_answer(home, monkeypatch)
 
 
 def test_excel_job_stores_the_run(home, monkeypatch):
+    from test_file_job import Wired
     from test_v2_pipeline import FakeProvider
-    from test_v2_pipeline_job import wire
     from v2util import facts, resolver, spec_dict
 
     from smartass import pipeline
-    wire(monkeypatch, [])
+    remember = pipeline.remember                       # the real one: Wired replaces it
+    Wired(monkeypatch)
+    monkeypatch.setattr(pipeline, "remember", remember)
     pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
     out = pipeline.excel_job(None, pre, target="session")
     row = answers.get(out["workbook"], out["q"])

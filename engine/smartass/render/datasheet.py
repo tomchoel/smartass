@@ -126,7 +126,7 @@ def header_rows(q: int, spec, pre, fetched_at: datetime, user: str) -> Header:
 
 
 # ------------------------------------------------------------------ the lines sheets (sub-spec 5 §2.3)
-LINES_HEADER = "F1:K3"     # rows 1-3 only: the lines table header is row 4 (drill_xl.write_lines); A1/A2, C2/D2 stay
+LINES_HEADER = "F1:K3"     # rows 1-3 only: the lines table header is row 4 (xlsx.LINES_ROW); A1/A2, C2/D2 stay
 LINES_STATUS = "I3"        # the tie-out OK/DIFF cell (the Sources log reads it after calculating)
 
 

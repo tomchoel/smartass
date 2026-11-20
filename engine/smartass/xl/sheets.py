@@ -3,10 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from dataclasses import dataclass
-
-import pywintypes
 
 from . import jobs, target
 from ..epm.grid import Axis, Layout, parse
@@ -16,6 +13,20 @@ from .host import InputError
 _Q = re.compile(r"^Q(\d+) (Answer|FinMax|FinLite|FinPlan|Lines)\b")   # our sheets only, not the user's "Q3 Forecast"
 _LINES = re.compile(r"^Q(\d+) Lines\b")
 _TOPIC = re.compile(r"^Q(\d+) [A-Z][A-Za-z0-9 &/-]{1,24}$")             # an answer's topic sheet ('Q3 By project')
+_DRAWN_LINES = re.compile(r"^Q(\d+) Lines b\d+$")                         # a v2 lines block's sheet ('Q3 Lines b0')
+
+
+def answer_sheets(names, q: int) -> list[str]:
+    """The sheets a v2 answer Q<q> drew, in workbook order: 'Q<q> Answer', 'Q<q> Data' and every 'Q<q> Lines b<i>'
+    (a lines block's). A user's own 'Q<q> Notes' or 'Q<q> Lines notes' is not one of them."""
+    return [n for n in names if n in (f"Q{q} Answer", f"Q{q} Data")
+            or ((m := _DRAWN_LINES.match(n)) is not None and int(m.group(1)) == q)]
+
+
+def answer_tables(q: int, tables) -> list[str]:
+    """Of these table names (the tables on the answer's sheets), the ones the answer made: 'Data_Q<q>' and every
+    'Lines_Q<q>_<alias>'."""
+    return [n for n in tables if n == f"Data_Q{q}" or n.startswith(f"Lines_Q{q}_")]
 
 
 def question_of(name: str, names) -> int | None:
@@ -28,7 +39,11 @@ def question_of(name: str, names) -> int | None:
 
 
 def next_question(t: target.Target) -> int:
-    names = [s.Name for s in t.wb.Worksheets]
+    return next_question_in([s.Name for s in t.wb.Worksheets])
+
+
+def next_question_in(names: list[str]) -> int:
+    """The next question number of a workbook with these sheets."""
     return max((n for x in names if (n := question_of(x, names)) is not None), default=0) + 1
 
 
@@ -111,17 +126,28 @@ def unique_sheet_name(t: target.Target, base: str) -> str:
     return name
 
 
-def add_sheet(t: target.Target, name: str, after_q: int | None = None, color: int | None = None):
-    """Add a sheet after the last sheet of question `after_q` (or at the end, before 'Sources')."""
+def place_after(t: target.Target, after_q: int | None = None):
+    """The sheet a new sheet of question `after_q` goes after (place_after_in), or None."""
     sheets = list(t.wb.Worksheets)
-    anchor = None
+    name = place_after_in([s.Name for s in sheets], after_q)
+    return next(s for s in sheets if s.Name == name) if name is not None else None
+
+
+def place_after_in(names: list[str], after_q: int | None = None) -> str | None:
+    """Of these sheet names, the one a new sheet of question `after_q` goes after: the last sheet of that question,
+    else the last sheet that is not Sources / Sources SV / _svmeta; None when there is none (it then goes first)."""
     if after_q is not None:
-        names = [s.Name for s in sheets]
-        group = [s for s in sheets if question_of(s.Name, names) == after_q]
-        anchor = group[-1] if group else None
-    if anchor is None:
-        others = [s for s in sheets if s.Name not in ("Sources", "Sources SV", META_SHEET)]
-        anchor = others[-1] if others else None
+        group = [n for n in names if question_of(n, names) == after_q]
+        if group:
+            return group[-1]
+    others = [n for n in names if n not in ("Sources", "Sources SV", META_SHEET)]
+    return others[-1] if others else None
+
+
+def add_sheet(t: target.Target, name: str, after_q: int | None = None, color: int | None = None):
+    """Add a sheet after the last sheet of question `after_q` (or at the end, before 'Sources'): place_after."""
+    sheets = list(t.wb.Worksheets)
+    anchor = place_after(t, after_q)
     # positional (Before, After): the keyword After= is silently ignored through late-bound COM here (measured
     # 15.10.2026: the sheet landed before the ACTIVE sheet instead). Only 'Sources'/meta sheets yet: go first.
     ws = jobs.com(lambda: t.wb.Worksheets.Add(None, anchor) if anchor is not None else t.wb.Worksheets.Add(sheets[0]))
@@ -188,26 +214,44 @@ def _next_row(ws) -> tuple:
     return ws, ws.Cells(ws.Rows.Count, 1).End(-4162).Row + 1
 
 
-def save_spec(t: target.Target, q: int, spec: dict, ids: dict[str, str] | None = None, owned: dict | None = None) -> None:
-    """Keep the question's last answer spec (unexpanded) + pull ids + the tool-owned range of its answer sheet
-    ({"rows", "cols"}) in the hidden sheet, for patch-only follow-ups."""
-    if not _sheet_exists(t, META_SHEET):
-        return
-    ws = jobs.com(lambda: t.wb.Worksheets(META_SHEET))
-    key = f"SPEC Q{q}"
-    used = jobs.com(lambda: ws.UsedRange)
-    vals = jobs.com(lambda: used.Value)
+SPEC_CHUNK = 30000                                      # a cell holds max 32 767 characters
+
+
+def _spec_row(wb, key: str) -> tuple:
+    """(the hidden sheet or None, the row of key there or else the first free row, how many columns that row used),
+    inside ONE COM call."""
+    ws = next((s for s in wb.Worksheets if s.Name == META_SHEET), None)
+    if ws is None:
+        return None, 2, 0
+    used = ws.UsedRange
+    vals = used.Value
     vals = vals if isinstance(vals, tuple) else ((vals,),)
-    top = int(jobs.com(lambda: used.Row))                   # UsedRange starts at the first used row (save_meta: row 2)
-    r = next((top + i for i, row in enumerate(vals) if row and row[0] == key), None)
-    if r is None:
-        r = jobs.com(lambda: ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1
-    else:
-        jobs.com(lambda: ws.Rows(r).ClearContents())
+    top = int(used.Row)                                 # UsedRange starts at the first used row (save_meta: row 2)
+    for i, row in enumerate(vals):
+        if row and row[0] == key:
+            return ws, top + i, len(row)
+    return ws, int(ws.Cells(ws.Rows.Count, 1).End(-4162).Row) + 1, 0
+
+
+def save_spec(t: target.Target, q: int, spec: dict, ids: dict[str, str] | None = None, owned: dict | None = None,
+              create: bool = False) -> bool:
+    """Keep the question's last answer spec (unexpanded) + pull ids + the tool-owned range of its answer sheet
+    ({"rows", "cols"}) in the hidden sheet, for patch-only follow-ups: one read (the row), one write (A and every
+    30 000-character chunk in one rectangle, as wide as the row was, so an earlier longer spec leaves no chunk).
+    Without the hidden sheet: nothing (v1), or create it first (create: True is returned then)."""
+    key = f"SPEC Q{q}"
+    ws, r, width = jobs.com(lambda: _spec_row(t.wb, key))
+    created = ws is None
+    if created:
+        if not create:
+            return False
+        ws = jobs.com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))   # positional
+        jobs.com(lambda: _name_hidden(ws, META_SHEET))
     blob = json.dumps({"spec": spec, "ids": ids or {}, "owned": owned}, ensure_ascii=False)
-    jobs.com(lambda: setattr(ws.Cells(r, 1), "Value", "'" + key))
-    for k in range(0, len(blob), 30000):
-        jobs.com(lambda: setattr(ws.Cells(r, 2 + k // 30000), "Value", "'" + blob[k:k + 30000]))
+    row = ["'" + key, *("'" + blob[k:k + SPEC_CHUNK] for k in range(0, len(blob), SPEC_CHUNK))]
+    row += [""] * (width - len(row))
+    jobs.com(lambda: setattr(ws.Range(ws.Cells(r, 1), ws.Cells(r, len(row))), "Value", (tuple(row),)))
+    return created
 
 
 def _stored_specs(t: target.Target) -> dict[int, dict]:
@@ -302,25 +346,3 @@ def lookup_formula(p: Pull, row_members: list[str], col_members: list[str]) -> s
     row_match = "XMATCH(1," + "*".join(f"({s}${L(1 + d)}:.${L(1 + d)}={lab(rlab[d])})" for d in range(nr)) + ")"
     col_match = (f"XMATCH({col_lookup},{col_arr})" if nc == 1 else f"XMATCH(1,{col_arr})")
     return f"=INDEX({s}$A:${W},{row_match},{col_match})"
-
-
-def _sources_name(t: target.Target) -> str:
-    """'Sources', unless that sheet is not a v2 log - the user's own sheet, or a v1 log (left as it is) - then
-    'Sources SV'. Ours: the v2 log header in row 1, or the sheet is empty (a new workbook's first sheet)."""
-    from .sources import log_kind
-    if _sheet_exists(t, "Sources") and log_kind(jobs.com(lambda: t.wb.Worksheets("Sources"))) not in ("v2", "empty"):
-        return "Sources SV"
-    return "Sources"
-
-
-def wait_calculated(app, limit: float = 60.0) -> None:
-    """Wait until Excel has finished recalculating (CalculationState == xlDone)."""
-    t0 = time.monotonic()
-    while time.monotonic() - t0 < limit:
-        try:
-            if app.CalculationState == 0:
-                return
-        except pywintypes.com_error as e:
-            if not jobs.is_busy(e):
-                raise
-        time.sleep(0.3)

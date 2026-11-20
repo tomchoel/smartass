@@ -28,7 +28,9 @@ class T:
         self.path = "C:/analyser/v2/p/x.xlsx" if ours else "C:/Users/me/own.xlsx"
 
 
-def test_our_file_autosave_off_while_writing_then_restored(monkeypatch):
+def test_our_file_autosave_off_while_writing_then_saved_and_restored(monkeypatch):
+    """Task 8B tried leaving the save to AutoSave once it is back on: live (19.11.2026) the last answer was not on
+    disk 30 s later, so our file is saved explicitly, AutoSave off, as before."""
     monkeypatch.setattr(pipeline, "_is_ours", lambda t: t.created)
     t = T(True, ours=True)
     with pipeline.autosave_paused(t) as notes:
@@ -36,6 +38,15 @@ def test_our_file_autosave_off_while_writing_then_restored(monkeypatch):
         pipeline._save(t)
     assert t.wb.log == [("save", False)]
     assert t.wb.AutoSaveOn is True and notes == []
+
+
+def test_the_users_workbook_is_never_saved(monkeypatch):
+    monkeypatch.setattr(pipeline, "_is_ours", lambda t: t.created)
+    for on in (True, False):
+        t = T(on, ours=False)
+        with pipeline.autosave_paused(t):
+            pipeline._save(t)
+        assert t.wb.log == []
 
 
 def test_user_workbook_autosave_left_off_with_a_note(monkeypatch):

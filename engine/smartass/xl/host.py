@@ -19,7 +19,7 @@ import win32com.client as wc
 import win32process
 
 from ..core import config
-from . import dialogs
+from . import dialogs, fastcom
 from ..epm import sso
 from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy, kill_ours, windows_of, _is_ours
 
@@ -280,7 +280,7 @@ class ExcelHost(HiddenExcel):
         self._known_before = before
         self._start_wall = time.time()
         sso.ensure_global_watcher()            # .NET UIA watcher clicks the Login dialog of every Excel
-        app = wc.DispatchEx("Excel.Application")
+        app = fastcom.wrap(wc.DispatchEx("Excel.Application"))   # every object it hands out is fast too
         _, pid = win32process.GetWindowThreadProcessId(app.Hwnd)
         if pid in before:
             raise HostError("Refusing to use an Excel that already existed (DispatchEx attached to it).")

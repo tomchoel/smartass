@@ -35,8 +35,10 @@ the target workbook, the read-back, `_svmeta`, sheet ordering or the save, and i
 ## Goals
 
 Goals 1 and 2 are targets to steer by, not merge gates: phase 0 gives the real baseline, and each phase reports
-against it. The gate for phase 3 is the Excel job alone, measured in the owner's real Excel: **at most 2 s** for an
-answer without lines sheets and **at most 3.5 s** with one 50 000-line sheet.
+against it. The gate for phase 3 is the Excel job alone (run-log key `excel job._total`, save included), measured in the
+owner's real Excel with `scripts/bench_answers.py --rounds 3` in one growing workbook, as the baseline was: a median
+of **at most 3 s** for an answer without lines sheets and **at most 5 s** with a lines sheet, in every round (the
+baseline: 15.6, 25.8 and 46.0 s). Missing the gate is reported with the stage table, not hidden.
 
 1. A new answer without drill lines is in Excel within **4 s** of the tool call when the server is warm; a cold
    server adds at most 1 s.
@@ -150,38 +152,55 @@ mode, attach) stays: `xl_*` tools and the answer job need it.
 
 ### 2. Excel output: build a file, move it in
 
-`render/layout.py` (the pure plan of every cell, format and chart) stays the single description of an answer. What
-changes is how the plan reaches Excel:
+*Refined 2026-11-19 after phase 0 and a survey of the drawing code (`docs/audit/2026-11-19-render-map.md`).* The
+baseline (`docs/audit/2026-11-19-baseline-v2.md`) puts the Excel job at 33.7 s of a 34.9 s answer, about 280 COM
+calls, and each call costs 50-70 ms once a workbook holds some 60 sheets (measured in the owner's Excel; it is not
+recalculation). The answer's cell contents are already written with one `Range.Formula2` call: the calls go to the
+look (named styles, heights, merges, page setup), the Data and Lines sheets, the charts, the Sources log, sheet
+handling and the save. So the file carries **the look and the bulk data**, and the contents keep being written in
+bulk after the move-in.
 
-1. **Build** (no Excel): the plan is written with XlsxWriter to a temporary .xlsx - the Data sheet as a plain range,
-   the Answer sheet with its values, formats, widths, merges, freeze panes, page setup and native charts, and the
-   Lines sheets as values. **The file contains no Excel Table**, and the formulas that point at the table are left
-   out.
-2. **Move in** (one job in the user's Excel, screen updating, events and automatic calculation off and restored):
-   open the file read-only (not in the recent-files list), copy all its sheets after the workbook's last sheet in
-   **one** `Worksheets([...]).Copy` call, close it, break the leftover link to it.
-3. **Finish inside the workbook:** `ListObjects.Add` on the data range and name it `Data_Q<n>`; write the answer's
-   formulas with one `Range.Formula2` 2D array per block; calculate; read each block back once and compare it with
-   the model (`checks.sheet_equals_model`, as today); store the spec in `_svmeta`; order the sheets; save (our own
-   files only).
+`render/layout.py` stays the single description of an answer's contents. New, pure: `render/look.py` gives the look
+of every cell of the Answer (what `xl/styling.apply_report` applies today through COM).
 
-**A follow-up, a refresh or a redraw of Q<n>** replaces its sheets: rename the old sheets, tables and names out of
-the way ("old ..."), move the new ones in and finish them, then delete the old sheets. If any step before the delete
-fails, the new sheets are removed and the old names restored: the answer is as it was. References from the user's
-own sheets to the replaced sheets are not kept (owner decision above).
+1. **Inside the job, read q** from the workbook's sheet names (as today), refuse a sheet or table name that is
+   already taken, and **build** a temporary .xlsx with XlsxWriter (outside OneDrive): the Answer sheet with its
+   formats, widths, heights, merges, conditional formats, page setup and native charts but **no cell contents**; the
+   Data sheet with its header texts and the fact rows; the Lines sheets with their rows. **No Excel Table in the
+   file.**
+2. **Move in** (screen updating and events off, calculation manual, all restored): open the file read-only and
+   hidden, copy its sheets after the question's place in the workbook in **one** `Worksheets([...]).Copy` call,
+   close it, break the leftover link.
+3. **Finish inside the workbook:** `ListObjects.Add` for `Data_Q<n>` and every `Lines_Q<n>_b<i>`; one `Formula2` for
+   the whole Answer block (as today), one for the Data header's formulas, one cell per Lines sheet; calculate the
+   new sheets only; one read-back of the block against the model (`checks.sheet_equals_model`); the status cell; the
+   Key point rows whose calculated text needs another height.
+4. **Workbook-wide parts stay COM and are slimmed:** the Sources log (rows appended in one write, no AutoFit), the
+   spec in `_svmeta`, the sheet order, and the save - an explicit `Save` of our own file, with AutoSave paused during
+   the job: left to AutoSave, the last answer had not reached the disk 30 s later (live 19.11.2026, commit 5058b03).
+   The user's workbook is never saved.
 
-**Every table is made inside the workbook**, not only `Data_Q<n>`: a Lines sheet's `Lines_Q<n>_<alias>` table, which
-the answer's formulas sum over, is created the same way after the copy.
+**A follow-up, a refresh or a redraw of Q<n>** replaces its sheets (Answer, Data and every Lines sheet of that
+question): rename the old sheets and tables out of the way ("old ..."), move the new ones in and finish them, then
+delete the old ones. If any step before the delete fails, the new sheets are removed and the old names restored.
+Anything the user typed on a Q sheet, and references from the user's own sheets to it, are not kept (owner decision
+above).
 
 **The table rule.** A sheet that contains an Excel Table is never copied between workbooks. Spike: after a second
 copy of a table-bearing sheet into the same workbook, replacing sheets crashed EXCEL.EXE (access violation) in 13 of
-14 runs, also with the old table unlisted first. With the table made inside the workbook, three sessions of one
-answer plus six follow-ups in a row all passed (21 of 21, 1.3-1.5 s each). The writer asserts that the built file has
-no table, and the test below guards it.
+14 runs. With the tables made inside the workbook, one answer plus six follow-ups in a row passed in a clean Excel
+(21 of 21, 1.3-1.5 s each) and in the owner's real Excel with Smart View, think-cell and Arixcel loaded and AutoSave
+on (7 of 7, 2.3-3.6 s each, 50 000-line sheet included). The writer asserts that the built file has no table.
 
-**Deleted with this part:** cell-by-cell writing in `render/excel.py` and `render/datasheet.py`, COM chart drawing
-in `render/charts.py`, the answer path of `xl/styling.py`, `xl/owned.py` (owned ranges, backup sheets),
-`xl/drill_xl.py`. `ChartSpec`, `keypoints`, `layout`, `readback.compare` and `sheetorder`'s pure planning stay.
+**Known differences from today's look** (the owner judges them in the comparison): cells carry direct formats
+instead of the "TN ..." named styles. (Per-point label positions on line charts and the lifted label on thin waterfall
+steps were on this list; the move-in now sets them by COM after the copy, as the COM drawing did, so they no longer
+differ.)
+
+**Deleted with this part:** `xl/owned.py` (owned ranges, backup sheets), the in-place rewrite of the Data table,
+COM chart drawing in `render/charts.py`, `xl/drill_xl.write_lines` and the COM writers in `render/excel.py` that the
+file replaces. `xl/styling.apply_report` stays: `xl_tidy` uses it on the user's own sheets. `ChartSpec`,
+`keypoints`, `layout`, `readback.compare`, `check` and `sheetorder` stay.
 
 ### 3. Slimmer product
 

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
-from fakexl import Workbook, count_com, freeze_time, snapshot
+from fakexl import Workbook, count_com, snapshot
 
 # ------------------------------------------------------------------ scenarios
 SHEETS8 = ["Q1 Answer", "Q2 Answer", "Notes", "Q1 FinMax", "Q1 FinPlan", "Q1 Lines", "Q2 FinMax", "Sources"]
@@ -64,21 +63,7 @@ def report_case(redraw: bool = False):
     return wb, lambda: styling.apply_report(ws, roles)
 
 
-def lines_case():
-    from smartass.xl import drill_xl
-    wb = Workbook(["Q1 Answer"])
-    t = SimpleNamespace(wb=wb, app=wb.Application, sheets_added=[])
-    cols = ["ACCOUNT", "GL_DESCRIPTION_LINE", "AMOUNT", "DEBET_AMOUNT", "CREDIT_AMOUNT", "GL_POSTED_DATE",
-            "BOOKING_DATE", "PROJECT", "AP_CUSTOMER_NAME"]
-    rows = [{"ACCOUNT": "6700", "GL_DESCRIPTION_LINE": f"Consulting {i}", "AMOUNT": 1000.0 + i,
-             "DEBET_AMOUNT": 1000.0 + i, "CREDIT_AMOUNT": 0.0, "GL_POSTED_DATE": "2026-09-15",
-             "BOOKING_DATE": "2026-09-14", "PROJECT": "P1", "AP_CUSTOMER_NAME": "Acme AS"} for i in range(6)]
-    return wb, lambda: drill_xl.write_lines(t, 1, rows, cols, title="Q1 lines", source="FinLite drill", alias="d")
-
-
 def run(case, monkeypatch, *a):
-    from smartass.xl import drill_xl
-    freeze_time(monkeypatch, drill_xl)
     wb, go = case(*a)
     calls = count_com(monkeypatch)
     go()
@@ -133,12 +118,6 @@ def test_page_setup_is_redone_when_the_print_area_changes(monkeypatch):
     assert ws.PageSetup.PrintArea == "changed by hand"
 
 
-def test_lines_sheet_same_look_fewer_calls(monkeypatch):
-    snap, n = run(lines_case, monkeypatch)
-    assert same(snap) == pinned("lines")["state"]
-    assert n == 46                                    # 22 + the page setup (5c) + header-fit widths (5d)
-
-
 def test_answer_lint_findings_unchanged():
     """The lint's findings as the unbatched lint returned them (captured before batching)."""
     from smartass.xl import styling
@@ -149,27 +128,6 @@ def test_answer_lint_findings_unchanged():
     ws.put(3, 9, "outside")
     assert styling.apply_report(ws, roles) == ["content outside the table width (up to G)",
                                                "B5: text is cut off or spills over (~65 > 46 chars)"]
-
-
-def lines_redrill_case(mod=None):
-    """A re-drill with the same columns and fewer lines: the table is reused in place (cleared, resized)."""
-    from smartass.xl import drill_xl
-    mod = mod or drill_xl
-    wb, first = lines_case()
-    first()
-    t = SimpleNamespace(wb=wb, app=wb.Application, sheets_added=[])
-    cols = ["ACCOUNT", "GL_DESCRIPTION_LINE", "AMOUNT", "DEBET_AMOUNT", "CREDIT_AMOUNT", "GL_POSTED_DATE",
-            "BOOKING_DATE", "PROJECT", "AP_CUSTOMER_NAME"]
-    rows = [{"ACCOUNT": "6790", "GL_DESCRIPTION_LINE": f"Audit {i}", "AMOUNT": 50.0 * i, "DEBET_AMOUNT": 50.0 * i,
-             "CREDIT_AMOUNT": 0.0, "GL_POSTED_DATE": "2026-10-01", "BOOKING_DATE": "2026-10-01", "PROJECT": "P2",
-             "AP_CUSTOMER_NAME": "Revisor AS"} for i in range(3)]
-    return wb, lambda: mod.write_lines(t, 1, rows, cols, title="Q1 lines again", source="FinLite drill", alias="d")
-
-
-def test_lines_redrill_same_table_fewer_calls(monkeypatch):
-    snap, n = run(lines_redrill_case, monkeypatch)
-    assert same(snap) == pinned("lines_redrill")["state"]
-    assert n == 46                                    # 22 + the page setup (5c) + header-fit widths (5d)
 
 
 def test_page_setup_marker_is_not_added_when_print_communication_stays_off(monkeypatch):
