@@ -22,10 +22,16 @@
   61 sheets), about 4 s with a lines sheet, 1.6-1.9 s for a follow-up, and about 7 s for the first answer of a new
   workbook (the workbook is created). A follow-up or `fin_refresh` replaces the question's `Q<n>`
   sheets and tables whole: anything typed on them goes with them, so keep your own notes on your own sheets.
-  **Known limit** (to be fixed in the next phase): a formula on the user's own sheet that points at a `Q<n>` sheet
-  or its table (`='Q3 Answer'!E12`, `=SUM(Data_Q3[Value])`) shows #REF! after a follow-up or refresh of that
-  question, because the old sheet is deleted. Until then, link to values by pasting them, or re-link after a
-  refresh. Nothing of the user's is saved and Excel's settings are put back; when the answer's workbook is the
+  A formula elsewhere in the workbook that points at a `Q<n>` sheet or its table (`='Q3 Answer'!E12`,
+  `=SUM(Data_Q3[Value])`, a cross-sheet SUM, an array formula, a chart series, a defined name; also on another
+  answer's sheet) is re-pointed at the new sheets before the old ones are dropped, so it shows the new answer's
+  value: the same cell address, so a cell the new layout no longer has shows what is there now, or #REF! when the
+  new answer has no such sheet. The reply warns about a formula Excel refused (a locked cell on a protected sheet, a
+  table column the new answer lacks) - that one shows #REF!. **Not re-pointed** (they show #REF!): conditional
+  formats, data validation lists, pivot tables built on a `Data_Q<n>` table, chart titles and labels linked to a
+  cell, and links from other workbooks. After a follow-up Excel's Find dialog has its default options (Look in
+  Formulas, whole cell off, By Rows): the search for these formulas uses Find, and Excel cannot say what they were
+  before. Nothing of the user's is saved and Excel's settings are put back; when the answer's workbook is the
   active one it ends on the new Answer, otherwise the user's active sheet is put back.
 - **The add-in.** The first answer in an Excel builds a small Excel-DNA add-in (`smartass_run_<hash>.xll`, compiled
   with the .NET compiler that ships with Windows, under `%LOCALAPPDATA%\smartass\inproc`) and loads it into that

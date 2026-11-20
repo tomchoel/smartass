@@ -48,7 +48,7 @@ concepts: [reference/concepts.md](reference/concepts.md).
   Follow-ups, `fin_critic` and `fin_refresh` default to the latest answer's workbook; target an open one by name
   (`target="Book1"`).
 - **Monthly pack:** `fin_refresh()` re-runs every answer to the latest closed month; then prompt `monthly-pack`.
-  Refresh replaces Q<n> sheets: formulas on them turn #REF! - warn.
+  Refresh replaces Q<n> sheets; formulas pointing at them are re-pointed.
 - **Ledger lines:** a `lines` block or `fin_drill(cell, group_by, top)` (ties to the cube, report the gap;
   60–90 s): [reference/drill.md](reference/drill.md).
 

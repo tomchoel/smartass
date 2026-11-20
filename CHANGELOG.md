@@ -76,9 +76,13 @@
 - Follow-ups and `fin_refresh` replace the question's sheets whole (the old ones are parked, the new ones moved in
   where they were, the old ones dropped). Cells typed on a `Q<n>` sheet go with it; a failure puts the old answer
   back, and once the old sheets are gone it keeps the new one and says so (also when the final save fails).
-- Known limit (to be fixed in the next phase): a formula on the user's own sheet that points at a `Q<n>` sheet or
-  its table (`='Q3 Answer'!E12`, `=SUM(Data_Q3[Value])`) shows #REF! after a follow-up or refresh of that question,
-  because the old sheet is deleted. Until then, link to values by pasting them, or re-link after a refresh.
+- Formulas elsewhere in the workbook that point at a question's sheets or tables (`='Q3 Answer'!E12`,
+  `=SUM(Data_Q3[Value])`, cross-sheet SUMs, array formulas, chart series, defined names, also on another answer's
+  sheet) survive a follow-up or `fin_refresh`: they are re-pointed at the new sheets before the old ones are dropped
+  (before: #REF!). Exactly those references: never text in a string literal, a sheet whose name merely contains the
+  answer's, another workbook's. A formula Excel refuses to rewrite (a protected sheet) is a warning; a failed
+  follow-up points them back with the old answer. Not covered: conditional formats, data validation, pivot tables on
+  a `Data_Q<n>` table, linked chart titles, other workbooks; Excel's Find dialog is left with its default options.
 - The answer lands on the new Answer whenever its workbook is the active one, also in an Excel that is not visible.
 - The Sources log's print area is `A1:N1048575` (a finite last row), so openpyxl reads our files without a warning.
 - Removed: the COM writers (`render/excel.py`'s Data/Answer writers, `render/charts.py`'s drawing,

@@ -80,10 +80,18 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
 **Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; `pipeline.redraw_job`
 replaces the question's sheets whole: the old ones are parked under 'old ...' names, the new answer is moved in where
 they were, and the old ones are dropped. Cells a user typed on a `Q<n>` sheet go with it (their own notes belong on
-their own sheets). **Known limit** (to be fixed in the next phase): a formula on the user's own sheet that points at a
-`Q<n>` sheet or its table (`='Q3 Answer'!E12`, `=SUM(Data_Q3[Value])`) shows #REF! after a follow-up or refresh
-of that question, because the old sheet is deleted; until then, link to values by pasting them, or re-link after a
-refresh. A failed redraw removes the new sheets and gives the old ones their names back; once the old ones
+their own sheets). A formula elsewhere in the workbook that points at the question's sheets or tables follows the park
+to the 'old ...' names (Excel rewrites it) and would turn #REF! with the drop: the bring-in batch finds such formulas
+(the verb `mentions`, inside Excel: per other sheet one Find per name decides whether its formulas are read at all,
+a sheet with filtered rows is read whole since Find skips them; the charts' series; the defined names), Python
+rewrites exactly the references to a parked name with a namesake in the new answer (`xl/repoint.py`: never text in
+a string literal, another workbook's sheet, or a longer name that contains it), and the close-out writes them right
+before the drop, each a write that may fail (a warning). A failure before the drop points them back first (the
+parked sheets must still be there), then the rollback and the restore. Not covered (Excel offers no exact, cheap
+way): conditional formats and data validation (their formulas come only in the user's notation and change through a
+type-specific Modify), pivot caches, linked chart titles and labels, other workbooks. Find leaves its own options as
+Excel's defaults (they cannot be read back). A failed redraw removes the new sheets and gives the old ones their
+names back; once the old ones
 are dropped the new answer stays and the error says so. `fin_refresh` redraws every stored v2 question; one failure
 never stops the rest.
 
