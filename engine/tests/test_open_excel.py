@@ -293,14 +293,15 @@ def test_archive_guard_applies_to_a_workbook_targeted_by_name(tmp_path, monkeypa
 class Opener(Books):
     """Workbooks of an Excel that opens files (Open) and refuses Add (a new workbook the job builds is never added)."""
 
-    def __init__(self, items=(), fail=None):
+    def __init__(self, items=(), fail=None, read_only=False):
         super().__init__(items, add=lambda: pytest.fail("a workbook the job builds is never added"))
-        self.fail, self.opened = fail, []
+        self.fail, self.opened, self.read_only = fail, [], read_only
 
     def Open(self, path):
         if self.fail:
             raise self.fail
         wb = OpenedWb(path, self)
+        wb.ReadOnly = self.read_only
         self.opened.append(wb)
         self.append(wb)
         return wb
@@ -309,6 +310,7 @@ class Opener(Books):
 class OpenedWb:
     def __init__(self, path, books):
         self.Name, self.FullName, self.books, self.closed = Path(path).name, str(path), books, []
+        self.ReadOnly = False
 
     def Close(self, save):
         self.closed.append(save)
@@ -388,6 +390,20 @@ def test_a_failed_open_of_a_new_workbook_is_the_error_and_leaves_its_file(tmp_pa
     with pytest.raises(pywintypes.com_error):
         target.open_new(t)
     assert t.wb is None and target.discard_new(t).endswith("its file was deleted") and not t.made.exists()
+
+
+def test_a_new_workbook_excel_opens_read_only_is_refused_and_can_be_discarded(tmp_path, monkeypatch, fast):
+    """A file Excel cannot save (no sensitivity label it knows: live, 20.11.2026, it opens read-only and its Save
+    writes nothing, without an error) is an error at the open - as a SaveAs that made no file is - and the workbook
+    is known to the clean-up, which closes it and deletes the file."""
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    books = Opener(read_only=True)
+    t = target._new_target(None, "Q", [(11, 110, FakeApp(books))], build_new=True)
+    with pytest.raises(HostError, match="read-only"):
+        target.open_new(t)
+    wb = t.wb
+    assert target.discard_new(t).endswith("closed without saving and its file deleted") and wb.closed == [False]
+    assert not t.made.exists()
 
 
 def test_without_an_excel_a_new_workbook_is_made_as_today_even_when_the_job_would_build_it(tmp_path, monkeypatch,

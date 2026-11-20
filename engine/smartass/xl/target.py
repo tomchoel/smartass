@@ -233,8 +233,16 @@ def _reserved_target(app, pid: int, hwnd: int, title: str) -> Target:
 
 def open_new(t: Target) -> None:
     """The new workbook the job built (t.made) opened in its Excel with Workbooks.Open: t.wb from then on. Excel's
-    error is raised as it is (the job's clean-up deletes the file)."""
-    t.wb = jobs.com(lambda: t.app.Workbooks.Open(str(t.made)), limit=180)
+    error is raised as it is (the job's clean-up deletes the file). Opened read-only it is an error too (HostError):
+    Excel opens a file whose sensitivity label it does not know read-only, and its Save then writes nothing, without
+    an error (live, 20.11.2026) - as _save_new refuses a SaveAs that made no file."""
+    def open_():
+        wb = t.app.Workbooks.Open(str(t.made))
+        return wb, wb.ReadOnly
+    t.wb, read_only = jobs.com(open_, limit=180)
+    if read_only:
+        raise HostError(f"Excel opened the new workbook {t.made.name} read-only (sensitivity label?), so it could not "
+                        "save the answer")
 
 
 DELETE_TRIES, DELETE_PAUSE_S = 10, 0.2      # a file Excel has just closed can stay locked for a moment

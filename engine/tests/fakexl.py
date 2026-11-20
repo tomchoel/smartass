@@ -1134,6 +1134,7 @@ class Workbook:
         self.selection: dict[str, str] = {}
         self.normal = ("Calibri", 11.0)                  # the Normal style's font
         self.saved = 0                                   # Save() calls
+        self.ReadOnly = False
         self.active = self.order[0]
         self.Application.ActiveWorkbook = self
         if isinstance(getattr(self.Application, "Workbooks", None), _Workbooks):

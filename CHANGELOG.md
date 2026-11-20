@@ -10,8 +10,9 @@
   furnished (header, fonts, widths, filter, frozen header, print setup and its two hidden names), the sensitivity
   label as custom document properties and the TN template's theme - and Excel only opens it. The job then runs its
   usual batches: look, bring in (the finish only), close out (the log's rows), save. In a hidden Excel on the
-  OneDrive folder the whole first answer's Excel work took 1.9-2.5 s against 7.1-13.7 s made today's way (four
-  rounds each, 20.11.2026; the owner's Excel is measured separately).
+  OneDrive folder the whole first answer's Excel work took 1.9-2.5 s against 7.1-10.5 s made today's way (rounds
+  1-3 of four each, 20.11.2026; the first today's round also built the template; the owner's Excel is measured
+  separately).
 - The file name is reserved by creating it empty and exclusively (parallel agents get different names) and is never
   the name of a workbook open in that Excel. A failure once it is reserved closes the workbook without saving and
   deletes the file, and the error says so; the workbook becomes the session's only once the answer is in it.

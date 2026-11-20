@@ -106,6 +106,31 @@ def test_the_first_answer_is_its_built_file_opened_in_four_batches(new_book, cal
     assert app.ActiveWorkbook is wb and wb.active.Name == "Q1 Answer"
 
 
+def test_a_first_answer_with_a_lines_sheet_builds_it_into_the_new_workbook(new_book, calculated, monkeypatch):
+    """The Lines sheet in the built workbook, before the log; its table made after the open; its Sources row and
+    link; its dates in the chosen Excel's date format (nb-NO: the built-in short date)."""
+    from test_file_job import SUPPLIERS
+    from test_v2_pipeline import LINE_CELL, lines_only_spec
+
+    from smartass.model.lines import LineSet
+    seen = {}
+    real = xlsx.build
+
+    def build(path, *a, **k):
+        seen.update(k)
+        return real(path, *a, **k)
+    monkeypatch.setattr(xlsx, "build", build)
+    ls = LineSet("b0", list(SUPPLIERS), ["AP_CUSTOMER_NAME", "AMOUNT"], cube_value=-100.0, cell=LINE_CELL)
+    out, _ = _job(_pre(lines_only_spec(), lines={"b0": ls}), calculated)
+    wb = new_book.app.Workbooks(Path(out["workbook"]).name)
+    assert out["checks"]["sheet_equals_model"] == "OK" and seen["base"].date_format == movein.SHORT_DATE
+    assert [ws.Name for ws in wb.order] == ["Q1 Answer", "Q1 Data", "Q1 Lines b0", "Sources", "_svmeta"]
+    assert [lo.Name for ws in wb.order for lo in ws.ListObjects] == ["Data_Q1", "Lines_Q1_b0"]
+    log = wb.Worksheets("Sources")
+    assert [log.Range(f"C{r}").Value for r in (2, 3)] == ["b0", None]            # the drill's row (no query)
+    assert "#'Q1 Lines b0'!A1" in str(log.Range("M2").Value)
+
+
 def test_a_second_answer_finds_the_new_workbooks_log_furnished(new_book, calculated, monkeypatch):
     """The furniture's names came with the file: the next answer into the workbook appends its rows only."""
     out, _ = _job(_pre(), calculated)
@@ -183,15 +208,17 @@ def test_the_built_file_carries_the_label_and_the_new_workbooks_base(new_book, c
 
 
 @pytest.mark.parametrize("label, base, theme, want", [("f604", BASE, True, True), ("", BASE, True, False),
+                                                      ("site", BASE, True, False),
                                                       ("f604", None, True, False), ("f604", BASE, False, False),
                                                       ("f604", dataclasses.replace(BASE, col_px=73), True, False)])
 def test_the_job_builds_a_new_workbook_only_with_a_label_a_known_base_and_the_templates_theme(tmp_home, monkeypatch,
                                                                                               label, base, theme, want):
-    """Without our label id the file could not be saved; without a stored base (or with a standard column XlsxWriter
+    """Without our label id and site the file could not be saved; without a stored base (or with a standard column XlsxWriter
     has no digit width for) the file would not measure as the template's workbooks do, and without the template's
     theme its links and table styles would not look as theirs: then a new workbook is made today's way (its look
     stores the base)."""
-    monkeypatch.setattr(config, "LABEL_ID", label)
+    monkeypatch.setattr(config, "LABEL_ID", "" if label == "" else "f604")
+    monkeypatch.setattr(config, "LABEL_SITE", "" if label == "site" else "1676")
     monkeypatch.setattr(styling, "template_theme", lambda: THEME_XML_2023 if theme else None)
     if base is not None:
         xltarget.remember_new_base(base)

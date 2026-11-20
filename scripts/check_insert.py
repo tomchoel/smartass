@@ -1216,25 +1216,40 @@ def _expected(item: str, key: str) -> str | None:
 def new_workbook(xl: Excel) -> None:
     """(Phase 3c Task 1) The first answer of a new workbook made today's way (Workbooks.Add of the TN template, the
     label, SaveAs, the insert, the Sources log furnished over COM) against one whose built file is the workbook
-    (Excel only opens it), then a second answer with a Lines sheet and a follow-up in each, through the add-in;
-    today's way twice (the noise). Compared item by item; each workbook is saved by the job in this script's
-    temporary folder (a file Excel did not write - no label - would show here). Then a built new workbook whose
-    finish fails: closed unsaved, its file deleted, Excel as before."""
+    (Excel only opens it), through the add-in, today's way twice (the noise): a first answer followed by a second with
+    a Lines sheet and a follow-up, and a first answer with a Lines sheet. Compared item by item; each workbook is saved
+    by the job in this script's temporary folder (a file Excel did not write - no label - would show here). Then the
+    TN styles installed in a built workbook (styling.ensure_styles, as xl_tidy does) leave its sheets as they were,
+    and a built new workbook whose finish fails is closed unsaved, its file deleted."""
     from smartass.core import session
-    from smartass.core.timing import BATCH_PREFIX
-    from smartass.xl import target as xltarget
     folder = TMP / "analyser"
     folder.mkdir(exist_ok=True)
+    seams = {(pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now, (config, "INPROC"): True,
+             (session, "project_dir"): lambda: folder, (session, "set_workbook"): lambda p: None}
+    pres = _pres()
+    lines_first = [("first answer with a Lines sheet", None, pres[1][2])]
+    for scenario, questions in (("new workbook", pres), ("new workbook, lines first", lines_first)):
+        books = _new_books(xl, seams, questions, scenario)
+        if questions is pres:
+            _styles_installed(xl, books["insert"])
+        for wb in books.values():
+            xl.close(wb)
+    _failed_new_workbook(xl, seams, folder)
+
+
+def _new_books(xl: Excel, seams: dict, questions: list, scenario: str) -> dict:
+    """The questions answered into a new workbook per side (NEW_SIDES), compared: sheet = model, warnings, the saved
+    file labelled, the sheets, every item (the expected differences printed as such). Returns {side: workbook}."""
+    from smartass.core.timing import BATCH_PREFIX
+    from smartass.xl import target as xltarget
     books, steps, files = {}, defaultdict(dict), {}
-    base = {(pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now, (config, "INPROC"): True,
-            (session, "project_dir"): lambda: folder, (session, "set_workbook"): lambda p: None}
     for side, build in NEW_SIDES.items():
         holder: dict = {}
-        seams = base | {(pipeline, "_target"): _new_target_seam(xl, holder)}
+        side_seams = seams | {(pipeline, "_target"): _new_target_seam(xl, holder)}
         if not build:
-            seams[(pipeline, "_new_book")] = lambda: None
-        with _patched(seams):
-            for label, q, pre in _pres():
+            side_seams[(pipeline, "_new_book")] = lambda: None
+        with _patched(side_seams):
+            for label, q, pre in questions:
                 job = (lambda h, pre=pre: pipeline.excel_job(h, pre)) if q is None else (
                     lambda h, pre=pre, q=q: pipeline.redraw_job(h, pre, q, "this workbook"))
                 out, timings = pipeline.with_timings(job)(None)
@@ -1245,7 +1260,7 @@ def new_workbook(xl: Excel) -> None:
                                       sorted(set(out.get("warnings") or []) | set(out.get("layout") or [])))
         t = holder["t"]
         books[side], files[side] = t.wb, Path(t.path)
-        check(f"new workbook ({side}): {'its built file is the workbook' if build else 'made from the template'}",
+        check(f"{scenario} ({side}): {'its built file is the workbook' if build else 'made from the template'}",
               (t.made is not None) == build, f"made {t.made}")
     for label, by in steps.items():
         check(f"new workbook: {label}: sheet = model either way", all(v[0] == "OK" for v in by.values()),
@@ -1256,11 +1271,11 @@ def new_workbook(xl: Excel) -> None:
              f"{by['insert'][1]:.2f} s ({by['insert'][2]} batches), today's way again {by['control'][1]:.2f} s")
     for side, wb in books.items():
         path = files[side]
-        check(f"new workbook ({side}): the file the job saved is labelled", path.stat().st_size > 0
+        check(f"{scenario} ({side}): the file the job saved is labelled", path.stat().st_size > 0
               and xltarget._seed_has_label(path), f"{path.stat().st_size} bytes")
-        info(f"new workbook ({side}): Saved {wb.Saved} after the three jobs")
+        info(f"{scenario} ({side}): Saved {wb.Saved} after its jobs")
     names = {side: _names(wb) for side, wb in books.items()}
-    check("new workbook: the same sheets in the same order", names["copy"] == names["insert"],
+    check(f"{scenario}: the same sheets in the same order", names["copy"] == names["insert"],
           "" if names["copy"] == names["insert"] else f"today {names['copy']} | built {names['insert']}")
     rects = book_rects(list(books.values()), names["copy"])
     snaps = {side: read_book(xl.app, wb, rects, mask=True) for side, wb in books.items()}
@@ -1272,10 +1287,27 @@ def new_workbook(xl: Excel) -> None:
                 keys.remove(key)
                 info(f"expected difference ({item}) {key}: {why}")
     items = {item for snap in snaps.values() for where in snap.values() for item in where}
-    report_items("new workbook", items, {k: v for k, v in found.items() if v}, noise, unread(snaps))
-    for wb in books.values():
-        xl.close(wb)
-    _failed_new_workbook(xl, base, folder)
+    report_items(scenario, items, {k: v for k, v in found.items() if v}, noise, unread(snaps))
+    return books
+
+
+def _styles_installed(xl: Excel, wb) -> None:
+    """styling.ensure_styles on a built workbook (what xl_tidy and apply_report do first): the TN styles and their
+    marker arrive from the template (one Styles.Merge), with no prompt, and the answer's sheets stay as they were."""
+    from smartass.xl import styling
+    names = _names(wb)
+    rects = book_rects([wb], names)
+    before = read_book(xl.app, wb, rects, mask=True)
+    t0 = time.perf_counter()
+    styling.ensure_styles(wb)
+    ms = (time.perf_counter() - t0) * 1000
+    after = read_book(xl.app, wb, rects, mask=True)
+    changed = {item: keys for item, keys in diff(before, after).items() if item not in ("styles", "workbook names")}
+    marker = [k for k in diff(before, after).get("workbook names", []) if "_tnStylesVer" not in str(k)]
+    check("new workbook: the TN styles installed in a built workbook leave its sheets as they were",
+          styling.has_styles(wb) and int(wb.Styles.Count) > 100 and not changed and not marker,
+          f"styles {int(wb.Styles.Count)}, changed {dict(changed)} {marker}")
+    info(f"the TN styles installed in a built workbook in {ms:.0f} ms ({int(wb.Styles.Count)} styles)")
 
 
 def _failed_new_workbook(xl: Excel, seams: dict, folder: Path) -> None:

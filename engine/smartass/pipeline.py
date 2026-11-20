@@ -222,13 +222,13 @@ def _target(h, target: str, title: str, build_new: bool = False):
 def _new_book() -> tuple | None:
     """(the base, the theme) a new workbook's file is built in when the first answer's file IS the new workbook:
     what a workbook added from the TN template has (target.new_base, styling.template_theme). None - then a new
-    workbook is made from the template as before - without our label id (the file could not be saved), without a
+    workbook is made from the template as before - without our label id and site (the file could not be saved), without a
     stored base or the template's theme, or with a standard column XlsxWriter has no digit width for (the widths would
     not measure as the template's)."""
     from .core import config
     from .xl import styling
     from .xl import target as xltarget
-    if not config.LABEL_ID:
+    if not (config.LABEL_ID and config.LABEL_SITE):
         return None
     base, theme = xltarget.new_base(), styling.template_theme()
     if base is None or theme is None or base.col_px not in xlsx.STANDARD_COLUMNS:
