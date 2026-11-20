@@ -826,9 +826,11 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     rewrites = job.mentions.plan if job.mentions is not None else []
     spans = movein.record_repoint(b, wbn, rewrites) if job.parked is not None and rewrites else []
     point_at = spans[0][1].start if spans else None
+    if spans:
+        b.mark("re-point")
     drop_at = movein.drop(t, job.parked, book, b) if job.parked is not None else None
     if drop_at is not None:
-        b.mark("re-point, drop" if spans else "drop")
+        b.mark("drop")
     recorded = _write_sources(t, q, pre, b, wbn, log_, header, stamp, status, ties, look, book)
     b.mark("sources")
     if _save_spec(t, q, pre.raw, b, look.spec_rows):
@@ -994,8 +996,8 @@ def _mentions_notes(q: int, found) -> list[str]:
     if found.failed is not None:
         return [f"could not look for formulas elsewhere in the workbook that point at Q{q} ({found.failed}): any such "
                 "formula shows #REF! now"]
-    return [f"could not read the formulas on sheet '{sheet}' ({why}): a formula there that pointed at Q{q} shows "
-            "#REF! now" for sheet, why in found.unread]
+    return [f"could not read the formulas on sheet '{sheet}' ({why}): if one there pointed at Q{q}, it shows #REF! "
+            "now" for sheet, why in found.unread]
 
 
 POINTED_MAX = 10                        # formulas named in one warning
