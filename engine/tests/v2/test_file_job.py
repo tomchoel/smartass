@@ -31,7 +31,7 @@ from smartass.xl.target import Target
 
 H = None                                        # the host: every seam that would use it is replaced
 STAGES = ["open target", "draw", "draw.look", "draw.build", "draw.move in", "draw.finish", "draw.close out", "save"]
-BATCHES = {"draw.look": 1, "draw.move in": 1, "draw.finish": 1, "draw.close out": 1, "save": 1}
+BATCHES = {"draw.look": 1, "draw.close out": 1, "save": 1}      # + the bring-in batch, booked in 'draw' itself
 BASE = xlsx.Base("Telenor", 11, row_px=19, col_px=72)
 SUPPLIERS = [{"AP_CUSTOMER_NAME": "Bouvet", "AMOUNT": -30.0}, {"AP_CUSTOMER_NAME": "Accenture", "AMOUNT": -70.0}]
 
@@ -53,7 +53,7 @@ def _temp_files(home) -> list:
 # ------------------------------------------------------------------ the steps, every seam replaced
 def _look(book=None, **kw) -> pipeline.Look:
     return pipeline.Look(book or movein.Book([movein.Sheet("Sources")]), kw.pop("screen", movein.Screen()), BASE, [],
-                         None, sheets.SpecRows(), kw.pop("autosave", False), (",", "\xa0"))
+                         None, sheets.SpecRows(), (",", "\xa0"))
 
 
 class Wired:
@@ -73,10 +73,11 @@ class Wired:
             self.built.append(real_build(path, *a, **k))
             return self.built[-1]
 
-        def move_in(job, built, book):
+        def bring_in(job, built, plan, pre, header, book):
             job.moved, job.built = True, built
             job.t.sheets_added.extend(built.sheets)
             job.inserted = True
+            return (), ({}, {}), 1, None
 
         def rollback(t):
             self.rolled_back = list(t.sheets_added)
@@ -84,8 +85,7 @@ class Wired:
         put(pipeline, "_target", self.rec("target", ret=self.t))
         put(pipeline, "_look", self.rec("look", ret=_look()))
         put(xlsx, "build", self.rec("build", build))
-        put(pipeline, "_move_in", self.rec("move_in", move_in))
-        put(pipeline, "_finish", self.rec("finish", ret=((), {}, ({}, {}), 1, None)))
+        put(pipeline, "_bring_in", self.rec("bring_in", bring_in))
         put(pipeline, "compare", lambda *a: [])
         put(pipeline, "_close_out", self.rec("close_out", ret=(None, None, [])))
         put(pipeline, "_save", self.rec("save"))
@@ -111,7 +111,7 @@ def wired(monkeypatch, tmp_home):
 
 def test_the_file_job_runs_its_steps_in_order(wired, tmp_home):
     out = pipeline.excel_job(H, _pre())
-    assert wired.calls == ["target", "look", "build", "move_in", "finish", "close_out", "save", "remember"]
+    assert wired.calls == ["target", "look", "build", "bring_in", "close_out", "save", "remember"]
     assert out["sheets"] == ["Q1 Answer", "Q1 Data"] and out["checks"]["sheet_equals_model"] == "OK"
     assert wired.path.parent == tmp_home / "tmp" and wired.path.suffix == ".xlsx" and not wired.path.exists()
 
@@ -129,7 +129,7 @@ def test_the_temporary_file_has_a_new_name_every_time(wired):
 
 
 def test_a_failure_after_the_move_in_removes_the_new_sheets_and_the_temp_file(wired, tmp_home):   # Review Focus 3
-    wired.fail("finish", HostError("Excel is busy"))
+    wired.fail("close_out", HostError("Excel is busy"))
     with pytest.raises(HostError, match="busy"):
         pipeline.excel_job(H, _pre())
     assert wired.rolled_back == ["Q1 Answer", "Q1 Data"] and not _temp_files(tmp_home)
@@ -291,15 +291,17 @@ def _batches(timings: dict) -> dict:
             and k[len(BATCH_PREFIX):] != "draw"}
 
 
-def test_the_whole_job_on_the_fake_excel_is_five_batches(fake_target, calculated, monkeypatch, tmp_home):
-    """A new answer in a new workbook (its Sources log made and furnished): look, move in, finish, close out, save -
-    one Excel run each (one jobs.com through the COM executor), and the workbook's name read once."""
+def test_the_whole_job_on_the_fake_excel_is_four_batches(fake_target, calculated, monkeypatch, tmp_home):
+    """A new answer in a new workbook (its Sources log made and furnished): look, bring in (move in + finish), close
+    out, save - one Excel run each (one jobs.com through the COM executor), and the workbook's name read once; the
+    bring-in batch's time booked as the stages 'move in' and 'finish'."""
     calls = fakexl.count_com(monkeypatch)
     pre = _pre()
     assert len(pre.spec.queries) == 1
     out, timings = _job(pre, calculated)
-    assert _batches(timings) == BATCHES and timings[BATCH_PREFIX + "draw"] == 4
-    assert len(calls) == 6, {k: v for k, v in timings.items() if k.startswith(COM_PREFIX)}
+    assert _batches(timings) == BATCHES and timings[BATCH_PREFIX + "draw"] == 3
+    assert len(calls) == 5, {k: v for k, v in timings.items() if k.startswith(COM_PREFIX)}
+    assert timings["draw.move in"] > 0 and timings["draw.finish"] >= 0 and "draw.move in.excel.insert" in timings
     assert out["checks"]["sheet_equals_model"] == "OK" and out["mismatches"] == []
     assert set(STAGES) <= set(timings)
     wb = fake_target.wb
@@ -407,12 +409,12 @@ def test_the_lines_sheet_carries_todays_title_source_and_provenance(fake_target,
 
 
 # ------------------------------------------------------------------ Task 8B / 2b: one look, few batches, the answer shown
-def test_a_second_answer_into_the_workbook_is_five_batches(fake_target, calculated, monkeypatch):
+def test_a_second_answer_into_the_workbook_is_four_batches(fake_target, calculated, monkeypatch):
     _job(_pre(), calculated)                            # the first answer furnishes the Sources log
     calls = fakexl.count_com(monkeypatch)
     out, timings = _job(_pre(), calculated)
     assert _batches(timings) == BATCHES and out["checks"]["sheet_equals_model"] == "OK"
-    assert len(calls) == 5                              # one per batch: this Target knows its workbook's name already
+    assert len(calls) == 4                              # one per batch: this Target knows its workbook's name already
     assert [ws.Name for ws in fake_target.wb.order] == ["Q1 Answer", "Q2 Answer", "Q1 Data", "Q2 Data", "Sources",
                                                         "_svmeta"]
 
@@ -431,26 +433,35 @@ def _paints(monkeypatch, app) -> list:
     """Every paint pause of the job, as an event of the fake Excel (in order with the insert, the formulas and the
     calculation), with the screen updating Excel had then."""
     def sleep(s):
-        assert s == movein.PAINT_PAUSE
+        assert s == movein.PAINT_PAUSE > 0
         app.events.append(("", "paint", app.ScreenUpdating))
-    monkeypatch.setattr(pipeline, "time", SimpleNamespace(sleep=sleep))
+    import time
+    monkeypatch.setattr(pipeline, "time", SimpleNamespace(sleep=sleep, perf_counter=time.perf_counter))
     return app.events
 
 
-def test_the_answer_is_painted_after_the_move_in_and_again_once_it_is_calculated(fake_target, calculated,
-                                                                                 monkeypatch):
-    """The two visible steps are batch boundaries: each batch puts screen updating back, and the job pauses for
-    Excel to paint after the move-in (the formatted, empty answer) and after the finish (its numbers and charts)."""
+def test_the_answer_is_painted_once_with_its_numbers_before_the_close_out(fake_target, calculated, monkeypatch):
+    """Controller ruling R1/R2: the move-in and the finish are one batch (a boundary between them painted a half-drawn
+    sheet in the owner's Excel), then ONE pause (movein.PAINT_PAUSE, 0.15 s) for Excel to paint the answer with its
+    numbers and chart, screen updating already back on, before the close-out batch."""
     app = fake_target.app
     events = _paints(monkeypatch, app)
     _job(_pre(), calculated)
-    kinds = [k for _, k, *_ in events if k in ("Sheets.Add", "Formula2", "Calculate", "paint")]
-    first, second = (i for i, k in enumerate(kinds) if k == "paint")
-    assert kinds.index("Sheets.Add") < first < kinds.index("Formula2") and second > max(
-        i for i, k in enumerate(kinds) if k == "Calculate")
-    assert [e[2] for e in events if e[1] == "paint"] == [True, True]
+    kinds = [k for _, k, *_ in events if k in ("Sheets.Add", "Formula2", "Calculate", "paint", "Value2")]
+    assert kinds.count("paint") == 1
+    paint = kinds.index("paint")
+    assert kinds.index("Sheets.Add") < paint and max(i for i, k in enumerate(kinds) if k == "Calculate") < paint
+    assert "Value2" in kinds[paint:]                    # the close-out (the status cell) comes after the paint
+    assert [e[2] for e in events if e[1] == "paint"] == [True]
     assert app.ActiveWorkbook is fake_target.wb and fake_target.wb.active.Name == "Q1 Answer"
-    assert app.ScreenUpdating is True
+    assert app.ScreenUpdating is True and movein.PAINT_PAUSE == 0.15
+
+
+def test_sv_paint_pause_0_means_no_pause(fake_target, calculated, monkeypatch):
+    monkeypatch.setattr(movein, "PAINT_PAUSE", 0.0)
+    events = _paints(monkeypatch, fake_target.app)
+    out, timings = _job(_pre(), calculated)
+    assert not [e for e in events if e[1] == "paint"] and "draw.paint" not in timings
 
 
 def test_a_workbook_that_is_not_on_screen_is_never_painted_and_the_users_workbook_stays_active(fake_target,
@@ -611,12 +622,16 @@ def _runs(monkeypatch) -> list:
     return runs
 
 
-def test_the_look_and_the_save_are_not_quiet_and_the_three_that_write_are(fake_target, calculated, monkeypatch):
-    """Each batch with quiet=True turns the four settings off and puts the user's back itself; the look only reads
-    and the save runs with the user's settings, as before."""
+def test_the_look_and_the_save_are_not_quiet_and_only_the_bring_in_sets_manual_calculation(fake_target, calculated,
+                                                                                          monkeypatch):
+    """Each quiet batch turns the settings off and puts the user's back itself; the look only reads and the save runs
+    with the user's settings. Review M6: only the batch that writes the formulas sets Calculation to manual (putting
+    automatic back recalculates what is dirty in every open workbook)."""
     runs = _runs(monkeypatch)
     _job(_pre(), calculated)
-    assert [b.quiet for b in runs] == [False, True, True, True, False]
+    assert [(b.quiet, b.calculation) for b in runs] == [(False, True), (True, True), (True, False), (False, True)]
+    app = fake_target.app
+    assert app.Calculation == -4105
 
 
 def test_a_defined_name_an_answer_table_wants_is_refused_from_the_look_alone(fake_target, calculated, monkeypatch):
@@ -648,22 +663,22 @@ def test_a_frozen_header_excel_refuses_is_undone_and_no_warning(fake_target, cal
     assert wb.active.Name == "Q1 Answer"
 
 
-def test_the_labels_are_positioned_before_the_calculation_and_lifted_after_it(fake_target, calculated, monkeypatch):
+def test_the_labels_are_positioned_before_the_calculation_and_lifted_right_after_it(fake_target, calculated,
+                                                                                   monkeypatch):
     """Live (hidden Excel, 20.11.2026, scripts/check_insert.py --parts labels): a point label positioned after the
     calculation lands 12-24 pt elsewhere than before it, and a lift set before the calculation is lost (the label
-    ends where Excel puts it); so the finish batch positions and colours the labels before Calculate and the
-    close-out lifts them from the Top read after it."""
+    ends where Excel puts it); so the labels are positioned and coloured before Calculate and lifted right after it,
+    inside the same batch (review M3: the verb nudge; no label jumps after a paint)."""
     seen = []
-    for name in ("fix_labels", "calculate", "read_labels", "lift_labels"):
+    for name in ("fix_labels", "calculate", "lift_labels"):
         real = getattr(movein, name)
         monkeypatch.setattr(movein, name, lambda *a, real=real, name=name, **k: seen.append(name) or real(*a, **k))
     runs = _runs(monkeypatch)
     _job(_pre(), calculated)
-    assert seen == ["fix_labels", "calculate", "read_labels", "lift_labels"]
-    assert [b.quiet for b in runs] == [False, True, True, True, False]
+    assert seen == ["fix_labels", "calculate", "lift_labels"] and len(runs) == 4
 
 
-def test_fix_labels_positions_and_colours_and_lift_labels_only_lifts():
+def test_fix_labels_positions_and_colours_and_lift_labels_nudges_inside_excel():
     from smartass.render.xlsx_charts import LabelFix
     built = SimpleNamespace(sheets=["Q1 Answer"], label_fixes=[LabelFix(1, 2, 3, position="right"),
                                                              LabelFix(1, 1, 2, font_color="#1F3864", lift_pt=10.0),
@@ -674,6 +689,39 @@ def test_fix_labels_positions_and_colours_and_lift_labels_only_lifts():
     sets = [(op["name"], op["value"]) for op in b.to_dict()["ops"] if op["k"] == "set"]
     assert sets == [("Position", -4152), ("Color", 0x64381F)] and len(spans) == 2
     b = Batch()
-    spans = movein.lift_labels(b, b.workbook("book.xlsx"), built, {1: 50.0, 2: 8.0})
-    sets = [(op["name"], op["value"]) for op in b.to_dict()["ops"] if op["k"] == "set"]
-    assert sets == [("Top", 40.0)] and len(spans) == 1           # the second is not more than its lift from the top
+    spans = movein.lift_labels(b, b.workbook("book.xlsx"), built)
+    verbs = [op for op in b.to_dict()["ops"] if op["k"] == "verb"]
+    assert [(v["name"], v["args"][1:]) for v in verbs] == [("nudge", ["Top", -10.0, 10.0])] * 2 and len(spans) == 2
+    assert all(v.get("try") for v in verbs)
+
+
+def test_in_the_users_workbook_there_is_no_save_batch(fake_target, calculated, monkeypatch):
+    """Review I2: the user's workbook is never saved; with no new Sources log to name, no save batch runs at all
+    (a batch that does nothing must not put a finished answer at risk): look, bring in, close out."""
+    monkeypatch.setattr(pipeline, "_is_ours", lambda t: False)
+    _job(_pre(), calculated)                            # the first answer's new log: its print setup named in a batch
+    runs = _runs(monkeypatch)
+    out, timings = _job(_pre(), calculated)
+    assert len(runs) == 3 and BATCH_PREFIX + "save" not in timings and fake_target.wb.saved == 0
+    assert out["checks"]["sheet_equals_model"] == "OK"
+
+
+def test_a_sources_sheet_whose_kind_cannot_be_read_is_not_taken_for_the_log(fake_target, calculated, monkeypatch):
+    """Review M4: when the kind of an existing 'Sources' sheet cannot be read, the pull is not logged (a warning, as
+    before) and the sheet is not furnished as if it were ours."""
+    src = fake_target.wb.Worksheets("Sources")
+    src.put(1, 1, "My own list")
+    before = fakexl.sheet_state(src)
+    real, failed = src.Range, []
+
+    def range_(a, b=None):
+        if a == "A1:B1" and not failed:                 # the look's read only: later reads would work
+            failed.append(a)
+            raise fakexl.ComError("Excel would not read it")
+        return real(a, b)
+    src.Range = range_
+    out, _ = _job(_pre(), calculated)
+    del src.Range
+    assert fakexl.sheet_state(src) == before and "Sources SV" not in [ws.Name for ws in fake_target.wb.order]
+    assert any(w.startswith("could not log the pull on the Sources sheet") for w in out["warnings"])
+    assert out["checks"]["sheet_equals_model"] == "OK"

@@ -67,7 +67,7 @@ def rollback(t: target.Target) -> list[str]:
     from .jobs import book_name
     if not t.sheets_added:                              # nothing came in: nothing to run
         return []
-    b = Batch()
+    b = Batch(calculation=False)
     spans = []
     with b.attempt():
         wbn = b.workbook(book_name(t))
@@ -280,7 +280,7 @@ def save_spec(t: target.Target, q: int, spec: dict, ids: dict[str, str] | None =
     if created and not create:
         return False
     own = b is None
-    b = Batch() if own else b
+    b = Batch(calculation=False) if own else b
     wbn = b.workbook(book_name(t))
     key = f"SPEC Q{q}"
     r, width = rows.row(key)

@@ -198,7 +198,7 @@ def arrange_sheets(wb, mode: str = "full", activate: str | None = None) -> dict:
     v = run(app, rb).values
     rows = [(str(n), vis == -1, tab) for n, vis, tab in v["sheets"]]
     active = v.get("active") if v.get("active book") == v["book"] else None
-    b = Batch()
+    b = Batch(calculation=False)
     out = record_arrange(b, b.workbook(name), rows, active, mode, activate, v.get("sources a1") in OURS_A1)
     res = run(app, b)
     refused = [m for i, _, m in res.skipped if i in out["moves"]]

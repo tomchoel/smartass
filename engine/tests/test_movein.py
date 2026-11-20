@@ -308,14 +308,19 @@ def test_an_insert_that_fails_half_way_leaves_its_names_for_the_rollback(t, buil
 
 # ------------------------------------------------------------------ finish
 def test_finish_makes_the_tables_then_writes_each_block_once_then_fixes_the_labels(t, built, monkeypatch):
+    """One batch, in the job's order: the tables, every block, the labels' position and colour, the calculation
+    (the Answer last), the labels' lifts (review M3: the job and the standalone finish alike)."""
     _moved(t, built)
     calls = fakexl.count_com(monkeypatch)
     movein.finish(t, built)
-    assert len(calls) == 2          # a batch of its own: the tables, the blocks, the labels read; one: the labels set
-    steps = [(e[0], e[1]) for e in _events(t, "ListObjects.Add", "Formula2", "DataLabel")]
+    assert len(calls) == 1
+    steps = [(e[0], e[1]) for e in _events(t, "ListObjects.Add", "Formula2", "DataLabel", "Calculate")]
     assert steps[:2] == [("Q3 Data", "ListObjects.Add"), ("Q3 Lines b0", "ListObjects.Add")]
     assert steps[2:5] == [("Q3 Answer", "Formula2"), ("Q3 Data", "Formula2"), ("Q3 Lines b0", "Formula2")]
-    assert {s for s in steps[5:]} == {("Q3 Answer", "DataLabel")} and len(steps) > 5
+    kinds = [k for _, k in steps[5:]]
+    calc = [i for i, k in enumerate(kinds) if k == "Calculate"]
+    assert "DataLabel" in kinds[:calc[0]] and "DataLabel" in kinds[calc[-1]:]      # positioned before, lifted after
+    assert [s for s, k in steps if k == "Calculate"] == ["Q3 Data", "Q3 Lines b0", "Q3 Answer"]
     assert [e[2] for e in _events(t, "Formula2")] == ["B2:C3", "A1:B2", "F1:G1"]
     data, lines = t.wb.Worksheets("Q3 Data").ListObjects(1), t.wb.Worksheets("Q3 Lines b0").ListObjects(1)
     assert _tables(t.wb) == {"Data_Q3": "Q3 Data", "Lines_Q3_b0": "Q3 Lines b0"}

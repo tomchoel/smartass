@@ -249,20 +249,18 @@ def _is_ours(t) -> bool:
     return bool(getattr(t, "created", False)) or kit._is_our_analysis_file(str(t.path))
 
 
-AUTOSAVE_NOTE = ("AutoSave was switched off in {} so the answer is not saved for you; save yourself or switch it back "
-                 "on.")
-
-
 def _save(job) -> None:
     """The save batch (not quiet: Excel saves with the user's settings): the print setup's name of a new Sources log
-    (once its setup went through), then our own analysis file saved - never the user's workbook - and AutoSave back
-    on in it (on, it did not save the last answer within 30 s live, 19.11.2026). The user's workbook keeps AutoSave
-    off, with a note (AutoSave would otherwise save our edits into their file; v1 does the same). A failing save
-    raises with AutoSave still off: the caller's clean-up turns it on after its rollback, as before."""
+    (once its setup went through), then our own analysis file saved - never the user's workbook. AutoSave is never
+    touched (Workbook.Save costs the same with it on, and it does not save our edits between the batches: measured
+    by the controller 20.11.2026). No batch at all when there is nothing to do (the user's workbook, no new log): a
+    finished answer is never put at risk by a batch that does nothing."""
     from .xl import styling
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import run
-    t, ours = job.t, _is_ours(job.t)
+    ours = _is_ours(job.t)
+    if not (ours or job.setups):
+        return
     b = Batch(quiet=False)
     wbn = b.workbook(job.name)
     for sheet, key in job.setups:
@@ -270,15 +268,7 @@ def _save(job) -> None:
             styling.setup_name(wbn.Worksheets(sheet), key)
     if ours:
         wbn.Save()
-        if job.paused:
-            with b.attempt():
-                wbn.AutoSaveOn = True
-    if b.position:
-        run(t.app, b)
-    if job.paused:
-        job.paused = False
-        if not ours:
-            job.notes.append(AUTOSAVE_NOTE.format(job.name))
+    run(job.t.app, b)
 
 
 def _rollback(t) -> None:
@@ -525,7 +515,7 @@ def _refused_breaks(t, sheet: str, breaks: Breaks | None, res) -> None:
     if why is None:
         return
     log.warning("could not set the page breaks %s on the Answer sheet: %s", breaks.rows, why)
-    b = Batch()
+    b = Batch(calculation=False)
     ws = b.workbook(book_name(t)).Worksheets(sheet)
     with b.attempt():
         ws.ResetAllPageBreaks()
@@ -540,16 +530,17 @@ def _refused_breaks(t, sheet: str, breaks: Breaks | None, res) -> None:
 @dataclass
 class Look:
     """What the look batch read (_look): the Book, the Excel around (movein.Screen), the destination's base, the
-    defined names a table could want, the kind of a 'Sources' sheet, where the specs are (sheets.SpecRows),
-    AutoSave, and the separators of the user's number formats (Application.International 3 and 4)."""
+    defined names a table could want, the kind of a 'Sources' sheet (sources_unread: there is one and its kind could
+    not be read - the log is then not written, with a warning, rather than taken for ours), where the specs are
+    (sheets.SpecRows), and the separators of the user's number formats (Application.International 3 and 4)."""
     book: object
     screen: object
     base: object
     names: list
     kind: str | None
     spec_rows: object
-    autosave: bool
     separators: tuple
+    sources_unread: bool = False
 
 
 def _look(t, name: str) -> Look:
@@ -562,37 +553,34 @@ def _look(t, name: str) -> Look:
     book, screen = movein.record_book(b, wbn), movein.record_screen(b, wbn)
     base, names = movein.record_base(b, wbn), movein.record_names(b, wbn)
     kind, spec_rows = sources.record_kind(b, wbn), sheets.record_spec_rows(b, wbn)
-    with b.attempt():                                   # a local file or an Excel without AutoSave
-        b.ret(wbn.AutoSaveOn, "autosave")
     b.ret(b.app.International(3), "decimal separator")
     b.ret(b.app.International(4), "thousands separator")
     res = run(t.app, b)
     v = res.values
     got = book(res)
-    return Look(got, screen(res), base(res), names(res), kind(res) if "Sources" in got.names() else None,
-                spec_rows(res), bool(v.get("autosave")), (v["decimal separator"], v["thousands separator"]))
+    has_sources = "Sources" in got.names()
+    found = kind(res) if has_sources else None
+    return Look(got, screen(res), base(res), names(res), found, spec_rows(res),
+                (v["decimal separator"], v["thousands separator"]), has_sources and found is None)
 
 
 @dataclass
 class _Job:
     """One file job's state, for its batches and its clean-up: t, q (None: a new answer, numbered by the look),
-    name - the workbook's name; look; parked (a follow-up: the plan of its old sheets' names); paused - AutoSave was
-    switched off; moved - the move-in batch ran, in part or whole (the user's sheet is landed on again after a
-    failure); inserted / dropped - whether the new sheets came in and the old ones went (None: unknown, the workbook
-    says); setups - (sheet, key) of a print setup whose name the save batch adds; notes - for the reply, or the
-    error's text when the job fails."""
+    name - the workbook's name; look; parked (a follow-up: the plan of its old sheets' names); moved - the move-in
+    batch ran, in part or whole (the user's sheet is landed on again after a failure); inserted / dropped - whether
+    the new sheets came in and the old ones went (None: unknown, the workbook says); setups - (sheet, key) of a print
+    setup whose name the save batch adds."""
     t: object
     q: int | None = None
     name: str = ""
     look: Look | None = None
     parked: object = None
-    paused: bool = False
     moved: bool = False
     inserted: bool | None = False
     dropped: bool | None = False
     built: object = None
     setups: list = field(default_factory=list)
-    notes: list = field(default_factory=list)
 
     @staticmethod
     def after(e: BaseException, at: int) -> bool | None:
@@ -623,36 +611,19 @@ class _Job:
 
     def settle(self) -> None:
         """After a failure (and its rollback / restore): the sheet the job found active is active again once the
-        move-in ran, and AutoSave back on in our own file (a note for the user's workbook)."""
+        move-in ran."""
         from .xl import movein
-        from .xl.inproc.batch import Batch
-        from .xl.inproc.runner import run
         if self.moved and self.look is not None:
             movein.land(self.t, self.look.screen)
-        if not self.paused:
-            return
-        self.paused = False
-        if not _is_ours(self.t):
-            self.notes.append(AUTOSAVE_NOTE.format(self.name))
-            return
-        b = Batch(quiet=False)
-        b.workbook(self.name).AutoSaveOn = True
-        try:
-            run(self.t.app, b, limit=30, check=False)
-        except Exception as e:   # noqa: BLE001 - the job's error is the one raised
-            log.warning("could not switch AutoSave back on in %s: %s", self.name, e)
 
-    def fail(self, e: BaseException) -> BaseException:
-        """The error a failed job raises: a busy Excel inside a batch as the HostError jobs.com gives, and the
-        job's notes (AutoSave left off in the user's workbook) at the end of its text."""
+    @staticmethod
+    def fail(e: BaseException) -> BaseException:
+        """The error a failed job raises: a busy Excel inside a batch as the HostError jobs.com gives."""
         from .xl import jobs
         from .xl.host import HostError
         from .xl.inproc.runner import BatchError
         if isinstance(e, BatchError) and jobs.BUSY in e.message:
-            e = HostError(jobs.BUSY)
-        if self.notes:
-            note = "; " + "; ".join(self.notes)
-            e.args = (e.args[0] + note, *e.args[1:]) if e.args and isinstance(e.args[0], str) else (*e.args, note)
+            return HostError(jobs.BUSY)
         return e
 
 
@@ -670,106 +641,102 @@ def _sheet_names(t) -> set[str] | None:
         return None
 
 
-def _note_marks(res) -> None:
-    """Where a batch's time inside Excel went, noted under the current stage as 'excel.<step>' (core/timing.note):
-    each mark is recorded right after its step, so a step's time runs from the mark before it; 'excel.quiet' is the
-    four settings turned off (up to the first mark), 'excel.end' the time after the last mark (the settings put back,
-    the result written)."""
+def _note_marks(res, stages: tuple = ("",), split: str | None = None, overhead: float = 0.0) -> None:
+    """Where a batch's time inside Excel went, noted under the current stage (core/timing.note): each mark is recorded
+    right after its step, so a step's time runs from the mark before it - '<stage>excel.<step>'; 'excel.quiet' is the
+    settings turned off (up to the first mark), 'excel.end' the time after the last mark (the settings put back, the
+    result written). With two stages and split (a mark), the batch's time is booked as two stages: the first up to
+    that mark plus overhead (the run's time outside Excel), the second the rest, each with its steps."""
     from .core import timing
-    prev = 0.0
+    prev, stage, upto = 0.0, stages[0], 0.0
     for name, ms in res.marks.items():
-        timing.note(f"excel.{name}", max(ms - prev, 0.0) / 1000)
+        timing.note(f"{stage}excel.{name}", max(ms - prev, 0.0) / 1000)
         prev = ms
-    timing.note("excel.end", max(res.ms - prev, 0.0) / 1000)
+        if name == split:
+            upto, stage = ms, stages[1]
+    timing.note(f"{stage}excel.end", max(res.ms - prev, 0.0) / 1000)
+    if split is not None:
+        timing.note(stages[0].rstrip("."), upto / 1000 + overhead)
+        timing.note(stages[1].rstrip("."), max(res.ms - upto, 0.0) / 1000)
 
 
 def _paint(look) -> None:
-    """Let Excel paint the workbook between two batches (movein.PAINT_PAUSE) when it is the active one of a visible
-    Excel."""
+    """One pause (movein.PAINT_PAUSE, SV_PAINT_PAUSE; 0: none) for Excel to paint the new answer - with its numbers and
+    charts - before the close-out batch, when the workbook is the active one of a visible Excel."""
+    from .core.timing import stage
     from .xl import movein
-    if look.screen.shown:
-        time.sleep(movein.PAINT_PAUSE)
+    if look.screen.shown and movein.PAINT_PAUSE > 0:
+        with stage("paint"):
+            time.sleep(movein.PAINT_PAUSE)
 
 
-def _move_in(job, built, book) -> None:
-    """The move-in batch: AutoSave off (it was on), the old sheets parked (a follow-up), the file's sheets inserted,
-    moved to their old places (a follow-up), the Answer active (the workbook is the active one); then a paint."""
-    from .xl import movein
-    from .xl.inproc.batch import Batch
-    from .xl.inproc.runner import run
-    t, look, parked = job.t, job.look, job.parked
-    b = Batch()
-    b.mark("quiet")
-    wbn = b.workbook(job.name)
-    autosave_at = b.position
-    if look.autosave:
-        wbn.AutoSaveOn = False
-        b.mark("autosave")
-    if parked is not None:
-        movein.record_park(b, wbn, parked, book)
-        b.mark("park")
-    after, first = _place(book, job.q) if parked is None else _parked_place(book, parked)
-    at = movein.move_in(t, built, after, first, book=book, names=look.names, b=b)
-    b.mark("insert")
-    job.built = built
-    if parked is not None:
-        _take_places(parked, built.sheets, book, wbn)
-        b.mark("moves")
-    if look.screen.active:                              # the active workbook (on screen or not) shows its new Answer
-        with b.attempt():
-            wbn.Worksheets(built.sheets[0]).Activate()
-    job.moved = True
-    try:
-        res = run(t.app, b, limit=movein.INSERT_WAIT_S)
-    except BaseException as e:
-        job.paused = look.autosave and job.after(e, autosave_at + 1) is not False
-        job.inserted = job.after(e, at)
-        raise
-    job.paused, job.inserted = look.autosave, True
-    _note_marks(res)
-    _paint(look)
-
-
-def _finish(job, built, plan, pre: Prepared, header, book) -> tuple:
-    """The finish batch: the tables, the formula blocks, the chart labels' position and colour, the calculation, and
-    the reads the close-out needs - the read-back block, the lifted labels' tops, the status cells, the chart count,
-    the Sources log; then a paint.
-    Returns (block, tops, (status, ties), chart count, the log or None)."""
+def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
+    """The move-in and the finish in ONE batch (no Python decision lies between them, and a boundary there painted a
+    half-drawn window in the owner's Excel): (a follow-up: the old sheets parked), the file's sheets inserted, moved
+    to their old places (a follow-up), then the tables, the formula blocks, the labels' position and colour, the
+    calculation, the labels' lifts, the reads the close-out needs (the read-back block, the status cells, the chart
+    count, the Sources log), the Answer active (in the active workbook); quiet with Calculation manual (it writes the
+    formulas). Its time is booked as the stages 'move in' and 'finish' (split at the last move-in mark), then one
+    paint. Returns (block, (status, ties), chart count, the log or None). A failure: inserted is decided by the
+    insert's index, as a separate move-in did."""
     from .xl import movein, sources
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import run
-    t, q, look = job.t, job.q, job.look
+    t, q, look, parked = job.t, job.q, job.look, job.parked
     b = Batch()
     b.mark("quiet")
     wbn = b.workbook(job.name)
-    fixes = movein.finish(t, built, b)
-    b.mark("tables, formulas, labels")
-    movein.calculate(t, built.sheets, b)
-    b.mark("calculate")
+    if parked is not None:
+        movein.record_park(b, wbn, parked, book)
+        b.mark("park")
+    after, first = _place(book, q) if parked is None else _parked_place(book, parked)
+    at = movein.move_in(t, built, after, first, book=book, names=look.names, b=b)
+    b.mark("insert")
+    job.built = built
+    split = "insert"
+    if parked is not None:
+        _take_places(parked, built.sheets, book, wbn)
+        b.mark("moves")
+        split = "moves"
+    labels = movein.finish(t, built, b)
+    b.mark("tables, formulas, labels, calculate")
     answer = wbn.Worksheets(built.sheets[0])
     block = read_block(answer, plan, b)
-    tops = movein.read_labels(b, wbn, built)
     status = _record_status(b, wbn, q, pre, header)
     with b.attempt():
         b.ret(answer.ChartObjects().Count, "charts")
-    log_ = sources.log_of(look.kind, book.names(), f"Q{q} Data")
-    with b.attempt():                                   # the log is provenance: unreadable, it is a warning
-        read_log = sources.record_read(b, wbn, log_)
+    log_ = None
+    if not look.sources_unread:
+        log_ = sources.log_of(look.kind, book.names(), f"Q{q} Data")
+        with b.attempt():                               # the log is provenance: unreadable, it is a warning
+            read_log = sources.record_read(b, wbn, log_)
+    if look.screen.active:                              # the active workbook (on screen or not) shows its new Answer
+        with b.attempt():
+            answer.Activate()
     b.mark("reads")
-    res = run(t.app, b)
-    _note_marks(res)
-    movein.label_skips(res, fixes)
-    _paint(look)
+    job.moved = True
+    t0 = time.perf_counter()
     try:
-        got_log = read_log(res)
-    except Exception:   # noqa: BLE001
-        got_log = None
-    return block(res), tops(res), status(res), res.values.get("charts"), got_log
+        res = run(t.app, b, limit=movein.INSERT_WAIT_S)
+    except BaseException as e:
+        job.inserted = job.after(e, at)
+        raise
+    job.inserted = True
+    _note_marks(res, ("move in.", "finish."), split, time.perf_counter() - t0 - res.ms / 1000)
+    movein.label_skips(res, labels)
+    _paint(look)
+    got_log = None
+    if log_ is not None:
+        try:
+            got_log = read_log(res)
+        except Exception:   # noqa: BLE001
+            got_log = None
+    return block(res), status(res), res.values.get("charts"), got_log
 
 
 def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple, mismatches: list[str],
                book) -> tuple:
-    """The close-out batch: status, the Key point heights and page breaks, the chart label lifts, a follow-up's old
+    """The close-out batch: status, the Key point heights and page breaks, a follow-up's old
     sheets dropped, the Sources rows, the spec, the sheet order, the Answer active; then what it could not do as
     warnings (labels and breaks logged) and the layout check over the finish's reads. Returns (the Sources warning,
     the order warning, the layout findings)."""
@@ -777,16 +744,15 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import run
     t, q, look = job.t, job.q, job.look
-    block, tops, (status, ties), charts, log_ = read
+    block, (status, ties), charts, log_ = read
     answer = built.sheets[0]
-    b = Batch()
+    b = Batch(calculation=False)
     b.mark("quiet")
     wbn = b.workbook(job.name)
     ws = wbn.Worksheets(answer)
     write_status(ws, plan, mismatches)
     breaks = _fit_text_rows(ws, plan, block, b)
-    lifts = movein.lift_labels(b, wbn, built, tops)
-    b.mark("status, heights, labels")
+    b.mark("status, heights")
     drop_at = movein.drop(t, job.parked, book, b) if job.parked is not None else None
     if drop_at is not None:
         b.mark("drop")
@@ -808,8 +774,7 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
             e, drop_at)
         raise
     job.dropped = drop_at is not None
-    _note_marks(res)
-    movein.label_skips(res, lifts)
+    _note_marks(res, ("",))
     _refused_breaks(t, answer, breaks, res)
     logged = _sources_warning(pre, recorded, res)
     if not isinstance(recorded, str):
@@ -826,16 +791,16 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
 
 
 def _file_draw(job, pre: Prepared) -> dict:
-    """The answer's sheets built as a file (Answer look and charts, Data, Lines) and brought into the workbook in four
-    batches (xl/inproc): look (every read the build needs: the sheets, the base, the screen, AutoSave, the kind of
-    a Sources sheet, the stored specs' rows, the defined names); move in (a follow-up: the old sheets parked; the
-    insert, the moves, the Answer active); finish (tables, formula blocks, calculation, and the reads the close-out
-    needs); close out (status, Key point heights and page breaks, chart label fixes, a follow-up's old sheets
-    dropped, Sources, spec, sheet order, the Answer active). Each batch but the look is quiet and puts the user's
-    settings back itself; Excel paints the formatted Answer after the move-in and its numbers and charts after the
-    finish when the workbook is on screen. job: _Job (q None: a new answer, the next Q<n>; else a follow-up of Q<q>,
-    whose sheets are parked, replaced and dropped after the read-back, before Sources and the spec). The caller
-    owns rollback, restore and save; the temporary file is deleted whatever happens."""
+    """The answer's sheets built as a file (Answer look and charts, Data, Lines) and brought into the workbook in three
+    batches (xl/inproc): look (every read the build needs: the sheets, the base, the screen, the kind of a Sources
+    sheet, the stored specs' rows, the defined names; not quiet); bring in (a follow-up: the old sheets parked; the
+    insert, the moves, tables, formula blocks, labels, calculation and the reads the close-out needs; quiet with
+    Calculation manual), then one pause for Excel to paint the new answer when the workbook is on screen; close out
+    (status, Key point heights and page breaks, a follow-up's old sheets dropped, Sources, spec, sheet order, the
+    Answer active; quiet, Calculation left alone). Each quiet batch puts the user's settings back itself. job: _Job
+    (q None: a new answer, the next Q<n>; else a follow-up of Q<q>, whose sheets are parked, replaced and dropped
+    after the read-back, before Sources and the spec). The caller owns rollback, restore and save; the temporary
+    file is deleted whatever happens."""
     from .xl import jobs, movein
     t = job.t
     job.name = jobs.book_name(t)
@@ -862,10 +827,7 @@ def _file_draw(job, pre: Prepared) -> dict:
             except xlsx.TooManyRows as e:
                 raise GuardError(str(e), "narrow the query or the lines cell (a shorter period, a lower account or "
                                  "entity) so it fits on one sheet") from None
-        with stage("move in"):
-            _move_in(job, built, book)
-        with stage("finish"):
-            read = _finish(job, built, plan, pre, header, book)
+        read = _bring_in(job, built, plan, pre, header, book)     # booked as 'move in' and 'finish' (+ 'paint')
         mismatches = compare(plan.addr, pre.result.cells, read[0], plan.fractions)
         with stage("close out"):
             logged, arranged, found = _close_out(job, built, plan, pre, header, stamp, read, mismatches, book)
@@ -961,8 +923,8 @@ def _question_parts(book, q: int) -> tuple[list[str], list[str]]:
 
 def excel_job(h, pre: Prepared, target: str = "session") -> dict:
     """A new answer (_file_draw) as the next Q<n> of the target workbook. On any failure the sheets it brought in
-    are removed (they are in t.sheets_added), the sheet the job found active is active again, AutoSave back on in
-    our own file, and the error is raised with the job's notes in its text."""
+    are removed (they are in t.sheets_added), the sheet the job found active is active again, and the error is
+    raised."""
     with stage("open target"):
         t = _target(h, target, pre.spec.question[:60])
     job = _Job(t)
@@ -977,12 +939,11 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
         job.settle()
         _raise(job, e)
     remember(pre, out)
-    return _with_notes(out, job.notes)
+    return out
 
 
 def _raise(job, e: BaseException):
-    """Raise the failed job's error (_Job.fail): e itself with its text completed, or the HostError of a busy Excel
-    from e."""
+    """Raise the failed job's error (_Job.fail): e itself, or the HostError of a busy Excel from e."""
     err = job.fail(e)
     if err is e:
         raise e
@@ -1000,7 +961,7 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
     failure once the old sheets are dropped keeps the new answer (a rollback then would leave neither): our own file
     is saved and the error, of its own class, says the new answer is in place (the Sources rows and the spec may be
     missing then); so does a failing save of our file, which is not tried again. After any failure the sheet the job
-    found active is active again and AutoSave back on in our own file; the job's notes end the error's text."""
+    found active is active again."""
     from .xl import movein
     with stage("open target"):
         t = _target(h, target, pre.spec.question[:60])
@@ -1032,7 +993,7 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
             _raise(job, e)
     out["followup"] = True
     remember(pre, out)
-    return _with_notes(out, job.notes)
+    return out
 
 
 def _stock(pre: Prepared) -> set[str]:

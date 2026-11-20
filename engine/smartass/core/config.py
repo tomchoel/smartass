@@ -258,6 +258,8 @@ DRILL_XL_FULL = int(os.environ.get("SV_DRILL_XL_FULL", "50000"))   # above this:
 FASTCOM = os.environ.get("SV_FASTCOM", "1") != "0"   # 0: pywin32's standard COM wrapper instead of xl/fastcom.py
 INPROC = os.environ.get("SV_INPROC", "1") != "0"     # 0: batches run over COM, never through the add-in (xl/inproc)
 INPROC_DIR = HOME / "inproc"                         # the add-in's builds (one folder per hash) and the job files
+PAINT_PAUSE_S = float(os.environ.get("SV_PAINT_PAUSE", "0.15"))   # the job's pause for Excel to paint the new answer
+                                                     # (only in the active workbook of a visible Excel; 0: none)
 DRILL_KEEP_DAYS = 90
 DRILL_LOGIN_TIMEOUT_S = 60                         # per attempt; one retry in a fresh tab (spec §6)
 SVHTTP_TIMEOUT_S = float(os.environ.get("SV_HTTP_TIMEOUT", "120"))   # one Smart View HTTP request incl. a sign-in

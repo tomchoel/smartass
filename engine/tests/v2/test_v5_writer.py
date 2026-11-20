@@ -121,7 +121,7 @@ def test_the_job_closes_out_with_the_status_after_the_readback_and_sets_the_foot
     monkeypatch.setattr(pipeline, "_close_out", wired.rec("close_out", lambda job, built, plan, pre, header, stamp,
                                                           read, m, book: seen.update(m=m) or (None, None, [])))
     out = pipeline.excel_job(None, pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts())), "session")
-    assert log.index("finish") + 1 == log.index("compare") and log.index("compare") + 1 == log.index("close_out")
+    assert log.index("bring_in") + 1 == log.index("compare") and log.index("compare") + 1 == log.index("close_out")
     assert seen["m"] == ["D5: sheet 1, model 2"] and out["checks"]["sheet_equals_model"] == "DIFF in 1 cells"
     assert seen["plan"].footer.startswith("Source: Oracle EPM Cloud · fetched ")
 

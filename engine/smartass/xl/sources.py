@@ -328,7 +328,7 @@ def unfreeze(t, sheet: str, written: Written, res, screen, answer: str | None = 
     from .jobs import book_name
     if written.freeze is None or not any(i in written.freeze for i, _, _ in res.skipped):
         return
-    b = Batch()
+    b = Batch(calculation=False)
     with b.attempt():
         wbn = b.workbook(book_name(t))
         if not screen.active:
@@ -376,7 +376,7 @@ def write_sources(t, q: int, pre, ws_data, header, fetched: str, status: dict | 
     separators = (res.values["decimal"], res.values["thousands"])
     rb = Batch(quiet=False)
     log = record_read(rb, rb.workbook(name), log)(run(t.app, rb))
-    b = Batch()
+    b = Batch(calculation=False)
     written = record_write(b, b.workbook(name), t, q, pre, log, header, fetched, status or {}, lines_status or {},
                            separators, get_screen(res), notes)
     res = run(t.app, b)

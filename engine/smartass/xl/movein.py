@@ -2,9 +2,10 @@
 as operations recorded into batches (xl/inproc/batch.py) that run in one go inside Excel (xl/inproc/runner.py).
 
 The file job's batches (pipeline._file_draw): look - the reads the build needs (record_book, record_screen,
-record_base, record_names); move in - (a follow-up: park) the insert, the moves, the Answer active; finish - the
-tables and formula blocks, the calculation and the reads the close-out needs (read_labels); close out - status,
-heights, the label fixes (fix_labels), (a follow-up: drop), Sources, spec, sheet order. A function given a batch
+record_base, record_names); bring in - (a follow-up: park) the insert, the moves, then finish: the tables, the
+formula blocks, the labels' position and colour (fix_labels), the calculation and the labels' lifts (lift_labels),
+and the reads the close-out needs; close out - status, heights, (a follow-up: drop), Sources, spec, sheet order. A
+function given a batch
 records into it; given none it builds and runs its own (read_book, base, move_in, finish, calculate, park, drop: the
 tests and scripts/check_insert.py use them so). restore and land always run their own: they clean up after a failure,
 also for an abandoned job.
@@ -18,16 +19,17 @@ workbooks (Excel can crash), so the file holds none, and as the insert brings ev
 the answer's sheets and only those, in order (its zip is checked for both before the insert); finish makes the
 tables in the workbook, then writes the formula blocks (the formulas name the tables); the per-point chart labels the
 file cannot carry (LabelFix) are positioned with the formulas and lifted once the answer is calculated (fix_labels,
-read_labels, lift_labels). park / restore / drop
+lift_labels). park / restore / drop
 rename a question's old sheets out of the way for a follow-up and delete or restore them afterwards.
 
 Book is the job's picture of the workbook's sheets: read once (record_book) and kept up to date by the steps that add,
 rename, move or delete sheets, so none of them reads the sheets again. Nothing comes back from a batch as a COM object:
 every step addresses sheets and tables by name (a batch takes a sheet's node before it renames it).
 
-A batch with quiet=True turns off and puts back the four settings itself; Excel repaints between two batches once it
-has been idle for 25 ms, so the job pauses PAINT_PAUSE after the move-in and after the finish when the workbook is the
-active one of a visible Excel (Screen.shown): the formatted answer, then its numbers and charts. Late-bound COM
+A quiet batch turns off and puts back the settings itself (Calculation only in a batch that writes formulas); Excel
+paints between two batches, so the job pauses PAINT_PAUSE after the batch that brings the answer in, when the workbook
+is the active one of a visible Excel (Screen.shown): the user first sees the answer with its numbers and charts,
+fully painted. Late-bound COM
 ignores keyword arguments: every argument is positional, an omitted one MISSING."""
 from __future__ import annotations
 
@@ -38,6 +40,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
 
+from ..core import config
 from ..render.xlsx import Base, BuiltFile
 from ..render.xlsx_charts import LabelFix
 from .host import HostError, InputError
@@ -58,7 +61,9 @@ STANDARD_PX = 64                        # XlsxWriter's standard column (Calibri 
 DATE_SETTINGS = (17, 32, 41, 42, 43)    # Application.International(i), 1-based: xlDateSeparator, xlDateOrder,
                                         # xlMonthLeadingZero, xlDayLeadingZero, xl4DigitYears
 SHORT_DATE = 14                         # Excel's built-in short date (the system's)
-PAINT_PAUSE = 0.04                      # s: Excel paints between two batches after 25 ms idle (measured 20.11.2026)
+PAINT_PAUSE = config.PAINT_PAUSE_S       # s (SV_PAINT_PAUSE, default 0.15): the owner's Excel paints a new sheet and
+                                        # its chart whole in 0.15 s after the batch that brings it in (0.04: half
+                                        # painted, measured by window captures 20.11.2026)
 BOOK_PATHS = ["Name", "Visible", "Tab.Color", "ListObjects.*.Name"]
 TABLE_PREFIXES = ["Data_Q", "Lines_Q"]  # an answer's tables (Data_Q<q>, Lines_Q<q>_<alias>): the defined names read
 
@@ -290,7 +295,7 @@ def move_in(t, built: BuiltFile, after: str | None, first: bool = False, book: B
                          "with a table is never moved between workbooks; the tables are made after the insert")
     before, after_sheet = _anchor(book, after, first)
     own = b is None
-    b = Batch() if own else b
+    b = Batch(calculation=False) if own else b
     wbn = b.workbook(book_name(t))
     path, new = str(built.path), list(built.sheets)
     t.sheets_added.extend(new)
@@ -315,9 +320,10 @@ def _bgr(colour: str) -> int:
 
 def finish(t, built: BuiltFile, b: Batch | None = None) -> list[tuple]:
     """After move_in: each table (ListObjects.Add, its name, TableStyleLight1, row stripes off where the spec says),
-    then every formula block (its grid as it is: text keeps its leading apostrophe), then the chart labels' position
-    and colour (fix_labels: returned for label_skips). Without b in a quiet batch of its own, the lifts read
-    (read_labels) and set (lift_labels) after it in a second batch."""
+    then every formula block (its grid as it is: text keeps its leading apostrophe), the chart labels' position and
+    colour (fix_labels), the calculation (calculate), and the labels' lifts right after it (lift_labels) - so a label
+    never shows unlifted between two paints. Returns the label operations' spans for label_skips. Without b in a
+    quiet batch of its own (Calculation manual meanwhile: it writes the formulas), the same order."""
     own = b is None
     b = Batch() if own else b
     wbn = b.workbook(book_name(t))
@@ -330,23 +336,20 @@ def finish(t, built: BuiltFile, b: Batch | None = None) -> list[tuple]:
             lo.ShowTableStyleRowStripes = False
     for block in built.formulas:
         wbn.Worksheets(block.sheet).Range(block.ref).Formula2 = tuple(tuple(row) for row in block.grid)
-    fixes = fix_labels(b, wbn, built)
+    spans = fix_labels(b, wbn, built)
+    calculate(t, built.sheets, b)
+    spans += lift_labels(b, wbn, built)
     if own:
-        tops = read_labels(b, wbn, built)
-        res = run(t.app, b)
-        label_skips(res, fixes)
-        fb = Batch()
-        lifts = lift_labels(fb, fb.workbook(book_name(t)), built, tops(res))
-        label_skips(run(t.app, fb), lifts)
+        label_skips(run(t.app, b), spans)
         return []
-    return fixes
+    return spans
 
 
 def calculate(t, sheets: list[str], b: Batch | None = None) -> None:
     """Worksheet.Calculate per sheet, the Answer sheets last (they read Data and Lines); the other sheets in the order
-    given. Without b in a quiet batch of its own."""
+    given. Without b in a batch of its own."""
     own = b is None
-    b = Batch() if own else b
+    b = Batch(calculation=False) if own else b
     wbn = b.workbook(book_name(t))
     for name in sorted(sheets, key=lambda s: s.endswith(" Answer")):
         wbn.Worksheets(name).Calculate()
@@ -358,22 +361,10 @@ def _label(ws, fix: LabelFix):
     return ws.ChartObjects(fix.chart).Chart.SeriesCollection(fix.series).Points(fix.point).DataLabel
 
 
-def read_labels(b: Batch, wbn, built: BuiltFile, key: str = "label top") -> Callable[[Result], dict]:
-    """The Top of each label a fix lifts, read in b (the finish batch, once the answer is calculated): {fix index:
-    points, or None when Excel did not give it}."""
-    lifts = [i for i, fix in enumerate(built.label_fixes) if fix.lift_pt]
-    if lifts:
-        ws = wbn.Worksheets(built.sheets[0])
-        with b.attempt():
-            for i in lifts:
-                b.ret(_label(ws, built.label_fixes[i]).Top, f"{key} {i}")
-    return lambda res: {i: res.values.get(f"{key} {i}") for i in lifts}
-
-
 def fix_labels(b: Batch, wbn, built: BuiltFile) -> list[tuple]:
-    """Each fix's position and colour recorded in b, before the calculation (the order the labels were fixed in
-    before the batches: a point label positioned after it lands elsewhere, 12-24 pt measured live), every operation
-    one that may fail (a label is cosmetic). Returns [(fix, first operation, end)] for label_skips."""
+    """Each fix's position and colour recorded in b, before the calculation (a point label positioned after it lands
+    12-24 pt elsewhere, measured in a hidden Excel 20.11.2026), every operation one that may fail (a label is
+    cosmetic). Returns [(fix, first operation, end)] for label_skips."""
     spans = []
     if not built.label_fixes:
         return spans
@@ -392,22 +383,21 @@ def fix_labels(b: Batch, wbn, built: BuiltFile) -> list[tuple]:
     return spans
 
 
-def lift_labels(b: Batch, wbn, built: BuiltFile, tops: dict) -> list[tuple]:
-    """Each lift recorded in b from the Top read after the calculation (read_labels): only a label more than the lift
-    below the chart's top is lifted (charts._labels leaves the empty points of a waterfall's other step series where
-    they are). Operations that may fail; returns [(fix, first operation, end)] for label_skips."""
+def lift_labels(b: Batch, wbn, built: BuiltFile) -> list[tuple]:
+    """Each lift recorded in b right after the calculation, inside Excel (the verb nudge: Top - lift, only for a
+    label more than the lift below the chart's top - charts._labels leaves the empty points of a waterfall's other
+    step series where they are). A lift set before the calculation is lost (the label ends where Excel puts it,
+    measured in a hidden Excel 20.11.2026). Operations that may fail; returns [(fix, first operation, end)]."""
     spans = []
-    lifts = [(i, fix) for i, fix in enumerate(built.label_fixes) if fix.lift_pt]
+    lifts = [fix for fix in built.label_fixes if fix.lift_pt]
     if not lifts:
         return spans
     ws = wbn.Worksheets(built.sheets[0])
     with b.attempt():
-        for i, fix in lifts:
-            top = tops.get(i)
-            if isinstance(top, (int, float)) and not isinstance(top, bool) and top > fix.lift_pt:
-                start = b.position
-                _label(ws, fix).Top = top - fix.lift_pt
-                spans.append((fix, start, b.position))
+        for fix in lifts:
+            start = b.position
+            b.verb("nudge", _label(ws, fix), "Top", -float(fix.lift_pt), float(fix.lift_pt))
+            spans.append((fix, start, b.position))
     return spans
 
 
@@ -486,7 +476,7 @@ def park(t, sheets: list[str], tables: list[str], book: Book | None = None) -> P
     (restore). book (else read): the workbook's sheets, told the new names."""
     book = book or read_book(t)
     parked = parking(book, sheets, tables)
-    b = Batch()
+    b = Batch(calculation=False)
     record_park(b, b.workbook(book_name(t)), parked, book, tell=False)
     try:
         run(t.app, b)
@@ -521,7 +511,7 @@ def restore(t, parked: Parked) -> None:
                 continue
             plan.append((kind, new, old, have_tables.get(new.casefold())))
     if plan:
-        b = Batch()
+        b = Batch(calculation=False)
         wbn = b.workbook(book_name(t))
         with b.attempt():                            # every name is tried; each node taken before the first rename
             taken_at = []
@@ -555,7 +545,7 @@ def drop(t, parked: Parked, book: Book | None = None, b: Batch | None = None) ->
     if not names:
         return None
     own = b is None
-    b = Batch() if own else b
+    b = Batch(calculation=False) if own else b
     b.workbook(book_name(t)).Worksheets(names).Delete()
     at = b.position - 1
     if own:

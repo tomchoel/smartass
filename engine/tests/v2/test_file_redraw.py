@@ -399,16 +399,16 @@ def test_a_follow_up_in_the_active_workbook_of_a_hidden_excel_ends_on_the_new_an
     assert wb.Application.ActiveWorkbook is wb and wb.active is wb.Worksheets("Q3 Answer") and wb.active in wb.order
 
 
-def test_a_follow_up_is_five_batches_and_reads_the_sheets_once(own_book, monkeypatch):
-    """Look, move in (the park, the insert, the moves), finish, close out (the drop among the rest), save: one Excel
-    run each, one jobs.com each through the COM executor and one for the workbook's name."""
+def test_a_follow_up_is_four_batches_and_reads_the_sheets_once(own_book, monkeypatch):
+    """Look, bring in (the park, the insert, the moves, the finish), close out (the drop among the rest), save: one
+    Excel run each, one jobs.com each through the COM executor and one for the workbook's name."""
     reads, real = [], runner.VERBS["each"]
     monkeypatch.setitem(runner.VERBS, "each", lambda c, paths, prefixes: reads.append(list(paths))
                         or real(c, paths, prefixes))
     calls = fakexl.count_com(monkeypatch)
     own_book.pre = _pre()
     out, timings = pipeline.with_timings(lambda h: pipeline.redraw_job(h, own_book.pre, 3, PATH))(H)
-    assert _batches(timings) == BATCHES and len(calls) == 6 and out["checks"]["sheet_equals_model"] == "OK"
+    assert _batches(timings) == BATCHES and len(calls) == 5 and out["checks"]["sheet_equals_model"] == "OK"
     assert reads == [movein.BOOK_PATHS, ["Name"], ["Name"]]
 
 
@@ -419,8 +419,9 @@ def test_a_failed_follow_up_rolls_back_before_it_restores_and_never_after(own_bo
                         or real_rollback(t))
     monkeypatch.setattr(movein, "restore", lambda t, parked: seen.append(("restore", dict(parked.sheets)))
                         or real_restore(t, parked))
-    monkeypatch.setattr(movein, "finish", lambda t, built, b=None: (_ for _ in ()).throw(HostError("refused")))
-    with pytest.raises(HostError):
+    monkeypatch.setattr(fakexl._ListObjects, "Add", lambda self, *a: (_ for _ in ()).throw(
+        fakexl.ComError("refused")))              # in the batch, after the park and the insert
+    with pytest.raises(BatchError):
         own_book.follow_up(_pre(), 3)
     assert seen == [("rollback", ["Q3 Answer", "Q3 Data"]),
                     ("restore", {"Q3 Answer": "old Q3 Answer", "Q3 Data": "old Q3 Data",
@@ -428,17 +429,17 @@ def test_a_failed_follow_up_rolls_back_before_it_restores_and_never_after(own_bo
 
 
 def test_a_restore_that_fails_is_a_restore_error(own_book, monkeypatch):
-    def finish(t, built, b=None):
-        raise HostError("a formula was refused")
+    def refuse(self, *a):
+        raise fakexl.ComError("a table was refused")
 
     def restore(t, parked):
         raise HostError("could not put back the names of sheet 'old Q3 Data' -> 'Q3 Data'")
-    monkeypatch.setattr(movein, "finish", finish)
+    monkeypatch.setattr(fakexl._ListObjects, "Add", refuse)
     monkeypatch.setattr(movein, "restore", restore)
     with pytest.raises(pipeline.RestoreError) as e:
         own_book.follow_up(_pre(), 3)
-    assert "a formula was refused" in str(e.value) and "the restore was incomplete" in str(e.value)
-    assert "'old Q3 Data' -> 'Q3 Data'" in str(e.value) and isinstance(e.value.__cause__, HostError)
+    assert "a table was refused" in str(e.value) and "the restore was incomplete" in str(e.value)
+    assert "'old Q3 Data' -> 'Q3 Data'" in str(e.value) and isinstance(e.value.__cause__, BatchError)
     assert "Q3 Answer" not in _names(own_book.wb)                  # the new sheets are gone; the old stay parked
 
 
@@ -626,8 +627,8 @@ def test_a_move_in_whose_outcome_is_unknown_is_told_by_the_workbook(own_book, mo
 
 
 def test_an_abandoned_follow_up_stops_at_its_next_batch_and_still_cleans_up(own_book, monkeypatch):
-    """The job abandoned by a timeout while the move-in ran: the finish never starts (JobAborted), and the clean-up
-    batches run for the abandoned job (check=False): the old answer is back, Excel as it was."""
+    """The job abandoned by a timeout while the bring-in batch ran: the close-out never starts (JobAborted), and the
+    clean-up batches run for the abandoned job (check=False): the old answer is back, Excel as it was."""
     from smartass.xl import jobs
     wb, app = own_book.wb, own_book.wb.Application
     before, n = fakexl.snapshot(wb), len(app.events)
@@ -646,7 +647,8 @@ def test_an_abandoned_follow_up_stops_at_its_next_batch_and_still_cleans_up(own_
             own_book.follow_up(_pre(), 3)
     finally:
         jobs.bind_job()
-    assert fakexl.snapshot(wb) == before and not [e for e in app.events[n:] if e[1] == "Formula2"]
+    assert fakexl.snapshot(wb) == before and not [e for e in app.events[n:] if e[1] == "Delete"
+                                                  and e[2][0].startswith("old ")]   # no drop: no close-out
     assert (app.ScreenUpdating, app.EnableEvents, app.DisplayAlerts, app.Calculation) == (True, True, True, -4105)
 
 
