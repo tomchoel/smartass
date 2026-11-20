@@ -130,8 +130,8 @@ def repoint(formula: str, sheets: dict[str, str], tables: dict[str, str]) -> str
 
 def scan_texts(sheets: list[str], tables: list[str]) -> list[str]:
     """What the verb mentions looks for (case ignored): the parked sheets' names - as their common start when they
-    share one of PREFIX_MIN characters or more (one Find instead of one per sheet; the rewrite decides exactly) - and
-    each parked table's name."""
+    share one of PREFIX_MIN characters or more (fewer texts to compare each formula with; the rewrite decides
+    exactly) - and each parked table's name."""
     common = os.path.commonprefix([s.casefold() for s in sheets]) if len(sheets) > 1 else ""
     found = [sheets[0][:len(common)]] if len(common) >= PREFIX_MIN else list(sheets)
     return found + [t for t in tables if t not in found]

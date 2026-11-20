@@ -892,3 +892,103 @@ def test_a_sheet_whose_formulas_cannot_be_read_is_said(own_book, monkeypatch):
     out = own_book.follow_up(_pre(), 3)
     assert [w for w in out["warnings"] if "'Summary'" in w and "hidden" in w and "#REF!" in w]
     assert _pointing(wb)["q1"] == POINTING["q1"]                  # the other sheets are re-pointed
+
+
+# ------------------------------------------------------------------ review fixes (Task 3)
+def test_a_protected_sheet_whose_only_mention_is_a_hidden_formula_is_said(own_book):
+    """Review Important 2: a hidden formula on a protected sheet cannot be read; the reply says so, never silence."""
+    wb = own_book.wb
+    lk = fakexl.Worksheet(wb, "Locked")
+    wb.order.append(lk)
+    lk.cells[(2, 2)] = {"Value": "='Q3 Answer'!E12"}
+    lk.ProtectContents, lk.hidden = True, {(2, 2)}
+    out = own_book.follow_up(_pre(), 3)
+    assert [w for w in out["warnings"] if "'Locked'" in w and "hidden formula" in w and "Q3" in w]
+
+
+def test_a_formula_the_user_changed_while_the_answer_was_drawn_is_left_alone_and_said(own_book, monkeypatch):
+    """Review ruling 3: each write checks the formula is still the text the bring-in read. Between the two batches
+    the user edits a cell and adds a name that shifts the names' order: neither is written, the rest is."""
+    wb = own_book.wb
+    _point_at_q3(wb)
+    real = pipeline._paint
+
+    def paint(look):
+        wb.Worksheets("Summary").cells[(1, 1)]["Value"] = "='old Q3 Answer'!E12+1"
+        wb.Names.items = {"AAA": fakexl._Name(Name="AAA", RefersTo="=1", Visible=True), **wb.Names.items}
+        real(look)
+    monkeypatch.setattr(pipeline, "_paint", paint)
+    out = own_book.follow_up(_pre(), 3)
+    got = _pointing(wb)
+    assert got["summary"][(1, 1)] == "=#REF!E12+1" and got["name"] == "=#REF!$E$12"     # not re-pointed
+    assert got["summary"][(2, 1)] == SUMMARY[(2, 1)] and got["q1"] == POINTING["q1"]   # the rest is
+    assert wb.Names.items["AAA"].RefersTo == "=1"
+    note = [w for w in out["warnings"] if "changed while the answer was drawn" in w]
+    assert len(note) == 1 and "Summary!A1" in note[0] and "the name TotalQ3" in note[0] and "2 formula(s)" in note[0]
+
+
+def test_the_close_out_calculates_manually_only_when_it_re_points(own_book, monkeypatch):
+    """Review ruling 2: with re-pointing writes the close-out batch sets Calculation to manual (each write would
+    recalculate); without any it leaves Calculation alone, as before."""
+    wb, seen, real = own_book.wb, [], runner.run
+
+    def run(app, b, *a, **k):
+        if _close_out_batch(b):
+            seen.append(b.to_dict().get("calculation", True))
+        return real(app, b, *a, **k)
+    monkeypatch.setattr(runner, "run", run)
+    own_book.follow_up(_pre(), 3)
+    _point_at_q3(wb)
+    own_book.follow_up(_pre(), 3)
+    assert seen == [False, True]
+
+
+def test_a_point_back_excel_refuses_is_said_in_the_error(own_book, monkeypatch):
+    """Review Minor 5: the drop is refused after the re-pointing, and Excel refuses to point one formula back: the
+    error names it (it shows #REF! once the new sheets are gone)."""
+    wb = own_book.wb
+    _point_at_q3(wb)
+    real_delete, real_set = fakexl._SheetGroup.Delete, fakexl.Range.__setattr__
+
+    def refuse(group):
+        if group.sheets[0].Name.startswith("old "):
+            raise fakexl.ComError("the delete was refused")
+        real_delete(group)
+
+    def setattr_(self, k, v):
+        if self.ws.Name == "Summary" and k == "Formula2" and v == "=SUM(Data_Q3_old[Value])":
+            raise fakexl.ComError("the cell is locked now")
+        real_set(self, k, v)
+    monkeypatch.setattr(fakexl._SheetGroup, "Delete", refuse)
+    monkeypatch.setattr(fakexl.Range, "__setattr__", setattr_)
+    with pytest.raises(BatchError) as e:
+        own_book.follow_up(_pre(), 3)
+    text = str(e.value)
+    assert "could not point 1 formula(s) back at the old Q3" in text and "the cell is locked now" in text
+    assert text.endswith("Summary!A2 show #REF!")
+    assert _pointing(wb)["summary"][(2, 1)] == "=SUM(#REF!)" and _pointing(wb)["summary"][(1, 1)] == SUMMARY[(1, 1)]
+
+
+def test_a_point_back_batch_that_fails_whole_names_every_formula(own_book, monkeypatch):
+    from smartass.xl.repoint import Repoint
+    plan = [Repoint("cell", "Summary", "A1", "='old Q3 Answer'!E12", "='Q3 Answer'!E12"),
+            Repoint("name", "TotalQ3", "2", "='old Q3 Answer'!$E$12", "='Q3 Answer'!$E$12")]
+
+    def fail(*a, **k):
+        raise HostError("Excel is gone")
+    monkeypatch.setattr(movein, "run", fail)
+    t = Target(app=own_book.wb.Application, wb=own_book.wb, pid=0, hwnd=0)
+    assert [(r.where_text, why) for r, why in movein.unpoint(t, plan)] == [("Summary!A1", "Excel is gone"),
+                                                                       ("the name TotalQ3", "Excel is gone")]
+
+
+def test_a_legacy_array_and_a_chart_sheet_are_re_pointed_too(own_book):
+    """Review Minor 8: the two kinds the other tests do not write, on the fake."""
+    wb = own_book.wb
+    s = fakexl.Worksheet(wb, "Summary")
+    wb.order.append(s)
+    s.Range("A1:A2").FormulaArray = "='Q3 Data'!B2:B3*2"
+    wb.Charts.append(fakexl.ChartSheet("Q3 Chart", "=SERIES(,,'Q3 Data'!$B$2:$B$5,1)"))
+    own_book.follow_up(_pre(), 3)
+    assert s.Range("A1:A2").FormulaArray == "='Q3 Data'!B2:B3*2" and s.Range("A2").HasArray
+    assert wb.Charts("Q3 Chart").series[0].Formula == "=SERIES(,,'Q3 Data'!$B$2:$B$5,1)"

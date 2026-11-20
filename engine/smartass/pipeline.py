@@ -806,7 +806,8 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
 def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple, mismatches: list[str],
                book) -> tuple:
     """The close-out batch: status, the Key point heights and page breaks, a follow-up's formulas elsewhere re-pointed
-    at the new sheets (each a write that may fail) right before its old sheets are dropped, the Sources rows, the
+    at the new sheets (each a compare-and-set that may fail, with Calculation manual) right before its old sheets
+    are dropped, the Sources rows, the
     spec, the sheet order, the Answer active; then what it could not do as warnings (labels and breaks logged) and
     the layout check over the finish's reads. Returns (the Sources warning,
     the order warning, the layout findings)."""
@@ -816,17 +817,17 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     t, q, look = job.t, job.q, job.look
     block, (status, ties), charts, log_ = read
     answer = built.sheets[0]
-    b = Batch(calculation=False)
+    rewrites = job.mentions.plan if job.parked is not None and job.mentions is not None else []
+    b = Batch(calculation=bool(rewrites))               # with re-pointing writes: manual (each would recalculate)
     b.mark("quiet")
     wbn = b.workbook(job.name)
     ws = wbn.Worksheets(answer)
     write_status(ws, plan, mismatches)
     breaks = _fit_text_rows(ws, plan, block, b)
     b.mark("status, heights")
-    rewrites = job.mentions.plan if job.mentions is not None else []
-    spans = movein.record_repoint(b, wbn, rewrites) if job.parked is not None and rewrites else []
-    point_at = spans[0][1].start if spans else None
-    if spans:
+    writes = movein.record_repoint(b, wbn, rewrites) if rewrites else None
+    point_at = writes.start if writes is not None else None
+    if writes is not None:
         b.mark("re-point")
     drop_at = movein.drop(t, job.parked, book, b) if job.parked is not None else None
     if drop_at is not None:
@@ -851,7 +852,9 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
         raise
     job.dropped = drop_at is not None
     job.repointed = point_at is not None
-    job.pointing += _refused_notes(q, movein.refused(res.skipped, spans), "point", "at the new")
+    if writes is not None:
+        refused, changed = writes.outcome(res.values, res.skipped)
+        job.pointing += _refused_notes(q, refused, "point", "at the new") + _changed_notes(q, changed)
     _note_marks(res, ("",))
     _refused_breaks(t, answer, breaks, res)
     logged = _sources_warning(pre, recorded, res)
@@ -1011,6 +1014,17 @@ def _refused_notes(q: int, failed: list, verb: str, which: str) -> list[str]:
     more = f" and {len(where) - POINTED_MAX} more" if len(where) > POINTED_MAX else ""
     return [f"could not {verb} {len(where)} formula(s) {which} Q{q} ({failed[0][1]}): "
             f"{', '.join(where[:POINTED_MAX])}{more} show #REF!"]
+
+
+def _changed_notes(q: int, changed: list) -> list[str]:
+    """The formulas pointing at Q<q> that were not what the bring-in read any more when the close-out came to write
+    them (the user edited them, or inserted a row, a chart or a name in between): left alone, as one warning."""
+    if not changed:
+        return []
+    where = [r.where_text for r in changed]
+    more = f" and {len(where) - POINTED_MAX} more" if len(where) > POINTED_MAX else ""
+    return [f"{len(where)} formula(s) pointing at Q{q} changed while the answer was drawn: not re-pointed "
+            f"({', '.join(where[:POINTED_MAX])}{more}); one that still points at the old Q{q} shows #REF!"]
 
 
 def _point_back(job) -> None:

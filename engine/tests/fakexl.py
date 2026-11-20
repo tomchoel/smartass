@@ -17,9 +17,8 @@ and workbooks (not part of snapshot).
 
 What Excel does to formulas when sheets and tables change (live, 20.11.2026, the probe of Task 3): renaming a sheet or
 a table rewrites every formula that names it - cells, defined names, chart series - outside string literals
-(_renamed); deleting a sheet turns a reference to it, or to a table on it, into #REF! (_deleted). Range.Find
-(LookIn formulas, part of the text, case ignored) skips the rows a filter hides, as Excel's does (Worksheet.filtered,
-FilterMode).
+(_renamed); deleting a sheet turns a reference to it, or to a table on it, into #REF! (_deleted). A protected sheet's
+hidden formula (Worksheet.hidden, with ProtectContents) refuses Formula2, alone or in a range, as Excel's does.
 """
 from __future__ import annotations
 
@@ -203,6 +202,9 @@ def _formulas(wb):
                 yield (lambda s=s: s.Formula), (lambda x, s=s: setattr(s, "Formula", x))
     for item in wb.Names.items.values():
         yield (lambda n=item: n.RefersTo), (lambda x, n=item: setattr(n, "RefersTo", x))
+    for ch in wb.Charts:
+        for s in getattr(ch, "series", []):
+            yield (lambda s=s: s.Formula), (lambda x, s=s: setattr(s, "Formula", x))
 
 
 def _rewrite(wb, fn) -> None:
@@ -439,14 +441,22 @@ class Range:
 
     def __getattr__(self, k):
         if k in ("Value", "Value2", "Formula", "Formula2"):
+            if k.startswith("Formula") and self.ws.ProtectContents and self.ws.hidden & set(self.cells()):
+                raise ComError("a hidden formula of a protected sheet cannot be read")
             return self._get_value()
         if k == "PrefixCharacter":
             return "'" if self.rects[0][:2] in self.ws.prefixed else ""
         if k == "HasFormula":                            # one cell: a formula, not text written with an apostrophe
             v = self._get_value()
             return isinstance(v, str) and v.startswith("=") and self.rects[0][:2] not in self.ws.prefixed
-        if k == "HasArray":
-            return False
+        if k in ("HasArray", "CurrentArray", "FormulaArray"):
+            r, c = self.rects[0][:2]
+            area = next((a for a in self.ws.arrays if a[0] <= r <= a[2] and a[1] <= c <= a[3]), None)
+            if k == "HasArray":
+                return area is not None
+            if area is None:
+                raise ComError("no array formula here")
+            return Range(self.ws, [area]) if k == "CurrentArray" else self.ws.cells[area[:2]]["Value"]
         if k == "ColumnWidth":
             vals = {self.ws.colw.get(c, self.ws.StandardWidth) for _, c1, _, c2 in self.rects
                     for c in range(c1, max(c1, min(c2, CLIP_C)) + 1)}
@@ -465,7 +475,13 @@ class Range:
     def __setattr__(self, k, v):
         self.ws.log.append((k, ";".join(rect_text(*x) for x in self.rects)))
         _event(self.ws, k, ";".join(rect_text(*x) for x in self.rects))
-        if k in ("Value", "Value2", "Formula", "Formula2"):
+        if k == "FormulaArray":                          # a legacy array: every cell holds the formula
+            self._check_tables(v)
+            area = self.rects[0]
+            self.ws.arrays = [a for a in self.ws.arrays if a != area] + [area]
+            for r, c in self.cells():
+                self.ws.put(r, c, v)
+        elif k in ("Value", "Value2", "Formula", "Formula2"):
             self._check_tables(v)
             self._set_value(v)
         elif k == "ColumnWidth":
@@ -529,17 +545,6 @@ class Range:
 
     def Select(self):
         self.ws.wb.selection[self.ws.Name] = ";".join(rect_text(*x) for x in self.rects)
-
-    def Find(self, what, after=None, look_in=None, look_at=None, order=None, direction=None, match_case=None,
-             match_byte=None, search_format=None):
-        """As Excel with LookIn formulas, part of the text, case ignored, by rows: the first cell whose formula or
-        constant contains what, or None; the rows a filter hides are skipped (Worksheet.filtered)."""
-        want = str(what).casefold()
-        for r, c in sorted(self.cells()):
-            v = self.ws.cells.get((r, c), {}).get("Value")
-            if r not in self.ws.filtered and v is not None and want in str(v).casefold():
-                return Range(self.ws, [(r, c, r, c)])
-        return None
 
     def AutoFit(self):
         pass
@@ -734,6 +739,28 @@ class _ChartObjects(list):
         return co
 
 
+class ChartSheet(_Chart):
+    """A chart sheet: its name and its series' formulas."""
+
+    def __init__(self, name, *formulas):
+        super().__init__(formulas)
+        self.Name = name
+
+
+class _Charts(list):
+    """wb.Charts: the chart sheets, Charts(name) as Excel finds one."""
+
+    def __call__(self, key):
+        for ch in self:
+            if str(ch.Name).lower() == str(key).lower():
+                return ch
+        raise ComError(f"no chart sheet {key}")
+
+    @property
+    def Count(self):
+        return len(self)
+
+
 class _Hyperlinks(list):
     """ws.Hyperlinks: Add(Anchor, Address, SubAddress, ScreenTip, TextToDisplay) POSITIONAL only (late-bound COM
     ignored the keyword TextToDisplay in v1); one link per cell, the text becomes the cell value."""
@@ -782,7 +809,9 @@ class Worksheet:
         self.page_breaks: list[int] | None = None       # manual page breaks: None until reset
         self.StandardHeight, self.StandardWidth, self.digit_px = 15.0, 8.43, 7     # Calibri 11, as a new workbook
         self.charts = _ChartObjects()                   # ChartObjects(): charts with series formulas
-        self.filtered: set[int] = set()                 # rows a filter hides (Find skips them; FilterMode)
+        self.ProtectContents = False
+        self.hidden: set[tuple[int, int]] = set()        # a protected sheet's hidden formulas: Formula2 refuses them
+        self.arrays: list[tuple[int, int, int, int]] = []    # legacy array formulas (FormulaArray), by their area
 
     def __setattr__(self, k, v):
         old = self.__dict__.get("Name")
@@ -791,8 +820,8 @@ class Worksheet:
             _renamed_sheet(self.wb, old, v)               # as Excel: the formulas follow the sheet
 
     @property
-    def FilterMode(self):
-        return bool(self.filtered)
+    def Application(self):
+        return self.wb.Application
 
     def ChartObjects(self, i=None):
         return self.charts if i is None else self.charts[i - 1]
@@ -1074,6 +1103,11 @@ class Application:
     def ActiveWindow(self):
         return self.ActiveWorkbook.window
 
+    def Intersect(self, a, b):
+        """The cells two ranges of one sheet share, or None."""
+        both = set(a.cells()) & set(b.cells()) if a.ws is b.ws else set()
+        return Range(a.ws, [(r, c, r, c) for r, c in sorted(both)]) if both else None
+
     def CentimetersToPoints(self, cm):
         return round(cm * 28.3464567, 4)
 
@@ -1087,7 +1121,7 @@ class Workbook:
         self.Names = _Names(self)
         self.Name, self.FullName = "book.xlsx", r"C:\fake\book.xlsx"
         self.links: list[str] = []                       # LinkSources(xlExcelLinks)
-        self.Charts: list = []                           # chart sheets (objects with a Name)
+        self.Charts = _Charts()                          # chart sheets (objects with a Name; ChartSheet)
         self.window = _Window(self)
         self.window_state: dict[str, dict] = {}
         self.selection: dict[str, str] = {}

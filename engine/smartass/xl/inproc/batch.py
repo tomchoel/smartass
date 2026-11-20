@@ -64,17 +64,22 @@ The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs
         missing key.
     mentions(workbook, texts, skip): every formula of the workbook that mentions one of the texts (case ignored), as
         rows [kind, where, ref, formula], for a follow-up's re-pointing (xl/repoint.py). Per worksheet not in skip,
-        in order: its cells - read only when one Find on the used range per text finds one (LookIn formulas, LookAt
-        part, by rows, case ignored: Excel's own defaults; Find keeps the options it is given as the Find dialog's,
-        and the user's own cannot be read to be put back), or when the sheet has filtered rows (FilterMode: Find
-        skips them); then the used range's Formula2 is read once and each
-        cell that holds a real formula (HasFormula) and mentions a text is a row ["cell", sheet, "B5", Formula2], or
-        for a legacy array once ["array", sheet, "D1:D3", FormulaArray]; a sheet whose formulas cannot be read
-        (a protected sheet with hidden formulas) is ["unread", sheet, "", Excel's message]. Then its charts'
-        series: ["series", sheet, "i/j", Formula] (ChartObjects(i), SeriesCollection(j)). Then every chart sheet's
-        series ["chart", chart sheet, "j", Formula], and every defined name ["name", Name, "k", RefersToLocal]
-        (Names.Item(k); the user's notation, which is what a write of RefersToLocal reads). A series or name that
-        cannot be read is left out; a busy Excel is not swallowed.
+        in order: its cells - the used range's Formula2 read in chunks of rows of at most runner.CHUNK_CELLS cells
+        (memory stays bounded), and only the chunks that hold a formula (SpecialCells(xlCellTypeFormulas) once per
+        sheet, Intersect per chunk: a used range stretched to the last row by a stray format costs one cheap call
+        per chunk; a sheet without a formula is done after the SpecialCells); a protected sheet (ProtectContents)
+        refuses SpecialCells, so every chunk of it is read. No Range.Find: it would leave its options as the Find
+        dialog's, it skips filtered rows and it cannot see a hidden formula. Each cell that holds a real formula
+        (HasFormula) and mentions a text is a row ["cell", sheet, "B5", Formula2], a legacy array once ["array",
+        sheet, "D1:D3", FormulaArray]; a sheet whose formulas cannot be read (a protected sheet with a hidden
+        formula: its read fails) is ["unread", sheet, "", Excel's message]. Then its charts' series: ["series",
+        sheet, "i/j", Formula] (ChartObjects(i), SeriesCollection(j)). Then every chart sheet's series ["chart",
+        chart sheet, "j", Formula], and every defined name ["name", Name, "k", RefersToLocal] (Names.Item(k); the
+        user's notation, which is what a write of RefersToLocal reads). A chart, series or name that cannot be read
+        is left out; a busy Excel is not swallowed.
+    swap(object, property, expected, value): the text property set to value only when it reads expected exactly (a
+        compare-and-set inside Excel: a formula the user changed between two batches is left alone); gives True when
+        it was set, False when it read anything else.
 
 quiet=True turns ScreenUpdating, EnableEvents and DisplayAlerts off and Calculation to manual (each put back after
 the batch); with calculation=False Calculation is left alone - only a batch that writes formulas needs manual
@@ -87,7 +92,7 @@ import math
 
 VERSION = 1
 # name -> number of arguments; both executors have each one (runner.py, Runner.cs)
-VERBS: dict[str, int] = {"each": 2, "nudge": 4, "exist": 3, "mentions": 3}
+VERBS: dict[str, int] = {"each": 2, "nudge": 4, "exist": 3, "mentions": 3, "swap": 4}
 INT64 = 2 ** 63
 TEXT_MAX = 40                     # a string argument longer than this is shortened in an operation's text
 
@@ -342,6 +347,10 @@ def _check_verb(name: str, args: tuple) -> None:
         _, texts, skip = args
         if not _texts(texts) or not _texts(skip):
             raise ValueError("mentions: the texts to look for and the sheets to skip are non-empty lists of texts")
+    elif name == "swap":
+        _, prop, expected, value = args
+        if not (isinstance(prop, str) and prop) or not isinstance(expected, str) or not isinstance(value, str):
+            raise ValueError("swap: a property name, the text it must read and the text to set")
 
 
 def _scalar(v):

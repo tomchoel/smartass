@@ -390,22 +390,22 @@ public static class SmartassRunner___HASH__
 
     // ------------------------------------------------------------------ verbs
     // Named steps an operation list cannot say (batch.VERBS, runner.VERBS; batch.py's module docstring says what
-    // each does): each, the one loop a batch has; nudge; exist; mentions.
+    // each does): each, the one loop a batch has; nudge; exist; mentions; swap.
     static object Verb(string name, object[] args)
     {
         if (name == "each" && args.Length == 2) return Each(args[0], args[1] as object[]);
         if (name == "nudge" && args.Length == 4) return Nudge(args[0], Convert.ToString(args[1], Inv), args[2], args[3]);
         if (name == "exist" && args.Length == 3) return Exist(args[0], args[1] as object[], args[2]);
         if (name == "mentions" && args.Length == 3) return Mentions(args[0], args[1] as object[], args[2] as object[]);
+        if (name == "swap" && args.Length == 4) return Swap(args[0], Convert.ToString(args[1], Inv), args[2], args[3]);
         throw new Exception("unknown verb '" + name + "'");
     }
 
     // mentions(workbook, texts, skip): every formula of the workbook outside the skipped sheets that mentions one of
     // the texts (case ignored), as rows [kind, where, ref, formula] (batch.py's module docstring; runner._mentions):
-    // per worksheet its cells (read only when a Find finds a text or a filter hides rows), its charts' series; then
+    // per worksheet its cells (read in chunks, only those that hold a formula), its charts' series; then
     // the chart sheets' series and the defined names. In-process nothing is busy: an item that cannot be read is
     // left out, a sheet whose cells cannot be read is an "unread" row.
-    static readonly object[] FindTail = { -4123, 2, 1, 1, false, false, false };    // as runner.FIND
 
     static object Mentions(object workbook, object[] texts, object[] skip)
     {
@@ -503,46 +503,72 @@ public static class SmartassRunner___HASH__
         return Convert.ToInt32(Invoke(obj, name, Get, new object[0]), Inv);
     }
 
+    const int ChunkCells = 100000;                              // as runner.CHUNK_CELLS
+    const int XlCellTypeFormulas = -4123;
+
+    // mentions on one worksheet's cells (runner._cells): the used range's Formula2 read in chunks of rows of at most
+    // ChunkCells cells, only the chunks Intersect finds a formula in (SpecialCells once; none: done); a protected
+    // sheet refuses SpecialCells, so each of its chunks is read (a hidden formula makes the read throw: "unread").
     static void MentionsInCells(object ws, string name, string[] want, List<object> rows)
     {
         object used = Invoke(ws, "UsedRange", Get, new object[0]);
-        bool read = Equals(Invoke(ws, "FilterMode", Get, new object[0]), true);
-        for (int t = 0; t < want.Length && !read; t++)
-        {
-            var args = new object[2 + FindTail.Length];
-            args[0] = want[t];
-            args[1] = Type.Missing;
-            FindTail.CopyTo(args, 2);
-            read = Invoke(used, "Find", Get, args) != null;
-        }
-        if (!read) return;
-        object grid = Invoke(used, "Formula2", Get, new object[0]);
         int r0 = Int(used, "Row"), c0 = Int(used, "Column");
-        var a = grid as Array;
-        int h = a == null ? 1 : a.GetLength(0), w = a == null ? 1 : a.GetLength(1);
-        var arrays = new HashSet<string>();
-        for (int i = 0; i < h; i++)
+        int nr = Int(Invoke(used, "Rows", Get, new object[0]), "Count");
+        int nc = Int(Invoke(used, "Columns", Get, new object[0]), "Count");
+        object formulas = null;
+        if (!Equals(Invoke(ws, "ProtectContents", Get, new object[0]), true))
         {
-            for (int j = 0; j < w; j++)
+            try { formulas = Invoke(used, "SpecialCells", Get, new object[] { XlCellTypeFormulas }); }
+            catch (Exception) { return; }                        // "No cells were found": no formula on the sheet
+        }
+        object app = Invoke(ws, "Application", Get, new object[0]);
+        int step = Math.Max(1, ChunkCells / nc);
+        var arrays = new HashSet<string>();
+        for (int top = r0; top < r0 + nr; top += step)
+        {
+            int bottom = Math.Min(top + step, r0 + nr) - 1;
+            object chunk = Invoke(ws, "Range", Get, new object[] {
+                Invoke(ws, "Cells", Get, new object[] { top, c0 }),
+                Invoke(ws, "Cells", Get, new object[] { bottom, c0 + nc - 1 }) });
+            if (formulas != null && Invoke(app, "Intersect", Get, new object[] { formulas, chunk }) == null) continue;
+            object grid = Invoke(chunk, "Formula2", Get, new object[0]);
+            var a = grid as Array;
+            int h = a == null ? 1 : a.GetLength(0), w = a == null ? 1 : a.GetLength(1);
+            for (int i = 0; i < h; i++)
             {
-                object v = a == null ? grid : a.GetValue(a.GetLowerBound(0) + i, a.GetLowerBound(1) + j);
-                var text = v as string;
-                if (!Says(text, want)) continue;
-                object cell = Invoke(ws, "Cells", Get, new object[] { r0 + i, c0 + j });
-                if (!Equals(Invoke(cell, "HasFormula", Get, new object[0]), true)) continue;   // text, not a formula
-                if (Equals(Invoke(cell, "HasArray", Get, new object[0]), true))
+                for (int j = 0; j < w; j++)
                 {
-                    object arr = Invoke(cell, "CurrentArray", Get, new object[0]);
-                    string reference = Area(Int(arr, "Row"), Int(arr, "Column"),
-                                            Int(Invoke(arr, "Rows", Get, new object[0]), "Count"),
-                                            Int(Invoke(arr, "Columns", Get, new object[0]), "Count"));
-                    if (arrays.Add(reference))
-                        rows.Add(new object[] { "array", name, reference,
-                                                Invoke(arr, "FormulaArray", Get, new object[0]) });
+                    object v = a == null ? grid : a.GetValue(a.GetLowerBound(0) + i, a.GetLowerBound(1) + j);
+                    var text = v as string;
+                    if (!Says(text, want)) continue;
+                    object cell = Invoke(ws, "Cells", Get, new object[] { top + i, c0 + j });
+                    if (!Equals(Invoke(cell, "HasFormula", Get, new object[0]), true)) continue;   // text, no formula
+                    if (Equals(Invoke(cell, "HasArray", Get, new object[0]), true))
+                    {
+                        object arr = Invoke(cell, "CurrentArray", Get, new object[0]);
+                        string reference = Area(Int(arr, "Row"), Int(arr, "Column"),
+                                                Int(Invoke(arr, "Rows", Get, new object[0]), "Count"),
+                                                Int(Invoke(arr, "Columns", Get, new object[0]), "Count"));
+                        if (arrays.Add(reference))
+                            rows.Add(new object[] { "array", name, reference,
+                                                    Invoke(arr, "FormulaArray", Get, new object[0]) });
+                    }
+                    else rows.Add(new object[] { "cell", name, Area(top + i, c0 + j, 1, 1), text });
                 }
-                else rows.Add(new object[] { "cell", name, Area(r0 + i, c0 + j, 1, 1), text });
             }
         }
+    }
+
+    // swap(object, property, expected, value): the text property set to value only when it reads expected exactly;
+    // true when it was set, false when it read anything else (left as it is).
+    static object Swap(object obj, string name, object expected, object value)
+    {
+        if (!IsProperty(obj, name)) throw new Exception(name + " is not a property");
+        object now = Invoke(obj, name, BindingFlags.GetProperty, new object[0]);
+        if (expected == null || !string.Equals(now as string, expected as string, StringComparison.Ordinal))
+            return false;
+        Invoke(obj, name, BindingFlags.SetProperty, new object[] { value });
+        return true;
     }
 
     static void MentionsInSeries(object chart, string kind, string where, string prefix, string[] want,

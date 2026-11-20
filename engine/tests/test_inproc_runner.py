@@ -13,6 +13,7 @@ import pywintypes
 import winerror
 from win32com.client import dynamic
 
+import fakexl
 from fakexl import Application, Workbook, count_com, snapshot
 from smartass.core import config
 from smartass.xl import jobs
@@ -413,106 +414,131 @@ def test_exist_does_not_take_a_busy_excel_for_a_missing_key(book, monkeypatch):
 # ------------------------------------------------------------------ the verb mentions (Task 3)
 def _mentions_book(app) -> Workbook:
     """A workbook after a follow-up's park: Q1's old sheets parked, its new ones in, the user's Summary pointing at the
-    old ones in every way the verb finds (a cell, text written with an apostrophe, a chart, a name), a sheet with a
-    filter hiding the only row that mentions them, and a sheet that does not mention them at all."""
-    wb = Workbook(("Summary", "old Q1 Answer", "Q1 Answer", "Filtered", "Plain"), app=app)
+    old ones in every way the verb finds (a cell, a legacy array, text written with an apostrophe, a chart), a sheet
+    with a mention far down, a protected sheet whose only mention is a hidden formula, a sheet without any, a chart
+    sheet, a name."""
+    wb = Workbook(("Summary", "old Q1 Answer", "Q1 Answer", "Far", "Locked", "Plain"), app=app)
     wb.Name = "mentions.xlsx"
     s = wb.Worksheets("Summary")
     s.cells[(1, 1)] = {"Value": "='old Q1 Answer'!E12"}
     s.cells[(2, 3)] = {"Value": "=SUM(Data_Q1_old[Value])"}
     s.cells[(3, 1)] = {"Value": "=1+1"}
     s.put(4, 1, "'='old Q1 Answer'!E12")                         # text that reads like a formula: not one
+    s.Range("E1:E2").FormulaArray = "='old Q1 Answer'!A1:A2*2"
     s.charts.add("=SERIES(,,'Q1 Data'!$B$2:$B$5,1)", "=SERIES(,,'old Q1 Answer'!$B$2:$B$5,2)")
     wb.Worksheets("old Q1 Answer").cells[(1, 1)] = {"Value": "=SUM(Data_Q1_old[Value])"}       # skipped: parked
     wb.Worksheets("Q1 Answer").cells[(1, 1)] = {"Value": "='old Q1 Answer'!A1"}                 # skipped: new
-    f = wb.Worksheets("Filtered")
-    f.cells[(5, 2)] = {"Value": "='old Q1 Answer'!E12*2"}
-    f.filtered = {5}                                              # Find does not see it: the sheet is read whole
+    far = wb.Worksheets("Far")
+    far.cells[(1, 1)] = {"Value": "=1"}
+    far.cells[(300, 2)] = {"Value": "='old Q1 Answer'!E12*2"}
+    lk = wb.Worksheets("Locked")
+    lk.cells[(2, 2)] = {"Value": "='old Q1 Answer'!E12"}
+    lk.ProtectContents, lk.hidden = True, {(2, 2)}            # its only mention is a hidden formula
     wb.Worksheets("Plain").cells[(1, 1)] = {"Value": "=Summary!A1"}
     wb.Names.Add("Budget", "=Summary!$A$1")
     wb.Names.Add("TotalQ", "='old Q1 Answer'!$E$12")
-    wb.Charts.append(SimpleNamespace(Name="Chart1"))              # a chart sheet whose series cannot be read: skipped
+    wb.Charts.append(SimpleNamespace(Name="Broken"))               # a chart sheet whose series cannot be read: skipped
+    wb.Charts.append(fakexl.ChartSheet("Chart Q", "=SERIES(,,'old Q1 Answer'!$A$1:$A$3,1)"))
     return wb
+
+
+def _mentions(app) -> tuple:
+    b = Batch()
+    b.ret(b.verb("mentions", b.workbook("mentions.xlsx"), ["old Q1 ", "Data_Q1_old"], ["old Q1 Answer", "Q1 Answer"]),
+          "rows")
+    return runner.run(app, b).values["rows"]
 
 
 def test_mentions_gives_every_formula_that_names_one_of_the_texts_outside_the_skipped_sheets(book):
     app, _ = book
     _mentions_book(app)
-    b = Batch()
-    b.ret(b.verb("mentions", b.workbook("mentions.xlsx"), ["old Q1 ", "Data_Q1_old"], ["old Q1 Answer", "Q1 Answer"]),
-          "rows")
-    assert runner.run(app, b).values["rows"] == (
+    rows = _mentions(app)
+    assert rows[:5] == (
         ("cell", "Summary", "A1", "='old Q1 Answer'!E12"),
+        ("array", "Summary", "E1:E2", "='old Q1 Answer'!A1:A2*2"),
         ("cell", "Summary", "C2", "=SUM(Data_Q1_old[Value])"),
         ("series", "Summary", "1/2", "=SERIES(,,'old Q1 Answer'!$B$2:$B$5,2)"),
-        ("cell", "Filtered", "B5", "='old Q1 Answer'!E12*2"),
-        ("name", "TotalQ", "3", "='old Q1 Answer'!$E$12"))         # its index: after _tnStylesVer and Budget
+        ("cell", "Far", "B300", "='old Q1 Answer'!E12*2"))
+    assert rows[5][:3] == ("unread", "Locked", "") and "hidden formula" in rows[5][3]       # never silence
+    assert rows[6:] == (("chart", "Chart Q", "1", "=SERIES(,,'old Q1 Answer'!$A$1:$A$3,1)"),
+                        ("name", "TotalQ", "3", "='old Q1 Answer'!$E$12"))     # its index: after _tnStylesVer, Budget
 
 
-def test_mentions_reads_only_the_sheets_a_find_or_a_filter_points_to(book, monkeypatch):
-    """One Find per text decides whether a sheet is read at all; a sheet with filtered rows (Find skips them) is
-    read whole. Find gets Excel's own defaults (formulas, part, by rows, case ignored), so the user's Find dialog keeps
-    them."""
-    app, _ = book
-    wb = _mentions_book(app)
-    finds, reads = [], []
-    from fakexl import Range
-    real_find, real_get = Range.Find, Range.__getattr__
-
-    def find(self, *args):
-        finds.append((self.ws.Name, args))
-        return real_find(self, *args)
-
-    def get(self, k):
-        if k == "Formula2" and len(self.cells()) > 1:
-            reads.append(self.ws.Name)
-        return real_get(self, k)
-    monkeypatch.setattr(Range, "Find", find)
-    monkeypatch.setattr(Range, "__getattr__", get)
-    b = Batch()
-    b.verb("mentions", b.workbook("mentions.xlsx"), ["old Q1 ", "Data_Q1_old"], ["old Q1 Answer", "Q1 Answer"])
-    runner.run(app, b)
-    assert reads == ["Summary"]                         # Filtered's used range is one cell: read, not counted here
-    assert [s for s, _ in finds] == ["Summary", "Plain", "Plain"]
-    assert {a[1:] for _, a in finds} == {(runner.OMITTED, -4123, 2, 1, 1, False, False, False)}
-    assert wb.Worksheets("Filtered").FilterMode
-
-
-def test_mentions_says_which_sheet_it_could_not_read(book, monkeypatch):
-    """A protected sheet with a hidden formula refuses its used range's Formula2 (live, 20.11.2026): the sheet is
-    named with Excel's message, the rest goes on."""
+def test_mentions_reads_the_formulas_in_chunks_only_where_there_is_a_formula_and_never_uses_find(book, monkeypatch):
+    """Review ruling 1: no Range.Find (it leaves its options as the Find dialog's). The used range is read in chunks of
+    rows of at most CHUNK_CELLS cells, and only the chunks Intersect finds a formula in; a protected sheet (no
+    SpecialCells there) is read chunk by chunk."""
     app, _ = book
     _mentions_book(app)
-    from fakexl import ComError, Range
+    reads = []
+    from fakexl import Range
     real_get = Range.__getattr__
 
     def get(self, k):
-        if k == "Formula2" and self.ws.Name == "Summary":
-            raise ComError("the formulas are hidden")
+        if k == "Formula2" and len(self.rects[0]) == 4 and self.rects[0][:2] != self.rects[0][2:]:
+            reads.append((self.ws.Name, rect_rows(self.rects[0])))
         return real_get(self, k)
+
+    def rect_rows(r):
+        return r[0], r[2]
+
+    def find(self, *a):
+        raise AssertionError("Range.Find is never used")
     monkeypatch.setattr(Range, "__getattr__", get)
-    b = Batch()
-    b.ret(b.verb("mentions", b.workbook("mentions.xlsx"), ["old Q1 "], ["old Q1 Answer", "Q1 Answer"]), "rows")
-    rows = runner.run(app, b).values["rows"]
-    assert rows[0][:3] == ("unread", "Summary", "") and "hidden" in rows[0][3]
-    assert ("cell", "Filtered", "B5", "='old Q1 Answer'!E12*2") in rows
+    monkeypatch.setattr(Range, "Find", find, raising=False)
+    monkeypatch.setattr(runner, "CHUNK_CELLS", 60)                # Far's used range is A1:B300: 30 rows a chunk
+    _mentions(app)
+    far = [rows for name, rows in reads if name == "Far"]
+    assert far == [(1, 30), (271, 300)]                          # the chunks between hold no formula: not read
+    assert [rows for name, rows in reads if name == "Plain"] == []          # one cell: read as a value, not counted
 
 
-def test_mentions_does_not_take_a_busy_excel_for_a_sheet_without_a_mention(book, monkeypatch):
+def test_mentions_skips_a_chart_it_cannot_read_and_goes_on(book):
+    """Review Minor 4: the COM executor skips that chart, as the add-in does."""
+    app, _ = book
+    wb = _mentions_book(app)
+
+    class Broken:
+        @property
+        def Chart(self):
+            raise fakexl.ComError("the chart cannot be read")
+    wb.Worksheets("Summary").charts.insert(0, Broken())
+    rows = _mentions(app)
+    assert ("series", "Summary", "2/2", "=SERIES(,,'old Q1 Answer'!$B$2:$B$5,2)") in rows
+    assert ("name", "TotalQ", "3", "='old Q1 Answer'!$E$12") in rows
+
+
+def test_mentions_does_not_take_a_busy_excel_for_a_sheet_without_a_formula(book, monkeypatch):
     app, _ = book
     _mentions_book(app)
     from fakexl import Range
-    real, calls = Range.Find, []
+    real, calls = Range.SpecialCells, []
 
-    def find(self, *args):
+    def special(self, *args):
         calls.append(1)
         if len(calls) == 1:
             raise REJECTED
         return real(self, *args)
-    monkeypatch.setattr(Range, "Find", find)
+    monkeypatch.setattr(Range, "SpecialCells", special)
+    assert ("cell", "Summary", "A1", "='old Q1 Answer'!E12") in _mentions(app)
+
+
+def test_swap_sets_a_text_only_where_it_still_reads_the_expected_one(book):
+    """Review ruling 3: the re-pointing's compare-and-set, inside Excel."""
+    app, wb = book
+    ws = wb.Worksheets("S")
+    ws.cells[(1, 1)] = {"Value": "=old"}
+    ws.cells[(2, 1)] = {"Value": "=edited by the user"}
     b = Batch()
-    b.ret(b.verb("mentions", b.workbook("mentions.xlsx"), ["old Q1 "], ["old Q1 Answer", "Q1 Answer"]), "rows")
-    assert ("cell", "Summary", "A1", "='old Q1 Answer'!E12") in runner.run(app, b).values["rows"]
+    s = b.workbook("book.xlsx").Worksheets("S")
+    b.ret(b.verb("swap", s.Range("A1"), "Formula2", "=old", "=new"), "set")
+    b.ret(b.verb("swap", s.Range("A2"), "Formula2", "=old", "=new"), "left")
+    with b.attempt():
+        b.ret(b.verb("swap", s.Range("A1"), "ClearContents", "=x", "=y"), "method")      # a method: never run
+    res = runner.run(app, b)
+    assert res.values == {"set": True, "left": False}
+    assert ws.cells[(1, 1)]["Value"] == "=new" and ws.cells[(2, 1)]["Value"] == "=edited by the user"
+    assert "not a property" in res.skipped[0][2]
 
 
 def test_each_does_not_swallow_a_busy_excel(book, monkeypatch):

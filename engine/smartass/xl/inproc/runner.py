@@ -72,8 +72,8 @@ UNBOUND = "no object {}: the operation that makes it failed or did not run"
 NOT_A_VALUE = "a COM object cannot be asked back"
 NOT_A_DATE = "a date cannot be asked back (read Value2)"
 TAKEN = "taken: "                        # how the verb exist's refusal ends: the names, ", " between
-FIND = (-4123, 2, 1, 1, False, False, False)   # the verb mentions' Range.Find after What and After: LookIn xlFormulas,
-                                               # LookAt xlPart, xlByRows, xlNext, MatchCase, MatchByte, SearchFormat
+XL_FORMULAS = -4123                      # xlCellTypeFormulas (the verb mentions' SpecialCells)
+CHUNK_CELLS = 100_000                    # the verb mentions reads a sheet's formulas at most this many cells at once
 METHOD_OR_GET = pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET
 
 
@@ -760,7 +760,7 @@ def _mentions(workbook, texts, skip):
         if name.casefold() in skipped:
             continue
         try:
-            _cells(ws, name, texts, says, rows)
+            _cells(ws, name, says, rows)
         except Exception as e:   # noqa: BLE001 - the sheet's formulas cannot be read: said, the rest goes on
             _readable(e)
             rows.append(["unread", name, "", _message(e)])
@@ -770,9 +770,24 @@ def _mentions(workbook, texts, skip):
             _readable(e)
             charts = []
         for i, co in enumerate(charts, 1):
-            _series(co.Chart, "series", name, f"{i}/", says, rows)
-    for chart in workbook.Charts:
-        _series(chart, "chart", str(chart.Name), "", says, rows)
+            try:
+                chart = co.Chart
+            except Exception as e:   # noqa: BLE001 - that chart cannot be read: left out, as Runner.cs does
+                _readable(e)
+                continue
+            _series(chart, "series", name, f"{i}/", says, rows)
+    try:
+        sheets = list(workbook.Charts)
+    except Exception as e:   # noqa: BLE001
+        _readable(e)
+        sheets = []
+    for chart in sheets:
+        try:
+            where = str(chart.Name)
+        except Exception as e:   # noqa: BLE001
+            _readable(e)
+            continue
+        _series(chart, "chart", where, "", says, rows)
     for k, item in enumerate(workbook.Names, 1):
         try:
             formula = item.RefersToLocal
@@ -783,30 +798,47 @@ def _mentions(workbook, texts, skip):
     return rows
 
 
-def _cells(ws, name: str, texts, says, rows: list) -> None:
-    """mentions on one worksheet's cells: read only when a Find finds a text or a filter hides rows."""
+def _cells(ws, name: str, says, rows: list) -> None:
+    """mentions on one worksheet's cells: the used range's formulas read in chunks of rows of at most CHUNK_CELLS
+    cells, and of those only the chunks that hold a formula (SpecialCells(xlCellTypeFormulas) once, Intersect per
+    chunk; a sheet without one raises there and is done). A protected sheet refuses SpecialCells: every chunk is
+    read, and a hidden formula makes the read fail (the caller's "unread")."""
     used = ws.UsedRange
-    if not ws.FilterMode and not any(_call(used, "Find", [t, OMITTED, *FIND]) is not None for t in texts):
-        return
-    grid, r0, c0 = used.Formula2, int(used.Row), int(used.Column)
-    if not isinstance(grid, tuple):
-        grid = ((grid,),)
+    r0, c0 = int(used.Row), int(used.Column)
+    nr, nc = int(used.Rows.Count), int(used.Columns.Count)
+    formulas = None
+    if not ws.ProtectContents:
+        try:
+            formulas = _call(used, "SpecialCells", [XL_FORMULAS])
+        except Exception as e:   # noqa: BLE001 - "No cells were found": no formula on the sheet
+            _readable(e)
+            return
+    app = ws.Application
+    step = max(1, CHUNK_CELLS // nc)
     arrays: set[str] = set()
-    for i, line in enumerate(grid):
-        for j, v in enumerate(line):
-            if not says(v):
-                continue
-            cell = _call(ws, "Cells", [r0 + i, c0 + j])
-            if not cell.HasFormula:                       # text written with an apostrophe reads like a formula
-                continue
-            if cell.HasArray:
-                arr = cell.CurrentArray
-                ref = _area(int(arr.Row), int(arr.Column), int(arr.Rows.Count), int(arr.Columns.Count))
-                if ref not in arrays:
-                    arrays.add(ref)
-                    rows.append(["array", name, ref, str(arr.FormulaArray)])
-            else:
-                rows.append(["cell", name, _area(r0 + i, c0 + j), v])
+    for top in range(r0, r0 + nr, step):
+        bottom = min(top + step, r0 + nr) - 1
+        chunk = _call(ws, "Range", [_call(ws, "Cells", [top, c0]), _call(ws, "Cells", [bottom, c0 + nc - 1])])
+        if formulas is not None and _call(app, "Intersect", [formulas, chunk]) is None:
+            continue
+        grid = chunk.Formula2
+        if not isinstance(grid, tuple):
+            grid = ((grid,),)
+        for i, line in enumerate(grid):
+            for j, v in enumerate(line):
+                if not says(v):
+                    continue
+                cell = _call(ws, "Cells", [top + i, c0 + j])
+                if not cell.HasFormula:                   # text written with an apostrophe reads like a formula
+                    continue
+                if cell.HasArray:
+                    arr = cell.CurrentArray
+                    ref = _area(int(arr.Row), int(arr.Column), int(arr.Rows.Count), int(arr.Columns.Count))
+                    if ref not in arrays:
+                        arrays.add(ref)
+                        rows.append(["array", name, ref, str(arr.FormulaArray)])
+                else:
+                    rows.append(["cell", name, _area(top + i, c0 + j), v])
 
 
 def _series(chart, kind: str, where: str, prefix: str, says, rows: list) -> None:
@@ -826,5 +858,16 @@ def _series(chart, kind: str, where: str, prefix: str, says, rows: list) -> None
             rows.append([kind, where, f"{prefix}{j}", formula])
 
 
+def _swap(obj, name: str, expected, value):
+    """The verb swap (batch.py's module docstring): the property set to value when it reads expected; True when it was
+    set, False (left as it is) when it read anything else."""
+    if not _is_property(obj, name):
+        raise _Failed(f"{name} is not a property")
+    if getattr(obj, name) != expected:
+        return False
+    setattr(obj, name, value)
+    return True
+
+
 # name -> function(*args); both executors have each one (batch.VERBS, Runner.cs Verb)
-VERBS: dict = {"each": _each, "nudge": _nudge, "exist": _exist, "mentions": _mentions}
+VERBS: dict = {"each": _each, "nudge": _nudge, "exist": _exist, "mentions": _mentions, "swap": _swap}

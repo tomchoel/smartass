@@ -633,8 +633,8 @@ def namesakes(parked: Parked, built: BuiltFile) -> tuple[dict[str, str], dict[st
 def record_mentions(b: Batch, wbn, parked: Parked, built: BuiltFile,
                     key: str = "mentions") -> Callable[[Result], Mentions] | None:
     """The formulas outside the parked and the new sheets that point at a parked sheet or table with a namesake, found
-    in b (the verb mentions: one Find per sheet and text decides whether a sheet is read) - an operation that may
-    fail: the reader then gives Mentions.failed. None (nothing recorded) when no parked name has a namesake."""
+    in b (the verb mentions: each sheet's formulas read in chunks, only where SpecialCells finds one) - an operation
+    that may fail: the reader then gives Mentions.failed. None (nothing recorded) when no parked name has a namesake."""
     sheets, tables = namesakes(parked, built)
     if not sheets and not tables:
         return None
@@ -654,66 +654,86 @@ def record_mentions(b: Batch, wbn, parked: Parked, built: BuiltFile,
     return mentions
 
 
-def _record_writes(b: Batch, wbn, plan: list[Repoint], back: bool = False) -> list[tuple[Repoint, range]]:
-    """Each formula of plan written in b - its new text, or its old one (back) - as operations that may fail; returns
-    each with the span of its operations."""
-    spans = []
+PROPERTY = {"cell": "Formula2", "array": "FormulaArray", "series": "Formula", "chart": "Formula",
+            "name": "RefersToLocal"}                  # the property a Repoint of each kind reads and writes
+
+
+@dataclass
+class Writes:
+    """The writes record_repoint / unpoint recorded: each Repoint with the span of its operations and the key its
+    swap's answer comes back under."""
+    items: list[tuple[Repoint, range, str]] = field(default_factory=list)
+
+    def outcome(self, res_values: dict, res_skipped) -> tuple[list[tuple[Repoint, str]], list[Repoint]]:
+        """(refused - Excel refused the write, with its message; changed - the formula was not the text read in the
+        bring-in any more, so it was left alone)."""
+        refused, changed = [], []
+        for r, span, key in self.items:
+            why = next((m for i, _, m in res_skipped if i in span), None)
+            if why is not None:
+                refused.append((r, why))
+            elif res_values.get(key) is False:
+                changed.append(r)
+        return refused, changed
+
+    @property
+    def start(self) -> int | None:
+        return self.items[0][1].start if self.items else None
+
+
+def _record_writes(b: Batch, wbn, plan: list[Repoint], back: bool = False, key: str = "point") -> Writes:
+    """Each formula of plan written in b - its new text, or its old one (back) - by the verb swap: only when it still
+    reads the text it had (the old one, or the new one going back), so a formula the user changed (or a cell, series
+    or name a row, chart or name added in between now puts at that place) is left alone. Operations that may fail."""
+    out = Writes()
     sheets: dict[str, object] = {}
     with b.attempt():
-        for r in plan:
+        for n, r in enumerate(plan):
             start = b.position
-            text = r.old if back else r.new
+            expected, text = (r.new, r.old) if back else (r.old, r.new)
             if r.kind in ("cell", "array", "series"):
                 ws = sheets.get(r.where)
                 if ws is None:
                     ws = sheets[r.where] = wbn.Worksheets(r.where)
-            if r.kind == "cell":
-                ws.Range(r.ref).Formula2 = text
-            elif r.kind == "array":
-                ws.Range(r.ref).FormulaArray = text                   # the whole legacy array
+            if r.kind in ("cell", "array"):
+                target = ws.Range(r.ref)
             elif r.kind == "series":
                 i, j = (int(x) for x in r.ref.split("/"))
-                ws.ChartObjects(i).Chart.SeriesCollection(j).Formula = text
+                target = ws.ChartObjects(i).Chart.SeriesCollection(j)
             elif r.kind == "chart":
-                wbn.Charts(r.where).SeriesCollection(int(r.ref)).Formula = text
+                target = wbn.Charts(r.where).SeriesCollection(int(r.ref))
             else:
-                wbn.Names.Item(int(r.ref)).RefersToLocal = text
-            spans.append((r, range(start, b.position)))
-    return spans
-
-
-def record_repoint(b: Batch, wbn, plan: list[Repoint]) -> list[tuple[Repoint, range]]:
-    """The formulas of plan re-pointed at the new answer in b (pipeline: the close-out, right before the drop), each
-    an operation that may fail (a locked cell on a protected sheet, a column the new table lacks: refused shows
-    #REF! after the drop). Returns each with the span of its operations (refused)."""
-    return _record_writes(b, wbn, plan)
-
-
-def refused(res_skipped, spans: list[tuple[Repoint, range]]) -> list[tuple[Repoint, str]]:
-    """The formulas whose write Excel refused, with its message."""
-    out = []
-    for r, span in spans:
-        why = next((m for i, _, m in res_skipped if i in span), None)
-        if why is not None:
-            out.append((r, why))
+                target = wbn.Names.Item(int(r.ref))
+            k = f"{key}.{n}"
+            b.ret(b.verb("swap", target, PROPERTY[r.kind], expected, text), k)
+            out.items.append((r, range(start, b.position), k))
     return out
+
+
+def record_repoint(b: Batch, wbn, plan: list[Repoint]) -> Writes:
+    """The formulas of plan re-pointed at the new answer in b (pipeline: the close-out, right before the drop), each
+    a compare-and-set that may fail (a locked cell on a protected sheet, a column the new table lacks: refused shows
+    #REF! after the drop) or find the formula changed since the bring-in read it (left alone). Writes.outcome tells
+    which."""
+    return _record_writes(b, wbn, plan)
 
 
 def unpoint(t, plan: list[Repoint]) -> list[tuple[Repoint, str]]:
     """After a failed close-out whose re-pointing may have run, before the new sheets are removed (a formula pointing
     at them would turn #REF! with them) and before the restore (the old texts name the parked sheets, which must still
-    be there: a formula naming a sheet that is not there is taken for another workbook's): every formula of plan gets
-    its old text back, in a quiet batch of its own (also for an abandoned job; a write of the text it has is
-    harmless). Returns those Excel refused, logged."""
+    be there: a formula naming a sheet that is not there is taken for another workbook's): every formula of plan that
+    reads its new text gets its old one back (swap: one never re-pointed, or changed by the user, is left alone), in a
+    quiet batch of its own with Calculation manual (also for an abandoned job). Returns those Excel refused, logged."""
     if not plan:
         return []
-    b = Batch(calculation=False)
-    spans = _record_writes(b, b.workbook(book_name(t)), plan, back=True)
+    b = Batch()
+    writes = _record_writes(b, b.workbook(book_name(t)), plan, back=True, key="back")
     try:
-        skipped = run(t.app, b, check=False).skipped
+        res = run(t.app, b, check=False)
+        values, skipped = res.values, res.skipped
     except Exception as e:   # noqa: BLE001 - none could be written
-        skipped = [(i, "", str(e)) for i in range(b.position)]
-    failed = refused(skipped, spans)
+        values, skipped = {}, [(i, "", str(e)) for i in range(b.position)]
+    failed, _ = writes.outcome(values, skipped)
     for r, why in failed:
         log.warning("could not point %s back at the old answer: %s", r.where_text, why)
     return failed
