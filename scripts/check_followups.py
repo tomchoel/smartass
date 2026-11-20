@@ -52,10 +52,10 @@ HYPERLINK = re.compile(r'^=HYPERLINK\("#((?:[^"]|"")*)","((?:[^"]|"")*)"\)$')
 
 class Writes:
     """How often a file is written while a step runs: its modification time watched every 10 ms on a thread of its
-    own (AutoSave left alone, controller ruling R3: written only by the Save, never between the batches). A save
-    changes it once or twice, and about 2 s after a save the file is stamped once more whatever AutoSave does
-    (measured 20.11.2026, with AutoSave on and with it off): --settle 10 lets that late stamp fall between the
-    steps."""
+    own, reported per step and between the steps (controller ruling R3's proof, 20.11.2026: with AutoSave left on the
+    in-process job wrote the file only in its save batch, but the COM executor's job had a write in the middle of its
+    batches, so the job keeps switching AutoSave off while it writes; and the file is also stamped 2-11 s after a
+    save at times of OneDrive's own, with AutoSave on or off - so a write is a note here, not a failure)."""
 
     def __init__(self, path: str | None):
         self.path, self.count, self._stop = path, 0, threading.Event()
@@ -229,7 +229,13 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
     statuses: list[str] = []
     real_redraw = server.redraw_job
     saves: list[tuple[float, float]] = []                  # (start, end) of every save batch, for the writes
-    real_save = pipeline._save
+    looks: list[float] = []                                # when every job's look batch began
+    real_save, real_look = pipeline._save, pipeline._look
+
+    def look(t, name):
+        looks.append(time.monotonic())
+        return real_look(t, name)
+    pipeline._look = look
 
     def save(job):
         t0 = time.monotonic()
@@ -331,13 +337,13 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         if not seen["saved"]:
             problems.append("Workbook.Saved is False after the job")
         windows = [(a, b) for a, b in saves if a >= t0]
-        late = 0.3 if settle else 3.5           # without --settle the late stamp of the save before can land here
-        outside = [a for a in writes.at if not any(s - 0.05 <= a <= e + late for s, e in saves)]
-        if writes.path and (outside or not writes.count):
-            when = ", ".join(f"+{a - t0:.2f}" for a in writes.at)
-            in_save = ", ".join(f"+{a - t0:.2f}..+{b - t0:.2f}" for a, b in windows)
-            problems.append(f"the file was written outside the save batch ({len(outside)} of {writes.count} writes, at "
-                            f"{when} s; the save batch at {in_save} s)")
+        jobs_here = list(zip([a for a in looks if a >= t0], windows))     # (look began, its save batch)
+        during = [a for a in writes.at if any(lk <= a < s - 0.05 for lk, (s, _) in jobs_here)]
+        if writes.path and (during or not writes.count):     # reported, not a failure: OneDrive stamps the file
+            when = ", ".join(f"+{a - t0:.2f}" for a in writes.at)     # at times of its own (see Writes)
+            spans = ", ".join(f"+{lk - t0:.2f}..+{s - t0:.2f}" for lk, (s, _) in jobs_here)
+            print(f"{'':<14} note: the file was written during the job's batches ({len(during)} of {writes.count} "
+                  f"writes, at {when} s; the batches from the look to the save at {spans} s)", flush=True)
         com = com_calls(timings)
         runs = com_calls(timings, BATCHES)
         stages = "  ".join(f"{s.split('.')[-1]} {timings.get('excel job.' + s, 0):.2f}" for s in STAGES)
@@ -373,7 +379,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         failed = str(e)
     finally:
         server.redraw_job = real_redraw
-        pipeline._save = real_save
+        pipeline._save, pipeline._look = real_save, real_look
         if between.path is not None:
             between.__exit__()
         if path is not None and not keep:
