@@ -639,12 +639,6 @@ def test_question_grouping_includes_lines(monkeypatch):
     assert sheets.next_question(t) == 3
 
 
-def test_where_columns_checked_against_table():
-    assert dx.missing_columns(["Period", "AMOUNT"], {"Period": "Jul-26", "GL_DESCRIPTION_LINE": "x"}) == \
-        ["GL_DESCRIPTION_LINE"]
-    assert dx.missing_columns(None, {"X": "1"}) == []                          # table unknown: no check
-
-
 # ------------------------------------------------------------------ missing Lines table / wrong q (0x800A03EC)
 def _drill_cell(alias, where):
     return {"drill": alias, "where": where}

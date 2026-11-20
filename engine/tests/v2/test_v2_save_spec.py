@@ -40,8 +40,13 @@ class T:
 def test_arrange_mode_and_activation(monkeypatch):
     from smartass.core import serverkit as kit
     from smartass.xl import sheetorder
+    from smartass.xl import movein
     calls = []
-    monkeypatch.setattr(sheetorder, "arrange_sheets", lambda wb, mode="full", activate=None: calls.append((mode, activate)))
+
+    def arrange(wb, mode="full", activate=None, known=None):
+        calls.append((mode, activate, known[1]))
+        return {"order": [n for n, _, _ in known[0]]}
+    monkeypatch.setattr(sheetorder, "arrange_sheets", arrange)
     monkeypatch.setattr(kit, "_is_our_analysis_file", lambda path: path.startswith("OURS"))
 
     class Tg:
@@ -49,10 +54,14 @@ def test_arrange_mode_and_activation(monkeypatch):
 
         def __init__(self, path, created):
             self.path, self.created = path, created
-    assert pipeline._arrange(Tg("C:/u/book.xlsx", False), "Q3 Answer") is None
-    assert pipeline._arrange(Tg("OURS/a.xlsx", False), "Q3 Answer") is None
-    assert pipeline._arrange(Tg("C:/new.xlsx", True), "Q3 Answer") is None
-    assert calls == [("active", "Q3 Answer"), ("full", "Q3 Answer"), ("full", "Q3 Answer")]
+
+    def book():
+        return movein.Book([movein.Sheet("Q3 Answer"), movein.Sheet("Notes")], active="Notes")
+    assert pipeline._arrange(Tg("C:/u/book.xlsx", False), "Q3 Answer", book()) is None
+    assert pipeline._arrange(Tg("OURS/a.xlsx", False), "Q3 Answer", book()) is None
+    assert pipeline._arrange(Tg("C:/new.xlsx", True), "Q3 Answer", book(), "Q3 Answer") is None
+    assert calls == [("active", "Q3 Answer", "Notes"), ("full", "Q3 Answer", "Notes"),
+                     ("full", "Q3 Answer", "Q3 Answer")]       # the sheet quiet lands on wins over the Book's
 
 
 def test_arrange_failure_is_a_warning_not_an_error(monkeypatch):
@@ -66,7 +75,8 @@ def test_arrange_failure_is_a_warning_not_an_error(monkeypatch):
 
     class Tg:
         wb, path, created = object(), "x", True
-    msg = pipeline._arrange(Tg(), "Q1 Answer")
+    from smartass.xl import movein
+    msg = pipeline._arrange(Tg(), "Q1 Answer", movein.Book([movein.Sheet("Q1 Answer")]))
     assert "excel said no" in msg
 
 

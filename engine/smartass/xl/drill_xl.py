@@ -1,15 +1,14 @@
-"""The lines table of an answer ('Q<n> Lines <alias>', Excel table Lines_Q<n>_<alias>): its name, look constants
-(the built file's Lines sheet, render/xlsx.py) and lookups, and the formulas answer cells use over it. Formula rules (tn-formelstil): SUMIFS by default; an exact-match FILTER form where SUMIFS
-would not match the key literally ('Jul-26' -> a date, digit strings over 15 characters -> a rounded number,
-'0123' -> 123, * ? ~ -> wildcards, a leading < > = -> a comparison, '12:30' -> a time, '50%' -> 0.5, 'TRUE' -> a
-logical, '1,5' -> a number in a Norwegian locale, over 255 characters -> SUMIFS fails)."""
+"""The lines table of an answer ('Q<n> Lines <alias>', Excel table Lines_Q<n>_<alias>): its name, the look
+constants of the built file's Lines sheet (render/xlsx.py), and the formulas answer cells use over it. Formula rules
+(tn-formelstil): SUMIFS by default; an exact-match FILTER form where SUMIFS would not match the key literally
+('Jul-26' -> a date, digit strings over 15 characters -> a rounded number, '0123' -> 123, * ? ~ -> wildcards, a
+leading < > = -> a comparison, '12:30' -> a time, '50%' -> 0.5, 'TRUE' -> a logical, '1,5' -> a number in a Norwegian
+locale, over 255 characters -> SUMIFS fails)."""
 from __future__ import annotations
 
 import datetime as dt
 import re
 
-from .jobs import com
-from .target import Target
 from .host import InputError
 
 _DATE_LIKE = re.compile(r"^\s*(\d{1,4}[-./]\d{1,2}([-./]\d{1,4})?|[A-Za-z]{3,9}[-./ ]\d{1,4}"
@@ -80,44 +79,3 @@ def header_width(name: str) -> int:
     from .vendor.tn_rapportstil import text_units
     return int(text_units(name, 11, True)) + 4
 _EXCEL_EPOCH = dt.datetime(1899, 12, 30)
-
-
-def missing_columns(table_cols: list[str] | None, where: dict) -> list[str]:
-    """where-columns that the lines table does not have (e.g. a detail column left out above DRILL_XL_FULL lines).
-    table_cols None = table not found: nothing to check here."""
-    if table_cols is None:
-        return []
-    have = {str(c).lower() for c in table_cols}
-    return [k for k in where if str(k).lower() not in have]
-
-
-def find_table(wb, tname: str):
-    """(sheet, ListObject) of the table named tname anywhere in the workbook, else (None, None)."""
-    for ws in wb.Worksheets:
-        for lo in ws.ListObjects:
-            if str(lo.Name).lower() == tname.lower():
-                return ws, lo
-    return None, None
-
-
-def table_columns(wb, tname: str) -> list[str] | None:
-    """The table's header; None only when no table has that name (a COM error propagates: 'cannot check')."""
-    _, lo = com(lambda: find_table(wb, tname))
-    if lo is None:
-        return None
-    return [str(v) for v in com(lambda: lo.HeaderRowRange.Value)[0]]
-
-
-def lines_tables(wb) -> list[str]:
-    """Names of the drill tables (Lines_*) in the workbook."""
-    return com(lambda: [str(lo.Name) for ws in wb.Worksheets for lo in ws.ListObjects
-                        if str(lo.Name).lower().startswith("lines_")])
-
-
-def mark_incomplete(t: Target, q: int, alias: str = "d") -> None:
-    """Last resort after a failed re-drill whose old lines could not be restored: a red warning in A2."""
-    ws, lo = com(lambda: find_table(t.wb, table_name(q, alias)))
-    if ws is None:
-        return
-    com(lambda: setattr(ws.Range("A2"), "Value", "INCOMPLETE – run fin_drill again"))
-    com(lambda: setattr(ws.Range("A2").Font, "Color", 0x0000C0))     # BGR: red

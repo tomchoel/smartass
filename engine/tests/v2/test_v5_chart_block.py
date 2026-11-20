@@ -290,6 +290,25 @@ def test_fin_drill_is_quick_and_needs_no_chart(monkeypatch):
     assert seen["raw"]["blocks"][0]["type"] == "lines"
 
 
+def test_a_follow_up_on_a_stored_pre_v5_spec_redraws_with_an_implicit_chart(monkeypatch, tmp_path):
+    """The stored-spec path: a pre-v5 answer (no chart block) is in the workbook, and its stored spec is prepared
+    again (as fin_refresh does) and redrawn by redraw_job: the new sheets carry the implicit chart."""
+    import fakexl
+    from test_file_redraw import Book
+
+    from smartass.core import config
+    from smartass.xl import sheets
+    from types import SimpleNamespace
+    monkeypatch.setattr(config, "HOME", tmp_path)
+    b = Book(monkeypatch, fakexl.Workbook(["Sources"]), ours=True)
+    stored = spec_dict(blocks=[TABLE])                              # standard, no chart: stored before plan 5
+    b.answer(pipeline.prepare(json.loads(json.dumps(stored)), resolver(), FakeProvider(facts())))
+    raw = sheets._stored_specs(SimpleNamespace(wb=b.wb))[1]["spec"]["v2"]
+    out = b.follow_up(pipeline.prepare(raw, resolver(), FakeProvider(facts())), 1)
+    assert out["followup"] is True and out["q"] == 1 and out["checks"]["sheet_equals_model"] == "OK"
+    assert out["charts"] and [b_["type"] for b_ in raw["blocks"]] == ["table"]    # drawn, not stored
+
+
 def test_a_stored_pre_v5_spec_prepares_and_is_drawn_with_an_implicit_chart(monkeypatch, tmp_path):
     from test_file_job import Wired
 

@@ -220,20 +220,17 @@ def _save_spec(t, q: int, raw: dict) -> bool:
     return sheets.save_spec(t, q, {"v2": raw}, ids={}, create=True)
 
 
-def _arrange(t, sheet: str, book=None, active: str | None = None) -> str | None:
+def _arrange(t, sheet: str, book, active: str | None = None) -> str | None:
     """Sheet order like v1 tidy: our own files fully, the user's workbook only our sheets among themselves; land on
-    the Answer sheet. book (the file job's movein.Book, inside quiet): the order and tabs from it, no read; active:
-    the sheet that will be active (quiet lands there), else the Book's. Cosmetic: a failure is returned as a warning
+    the Answer sheet. book (the job's movein.Book, inside quiet): the order and tabs from it, no read; active: the
+    sheet that will be active (quiet lands there), else the Book's. Cosmetic: a failure is returned as a warning
     text, never raised (no rollback)."""
     from .xl import sheetorder
     try:
         mode = "full" if _is_ours(t) else "active"
-        if book is None:
-            sheetorder.arrange_sheets(t.wb, mode, activate=sheet)
-        else:
-            rows = [(s.name, s.visible == -1, s.tab) for s in book.sheets]
-            out = sheetorder.arrange_sheets(t.wb, mode, activate=sheet, known=(rows, active or book.active))
-            book.order(out["order"])
+        rows = [(s.name, s.visible == -1, s.tab) for s in book.sheets]
+        out = sheetorder.arrange_sheets(t.wb, mode, activate=sheet, known=(rows, active or book.active))
+        book.order(out["order"])
     except Exception as e:   # noqa: BLE001
         return f"could not arrange the sheets ({e}); the answer is built"
     return None
@@ -672,14 +669,14 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
     """A follow-up or refresh: the sheets of Q<q> (Answer, Data, every Lines b<i>) and their tables are parked under
     'old ...' names, the new answer is drawn by _file_draw where they were, and the old ones are dropped; the Sources
     log gets its new rows and _svmeta's row for Q<q> is rewritten. A drawn range an earlier version stored with the
-    spec is not used: the sheets are replaced whole. The workbook's sheets are read once. A missing Answer or Data sheet is an InputError naming it, before
-    anything is renamed. On a failure the new sheets are removed first (rollback), then the old ones get their
-    names back (restore; never a rollback after it, as the old names are then the ones in t.sheets_added);
-    RestoreError only when the restore failed. A failure once the old sheets are dropped keeps the new answer (a
-    rollback then would leave neither): our own file is saved and the error, of its own class, says the new answer
-    is in place (the Sources rows and the spec may be missing then); so does a failing save of our file, which is
-    not tried again. A temporary workbook that would not close is
-    tried once more at the end (a warning says so)."""
+    spec is not used: the sheets are replaced whole. The workbook's sheets are read once. A missing Answer or Data
+    sheet is an InputError naming it, before anything is renamed. On a failure the new sheets are removed first
+    (rollback), then the old ones get their names back (restore; never a rollback after it, as the old names are then
+    the ones in t.sheets_added); RestoreError only when the restore failed. A failure once the old sheets are dropped
+    keeps the new answer (a rollback then would leave neither): our own file is saved and the error, of its own
+    class, says the new answer is in place (the Sources rows and the spec may be missing then); so does a failing
+    save of our file, which is not tried again. A temporary workbook that would not close is tried once more at the
+    end (a warning says so)."""
     from .xl import movein
     with stage("open target"):
         t = _target(h, target, pre.spec.question[:60])

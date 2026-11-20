@@ -1187,5 +1187,6 @@ def _anchor(specs: list[ChartSpec], top: int, widths: dict[str, float]) -> list[
 
 
 def _drawn(cs: ChartSpec) -> bool:
-    """A chart xlsx_charts.add_charts will draw: it has series, or helpers that give it its series (waterfall, variance)."""
+    """A chart xlsx_charts.add_charts will draw: it has series, or helpers that give it its series (waterfall,
+    variance)."""
     return bool(cs.series or cs.helpers)
