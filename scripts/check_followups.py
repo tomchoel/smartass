@@ -222,8 +222,9 @@ def _summarise(h, path: str) -> dict:
         cell, column = str(lo.DataBodyRange.Cells(1, k).Address), str(lo.ListColumns(k).DataBodyRange.Address)
         answer = next(a for a in ("A1", "B1", "A2", "B2") if wb.Worksheets("Q1 Answer").Range(a).Value2 is not None)
         col = "".join("'" + ch if ch in "'[]#" else ch for ch in heads[k - 1])
-        s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
-        s.Name = "Summary"
+        answers = [str(x.Name) for x in wb.Worksheets if re.fullmatch(r"Q\d+ Answer", str(x.Name))]
+        s = wb.Worksheets.Add(None, wb.Worksheets(answers[-1]))   # where the sheet order keeps a sheet of the user's:
+        s.Name = "Summary"                                        # after the answers, before the Data sheets
         wb.Names.Add("Q1First", f"='Q1 Data'!{cell}")
         refs = {"Summary!A1": (f"='Q1 Data'!{cell}", ("cell", "Q1 Data", cell)),
                 "Summary!A2": (f"=SUM(Data_Q1[{col}])", ("sum", "Q1 Data", column)),
