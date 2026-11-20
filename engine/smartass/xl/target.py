@@ -19,7 +19,6 @@ from . import instances, jobs, login
 from ..core import config
 from .host import ExcelHost, HostError, InputError
 from .hostproc import retry_busy
-
 NAME_WAIT_S = 60                    # a busy Excel is waited for this long when the workbook's name or path is read
 
 # ------------------------------------------------------------------ target workbook
@@ -38,12 +37,13 @@ class Target:
     made: Path | None = None
     from_template: bool = False
 
-    # The workbook's name and path are read with a busy Excel waited for (retry_busy, not counted as a call of the
-    # job): Excel rejects calls while it saves - also right after a save after the reply, AutoSave back on (live,
-    # 20.11.2026: a job's _is_ours read was rejected there).
+    # The workbook's name and path are read with a busy Excel waited for (not counted as a call of the job, no abort
+    # check: also read by an abandoned job's clean-up): Excel rejects calls while it saves - also right after a save
+    # after the reply, AutoSave back on (live, 20.11.2026: a job's _is_ours read was rejected there). At the job's
+    # start for what is left of it (jobs.starting); then the busy message.
     @property
     def name(self) -> str:
-        return self.made.name if self.wb is None else retry_busy(lambda: self.wb.Name, NAME_WAIT_S)
+        return self.made.name if self.wb is None else _read(lambda: self.wb.Name, check=False)
 
     @property
     def path(self) -> str:
@@ -51,7 +51,7 @@ class Target:
 
     @property
     def full_name(self) -> str:
-        return str(self.made) if self.wb is None else str(retry_busy(lambda: self.wb.FullName, NAME_WAIT_S))
+        return str(self.made) if self.wb is None else str(_read(lambda: self.wb.FullName, check=False))
 
     def run(self, fn: str, *args):
         """Bridge call. Smart View acts on the ACTIVE workbook/sheet, so the target sheet is activated right before
@@ -73,16 +73,35 @@ class Target:
             pass
 
 
+def _read(call, check: bool = True):
+    """A read of the target's workbook or of the open workbooks, made before the job's turn there or around it: read
+    again while Excel is busy (not counted as a call of the job), for NAME_WAIT_S or what is left of the job's start
+    (jobs.starting), the job's abort checked before every try (check); then the busy message (jobs.BUSY)."""
+    try:
+        with jobs.start_wait(NAME_WAIT_S) as limit:
+            return retry_busy(call, limit, jobs._check_alive if check else None)
+    except pywintypes.com_error as e:
+        if jobs.is_busy(e):
+            raise HostError(jobs.BUSY) from None
+        raise
+
+
 def _wait_ready(app, limit: float = jobs.EDIT_WAIT_S, pid: int | None = None, name: str | None = None):
-    t0 = time.monotonic()
-    while time.monotonic() - t0 < limit:
-        try:
-            if app.Ready:
-                return
-        except pywintypes.com_error as e:
-            if not jobs.is_busy(e):
-                raise
-        time.sleep(0.5)
+    """app's Excel ready for the job (not in cell edit mode, no dialog): asked every 0.5 s for limit or what is left
+    of the job's start (jobs.starting), the job's abort checked each time; then the busy message."""
+    with jobs.start_wait(limit) as limit:
+        t0 = time.monotonic()
+        while True:
+            jobs._check_alive()
+            try:
+                if app.Ready:
+                    return
+            except pywintypes.com_error as e:
+                if not jobs.is_busy(e):
+                    raise
+            if time.monotonic() - t0 >= limit:
+                break
+            time.sleep(0.5)
     if pid:
         raise instances.busy_error(pid, name or "The workbook")
     raise HostError("Your Excel is in edit mode (a cell is being typed in) or showing a dialog. Press Enter or Esc, "
@@ -118,6 +137,11 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
     resolves to a new workbook in a running Excel then comes back with its file reserved and not opened (Target.made,
     wb None; open_new opens it), made ready (bridge) all the same, and does not become the session's workbook here:
     the caller sets it once the answer is in it. A failure after the reservation deletes the file (discard_new)."""
+    with jobs.starting():
+        return _resolve(h, target, allow_archive, title, build_new)
+
+
+def _resolve(h: ExcelHost, target: str, allow_archive: bool, title: str | None, build_new: bool) -> Target:
     from ..core import session
     from ..epm import sso
     sso.ensure_global_watcher()
@@ -146,10 +170,10 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
     if target == "active":
         for pid, hwnd, app in excels:
             try:
-                wb = jobs.com(lambda: app.ActiveWorkbook, limit=20)
+                wb, name = active_book(app)
             except pywintypes.com_error:
                 wb = None
-            if wb is not None and not str(wb.Name).lower().endswith(".xlam"):
+            if wb is not None and not name.lower().endswith(".xlam"):
                 jobs.hold_turn(pid, what="this request", app=app)   # same workbook: agents take turns
                 return _finish_target(h, Target(app, wb, pid, hwnd), allow_archive)
         target = "new"                                # nothing open: fall back to a new analysis workbook
@@ -353,6 +377,7 @@ def _spawn_excel(tpl: Path, known: set[int]):
     proc = _launch_excel(tpl)
     t0 = time.monotonic()
     while time.monotonic() - t0 < 120:
+        jobs._check_alive()
         time.sleep(1)
         for pid, hwnd, app in instances.interactive_excels():
             if pid in known:
@@ -407,11 +432,21 @@ def _find_open(excels, path: Path) -> Target | None:
 
 def _books(app, attr: str) -> list[tuple]:
     """(workbook, its attr - Name or FullName) of every workbook open in app's Excel: plain reads made before the job's
-    turn there (to find which Excel holds the target), read again whole while Excel is busy - it rejects calls while
-    it saves, also a save after the last reply (live, 20.11.2026)."""
+    turn there (to find which Excel holds the target), read again whole while Excel is busy (_read) - it rejects calls
+    while it saves, also a save after the last reply (live, 20.11.2026)."""
     def read():
         return [(wb, str(getattr(wb, attr))) for wb in app.Workbooks]
-    return retry_busy(read, NAME_WAIT_S)
+    return _read(read)
+
+
+def active_book(app, limit: float = 20) -> tuple:
+    """(the active workbook of app's Excel, its name), or (None, None): read as one before the job's turn there, again
+    while Excel is busy for limit or what is left of the job's start (jobs.starting); then the busy message."""
+    def read():
+        wb = app.ActiveWorkbook
+        return (None, None) if wb is None else (wb, str(wb.Name))
+    with jobs.start_wait(limit) as limit:
+        return jobs.com(read, limit=limit)
 
 
 BUSY_WAIT_S = 10                    # a busy Excel that holds the target gets this long to answer before we say why
@@ -424,6 +459,7 @@ def _wait_busy_holder(pid: int, path: Path) -> Target | None:
     jobs.hold_turn(pid, what="this request", app=None)     # it does not answer COM yet: the first contact below
     t0 = time.monotonic()
     while True:
+        jobs._check_alive()
         insts = [i for i in instances.excel_instances() if i.pid == pid]
         if not insts:
             raise HostError(f"The Excel (pid {pid}) that had '{path.name}' open has closed. Ask again.")
@@ -467,6 +503,7 @@ def _open_path(h: ExcelHost, path: Path, excels, insts: list[instances.XlInstanc
     proc = _launch_excel(path)
     t0 = time.monotonic()
     while time.monotonic() - t0 < OPEN_TIMEOUT_S:
+        jobs._check_alive()
         time.sleep(1)
         for pid, hwnd, app in instances.interactive_excels():
             for wb in app.Workbooks:

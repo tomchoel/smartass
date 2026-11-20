@@ -13,6 +13,7 @@ from .host import HostError
 from .hostproc import is_busy, retry_busy
 
 EDIT_WAIT_S = 30
+START_WAIT_S = EDIT_WAIT_S          # a job's start waits this long in all for an Excel that rejects calls (starting)
 BUSY = "Excel is busy - probably a cell is being edited or a dialog is open. Press Enter or Esc in Excel and ask again."
 
 log = logging.getLogger("smartview.excel")
@@ -37,6 +38,7 @@ class JobToken:
 def bind_job(token: "JobToken | None" = None) -> None:
     _job.token = token or JobToken()
     _job.turns = []
+    _job.start_left = None
 
 
 def _check_alive():
@@ -46,16 +48,57 @@ def _check_alive():
 
 
 def com(call, limit: float = 60.0, check: bool = True):
-    """A COM call in the user's Excel, retried while Excel is busy; then a readable HostError (BUSY)."""
+    """A COM call in the user's Excel, retried while Excel is busy - the job's abort checked before every try (check)
+    -; then a readable HostError (BUSY)."""
     timing.count_com()
-    if check:
-        _check_alive()
     try:
-        return retry_busy(call, limit)
+        return retry_busy(call, limit, _check_alive if check else None)
     except pywintypes.com_error as e:
         if is_busy(e):
             raise HostError(BUSY) from None
         raise
+
+
+@contextlib.contextmanager
+def starting():
+    """A job's start: finding its workbook (the reads before its turn), the first contact with its Excel
+    (inproc/later.clear) and the wait for Excel to be ready. Its waits for an Excel that rejects calls (a cell in edit
+    mode, a dialog) share one START_WAIT_S (start_wait), so the start gives up with the busy message after 30 s of
+    them in all, as before the save after the reply; the add-in's own answer that a save of ours runs is waited for
+    longer (runner.asked), and the time the start spends otherwise (another agent's turn, a login, Excel starting or
+    opening a file) is not counted. A start inside a start (a session's workbook resolved by its path) is the outer
+    one's."""
+    if getattr(_job, "start_left", None) is not None:
+        yield
+        return
+    _job.start_left = float(START_WAIT_S)
+    try:
+        yield
+    finally:
+        _job.start_left = None
+
+
+def start_limit(limit: float) -> float:
+    """limit, or what is left of the job's start's waits (starting) when that is less."""
+    left = getattr(_job, "start_left", None)
+    return limit if left is None else max(min(limit, left), 0.0)
+
+
+def spent(seconds: float) -> None:
+    """seconds of a wait for a busy Excel counted against the job's start (starting); nothing outside one."""
+    left = getattr(_job, "start_left", None)
+    if left is not None:
+        _job.start_left = max(left - seconds, 0.0)
+
+
+@contextlib.contextmanager
+def start_wait(limit: float):
+    """A wait for a busy Excel at the job's start: yields its limit (start_limit) and counts the time it took (spent)."""
+    t0 = time.monotonic()
+    try:
+        yield start_limit(limit)
+    finally:
+        spent(time.monotonic() - t0)
 
 
 def book_name(t) -> str:
@@ -97,6 +140,11 @@ class Turn:
     def acquire(self, what: str) -> float:
         t0 = time.monotonic()
         while not self.try_acquire():
+            try:
+                _check_alive()
+            except JobAborted:
+                self.close()
+                raise
             if time.monotonic() - t0 > TURN_WAIT_S:
                 self.close()
                 raise HostError(f"Another agent has been working in that Excel for {TURN_WAIT_S // 60} min; "
@@ -152,6 +200,7 @@ def release_turns() -> None:
     for tt in getattr(_job, "turns", None) or []:
         tt.close()
     _job.turns = []
+    _job.start_left = None
 
 
 @contextlib.contextmanager

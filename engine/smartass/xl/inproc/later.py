@@ -34,6 +34,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ...core import config, timing
+from .. import jobs
 from ..host import HostError
 from . import build, runner
 
@@ -86,7 +87,7 @@ def clear(app, limit: float = CLEAR_LIMIT_S) -> None:
         return                                              # the add-in does not load in that Excel
     macro = ex.clear_macro if ex is not None and ex.ready else f"SmartassClear_{_build_hash()}"
     try:
-        got = runner.asked(lambda: app.Run(macro), limit)
+        got = runner.asked(lambda: app.Run(macro), limit, rejected=jobs.start_limit(limit))
     except HostError:
         raise
     except Exception:   # noqa: BLE001 - the macro is not there: no add-in in that Excel

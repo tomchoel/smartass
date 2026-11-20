@@ -30,11 +30,14 @@ def is_busy(e: BaseException) -> bool:
     return hr in RETRY_HRESULTS or VBA_E_IGNORE in (hr, info[5] if info and len(info) > 5 else None)
 
 
-def retry_busy(call: Callable[[], Any], limit_s: float = 120):
+def retry_busy(call: Callable[[], Any], limit_s: float = 120, alive: Callable[[], Any] | None = None):
     """Run any COM call, retrying while Excel is busy (is_busy) for up to limit_s; then the COM error is raised.
-    pywin32 has no IMessageFilter, so this is the retry loop instead."""
+    pywin32 has no IMessageFilter, so this is the retry loop instead. alive: called before every try (jobs.com: the
+    job's abort, which raises)."""
     delay, t0 = 0.1, time.monotonic()
     while True:
+        if alive is not None:
+            alive()
         try:
             return call()
         except pywintypes.com_error as e:

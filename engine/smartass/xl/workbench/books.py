@@ -8,7 +8,7 @@ import pywintypes
 from openpyxl.utils import get_column_letter as L
 
 from ..instances import busy_error, busy_holder, excel_instances, interactive_excels, is_archive, local_path
-from ..jobs import com, hold_turn
+from ..jobs import com, hold_turn, start_wait, starting
 from ..host import HostError, InputError
 
 log = logging.getLogger("smartview.workbench")
@@ -39,17 +39,31 @@ class Book:
             raise InputError(f"No sheet '{name}' in '{self.name}'. Sheets: {names}") from None
 
 
-def _books(app):
-    out = []
-    for wb in com(lambda: app.Workbooks):
-        n = str(wb.Name)
-        if not n.lower().endswith((".xlam", ".xla")):
-            out.append(wb)
-    return out
+def _books(app) -> list[tuple]:
+    """(workbook, its Name, its FullName) of every workbook but add-ins open in app's Excel: read as one, again while
+    Excel is busy - it rejects calls while it saves, also a save after the last reply (live, 20.11.2026), and
+    find_book reads them before the job's turn there - for 60 s or what is left of the job's start (starting); then
+    the busy message."""
+    def read():
+        out = []
+        for wb in app.Workbooks:
+            n = str(wb.Name)
+            if not n.lower().endswith((".xlam", ".xla")):
+                out.append((wb, n, str(wb.FullName)))
+        return out
+    with start_wait(60.0) as limit:
+        return com(read, limit=limit)
 
 
 def find_book(workbook: str | None, write: bool = False, allow_archive: bool = False) -> Book:
-    """The user's active workbook (workbook=None) or an open one by name / file name / full path, in any Excel."""
+    """The user's active workbook (workbook=None) or an open one by name / file name / full path, in any Excel. Its
+    reads before the turn and the first contact share the job's start (jobs.starting)."""
+    with starting():
+        return _find_book(workbook, write, allow_archive)
+
+
+def _find_book(workbook: str | None, write: bool, allow_archive: bool) -> Book:
+    from ..target import active_book
     instances = excel_instances()
     excels = [(i.pid, i.hwnd, i.app) for i in instances if i.app is not None]
     if not excels:
@@ -62,8 +76,8 @@ def find_book(workbook: str | None, write: bool = False, allow_archive: bool = F
     hit = None
     if not workbook:
         for pid, _h, app in excels:                      # front-most Excel first
-            wb = com(lambda: app.ActiveWorkbook, limit=20)
-            if wb is not None and not str(wb.Name).lower().endswith(".xlam"):
+            wb, name = active_book(app)
+            if wb is not None and not name.lower().endswith(".xlam"):
                 hit = (pid, app, wb)
                 break
         if hit is None:
@@ -72,25 +86,24 @@ def find_book(workbook: str | None, write: bool = False, allow_archive: bool = F
         want = workbook.strip().lower()
         stem = lambda s: re.sub(r"\.(xlsx|xlsm|xlsb|xls)$", "", s)
         cands = []
-        for pid, _h, app in excels:
-            for wb in _books(app):
-                n, fn = str(wb.Name).lower(), str(wb.FullName).lower()
-                if want in (n, fn, local_path(str(wb.FullName)).lower()) or stem(want) == stem(n):
-                    cands.append((pid, app, wb))
+        books = [(pid, app, wb, name, full) for pid, _h, app in excels for wb, name, full in _books(app)]
+        for pid, app, wb, name, full in books:
+            n, fn = name.lower(), full.lower()
+            if want in (n, fn, local_path(full).lower()) or stem(want) == stem(n):
+                cands.append((pid, app, wb, name))
         if not cands:
-            for pid, _h, app in excels:                  # unique partial name as a convenience
-                for wb in _books(app):
-                    if stem(want) in str(wb.Name).lower():
-                        cands.append((pid, app, wb))
+            for pid, app, wb, name, _full in books:      # unique partial name as a convenience
+                if stem(want) in name.lower():
+                    cands.append((pid, app, wb, name))
         if not cands:
             holder = busy_holder(instances, workbook.strip())
             if holder is not None:
                 raise busy_error(holder.pid, workbook.strip())
             raise InputError(f"No open workbook matches '{workbook}' (open now: {list_names(excels)}). Next step: pass one of those names, or open the workbook in Excel first.")
         if len(cands) > 1:
-            raise InputError(f"'{workbook}' matches several open workbooks: {[str(c[2].Name) for c in cands]}. "
+            raise InputError(f"'{workbook}' matches several open workbooks: {[c[3] for c in cands]}. "
                              "Use the full name.")
-        hit = cands[0]
+        hit = cands[0][:3]
     pid, app, wb = hit
     hold_turn(pid, what="this Excel change", app=app)
     b = Book(app, wb, pid)
@@ -115,7 +128,7 @@ def _autosave_off(b: Book) -> None:
 
 
 def list_names(excels=None) -> list[str]:
-    return [str(wb.Name) for _p, _h, app in (excels or interactive_excels()) for wb in _books(app)]
+    return [name for _p, _h, app in (excels or interactive_excels()) for _wb, name, _full in _books(app)]
 
 
 def workbooks() -> list[dict]:
@@ -123,7 +136,7 @@ def workbooks() -> list[dict]:
     for pid, _h, app in interactive_excels():
         active = com(lambda: app.ActiveWorkbook, limit=20)
         aname = str(active.Name) if active is not None else None
-        for wb in _books(app):
+        for wb, _name, _full in _books(app):
             try:
                 sel = _addr(com(lambda: app.Selection)) if str(wb.Name) == aname else None
             except Exception:   # noqa: BLE001 - selection may be a chart/shape
