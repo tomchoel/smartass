@@ -194,3 +194,38 @@ runs, the second on a busier machine; all 500 re-pointed in both executors):
 | in-process | 500 | 0.62 / 1.14 s | 0.17 / 0.28 s |
 | over COM | 0 | 0.80 / 1.64 s | 0.08 / 0.19 s |
 | over COM | 500 | 2.70 / 7.08 s | 1.14 / 2.98 s |
+
+## The final code, 17:20, Excel otherwise empty (controller run)
+
+`scripts/bench_answers.py --rounds 3`, `SV_INPROC=1`, head 652ac47 (four batches, one paint, the re-pointing), from a
+frozen checkout; the owner's Excel had no other workbook open (the nine another session had opened were closed first
+on the owner's word), but it is the same Excel process that has run since 22:40 the evening before, through several
+hundred test workbooks. 27 of 27 answers ok.
+
+### Per round (ok runs without a lines block)
+
+| round | answers | _total s | excel job s | draw s | draw.look s | draw.build s | draw.move in s | draw.finish s | draw.paint s | draw.close out s | save s | prepare s | COM calls | runs |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 8 | 3.6 | 2.3 | 1.6 | 0.0 | 0.0 | 0.9 | 0.2 | 0.2 | 0.1 | 0.5 | 1.3 | 8 | 4 |
+| 2 | 8 | 5.0 | 3.2 | 1.9 | 0.0 | 0.0 | 1.1 | 0.2 | 0.1 | 0.3 | 0.8 | 1.6 | 8 | 4 |
+| 3 | 8 | 5.4 | 3.6 | 2.0 | 0.0 | 0.1 | 1.1 | 0.3 | 0.2 | 0.3 | 1.1 | 1.6 | 8 | 4 |
+
+### Per round (ok runs with a lines block)
+
+| round | answers | _total s | excel job s | draw s | draw.look s | draw.build s | draw.move in s | draw.finish s | draw.paint s | draw.close out s | save s | prepare s | COM calls | runs |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 1 | 92.3 | 5.2 | 4.2 | 0.0 | 0.9 | 2.7 | 0.3 | 0.1 | 0.1 | 0.6 | 87.1 | 8 | 4 |
+| 2 | 1 | 13.7 | 6.0 | 4.5 | 0.0 | 1.0 | 2.6 | 0.3 | 0.2 | 0.3 | 1.0 | 7.7 | 8 | 4 |
+| 3 | 1 | 13.6 | 5.9 | 4.2 | 0.0 | 1.0 | 2.5 | 0.2 | 0.2 | 0.2 | 1.1 | 7.7 | 8 | 4 |
+
+Reading: over the 3 s / 5 s gate in rounds 2 and 3 (and in every round with a lines sheet). The job's own parts are
+as small as in the morning (look 0.03 s, finish 0.25 s, close out 0.26 s, 8 COM calls, 4 batches); Excel's own two
+steps are not: the insert took a median of 1.05 s (0.56 s at 06:00) and the save 0.80 s (about 0.3 s). The same call
+on the same kind of file took half the time in the morning, so this run does not show a regression of the code, and
+it does not show the gate either. The gate rests on the 06:00 run (five-batch code). Owed: one run in a freshly
+started Excel.
+
+The follow-up check on the same head (17:14, nine workbooks of another session open): every step OK through both
+executors, the summary sheet's formulas (cell, table, cross-sheet SUM, defined name, chart series, a reference from
+another answer) correct after every follow-up and after fin_refresh; follow-ups 4.2-5.0 s in-process, 7.2-7.7 s over
+COM.

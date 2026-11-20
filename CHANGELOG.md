@@ -49,6 +49,11 @@
     (0.3.0: 2.0 / 2.7 / 3.3 s and 4.2 / 4.1 / 5.2 s). The 3 s / 5 s gate holds in every round.
   - With another session working in the same Excel (20.11.2026 11:15): follow-ups 2.5-2.9 s in-process against
     4.9-6.2 s over COM; the bench then 4.7 / 2.7 / 5.9 s without a lines sheet, not a gate run.
+  - The final code (four batches, the re-pointing) in the owner's Excel with no other workbook open, 20.11.2026
+    17:20, the same Excel process running since the evening before: 2.3 / 3.2 / 3.6 s without a lines sheet and
+    5.2 / 6.0 / 5.9 s with one - over the gate in rounds 2 and 3. Excel's own two steps took twice the morning's
+    time (the insert a median of 1.05 s against 0.56 s, the save 0.80 s against 0.3 s), so the gate is shown only
+    by the morning run; a run in a freshly started Excel is still owed.
   - The scan for pointing formulas when nothing points at the answer: 0.06-1.0 s in-process, 0.3-4.5 s over COM,
     by workbook size (10 sheets and 5 000 formulas to 60 sheets and 260 000 formulas).
 - Thin waterfall labels now sit 10 pt higher than 0.3.0 drew them in a hidden Excel: 0.3.0 set the lift before the
