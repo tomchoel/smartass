@@ -192,6 +192,69 @@ def test_the_first_contact_with_an_excel_without_the_add_in_is_nothing(monkeypat
     assert len(asked) == 1 and asked[0].startswith("SmartassClear_")
 
 
+BUILD_A = r"C:\h\inproc\smartass_run_aaaa1111\smartass_run_aaaa1111.xll"
+BUILD_B = r"C:\other\inproc\smartass_run_bbbb2222\smartass_run_bbbb2222.xll"
+
+
+def _two_servers(monkeypatch, run, functions):
+    """A fake Excel whose Run is run and whose RegisteredFunctions is functions (rows: the .xll, its export, its type),
+    met by a server of build aaaa1111 that has not loaded its add-in there."""
+    app = fakexl.Application()
+    monkeypatch.setattr(config, "INPROC", True)
+    monkeypatch.setattr(runner, "_EXCELS", {})
+    monkeypatch.setattr(runner, "_identify", lambda app, check=True: (id(app), 0.0))
+    monkeypatch.setattr(later, "_build_hash", lambda: "aaaa1111")
+    monkeypatch.setattr(later, "_skips", set())
+    app.Run, app.RegisteredFunctions = run, functions
+    return app
+
+
+def test_the_first_contact_runs_the_waiting_save_of_every_smartass_build_in_that_excel(monkeypatch):
+    """Two servers of different versions in one Excel each load their own build, with a save after the reply of its
+    own that the other build's Clear does not see: it ran on its own timer, in the middle of the other server's job,
+    and its outcome could be overwritten by that job's own before any job read it (a failed save then went untold and
+    was never repeated). The first contact runs the Clear of every build Excel lists (Application.RegisteredFunctions:
+    the .xll files that registered functions there), so that save runs first and the job's look reads its outcome."""
+    asked = []
+    app = _two_servers(monkeypatch, lambda macro: asked.append(macro) or "clear",
+                       ((BUILD_A, "f0", "Q"), (BUILD_A, "f1", "QQ"), (BUILD_B, "f0", "Q"),
+                        (r"C:\Program Files\other\addin.xll", "f0", "Q")))
+    later.clear(app)
+    assert asked == ["SmartassClear_aaaa1111", "SmartassClear_bbbb2222"]
+
+
+def test_an_excel_where_no_smartass_build_is_loaded_is_not_asked(monkeypatch):
+    asked = []
+    app = _two_servers(monkeypatch, lambda macro: asked.append(macro) or "clear", None)
+    later.clear(app)
+    assert asked == []
+
+
+def test_a_first_contact_that_could_not_be_made_is_logged_once_per_excel(monkeypatch, caplog):
+    """Review 2 (Task 2): later.clear skipped the guard without a word when the add-in's Clear failed, or when which
+    Excel it was could not be told."""
+    import pywintypes
+
+    def run(macro):
+        raise pywintypes.com_error(-2147352567, "Exception occurred.", (0, "Microsoft Excel", "Cannot run the macro",
+                                                                        None, 0, -2146827284), None)
+    app = _two_servers(monkeypatch, run, ((BUILD_B, "f0", "Q"),))
+    with caplog.at_level(logging.WARNING, logger="smartview.inproc"):
+        later.clear(app)
+        later.clear(app)
+    assert [r.getMessage() for r in caplog.records if "first contact" in r.getMessage()] == [
+        f"the first contact with Excel pid {id(app)} could not run SmartassClear_bbbb2222 (Cannot run the macro (0x800A03EC)): a "
+        "save after the reply still waiting there may run during this job"]
+    caplog.clear()
+    monkeypatch.setattr(runner, "_identify", lambda app, check=True: (_ for _ in ()).throw(RuntimeError("no window")))
+    with caplog.at_level(logging.WARNING, logger="smartview.inproc"):
+        later.clear(app)
+        later.clear(app)
+    assert [r.getMessage() for r in caplog.records if "first contact" in r.getMessage()] == [
+        "the first contact with an Excel was not made (which Excel it is cannot be told: no window): a save after "
+        "the reply still waiting there may run during this job"]
+
+
 def test_every_turn_taken_in_an_excel_starts_with_the_first_contact(excel, monkeypatch):
     app, wb, addin = excel
     seen = []

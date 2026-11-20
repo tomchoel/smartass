@@ -27,6 +27,7 @@ import functools
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -55,6 +56,7 @@ UNWRITTEN = "unwritten: "                       # clear's answer then, before th
 CLEAR_LIMIT_S = 120                             # a save that runs is waited for this long (as a batch)
 KEEP_DAYS = 7                                   # an outcome older than this is removed (with those of gone Excels)
 UNKNOWN = "its outcome file could not be read"
+_skips: set = set()                             # Excel keys whose first contact could not be made (logged once)
 
 
 def folder() -> Path:
@@ -69,39 +71,80 @@ def available(app) -> bool:
 
 def clear(app, limit: float = CLEAR_LIMIT_S) -> None:
     """A job's first contact with app's Excel (jobs.hold_turn calls it once it holds the turn there), before any plain
-    COM call of the job writes in it: one add-in call (Runner.cs SmartassClear) runs a save after the reply still
-    waiting there, and while one runs the add-in answers busy and the call is asked again (runner.asked: bounded by
-    limit, abortable: HostError). An add-in this server process has not loaded in that Excel is called by this
-    build's name (another server may have loaded it); no such macro there: no add-in, so no save of ours can be
-    waiting. An outcome the add-in could not write comes back here and is kept for the next look (take)."""
+    COM call of the job writes in it: the Clear of every smartass add-in build loaded there (_builds - two servers of
+    different versions each load their own, with a save after the reply of its own that the other's Clear does not
+    see; without that list, this build's) runs a save after the reply still waiting there, and while one runs the
+    add-in answers busy and the call is asked again (runner.asked: bounded by limit, abortable: HostError). No build
+    loaded: no save of ours can be waiting. An outcome an add-in could not write comes back here and is kept for the
+    next look (take). A contact that could not be made is logged once per Excel process (_skipped)."""
     if not config.INPROC:
         return
     try:
         key = runner._identify(app)
     except HostError:
         raise
-    except Exception:   # noqa: BLE001 - which Excel this is cannot be told: no add-in of ours found there
+    except Exception as e:   # noqa: BLE001 - which Excel this is cannot be told: no add-in of ours found there
+        _skipped(None, f"the first contact with an Excel was not made (which Excel it is cannot be told: {e})")
         return
     ex = runner._EXCELS.get(key)
     if ex is not None and ex.ready is False:
         return                                              # the add-in does not load in that Excel
-    macro = ex.clear_macro if ex is not None and ex.ready else f"SmartassClear_{_build_hash()}"
+    builds = _builds(app)
+    listed = builds is not None
+    if not listed:
+        builds = [ex.hash if ex is not None and ex.ready else _build_hash()]
+    for h in builds:
+        macro = f"SmartassClear_{h}"
+        try:
+            got = runner.asked(lambda: app.Run(macro), limit, rejected=jobs.start_limit(limit))
+        except HostError:
+            raise
+        except Exception as e:   # noqa: BLE001 - not listed: the macro is not there, no add-in in that Excel
+            if listed or (ex is not None and ex.ready):
+                _skipped(key, f"the first contact with Excel pid {key[0]} could not run {macro} "
+                              f"({runner._message(e)})")
+            continue
+        if isinstance(got, str) and got.startswith(UNWRITTEN):
+            try:
+                out = json.loads(got[len(UNWRITTEN):])
+            except ValueError:
+                out = None
+            out = out if _valid(out) else _unknown()
+            with _lock:
+                _unwritten[key[0]] = out
+            log.warning("the outcome of the save after the reply in Excel pid %s could not be written (%s); the "
+                        "next answer there reads it from memory", key[0], out.get("unwritten"))
+
+
+XLL_NAME = re.compile(r"smartass_run_([0-9a-f]{8})\.xll\Z", re.IGNORECASE)
+
+
+def _builds(app) -> list[str] | None:
+    """The hash of every smartass add-in build loaded in app's Excel, in Excel's order: the .xll files that registered
+    functions there (Application.RegisteredFunctions, a few ms: (file, export, type) per function); None when that
+    cannot be read."""
     try:
-        got = runner.asked(lambda: app.Run(macro), limit, rejected=jobs.start_limit(limit))
+        with jobs.start_wait(60.0) as wait:
+            rows = jobs.com(lambda: app.RegisteredFunctions, limit=wait)
     except HostError:
         raise
-    except Exception:   # noqa: BLE001 - the macro is not there: no add-in in that Excel
-        return
-    if isinstance(got, str) and got.startswith(UNWRITTEN):
-        try:
-            out = json.loads(got[len(UNWRITTEN):])
-        except ValueError:
-            out = None
-        out = out if _valid(out) else _unknown()
-        with _lock:
-            _unwritten[key[0]] = out
-        log.warning("the outcome of the save after the reply in Excel pid %s could not be written (%s); the next "
-                    "answer there reads it from memory", key[0], out.get("unwritten"))
+    except Exception:   # noqa: BLE001 - not known: the caller asks this build's add-in, as before
+        return None
+    found: list[str] = []
+    for row in rows or ():
+        m = XLL_NAME.search(str(row[0])) if row else None
+        if m and m.group(1).lower() not in found:
+            found.append(m.group(1).lower())
+    return found
+
+
+def _skipped(key, text: str) -> None:
+    """A first contact that could not be made, logged once per Excel process (key; None: one not known)."""
+    with _lock:
+        if key in _skips:
+            return
+        _skips.add(key)
+    log.warning("%s: a save after the reply still waiting there may run during this job", text)
 
 
 @functools.lru_cache(maxsize=1)
