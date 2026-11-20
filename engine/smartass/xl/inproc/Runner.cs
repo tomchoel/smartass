@@ -507,8 +507,9 @@ public static class SmartassRunner___HASH__
     const int XlCellTypeFormulas = -4123;
 
     // mentions on one worksheet's cells (runner._cells): the used range's Formula2 read in chunks of rows of at most
-    // ChunkCells cells, only the chunks Intersect finds a formula in (SpecialCells once; none: done); a protected
-    // sheet refuses SpecialCells, so each of its chunks is read (a hidden formula makes the read throw: "unread").
+    // ChunkCells cells, only the chunks Intersect finds a formula in (SpecialCells once; no formula - HasFormula
+    // False -: done; any other refusal: "unread"); a protected sheet refuses SpecialCells, so each of its chunks is
+    // read (a hidden formula makes the read throw: "unread").
     static void MentionsInCells(object ws, string name, string[] want, List<object> rows)
     {
         object used = Invoke(ws, "UsedRange", Get, new object[0]);
@@ -519,7 +520,13 @@ public static class SmartassRunner___HASH__
         if (!Equals(Invoke(ws, "ProtectContents", Get, new object[0]), true))
         {
             try { formulas = Invoke(used, "SpecialCells", Get, new object[] { XlCellTypeFormulas }); }
-            catch (Exception) { return; }                        // "No cells were found": no formula on the sheet
+            catch (Exception)
+            {
+                // "No cells were found" has the code of any other refusal and a text in Excel's language: none only
+                // when the used range has no formula; any other refusal is the caller's "unread"
+                if (Equals(Invoke(used, "HasFormula", Get, new object[0]), false)) return;
+                throw;
+            }
         }
         object app = Invoke(ws, "Application", Get, new object[0]);
         int step = Math.Max(1, ChunkCells / nc);

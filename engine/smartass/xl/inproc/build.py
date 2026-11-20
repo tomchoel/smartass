@@ -32,7 +32,8 @@ PREFIX = "smartass_run_"
 COMPILE_LIMIT_S = 120
 STALE_S = 24 * 3600                     # leftover temporary build folders older than this are removed
 MARKER_S = 24 * 3600                    # a compile error is not retried for this long
-FLAGS = ("-nologo", "-target:library", "-langversion:5", "-optimize+", "-r:System.Web.Extensions.dll")
+FLAGS = ("-nologo", "-target:library", "-langversion:5", "-optimize+")
+FRAMEWORK_REFS = ("System.Web.Extensions.dll",)      # named by their path in the compiler's own Framework folder
 
 DNA = """<?xml version="1.0" encoding="utf-8"?>
 <DnaLibrary Name="{name}" RuntimeVersion="v4.0">
@@ -77,8 +78,9 @@ def _template() -> str:
 
 def hash8() -> str:
     h = hashlib.sha1()
+    flags = "\0".join((*FLAGS, *FRAMEWORK_REFS))
     for part in (_template().encode(), XLL.read_bytes(), INTEGRATION.read_bytes(), DNA.encode(), CONFIG.encode(),
-                 "\0".join(FLAGS).encode(), str(jobs_folder()).encode(), f"batch {batch.VERSION}".encode()):
+                 flags.encode(), str(jobs_folder()).encode(), f"batch {batch.VERSION}".encode()):
         h.update(len(part).to_bytes(8, "little"))
         h.update(part)
     return h.hexdigest()[:8]
@@ -118,7 +120,7 @@ def _build(h: str, dest: Path) -> None:
         (tmp / f"{name}.dna").write_text(DNA.format(name=name), encoding="utf-8")
         (tmp / f"{name}.xll.config").write_text(CONFIG, encoding="utf-8")
         dll = tmp / f"{name}.dll"
-        code, text = _compile([str(CSC), *FLAGS, f"-out:{dll}", f"-r:{INTEGRATION}", str(cs)])
+        code, text = _compile(_command(cs, dll), tmp)
         if code != 0 or not dll.is_file():
             marker.write_text(text or f"csc exit code {code}", encoding="utf-8")
             raise BuildError(f"the add-in did not compile: {text.strip()[:500]}")
@@ -133,11 +135,19 @@ def _build(h: str, dest: Path) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _compile(cmd: list[str]) -> tuple[int, str]:
-    """csc's exit code and output (no window). BuildError when it did not run."""
+def _command(cs: Path, dll: Path) -> list[str]:
+    """csc's command line: every reference by its full path (the Framework's from the compiler's own folder, Excel-DNA's
+    from vendor/), so none is picked up from the working directory or LIB."""
+    refs = [CSC.parent / r for r in FRAMEWORK_REFS] + [INTEGRATION]
+    return [str(CSC), *FLAGS, f"-out:{dll}", *(f"-r:{r}" for r in refs), str(cs)]
+
+
+def _compile(cmd: list[str], cwd: Path) -> tuple[int, str]:
+    """csc's exit code and output (no window), run in cwd (the temporary build folder). BuildError when it did not
+    run."""
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=COMPILE_LIMIT_S,
-                           creationflags=subprocess.CREATE_NO_WINDOW)
+                           creationflags=subprocess.CREATE_NO_WINDOW, cwd=cwd)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise BuildError(f"the C# compiler did not run: {e}") from None
     return r.returncode, (r.stdout or "") + (r.stderr or "")

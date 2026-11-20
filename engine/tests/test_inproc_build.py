@@ -4,6 +4,7 @@ import os
 import shutil
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -35,9 +36,9 @@ def compiler(monkeypatch):
     """A fake csc: records each command line and the source it was given, writes the -out: dll."""
     seen = []
 
-    def compile_(cmd):
+    def compile_(cmd, cwd):
         out = Path(next(a for a in cmd if a.startswith("-out:"))[5:])
-        seen.append((cmd, Path(cmd[-1]).read_text(encoding="utf-8")))
+        seen.append((cmd, Path(cmd[-1]).read_text(encoding="utf-8"), cwd))
         out.write_bytes(b"compiled")
         return 0, ""
     monkeypatch.setattr(build, "_compile", compile_)
@@ -90,14 +91,17 @@ def test_a_build_is_a_folder_named_by_its_hash_with_the_add_in_its_dna_config_an
     cfg = (folder / f"{name}.xll.config").read_text(encoding="utf-8")
     assert 'name="ExcelDna.Integration" switchValue="Off"' in cfg
     assert '<add name="LogDisplay"' in cfg and 'initializeData="Off"' in cfg
-    (cmd, source), = compiler
+    (cmd, source, cwd), = compiler
     jobs = build.jobs_folder()
     assert source == (f'// [ExcelFunction(Name = "SmartassRun_{h}")] const string Hash = "{h}"; '
                       f'const string JobsFolder = @"{jobs}";')
     assert jobs == config.INPROC_DIR / "jobs" and jobs.is_absolute()
     assert cmd[0] == str(build.CSC)
     assert {"-nologo", "-target:library", "-langversion:5", f"-r:{build.INTEGRATION}",
-            "-r:System.Web.Extensions.dll"} <= set(cmd)
+            f"-r:{build.CSC.parent / 'System.Web.Extensions.dll'}"} <= set(cmd)
+    refs = [a[3:] for a in cmd if a.startswith("-r:")]
+    assert len(refs) == 2 and all(Path(r).is_absolute() for r in refs)    # final review S1: nothing from elsewhere
+    assert Path(cwd) == Path(cmd[-1]).parent != Path.cwd()               # csc runs in the temporary build folder
     assert sorted(p.name for p in config.INPROC_DIR.iterdir()) == [name]       # no temporary folder left
     assert build.ensure() == (xll, h) and len(compiler) == 1                     # built once
 
@@ -106,7 +110,7 @@ def test_a_build_finished_meanwhile_by_another_job_is_used(src, monkeypatch):
     h = build.hash8()
     name = f"smartass_run_{h}"
 
-    def other_job_wins(cmd):
+    def other_job_wins(cmd, cwd):
         out = Path(next(a for a in cmd if a.startswith("-out:"))[5:])
         out.write_bytes(b"mine")
         shutil.copytree(out.parent, config.INPROC_DIR / name)        # the other job renamed its build into place
@@ -138,7 +142,7 @@ def test_older_builds_are_pruned_unless_their_add_in_is_locked(src, compiler):
 def test_a_compile_error_is_kept_in_a_marker_and_not_retried(src, monkeypatch):
     calls = []
 
-    def fails(cmd):
+    def fails(cmd, cwd):
         calls.append(cmd)
         return 1, "Runner.cs(3,1): error CS1002: ; expected"
     monkeypatch.setattr(build, "_compile", fails)
@@ -168,6 +172,20 @@ def test_no_compiler_is_a_build_error_without_a_marker(src, compiler, tmp_path, 
         build.ensure()
     assert compiler == []
     assert not config.INPROC_DIR.exists() or not list(config.INPROC_DIR.glob("*.failed"))
+
+
+def test_the_compiler_runs_in_the_given_folder_without_a_window(monkeypatch, tmp_path):
+    """Final review S1: csc looks for a reference that is not fully qualified in its working directory first: that is
+    the temporary build folder, never wherever the server runs."""
+    seen = {}
+
+    def run(cmd, **kw):
+        seen.update(kw, cmd=cmd)
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+    monkeypatch.setattr(build.subprocess, "run", run)
+    assert build._compile(["csc.exe", "x.cs"], tmp_path) == (0, "ok")
+    assert seen["cwd"] == tmp_path and seen["creationflags"] == build.subprocess.CREATE_NO_WINDOW
+    assert seen["cmd"] == ["csc.exe", "x.cs"] and seen["timeout"] == build.COMPILE_LIMIT_S
 
 
 def test_the_shipped_sources_are_there():

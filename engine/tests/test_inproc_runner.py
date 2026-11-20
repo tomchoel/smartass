@@ -523,6 +523,28 @@ def test_mentions_does_not_take_a_busy_excel_for_a_sheet_without_a_formula(book,
     assert ("cell", "Summary", "A1", "='old Q1 Answer'!E12") in _mentions(app)
 
 
+def test_mentions_takes_only_a_used_range_without_a_formula_for_none_and_says_any_other_refusal(book, monkeypatch):
+    """Final review: SpecialCells gives the same error code for "No cells were found" as for any other refusal, and
+    the text is in Excel's language. So a sheet has no formula only when its used range says so (HasFormula False,
+    as Excel gives it for a sheet of values or an empty one); any other refusal is an "unread" row, never silence."""
+    app, _ = book
+    wb = _mentions_book(app)
+    values, empty = fakexl.Worksheet(wb, "Values"), fakexl.Worksheet(wb, "Empty")
+    wb.order += [values, empty]
+    values.cells[(1, 1)], values.cells[(3, 2)] = {"Value": 5}, {"Value": "'old Q1 Answer'"}
+    from fakexl import Range
+    real = Range.SpecialCells
+
+    def special(self, *args):
+        if self.ws.Name == "Summary":
+            raise fakexl.ComError("You cannot use this command on a protected sheet.")
+        return real(self, *args)
+    monkeypatch.setattr(Range, "SpecialCells", special)
+    rows = _mentions(app)
+    assert [r for r in rows if r[1] in ("Summary", "Values", "Empty") and r[0] != "series"] == [
+        ("unread", "Summary", "", "You cannot use this command on a protected sheet.")]
+
+
 def test_swap_sets_a_text_only_where_it_still_reads_the_expected_one(book):
     """Review ruling 3: the re-pointing's compare-and-set, inside Excel."""
     app, wb = book
@@ -1073,6 +1095,29 @@ def test_job_and_result_files_are_removed_and_old_leftovers_swept(inproc):
     b.ret(b.workbook("book.xlsx").Worksheets("S").Name, "s" * 31000)             # a long record: the result file
     runner.run(app, b)
     assert sorted(p.name for p in folder.iterdir()) == [new.name]
+
+
+def test_a_job_file_that_cannot_be_written_is_removed_and_the_batch_runs_over_com(inproc, monkeypatch, caplog):
+    """Final review S3: a partial write (a full disk) leaves no figures on disk and fails nothing: the add-in was never
+    asked, so the batch runs over COM."""
+    app, wb = excel_book()
+    runner.run(app, Batch())
+    real = Path.write_text
+
+    def write_text(self, text, *a, **k):
+        if self.parent == config.INPROC_DIR / "jobs":
+            real(self, text[:10], *a, **k)
+            raise OSError(28, "No space left on device")
+        return real(self, text, *a, **k)
+    monkeypatch.setattr(Path, "write_text", write_text)
+    runs = len(app.runs)
+    b = Batch()
+    b.workbook("book.xlsx").Worksheets("S").Range("A1").Value2 = "once"
+    res = runner.run(app, b)
+    assert res.where == "com" and wb.Worksheets("S").cells[(1, 1)]["Value"] == "once"
+    assert len(app.runs) == runs                       # the add-in was not asked
+    assert list((config.INPROC_DIR / "jobs").iterdir()) == []
+    assert [r for r in caplog.records if r.levelname == "WARNING" and "No space left" in r.getMessage()]
 
 
 def test_a_batch_does_not_wait_long_for_another_jobs_load(inproc, monkeypatch, caplog):

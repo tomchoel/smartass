@@ -446,9 +446,9 @@ class Range:
             return self._get_value()
         if k == "PrefixCharacter":
             return "'" if self.rects[0][:2] in self.ws.prefixed else ""
-        if k == "HasFormula":                            # one cell: a formula, not text written with an apostrophe
-            v = self._get_value()
-            return isinstance(v, str) and v.startswith("=") and self.rects[0][:2] not in self.ws.prefixed
+        if k == "HasFormula":                # a formula, not text written with an apostrophe; a range, as Excel's:
+            has = {self.ws.has_formula(rc) for rc in self.cells()}      # True all, False none, None (Null) mixed
+            return has.pop() if len(has) == 1 else None
         if k in ("HasArray", "CurrentArray", "FormulaArray"):
             r, c = self.rects[0][:2]
             area = next((a for a in self.ws.arrays if a[0] <= r <= a[2] and a[1] <= c <= a[3]), None)
@@ -853,6 +853,10 @@ class Worksheet:
 
     def Cells(self, r, c):
         return Range(self, [(r, c, r, c)])
+
+    def has_formula(self, rc) -> bool:
+        v = self.cells.get(rc, {}).get("Value")
+        return isinstance(v, str) and v.startswith("=") and rc not in self.prefixed
 
     @property
     def UsedRange(self):

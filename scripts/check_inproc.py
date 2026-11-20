@@ -571,7 +571,7 @@ def compile_empty(folder: Path) -> str:
     cs = folder / "Empty.cs"
     cs.write_text("public static class NothingHere { }\n", encoding="utf-8")
     code, text = build._compile([str(build.CSC), "-nologo", "-target:library", f"-out:{folder / 'empty.dll'}",
-                                 str(cs)])
+                                 str(cs)], folder)
     if code:
         raise SystemExit(f"could not compile the empty dll: {text}")
     return "empty.dll"
@@ -816,11 +816,12 @@ def _mentions_workbook(raw):
     cell, a table, a dynamic array, a legacy array, text written with an apostrophe (no formula), a string literal,
     a hidden row, a chart; a sheet whose only mention sits in a filtered row, a protected one with a hidden formula
     (unreadable) and a visible one, the only mentions in a hidden row and a hidden column, a very hidden sheet, a
-    sheet without any, a chart sheet and a defined name; the parked and new sheets themselves are skipped."""
+    sheet without any, a sheet of values only and an empty one (SpecialCells finds no formula there: none, not
+    "unread"), a chart sheet and a defined name; the parked and new sheets themselves are skipped."""
     wb = raw.Workbooks.Add()
     wb.Worksheets(1).Name = "Summary"
     for n in ["old Q1 Answer", "old Q1 Data", "Q1 Answer", "Q1 Data", "Filtered", "Locked", "Plain", "Hidden",
-              "Far", "VeryHidden", "Probe"]:
+              "Far", "VeryHidden", "Probe", "Values", "Empty"]:
         wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count)).Name = n
     old = wb.Worksheets("old Q1 Answer")
     old.Range("E12").Value2 = 42
@@ -861,6 +862,8 @@ def _mentions_workbook(raw):
     vh = wb.Worksheets("VeryHidden")
     vh.Range("D4").Formula2 = "='old Q1 Answer'!A2"
     vh.Visible = 2
+    wb.Worksheets("Values").Range("A1:C3").Value2 = 7
+    wb.Worksheets("Values").Range("B5").Value2 = "see 'old Q1 Answer'!E12"      # text, no formula
     ch = wb.Charts.Add()
     ch.SetSourceData(old.Range("A1:A3"))
     ch.Name = "Chart Q"
@@ -919,6 +922,8 @@ def mentions_check(app, raw) -> None:
               got["com"][2] == got["inproc"][2] == user_find != ("$A$3", "$A$1", "$B$1"),
               f"{got['com'][2]} / {got['inproc'][2]}, before {user_find}")
         check("the verb mentions only reads", before == sheet_picture(wb, ("Far", "Probe")))
+        check("the verb mentions: a sheet of values and an empty sheet have no formula, not an unread one",
+              all(not [r for r in rows if r[1] in ("Values", "Empty")] for _, rows, _ in got.values()))
     finally:
         config.INPROC = True
         wb.Close(False)

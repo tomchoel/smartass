@@ -500,14 +500,19 @@ def _run_inproc(app, ex: _Excel, job: dict, limit: float, check: bool = True) ->
     file), or "not run: ..." (nothing read, deleted or run). Anything else after the add-in was reached is an unknown
     outcome (BatchError), never run again. Only when Application.Run itself failed (the macro is not there) and the
     job file is untouched (the add-in deletes it before it runs anything) did nothing run: the add-in is registered
-    once more and asked again."""
+    once more and asked again. A job file that cannot be written is removed (the finally) and the batch runs over COM:
+    the add-in was not asked."""
     folder = build.jobs_folder()
     folder.mkdir(parents=True, exist_ok=True)
     _sweep(folder)
     path = folder / f"{uuid.uuid4().hex}.json"
     out_path = Path(f"{path}.out")
-    path.write_text(json.dumps(_wire(job)), encoding="utf-8")
     try:
+        try:
+            path.write_text(json.dumps(_wire(job)), encoding="utf-8")
+        except OSError as e:                            # e.g. a full disk: the add-in was not asked, nothing ran
+            log.warning("the job file could not be written (%s); the batch runs over COM", e)
+            return None
         for again in (False, True):
             try:
                 got = jobs.com(lambda: app.Run(ex.run_macro, str(path)), limit=limit, check=check)
@@ -801,8 +806,10 @@ def _mentions(workbook, texts, skip):
 def _cells(ws, name: str, says, rows: list) -> None:
     """mentions on one worksheet's cells: the used range's formulas read in chunks of rows of at most CHUNK_CELLS
     cells, and of those only the chunks that hold a formula (SpecialCells(xlCellTypeFormulas) once, Intersect per
-    chunk; a sheet without one raises there and is done). A protected sheet refuses SpecialCells: every chunk is
-    read, and a hidden formula makes the read fail (the caller's "unread")."""
+    chunk). SpecialCells raises on a sheet without a formula with the code of any other refusal and a text in Excel's
+    language: the sheet is done only when its used range has no formula (HasFormula False); any other refusal is the
+    caller's "unread". A protected sheet refuses SpecialCells: every chunk is read, and a hidden formula makes the
+    read fail (the caller's "unread")."""
     used = ws.UsedRange
     r0, c0 = int(used.Row), int(used.Column)
     nr, nc = int(used.Rows.Count), int(used.Columns.Count)
@@ -810,9 +817,11 @@ def _cells(ws, name: str, says, rows: list) -> None:
     if not ws.ProtectContents:
         try:
             formulas = _call(used, "SpecialCells", [XL_FORMULAS])
-        except Exception as e:   # noqa: BLE001 - "No cells were found": no formula on the sheet
+        except Exception as e:   # noqa: BLE001
             _readable(e)
-            return
+            if used.HasFormula is False:              # "No cells were found" (its code is any refusal's): none here
+                return
+            raise                                       # any other refusal: the caller's "unread"
     app = ws.Application
     step = max(1, CHUNK_CELLS // nc)
     arrays: set[str] = set()
