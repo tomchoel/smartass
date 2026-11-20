@@ -9,6 +9,8 @@ from test_file_job import _pre
 
 import fakexl
 from smartass import pipeline
+from smartass.xl import jobs, movein
+from smartass.xl.inproc import runner
 from smartass.xl.inproc.runner import BatchError
 from smartass.xl.target import Target
 
@@ -120,10 +122,11 @@ def test_the_notes_of_a_failed_job_reach_its_error(job, monkeypatch):
 
 def test_autosave_is_not_said_off_when_the_job_failed_before_it_was_switched_off(job, monkeypatch):
     wb = AutoSaveBook(True)
-    monkeypatch.setattr(pipeline, "_look", lambda t, name: (_ for _ in ()).throw(fakexl.ComError("Excel said no")))
+    monkeypatch.setattr(pipeline, "_look", lambda job: (_ for _ in ()).throw(fakexl.ComError("Excel said no")))
     with pytest.raises(fakexl.ComError) as e:
         job(wb, ours=False)
     assert str(e.value) == "Excel said no" and wb.AutoSaveOn is True and _steps(wb) == []
+
 
 def test_autosave_is_switched_off_in_the_look_batch_not_in_the_timed_move_in(job, monkeypatch):
     from smartass.xl.inproc import runner
@@ -133,3 +136,84 @@ def test_autosave_is_switched_off_in_the_look_batch_not_in_the_timed_move_in(job
     sets = [(n, op["value"]) for n, b in enumerate(runs) for op in b.to_dict()["ops"]
             if op["k"] == "set" and op["name"] == "AutoSaveOn"]
     assert sets == [(0, False), (len(runs) - 1, True)]           # the look; the save
+
+
+def _fail_batch(monkeypatch, k: int, error=None):
+    """The job's batch number k (0 the look, 1 the bring-in, 2 the close-out, 3 the save) refused before it runs;
+    the clean-up's batches after it run."""
+    real, seen = runner.run, []
+
+    def run(app, b, *a, **k_):
+        seen.append(b)
+        if len(seen) == k + 1:
+            raise error or BatchError(0, "the batch", "refused")
+        return real(app, b, *a, **k_)
+    monkeypatch.setattr(runner, "run", run)
+
+
+def test_a_look_whose_results_cannot_be_read_still_turns_autosave_back_on(job, monkeypatch):
+    """Re-review Minor 2: the look switches AutoSave off before Python reads its results; a reader that fails then
+    must not leave it off in our file."""
+    def record_base(b, wbn):
+        movein.record_base.__wrapped__(b, wbn)
+        return lambda res: (_ for _ in ()).throw(ValueError("an unexpected value"))
+    record_base.__wrapped__ = movein.record_base
+    monkeypatch.setattr(movein, "record_base", record_base)
+    wb = AutoSaveBook(True)
+    with pytest.raises(ValueError, match="unexpected"):
+        job(wb, ours=True)
+    assert wb.AutoSaveOn is True and [s[:2] for s in _steps(wb)] == [("AutoSaveOn", False), ("AutoSaveOn", True)]
+
+
+@pytest.mark.parametrize("k, where", [(2, "the close-out"), (3, "the save")])
+def test_a_failure_in_a_later_batch_turns_autosave_back_on_in_our_file(job, monkeypatch, k, where):
+    wb = AutoSaveBook(True)
+    _fail_batch(monkeypatch, k)
+    with pytest.raises(BatchError, match="refused"):
+        job(wb, ours=True)
+    assert wb.AutoSaveOn is True and _steps(wb)[-1] == ("AutoSaveOn", True), where
+    assert not [ws.Name for ws in wb.order if ws.Name.startswith("Q1")]
+
+
+def test_an_abandoned_job_turns_autosave_back_on_in_our_file(job, monkeypatch):
+    """The job abandoned (a timeout) while the bring-in ran: the close-out never starts, and the clean-up runs for
+    the abandoned job (check=False), AutoSave back on included."""
+    token = jobs.JobToken()
+    real, seen = runner.run, []
+
+    def run(app, b, *a, **k):
+        seen.append(b)
+        out = real(app, b, *a, **k)
+        if len(seen) == 2:
+            token.aborted = True
+        return out
+    monkeypatch.setattr(runner, "run", run)
+    wb = AutoSaveBook(True)
+    jobs.bind_job(token)
+    try:
+        with pytest.raises(jobs.JobAborted):
+            job(wb, ours=True)
+    finally:
+        jobs.bind_job()
+    assert wb.AutoSaveOn is True and _steps(wb)[-1] == ("AutoSaveOn", True)
+    assert [ws.Name for ws in wb.order] == ["Sources"]
+
+
+def test_a_follow_up_whose_save_fails_turns_autosave_back_on_in_our_file(job, monkeypatch):
+    wb = AutoSaveBook(True)
+    job(wb, ours=True)
+    _fail_batch(monkeypatch, 3, jobs.HostError("the file is locked"))
+    with pytest.raises(jobs.HostError, match="locked") as e:
+        pipeline.redraw_job(None, _pre(), 1)
+    assert pipeline.KEPT in str(e.value) and wb.AutoSaveOn is True and _steps(wb)[-1] == ("AutoSaveOn", True)
+
+
+def test_the_users_workbook_keeps_autosave_off_after_a_failure_too(job, monkeypatch):
+    """The user's workbook: switched off by the look and left off with the note (it is never saved, and AutoSave
+    on would save our edits into it), on success and after a failure alike."""
+    wb = AutoSaveBook(True)
+    _fail_batch(monkeypatch, 2)
+    with pytest.raises(BatchError) as e:
+        job(wb, ours=False)
+    assert wb.AutoSaveOn is False and [s[:2] for s in _steps(wb) if s[0] == "AutoSaveOn"] == [("AutoSaveOn", False)]
+    assert pipeline.AUTOSAVE_NOTE.format("book.xlsx") in str(e.value)

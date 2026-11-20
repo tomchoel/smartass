@@ -563,13 +563,16 @@ class Look:
     autosave: bool = False                       # AutoSave was on, and the look switched it off
 
 
-def _look(t, name: str) -> Look:
-    """The look batch: every read the job needs before it builds the file (not quiet: it only reads)."""
+def _look(job) -> Look:
+    """The look batch: every read the job needs before it builds the file (not quiet: it only reads). Whether it
+    switched AutoSave off goes to the job (job.paused) before any of its results is read, so a reader that fails
+    leaves the clean-up to switch it back on."""
     from .xl import movein, sheets, sources
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import run
+    t = job.t
     b = Batch(quiet=False)
-    wbn = b.workbook(name)
+    wbn = b.workbook(job.name)
     book, screen = movein.record_book(b, wbn), movein.record_screen(b, wbn)
     base, names = movein.record_base(b, wbn), movein.record_names(b, wbn)
     kind, spec_rows = sources.record_kind(b, wbn), sheets.record_spec_rows(b, wbn)
@@ -581,12 +584,12 @@ def _look(t, name: str) -> Look:
         wbn.AutoSaveOn = False                          # off while the job writes (see _save)
     res = run(t.app, b)
     v = res.values
+    job.paused = bool(v.get("autosave")) and not any(i == off_at for i, _, _ in res.skipped)
     got = book(res)
     has_sources = "Sources" in got.names()
     found = kind(res) if has_sources else None
     return Look(got, screen(res), base(res), names(res), found, spec_rows(res),
-                (v["decimal separator"], v["thousands separator"]), has_sources and found is None,
-                bool(v.get("autosave")) and not any(i == off_at for i, _, _ in res.skipped))
+                (v["decimal separator"], v["thousands separator"]), has_sources and found is None, job.paused)
 
 
 @dataclass
@@ -855,8 +858,7 @@ def _file_draw(job, pre: Prepared) -> dict:
     path = _temp_path()
     try:
         with stage("look"):
-            look = job.look = _look(t, job.name)
-            job.paused = look.autosave
+            look = job.look = _look(job)
         book = look.book
         if job.q is None:
             job.q = _next_q_in(book)
@@ -980,9 +982,11 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
         with stage("save"):
             _save(job)
     except Exception as e:
-        job.not_inserted()
-        _rollback(t)
-        job.settle()
+        try:
+            job.not_inserted()
+            _rollback(t)
+        finally:
+            job.settle()
         _raise(job, e)
     remember(pre, out)
     return _with_notes(out, job.notes)
@@ -1017,26 +1021,32 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
         try:
             out = _file_draw(job, pre)
         except Exception as e:
-            if job.parked is not None and (job.dropped is True or (job.dropped is None and _dropped(t, job.parked))):
-                _kept(t, e)
+            failure = e
+            try:
+                if job.parked is not None and (job.dropped is True
+                                               or (job.dropped is None and _dropped(t, job.parked))):
+                    _kept(t, e)
+                else:
+                    job.not_inserted()
+                    _rollback(t)
+                    if job.moved:                       # the park may have run: the old names go back
+                        try:
+                            movein.restore(t, job.parked)
+                        except Exception as e2:   # noqa: BLE001 - the draw's error stays the cause
+                            failure = RestoreError(f"{e}; the restore was incomplete - {e2}")
+            finally:
                 job.settle()
+            if failure is e:
                 _raise(job, e)
-            job.not_inserted()
-            _rollback(t)
-            if job.moved:                               # the park may have run: the old names go back
-                try:
-                    movein.restore(t, job.parked)
-                except Exception as e2:   # noqa: BLE001 - the draw's error stays the cause
-                    job.settle()
-                    raise job.fail(RestoreError(f"{e}; the restore was incomplete - {e2}")) from e
-            job.settle()
-            _raise(job, e)
+            raise job.fail(failure) from e
     with stage("save"):
         try:
             _save(job)
         except Exception as e:
-            _kept(t, e, save=False)
-            job.settle()
+            try:
+                _kept(t, e, save=False)
+            finally:
+                job.settle()
             _raise(job, e)
     out["followup"] = True
     remember(pre, out)
