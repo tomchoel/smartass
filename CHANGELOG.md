@@ -15,10 +15,15 @@
   answer from 34.9 s to 4.1 s, and from 280 COM calls to 34. The gate of 3 s (5 s with a lines sheet) per round
   held in rounds 1 and 2 and was missed in round 3: 3.29 s, and 5.19 s with a lines sheet. What grows is the save of
   the file (Excel's own) and reads that walk every sheet of a 61-sheet workbook inside one COM call; the controller
-  accepted the miss, and the re-gate moves to the next task (`docs/audit/2026-11-19-file-render-bench.md`).
+  accepted the miss, and the re-gate moves to the next task (`docs/audit/2026-11-19-file-render-bench.md`). In
+  short: 2-3 s for an answer without a lines sheet in a workbook of normal size (3.3 s at 61 sheets), 4-5 s with a
+  lines sheet, about 6-7 s for the first answer of a new workbook (the workbook is created).
 - Follow-ups and `fin_refresh` replace the question's sheets whole (the old ones are parked, the new ones moved in
   where they were, the old ones dropped). Cells typed on a `Q<n>` sheet go with it; a failure puts the old answer
   back, and once the old sheets are gone it keeps the new one and says so (also when the final save fails).
+- Known limit (to be fixed in the next phase): a formula on the user's own sheet that points at a `Q<n>` sheet or
+  its table (`='Q3 Answer'!E12`, `=SUM(Data_Q3[Value])`) shows #REF! after a follow-up or refresh of that question,
+  because the old sheet is deleted. Until then, link to values by pasting them, or re-link after a refresh.
 - The answer lands on the new Answer whenever its workbook is the active one, also in an Excel that is not visible.
 - The Sources log's print area is `A1:N1048575` (a finite last row), so openpyxl reads our files without a warning.
 - Removed: the COM writers (`render/excel.py`'s Data/Answer writers, `render/charts.py`'s drawing,

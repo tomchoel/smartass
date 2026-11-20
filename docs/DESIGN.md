@@ -51,7 +51,9 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    (`xl/movein.py`: the tables `Data_Q<n>` / `Lines_Q<n>_<alias>`, the formulas, the chart labels, calculate), with
    the user's Excel quiet and left as it was found. Then read-back (`render/readback.py`), the Sources log
    (`xl/sources.py`), the spec stored in hidden `_svmeta`, sheet order (`xl/sheetorder.py`), save (our files only).
-   About 2-3 s and 34-37 COM calls per answer (docs/audit/2026-11-19-file-render-bench.md).
+   Measured (docs/audit/2026-11-19-file-render-bench.md and the live check after it): 2-3 s in the Excel job for an
+   answer without a lines sheet in a workbook of normal size (3.3 s at 61 sheets), 4-5 s with a lines sheet, about
+   6-7 s for the first answer of a new workbook (the workbook is created); 34-37 COM calls per answer.
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
    `findings`, `checks`, `layout` (layout check findings with fixes), `charts`, `warnings`, `caveats`, `routes`,
    `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
@@ -60,7 +62,10 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
 **Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; `pipeline.redraw_job`
 replaces the question's sheets whole: the old ones are parked under 'old ...' names, the new answer is moved in where
 they were, and the old ones are dropped. Cells a user typed on a `Q<n>` sheet go with it (their own notes belong on
-their own sheets). A failed redraw removes the new sheets and gives the old ones their names back; once the old ones
+their own sheets). **Known limit** (to be fixed in the next phase): a formula on the user's own sheet that points at a
+`Q<n>` sheet or its table (`='Q3 Answer'!E12`, `=SUM(Data_Q3[Value])`) shows #REF! after a follow-up or refresh
+of that question, because the old sheet is deleted; until then, link to values by pasting them, or re-link after a
+refresh. A failed redraw removes the new sheets and gives the old ones their names back; once the old ones
 are dropped the new answer stays and the error says so. `fin_refresh` redraws every stored v2 question; one failure
 never stops the rest.
 

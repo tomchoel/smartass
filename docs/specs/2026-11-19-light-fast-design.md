@@ -176,7 +176,9 @@ of every cell of the Answer (what `xl/styling.apply_report` applies today throug
    new sheets only; one read-back of the block against the model (`checks.sheet_equals_model`); the status cell; the
    Key point rows whose calculated text needs another height.
 4. **Workbook-wide parts stay COM and are slimmed:** the Sources log (rows appended in one write, no AutoFit), the
-   spec in `_svmeta`, the sheet order, and the save - an explicit `Save` only when AutoSave is not taking over.
+   spec in `_svmeta`, the sheet order, and the save - an explicit `Save` of our own file, with AutoSave paused during
+   the job: left to AutoSave, the last answer had not reached the disk 30 s later (live 19.11.2026, commit 5058b03).
+   The user's workbook is never saved.
 
 **A follow-up, a refresh or a redraw of Q<n>** replaces its sheets (Answer, Data and every Lines sheet of that
 question): rename the old sheets and tables out of the way ("old ..."), move the new ones in and finish them, then
@@ -191,8 +193,9 @@ copy of a table-bearing sheet into the same workbook, replacing sheets crashed E
 on (7 of 7, 2.3-3.6 s each, 50 000-line sheet included). The writer asserts that the built file has no table.
 
 **Known differences from today's look** (the owner judges them in the comparison): cells carry direct formats
-instead of the "TN ..." named styles; per-point label positions on line charts and the lifted label on thin
-waterfall steps follow what the file format can express.
+instead of the "TN ..." named styles. (Per-point label positions on line charts and the lifted label on thin waterfall
+steps were on this list; the move-in now sets them by COM after the copy, as the COM drawing did, so they no longer
+differ.)
 
 **Deleted with this part:** `xl/owned.py` (owned ranges, backup sheets), the in-place rewrite of the Data table,
 COM chart drawing in `render/charts.py`, `xl/drill_xl.write_lines` and the COM writers in `render/excel.py` that the
