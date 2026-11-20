@@ -286,3 +286,137 @@ def test_archive_guard_applies_to_a_workbook_targeted_by_name(tmp_path, monkeypa
     _excels(monkeypatch, {11: ["Model.xlsx"]}, {11: FakeApp(Books([NamedWb("Model.xlsx", str(arch))]))})
     with pytest.raises(InputError, match="archive"):
         target.resolve_target(None, "Model.xlsx")
+
+
+
+# ------------------------------------------------------------------ phase 3c Task 1: a new workbook the job builds
+class Opener(Books):
+    """Workbooks of an Excel that opens files (Open) and refuses Add (a new workbook the job builds is never added)."""
+
+    def __init__(self, items=(), fail=None):
+        super().__init__(items, add=lambda: pytest.fail("a workbook the job builds is never added"))
+        self.fail, self.opened = fail, []
+
+    def Open(self, path):
+        if self.fail:
+            raise self.fail
+        wb = OpenedWb(path, self)
+        self.opened.append(wb)
+        self.append(wb)
+        return wb
+
+
+class OpenedWb:
+    def __init__(self, path, books):
+        self.Name, self.FullName, self.books, self.closed = Path(path).name, str(path), books, []
+
+    def Close(self, save):
+        self.closed.append(save)
+        self.books.remove(self)
+
+
+def test_a_new_workbook_the_job_builds_gets_a_reserved_free_name_and_nothing_in_excel(tmp_path, monkeypatch, fast):
+    """build_new: the Excel is chosen as for any new workbook, and a name free on disk and among that Excel's open
+    workbooks is reserved (an empty file made exclusively, so a parallel job picks the next); nothing is added,
+    opened or saved in Excel - the job writes the file, then open_new opens it."""
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    first = target._new_path("Q")
+    books = Opener([FakeWb(str(tmp_path / "elsewhere" / first.name))])
+    books[0].Name = first.name
+    t = target._new_target(None, "Q", [(11, 110, FakeApp(books))], build_new=True)
+    assert t.wb is None and t.created and t.made.exists() and t.made.stat().st_size == 0
+    assert t.made.name.endswith(" (2).xlsx") and t.book_name == t.made.name and t.path == str(t.made)
+    assert not books.opened
+
+
+def test_two_new_workbooks_reserved_at_the_same_moment_get_two_files(tmp_path, monkeypatch, fast):
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    same = target._new_path("Q")
+    monkeypatch.setattr(target, "_new_path", lambda title, taken=frozenset(): same if same.name.lower() not in taken
+                        else same.with_name(same.stem + " (2).xlsx"))
+    a = target._new_target(None, "Q", [(11, 110, FakeApp(Opener()))], build_new=True)
+    b = target._new_target(None, "Q", [(11, 110, FakeApp(Opener()))], build_new=True)
+    assert a.made != b.made and a.made.exists() and b.made.exists()
+
+
+def test_open_new_opens_the_built_file_in_the_chosen_excel(tmp_path, monkeypatch, fast):
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    books = Opener()
+    t = target._new_target(None, "Q", [(11, 110, FakeApp(books))], build_new=True)
+    target.open_new(t)
+    assert books.opened == [t.wb] and t.wb.FullName == str(t.made)
+
+
+def test_a_new_workbook_is_discarded_closed_unsaved_and_its_reserved_file_deleted(tmp_path, monkeypatch, fast):
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    books = Opener()
+    t = target._new_target(None, "Q", [(11, 110, FakeApp(books))], build_new=True)
+    target.open_new(t)
+    wb = t.wb
+    note = target.discard_new(t)
+    assert wb.closed == [False] and not t.made.exists() and wb not in books
+    assert note == f"the new workbook {t.made.name} was closed without saving and its file deleted"
+
+
+def test_a_new_workbook_never_opened_is_only_deleted(tmp_path, monkeypatch, fast):
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    t = target._new_target(None, "Q", [(11, 110, FakeApp(Opener()))], build_new=True)
+    t.made.write_bytes(b"PK half a file")
+    assert target.discard_new(t) == f"the new workbook {t.made.name} was not opened; its file was deleted"
+    assert not t.made.exists()
+
+
+def test_a_file_that_cannot_be_deleted_is_named_in_the_note(tmp_path, monkeypatch, fast):
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    t = target._new_target(None, "Q", [(11, 110, FakeApp(Opener()))], build_new=True)
+    tries = []
+
+    def unlink(self, missing_ok=False):
+        tries.append(self)
+        raise PermissionError("held by Excel")
+    monkeypatch.setattr(Path, "unlink", unlink)
+    note = target.discard_new(t)
+    assert len(tries) == target.DELETE_TRIES and note == (f"the new workbook {t.made.name} was not opened; its file "
+                                                          f"could not be deleted ({t.made}): delete it yourself")
+
+
+def test_a_failed_open_of_a_new_workbook_is_the_error_and_leaves_its_file(tmp_path, monkeypatch, fast):
+    """open_new raises what Excel said; the job's clean-up (discard_new) deletes the file."""
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    books = Opener(fail=SAVEAS_FAILED)
+    t = target._new_target(None, "Q", [(11, 110, FakeApp(books))], build_new=True)
+    with pytest.raises(pywintypes.com_error):
+        target.open_new(t)
+    assert t.wb is None and target.discard_new(t).endswith("its file was deleted") and not t.made.exists()
+
+
+def test_without_an_excel_a_new_workbook_is_made_as_today_even_when_the_job_would_build_it(tmp_path, monkeypatch,
+                                                                                           fast):
+    """No Excel at all (the hidden Excel makes or the seed gives the file, then an Excel is launched on it) and an
+    Excel started for a parallel agent (on the TN template) keep today's way: the Target comes back open."""
+    made = tmp_path / "made.xlsx"
+    monkeypatch.setattr(target, "_new_analysis_file", lambda h, title: made)
+    monkeypatch.setattr(target, "_open_path", lambda h, p, excels: target.Target(None, FakeWb(str(p)), 1, 1))
+    t = target._new_target(None, "Q", [], build_new=True)
+    assert t.made is None and t.wb.FullName == str(made) and t.created
+
+
+def test_resolve_target_leaves_the_session_alone_for_a_workbook_the_job_builds(tmp_path, monkeypatch, fast):
+    """The session's workbook is set once the answer is in it (pipeline.excel_job): a job that fails deletes the
+    file. A failure while the Excel is made ready (the bridge) deletes the reserved file too."""
+    from smartass.epm import sso
+    monkeypatch.setattr(sso, "ensure_global_watcher", lambda: True)
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    monkeypatch.setattr(session, "set_workbook", lambda p: pytest.fail("the session is set after the answer"))
+    app = FakeApp(Opener())
+    monkeypatch.setattr(instances, "excel_instances", lambda: [instances.XlInstance(11, 110, [], app)])
+    monkeypatch.setattr(target, "_finish_target", lambda h, t, allow_archive: t)
+    t = target.resolve_target(None, "new", build_new=True)
+    assert t.wb is None and t.made.exists()
+
+    def broken(h, t, allow_archive):
+        raise HostError("the bridge add-in did not load")
+    monkeypatch.setattr(target, "_finish_target", broken)
+    with pytest.raises(HostError, match="did not load; the new workbook .* was not opened; its file was deleted"):
+        target.resolve_target(None, "new", build_new=True)
+    assert [p.name for p in tmp_path.iterdir()] == [t.made.name]

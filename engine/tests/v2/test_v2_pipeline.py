@@ -98,7 +98,8 @@ class TStored:
 def _stored_wire(monkeypatch, session_wb="C:/a/v2/x.xlsx"):
     from smartass.xl import sheets
     calls = []
-    monkeypatch.setattr(pipeline, "_target", lambda h, target, title: calls.append(target) or TStored())
+    monkeypatch.setattr(pipeline, "_target", lambda h, target, title, build_new=False: calls.append(target)
+                        or TStored())
     monkeypatch.setattr(pipeline, "_session_workbook", lambda: session_wb)
     monkeypatch.setattr(sheets, "_stored_specs", lambda t: {2: {}})
     monkeypatch.setattr("smartass.xl.jobs.com", lambda call, *a, **k: call())

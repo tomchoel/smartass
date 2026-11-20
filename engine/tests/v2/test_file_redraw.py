@@ -66,7 +66,7 @@ class Book:
             wb.saved += 1
         wb.Save = save
 
-        def target(h, target, title):
+        def target(h, target, title, build_new=False):
             self.targets.append(Target(app=wb.Application, wb=wb, pid=0, hwnd=0, created=ours))
             return self.targets[-1]
         real = pipeline.read_block

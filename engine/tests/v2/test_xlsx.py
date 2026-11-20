@@ -566,3 +566,102 @@ def test_a_standard_column_xlsxwriter_has_no_digit_width_for_keeps_its_default_w
         build(path, "Q3 Answer", plan, _data(), [], base=xlsx.Base("Arial", 10, row_px=17, col_px=70))
     assert '<name val="Arial"/>' in _first_font(path)
     assert _widths(openpyxl.load_workbook(path)["Q3 Answer"])["D"] == 16.7109375     # 7 px digits, as without a base
+
+
+# ------------------------------------------------------------------ phase 3c Task 1: the file IS the new workbook
+LABEL = {"MSIP_Label_x_Enabled": "true", "MSIP_Label_x_SiteId": "site"}
+
+
+def _new_book(tmp_path, plan, lines=(), theme=None):
+    from smartass.render.xlsx import NewBook
+    return build(tmp_path / "new.xlsx", "Q3 Answer", plan, _data(), list(lines), base=telenor(),
+                 book=NewBook(properties=dict(LABEL), theme=theme))
+
+
+def test_a_new_workbook_holds_the_answer_then_the_sources_log_and_no_table(tmp_path, plan):
+    """The first answer of a new workbook: the file is the workbook itself - the answer's sheets, then the Sources
+    log, in the order sheetorder wants; still no Excel Table (they are made after the open, as after an insert);
+    BuiltFile.sheets stays the answer's own (what finish calculates and the reply names)."""
+    from smartass.xl import movein, sheetorder
+    built = _new_book(tmp_path, plan, [_lines([_line(0)])])
+    names = openpyxl.load_workbook(built.path).sheetnames
+    assert names == ["Q3 Answer", "Q3 Data", "Q3 Lines b0", "Sources"] == sheetorder.sheet_order(names, set(names))
+    assert built.sheets == ["Q3 Answer", "Q3 Data", "Q3 Lines b0"]
+    assert movein.file_parts(built.path)[1] == []
+
+
+def test_a_new_workbook_carries_the_label_as_custom_document_properties(tmp_path, plan):
+    built = _new_book(tmp_path, plan)
+    with zipfile.ZipFile(built.path) as z:
+        custom = z.read("docProps/custom.xml").decode()
+    for name, value in LABEL.items():
+        assert re.search(f'name="{name}"><vt:lpwstr>{value}</vt:lpwstr>', custom), name
+
+
+def test_the_new_workbooks_sources_log_is_furnished_in_the_file(tmp_path, plan):
+    """What sources._furnish and its print setup make in Excel, in the file: the header in TN font 9, bold navy (and
+    P1, Known limits' title cell), the columns A:N and P in font 9, the control total's number format (its header
+    cell too), the fixed widths, the AutoFilter over A:N (Excel's own over the header: A1:N1), the frozen header row
+    without gridlines, the print setup of A1:N1048575 on A4 (the paper the template's log has), and the two hidden
+    sheet-level names that tell the reads (sources.record_read) all of it is there (live parity with a log
+    furnished over COM: scripts/check_insert.py --parts newbook, 20.11.2026)."""
+    from smartass.xl import sources, styling
+    built = _new_book(tmp_path, plan)
+    wb = openpyxl.load_workbook(built.path)
+    ws = wb["Sources"]
+    assert [c.value for c in ws[1][:len(sources.LOG_COLUMNS)]] == list(sources.LOG_COLUMNS)
+    for cell in (ws["A1"], ws["N1"], ws.cell(1, sources.LIMITS_COL)):
+        assert (cell.font.name, cell.font.sz, cell.font.b, cell.font.color.rgb) == (tn.FONT, 9, True, "FF1F3864")
+    assert ws.cell(1, sources.TOTAL_COL).number_format == VALUE_FORMAT and ws["A1"].number_format == "General"
+    widths = _widths(ws)
+    shown = lambda w: int((int(w * 8 + 0.5) + 5) / 8 * 256) / 256     # noqa: E731 - the file's width: 8 px digits + 5 px
+    for c, w in enumerate(sources.WIDTHS, 1):
+        assert widths[col_letter(c)] == shown(w), col_letter(c)
+    assert widths[col_letter(sources.LIMITS_COL)] == shown(sources.LIMITS_WIDTH)
+    for c in (*range(1, len(sources.LOG_COLUMNS) + 1), sources.LIMITS_COL):
+        dim = ws.column_dimensions[col_letter(c)]
+        assert (dim.font.name, dim.font.sz) == (tn.FONT, 9), col_letter(c)
+        assert dim.number_format == (VALUE_FORMAT if c == sources.TOTAL_COL else "General"), col_letter(c)
+    xml = _xml(built.path, 2)
+    assert ws.auto_filter.ref == "A1:N1" and ws.page_setup.paperSize == 9
+    assert ws.freeze_panes == "A2" and ws.sheet_view.showGridLines is False
+    assert ws.print_area == "'Sources'!$A$1:$N$" + str(sources.PRINT_ROWS)
+    assert ws.page_setup.orientation == "landscape" and ws.sheet_properties.pageSetUpPr.fitToPage
+    assert '<oddHeader>&amp;C&amp;"Arial"&amp;8Intern</oddHeader>' in xml
+    assert f"<oddFooter>&amp;C{SHEET_FOOTER.replace('&', '&amp;')}</oddFooter>" in xml
+    with zipfile.ZipFile(built.path) as z:
+        book = z.read("xl/workbook.xml").decode()
+    names = dict(re.findall(r'<definedName name="(smartass_\w+)" localSheetId="2" hidden="1">([^<]*)</definedName>',
+                            book))                     # the third sheet's own
+    assert names == {sources.FURNITURE_NAME: f'"{sources.FURNITURE_VERSION}"',
+                     styling.PAGE_SETUP_NAME: sources.print_key()[1:].replace("&", "&amp;")}
+
+
+def test_a_new_workbook_takes_the_theme_it_is_given(tmp_path, plan):
+    """The TN template's theme (styling.template_theme): a link, a table style and a theme colour then look as in a
+    workbook added from the template (live, 20.11.2026: XlsxWriter's own theme gave the links #0000FF, not #467886)."""
+    from xlsxwriter.theme import THEME_XML_2023
+    with zipfile.ZipFile(_new_book(tmp_path, plan, theme=THEME_XML_2023).path) as z:
+        assert z.read("xl/theme/theme1.xml").decode() == THEME_XML_2023
+
+
+def test_the_print_key_is_the_one_the_furniture_over_com_gives_its_name():
+    from smartass.render.excel import SHEET_FOOTER as FOOTER_
+    from smartass.xl import sources, styling
+    from smartass.xl.inproc.batch import Batch
+    b = Batch()
+    key, _ = styling.record_print_setup(b, b.workbook("book.xlsx").Worksheets("Sources"), "N", sources.PRINT_ROWS,
+                                        FOOTER_, "")
+    assert sources.print_key() == key
+
+
+def test_an_insert_never_takes_a_new_workbooks_file(tmp_path, plan):
+    """The exact-sheets guard of the insert: a file holding the Sources log is not the answer's sheets alone."""
+    from types import SimpleNamespace
+
+    from smartass.xl import movein
+    built = _new_book(tmp_path, plan)
+    book = movein.Book([movein.Sheet("Sheet1")])
+    with pytest.raises(ValueError, match="only them"):
+        movein.move_in(SimpleNamespace(wb=None, app=None, sheets_added=[], book_name="b.xlsx"), built, None,
+                       book=book, names=[])

@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### The first answer of a new workbook is its built file
+
+- A question that starts a new workbook no longer has Excel create one from the TN template and save it as a new
+  file in the OneDrive folder, then set up a Sources log (10.6-11.3 s in the owner's Excel, 0.4.0): the renderer
+  writes the whole workbook to a reserved name in the analysis folder - the answer's sheets, the Sources log
+  furnished (header, fonts, widths, filter, frozen header, print setup and its two hidden names), the sensitivity
+  label as custom document properties and the TN template's theme - and Excel only opens it. The job then runs its
+  usual batches: look, bring in (the finish only), close out (the log's rows), save. In a hidden Excel on the
+  OneDrive folder the whole first answer's Excel work took 1.9-2.5 s against 7.1-13.7 s made today's way (four
+  rounds each, 20.11.2026; the owner's Excel is measured separately).
+- The file name is reserved by creating it empty and exclusively (parallel agents get different names) and is never
+  the name of a workbook open in that Excel. A failure once it is reserved closes the workbook without saving and
+  deletes the file, and the error says so; the workbook becomes the session's only once the answer is in it.
+- The new workbook is built in the Normal style and sizes of a workbook added from the template, which the look of
+  the first one made that way stores; until then (and without a label id, without the template, in an Excel started
+  for a parallel agent, or with no Excel open) a new workbook is made as before.
+- The labelled seed of the no-Excel path is now found: Excel on this tenant keeps the label in
+  `docMetadata/LabelInfo.xml`, not in custom properties, so the seed was never copied before.
+- A built workbook has no TN cell styles until `xl_tidy` or `apply_report` installs them (as they do in any
+  workbook without them).
+- `scripts/check_insert.py` has a `newbook` part (a new workbook made today's way against one built as its file,
+  item by item, and a failed one); `bench_answers.py` and `check_followups.py` show the `open target` and
+  `draw.open` stages.
+
 ### The answer's Excel work runs inside Excel (0.4.0)
 
 - An answer's Excel work is recorded as batches of operations, and each batch runs in one go inside Excel through a

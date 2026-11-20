@@ -52,7 +52,8 @@ OTHER_PERIOD = "Jan 26..Jun 26"         # the period a follow-up switches to (an
 COM = "excel job.com calls."            # the Excel job's COM-call counts, as server._draw_job logs them
 BATCHES = "excel job.batches."          # ... and its batches (xl/inproc runs)
 MOVE_IN = "excel job.draw.move in"      # a stage every answer's Excel job has
-STAGES = ("draw.look", "draw.build", "draw.move in", "draw.finish", "draw.paint", "draw.close out", "save")
+STAGES = ("open target", "draw.build", "draw.open", "draw.look", "draw.move in", "draw.finish", "draw.paint",
+          "draw.close out", "save")                # draw.open: the first answer of a new workbook (its built file opened)
 HYPERLINK = re.compile(r'^=HYPERLINK\("#((?:[^"]|"")*)","((?:[^"]|"")*)"\)$')
 
 

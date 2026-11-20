@@ -1027,6 +1027,10 @@ def _read_file(wb, path) -> list:
             lo = ListObject(ws, Range(ws, [parse_area(ref)]))
             lo.Name = name
             ws.ListObjects.append(lo)
+        for name, dn in src.defined_names.items():           # the sheet's own names, as Excel reads them
+            ws.Names.Add(Name=name, RefersTo="=" + dn.attr_text, Visible=not dn.hidden)
+        if src.auto_filter.ref:
+            ws.AutoFilterMode, ws.autofilter = True, parse_area(src.auto_filter.ref)
         out.append(ws)
     return out
 
@@ -1129,6 +1133,7 @@ class Workbook:
         self.window_state: dict[str, dict] = {}
         self.selection: dict[str, str] = {}
         self.normal = ("Calibri", 11.0)                  # the Normal style's font
+        self.saved = 0                                   # Save() calls
         self.active = self.order[0]
         self.Application.ActiveWorkbook = self
         if isinstance(getattr(self.Application, "Workbooks", None), _Workbooks):
@@ -1150,6 +1155,9 @@ class Workbook:
 
     def Activate(self):
         self.Application.ActiveWorkbook = self
+
+    def Save(self):
+        self.saved += 1
 
     def LinkSources(self, kind):
         assert kind == 1                                   # xlExcelLinks

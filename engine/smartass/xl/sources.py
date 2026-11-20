@@ -17,7 +17,9 @@ The furniture is set once, when the log is created: the header row, the whole co
 total's number format, fixed column widths (WIDTHS, Known limits LIMITS_WIDTH), the AutoFilter (Excel takes the rows
 added below it in when it filters), the frozen header row, the print setup of A1:N1048575 (a finite last row:
 whole columns are stored as $A:$N, which openpyxl cannot read) and the sheet-level name
-FURNITURE_NAME that says all of it is there. A log of an earlier version (real hyperlinks, AutoFit widths, a print
+FURNITURE_NAME that says all of it is there. Two writers make it from the same data (the constants below and
+print_key): _furnish over COM in a workbook that has no log yet, and render/xlsx in the file of a new workbook (the
+first answer of a new workbook: the file is the workbook, its log comes furnished and is only appended to here). A log of an earlier version (real hyperlinks, AutoFit widths, a print
 area up to its last row then) gets the column formats, the print setup and the name once, on its next append; its
 rows, links, widths and filter stay as they are.
 
@@ -45,11 +47,20 @@ QUESTION_MAX = 60
 WIDTHS = (24.5, 3.4, 8.2, 45, 5.9, 25.5, 36, 23, 6.4, 6.3, 11.5, 6.9, 12, 10.9)   # A:N: the AutoFit widths of the logs
                                          # in the analyser folder (19.11.2026), D at most QUESTION_MAX
 FURNITURE_NAME, FURNITURE_VERSION = "smartass_sources", "1"
+FONT_SIZE = 9                            # the log and Known limits: TN font 9, as the Data sheet
 SCAN = 500                               # Known limits lines read back at most
 XL_UP = -4162
 MAX_ROW = 1048576
 PRINT_ROWS = MAX_ROW - 1                 # the print area's last row (A1:N1048575, not the whole columns)
 V1_NOTE = ("the Sources sheet holds a v1 log, left as it is; the v2 log is on 'Sources SV'")
+
+
+def print_key() -> str:
+    """The key of the log's print setup (styling.setup_key of A1:N<PRINT_ROWS> with the sheets' footer): what
+    _furnish's record_print_setup names it with, and what the file of a new workbook holds under that name."""
+    from ..render.excel import SHEET_FOOTER
+    from .styling import setup_key
+    return setup_key(_col(len(LOG_COLUMNS)), PRINT_ROWS, SHEET_FOOTER)
 
 
 def _kind(a1, b1, used) -> str:
@@ -216,8 +227,8 @@ def _furnish(b, wbn, ws, log: Log, separators: tuple, screen) -> tuple:
     last = _col(width)
     cols = ws.Range(f"A:{last}")
     for rng in (cols, ws.Columns(LIMITS_COL)):
-        rng.Font.Name = tn.FONT                      # the log and Known limits: TN font 9, as the Data sheet
-        rng.Font.Size = 9
+        rng.Font.Name = tn.FONT
+        rng.Font.Size = FONT_SIZE
     ws.Columns(TOTAL_COL).NumberFormat = tn.to_local(VALUE_FORMAT, *separators)    # the user's codes (styling.local_format)
     if new:
         ws.Range(ws.Cells(1, 1), ws.Cells(1, width)).Value = (tuple(LOG_COLUMNS),)

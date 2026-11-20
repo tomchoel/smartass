@@ -69,6 +69,24 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    what is dirty in every open workbook; after the bring-in the job pauses once (`SV_PAINT_PAUSE`, 0.15 s) so Excel
    paints the answer with its numbers and charts when the workbook is on screen. A failure rolls back as before
    (the clean-up runs as batches of its own, also for a job abandoned by a timeout).
+   **The first answer of a new workbook** (target `new`, or `session` before the session has one, in a running
+   Excel) builds the workbook itself: `xl/target.py` chooses the Excel as for any new workbook (a free turn first)
+   and only reserves a free file name in the analysis folder (created empty and exclusively, so a parallel job takes
+   the next; never the name of a workbook open in that Excel); `render/xlsx.build(book=NewBook)` writes the
+   answer's sheets, then the Sources log furnished as `xl/sources.py` furnishes it over COM (the same data), the
+   sensitivity label as custom document properties (`target.label_properties`) and the TN template's theme, in the
+   base a workbook added from the template has (`target.new_base`, stored by the look of the first one made that
+   way); Excel only opens it (`Workbooks.Open`, stage `draw.open`) and the job goes on with the look, the bring-in
+   (the finish only: no name check, park or insert), the close-out (the log's rows: its furniture and print setup
+   came with the file) and the save - no `Workbooks.Add`, no `SaveAs`, no furniture in Excel. A failure once the
+   name is reserved closes the workbook without saving and deletes that file (only it), and the error says so; the
+   workbook becomes the session's once the answer is in it. A new workbook is still made from the template (label,
+   SaveAs, insert) without a label id, before a base is stored, without the template, in an Excel started for a
+   parallel agent, and with no Excel at all (`_new_analysis_file`: a copy of the labelled seed - found now also
+   when Excel keeps the label in `docMetadata/LabelInfo.xml`, as it does on this tenant - then Excel launched on
+   it). The built workbook has no TN cell styles until something needs them (`styling.ensure_styles` merges them
+   from the template: `xl_tidy`, `apply_report`). Proved item by item against one made today's way by
+   `scripts/check_insert.py --parts newbook` (hidden Excel, 20.11.2026).
    Measured (docs/audit/2026-11-20-inproc-bench.md, live): 1.9-2.7 s in the Excel job for an answer without a
    lines sheet as the workbook grows to 61 sheets, 3.9-4.3 s with a lines sheet, a follow-up 1.6-1.9 s, about 7 s
    for the first answer of a new workbook (the workbook is created), at 5 batches per answer (4 since the review

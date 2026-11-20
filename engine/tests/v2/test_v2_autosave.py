@@ -53,7 +53,7 @@ def job(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "remember", lambda pre, out: None)
 
     def run(wb, ours: bool):
-        monkeypatch.setattr(pipeline, "_target", lambda h, target, title: Target(app=wb.Application, wb=wb, pid=0,
+        monkeypatch.setattr(pipeline, "_target", lambda h, target, title, build_new=False: Target(app=wb.Application, wb=wb, pid=0,
                                                                                 hwnd=0, created=ours))
         monkeypatch.setattr(pipeline, "_is_ours", lambda t: t.created)
         return pipeline.excel_job(None, _pre())

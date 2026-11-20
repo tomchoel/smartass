@@ -42,6 +42,12 @@ provider.
    sheet - and a follow-up whose drop fails points them back; with a merged cell and a table's calculated column.
    --parts repoint-bench (not in the default parts): a follow-up with 500 cells pointing at it against none, both
    executors (the close-out's writes run with Calculation manual).
+   New workbook (phase 3c, --parts newbook): the first answer of a new workbook made today's way (Workbooks.Add of
+   the TN template, label, SaveAs, the insert, the Sources log furnished over COM) against one whose built file is
+   the workbook (Excel only opens it), each followed by a second answer with a Lines sheet and a follow-up, through
+   the add-in, today's way twice (the noise); compared item by item, the expected differences named (EXPECTED_NEW),
+   the files the jobs saved labelled; and a built new workbook whose finish fails is closed unsaved and its file
+   deleted.
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 
 Prints OK / DIFF per item (never a cell value: addresses and property names only); exit 0 only when all are OK.
@@ -1143,7 +1149,7 @@ def compare_jobs(xl: Excel) -> None:
     for side, inproc in JOB_SIDES.items():
         wb = xl.fresh(side, ("Sources",))
         books[side] = wb
-        target = lambda h, target, title, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
+        target = lambda h, target, title, build_new=False, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
         seams = {(pipeline, "_target"): target, (pipeline, "_save"): lambda job: None,
                  (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
                  (config, "INPROC"): inproc}
@@ -1176,6 +1182,131 @@ def compare_jobs(xl: Excel) -> None:
         xl.close(wb)
 
 
+# ---------------------------------------------------------------------------------------------------- 3e. a new workbook
+NEW_SIDES = {"copy": False, "insert": True, "control": False}     # (phase 3c) side -> its first answer's built file is
+                                                                   # the workbook (else today's: template, SaveAs, insert)
+# What a new workbook built as a file has otherwise than one made today's way, by name (item, the keys' pattern, why):
+# printed as expected, never masked; any other difference is a DIFF.
+EXPECTED_NEW: list[tuple[str, str, str]] = [
+    ("styles", r"workbook!(count|names)", "the TN template's cell styles are not in a built file (48 against 102); "
+     "xl_tidy and apply_report install them when they need them (styling.ensure_styles merges them from the template)"),
+    ("workbook names", r"workbook!_tnStylesVer \(workbook\)", "the template's style marker, added with the styles"),
+    ("window", r"Sources!(FreezePanes|ScrollRow|SplitRow)", "this hidden Excel refuses the log's frozen header over "
+     "COM (a window without a client area: undone); the built file has it frozen, as a visible Excel freezes it"),
+]
+
+
+def _new_target_seam(xl: Excel, holder: dict):
+    """pipeline._target for the new-workbook part: the first question resolves to a new workbook in this script's
+    Excel (target._new_target, today's way or the built file's), every later one to that workbook (the session's)."""
+    from smartass.xl import target as xltarget
+
+    def target(h, target, title, build_new=False):
+        if "t" not in holder:
+            holder["t"] = xltarget._new_target(None, title, [(xl.pid, 0, xl.app)], {xl.pid}, build_new)
+            return holder["t"]
+        return Target(app=xl.app, wb=holder["t"].wb, pid=xl.pid, hwnd=0, created=True)
+    return target
+
+
+def _expected(item: str, key: str) -> str | None:
+    return next((why for it, pattern, why in EXPECTED_NEW if it == item and re.fullmatch(pattern, key)), None)
+
+
+def new_workbook(xl: Excel) -> None:
+    """(Phase 3c Task 1) The first answer of a new workbook made today's way (Workbooks.Add of the TN template, the
+    label, SaveAs, the insert, the Sources log furnished over COM) against one whose built file is the workbook
+    (Excel only opens it), then a second answer with a Lines sheet and a follow-up in each, through the add-in;
+    today's way twice (the noise). Compared item by item; each workbook is saved by the job in this script's
+    temporary folder (a file Excel did not write - no label - would show here). Then a built new workbook whose
+    finish fails: closed unsaved, its file deleted, Excel as before."""
+    from smartass.core import session
+    from smartass.core.timing import BATCH_PREFIX
+    from smartass.xl import target as xltarget
+    folder = TMP / "analyser"
+    folder.mkdir(exist_ok=True)
+    books, steps, files = {}, defaultdict(dict), {}
+    base = {(pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now, (config, "INPROC"): True,
+            (session, "project_dir"): lambda: folder, (session, "set_workbook"): lambda p: None}
+    for side, build in NEW_SIDES.items():
+        holder: dict = {}
+        seams = base | {(pipeline, "_target"): _new_target_seam(xl, holder)}
+        if not build:
+            seams[(pipeline, "_new_book")] = lambda: None
+        with _patched(seams):
+            for label, q, pre in _pres():
+                job = (lambda h, pre=pre: pipeline.excel_job(h, pre)) if q is None else (
+                    lambda h, pre=pre, q=q: pipeline.redraw_job(h, pre, q, "this workbook"))
+                out, timings = pipeline.with_timings(job)(None)
+                steps[label][side] = ((out.get("checks") or {}).get("sheet_equals_model"),
+                                      sum(timings.get(s, 0.0) for s in ("open target", "draw", "save")),
+                                      int(sum(v for k, v in timings.items() if k.startswith(BATCH_PREFIX)
+                                              and "." not in k[len(BATCH_PREFIX):])),
+                                      sorted(set(out.get("warnings") or []) | set(out.get("layout") or [])))
+        t = holder["t"]
+        books[side], files[side] = t.wb, Path(t.path)
+        check(f"new workbook ({side}): {'its built file is the workbook' if build else 'made from the template'}",
+              (t.made is not None) == build, f"made {t.made}")
+    for label, by in steps.items():
+        check(f"new workbook: {label}: sheet = model either way", all(v[0] == "OK" for v in by.values()),
+              f"{ {k: v[0] for k, v in by.items()} }")
+        check(f"new workbook: {label}: the same warnings and layout findings", by["copy"][3] == by["insert"][3],
+              f"today {by['copy'][3]} | built {by['insert'][3]}")
+        info(f"{label}: the Excel job today's way {by['copy'][1]:.2f} s ({by['copy'][2]} batches), its built file "
+             f"{by['insert'][1]:.2f} s ({by['insert'][2]} batches), today's way again {by['control'][1]:.2f} s")
+    for side, wb in books.items():
+        path = files[side]
+        check(f"new workbook ({side}): the file the job saved is labelled", path.stat().st_size > 0
+              and xltarget._seed_has_label(path), f"{path.stat().st_size} bytes")
+        info(f"new workbook ({side}): Saved {wb.Saved} after the three jobs")
+    names = {side: _names(wb) for side, wb in books.items()}
+    check("new workbook: the same sheets in the same order", names["copy"] == names["insert"],
+          "" if names["copy"] == names["insert"] else f"today {names['copy']} | built {names['insert']}")
+    rects = book_rects(list(books.values()), names["copy"])
+    snaps = {side: read_book(xl.app, wb, rects, mask=True) for side, wb in books.items()}
+    found, noise = route_diff(snaps)
+    for item, keys in list(found.items()):
+        for key in list(keys):
+            why = _expected(item, key)
+            if why is not None:
+                keys.remove(key)
+                info(f"expected difference ({item}) {key}: {why}")
+    items = {item for snap in snaps.values() for where in snap.values() for item in where}
+    report_items("new workbook", items, {k: v for k, v in found.items() if v}, noise, unread(snaps))
+    for wb in books.values():
+        xl.close(wb)
+    _failed_new_workbook(xl, base, folder)
+
+
+def _failed_new_workbook(xl: Excel, seams: dict, folder: Path) -> None:
+    """A first answer whose built workbook's finish fails (an operation on a sheet that is not there): the error
+    says the workbook was closed without saving and its file deleted; it is not open, the file is gone, and the
+    four settings and the active workbook are as before."""
+    real = movein.calculate
+
+    def calculate(t, sheets, b=None):
+        real(t, sheets, b)
+        if b is not None:
+            b.workbook(jobs.book_name(t)).Worksheets("No such sheet").Calculate()
+    other = xl.fresh("around", ("Sources",))
+    before = (int(xl.app.Workbooks.Count), [getattr(xl.app, n) for n, _ in runner.QUIET],
+              str(xl.app.ActiveWorkbook.Name), sorted(p.name for p in folder.iterdir()))
+    holder: dict = {}
+    with _patched(seams | {(pipeline, "_target"): _new_target_seam(xl, holder), (movein, "calculate"): calculate}):
+        try:
+            pipeline.excel_job(None, _pres()[0][2])
+            failed = ""
+        except Exception as e:   # noqa: BLE001 - the failure is the point
+            failed = str(e)
+    after = (int(xl.app.Workbooks.Count), [getattr(xl.app, n) for n, _ in runner.QUIET],
+             str(xl.app.ActiveWorkbook.Name), sorted(p.name for p in folder.iterdir()))
+    t = holder.get("t")
+    check("new workbook: a built one that fails in its finish is closed unsaved and its file deleted",
+          "closed without saving and its file deleted" in failed and before == after and t is not None
+          and t.made is not None and not t.made.exists(), f"raised {failed[-120:]!r}; before {before}, after {after}")
+    xl.close(other)
+
+
 # ---------------------------------------------------------------------------------------------------- 3b. failed jobs
 def _state(xl: Excel, wb) -> dict:
     """What a failed job must leave as it was: the sheets in order with their visibility, the tables, the four quiet
@@ -1199,7 +1330,7 @@ def failed_jobs(xl: Excel) -> None:
             b.workbook(jobs.book_name(t)).Worksheets("No such sheet").Calculate()
     for side, inproc in (("com", False), ("inproc", True)):
         wb = xl.fresh(f"fail_{side}", ("Sources",))
-        target = lambda h, target, title, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
+        target = lambda h, target, title, build_new=False, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
         seams = {(pipeline, "_target"): target, (pipeline, "_save"): lambda job: None,
                  (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
                  (config, "INPROC"): inproc}
@@ -1370,7 +1501,7 @@ def repoint_bench(xl: Excel) -> None:
 
 def _target_of(xl: Excel, wb):
     """pipeline._target's stand-in: wb as our own analysis file in this script's Excel."""
-    return lambda h, target, title: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)
+    return lambda h, target, title, build_new=False: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)
 
 
 def repointing(xl: Excel) -> None:
@@ -1525,7 +1656,7 @@ def timing(xl: Excel, built0, rounds: int) -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--rounds", type=int, default=5, help="rounds per route for the timing")
-    ap.add_argument("--parts", default="files,places,jobs,failures,repoint,labels,timing",
+    ap.add_argument("--parts", default="files,places,jobs,newbook,failures,repoint,labels,timing",
                     help="what to run (comma-separated; the proof is all of them)")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
@@ -1550,6 +1681,8 @@ def main(argv=None) -> int:
             excel_around(xl, answer)
         if "jobs" in parts:
             compare_jobs(xl)
+        if "newbook" in parts:
+            new_workbook(xl)
         if "failures" in parts:
             failed_jobs(xl)
         if "repoint" in parts:

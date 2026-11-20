@@ -5,10 +5,13 @@ built as an .xlsx without Excel and brought in by four batches of Excel operatio
 its add-in, or over COM): look, move in (the file's sheets inserted with one call), finish (tables, formulas,
 calculation, the read-back), close out (status, heights, labels, Sources, spec saved in _svmeta, sheet order); then
 a fifth saves our own file. redraw_job() replaces a question's sheets the same way. reply(): the result dict the
-agent quotes from (key_values only - never numbers it computed itself)."""
+agent quotes from (key_values only - never numbers it computed itself). The first answer of a new workbook builds
+the whole workbook as its file instead (its Sources log furnished, the sensitivity label set) and Excel only opens
+it: no insert, no Sources set-up in Excel."""
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import logging
 import re
 import time
@@ -211,9 +214,26 @@ from .render.keypoints import free_points, key_points  # noqa: E402
 from .render.readback import compare  # noqa: E402
 
 
-def _target(h, target: str, title: str):
+def _target(h, target: str, title: str, build_new: bool = False):
     from .xl import target as xltarget
-    return xltarget.resolve_target(h, target, allow_archive=False, title=title)
+    return xltarget.resolve_target(h, target, allow_archive=False, title=title, build_new=build_new)
+
+
+def _new_book() -> tuple | None:
+    """(the base, the theme) a new workbook's file is built in when the first answer's file IS the new workbook:
+    what a workbook added from the TN template has (target.new_base, styling.template_theme). None - then a new
+    workbook is made from the template as before - without our label id (the file could not be saved), without a
+    stored base or the template's theme, or with a standard column XlsxWriter has no digit width for (the widths would
+    not measure as the template's)."""
+    from .core import config
+    from .xl import styling
+    from .xl import target as xltarget
+    if not config.LABEL_ID:
+        return None
+    base, theme = xltarget.new_base(), styling.template_theme()
+    if base is None or theme is None or base.col_px not in xlsx.STANDARD_COLUMNS:
+        return None
+    return base, theme
 
 
 def _save_spec(t, q: int, raw: dict, b, rows) -> bool:
@@ -618,6 +638,7 @@ class _Job:
     inserted: bool | None = False
     dropped: bool | None = False
     built: object = None
+    new_book: tuple | None = None               # (base, theme) a new workbook the job builds is built in (_new_book)
     mentions: object = None                     # a follow-up's formulas elsewhere to re-point (movein.Mentions)
     repointed: bool | None = False              # the close-out re-pointed them (None: unknown - pointed back)
     setups: list = field(default_factory=list)
@@ -738,23 +759,29 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
     the Answer active (in the active workbook); quiet with Calculation manual (it writes the formulas). Its time is
     booked as the stages 'move in' and 'finish' (split at the last move-in mark), then one paint. Returns (block,
     (status, ties), chart count, the log or None). A failure: inserted is decided by the insert's index, as a
-    separate move-in did."""
+    separate move-in did. A new workbook the job built (t.made) has its sheets already: no name check, no park and no
+    insert - the batch is the finish."""
     from .xl import movein, sources
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import run
     t, q, look, parked = job.t, job.q, job.look, job.parked
+    new = t.made is not None                            # the built file is the workbook: its sheets are there
     b = Batch()
     b.mark("quiet")
     wbn = b.workbook(job.name)
-    free_at = movein.record_free(b, wbn, [spec.name for spec in built.tables])     # first: nothing renamed yet
-    if parked is not None:
-        movein.record_park(b, wbn, parked, book)
-        b.mark("park")
-    after, first = _place(book, q) if parked is None else _parked_place(book, parked)
-    at = movein.move_in(t, built, after, first, book=book, b=b, free_at=free_at)
-    b.mark("insert")
+    free_at = at = None
+    if new:
+        split = "quiet"                                 # nothing to move in: 'move in' is the settings turned off
+    else:
+        free_at = movein.record_free(b, wbn, [spec.name for spec in built.tables])     # first: nothing renamed yet
+        if parked is not None:
+            movein.record_park(b, wbn, parked, book)
+            b.mark("park")
+        after, first = _place(book, q) if parked is None else _parked_place(book, parked)
+        at = movein.move_in(t, built, after, first, book=book, b=b, free_at=free_at)
+        b.mark("insert")
+        split = "insert"
     job.built = built
-    split = "insert"
     if parked is not None:
         _take_places(parked, built.sheets, book, wbn)
         b.mark("moves")
@@ -785,7 +812,7 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
         if taken is not None:                           # refused before its park and insert: nothing ran
             job.inserted, job.moved = False, False
             raise taken from None
-        job.inserted = job.after(e, at)
+        job.inserted = True if new else job.after(e, at)
         raise
     job.inserted = True
     if mentions is not None:
@@ -882,42 +909,74 @@ def _file_draw(job, pre: Prepared) -> dict:
     dropped, Sources, spec, sheet order, the Answer active; quiet, Calculation left alone). Each quiet batch puts the
     user's settings back itself. job: _Job (q None: a new answer, the next Q<n>; else a follow-up of Q<q>, whose
     sheets are parked, replaced and dropped after the read-back, before Sources and the spec). The caller owns
-    rollback, restore and save; the temporary file is deleted whatever happens."""
+    rollback, restore and save; the temporary file is deleted whatever happens. A new workbook the job builds
+    (job.t.made, the first answer: Q1) is built first - at its reserved name, as the workbook itself (xlsx.NewBook) in
+    the base _new_book gave and the date format of the chosen Excel - and opened (stage 'open'); then the same look,
+    a bring-in that is the finish only, the close-out."""
     from .xl import jobs, movein
+    from .xl import target as xltarget
     t = job.t
     job.name = jobs.book_name(t)
     fetched = datetime.now().astimezone()
     user = datasheet.windows_user()
     stamp = datasheet.fetched_text(fetched, user)
-    path = _temp_path()
+    new = t.made is not None
+    path = None if new else _temp_path()
     try:
+        if new:                                         # the first answer of a new workbook: its file IS the workbook
+            job.q = 1
+            base, theme = job.new_book
+            built, plan, header = _build(1, pre, t.made, fetched, user, stamp, _dated(t, base),
+                                         xlsx.NewBook(xltarget.label_properties(), theme))
+            with stage("open"):
+                xltarget.open_new(t)
         with stage("look"):
             look = job.look = _look(job)
         book = look.book
-        if job.q is None:
-            job.q = _next_q_in(book)
-        else:                                           # a missing Answer or Data sheet: an InputError, here
-            job.parked = movein.parking(book, *_question_parts(book, job.q))
+        if t.from_template:                             # what a new workbook has: the next one is built in it
+            xltarget.remember_new_base(look.base)
+        if not new:
+            if job.q is None:
+                job.q = _next_q_in(book)
+            else:                                       # a missing Answer or Data sheet: an InputError, here
+                job.parked = movein.parking(book, *_question_parts(book, job.q))
+            built, plan, header = _build(job.q, pre, path, fetched, user, stamp, look.base)
         q = job.q
-        with stage("build"):
-            header = header_rows(q, pre.spec, pre, fetched, user)
-            plan = _answer_plan(q, pre, fetched)
-            lines = [_lines_sheet(q, ls, stamp) for ls in pre.frame.lines.values()]
-            data = xlsx.DataSheet(f"Q{q} Data", header, data_grid(pre.frame))
-            try:
-                built = xlsx.build(path, f"Q{q} Answer", plan, data, lines, base=look.base)
-            except xlsx.TooManyRows as e:
-                raise GuardError(str(e), "narrow the query or the lines cell (a shorter period, a lower account or "
-                                 "entity) so it fits on one sheet") from None
         read = _bring_in(job, built, plan, pre, header, book)     # booked as 'move in' and 'finish' (+ 'paint')
         mismatches = compare(plan.addr, pre.result.cells, read[0], plan.fractions)
         with stage("close out"):
             logged, arranged, found = _close_out(job, built, plan, pre, header, stamp, read, mismatches, book)
     finally:
-        _drop_file(path)
+        if path is not None:
+            _drop_file(path)
     return reply(pre, q, str(t.path), list(built.sheets), mismatches,
                  built.chart_lint + [w for w in (logged, arranged) if w] + job.pointing, layout=found,
                  charts=built.charts)
+
+
+def _build(q: int, pre: Prepared, path, fetched: datetime, user: str, stamp: str, base, book=None) -> tuple:
+    """The answer's sheets built as a file at path in base (stage 'build'), a workbook of its own with book
+    (xlsx.NewBook): (BuiltFile, the Answer's plan, the Data header). More rows than a sheet has is a GuardError with
+    its fix."""
+    with stage("build"):
+        header = header_rows(q, pre.spec, pre, fetched, user)
+        plan = _answer_plan(q, pre, fetched)
+        lines = [_lines_sheet(q, ls, stamp) for ls in pre.frame.lines.values()]
+        data = xlsx.DataSheet(f"Q{q} Data", header, data_grid(pre.frame))
+        try:
+            built = xlsx.build(path, f"Q{q} Answer", plan, data, lines, base=base, book=book)
+        except xlsx.TooManyRows as e:
+            raise GuardError(str(e), "narrow the query or the lines cell (a shorter period, a lower account or "
+                             "entity) so it fits on one sheet") from None
+    return built, plan, header
+
+
+def _dated(t, base):
+    """base with the date format of t's Excel (Application.International, one read): how the Lines sheets' dates are
+    stored there (movein.date_format), as the look reads it for an existing workbook."""
+    from .xl import jobs, movein
+    intl = jobs.com(lambda: t.app.International)
+    return dataclasses.replace(base, date_format=movein.date_format(*(intl[i - 1] for i in movein.DATE_SETTINGS)))
 
 
 def _parked_place(book, parked) -> tuple[str | None, bool]:
@@ -1052,22 +1111,33 @@ def _question_parts(book, q: int) -> tuple[list[str], list[str]]:
 def excel_job(h, pre: Prepared, target: str = "session") -> dict:
     """A new answer (_file_draw) as the next Q<n> of the target workbook. On any failure the sheets it brought in
     are removed (they are in t.sheets_added), the sheet the job found active is active again, AutoSave back on in
-    our own file, and the error is raised with the job's notes in its text."""
+    our own file, and the error is raised with the job's notes in its text. The first answer of a new workbook (a
+    target that resolves to one in a running Excel, when _new_book knows its base and theme) is built as the workbook
+    itself and only opened in Excel (target.Target.made); on any failure that workbook is closed without saving and
+    the file the job reserved deleted, and the error says so; once it holds the answer it becomes the session's."""
+    from .xl import target as xltarget
+    book = _new_book()
     with stage("open target"):
-        t = _target(h, target, pre.spec.question[:60])
-    job = _Job(t)
+        t = _target(h, target, pre.spec.question[:60], build_new=book is not None)
+    job = _Job(t, new_book=book)
     try:
         with stage("draw"):
             out = _file_draw(job, pre)
         with stage("save"):
             _save(job)
     except Exception as e:
-        try:
-            job.not_inserted()
-            _rollback(t)
-        finally:
-            job.settle()
+        if t.made is not None:
+            job.notes.append(xltarget.discard_new(t))
+        else:
+            try:
+                job.not_inserted()
+                _rollback(t)
+            finally:
+                job.settle()
         _raise(job, e)
+    if t.made is not None:
+        from .core import session
+        session.set_workbook(t.path)
     remember(pre, out)
     return _with_notes(out, job.notes)
 

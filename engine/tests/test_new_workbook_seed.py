@@ -118,3 +118,40 @@ def test_failed_copy_falls_back(env, monkeypatch):
     h = FakeHost()
     target._new_analysis_file(h, "A")
     assert h.calls == 1
+
+
+LABELINFO = ('<?xml version="1.0" encoding="utf-8" standalone="yes"?><clbl:labelList xmlns:clbl="http://schemas.'
+             'microsoft.com/office/2020/mipLabelMetadata"><clbl:label id="{X}" enabled="1" method="Privileged" '
+             'siteId="{S}" contentBits="2" removed="0" /></clbl:labelList>')
+
+
+def test_a_seed_labelled_in_its_labelinfo_part_is_found(env, monkeypatch):
+    """Phase 3c: Excel on this tenant keeps the label in docMetadata/LabelInfo.xml (Office's 2020 form), not in
+    custom properties - the seed it saved has none, so it was never copied (live, 20.11.2026)."""
+    seed = config.NEW_WORKBOOK_SEED
+    openpyxl.Workbook().save(seed)
+    src = seed.with_suffix(".tmp")
+    seed.replace(src)
+    with zipfile.ZipFile(src) as zi, zipfile.ZipFile(seed, "w") as zo:
+        for n in zi.namelist():
+            zo.writestr(n, zi.read(n))
+        zo.writestr("docMetadata/LabelInfo.xml", LABELINFO)
+    src.unlink()
+    assert target._seed_has_label(seed)
+    monkeypatch.setattr(config, "LABEL_ID", "other")
+    assert not target._seed_has_label(seed)
+
+
+def test_the_label_properties_are_ours(monkeypatch):
+    """The sensitivity label as custom document properties (the form Excel reads when there is no LabelInfo part,
+    live 20.11.2026): our label id and site, assigned as today's SetLabel assigns it (privileged), set now."""
+    import datetime
+    monkeypatch.setattr(config, "LABEL_ID", "f604")
+    monkeypatch.setattr(config, "LABEL_SITE", "1676")
+    when = datetime.datetime(2026, 11, 20, 16, 30, tzinfo=datetime.timezone.utc)
+    p = target.label_properties(when)
+    k = "MSIP_Label_f604_"
+    assert {n[len(k):]: v for n, v in p.items() if n.startswith(k)} == {
+        "Enabled": "true", "SetDate": "2026-11-20T16:30:00Z", "Method": "Privileged", "Name": target.LABEL_NAME,
+        "SiteId": "1676", "ActionId": p[k + "ActionId"], "ContentBits": "2"}
+    assert len(p) == 7 and len(p[k + "ActionId"]) == 36

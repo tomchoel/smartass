@@ -5,9 +5,10 @@ printed: the replies carry figures from EPM and are never printed or kept.
 
 Usage (from the repo root; Excel open, signed in to EPM):
     engine\.venv\Scripts\python.exe scripts\bench_answers.py --rounds 3 [--case b01 ...]
-The per-round table has a column per stage of the Excel job (pipeline.excel_job: look, build, move in, finish,
-close out, save) and its "runs": the batches it ran (xl/inproc: one Excel run each); a stage the run did not have
-shows "-". SV_INPROC=0 runs every batch over COM.
+The per-round table has a column per stage of the Excel job (pipeline.excel_job: open target, build, open, look,
+move in, finish, close out, save; 'open' only for the first answer of a new workbook, whose built file is opened, and
+its build comes before the look) and its "runs": the batches it ran (xl/inproc: one Excel run each); a stage the run
+did not have shows "-". SV_INPROC=0 runs every batch over COM.
 
 One warm-up answer (the first case, target 'new') creates ONE new workbook in the analyser folder; every measured
 round then lands in that session workbook (target 'session'). Rounds run outer and cases inner, so the growing
@@ -113,8 +114,9 @@ def table(warm: dict | None, runs: list[dict]) -> str:
     return "\n".join(rows)
 
 
-ROUND_COLUMNS = (("_total", "_total s"), ("excel job._total", "excel job s"), ("excel job.draw", "draw s"),
-                 ("excel job.draw.look", "draw.look s"), ("excel job.draw.build", "draw.build s"),
+ROUND_COLUMNS = (("_total", "_total s"), ("excel job._total", "excel job s"), ("excel job.open target", "open target s"),
+                 ("excel job.draw", "draw s"), ("excel job.draw.build", "draw.build s"),
+                 ("excel job.draw.open", "draw.open s"), ("excel job.draw.look", "draw.look s"),
                  ("excel job.draw.move in", "draw.move in s"), ("excel job.draw.finish", "draw.finish s"),
                  ("excel job.draw.paint", "draw.paint s"), ("excel job.draw.close out", "draw.close out s"),
                  ("excel job.save", "save s"),

@@ -254,7 +254,7 @@ def fake_target(monkeypatch, tmp_home):
         wb.saved += 1
     wb.Save = save
     t = Target(app=wb.Application, wb=wb, pid=0, hwnd=0, created=True)
-    monkeypatch.setattr(pipeline, "_target", lambda h, target, title: t)
+    monkeypatch.setattr(pipeline, "_target", lambda h, target, title, build_new=False: t)
     monkeypatch.setattr(pipeline, "remember", lambda pre, out: None)
     return t
 

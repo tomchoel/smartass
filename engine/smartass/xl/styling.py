@@ -149,6 +149,17 @@ def _mark(wb, ver: str) -> None:
         pass
 
 
+def template_theme() -> str | None:
+    """The TN template's theme (xl/theme/theme1.xml), which a workbook added from it has: the built file of a new
+    workbook takes it (pipeline._new_book). None when the template is not there (or unreadable)."""
+    import zipfile
+    try:
+        with zipfile.ZipFile(template_path()) as z:
+            return z.read("xl/theme/theme1.xml").decode("utf-8")
+    except (OSError, KeyError, zipfile.BadZipFile, UnicodeDecodeError):
+        return None
+
+
 def template_path(ver: str | None = None) -> Path:
     from ..core import config
     return config.SVKIT / f"tn_template_{ver or _styles_version()}.xltx"
