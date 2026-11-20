@@ -18,4 +18,5 @@ def _no_live_drill_routes(monkeypatch):
     monkeypatch.setattr(config, "DRILL_KEEP_WARM", False)        # tests: the idle worker closes its browser as before
     monkeypatch.setattr(config, "DRILL_PROFILE_SLOTS", 1)               # one profile, as the tests expect
     monkeypatch.setattr(config, "ANSWER_PREFETCH", False)        # tests never reach the live HTTP route
+    monkeypatch.setattr(config, "INPROC", False)                 # batches run over COM: no add-in build, no compiler
     monkeypatch.setenv("SV_TEST_NO_HTTP_DRILL", "1")

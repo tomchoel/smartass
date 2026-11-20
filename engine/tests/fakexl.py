@@ -6,9 +6,10 @@ setup, names, window state) or the workbook (sheet order, names). snapshot(wb) r
 comparable form (cells with equal settings collapsed into rectangles), so a test can pin a writer's exact effect and
 prove that a batched version leaves the same workbook. count_com(monkeypatch) counts jobs.com calls.
 
-For the move-in of a built file: Application.Workbooks (Open reads an .xlsx: values, sheet visibility, tables; Close),
-wb.Worksheets([names]).Copy / .Delete as Excel does them, LinkSources / BreakLink, and Application.events: every
-step asked of the fake Excel, in order across sheets and workbooks (not part of snapshot).
+For the move-in of a built file: Application.Workbooks (Workbooks(name); Open reads an .xlsx: values, sheet
+visibility, tables; Close), wb.Worksheets([names]).Copy / .Delete as Excel does them (an omitted argument,
+pythoncom.ArgNotFound, reads as None), LinkSources / BreakLink, and Application.events: every step asked of the fake
+Excel, in order across sheets and workbooks (not part of snapshot).
 """
 from __future__ import annotations
 
@@ -139,6 +140,13 @@ def shown(v):
 
 class ComError(Exception):
     """Not a 'busy' error: jobs.com passes it straight through."""
+
+
+def _given(args: tuple) -> tuple:
+    """Positional arguments with an omitted one (pythoncom.ArgNotFound, sent as DISP_E_PARAMNOTFOUND) read as None,
+    as Excel reads both."""
+    import pythoncom
+    return tuple(None if a is pythoncom.ArgNotFound else a for a in args)
 
 
 def _event(ws, *what) -> None:
@@ -641,6 +649,7 @@ class Worksheet:
 
     def Move(self, *args, **kw):
         assert not kw
+        args = _given(args)
         before = args[0] if args else None
         after = args[1] if len(args) > 1 else None
         self.wb.order.remove(self)
@@ -709,6 +718,7 @@ class _SheetGroup:
         crash), a taken name becomes 'name (2)' silently, a formula pointing at a sheet left behind leaves a link to
         the source file, and the destination workbook is activated on the first copy."""
         assert not kw, "Worksheets.Copy: positional (Before, After) only"
+        args = _given(args)
         before = args[0] if args else None
         after = args[1] if len(args) > 1 else None
         anchor = before if before is not None else after
@@ -762,6 +772,15 @@ class _Workbooks(list):
     @property
     def Count(self):
         return len(self)
+
+    def __call__(self, key):
+        """Workbooks(name) or Workbooks(index), as Excel: an unknown name is an error."""
+        if isinstance(key, int):
+            return self[key - 1]
+        for wb in self:
+            if wb.Name.lower() == str(key).lower():
+                return wb
+        raise ComError(f"no workbook {key}")
 
     def Open(self, path, *args, **kw):
         """Positional only, as late-bound COM needs: (Filename, UpdateLinks, ReadOnly, ...)."""

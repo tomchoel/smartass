@@ -2,6 +2,8 @@
 *.bas text eol=crlf
 *.ps1 text eol=crlf
 *.xlsx binary
+*.xll binary
+*.dll binary
 .githooks/* text eol=lf
 engine/smartass/xl/vendor/tn_rapportstil.py -text
 engine/smartass/xl/vendor/formelsjekk.py -text

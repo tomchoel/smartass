@@ -1,0 +1,141 @@
+"""Building the add-in (xl/inproc/build.py) with a fake compiler: the hash and names, the atomic build, pruning, the
+compile-error marker."""
+import shutil
+from pathlib import Path
+
+import pytest
+
+from smartass.core import config
+from smartass.xl.inproc import batch, build
+
+
+@pytest.fixture
+def src(tmp_path, monkeypatch):
+    """Copies of the sources (Runner.cs, the vendored files) and a home of its own; csc 'exists'."""
+    s = tmp_path / "src"
+    (s / "vendor").mkdir(parents=True)
+    (s / "Runner.cs").write_text('// [ExcelFunction(Name = "SmartassRun___HASH__")] const string Hash = "__HASH__";',
+                                 encoding="utf-8")
+    (s / "vendor" / "ExcelDna64.xll").write_bytes(b"MZ xll \x00\x01")
+    (s / "vendor" / "ExcelDna.Integration.dll").write_bytes(b"MZ dll \x00\x02")
+    monkeypatch.setattr(build, "RUNNER_CS", s / "Runner.cs")
+    monkeypatch.setattr(build, "XLL", s / "vendor" / "ExcelDna64.xll")
+    monkeypatch.setattr(build, "INTEGRATION", s / "vendor" / "ExcelDna.Integration.dll")
+    csc = tmp_path / "csc.exe"
+    csc.write_bytes(b"")
+    monkeypatch.setattr(build, "CSC", csc)
+    monkeypatch.setattr(config, "INPROC_DIR", tmp_path / "home" / "inproc")
+    return s
+
+
+@pytest.fixture
+def compiler(monkeypatch):
+    """A fake csc: records each command line and the source it was given, writes the -out: dll."""
+    seen = []
+
+    def compile_(cmd):
+        out = Path(next(a for a in cmd if a.startswith("-out:"))[5:])
+        seen.append((cmd, Path(cmd[-1]).read_text(encoding="utf-8")))
+        out.write_bytes(b"compiled")
+        return 0, ""
+    monkeypatch.setattr(build, "_compile", compile_)
+    return seen
+
+
+def test_the_hash_covers_the_sources_and_the_batch_version(src, monkeypatch):
+    h = build.hash8()
+    assert len(h) == 8 and int(h, 16) >= 0
+    assert build.hash8() == h
+    for f in ("Runner.cs", "vendor/ExcelDna64.xll", "vendor/ExcelDna.Integration.dll"):
+        p = src / f
+        before = p.read_bytes()
+        p.write_bytes(before + b" ")
+        assert build.hash8() != h, f
+        p.write_bytes(before)
+    monkeypatch.setattr(batch, "VERSION", batch.VERSION + 1)
+    assert build.hash8() != h
+
+
+def test_a_build_is_a_folder_named_by_its_hash_with_the_add_in_its_dna_config_and_dll(src, compiler):
+    xll, h = build.ensure()
+    name = f"smartass_run_{h}"
+    folder = config.INPROC_DIR / name
+    assert xll == folder / f"{name}.xll"
+    assert xll.read_bytes() == (src / "vendor" / "ExcelDna64.xll").read_bytes()
+    assert (folder / f"{name}.dll").read_bytes() == b"compiled"
+    dna = (folder / f"{name}.dna").read_text(encoding="utf-8")
+    assert f'Path="{name}.dll"' in dna and 'LoadFromBytes="true"' in dna and 'RuntimeVersion="v4.0"' in dna
+    cfg = (folder / f"{name}.xll.config").read_text(encoding="utf-8")
+    assert 'name="ExcelDna.Integration" switchValue="Off"' in cfg
+    assert '<add name="LogDisplay"' in cfg and 'initializeData="Off"' in cfg
+    (cmd, source), = compiler
+    assert source == f'// [ExcelFunction(Name = "SmartassRun_{h}")] const string Hash = "{h}";'
+    assert cmd[0] == str(build.CSC)
+    assert {"-nologo", "-target:library", "-langversion:5", f"-r:{build.INTEGRATION}",
+            "-r:System.Web.Extensions.dll"} <= set(cmd)
+    assert sorted(p.name for p in config.INPROC_DIR.iterdir()) == [name]       # no temporary folder left
+    assert build.ensure() == (xll, h) and len(compiler) == 1                     # built once
+
+
+def test_a_build_finished_meanwhile_by_another_job_is_used(src, monkeypatch):
+    h = build.hash8()
+    name = f"smartass_run_{h}"
+
+    def other_job_wins(cmd):
+        out = Path(next(a for a in cmd if a.startswith("-out:"))[5:])
+        out.write_bytes(b"mine")
+        shutil.copytree(out.parent, config.INPROC_DIR / name)        # the other job renamed its build into place
+        (config.INPROC_DIR / name / f"{name}.dll").write_bytes(b"theirs")
+        return 0, ""
+    monkeypatch.setattr(build, "_compile", other_job_wins)
+    xll, _ = build.ensure()
+    assert (xll.parent / f"{name}.dll").read_bytes() == b"theirs"
+    assert sorted(p.name for p in config.INPROC_DIR.iterdir()) == [name]
+
+
+def test_older_builds_are_pruned_unless_their_add_in_is_locked(src, compiler):
+    root = config.INPROC_DIR
+    for old in ("smartass_run_00000001", "smartass_run_00000002"):
+        (root / old).mkdir(parents=True)
+        for ext in (".xll", ".dna", ".dll", ".xll.config"):
+            (root / old / f"{old}{ext}").write_bytes(b"x")
+    (root / "smartass_run_00000003.failed").write_text("old error", encoding="utf-8")
+    locked = open(root / "smartass_run_00000002" / "smartass_run_00000002.xll", "rb")   # loaded in some Excel
+    try:
+        xll, h = build.ensure()
+    finally:
+        locked.close()
+    left = sorted(p.name for p in root.iterdir())
+    assert left == sorted([f"smartass_run_{h}", "smartass_run_00000002"])
+    assert len(list((root / "smartass_run_00000002").iterdir())) == 4              # kept whole
+
+
+def test_a_compile_error_is_kept_in_a_marker_and_not_retried(src, monkeypatch):
+    calls = []
+
+    def fails(cmd):
+        calls.append(cmd)
+        return 1, "Runner.cs(3,1): error CS1002: ; expected"
+    monkeypatch.setattr(build, "_compile", fails)
+    for _ in range(2):
+        with pytest.raises(build.BuildError, match="CS1002"):
+            build.ensure()
+    assert len(calls) == 1
+    marker = config.INPROC_DIR / f"smartass_run_{build.hash8()}.failed"
+    assert "CS1002" in marker.read_text(encoding="utf-8")
+    assert sorted(p.name for p in config.INPROC_DIR.iterdir()) == [marker.name]
+
+
+def test_no_compiler_is_a_build_error_without_a_marker(src, compiler, tmp_path, monkeypatch):
+    monkeypatch.setattr(build, "CSC", tmp_path / "nowhere" / "csc.exe")
+    with pytest.raises(build.BuildError, match="compiler"):
+        build.ensure()
+    assert compiler == []
+    assert not config.INPROC_DIR.exists() or not list(config.INPROC_DIR.glob("*.failed"))
+
+
+def test_the_shipped_sources_are_there():
+    for p in (build.RUNNER_CS, build.XLL, build.INTEGRATION, build.XLL.parent / "LICENSE-ExcelDna.txt"):
+        assert p.is_file(), p
+    cs = build.RUNNER_CS.read_text(encoding="utf-8")
+    assert 'Name = "SmartassRun___HASH__"' in cs and 'Name = "SmartassPing___HASH__"' in cs
