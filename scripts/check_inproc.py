@@ -222,7 +222,7 @@ def item_date(b, c):
 
 def item_each(b, c):
     """The verb each (Task 2b): every sheet's name, visibility, tab colour and tables, an unreadable path, the defined
-    names that start with a prefix (case ignored), the chart sheets."""
+    names (a sheet's own among them), the chart sheets."""
     wbn = b.workbook(c["book"])
     wss = wbn.Worksheets
     ws1 = wss(1)
@@ -241,10 +241,10 @@ def item_each(b, c):
     wbn.Names.Add("Budget", "=3", False)
     data.Names.Add("Print_Area", "='Q1 Data'!$A$1:$B$3", False)
     wbn.Charts.Add(MISSING, data)
-    b.ret(b.verb("each", wss, ["Name", "Visible", "Tab.Color", "ListObjects.*.Name", "No.Such", "Range"], None),
+    b.ret(b.verb("each", wss, ["Name", "Visible", "Tab.Color", "ListObjects.*.Name", "No.Such", "Range"]),
           "sheets")
-    b.ret(b.verb("each", wbn.Names, ["Name", "Visible"], ["Data_Q", "lines_q"]), "names")
-    b.ret(b.verb("each", wbn.Charts, ["Name"], None), "charts")
+    b.ret(b.verb("each", wbn.Names, ["Name", "Visible"]), "names")
+    b.ret(b.verb("each", wbn.Charts, ["Name"]), "charts")
 
 
 def item_insert(b, c):
@@ -252,7 +252,7 @@ def item_insert(b, c):
     wbn = b.workbook(c["book"])
     wss = wbn.Worksheets
     wbn.Sheets.Add(MISSING, wss(wss.Count), MISSING, c["src2"])
-    b.ret(b.verb("each", wss, ["Name", "Visible"], None), "sheets")
+    b.ret(b.verb("each", wss, ["Name", "Visible"]), "sheets")
     b.ret(wbn.Worksheets("Ins B").Range("A1").Value2, "value")
 
 
@@ -297,7 +297,7 @@ def item_each_no_method(b, c):
     wss = b.workbook(c["book"]).Worksheets
     second = wss.Add(MISSING, wss(1))
     second.Name = "Second"
-    b.ret(b.verb("each", wss, ["Name", "Delete", "Calculate", "Visible"], None), "rows")
+    b.ret(b.verb("each", wss, ["Name", "Delete", "Calculate", "Visible"]), "rows")
     b.ret(wss.Count, "count")
 
 
@@ -733,7 +733,7 @@ def look_bench(app, raw) -> None:
             b.ret(b.app.International(3), "decimal separator")
 
         def walk(b, wbn):
-            b.ret(b.verb("each", wbn.Names, ["Name"], ["Data_Q", "Lines_Q"]), "names")
+            b.ret(b.verb("each", wbn.Names, ["Name"]), "names")
 
         def lookup(b, wbn):
             b.ret(b.verb("exist", wbn.Names, ["Data_Q61", "Lines_Q61_b0"], False), "names")

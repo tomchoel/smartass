@@ -217,3 +217,27 @@ def test_the_users_workbook_keeps_autosave_off_after_a_failure_too(job, monkeypa
         job(wb, ours=False)
     assert wb.AutoSaveOn is False and [s[:2] for s in _steps(wb) if s[0] == "AutoSaveOn"] == [("AutoSaveOn", False)]
     assert pipeline.AUTOSAVE_NOTE.format("book.xlsx") in str(e.value)
+
+
+def test_a_look_whose_outcome_is_unknown_turns_autosave_back_on_in_our_file(job, monkeypatch):
+    """Task 2c review Minor 4: the look's run failed with an unknown outcome (the add-in may have run it whole, the
+    AutoSave-off included): our own file gets AutoSave back on in the clean-up; the user's workbook is left as the
+    look may have left it, with no note (whether it was switched off cannot be told)."""
+    real, seen = runner.run, []
+
+    def run(app, b, *a, **k):
+        seen.append(b)
+        out = real(app, b, *a, **k)
+        if len(seen) == 1:
+            raise BatchError(None, "the batch in Excel", "the batch's outcome is unknown: no answer", where="inproc")
+        return out
+    monkeypatch.setattr(runner, "run", run)
+    wb = AutoSaveBook(True)
+    with pytest.raises(BatchError, match="unknown"):
+        job(wb, ours=True)
+    assert wb.AutoSaveOn is True and [s[:2] for s in _steps(wb)] == [("AutoSaveOn", False), ("AutoSaveOn", True)]
+    seen.clear()
+    wb = AutoSaveBook(True)
+    with pytest.raises(BatchError, match="unknown") as e:
+        job(wb, ours=False)
+    assert wb.AutoSaveOn is False and "AutoSave" not in str(e.value)

@@ -289,6 +289,18 @@ def test_taken_also_names_a_chart_sheet_and_a_defined_name_of_the_answer(t, buil
     assert fakexl.snapshot(t.wb) == before and not _events(t, "Sheets.Add")
 
 
+def test_move_in_into_a_batch_wants_the_name_check_before_it_or_the_names(t, built):
+    """Task 2c review Minor 1: recorded into a batch, move_in cannot read the defined names itself; it takes them
+    (names) or the index of the check the caller recorded first (free_at, movein.record_free), never neither."""
+    book = movein.read_book(t)
+    b = Batch()
+    with pytest.raises(ValueError, match="record_free"):
+        movein.move_in(t, built, "Sources", book=book, b=b)
+    assert b.to_dict()["ops"] == [] and t.sheets_added == []
+    free_at = movein.record_free(b, b.workbook(t.wb.Name), [s.name for s in built.tables])
+    assert movein.move_in(t, built, "Sources", book=book, b=b, free_at=free_at) > free_at
+
+
 def test_an_insert_that_fails_half_way_leaves_its_names_for_the_rollback(t, built, monkeypatch):
     """Excel may have put some of the file's sheets in before the insert failed: their names are in
     t.sheets_added already, so the rollback removes those that are there, and the workbook is as it was."""

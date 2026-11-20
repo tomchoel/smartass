@@ -44,12 +44,10 @@ Application. A value is a scalar, {"r": id}, {"grid": [[...], ...]}, {"list": [.
 are numbered in one sequence: ops first, then finally.
 
 The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs):
-    each(collection, paths, prefixes): for every item of the collection, in its order, the list of the values at each
-        path - dotted property names ("Tab.Color"), where "*" maps the rest of the path over the items of the
-        collection reached ("ListObjects.*.Name": the names of a sheet's tables). A value that cannot be read (Excel
-        refuses it, or it is a COM object or a date) is None; a busy Excel is not swallowed. prefixes: None, or a list
-        of texts; then only the items whose first path's value starts with one of them (case ignored) are given.
-        Every step of a path is a property read (never a method call: a method's name gives None), in both
+    each(collection, paths): for every item of the collection, in its order, the list of the values at each path -
+        dotted property names ("Tab.Color"), where "*" maps the rest of the path over the items of the collection
+        reached ("ListObjects.*.Name": the names of a sheet's tables). A value that cannot be read (Excel refuses it,
+        or it is a COM object or a date) is None; a busy Excel is not swallowed. Every step of a path is a property read (never a method call: a method's name gives None), in both
         executors.
     nudge(object, property, delta, above): the numeric property read and set to its value + delta, when above is
         None or the value is more than above (else left as it is); gives the value it ends with. A value that is no
@@ -75,7 +73,7 @@ import contextlib
 import math
 
 VERSION = 1
-VERBS: dict[str, int] = {"each": 3, "nudge": 4, "exist": 3}    # name -> number of arguments; both executors have
+VERBS: dict[str, int] = {"each": 2, "nudge": 4, "exist": 3}    # name -> number of arguments; both executors have
                                                                # each one (runner.py, Runner.cs)
 INT64 = 2 ** 63
 TEXT_MAX = 40                     # a string argument longer than this is shortened in an operation's text
@@ -316,11 +314,9 @@ def _number(v) -> bool:
 def _check_verb(name: str, args: tuple) -> None:
     """A verb's arguments checked when recorded, so both executors get only what they agree on."""
     if name == "each":
-        _, paths, prefixes = args
+        _, paths = args
         if not _texts(paths):
             raise ValueError("each: the paths are a non-empty list of names")
-        if prefixes is not None and not _texts(prefixes):
-            raise ValueError("each: the prefixes are None or a non-empty list of texts")
     elif name == "nudge":
         _, prop, delta, above = args
         if not (isinstance(prop, str) and prop) or not _number(delta) or not (above is None or _number(above)):

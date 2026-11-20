@@ -588,15 +588,9 @@ def _wire(v):
 
 
 # ------------------------------------------------------------------ verbs
-def _each(collection, paths, prefixes):
+def _each(collection, paths):
     """The verb each (batch.py's module docstring): [[the value at each path] for every item, in order]."""
-    keep = tuple(str(p).casefold() for p in prefixes) if prefixes else None
-    rows = []
-    for item in collection:
-        row = [_path(item, str(p).split(".")) for p in paths]
-        if keep is None or (isinstance(row[0], str) and row[0].casefold().startswith(keep)):
-            rows.append(row)
-    return rows
+    return [[_path(item, str(p).split(".")) for p in paths] for item in collection]
 
 
 def _path(obj, parts: list[str]):
@@ -711,7 +705,6 @@ def _exist(collection, keys, refuse):
     if refuse and found:
         raise _Failed(TAKEN + ", ".join(found))
     return found
-
 
 
 def _named(collection, key):

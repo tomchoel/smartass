@@ -565,10 +565,12 @@ class Look:
 def _look(job) -> Look:
     """The look batch: every read the job needs before it builds the file (not quiet: it only reads). Whether it
     switched AutoSave off goes to the job (job.paused) before any of its results is read, so a reader that fails
-    leaves the clean-up to switch it back on."""
+    leaves the clean-up to switch it back on. A run whose outcome is unknown (the add-in may have run the whole batch,
+    the AutoSave-off included) counts as paused in our own file, so the clean-up switches it on there; in the user's
+    workbook it is left as the look may have left it, without a note (whether it went off cannot be told)."""
     from .xl import movein, sheets, sources
     from .xl.inproc.batch import Batch
-    from .xl.inproc.runner import run
+    from .xl.inproc.runner import BatchError, run
     t = job.t
     b = Batch(quiet=False)
     wbn = b.workbook(job.name)
@@ -581,7 +583,12 @@ def _look(job) -> Look:
         b.ret(wbn.AutoSaveOn, "autosave")               # a local file or an Excel without AutoSave: nothing
         off_at = b.position
         wbn.AutoSaveOn = False                          # off while the job writes (see _save)
-    res = run(t.app, b)
+    try:
+        res = run(t.app, b)
+    except BatchError as e:
+        if (e.index is None or e.index >= off_at) and _is_ours(t):
+            job.paused = True                           # may be off now: the clean-up switches it on (our file)
+        raise
     v = res.values
     job.paused = bool(v.get("autosave")) and not any(i == off_at for i, _, _ in res.skipped)
     got = book(res)
@@ -682,7 +689,7 @@ def _sheet_names(t) -> set[str] | None:
     from .xl.jobs import book_name
     try:
         b = Batch(quiet=False)
-        b.ret(b.verb("each", b.workbook(book_name(t)).Worksheets, ["Name"], None), "names")
+        b.ret(b.verb("each", b.workbook(book_name(t)).Worksheets, ["Name"]), "names")
         return {str(n).casefold() for (n,) in run(t.app, b, limit=30, check=False).values["names"]}
     except Exception:   # noqa: BLE001
         return None
@@ -738,7 +745,7 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
         movein.record_park(b, wbn, parked, book)
         b.mark("park")
     after, first = _place(book, q) if parked is None else _parked_place(book, parked)
-    at = movein.move_in(t, built, after, first, book=book, b=b)
+    at = movein.move_in(t, built, after, first, book=book, b=b, free_at=free_at)
     b.mark("insert")
     job.built = built
     split = "insert"

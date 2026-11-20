@@ -189,7 +189,7 @@ def arrange_sheets(wb, mode: str = "full", activate: str | None = None) -> dict:
     app, name = com(lambda: (wb.Application, str(wb.Name)))
     rb = Batch(quiet=False)
     wbn = rb.workbook(name)
-    rb.ret(rb.verb("each", wbn.Worksheets, ["Name", "Visible", "Tab.Color"], None), "sheets")
+    rb.ret(rb.verb("each", wbn.Worksheets, ["Name", "Visible", "Tab.Color"]), "sheets")
     rb.ret(wbn.FullName, "book")
     with rb.attempt():
         rb.ret(wbn.ActiveSheet.Name, "active")

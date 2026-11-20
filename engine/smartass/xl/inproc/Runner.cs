@@ -393,7 +393,7 @@ public static class SmartassRunner___HASH__
     // each does): each, the one loop a batch has; nudge; exist.
     static object Verb(string name, object[] args)
     {
-        if (name == "each" && args.Length == 3) return Each(args[0], args[1] as object[], args[2]);
+        if (name == "each" && args.Length == 2) return Each(args[0], args[1] as object[]);
         if (name == "nudge" && args.Length == 4) return Nudge(args[0], Convert.ToString(args[1], Inv), args[2], args[3]);
         if (name == "exist" && args.Length == 3) return Exist(args[0], args[1] as object[], args[2]);
         throw new Exception("unknown verb '" + name + "'");
@@ -453,14 +453,11 @@ public static class SmartassRunner___HASH__
         return null;
     }
 
-    // each(collection, paths, prefixes): for every item (Count, then Item(1..Count)), the value at each dotted path
-    // ("*": the rest of the path over every item of the collection reached); null where it cannot be read. prefixes
-    // (null or a list): only the items whose first value starts with one of them, case ignored.
-    static object Each(object collection, object[] paths, object prefixes)
+    // each(collection, paths): for every item (Count, then Item(1..Count)), the value at each dotted path ("*": the
+    // rest of the path over every item of the collection reached); null where it cannot be read.
+    static object Each(object collection, object[] paths)
     {
         if (paths == null) throw new Exception("each: the paths are a list of names");
-        var keep = prefixes as object[];
-        if (prefixes != null && !(prefixes is DBNull) && keep == null) throw new Exception("each: the prefixes are a list");
         var split = new string[paths.Length][];
         for (int j = 0; j < paths.Length; j++) split[j] = Convert.ToString(paths[j], Inv).Split('.');
         int n = Convert.ToInt32(Invoke(collection, "Count", Get, new object[0]), Inv);
@@ -470,7 +467,7 @@ public static class SmartassRunner___HASH__
             object item = Invoke(collection, "Item", Get, new object[] { i });
             var row = new object[paths.Length];
             for (int j = 0; j < paths.Length; j++) row[j] = PathValue(item, split[j], 0);
-            if (keep == null || Starts(row.Length > 0 ? row[0] as string : null, keep)) rows.Add(row);
+            rows.Add(row);
         }
         return rows.ToArray();
     }
@@ -561,14 +558,6 @@ public static class SmartassRunner___HASH__
         double nx = x + Convert.ToDouble(delta, Inv);
         Invoke(obj, name, BindingFlags.SetProperty, new object[] { nx });
         return nx;
-    }
-
-    static bool Starts(string s, object[] prefixes)
-    {
-        if (s == null) return false;
-        foreach (object p in prefixes)
-            if (s.StartsWith(Convert.ToString(p, Inv), StringComparison.OrdinalIgnoreCase)) return true;
-        return false;
     }
 
     static object PathValue(object obj, string[] parts, int k)

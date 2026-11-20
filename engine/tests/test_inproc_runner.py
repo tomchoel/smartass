@@ -5,12 +5,12 @@ import os
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pythoncom
 import pytest
 import pywintypes
 import winerror
-from types import SimpleNamespace
 from win32com.client import dynamic
 
 from fakexl import Application, Workbook, count_com, snapshot
@@ -298,9 +298,9 @@ def test_each_reads_named_properties_of_every_item_and_none_where_one_cannot_be_
         ws.ListObjects.Add(1, ws.Range("A1:B2"), None, 1).Name = name
     b = Batch()
     wbn = b.workbook("book.xlsx")
-    b.ret(b.verb("each", wbn.Worksheets, ["Name", "Visible", "Tab.Color", "ListObjects.*.Name", "No.Such"], None),
+    b.ret(b.verb("each", wbn.Worksheets, ["Name", "Visible", "Tab.Color", "ListObjects.*.Name", "No.Such"]),
           "sheets")
-    b.ret(b.verb("each", wbn.Worksheets, ["Name", "Range"], None), "objects")
+    b.ret(b.verb("each", wbn.Worksheets, ["Name", "Range"]), "objects")
     res = runner.run(app, b)
     assert res.values["sheets"] == (("S", -1, 0x64381F, (), None), ("T", 0, False, ("Data_Q1", "Lines_Q1_b0"), None))
     assert res.values["objects"] == (("S", None), ("T", None))       # a COM object (here: a method) is no value
@@ -310,7 +310,7 @@ def test_each_never_calls_a_method_named_in_a_path(book):
     """Review I1: a path step is a property read; a method's name gives None and the method does not run."""
     app, wb = book
     b = Batch()
-    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets, ["Name", "Delete", "Calculate"], None), "rows")
+    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets, ["Name", "Delete", "Calculate"]), "rows")
     assert runner.run(app, b).values["rows"] == (("S", None, None), ("T", None, None))
     assert [s.Name for s in wb.order] == ["S", "T"] and not [e for e in app.events if e[1] == "Calculate"]
 
@@ -350,15 +350,6 @@ def test_a_quiet_batch_without_calculation_leaves_it_as_the_user_had_it(book):
         type(app).__setattr__ = real
     assert res.values == {"calc": -4105, "screen": False} and "Calculation" not in seen
     assert settings(app) == QUIET_OFF
-
-
-def test_each_with_prefixes_gives_only_the_items_whose_first_value_starts_with_one(book):
-    app, wb = book
-    for n in ("Data_Q4", "lines_q4_b0", "Budget", "smartass_sources"):
-        wb.Names.Add(n, "=1", False)
-    b = Batch()
-    b.ret(b.verb("each", b.workbook("book.xlsx").Names, ["Name"], ["Data_Q", "Lines_Q"]), "names")
-    assert runner.run(app, b).values["names"] == (("Data_Q4",), ("lines_q4_b0",))
 
 
 def test_exist_gives_the_keys_that_are_items_of_the_collection_case_ignored(book):
@@ -433,7 +424,7 @@ def test_each_does_not_swallow_a_busy_excel(book, monkeypatch):
             return "after the wait"
     wb.Worksheets("S").__dict__["Busy"] = [Busy()]
     b = Batch()
-    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets("S").Busy, ["Name"], None), "names")
+    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets("S").Busy, ["Name"]), "names")
     assert runner.run(app, b).values["names"] == (("after the wait",),) and len(calls) == 2
 
 
@@ -525,7 +516,7 @@ def properties(monkeypatch):
 def _each_names(app, wb, items):
     wb.Worksheets("S").__dict__["Items"] = items
     b = Batch()
-    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets("S").Items, ["Name"], None), "names")
+    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets("S").Items, ["Name"]), "names")
     return runner.run(app, b).values["names"]
 
 
@@ -555,7 +546,7 @@ def test_only_a_name_the_type_information_does_not_know_is_cached_as_no_property
         -2147319765, "Element not found.", None, None)})
     wb.Worksheets("S").__dict__["Items"] = [_Dispatch(ti)]
     b = Batch()
-    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets("S").Items, ["Name", "Nope"], None), "rows")
+    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets("S").Items, ["Name", "Nope"]), "rows")
     assert runner.run(app, b).values["rows"] == ((None, None),)        # the walk failed once: None, not cached
     assert properties == {(pywintypes.IID(IID_SHEET), "nope"): False}
     assert _each_names(app, wb, [_Dispatch(ti)]) == (("Sheet 1",),)    # asked again: a property

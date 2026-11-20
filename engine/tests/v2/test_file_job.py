@@ -424,8 +424,7 @@ def test_the_sheets_are_read_once_per_job(fake_target, calculated, monkeypatch):
     (re-review M5: 18 s over COM for 2 000 names) but looked up by the answer's table names, once, in the bring-in."""
     _job(_pre(), calculated)
     reads, real = [], runner.VERBS["each"]
-    monkeypatch.setitem(runner.VERBS, "each", lambda c, paths, prefixes: reads.append(list(paths))
-                        or real(c, paths, prefixes))
+    monkeypatch.setitem(runner.VERBS, "each", lambda c, paths: reads.append(list(paths)) or real(c, paths))
     asked, real_exist = [], runner.VERBS["exist"]
     monkeypatch.setitem(runner.VERBS, "exist", lambda c, keys, refuse: asked.append((list(keys), refuse))
                         or real_exist(c, keys, refuse))
@@ -730,6 +729,7 @@ def test_a_users_sheet_named_sources_in_another_case_is_found_and_left_alone(fak
     assert fakexl.sheet_state(src) == before and [n for n in names if n.lower() == "sources"] == ["sources"]
     assert "Sources SV" in names and not [w for w in out["warnings"] if "Sources" in w]
     assert out["checks"]["sheet_equals_model"] == "OK"
+
 
 def test_a_sources_sheet_whose_kind_cannot_be_read_is_not_taken_for_the_log(fake_target, calculated, monkeypatch):
     """Review M4: when the kind of an existing 'Sources' sheet cannot be read, the pull is not logged (a warning, as

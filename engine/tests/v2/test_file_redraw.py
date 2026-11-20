@@ -403,8 +403,7 @@ def test_a_follow_up_is_four_batches_and_reads_the_sheets_once(own_book, monkeyp
     """Look, bring in (the park, the insert, the moves, the finish), close out (the drop among the rest), save: one
     Excel run each, one jobs.com each through the COM executor and one for the workbook's name."""
     reads, real = [], runner.VERBS["each"]
-    monkeypatch.setitem(runner.VERBS, "each", lambda c, paths, prefixes: reads.append(list(paths))
-                        or real(c, paths, prefixes))
+    monkeypatch.setitem(runner.VERBS, "each", lambda c, paths: reads.append(list(paths)) or real(c, paths))
     calls = fakexl.count_com(monkeypatch)
     own_book.pre = _pre()
     out, timings = pipeline.with_timings(lambda h: pipeline.redraw_job(h, own_book.pre, 3, PATH))(H)

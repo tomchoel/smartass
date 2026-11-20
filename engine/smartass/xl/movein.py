@@ -123,8 +123,8 @@ def _own(t, record, quiet: bool = False):
 def record_book(b: Batch, wbn, key: str = "book") -> Callable[[Result], Book]:
     """The workbook's Book read in b: every worksheet's name, visibility, tab colour and tables (the verb each), the
     chart sheets' names, and the active sheet when the workbook is its Excel's active one."""
-    b.ret(b.verb("each", wbn.Worksheets, BOOK_PATHS, None), f"{key}.sheets")
-    b.ret(b.verb("each", wbn.Charts, ["Name"], None), f"{key}.charts")
+    b.ret(b.verb("each", wbn.Worksheets, BOOK_PATHS), f"{key}.sheets")
+    b.ret(b.verb("each", wbn.Charts, ["Name"]), f"{key}.charts")
     b.ret(wbn.FullName, f"{key}.full name")
     with b.attempt():                                # no active workbook: no active sheet to know
         b.ret(wbn.ActiveSheet.Name, f"{key}.active")
@@ -284,7 +284,7 @@ def file_parts(path) -> tuple[list[str], list[str]]:
 
 
 def move_in(t, built: BuiltFile, after: str | None, first: bool = False, book: Book | None = None,
-            names: list[str] | None = None, b: Batch | None = None) -> int | None:
+            names: list[str] | None = None, b: Batch | None = None, free_at: int | None = None) -> int | None:
     """Insert the built file's sheets into t.wb after the sheet named after (None: after the last sheet; first:
     before the first visible sheet instead, where sheets.add_sheet puts a sheet when no sheet is there to follow)
     with ONE Sheets.Add(Type:=path). A name of the answer already in the workbook is NameTaken, and a file holding
@@ -292,11 +292,15 @@ def move_in(t, built: BuiltFile, after: str | None, first: bool = False, book: B
     ValueError, all before anything is recorded. The names are added to t.sheets_added (what a rollback deletes)
     when the insert is recorded, so an insert that fails half-way is rolled back too. book: the workbook's sheets,
     told where the insert landed; names: which of the answer's table names are defined names (record_defined). Each
-    is read in a batch of its own when not given - except the names when the insert is recorded into b: the caller
-    has put record_free in b before anything it renames (pipeline._bring_in). Recorded into b, the index of the
-    insert operation there is returned (a failure before it inserted nothing); without b the insert runs in a quiet
-    batch of its own (None)."""
+    is read in a batch of its own when not given - except the names when the insert is recorded into b: then the
+    caller passes them, or records the check in b first (record_free, before anything it renames) and passes its
+    index as free_at (pipeline._bring_in); neither is a ValueError, before anything is recorded. Recorded into b,
+    the index of the insert operation there is returned (a failure before it inserted nothing); without b the insert
+    runs in a quiet batch of its own (None)."""
     wanted = [spec.name for spec in built.tables]
+    if b is not None and names is None and wanted and free_at is None:
+        raise ValueError("move_in into a batch needs the defined names (names) or the index of the check recorded "
+                         "before it (record_free's, as free_at)")
     if book is None or (names is None and b is None):
         rb = Batch(quiet=False)
         wbn = rb.workbook(book_name(t))
@@ -518,7 +522,7 @@ def restore(t, parked: Parked) -> None:
     batches of their own (the workbook's sheets and tables read, then the renames), also for an abandoned job. Every
     name is tried; a HostError then names those that could not go back (their name is taken or the sheet is gone)."""
     rb = Batch(quiet=False)
-    rb.ret(rb.verb("each", rb.workbook(book_name(t)).Worksheets, ["Name", "ListObjects.*.Name"], None), "inventory")
+    rb.ret(rb.verb("each", rb.workbook(book_name(t)).Worksheets, ["Name", "ListObjects.*.Name"]), "inventory")
     rows = run(t.app, rb, check=False).values["inventory"]
     have_sheets = {str(n).casefold(): str(n) for n, _ in rows}
     have_tables = {str(x).casefold(): str(n) for n, tables in rows for x in tables or () if x is not None}

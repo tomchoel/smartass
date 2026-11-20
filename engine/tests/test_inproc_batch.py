@@ -176,34 +176,36 @@ def test_attempt_marks_an_operation_whose_failure_does_not_stop_the_batch():
 
 
 def test_each_is_a_verb_and_another_is_refused():
-    """The file job's loops are one verb (Task 2b): each(collection, paths, prefixes); break_links went with the copy
-    (Task 2a)."""
+    """The file job's loops are one verb (Task 2b): each(collection, paths); break_links went with the copy (Task 2a)."""
     b = Batch()
-    rows = b.verb("each", b.workbook("Book1.xlsx").Worksheets, ["Name", "ListObjects.*.Name"], None)
+    rows = b.verb("each", b.workbook("Book1.xlsx").Worksheets, ["Name", "ListObjects.*.Name"])
     b.ret(rows, "rows")
-    assert ops(b)[2:] == [{"k": "verb", "name": "each", "args": [{"r": 2}, {"list": ["Name", "ListObjects.*.Name"]},
-                                                                  None], "as": 3},
+    assert ops(b)[2:] == [{"k": "verb", "name": "each", "args": [{"r": 2}, {"list": ["Name", "ListObjects.*.Name"]}],
+                           "as": 3},
                           {"k": "ret", "on": 3, "name": "rows"}]
     with pytest.raises(ValueError, match="verb"):
         Batch().verb("break_links", Batch().app, "smartass_build_1.xlsx")
 
 
 def test_the_verbs_arguments_are_checked_when_recorded():
-    """Review I1: each takes a non-empty list of names and None or a non-empty list of prefixes (the executors
-    disagreed on a text for paths and on an empty list); nudge a property name, a number, None or a number."""
-    assert VERBS == {"each": 3, "nudge": 4, "exist": 3}
+    """Review I1: each takes a non-empty list of names (the executors disagreed on a text for paths); nudge a property
+    name, a number, None or a number; exist a non-empty list of texts and True or False. Task 2c review Minor 6: each
+    has no prefixes any more (nothing used them once the names were looked up)."""
+    assert VERBS == {"each": 2, "nudge": 4, "exist": 3}
     b = Batch()
     wss = b.workbook("Book1.xlsx").Worksheets
-    for paths, prefixes in (("Name", None), ([], None), (["Name", ""], None), (["Name"], []), (["Name"], "Q")):
+    for paths in ("Name", [], ["Name", ""]):
         with pytest.raises(ValueError, match="each"):
-            b.verb("each", wss, paths, prefixes)
+            b.verb("each", wss, paths)
+    with pytest.raises(ValueError, match="no verb 'each' with 3 arguments"):
+        b.verb("each", wss, ["Name"], ["Data_Q"])
     for prop, delta, above in (("", 1, None), ("Top", "1", None), ("Top", True, None), ("Top", 1, "x")):
         with pytest.raises(ValueError, match="nudge"):
             b.verb("nudge", wss, prop, delta, above)
     for keys, refuse in (("Data_Q1", False), ([], False), (["Data_Q1", ""], False), (["Data_Q1"], None)):
         with pytest.raises(ValueError, match="exist"):
             b.verb("exist", wss, keys, refuse)
-    b.verb("each", wss, ["Name"], ["Data_Q"])
+    b.verb("each", wss, ["Name"])
     b.verb("nudge", wss, "Top", -10.0, 10.0)
     b.verb("exist", wss, ["Data_Q1"], True)
 
