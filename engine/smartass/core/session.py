@@ -31,20 +31,55 @@ def _sid(p) -> str:
 
 def info() -> dict:
     """{'id', 'project', 'cwd', 'client'} of this server's session (the relay ancestor; the server process itself if
-    none). client = the relay's parent process (the agent that started it), '' when unknown."""
+    none). client = the relay's parent process (the agent that started it), '' when unknown. Read once per process,
+    the parents from one snapshot of the process table (_ancestors)."""
     global _info
     if _info is None:
         me = psutil.Process()
-        relay = next((p for p in me.parents() if _alive_relay(p)), None)
+        relay = client = None
+        chain = _ancestors(me, _ppids())
+        for p in chain:
+            if _alive_relay(p):
+                relay, client = p, next(chain, None)
+                break
         p = relay or me
         cwd = _cwd(p) or os.getcwd()
-        _info = {"id": _sid(p), "cwd": cwd, "project": safe_name(Path(cwd).name), "client": _client(relay)}
+        _info = {"id": _sid(p), "cwd": cwd, "project": safe_name(Path(cwd).name), "client": _client(client)}
     return _info
 
 
-def _client(relay) -> str:
+def _ppids() -> dict[int, int]:
+    """{pid: parent pid} of every process, from one snapshot of the process table. psutil's Process.parents() takes a
+    fresh snapshot for every ancestor on Windows: 8 x 190 ms = 1.5 s on the first answer of every server start (live,
+    20.11.2026)."""
+    snapshot = getattr(psutil._psplatform, "ppid_map", None)
+    if snapshot is not None:
+        return snapshot()
+    return {p.pid: p.info["ppid"] for p in psutil.process_iter(["ppid"])}
+
+
+def _ancestors(me, ppids: dict[int, int]):
+    """me's parents, nearest first, as psutil's Process.parents() gives them, from the table ppids: a parent is a
+    process that still exists and was created no later than its child (an older pid reused by a younger process is
+    not one); pid 0, its own parent, ends it. Lazy: a process above the ones the caller asks for is never looked at."""
+    child, seen = me, {me.pid}
+    while True:
+        ppid = ppids.get(child.pid)
+        if ppid is None or ppid in seen:
+            return
+        try:
+            parent = psutil.Process(ppid)
+            if parent.create_time() > child.create_time():
+                return
+        except (psutil.Error, OSError):
+            return
+        yield parent
+        seen.add(ppid)
+        child = parent
+
+
+def _client(parent) -> str:
     try:
-        parent = relay.parent() if relay is not None else None
         return _sid(parent) if parent is not None else ""
     except (psutil.Error, OSError):
         return ""
