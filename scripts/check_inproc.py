@@ -16,7 +16,7 @@ SMARTASS_HOME points at that folder too, so the builds, markers and job files ne
 Prints OK / DIFF per check with the milliseconds per executor; exit 0 only when all are OK.
 
 Usage (from the repo root):
-    engine\.venv\Scripts\python.exe scripts\check_inproc.py [--runs 30]
+    engine\.venv\Scripts\python.exe scripts\check_inproc.py [--runs 30] [--look-bench]
 """
 import argparse
 import datetime as dt
@@ -323,6 +323,36 @@ def item_nudge(b, c):
     b.ret(ws.Columns(4).ColumnWidth, "width after")
 
 
+def _exist_book(b, c):
+    """A workbook with a defined name, a sheet's own name and a table, for the verb exist."""
+    wbn = b.workbook(c["book"])
+    ws = wbn.Worksheets(1)
+    ws.Range("A1:B3").Value2 = (("k", "v"), ("a", 1.0), ("b", 2.0))
+    ws.ListObjects.Add(1, ws.Range("A1:B3"), MISSING, 1).Name = "Data_Q1"
+    wbn.Names.Add("Data_Q2", "=1", False)
+    ws.Names.Add("Lines_Q2_b0", "=2", False)
+    return wbn
+
+
+def item_exist(b, c):
+    """Re-review M5: the verb exist looks names up instead of walking them - a defined name that is there, one that
+    is not, one in another case, a sheet's own name (Workbook.Names.Item finds the active sheet's own name, live
+    20.11.2026, but its Name is "Sheet1!...": not the workbook's) and a table's name (not in Names)."""
+    wbn = _exist_book(b, c)
+    b.ret(b.verb("exist", wbn.Names, ["Data_Q2", "Data_Q3", "data_q2", "Lines_Q2_b0", "Data_Q1"], False), "found")
+    b.ret(b.verb("exist", wbn.Names, ["Data_Q3"], True), "none taken")
+
+
+EXIST_EXPECTED = {"found": ("Data_Q2", "data_q2"), "none taken": ()}
+
+
+def item_exist_refuses(b, c):
+    """exist with refuse: the batch fails at it, before the write after it, naming the keys that are there."""
+    wbn = _exist_book(b, c)
+    b.verb("exist", wbn.Names, ["Data_Q3", "DATA_Q2", "Lines_Q2_b0"], True)
+    wbn.Worksheets(1).Range("D1").Value2 = "never"
+
+
 def item_screen_quiet(b, c):
     """Review M6: a quiet batch without calculation: the screen, events and alerts off, Calculation left alone."""
     b.ret(b.app.ScreenUpdating, "screen")
@@ -355,6 +385,8 @@ BATTERY = [  # name, record, quiet, the user's settings before[, the values Exce
     ("the look batch's reads", item_look_reads, True, USER),
     ("each never calls a method in a path", item_each_no_method, True, USER),
     ("the verb nudge (a label lifted after Calculate)", item_nudge, True, USER),
+    ("the verb exist (a lookup, case ignored)", item_exist, True, USER, EXIST_EXPECTED),
+    ("exist refusing stops the batch there", item_exist_refuses, True, USER),
     ("quiet without calculation", item_screen_quiet, "screen", USER),
     ("quiet=False", item_not_quiet, False, USER),
 ]
@@ -451,6 +483,9 @@ def battery(app, raw, sources) -> None:
             for side in (a, b):
                 if not side.get("message"):
                     diffs.append("no message")
+            taken = [side.get("message", "").rpartition(runner.TAKEN) for side in (a, b)]
+            if any(t[1] for t in taken) and taken[0][1:] != taken[1][1:]:       # exist's refusal: the same keys
+                diffs.append(f"refused keys: com {taken[0][2]!r}, inproc {taken[1][2]!r}")
         ok = not diffs
         detail = f"{a['ms']:9.1f} {b['ms']:14.1f}"
         if "error" in a:
@@ -665,6 +700,55 @@ def fixed_cost(app, raw, runs: int) -> None:
         wb.Close(False)
 
 
+def look_bench(app, raw) -> None:
+    """Re-review M5 (--look-bench): a workbook of 60 sheets and 2 000 defined names, in both executors - the look's
+    reads as pipeline._look records them (the names no longer among them), and beside it the walk over every name
+    the look made before against the lookup of an answer's table names the bring-in makes now (median of 3 runs;
+    over COM one run of each)."""
+    from smartass.xl import movein, sheets, sources
+    print()
+    wb = raw.Workbooks.Add()
+    name = str(wb.Name)
+    try:
+        config.INPROC = True
+        b = Batch()
+        wbn = b.workbook(name)
+        for i in range(59):
+            wbn.Worksheets.Add(MISSING, wbn.Worksheets(i + 1))
+        for i in range(2000):
+            wbn.Names.Add(f"Budget_{i}", f"=Sheet1!$A${i + 1}", False)
+        runner.run(app, b)
+
+        def look(b, wbn):
+            for record in (movein.record_book, movein.record_screen, movein.record_base, sources.record_kind,
+                           sheets.record_spec_rows):
+                record(b, wbn)
+            b.ret(b.app.International(3), "decimal separator")
+
+        def walk(b, wbn):
+            b.ret(b.verb("each", wbn.Names, ["Name"], ["Data_Q", "Lines_Q"]), "names")
+
+        def lookup(b, wbn):
+            b.ret(b.verb("exist", wbn.Names, ["Data_Q61", "Lines_Q61_b0"], False), "names")
+        for executor in ("inproc", "com"):
+            config.INPROC = executor == "inproc"
+            line = []
+            for what, record in (("the look", look), ("names walked (before)", walk),
+                                 ("names looked up (now)", lookup)):
+                ts = []
+                for _ in range(3 if executor == "inproc" else 1):
+                    b = Batch(quiet=False)
+                    record(b, b.workbook(name))
+                    t0 = time.perf_counter()
+                    res = runner.run(app, b)
+                    ts.append((time.perf_counter() - t0) * 1000)
+                line.append(f"{what} {statistics.median(ts):8.1f} ms ({res.where})")
+            print(f"60 sheets, 2 000 names, {executor:<6}: " + "   ".join(line))
+    finally:
+        config.INPROC = True
+        wb.Close(False)
+
+
 def write_sources() -> dict:
     """The source workbooks: the copy item opens src1, the insert item inserts src2: {"src1": .., "src2": ..}."""
     import openpyxl
@@ -687,6 +771,8 @@ def write_sources() -> dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--runs", type=int, default=30, help="empty batches per executor for the fixed cost (median)")
+    ap.add_argument("--look-bench", action="store_true", help="also time the look and the names with 2 000 defined "
+                    "names and 60 sheets, in both executors (over COM: about 20 s)")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
     logging.basicConfig(level=logging.WARNING, format="  log %(levelname)s %(message)s")
@@ -707,6 +793,8 @@ def main(argv=None) -> int:
             return 1
         battery(app, raw, sources)
         fixed_cost(app, raw, args.runs)
+        if args.look_bench:
+            look_bench(app, raw)
         guard_checks(app, raw, ex)
         addin_checks(app, raw, pid, ctime, ex)
         detector_check(raw, pid, ctime)

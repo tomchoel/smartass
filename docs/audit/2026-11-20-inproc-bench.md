@@ -130,3 +130,19 @@ operations. The file is also stamped 2-11 s after a save at times of OneDrive's 
 The look with 2 000 defined names and 60 sheets (a hidden Excel; review M5): in-process 35 ms, over COM 18.3 s (the
 `each` walk over every name is one or more cross-process calls per name). In-process it stays under the 100 ms bar;
 over COM (the fallback) such a workbook pays seconds per answer.
+
+Task 2c (re-review 2 of Task 2b) took the names out of the look: the bring-in batch looks up the answer's own table
+names (the verb `exist`, one `Item` per name) instead of walking every name, and the property check of `each`'s
+path steps is cached per interface IID, so a cached step costs no call to Excel. Measured again with 2 000 defined
+names and 60 sheets (`scripts/check_inproc.py --look-bench`, a hidden Excel, 20.11.2026; in-process the median of 3
+runs, over COM one run):
+
+| | in-process | over COM |
+|---|---|---|
+| the look (without the names now) | 16.9 ms | 675 ms |
+| the walk over every name the look made before | 37.0 ms | 5 053 ms |
+| the lookup of an answer's two table names (now) | 12.2 ms | 8.6 ms |
+
+The walk over COM is 5.1 s now against 18.3 s before (the property check no longer asks the type of every item);
+the job no longer makes it. Over COM the look's 675 ms is mostly, by its make-up, the walk over the 60 sheets (four
+paths each; not timed apart).

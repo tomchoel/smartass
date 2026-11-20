@@ -191,7 +191,7 @@ def test_each_is_a_verb_and_another_is_refused():
 def test_the_verbs_arguments_are_checked_when_recorded():
     """Review I1: each takes a non-empty list of names and None or a non-empty list of prefixes (the executors
     disagreed on a text for paths and on an empty list); nudge a property name, a number, None or a number."""
-    assert VERBS == {"each": 3, "nudge": 4}
+    assert VERBS == {"each": 3, "nudge": 4, "exist": 3}
     b = Batch()
     wss = b.workbook("Book1.xlsx").Worksheets
     for paths, prefixes in (("Name", None), ([], None), (["Name", ""], None), (["Name"], []), (["Name"], "Q")):
@@ -200,8 +200,12 @@ def test_the_verbs_arguments_are_checked_when_recorded():
     for prop, delta, above in (("", 1, None), ("Top", "1", None), ("Top", True, None), ("Top", 1, "x")):
         with pytest.raises(ValueError, match="nudge"):
             b.verb("nudge", wss, prop, delta, above)
+    for keys, refuse in (("Data_Q1", False), ([], False), (["Data_Q1", ""], False), (["Data_Q1"], None)):
+        with pytest.raises(ValueError, match="exist"):
+            b.verb("exist", wss, keys, refuse)
     b.verb("each", wss, ["Name"], ["Data_Q"])
     b.verb("nudge", wss, "Top", -10.0, 10.0)
+    b.verb("exist", wss, ["Data_Q1"], True)
 
 
 def test_a_quiet_batch_may_leave_calculation_alone():

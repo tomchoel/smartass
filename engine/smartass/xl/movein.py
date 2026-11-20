@@ -2,13 +2,13 @@
 as operations recorded into batches (xl/inproc/batch.py) that run in one go inside Excel (xl/inproc/runner.py).
 
 The file job's batches (pipeline._file_draw): look - the reads the build needs (record_book, record_screen,
-record_base, record_names); bring in - (a follow-up: park) the insert, the moves, then finish: the tables, the
-formula blocks, the labels' position and colour (fix_labels), the calculation and the labels' lifts (lift_labels),
-and the reads the close-out needs; close out - status, heights, (a follow-up: drop), Sources, spec, sheet order. A
-function given a batch
-records into it; given none it builds and runs its own (read_book, base, move_in, finish, calculate, park, drop: the
-tests and scripts/check_insert.py use them so). restore and land always run their own: they clean up after a failure,
-also for an abandoned job.
+record_base); bring in - the answer's table names checked against the workbook's defined names (record_free: a
+lookup of those names, the batch's first operation), (a follow-up: park) the insert, the moves, then finish: the
+tables, the formula blocks, the labels' position and colour (fix_labels), the calculation and the labels' lifts
+(lift_labels), and the reads the close-out needs; close out - status, heights, (a follow-up: drop), Sources, spec,
+sheet order. A function given a batch records into it; given none it builds and runs its own (read_book, base,
+move_in, finish, calculate, park, drop: the tests and scripts/check_insert.py use them so). restore and land always
+run their own: they clean up after a failure, also for an abandoned job.
 
 move_in inserts every sheet of the temporary file (render/xlsx.build) with ONE Sheets.Add(Type:=<its path>): no
 workbook is opened, nothing is copied or closed, and the insert leaves no link to the file (scripts/check_insert.py
@@ -65,7 +65,6 @@ PAINT_PAUSE = config.PAINT_PAUSE_S       # s (SV_PAINT_PAUSE, default 0.15): the
                                         # its chart whole in 0.15 s after the batch that brings it in (0.04: half
                                         # painted, measured by window captures 20.11.2026)
 BOOK_PATHS = ["Name", "Visible", "Tab.Color", "ListObjects.*.Name"]
-TABLE_PREFIXES = ["Data_Q", "Lines_Q"]  # an answer's tables (Data_Q<q>, Lines_Q<q>_<alias>): the defined names read
 
 
 class NameTaken(InputError):
@@ -206,17 +205,38 @@ def date_format(sep: str, order, month_zero: bool, day_zero: bool, century: bool
     return "dd/mm/yyyy" if sep == "." else "dd.mm.yyyy"
 
 
-def record_names(b: Batch, wbn, key: str = "names") -> Callable[[Result], list[str]]:
-    """The workbook's defined names that an answer's table could want (TABLE_PREFIXES: a table cannot take a defined
-    name), read in b."""
-    b.ret(b.verb("each", wbn.Names, ["Name"], TABLE_PREFIXES), key)
-    return lambda res: [str(n) for (n,) in res.values[key] if n is not None]
+def record_defined(b: Batch, wbn, tables: list[str], key: str = "defined") -> Callable[[Result], list[str]]:
+    """Which of these table names the workbook has as defined names (a table cannot take one), read in b: a lookup
+    of each (the verb exist), not a walk over every name - 18 s over COM for 2 000 names (re-review M5)."""
+    b.ret(b.verb("exist", wbn.Names, list(tables), False), key)
+    return lambda res: [str(n) for n in res.values[key]]
+
+
+def record_free(b: Batch, wbn, tables: list[str]) -> int | None:
+    """The check that none of these table names is a defined name of the workbook, recorded in b (the verb exist
+    with refuse): one that is fails the batch right there, so it goes before anything the batch renames or inserts.
+    Returns its index for name_taken (None: no names, nothing recorded)."""
+    if not tables:
+        return None
+    b.verb("exist", wbn.Names, list(tables), True)
+    return b.position - 1
+
+
+def name_taken(e: BaseException, at: int | None, book: str) -> NameTaken | None:
+    """The NameTaken of a batch that failed at the check record_free put at index at (the names Excel found, from
+    the refusal's text, which both executors write the same: runner.TAKEN and the names); None for any other
+    failure."""
+    from .inproc.runner import TAKEN, BatchError
+    if at is None or not (isinstance(e, BatchError) and e.index == at and TAKEN in e.message):
+        return None
+    names = e.message.rpartition(TAKEN)[2].split(", ")
+    return NameTaken(_taken_text([f"the name '{n}'" for n in names], book))
 
 
 def taken(book: Book, sheets: list[str], tables: list[str], names: list[str]) -> list[str]:
     """What of these names the workbook already has, each as it reads in a message ("the sheet 'Q5 Data'"): a sheet
-    or chart sheet of an answer sheet's name, a table or defined name (names: record_names) of a table's name (names
-    compare without case, as in Excel; a table name is taken on any sheet)."""
+    or chart sheet of an answer sheet's name, a table or defined name (names: record_defined) of a table's name
+    (names compare without case, as in Excel; a table name is taken on any sheet)."""
     want_sheets, want_tables = {s.casefold() for s in sheets}, {n.casefold() for n in tables}
     return ([f"the sheet '{n}'" for n in book.names() if n.casefold() in want_sheets]
             + [f"the chart sheet '{n}'" for n in book.charts if n.casefold() in want_sheets]
@@ -270,19 +290,22 @@ def move_in(t, built: BuiltFile, after: str | None, first: bool = False, book: B
     with ONE Sheets.Add(Type:=path). A name of the answer already in the workbook is NameTaken, and a file holding
     other sheets than built.sheets in that order (the insert brings every sheet of the file) or a table is a
     ValueError, all before anything is recorded. The names are added to t.sheets_added (what a rollback deletes)
-    when the insert is recorded, so an insert that fails half-way is rolled back too. book / names (else read in a
-    batch of their own): the workbook's sheets, told where the insert landed, and its defined names (record_names).
-    Recorded into b, the index of the insert operation there is returned (a failure before it inserted nothing);
-    without b the insert runs in a quiet batch of its own (None)."""
-    if book is None or names is None:
+    when the insert is recorded, so an insert that fails half-way is rolled back too. book: the workbook's sheets,
+    told where the insert landed; names: which of the answer's table names are defined names (record_defined). Each
+    is read in a batch of its own when not given - except the names when the insert is recorded into b: the caller
+    has put record_free in b before anything it renames (pipeline._bring_in). Recorded into b, the index of the
+    insert operation there is returned (a failure before it inserted nothing); without b the insert runs in a quiet
+    batch of its own (None)."""
+    wanted = [spec.name for spec in built.tables]
+    if book is None or (names is None and b is None):
         rb = Batch(quiet=False)
         wbn = rb.workbook(book_name(t))
         get_book = record_book(rb, wbn) if book is None else None
-        get_names = record_names(rb, wbn) if names is None else None
+        get_names = record_defined(rb, wbn, wanted) if names is None and b is None and wanted else None
         res = run(t.app, rb)
         book = book if book is not None else get_book(res)
-        names = names if names is not None else get_names(res)
-    found = taken(book, built.sheets, [spec.name for spec in built.tables], names)
+        names = names if get_names is None else get_names(res)
+    found = taken(book, built.sheets, wanted, names or [])
     if found:
         raise NameTaken(_taken_text(found, book_name(t)))
     sheets, tables = file_parts(built.path)

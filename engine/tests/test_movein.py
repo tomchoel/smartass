@@ -257,9 +257,9 @@ def test_a_taken_name_stops_before_anything_is_inserted(t, built, leftover):    
     assert fakexl.snapshot(t.wb) == before and t.sheets_added == [] and not _events(t, "Sheets.Add")
 
 
-def _names_read(t) -> list[str]:
+def _names_read(t, keys) -> list[str]:
     b = Batch(quiet=False)
-    get = movein.record_names(b, b.workbook(t.wb.Name))
+    get = movein.record_defined(b, b.workbook(t.wb.Name), keys)
     return get(runner.run(t.app, b))
 
 
@@ -273,13 +273,14 @@ def test_taken_names_every_sheet_and_table_already_there(t):
 
 
 def test_taken_also_names_a_chart_sheet_and_a_defined_name_of_the_answer(t, built):
-    """The defined names a table could want are read in the look batch (each, by prefix: Task 2a review Minor 3),
-    not in a call of their own."""
+    """The defined names a table could want are looked up by the answer's table names (the verb exist: re-review
+    M5, no walk over every name), in the batch that reads the Book."""
     t.wb.Charts.append(SimpleNamespace(Name="q3 answer"))
     t.wb.Names.Add(Name="Data_Q3", RefersTo="=Notes!$A$1")
     t.wb.Names.Add(Name="Budget", RefersTo="=Notes!$A$2")
-    names = _names_read(t)
-    assert names == ["Data_Q3"]
+    names = _names_read(t, ["data_q3", "Lines_Q3_b0"])
+    assert names == ["data_q3"]
+    names = _names_read(t, ["Data_Q3", "Lines_Q3_b0"])
     assert movein.taken(movein.read_book(t), SHEETS, ["Data_Q3", "Lines_Q3_b0"], names) == [
         "the chart sheet 'q3 answer'", "the name 'Data_Q3'"]
     before = fakexl.snapshot(t.wb)

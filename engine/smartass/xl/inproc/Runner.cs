@@ -29,6 +29,7 @@ public static class SmartassRunner___HASH__
     const string Unbound = "no object {0}: the operation that makes it failed or did not run";
     const string NotAValue = "a COM object cannot be asked back";
     const string NotADate = "a date cannot be asked back (read Value2)";
+    const string Taken = "taken: ";                            // the verb exist's refusal, as runner.TAKEN
     static readonly string[] QuietNames = { "ScreenUpdating", "EnableEvents", "DisplayAlerts", "Calculation" };
     static readonly object[] QuietValues = { false, false, false, -4135 };
     const BindingFlags Get = BindingFlags.GetProperty | BindingFlags.InvokeMethod;
@@ -389,12 +390,41 @@ public static class SmartassRunner___HASH__
 
     // ------------------------------------------------------------------ verbs
     // Named steps an operation list cannot say (batch.VERBS, runner.VERBS; batch.py's module docstring says what
-    // each does): each, the one loop a batch has.
+    // each does): each, the one loop a batch has; nudge; exist.
     static object Verb(string name, object[] args)
     {
         if (name == "each" && args.Length == 3) return Each(args[0], args[1] as object[], args[2]);
         if (name == "nudge" && args.Length == 4) return Nudge(args[0], Convert.ToString(args[1], Inv), args[2], args[3]);
+        if (name == "exist" && args.Length == 3) return Exist(args[0], args[1] as object[], args[2]);
         throw new Exception("unknown verb '" + name + "'");
+    }
+
+    // exist(collection, keys, refuse): the keys that name an item of the collection (Item(key) does not fail and the
+    // item's Name is the key, case ignored), in the keys' order; with refuse true a key that is there fails the
+    // operation instead (Taken and those keys).
+    static object Exist(object collection, object[] keys, object refuse)
+    {
+        if (keys == null) throw new Exception("exist: the keys are a list of texts");
+        var found = new List<object>();
+        foreach (object key in keys)
+        {
+            object name;
+            try
+            {
+                object item = Invoke(collection, "Item", Get, new object[] { key });
+                name = Invoke(item, "Name", BindingFlags.GetProperty, new object[0]);
+            }
+            catch (Exception) { continue; }                       // not an item
+            if (string.Equals(name as string, Convert.ToString(key, Inv), StringComparison.OrdinalIgnoreCase))
+                found.Add(key);
+        }
+        if (Equals(refuse, true) && found.Count > 0)
+        {
+            var parts = new string[found.Count];
+            for (int i = 0; i < found.Count; i++) parts[i] = Convert.ToString(found[i], Inv);
+            throw new Exception(Taken + string.Join(", ", parts));
+        }
+        return found.ToArray();
     }
 
     // each(collection, paths, prefixes): for every item (Count, then Item(1..Count)), the value at each dotted path

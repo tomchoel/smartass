@@ -361,6 +361,50 @@ def test_each_with_prefixes_gives_only_the_items_whose_first_value_starts_with_o
     assert runner.run(app, b).values["names"] == (("Data_Q4",), ("lines_q4_b0",))
 
 
+def test_exist_gives_the_keys_that_are_items_of_the_collection_case_ignored(book):
+    """Re-review M5: the job asks only for the names it is about to use (Item(key) succeeding), not every name."""
+    app, wb = book
+    for n in ("Data_Q4", "Budget"):
+        wb.Names.Add(n, "=1", False)
+    wb.Worksheets("S").Names.Add("Lines_Q4_b0", "=2", False)          # a sheet's own name: not the workbook's
+    wb.Names.items["Lines_Q4_b1"] = SimpleNamespace(Name="S!Lines_Q4_b1")
+    b = Batch()                     # (Excel's Workbook.Names finds the active sheet's own name too: by its Name, not)
+    names = b.workbook("book.xlsx").Names
+    b.ret(b.verb("exist", names, ["data_q4", "Lines_Q4_b0", "Lines_Q4_b1", "Data_Q5"], False), "found")
+    b.ret(b.verb("exist", names, ["Data_Q5"], True), "none")
+    assert runner.run(app, b).values == {"found": ("data_q4",), "none": ()}
+
+
+def test_exist_with_refuse_fails_the_batch_there_naming_the_keys(book):
+    app, wb = book
+    wb.Names.Add("Data_Q4", "=1", False)
+    wb.Names.Add("Lines_Q4_b1", "=1", False)
+    b = Batch()
+    b.verb("exist", b.workbook("book.xlsx").Names, ["Data_Q4", "Lines_Q4_b0", "lines_q4_b1"], True)
+    at = b.position - 1
+    b.workbook("book.xlsx").Worksheets("S").Name = "never"
+    with pytest.raises(runner.BatchError) as e:
+        runner.run(app, b)
+    assert e.value.index == at and e.value.message.endswith(runner.TAKEN + "Data_Q4, lines_q4_b1")
+    assert [s.Name for s in wb.order] == ["S", "T"]
+
+
+def test_exist_does_not_take_a_busy_excel_for_a_missing_key(book, monkeypatch):
+    app, wb = book
+    wb.Names.Add("Data_Q4", "=1", False)
+    real, calls = type(wb.Names).Item, []
+
+    def item(self, key):
+        calls.append(key)
+        if len(calls) == 1:
+            raise REJECTED
+        return real(self, key)
+    monkeypatch.setattr(type(wb.Names), "Item", item)
+    b = Batch()
+    b.ret(b.verb("exist", b.workbook("book.xlsx").Names, ["Data_Q4"], False), "found")
+    assert runner.run(app, b).values["found"] == ("Data_Q4",) and calls == ["Data_Q4", "Data_Q4"]
+
+
 def test_each_does_not_swallow_a_busy_excel(book, monkeypatch):
     app, wb = book
     busy = pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)

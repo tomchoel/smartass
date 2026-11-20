@@ -409,7 +409,7 @@ def test_a_follow_up_is_four_batches_and_reads_the_sheets_once(own_book, monkeyp
     own_book.pre = _pre()
     out, timings = pipeline.with_timings(lambda h: pipeline.redraw_job(h, own_book.pre, 3, PATH))(H)
     assert _batches(timings) == BATCHES and len(calls) == 5 and out["checks"]["sheet_equals_model"] == "OK"
-    assert reads == [movein.BOOK_PATHS, ["Name"], ["Name"]]
+    assert reads == [movein.BOOK_PATHS, ["Name"]]
 
 
 def test_a_failed_follow_up_rolls_back_before_it_restores_and_never_after(own_book, monkeypatch):
@@ -461,6 +461,20 @@ def test_a_table_name_taken_elsewhere_is_refused_and_the_old_answer_stays(own_bo
     with pytest.raises(movein.NameTaken, match="Lines_Q2_b0"):
         own_book.follow_up(_lines_pre(), 2)
     assert fakexl.snapshot(wb) == before
+
+
+def test_a_defined_name_a_follow_ups_new_table_wants_is_refused_before_the_park(own_book, monkeypatch):
+    """Re-review M5: the names check is the bring-in batch's first operation, before the park: the old answer keeps
+    its names, nothing is rolled back or restored, and the error is the NameTaken of before."""
+    wb = own_book.wb
+    wb.Names.Add("Lines_Q2_b0", "=Notes!$A$1", False)
+    before = fakexl.snapshot(wb)
+    seen = []
+    monkeypatch.setattr(movein, "restore", lambda t, parked: seen.append("restore"))
+    with pytest.raises(movein.NameTaken, match="the name 'Lines_Q2_b0' already exists") as e:
+        own_book.follow_up(_lines_pre(), 2)
+    assert not isinstance(e.value, pipeline.RestoreError) and seen == []
+    assert fakexl.snapshot(wb) == before and own_book.targets[-1].sheets_added == []
 
 
 # ------------------------------------------------------------------ which sheets belong to the question

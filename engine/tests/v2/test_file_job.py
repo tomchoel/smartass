@@ -420,13 +420,17 @@ def test_a_second_answer_into_the_workbook_is_four_batches(fake_target, calculat
 
 
 def test_the_sheets_are_read_once_per_job(fake_target, calculated, monkeypatch):
-    """One walk over the sheets (the look's Book), one over the chart sheets, one over the defined names."""
+    """One walk over the sheets (the look's Book), one over the chart sheets; the defined names are not walked
+    (re-review M5: 18 s over COM for 2 000 names) but looked up by the answer's table names, once, in the bring-in."""
     _job(_pre(), calculated)
     reads, real = [], runner.VERBS["each"]
     monkeypatch.setitem(runner.VERBS, "each", lambda c, paths, prefixes: reads.append(list(paths))
                         or real(c, paths, prefixes))
+    asked, real_exist = [], runner.VERBS["exist"]
+    monkeypatch.setitem(runner.VERBS, "exist", lambda c, keys, refuse: asked.append((list(keys), refuse))
+                        or real_exist(c, keys, refuse))
     _job(_pre(), calculated)
-    assert reads == [movein.BOOK_PATHS, ["Name"], ["Name"]]
+    assert reads == [movein.BOOK_PATHS, ["Name"]] and asked == [(["Data_Q2"], True)]
 
 
 def _paints(monkeypatch, app) -> list:
@@ -634,16 +638,23 @@ def test_the_look_and_the_save_are_not_quiet_and_only_the_bring_in_sets_manual_c
     assert app.Calculation == -4105
 
 
-def test_a_defined_name_an_answer_table_wants_is_refused_from_the_look_alone(fake_target, calculated, monkeypatch):
-    """Task 2a review Minor 3: the defined names are read in the look batch (no call of their own), and a taken one
-    stops the job before the move-in batch: nothing is inserted."""
-    fake_target.wb.Names.Add("Data_Q1", "=Sources!$A$1", False)
+def test_a_defined_name_an_answer_table_wants_stops_the_bring_in_before_anything(fake_target, calculated,
+                                                                                 monkeypatch):
+    """Re-review M5: the answer's table names are looked up as the bring-in batch's first operation (a new answer's
+    number comes from the look); one that is taken fails the batch there - before anything is inserted - and is the
+    NameTaken it was, with its text; no clean-up batch is needed (nothing came in)."""
+    fake_target.wb.Names.Add("data_q1", "=Sources!$A$1", False)
     before = fakexl.snapshot(fake_target.wb)
     runs = _runs(monkeypatch)
-    with pytest.raises(movein.NameTaken, match="the name 'Data_Q1'"):
+    with pytest.raises(movein.NameTaken) as e:
         _job(_pre(), calculated)
-    assert len(runs) == 1 and fakexl.snapshot(fake_target.wb) == before and fake_target.sheets_added == []
+    assert str(e.value) == (f"the name 'Data_Q1' already exists in {fake_target.wb.Name}: rename or delete it, then "
+                            "ask again")
+    assert len(runs) == 2 and fakexl.snapshot(fake_target.wb) == before and fake_target.sheets_added == []
     assert not [e for e in fake_target.app.events if e[1] == "Sheets.Add"]
+    ops = runs[1].to_dict()["ops"]
+    first = next(i for i, op in enumerate(ops) if op["k"] in ("set", "verb") or op["name"] == "Add")
+    assert ops[first]["k"] == "verb" and ops[first]["name"] == "exist"
 
 
 def test_a_frozen_header_excel_refuses_is_undone_and_no_warning(fake_target, calculated, monkeypatch):

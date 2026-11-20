@@ -564,6 +564,13 @@ class _Names:
             raise ComError(f"no name {name}")
         return self.items[name]
 
+    def Item(self, name):
+        """As Excel: a name is found without case."""
+        for key, item in self.items.items():
+            if key.lower() == str(name).lower():
+                return item
+        raise ComError(f"no name {name}")
+
     def __iter__(self):
         return iter(list(self.items.values()))
 

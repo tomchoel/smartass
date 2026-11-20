@@ -48,17 +48,19 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    without Excel (`render/xlsx.py`, charts `render/xlsx_charts.py` on the rules of `render/charts.py`) from a pure
    `render/layout.py` plan - `Q<n> Answer` (its look: `render/look.py`), `Q<n> Data`, `Q<n> Lines <alias>` for
    drills - under `%LOCALAPPDATA%\smartass\tmp`. Its Excel work is recorded as **batches** of operations
-   (`xl/inproc/batch.py`: get / call / set on named objects, one verb `each` for the only loop, a `finally`
-   list), and each batch runs in one go inside Excel (`xl/inproc/runner.py`: one `Application.Run` into a small
-   Excel-DNA add-in, `Runner.cs`, built on first use and loaded once per Excel process) or, where the add-in cannot
-   load or `SV_INPROC=0`, over COM from Python - the same operations, the same workbook. Three batches and a save
-   (`pipeline._file_draw`): **look** (every read the build needs: the sheets and tables, the base, which workbook
-   is active, the kind of a Sources sheet, the stored specs' keys, the defined names a table could want; then
-   AutoSave off while the job writes); **bring in** (a follow-up's old sheets parked, the file's sheets inserted with
-   one `Sheets.Add(Type:=<the file's path>)` - no workbook opened, nothing copied, no link left; proved equal to the
-   Open + Copy + Close it replaced by `scripts/check_insert.py` - and moved to their places, then `xl/movein.py`'s
-   finish: the tables `Data_Q<n>` / `Lines_Q<n>_<alias>`, the formulas, the chart labels' position, calculate, the
-   labels' lift, and the reads the close-out needs: the read-back block, the status cells; the Answer active);
+   (`xl/inproc/batch.py`: get / call / set on named objects, the verbs `each` for the only loop, `nudge` and
+   `exist`, a `finally` list), and each batch runs in one go inside Excel (`xl/inproc/runner.py`: one
+   `Application.Run` into a small Excel-DNA add-in, `Runner.cs`, built on first use and loaded once per Excel
+   process) or, where the add-in cannot load or `SV_INPROC=0`, over COM from Python - the same operations, the
+   same workbook. Three batches and a save (`pipeline._file_draw`): **look** (every read the build needs: the
+   sheets and tables, the base, which workbook is active, the kind of a Sources sheet, the stored specs' keys; then
+   AutoSave off while the job writes); **bring in** (the answer's table names looked up among the defined names
+   first, a lookup per name - a new answer's number comes from the look - then a follow-up's old sheets parked, the
+   file's sheets inserted with one `Sheets.Add(Type:=<the file's path>)` - no workbook opened, nothing copied, no
+   link left; proved equal to the Open + Copy + Close it replaced by `scripts/check_insert.py` - and moved to their
+   places, then `xl/movein.py`'s finish: the tables `Data_Q<n>` / `Lines_Q<n>_<alias>`, the formulas, the chart
+   labels' position, calculate, the labels' lift, and the reads the close-out needs: the read-back block, the status
+   cells; the Answer active);
    **close out** (the 'Sheet = model' status (`render/readback.py`), Key point heights and page breaks, a
    follow-up's old sheets dropped, the Sources log (`xl/sources.py`), the spec in hidden `_svmeta`, sheet order
    (`xl/sheetorder.py`)); then the save (our files only, AutoSave back on). Every quiet batch puts the user's

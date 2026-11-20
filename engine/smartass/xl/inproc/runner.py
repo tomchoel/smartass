@@ -71,6 +71,7 @@ OMITTED = pythoncom.ArgNotFound         # MISSING: sent as DISP_E_PARAMNOTFOUND,
 UNBOUND = "no object {}: the operation that makes it failed or did not run"
 NOT_A_VALUE = "a COM object cannot be asked back"
 NOT_A_DATE = "a date cannot be asked back (read Value2)"
+TAKEN = "taken: "                        # how the verb exist's refusal ends: these keys, ", " between
 METHOD_OR_GET = pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET
 
 
@@ -691,4 +692,24 @@ def _nudge(obj, name: str, delta, above):
     return new
 
 
-VERBS: dict = {"each": _each, "nudge": _nudge}    # name -> function(*args); both executors have each (batch.VERBS)
+def _exist(collection, keys, refuse):
+    """The verb exist (batch.py's module docstring): the keys that name an item of the collection, in order; with
+    refuse a key that is there fails the operation (TAKEN and the keys). A busy Excel goes on up (the verb is run
+    again)."""
+    found = []
+    for key in keys:
+        try:
+            name = getattr(_call(collection, "Item", [key]), "Name")
+        except Exception as e:   # noqa: BLE001 - not an item
+            if is_busy(e):
+                raise
+            continue
+        if isinstance(name, str) and name.casefold() == str(key).casefold():
+            found.append(key)
+    if refuse and found:
+        raise _Failed(TAKEN + ", ".join(found))
+    return found
+
+
+VERBS: dict = {"each": _each, "nudge": _nudge, "exist": _exist}    # name -> function(*args); both executors have
+                                                                   # each one (batch.VERBS, Runner.cs Verb)

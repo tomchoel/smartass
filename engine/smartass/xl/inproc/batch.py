@@ -54,6 +54,12 @@ The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs
     nudge(object, property, delta, above): the numeric property read and set to its value + delta, when above is
         None or the value is more than above (else left as it is); gives the value it ends with. A value that is no
         number fails the operation.
+    exist(collection, keys, refuse): the keys that name an item of the collection - Item(key) does not fail and the
+        item's Name is the key, case ignored (Excel's Workbook.Names.Item finds a name in any case, and at times the
+        active sheet's own name, whose Name is "Sheet!key": not the workbook's) - in the keys' order: a lookup per
+        key, not a walk over every item. With refuse True a key that is there fails the operation instead, its
+        message ending in "taken: " and those keys (", " between), so a batch stops there before it changes
+        anything. A busy Excel is not taken for a missing key.
 
 quiet=True turns ScreenUpdating, EnableEvents and DisplayAlerts off and Calculation to manual (each put back after
 the batch); with calculation=False Calculation is left alone - only a batch that writes formulas needs manual
@@ -65,7 +71,8 @@ import contextlib
 import math
 
 VERSION = 1
-VERBS: dict[str, int] = {"each": 3, "nudge": 4}    # name -> number of arguments; both executors have each (runner.py)
+VERBS: dict[str, int] = {"each": 3, "nudge": 4, "exist": 3}    # name -> number of arguments; both executors have
+                                                               # each one (runner.py, Runner.cs)
 INT64 = 2 ** 63
 TEXT_MAX = 40                     # a string argument longer than this is shortened in an operation's text
 
@@ -314,6 +321,10 @@ def _check_verb(name: str, args: tuple) -> None:
         _, prop, delta, above = args
         if not (isinstance(prop, str) and prop) or not _number(delta) or not (above is None or _number(above)):
             raise ValueError("nudge: a property name, a number to add and None or a number to be above")
+    elif name == "exist":
+        _, keys, refuse = args
+        if not _texts(keys) or not isinstance(refuse, bool):
+            raise ValueError("exist: the keys are a non-empty list of texts, refuse True or False")
 
 
 def _scalar(v):

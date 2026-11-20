@@ -10,9 +10,10 @@
   of dozens of cross-process calls. Where it cannot load (no compiler, a 32-bit Excel, a refused or blocked
   `RegisterXLL`) or `SV_INPROC=0` is set, the same batches run over COM, with one warning in the server log.
 - The file job is three batches and a save: look (every read the build needs: the sheets, the base, which workbook
-  is active, the Sources log's kind, the stored specs' keys, the defined names; then AutoSave off while the job
-  writes), bring in (a follow-up's park, the insert, the moves, the tables, the formulas, the chart labels, calculate,
-  the read-back, the Answer active), close out (status, Key point heights, a follow-up's drop, the Sources rows, the
+  is active, the Sources log's kind, the stored specs' keys; then AutoSave off while the job writes), bring in (the
+  answer's table names looked up among the defined names - a lookup per name, not a walk over every name - then a
+  follow-up's park, the insert, the moves, the tables, the formulas, the chart labels, calculate, the read-back, the
+  Answer active), close out (status, Key point heights, a follow-up's drop, the Sources rows, the
   spec, the sheet order) and the save of our own file with AutoSave back on (no save batch in the user's workbook,
   which is never saved). Each quiet batch puts the user's settings back itself, also when a step fails; only the one
   that writes the formulas sets Calculation to manual. After the bring-in batch the job pauses once (0.15 s,

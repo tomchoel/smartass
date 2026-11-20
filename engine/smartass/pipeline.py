@@ -549,13 +549,12 @@ def _refused_breaks(t, sheet: str, breaks: Breaks | None, res) -> None:
 @dataclass
 class Look:
     """What the look batch read (_look): the Book, the Excel around (movein.Screen), the destination's base, the
-    defined names a table could want, the kind of a 'Sources' sheet (sources_unread: there is one and its kind could
-    not be read - the log is then not written, with a warning, rather than taken for ours), where the specs are
-    (sheets.SpecRows), and the separators of the user's number formats (Application.International 3 and 4)."""
+    kind of a 'Sources' sheet (sources_unread: there is one and its kind could not be read - the log is then not
+    written, with a warning, rather than taken for ours), where the specs are (sheets.SpecRows), and the separators
+    of the user's number formats (Application.International 3 and 4)."""
     book: object
     screen: object
     base: object
-    names: list
     kind: str | None
     spec_rows: object
     separators: tuple
@@ -574,7 +573,7 @@ def _look(job) -> Look:
     b = Batch(quiet=False)
     wbn = b.workbook(job.name)
     book, screen = movein.record_book(b, wbn), movein.record_screen(b, wbn)
-    base, names = movein.record_base(b, wbn), movein.record_names(b, wbn)
+    base = movein.record_base(b, wbn)
     kind, spec_rows = sources.record_kind(b, wbn), sheets.record_spec_rows(b, wbn)
     b.ret(b.app.International(3), "decimal separator")
     b.ret(b.app.International(4), "thousands separator")
@@ -588,7 +587,7 @@ def _look(job) -> Look:
     got = book(res)
     has_sources = "sources" in {n.casefold() for n in got.names()}     # as Excel: names without case
     found = kind(res) if has_sources else None
-    return Look(got, screen(res), base(res), names(res), found, spec_rows(res),
+    return Look(got, screen(res), base(res), found, spec_rows(res),
                 (v["decimal separator"], v["thousands separator"]), has_sources and found is None, job.paused)
 
 
@@ -734,11 +733,12 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
     b = Batch()
     b.mark("quiet")
     wbn = b.workbook(job.name)
+    free_at = movein.record_free(b, wbn, [spec.name for spec in built.tables])     # first: nothing renamed yet
     if parked is not None:
         movein.record_park(b, wbn, parked, book)
         b.mark("park")
     after, first = _place(book, q) if parked is None else _parked_place(book, parked)
-    at = movein.move_in(t, built, after, first, book=book, names=look.names, b=b)
+    at = movein.move_in(t, built, after, first, book=book, b=b)
     b.mark("insert")
     job.built = built
     split = "insert"
@@ -767,6 +767,10 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
     try:
         res = run(t.app, b, limit=movein.INSERT_WAIT_S)
     except BaseException as e:
+        taken = movein.name_taken(e, free_at, job.name)
+        if taken is not None:                           # refused before its park and insert: nothing ran
+            job.inserted, job.moved = False, False
+            raise taken from None
         job.inserted = job.after(e, at)
         raise
     job.inserted = True
@@ -841,11 +845,12 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
 def _file_draw(job, pre: Prepared) -> dict:
     """The answer's sheets built as a file (Answer look and charts, Data, Lines) and brought into the workbook in three
     batches (xl/inproc): look (every read the build needs: the sheets, the base, the screen, the kind of a Sources
-    sheet, the stored specs' rows, the defined names; not quiet); bring in (a follow-up: the old sheets parked; the
-    insert, the moves, tables, formula blocks, labels, calculation and the reads the close-out needs; quiet with
-    Calculation manual), then one pause for Excel to paint the new answer when the workbook is on screen; close out
-    (status, Key point heights and page breaks, a follow-up's old sheets dropped, Sources, spec, sheet order, the
-    Answer active; quiet, Calculation left alone). Each quiet batch puts the user's settings back itself. job: _Job
+    sheet, the stored specs' rows; not quiet); bring in (the answer's table names looked up among the defined names
+    first - a new answer's number comes from the look - then a follow-up's old sheets parked; the insert, the moves,
+    tables, formula blocks, labels, calculation and the reads the close-out needs; quiet with Calculation manual),
+    then one pause for Excel to paint the new answer when the workbook is on screen; close out (status, Key point
+    heights and page breaks, a follow-up's old sheets dropped, Sources, spec, sheet order, the Answer active; quiet,
+    Calculation left alone). Each quiet batch puts the user's settings back itself. job: _Job
     (q None: a new answer, the next Q<n>; else a follow-up of Q<q>, whose sheets are parked, replaced and dropped
     after the read-back, before Sources and the spec). The caller owns rollback, restore and save; the temporary
     file is deleted whatever happens."""
