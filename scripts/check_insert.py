@@ -76,6 +76,7 @@ from smartass.render.layout import ChartSpec  # noqa: E402
 from smartass.xl import fastcom, jobs, movein  # noqa: E402
 from smartass.xl.hostproc import windows_of  # noqa: E402
 from smartass.xl.inproc import runner  # noqa: E402
+from smartass.xl.inproc.batch import Batch  # noqa: E402
 from smartass.xl.sheetorder import ANSWER_TAB, DATA_TAB  # noqa: E402
 from smartass.xl.target import Target  # noqa: E402
 
@@ -1164,6 +1165,102 @@ def compare_jobs(xl: Excel) -> None:
         xl.close(wb)
 
 
+# ---------------------------------------------------------------------------------------------------- 3b. failed jobs
+def _state(xl: Excel, wb) -> dict:
+    """What a failed job must leave as it was: the sheets in order with their visibility, the tables, the four quiet
+    settings, the active workbook and sheet."""
+    return {"sheets": [(str(ws.Name), int(ws.Visible)) for ws in wb.Worksheets],
+            "tables": sorted(str(lo.Name) for ws in wb.Worksheets for lo in ws.ListObjects),
+            "settings": [getattr(xl.app, name) for name, _ in runner.QUIET],
+            "active": (str(xl.app.ActiveWorkbook.Name), str(xl.app.ActiveSheet.Name))}
+
+
+def failed_jobs(xl: Excel) -> None:
+    """(Task 2b) A follow-up and a new answer whose finish batch fails (an operation on a sheet that is not there,
+    after the park and the insert went through), through both executors: the clean-up batches (rollback, restore,
+    the land on the user's sheet) leave the workbook and Excel as they were, no 'old ...' sheet behind."""
+    pres = _pres()
+    real = movein.calculate
+
+    def calculate(t, sheets, b=None):
+        real(t, sheets, b)
+        if b is not None:
+            b.workbook(jobs.book_name(t)).Worksheets("No such sheet").Calculate()
+    for side, inproc in (("com", False), ("inproc", True)):
+        wb = xl.fresh(f"fail_{side}", ("Sources",))
+        target = lambda h, target, title, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
+        seams = {(pipeline, "_target"): target, (pipeline, "_save"): lambda job: None,
+                 (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+                 (config, "INPROC"): inproc}
+        with _patched(seams):
+            for _, _, pre in pres[:2]:
+                pipeline.excel_job(None, pre)
+            for label, job in (("a follow-up", lambda: pipeline.redraw_job(None, pres[2][2], 1, "this workbook")),
+                               ("a new answer", lambda: pipeline.excel_job(None, pres[0][2]))):
+                before = _state(xl, wb)
+                with _patched({(movein, "calculate"): calculate}):
+                    try:
+                        job()
+                        failed = None
+                    except Exception as e:   # noqa: BLE001 - the failure is the point
+                        failed = f"{type(e).__name__}: {str(e)[:90]}"
+                after = _state(xl, wb)
+                left = [n for n, _ in after["sheets"] if n.startswith("old ")]
+                changed = [k for k in before if before[k] != after[k]]
+                check(f"failures ({side}): {label} that fails in its finish leaves the workbook and Excel as they were",
+                      failed is not None and not changed and not left,
+                      f"raised {failed}; changed {changed}; left {left}" if changed or left or not failed
+                      else f"raised {failed}")
+        xl.close(wb)
+
+
+# ---------------------------------------------------------------------------------------------------- 3c. label order
+def label_order(xl: Excel) -> None:
+    """(Task 2b) The chart labels in the job's order (finish with the positions and colours, calculate, read_labels,
+    then lift_labels in the close-out) against the standalone order (finish: positions, tops read and lifts set, all
+    before calculate): every fixed label's Top on the 'every chart kind' answer, printed as a measurement."""
+    build = fixtures()["every chart kind"]
+    folder = TMP / "build"
+    folder.mkdir(exist_ok=True)
+    built0 = build(folder / f"{uuid.uuid4().hex}.xlsx")
+    tops = {}
+    for side in ("before", "job", "unlifted"):
+        built = _copy_of(built0, side)
+        wb = xl.fresh(f"labels_{side}")
+        t = Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0)
+        movein.move_in(t, built, "Sources", book=movein.read_book(t))
+        if side == "before":
+            movein.finish(t, built)
+            movein.calculate(t, built.sheets)
+        else:
+            b = Batch()
+            wbn = b.workbook(jobs.book_name(t))
+            fixes = movein.finish(t, built, b)
+            movein.calculate(t, built.sheets, b)
+            get = movein.read_labels(b, wbn, built)
+            res = runner.run(xl.app, b)
+            movein.label_skips(res, fixes)
+            if side == "job":                            # 'unlifted': where Excel itself puts the labels
+                fb = Batch()                             # as in the close-out: a cell and a row height first
+                answer = fb.workbook(jobs.book_name(t)).Worksheets(built.sheets[0])
+                answer.Range("ZZ1").Value2 = "OK"
+                answer.Range("2:2").RowHeight = 30
+                lifts = movein.lift_labels(fb, fb.workbook(jobs.book_name(t)), built, get(res))
+                movein.label_skips(runner.run(xl.app, fb), lifts)
+        ws = wb.Worksheets(built.sheets[0])
+        tops[side] = [g(lambda f=f: ws.ChartObjects(f.chart).Chart.SeriesCollection(f.series).Points(f.point)
+                        .DataLabel.Top) for f in built.label_fixes]
+        xl.close(wb)
+        built.path.unlink(missing_ok=True)
+    lifts = [i for i, f in enumerate(built0.label_fixes) if f.lift_pt]
+    diffs = [(i, tops["before"][i], tops["job"][i]) for i in range(len(built0.label_fixes))
+             if tops["before"][i] != tops["job"][i]]
+    info(f"labels: {len(built0.label_fixes)} fixes ({len(lifts)} lifted); Top in the standalone order vs the job's: "
+         + ("equal" if not diffs else "; ".join(f"fix {i}: {a:.2f} -> {b_:.2f}" for i, a, b_ in diffs)))
+    info("labels: the lifted ones where Excel itself puts them (no lift): "
+         + "; ".join(f"fix {i}: {tops['unlifted'][i]:.2f} (lift {built0.label_fixes[i].lift_pt:g} pt)" for i in lifts))
+
+
 # ---------------------------------------------------------------------------------------------------- 4. timing
 def timing(xl: Excel, built0, rounds: int) -> None:
     ms, calls = defaultdict(list), defaultdict(list)
@@ -1197,7 +1294,7 @@ def timing(xl: Excel, built0, rounds: int) -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--rounds", type=int, default=5, help="rounds per route for the timing")
-    ap.add_argument("--parts", default="files,places,jobs,timing",
+    ap.add_argument("--parts", default="files,places,jobs,failures,labels,timing",
                     help="what to run (comma-separated; the proof is all of them)")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
@@ -1222,6 +1319,10 @@ def main(argv=None) -> int:
             excel_around(xl, answer)
         if "jobs" in parts:
             compare_jobs(xl)
+        if "failures" in parts:
+            failed_jobs(xl)
+        if "labels" in parts:
+            label_order(xl)
         if "timing" in parts:
             timing(xl, answer, args.rounds)
     finally:

@@ -799,6 +799,7 @@ def record_print_setup(b, ws, last_col: str, last_row: int, footer: str, old: st
         span = range(start, b.position)
     with b.always(), b.attempt():
         b.app.PrintCommunication = True
+        b.mark("print setup sent")                  # the job's marks: Excel sends the page setup to the printer here
     return key, span
 
 

@@ -731,8 +731,9 @@ def _move_in(job, built, book) -> None:
 
 
 def _finish(job, built, plan, pre: Prepared, header, book) -> tuple:
-    """The finish batch: the tables, the formula blocks, the calculation, and the reads the close-out needs - the
-    read-back block, the lifted labels' tops, the status cells, the chart count, the Sources log; then a paint.
+    """The finish batch: the tables, the formula blocks, the chart labels' position and colour, the calculation, and
+    the reads the close-out needs - the read-back block, the lifted labels' tops, the status cells, the chart count,
+    the Sources log; then a paint.
     Returns (block, tops, (status, ties), chart count, the log or None)."""
     from .xl import movein, sources
     from .xl.inproc.batch import Batch
@@ -741,8 +742,8 @@ def _finish(job, built, plan, pre: Prepared, header, book) -> tuple:
     b = Batch()
     b.mark("quiet")
     wbn = b.workbook(job.name)
-    movein.finish(t, built, b)
-    b.mark("tables and formulas")
+    fixes = movein.finish(t, built, b)
+    b.mark("tables, formulas, labels")
     movein.calculate(t, built.sheets, b)
     b.mark("calculate")
     answer = wbn.Worksheets(built.sheets[0])
@@ -757,6 +758,7 @@ def _finish(job, built, plan, pre: Prepared, header, book) -> tuple:
     b.mark("reads")
     res = run(t.app, b)
     _note_marks(res)
+    movein.label_skips(res, fixes)
     _paint(look)
     try:
         got_log = read_log(res)
@@ -767,7 +769,7 @@ def _finish(job, built, plan, pre: Prepared, header, book) -> tuple:
 
 def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple, mismatches: list[str],
                book) -> tuple:
-    """The close-out batch: status, the Key point heights and page breaks, the chart label fixes, a follow-up's old
+    """The close-out batch: status, the Key point heights and page breaks, the chart label lifts, a follow-up's old
     sheets dropped, the Sources rows, the spec, the sheet order, the Answer active; then what it could not do as
     warnings (labels and breaks logged) and the layout check over the finish's reads. Returns (the Sources warning,
     the order warning, the layout findings)."""
@@ -783,7 +785,7 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     ws = wbn.Worksheets(answer)
     write_status(ws, plan, mismatches)
     breaks = _fit_text_rows(ws, plan, block, b)
-    fixes = movein.fix_labels(b, wbn, built, tops)
+    lifts = movein.lift_labels(b, wbn, built, tops)
     b.mark("status, heights, labels")
     drop_at = movein.drop(t, job.parked, book, b) if job.parked is not None else None
     if drop_at is not None:
@@ -807,7 +809,7 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
         raise
     job.dropped = drop_at is not None
     _note_marks(res)
-    movein.label_skips(res, fixes)
+    movein.label_skips(res, lifts)
     _refused_breaks(t, answer, breaks, res)
     logged = _sources_warning(pre, recorded, res)
     if not isinstance(recorded, str):

@@ -17,7 +17,8 @@ would silently rename a taken 'Q5 Data' to 'Q5 Data (2)' and every step by name 
 workbooks (Excel can crash), so the file holds none, and as the insert brings every sheet of the file, it must hold
 the answer's sheets and only those, in order (its zip is checked for both before the insert); finish makes the
 tables in the workbook, then writes the formula blocks (the formulas name the tables); the per-point chart labels the
-file cannot carry (LabelFix) are set once the answer is calculated (read_labels, fix_labels). park / restore / drop
+file cannot carry (LabelFix) are positioned with the formulas and lifted once the answer is calculated (fix_labels,
+read_labels, lift_labels). park / restore / drop
 rename a question's old sheets out of the way for a follow-up and delete or restore them afterwards.
 
 Book is the job's picture of the workbook's sheets: read once (record_book) and kept up to date by the steps that add,
@@ -312,10 +313,11 @@ def _bgr(colour: str) -> int:
     return r + (g << 8) + (b << 16)
 
 
-def finish(t, built: BuiltFile, b: Batch | None = None) -> None:
+def finish(t, built: BuiltFile, b: Batch | None = None) -> list[tuple]:
     """After move_in: each table (ListObjects.Add, its name, TableStyleLight1, row stripes off where the spec says),
-    then every formula block (its grid as it is: text keeps its leading apostrophe). Without b in a quiet batch of its
-    own, with the chart label fixes after it (read_labels, then fix_labels in a second batch)."""
+    then every formula block (its grid as it is: text keeps its leading apostrophe), then the chart labels' position
+    and colour (fix_labels: returned for label_skips). Without b in a quiet batch of its own, the lifts read
+    (read_labels) and set (lift_labels) after it in a second batch."""
     own = b is None
     b = Batch() if own else b
     wbn = b.workbook(book_name(t))
@@ -328,12 +330,16 @@ def finish(t, built: BuiltFile, b: Batch | None = None) -> None:
             lo.ShowTableStyleRowStripes = False
     for block in built.formulas:
         wbn.Worksheets(block.sheet).Range(block.ref).Formula2 = tuple(tuple(row) for row in block.grid)
+    fixes = fix_labels(b, wbn, built)
     if own:
         tops = read_labels(b, wbn, built)
         res = run(t.app, b)
+        label_skips(res, fixes)
         fb = Batch()
-        fixes = fix_labels(fb, fb.workbook(book_name(t)), built, tops(res))
-        label_skips(run(t.app, fb), fixes)
+        lifts = lift_labels(fb, fb.workbook(book_name(t)), built, tops(res))
+        label_skips(run(t.app, fb), lifts)
+        return []
+    return fixes
 
 
 def calculate(t, sheets: list[str], b: Batch | None = None) -> None:
@@ -364,27 +370,44 @@ def read_labels(b: Batch, wbn, built: BuiltFile, key: str = "label top") -> Call
     return lambda res: {i: res.values.get(f"{key} {i}") for i in lifts}
 
 
-def fix_labels(b: Batch, wbn, built: BuiltFile, tops: dict) -> list[tuple]:
-    """Each fix recorded in b, every operation one that may fail (a label is cosmetic): the position, the colour, and
-    the lift from the Top read before (read_labels) - only a label more than the lift below the chart's top is lifted
-    (charts._labels leaves the empty points of a waterfall's other step series where they are). Returns [(fix, first
-    operation, end)] for label_skips."""
+def fix_labels(b: Batch, wbn, built: BuiltFile) -> list[tuple]:
+    """Each fix's position and colour recorded in b, before the calculation (the order the labels were fixed in
+    before the batches: a point label positioned after it lands elsewhere, 12-24 pt measured live), every operation
+    one that may fail (a label is cosmetic). Returns [(fix, first operation, end)] for label_skips."""
     spans = []
     if not built.label_fixes:
         return spans
     ws = wbn.Worksheets(built.sheets[0])
     with b.attempt():
-        for i, fix in enumerate(built.label_fixes):
+        for fix in built.label_fixes:
+            if not (fix.position or fix.font_color):
+                continue
             start = b.position
             lab = _label(ws, fix)
             if fix.position:
                 lab.Position = POSITION[fix.position]
             if fix.font_color:
                 lab.Font.Color = _bgr(fix.font_color)
-            top = tops.get(i)
-            if fix.lift_pt and isinstance(top, (int, float)) and not isinstance(top, bool) and top > fix.lift_pt:
-                lab.Top = top - fix.lift_pt
             spans.append((fix, start, b.position))
+    return spans
+
+
+def lift_labels(b: Batch, wbn, built: BuiltFile, tops: dict) -> list[tuple]:
+    """Each lift recorded in b from the Top read after the calculation (read_labels): only a label more than the lift
+    below the chart's top is lifted (charts._labels leaves the empty points of a waterfall's other step series where
+    they are). Operations that may fail; returns [(fix, first operation, end)] for label_skips."""
+    spans = []
+    lifts = [(i, fix) for i, fix in enumerate(built.label_fixes) if fix.lift_pt]
+    if not lifts:
+        return spans
+    ws = wbn.Worksheets(built.sheets[0])
+    with b.attempt():
+        for i, fix in lifts:
+            top = tops.get(i)
+            if isinstance(top, (int, float)) and not isinstance(top, bool) and top > fix.lift_pt:
+                start = b.position
+                _label(ws, fix).Top = top - fix.lift_pt
+                spans.append((fix, start, b.position))
     return spans
 
 

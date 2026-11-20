@@ -646,3 +646,34 @@ def test_a_frozen_header_excel_refuses_is_undone_and_no_warning(fake_target, cal
     assert not [w for w in out["warnings"] if "Sources" in w] and not [x for x in out["layout"] if "Sources" in x]
     assert wb.window_state["Sources"]["SplitRow"] == 0 and wb.window_state["Sources"]["FreezePanes"] is False
     assert wb.active.Name == "Q1 Answer"
+
+
+def test_the_labels_are_positioned_before_the_calculation_and_lifted_after_it(fake_target, calculated, monkeypatch):
+    """Live (hidden Excel, 20.11.2026, scripts/check_insert.py --parts labels): a point label positioned after the
+    calculation lands 12-24 pt elsewhere than before it, and a lift set before the calculation is lost (the label
+    ends where Excel puts it); so the finish batch positions and colours the labels before Calculate and the
+    close-out lifts them from the Top read after it."""
+    seen = []
+    for name in ("fix_labels", "calculate", "read_labels", "lift_labels"):
+        real = getattr(movein, name)
+        monkeypatch.setattr(movein, name, lambda *a, real=real, name=name, **k: seen.append(name) or real(*a, **k))
+    runs = _runs(monkeypatch)
+    _job(_pre(), calculated)
+    assert seen == ["fix_labels", "calculate", "read_labels", "lift_labels"]
+    assert [b.quiet for b in runs] == [False, True, True, True, False]
+
+
+def test_fix_labels_positions_and_colours_and_lift_labels_only_lifts():
+    from smartass.render.xlsx_charts import LabelFix
+    built = SimpleNamespace(sheets=["Q1 Answer"], label_fixes=[LabelFix(1, 2, 3, position="right"),
+                                                             LabelFix(1, 1, 2, font_color="#1F3864", lift_pt=10.0),
+                                                             LabelFix(1, 1, 3, lift_pt=10.0)])
+    b = Batch()
+    wbn = b.workbook("book.xlsx")
+    spans = movein.fix_labels(b, wbn, built)
+    sets = [(op["name"], op["value"]) for op in b.to_dict()["ops"] if op["k"] == "set"]
+    assert sets == [("Position", -4152), ("Color", 0x64381F)] and len(spans) == 2
+    b = Batch()
+    spans = movein.lift_labels(b, b.workbook("book.xlsx"), built, {1: 50.0, 2: 8.0})
+    sets = [(op["name"], op["value"]) for op in b.to_dict()["ops"] if op["k"] == "set"]
+    assert sets == [("Top", 40.0)] and len(spans) == 1           # the second is not more than its lift from the top
