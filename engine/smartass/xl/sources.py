@@ -31,6 +31,7 @@ formulas, Known limits when they grew, and the Data header's Sources cells), eve
 log is provenance, not the answer. write_sources does the same in batches of its own."""
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -55,12 +56,57 @@ PRINT_ROWS = MAX_ROW - 1                 # the print area's last row (A1:N104857
 V1_NOTE = ("the Sources sheet holds a v1 log, left as it is; the v2 log is on 'Sources SV'")
 
 
+@dataclass(frozen=True)
+class Furniture:
+    """The log's furniture as data: the one definition both writers read - _furnish over COM (a log made in Excel)
+    and render/xlsx._sources (the log of a new workbook's file). version is what FURNITURE_NAME says on a furnished
+    log (record_read furnishes a log again only when it says another): a change to anything here must raise it
+    (tests/v2/test_xlsx.py pins the pair to furniture_fingerprint, and proves both writers make every step alike)."""
+    version: str
+    steps: tuple[str, ...]           # what the furniture is, step by step (the writers make each; the tests compare)
+    columns: tuple[str, ...]         # the header, A1:N1
+    font: str                        # the log's columns A:N and Known limits' P
+    size: int
+    header_colour: tuple             # (r, g, b), bold: A1:N1 and P1
+    widths: tuple[float, ...]        # A:N
+    limits_col: int
+    limits_width: float
+    total_col: int
+    total_format: str                # en-US codes (over COM: in the user's notation, tn.to_local)
+    frozen_rows: int                 # no gridlines either
+    print_rows: int                  # the print area A1:N<print_rows>, one page wide, landscape, centred
+    footer: str
+
+
+def furniture() -> Furniture:
+    """The furniture (Furniture); built on first use (the render module's formats, imported late)."""
+    global _FURNITURE
+    if _FURNITURE is None:
+        from ..render.excel import SHEET_FOOTER, VALUE_FORMAT
+        from .vendor import tn_rapportstil as tn
+        _FURNITURE = Furniture(FURNITURE_VERSION, ("header", "header font", "fonts", "total format", "widths",
+                                                   "filter", "frozen header", "print setup", "names"),
+                               LOG_COLUMNS, tn.FONT, FONT_SIZE, tuple(tn.NAVY), WIDTHS, LIMITS_COL, LIMITS_WIDTH,
+                               TOTAL_COL, VALUE_FORMAT, 1, PRINT_ROWS, SHEET_FOOTER)
+    return _FURNITURE
+
+
+_FURNITURE: Furniture | None = None
+
+
+def furniture_fingerprint() -> str:
+    """A short hash of the furniture without its version: pinned with the version, so neither changes alone."""
+    import hashlib
+    f = furniture()
+    return hashlib.sha1(repr(dataclasses.replace(f, version="")).encode("utf-8")).hexdigest()[:12]
+
+
 def print_key() -> str:
     """The key of the log's print setup (styling.setup_key of A1:N<PRINT_ROWS> with the sheets' footer): what
     _furnish's record_print_setup names it with, and what the file of a new workbook holds under that name."""
-    from ..render.excel import SHEET_FOOTER
     from .styling import setup_key
-    return setup_key(_col(len(LOG_COLUMNS)), PRINT_ROWS, SHEET_FOOTER)
+    f = furniture()
+    return setup_key(_col(len(f.columns)), f.print_rows, f.footer)
 
 
 def _kind(a1, b1, used) -> str:
@@ -215,32 +261,32 @@ class Written:
 
 
 def _furnish(b, wbn, ws, log: Log, separators: tuple, screen) -> tuple:
-    """The furniture recorded (see the module doc): all of it on a new log, the column formats, print setup and name
-    on a log of an earlier version (it keeps its header, widths, filter and frozen row). The header row is frozen only
-    when the workbook's window is visible (styling._freeze), with the log's sheet active meanwhile (the workbook
-    activated first when it is not the active one, and the user's workbook and sheet again after). Returns (the print
-    setup: styling.record_print_setup's, the range of the freeze's operations or None)."""
-    from ..render.excel import SHEET_FOOTER, VALUE_FORMAT
+    """The furniture (furniture(): the definition the built file's log is made from too) recorded (see the module
+    doc): all of it on a new log, the column formats, print setup and name on a log of an earlier version (it keeps
+    its header, widths, filter and frozen row). The header row is frozen only when the workbook's window is visible
+    (styling._freeze), with the log's sheet active meanwhile (the workbook activated first when it is not the active
+    one, and the user's workbook and sheet again after). Returns (the print setup: styling.record_print_setup's, the
+    range of the freeze's operations or None)."""
     from . import styling
-    tn = styling.tn
-    new, width, p = not log.header, len(LOG_COLUMNS), _col(LIMITS_COL)
+    tn, f = styling.tn, furniture()
+    new, width, p = not log.header, len(f.columns), _col(f.limits_col)
     last = _col(width)
     cols = ws.Range(f"A:{last}")
-    for rng in (cols, ws.Columns(LIMITS_COL)):
-        rng.Font.Name = tn.FONT
-        rng.Font.Size = FONT_SIZE
-    ws.Columns(TOTAL_COL).NumberFormat = tn.to_local(VALUE_FORMAT, *separators)    # the user's codes (styling.local_format)
+    for rng in (cols, ws.Columns(f.limits_col)):
+        rng.Font.Name = f.font
+        rng.Font.Size = f.size
+    ws.Columns(f.total_col).NumberFormat = tn.to_local(f.total_format, *separators)   # the user's codes (local_format)
     if new:
-        ws.Range(ws.Cells(1, 1), ws.Cells(1, width)).Value = (tuple(LOG_COLUMNS),)
+        ws.Range(ws.Cells(1, 1), ws.Cells(1, width)).Value = (tuple(f.columns),)
         for rng in (ws.Range(ws.Cells(1, 1), ws.Cells(1, width)), ws.Range(f"{p}1")):
             rng.Font.Bold = True
-            rng.Font.Color = styling._rgb(styling.tn.NAVY)
-        for c, w in enumerate(WIDTHS, 1):
+            rng.Font.Color = styling._rgb(f.header_colour)
+        for c, w in enumerate(f.widths, 1):
             ws.Columns(c).ColumnWidth = w
-        ws.Columns(LIMITS_COL).ColumnWidth = LIMITS_WIDTH
+        ws.Columns(f.limits_col).ColumnWidth = f.limits_width
         if not log.filtered:                           # AutoFilter() without arguments toggles
             cols.AutoFilter()
-    ws.Names.Add(FURNITURE_NAME, f'="{FURNITURE_VERSION}"', False)      # positional: Name, RefersTo, Visible
+    ws.Names.Add(FURNITURE_NAME, f'="{f.version}"', False)      # positional: Name, RefersTo, Visible
     freeze = None
     if new and screen.window:                          # styling._freeze: the header row, on the log's own sheet
         start = b.position
@@ -249,7 +295,8 @@ def _furnish(b, wbn, ws, log: Log, separators: tuple, screen) -> tuple:
         ws.Activate()
         win = wbn.Windows(1)
         for name, value in (("FreezePanes", False), ("ScrollRow", 1), ("ScrollColumn", 1),
-                            ("DisplayGridlines", False), ("SplitColumn", 0), ("SplitRow", 1), ("FreezePanes", True)):
+                            ("DisplayGridlines", False), ("SplitColumn", 0), ("SplitRow", f.frozen_rows),
+                            ("FreezePanes", True)):
             setattr(win, name, value)
         if not screen.active and screen.user_book:
             user = b.app.Workbooks(screen.user_book)
@@ -257,7 +304,7 @@ def _furnish(b, wbn, ws, log: Log, separators: tuple, screen) -> tuple:
             if screen.user_sheet:
                 user.Sheets(screen.user_sheet).Activate()
         freeze = range(start, b.position)
-    return styling.record_print_setup(b, ws, last, PRINT_ROWS, SHEET_FOOTER, log.setup), freeze
+    return styling.record_print_setup(b, ws, last, f.print_rows, f.footer, log.setup), freeze
 
 
 def record_write(b, wbn, t, q: int, pre, log: Log, header, fetched: str, status: dict, lines_status: dict,

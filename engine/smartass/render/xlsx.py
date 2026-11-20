@@ -439,22 +439,22 @@ def _sources(wb, fmt: _Formats) -> None:
     (sources.record_read reads them, so no append furnishes it again). Its rows, Known limits and links are written in
     Excel, as for any log (live parity: scripts/check_insert.py --parts newbook)."""
     from ..xl import sources
+    f = sources.furniture()
     ws = wb.add_worksheet("Sources")
-    font = {"font_name": tn.FONT, "font_size": sources.FONT_SIZE}
-    plain, total = fmt(font), fmt(font | {"num_format": VALUE_FORMAT})
-    head = font | {"bold": True, "font_color": NAVY}
-    for c, w in enumerate(sources.WIDTHS, 1):
-        ws.set_column(c - 1, c - 1, w, total if c == sources.TOTAL_COL else plain)
-    ws.set_column(sources.LIMITS_COL - 1, sources.LIMITS_COL - 1, sources.LIMITS_WIDTH, plain)
-    for j, name in enumerate(sources.LOG_COLUMNS):
-        ws.write_string(0, j, name, fmt(head | ({"num_format": VALUE_FORMAT} if j + 1 == sources.TOTAL_COL else {})))
-    ws.write_blank(0, sources.LIMITS_COL - 1, None, fmt(head))
-    ws.autofilter(0, 0, 0, len(sources.LOG_COLUMNS) - 1)
-    ws.freeze_panes(1, 0)
+    font = {"font_name": f.font, "font_size": f.size}
+    plain, total = fmt(font), fmt(font | {"num_format": f.total_format})
+    head = font | {"bold": True, "font_color": look._hex(f.header_colour)}
+    for c, w in enumerate(f.widths, 1):
+        ws.set_column(c - 1, c - 1, w, total if c == f.total_col else plain)
+    ws.set_column(f.limits_col - 1, f.limits_col - 1, f.limits_width, plain)
+    for j, name in enumerate(f.columns):
+        ws.write_string(0, j, name, fmt(head | ({"num_format": f.total_format} if j + 1 == f.total_col else {})))
+    ws.write_blank(0, f.limits_col - 1, None, fmt(head))
+    ws.autofilter(0, 0, 0, len(f.columns) - 1)
+    ws.freeze_panes(f.frozen_rows, 0)
     ws.hide_gridlines(2)
-    _page(ws, _area(len(sources.LOG_COLUMNS), sources.PRINT_ROWS), SHEET_FOOTER)
+    _page(ws, _area(len(f.columns), f.print_rows), f.footer)
     ws.set_paper(A4)
-    for name, value in ((sources.FURNITURE_NAME, f'="{sources.FURNITURE_VERSION}"'),
-                        (styling.PAGE_SETUP_NAME, sources.print_key())):
+    for name, value in ((sources.FURNITURE_NAME, f'="{f.version}"'), (styling.PAGE_SETUP_NAME, sources.print_key())):
         wb.define_name(f"Sources!{name}", value)
         wb.defined_names[-1][3] = True       # hidden, as Names.Add(.., Visible:=False): define_name has no option

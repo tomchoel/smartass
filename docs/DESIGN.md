@@ -88,9 +88,12 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    from the template: `xl_tidy`, `apply_report`). Proved item by item against one made today's way by
    `scripts/check_insert.py --parts newbook` (hidden Excel, 20.11.2026).
    Measured (docs/audit/2026-11-20-inproc-bench.md, live): 1.9-2.7 s in the Excel job for an answer without a
-   lines sheet as the workbook grows to 61 sheets, 3.9-4.3 s with a lines sheet, a follow-up 1.6-1.9 s, about 7 s
-   for the first answer of a new workbook (the workbook is created), at 5 batches per answer (4 since the review
-   fixes). What is left is mostly Excel's own work: the insert (about 0.5 s) and the save of our OneDrive file.
+   lines sheet as the workbook grows to 61 sheets, 3.9-4.3 s with a lines sheet, a follow-up 1.6-1.9 s, at 5
+   batches per answer (4 since the review fixes). What is left is mostly Excel's own work: the insert (about 0.5 s)
+   and the save of our OneDrive file. The first answer of a new workbook, built as its file (phase 3c): 2.0-3.4 s in
+   the Excel job in a hidden Excel on the OneDrive folder, against 8.0-11.6 s made from the template there (the
+   Open itself 1.0-1.8 s; 20.11.2026); 10.6-11.3 s made from the template in the owner's Excel (0.4.0 run log).
+   Measured in the owner's Excel built as its file: (controller fills in).
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
    `findings`, `checks`, `layout` (layout check findings with fixes), `charts`, `warnings`, `caveats`, `routes`,
    `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
