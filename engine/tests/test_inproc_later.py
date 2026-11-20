@@ -205,19 +205,53 @@ def test_every_turn_taken_in_an_excel_starts_with_the_first_contact(excel, monke
     assert seen == [app, app]
 
 
+TURNS_WITHOUT_AN_EXCEL = {("_spawn_excel", "none"),       # an Excel this job started itself: no add-in there yet
+                          ("_wait_busy_holder", "None")}   # it does not answer COM yet; its next turn names it
+
+
+def _turns_without_their_excel(source: str, rel: str) -> list[str]:
+    """'<rel>:<line> in <function>' of each hold_turn call in source that does not name its Excel (app=, not None),
+    but the two TURNS_WITHOUT_AN_EXCEL: an Excel the job started itself, and a busy holder before it answers COM."""
+    import ast
+    found = []
+
+    def visit(node, where):
+        for child in ast.iter_child_nodes(node):
+            inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else where
+            if isinstance(child, ast.Call):
+                f = child.func
+                if (f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)) == "hold_turn":
+                    app = next((k.value for k in child.keywords if k.arg == "app"), None)
+                    kind = ("none" if app is None
+                            else "None" if isinstance(app, ast.Constant) and app.value is None else "app")
+                    if kind != "app" and (where, kind) not in TURNS_WITHOUT_AN_EXCEL:
+                        found.append(f"{rel}:{child.lineno} in {where}")
+            visit(child, inner)
+    visit(ast.parse(source), "")
+    return found
+
+
 def test_every_turn_the_target_code_takes_names_its_excel():
     """The structural guarantee: each hold_turn in the code that resolves a target or finds a workbook passes the
     Excel's app, so the first contact runs before any plain COM writes there (an Excel this job starts itself has no
-    add-in yet: the one exception)."""
-    import re
+    add-in yet, and a busy holder that does not answer COM yet: the exceptions)."""
     from pathlib import Path
     import smartass
     root = Path(smartass.__file__).parent
-    calls = []
-    for rel in ("xl/target.py", "xl/workbench/books.py"):
-        calls += [(rel, m.group(0)) for m in re.finditer(r"hold_turn\([^)]*\)", (root / rel).read_text("utf-8"))]
-    missing = [c for c in calls if "app=" not in c[1] and "wait=False)" not in c[1].replace(" ", "")]
-    assert calls and missing == [], missing
+    texts = {rel: (root / rel).read_text("utf-8") for rel in ("xl/target.py", "xl/workbench/books.py")}
+    assert all("hold_turn(" in t for t in texts.values())
+    assert [m for rel, text in texts.items() for m in _turns_without_their_excel(text, rel)] == []
+
+
+def test_the_turn_check_finds_a_turn_without_its_excel():
+    """Review 2 (Task 2): the check let any hold_turn(..., wait=False) without an app pass."""
+    rogue = ("def find(pid, app):\n"
+             "    jobs.hold_turn(pid, wait=False)\n"
+             "    jobs.hold_turn(pid, app=None)\n"
+             "    hold_turn(pid, what='x', app=app)\n"
+             "def _spawn_excel(tpl, known):\n"
+             "    jobs.hold_turn(pid, wait=False)\n")
+    assert _turns_without_their_excel(rogue, "x.py") == ["x.py:2 in find", "x.py:3 in find"]
 
 
 def test_an_outcome_the_add_in_could_not_write_comes_back_with_the_first_contact(excel):
