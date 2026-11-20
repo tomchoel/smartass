@@ -127,7 +127,7 @@ def log_of(kind: str | None, names, data: str) -> Log:
     """The log's sheet from the kind of 'Sources' (None: no sheet of that name) and the workbook's sheet names:
     'Sources', or 'Sources SV' when 'Sources' is not a v2 log (the user's own sheet, or a v1 log)."""
     log = Log("Sources SV" if kind in ("v1", "user") else "Sources", v1=kind == "v1", data=data)
-    log.exists = log.name in names
+    log.exists = log.name.casefold() in {n.casefold() for n in names}      # as Excel: names without case
     return log
 
 

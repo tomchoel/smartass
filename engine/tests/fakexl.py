@@ -713,7 +713,7 @@ class _Sheets:
         if isinstance(key, int):
             return self.wb.order[key - 1]
         for s in self.wb.order:
-            if s.Name == key:
+            if s.Name.lower() == str(key).lower():       # as Excel: a sheet's name is found without case
                 return s
         raise ComError(f"no sheet {key}")
 

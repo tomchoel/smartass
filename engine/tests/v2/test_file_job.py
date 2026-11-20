@@ -706,6 +706,20 @@ def test_in_the_users_workbook_there_is_no_save_batch(fake_target, calculated, m
     assert out["checks"]["sheet_equals_model"] == "OK"
 
 
+def test_a_users_sheet_named_sources_in_another_case_is_found_and_left_alone(fake_target, calculated):
+    """Re-review: Excel's sheet names are not case-sensitive, so the user's own 'sources' sheet is the 'Sources'
+    sheet the look reads the kind of: not ours, so the pull goes to a new 'Sources SV' log and no second
+    'Sources' is made."""
+    src = fake_target.wb.Worksheets("Sources")
+    src.Name = "sources"
+    src.put(1, 1, "My own list")
+    before = fakexl.sheet_state(src)
+    out, _ = _job(_pre(), calculated)
+    names = [ws.Name for ws in fake_target.wb.order]
+    assert fakexl.sheet_state(src) == before and [n for n in names if n.lower() == "sources"] == ["sources"]
+    assert "Sources SV" in names and not [w for w in out["warnings"] if "Sources" in w]
+    assert out["checks"]["sheet_equals_model"] == "OK"
+
 def test_a_sources_sheet_whose_kind_cannot_be_read_is_not_taken_for_the_log(fake_target, calculated, monkeypatch):
     """Review M4: when the kind of an existing 'Sources' sheet cannot be read, the pull is not logged (a warning, as
     before) and the sheet is not furnished as if it were ours."""

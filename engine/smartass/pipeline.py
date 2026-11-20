@@ -586,7 +586,7 @@ def _look(job) -> Look:
     v = res.values
     job.paused = bool(v.get("autosave")) and not any(i == off_at for i, _, _ in res.skipped)
     got = book(res)
-    has_sources = "Sources" in got.names()
+    has_sources = "sources" in {n.casefold() for n in got.names()}     # as Excel: names without case
     found = kind(res) if has_sources else None
     return Look(got, screen(res), base(res), names(res), found, spec_rows(res),
                 (v["decimal separator"], v["thousands separator"]), has_sources and found is None, job.paused)
