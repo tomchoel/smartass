@@ -142,14 +142,26 @@ into a batch it is given (or builds and runs its own where it stands alone, as r
    on screen and active, AutoSave's state, the Sources log's read, the stored spec's row - every read Python needs
    before it builds the file. No per-sheet reads outside this batch.
 2. Python builds the file (unchanged).
-3. **move in**: (a follow-up: park the old sheets and tables) open the file, copy, close (in `finally`), break the
-   links, the moves that put the sheets in their places, activate the Answer. **Boundary + 40 ms: the formatted,
-   still empty answer is on screen.**
+3. **move in**: (a follow-up: park the old sheets and tables) the file's sheets inserted with ONE call,
+   `wb.Sheets.Add(After:=<sheet>, Type:=<path of the built file>)` (see below), the moves that put the sheets in
+   their places, activate the Answer. **Boundary + 40 ms: the formatted, still empty answer is on screen.**
 4. **finish**: tables, formula blocks, calculate, and the reads the next step needs (the read-back block, the chart
    labels' positions, the status cells). **Boundary + 40 ms: the numbers and charts are on screen.**
 5. **close out**: status, Key point row heights, page breaks, label fixes, (a follow-up: drop the old sheets),
    the Sources rows, the spec, the sheet order, the Answer active, the layout check's reads; then the save of our own
    file with AutoSave back on (in this batch or one after it, whichever keeps today's error behaviour).
+- **The insert (controller spike, 2026-11-20, `<ledger>/spike/add_type.py`):** `Sheets.Add(Type:=path)` puts all the
+  sheets of the built .xlsx into the workbook in one call. Compared with Open + Copy + Close on the test answer it
+  gave the same sheets (used range, every Formula2, fonts, widths, number formats, tab colours, chart objects), left
+  **no link** to the file (the copy leaves one) and no temporary workbook; hidden Excel 176-201 ms against
+  241-332 ms, the owner's Excel 431-469 ms against 452-788 ms. Before switching, prove equality on real answers in a
+  hidden Excel (extend `scripts/check_inproc.py` or a script of its own): page setup and print areas, manual page
+  breaks, sheet-level names (`smartass_pagesetup`), conditional formats, charts with every series and label,
+  freeze panes, zoom, gridlines, the Lines sheet, the order the sheets land in, what happens when a sheet name is
+  taken (must fail before anything is inserted, as today) and when the file holds a table (still refused). When it
+  holds: `move_in` is the one call, and the open, the copy, the close, `_break_links`, `close_left` / `left` and the
+  `break_links` verb are deleted. When it does not hold for something we need, keep the copy route and say exactly
+  what differed.
 - `movein.show` is replaced by the boundaries; the pause is `movein.PAINT_PAUSE = 0.04`, skipped when the workbook is
   not the active workbook of a visible Excel.
 - A new Sources log's furniture is part of the batch that writes its first rows (the first answer of a new workbook
@@ -209,9 +221,22 @@ job records what it changed in a small state file and the next job puts it right
 after the drop says so; (M5) a new answer whose save fails removes its spec row and Sources rows with its sheets;
 (M9) a chart title that XlsxWriter reads as a cell reference ("Revenue beat budget!FY26") is written as text.
 
-### Task 5 (conditional, decided by the controller on Task 2's stage table)
+### Task 5: The save happens after the reply
 
-Only what the measurement justifies, each as its own small task: the save handed to Excel after the reply
-(`ExcelAsyncUtil.QueueAsMacro`, its result reported by the next job); drawing the Answer and Data sheets by
-operations with no temporary file (removes Open, Copy and Close; needs a second writer for the look and the charts,
-so only with a clear gain); the 2.9 s a new workbook's creation takes.
+The save of our own file is the largest single item of a job (0.33-0.88 s of about 2.5 s, profile 2026-11-20). With
+the add-in loaded, the last batch asks Excel to save right after the Run returns
+(`ExcelAsyncUtil.QueueAsMacro`): the user has the answer and the reply while Excel saves.
+- Only our own analysis file, as today; the user's workbook is never saved. AutoSave is switched back on by the
+  queued step after the save, as today's order.
+- The queued step writes its outcome (ok or the error text, the seconds) to a small file under the smartass home;
+  the next job's look reads it and, on a failure, adds a note to its reply and saves in the foreground. `fin_status`
+  shows the last outcome.
+- A job that arrives while the save runs waits for Excel as it does for any busy Excel.
+- The COM executor (no add-in) saves in the foreground as today. `SV_SAVE=sync` forces that with the add-in too.
+- The bench reports both: the Excel job as the user waits for it, and the save's own seconds.
+
+### Task 6 (conditional, decided by the controller on Task 2's stage table)
+
+The 1.3 s a new workbook's creation takes (add from template 0.64 s, save as 0.65 s). Dropped, with the reason
+recorded in the ledger: drawing the sheets by operations with no file (the insert costs about 0.45 s in the owner's
+Excel and the formats alone of one Answer sheet cost 0.19-0.24 s as operations).
