@@ -29,11 +29,14 @@ NAVY_BGR = 0x64381F                                  # "#1F3864" as a COM colour
 
 
 # ------------------------------------------------------------------ the built file and the user's workbook
-def _file(path, table: bool = False):
-    """A three-sheet file as render/xlsx.build writes it: values only, no table (unless table=True)."""
+def _file(path, table: bool = False, extra: str | None = None, swap: bool = False):
+    """A three-sheet file as render/xlsx.build writes it: values only, no table (unless table=True); extra: one more
+    sheet of that name at the end; swap: Data before Answer (both a file move_in must refuse)."""
     with xlsxwriter.Workbook(str(path), {"strings_to_formulas": False}) as wb:
+        if swap:
+            wb.add_worksheet("Q3 Data")
         wb.add_worksheet("Q3 Answer")
-        data = wb.add_worksheet("Q3 Data")
+        data = wb.get_worksheet_by_name("Q3 Data") or wb.add_worksheet("Q3 Data")
         for j, name in enumerate(("Period", "Account", "Value")):
             data.write_string(3, j, name)
         for i in (4, 5):
@@ -45,6 +48,8 @@ def _file(path, table: bool = False):
         lines = wb.add_worksheet("Q3 Lines b0")
         lines.write_string(3, 0, "ACCOUNT")
         lines.write_string(3, 1, "AMOUNT")
+        if extra:
+            wb.add_worksheet(extra).write_number(0, 0, 1.0)
     return BuiltFile(path=path, sheets=list(SHEETS), tables=list(TABLES), formulas=[ANSWER, HEADER, LINES],
                      label_fixes=list(FIXES))
 
@@ -206,6 +211,26 @@ def test_a_built_file_with_a_table_is_refused_before_anything_is_inserted(t, tmp
     assert not isinstance(e.value, InputError)
     assert fakexl.snapshot(t.wb) == before and t.app.Workbooks.Count == 1 and t.sheets_added == []
     assert not _events(t, "Open", "Copy", "Sheets.Add")
+
+
+@pytest.mark.parametrize("kind", ["extra", "swap"])
+def test_a_built_file_with_other_sheets_than_the_answers_is_refused_before_anything_is_inserted(t, tmp_path, kind):
+    """The insert brings EVERY sheet of the file: one more (it would escape the name check and the rollback) or the
+    same ones in another order (the Book would be wrong) is refused before the insert."""
+    built = _file(tmp_path / "odd.xlsx", **({"extra": "Scratch"} if kind == "extra" else {"swap": True}))
+    before = fakexl.snapshot(t.wb)
+    with pytest.raises(ValueError, match="sheets") as e:
+        movein.move_in(t, built, after=None)
+    assert not isinstance(e.value, InputError)
+    assert fakexl.snapshot(t.wb) == before and t.sheets_added == [] and not _events(t, "Sheets.Add")
+
+
+def test_the_files_sheet_names_and_tables_come_from_its_zip(tmp_path):
+    path = tmp_path / "names.xlsx"
+    with xlsxwriter.Workbook(str(path)) as wb:
+        wb.add_worksheet("Q3 Answer")
+        wb.add_worksheet("Q3 Lines A&B <x>").add_table("A1:B3", {"name": "Lines_Q3_ab"})
+    assert movein.file_parts(path) == (["Q3 Answer", "Q3 Lines A&B <x>"], ["Lines_Q3_ab"])
 
 
 @pytest.mark.parametrize("leftover", ["sheet:Q3 Data", "sheet:q3 answer", "table:Data_Q3",

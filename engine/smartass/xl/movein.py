@@ -5,10 +5,10 @@ workbook is opened, nothing is copied or closed, and the insert leaves no link t
 proved it the same as the Open + Copy + Close it replaced, live 20.11.2026). Names are checked first: the insert
 would silently rename a taken 'Q5 Data' to 'Q5 Data (2)' and every step by name would then hit the wrong sheet
 (docs/audit/2026-11-19-render-map.md section 10 item 3). A sheet holding an Excel Table is never moved between
-workbooks (Excel can crash), so the file holds none (its zip is checked before the insert) and finish makes the
+workbooks (Excel can crash), so the file holds none, and as the insert brings every sheet of the file, it must hold
+the answer's sheets and only those, in order (its zip is checked for both before the insert); finish makes the
 tables in the workbook, then writes the formula blocks (the formulas name the tables), then sets the per-point chart
-labels the file cannot carry (LabelFix). quiet keeps the user's Excel as it
-was found around all of this and lands on the answer when it succeeds; show lets Excel paint once in between; park /
+labels the file cannot carry (LabelFix). quiet keeps the user's Excel as it was found around all of this and lands on the answer when it succeeds; show lets Excel paint once in between; park /
 restore / drop rename a question's old sheets out of the way for a follow-up and delete or restore them afterwards.
 
 Book is the job's picture of the workbook's sheets: read once (read_book) and kept up to date by the steps that add,
@@ -25,6 +25,7 @@ import logging
 import re
 import zipfile
 from dataclasses import dataclass, field
+from xml.etree import ElementTree
 
 from ..render.xlsx import Base, BuiltFile, TableSpec
 from ..render.xlsx_charts import LabelFix
@@ -253,27 +254,36 @@ def _anchor(book: Book, after: str | None, first: bool = False) -> tuple:
 
 
 _TABLE_NAME = re.compile(rb'\bdisplayName="([^"]*)"')
+_MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 
 
-def file_tables(path) -> list[str]:
-    """The Excel Tables in an .xlsx (its xl/tables parts), read from the zip: none in a file render/xlsx built."""
+def file_parts(path) -> tuple[list[str], list[str]]:
+    """(the sheet names in the file's order, from xl/workbook.xml; the Excel Tables, from its xl/tables parts), in one
+    read of the zip. A file render/xlsx built holds exactly its BuiltFile.sheets and no table."""
     with zipfile.ZipFile(path) as z:
+        book = ElementTree.fromstring(z.read("xl/workbook.xml"))
+        sheets = [s.get("name") for s in book.iter(_MAIN + "sheet")]
         parts = [n for n in z.namelist() if n.startswith("xl/tables/") and n.endswith(".xml")]
-        return [m.group(1).decode() if (m := _TABLE_NAME.search(z.read(n))) else n for n in parts]
+        return sheets, [m.group(1).decode() if (m := _TABLE_NAME.search(z.read(n))) else n for n in parts]
 
 
 def move_in(t, built: BuiltFile, after: str | None, first: bool = False, book: Book | None = None) -> None:
     """Insert the built file's sheets into t.wb after the sheet named after (None: after the last sheet; first:
     before the first visible sheet instead, where sheets.add_sheet puts a sheet when no sheet is there to follow)
-    with ONE Sheets.Add(Type:=path), alone in its call. A name of the answer already in the workbook is NameTaken and
-    a file holding a table a ValueError, both before the insert. The names are added to t.sheets_added (what a
+    with ONE Sheets.Add(Type:=path), alone in its call. A name of the answer already in the workbook is NameTaken, and
+    a file holding other sheets than built.sheets in that order (the insert brings every sheet of the file) or a
+    table is a ValueError, all before the insert. The names are added to t.sheets_added (what a
     rollback deletes) just before it, so an insert that fails half-way is rolled back too. book (else read): the
     workbook's sheets, told where the insert landed. Two calls (the defined names, the insert)."""
     book = book or read_book(t)
     found = taken(t.wb, built.sheets, [spec.name for spec in built.tables], book)
     if found:
         raise NameTaken(_taken_text(found, jobs.com(lambda: str(t.wb.Name))))
-    tables = file_tables(built.path)
+    sheets, tables = file_parts(built.path)
+    if sheets != list(built.sheets):
+        raise ValueError(f"the built file {built.path.name} holds the sheets {sheets}, not {list(built.sheets)}: the "
+                         "insert brings every sheet of the file, so it must hold the answer's sheets and only them, "
+                         "in that order")
     if tables:
         raise ValueError(f"the built file {built.path.name} holds an Excel Table ({', '.join(tables)}): a sheet "
                          "with a table is never moved between workbooks; the tables are made after the insert")

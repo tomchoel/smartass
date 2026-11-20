@@ -7,8 +7,9 @@ comparable form (cells with equal settings collapsed into rectangles), so a test
 prove that a batched version leaves the same workbook. count_com(monkeypatch) counts jobs.com calls.
 
 For the move-in of a built file: wb.Sheets.Add(Before, After, Count, Type:=path) inserts every sheet of an .xlsx
-(values, sheet visibility, tab colours) as Excel does it (live, 20.11.2026: a taken name becomes 'name (2)', a
-sheet with a table is refused here as between workbooks, the first new sheet is active, the active workbook stays);
+(values, sheet visibility, tab colours) as Excel does it (live, 20.11.2026: a taken name becomes 'name (2)', the
+first new sheet is active, the active workbook stays; a sheet with a table is refused - the fake's stand-in, as
+movein's guard always refuses such a file first and Excel's own behaviour there was not measured);
 Application.Workbooks (Workbooks(name); Open reads an .xlsx the same way, plus its tables; Close),
 wb.Worksheets([names]).Copy / .Delete as Excel does them (an omitted argument, pythoncom.ArgNotFound, reads as
 None), LinkSources / BreakLink, and Application.events: every step asked of the fake Excel, in order across sheets
@@ -797,9 +798,10 @@ def _read_file(wb, path) -> list:
 
 def _insert(dest, path, before, after):
     """wb.Sheets.Add(Type:=path): the file's sheets at the anchor (Before, else After, else before the active
-    sheet), a taken name as 'name (2)'; a sheet with a table is refused before anything goes in (Excel can crash
-    when such a sheet moves between workbooks). The first new sheet is the workbook's active one; the
-    application's active workbook does not change (live, 20.11.2026). Returns the first new sheet."""
+    sheet), a taken name as 'name (2)'. The first new sheet is the workbook's active one; the application's active
+    workbook does not change (live, 20.11.2026). A sheet with a table is refused before anything goes in: the fake's
+    stand-in (Excel can crash when such a sheet moves between workbooks; movein refuses such a file before the
+    insert, so what Excel itself does here was never measured). Returns the first new sheet."""
     new = _read_file(dest, path)
     if any(s.ListObjects for s in new):
         raise ComError("a sheet with a table inserted from a file (Excel can crash)")
