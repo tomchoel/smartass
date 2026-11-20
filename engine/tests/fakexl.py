@@ -6,9 +6,19 @@ setup, names, window state) or the workbook (sheet order, names). snapshot(wb) r
 comparable form (cells with equal settings collapsed into rectangles), so a test can pin a writer's exact effect and
 prove that a batched version leaves the same workbook. count_com(monkeypatch) counts jobs.com calls.
 
-For the move-in of a built file: Application.Workbooks (Open reads an .xlsx: values, sheet visibility, tables; Close),
-wb.Worksheets([names]).Copy / .Delete as Excel does them, LinkSources / BreakLink, and Application.events: every
-step asked of the fake Excel, in order across sheets and workbooks (not part of snapshot).
+For the move-in of a built file: wb.Sheets.Add(Before, After, Count, Type:=path) inserts every sheet of an .xlsx
+(values, sheet visibility, tab colours) as Excel does it (live, 20.11.2026: a taken name becomes 'name (2)', the
+first new sheet is active, the active workbook stays; a sheet with a table is refused - the fake's stand-in, as
+movein's guard always refuses such a file first and Excel's own behaviour there was not measured);
+Application.Workbooks (Workbooks(name); Open reads an .xlsx the same way, plus its tables; Close),
+wb.Worksheets([names]).Copy / .Delete as Excel does them (an omitted argument, pythoncom.ArgNotFound, reads as
+None), LinkSources / BreakLink, and Application.events: every step asked of the fake Excel, in order across sheets
+and workbooks (not part of snapshot).
+
+What Excel does to formulas when sheets and tables change (live, 20.11.2026, the probe of Task 3): renaming a sheet or
+a table rewrites every formula that names it - cells, defined names, chart series - outside string literals
+(_renamed); deleting a sheet turns a reference to it, or to a table on it, into #REF! (_deleted). A protected sheet's
+hidden formula (Worksheet.hidden, with ProtectContents) refuses Formula2, alone or in a range, as Excel's does.
 """
 from __future__ import annotations
 
@@ -22,6 +32,13 @@ from types import SimpleNamespace
 MAXR, MAXC = 1048576, 16384
 CLIP_R, CLIP_C = 400, 80                 # cell-level settings on whole rows/columns: only this block is tracked
 SEP = ";"                                # nb-NO list separator (Range unions)
+class _International(tuple):
+    """Application.International: read whole (a 0-based tuple) or as International(i), 1-based as Excel numbers it."""
+
+    def __call__(self, i: int):
+        return self[i - 1]
+
+
 def _international() -> tuple:
     """nb-NO's Application.International (0-based): separators, the date codes and its short date dd.mm.yyyy."""
     v: list = [None] * 51
@@ -30,7 +47,7 @@ def _international() -> tuple:
     v[18:21] = ["å", "M", "D"]                     # xlYearCode, xlMonthCode, xlDayCode
     v[31] = 1.0                                    # xlDateOrder: day, month, year
     v[40] = v[41] = v[42] = True                   # xlMonthLeadingZero, xlDayLeadingZero, xl4DigitYears
-    return tuple(v)
+    return _International(v)
 
 
 INTERNATIONAL = _international()
@@ -141,11 +158,109 @@ class ComError(Exception):
     """Not a 'busy' error: jobs.com passes it straight through."""
 
 
+def _given(args: tuple) -> tuple:
+    """Positional arguments with an omitted one (pythoncom.ArgNotFound, sent as DISP_E_PARAMNOTFOUND) read as None,
+    as Excel reads both."""
+    import pythoncom
+    return tuple(None if a is pythoncom.ArgNotFound else a for a in args)
+
+
 def _event(ws, *what) -> None:
     """One step in the Application's event list (everything asked of the fake Excel, in order, across workbooks)."""
     events = getattr(ws.wb.Application, "events", None)
     if events is not None:
         events.append((ws.Name, *what))
+
+
+# ------------------------------------------------------------------ formulas following renames and deletes
+_LITERAL = re.compile(r'("(?:[^"]|"")*")')
+_QUOTED_REF = re.compile(r"'((?:[^']|'')*)'!")
+_PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+
+def _quoted(name: str) -> str:
+    return name if _PLAIN.match(name) else "'" + name.replace("'", "''") + "'"
+
+
+def _outside_literals(text: str, fn) -> str:
+    """fn applied to the parts of a formula outside its string literals."""
+    return "".join(part if part.startswith('"') else fn(part) for part in _LITERAL.split(text))
+
+
+def _formulas(wb):
+    """(get, set) of every formula text of the workbook: cells, defined names (the workbook's and the sheets'), chart
+    series."""
+    for ws in wb.order:
+        for props in ws.cells.values():
+            v = props.get("Value")
+            if isinstance(v, str) and v.startswith("="):
+                yield (lambda p=props: p["Value"]), (lambda x, p=props: p.__setitem__("Value", x))
+        for item in ws.Names.items.values():
+            yield (lambda n=item: n.RefersTo), (lambda x, n=item: setattr(n, "RefersTo", x))
+        for co in ws.charts:
+            for s in co.Chart.series:
+                yield (lambda s=s: s.Formula), (lambda x, s=s: setattr(s, "Formula", x))
+    for item in wb.Names.items.values():
+        yield (lambda n=item: n.RefersTo), (lambda x, n=item: setattr(n, "RefersTo", x))
+    for ch in wb.Charts:
+        for s in getattr(ch, "series", []):
+            yield (lambda s=s: s.Formula), (lambda x, s=s: setattr(s, "Formula", x))
+
+
+def _rewrite(wb, fn) -> None:
+    for get, put in list(_formulas(wb)):
+        v = get()
+        if isinstance(v, str) and v.startswith("="):
+            new = _outside_literals(v, fn)
+            if new != v:
+                put(new)
+
+
+def _renamed_sheet(wb, old: str, new: str) -> None:
+    """As Excel: every reference to the sheet names it by its new name (quoted when it needs quotes)."""
+    def sheet(m):
+        parts = m.group(1).replace("''", "'").split(":")
+        if "[" in m.group(1) or not any(p.casefold() == old.casefold() for p in parts):
+            return m.group(0)
+        parts = [new if p.casefold() == old.casefold() else p for p in parts]
+        return "'" + ":".join(parts).replace("'", "''") + "'!"
+
+    def fn(text):
+        text = _QUOTED_REF.sub(sheet, text)
+        if _PLAIN.match(old):
+            text = re.sub(rf"(?<![\w.'!])({re.escape(old)})!", lambda m: _quoted(new) + "!", text, flags=re.I)
+        return text
+    _rewrite(wb, fn)
+
+
+def _table_word(name: str) -> str:
+    return rf"(?<![\w.\\?!\[]){re.escape(name)}(?![\w.\\?])"
+
+
+def _renamed_table(wb, old: str, new: str) -> None:
+    """As Excel: every reference to the table names it by its new name."""
+    _rewrite(wb, lambda text: re.sub(_table_word(old), new, text, flags=re.I))
+
+
+def _deleted(wb, sheets: list) -> None:
+    """As Excel: a reference to a deleted sheet becomes #REF! ('X'!E12 -> #REF!E12), a table on it #REF! with its
+    columns."""
+    names = {s.Name.casefold() for s in sheets}
+    tables = [lo.Name for s in sheets for lo in s.ListObjects]
+
+    def sheet(m):
+        parts = m.group(1).replace("''", "'").split(":")
+        return "#REF!" if "[" not in m.group(1) and any(p.casefold() in names for p in parts) else m.group(0)
+
+    def fn(text):
+        text = _QUOTED_REF.sub(sheet, text)
+        for s in sheets:
+            if _PLAIN.match(s.Name):
+                text = re.sub(rf"(?<![\w.'!]){re.escape(s.Name)}!", "#REF!", text, flags=re.I)
+        for t in tables:
+            text = re.sub(_table_word(t) + r"(\[(?:[^\[\]]|\[[^\]]*\])*\])?", "#REF!", text, flags=re.I)
+        return text
+    _rewrite(wb, fn)
 
 
 # ------------------------------------------------------------------ ranges
@@ -238,9 +353,19 @@ class Range:
 
     @property
     def Columns(self):
-        _, c1, _, c2 = self.rects[0]
-        return SimpleNamespace(Count=c2 - c1 + 1, AutoFit=lambda: self.ws.log.append(("AutoFit", ";".join(
-            rect_text(*x) for x in self.rects))))
+        """Range.Columns: Count, AutoFit, and Columns(i) - the range's i-th column."""
+        r1, c1, r2, c2 = self.rects[0]
+        rng = self
+
+        class Columns:
+            Count = c2 - c1 + 1
+
+            def AutoFit(self):
+                rng.ws.log.append(("AutoFit", ";".join(rect_text(*x) for x in rng.rects)))
+
+            def __call__(self, i):
+                return Range(rng.ws, [(r1, c1 + i - 1, r2, c1 + i - 1)])
+        return Columns()
 
     @property
     def Address(self):
@@ -316,9 +441,22 @@ class Range:
 
     def __getattr__(self, k):
         if k in ("Value", "Value2", "Formula", "Formula2"):
+            if k.startswith("Formula") and self.ws.ProtectContents and self.ws.hidden & set(self.cells()):
+                raise ComError("a hidden formula of a protected sheet cannot be read")
             return self._get_value()
         if k == "PrefixCharacter":
             return "'" if self.rects[0][:2] in self.ws.prefixed else ""
+        if k == "HasFormula":                            # one cell: a formula, not text written with an apostrophe
+            v = self._get_value()
+            return isinstance(v, str) and v.startswith("=") and self.rects[0][:2] not in self.ws.prefixed
+        if k in ("HasArray", "CurrentArray", "FormulaArray"):
+            r, c = self.rects[0][:2]
+            area = next((a for a in self.ws.arrays if a[0] <= r <= a[2] and a[1] <= c <= a[3]), None)
+            if k == "HasArray":
+                return area is not None
+            if area is None:
+                raise ComError("no array formula here")
+            return Range(self.ws, [area]) if k == "CurrentArray" else self.ws.cells[area[:2]]["Value"]
         if k == "ColumnWidth":
             vals = {self.ws.colw.get(c, self.ws.StandardWidth) for _, c1, _, c2 in self.rects
                     for c in range(c1, max(c1, min(c2, CLIP_C)) + 1)}
@@ -337,7 +475,13 @@ class Range:
     def __setattr__(self, k, v):
         self.ws.log.append((k, ";".join(rect_text(*x) for x in self.rects)))
         _event(self.ws, k, ";".join(rect_text(*x) for x in self.rects))
-        if k in ("Value", "Value2", "Formula", "Formula2"):
+        if k == "FormulaArray":                          # a legacy array: every cell holds the formula
+            self._check_tables(v)
+            area = self.rects[0]
+            self.ws.arrays = [a for a in self.ws.arrays if a != area] + [area]
+            for r, c in self.cells():
+                self.ws.put(r, c, v)
+        elif k in ("Value", "Value2", "Formula", "Formula2"):
             self._check_tables(v)
             self._set_value(v)
         elif k == "ColumnWidth":
@@ -386,6 +530,9 @@ class Range:
             self.ws.AutoFilterMode, self.ws.autofilter = True, self.rects[0]
 
     def SpecialCells(self, kind, value_type=None):
+        if kind == 11:                                  # xlCellTypeLastCell: the used range's last cell
+            r1, c1, r2, c2 = self.ws.UsedRange.rects[0]
+            return Range(self.ws, [(r2, c2, r2, c2)])
         hits = []
         for rc in self.cells():
             v = self.ws.cells.get(rc, {}).get("Value")
@@ -475,6 +622,12 @@ class ListObject:
         self.ws, self.rect, self.Name, self.TableStyle = ws, rng.rects[0], "Table1", None
         self.ShowTableStyleRowStripes = True
 
+    def __setattr__(self, k, v):
+        old = self.__dict__.get("Name")
+        super().__setattr__(k, v)
+        if k == "Name" and old is not None and old != v and self in self.ws.ListObjects:
+            _renamed_table(self.ws.wb, old, v)               # as Excel: the formulas follow the table
+
     @property
     def Range(self):
         return Range(self.ws, [self.rect])
@@ -522,18 +675,93 @@ class _ListObjects(list):
         return lo
 
 
+class _Name(SimpleNamespace):
+    """A defined name; RefersToLocal is RefersTo (the fake has no locale)."""
+
+    @property
+    def RefersToLocal(self):
+        return self.RefersTo
+
+    @RefersToLocal.setter
+    def RefersToLocal(self, v):
+        self.RefersTo = v
+
+
 class _Names:
     def __init__(self, owner):
         self.owner, self.items = owner, {}
 
     def Add(self, Name=None, RefersTo=None, Visible=True, **kw):
-        self.items[Name] = SimpleNamespace(Name=Name, RefersTo=RefersTo, Visible=Visible)
+        self.items[Name] = _Name(Name=Name, RefersTo=RefersTo, Visible=Visible)
         return self.items[Name]
 
     def __call__(self, name):
         if name not in self.items:
             raise ComError(f"no name {name}")
         return self.items[name]
+
+    def Item(self, name):
+        """As Excel: a name is found without case, or by its index."""
+        if isinstance(name, int):
+            return list(self.items.values())[name - 1]
+        for key, item in self.items.items():
+            if key.lower() == str(name).lower():
+                return item
+        raise ComError(f"no name {name}")
+
+    def __iter__(self):
+        return iter(list(self.items.values()))
+
+    @property
+    def Count(self):
+        return len(self.items)
+
+
+class _Series(SimpleNamespace):
+    """A chart series: its formula (=SERIES(...))."""
+
+
+class _Chart:
+    def __init__(self, formulas):
+        self.series = [_Series(Formula=f) for f in formulas]
+
+    def SeriesCollection(self, i=None):
+        return list(self.series) if i is None else self.series[i - 1]
+
+
+class _ChartObjects(list):
+    """ws.ChartObjects(): chart objects (.Chart) a test adds with add(series formulas)."""
+
+    @property
+    def Count(self):
+        return len(self)
+
+    def add(self, *formulas):
+        co = SimpleNamespace(Name=f"Chart {len(self) + 1}", Chart=_Chart(formulas))
+        self.append(co)
+        return co
+
+
+class ChartSheet(_Chart):
+    """A chart sheet: its name and its series' formulas."""
+
+    def __init__(self, name, *formulas):
+        super().__init__(formulas)
+        self.Name = name
+
+
+class _Charts(list):
+    """wb.Charts: the chart sheets, Charts(name) as Excel finds one."""
+
+    def __call__(self, key):
+        for ch in self:
+            if str(ch.Name).lower() == str(key).lower():
+                return ch
+        raise ComError(f"no chart sheet {key}")
+
+    @property
+    def Count(self):
+        return len(self)
 
 
 class _Hyperlinks(list):
@@ -583,6 +811,23 @@ class Worksheet:
         self.prefixed: set[tuple[int, int]] = set()     # cells written with a leading apostrophe (text as text)
         self.page_breaks: list[int] | None = None       # manual page breaks: None until reset
         self.StandardHeight, self.StandardWidth, self.digit_px = 15.0, 8.43, 7     # Calibri 11, as a new workbook
+        self.charts = _ChartObjects()                   # ChartObjects(): charts with series formulas
+        self.ProtectContents = False
+        self.hidden: set[tuple[int, int]] = set()        # a protected sheet's hidden formulas: Formula2 refuses them
+        self.arrays: list[tuple[int, int, int, int]] = []    # legacy array formulas (FormulaArray), by their area
+
+    def __setattr__(self, k, v):
+        old = self.__dict__.get("Name")
+        super().__setattr__(k, v)
+        if k == "Name" and old is not None and old != v and self in self.wb.order:
+            _renamed_sheet(self.wb, old, v)               # as Excel: the formulas follow the sheet
+
+    @property
+    def Application(self):
+        return self.wb.Application
+
+    def ChartObjects(self, i=None):
+        return self.charts if i is None else self.charts[i - 1]
 
     @property
     def Parent(self):
@@ -641,6 +886,7 @@ class Worksheet:
 
     def Move(self, *args, **kw):
         assert not kw
+        args = _given(args)
         before = args[0] if args else None
         after = args[1] if len(args) > 1 else None
         self.wb.order.remove(self)
@@ -676,7 +922,7 @@ class _Sheets:
         if isinstance(key, int):
             return self.wb.order[key - 1]
         for s in self.wb.order:
-            if s.Name == key:
+            if s.Name.lower() == str(key).lower():       # as Excel: a sheet's name is found without case
                 return s
         raise ComError(f"no sheet {key}")
 
@@ -687,7 +933,13 @@ class _Sheets:
     def Count(self):
         return len(self.wb.order)
 
-    def Add(self, before=None, after=None):
+    def Add(self, *args, **kw):
+        """Positional (Before, After, Count, Type), as late-bound COM needs. With Type (a path): every sheet of that
+        .xlsx inserted at the anchor, in the file's order (_insert); else one new empty sheet."""
+        assert not kw, "Sheets.Add: positional arguments only"
+        before, after, _count, path = (_given(args) + (None,) * 4)[:4]
+        if path is not None:
+            return _insert(self.wb, path, before, after)
         ws = Worksheet(self.wb, f"Sheet{len(self.wb.order) + 1}")
         if after is not None:
             self.wb.order.insert(self.wb.order.index(after) + 1, ws)
@@ -709,6 +961,7 @@ class _SheetGroup:
         crash), a taken name becomes 'name (2)' silently, a formula pointing at a sheet left behind leaves a link to
         the source file, and the destination workbook is activated on the first copy."""
         assert not kw, "Worksheets.Copy: positional (Before, After) only"
+        args = _given(args)
         before = args[0] if args else None
         after = args[1] if len(args) > 1 else None
         anchor = before if before is not None else after
@@ -739,17 +992,68 @@ class _SheetGroup:
         _event(copies[0], "Copy", [s.Name for s in self.sheets])
 
     def Delete(self):
-        """As Excel: with DisplayAlerts on, a delete asks the user first (the fake refuses instead of waiting)."""
+        """As Excel: with DisplayAlerts on, a delete asks the user first (the fake refuses instead of waiting); what
+        pointed at the sheets shows #REF!."""
         if self.wb.Application.DisplayAlerts:
             raise ComError("a sheet delete with DisplayAlerts on waits for the user")
         for s in self.sheets:
             self.wb.order.remove(s)
+        _deleted(self.wb, self.sheets)
         if self.wb.active in self.sheets:
             self.wb.active = self.wb.order[0]
         _event(self.sheets[0], "Delete", [s.Name for s in self.sheets])
 
 
 _VISIBLE = {"visible": -1, "hidden": 0, "veryHidden": 2}
+
+
+def _read_file(wb, path) -> list:
+    """The sheets of an .xlsx as fake Worksheets of wb (values, visibility, tab colour, tables), in the file's order."""
+    import openpyxl
+    book = openpyxl.load_workbook(path)
+    out = []
+    for src in book.worksheets:
+        ws = Worksheet(wb, src.title)
+        ws.Visible = _VISIBLE[src.sheet_state]
+        tab = src.sheet_properties.tabColor
+        if tab is not None and tab.rgb:                    # 'FF1F3864' -> BGR, as Excel reads Tab.Color
+            r, g, b = (int(tab.rgb[i:i + 2], 16) for i in (2, 4, 6))
+            ws.Tab.Color = r + (g << 8) + (b << 16)
+        for row in src.iter_rows():
+            for c in row:
+                if c.value is not None:
+                    ws.cell((c.row, c.column))["Value"] = c.value
+        for name, ref in src.tables.items():
+            lo = ListObject(ws, Range(ws, [parse_area(ref)]))
+            lo.Name = name
+            ws.ListObjects.append(lo)
+        out.append(ws)
+    return out
+
+
+def _insert(dest, path, before, after):
+    """wb.Sheets.Add(Type:=path): the file's sheets at the anchor (Before, else After, else before the active
+    sheet), a taken name as 'name (2)'. The first new sheet is the workbook's active one; the application's active
+    workbook does not change (live, 20.11.2026). A sheet with a table is refused before anything goes in: the fake's
+    stand-in (Excel can crash when such a sheet moves between workbooks; movein refuses such a file before the
+    insert, so what Excel itself does here was never measured). Returns the first new sheet."""
+    new = _read_file(dest, path)
+    if any(s.ListObjects for s in new):
+        raise ComError("a sheet with a table inserted from a file (Excel can crash)")
+    taken = {s.Name.lower() for s in dest.order}
+    anchor = before if before is not None else after if after is not None else dest.active
+    k = dest.order.index(anchor) + (0 if after is None else 1)
+    for s in new:
+        name, i = s.Name, 2
+        while name.lower() in taken:
+            name, i = f"{s.Name} ({i})", i + 1
+        taken.add(name.lower())
+        s.Name = name
+        dest.order.insert(k, s)
+        k += 1
+    dest.active = new[0]
+    _event(new[0], "Sheets.Add", [s.Name for s in new], str(path))
+    return new[0]
 
 
 class _Workbooks(list):
@@ -763,27 +1067,22 @@ class _Workbooks(list):
     def Count(self):
         return len(self)
 
+    def __call__(self, key):
+        """Workbooks(name) or Workbooks(index), as Excel: an unknown name is an error."""
+        if isinstance(key, int):
+            return self[key - 1]
+        for wb in self:
+            if wb.Name.lower() == str(key).lower():
+                return wb
+        raise ComError(f"no workbook {key}")
+
     def Open(self, path, *args, **kw):
         """Positional only, as late-bound COM needs: (Filename, UpdateLinks, ReadOnly, ...)."""
         assert not kw, "Workbooks.Open: positional arguments only"
-        import openpyxl
-        book = openpyxl.load_workbook(path)
-        wb = Workbook(book.sheetnames, app=self.app, styles_ver=False)
+        wb = Workbook(("the file's sheets",), app=self.app, styles_ver=False)
+        wb.order = _read_file(wb, path)
+        wb.active = wb.order[0]
         wb.Name, wb.FullName, wb.opened_with = Path(path).name, str(path), args
-        for ws, src in zip(wb.order, book.worksheets):
-            ws.Visible = _VISIBLE[src.sheet_state]
-            tab = src.sheet_properties.tabColor
-            if tab is not None and tab.rgb:                # 'FF1F3864' -> BGR, as Excel reads Tab.Color
-                r, g, b = (int(tab.rgb[i:i + 2], 16) for i in (2, 4, 6))
-                ws.Tab.Color = r + (g << 8) + (b << 16)
-            for row in src.iter_rows():
-                for c in row:
-                    if c.value is not None:
-                        ws.cell((c.row, c.column))["Value"] = c.value
-            for name, ref in src.tables.items():
-                lo = ListObject(ws, Range(ws, [parse_area(ref)]))
-                lo.Name = name
-                ws.ListObjects.append(lo)
         _event(wb.order[0], "Open", str(path))
         return wb
 
@@ -807,6 +1106,11 @@ class Application:
     def ActiveWindow(self):
         return self.ActiveWorkbook.window
 
+    def Intersect(self, a, b):
+        """The cells two ranges of one sheet share, or None."""
+        both = set(a.cells()) & set(b.cells()) if a.ws is b.ws else set()
+        return Range(a.ws, [(r, c, r, c) for r, c in sorted(both)]) if both else None
+
     def CentimetersToPoints(self, cm):
         return round(cm * 28.3464567, 4)
 
@@ -816,10 +1120,11 @@ class Workbook:
         self.Application = app or Application()
         self.order = [Worksheet(self, n) for n in names]
         self.Worksheets = _Sheets(self)
+        self.Sheets = self.Worksheets                   # the chart sheets are in Charts
         self.Names = _Names(self)
         self.Name, self.FullName = "book.xlsx", r"C:\fake\book.xlsx"
         self.links: list[str] = []                       # LinkSources(xlExcelLinks)
-        self.Charts: list = []                           # chart sheets (objects with a Name)
+        self.Charts = _Charts()                          # chart sheets (objects with a Name; ChartSheet)
         self.window = _Window(self)
         self.window_state: dict[str, dict] = {}
         self.selection: dict[str, str] = {}

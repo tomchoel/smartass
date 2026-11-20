@@ -1,6 +1,7 @@
-"""Phase 3 Task 4: the built file's sheets moved into the user's workbook in one copy and finished there
-(xl/movein.py): the name pre-check, the hidden read-only temp workbook, the tables, the formula blocks, the chart
-label fixes, the user's settings put back, and the park / restore / drop steps of a follow-up. All on fakexl."""
+"""Phase 3 Task 4 (the insert: phase 3b Task 2a): the built file's sheets moved into the user's workbook with one
+Sheets.Add(Type:=path) and finished there (xl/movein.py): the name pre-check, the insert, the tables, the formula
+blocks, the chart label fixes, the user's settings put back, and the park / restore / drop steps of a follow-up. All
+on fakexl."""
 from __future__ import annotations
 
 import logging
@@ -12,8 +13,11 @@ import xlsxwriter
 import fakexl
 from smartass.render.xlsx import Base, BuiltFile, FormulaBlock, TableSpec
 from smartass.render.xlsx_charts import LabelFix
-from smartass.xl import jobs, movein
+from smartass.xl import jobs, movein, sheets
 from smartass.xl.host import HostError, InputError
+from smartass.xl.inproc import runner
+from smartass.xl.inproc.batch import Batch
+from smartass.xl.inproc.runner import BatchError
 from smartass.xl.target import Target
 
 USER_SHEETS = ["Q1 Answer", "Q1 Data", "Notes", "Sources", "_svmeta"]
@@ -28,11 +32,14 @@ NAVY_BGR = 0x64381F                                  # "#1F3864" as a COM colour
 
 
 # ------------------------------------------------------------------ the built file and the user's workbook
-def _file(path, extra: str | None = None, table: bool = False, link: bool = False):
-    """A three-sheet file as render/xlsx.build writes it: values only, no table (unless table=True)."""
+def _file(path, table: bool = False, extra: str | None = None, swap: bool = False):
+    """A three-sheet file as render/xlsx.build writes it: values only, no table (unless table=True); extra: one more
+    sheet of that name at the end; swap: Data before Answer (both a file move_in must refuse)."""
     with xlsxwriter.Workbook(str(path), {"strings_to_formulas": False}) as wb:
-        answer = wb.add_worksheet("Q3 Answer")
-        data = wb.add_worksheet("Q3 Data")
+        if swap:
+            wb.add_worksheet("Q3 Data")
+        wb.add_worksheet("Q3 Answer")
+        data = wb.get_worksheet_by_name("Q3 Data") or wb.add_worksheet("Q3 Data")
         for j, name in enumerate(("Period", "Account", "Value")):
             data.write_string(3, j, name)
         for i in (4, 5):
@@ -46,8 +53,6 @@ def _file(path, extra: str | None = None, table: bool = False, link: bool = Fals
         lines.write_string(3, 1, "AMOUNT")
         if extra:
             wb.add_worksheet(extra).write_number(0, 0, 1.0)
-        if link:
-            answer.write_formula(0, 0, f"='{extra}'!A1")
     return BuiltFile(path=path, sheets=list(SHEETS), tables=list(TABLES), formulas=[ANSWER, HEADER, LINES],
                      label_fixes=list(FIXES))
 
@@ -130,25 +135,21 @@ def _moved(t, built):
 
 
 # ------------------------------------------------------------------ move_in
-def test_move_in_is_one_copy_and_five_com_calls(t, built, monkeypatch):
-    """The names checked (the defined names: one call; the rest from the book), Open, Copy, Close, the links: no
-    table look in the opened file (its zip says) and no window to hide (screen updating is off)."""
-    opened = []
-    real_open = t.app.Workbooks.Open
-    monkeypatch.setattr(t.app.Workbooks, "Open", lambda *a: opened.append(real_open(*a)) or opened[-1])
+def test_move_in_is_one_insert_in_one_batch(t, built, monkeypatch):
+    """The names checked (the sheets, tables and defined names the look read), then ONE Sheets.Add(Type:=path) that
+    brings every sheet of the file in: no workbook opened, nothing copied, closed or unlinked."""
     book = movein.read_book(t)
     calls = fakexl.count_com(monkeypatch)
-    movein.move_in(t, built, after="Sources", book=book)
-    assert len(calls) == 5 and len(_events(t, "Copy")) == 1
+    movein.move_in(t, built, after="Sources", book=book, names=[])
+    assert len(calls) == 1 and len(_events(t, "Sheets.Add")) == 1
     assert _names(t.wb) == ["Q1 Answer", "Q1 Data", "Notes", "Sources", *SHEETS, "_svmeta"]
     assert t.sheets_added == SHEETS
-    assert t.wb.LinkSources(1) is None and t.app.Workbooks.Count == 1          # the temp file is closed
-    assert opened[0].opened_with == (0, True)                                    # no link update, read-only
-    kinds = [e[1] for e in t.app.events if e[1] in ("Window.Visible", "Copy", "Close")]
-    assert kinds == ["Copy", "Close"]
+    assert t.wb.LinkSources(1) is None and t.app.Workbooks.Count == 1
+    assert not _events(t, "Open", "Copy", "Close", "BreakLink", "Window.Visible")
+    assert _events(t, "Sheets.Add")[0][2:] == (SHEETS, str(built.path))
 
 
-def test_the_book_learns_where_the_copy_landed(t, built):
+def test_the_book_learns_where_the_insert_landed(t, built):
     book = movein.read_book(t)
     movein.move_in(t, built, after="Sources", book=book)
     assert book.names() == _names(t.wb)
@@ -160,15 +161,18 @@ def test_the_book_is_one_read_of_names_visibility_tabs_tables_and_the_active_she
     _add_table(t.wb.Worksheets("Notes"), "Users_table")
     t.wb.Worksheets("Q1 Answer").Tab.Color = NAVY_BGR
     t.wb.Charts.append(SimpleNamespace(Name="A chart"))
+    t.book_name = t.wb.Name
     calls = fakexl.count_com(monkeypatch)
     book = movein.read_book(t)
     assert len(calls) == 1 and book.names() == USER_SHEETS and book.charts == ["A chart"]
     assert [(s.visible, s.tab) for s in book.sheets][:2] == [(-1, NAVY_BGR), (-1, False)]
-    assert book.tables() == [("Users_table", t.wb.Worksheets("Notes").ListObjects(1), "Notes")]
-    assert book.active == "Q1 Answer"
+    assert [s.visible for s in book.sheets][-1] == 0
+    assert book.tables() == [("Users_table", "Notes")] and book.active == "Q1 Answer"
+    t.wb.Application.ActiveWorkbook = None                          # not the active workbook: no active sheet
+    assert movein.read_book(t).active is None
 
 
-def test_the_copied_sheets_carry_the_files_values(t, built):
+def test_the_inserted_sheets_carry_the_files_values(t, built):
     movein.move_in(t, built, after=None)
     data = t.wb.Worksheets("Q3 Data")
     assert data.Range("A4:C5").Value == (("Period", "Account", "Value"), ("Sep 26", "0047", 400.0))
@@ -176,13 +180,13 @@ def test_the_copied_sheets_carry_the_files_values(t, built):
 
 
 @pytest.mark.parametrize("after", [None, "_svmeta"])
-def test_after_a_hidden_sheet_the_copy_lands_after_the_last_visible_one(t, built, after):
+def test_after_a_hidden_sheet_the_insert_lands_after_the_last_visible_one(t, built, after):
     movein.move_in(t, built, after=after)
     assert _names(t.wb) == ["Q1 Answer", "Q1 Data", "Notes", "Sources", *SHEETS, "_svmeta"]
     assert all(t.wb.Worksheets(n).Visible == -1 for n in SHEETS)
 
 
-def test_with_no_visible_sheet_up_to_a_hidden_anchor_the_copy_goes_before_the_first_visible_one(built):
+def test_with_no_visible_sheet_up_to_a_hidden_anchor_the_insert_goes_before_the_first_visible_one(built):
     wb = fakexl.Workbook(["_svmeta", "Notes"], styles_ver=False)
     wb.Worksheets("_svmeta").Visible = 0
     wb.active = wb.Worksheets("Notes")
@@ -191,34 +195,53 @@ def test_with_no_visible_sheet_up_to_a_hidden_anchor_the_copy_goes_before_the_fi
     assert _names(wb) == ["_svmeta", *SHEETS, "Notes"]
 
 
-def test_a_link_to_a_sheet_left_behind_is_broken_and_the_users_own_links_stay(t, tmp_path):
+def test_the_users_own_links_are_left_alone(t, built):
+    """The insert leaves no link to the file (live, 20.11.2026: LinkSources empty), so no link is broken."""
     users = r"C:\Users\someone\Budget 2026.xlsx"
     t.wb.links.append(users)                                  # the user's formulas that read another workbook
-    built = _file(tmp_path / "linked.xlsx", extra="Scratch", link=True)
     movein.move_in(t, built, after=None)
-    assert [e[2] for e in _events(t, "BreakLink")] == [str(built.path)] and t.wb.LinkSources(1) == (users,)
-    assert "Scratch" not in _names(t.wb)
+    assert t.wb.LinkSources(1) == (users,) and not _events(t, "BreakLink")
 
 
-def test_first_copies_before_the_first_visible_sheet(t, built):
+def test_first_inserts_before_the_first_visible_sheet(t, built):
     t.wb.order[0].Visible = 0                            # the user hid their first sheet
     movein.move_in(t, built, None, first=True)
     assert _names(t.wb) == ["Q1 Answer", *SHEETS, "Q1 Data", "Notes", "Sources", "_svmeta"]
 
 
-def test_a_built_file_with_a_table_is_refused_before_anything_is_opened(t, tmp_path):
+def test_a_built_file_with_a_table_is_refused_before_anything_is_inserted(t, tmp_path):
     built = _file(tmp_path / "tabled.xlsx", table=True)
     before = fakexl.snapshot(t.wb)
     with pytest.raises(ValueError, match="Data_Q3") as e:
         movein.move_in(t, built, after=None)
     assert not isinstance(e.value, InputError)
     assert fakexl.snapshot(t.wb) == before and t.app.Workbooks.Count == 1 and t.sheets_added == []
-    assert not _events(t, "Open", "Copy")
+    assert not _events(t, "Open", "Copy", "Sheets.Add")
+
+
+@pytest.mark.parametrize("kind", ["extra", "swap"])
+def test_a_built_file_with_other_sheets_than_the_answers_is_refused_before_anything_is_inserted(t, tmp_path, kind):
+    """The insert brings EVERY sheet of the file: one more (it would escape the name check and the rollback) or the
+    same ones in another order (the Book would be wrong) is refused before the insert."""
+    built = _file(tmp_path / "odd.xlsx", **({"extra": "Scratch"} if kind == "extra" else {"swap": True}))
+    before = fakexl.snapshot(t.wb)
+    with pytest.raises(ValueError, match="sheets") as e:
+        movein.move_in(t, built, after=None)
+    assert not isinstance(e.value, InputError)
+    assert fakexl.snapshot(t.wb) == before and t.sheets_added == [] and not _events(t, "Sheets.Add")
+
+
+def test_the_files_sheet_names_and_tables_come_from_its_zip(tmp_path):
+    path = tmp_path / "names.xlsx"
+    with xlsxwriter.Workbook(str(path)) as wb:
+        wb.add_worksheet("Q3 Answer")
+        wb.add_worksheet("Q3 Lines A&B <x>").add_table("A1:B3", {"name": "Lines_Q3_ab"})
+    assert movein.file_parts(path) == (["Q3 Answer", "Q3 Lines A&B <x>"], ["Lines_Q3_ab"])
 
 
 @pytest.mark.parametrize("leftover", ["sheet:Q3 Data", "sheet:q3 answer", "table:Data_Q3",
                                       "table:Lines_Q3_b0@Other sheet"])
-def test_a_taken_name_stops_before_anything_is_copied(t, built, leftover):     # Review Focus 2
+def test_a_taken_name_stops_before_anything_is_inserted(t, built, leftover):     # Review Focus 2
     kind, _, rest = leftover.partition(":")
     name, _, sheet = rest.partition("@")
     if kind == "sheet":
@@ -231,76 +254,86 @@ def test_a_taken_name_stops_before_anything_is_copied(t, built, leftover):     #
     with pytest.raises(movein.NameTaken, match=name) as e:
         movein.move_in(t, built, after=None)
     assert isinstance(e.value, InputError) and "book.xlsx" in str(e.value) and "rename or delete" in str(e.value)
-    assert fakexl.snapshot(t.wb) == before and t.app.Workbooks.Count == 1 and t.sheets_added == []
+    assert fakexl.snapshot(t.wb) == before and t.sheets_added == [] and not _events(t, "Sheets.Add")
+
+
+def _names_read(t, keys) -> list[str]:
+    b = Batch(quiet=False)
+    get = movein.record_defined(b, b.workbook(t.wb.Name), keys)
+    return get(runner.run(t.app, b))
 
 
 def test_taken_names_every_sheet_and_table_already_there(t):
     _add_table(t.wb.Worksheets("Notes"), "lines_q3_b0")
     t.wb.order.insert(0, fakexl.Worksheet(t.wb, "Q3 Data"))
-    assert movein.taken(t.wb, SHEETS, ["Data_Q3", "Lines_Q3_b0"]) == [
+    book = movein.read_book(t)
+    assert movein.taken(book, SHEETS, ["Data_Q3", "Lines_Q3_b0"], []) == [
         "the sheet 'Q3 Data'", "the table 'lines_q3_b0' on sheet 'Notes'"]
-    assert movein.taken(t.wb, ["Q4 Answer"], ["Data_Q4"]) == []
+    assert movein.taken(book, ["Q4 Answer"], ["Data_Q4"], []) == []
 
 
 def test_taken_also_names_a_chart_sheet_and_a_defined_name_of_the_answer(t, built):
+    """The defined names a table could want are looked up by the answer's table names (the verb exist: re-review
+    M5, no walk over every name), in the batch that reads the Book."""
     t.wb.Charts.append(SimpleNamespace(Name="q3 answer"))
     t.wb.Names.Add(Name="Data_Q3", RefersTo="=Notes!$A$1")
-    assert movein.taken(t.wb, SHEETS, ["Data_Q3", "Lines_Q3_b0"]) == [
+    t.wb.Names.Add(Name="Budget", RefersTo="=Notes!$A$2")
+    names = _names_read(t, ["data_q3", "Lines_Q3_b0"])
+    assert names == ["Data_Q3"]                                        # the workbook's own spelling
+    names = _names_read(t, ["Data_Q3", "Lines_Q3_b0"])
+    assert movein.taken(movein.read_book(t), SHEETS, ["Data_Q3", "Lines_Q3_b0"], names) == [
         "the chart sheet 'q3 answer'", "the name 'Data_Q3'"]
     before = fakexl.snapshot(t.wb)
     with pytest.raises(movein.NameTaken, match="the chart sheet 'q3 answer' and the name 'Data_Q3'"):
         movein.move_in(t, built, after=None)
-    assert fakexl.snapshot(t.wb) == before and not _events(t, "Open")
+    assert fakexl.snapshot(t.wb) == before and not _events(t, "Sheets.Add")
 
 
-def test_the_temp_workbook_is_closed_when_the_copy_fails(t, built, monkeypatch):
-    def refuse(self, *a):
-        raise fakexl.ComError("Copy method of Sheets class failed")
-    monkeypatch.setattr(fakexl._SheetGroup, "Copy", refuse)
+def test_move_in_into_a_batch_wants_the_name_check_before_it_or_the_names(t, built):
+    """Task 2c review Minor 1: recorded into a batch, move_in cannot read the defined names itself; it takes them
+    (names) or the index of the check the caller recorded first (free_at, movein.record_free), never neither."""
+    book = movein.read_book(t)
+    b = Batch()
+    with pytest.raises(ValueError, match="record_free"):
+        movein.move_in(t, built, "Sources", book=book, b=b)
+    assert b.to_dict()["ops"] == [] and t.sheets_added == []
+    free_at = movein.record_free(b, b.workbook(t.wb.Name), [s.name for s in built.tables])
+    assert movein.move_in(t, built, "Sources", book=book, b=b, free_at=free_at) > free_at
+
+
+def test_an_insert_that_fails_half_way_leaves_its_names_for_the_rollback(t, built, monkeypatch):
+    """Excel may have put some of the file's sheets in before the insert failed: their names are in
+    t.sheets_added already, so the rollback removes those that are there, and the workbook is as it was."""
+    real = fakexl._Sheets.Add
+
+    def half(self, *args):
+        real(self, *args)
+        self.wb.order.remove(self("Q3 Lines b0"))           # only the first two got in
+        raise fakexl.ComError("Add method of Sheets class failed")
+    monkeypatch.setattr(fakexl._Sheets, "Add", half)
     before = fakexl.snapshot(t.wb)
-    with pytest.raises(fakexl.ComError, match="Copy method"):
+    with pytest.raises(BatchError, match="Add method"):
         movein.move_in(t, built, after=None)
-    assert t.app.Workbooks.Count == 1 and t.app.ActiveWorkbook is t.wb and fakexl.snapshot(t.wb) == before
-    assert t.sheets_added == SHEETS                     # whatever a half-done copy brought in, rollback removes
-
-
-def test_a_temp_workbook_that_does_not_close_is_handed_back_and_closed_at_the_end_of_the_job(t, built, monkeypatch):
-    real, fails = fakexl.Workbook.Close, []
-
-    def close(wb, save=None):
-        if wb is not t.wb and len(fails) < 1:
-            fails.append(wb.Name)
-            raise fakexl.ComError("the workbook is busy")
-        return real(wb, save)
-    monkeypatch.setattr(fakexl.Workbook, "Close", close)
-    left = []
-    movein.move_in(t, built, after=None, left=left)
-    assert fails == ["answer.xlsx"] and [str(p) for _, p in left] == [str(built.path)] and t.app.Workbooks.Count == 2
-    notes = movein.close_left(left)
-    assert t.app.Workbooks.Count == 1 and left == [] and len(notes) == 1
-    assert "answer.xlsx" in notes[0] and "closed at the end of the job" in notes[0]
-
-
-def test_a_temp_workbook_that_still_does_not_close_is_said(t, built, monkeypatch):
-    def close(wb, save=None):
-        raise fakexl.ComError("the workbook is busy")
-    left = []
-    monkeypatch.setattr(fakexl.Workbook, "Close", close)
-    movein.move_in(t, built, after=None, left=left)
-    notes = movein.close_left(left)
-    assert len(notes) == 1 and "could not be closed" in notes[0] and "answer.xlsx" in notes[0]
+    assert t.sheets_added == SHEETS
+    assert sheets.rollback(t) == ["Q3 Data", "Q3 Answer"]
+    assert fakexl.snapshot(t.wb) == before and t.app.Workbooks.Count == 1
 
 
 # ------------------------------------------------------------------ finish
 def test_finish_makes_the_tables_then_writes_each_block_once_then_fixes_the_labels(t, built, monkeypatch):
+    """One batch, in the job's order: the tables, every block, the labels' position and colour, the calculation
+    (the Answer last), the labels' lifts (review M3: the job and the standalone finish alike)."""
     _moved(t, built)
     calls = fakexl.count_com(monkeypatch)
     movein.finish(t, built)
-    assert len(calls) == 6          # each ListObjects.Add alone, the tables' looks, every block, the labels (read, set)
-    steps = [(e[0], e[1]) for e in _events(t, "ListObjects.Add", "Formula2", "DataLabel")]
+    assert len(calls) == 1
+    steps = [(e[0], e[1]) for e in _events(t, "ListObjects.Add", "Formula2", "DataLabel", "Calculate")]
     assert steps[:2] == [("Q3 Data", "ListObjects.Add"), ("Q3 Lines b0", "ListObjects.Add")]
     assert steps[2:5] == [("Q3 Answer", "Formula2"), ("Q3 Data", "Formula2"), ("Q3 Lines b0", "Formula2")]
-    assert {s for s in steps[5:]} == {("Q3 Answer", "DataLabel")} and len(steps) > 5
+    kinds = [k for _, k in steps[5:]]
+    calc = [i for i, k in enumerate(kinds) if k == "Calculate"]
+    assert "DataLabel" in kinds[:calc[0]] and "DataLabel" in kinds[calc[-1]:]      # positioned before, lifted after
+    assert [s for s, k in steps if k == "Calculate"] == ["Q3 Data", "Q3 Lines b0", "Q3 Answer"]
     assert [e[2] for e in _events(t, "Formula2")] == ["B2:C3", "A1:B2", "F1:G1"]
     data, lines = t.wb.Worksheets("Q3 Data").ListObjects(1), t.wb.Worksheets("Q3 Lines b0").ListObjects(1)
     assert _tables(t.wb) == {"Data_Q3": "Q3 Data", "Lines_Q3_b0": "Q3 Lines b0"}
@@ -381,156 +414,51 @@ def test_text_that_looks_like_a_formula_number_or_date_stays_text(t, built):    
 
 
 def test_calculate_does_the_answer_last_in_one_call(t, monkeypatch):
+    t.book_name = t.wb.Name
     calls = fakexl.count_com(monkeypatch)
     movein.calculate(t, ["Q1 Answer", "Q1 Data", "Notes"])
     assert [e[0] for e in _events(t, "Calculate")] == ["Q1 Data", "Notes", "Q1 Answer"] and len(calls) == 1
 
 
-# ------------------------------------------------------------------ quiet
-class FailingApp(fakexl.Application):
-    """Setting fail_on (a name, or (name, value)) raises, as a COM error would."""
-
-    def __setattr__(self, k, v):
-        fail = self.__dict__.get("fail_on")
-        if fail in (k, (k, v)):
-            raise fakexl.ComError(f"cannot set {k}")
-        super().__setattr__(k, v)
-
-
-SETTINGS = ("ScreenUpdating", "EnableEvents", "DisplayAlerts", "Calculation")
-
-
+# ------------------------------------------------------------------ the screen, and landing back after a failure
 @pytest.fixture
-def app():
-    a = FailingApp()
-    user = fakexl.Workbook(["Q1 Answer", "Notes"], app=a, styles_ver=False)
-    fakexl.Workbook(["Other"], app=a, styles_ver=False)
-    user.Worksheets("Notes").Activate()
-    return a
-
-
-def _state(app):
-    return {k: getattr(app, k) for k in SETTINGS} | {"book": app.ActiveWorkbook.Name, "sheet": app.ActiveSheet.Name}
-
-
-def test_quiet_turns_off_what_slows_a_write_and_puts_it_back(app):
-    before = _state(app)
-    with movein.quiet(app):
-        inside = {k: getattr(app, k) for k in SETTINGS}
-        app.Workbooks[1].Worksheets("Other").Activate()              # the copy activates other sheets
-    assert inside == {"ScreenUpdating": False, "EnableEvents": False, "DisplayAlerts": False, "Calculation": -4135}
-    assert _state(app) == before and app.ActiveWorkbook is app.Workbooks[0]
-
-
-@pytest.mark.parametrize("fail_at", ["ScreenUpdating", "Calculation", "body"])
-def test_quiet_restores_everything_whatever_fails(app, fail_at):               # Review Focus 4
-    before = _state(app)
-    ran = []
-    if fail_at != "body":
-        app.fail_on = fail_at
-    with pytest.raises((fakexl.ComError, RuntimeError)) as e:
-        with movein.quiet(app):
-            ran.append(True)
-            app.Workbooks[1].Worksheets("Other").Activate()
-            raise RuntimeError("the body failed")
-    app.fail_on = None
-    assert _state(app) == before
-    if fail_at == "body":
-        assert ran and str(e.value) == "the body failed"
-    else:
-        assert not ran and str(e.value) == f"cannot set {fail_at}"
-
-
-def test_a_restore_that_fails_does_not_hide_the_bodys_error_or_stop_the_others(app, caplog):
-    before = _state(app)
-    with caplog.at_level(logging.WARNING), pytest.raises(RuntimeError, match="the body failed"):
-        with movein.quiet(app):
-            app.fail_on = ("EnableEvents", True)
-            app.Workbooks[1].Worksheets("Other").Activate()
-            raise RuntimeError("the body failed")
-    app.fail_on = None
-    assert _state(app) == before | {"EnableEvents": False}
-    assert any("EnableEvents" in r.getMessage() for r in caplog.records)
-
-
-def test_quiet_survives_an_active_sheet_that_was_deleted(app):
-    before = _state(app)
-    user = app.Workbooks[0]
-    with movein.quiet(app):
-        user.Worksheets("Q1 Answer").Activate()
-        user.Worksheets("Notes").Delete()
-    assert {k: getattr(app, k) for k in SETTINGS} == {k: before[k] for k in SETTINGS}
-
-
-class PaintingApp(FailingApp):
-    """Every ScreenUpdating set is noted (painted), in order."""
-
-    def __setattr__(self, k, v):
-        if k == "ScreenUpdating":
-            self.__dict__.setdefault("painted", []).append(v)
-        super().__setattr__(k, v)
-
-
-@pytest.fixture
-def papp():
-    a = PaintingApp()
-    user = fakexl.Workbook(["Q1 Answer", "Notes"], app=a, styles_ver=False)
-    other = fakexl.Workbook(["Other"], app=a, styles_ver=False)
+def two():
+    """The user's workbook (active, on 'Notes') and another one, in one visible fake Excel."""
+    app = fakexl.Application()
+    user = fakexl.Workbook(["Q1 Answer", "Notes"], app=app, styles_ver=False)
+    other = fakexl.Workbook(["Other"], app=app, styles_ver=False)
     other.Name, other.FullName = "other.xlsx", r"C:\fake\other.xlsx"
     user.Activate()
     user.Worksheets("Notes").Activate()
-    a.painted = []
-    return a
+    return app, user, other
 
 
-def test_quiet_says_whether_the_workbook_is_the_active_one_of_a_visible_excel(papp):
-    user, other = papp.Workbooks[0], papp.Workbooks[1]
-    with movein.quiet(papp, user) as q:
-        assert q.shown is True
-    with movein.quiet(papp, other) as q:
-        assert q.shown is False
-    papp.Visible = False
-    with movein.quiet(papp, user) as q:
-        assert q.shown is False
+def _screen(wb) -> movein.Screen:
+    b = Batch(quiet=False)
+    get = movein.record_screen(b, b.workbook(wb.Name))
+    return get(runner.run(wb.Application, b))
 
 
-def test_quiet_lands_on_the_answer_when_the_body_succeeds_and_on_the_users_sheet_when_it_fails(papp, monkeypatch):
-    user = papp.Workbooks[0]
-    calls = fakexl.count_com(monkeypatch)
-    with movein.quiet(papp, user) as q:
-        q.land = "Q1 Answer"
-    assert papp.ActiveSheet.Name == "Q1 Answer" and len(calls) == 3      # read, off, land + the settings back
-    user.Worksheets("Notes").Activate()
-    with pytest.raises(RuntimeError, match="the body failed"):
-        with movein.quiet(papp, user) as q:
-            q.land = "Q1 Answer"
-            raise RuntimeError("the body failed")
-    assert papp.ActiveSheet.Name == "Notes" and papp.ScreenUpdating is True
+def test_the_screen_says_whether_the_workbook_is_the_active_one_of_a_visible_excel(two):
+    app, user, other = two
+    assert _screen(user) == movein.Screen(True, True, "book.xlsx", "Notes", True)
+    assert _screen(other) == movein.Screen(False, False, "book.xlsx", "Notes", True)
+    app.Visible = False
+    assert _screen(user).shown is False and _screen(user).active is True
 
 
-def test_show_lets_excel_paint_once_with_the_sheet_active_in_two_calls(papp, monkeypatch):
-    user = papp.Workbooks[0]
-    with movein.quiet(papp, user):
-        calls = fakexl.count_com(monkeypatch)
-        movein.show(papp, user, "Q1 Answer")
-        assert len(calls) == 2 and papp.ScreenUpdating is False and papp.ActiveSheet.Name == "Q1 Answer"
-    assert papp.painted == [False, True, False, True]          # off, the one paint, off again, the user's setting
-
-
-def test_a_show_whose_screen_updating_off_fails_is_cosmetic_too(papp, caplog):
-    user = papp.Workbooks[0]
-    with caplog.at_level(logging.WARNING), movein.quiet(papp, user):
-        papp.fail_on = ("ScreenUpdating", False)
-        movein.show(papp, user, "Q1 Answer")
-        papp.fail_on = None
-    assert any("could not show" in r.getMessage() for r in caplog.records)
-
-
-def test_a_show_that_fails_is_cosmetic(papp, caplog):
-    user = papp.Workbooks[0]
-    with caplog.at_level(logging.WARNING), movein.quiet(papp, user):
-        movein.show(papp, user, "No such sheet")
-    assert any("could not show" in r.getMessage() for r in caplog.records)
+def test_land_puts_the_workbook_and_sheet_the_job_found_back_and_skips_one_that_is_gone(two, caplog):
+    app, user, other = two
+    screen = _screen(user)
+    other.Activate()
+    other.Worksheets("Other").Activate()
+    movein.land(Target(app=app, wb=other, pid=0, hwnd=0), screen)
+    assert app.ActiveWorkbook is user and user.active.Name == "Notes"
+    user.order.remove(user.Worksheets("Notes"))
+    other.Activate()
+    with caplog.at_level(logging.WARNING):
+        movein.land(Target(app=app, wb=other, pid=0, hwnd=0), screen)
+    assert app.ActiveWorkbook is user and any("re-activate" in r.getMessage() for r in caplog.records)
 
 
 # ------------------------------------------------------------------ park, restore, drop
@@ -569,11 +497,11 @@ def test_park_renames_in_one_call_and_tells_the_book(tq, monkeypatch):
     calls = fakexl.count_com(monkeypatch)
     parked = movein.park(tq, SHEETS, ["Data_Q3", "Lines_Q3_b0"], book=book)
     assert len(calls) == 1 and book.names() == _names(tq.wb)
-    assert [n for n, _, _ in book.tables()] == ["Data_Q3_old", "Lines_Q3_b0_old", "Users_table"]
-    tq.app.DisplayAlerts = False                                    # inside quiet
+    assert [n for n, _ in book.tables()] == ["Data_Q3_old", "Lines_Q3_b0_old", "Users_table"]
     calls.clear()
-    movein.drop(tq, parked, book=book, alerts_off=True)
+    movein.drop(tq, parked, book=book)                              # a quiet batch: DisplayAlerts off meanwhile
     assert len(calls) == 1 and book.names() == _names(tq.wb) == ["Q1 Answer", "Notes", "Sources"]
+    assert tq.app.DisplayAlerts is True
 
 
 def test_the_books_active_sheet_follows_the_park_and_goes_with_the_drop(tq):
@@ -616,7 +544,7 @@ def test_a_park_that_fails_half_way_puts_back_what_it_renamed(tq):
             super().__setattr__(k, v)
     lo.__class__ = Stubborn
     before = fakexl.snapshot(tq.wb)
-    with pytest.raises(fakexl.ComError, match="rename the table"):
+    with pytest.raises(BatchError, match="rename the table"):
         movein.park(tq, SHEETS, ["Data_Q3", "Lines_Q3_b0"])
     assert fakexl.snapshot(tq.wb) == before
 
@@ -654,6 +582,7 @@ def _destination(normal=("Telenor", 11.0), height=14.25, width=8.38, digit=8):
 
 def test_the_base_is_the_destinations_normal_font_and_standard_sizes_in_one_call(monkeypatch):
     t = _destination()
+    t.book_name = t.wb.Name
     calls = fakexl.count_com(monkeypatch)
     assert movein.base(t) == Base("Telenor", 11, row_px=19, col_px=72, date_format=14)   # 14.25 pt; 8.38 x 8 + 5
     assert len(calls) == 1

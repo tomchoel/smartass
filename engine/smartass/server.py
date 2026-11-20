@@ -40,8 +40,8 @@ blocks (table, kpi_tiles, trend, matrix, bridge, ranking, drivers, commentary). 
 step: Revenue, COGS, Opex, Other items (FinMax) - otherwise 'Other / unexplained' is large.
 3) Follow-up: fin_analyze(patch=..., q=n) - a JSON merge patch on the stored spec (lists like blocks are replaced
 whole); default q = the active Q<n> Answer, else the latest. 4) Monthly packs: fin_refresh() re-runs every v2
-answer in the workbook to the latest closed month (relative periods roll forward). Refresh replaces Q<n> sheets:
-user formulas on them turn #REF! - warn.
+answer in the workbook to the latest closed month (relative periods roll forward). Refresh replaces Q<n> sheets;
+formulas pointing at them are re-pointed.
 5) Quote numbers only from key_values; explain material lines from drivers evidence or label them a hypothesis.
 Every answer has at least one chart block (kind by message); the sheet shows Key points first, the plan is not
 drawn. Fix each reply.layout finding by patch.
@@ -287,12 +287,15 @@ async def fin_drill(cell: dict, group_by: str = "supplier", top: int = 10, targe
     return await _new_question(spec, target)
 
 
+REFRESH_SAYS = ("warnings", "layout", "text_fixes")     # what a question's redraw says, kept per question when any
+
+
 @_register(kit.WRITE)
 async def fin_refresh(target: str = "session", ctx: Context | None = None) -> dict:
     """Re-run every v2 answer in the workbook with its stored spec (no patch): relative periods such as
     'closed-ytd' roll forward to the latest closed month. A failing question is reported and does not stop the rest.
-    Each question's sheets are replaced: a formula on the user's own sheet that points at them shows #REF! afterwards
-    (tell the user; paste values or re-link). target default: the workbook of your latest answer."""
+    Each question's sheets are replaced; a formula elsewhere that points at them is re-pointed at the new ones (pass on
+    each question's warnings: one Excel refused shows #REF!). target default: the workbook of your latest answer."""
     provider = _provider()
     target = _default_target(target)
     stored, _, path = await _user(lambda h: read_stored(h, target), "fin_refresh")
@@ -309,7 +312,8 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
                 "fin_refresh", stored[q]["spec"]["v2"].get("question")), notes)
             workbook = out.get("workbook", workbook)
             done.append({"q": q, "ok": True, "closed": out.get("closed"),
-                         **({"critic_brief": out["critic_brief"]} if "critic_brief" in out else {})})
+                         **({"critic_brief": out["critic_brief"]} if "critic_brief" in out else {}),
+                         **{k: out[k] for k in REFRESH_SAYS if out.get(k)}})
         except RestoreError as e:
             broken = q
             done.append({"q": q, "ok": False, "error": str(e)})

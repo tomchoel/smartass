@@ -14,9 +14,10 @@ hidden sheets and, in active mode, the user's sheets are pinned and never moved.
 """
 from __future__ import annotations
 
-import contextlib
 import logging
 import re
+
+from .inproc.batch import MISSING
 
 log = logging.getLogger("smartview.sheetorder")
 
@@ -140,74 +141,67 @@ def simulate(order: list[str], moves) -> list[str]:
     return order
 
 
-# ------------------------------------------------------------------ COM
-def _cosmetic(read, busy):
-    """read(), or None when Excel refuses it (e.g. a chart sheet has no tab colour); a busy Excel is raised so the
-    whole read is retried."""
-    try:
-        return read()
-    except Exception as e:   # noqa: BLE001
-        if busy(e):
-            raise
-        return None
-
-
-def _read_sheets(wb, busy) -> tuple[list[tuple[str, bool, object]], str | None]:
-    """[(name, visible, tab colour)] in order + the active sheet's name (None when the workbook is not the active
-    one), all in ONE jobs.com call."""
-    rows = [(str(s.Name), s.Visible == -1, _cosmetic(lambda s=s: s.Tab.Color, busy)) for s in wb.Worksheets]
-    active = _cosmetic(lambda: str(wb.ActiveSheet.Name)
-                       if str(wb.Application.ActiveWorkbook.Name) == str(wb.Name) else None, busy)
-    return rows, active
-
-
-def arrange_sheets(wb, mode: str = "full", activate: str | None = None, known: tuple | None = None) -> dict:
-    """Put the workbook's sheets in the fixed order (see module doc) with positional Move (keyword Before=/After= are
-    ignored through late-bound COM), set the Answer/data tab colours, and activate `activate` (else the sheet that was
-    active). Returns {'moved': [...], 'order': [...]}; raises only if Excel refuses a move.
-    COM calls: one read of the order (names, visibility, tab colours, active sheet), one per sheet that moves or
-    whose tab colour is wrong, one Activate unless that sheet is already active - 1 call for an ordered workbook.
-    known: (rows, active sheet) as _read_sheets gives them, from a caller that knows the sheets already (the file
-    job's Book) and keeps Excel quiet itself: no read, no fast mode, and the order is not read back after the moves
-    - 0 calls for an ordered workbook."""
-    from .jobs import com, fast_excel, is_busy
-    rows, active = known if known is not None else com(lambda: _read_sheets(wb, is_busy))
+# ------------------------------------------------------------------ in Excel (a batch)
+def record_arrange(b, wbn, rows: list[tuple], active: str | None, mode: str = "full", activate: str | None = None,
+                   sources_ours: bool | None = None) -> dict:
+    """Record into b what puts the workbook's sheets in the fixed order (see module doc): positional Move (keyword
+    Before=/After= are ignored through late-bound COM), the Answer/data tab colours, and activate `activate` (else
+    the sheet that was active). rows: [(name, visible, tab colour)] in order and active: the active sheet (None when
+    the workbook is not the active one), as the caller knows them (the file job's Book: nothing is read);
+    sources_ours: in active mode, a 'Sources' sheet (without 'Sources SV') is smartass's log (A1 says so), else the
+    user's and not moved. Every operation may fail (cosmetic). Returns {'moved': [...], 'order': [...], 'moves':
+    range of the moves' operations} (a skipped one there means the order was not reached)."""
     names = [n for n, _, _ in rows]
     visible = {n: v for n, v, _ in rows}
     tabs = {n: c for n, _, c in rows}
     sources = None
     if mode == "active" and "Sources" in names and "Sources SV" not in names:
-        try:                                            # a user's own 'Sources' (not our log) is not ours to move
-            a1 = com(lambda: wb.Worksheets("Sources").Range("A1").Value)
-        except Exception:   # noqa: BLE001
-            a1 = None
-        from .sources import OURS_A1
-        sources = {"Sources"} if a1 in OURS_A1 else set()
+        sources = {"Sources"} if sources_ours else set()        # a user's own 'Sources' is not ours to move
     target = sheet_order(names, visible, mode, sources)
     moves = plan_moves(names, target, pinned_sheets(names, visible, mode, sources))
-    if moves:
-        with fast_excel(com(lambda: wb.Application)) if known is None else contextlib.nullcontext():
-            for n, where, anchor in moves:
-                if where == "before":                   # positional Before
-                    com(lambda n=n, a=anchor: wb.Worksheets(n).Move(wb.Worksheets(a)))
-                else:                                   # positional After
-                    com(lambda n=n, a=anchor: wb.Worksheets(n).Move(None, wb.Worksheets(a)))
-        got = com(lambda: [str(s.Name) for s in wb.Worksheets]) if known is None else target
-        if got != target:
-            log.warning("sheet order after moves %s != target %s", got, target)
-    for n in target:
-        kind = classify(n)[0] if visible.get(n) else "other"
-        want = ANSWER_TAB if kind == "answer" else DATA_TAB if kind == "data" else None
-        if want is None or tabs.get(n) == want:
-            continue
-        try:
-            com(lambda n=n, w=want: setattr(wb.Worksheets(n).Tab, "Color", w))
-        except Exception:   # noqa: BLE001 - cosmetic
-            pass
-    show = activate or active
-    if show and (moves or show != active):              # a Move can change the active sheet: land again after it
-        try:
-            com(lambda: wb.Worksheets(show).Activate())
-        except Exception:   # noqa: BLE001 - e.g. the workbook's window is not active: cosmetic
-            pass
-    return {"moved": [m[0] for m in moves], "order": target}
+    with b.attempt():
+        start = b.position
+        for n, where, anchor in moves:
+            if where == "before":                   # positional Before
+                wbn.Worksheets(n).Move(wbn.Worksheets(anchor))
+            else:                                   # positional After
+                wbn.Worksheets(n).Move(MISSING, wbn.Worksheets(anchor))
+        span = range(start, b.position)
+        for n in target:
+            kind = classify(n)[0] if visible.get(n) else "other"
+            want = ANSWER_TAB if kind == "answer" else DATA_TAB if kind == "data" else None
+            if want is not None and tabs.get(n) != want:
+                wbn.Worksheets(n).Tab.Color = want
+        show = activate or active
+        if show and (moves or show != active):      # a Move can change the active sheet: land again after it
+            wbn.Worksheets(show).Activate()
+    return {"moved": [m[0] for m in moves], "order": target, "moves": span}
+
+
+def arrange_sheets(wb, mode: str = "full", activate: str | None = None) -> dict:
+    """arrange in two batches of its own: one reads the order (names, visibility, tab colours, the active sheet,
+    whether a 'Sources' sheet is ours), one moves, colours and activates (record_arrange; quiet). Raises only if Excel
+    refuses a move. Returns {'moved': [...], 'order': [...]}."""
+    from .inproc.batch import Batch
+    from .inproc.runner import run
+    from .jobs import com
+    from .sources import OURS_A1
+    app, name = com(lambda: (wb.Application, str(wb.Name)))
+    rb = Batch(quiet=False)
+    wbn = rb.workbook(name)
+    rb.ret(rb.verb("each", wbn.Worksheets, ["Name", "Visible", "Tab.Color"]), "sheets")
+    rb.ret(wbn.FullName, "book")
+    with rb.attempt():
+        rb.ret(wbn.ActiveSheet.Name, "active")
+        rb.ret(rb.app.ActiveWorkbook.FullName, "active book")
+        rb.ret(wbn.Worksheets("Sources").Range("A1").Value2, "sources a1")
+    v = run(app, rb).values
+    rows = [(str(n), vis == -1, tab) for n, vis, tab in v["sheets"]]
+    active = v.get("active") if v.get("active book") == v["book"] else None
+    b = Batch(calculation=False)
+    out = record_arrange(b, b.workbook(name), rows, active, mode, activate, v.get("sources a1") in OURS_A1)
+    res = run(app, b)
+    refused = [m for i, _, m in res.skipped if i in out["moves"]]
+    if refused:
+        raise RuntimeError(f"Excel refused a sheet move: {refused[0]}")
+    return {"moved": out["moved"], "order": out["order"]}

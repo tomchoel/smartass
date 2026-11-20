@@ -202,48 +202,24 @@ def test_sheetorder_keeps_a_v2_sources_sheet_last_in_the_users_workbook():
     assert [s.Name for s in wb.order][-1] == "Sources"
 
 
-def test_the_job_logs_the_sources_after_calculating_with_the_draws_timestamp(monkeypatch, tmp_path):
-    from test_file_job import Wired
-
-    from smartass.core import config
-    monkeypatch.setattr(config, "HOME", tmp_path)
-    wired, seen = Wired(monkeypatch), []
-    monkeypatch.setattr(pipeline, "_write_sources", wired.rec(
-        "sources", lambda t, q, pre, ws, header, fetched: seen.append((q, fetched))))
-    pipeline.excel_job(None, _pre(), "session")
-    assert wired.calls.index("calculate") < wired.calls.index("sources") < wired.calls.index("arrange")
-    assert seen[0][0] == 1 and seen[0][1].startswith(f"{datetime.date.today():%Y-%m-%d}")
-
-
-def test_a_failing_sources_log_is_a_warning_not_a_failed_answer(monkeypatch, tmp_path):
-    from test_file_job import Wired
-
-    from smartass.core import config
-    monkeypatch.setattr(config, "HOME", tmp_path)
-    real = pipeline._write_sources                      # before Wired replaces it
-    wired = Wired(monkeypatch)
-    monkeypatch.setattr(pipeline, "_write_sources", real)
-
-    def boom(*a):
-        raise RuntimeError("no Sources")
-    monkeypatch.setattr(sources, "write_sources", boom)
-    out = pipeline.excel_job(None, _pre(), "session")
-    assert any("Sources" in w for w in out["warnings"]) and "rollback" not in wired.calls
-
-
-def test_the_real_draw_seam_reads_the_status_and_links_the_row():
-    wb, t = _book()
-    pre = _pre()
+def test_the_status_cells_are_read_in_the_finish_batch():
+    """The Data header's status cell of each query and the tie-out of each lines sheet, as Excel shows them after
+    calculating (pipeline._record_status, part of the finish batch)."""
+    from smartass.render.datasheet import LINES_STATUS
+    from smartass.xl.inproc import runner
+    from smartass.xl.inproc.batch import Batch
+    wb, t = _book(("Q3 Answer", "Q3 Data", "Q3 Lines b0"))
+    pre = _lines_pre()
+    pre.spec.queries[:] = _pre().spec.queries
     ws = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
     _data_sheet(ws, h)
     r, c = int(h.status["fm"][1:]), ord(h.status["fm"][0]) - 64
-    ws.put(r, c, "OK")                                              # as Excel shows it after calculating
-    assert pipeline._write_sources(t, 3, pre, ws, h, FETCHED) is None
-    src = wb.Worksheets("Sources")
-    row = next(rr for rr in range(1, 20) if _v(src, rr, 3) == "fm")
-    assert _v(src, row, 12) == "OK"
-    assert _target(ws, int(h.sources["fm"][1:]), 2) == f"'Sources'!A{row}"
+    ws.put(r, c, "OK")
+    wb.Worksheets("Q3 Lines b0").put(int(LINES_STATUS[1:]), ord(LINES_STATUS[0]) - 64, "DIFF")
+    b = Batch()
+    get = pipeline._record_status(b, b.workbook(wb.Name), 3, pre, h)
+    assert get(runner.run(wb.Application, b)) == ({"fm": (h.status["fm"], "OK")}, {"b0": "DIFF"})
 
 
 def test_a_v1_log_is_left_as_it_is_and_v2_logs_on_sources_sv():
@@ -293,27 +269,16 @@ def test_a_drill_logs_its_own_row_with_the_lines_total_and_tie_out():
     assert again == {"b0": 3} and _log_row(ws, 3)[13] == "row 2" and _log_row(ws, 3)[11] == "DIFF"
 
 
-def test_the_draw_seam_reads_the_tie_out_of_each_lines_sheet():
-    from smartass.render.datasheet import LINES_HEADER, LINES_STATUS, lines_header
-    grid = lines_header("Lines_Q3_b0", {}, FETCHED)
-    first = LINES_HEADER.split(":")[0]
-    r, c = int(LINES_STATUS[1:]) - int(first[1:]), ord(LINES_STATUS[0]) - ord(first[0])
-    assert grid[r][c - 1] == "Tie-out" and grid[r][c].startswith("=IF(")      # I3 is the tie-out formula
-    wb, t = _book(("Q3 Answer", "Q3 Data", "Q3 Lines b0"))
-    wb.Worksheets("Q3 Lines b0").put(3, 9, "OK")                         # as Excel shows it after calculating
-    pre = _lines_pre()
-    assert pipeline._write_sources(t, 3, pre, wb.Worksheets("Q3 Data"), Header(), FETCHED) is None
-    assert _log_row(wb.Worksheets("Sources"), 2)[11] == "OK"
-
-
-def test_a_pull_without_its_row_is_a_warning(monkeypatch):
-    wb, t = _book()
+def test_a_pull_without_its_row_is_a_warning():
+    from smartass.xl.inproc.runner import Result
     pre = _pre()
-    ws = wb.Worksheets("Q3 Data")
-    h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    _data_sheet(ws, h)
-    monkeypatch.setattr(sources, "write_sources", lambda *a: {})
-    assert "no row for fm" in pipeline._write_sources(t, 3, pre, ws, h, FETCHED)
+    written = sources.Written({}, range(0, 3), None, "Sources")
+    assert "no row for fm" in pipeline._sources_warning(pre, (written, []), Result())
+    refused = Result(skipped=[(1, "a set", "Excel said no")])
+    assert pipeline._sources_warning(pre, (written, []), refused).startswith(
+        "could not log the pull on the Sources sheet (Excel said no)")
+    assert pipeline._sources_warning(pre, (sources.Written({"fm": 2}, range(0, 3)), [sources.V1_NOTE]),
+                                     Result()) == sources.V1_NOTE
 
 
 def test_the_log_is_tn_font_9_and_prints_a_to_n_landscape():
@@ -353,7 +318,8 @@ def test_the_log_shows_the_tn_font_9_a_navy_bold_header_and_the_control_total_fo
     assert all(_font(ws, 1, c, "Bold") is True and _font(ws, 1, c, "Color") == navy for c in range(1, len(LOG) + 1))
     assert _font(ws, 1, P, "Bold") is True and _font(ws, 1, P, "Color") == navy
     assert not _font(ws, 2, 1, "Bold") and not _font(ws, 2, P, "Bold")
-    assert all(ws.cells[(r, 11)].get("NumberFormat") == VALUE_FORMAT for r in range(2, end + 1))
+    local = styling.tn.to_local(VALUE_FORMAT, fakexl.INTERNATIONAL[2], fakexl.INTERNATIONAL[3])   # nb-NO's codes
+    assert all(ws.cells[(r, 11)].get("NumberFormat") == local for r in range(2, end + 1))
     assert ws.colw[sources.LIMITS_COL] == sources.LIMITS_WIDTH and ws.colw.get(4, 0) <= sources.QUESTION_MAX
     assert ws.AutoFilterMode and ws.wb.window_state["Sources"]["FreezePanes"] is True
     assert ws.wb.window_state["Sources"]["SplitRow"] == 1
@@ -370,20 +336,26 @@ def _second(t, wb, pre=None, **kw):
     return pre, ws
 
 
-def test_logging_into_a_log_that_is_there_takes_three_com_calls(monkeypatch):
-    """One read of the calculated status cells, one read of the log, one write (rows, links, Known limits)."""
+def _runs(monkeypatch) -> list:
+    """Every batch run (xl/inproc/runner.run)."""
+    from smartass.xl.inproc import runner
+    runs, real = [], runner.run
+    monkeypatch.setattr(runner, "run", lambda app, b, *a, **k: runs.append(b) or real(app, b, *a, **k))
+    return runs
+
+
+def test_logging_into_a_log_that_is_there_takes_one_write(monkeypatch):
+    """Two reads (which sheet is the log; the log) and one write (rows, links, Known limits): in the file job these
+    ride in its look, finish and close-out batches."""
     wb, t = _book(("Q3 Answer", "Q3 Data", "Q3 Lines b0"))
     pre = _pre()
     _run(t, wb, pre)
     ws = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
     _data_sheet(ws, h)
-    calls = fakexl.count_com(monkeypatch)
-    assert pipeline._write_sources(t, 3, pre, ws, h, FETCHED) is None
-    assert len(calls) == 3
-    calls.clear()
+    runs = _runs(monkeypatch)
     sources.write_sources(t, 3, pre, ws, h, FETCHED, {})
-    assert len(calls) == 2
+    assert [b.quiet for b in runs] == [False, False, True]
 
 
 def test_the_furniture_is_set_once_and_a_second_answer_only_appends():
@@ -478,6 +450,7 @@ def _old_log(wb, rows: int = 2):
 
 def test_a_log_of_the_earlier_version_keeps_its_rows_links_and_filter_and_gets_the_furniture_once(monkeypatch):
     from smartass.render.excel import VALUE_FORMAT
+    from smartass.xl import styling
     wb, t = _book()
     ws = _old_log(wb)
     old = {rc: dict(p) for rc, p in ws.cells.items()}
@@ -491,32 +464,22 @@ def test_a_log_of_the_earlier_version_keeps_its_rows_links_and_filter_and_gets_t
     assert [(h.cell, h.SubAddress, h.TextToDisplay) for h in ws.Hyperlinks] == links       # the real links stay
     assert ws.colw == widths and (ws.AutoFilterMode, ws.autofilter) == af                  # not toggled off
     assert ("Value", "A1:N1") not in ws.log and [s.Name for s in wb.order].count("Sources") == 1
+    local = styling.tn.to_local(VALUE_FORMAT, fakexl.INTERNATIONAL[2], fakexl.INTERNATIONAL[3])   # nb-NO's codes
     assert (_font(ws, r, 1, "Name"), _font(ws, r, 1, "Size"), ws.cells[(r, 11)].get("NumberFormat")) == (
-        "Arial", 9, VALUE_FORMAT)
+        "Arial", 9, local)
     assert ws.PageSetup.PrintArea == "$A$1:$N$1048575" and sources.FURNITURE_NAME in ws.Names.items
     data = wb.Worksheets("Q3 Data")
     h = header_rows(3, pre.spec, pre, WHEN, "tom")
     _data_sheet(data, h)
-    calls = fakexl.count_com(monkeypatch)
+    runs = _runs(monkeypatch)
     sources.write_sources(t, 3, pre, data, h, FETCHED, {})
-    assert len(calls) == 2                                          # the furniture is not set again
-
-
-def test_a_real_link_an_earlier_version_left_on_the_data_header_is_replaced_by_the_formula():
-    wb, t = _book()
-    pre = _pre()
-    ws = wb.Worksheets("Q3 Data")
-    h = header_rows(3, pre.spec, pre, WHEN, "tom")
-    _data_sheet(ws, h)
-    cell = ws.Range(h.sources["fm"])
-    ws.Hyperlinks.Add(cell, "", "'Sources'!A9", "This pull on the Sources sheet", "Sources row 9")
-    cell.HorizontalAlignment = -4131
-    rows = sources.write_sources(t, 3, pre, ws, h, FETCHED, {})
-    src = int(h.sources["fm"][1:])
-    assert not ws.Hyperlinks and _target(ws, src, 2) == f"'Sources'!A{rows['fm']}"
-    assert ws.cells[(src, 2)]["HorizontalAlignment"] == -4131
+    assert len(runs) == 3 and not [op for op in runs[-1].to_dict()["ops"] if op.get("name") == "AutoFilter"]
+    assert sources.FURNITURE_NAME not in str(runs[-1].to_dict()["ops"])     # the furniture is not set again
 
 
 def test_the_log_kind_reader_without_callers_is_gone():
-    """Task 8B review 5: sources.log_kind had no callers left; _kind (inside a COM call) is the one reader."""
+    """Task 8B review 5: sources.log_kind had no callers left; _kind (over what record_kind read) is the one."""
     assert not hasattr(sources, "log_kind") and callable(sources._kind)
+    assert [sources._kind(*x) for x in (("Fetched", "Q", "$A$1:$N$9"), ("Fetched", "Question no", "$A$1:$H$3"),
+                                        (None, None, "$A$1"), ("Notes", None, "$A$1:$B$2"))] == [
+        "v2", "v1", "empty", "user"]

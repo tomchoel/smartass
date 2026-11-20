@@ -47,13 +47,32 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
 4. **Excel job** (one job in the user's Excel, `pipeline.excel_job`): the answer's sheets are built as one .xlsx
    without Excel (`render/xlsx.py`, charts `render/xlsx_charts.py` on the rules of `render/charts.py`) from a pure
    `render/layout.py` plan - `Q<n> Answer` (its look: `render/look.py`), `Q<n> Data`, `Q<n> Lines <alias>` for
-   drills - under `%LOCALAPPDATA%\smartass\tmp`, then moved into the workbook in one copy and finished there
-   (`xl/movein.py`: the tables `Data_Q<n>` / `Lines_Q<n>_<alias>`, the formulas, the chart labels, calculate), with
-   the user's Excel quiet and left as it was found. Then read-back (`render/readback.py`), the Sources log
-   (`xl/sources.py`), the spec stored in hidden `_svmeta`, sheet order (`xl/sheetorder.py`), save (our files only).
-   Measured (docs/audit/2026-11-19-file-render-bench.md and the live check after it): 2-3 s in the Excel job for an
-   answer without a lines sheet in a workbook of normal size (3.3 s at 61 sheets), 4-5 s with a lines sheet, about
-   6-7 s for the first answer of a new workbook (the workbook is created); 34-37 COM calls per answer.
+   drills - under `%LOCALAPPDATA%\smartass\tmp`. Its Excel work is recorded as **batches** of operations
+   (`xl/inproc/batch.py`: get / call / set on named objects, the verbs `each` for the only loop, `nudge` and
+   `exist`, a `finally` list), and each batch runs in one go inside Excel (`xl/inproc/runner.py`: one
+   `Application.Run` into a small Excel-DNA add-in, `Runner.cs`, built on first use and loaded once per Excel
+   process) or, where the add-in cannot load or `SV_INPROC=0`, over COM from Python - the same operations, the
+   same workbook. Three batches and a save (`pipeline._file_draw`): **look** (every read the build needs: the
+   sheets and tables, the base, which workbook is active, the kind of a Sources sheet, the stored specs' keys; then
+   AutoSave off while the job writes); **bring in** (the answer's table names looked up among the defined names
+   first, a lookup per name - a new answer's number comes from the look - then a follow-up's old sheets parked, the
+   file's sheets inserted with one `Sheets.Add(Type:=<the file's path>)` - no workbook opened, nothing copied, no
+   link left; proved equal to the Open + Copy + Close it replaced by `scripts/check_insert.py` - and moved to their
+   places, then `xl/movein.py`'s finish: the tables `Data_Q<n>` / `Lines_Q<n>_<alias>`, the formulas, the chart
+   labels' position, calculate, the labels' lift, and the reads the close-out needs: the read-back block, the status
+   cells; the Answer active);
+   **close out** (the 'Sheet = model' status (`render/readback.py`), Key point heights and page breaks, a
+   follow-up's old sheets dropped, the Sources log (`xl/sources.py`), the spec in hidden `_svmeta`, sheet order
+   (`xl/sheetorder.py`)); then the save (our files only, AutoSave back on). Every quiet batch puts the user's
+   settings back itself; Calculation is set to manual only where formulas are written - the bring-in, a close-out
+   that re-points formulas elsewhere, and the point-back after a failure - since putting automatic back recalculates
+   what is dirty in every open workbook; after the bring-in the job pauses once (`SV_PAINT_PAUSE`, 0.15 s) so Excel
+   paints the answer with its numbers and charts when the workbook is on screen. A failure rolls back as before
+   (the clean-up runs as batches of its own, also for a job abandoned by a timeout).
+   Measured (docs/audit/2026-11-20-inproc-bench.md, live): 1.9-2.7 s in the Excel job for an answer without a
+   lines sheet as the workbook grows to 61 sheets, 3.9-4.3 s with a lines sheet, a follow-up 1.6-1.9 s, about 7 s
+   for the first answer of a new workbook (the workbook is created), at 5 batches per answer (4 since the review
+   fixes). What is left is mostly Excel's own work: the insert (about 0.5 s) and the save of our OneDrive file.
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
    `findings`, `checks`, `layout` (layout check findings with fixes), `charts`, `warnings`, `caveats`, `routes`,
    `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
@@ -62,10 +81,21 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
 **Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; `pipeline.redraw_job`
 replaces the question's sheets whole: the old ones are parked under 'old ...' names, the new answer is moved in where
 they were, and the old ones are dropped. Cells a user typed on a `Q<n>` sheet go with it (their own notes belong on
-their own sheets). **Known limit** (to be fixed in the next phase): a formula on the user's own sheet that points at a
-`Q<n>` sheet or its table (`='Q3 Answer'!E12`, `=SUM(Data_Q3[Value])`) shows #REF! after a follow-up or refresh
-of that question, because the old sheet is deleted; until then, link to values by pasting them, or re-link after a
-refresh. A failed redraw removes the new sheets and gives the old ones their names back; once the old ones
+their own sheets). A formula elsewhere in the workbook that points at the question's sheets or tables follows the park
+to the 'old ...' names (Excel rewrites it) and would turn #REF! with the drop: the bring-in batch finds such formulas
+(the verb `mentions`, inside Excel: every other sheet's used range read in chunks of at most 100 000 cells, only the
+chunks SpecialCells/Intersect finds a formula in - a protected sheet chunk by chunk, a hidden formula there makes it
+"could not be read" -, no Range.Find, which would leave its options as the Find dialog's and skips filtered rows;
+the charts' series; the defined names), Python rewrites exactly the references to a parked name with a namesake in
+the new answer (`xl/repoint.py`: never text in a string literal, another workbook's sheet, or a longer name that
+contains it), and the close-out writes them right before the drop with Calculation manual, each a compare-and-set
+inside Excel (the verb `swap`: a formula changed since the bring-in read it is left alone and reported) that may
+fail (a warning). A failure before the drop points them back first, by the same compare-and-set (the parked sheets
+must still be there), then the rollback and the restore. Not covered (Excel offers no exact, cheap way): conditional
+formats and data validation (their formulas come only in the user's separators and change through a type-specific
+Modify), pivot caches, linked chart titles and labels, sparklines, form controls' links, linked shapes, other
+workbooks. A failed redraw removes the new sheets and gives the old ones their
+names back; once the old ones
 are dropped the new answer stays and the error says so. `fin_refresh` redraws every stored v2 question; one failure
 never stops the rest.
 
@@ -79,7 +109,7 @@ never stops the rest.
 | `render/` | layout and look (pure), the built file (`xlsx`, `xlsx_charts`), chart rules, read-back, layout check |
 | `epm/` | Smart View HTTP/XML, grids, `ops` (bridge grids, atlas dumps), SSO, the drill browser and lines |
 | `knowledge/` | atlas (SQLite), semantic files (`semantic`, `seed`), `build` (knowledge.db), `KnowledgeResolver`, monthly `refresh` |
-| `xl/` | the hidden Excel (`host`, `hostproc`, `dialogs`), the user's Excel (`instances`, `target`, `jobs`, `login`, `sheets`), `styling`, `formulas`, `movein`, `sources`, `sheetorder`, `drill_xl`, snapshots (`workbench/history`), vendored TN style and formula checker |
+| `xl/` | the hidden Excel (`host`, `hostproc`, `dialogs`), the user's Excel (`instances`, `target`, `jobs`, `login`, `sheets`), `styling`, `formulas`, `movein`, `sources`, `sheetorder`, `inproc` (batches of Excel operations, their COM executor and the in-process add-in), `drill_xl`, snapshots (`workbench/history`), vendored TN style and formula checker |
 | `ops/` | `cli`, `doctor`, `setup_user`, `update`, `httpapi`, `atlas_build` |
 | `testset/` | the B-question test set: specs in git, recordings and golden numbers outside git |
 

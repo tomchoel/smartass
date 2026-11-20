@@ -83,7 +83,8 @@ def same(snap: dict) -> dict:
     return json.loads(json.dumps(snap, ensure_ascii=False))
 
 
-@pytest.mark.parametrize("moved, calls", [(False, 1), (True, 10)])          # before: 31, 50
+@pytest.mark.parametrize("moved, calls", [(False, 3), (True, 3)])   # before: 31, 50; one per call 1, 10; batches
+                                                                     # (Task 2b): the name, a read and the moves
 def test_arrange_sheets_same_order_fewer_calls(monkeypatch, moved, calls):
     name = "arrange_moved" if moved else "arrange_ok"
     snap, n = run(arrange_case, monkeypatch, moved)

@@ -10,6 +10,7 @@ import time
 _local = threading.local()
 log = logging.getLogger("smartview.stage")
 COM_PREFIX = "com calls."      # summary keys with this prefix are call counts, not seconds
+BATCH_PREFIX = "batches."      # ... and these batch counts (xl/inproc: one Excel run of a batch of operations)
 PROGRESS_AFTER_S = 10          # a stage running this long sends 'still working: <stage>' (then every 10 s)
 
 
@@ -19,6 +20,7 @@ class Timer:
         self.stages: dict[str, float] = {}
         self.counts: dict[str, int] = {}
         self.com: dict[str, int] = {}            # COM calls per stage path (nested stages count in their parents)
+        self.batches: dict[str, int] = {}        # batches run per stage path (as com)
         self.stack: list[str] = []
         self.notify = None                       # notify(text): progress note to the client (thread-safe)
         self._tick: threading.Timer | None = None
@@ -69,6 +71,7 @@ class Timer:
         out = {k: round(v, 2) for k, v in sorted(self.stages.items(), key=lambda kv: -kv[1])}
         out["_total"] = round(time.monotonic() - self.t0, 2)
         out.update({f"{COM_PREFIX}{k}": v for k, v in self.com.items()})     # counts, not seconds
+        out.update({f"{BATCH_PREFIX}{k}": v for k, v in self.batches.items()})
         return out
 
 
@@ -82,12 +85,33 @@ def _send(notify, text: str) -> None:
 
 def count_com() -> None:
     """One COM call in the current stage (and its parents), for the stage summary. No timer/stage: nothing."""
+    _count("com")
+
+
+def count_batch() -> None:
+    """One batch run (xl/inproc/runner.run) in the current stage (and its parents), as count_com."""
+    _count("batches")
+
+
+def _count(what: str) -> None:
     t = Timer.current()
     if t is None or not t.stack:
         return
+    counts = getattr(t, what)
     for k in range(1, len(t.stack) + 1):
         key = ".".join(t.stack[:k])
-        t.com[key] = t.com.get(key, 0) + 1
+        counts[key] = counts.get(key, 0) + 1
+
+
+def note(name: str, seconds: float) -> None:
+    """A part of the current stage measured elsewhere (inside Excel: a batch's marks) as a stage of its own under
+    it. No timer/stage: nothing."""
+    t = Timer.current()
+    if t is None or not t.stack:
+        return
+    full = ".".join(t.stack + [name])
+    t.stages[full] = t.stages.get(full, 0.0) + seconds
+    t.counts[full] = t.counts.get(full, 0) + 1
 
 
 def say(text: str) -> None:
