@@ -15,15 +15,25 @@
 - **How an answer reaches Excel.** The answer's sheets are built as an .xlsx without Excel (under
   `%LOCALAPPDATA%\smartass\tmp`, deleted when the answer is in), inserted into the workbook in one call (Excel's
   own insert of a file's sheets: no second workbook is opened) and finished there (tables, formulas, chart labels),
-  with Excel quiet. The Excel job takes 2-3 s for an answer without a lines sheet in a workbook of normal size
-  (3.3 s at 61 sheets), 4-5 s with a lines sheet, and about 6-7 s for the first answer of a new workbook (the
-  workbook is created). A follow-up or `fin_refresh` replaces the question's `Q<n>`
+  with Excel quiet. The Excel work goes in four batches and a save, each run in one go inside Excel by a small
+  add-in (see **The add-in** below). The Excel job takes about 2-2.5 s for an answer without a lines sheet (2.7 s at
+  61 sheets), about 4 s with a lines sheet, 1.6-1.9 s for a follow-up, and about 7 s for the first answer of a new
+  workbook (the workbook is created). A follow-up or `fin_refresh` replaces the question's `Q<n>`
   sheets and tables whole: anything typed on them goes with them, so keep your own notes on your own sheets.
   **Known limit** (to be fixed in the next phase): a formula on the user's own sheet that points at a `Q<n>` sheet
   or its table (`='Q3 Answer'!E12`, `=SUM(Data_Q3[Value])`) shows #REF! after a follow-up or refresh of that
   question, because the old sheet is deleted. Until then, link to values by pasting them, or re-link after a
   refresh. Nothing of the user's is saved and Excel's settings are put back; when the answer's workbook is the
   active one it ends on the new Answer, otherwise the user's active sheet is put back.
+- **The add-in.** The first answer in an Excel builds a small Excel-DNA add-in (`smartass_run_<hash>.xll`, compiled
+  with the .NET compiler that ships with Windows, under `%LOCALAPPDATA%\smartass\inproc`) and loads it into that
+  Excel with `RegisterXLL`, silently, for the rest of that Excel's life; each batch of an answer's Excel work is
+  then one `Application.Run` into it. Anything that keeps it from loading or answering (no compiler, a 32-bit
+  Excel, a policy, a dialog: `RegisterXLL` is given 60 s) makes that Excel use the COM route instead - the same
+  work, a little slower - with one warning in `logs\server.log` ("in-process executor not used in Excel pid ...").
+  `SV_INPROC=0` in the server's environment forces the COM route. The add-in runs nothing but job files the engine
+  writes to `inproc\jobs` (a formula calling it gets #N/A); the user's settings it turns off while it works are
+  put back by each batch itself, also when a step fails.
 - **Fetch route.** Smart View HTTP first: with the user's OAuth token where a pod has one (`smartass login`, no
   browser), else through the shared hidden Edge (signs in silently). A grid HTTP could not fetch is pulled as an ad
   hoc grid in Excel instead (`routes` in the reply; a warning says why).
@@ -51,6 +61,7 @@
 | Text repairs of your own | `text_fixes.json` |
 | Answer workbooks | `paths.analyser` (`<OneDrive>\smartass\analyser\<project>\`) |
 | An answer's file while it is moved in (deleted after) | `tmp\` |
+| The in-process add-in (one folder per build) and its job files (deleted after each batch) | `inproc\` |
 
 The spec of every answer is stored in the workbook (hidden `_svmeta`); that is what follow-ups and `fin_refresh`
 read.
@@ -85,6 +96,8 @@ Every error names one next step. The common ones:
 | `…is in the Produktregnskapet archive` | Archive guard: answers never go into the archive. Use the session workbook. |
 | `there is no v2 answer in this workbook to follow up` / `Q<n> is not a v2 answer in this workbook` | Follow-ups and `fin_refresh` need an answer drawn by `fin_analyze` in that workbook (the error lists the ones there). Otherwise ask it as a new question. |
 | `Another agent has been working in that Excel for 10 min` | Turn-taking timeout in one Excel window. Try again shortly. |
+| `Excel operation <n> failed: <the operation>: operation <n> (<kind> <name>): <Excel's message>` | One step of the answer's Excel work was refused by Excel: the answer was taken out again (a follow-up's old answer put back) and Excel's settings restored. The operation and Excel's own message say what; often a protected or shared workbook, or a name the user gave a sheet. |
+| Warning in `server.log`: `in-process executor not used in Excel pid <n>: <why>` | The add-in did not load in that Excel; answers run over COM (slower, same result). The reason says what (no compiler, 32-bit Excel, `RegisterXLL` refused or blocked). It is tried again when Excel restarts. |
 | Repeated `HostError` | `fin_status(restart=True)`, then retry; if it repeats, `smartass doctor --bundle` to the maintainer. |
 | HTTP `409 busy` / `401` / `413` | `smartass serve`: one request at a time / wrong secret / body over 1 MB. |
 

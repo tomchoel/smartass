@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### The answer's Excel work runs inside Excel (phase 3b)
+
+- An answer's Excel work is recorded as batches of operations and each batch runs in one go inside Excel, through a
+  small Excel-DNA add-in the engine builds on first use (C# compiled by the .NET Framework compiler that ships with
+  Windows) and loads silently with `RegisterXLL` once per Excel process; one `Application.Run` per batch instead
+  of dozens of cross-process calls. Where it cannot load (no compiler, a 32-bit Excel, a refused or blocked
+  `RegisterXLL`) or `SV_INPROC=0` is set, the same batches run over COM, with one warning in the server log.
+- The file job is four batches and a save: look (every read the build needs: the sheets, the base, which workbook is
+  active, AutoSave, the Sources log's kind, the stored specs' keys, the defined names), move in (a follow-up's park,
+  the insert, the moves, the Answer active), finish (tables, formulas, calculate, the read-back), close out (status,
+  Key point heights, chart labels, a follow-up's drop, the Sources rows, the spec, the sheet order) and the save of
+  our own file. Each batch keeps Excel quiet and puts the user's settings back itself, also when a step fails;
+  between the batches Excel paints the formatted answer, then its numbers and charts, when the workbook is on
+  screen. A failure is undone as before (rollback, the old answer's names put back, the new answer kept once the old
+  one is gone), also for a job abandoned by a timeout; an error now names the Excel operation that failed and Excel's
+  own message, and says when AutoSave was left off in the user's workbook.
+- Measured live (`scripts/bench_answers.py --rounds 3` and `scripts/check_followups.py` in the owner's Excel,
+  20.11.2026; docs/audit/2026-11-20-inproc-bench.md): the Excel job of an answer without a lines sheet 1.9 / 2.4 /
+  2.7 s per round (2.0 / 2.7 / 3.3 s before), with one 4.1 / 3.9 / 4.3 s (4.2 / 4.1 / 5.2 s): the 3 s / 5 s gate
+  holds in every round now. A follow-up 1.64-1.91 s (2.08-2.41 s), `fin_refresh` of two answers 3.4 s (4.3 s);
+  5 batches and 9 COM calls per answer (33-34 calls before). Over COM (the fallback) a follow-up is 2.5-2.9 s.
+- `scripts/check_insert.py` now also runs whole jobs through both executors in a hidden Excel and compares the
+  workbooks item by item (76 of 76 checks the same); `scripts/check_inproc.py` proves the verb `each` and the
+  job's reads equal in both executors (34 of 34).
+
 ### The answer's sheets inserted with one call (phase 3b)
 
 - The built file's sheets go into the workbook with one `Sheets.Add(Type:=<the file's path>)` (`xl/movein.py`)
