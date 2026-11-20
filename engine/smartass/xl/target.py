@@ -129,7 +129,7 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
             with stage("find Excel windows"):
                 insts = instances.excel_instances()
             t = _find_named([(i.pid, i.hwnd, i.app) for i in insts if i.app is not None], target)
-            jobs.hold_turn(t.pid, what="this request")
+            jobs.hold_turn(t.pid, what="this request", app=t.app)
             with stage("ready + bridge"):
                 return _finish_target(h, t, allow_archive)      # the archive guard applies here too
         if instances.is_archive(p) and not allow_archive:       # refuse BEFORE opening anything
@@ -144,7 +144,7 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
             except pywintypes.com_error:
                 wb = None
             if wb is not None and not str(wb.Name).lower().endswith(".xlam"):
-                jobs.hold_turn(pid, what="this request")   # same workbook: agents take turns
+                jobs.hold_turn(pid, what="this request", app=app)   # same workbook: agents take turns
                 return _finish_target(h, Target(app, wb, pid, hwnd), allow_archive)
         target = "new"                                # nothing open: fall back to a new analysis workbook
     if target == "new":
@@ -176,7 +176,7 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None,
     from . import styling
     from ..core.timing import stage
     tpl = styling.template_path()
-    choice = next((e for e in excels if jobs.hold_turn(e[0], wait=False)), None)
+    choice = next((e for e in excels if jobs.hold_turn(e[0], wait=False, app=e[2])), None)
     wb = None
     spawned = False
     if choice is None and excels and len(excels) < jobs.MAX_EXCELS and tpl.exists():
@@ -184,7 +184,7 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None,
             choice, wb = _spawn_excel(tpl, {e[0] for e in excels} | (known or set()))
         spawned = True
     if choice is None and excels:
-        jobs.hold_turn(excels[0][0], what="this request")
+        jobs.hold_turn(excels[0][0], what="this request", app=excels[0][2])
         choice = excels[0]
     if choice is None:                                # no Excel at all: the hidden one creates the file, /x opens it
         t = _open_path(h, _new_analysis_file(h, title), excels)
@@ -407,7 +407,7 @@ def _wait_busy_holder(pid: int, path: Path) -> Target | None:
     """The target seems open in Excel `pid` (a window caption shows its name), which does not answer COM (dialog, cell
     edit mode, busy). Take that Excel's turn (another agent may be working in it), give it BUSY_WAIT_S to answer, else
     name what blocks it. None when it answers but does not hold `path` (a same-named workbook from another folder)."""
-    jobs.hold_turn(pid, what="this request")
+    jobs.hold_turn(pid, what="this request", app=None)     # it does not answer COM yet: the first contact below
     t0 = time.monotonic()
     while True:
         insts = [i for i in instances.excel_instances() if i.pid == pid]
@@ -415,6 +415,7 @@ def _wait_busy_holder(pid: int, path: Path) -> Target | None:
             raise HostError(f"The Excel (pid {pid}) that had '{path.name}' open has closed. Ask again.")
         i = insts[0]
         if i.app is not None:
+            jobs.hold_turn(pid, what="this request", app=i.app)     # it answers now: the first contact
             return _find_open([(i.pid, i.hwnd, i.app)], path)
         if time.monotonic() - t0 >= BUSY_WAIT_S:
             raise instances.busy_error(pid, path.name)
@@ -428,7 +429,7 @@ def _open_path(h: ExcelHost, path: Path, excels, insts: list[instances.XlInstanc
         raise InputError(f"File not found: {path}")
     t = _find_open(excels, path)
     if t is not None:
-        jobs.hold_turn(t.pid, what="this request")
+        jobs.hold_turn(t.pid, what="this request", app=t.app)
         return t
     if insts is None:
         insts = instances.excel_instances()
@@ -441,7 +442,7 @@ def _open_path(h: ExcelHost, path: Path, excels, insts: list[instances.XlInstanc
         raise instances._locked_error(path)
     if excels:                                  # open it in the user's Excel that is already running
         pid, hwnd, app = excels[0]
-        jobs.hold_turn(pid, what="this request")
+        jobs.hold_turn(pid, what="this request", app=app)
         try:
             wb = jobs.com(lambda: app.Workbooks.Open(str(path)), limit=180)
         except pywintypes.com_error as e:
@@ -456,7 +457,7 @@ def _open_path(h: ExcelHost, path: Path, excels, insts: list[instances.XlInstanc
         for pid, hwnd, app in instances.interactive_excels():
             for wb in app.Workbooks:
                 if instances._norm(wb.FullName) == instances._norm(path):
-                    jobs.hold_turn(pid, what="this request")
+                    jobs.hold_turn(pid, what="this request", app=app)
                     login.wait_login_cleared(pid, appear_grace=12)     # a fresh Excel shows the EPM login at start-up
                     return Target(app, wb, pid, hwnd)
         if proc.poll() is not None:

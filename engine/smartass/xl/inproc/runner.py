@@ -345,6 +345,10 @@ class _Excel:
     def later_macro(self) -> str:
         return f"SmartassSaveLater_{self.hash}"
 
+    @property
+    def clear_macro(self) -> str:
+        return f"SmartassClear_{self.hash}"
+
 
 _EXCELS: dict[tuple, _Excel] = {}       # (pid, process start time) -> _Excel
 _EXCELS_LOCK = threading.Lock()

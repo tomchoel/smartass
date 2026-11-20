@@ -95,9 +95,10 @@ def test_a_failed_save_of_another_workbook_of_ours_is_saved_by_the_next_job_too(
     """The next job saves in the foreground: its own file and that workbook, in its save batch."""
     import fakexl
     other = fakexl.Workbook(["Q1 Answer"], app=fake_target.app, styles_ver=False)
-    other.Name = "older answer.xlsx"
+    other.Name, other.FullName = "older answer.xlsx", r"C:\analyser\older answer.xlsx"
     fake_target.app.ActiveWorkbook = fake_target.wb
-    addin.pending = {"workbook": other.Name, "autosave": False, "token": "0" * 32, "queued": 0.0}
+    addin.pending = {"workbook": other.Name, "full_name": other.FullName, "autosave": False, "token": "0" * 32,
+                     "queued": 0.0}
     addin.save_error = "the network went away"
     addin.release()
     addin.save_error = None
@@ -201,3 +202,54 @@ def test_the_first_answer_of_a_new_workbook_asks_for_its_save_after_the_reply_to
     assert len(addin.asked) == 1 and wb.saved == 0 and nb.mine.saved == 0
     addin.release()
     assert wb.saved == 1 and nb.mine.saved == 0
+
+
+
+# ------------------------------------------------------------------ review fixes
+def test_a_failed_outcome_without_the_files_path_never_saves_by_name(fake_target, calculated, addin):
+    """Review M1: the user's own workbook can share a name with ours: no path, no save - a note only."""
+    import fakexl
+    other = fakexl.Workbook(["Mine"], app=fake_target.app, styles_ver=False)
+    other.Name = "older answer.xlsx"
+    fake_target.app.ActiveWorkbook = fake_target.wb
+    addin.pending = {"workbook": other.Name, "autosave": False, "token": "3" * 32, "queued": 0.0}
+    addin.save_error = "the network went away"
+    addin.release()
+    addin.save_error = None
+    out, _ = _job(_pre(), calculated)
+    assert other.saved == 0 and fake_target.wb.saved == 1
+    assert [w for w in out["warnings"] if "older answer" in w] == [
+        "the save of older answer.xlsx after the last answer failed (the network went away); which file it was is not "
+        "known, so it was not saved: save it yourself"]
+
+
+def test_a_failed_save_of_another_file_of_the_same_name_is_not_said_saved(fake_target, calculated, addin):
+    """Review M4: the failed file had this workbook's name but another path: this job's save is not that file's."""
+    addin.pending = {"workbook": fake_target.wb.Name, "full_name": r"C:\\elsewhere\\" + fake_target.wb.Name,
+                     "autosave": False, "token": "4" * 32, "queued": 0.0}
+    real = fake_target.wb.FullName
+    fake_target.wb.FullName = r"C:\\elsewhere\\" + fake_target.wb.Name
+    addin.save_error = "locked"
+    addin.release()
+    addin.save_error = None
+    fake_target.wb.FullName = real
+    out, _ = _job(_pre(), calculated)
+    notes = [w for w in out["warnings"] if "after the last answer failed" in w]
+    assert notes == [f"the save of {fake_target.wb.Name} after the last answer failed (locked); the workbook open by "
+                     "that name now is another file, so it was not saved"]
+    assert fake_target.wb.saved == 1                        # this job's own file, in the job
+
+
+def test_an_outcome_that_cannot_be_read_is_said_and_the_job_saves_in_the_foreground(fake_target, calculated, addin):
+    """Review M3: a malformed outcome never fails a finished job."""
+    from smartass.core import config as cfg
+    _job(_pre(), calculated)
+    addin.pending = None
+    folder = cfg.INPROC_DIR / "saved"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{id(fake_target.app)}.json").write_text('{"token": "x", "ok": tru', encoding="utf-8")
+    out, _ = _job(_pre(), calculated)
+    assert out["checks"]["sheet_equals_model"] == "OK" and fake_target.wb.saved == 1 and len(addin.asked) == 1
+    assert [w for w in out["warnings"] if "could not tell" in w] == [
+        "smartass could not tell how its save after the last answer went (its outcome file could not be read): this "
+        "answer is saved in the job"]

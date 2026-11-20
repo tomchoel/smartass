@@ -115,12 +115,16 @@ class Turn:
         self.f.close()
 
 
-def hold_turn(pid: int, wait: bool = True, what: str = "this request") -> bool:
-    """Take this job's turn in Excel `pid` (kept until the job ends). wait=False: only if it is free right now."""
+def hold_turn(pid: int, wait: bool = True, what: str = "this request", app=None) -> bool:
+    """Take this job's turn in Excel `pid` (kept until the job ends). wait=False: only if it is free right now. With
+    app (that Excel), the job's first contact with it follows once the turn is held, every time it is asked for
+    (inproc/later.clear: a save after the last reply still waiting there runs first, one that runs is waited for),
+    before the caller's plain COM writes there."""
     turns = getattr(_job, "turns", None)
     if turns is None:
         turns = _job.turns = []
     if any(tt.pid == pid for tt in turns):
+        _first_contact(app)
         return True
     tt = Turn(pid)
     if not wait:
@@ -134,7 +138,14 @@ def hold_turn(pid: int, wait: bool = True, what: str = "this request") -> bool:
         if waited > 1:
             log.info("waited %.1fs for Excel pid %s (another agent)", waited, pid)
     turns.append(tt)
+    _first_contact(app)
     return True
+
+
+def _first_contact(app) -> None:
+    if app is not None:
+        from .inproc import later
+        later.clear(app)
 
 
 def release_turns() -> None:

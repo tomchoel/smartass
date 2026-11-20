@@ -40,6 +40,7 @@ from smartass.xl.inproc import later
 COM = "com calls."                  # keys with this in them are COM-call counts, not seconds
 BATCHES = "batches."                # ... and these batch counts (one Excel run each)
 JOB = "excel job."                  # the Excel job's Timer summary, as server._draw_job adds it
+PREVIOUS = JOB + "previous save"    # the save the answer before left to Excel (its own row has it as "saved after")
 COLUMNS = (("_total", "_total s"), ("prepare.fetch", "prepare.fetch s"), ("prepare.drill", "prepare.drill s"),
            ("excel job._total", "excel job s"))
 
@@ -156,7 +157,7 @@ def stage_table(runs: list[dict]) -> str:
     vals: dict[str, list[float]] = {}
     for r in ok:
         for k, v in r["timings"].items():
-            if COM not in k and BATCHES not in k:
+            if COM not in k and BATCHES not in k and k != PREVIOUS:    # the case before's save: not this case's time
                 vals.setdefault(k, []).append(v)
     rows = ["| stage | runs | median s | sum s | share of _total |", "|---|---|---|---|---|"]
     for k, vs in sorted(vals.items(), key=lambda kv: -sum(kv[1])):

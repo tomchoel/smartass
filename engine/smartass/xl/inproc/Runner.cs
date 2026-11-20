@@ -39,7 +39,9 @@ public static class SmartassRunner___HASH__
     const int DelayMaxMs = 10000;
     static Pending pending;                                    // the save asked for and not run yet (Excel's thread)
     static bool saving;                                        // that save is running: Excel answers calls meanwhile
+    static string unwritten;                                   // the outcome of a save that could not be written
     const string Busy = "busy: the save after the reply is running";
+    const string Unwritten = "unwritten: ";
     static System.Threading.Timer timer;                       // rooted here: a timer nothing holds can be collected
 
     [ExcelFunction(Name = "SmartassPing___HASH__", IsHidden = true)]
@@ -91,6 +93,21 @@ public static class SmartassRunner___HASH__
         public string Workbook, FullName, Token;
         public bool AutoSave;
         public double Queued;
+    }
+
+    // A job's first contact with this Excel (later.clear, before any plain COM call writes in it): a save after the
+    // reply still waiting runs now; while one runs the answer is Busy (the caller asks again); then "clear", or the
+    // outcome of a save that could not be written, once, as Unwritten + its record. Never throws.
+    [ExcelFunction(Name = "SmartassClear___HASH__", IsMacroType = true, IsHidden = true)]
+    public static object Clear()
+    {
+        if (FromCell()) return ExcelError.ExcelErrorNA;
+        if (saving) return Busy;
+        try { SaveNow("before a job"); }
+        catch (Exception) { }
+        string u = unwritten;
+        unwritten = null;
+        return u == null ? "clear" : Unwritten + u;
     }
 
     // Asks for our own workbook to be saved once Excel has painted the answer (the workbook open by that name; its
@@ -154,6 +171,9 @@ public static class SmartassRunner___HASH__
         if (p == null || saving) return;
         pending = null;
         saving = true;
+        var t = timer;                                           // its work is done (or done now): not left behind
+        timer = null;
+        if (t != null) t.Dispose();
         double started = Now(), seconds = 0, switched = 0;
         var sw = Stopwatch.StartNew();
         string error = null, autosaveError = null;
@@ -192,8 +212,14 @@ public static class SmartassRunner___HASH__
             saving = false;
         }
         if (seconds == 0) seconds = sw.Elapsed.TotalSeconds;
-        try { WriteOutcome(p, how, error, autosaveError, closed, started, seconds, switched); }
-        catch (Exception) { }
+        string record = Record(p, how, error, autosaveError, closed, started, seconds, switched);
+        try { WriteOutcome(p, record); }
+        catch (Exception e)                                       // told by the next Clear (the next job's first call)
+        {
+            var sb = new StringBuilder(record, 0, record.Length - 1, record.Length + 64);
+            sb.Append(",\"unwritten\":"); Str(sb, Message(e)); sb.Append("}");
+            unwritten = sb.ToString();
+        }
     }
 
     static double Now()
@@ -201,9 +227,9 @@ public static class SmartassRunner___HASH__
         return (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
     }
 
-    // The outcome, no figure in it: saved\<pid>.json beside the jobs folder, written whole (a temporary file renamed).
-    static void WriteOutcome(Pending p, string how, string error, string autosaveError, bool closed, double started,
-                             double seconds, double switched)
+    // The outcome, no figure in it, as JSON.
+    static string Record(Pending p, string how, string error, string autosaveError, bool closed, double started,
+                         double seconds, double switched)
     {
         var sb = new StringBuilder();
         sb.Append("{\"token\":"); Str(sb, p.Token);
@@ -220,11 +246,17 @@ public static class SmartassRunner___HASH__
         sb.Append(",\"seconds\":"); Write(sb, seconds);
         sb.Append(",\"switched\":"); Write(sb, switched);
         sb.Append("}");
+        return sb.ToString();
+    }
+
+    // The outcome written to saved\<pid>.json beside the jobs folder, whole (a temporary file renamed).
+    static void WriteOutcome(Pending p, string record)
+    {
         string folder = Path.Combine(Path.GetDirectoryName(JobsFolder), "saved");
         Directory.CreateDirectory(folder);
         string path = Path.Combine(folder, Process.GetCurrentProcess().Id.ToString(Inv) + ".json");
         string tmp = path + "." + p.Token + ".tmp";
-        File.WriteAllText(tmp, sb.ToString(), new UTF8Encoding(false));
+        File.WriteAllText(tmp, record, new UTF8Encoding(false));
         try
         {
             if (File.Exists(path)) File.Replace(tmp, path, null);
@@ -233,7 +265,7 @@ public static class SmartassRunner___HASH__
         catch (Exception)
         {
             try { if (File.Exists(path)) File.Delete(path); File.Move(tmp, path); }
-            catch (Exception) { try { File.Delete(tmp); } catch (Exception) { } }
+            catch (Exception) { try { File.Delete(tmp); } catch (Exception) { } throw; }
         }
     }
 

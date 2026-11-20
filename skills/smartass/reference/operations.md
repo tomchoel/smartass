@@ -23,7 +23,10 @@
   0.3 s so the answer is painted first (`SV_SAVE_DELAY`), saves, and switches AutoSave back on. A follow-up that
   comes before that save ran has it run first; one that comes while it runs waits for it. Over COM, or with
   `SV_SAVE=sync` in the server's environment, the job saves before it replies, as before. Never the user's own
-  workbook. The Excel job takes about 2-2.5 s for an answer without a lines sheet (2.7 s at
+  workbook. Two accepted risks: a save after the reply that fails while no further answer comes is shown only by
+  `fin_status` (`save_after_reply`; the next answer would say it and save); and if Excel crashes in the 0.3 s plus
+  the save's own time after a reply, that answer's unsaved state is lost without a note - the file on disk is the
+  workbook as it was before that answer. The Excel job takes about 2-2.5 s for an answer without a lines sheet (2.7 s at
   61 sheets), about 4 s with a lines sheet, 1.6-1.9 s for a follow-up, and about 7 s for the first answer of a new
   workbook (the workbook is created). A follow-up or `fin_refresh` replaces the question's `Q<n>`
   sheets and tables whole: anything typed on them goes with them, so keep your own notes on your own sheets.

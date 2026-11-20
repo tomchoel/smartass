@@ -11,6 +11,7 @@ from fakeaddin import install
 
 import fakexl
 from smartass.core import config
+from smartass.xl import jobs
 from smartass.core.timing import BATCH_PREFIX, Timer, stage
 from smartass.xl.inproc import later, runner
 from smartass.xl.inproc.batch import Batch
@@ -150,3 +151,108 @@ def test_a_save_whose_excel_quit_first_is_not_counted_as_to_come_for_ever(excel,
     assert later.status()["waiting"] == 1
     monkeypatch.setattr(later, "FRESH_S", -1)
     assert later.status()["waiting"] == 0
+
+
+
+# ------------------------------------------------------------------ review fixes: the job's first contact (clear)
+def test_the_jobs_first_contact_runs_a_waiting_save_first(excel):
+    app, wb, addin = excel
+    later.queue(app, "answer.xlsx", True)
+    later.clear(app)
+    assert wb.saved == 1 and wb.AutoSaveOn is True and addin.log[:2] == ["clear", "save answer.xlsx"]
+    assert later.take(app)["how"] == "before a job" and addin.release() is None
+
+
+def test_the_first_contact_while_a_save_runs_is_asked_again_until_it_is_done(excel, monkeypatch):
+    app, wb, addin = excel
+    monkeypatch.setattr(runner, "BUSY_POLL_S", 0.001)
+    addin.loaded, addin.busy = True, 3                      # loaded by another server process: called by name
+    later.clear(app)
+    assert addin.busy == 0 and addin.log == ["clear"]
+    addin.busy = 10 ** 6
+    with pytest.raises(later.HostError, match="busy"):
+        later.clear(app, limit=0.01)
+
+
+def test_the_first_contact_with_an_excel_without_the_add_in_is_nothing(monkeypatch, tmp_path):
+    import pywintypes
+    app = fakexl.Application()
+    monkeypatch.setattr(config, "INPROC", True)
+    monkeypatch.setattr(config, "INPROC_DIR", tmp_path / "inproc")
+    monkeypatch.setattr(runner, "_EXCELS", {})
+    monkeypatch.setattr(runner, "_identify", lambda app, check=True: (id(app), 0.0))
+    asked = []
+
+    def run(macro, *a):
+        asked.append(macro)
+        raise pywintypes.com_error(-2147352567, "Exception occurred.", (0, "Microsoft Excel", "Cannot run the macro",
+                                                                        None, 0, -2146827284), None)
+    app.Run = run
+    later.clear(app)                                        # no add-in loaded by anyone: no save can be waiting
+    assert len(asked) == 1 and asked[0].startswith("SmartassClear_")
+
+
+def test_every_turn_taken_in_an_excel_starts_with_the_first_contact(excel, monkeypatch):
+    app, wb, addin = excel
+    seen = []
+    monkeypatch.setattr(later, "clear", lambda a, *k, **kw: seen.append(a))
+    try:
+        jobs.hold_turn(424242, app=app)
+        jobs.hold_turn(424242, app=app)                     # again in the same job: asked again (a few ms)
+        jobs.hold_turn(424243)
+    finally:
+        jobs.release_turns()
+    assert seen == [app, app]
+
+
+def test_every_turn_the_target_code_takes_names_its_excel():
+    """The structural guarantee: each hold_turn in the code that resolves a target or finds a workbook passes the
+    Excel's app, so the first contact runs before any plain COM writes there (an Excel this job starts itself has no
+    add-in yet: the one exception)."""
+    import re
+    from pathlib import Path
+    import smartass
+    root = Path(smartass.__file__).parent
+    calls = []
+    for rel in ("xl/target.py", "xl/workbench/books.py"):
+        calls += [(rel, m.group(0)) for m in re.finditer(r"hold_turn\([^)]*\)", (root / rel).read_text("utf-8"))]
+    missing = [c for c in calls if "app=" not in c[1] and "wait=False)" not in c[1].replace(" ", "")]
+    assert calls and missing == [], missing
+
+
+def test_an_outcome_the_add_in_could_not_write_comes_back_with_the_first_contact(excel):
+    app, wb, addin = excel
+    later.queue(app, "answer.xlsx", False)
+    addin.write_fails, addin.save_error = True, "locked"
+    addin.release()
+    assert later.take(app) is None                          # nothing on disk
+    later.clear(app)
+    out = later.take(app)
+    assert out["ok"] is False and out["error"] == "locked" and out["unwritten"] == "the disk is full"
+
+
+@pytest.mark.parametrize("text", ["{not json", '{"token": "a", "ok": false, "started": 1}', ""])
+def test_a_malformed_outcome_is_an_unknown_one_and_read_once(excel, text):
+    app, wb, addin = excel
+    folder = config.INPROC_DIR / "saved"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{id(app)}.json").write_text(text, encoding="utf-8")
+    out = later.take(app)
+    assert out["unknown"] is True and out["ok"] is False and "could not be read" in out["error"]
+    assert later.take(app) is None
+
+
+def test_old_outcomes_of_excels_that_are_gone_are_pruned(excel, monkeypatch):
+    import os
+    import time
+    app, wb, addin = excel
+    folder = config.INPROC_DIR / "saved"
+    folder.mkdir(parents=True, exist_ok=True)
+    gone, old, alive = folder / "999999991.json", folder / "4.json", folder / f"{os.getpid()}.json"
+    for p in (gone, old, alive):
+        p.write_text("{}", encoding="utf-8")
+    week = time.time() - 8 * 24 * 3600
+    os.utime(old, (week, week))
+    monkeypatch.setattr(later, "_alive", lambda pid: pid in (4, os.getpid()))
+    later.queue(app, "answer.xlsx", False)
+    assert not gone.exists() and not old.exists() and alive.exists()

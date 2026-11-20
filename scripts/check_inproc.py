@@ -7,7 +7,9 @@ they were before. Then: the ping, two builds loaded side by side, broken builds 
 dll with no functions: no window in Excel, the COM executor takes over), the add-in's guards (a formula calling it,
 paths outside its jobs folder, a job file it cannot delete: nothing read, deleted or run), the save after the reply
 (phase 3c Task 2: asked for in one Run, done after the delay, run first by a batch that comes before it, waited for
-by a batch sent while it runs, a closed workbook, another file of its name, refusals), and the fixed cost of an empty batch.
+by a batch sent while it runs, a closed workbook, another file of its name, a job's first contact (SmartassClear:
+a waiting save run first, one that runs waited for, an outcome that could not be written told once), refusals; on a
+file labelled with config's label, built here - no label: those checks FAIL), and the fixed cost of an empty batch.
 
 The Excel is one this script starts itself (DispatchEx, refused unless its pid is new; check_fastcom.start_excel) and
 quits at the end; if Quit hangs, only that process is killed. The user's Excel is never touched. Nothing is saved: the
@@ -43,7 +45,7 @@ from check_fastcom import QUIT_WAIT_S, _wait_gone, kill_if_ours, start_excel  # 
 from smartass.core import config  # noqa: E402
 from smartass.xl import fastcom, jobs  # noqa: E402
 from smartass.xl.hostproc import windows_of  # noqa: E402
-from smartass.xl.inproc import build, runner  # noqa: E402
+from smartass.xl.inproc import build, later, runner  # noqa: E402
 from smartass.xl.inproc.batch import MISSING, Batch  # noqa: E402
 from win32com.client import dynamic  # noqa: E402
 
@@ -703,6 +705,22 @@ def guard_checks(app, raw, ex) -> None:
     wb.Close(False)
 
 
+def labelled_file(path: Path) -> Path | None:
+    """An empty workbook with our sensitivity label as custom properties (target.label_properties, as Task 1 builds a
+    new workbook): an unlabelled file opens read-only on this tenant and its Save writes nothing. None without a
+    label in the config."""
+    import xlsxwriter
+    from smartass.xl import target
+    if not (config.LABEL_ID and config.LABEL_SITE):
+        return None
+    book = xlsxwriter.Workbook(str(path))
+    for k, v in target.label_properties().items():
+        book.set_custom_property(k, v)
+    book.add_worksheet("Sheet1").write(0, 0, "labelled")
+    book.close()
+    return path
+
+
 def save_later_checks(app, raw, ex) -> None:
     """(Phase 3c Task 2) The save after the reply (xl/inproc/later.py, Runner.cs SmartassSaveLater): asked for in one
     Run and done by Excel after the delay (the workbook saved, the outcome written); a batch that comes before the
@@ -711,12 +729,12 @@ def save_later_checks(app, raw, ex) -> None:
     On copies of the labelled seed in this script's temporary folder (an unlabelled file opens read-only on this
     tenant, and its Save writes nothing)."""
     print()
-    seed = Path(os.environ.get("LOCALAPPDATA", "")) / "smartass" / "new_workbook_seed.xlsx"
-    if not seed.exists():
-        print("INFO save later: no labelled seed to copy; not checked")
-        return
     folder = TMP / "later"
     folder.mkdir(exist_ok=True)
+    seed = labelled_file(folder / "labelled.xlsx")
+    if not check("save later: a labelled file to save (built with config's label)", seed is not None,
+                 "no [label] id and site in the config: the save-later checks cannot run" if seed is None else ""):
+        return
     outcome = config.INPROC_DIR / "saved" / f"{int(ex.pid)}.json"
 
     def opened(tag: str):
@@ -814,6 +832,39 @@ def save_later_checks(app, raw, ex) -> None:
           and out["closed"] is True and (folder / "other" / "closed.xlsx").stat().st_mtime_ns == m3
           and bool(wb3.Saved) is False, f"{out and out['error']!r}")
     wb3.Close(False)
+
+    # (review fixes) a job's first contact: SmartassClear runs a waiting save first, waits for one that runs
+    wb.Worksheets(1).Range("E1").Value2 = "clear"
+    token, got, _ = ask(name, 2000)
+    t0 = time.time()
+    got = raw.Run(ex.clear_macro)
+    out = told(token, 1)
+    check("clear: a job's first contact runs a waiting save first", got == "clear" and out is not None
+          and out["how"] == "before a job" and out["started"] >= t0 and bool(wb.Saved), f"{got!r}, {out and out['how']!r}")
+    wb.Worksheets(1).Range("E1").Value2 = "clear busy"
+    token, got, _ = ask(name, 0)
+    time.sleep(0.03)
+    s = time.time()
+    later.clear(app)
+    e = time.time()
+    out = told(token)
+    end = out["started"] + out["seconds"] + out["switched"] if out else 0
+    check("clear: sent while a save runs, it returns once the save has ended", out is not None and e >= end,
+          f"sent +{s - out['started']:.3f} s after it started, returned {e - end:+.3f} s after it ended" if out
+          else "no outcome")
+    blocker = outcome                                      # a folder where the outcome file goes: it cannot be written
+    outcome.unlink(missing_ok=True)
+    blocker.mkdir()
+    wb.Worksheets(1).Range("E1").Value2 = "unwritten"
+    token, got, _ = ask(name, 0)
+    time.sleep(1.5)
+    got = raw.Run(ex.clear_macro)
+    blocker.rmdir()
+    record = json.loads(got[len(later.UNWRITTEN):]) if isinstance(got, str) and got.startswith(later.UNWRITTEN) else {}
+    again = raw.Run(ex.clear_macro)
+    check("clear: a save whose outcome could not be written is told by the next first contact, once",
+          record.get("token") == token and record.get("ok") is True and bool(record.get("unwritten"))
+          and again == "clear", f"{str(got)[:60]!r} then {again!r}")
 
     refusals = {"a bad token": (name, False, "nope", 0.0), "no workbook": ("", False, uuid.uuid4().hex, 0.0),
                 "a workbook that is not open": ("not open.xlsx", False, uuid.uuid4().hex, 0.0)}

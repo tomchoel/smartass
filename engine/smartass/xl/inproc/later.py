@@ -17,10 +17,13 @@ token the request carried, the workbook's name, ok, Excel's error text, whether 
 whether AutoSave was to go back on and its own error, how the save ran ("after the reply", "before a batch", "before
 the next"), when it was queued and started (seconds since 1970) and its seconds. The next job in that Excel reads it
 right after its look (take: moved to "last.json", so it is read once, whichever server process reads it); a failed
-one is a note of that job's reply and that job saves in the foreground. The scripts wait for the saves they caused
+one is a note of that job's reply and that job saves in the foreground. One the add-in could not write comes back with
+the next clear and is read the same way; one that cannot be read is an unknown outcome (a note, the job saves in the
+foreground). Outcomes of an Excel that is gone, or a week old, are removed when the next save is asked for. The scripts wait for the saves they caused
 (wait); fin_status shows the newest outcome (status)."""
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -32,7 +35,7 @@ from pathlib import Path
 
 from ...core import config, timing
 from ..host import HostError
-from . import runner
+from . import build, runner
 
 log = logging.getLogger("smartview.inproc")
 LAST = "last.json"
@@ -46,6 +49,11 @@ _asked_at: dict[str, float] = {}                # token -> when it was asked for
 FRESH_S = 60                                    # a save asked for longer ago with no outcome is not "to come" (its
                                                 # Excel quit first, say)
 _done: dict[str, dict] = {}                     # token -> the outcome a job read, for wait()
+_unwritten: dict[int, dict] = {}                # pid -> an outcome the add-in could not write (told by clear)
+UNWRITTEN = "unwritten: "                       # clear's answer then, before the outcome's record
+CLEAR_LIMIT_S = 120                             # a save that runs is waited for this long (as a batch)
+KEEP_DAYS = 7                                   # an outcome older than this is removed (with those of gone Excels)
+UNKNOWN = "its outcome file could not be read"
 
 
 def folder() -> Path:
@@ -56,6 +64,48 @@ def available(app) -> bool:
     """The save can be asked for after the reply in app's Excel: SV_SAVE is not "sync" and the add-in is loaded there
     (loading it the first time this Excel process is asked)."""
     return config.SAVE == "later" and runner.available(app)
+
+
+def clear(app, limit: float = CLEAR_LIMIT_S) -> None:
+    """A job's first contact with app's Excel (jobs.hold_turn calls it once it holds the turn there), before any plain
+    COM call of the job writes in it: one add-in call (Runner.cs SmartassClear) runs a save after the reply still
+    waiting there, and while one runs the add-in answers busy and the call is asked again (runner.asked: bounded by
+    limit, abortable: HostError). An add-in this server process has not loaded in that Excel is called by this
+    build's name (another server may have loaded it); no such macro there: no add-in, so no save of ours can be
+    waiting. An outcome the add-in could not write comes back here and is kept for the next look (take)."""
+    if not config.INPROC:
+        return
+    try:
+        key = runner._identify(app)
+    except HostError:
+        raise
+    except Exception:   # noqa: BLE001 - which Excel this is cannot be told: no add-in of ours found there
+        return
+    ex = runner._EXCELS.get(key)
+    if ex is not None and ex.ready is False:
+        return                                              # the add-in does not load in that Excel
+    macro = ex.clear_macro if ex is not None and ex.ready else f"SmartassClear_{_build_hash()}"
+    try:
+        got = runner.asked(lambda: app.Run(macro), limit)
+    except HostError:
+        raise
+    except Exception:   # noqa: BLE001 - the macro is not there: no add-in in that Excel
+        return
+    if isinstance(got, str) and got.startswith(UNWRITTEN):
+        try:
+            out = json.loads(got[len(UNWRITTEN):])
+        except ValueError:
+            out = None
+        out = out if _valid(out) else _unknown()
+        with _lock:
+            _unwritten[key[0]] = out
+        log.warning("the outcome of the save after the reply in Excel pid %s could not be written (%s); the next "
+                    "answer there reads it from memory", key[0], out.get("unwritten"))
+
+
+@functools.lru_cache(maxsize=1)
+def _build_hash() -> str:
+    return build.hash8()
 
 
 def queue(app, workbook: str, autosave: bool) -> str | None:
@@ -71,6 +121,7 @@ def queue(app, workbook: str, autosave: bool) -> str | None:
     if ex is None:
         return None
     key = runner._identify(app)
+    _prune()
     token = uuid.uuid4().hex
     timing.count_batch()
     try:
@@ -104,10 +155,26 @@ def take(app) -> dict | None:
         pid, started = runner._identify(app)
     except Exception:   # noqa: BLE001 - which Excel this is cannot be told: no outcome of its
         return None
+    with _lock:
+        kept = _unwritten.pop(pid, None)
+    if kept is not None:
+        _seen(kept)
+        return kept
     path = folder() / f"{pid}.json"
     out = _read(path)
     if out is None:
-        return None
+        if not path.exists():
+            return None
+        time.sleep(POLL_S)                                # being replaced: read once more
+        out = _read(path)
+        if out is None and path.exists():
+            try:
+                path.unlink()                             # unreadable: read once, as an unknown outcome
+            except OSError:
+                pass
+            return _unknown()
+        if out is None:
+            return None
     try:
         os.replace(path, folder() / LAST)
     except FileNotFoundError:
@@ -119,12 +186,48 @@ def take(app) -> dict | None:
             pass
     if out["started"] < started - 1:                      # written by an Excel that had this pid before
         return None
+    _seen(out)
+    return out
+
+
+def _seen(out: dict) -> None:
+    """A job read the outcome of a save asked for here: kept for wait()."""
     with _lock:
-        if _queued.pop(out["token"], None) is not None:
+        if _queued.pop(out.get("token"), None) is not None:
             _done[out["token"]] = out
             while len(_done) > KEEP:
                 _done.pop(next(iter(_done)))
-    return out
+
+
+def _unknown() -> dict:
+    """An outcome that cannot be read: which save it was is not known."""
+    return {"token": "", "workbook": "", "full_name": "", "ok": False, "unknown": True, "error": UNKNOWN,
+            "closed": False, "seconds": 0.0, "started": 0.0}
+
+
+def _alive(pid: int) -> bool:
+    import psutil
+    return psutil.pid_exists(pid)
+
+
+def _prune() -> None:
+    """Outcome files of an Excel that is gone, or older than KEEP_DAYS, removed (LAST is kept: fin_status's); a
+    temporary file an hour old too. Never raises."""
+    now = time.time()
+    for p in _files(all_=True):
+        try:
+            age = now - p.stat().st_mtime
+            if p.name == LAST:
+                continue
+            if p.suffix == ".tmp":
+                if age > 3600:
+                    p.unlink()
+                continue
+            stem = p.name.split(".")[0]
+            if age > KEEP_DAYS * 86400 or (stem.isdigit() and not _alive(int(stem))):
+                p.unlink()
+        except OSError:
+            pass
 
 
 def give_back(app, out: dict) -> None:
@@ -186,9 +289,9 @@ def status() -> dict:
     return {"last": last, "waiting": len([t for t in asked if t not in written])}
 
 
-def _files() -> list[Path]:
+def _files(all_: bool = False) -> list[Path]:
     try:
-        return [p for p in folder().iterdir() if p.suffix == ".json"]
+        return [p for p in folder().iterdir() if all_ or p.suffix == ".json"]
     except OSError:
         return []
 
@@ -197,9 +300,11 @@ def _read(path: Path) -> dict | None:
     """An outcome file, checked; None when it is not there or cannot be read (a file being replaced)."""
     try:
         out = json.loads(path.read_text(encoding="utf-8"))
-        if not (isinstance(out.get("token"), str) and isinstance(out.get("ok"), bool)
-                and isinstance(out.get("started"), (int, float))):
-            return None
-        return out
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError):
         return None
+    return out if _valid(out) else None
+
+
+def _valid(out) -> bool:
+    return (isinstance(out, dict) and isinstance(out.get("token"), str) and isinstance(out.get("ok"), bool)
+            and isinstance(out.get("started"), (int, float)) and isinstance(out.get("workbook"), str))

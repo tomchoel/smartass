@@ -92,7 +92,7 @@ def find_book(workbook: str | None, write: bool = False, allow_archive: bool = F
                              "Use the full name.")
         hit = cands[0]
     pid, app, wb = hit
-    hold_turn(pid, what="this Excel change")
+    hold_turn(pid, what="this Excel change", app=app)
     b = Book(app, wb, pid)
     if write and is_archive(local_path(b.full_name)) and not allow_archive:
         raise InputError(f"'{b.name}' is in the Produktregnskapet archive (audit record). Not changed - pass "

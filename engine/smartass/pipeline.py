@@ -277,6 +277,9 @@ SAVE_CLOSED = ("{} was closed before smartass saved it after the last answer (Ex
 SAVED_NOW = "; it is saved now"
 NOT_SAVED_NOW = "; it could not be saved now either ({}): save it yourself"
 NOT_OPEN_NOW = "; it is not open any more"
+NO_PATH = "; which file it was is not known, so it was not saved: save it yourself"
+SAVE_UNKNOWN = ("smartass could not tell how its save after the last answer went ({}): this answer is saved in the "
+                "job")
 ANOTHER_NOW = "; the workbook open by that name now is another file, so it was not saved"
 
 
@@ -299,8 +302,8 @@ def _save(job) -> None:
     from .xl.inproc import later
     ours = _is_ours(job.t)
     again = job.resave
-    same = again is not None and again[0].casefold() == job.name.casefold()
-    later_ok = ours and again is None and later.available(job.t.app)
+    same = again is not None and _same_file(again[2].get("full_name"), job)
+    later_ok = ours and again is None and not job.sync_save and later.available(job.t.app)
     if job.setups or (ours and not later_ok):
         _save_batch(job, save=ours and not later_ok)
     if later_ok and later.queue(job.t.app, job.name, job.paused) is None:
@@ -342,22 +345,32 @@ def _save_batch(job, save: bool) -> None:
                     next(m for i, _, m in res.skipped if i >= on_at))
 
 
+def _same_file(full: str | None, job) -> bool:
+    """The failed save's file (its FullName as the request found it) is this job's workbook (the look's FullName)."""
+    mine = job.look.full_name if job.look is not None else ""
+    return bool(full) and bool(mine) and str(full).casefold() == mine.casefold()
+
+
 def _resave(job, name: str, note: int, out: dict) -> None:
     """Another workbook of ours whose save after the last answer failed (out: its outcome), saved now - only when the
     workbook open by that name is still that file (its FullName as the request found it): one batch reads it, one
-    saves it. job.notes[note] says how it went. Never raises (this job's answer is in place and saved)."""
+    saves it; an outcome without that FullName saves nothing (the user's own workbook can have our file's name).
+    job.notes[note] says how it went. Never raises (this job's answer is in place and saved)."""
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import run
+    if not out.get("full_name"):
+        job.notes[note] += NO_PATH
+        return
     try:
         b = Batch(quiet=False)
         with b.attempt():
             b.ret(b.workbook(name).FullName, "full")
         now = run(job.t.app, b).values.get("full")
-        full = out.get("full_name") or ""
+        full = out["full_name"]
         if now is None:
             job.notes[note] += NOT_OPEN_NOW
             return
-        if full and str(now).casefold() != full.casefold():
+        if str(now).casefold() != full.casefold():
             job.notes[note] += ANOTHER_NOW
             return
         b = Batch(quiet=False)
@@ -380,6 +393,10 @@ def _earlier_save(job) -> None:
     if out is None:
         return
     timing.aside("previous save", float(out.get("seconds") or 0.0))
+    if out.get("unknown"):
+        job.notes.append(SAVE_UNKNOWN.format(out.get("error")))
+        job.sync_save = True                            # which file it was is not known: this one is saved in the job
+        return
     if out.get("autosave_error"):
         log.warning("could not switch AutoSave back on in %s: %s", out["workbook"], out["autosave_error"])
     if out["ok"]:
@@ -661,6 +678,7 @@ class Look:
     separators: tuple
     sources_unread: bool = False
     autosave: bool = False                       # AutoSave was on, and the look switched it off
+    full_name: str = ""                          # the workbook's FullName (which file a failed earlier save was)
 
 
 def _look(job) -> Look:
@@ -680,6 +698,8 @@ def _look(job) -> Look:
     kind, spec_rows = sources.record_kind(b, wbn), sheets.record_spec_rows(b, wbn)
     b.ret(b.app.International(3), "decimal separator")
     b.ret(b.app.International(4), "thousands separator")
+    with b.attempt():
+        b.ret(wbn.FullName, "full name")
     with b.attempt():                                   # last: a look that fails before leaves AutoSave alone
         b.ret(wbn.AutoSaveOn, "autosave")               # a local file or an Excel without AutoSave: nothing
         off_at = b.position
@@ -696,7 +716,8 @@ def _look(job) -> Look:
     has_sources = "sources" in {n.casefold() for n in got.names()}     # as Excel: names without case
     found = kind(res) if has_sources else None
     return Look(got, screen(res), base(res), found, spec_rows(res),
-                (v["decimal separator"], v["thousands separator"]), has_sources and found is None, job.paused)
+                (v["decimal separator"], v["thousands separator"]), has_sources and found is None, job.paused,
+                str(v.get("full name") or ""))
 
 
 @dataclass
@@ -725,6 +746,7 @@ class _Job:
     setups: list = field(default_factory=list)
     notes: list = field(default_factory=list)
     resave: tuple | None = None                 # (workbook, its note's index, outcome): a save after the reply failed
+    sync_save: bool = False                     # how the save after the last reply went is not known: save in the job
     pointing: list = field(default_factory=list)    # what the re-pointing could not do, for the reply's warnings
 
     @staticmethod
