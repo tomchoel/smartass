@@ -18,6 +18,9 @@ import pywintypes
 from . import instances, jobs, login
 from ..core import config
 from .host import ExcelHost, HostError, InputError
+from .hostproc import retry_busy
+
+NAME_WAIT_S = 60                    # a busy Excel is waited for this long when the workbook's name or path is read
 
 # ------------------------------------------------------------------ target workbook
 @dataclass
@@ -35,17 +38,20 @@ class Target:
     made: Path | None = None
     from_template: bool = False
 
+    # The workbook's name and path are read with a busy Excel waited for (retry_busy, not counted as a call of the
+    # job): Excel rejects calls while it saves - also right after a save after the reply, AutoSave back on (live,
+    # 20.11.2026: a job's _is_ours read was rejected there).
     @property
     def name(self) -> str:
-        return self.made.name if self.wb is None else self.wb.Name
+        return self.made.name if self.wb is None else retry_busy(lambda: self.wb.Name, NAME_WAIT_S)
 
     @property
     def path(self) -> str:
-        return str(self.made) if self.wb is None else instances.local_path(self.wb.FullName)
+        return str(self.made) if self.wb is None else instances.local_path(self.full_name)
 
     @property
     def full_name(self) -> str:
-        return str(self.made) if self.wb is None else str(self.wb.FullName)
+        return str(self.made) if self.wb is None else str(retry_busy(lambda: self.wb.FullName, NAME_WAIT_S))
 
     def run(self, fn: str, *args):
         """Bridge call. Smart View acts on the ACTIVE workbook/sheet, so the target sheet is activated right before
@@ -376,8 +382,7 @@ def _find_named(excels, name: str) -> Target:
     hits: list[Target] = []
     names: list[str] = []
     for pid, hwnd, app in excels:
-        for wb in app.Workbooks:
-            n = str(wb.Name)
+        for wb, n in _books(app, "Name"):
             if n.lower().endswith((".xlam", ".xla")):
                 continue
             names.append(n)
@@ -394,10 +399,19 @@ def _find_named(excels, name: str) -> Target:
 
 def _find_open(excels, path: Path) -> Target | None:
     for pid, hwnd, app in excels:
-        for wb in app.Workbooks:
-            if instances._norm(wb.FullName) == instances._norm(path):
+        for wb, full in _books(app, "FullName"):
+            if instances._norm(full) == instances._norm(path):
                 return Target(app, wb, pid, hwnd)
     return None
+
+
+def _books(app, attr: str) -> list[tuple]:
+    """(workbook, its attr - Name or FullName) of every workbook open in app's Excel: plain reads made before the job's
+    turn there (to find which Excel holds the target), read again whole while Excel is busy - it rejects calls while
+    it saves, also a save after the last reply (live, 20.11.2026)."""
+    def read():
+        return [(wb, str(getattr(wb, attr))) for wb in app.Workbooks]
+    return retry_busy(read, NAME_WAIT_S)
 
 
 BUSY_WAIT_S = 10                    # a busy Excel that holds the target gets this long to answer before we say why

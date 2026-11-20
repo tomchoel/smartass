@@ -253,3 +253,47 @@ def test_an_outcome_that_cannot_be_read_is_said_and_the_job_saves_in_the_foregro
     assert [w for w in out["warnings"] if "could not tell" in w] == [
         "smartass could not tell how its save after the last answer went (its outcome file could not be read): this "
         "answer is saved in the job"]
+
+
+
+def test_the_workbooks_path_is_read_with_a_busy_excel_waited_for():
+    """Live (the review-fix probe): right after a save after the reply Excel rejected a job's read of its workbook's
+    FullName (_is_ours) - the read waits for a busy Excel as every other call does."""
+    import pywintypes
+
+    from smartass.xl.target import Target
+    tries = []
+
+    class Book:
+        @property
+        def FullName(self):
+            tries.append(1)
+            if len(tries) < 3:
+                raise pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+            return r"C:\analyser\answer.xlsx"
+    t = Target(app=None, wb=Book(), pid=0, hwnd=0)
+    assert t.path.endswith("answer.xlsx") and len(tries) == 3
+
+
+
+def test_finding_which_excel_holds_the_target_waits_for_a_busy_excel():
+    """Live (the review-fix probe): a follow-up sent while the save after the reply ran had its scan of the open
+    workbooks rejected - before its turn there - and failed; the scan is read again while Excel is busy."""
+    import pywintypes
+
+    from smartass.xl import target as xltarget
+    tries = []
+
+    class Book:
+        Name, FullName = "answer.xlsx", r"C:\analyser\answer.xlsx"
+
+    class App:
+        @property
+        def Workbooks(self):
+            tries.append(1)
+            if len(tries) < 2:
+                raise pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+            return [Book()]
+    from pathlib import Path
+    t = xltarget._find_open([(7, 0, App())], Path(r"C:\analyser\answer.xlsx"))
+    assert t is not None and t.pid == 7 and len(tries) == 2
