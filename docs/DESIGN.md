@@ -55,7 +55,8 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    stored in hidden `_svmeta`, sheet order (`xl/sheetorder.py`), save (our files only).
    Measured (docs/audit/2026-11-19-file-render-bench.md and the live check after it): 2-3 s in the Excel job for an
    answer without a lines sheet in a workbook of normal size (3.3 s at 61 sheets), 4-5 s with a lines sheet, about
-   6-7 s for the first answer of a new workbook (the workbook is created); 34-37 COM calls per answer.
+   6-7 s for the first answer of a new workbook (the workbook is created); 33-34 COM calls per answer since the
+   insert (`scripts/check_followups.py`, 20.11.2026; 34-37 with the copy).
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
    `findings`, `checks`, `layout` (layout check findings with fixes), `charts`, `warnings`, `caveats`, `routes`,
    `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory

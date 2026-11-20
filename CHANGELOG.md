@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### The answer's sheets inserted with one call (phase 3b)
+
+- The built file's sheets go into the workbook with one `Sheets.Add(Type:=<the file's path>)` (`xl/movein.py`)
+  instead of opening the file, copying its sheets, closing it and breaking the link the copy left: no second
+  workbook is opened, no link is left, and the move-in is 2 COM calls instead of 5. `scripts/check_insert.py` (a
+  hidden Excel of its own, nothing saved) compared both routes on nine answers (every chart kind, thin waterfall
+  steps with their label fixes, a matrix, kpi tiles, Key points, a Lines sheet) and on whole jobs (a second answer,
+  a follow-up): cells, formats, borders, sizes, page setup, page breaks, window, names, conditional formats,
+  charts, links, where the sheets land, refusals and the Excel around them - 71 of 71 checks the same.
+- Measured live (`scripts/check_followups.py` in the owner's Excel, 20.11.2026, every step "checks OK"): the second
+  answer 1.86 s and 33 COM calls (2.1 s and 36 before), follow-ups 2.08-2.41 s and 34 calls (2.2-2.9 s and 37), the
+  move-in stage 0.66-1.03 s (0.81-1.22 s). The move-in alone in a hidden Excel: 291 ms against 485 ms (median of 5).
+- Removed with the copy: the "temporary workbook could not be closed" warning and its retry at the end of a job,
+  and the in-process executor's `break_links` verb (no verb ships now; the mechanism stays for the next task).
+
 ### Answers built as a file (0.3.0)
 
 - An answer's sheets (`Q<n> Answer` with its charts, `Q<n> Data`, `Q<n> Lines <alias>`) are built as an .xlsx
