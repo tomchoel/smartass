@@ -17,9 +17,10 @@ EPM: the replies are dropped. The first failure stops the run (exit 2) with its 
 
 Usage (from the repo root; Excel open, signed in to EPM; SV_INPROC=0 runs every batch over COM):
     engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--second b07]
-        [--keep]
+        [--keep] [--settle 10]
 At the end it says which executor ran the batches (the in-process add-in, or COM). Per step it also watches the
-file's modification time (AutoSave is left alone: exactly one write per job, the Save, none between the batches) and
+file's modification time (the job switches AutoSave off in its look and back on in its save batch, so the Save is
+the job's own write; a write during the batches is printed as a note, as OneDrive stamps the file of its own too) and
 reads Workbook.Saved afterwards (True); after fin_refresh it reads the saved file itself with openpyxl (read-only):
 every answer's sheets there and the last answer's row on its Sources log.
 Only the workbook this script created is touched, and closed at the end (without saving: the engine saved it after
