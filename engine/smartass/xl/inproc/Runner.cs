@@ -25,7 +25,7 @@ public static class SmartassRunner___HASH__
     const int InlineMax = 30000;                               // below Excel's 32 767 characters per string
     const string JobsFolder = @"__JOBS__";                     // build.py: the one folder job files are run from
     const string NotRun = "not run: ";
-    static readonly Regex JobName = new Regex(@"^[0-9a-f]{32}\.json$");
+    static readonly Regex JobName = new Regex(@"^[0-9a-f]{32}\.json\z");
     const string Unbound = "no object {0}: the operation that makes it failed or did not run";
     const string NotAValue = "a COM object cannot be asked back";
     const string NotADate = "a date cannot be asked back (read Value2)";

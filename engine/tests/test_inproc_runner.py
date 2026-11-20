@@ -650,3 +650,22 @@ def test_an_unknown_excel_process_is_warned_about_once(inproc, monkeypatch, capl
     for _ in range(3):
         assert runner.run(app, Batch()).where == "com"
     assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
+
+
+
+def test_a_result_file_that_cannot_be_deleted_keeps_the_result(inproc, monkeypatch):
+    app, wb = excel_book()
+    runner.run(app, Batch())
+    real = Path.unlink
+    held = []
+
+    def scanner_holds(self, *a, **k):
+        if self.name.endswith(".out"):
+            held.append(self.name)
+            raise PermissionError("in use by the virus scanner")
+        return real(self, *a, **k)
+    monkeypatch.setattr(Path, "unlink", scanner_holds)
+    b = Batch()
+    b.ret(b.workbook("book.xlsx").Worksheets("S").Name, "s" * 31000)             # a long record: the result file
+    res = runner.run(app, b)
+    assert res.where == "inproc" and res.values == {"s" * 31000: "S"} and held

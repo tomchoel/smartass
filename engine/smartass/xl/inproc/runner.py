@@ -522,7 +522,10 @@ def _run_inproc(app, ex: _Excel, job: dict, limit: float) -> dict | None:
                 except OSError as e:
                     raise _unknown(f"the result file could not be read ({e})") from None
                 finally:
-                    out_path.unlink(missing_ok=True)
+                    try:
+                        out_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass                            # e.g. a scanner holds it: the sweep removes it later
             elif isinstance(got, str) and got.startswith("{"):
                 record = got
             else:
