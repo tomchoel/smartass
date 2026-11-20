@@ -175,10 +175,9 @@ def test_attempt_marks_an_operation_whose_failure_does_not_stop_the_batch():
     assert tried == [False, False, True, True, True, False]
 
 
-def test_each_is_the_one_verb_and_another_is_refused():
+def test_each_is_a_verb_and_another_is_refused():
     """The file job's loops are one verb (Task 2b): each(collection, paths, prefixes); break_links went with the copy
     (Task 2a)."""
-    assert VERBS == {"each": 3}
     b = Batch()
     rows = b.verb("each", b.workbook("Book1.xlsx").Worksheets, ["Name", "ListObjects.*.Name"], None)
     b.ret(rows, "rows")
@@ -187,6 +186,27 @@ def test_each_is_the_one_verb_and_another_is_refused():
                           {"k": "ret", "on": 3, "name": "rows"}]
     with pytest.raises(ValueError, match="verb"):
         Batch().verb("break_links", Batch().app, "smartass_build_1.xlsx")
+
+
+def test_the_verbs_arguments_are_checked_when_recorded():
+    """Review I1: each takes a non-empty list of names and None or a non-empty list of prefixes (the executors
+    disagreed on a text for paths and on an empty list); nudge a property name, a number, None or a number."""
+    assert VERBS == {"each": 3, "nudge": 4}
+    b = Batch()
+    wss = b.workbook("Book1.xlsx").Worksheets
+    for paths, prefixes in (("Name", None), ([], None), (["Name", ""], None), (["Name"], []), (["Name"], "Q")):
+        with pytest.raises(ValueError, match="each"):
+            b.verb("each", wss, paths, prefixes)
+    for prop, delta, above in (("", 1, None), ("Top", "1", None), ("Top", True, None), ("Top", 1, "x")):
+        with pytest.raises(ValueError, match="nudge"):
+            b.verb("nudge", wss, prop, delta, above)
+    b.verb("each", wss, ["Name"], ["Data_Q"])
+    b.verb("nudge", wss, "Top", -10.0, 10.0)
+
+
+def test_a_quiet_batch_may_leave_calculation_alone():
+    assert "calculation" not in Batch().to_dict() and "calculation" not in Batch(quiet=False, calculation=False).to_dict()
+    assert Batch(calculation=False).to_dict()["calculation"] is False
 
 
 def test_position_is_the_index_the_next_operation_gets():

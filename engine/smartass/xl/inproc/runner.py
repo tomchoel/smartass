@@ -34,6 +34,7 @@ not be put back (logged as warnings)."""
 from __future__ import annotations
 
 import datetime
+import inspect
 import json
 import logging
 import struct
@@ -150,7 +151,7 @@ def execute(app, job: dict, limit: float = 120, check: bool = True) -> dict:
     ops, final = job["ops"], job.get("finally", [])
     try:
         if job.get("quiet"):
-            _quiet(app, changed, limit)
+            _quiet(app, changed, limit, job.get("calculation", True))
         try:
             for i, op in enumerate(ops):
                 started = i + 1
@@ -187,10 +188,13 @@ def execute(app, job: dict, limit: float = 120, check: bool = True) -> dict:
     return out
 
 
-def _quiet(app, changed: list, limit: float) -> None:
+def _quiet(app, changed: list, limit: float, calculation: bool = True) -> None:
     """Each quiet setting that is not so already is set; changed gets (name, the user's value) for the restore.
-    Calculation cannot be read or set with no workbook open: then it is left alone."""
+    Calculation cannot be read or set with no workbook open: then it is left alone; without calculation it is not
+    touched at all."""
     for name, value in QUIET:
+        if name == "Calculation" and not calculation:
+            continue
         try:
             before = retry_busy(lambda name=name: getattr(app, name), limit)
             if before != value:
@@ -595,11 +599,14 @@ def _each(collection, paths, prefixes):
 
 def _path(obj, parts: list[str]):
     """The value at a dotted path from obj ("*": the rest over every item of the collection reached); None when it
-    cannot be read. A busy Excel goes on up (the verb is read again as a whole)."""
+    cannot be read. Each step is a property read: pywin32 gives a method's name as a method object, never calling it
+    (a COM object: no value, None). A busy Excel goes on up (the verb is read again as a whole)."""
     try:
         for i, part in enumerate(parts):
             if part == "*":
                 return [_path(x, parts[i + 1:]) for x in obj]
+            if not _is_property(obj, part):
+                return None                          # a method's name: never called
             obj = getattr(obj, part)
         _plain(obj)                                   # a COM object or a date is not a value
         return obj
@@ -609,4 +616,55 @@ def _path(obj, parts: list[str]):
         return None
 
 
-VERBS: dict = {"each": _each}           # name -> function(*args); each verb exists in both executors (batch.VERBS)
+_PROPERTIES: dict[tuple, bool] = {}     # (type name, member) -> it is a property read without arguments
+
+
+def _is_property(obj, name: str) -> bool:
+    """name is a property of obj that reads without arguments, from the type information (cached per type and name),
+    as Runner.cs asks it: Excel runs a method even when it is asked for as a property. A fake of the tests: any
+    attribute that is not callable."""
+    if not isinstance(obj, dynamic.CDispatch):
+        try:
+            return not inspect.isroutine(inspect.getattr_static(obj, name))
+        except AttributeError:                       # given by __getattr__: a value
+            return True
+    ole = obj._oleobj_
+    try:
+        ti = ole.GetTypeInfo()
+        key = (ti.GetDocumentation(-1)[0], name.lower())
+    except pythoncom.com_error:
+        return False
+    if key not in _PROPERTIES:
+        prop = False
+        try:
+            dispid = ole.GetIDsOfNames(name)
+            attr = ti.GetTypeAttr()
+            for i in range(attr.cFuncs):
+                fd = ti.GetFuncDesc(i)
+                if fd.memid == dispid and fd.invkind & pythoncom.INVOKE_PROPERTYGET \
+                        and len(fd.args) == fd.cParamsOpt:
+                    prop = True
+                    break
+            prop = prop or any(ti.GetVarDesc(i).memid == dispid for i in range(attr.cVars))
+        except pythoncom.com_error:
+            prop = False
+        _PROPERTIES[key] = prop
+    return _PROPERTIES[key]
+
+
+def _nudge(obj, name: str, delta, above):
+    """The verb nudge (batch.py's module docstring): the numeric property + delta when it is more than above (or
+    above is None); the value it ends with."""
+    if not _is_property(obj, name):
+        raise _Failed(f"{name} is not a property")
+    v = getattr(obj, name)
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        raise _Failed(f"{name} is not a number")
+    if above is not None and not v > above:
+        return v
+    new = float(v) + float(delta)
+    setattr(obj, name, new)
+    return new
+
+
+VERBS: dict = {"each": _each, "nudge": _nudge}    # name -> function(*args); both executors have each (batch.VERBS)

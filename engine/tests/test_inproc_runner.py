@@ -303,6 +303,52 @@ def test_each_reads_named_properties_of_every_item_and_none_where_one_cannot_be_
     assert res.values["objects"] == (("S", None), ("T", None))       # a COM object (here: a method) is no value
 
 
+def test_each_never_calls_a_method_named_in_a_path(book):
+    """Review I1: a path step is a property read; a method's name gives None and the method does not run."""
+    app, wb = book
+    b = Batch()
+    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets, ["Name", "Delete", "Calculate"], None), "rows")
+    assert runner.run(app, b).values["rows"] == (("S", None, None), ("T", None, None))
+    assert [s.Name for s in wb.order] == ["S", "T"] and not [e for e in app.events if e[1] == "Calculate"]
+
+
+def test_nudge_adds_to_a_number_above_a_floor_and_leaves_one_below_it(book):
+    app, wb = book
+    ws = wb.Worksheets("S")
+    ws.Range("A1").ColumnWidth = 10
+    ws.Range("B1").ColumnWidth = 3
+    b = Batch()
+    wsn = b.workbook("book.xlsx").Worksheets("S")
+    b.ret(b.verb("nudge", wsn.Range("A1"), "ColumnWidth", -2.5, 5), "moved")
+    b.ret(b.verb("nudge", wsn.Range("B1"), "ColumnWidth", -2.5, 5), "kept")
+    b.ret(b.verb("nudge", wsn.Range("C1"), "ColumnWidth", 1, None), "no floor")
+    with b.attempt():
+        b.ret(b.verb("nudge", wsn.Range("A1"), "Address", 1, None), "text")
+    res = runner.run(app, b)
+    assert res.values == {"moved": 7.5, "kept": 3, "no floor": 9.43}
+    assert ws.colw[1] == 7.5 and ws.colw[2] == 3 and "not a number" in res.skipped[0][2]
+
+
+def test_a_quiet_batch_without_calculation_leaves_it_as_the_user_had_it(book):
+    app, wb = book
+    seen = []
+    b = Batch(calculation=False)
+    b.ret(b.app.Calculation, "calc")
+    b.ret(b.app.ScreenUpdating, "screen")
+    real = type(app).__setattr__
+
+    def setattr_(self, k, v):
+        seen.append(k)
+        real(self, k, v)
+    type(app).__setattr__ = setattr_
+    try:
+        res = runner.run(app, b)
+    finally:
+        type(app).__setattr__ = real
+    assert res.values == {"calc": -4105, "screen": False} and "Calculation" not in seen
+    assert settings(app) == QUIET_OFF
+
+
 def test_each_with_prefixes_gives_only_the_items_whose_first_value_starts_with_one(book):
     app, wb = book
     for n in ("Data_Q4", "lines_q4_b0", "Budget", "smartass_sources"):

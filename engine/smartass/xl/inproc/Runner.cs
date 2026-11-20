@@ -15,6 +15,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
+using CT = System.Runtime.InteropServices.ComTypes;
 using ExcelDna.Integration;
 
 public static class SmartassRunner___HASH__
@@ -124,7 +125,8 @@ public static class SmartassRunner___HASH__
             var ops = (ArrayList)job["ops"];
             var fin = job.ContainsKey("finally") ? (ArrayList)job["finally"] : new ArrayList();
             app = ExcelDnaUtil.Application;
-            if (job.ContainsKey("quiet") && (bool)job["quiet"]) Quiet(app, changed);
+                bool calc = !job.ContainsKey("calculation") || !Equals(job["calculation"], false);
+            if (job.ContainsKey("quiet") && (bool)job["quiet"]) Quiet(app, changed, calc);
             var refs = new Dictionary<int, object>();
             refs[0] = app;
             try
@@ -201,10 +203,11 @@ public static class SmartassRunner___HASH__
     }
 
     // ------------------------------------------------------------------ the settings
-    static void Quiet(object app, List<KeyValuePair<string, object>> changed)
+    static void Quiet(object app, List<KeyValuePair<string, object>> changed, bool calc)
     {
         for (int i = 0; i < QuietNames.Length; i++)
         {
+            if (!calc && QuietNames[i] == "Calculation") continue;  // a batch without formulas leaves it alone
             object before;
             try { before = Invoke(app, QuietNames[i], Get, new object[0]); }
             catch (Exception)
@@ -278,7 +281,7 @@ public static class SmartassRunner___HASH__
     [DllImport("oleaut32.dll")] static extern int VariantClear(IntPtr v);
 
     const int Lcid = 0;
-    const short MethodOrGet = 3, Put = 4;                // DISPATCH_METHOD | DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT
+    const short MethodOrGet = 3, PropGet = 2, Put = 4;   // DISPATCH_METHOD | DISPATCH_PROPERTYGET, PROPERTYGET, PUT
     const int DispidPropertyPut = -3, DispException = unchecked((int)0x80020009);
     static readonly int VariantSize = IntPtr.Size == 8 ? 24 : 16;
 
@@ -317,8 +320,8 @@ public static class SmartassRunner___HASH__
                 dp.cNamedArgs = 1;
             }
             var info = new System.Runtime.InteropServices.ComTypes.EXCEPINFO();
-            hr = d.Invoke(ids[0], ref none, Lcid, put ? Put : MethodOrGet, ref dp, put ? IntPtr.Zero : result, ref info,
-                          IntPtr.Zero);
+            short kind = put ? Put : flags == BindingFlags.GetProperty ? PropGet : MethodOrGet;
+            hr = d.Invoke(ids[0], ref none, Lcid, kind, ref dp, put ? IntPtr.Zero : result, ref info, IntPtr.Zero);
             if (hr == DispException)
             {
                 int code = info.scode != 0 ? info.scode : info.wCode;
@@ -390,6 +393,7 @@ public static class SmartassRunner___HASH__
     static object Verb(string name, object[] args)
     {
         if (name == "each" && args.Length == 3) return Each(args[0], args[1] as object[], args[2]);
+        if (name == "nudge" && args.Length == 4) return Nudge(args[0], Convert.ToString(args[1], Inv), args[2], args[3]);
         throw new Exception("unknown verb '" + name + "'");
     }
 
@@ -415,6 +419,71 @@ public static class SmartassRunner___HASH__
         return rows.ToArray();
     }
 
+    // Whether name is a property of obj's type that reads without arguments, from its type information (cached
+    // per type and name); no type information or no such member: false. Excel runs a method even when it is asked
+    // for as a property (measured 20.11.2026: Delete in a path deleted the sheet), so each asks this first.
+    static readonly Dictionary<string, bool> Properties = new Dictionary<string, bool>();
+
+    static bool IsProperty(object obj, string name)
+    {
+        var d = obj as IDispatchRaw;
+        if (d == null) return false;
+        IntPtr pti;
+        if (d.GetTypeInfo(0, Lcid, out pti) < 0 || pti == IntPtr.Zero) return false;
+        var ti = (CT.ITypeInfo)Marshal.GetObjectForIUnknown(pti);
+        Marshal.Release(pti);
+        string tname, docs, help;
+        int ctx;
+        ti.GetDocumentation(-1, out tname, out docs, out ctx, out help);
+        string key = tname + "." + name.ToLowerInvariant();
+        bool known;
+        if (Properties.TryGetValue(key, out known)) return known;
+        var none = Guid.Empty;
+        var ids = new int[1];
+        bool prop = false;
+        if (d.GetIDsOfNames(ref none, new string[] { name }, 1, Lcid, ids) >= 0)
+        {
+            IntPtr pta;
+            ti.GetTypeAttr(out pta);
+            var ta = (CT.TYPEATTR)Marshal.PtrToStructure(pta, typeof(CT.TYPEATTR));
+            for (int i = 0; i < ta.cFuncs && !prop; i++)
+            {
+                IntPtr pfd;
+                ti.GetFuncDesc(i, out pfd);
+                var fd = (CT.FUNCDESC)Marshal.PtrToStructure(pfd, typeof(CT.FUNCDESC));
+                prop = fd.memid == ids[0] && (fd.invkind & CT.INVOKEKIND.INVOKE_PROPERTYGET) != 0
+                       && fd.cParams == fd.cParamsOpt;
+                ti.ReleaseFuncDesc(pfd);
+            }
+            for (int i = 0; i < ta.cVars && !prop; i++)
+            {
+                IntPtr pvd;
+                ti.GetVarDesc(i, out pvd);
+                var vd = (CT.VARDESC)Marshal.PtrToStructure(pvd, typeof(CT.VARDESC));
+                prop = vd.memid == ids[0];
+                ti.ReleaseVarDesc(pvd);
+            }
+            ti.ReleaseTypeAttr(pta);
+        }
+        Properties[key] = prop;
+        return prop;
+    }
+
+    // nudge(object, property, delta, above): the numeric property + delta when it is more than above (or above is
+    // null); the value it ends with. A value that is no number fails.
+    static object Nudge(object obj, string name, object delta, object above)
+    {
+        if (!IsProperty(obj, name)) throw new Exception(name + " is not a property");
+        object v = Invoke(obj, name, BindingFlags.GetProperty, new object[0]);
+        if (!(v is double || v is int || v is long || v is short || v is float || v is decimal || v is byte))
+            throw new Exception(name + " is not a number");
+        double x = Convert.ToDouble(v, Inv);
+        if (above != null && !(above is DBNull) && !(x > Convert.ToDouble(above, Inv))) return v;
+        double nx = x + Convert.ToDouble(delta, Inv);
+        Invoke(obj, name, BindingFlags.SetProperty, new object[] { nx });
+        return nx;
+    }
+
     static bool Starts(string s, object[] prefixes)
     {
         if (s == null) return false;
@@ -437,7 +506,9 @@ public static class SmartassRunner___HASH__
                         items[i - 1] = PathValue(Invoke(obj, "Item", Get, new object[] { i }), parts, k + 1);
                     return items;
                 }
-                obj = Invoke(obj, parts[k], Get, new object[0]);
+                if (!IsProperty(obj, parts[k])) return null;      // a method's name: never called (Excel would run
+                                                                  // it even for a property get)
+                obj = Invoke(obj, parts[k], BindingFlags.GetProperty, new object[0]);
             }
             Plain(obj);                                           // a COM object or a date is not a value
             return obj;

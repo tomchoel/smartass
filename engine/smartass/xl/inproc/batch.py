@@ -48,14 +48,24 @@ The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs
         path - dotted property names ("Tab.Color"), where "*" maps the rest of the path over the items of the
         collection reached ("ListObjects.*.Name": the names of a sheet's tables). A value that cannot be read (Excel
         refuses it, or it is a COM object or a date) is None; a busy Excel is not swallowed. prefixes: None, or a list
-        of texts; then only the items whose first path's value starts with one of them (case ignored) are given."""
+        of texts; then only the items whose first path's value starts with one of them (case ignored) are given.
+        Every step of a path is a property read (never a method call: a method's name gives None), in both
+        executors.
+    nudge(object, property, delta, above): the numeric property read and set to its value + delta, when above is
+        None or the value is more than above (else left as it is); gives the value it ends with. A value that is no
+        number fails the operation.
+
+quiet=True turns ScreenUpdating, EnableEvents and DisplayAlerts off and Calculation to manual (each put back after
+the batch); with calculation=False Calculation is left alone - only a batch that writes formulas needs manual
+calculation, and putting automatic back makes Excel recalculate what is dirty in every open workbook. The plain
+data then carries "calculation": false."""
 from __future__ import annotations
 
 import contextlib
 import math
 
 VERSION = 1
-VERBS: dict[str, int] = {"each": 3}    # name -> number of arguments; each verb exists in both executors (runner.py)
+VERBS: dict[str, int] = {"each": 3, "nudge": 4}    # name -> number of arguments; both executors have each (runner.py)
 INT64 = 2 ** 63
 TEXT_MAX = 40                     # a string argument longer than this is shortened in an operation's text
 
@@ -117,8 +127,9 @@ class Node:
 
 
 class Batch:
-    def __init__(self, quiet: bool = True):
+    def __init__(self, quiet: bool = True, calculation: bool = True):
         self.quiet = quiet
+        self.calculation = calculation
         self._ops: list[dict] = []
         self._finally: list[dict] = []
         self._texts: list[str] = []
@@ -169,6 +180,7 @@ class Batch:
         """A named step the operation list cannot say (VERBS, see the module docstring)."""
         if VERBS.get(name) != len(args):
             raise ValueError(f"no verb {name!r} with {len(args)} arguments (verbs: {VERBS})")
+        _check_verb(name, args)
         vals = [self._value(a) for a in args]
         node = Node(self, f"{name}({', '.join(_arg_text(a) for a in args)})")
         self._bind(node, {"k": "verb", "name": name, "args": vals})
@@ -198,8 +210,11 @@ class Batch:
         return node
 
     def to_dict(self) -> dict:
-        return {"version": VERSION, "quiet": self.quiet, "ops": [dict(o) for o in self._ops],
-                "finally": [dict(o) for o in self._finally]}
+        out = {"version": VERSION, "quiet": self.quiet, "ops": [dict(o) for o in self._ops],
+               "finally": [dict(o) for o in self._finally]}
+        if self.quiet and not self.calculation:
+            out["calculation"] = False
+        return out
 
     def text(self, index: int) -> str:
         """The operation at index (ops, then finally, in one sequence) as it reads in code."""
@@ -277,6 +292,28 @@ class Batch:
                 return {"grid": [[_scalar(c) for c in r] for r in v]}
             return {"list": [_scalar(c) for c in v]}
         return _scalar(v)
+
+
+def _texts(v) -> bool:
+    return isinstance(v, (list, tuple)) and len(v) > 0 and all(isinstance(x, str) and x for x in v)
+
+
+def _number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _check_verb(name: str, args: tuple) -> None:
+    """A verb's arguments checked when recorded, so both executors get only what they agree on."""
+    if name == "each":
+        _, paths, prefixes = args
+        if not _texts(paths):
+            raise ValueError("each: the paths are a non-empty list of names")
+        if prefixes is not None and not _texts(prefixes):
+            raise ValueError("each: the prefixes are None or a non-empty list of texts")
+    elif name == "nudge":
+        _, prop, delta, above = args
+        if not (isinstance(prop, str) and prop) or not _number(delta) or not (above is None or _number(above)):
+            raise ValueError("nudge: a property name, a number to add and None or a number to be above")
 
 
 def _scalar(v):

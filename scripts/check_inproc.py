@@ -292,6 +292,44 @@ def item_look_reads(b, c):
     b.ret(ws.Range(ws.Cells(2, 1), ws.Cells(ws.Cells(ws.Rows.Count, 1).End(-4162).Row, 2)).Value2, "rows")
 
 
+def item_each_no_method(b, c):
+    """Review I1: a path step is a property read - a method's name gives None and does nothing (Delete, Calculate)."""
+    wss = b.workbook(c["book"]).Worksheets
+    second = wss.Add(MISSING, wss(1))
+    second.Name = "Second"
+    b.ret(b.verb("each", wss, ["Name", "Delete", "Calculate", "Visible"], None), "rows")
+    b.ret(wss.Count, "count")
+
+
+def item_nudge(b, c):
+    """The verb nudge: a column width moved above its floor, one left below it, and a data label's Top lifted right
+    after Calculate inside the same batch (the file job's label lift)."""
+    ws = b.workbook(c["book"]).Worksheets(1)
+    ws.Range("A1:B4").Value2 = (("k", "v"), ("a", 1.0), ("b", 2.0), ("c", 3.0))
+    ws.Columns(4).ColumnWidth = 12
+    ws.Columns(5).ColumnWidth = 2
+    b.ret(b.verb("nudge", ws.Columns(4), "ColumnWidth", -3.5, 5), "moved")
+    b.ret(b.verb("nudge", ws.Columns(5), "ColumnWidth", -3.5, 5), "kept")
+    ch = ws.ChartObjects().Add(10, 10, 300, 200).Chart
+    ch.SetSourceData(ws.Range("A1:B4"))
+    ch.ChartType = 51
+    ch.SeriesCollection(1).HasDataLabels = True
+    ws.Range("B3").Formula2 = "=B4*3"
+    ws.Calculate()
+    lab = ch.SeriesCollection(1).Points(2).DataLabel
+    b.ret(lab.Top, "label before")
+    b.ret(b.verb("nudge", lab, "Top", -10.0, 10.0), "label lifted")
+    b.ret(lab.Top, "label after")
+    b.ret(ws.Columns(4).ColumnWidth, "width after")
+
+
+def item_screen_quiet(b, c):
+    """Review M6: a quiet batch without calculation: the screen, events and alerts off, Calculation left alone."""
+    b.ret(b.app.ScreenUpdating, "screen")
+    b.ret(b.app.EnableEvents, "events")
+    b.ret(b.app.Calculation, "calc")
+
+
 def item_not_quiet(b, c):
     b.ret(b.app.ScreenUpdating, "screen")
     b.ret(b.app.Calculation, "calc")
@@ -315,6 +353,9 @@ BATTERY = [  # name, record, quiet, the user's settings before[, the values Exce
     ("the insert with omitted arguments", item_insert, True, USER),
     ("a data label read after Calculate", item_label_after_calculate, True, USER),
     ("the look batch's reads", item_look_reads, True, USER),
+    ("each never calls a method in a path", item_each_no_method, True, USER),
+    ("the verb nudge (a label lifted after Calculate)", item_nudge, True, USER),
+    ("quiet without calculation", item_screen_quiet, "screen", USER),
     ("quiet=False", item_not_quiet, False, USER),
 ]
 
@@ -370,7 +411,7 @@ def sheet_picture(wb) -> dict:
 def run_once(app, raw, executor: str, record, quiet: bool, user: dict, ctx_of) -> dict:
     """One battery item through one executor on fresh workbooks: what came back, the workbooks, the settings."""
     ctx = ctx_of()
-    b = Batch(quiet=quiet)
+    b = Batch(quiet=bool(quiet), calculation=quiet != "screen")      # "screen": quiet, Calculation left alone
     record(b, ctx)
     config.INPROC = executor == "inproc"
     put(raw, user)
