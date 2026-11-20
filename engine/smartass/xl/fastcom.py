@@ -49,14 +49,15 @@ from ..core import config
 
 _PyIDispatch = pythoncom.TypeIIDs[pythoncom.IID_IDispatch]
 _MAPS = ("propMap", "propMapGet", "propMapPut", "mapFuncs")
-_NOT_SHARED = (pythoncom.IID_NULL, pythoncom.IID_IDispatch)     # no real interface behind these: never shared
+NOT_SHARED = (pythoncom.IID_NULL, pythoncom.IID_IDispatch)      # no real interface behind these: never shared
 _ENUM_INVOKE = pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET
 
 
 class _Interface:
     """What is learnt about one interface. Pure Python, shared by its objects on every thread."""
 
-    def __init__(self, olerepr: build.DispatchItem):
+    def __init__(self, olerepr: build.DispatchItem, iid):
+        self.iid = iid                             # the interface's IID (inproc/runner.py keys its property check on it)
         self.olerepr = olerepr                     # build.LazyDispatchItem: the name maps, filled as names are used
         self.methods: dict = {}                    # compiled method stubs by name
         self.known: dict[str, int] = {}            # name -> 1 bound, 0 not in the type library
@@ -290,7 +291,7 @@ def wrap(obj, name: str | None = None):
         iid = typeinfo.GetTypeAttr()[0]
     except (pythoncom.com_error, AttributeError):          # no type information: pywin32 copes without it
         return dynamic.Dispatch(raw, name)
-    if iid in _NOT_SHARED:
+    if iid in NOT_SHARED:
         return dynamic.Dispatch(raw, name, typeinfo=typeinfo)
     iface = _IFACE.get(iid)
     typecomp = None
@@ -299,5 +300,5 @@ def wrap(obj, name: str | None = None):
             typecomp = typeinfo.GetTypeComp()
         except pythoncom.com_error:
             return dynamic.Dispatch(raw, name, typeinfo=typeinfo)
-        iface = _IFACE.setdefault(iid, _Interface(dynamic.MakeOleRepr(raw, typeinfo, typecomp)))
+        iface = _IFACE.setdefault(iid, _Interface(dynamic.MakeOleRepr(raw, typeinfo, typecomp), iid))
     return Fast(raw, iface, name, typeinfo, typecomp)

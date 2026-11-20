@@ -420,9 +420,13 @@ public static class SmartassRunner___HASH__
     }
 
     // Whether name is a property of obj's type that reads without arguments, from its type information (cached
-    // per type and name); no type information or no such member: false. Excel runs a method even when it is asked
-    // for as a property (measured 20.11.2026: Delete in a path deleted the sheet), so each asks this first.
+    // per interface GUID and member, as the COM executor keys it; a type without a real GUID is never cached); no
+    // type information or no such member: false, cached only for a name the type does not know or a walk that went
+    // through. Excel runs a method even when it is asked for as a property (measured 20.11.2026: Delete in a path
+    // deleted the sheet), so each asks this first. Every descriptor is released, also when a call throws midway.
     static readonly Dictionary<string, bool> Properties = new Dictionary<string, bool>();
+    static readonly Guid DispatchIid = new Guid("00020400-0000-0000-C000-000000000046");
+    const int UnknownName = unchecked((int)0x80020006);         // DISP_E_UNKNOWNNAME
 
     static bool IsProperty(object obj, string name)
     {
@@ -432,41 +436,60 @@ public static class SmartassRunner___HASH__
         if (d.GetTypeInfo(0, Lcid, out pti) < 0 || pti == IntPtr.Zero) return false;
         var ti = (CT.ITypeInfo)Marshal.GetObjectForIUnknown(pti);
         Marshal.Release(pti);
-        string tname, docs, help;
-        int ctx;
-        ti.GetDocumentation(-1, out tname, out docs, out ctx, out help);
-        string key = tname + "." + name.ToLowerInvariant();
-        bool known;
-        if (Properties.TryGetValue(key, out known)) return known;
-        var none = Guid.Empty;
-        var ids = new int[1];
-        bool prop = false;
-        if (d.GetIDsOfNames(ref none, new string[] { name }, 1, Lcid, ids) >= 0)
+        IntPtr pta = IntPtr.Zero;
+        try
         {
-            IntPtr pta;
             ti.GetTypeAttr(out pta);
             var ta = (CT.TYPEATTR)Marshal.PtrToStructure(pta, typeof(CT.TYPEATTR));
+            string key = ta.guid == Guid.Empty || ta.guid == DispatchIid
+                ? null : ta.guid.ToString("N") + "." + name.ToLowerInvariant();
+            bool known;
+            if (key != null && Properties.TryGetValue(key, out known)) return known;
+            var none = Guid.Empty;
+            var ids = new int[1];
+            int hr = d.GetIDsOfNames(ref none, new string[] { name }, 1, Lcid, ids);
+            if (hr < 0)
+            {
+                if (key != null && hr == UnknownName) Properties[key] = false;
+                return false;
+            }
+            bool prop = false;
             for (int i = 0; i < ta.cFuncs && !prop; i++)
             {
                 IntPtr pfd;
                 ti.GetFuncDesc(i, out pfd);
-                var fd = (CT.FUNCDESC)Marshal.PtrToStructure(pfd, typeof(CT.FUNCDESC));
-                prop = fd.memid == ids[0] && (fd.invkind & CT.INVOKEKIND.INVOKE_PROPERTYGET) != 0
-                       && fd.cParams == fd.cParamsOpt;
-                ti.ReleaseFuncDesc(pfd);
+                try
+                {
+                    var fd = (CT.FUNCDESC)Marshal.PtrToStructure(pfd, typeof(CT.FUNCDESC));
+                    prop = fd.memid == ids[0] && (fd.invkind & CT.INVOKEKIND.INVOKE_PROPERTYGET) != 0
+                           && fd.cParams == fd.cParamsOpt;
+                }
+                finally
+                {
+                    ti.ReleaseFuncDesc(pfd);
+                }
             }
             for (int i = 0; i < ta.cVars && !prop; i++)
             {
                 IntPtr pvd;
                 ti.GetVarDesc(i, out pvd);
-                var vd = (CT.VARDESC)Marshal.PtrToStructure(pvd, typeof(CT.VARDESC));
-                prop = vd.memid == ids[0];
-                ti.ReleaseVarDesc(pvd);
+                try
+                {
+                    var vd = (CT.VARDESC)Marshal.PtrToStructure(pvd, typeof(CT.VARDESC));
+                    prop = vd.memid == ids[0];
+                }
+                finally
+                {
+                    ti.ReleaseVarDesc(pvd);
+                }
             }
-            ti.ReleaseTypeAttr(pta);
+            if (key != null) Properties[key] = prop;
+            return prop;
         }
-        Properties[key] = prop;
-        return prop;
+        finally
+        {
+            if (pta != IntPtr.Zero) ti.ReleaseTypeAttr(pta);
+        }
     }
 
     // nudge(object, property, delta, above): the numeric property + delta when it is more than above (or above is

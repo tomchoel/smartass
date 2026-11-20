@@ -9,6 +9,9 @@ from pathlib import Path
 import pythoncom
 import pytest
 import pywintypes
+import winerror
+from types import SimpleNamespace
+from win32com.client import dynamic
 
 from fakexl import Application, Workbook, count_com, snapshot
 from smartass.core import config
@@ -374,6 +377,159 @@ def test_each_does_not_swallow_a_busy_excel(book, monkeypatch):
     b = Batch()
     b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets("S").Busy, ["Name"], None), "names")
     assert runner.run(app, b).values["names"] == (("after the wait",),) and len(calls) == 2
+
+
+# ------------------------------------------------------------------ the property check over COM (each's path steps)
+UNKNOWN_NAME = pywintypes.com_error(winerror.DISP_E_UNKNOWNNAME, "Unknown name.", None, None)
+REJECTED = pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+
+
+class _Attr(tuple):
+    """pywin32's TYPEATTR: [0] the interface's IID, cFuncs and cVars."""
+
+    @property
+    def cFuncs(self):
+        return self[1]
+
+    @property
+    def cVars(self):
+        return 0
+
+
+class _TypeInfo:
+    """One interface's type information over COM: every call counted (each would cross to Excel), one failure to
+    give on a call by its name."""
+
+    def __init__(self, iid: str, props: dict, calls: list, fail: dict):
+        self.iid, self.props, self.calls, self.fail = iid, props, calls, fail
+
+    def _call(self, name):
+        self.calls.append(name)
+        if name in self.fail:
+            raise self.fail.pop(name)
+
+    def GetTypeAttr(self):
+        self._call("GetTypeAttr")
+        return _Attr((pywintypes.IID(self.iid), len(self.props)))
+
+    def GetFuncDesc(self, i):
+        self._call("GetFuncDesc")
+        return SimpleNamespace(memid=i + 1, invkind=pythoncom.INVOKE_PROPERTYGET, args=(), cParamsOpt=0)
+
+    def GetDocumentation(self, i):
+        self._call("GetDocumentation")
+        return ("Worksheet", None, 0, None)
+
+
+class _Ole:
+    def __init__(self, ti: _TypeInfo):
+        self.ti = ti
+
+    def GetTypeInfo(self):
+        self.ti._call("GetTypeInfo")
+        return self.ti
+
+    def GetIDsOfNames(self, name):
+        self.ti._call("GetIDsOfNames")
+        names = [n.lower() for n in self.ti.props]
+        if name.lower() not in names:
+            raise UNKNOWN_NAME
+        return names.index(name.lower()) + 1
+
+
+class _Dispatch(dynamic.CDispatch):
+    """A COM object as fastcom wraps it (its interface's shared data, its own type information) or, with shared
+    False, as pywin32's own wrapper does; its properties' values from the type information's props."""
+
+    def __init__(self, ti: _TypeInfo, shared: bool = True):
+        dynamic.CDispatch.__init__(self, _Ole(ti), None, "stub")
+        if shared:
+            self.__dict__["_iface_"] = SimpleNamespace(iid=pywintypes.IID(ti.iid))
+            self.__dict__["_typeinfo_"] = ti
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self.__dict__["_oleobj_"].ti.props[name]
+
+
+IID_SHEET = "{000208D8-0000-0000-C000-000000000046}"
+IID_CHART = "{000208D6-0000-0000-C000-000000000046}"
+
+
+@pytest.fixture
+def properties(monkeypatch):
+    """A fresh property cache for the test."""
+    monkeypatch.setattr(runner, "_PROPERTIES", {})
+    return runner._PROPERTIES
+
+
+def _each_names(app, wb, items):
+    wb.Worksheets("S").__dict__["Items"] = items
+    b = Batch()
+    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets("S").Items, ["Name"], None), "names")
+    return runner.run(app, b).values["names"]
+
+
+@pytest.mark.parametrize("step", ["GetIDsOfNames", "GetTypeAttr", "GetFuncDesc"])
+def test_a_busy_excel_in_the_property_check_is_waited_for_and_never_cached(book, properties, step):
+    """Re-review Important 1: a rejected call while Excel is busy is not taken for "not a property" (None for that
+    job, and cached for the life of the process): it goes up, the executor waits and reads again."""
+    app, wb = book
+    calls = []
+    ti = _TypeInfo(IID_SHEET, {"Name": "Sheet 1"}, calls, {step: REJECTED})
+    assert _each_names(app, wb, [_Dispatch(ti)]) == (("Sheet 1",),)
+    assert calls.count(step) == 2 and properties == {(pywintypes.IID(IID_SHEET), "name"): True}
+
+
+def test_a_busy_excel_asked_for_the_type_information_is_waited_for(book, properties):
+    app, wb = book
+    calls = []
+    ti = _TypeInfo(IID_SHEET, {"Name": "Sheet 1"}, calls, {"GetTypeInfo": REJECTED})
+    assert _each_names(app, wb, [_Dispatch(ti, shared=False)]) == (("Sheet 1",),)
+    assert calls.count("GetTypeInfo") == 2
+
+
+def test_only_a_name_the_type_information_does_not_know_is_cached_as_no_property(book, properties):
+    app, wb = book
+    calls = []
+    ti = _TypeInfo(IID_SHEET, {"Name": "Sheet 1"}, calls, {"GetFuncDesc": pywintypes.com_error(
+        -2147319765, "Element not found.", None, None)})
+    wb.Worksheets("S").__dict__["Items"] = [_Dispatch(ti)]
+    b = Batch()
+    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets("S").Items, ["Name", "Nope"], None), "rows")
+    assert runner.run(app, b).values["rows"] == ((None, None),)        # the walk failed once: None, not cached
+    assert properties == {(pywintypes.IID(IID_SHEET), "nope"): False}
+    assert _each_names(app, wb, [_Dispatch(ti)]) == (("Sheet 1",),)    # asked again: a property
+
+
+def test_a_cached_property_check_makes_no_call_to_excel(book, properties):
+    """Review M5 (d): the check is cached per interface IID (fastcom's shared data) and member, so after the first
+    object of an interface it is a dictionary lookup; a same-named type of another interface has its own entry."""
+    app, wb = book
+    calls = []
+    sheets = _TypeInfo(IID_SHEET, {"Name": "Sheet 1"}, calls, {})
+    assert _each_names(app, wb, [_Dispatch(sheets)]) == (("Sheet 1",),)
+    first = list(calls)
+    assert "GetTypeInfo" not in first and "GetDocumentation" not in first
+    calls.clear()
+    assert _each_names(app, wb, [_Dispatch(sheets), _Dispatch(sheets)]) == (("Sheet 1",), ("Sheet 1",))
+    assert calls == []
+    charts = _TypeInfo(IID_CHART, {"Visible": True}, calls, {})          # no Name on this interface
+    assert _each_names(app, wb, [_Dispatch(charts)]) == ((None,),)
+    assert properties == {(pywintypes.IID(IID_SHEET), "name"): True, (pywintypes.IID(IID_CHART), "name"): False}
+
+
+def test_without_fastcom_the_type_is_asked_each_time_and_the_cache_still_answers(book, properties):
+    """SV_FASTCOM=0 (pywin32's own wrapper): no shared interface data, so the IID is asked of every object (two
+    calls), and the walk only once."""
+    app, wb = book
+    calls = []
+    ti = _TypeInfo(IID_SHEET, {"Name": "Sheet 1"}, calls, {})
+    _each_names(app, wb, [_Dispatch(ti, shared=False)])
+    calls.clear()
+    assert _each_names(app, wb, [_Dispatch(ti, shared=False)]) == (("Sheet 1",),)
+    assert calls == ["GetTypeInfo", "GetTypeAttr"]
 
 
 def test_the_com_executor_returns_the_out_format_of_the_add_in(book):

@@ -48,6 +48,7 @@ from pathlib import Path
 
 import pythoncom
 import pywintypes
+import winerror
 from win32com.client import dynamic
 
 from ...core import config, timing
@@ -616,40 +617,63 @@ def _path(obj, parts: list[str]):
         return None
 
 
-_PROPERTIES: dict[tuple, bool] = {}     # (type name, member) -> it is a property read without arguments
+_PROPERTIES: dict[tuple, bool] = {}     # (interface IID, member lower-cased) -> a property read without arguments
 
 
 def _is_property(obj, name: str) -> bool:
-    """name is a property of obj that reads without arguments, from the type information (cached per type and name),
-    as Runner.cs asks it: Excel runs a method even when it is asked for as a property. A fake of the tests: any
+    """name is a property of obj that reads without arguments, from the type information, as Runner.cs asks it:
+    Excel runs a method even when it is asked for as a property. Cached per interface IID and member: a fastcom
+    object knows its IID (its interface's shared data), so a cached answer costs no call to Excel; pywin32's own
+    wrapper (SV_FASTCOM=0) asks the IID of every object (two calls), and an object without a real IID is never
+    cached. A busy Excel goes up (the operation is waited for and run again), never cached; only a name the type
+    information does not know, or a walk of its members that went through, is cached. A fake of the tests: any
     attribute that is not callable."""
     if not isinstance(obj, dynamic.CDispatch):
         try:
             return not inspect.isroutine(inspect.getattr_static(obj, name))
         except AttributeError:                       # given by __getattr__: a value
             return True
-    ole = obj._oleobj_
+    ole, d = obj._oleobj_, obj.__dict__
+    iface, ti, attr = d.get("_iface_"), d.get("_typeinfo_"), None
     try:
-        ti = ole.GetTypeInfo()
-        key = (ti.GetDocumentation(-1)[0], name.lower())
-    except pythoncom.com_error:
-        return False
-    if key not in _PROPERTIES:
-        prop = False
-        try:
-            dispid = ole.GetIDsOfNames(name)
+        if iface is None or ti is None:
+            ti = ole.GetTypeInfo()
             attr = ti.GetTypeAttr()
-            for i in range(attr.cFuncs):
-                fd = ti.GetFuncDesc(i)
-                if fd.memid == dispid and fd.invkind & pythoncom.INVOKE_PROPERTYGET \
-                        and len(fd.args) == fd.cParamsOpt:
-                    prop = True
-                    break
-            prop = prop or any(ti.GetVarDesc(i).memid == dispid for i in range(attr.cVars))
-        except pythoncom.com_error:
-            prop = False
+            iid = attr[0]
+        else:
+            iid = iface.iid
+    except pythoncom.com_error as e:
+        if is_busy(e):
+            raise
+        return False                                 # no type information: nothing is read
+    key = None if iid in fastcom.NOT_SHARED else (iid, name.lower())
+    if key in _PROPERTIES:
+        return _PROPERTIES[key]
+    try:
+        dispid = ole.GetIDsOfNames(name)
+    except pythoncom.com_error as e:
+        if is_busy(e):
+            raise
+        if key is not None and e.hresult == winerror.DISP_E_UNKNOWNNAME:
+            _PROPERTIES[key] = False
+        return False
+    try:
+        if attr is None:
+            attr = ti.GetTypeAttr()
+        prop = False
+        for i in range(attr.cFuncs):
+            fd = ti.GetFuncDesc(i)
+            if fd.memid == dispid and fd.invkind & pythoncom.INVOKE_PROPERTYGET and len(fd.args) == fd.cParamsOpt:
+                prop = True
+                break
+        prop = prop or any(ti.GetVarDesc(i).memid == dispid for i in range(attr.cVars))
+    except pythoncom.com_error as e:
+        if is_busy(e):
+            raise
+        return False                                 # not known this time: asked again next time
+    if key is not None:
         _PROPERTIES[key] = prop
-    return _PROPERTIES[key]
+    return prop
 
 
 def _nudge(obj, name: str, delta, above):
