@@ -2,60 +2,70 @@
 
 ## Unreleased
 
-### The answer's Excel work runs inside Excel (phase 3b)
+### The answer's Excel work runs inside Excel (0.4.0)
 
-- An answer's Excel work is recorded as batches of operations and each batch runs in one go inside Excel, through a
+- An answer's Excel work is recorded as batches of operations, and each batch runs in one go inside Excel through a
   small Excel-DNA add-in the engine builds on first use (C# compiled by the .NET Framework compiler that ships with
-  Windows) and loads silently with `RegisterXLL` once per Excel process; one `Application.Run` per batch instead
+  Windows) and loads silently with `RegisterXLL` once per Excel process: one `Application.Run` per batch instead
   of dozens of cross-process calls. Where it cannot load (no compiler, a 32-bit Excel, a refused or blocked
   `RegisterXLL`) or `SV_INPROC=0` is set, the same batches run over COM, with one warning in the server log.
-- The file job is three batches and a save: look (every read the build needs: the sheets, the base, which workbook
-  is active, the Sources log's kind, the stored specs' keys; then AutoSave off while the job writes), bring in (the
-  answer's table names looked up among the defined names - a lookup per name, not a walk over every name - then a
-  follow-up's park, the insert, the moves, the tables, the formulas, the chart labels, calculate, the read-back, the
-  Answer active), close out (status, Key point heights, a follow-up's drop, the Sources rows, the
-  spec, the sheet order) and the save of our own file with AutoSave back on (no save batch in the user's workbook,
-  which is never saved). Each quiet batch puts the user's settings back itself, also when a step fails; only the one
-  that writes the formulas sets Calculation to manual. After the bring-in batch the job pauses once (0.15 s,
-  `SV_PAINT_PAUSE`; only when the workbook is the active one of a visible Excel) so Excel paints the answer with its
-  numbers and charts before the close-out. A failure is undone as before (rollback, the old answer's names put back,
-  the new answer kept once the old one is gone), also for a job abandoned by a timeout; an error now names the Excel
-  operation that failed and Excel's own message, and says when AutoSave was left off in the user's workbook.
-- Measured live (`scripts/bench_answers.py --rounds 3` and `scripts/check_followups.py` in the owner's Excel,
-  20.11.2026; docs/audit/2026-11-20-inproc-bench.md): the Excel job of an answer without a lines sheet 1.9 / 2.4 /
-  2.7 s per round (2.0 / 2.7 / 3.3 s before), with one 4.1 / 3.9 / 4.3 s (4.2 / 4.1 / 5.2 s): the 3 s / 5 s gate
-  holds in every round now. A follow-up 1.64-1.91 s (2.08-2.41 s), `fin_refresh` of two answers 3.4 s (4.3 s);
-  5 batches and 9 COM calls per answer (33-34 calls before). Over COM (the fallback) a follow-up is 2.5-2.9 s.
-- After the review fixes (4 batches, one paint) measured again in the owner's Excel while another session worked in
-  the same Excel (its own answer workbook active there from 08:48): `check_followups.py` all steps OK on both
-  executors, follow-ups 2.6-4.1 s in-process and 7.3-8.5 s over COM; the bench 4.8 / 3.0 / 3.3 s without a lines
-  sheet and 5.3 / 4.8 / 8.5 s with one. The insert alone took twice as long as in the morning's runs (median 1.08 s
-  against 0.56 s), so these figures do not compare with the ones above (docs/audit/2026-11-20-inproc-bench.md).
+- The job is four batches, 8 COM calls per answer (34-37 in 0.3.0): **look** (every read the build needs: the
+  sheets, the base, which workbook is active, the Sources log's kind, the stored specs' keys; then AutoSave off while
+  the job writes); **bring in** (the answer's table names looked up among the defined names, one lookup per name;
+  a follow-up's old sheets parked; the built file's sheets inserted with one `Sheets.Add(Type:=<the file's path>)`,
+  so no second workbook is opened, nothing is copied and no link is left; then the moves, the tables, the formulas,
+  the chart labels, calculate, the read-back, and a follow-up's scan for formulas pointing at its old sheets);
+  **close out** (status, Key point heights and page breaks, a follow-up's formulas re-pointed and its old sheets
+  dropped, the Sources rows, the spec, the sheet order, the Answer active); **save** (our own file saved and AutoSave
+  back on; the user's workbook is never saved, so it gets no save batch unless a new Sources log needs its print
+  setup's name). Each batch that quiets Excel puts the user's settings back itself, also when a step fails;
+  Calculation is manual only where formulas are written (the bring-in, a close-out that re-points, the point-back).
+  After the bring-in the job pauses once (0.15 s, `SV_PAINT_PAUSE`; only when the workbook is the active one of a
+  visible Excel) so Excel paints the answer with its numbers and charts before the close-out.
+- Besides plain gets, calls and sets, a batch has five verbs, each one operation inside Excel: `each` (properties
+  read over a collection; a method's name is never called), `exist` (names looked up), `nudge` (the thin waterfall
+  labels' lift), `mentions` (the formulas that name a text), `swap` (a text property set only when it still reads
+  what was read before).
+- A failure is undone as before (rollback, the old answer's names put back, the new answer kept once the old one is
+  gone), also for a job abandoned by a timeout. An error names the Excel operation that failed and Excel's own
+  message, and says when AutoSave was left off in the user's workbook.
+- Formulas elsewhere in the workbook that point at a question's sheets or tables (`='Q3 Answer'!E12`,
+  `=SUM(Data_Q3[Value])`, cross-sheet SUMs, array formulas, chart series, defined names, also on another answer's
+  sheet) survive a follow-up or `fin_refresh`: they are re-pointed at the new sheets right before the old ones are
+  dropped (in 0.3.0: #REF!). Exactly those references: never text in a string literal, a sheet whose name merely
+  contains the answer's, another workbook's. The formulas are read directly (only the parts of a sheet that hold a
+  formula); no Range.Find is used, so Excel's Find dialog keeps its options. Each write is a compare-and-set: a
+  formula the user changed while the answer was drawn is left alone and reported. A formula Excel refuses to rewrite
+  (a protected sheet) and a sheet whose formulas cannot be read (a hidden formula on a protected sheet) are warnings;
+  a failed follow-up points them back with the old answer. When the workbook cannot be scanned at all, the old sheets
+  are dropped anyway and the warning says the formulas pointing at them were not checked. Not covered: conditional
+  formats, data validation, pivot tables on a `Data_Q<n>` table, linked chart titles, sparklines, form controls'
+  links, linked shapes, other workbooks. `fin_refresh` now gives each question's warnings and layout findings.
+- Measured live (docs/audit/2026-11-20-inproc-bench.md; the Excel job, in-process):
+  - Quiet Excel, the four-batch job: a follow-up 1.66-2.0 s (`scripts/check_followups.py`, owner's Excel; measured
+    before the re-pointing came, whose scan adds the cost given last).
+  - The gate run in a quiet Excel (`scripts/bench_answers.py --rounds 3`, 06:00), measured on the five-batch code
+    before the batches were merged: 1.9 / 2.4 / 2.7 s per round without a lines sheet, 4.1 / 3.9 / 4.3 s with one
+    (0.3.0: 2.0 / 2.7 / 3.3 s and 4.2 / 4.1 / 5.2 s). The 3 s / 5 s gate holds in every round.
+  - With another session working in the same Excel (20.11.2026 11:15): follow-ups 2.5-2.9 s in-process against
+    4.9-6.2 s over COM; the bench then 4.7 / 2.7 / 5.9 s without a lines sheet, not a gate run.
+  - The scan for pointing formulas when nothing points at the answer: 0.06-1.0 s in-process, 0.3-4.5 s over COM,
+    by workbook size (10 sheets and 5 000 formulas to 60 sheets and 260 000 formulas).
 - Thin waterfall labels now sit 10 pt higher than 0.3.0 drew them in a hidden Excel: 0.3.0 set the lift before the
   calculation, which put the label back where Excel places it; the lift is now made right after the calculation,
   inside the same batch (the other point labels are positioned before it, as before). Whether 0.3.0 lifted them in a
   visible Excel was not measured: the script's own Excel would not become visible.
-- `scripts/check_insert.py` now also runs whole jobs through both executors in a hidden Excel and compares the
-  workbooks item by item, makes a follow-up and a new answer fail inside their bring-in batch through both (the
-  workbook, Excel's settings and the active sheet are as before) and measures the chart labels (81 of 81).
-  `scripts/check_inproc.py` proves the verbs `each` (a method's name in a path is never called: Excel would run it)
-  and `nudge`, quiet without Calculation, and the job's reads equal in both executors (37 of 37).
-  `scripts/check_followups.py` also watches the file's writes and reads the saved file.
-
-### The answer's sheets inserted with one call (phase 3b)
-
-- The built file's sheets go into the workbook with one `Sheets.Add(Type:=<the file's path>)` (`xl/movein.py`)
-  instead of opening the file, copying its sheets, closing it and breaking the link the copy left: no second
-  workbook is opened, no link is left, and the move-in is 2 COM calls instead of 5. `scripts/check_insert.py` (a
-  hidden Excel of its own, nothing saved) compared both routes on nine answers (every chart kind, thin waterfall
-  steps with their label fixes, a matrix, kpi tiles, Key points, a Lines sheet) and on whole jobs (a second answer,
-  a follow-up): cells, formats, borders, sizes, page setup, page breaks, window, names, conditional formats,
-  charts, links, where the sheets land, refusals and the Excel around them - 71 of 71 checks the same.
-- Measured live (`scripts/check_followups.py` in the owner's Excel, 20.11.2026, every step "checks OK"): the second
-  answer 1.86 s and 33 COM calls (2.1 s and 36 before), follow-ups 2.08-2.41 s and 34 calls (2.2-2.9 s and 37), the
-  move-in stage 0.66-1.03 s (0.81-1.22 s). The move-in alone in a hidden Excel: 291 ms against 485 ms (median of 5).
+- Live checks, each in a hidden Excel of its own: `scripts/check_insert.py` compares the one-call insert with the
+  open, copy and close it replaced, runs whole jobs through both executors and compares the workbooks item by item,
+  makes a follow-up and a new answer fail inside their batches through both, re-points formulas and points them
+  back, and measures the chart labels (90 of 91: the one difference is the script's own read of the manual page
+  breaks, the same on every route and on the code before the re-pointing; after the last fixes, the parts they
+  touch 47 of 47).
+  `scripts/check_inproc.py` proves the five verbs, the batches' settings, the add-in's guards and the job's reads
+  the same in both executors (45 of 45). `scripts/check_followups.py` also watches the file's writes and reads
+  the saved file.
 - Removed with the copy: the "temporary workbook could not be closed" warning and its retry at the end of a job,
-  and the in-process executor's `break_links` verb (no verb ships now; the mechanism stays for the next task).
+  and the in-process executor's `break_links` verb.
 
 ### Answers built as a file (0.3.0)
 
@@ -76,15 +86,9 @@
 - Follow-ups and `fin_refresh` replace the question's sheets whole (the old ones are parked, the new ones moved in
   where they were, the old ones dropped). Cells typed on a `Q<n>` sheet go with it; a failure puts the old answer
   back, and once the old sheets are gone it keeps the new one and says so (also when the final save fails).
-- Formulas elsewhere in the workbook that point at a question's sheets or tables (`='Q3 Answer'!E12`,
-  `=SUM(Data_Q3[Value])`, cross-sheet SUMs, array formulas, chart series, defined names, also on another answer's
-  sheet) survive a follow-up or `fin_refresh`: they are re-pointed at the new sheets before the old ones are dropped
-  (before: #REF!). Exactly those references: never text in a string literal, a sheet whose name merely contains the
-  answer's, another workbook's. Each write checks the formula is still what was read (a cell the user edited in
-  between is left alone and reported); a formula Excel refuses to rewrite (a protected sheet) and a protected
-  sheet with a hidden formula are warnings; a failed follow-up points them back with the old answer. Not covered:
-  conditional formats, data validation, pivot tables on a `Data_Q<n>` table, linked chart titles, sparklines, form
-  controls' links, linked shapes, other workbooks. No Range.Find is used: Excel's Find dialog keeps its options.
+- Known limit (fixed in 0.4.0): a formula on the user's own sheet that points at a `Q<n>` sheet or its table
+  (`='Q3 Answer'!E12`, `=SUM(Data_Q3[Value])`) shows #REF! after a follow-up or refresh of that question, because
+  the old sheet is deleted.
 - The answer lands on the new Answer whenever its workbook is the active one, also in an Excel that is not visible.
 - The Sources log's print area is `A1:N1048575` (a finite last row), so openpyxl reads our files without a warning.
 - Removed: the COM writers (`render/excel.py`'s Data/Answer writers, `render/charts.py`'s drawing,
