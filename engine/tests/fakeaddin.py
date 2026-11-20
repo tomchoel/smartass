@@ -12,6 +12,8 @@ import json
 import time
 from pathlib import Path
 
+import pywintypes
+
 from smartass.core import config
 from smartass.xl.inproc import build, later, runner
 
@@ -36,7 +38,10 @@ class AddIn:
         return True
 
     def Run(self, macro, *args):
-        assert self.loaded and macro.endswith("_" + HASH), macro
+        if not self.loaded:                             # as Excel: no such macro before the add-in is loaded
+            raise pywintypes.com_error(-2147352567, "Exception occurred.", (0, "Microsoft Excel", "Cannot run the "
+                                       "macro", None, 0, -2146827284), None)
+        assert macro.endswith("_" + HASH), macro
         if macro.startswith("SmartassPing_"):
             return HASH
         if self.busy:

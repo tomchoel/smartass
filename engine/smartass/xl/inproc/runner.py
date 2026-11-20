@@ -424,7 +424,8 @@ def _load(app, ex: _Excel) -> None:
             raise build.BuildError("Excel is 32-bit; the add-in is built for 64-bit Excel")
         xll, ex.hash = build.ensure()
         ex.xll = str(xll)
-        _register(app, ex)
+        if not _answers(app, ex):
+            _register(app, ex)
         ex.ready = True
         log.info("in-process executor loaded in Excel pid %s (%s)", ex.pid, ex.xll)
     except jobs.JobAborted:
@@ -438,6 +439,16 @@ def _load(app, ex: _Excel) -> None:
 
 class _Blocked(Exception):
     """RegisterXLL did not return in time."""
+
+
+def _answers(app, ex: _Excel) -> bool:
+    """This build's add-in answers its ping in app's Excel already: an earlier server process loaded it there, and
+    RegisterXLL again would cost 0.2-0.4 s of this process's first batch there (a hidden Excel, 21.11.2026: the look
+    of a new server's first answer). A macro that is not there (a com_error) is False; a busy Excel the caller's."""
+    try:
+        return jobs.com(lambda: app.Run(ex.ping_macro), limit=LOAD_LIMIT_S) == ex.hash
+    except pywintypes.com_error:
+        return False
 
 
 def _register(app, ex: _Excel) -> None:

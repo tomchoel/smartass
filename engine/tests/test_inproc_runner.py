@@ -862,7 +862,7 @@ def test_the_add_in_is_loaded_once_per_excel_and_each_batch_is_one_run(inproc):
     for _ in range(3):
         runner.run(app, Batch())
     assert app.registered == [str(Path(config.INPROC_DIR).parent / f"smartass_run_{HASH}.xll")]
-    assert app.runs == [f"SmartassPing_{HASH}"] + [f"SmartassRun_{HASH}"] * 3
+    assert app.runs == [f"SmartassPing_{HASH}"] * 2 + [f"SmartassRun_{HASH}"] * 3   # not there, loaded, there
     assert list((config.INPROC_DIR / "jobs").iterdir()) == []          # job and result files are removed
 
 
@@ -888,6 +888,16 @@ def test_a_failing_operation_is_the_same_batch_error_in_both_executors(inproc, m
         assert settings(app) == QUIET_OFF
     assert errors[0] == errors[1]
     assert errors[0][0] == 6 and errors[0][1] == 'Workbooks("book.xlsx").Worksheets("Nope")'
+
+
+def test_an_excel_that_holds_this_builds_add_in_already_is_not_asked_to_register_it_again(inproc):
+    """Phase 3c Task 1b: a new server process meets the user's Excel with the add-in an earlier one loaded there; it
+    answered its ping all along, and RegisterXLL again cost 0.2-0.4 s in the first look of every server start (a
+    hidden Excel, 21.11.2026; the look of the live first answer was 0.8-1.1 s)."""
+    app, wb = excel_book()
+    app.loaded = True
+    assert runner.run(app, Batch()).where == "inproc"
+    assert app.registered == [] and app.runs == [f"SmartassPing_{HASH}", f"SmartassRun_{HASH}"]
 
 
 def test_an_add_in_gone_from_excel_is_registered_once_more(inproc):
