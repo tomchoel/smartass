@@ -25,6 +25,7 @@ def excel(monkeypatch, tmp_path):
     addin = install(monkeypatch, app, tmp_path)
     monkeypatch.setattr(later, "_queued", {})
     monkeypatch.setattr(later, "_done", {})
+    monkeypatch.setattr(later, "_asked_at", {})
     return app, wb, addin
 
 
@@ -116,3 +117,36 @@ def test_fin_status_shows_the_last_outcome_without_figures(excel):
     assert set(st["last"]) == {"workbook", "ok", "error", "closed", "seconds", "at", "how"}
     assert st["last"]["workbook"] == "answer.xlsx" and st["last"]["ok"] is False and "disk" in st["last"]["error"]
     assert wb.AutoSaveOn is True                             # back on after the failed save too
+
+
+def test_only_an_open_workbook_is_asked_for_and_another_file_of_its_name_is_not_saved(excel):
+    app, wb, addin = excel
+    assert later.queue(app, "not open.xlsx", False) is None and addin.pending is None
+    later.queue(app, "answer.xlsx", False)
+    wb.FullName = r"C:\elsewhere\answer.xlsx"                    # closed, and another file of that name opened
+    out = addin.release()
+    assert out["closed"] and not out["ok"] and wb.saved == 0
+
+
+def test_a_failed_outcome_put_back_is_read_by_the_next_job_and_a_newer_one_is_not_overwritten(excel):
+    app, wb, addin = excel
+    later.queue(app, "answer.xlsx", False)
+    addin.save_error = "locked"
+    addin.release()
+    out = later.take(app)
+    later.give_back(app, out)
+    assert later.take(app)["token"] == out["token"]
+    later.queue(app, "answer.xlsx", False)
+    addin.save_error = None
+    newer = addin.release()
+    later.give_back(app, out)
+    assert later.take(app)["token"] == newer["token"]
+
+
+def test_a_save_whose_excel_quit_first_is_not_counted_as_to_come_for_ever(excel, monkeypatch):
+    app, wb, addin = excel
+    monkeypatch.setattr(later, "_asked_at", {})
+    later.queue(app, "answer.xlsx", False)
+    assert later.status()["waiting"] == 1
+    monkeypatch.setattr(later, "FRESH_S", -1)
+    assert later.status()["waiting"] == 0

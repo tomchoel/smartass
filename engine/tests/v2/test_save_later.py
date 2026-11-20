@@ -107,6 +107,48 @@ def test_a_failed_save_of_another_workbook_of_ours_is_saved_by_the_next_job_too(
         "the save of older answer.xlsx after the last answer failed (the network went away); it is saved now"]
 
 
+def test_a_failed_save_is_kept_for_the_job_after_next_when_the_next_one_fails_first(fake_target, calculated, addin,
+                                                                                     monkeypatch):
+    """The next job took the failed outcome, then failed before its own save (its error says the earlier save
+    failed): the outcome is put back, so the job after it says so again and saves in the foreground."""
+    _job(_pre(), calculated)
+    addin.save_error = "the file is locked by another user"
+    addin.release()
+    addin.save_error = None
+    real = pipeline._close_out
+
+    def broken(*a, **k):
+        raise RuntimeError("the close-out broke")
+    monkeypatch.setattr(pipeline, "_close_out", broken)
+    with pytest.raises(RuntimeError, match="the close-out broke.*after the last answer failed"):
+        _job(_pre(), calculated)
+    assert fake_target.wb.saved == 0
+    monkeypatch.setattr(pipeline, "_close_out", real)
+    out, _ = _job(_pre(), calculated)
+    assert [w for w in out["warnings"] if "after the last answer failed" in w] == [
+        f"the save of {fake_target.wb.Name} after the last answer failed (the file is locked by another user); it is "
+        "saved now"]
+    assert fake_target.wb.saved == 1 and len(addin.asked) == 1
+
+
+def test_another_file_open_by_that_name_now_is_not_saved_by_the_next_job(fake_target, calculated, addin):
+    import fakexl
+    other = fakexl.Workbook(["Q1 Answer"], app=fake_target.app, styles_ver=False)
+    other.Name, other.FullName = "older answer.xlsx", r"C:\analyser\older answer.xlsx"
+    fake_target.app.ActiveWorkbook = fake_target.wb
+    addin.pending = {"workbook": other.Name, "full_name": other.FullName, "autosave": False, "token": "2" * 32,
+                     "queued": 0.0}
+    addin.save_error = "the network went away"
+    addin.release()
+    addin.save_error = None
+    other.FullName = r"C:\Users\me\older answer.xlsx"              # the user's own file of that name now
+    out, _ = _job(_pre(), calculated)
+    assert other.saved == 0 and fake_target.wb.saved == 1
+    assert [w for w in out["warnings"] if "older answer" in w] == [
+        "the save of older answer.xlsx after the last answer failed (the network went away); the workbook open by "
+        "that name now is another file, so it was not saved"]
+
+
 def test_a_workbook_closed_before_its_save_is_a_note_only(fake_target, calculated, addin):
     addin.pending = {"workbook": "closed answer.xlsx", "autosave": True, "token": "1" * 32, "queued": 0.0}
     addin.release()

@@ -3,7 +3,8 @@ loads it; Run of SmartassPing_<HASH> answers the hash; SmartassRun_<HASH>(job pa
 through the COM executor and returns its record; SmartassSaveLater_<HASH>(workbook, autosave, token, delay ms) keeps
 the save until the test lets the timer fire (release), as Runner.cs does: a save still waiting runs first at the start
 of the next Run (of a batch or of another SaveLater), the save then AutoSave back on when asked (also after a failed
-save), and the outcome written to config.INPROC_DIR / "saved" / "<pid>.json" (pid: the Excel's key, id(app) here)."""
+save), and the outcome written to config.INPROC_DIR / "saved" / "<pid>.json" (pid: the Excel's key, id(app) here). A
+workbook of the request's name with another FullName at save time is not saved ("closed"), as in Runner.cs."""
 from __future__ import annotations
 
 import json
@@ -40,7 +41,12 @@ class AddIn:
             self.asked.append(tuple(args))
             if self.answer is not None:
                 return self.answer
-            self.pending = {"workbook": workbook, "autosave": autosave, "token": token, "queued": time.time()}
+            try:
+                full = self.app.Workbooks(workbook).FullName
+            except Exception:   # noqa: BLE001
+                return "not run: refused: no workbook of that name is open"
+            self.pending = {"workbook": workbook, "full_name": full, "autosave": autosave, "token": token,
+                            "queued": time.time()}
             return "queued"
         path = Path(args[0])
         job = json.loads(path.read_text(encoding="utf-8"))
@@ -62,6 +68,8 @@ class AddIn:
             wb = self.app.Workbooks(p["workbook"])
         except Exception as e:   # noqa: BLE001
             wb, closed, error = None, True, str(e)
+        if wb is not None and p.get("full_name") and wb.FullName != p["full_name"]:
+            wb, closed, error = None, True, "another workbook of that name is open now"
         if wb is not None:
             try:
                 if self.save_error is not None:
@@ -73,7 +81,7 @@ class AddIn:
             if p["autosave"]:
                 wb.AutoSaveOn = True
                 self.log.append(f"autosave {p['workbook']} True")
-        out = {"token": p["token"], "workbook": p["workbook"], "ok": error is None, "error": error, "closed": closed,
+        out = {"token": p["token"], "workbook": p["workbook"], "full_name": p.get("full_name", ""), "ok": error is None, "error": error, "closed": closed,
                "autosave": p["autosave"], "autosave_error": autosave_error, "how": how, "queued": p["queued"],
                "started": started, "seconds": 0.25, "switched": 0.0}
         folder = config.INPROC_DIR / "saved"

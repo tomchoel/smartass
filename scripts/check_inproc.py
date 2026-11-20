@@ -7,7 +7,7 @@ they were before. Then: the ping, two builds loaded side by side, broken builds 
 dll with no functions: no window in Excel, the COM executor takes over), the add-in's guards (a formula calling it,
 paths outside its jobs folder, a job file it cannot delete: nothing read, deleted or run), the save after the reply
 (phase 3c Task 2: asked for in one Run, done after the delay, run first by a batch that comes before it, waited for
-by a batch sent while it runs, a closed workbook, refusals), and the fixed cost of an empty batch.
+by a batch sent while it runs, a closed workbook, another file of its name, refusals), and the fixed cost of an empty batch.
 
 The Excel is one this script starts itself (DispatchEx, refused unless its pid is new; check_fastcom.start_excel) and
 quits at the end; if Quit hangs, only that process is killed. The user's Excel is never touched. Nothing is saved: the
@@ -752,8 +752,8 @@ def save_later_checks(app, raw, ex) -> None:
     check("save later: asked for in one Run, done by Excel after the delay", got == "queued" and out is not None
           and out["ok"] and out["how"] == "after the reply" and out["started"] - sent >= 0.25
           and path.stat().st_mtime_ns != m0 and bool(wb.Saved)
-          and set(out) == {"token", "workbook", "ok", "error", "closed", "autosave", "autosave_error", "how", "queued",
-                           "started", "seconds", "switched"},
+          and set(out) == {"token", "workbook", "full_name", "ok", "error", "closed", "autosave", "autosave_error", "how",
+                           "queued", "started", "seconds", "switched"},
           f"Run {ms:.1f} ms -> {got!r}; started {out and out['started'] - sent:.3f} s after, saved in "
           f"{out and out['seconds']:.2f} s")
 
@@ -800,7 +800,23 @@ def save_later_checks(app, raw, ex) -> None:
     check("save later: a workbook closed before its save is said", out is not None and out["closed"] is True
           and out["ok"] is False and path2.stat().st_size > 0, f"{out and out['error']!r}")
 
-    refusals = {"a bad token": (name, False, "nope", 0.0), "no workbook": ("", False, uuid.uuid4().hex, 0.0)}
+    (folder / "other").mkdir(exist_ok=True)
+    shutil.copyfile(seed, folder / "other" / "closed.xlsx")
+    path2, wb2 = opened("closed")
+    wb2.Worksheets(1).Range("A1").Value2 = "x"
+    token, got, _ = ask(name2, 1000)
+    wb2.Close(False)
+    wb3 = raw.Workbooks.Open(str(folder / "other" / "closed.xlsx"))
+    wb3.Worksheets(1).Range("A1").Value2 = "the user's"
+    m3 = (folder / "other" / "closed.xlsx").stat().st_mtime_ns
+    out = told(token, 5)
+    check("save later: another file open by that name at save time is not saved", out is not None
+          and out["closed"] is True and (folder / "other" / "closed.xlsx").stat().st_mtime_ns == m3
+          and bool(wb3.Saved) is False, f"{out and out['error']!r}")
+    wb3.Close(False)
+
+    refusals = {"a bad token": (name, False, "nope", 0.0), "no workbook": ("", False, uuid.uuid4().hex, 0.0),
+                "a workbook that is not open": ("not open.xlsx", False, uuid.uuid4().hex, 0.0)}
     for what, args in refusals.items():
         got = raw.Run(ex.later_macro, *args)
         check(f"save later refused: {what}", isinstance(got, str) and got.startswith("not run: refused"), repr(got))

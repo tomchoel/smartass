@@ -42,6 +42,9 @@ POLL_S = 0.02
 
 _lock = threading.Lock()
 _queued: dict[str, tuple[int, float]] = {}      # token -> the Excel's key: asked for here, its outcome not read yet
+_asked_at: dict[str, float] = {}                # token -> when it was asked for (status: how many are to come)
+FRESH_S = 60                                    # a save asked for longer ago with no outcome is not "to come" (its
+                                                # Excel quit first, say)
 _done: dict[str, dict] = {}                     # token -> the outcome a job read, for wait()
 
 
@@ -85,6 +88,9 @@ def queue(app, workbook: str, autosave: bool) -> str | None:
         return None
     with _lock:
         _queued[token] = key
+        _asked_at[token] = time.time()
+        for t in [t for t, at in _asked_at.items() if time.time() - at > FRESH_S and t not in _queued]:
+            _asked_at.pop(t)
     return token
 
 
@@ -121,6 +127,21 @@ def take(app) -> dict | None:
     return out
 
 
+def give_back(app, out: dict) -> None:
+    """A failed outcome a job took (take) but could not act on - it failed before its own save - put back in place,
+    so the next job in that Excel says it and saves; not when a newer outcome is there. Never raises."""
+    try:
+        pid, _ = runner._identify(app)
+        path = folder() / f"{pid}.json"
+        if path.exists():
+            return
+        tmp = path.with_name(f"{path.name}.back.tmp")
+        tmp.write_text(json.dumps(out), encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception as e:   # noqa: BLE001 - the failing job's error says it already
+        log.warning("a failed save after the reply could not be put back for the next job: %s", e)
+
+
 def wait(limit: float = 60.0) -> list[dict]:
     """For the scripts: the outcome of every save asked for in this process that has not been waited for, in the
     order asked for, each once; waited for up to limit seconds in all (the outcome files are read, not taken: the
@@ -152,11 +173,11 @@ def wait(limit: float = 60.0) -> list[dict]:
 
 def status() -> dict:
     """For fin_status: the newest outcome in the folder (workbook, ok, error, closed, seconds, at, how) and how many
-    saves this server asked for whose outcome is not written yet."""
+    saves this server asked for in the last FRESH_S seconds whose outcome is not written yet."""
     outs = [o for o in (_read(p) for p in _files()) if o is not None]
     newest = max(outs, key=lambda o: o["started"], default=None)
     with _lock:
-        asked = dict(_queued)
+        asked = {t: at for t, at in _asked_at.items() if t in _queued and time.time() - at <= FRESH_S}
     written = {o["token"] for o in outs}
     last = None
     if newest is not None:

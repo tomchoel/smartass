@@ -88,18 +88,19 @@ public static class SmartassRunner___HASH__
     // ------------------------------------------------------------------ the save after the reply (xl/inproc/later.py)
     class Pending
     {
-        public string Workbook, Token;
+        public string Workbook, FullName, Token;
         public bool AutoSave;
         public double Queued;
     }
 
-    // Asks for our own workbook to be saved once Excel has painted the answer: the save runs delayMs (at most
-    // DelayMaxMs) from now, as a macro when Excel is ready (ExcelAsyncUtil.QueueAsMacro), or at the start of the next
-    // batch's Run if that comes first, or of the next SaveLater; then AutoSave goes back on when autosave is True (also
-    // after a failed save) and the outcome is written to saved\<this Excel's pid>.json beside the jobs folder. A save
-    // still waiting runs first. Excel answers calls in the middle of a save (a OneDrive file, live 20.11.2026): while
-    // it runs, Run and SaveLater answer Busy having done nothing, and the caller asks again (runner.asked). Returns
-    // "queued", Busy, or "not run: ..." for a refused request; never throws.
+    // Asks for our own workbook to be saved once Excel has painted the answer (the workbook open by that name; its
+    // FullName is kept, and a workbook of that name with another FullName at save time is not saved: "closed"). The
+    // save runs delayMs (at most DelayMaxMs) from now, as a macro when Excel is ready (ExcelAsyncUtil.QueueAsMacro),
+    // or at the start of the next batch's Run if that comes first, or of the next SaveLater; then AutoSave goes back
+    // on when autosave is True (also after a failed save) and the outcome is written to saved\<this Excel's pid>.json
+    // beside the jobs folder. A save still waiting runs first. Excel answers calls in the middle of a save (a OneDrive
+    // file, live 20.11.2026): while it runs, Run and SaveLater answer Busy having done nothing, and the caller asks
+    // again (runner.asked). Returns "queued", Busy, or "not run: ..." for a refused request; never throws.
     [ExcelFunction(Name = "SmartassSaveLater___HASH__", IsMacroType = true, IsHidden = true)]
     public static object SaveLater(string workbook, bool autosave, string token, double delayMs)
     {
@@ -110,8 +111,13 @@ public static class SmartassRunner___HASH__
         try
         {
             SaveNow("before the next");
+            object books = Invoke(ExcelDnaUtil.Application, "Workbooks", Get, new object[0]);
+            object wb;
+            try { wb = Invoke(books, "Item", Get, new object[] { workbook }); }
+            catch (Exception) { return NotRun + "refused: no workbook of that name is open"; }
             var p = new Pending();
             p.Workbook = workbook; p.Token = token; p.AutoSave = autosave; p.Queued = Now();
+            p.FullName = Convert.ToString(Invoke(wb, "FullName", BindingFlags.GetProperty, new object[0]), Inv);
             pending = p;
             int delay = (int)Math.Max(0, Math.Min(double.IsNaN(delayMs) ? 0 : delayMs, DelayMaxMs));
             var old = timer;
@@ -158,6 +164,12 @@ public static class SmartassRunner___HASH__
             object wb = null;
             try { wb = Invoke(books, "Item", Get, new object[] { p.Workbook }); }
             catch (Exception e) { closed = true; error = Message(e); }
+            if (wb != null && !string.Equals(Convert.ToString(Invoke(wb, "FullName", BindingFlags.GetProperty,
+                                                                     new object[0]), Inv), p.FullName,
+                                              StringComparison.OrdinalIgnoreCase))
+            {
+                wb = null; closed = true; error = "another workbook of that name is open now";
+            }
             if (wb != null)
             {
                 try { Invoke(wb, "Save", Get, new object[0]); }
@@ -196,6 +208,7 @@ public static class SmartassRunner___HASH__
         var sb = new StringBuilder();
         sb.Append("{\"token\":"); Str(sb, p.Token);
         sb.Append(",\"workbook\":"); Str(sb, p.Workbook);
+        sb.Append(",\"full_name\":"); Str(sb, p.FullName ?? "");
         sb.Append(",\"ok\":").Append(error == null ? "true" : "false");
         sb.Append(",\"error\":"); Write(sb, error);
         sb.Append(",\"closed\":").Append(closed ? "true" : "false");

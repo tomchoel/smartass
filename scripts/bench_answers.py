@@ -191,11 +191,12 @@ async def _run(tool, case: dict, target: str, start: datetime, round_no: int = 0
         status = ((out or {}).get("checks") or {}).get("sheet_equals_model")     # 'OK' / 'DIFF in n cells' only
     except Exception as e:   # noqa: BLE001 - a failed case is listed with its error, the bench goes on
         error = e
+    wall = time.monotonic() - t0                       # the answer as the user waits for it
     saves = await asyncio.to_thread(later.wait, 60)     # the save after the reply: its own seconds, then on
     lines = read_lines(path, offset, start)
     question = case["spec"].get("question")
     line = next((x for x in reversed(lines) if x.get("question") in (question, None)), None)
-    rec = {"case": label, "round": round_no, "wall": time.monotonic() - t0,
+    rec = {"case": label, "round": round_no, "wall": wall,
            "timings": (line or {}).get("timings") or {}, "status": status,
            "saved": sum(s["seconds"] for s in saves if s.get("seconds") is not None) if saves else None}
     failed = [s for s in saves if not s["ok"]]
