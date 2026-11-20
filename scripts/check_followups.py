@@ -16,8 +16,9 @@ shows are compared), Excel still answering, and (Task 3) a summary sheet the scr
 its cell reference, table reference, cross-sheet SUM, reference to the Answer, defined name and chart series pointing
 at Q1, and a cell on Q2's Answer pointing at Q1 - after every follow-up and fin_refresh each still reads as written
 (no #REF!) and shows its target's value in the new answer (compared, never printed), and the workbook has no link to
-another workbook. The sheet order is taken again at the first follow-up (the summary sheet joins it). Never a figure
-from EPM: the replies are dropped. The first failure stops the run (exit 2) with its message, amounts masked.
+another workbook. The sheet order is taken again once the summary sheet has joined it, before the first follow-up.
+Never a figure from EPM: the replies are dropped. The first failure stops the run (exit 2) with its message, amounts
+masked.
 
 Usage (from the repo root; Excel open, signed in to EPM; SV_INPROC=0 runs every batch over COM):
     engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--second b07]
@@ -395,7 +396,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         if MOVE_IN not in timings:
             raise Stop(f"{label}: no '{MOVE_IN}' stage in the run log - not this engine's Excel job")
         seen = await user(lambda h: _inspect(h, path, q), what="check_followups: inspect")
-        if baseline or order is None:
+        if baseline:
             order = seen["names"]
         problems = []
         if refs is not None:
@@ -455,7 +456,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         spec2 = AnalysisSpec.model_validate(second["spec"])
         await step("second answer", "fin_analyze", lambda: analyze(spec=spec2, target=path), False, baseline=True)
         refs = await user(lambda h: _summarise(h, path), what="check_followups: summary")
-        order = None                            # the summary sheet joins: the order is taken at the first follow-up
+        order = (await user(lambda h: _inspect(h, path, q), what="check_followups: order"))["names"]   # with it
         stored, _, _ = await user(lambda h: pipeline.read_stored(h, path), what="check_followups: stored")
         first = stored[q]["spec"]["v2"]
         for i in range(1, FOLLOW_UPS + 1):

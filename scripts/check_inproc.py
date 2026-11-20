@@ -361,6 +361,27 @@ def item_exist_refuses(b, c):
     wbn.Worksheets(1).Range("D1").Value2 = "never"
 
 
+def item_swap(b, c):
+    """Review ruling 3: the verb swap, a compare-and-set inside Excel - a formula, a legacy array and a name's
+    RefersToLocal set where they still read the expected text, left alone where they do not."""
+    wbn = b.workbook(c["book"])
+    ws = wbn.Worksheets(1)
+    ws.Range("A1").Formula2 = "=1+1"
+    ws.Range("A2").Formula2 = "=2+2"
+    ws.Range("C1:C2").FormulaArray = "=A1:A2*2"
+    wbn.Names.Add("Swapped", "=Sheet1!$A$1")
+    b.ret(b.verb("swap", ws.Range("A1"), "Formula2", "=1+1", "=1+2"), "set")
+    b.ret(b.verb("swap", ws.Range("A2"), "Formula2", "=1+1", "=1+2"), "left")
+    b.ret(b.verb("swap", ws.Range("C1:C2"), "FormulaArray", "=A1:A2*2", "=A1:A2*3"), "array")
+    b.ret(b.verb("swap", wbn.Names.Item("Swapped"), "RefersToLocal", "=Sheet1!$A$1", "=Sheet1!$A$2"), "name")
+    b.ret(ws.Range("A1:A2").Formula2, "after")
+    b.ret(ws.Range("C2").FormulaArray, "array after")
+
+
+SWAP_EXPECTED = {"set": True, "left": False, "array": True, "name": True, "after": (("=1+2",), ("=2+2",)),
+                 "array after": "=A1:A2*3"}
+
+
 def item_screen_quiet(b, c):
     """Review M6: a quiet batch without calculation: the screen, events and alerts off, Calculation left alone."""
     b.ret(b.app.ScreenUpdating, "screen")
@@ -395,6 +416,7 @@ BATTERY = [  # name, record, quiet, the user's settings before[, the values Exce
     ("the verb nudge (a label lifted after Calculate)", item_nudge, True, USER),
     ("the verb exist (a lookup, case ignored)", item_exist, True, USER, EXIST_EXPECTED),
     ("exist refusing stops the batch there", item_exist_refuses, True, USER),
+    ("the verb swap (compare-and-set)", item_swap, True, USER, SWAP_EXPECTED),
     ("quiet without calculation", item_screen_quiet, "screen", USER),
     ("quiet=False", item_not_quiet, False, USER),
 ]
@@ -426,10 +448,13 @@ def _try(fn):
         return ("com_error", e.hresult)
 
 
-def sheet_picture(wb) -> dict:
-    """The workbook as plain COM reads it (independent of both executors)."""
+def sheet_picture(wb, skip: tuple = ()) -> dict:
+    """The workbook as plain COM reads it (independent of both executors); skip: sheets not read (a used range to
+    the last row is read cell by cell here)."""
     sheets = []
     for ws in wb.Worksheets:
+        if str(ws.Name) in skip:
+            continue
         used = ws.UsedRange
         cells = []
         for cell in used.Cells:
@@ -762,7 +787,7 @@ MENTION_TEXTS = ["old Q1 ", "Data_Q1_old"]
 MENTION_SKIP = ["old Q1 Answer", "old Q1 Data", "Q1 Answer", "Q1 Data"]
 SERIES_OLD = "=SERIES(,,'old Q1 Answer'!$A$1:$A$3,1)"
 LITERAL = '="\'old Q1 Answer\'!E12"'
-XL_FORMULAS, XL_VALUES, XL_PART, XL_WHOLE, XL_BY_COLUMNS = -4123, -4163, 2, 1, 2
+XL_VALUES, XL_WHOLE, XL_BY_COLUMNS = -4163, 1, 2
 
 
 def _invoke(obj, name: str, *args):
@@ -774,19 +799,16 @@ def _invoke(obj, name: str, *args):
 
 
 def _find_state(ws) -> tuple:
-    """The Find dialog's LookIn, LookAt and SearchOrder as a Find with those arguments omitted uses them, read on the
-    known cells of ws (A1 'alpha beta', B1 and A2 'zz', A3 =UPPER("q")); such a Find changes none of them (live)."""
+    """What a Find with every option omitted - the Find dialog's settings - gives on the known cells of ws (A1 'alpha
+    beta', B1 and A2 'zz', A3 =UPPER("q")); such a Find changes none of them (live, 20.11.2026). With the user's
+    settings values, whole cell, by columns nothing is found; with Excel's defaults: A3, A1, B1."""
     ws.Range("A1").Value2 = "alpha beta"
     ws.Range("B1").Value2 = "zz"
     ws.Range("A2").Value2 = "zz"
     ws.Range("A3").Formula2 = '=UPPER("q")'
     used = ws.UsedRange
-    omit = pythoncom.ArgNotFound
-    look_in = "formulas" if _invoke(used, "Find", "UPPER", omit, omit, XL_PART) is not None else "values"
-    look_at = "part" if _invoke(used, "Find", "alpha", omit, XL_FORMULAS, omit) is not None else "whole"
-    first = _invoke(used, "Find", "zz", omit, XL_FORMULAS, XL_PART)
-    order = "by rows" if first is not None and dynamic.Dispatch(first).Address == "$B$1" else "by columns"
-    return look_in, look_at, order
+    found = [_invoke(used, "Find", what) for what in ("UPPER", "alpha", "zz")]
+    return tuple(None if f is None else str(dynamic.Dispatch(f).Address) for f in found)
 
 
 def _mentions_workbook(raw):
@@ -798,7 +820,7 @@ def _mentions_workbook(raw):
     wb = raw.Workbooks.Add()
     wb.Worksheets(1).Name = "Summary"
     for n in ["old Q1 Answer", "old Q1 Data", "Q1 Answer", "Q1 Data", "Filtered", "Locked", "Plain", "Hidden",
-              "VeryHidden", "Probe"]:
+              "Far", "VeryHidden", "Probe"]:
         wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count)).Name = n
     old = wb.Worksheets("old Q1 Answer")
     old.Range("E12").Value2 = 42
@@ -823,8 +845,7 @@ def _mentions_workbook(raw):
     f.Range("A1:B6").AutoFilter(1, "a")
     lk = wb.Worksheets("Locked")
     lk.Range("B2").Formula2 = "='old Q1 Answer'!E12"
-    lk.Range("B2").FormulaHidden = True
-    lk.Range("C3").Formula2 = "='old Q1 Answer'!E12+1"
+    lk.Range("B2").FormulaHidden = True                  # its only mention is a hidden formula
     lk.Protect()
     wb.Worksheets("Plain").Range("A1").Formula2 = "=Summary!A1"
     h = wb.Worksheets("Hidden")
@@ -833,6 +854,10 @@ def _mentions_workbook(raw):
     h.Rows(7).Hidden = True
     h.Range("E2").Formula2 = "=Data_Q1_old[[#Headers],[Value]]"
     h.Columns(5).Hidden = True
+    far = wb.Worksheets("Far")
+    far.Range("A1:J30").Formula2 = "=ROW()"
+    far.Range("C1048000").Formula2 = "='old Q1 Answer'!E12*3"
+    far.Range("J1048576").Interior.Color = 255          # the used range reaches the last row
     vh = wb.Worksheets("VeryHidden")
     vh.Range("D4").Formula2 = "='old Q1 Answer'!A2"
     vh.Visible = 2
@@ -845,8 +870,9 @@ def _mentions_workbook(raw):
 
 def mentions_check(app, raw) -> None:
     """Task 3: the verb mentions through both executors on one workbook (it only reads): the same rows, the rows
-    Excel gives, the workbook unchanged, and the Find dialog's settings it leaves (the user's set to values, whole,
-    by columns before)."""
+    Excel gives (a protected sheet whose only mention is a hidden formula: "unread"; a mention far down a used range
+    that reaches the last row), the workbook unchanged, and the user's Find dialog settings (values, whole, by
+    columns) as they were: no Range.Find (review ruling 1)."""
     print()
     wb = _mentions_workbook(raw)
     name = str(wb.Name)
@@ -863,15 +889,17 @@ def mentions_check(app, raw) -> None:
                 ("unread", "Locked", "", "*"),
                 ("cell", "Hidden", "E2", "=Data_Q1_old[[#Headers],[Value]]"),
                 ("cell", "Hidden", "C7", "='old Q1 Answer'!E12"),
+                ("cell", "Far", "C1048000", "='old Q1 Answer'!E12*3"),
                 ("cell", "VeryHidden", "D4", "='old Q1 Answer'!A2"),
                 ("chart", "Chart Q", "1", SERIES_OLD),
                 ("name", "TotalQ", str(index), "='old Q1 Answer'!$E$12")]
-        before = sheet_picture(wb)
+        before = sheet_picture(wb, ("Far", "Probe"))
         got, ms = {}, {}
         for executor in ("com", "inproc"):
             config.INPROC = executor == "inproc"
             _invoke(wb.Worksheets("Probe").Range("A1:B2"), "Find", "zz", pythoncom.ArgNotFound, XL_VALUES, XL_WHOLE,
                     XL_BY_COLUMNS)                      # the user's Find settings: values, whole, by columns
+            user_find = _find_state(wb.Worksheets("Probe"))
             b = Batch(quiet=False)
             b.ret(b.verb("mentions", b.workbook(name), MENTION_TEXTS, MENTION_SKIP), "rows")
             t0 = time.perf_counter()
@@ -887,39 +915,46 @@ def mentions_check(app, raw) -> None:
               f"com {ms['com']:.1f} ms, in-process {ms['inproc']:.1f} ms")
         check("the verb mentions: the rows Excel gives", got["com"][1] == want,
               "" if got["com"][1] == want else f"got {got['com'][1]}")
-        check("the verb mentions: Find leaves Excel's defaults (formulas, part, by rows)",
-              got["com"][2] == got["inproc"][2] == ("formulas", "part", "by rows"),
-              f"{got['com'][2]} / {got['inproc'][2]}")
-        after = sheet_picture(wb)
-        check("the verb mentions only reads", before["names"] == after["names"] and before["links"] == after["links"]
-              and [s for s in before["sheets"] if s[0] != "Probe"] == [s for s in after["sheets"] if s[0] != "Probe"])
+        check("the verb mentions leaves the user's Find dialog as it was (values, whole, by columns)",
+              got["com"][2] == got["inproc"][2] == user_find != ("$A$3", "$A$1", "$B$1"),
+              f"{got['com'][2]} / {got['inproc'][2]}, before {user_find}")
+        check("the verb mentions only reads", before == sheet_picture(wb, ("Far", "Probe")))
     finally:
         config.INPROC = True
         wb.Close(False)
 
 
-def repoint_bench(app, raw) -> None:
-    """Task 3 (--repoint-bench): what a follow-up's look for formulas costs when nothing points at the answer - 30
-    sheets of 2 000 formulas, one of 200 000, 2 000 defined names - and then with a filtered sheet of 200 000 cells
-    added (read whole: Find skips filtered rows), in both executors (in-process median of 3, over COM one run)."""
-    print()
+def _bench_book(raw, kind: str):
+    """(Review ruling 1) a workbook where nothing mentions the answer: "normal" - 10 sheets of 500 formulas; "large" -
+    60 sheets, 260 000 formulas (59 of 1 000, one of 201 000); "tall" - one sheet of 300 formulas whose used range
+    reaches row 1 048 576 (a stray format)."""
     wb = raw.Workbooks.Add()
-    name = str(wb.Name)
-    try:
-        for _ in range(30):
-            ws = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
-            ws.Range("A1:J200").Formula2 = "=ROW()+COLUMN()"
-        big = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
-        big.Range("A1:T10000").Formula2 = "=ROW()+COLUMN()"
-        for i in range(2000):
-            wb.Names.Add(f"Budget_{i}", "=Sheet1!$A$" + str(i + 1))
-        for label in ("31 sheets, 260 000 formulas, 2 000 names", "and a filtered sheet of 200 000 cells"):
-            if label.startswith("and"):
-                f = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
-                f.Range("A1:J1").Value2 = tuple(f"k{i}" for i in range(10))
-                f.Range("A2:A20001").Formula2 = "=MOD(ROW(),2)"
-                f.Range("B2:J20001").Formula2 = "=ROW()*COLUMN()"
-                f.Range("A1:J20001").AutoFilter(1, "1")
+    first = wb.Worksheets(1)
+    if kind == "normal":
+        sizes = [("A1:J50", None)] * 10
+    elif kind == "large":
+        sizes = [("A1:J100", None)] * 59 + [("A1:T10050", None)]
+    else:
+        sizes = [("A1:J30", "J1048576")]
+    for i, (rng, stray) in enumerate(sizes):
+        ws = first if i == 0 else wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+        ws.Range(rng).Formula2 = "=ROW()+COLUMN()"
+        if stray:
+            ws.Range(stray).Interior.Color = 255
+    return wb
+
+
+def repoint_bench(app, raw) -> None:
+    """Task 3 (--repoint-bench, review ruling 1): what a follow-up's look for formulas costs when nothing mentions
+    the answer, in a normal workbook, a large one and one with a used range to the last row, in both executors
+    (in-process median of 3, over COM one run)."""
+    print()
+    for kind, label in (("normal", "10 sheets, 5 000 formulas"), ("large", "60 sheets, 260 000 formulas"),
+                        ("tall", "a used range to row 1 048 576, 300 formulas")):
+        wb = _bench_book(raw, kind)
+        name = str(wb.Name)
+        try:
+            line = []
             for executor in ("inproc", "com"):
                 config.INPROC = executor == "inproc"
                 ts = []
@@ -929,11 +964,11 @@ def repoint_bench(app, raw) -> None:
                     t0 = time.perf_counter()
                     res = runner.run(app, b)
                     ts.append((time.perf_counter() - t0) * 1000)
-                print(f"mentions, nothing points at the answer ({label}), {executor:<6}: "
-                      f"{statistics.median(ts):8.1f} ms ({res.where}, {len(res.values['rows'])} rows)")
-    finally:
-        config.INPROC = True
-        wb.Close(False)
+                line.append(f"{executor} {statistics.median(ts):8.1f} ms ({res.where}, {len(res.values['rows'])} rows)")
+            print(f"mentions, nothing mentions the answer, {label:<44}: " + "   ".join(line), flush=True)
+        finally:
+            config.INPROC = True
+            wb.Close(False)
 
 
 def write_sources() -> dict:
@@ -961,7 +996,7 @@ def main(argv=None) -> int:
     ap.add_argument("--look-bench", action="store_true", help="also time the look and the names with 2 000 defined "
                     "names and 60 sheets, in both executors (over COM: about 20 s)")
     ap.add_argument("--repoint-bench", action="store_true", help="also time a follow-up's look for formulas that "
-                    "point at the answer in a large workbook where none do, in both executors")
+                    "point at the answer where none do (a normal, a large and a tall workbook), in both executors")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
     logging.basicConfig(level=logging.WARNING, format="  log %(levelname)s %(message)s")

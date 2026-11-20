@@ -39,7 +39,9 @@ provider.
    Answer, a legacy array, a dynamic array, defined names - one with a function and a decimal in the user's
    notation -, a chart series, a chart sheet) and a cell on Q2's Answer survive two follow-ups and a refresh-style
    redraw through both executors - as the user wrote them, showing their targets' values, no link, no 'old ...'
-   sheet - and a follow-up whose drop fails points them back.
+   sheet - and a follow-up whose drop fails points them back; with a merged cell and a table's calculated column.
+   --parts repoint-bench (not in the default parts): a follow-up with 500 cells pointing at it against none, both
+   executors (the close-out's writes run with Calculation manual).
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 
 Prints OK / DIFF per item (never a cell value: addresses and property names only); exit 0 only when all are OK.
@@ -1231,10 +1233,11 @@ def _structured(name: str) -> str:
 
 def _point_at_q1(xl: Excel, wb) -> dict:
     """(Task 3) The user's formulas that point at Q1, as a summary sheet of their own holds them: a cell reference, a
-    table reference, a cross-sheet SUM, a reference to the Answer, a legacy array, a dynamic array's anchor, a defined
-    name that is a plain reference and one with a function and a decimal in the user's notation (RefersToLocal), cells
-    using both, a chart series, a chart sheet, and a cell on Q2's Answer (another answer). Returns {where: (how it is
-    read, its text as Excel keeps it, how to read its target or None)}."""
+    table reference, a cross-sheet SUM, a reference to the Answer, a legacy array, a dynamic array's anchor, a merged
+    cell, a table's calculated column, a defined name that is a plain reference and one with a function and a decimal
+    in the user's notation (RefersToLocal), cells using both, a chart series, a chart sheet, and a cell on Q2's
+    Answer (another answer). Returns {where: (how it is read, its text as Excel keeps it, how to read its target or
+    None)}."""
     data = wb.Worksheets("Q1 Data")
     lo = data.ListObjects("Data_Q1")
     heads = [str(h) for h in lo.HeaderRowRange.Value[0]]
@@ -1272,6 +1275,12 @@ def _point_at_q1(xl: Excel, wb) -> dict:
         sheet, addr = where.split("!")
         wb.Worksheets(sheet).Range(addr).Formula2 = formula
     s.Range("C1:C2").FormulaArray = f"='Q1 Data'!{cell}*1"
+    s.Range("G1:H2").Merge()                                        # a merged cell: its formula is the anchor's
+    s.Range("G1").Formula2 = f"='Q1 Data'!{cell}"
+    s.Range("J1:K4").Value2 = (("k", "v"), ("a", None), ("b", None), ("c", None))
+    s.ListObjects.Add(1, s.Range("J1:K4"), None, 1).Name = "UserTable"
+    s.Range("K2:K4").Formula2 = f"='Q1 Data'!{cell}*2"               # a calculated column (an automated write of
+                                                                    # one cell does not fill it: live 20.11.2026)
     s.ChartObjects().Add(300, 10, 300, 200).Chart.SetSourceData(data.Range(column))
     sheet_chart = wb.Charts.Add()
     sheet_chart.SetSourceData(data.Range(column))
@@ -1279,6 +1288,12 @@ def _point_at_q1(xl: Excel, wb) -> dict:
     s.Activate()
     refs = {where: ("cell", fn) for where, (_, fn) in cells.items()}
     refs["Summary!C1"] = ("array", value("Q1 Data", cell))
+    refs["Summary!G1"] = ("cell", value("Q1 Data", cell))
+
+    def double():
+        return value("Q1 Data", cell)() * 2
+    for addr in ("K2", "K3", "K4"):
+        refs[f"Summary!{addr}"] = ("cell", double)
     refs["the name Q1First"] = ("name", None)
     refs["the name Q1Plus"] = ("name", None)
     refs["a chart series on Summary"] = ("series", None)
@@ -1322,6 +1337,35 @@ def _pointing_problems(wb, refs: dict, q2: bool = True) -> list[str]:
         bad.append(f"links to {len(links)} other workbook(s)")
     bad += [f"the sheet {n!r} is left" for n in _names(wb) if n.startswith("old ")]
     return bad
+
+
+def repoint_bench(xl: Excel) -> None:
+    """(Review ruling 2) A follow-up of Q1 with 500 cells pointing at it, against one with none, through both
+    executors: the draw's seconds and the close-out's (its writes run with Calculation manual)."""
+    pres = _pres()
+    for side, inproc in (("com", False), ("inproc", True)):
+        for count in (0, 500):
+            wb = xl.fresh(f"bench_{side}_{count}", ("Sources",))
+            seams = {(pipeline, "_target"): _target_of(xl, wb), (pipeline, "_save"): lambda job: None,
+                     (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+                     (config, "INPROC"): inproc}
+            with _patched(seams):
+                pipeline.excel_job(None, pres[0][2])
+                if count:
+                    cell = str(wb.Worksheets("Q1 Data").ListObjects("Data_Q1").DataBodyRange.Cells(1, 1).Address)
+                    s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+                    s.Name = "Summary"
+                    s.Range(f"A1:A{count}").Formula2 = f"='Q1 Data'!{cell}"
+                out, timings = pipeline.with_timings(
+                    lambda h: pipeline.redraw_job(h, pres[2][2], 1, "this workbook"))(None)
+                left = [] if not count else [a for a, (f,) in enumerate(s.Range(f"A1:A{count}").Formula2, 1)
+                                             if f != f"='Q1 Data'!{cell}"]
+            info(f"re-pointing bench ({side}): a follow-up with {count} pointing cells: draw "
+                 f"{timings.get('draw', 0):.2f} s, close out {timings.get('draw.close out', 0):.2f} s"
+                 + (f"; {len(left)} not re-pointed" if left else ""))
+            if count:
+                check(f"re-pointing bench ({side}): all {count} cells re-pointed", not left)
+            xl.close(wb)
 
 
 def _target_of(xl: Excel, wb):
@@ -1510,6 +1554,8 @@ def main(argv=None) -> int:
             failed_jobs(xl)
         if "repoint" in parts:
             repointing(xl)
+        if "repoint-bench" in parts:
+            repoint_bench(xl)
         if "labels" in parts:
             label_order(xl)
         if "timing" in parts:
