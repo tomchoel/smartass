@@ -533,6 +533,28 @@ def test_fin_refresh_and_the_follow_up_path_use_redraw_job(monkeypatch):
     assert [d["ok"] for d in out["refreshed"]] == [True, True] and seen == [(1, PATH), (2, PATH)]
 
 
+def test_fin_refresh_carries_each_questions_warnings_and_layout_findings(monkeypatch):
+    """Final review I/F1: what a question's redraw could only say as a warning (a formula the re-pointing could not
+    rewrite, the scan for such formulas failing, AutoSave left off) or a layout finding reaches the refresh's reply;
+    a question without any keeps today's small entry."""
+    from smartass.xl.movein import Mentions
+    said = [*pipeline._mentions_notes(1, Mentions(failed="operation 83 (verb mentions): busy")),
+            "could not point 1 formula(s) at the new Q1 (the cell is protected): Summary!A2 show #REF!",
+            pipeline.AUTOSAVE_NOTE.format("book.xlsx")]
+    found = ["Q1 Answer: a chart title is cut - shorten it (patch blocks[2].title)"]
+
+    def job(pre, q, target):
+        if q == 1:
+            return {"q": q, "workbook": target, "closed": {}, "warnings": said, "layout": found, "key_values": {"x": 1},
+                    "sheets": ["Q1 Answer", "Q1 Data"], "text_fixes": ["Kostnad"]}
+        return {"q": q, "workbook": target, "closed": {}, "warnings": [], "layout": [], "key_values": {"y": 2}}
+    _wire_server(monkeypatch, _stored(1, 2), job)
+    got = {d["q"]: d for d in asyncio.run(server.fin_refresh(target=PATH))["refreshed"]}
+    assert got[1] == {"q": 1, "ok": True, "closed": {}, "warnings": said, "layout": found, "text_fixes": ["Kostnad"]}
+    assert "were not checked" in got[1]["warnings"][0] and "may show #REF!" in got[1]["warnings"][0]
+    assert got[2] == {"q": 2, "ok": True, "closed": {}}
+
+
 def test_fin_refresh_goes_on_after_a_failure_and_stops_after_a_failed_restore(monkeypatch):
     seen = []
 
@@ -868,6 +890,8 @@ def test_a_formula_excel_refuses_to_re_point_is_said_and_the_rest_goes_on(own_bo
 
 
 def test_a_look_for_the_formulas_that_fails_is_said_and_the_answer_is_drawn(own_book, monkeypatch):
+    """An answer never fails because another sheet could not be scanned: the old sheets are dropped anyway, and the
+    warning says plainly that the formulas pointing at the old answer were not checked (final review F3)."""
     wb = own_book.wb
     _point_at_q3(wb)
 
@@ -876,7 +900,9 @@ def test_a_look_for_the_formulas_that_fails_is_said_and_the_answer_is_drawn(own_
     monkeypatch.setitem(runner.VERBS, "mentions", refuse)
     out = own_book.follow_up(_pre(), 3)
     assert _pointing(wb)["summary"][(1, 1)] == "=#REF!E12" and out["checks"]["sheet_equals_model"] == "OK"
-    assert [w for w in out["warnings"] if "could not be searched" in w and "Q3" in w and "#REF!" in w]
+    note = [w for w in out["warnings"] if "could not be searched" in w]
+    assert len(note) == 1 and "point at the old Q3 were not checked" in note[0] and "dropped anyway" in note[0]
+    assert "may show #REF!" in note[0]
 
 
 def test_a_sheet_whose_formulas_cannot_be_read_is_said(own_book, monkeypatch):

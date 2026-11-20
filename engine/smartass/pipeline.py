@@ -995,10 +995,12 @@ def _kept(t, e: BaseException, save: bool = True) -> None:
 
 
 def _mentions_notes(q: int, found) -> list[str]:
-    """What the look for the formulas pointing at Q<q> could not do, as warnings."""
+    """What the look for the formulas pointing at Q<q> could not do, as warnings. A look that failed as a whole does
+    not stop the follow-up (an answer never fails because another sheet could not be scanned): its warning says the
+    formulas were not checked."""
     if found.failed is not None:
-        return [f"could not look for formulas elsewhere in the workbook that point at Q{q} ({found.failed}): any such "
-                "formula shows #REF! now"]
+        return [f"formulas elsewhere in the workbook that point at the old Q{q} were not checked ({found.failed}): its "
+                "old sheets were dropped anyway, so any such formula may show #REF! now"]
     return [f"could not read the formulas on sheet '{sheet}' ({why}): if one there pointed at Q{q}, it shows #REF! "
             "now" for sheet, why in found.unread]
 
