@@ -16,7 +16,8 @@ the call records nothing, as in pywin32. A call passes its arguments to the memb
 Address(False, False)), as VBA does; pywin32's own aliases (GetAddress) are not Excel names.
 
 What a batch cannot express (it is data, not code): Python decisions on values read inside the same batch (a value
-is known only when the batch has run: split the batch there), loops over a collection, keyword arguments (late-bound
+is known only when the batch has run: split the batch there), loops over a collection (the verb each reads named
+properties of every item of one: the only loop a batch has), keyword arguments (late-bound
 COM ignores them), truth tests, ==, iteration or len() of a node (all raise), calling what a call gave
 (ws.Range("A1:C3")(2, 2) raises: name the member, .Item(2, 2)), names starting with "_", a COM object asked back
 (refused here when the recorder knows the node is an object: b.app, a workbook, a node used as the target of an
@@ -40,14 +41,21 @@ Plain data (to_dict, version 1): {"version", "quiet", "ops": [...], "finally": [
     {"k": "verb", "name": verb, "args": [v, ...], "as": id}
 with "try": true on an operation whose failure is reported and does not stop the batch (attempt). Id 0 is the
 Application. A value is a scalar, {"r": id}, {"grid": [[...], ...]}, {"list": [...]} or {"missing": 1}. Operations
-are numbered in one sequence: ops first, then finally."""
+are numbered in one sequence: ops first, then finally.
+
+The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs):
+    each(collection, paths, prefixes): for every item of the collection, in its order, the list of the values at each
+        path - dotted property names ("Tab.Color"), where "*" maps the rest of the path over the items of the
+        collection reached ("ListObjects.*.Name": the names of a sheet's tables). A value that cannot be read (Excel
+        refuses it, or it is a COM object or a date) is None; a busy Excel is not swallowed. prefixes: None, or a list
+        of texts; then only the items whose first path's value starts with one of them (case ignored) are given."""
 from __future__ import annotations
 
 import contextlib
 import math
 
 VERSION = 1
-VERBS: dict[str, int] = {}        # name -> number of arguments; each verb exists in both executors (runner.py)
+VERBS: dict[str, int] = {"each": 3}    # name -> number of arguments; each verb exists in both executors (runner.py)
 INT64 = 2 ** 63
 TEXT_MAX = 40                     # a string argument longer than this is shortened in an operation's text
 
@@ -147,12 +155,18 @@ class Batch:
         object.__setattr__(node, "_returned", True)
         self._add({"k": "ret", "on": self._ref(node), "name": name}, f"ret {name} = {node._text}")
 
+    @property
+    def position(self) -> int:
+        """The index the next operation recorded outside always() gets (a failure's BatchError.index tells which
+        step it was in; Result.skipped's indexes too)."""
+        return len(self._ops)
+
     def mark(self, name: str) -> None:
         """Result.marks[name]: the milliseconds since the batch started, when this point is reached."""
         self._add({"k": "mark", "name": name}, f"mark {name}")
 
     def verb(self, name: str, *args) -> Node:
-        """A named step the operation list cannot say (VERBS; none yet: break_links went with the copy, Task 2a)."""
+        """A named step the operation list cannot say (VERBS, see the module docstring)."""
         if VERBS.get(name) != len(args):
             raise ValueError(f"no verb {name!r} with {len(args)} arguments (verbs: {VERBS})")
         vals = [self._value(a) for a in args]

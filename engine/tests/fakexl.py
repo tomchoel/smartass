@@ -27,6 +27,13 @@ from types import SimpleNamespace
 MAXR, MAXC = 1048576, 16384
 CLIP_R, CLIP_C = 400, 80                 # cell-level settings on whole rows/columns: only this block is tracked
 SEP = ";"                                # nb-NO list separator (Range unions)
+class _International(tuple):
+    """Application.International: read whole (a 0-based tuple) or as International(i), 1-based as Excel numbers it."""
+
+    def __call__(self, i: int):
+        return self[i - 1]
+
+
 def _international() -> tuple:
     """nb-NO's Application.International (0-based): separators, the date codes and its short date dd.mm.yyyy."""
     v: list = [None] * 51
@@ -35,7 +42,7 @@ def _international() -> tuple:
     v[18:21] = ["å", "M", "D"]                     # xlYearCode, xlMonthCode, xlDayCode
     v[31] = 1.0                                    # xlDateOrder: day, month, year
     v[40] = v[41] = v[42] = True                   # xlMonthLeadingZero, xlDayLeadingZero, xl4DigitYears
-    return tuple(v)
+    return _International(v)
 
 
 INTERNATIONAL = _international()
@@ -546,6 +553,13 @@ class _Names:
         if name not in self.items:
             raise ComError(f"no name {name}")
         return self.items[name]
+
+    def __iter__(self):
+        return iter(list(self.items.values()))
+
+    @property
+    def Count(self):
+        return len(self.items)
 
 
 class _Hyperlinks(list):

@@ -19,6 +19,10 @@ the member itself): pywin32's obj.Name(args) reads a property whose arguments ar
 that gave, so Range.Offset(2, 3) would be the default member of the cell itself ($D$3 from B2, not $E$4) and
 Address(False, False) would fail; pywin32's own aliases (GetAddress) are unknown names in both executors.
 
+check (run's argument, default True): the job's abort token is checked before the batch and, over COM, before every
+operation, so an abandoned job stops at its next batch; check=False runs the batch for an abandoned job too (the
+clean-up after a failure: rollback, restore, the user's sheet landed on again).
+
 Both executors, around the operations: with quiet, ScreenUpdating, EnableEvents and DisplayAlerts off and Calculation
 manual (each only when it is not so already), put back in reverse order afterwards, also when an operation failed.
 An operation that fails stops the batch: the finally operations run, the settings come back, and run raises
@@ -45,7 +49,7 @@ import pythoncom
 import pywintypes
 from win32com.client import dynamic
 
-from ...core import config
+from ...core import config, timing
 from .. import fastcom, jobs
 from ..host import HostError
 from ..hostproc import is_busy, retry_busy
@@ -88,16 +92,19 @@ class BatchError(Exception):
         self.where = where
 
 
-def run(app, batch, limit: float = 120) -> Result:
+def run(app, batch, limit: float = 120, check: bool = True) -> Result:
     """Run batch in app's Excel, in its process when the add-in is there, else over COM; Result, or BatchError when
-    an operation failed. A busy Excel (beyond limit) or an abandoned job raises HostError, as jobs.com does."""
+    an operation failed. A busy Excel (beyond limit) or an abandoned job raises HostError, as jobs.com does (check
+    False: the batch runs for an abandoned job too, see the module docstring). Counted as one batch of the current
+    stage (core/timing)."""
+    timing.count_batch()
     job = batch.to_dict()
-    ex = _ready(app)
+    ex = _ready(app, check)
     if ex is not None:
-        out = _run_inproc(app, ex, job, limit)
+        out = _run_inproc(app, ex, job, limit, check)
         if out is not None:
             return _result(out, batch, "inproc")
-    out = jobs.com(lambda: execute(app, job, limit), limit=limit)
+    out = jobs.com(lambda: execute(app, job, limit, check), limit=limit, check=check)
     return _result(out, batch, "com")
 
 
@@ -130,9 +137,9 @@ class _Failed(Exception):
     """An operation's failure, with the message both executors give."""
 
 
-def execute(app, job: dict, limit: float = 120) -> dict:
+def execute(app, job: dict, limit: float = 120, check: bool = True) -> dict:
     """The batch's operations over COM in this thread; the result record (as the add-in writes it). Raises only
-    JobAborted (after the finally operations and the restore)."""
+    JobAborted (after the finally operations and the restore; never with check False)."""
     t0 = time.perf_counter()
     refs: dict[int, object] = {0: app}
     values: dict = {}
@@ -148,7 +155,8 @@ def execute(app, job: dict, limit: float = 120) -> dict:
             for i, op in enumerate(ops):
                 started = i + 1
                 try:
-                    jobs._check_alive()
+                    if check:
+                        jobs._check_alive()
                     retry_busy(lambda op=op: _do(app, op, refs, values, marks, t0), limit)
                 except jobs.JobAborted as e:
                     aborted = e
@@ -327,12 +335,14 @@ _last = threading.local()               # this thread's last (weak app, key): a 
 _unknown_warned = False
 
 
-def _ready(app) -> _Excel | None:
+def _ready(app, check: bool = True) -> _Excel | None:
+    """app's Excel with its add-in loaded, or None (the COM executor). With check False an add-in not loaded yet is
+    not loaded now (that needs a live job)."""
     global _unknown_warned
     if not config.INPROC:
         return None
     try:
-        key = _identify(app)
+        key = _identify(app, check)
     except HostError:
         raise
     except Exception as e:   # noqa: BLE001 - which Excel process this is cannot be told: over COM
@@ -349,21 +359,21 @@ def _ready(app) -> _Excel | None:
                         "loaded after %s s; the batch runs over COM", ex.pid, LOCK_WAIT_S)
         return None
     try:
-        if ex.ready is None:
+        if ex.ready is None and check:
             _load(app, ex)
     finally:
         ex.lock.release()
     return ex if ex.ready else None
 
 
-def _identify(app) -> tuple:
+def _identify(app, check: bool = True) -> tuple:
     """(pid, start time) of app's Excel process, from its main window."""
     last = getattr(_last, "seen", None)
     if last is not None and last[0]() is app:
         return last[1]
     import psutil
     import win32process
-    hwnd = jobs.com(lambda: int(app.Hwnd))
+    hwnd = jobs.com(lambda: int(app.Hwnd), check=check)
     pid = win32process.GetWindowThreadProcessId(hwnd)[1]
     key = (pid, psutil.Process(pid).create_time())
     try:
@@ -475,7 +485,7 @@ def _sweep(folder: Path) -> None:
             pass
 
 
-def _run_inproc(app, ex: _Excel, job: dict, limit: float) -> dict | None:
+def _run_inproc(app, ex: _Excel, job: dict, limit: float, check: bool = True) -> dict | None:
     """The add-in's result record, or None when nothing of the batch ran and the COM executor is to run it.
 
     Whether it started is told by what the add-in returned: a record (its "started"), "file" (a record in the result
@@ -492,7 +502,7 @@ def _run_inproc(app, ex: _Excel, job: dict, limit: float) -> dict | None:
     try:
         for again in (False, True):
             try:
-                got = jobs.com(lambda: app.Run(ex.run_macro, str(path)), limit=limit)
+                got = jobs.com(lambda: app.Run(ex.run_macro, str(path)), limit=limit, check=check)
             except HostError:
                 raise                                   # busy (the Run was rejected: nothing ran) or abandoned
             except Exception as e:   # noqa: BLE001 - did the add-in get the job? Its file says
@@ -572,4 +582,31 @@ def _wire(v):
 
 
 # ------------------------------------------------------------------ verbs
-VERBS: dict = {}                        # name -> function(*args); each verb exists in both executors (batch.VERBS)
+def _each(collection, paths, prefixes):
+    """The verb each (batch.py's module docstring): [[the value at each path] for every item, in order]."""
+    keep = tuple(str(p).casefold() for p in prefixes) if prefixes else None
+    rows = []
+    for item in collection:
+        row = [_path(item, str(p).split(".")) for p in paths]
+        if keep is None or (isinstance(row[0], str) and row[0].casefold().startswith(keep)):
+            rows.append(row)
+    return rows
+
+
+def _path(obj, parts: list[str]):
+    """The value at a dotted path from obj ("*": the rest over every item of the collection reached); None when it
+    cannot be read. A busy Excel goes on up (the verb is read again as a whole)."""
+    try:
+        for i, part in enumerate(parts):
+            if part == "*":
+                return [_path(x, parts[i + 1:]) for x in obj]
+            obj = getattr(obj, part)
+        _plain(obj)                                   # a COM object or a date is not a value
+        return obj
+    except Exception as e:   # noqa: BLE001 - unreadable: None
+        if is_busy(e):
+            raise
+        return None
+
+
+VERBS: dict = {"each": _each}           # name -> function(*args); each verb exists in both executors (batch.VERBS)

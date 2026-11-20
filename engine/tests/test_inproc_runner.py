@@ -232,6 +232,104 @@ def test_an_abandoned_job_stops_after_the_finally_and_the_restore(book):
         jobs.bind_job()
 
 
+def test_an_abandoned_job_stops_at_its_next_batch_and_check_false_runs_the_clean_up(book):
+    """A job abandoned by a timeout raises JobAborted at the next batch, before any of its operations; the clean-up
+    after it (rollback, restore) runs its batches with check=False."""
+    app, wb = book
+    token = jobs.JobToken()
+    jobs.bind_job(token)
+    try:
+        token.aborted = True
+        b = Batch()
+        b.workbook("book.xlsx").Worksheets("S").Range("A1").Value2 = "never"
+        with pytest.raises(jobs.JobAborted):
+            runner.run(app, b)
+        assert (1, 1) not in wb.Worksheets("S").cells
+        b = Batch()
+        b.workbook("book.xlsx").Worksheets("S").Range("A1").Value2 = "the clean-up"
+        runner.run(app, b, check=False)
+        assert wb.Worksheets("S").cells[(1, 1)]["Value"] == "the clean-up" and settings(app) == QUIET_OFF
+    finally:
+        jobs.bind_job()
+
+
+def test_check_false_never_loads_the_add_in_for_an_abandoned_job_but_uses_a_loaded_one(inproc):
+    app, wb = excel_book()
+    token = jobs.JobToken()
+    jobs.bind_job(token)
+    try:
+        token.aborted = True
+        b = Batch()
+        b.workbook("book.xlsx").Worksheets("S").Range("A1").Value2 = 1
+        assert runner.run(app, b, check=False).where == "com" and app.registered == []
+        token.aborted = False
+        assert runner.run(app, Batch()).where == "inproc"
+        token.aborted = True
+        assert runner.run(app, b, check=False).where == "inproc"
+    finally:
+        jobs.bind_job()
+
+
+def test_every_batch_counts_in_its_stage(book):
+    from smartass.core import timing
+    app, _ = book
+    t = timing.Timer.start()
+    try:
+        with timing.stage("draw"), timing.stage("finish"):
+            runner.run(app, Batch())
+            runner.run(app, Batch())
+        with timing.stage("save"):
+            runner.run(app, Batch())
+        assert t.summary()[timing.BATCH_PREFIX + "draw"] == 2
+        assert t.summary()[timing.BATCH_PREFIX + "draw.finish"] == 2 and t.summary()[timing.BATCH_PREFIX + "save"] == 1
+    finally:
+        timing._local.timer = None
+
+
+# ------------------------------------------------------------------ the verb each
+def test_each_reads_named_properties_of_every_item_and_none_where_one_cannot_be_read(book):
+    app, wb = book
+    wb.Worksheets("S").Tab.Color = 0x64381F
+    wb.Worksheets("T").Visible = 0
+    for ws, name in ((wb.Worksheets("T"), "Data_Q1"), (wb.Worksheets("T"), "Lines_Q1_b0")):
+        ws.ListObjects.Add(1, ws.Range("A1:B2"), None, 1).Name = name
+    b = Batch()
+    wbn = b.workbook("book.xlsx")
+    b.ret(b.verb("each", wbn.Worksheets, ["Name", "Visible", "Tab.Color", "ListObjects.*.Name", "No.Such"], None),
+          "sheets")
+    b.ret(b.verb("each", wbn.Worksheets, ["Name", "Range"], None), "objects")
+    res = runner.run(app, b)
+    assert res.values["sheets"] == (("S", -1, 0x64381F, (), None), ("T", 0, False, ("Data_Q1", "Lines_Q1_b0"), None))
+    assert res.values["objects"] == (("S", None), ("T", None))       # a COM object (here: a method) is no value
+
+
+def test_each_with_prefixes_gives_only_the_items_whose_first_value_starts_with_one(book):
+    app, wb = book
+    for n in ("Data_Q4", "lines_q4_b0", "Budget", "smartass_sources"):
+        wb.Names.Add(n, "=1", False)
+    b = Batch()
+    b.ret(b.verb("each", b.workbook("book.xlsx").Names, ["Name"], ["Data_Q", "Lines_Q"]), "names")
+    assert runner.run(app, b).values["names"] == (("Data_Q4",), ("lines_q4_b0",))
+
+
+def test_each_does_not_swallow_a_busy_excel(book, monkeypatch):
+    app, wb = book
+    busy = pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+    calls = []
+
+    class Busy:
+        @property
+        def Name(self):
+            calls.append(1)
+            if len(calls) == 1:
+                raise busy
+            return "after the wait"
+    wb.Worksheets("S").__dict__["Busy"] = [Busy()]
+    b = Batch()
+    b.ret(b.verb("each", b.workbook("book.xlsx").Worksheets("S").Busy, ["Name"], None), "names")
+    assert runner.run(app, b).values["names"] == (("after the wait",),) and len(calls) == 2
+
+
 def test_the_com_executor_returns_the_out_format_of_the_add_in(book):
     app, wb = book
     b = Batch(quiet=False)
@@ -275,7 +373,7 @@ class InprocExcel(Application):
             return self.fail_run(path)
         job = json.loads(path.read_text(encoding="utf-8"))
         path.unlink()
-        record = json.dumps(runner.execute(self, job))
+        record = json.dumps(runner.execute(self, job, check=False))     # the add-in never sees the job's token
         if len(record) <= 30000:
             return record
         Path(str(path) + ".out").write_text(record, encoding="utf-8")
@@ -287,7 +385,7 @@ def _inproc_on(monkeypatch, folder: Path) -> list:
     monkeypatch.setattr(config, "INPROC", True)
     monkeypatch.setattr(config, "INPROC_DIR", folder / "inproc")
     monkeypatch.setattr(runner, "_EXCELS", {})
-    monkeypatch.setattr(runner, "_identify", lambda app: (id(app), 0.0))
+    monkeypatch.setattr(runner, "_identify", lambda app, check=True: (id(app), 0.0))
     monkeypatch.setattr(runner, "_is_64bit", lambda pid: True)
     built = []
 

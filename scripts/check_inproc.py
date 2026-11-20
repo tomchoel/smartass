@@ -220,6 +220,78 @@ def item_date(b, c):
     b.ret(ws.Range("A1").Value, "date")
 
 
+def item_each(b, c):
+    """The verb each (Task 2b): every sheet's name, visibility, tab colour and tables, an unreadable path, the defined
+    names that start with a prefix (case ignored), the chart sheets."""
+    wbn = b.workbook(c["book"])
+    wss = wbn.Worksheets
+    ws1 = wss(1)
+    ws1.Name = "Q1 Answer"
+    ws1.Tab.Color = 0x64381F
+    data = wss.Add(MISSING, ws1)
+    data.Name = "Q1 Data"
+    data.Range("A1:B3").Value2 = (("k", "v"), ("a", 1.0), ("b", 2.0))
+    lo = data.ListObjects.Add(1, data.Range("A1:B3"), MISSING, 1)
+    lo.Name = "Data_Q1"
+    hidden = wss.Add(MISSING, data)
+    hidden.Name = "_svmeta"
+    hidden.Visible = 0
+    wbn.Names.Add("data_q2", "=1", False)
+    wbn.Names.Add("Lines_Q2_b0", "=2", False)
+    wbn.Names.Add("Budget", "=3", False)
+    data.Names.Add("Print_Area", "='Q1 Data'!$A$1:$B$3", False)
+    wbn.Charts.Add(MISSING, data)
+    b.ret(b.verb("each", wss, ["Name", "Visible", "Tab.Color", "ListObjects.*.Name", "No.Such", "Range"], None),
+          "sheets")
+    b.ret(b.verb("each", wbn.Names, ["Name", "Visible"], ["Data_Q", "lines_q"]), "names")
+    b.ret(b.verb("each", wbn.Charts, ["Name"], None), "charts")
+
+
+def item_insert(b, c):
+    """The move-in's one call as the batch makes it: Sheets.Add(MISSING, after, MISSING, path)."""
+    wbn = b.workbook(c["book"])
+    wss = wbn.Worksheets
+    wbn.Sheets.Add(MISSING, wss(wss.Count), MISSING, c["src2"])
+    b.ret(b.verb("each", wss, ["Name", "Visible"], None), "sheets")
+    b.ret(wbn.Worksheets("Ins B").Range("A1").Value2, "value")
+
+
+def item_label_after_calculate(b, c):
+    """A data label's Top read right after Calculate inside the same batch (the chart laid out anew, no repaint in
+    between): the finish batch reads the labels a lift moves this way."""
+    ws = b.workbook(c["book"]).Worksheets(1)
+    ws.Range("A1:B4").Value2 = (("k", "v"), ("a", 1.0), ("b", 2.0), ("c", 3.0))
+    ch = ws.ChartObjects().Add(10, 10, 300, 200).Chart
+    ch.SetSourceData(ws.Range("A1:B4"))
+    ch.ChartType = 51
+    ch.SeriesCollection(1).HasDataLabels = True
+    b.ret(ch.SeriesCollection(1).Points(2).DataLabel.Top, "before")
+    ws.Range("B3").Formula2 = "=B4*3"
+    ws.Calculate()
+    b.ret(ch.SeriesCollection(1).Points(2).DataLabel.Top, "after")
+    b.ret(ch.SeriesCollection(1).Points(3).DataLabel.Top, "other")
+
+
+def item_look_reads(b, c):
+    """What the look batch reads with members whose arguments are optional or that pywin32 would read whole:
+    International(i) (1-based), the last column by Columns(Columns.Count), a used range's first column."""
+    wbn = b.workbook(c["book"])
+    ws = wbn.Worksheets(1)
+    ws.Range("A2:C3").Value2 = (("SPEC Q1", "x", "y"), ("SPEC Q2", "z", None))
+    for i in (3, 4, 17, 32, 41, 42, 43):
+        b.ret(b.app.International(i), f"International({i})")
+    last = ws.Columns(ws.Columns.Count)
+    b.ret(last.ColumnWidth, "last width")
+    b.ret(last.Width, "last points")
+    b.ret(wbn.Styles("Normal").Font.Name, "normal font")
+    used = ws.UsedRange
+    b.ret(used.Row, "used row")
+    b.ret(used.Columns.Count, "used width")
+    b.ret(used.Columns(1).Value2, "keys")
+    b.ret(ws.Cells(ws.Rows.Count, 1).End(-4162).Row, "last row")
+    b.ret(ws.Range(ws.Cells(2, 1), ws.Cells(ws.Cells(ws.Rows.Count, 1).End(-4162).Row, 2)).Value2, "rows")
+
+
 def item_not_quiet(b, c):
     b.ret(b.app.ScreenUpdating, "screen")
     b.ret(b.app.Calculation, "calc")
@@ -239,6 +311,10 @@ BATTERY = [  # name, record, quiet, the user's settings before[, the values Exce
     ("a try operation", item_try, True, USER),
     ("a COM object asked back", item_com_object, True, USER),
     ("a date asked back", item_date, True, USER),
+    ("the verb each", item_each, True, USER),
+    ("the insert with omitted arguments", item_insert, True, USER),
+    ("a data label read after Calculate", item_label_after_calculate, True, USER),
+    ("the look batch's reads", item_look_reads, True, USER),
     ("quiet=False", item_not_quiet, False, USER),
 ]
 
@@ -549,7 +625,7 @@ def fixed_cost(app, raw, runs: int) -> None:
 
 
 def write_sources() -> dict:
-    """The source workbook the copy item opens: {"src1": its path}."""
+    """The source workbooks: the copy item opens src1, the insert item inserts src2: {"src1": .., "src2": ..}."""
     import openpyxl
     book = openpyxl.Workbook()
     a = book.active
@@ -559,7 +635,12 @@ def write_sources() -> dict:
     book.create_sheet("Other")["A1"] = 21
     path = TMP / "inproc_src1.xlsx"
     book.save(path)
-    return {"src1": str(path)}
+    book = openpyxl.Workbook()
+    book.active.title = "Ins A"
+    book.create_sheet("Ins B")["A1"] = 42
+    path2 = TMP / "inproc_src2.xlsx"
+    book.save(path2)
+    return {"src1": str(path), "src2": str(path2)}
 
 
 def main(argv=None) -> int:

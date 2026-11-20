@@ -175,11 +175,28 @@ def test_attempt_marks_an_operation_whose_failure_does_not_stop_the_batch():
     assert tried == [False, False, True, True, True, False]
 
 
-def test_there_is_no_verb_yet_and_one_is_refused():
-    """The verb mechanism stays (the job as batches adds its own); break_links went with the copy (Task 2a)."""
-    assert VERBS == {}
+def test_each_is_the_one_verb_and_another_is_refused():
+    """The file job's loops are one verb (Task 2b): each(collection, paths, prefixes); break_links went with the copy
+    (Task 2a)."""
+    assert VERBS == {"each": 3}
+    b = Batch()
+    rows = b.verb("each", b.workbook("Book1.xlsx").Worksheets, ["Name", "ListObjects.*.Name"], None)
+    b.ret(rows, "rows")
+    assert ops(b)[2:] == [{"k": "verb", "name": "each", "args": [{"r": 2}, {"list": ["Name", "ListObjects.*.Name"]},
+                                                                  None], "as": 3},
+                          {"k": "ret", "on": 3, "name": "rows"}]
     with pytest.raises(ValueError, match="verb"):
         Batch().verb("break_links", Batch().app, "smartass_build_1.xlsx")
+
+
+def test_position_is_the_index_the_next_operation_gets():
+    b = Batch()
+    assert b.position == 0
+    ws = b.workbook("Book1.xlsx").Worksheets("S")
+    ws.Range("A1").Value2 = 1
+    with b.always():
+        ws.Range("A2").Value2 = 2
+    assert b.position == 4 and b.text(5) == 'Workbooks("Book1.xlsx").Worksheets("S").Range("A2").Value2 = 2'
 
 
 def test_a_verb_and_a_mark(monkeypatch):

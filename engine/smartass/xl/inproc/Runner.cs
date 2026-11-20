@@ -385,11 +385,67 @@ public static class SmartassRunner___HASH__
     }
 
     // ------------------------------------------------------------------ verbs
-    // Named steps an operation list cannot say (batch.VERBS, runner.VERBS): none yet (break_links went with the
-    // copy of the built file's sheets, phase 3b Task 2a).
+    // Named steps an operation list cannot say (batch.VERBS, runner.VERBS; batch.py's module docstring says what
+    // each does): each, the one loop a batch has.
     static object Verb(string name, object[] args)
     {
+        if (name == "each" && args.Length == 3) return Each(args[0], args[1] as object[], args[2]);
         throw new Exception("unknown verb '" + name + "'");
+    }
+
+    // each(collection, paths, prefixes): for every item (Count, then Item(1..Count)), the value at each dotted path
+    // ("*": the rest of the path over every item of the collection reached); null where it cannot be read. prefixes
+    // (null or a list): only the items whose first value starts with one of them, case ignored.
+    static object Each(object collection, object[] paths, object prefixes)
+    {
+        if (paths == null) throw new Exception("each: the paths are a list of names");
+        var keep = prefixes as object[];
+        if (prefixes != null && !(prefixes is DBNull) && keep == null) throw new Exception("each: the prefixes are a list");
+        var split = new string[paths.Length][];
+        for (int j = 0; j < paths.Length; j++) split[j] = Convert.ToString(paths[j], Inv).Split('.');
+        int n = Convert.ToInt32(Invoke(collection, "Count", Get, new object[0]), Inv);
+        var rows = new List<object>();
+        for (int i = 1; i <= n; i++)
+        {
+            object item = Invoke(collection, "Item", Get, new object[] { i });
+            var row = new object[paths.Length];
+            for (int j = 0; j < paths.Length; j++) row[j] = PathValue(item, split[j], 0);
+            if (keep == null || Starts(row.Length > 0 ? row[0] as string : null, keep)) rows.Add(row);
+        }
+        return rows.ToArray();
+    }
+
+    static bool Starts(string s, object[] prefixes)
+    {
+        if (s == null) return false;
+        foreach (object p in prefixes)
+            if (s.StartsWith(Convert.ToString(p, Inv), StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    static object PathValue(object obj, string[] parts, int k)
+    {
+        try
+        {
+            for (; k < parts.Length; k++)
+            {
+                if (parts[k] == "*")
+                {
+                    int n = Convert.ToInt32(Invoke(obj, "Count", Get, new object[0]), Inv);
+                    var items = new object[n];
+                    for (int i = 1; i <= n; i++)
+                        items[i - 1] = PathValue(Invoke(obj, "Item", Get, new object[] { i }), parts, k + 1);
+                    return items;
+                }
+                obj = Invoke(obj, parts[k], Get, new object[0]);
+            }
+            Plain(obj);                                           // a COM object or a date is not a value
+            return obj;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------ values back
