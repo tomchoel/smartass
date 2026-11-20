@@ -10,7 +10,7 @@
   as a queued macro (`ExcelAsyncUtil.QueueAsMacro`) and switches AutoSave back on (also after a failed save), and
   writes the outcome - no figures: the workbook's name, ok or Excel's error, the seconds - to
   `inproc\saved\<Excel's pid>.json`. Live in a visible Excel of our own (20.11.2026): with the delay the answer's
-  last picture change came 0.07-0.35 s before the save started and nothing changed during or after it; with no
+  last picture change came 0.2-0.35 s before the save started and nothing changed during or after it; with no
   delay (the control) the save started at once and the answer's last changes were painted only after it.
 - A follow-up that comes before that save ran has it run first, at the start of its first batch (never between its
   batches, never twice); one that comes while it runs waits as for a busy Excel. Excel answers calls in the middle
@@ -35,9 +35,11 @@
 - The reads made before a job's turn (`target='active'`'s active workbook, the open workbooks that every `xl_*`
   tool scans) wait for a busy Excel, as Excel rejects calls while our save runs: a question or a tool sent within
   about 1.4 s of a reply no longer fails with "Call was rejected by callee". A job's start waits for an Excel that
-  rejects calls (a cell in edit mode, a dialog) 30 s in all, then says so, as before the save after the reply;
-  only the add-in's own answer that a save runs is waited for longer. An abandoned job stops in every one of these
-  waits.
+  rejects calls (a cell in edit mode, a dialog) 30 s in all, then says so, as before the save after the reply.
+  Only the seconds Excel rejects calls count: a save of ours is waited for through - the add-in's answer that one
+  runs, a waiting save the job's first contact runs itself, and Excel's rejections while a save this server asked
+  for may still run. Another smartass server's save that its add-in could not report is said as that server's. An
+  abandoned job stops in every one of these waits.
 - `bench_answers.py` adds "saved after s" (the save's own seconds) beside the Excel job the user waits for;
   `check_followups.py` waits for each step's saves before it reads `Workbook.Saved` or the file and prints their
   seconds; `check_insert.py --parts newbook` waits for them too; `check_inproc.py` checks the save after the reply

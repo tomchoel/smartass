@@ -128,5 +128,5 @@ when it answers. The live figure after both cuts is owed.
 ## Task 2: the save after the reply
 
 Measured in a visible Excel of the builder's own (20.11.2026): with the 0.3 s delay the answer's last picture change
-came 0.07-0.35 s before the save started and nothing changed during or after it. In the owner's Excel it is not yet
+came 0.2-0.35 s before the save started and nothing changed during or after it. In the owner's Excel it is not yet
 measured (owed: the paint, `check_followups.py`, the bench).
