@@ -66,7 +66,7 @@ class Wired:
             self.built.append(real_build(path, *a, **k))
             return self.built[-1]
 
-        def move_in(t, built, after, first=False, book=None, left=None):
+        def move_in(t, built, after, first=False, book=None):
             t.sheets_added.extend(built.sheets)
 
         def rollback(t):
@@ -338,6 +338,26 @@ def test_a_failed_finish_leaves_the_workbook_and_excel_as_they_were(fake_target,
     assert not _temp_files(tmp_home) and len(app.Workbooks) == 1 and wb.saved == 0
 
 
+def test_an_insert_that_fails_half_way_is_rolled_back(fake_target, calculated, monkeypatch, tmp_home):
+    """Excel put the Answer in, then the insert failed: the rollback removes it (its name was in t.sheets_added
+    before the call), the workbook and Excel are as they were and the temporary file is gone."""
+    wb, app = fake_target.wb, fake_target.app
+    before = fakexl.snapshot(wb)
+    real = fakexl._Sheets.Add
+
+    def half(self, *args):
+        real(self, *args)
+        for name in ("Q1 Data",):
+            self.wb.order.remove(self(name))
+        raise fakexl.ComError("Add method of Sheets class failed")
+    monkeypatch.setattr(fakexl._Sheets, "Add", half)
+    with pytest.raises(fakexl.ComError, match="Add method"):
+        _job(_pre(), calculated)
+    assert fakexl.snapshot(wb) == before and fake_target.sheets_added == []
+    assert (app.ScreenUpdating, app.EnableEvents, app.DisplayAlerts, app.Calculation) == (True, True, True, -4105)
+    assert not _temp_files(tmp_home) and len(app.Workbooks) == 1 and wb.saved == 0
+
+
 def test_a_lines_block_with_no_lines_draws_an_empty_table(fake_target, calculated):      # Review Focus 5
     ls = LineSet("b0", list(SUPPLIERS), ["AP_CUSTOMER_NAME", "AMOUNT"], cube_value=-100.0, cell=LINE_CELL)
     pre = _pre(lines_only_spec(), lines={"b0": ls})
@@ -401,9 +421,9 @@ def test_the_answer_is_shown_after_the_move_in_and_again_once_it_is_calculated(f
     app = fake_target.app
     events = _shows(monkeypatch, app)
     _job(_pre(), calculated)
-    kinds = [k for _, k, *_ in events if k in ("Copy", "Formula2", "Calculate", "show")]
+    kinds = [k for _, k, *_ in events if k in ("Sheets.Add", "Formula2", "Calculate", "show")]
     first, second = (i for i, k in enumerate(kinds) if k == "show")
-    assert kinds.index("Copy") < first < kinds.index("Formula2") and second > max(
+    assert kinds.index("Sheets.Add") < first < kinds.index("Formula2") and second > max(
         i for i, k in enumerate(kinds) if k == "Calculate")
     assert app.ActiveWorkbook is fake_target.wb and fake_target.wb.active.Name == "Q1 Answer"
     assert app.ScreenUpdating is True
@@ -458,18 +478,13 @@ def test_the_draw_stamps_one_time_for_the_data_header_and_the_answer_footer(wire
     assert seen["plan"].footer == "Source: Oracle EPM Cloud · fetched 2026-11-04 · page &P of &N"
 
 
-def test_a_temp_workbook_that_did_not_close_is_closed_at_the_end_and_said(fake_target, calculated, monkeypatch, tmp_home):
-    real, fails = fakexl.Workbook.Close, []
-
-    def close(wb, save=None):
-        if wb is not fake_target.wb and not fails:
-            fails.append(wb.Name)
-            raise fakexl.ComError("busy")
-        return real(wb, save)
-    monkeypatch.setattr(fakexl.Workbook, "Close", close)
+def test_the_job_opens_no_workbook_the_sheets_come_in_with_one_insert(fake_target, calculated, tmp_home):
+    """Task 2a: no temporary workbook to open, close or unlink (the 'would not close' path is gone with it)."""
+    app = fake_target.app
     out, _ = _job(_pre(), calculated)
-    assert fails and any("closed at the end of the job" in w for w in out["warnings"])
-    assert len(fake_target.app.Workbooks) == 1 and not _temp_files(tmp_home)
+    kinds = [k for _, k, *_ in app.events]
+    assert kinds.count("Sheets.Add") == 1 and not {"Open", "Copy", "Close", "BreakLink"} & set(kinds)
+    assert not out.get("warnings") and len(app.Workbooks) == 1 and not _temp_files(tmp_home)
 
 
 # ------------------------------------------------------------------ the Key point heights and the page breaks

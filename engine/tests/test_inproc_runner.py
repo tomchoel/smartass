@@ -14,7 +14,7 @@ from fakexl import Application, Workbook, count_com, snapshot
 from smartass.core import config
 from smartass.xl import jobs
 from smartass.xl.host import HostError
-from smartass.xl.inproc import build, runner
+from smartass.xl.inproc import batch, build, runner
 from smartass.xl.inproc.batch import MISSING, Batch
 
 QUIET_OFF = {"ScreenUpdating": True, "EnableEvents": True, "DisplayAlerts": True, "Calculation": -4105}
@@ -32,9 +32,11 @@ def book():
 
 
 # ------------------------------------------------------------------ the COM executor
-def test_every_operation_kind_runs_and_values_come_back(book):
+def test_every_operation_kind_runs_and_values_come_back(book, monkeypatch):
     app, wb = book
     wb.links = [r"C:\tmp\smartass_build_1.xlsx", r"C:\other\Budget.xlsx"]
+    monkeypatch.setitem(batch.VERBS, "count_links", 1)              # a verb of the test's own: none is shipped yet
+    monkeypatch.setitem(runner.VERBS, "count_links", lambda wb: len(wb.LinkSources(1) or ()))
     b = Batch()
     ws = b.workbook("book.xlsx").Worksheets("S")
     ws.Range("A1:C2").Value2 = ((1, "two", None), (2.5, True, "=A1"))
@@ -44,12 +46,11 @@ def test_every_operation_kind_runs_and_values_come_back(book):
     b.ret(ws.Range("D9").Value2, "empty")
     b.ret(b.app.Workbooks.Count, "books")
     b.mark("written")
-    b.ret(b.verb("break_links", b.workbook("book.xlsx"), "SMARTASS_BUILD_1.xlsx"), "broke")
-    b.ret(b.workbook("book.xlsx").LinkSources(1), "links")
+    b.ret(b.verb("count_links", b.workbook("book.xlsx")), "links")
     res = runner.run(app, b)
     assert res.where == "com"
     assert res.values == {"grid": ((1, "two", None), (2.5, True, "=A1")), "one": "two", "empty": None, "books": 1,
-                          "broke": 1, "links": (r"C:\other\Budget.xlsx",)}
+                          "links": 2}
     assert list(res.marks) == ["written"] and isinstance(res.marks["written"], float)
     assert res.skipped == [] and res.ms >= 0
     assert [s.Name for s in wb.order] == ["Q3 Data", "T"]

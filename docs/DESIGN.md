@@ -47,10 +47,12 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
 4. **Excel job** (one job in the user's Excel, `pipeline.excel_job`): the answer's sheets are built as one .xlsx
    without Excel (`render/xlsx.py`, charts `render/xlsx_charts.py` on the rules of `render/charts.py`) from a pure
    `render/layout.py` plan - `Q<n> Answer` (its look: `render/look.py`), `Q<n> Data`, `Q<n> Lines <alias>` for
-   drills - under `%LOCALAPPDATA%\smartass\tmp`, then moved into the workbook in one copy and finished there
-   (`xl/movein.py`: the tables `Data_Q<n>` / `Lines_Q<n>_<alias>`, the formulas, the chart labels, calculate), with
-   the user's Excel quiet and left as it was found. Then read-back (`render/readback.py`), the Sources log
-   (`xl/sources.py`), the spec stored in hidden `_svmeta`, sheet order (`xl/sheetorder.py`), save (our files only).
+   drills - under `%LOCALAPPDATA%\smartass\tmp`, then inserted into the workbook with one
+   `Sheets.Add(Type:=<the file's path>)` (no workbook opened, nothing copied, no link left; proved equal to the
+   Open + Copy + Close it replaced by `scripts/check_insert.py`) and finished there (`xl/movein.py`: the tables
+   `Data_Q<n>` / `Lines_Q<n>_<alias>`, the formulas, the chart labels, calculate), with the user's Excel quiet
+   and left as it was found. Then read-back (`render/readback.py`), the Sources log (`xl/sources.py`), the spec
+   stored in hidden `_svmeta`, sheet order (`xl/sheetorder.py`), save (our files only).
    Measured (docs/audit/2026-11-19-file-render-bench.md and the live check after it): 2-3 s in the Excel job for an
    answer without a lines sheet in a workbook of normal size (3.3 s at 61 sheets), 4-5 s with a lines sheet, about
    6-7 s for the first answer of a new workbook (the workbook is created); 34-37 COM calls per answer.

@@ -32,7 +32,6 @@ from __future__ import annotations
 import datetime
 import json
 import logging
-import re
 import struct
 import threading
 import time
@@ -56,7 +55,6 @@ log = logging.getLogger("smartview.inproc")
 
 MANUAL = -4135                          # xlCalculationManual
 QUIET = (("ScreenUpdating", False), ("EnableEvents", False), ("DisplayAlerts", False), ("Calculation", MANUAL))
-LINKS = 1                               # xlExcelLinks (LinkSources, BreakLink)
 RESTORE_LIMIT_S = 30
 LOAD_LIMIT_S = 60                       # RegisterXLL and the ping: how long a busy Excel is waited for
 REGISTER_LIMIT_S = 60                   # a RegisterXLL that has not returned by then: no add-in in that Excel
@@ -574,15 +572,4 @@ def _wire(v):
 
 
 # ------------------------------------------------------------------ verbs
-def _break_links(wb, file_name: str) -> int:
-    """Break wb's links whose file name is file_name (any case); the user's own links to other workbooks stay.
-    Reads LinkSources first: BreakLink needs the exact link text Excel holds."""
-    broke = 0
-    for link in _call(wb, "LinkSources", [LINKS]) or ():
-        if re.split(r"[\\/]", str(link))[-1].casefold() == file_name.casefold():
-            _call(wb, "BreakLink", [link, LINKS])
-            broke += 1
-    return broke
-
-
-VERBS = {"break_links": _break_links}
+VERBS: dict = {}                        # name -> function(*args); each verb exists in both executors (batch.VERBS)

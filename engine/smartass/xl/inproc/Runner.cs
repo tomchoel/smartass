@@ -21,7 +21,6 @@ public static class SmartassRunner___HASH__
 {
     const string Hash = "__HASH__";
     const int Version = 1;
-    const int Links = 1;                                       // xlExcelLinks
     const int InlineMax = 30000;                               // below Excel's 32 767 characters per string
     const string JobsFolder = @"__JOBS__";                     // build.py: the one folder job files are run from
     const string NotRun = "not run: ";
@@ -386,30 +385,11 @@ public static class SmartassRunner___HASH__
     }
 
     // ------------------------------------------------------------------ verbs
+    // Named steps an operation list cannot say (batch.VERBS, runner.VERBS): none yet (break_links went with the
+    // copy of the built file's sheets, phase 3b Task 2a).
     static object Verb(string name, object[] args)
     {
-        if (name == "break_links") return BreakLinks(args[0], (string)args[1]);
         throw new Exception("unknown verb '" + name + "'");
-    }
-
-    // Break the workbook's links whose file name is fileName (any case); its other links stay. LinkSources is read
-    // first: BreakLink needs the exact link text Excel holds.
-    static object BreakLinks(object wb, string fileName)
-    {
-        var links = Invoke(wb, "LinkSources", Get, new object[] { Links }) as Array;
-        int broke = 0;
-        if (links == null) return broke;
-        foreach (object l in links)
-        {
-            string s = Convert.ToString(l, Inv);
-            int cut = Math.Max(s.LastIndexOf('\\'), s.LastIndexOf('/'));
-            if (string.Compare(s.Substring(cut + 1), fileName, StringComparison.OrdinalIgnoreCase) == 0)
-            {
-                Invoke(wb, "BreakLink", Get, new object[] { s, Links });
-                broke++;
-            }
-        }
-        return broke;
     }
 
     // ------------------------------------------------------------------ values back

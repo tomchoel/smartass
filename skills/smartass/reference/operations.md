@@ -13,10 +13,11 @@
   in the user's Excel (session workbook, or `target="active"`). Only the engine's own Excel is ever killed or
   restarted; the PIDs it started are in `%LOCALAPPDATA%\smartass\pids.json` with the owning server.
 - **How an answer reaches Excel.** The answer's sheets are built as an .xlsx without Excel (under
-  `%LOCALAPPDATA%\smartass\tmp`, deleted when the answer is in), moved into the workbook in one copy and finished
-  there (tables, formulas, chart labels), with Excel quiet. The Excel job takes 2-3 s for an answer without a lines
-  sheet in a workbook of normal size (3.3 s at 61 sheets), 4-5 s with a lines sheet, and about 6-7 s for the first
-  answer of a new workbook (the workbook is created). A follow-up or `fin_refresh` replaces the question's `Q<n>`
+  `%LOCALAPPDATA%\smartass\tmp`, deleted when the answer is in), inserted into the workbook in one call (Excel's
+  own insert of a file's sheets: no second workbook is opened) and finished there (tables, formulas, chart labels),
+  with Excel quiet. The Excel job takes 2-3 s for an answer without a lines sheet in a workbook of normal size
+  (3.3 s at 61 sheets), 4-5 s with a lines sheet, and about 6-7 s for the first answer of a new workbook (the
+  workbook is created). A follow-up or `fin_refresh` replaces the question's `Q<n>`
   sheets and tables whole: anything typed on them goes with them, so keep your own notes on your own sheets.
   **Known limit** (to be fixed in the next phase): a formula on the user's own sheet that points at a `Q<n>` sheet
   or its table (`='Q3 Answer'!E12`, `=SUM(Data_Q3[Value])`) shows #REF! after a follow-up or refresh of that

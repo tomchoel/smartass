@@ -1,6 +1,7 @@
-"""Phase 3 Task 4: the built file's sheets moved into the user's workbook in one copy and finished there
-(xl/movein.py): the name pre-check, the hidden read-only temp workbook, the tables, the formula blocks, the chart
-label fixes, the user's settings put back, and the park / restore / drop steps of a follow-up. All on fakexl."""
+"""Phase 3 Task 4 (the insert: phase 3b Task 2a): the built file's sheets moved into the user's workbook with one
+Sheets.Add(Type:=path) and finished there (xl/movein.py): the name pre-check, the insert, the tables, the formula
+blocks, the chart label fixes, the user's settings put back, and the park / restore / drop steps of a follow-up. All
+on fakexl."""
 from __future__ import annotations
 
 import logging
@@ -12,7 +13,7 @@ import xlsxwriter
 import fakexl
 from smartass.render.xlsx import Base, BuiltFile, FormulaBlock, TableSpec
 from smartass.render.xlsx_charts import LabelFix
-from smartass.xl import jobs, movein
+from smartass.xl import jobs, movein, sheets
 from smartass.xl.host import HostError, InputError
 from smartass.xl.target import Target
 
@@ -130,25 +131,21 @@ def _moved(t, built):
 
 
 # ------------------------------------------------------------------ move_in
-def test_move_in_is_one_copy_and_five_com_calls(t, built, monkeypatch):
-    """The names checked (the defined names: one call; the rest from the book), Open, Copy, Close, the links: no
-    table look in the opened file (its zip says) and no window to hide (screen updating is off)."""
-    opened = []
-    real_open = t.app.Workbooks.Open
-    monkeypatch.setattr(t.app.Workbooks, "Open", lambda *a: opened.append(real_open(*a)) or opened[-1])
+def test_move_in_is_one_insert_and_two_com_calls(t, built, monkeypatch):
+    """The names checked (the defined names: one call; the rest from the book), then ONE Sheets.Add(Type:=path)
+    that brings every sheet of the file in: no workbook opened, nothing copied, closed or unlinked."""
     book = movein.read_book(t)
     calls = fakexl.count_com(monkeypatch)
     movein.move_in(t, built, after="Sources", book=book)
-    assert len(calls) == 5 and len(_events(t, "Copy")) == 1
+    assert len(calls) == 2 and len(_events(t, "Sheets.Add")) == 1
     assert _names(t.wb) == ["Q1 Answer", "Q1 Data", "Notes", "Sources", *SHEETS, "_svmeta"]
     assert t.sheets_added == SHEETS
-    assert t.wb.LinkSources(1) is None and t.app.Workbooks.Count == 1          # the temp file is closed
-    assert opened[0].opened_with == (0, True)                                    # no link update, read-only
-    kinds = [e[1] for e in t.app.events if e[1] in ("Window.Visible", "Copy", "Close")]
-    assert kinds == ["Copy", "Close"]
+    assert t.wb.LinkSources(1) is None and t.app.Workbooks.Count == 1
+    assert not _events(t, "Open", "Copy", "Close", "BreakLink", "Window.Visible")
+    assert _events(t, "Sheets.Add")[0][2:] == (SHEETS, str(built.path))
 
 
-def test_the_book_learns_where_the_copy_landed(t, built):
+def test_the_book_learns_where_the_insert_landed(t, built):
     book = movein.read_book(t)
     movein.move_in(t, built, after="Sources", book=book)
     assert book.names() == _names(t.wb)
@@ -168,7 +165,7 @@ def test_the_book_is_one_read_of_names_visibility_tabs_tables_and_the_active_she
     assert book.active == "Q1 Answer"
 
 
-def test_the_copied_sheets_carry_the_files_values(t, built):
+def test_the_inserted_sheets_carry_the_files_values(t, built):
     movein.move_in(t, built, after=None)
     data = t.wb.Worksheets("Q3 Data")
     assert data.Range("A4:C5").Value == (("Period", "Account", "Value"), ("Sep 26", "0047", 400.0))
@@ -176,13 +173,13 @@ def test_the_copied_sheets_carry_the_files_values(t, built):
 
 
 @pytest.mark.parametrize("after", [None, "_svmeta"])
-def test_after_a_hidden_sheet_the_copy_lands_after_the_last_visible_one(t, built, after):
+def test_after_a_hidden_sheet_the_insert_lands_after_the_last_visible_one(t, built, after):
     movein.move_in(t, built, after=after)
     assert _names(t.wb) == ["Q1 Answer", "Q1 Data", "Notes", "Sources", *SHEETS, "_svmeta"]
     assert all(t.wb.Worksheets(n).Visible == -1 for n in SHEETS)
 
 
-def test_with_no_visible_sheet_up_to_a_hidden_anchor_the_copy_goes_before_the_first_visible_one(built):
+def test_with_no_visible_sheet_up_to_a_hidden_anchor_the_insert_goes_before_the_first_visible_one(built):
     wb = fakexl.Workbook(["_svmeta", "Notes"], styles_ver=False)
     wb.Worksheets("_svmeta").Visible = 0
     wb.active = wb.Worksheets("Notes")
@@ -191,34 +188,33 @@ def test_with_no_visible_sheet_up_to_a_hidden_anchor_the_copy_goes_before_the_fi
     assert _names(wb) == ["_svmeta", *SHEETS, "Notes"]
 
 
-def test_a_link_to_a_sheet_left_behind_is_broken_and_the_users_own_links_stay(t, tmp_path):
+def test_the_users_own_links_are_left_alone(t, built):
+    """The insert leaves no link to the file (live, 20.11.2026: LinkSources empty), so no link is broken."""
     users = r"C:\Users\someone\Budget 2026.xlsx"
     t.wb.links.append(users)                                  # the user's formulas that read another workbook
-    built = _file(tmp_path / "linked.xlsx", extra="Scratch", link=True)
     movein.move_in(t, built, after=None)
-    assert [e[2] for e in _events(t, "BreakLink")] == [str(built.path)] and t.wb.LinkSources(1) == (users,)
-    assert "Scratch" not in _names(t.wb)
+    assert t.wb.LinkSources(1) == (users,) and not _events(t, "BreakLink")
 
 
-def test_first_copies_before_the_first_visible_sheet(t, built):
+def test_first_inserts_before_the_first_visible_sheet(t, built):
     t.wb.order[0].Visible = 0                            # the user hid their first sheet
     movein.move_in(t, built, None, first=True)
     assert _names(t.wb) == ["Q1 Answer", *SHEETS, "Q1 Data", "Notes", "Sources", "_svmeta"]
 
 
-def test_a_built_file_with_a_table_is_refused_before_anything_is_opened(t, tmp_path):
+def test_a_built_file_with_a_table_is_refused_before_anything_is_inserted(t, tmp_path):
     built = _file(tmp_path / "tabled.xlsx", table=True)
     before = fakexl.snapshot(t.wb)
     with pytest.raises(ValueError, match="Data_Q3") as e:
         movein.move_in(t, built, after=None)
     assert not isinstance(e.value, InputError)
     assert fakexl.snapshot(t.wb) == before and t.app.Workbooks.Count == 1 and t.sheets_added == []
-    assert not _events(t, "Open", "Copy")
+    assert not _events(t, "Open", "Copy", "Sheets.Add")
 
 
 @pytest.mark.parametrize("leftover", ["sheet:Q3 Data", "sheet:q3 answer", "table:Data_Q3",
                                       "table:Lines_Q3_b0@Other sheet"])
-def test_a_taken_name_stops_before_anything_is_copied(t, built, leftover):     # Review Focus 2
+def test_a_taken_name_stops_before_anything_is_inserted(t, built, leftover):     # Review Focus 2
     kind, _, rest = leftover.partition(":")
     name, _, sheet = rest.partition("@")
     if kind == "sheet":
@@ -231,7 +227,7 @@ def test_a_taken_name_stops_before_anything_is_copied(t, built, leftover):     #
     with pytest.raises(movein.NameTaken, match=name) as e:
         movein.move_in(t, built, after=None)
     assert isinstance(e.value, InputError) and "book.xlsx" in str(e.value) and "rename or delete" in str(e.value)
-    assert fakexl.snapshot(t.wb) == before and t.app.Workbooks.Count == 1 and t.sheets_added == []
+    assert fakexl.snapshot(t.wb) == before and t.sheets_added == [] and not _events(t, "Sheets.Add")
 
 
 def test_taken_names_every_sheet_and_table_already_there(t):
@@ -250,45 +246,25 @@ def test_taken_also_names_a_chart_sheet_and_a_defined_name_of_the_answer(t, buil
     before = fakexl.snapshot(t.wb)
     with pytest.raises(movein.NameTaken, match="the chart sheet 'q3 answer' and the name 'Data_Q3'"):
         movein.move_in(t, built, after=None)
-    assert fakexl.snapshot(t.wb) == before and not _events(t, "Open")
+    assert fakexl.snapshot(t.wb) == before and not _events(t, "Sheets.Add")
 
 
-def test_the_temp_workbook_is_closed_when_the_copy_fails(t, built, monkeypatch):
-    def refuse(self, *a):
-        raise fakexl.ComError("Copy method of Sheets class failed")
-    monkeypatch.setattr(fakexl._SheetGroup, "Copy", refuse)
+def test_an_insert_that_fails_half_way_leaves_its_names_for_the_rollback(t, built, monkeypatch):
+    """Excel may have put some of the file's sheets in before the insert failed: their names are in
+    t.sheets_added already, so the rollback removes those that are there, and the workbook is as it was."""
+    real = fakexl._Sheets.Add
+
+    def half(self, *args):
+        real(self, *args)
+        self.wb.order.remove(self("Q3 Lines b0"))           # only the first two got in
+        raise fakexl.ComError("Add method of Sheets class failed")
+    monkeypatch.setattr(fakexl._Sheets, "Add", half)
     before = fakexl.snapshot(t.wb)
-    with pytest.raises(fakexl.ComError, match="Copy method"):
+    with pytest.raises(fakexl.ComError, match="Add method"):
         movein.move_in(t, built, after=None)
-    assert t.app.Workbooks.Count == 1 and t.app.ActiveWorkbook is t.wb and fakexl.snapshot(t.wb) == before
-    assert t.sheets_added == SHEETS                     # whatever a half-done copy brought in, rollback removes
-
-
-def test_a_temp_workbook_that_does_not_close_is_handed_back_and_closed_at_the_end_of_the_job(t, built, monkeypatch):
-    real, fails = fakexl.Workbook.Close, []
-
-    def close(wb, save=None):
-        if wb is not t.wb and len(fails) < 1:
-            fails.append(wb.Name)
-            raise fakexl.ComError("the workbook is busy")
-        return real(wb, save)
-    monkeypatch.setattr(fakexl.Workbook, "Close", close)
-    left = []
-    movein.move_in(t, built, after=None, left=left)
-    assert fails == ["answer.xlsx"] and [str(p) for _, p in left] == [str(built.path)] and t.app.Workbooks.Count == 2
-    notes = movein.close_left(left)
-    assert t.app.Workbooks.Count == 1 and left == [] and len(notes) == 1
-    assert "answer.xlsx" in notes[0] and "closed at the end of the job" in notes[0]
-
-
-def test_a_temp_workbook_that_still_does_not_close_is_said(t, built, monkeypatch):
-    def close(wb, save=None):
-        raise fakexl.ComError("the workbook is busy")
-    left = []
-    monkeypatch.setattr(fakexl.Workbook, "Close", close)
-    movein.move_in(t, built, after=None, left=left)
-    notes = movein.close_left(left)
-    assert len(notes) == 1 and "could not be closed" in notes[0] and "answer.xlsx" in notes[0]
+    assert t.sheets_added == SHEETS
+    assert sheets.rollback(t) == ["Q3 Data", "Q3 Answer"]
+    assert fakexl.snapshot(t.wb) == before and t.app.Workbooks.Count == 1
 
 
 # ------------------------------------------------------------------ finish

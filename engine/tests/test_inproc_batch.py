@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from smartass.xl.inproc.batch import MISSING, Batch, Node
+from smartass.xl.inproc.batch import MISSING, VERBS, Batch, Node
 
 
 def ops(b):
@@ -175,14 +175,22 @@ def test_attempt_marks_an_operation_whose_failure_does_not_stop_the_batch():
     assert tried == [False, False, True, True, True, False]
 
 
-def test_a_verb_and_a_mark():
+def test_there_is_no_verb_yet_and_one_is_refused():
+    """The verb mechanism stays (the job as batches adds its own); break_links went with the copy (Task 2a)."""
+    assert VERBS == {}
+    with pytest.raises(ValueError, match="verb"):
+        Batch().verb("break_links", Batch().app, "smartass_build_1.xlsx")
+
+
+def test_a_verb_and_a_mark(monkeypatch):
+    monkeypatch.setitem(VERBS, "count_links", 2)
     b = Batch()
     wb = b.workbook("Book1.xlsx")
-    broke = b.verb("break_links", wb, "smartass_build_1.xlsx")
-    b.ret(broke, "broke")
+    n = b.verb("count_links", wb, "smartass_build_1.xlsx")
+    b.ret(n, "n")
     b.mark("links")
-    assert ops(b)[1:] == [{"k": "verb", "name": "break_links", "args": [{"r": 1}, "smartass_build_1.xlsx"], "as": 2},
-                          {"k": "ret", "on": 2, "name": "broke"},
+    assert ops(b)[1:] == [{"k": "verb", "name": "count_links", "args": [{"r": 1}, "smartass_build_1.xlsx"], "as": 2},
+                          {"k": "ret", "on": 2, "name": "n"},
                           {"k": "mark", "name": "links"}]
     with pytest.raises(ValueError, match="verb"):
         b.verb("no_such_verb", wb)

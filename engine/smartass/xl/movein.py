@@ -1,12 +1,13 @@
 """The built answer's sheets moved into the user's open workbook and finished there (the COM side of the file render).
 
-move_in copies every sheet of the temporary file (render/xlsx.build) in ONE Worksheets.Copy: the file is opened
-read-only (screen updating is off: its window is never painted), copied, closed, and the links the copy may leave
-to it are broken. Names are checked first: Copy would silently rename a taken 'Q5 Data' to 'Q5 Data (2)' and every
-step by name would then hit the wrong sheet (docs/audit/2026-11-19-render-map.md section 10 item 3). A sheet holding
-an Excel Table is never copied between workbooks (Excel can crash), so the file holds none (its zip is checked before
-it is opened) and finish makes the tables in the workbook, then writes the formula blocks (the formulas name the
-tables), then sets the per-point chart labels the file cannot carry (LabelFix). quiet keeps the user's Excel as it
+move_in inserts every sheet of the temporary file (render/xlsx.build) with ONE Sheets.Add(Type:=<its path>): no
+workbook is opened, nothing is copied or closed, and the insert leaves no link to the file (scripts/check_insert.py
+proved it the same as the Open + Copy + Close it replaced, live 20.11.2026). Names are checked first: the insert
+would silently rename a taken 'Q5 Data' to 'Q5 Data (2)' and every step by name would then hit the wrong sheet
+(docs/audit/2026-11-19-render-map.md section 10 item 3). A sheet holding an Excel Table is never moved between
+workbooks (Excel can crash), so the file holds none (its zip is checked before the insert) and finish makes the
+tables in the workbook, then writes the formula blocks (the formulas name the tables), then sets the per-point chart
+labels the file cannot carry (LabelFix). quiet keeps the user's Excel as it
 was found around all of this and lands on the answer when it succeeds; show lets Excel paint once in between; park /
 restore / drop rename a question's old sheets out of the way for a follow-up and delete or restore them afterwards.
 
@@ -14,7 +15,7 @@ Book is the job's picture of the workbook's sheets: read once (read_book) and ke
 rename, move or delete sheets, so none of them reads the sheets again.
 
 Every COM call goes through jobs.com (busy retry, abort check, the call count). A call that must not run twice
-(Open, Copy, ListObjects.Add, Delete) is alone in its call, as jobs.com reruns the whole call while Excel is busy;
+(Sheets.Add, ListObjects.Add, Delete) is alone in its call, as jobs.com reruns the whole call while Excel is busy;
 the other calls batch only absolute sets, so a rerun sets the same. Late-bound COM ignores keyword arguments, so
 every argument is positional (see xl/sheets.add_sheet)."""
 from __future__ import annotations
@@ -36,11 +37,11 @@ log = logging.getLogger("smartview.movein")
 MANUAL = -4135                          # xlCalculationManual
 QUIET = (("ScreenUpdating", False), ("EnableEvents", False), ("DisplayAlerts", False), ("Calculation", MANUAL))
 HIDDEN = (0, 2)                         # xlSheetHidden, xlSheetVeryHidden
-LINKS = 1                               # xlExcelLinks (LinkSources, BreakLink)
 SRC_RANGE, HAS_HEADERS = 1, 1           # xlSrcRange, xlYes (ListObjects.Add)
 TABLE_STYLE = "TableStyleLight1"
 POSITION = {"right": -4152, "above": 0, "below": 1, "left": -4131}       # xlLabelPositionRight, Above, Below, Left
 SHEET_NAME_MAX = 31
+INSERT_WAIT_S = 120                     # the insert reads the file (as Workbooks.Open did, which had this limit)
 LABEL_WAIT_S = 10                       # a label is cosmetic: a busy Excel is not waited for as long as for the rest
 STANDARD_PX = 64                        # XlsxWriter's standard column (Calibri 11), when the destination's is unknown
 DATE_SETTINGS = (16, 31, 40, 41, 42)    # 0-based Application.International: xlDateSeparator, xlDateOrder,
@@ -143,7 +144,7 @@ def show(app, wb, name: str) -> None:
 @dataclass
 class Sheet:
     name: str
-    ws: object = None                    # the COM worksheet (None for a sheet the job copied in: found by name)
+    ws: object = None                    # the COM worksheet (None for a sheet the job inserted: found by name)
     visible: int = -1                    # Worksheet.Visible: -1 visible, 0 hidden, 2 very hidden
     tab: object = None                   # Tab.Color (False: none; None: Excel would not say)
     tables: list = field(default_factory=list)      # [(table name, ListObject)]
@@ -234,8 +235,9 @@ def _taken_text(found: list[str], book: str) -> str:
 
 
 def _anchor(book: Book, after: str | None, first: bool = False) -> tuple:
-    """(Before, After) Sheets of the Book for Copy: after the sheet named after (None: the workbook's last sheet),
-    or after the last visible sheet before it when it is hidden (a copy after a hidden sheet is not verified);
+    """(Before, After) Sheets of the Book for the insert: after the sheet named after (None: the workbook's last
+    sheet), or after the last visible sheet before it when it is hidden (an insert after a hidden sheet is not
+    verified);
     before the first visible sheet when none comes before, or when first."""
     sheets = book.sheets
     if first:
@@ -260,23 +262,13 @@ def file_tables(path) -> list[str]:
         return [m.group(1).decode() if (m := _TABLE_NAME.search(z.read(n))) else n for n in parts]
 
 
-def _break_links(wb, file_name: str) -> None:
-    """Break the links the copy left to the temporary file, by its (unique) file name; the user's own links to other
-    workbooks stay."""
-    for link in wb.LinkSources(LINKS) or ():
-        if re.split(r"[\\/]", str(link))[-1].casefold() == file_name.casefold():
-            wb.BreakLink(link, LINKS)
-
-
-def move_in(t, built: BuiltFile, after: str | None, first: bool = False, book: Book | None = None,
-            left: list | None = None) -> None:
-    """Copy the built file's sheets into t.wb after the sheet named after (None: after the last sheet; first: before
-    the first visible sheet instead, where sheets.add_sheet puts a sheet when no sheet is there to follow), in one call.
-    A name of the answer already in the workbook is NameTaken and a file holding a table a ValueError, both before
-    the file is opened. The copied names are added to t.sheets_added (what a rollback deletes) just before the copy,
-    so a copy that fails half-way is rolled back too. book (else read): the workbook's sheets, told where the copy
-    landed. The temporary workbook is closed whatever happens; one that will not close is logged and handed back in
-    left as (workbook, path), for close_left at the end of the job. Only the links to it are broken. Five calls."""
+def move_in(t, built: BuiltFile, after: str | None, first: bool = False, book: Book | None = None) -> None:
+    """Insert the built file's sheets into t.wb after the sheet named after (None: after the last sheet; first:
+    before the first visible sheet instead, where sheets.add_sheet puts a sheet when no sheet is there to follow)
+    with ONE Sheets.Add(Type:=path), alone in its call. A name of the answer already in the workbook is NameTaken and
+    a file holding a table a ValueError, both before the insert. The names are added to t.sheets_added (what a
+    rollback deletes) just before it, so an insert that fails half-way is rolled back too. book (else read): the
+    workbook's sheets, told where the insert landed. Two calls (the defined names, the insert)."""
     book = book or read_book(t)
     found = taken(t.wb, built.sheets, [spec.name for spec in built.tables], book)
     if found:
@@ -284,51 +276,21 @@ def move_in(t, built: BuiltFile, after: str | None, first: bool = False, book: B
     tables = file_tables(built.path)
     if tables:
         raise ValueError(f"the built file {built.path.name} holds an Excel Table ({', '.join(tables)}): a sheet "
-                         "with a table is never copied between workbooks; the tables are made after the copy")
+                         "with a table is never moved between workbooks; the tables are made after the insert")
     before, after_sheet = _anchor(book, after, first)
     path, names = str(built.path), list(built.sheets)
-    src = jobs.com(lambda: t.app.Workbooks.Open(path, 0, True), limit=120)       # no link update, read-only
-    try:
-        t.sheets_added.extend(names)
-        if before is not None:
-            jobs.com(lambda: src.Worksheets(names).Copy(_ws(t, before)))
-        else:
-            jobs.com(lambda: src.Worksheets(names).Copy(None, _ws(t, after_sheet)))
-    finally:
-        try:
-            jobs.com(lambda: src.Close(False), limit=30, check=False)
-        except Exception as e:   # noqa: BLE001 - the answer is in; a failure on the way out stays the error
-            log.warning("could not close the temporary workbook %s: %s", path, e)
-            if left is not None:
-                left.append((src, built.path))
+    t.sheets_added.extend(names)
+    if before is not None:
+        jobs.com(lambda: t.wb.Sheets.Add(_ws(t, before), None, None, path), limit=INSERT_WAIT_S)
+    else:
+        jobs.com(lambda: t.wb.Sheets.Add(None, _ws(t, after_sheet), None, path), limit=INSERT_WAIT_S)
     k = book.sheets.index(before) if before is not None else book.sheets.index(after_sheet) + 1
     book.sheets[k:k] = [Sheet(n, None, -1, ANSWER_TAB if i == 0 else DATA_TAB) for i, n in enumerate(names)]
-    jobs.com(lambda: _break_links(t.wb, built.path.name))
 
 
 def _ws(t, sheet: Sheet):
-    """The COM worksheet of a Book sheet (one the job copied in is found by name), inside a call."""
+    """The COM worksheet of a Book sheet (one the job inserted is found by name), inside a call."""
     return sheet.ws if sheet.ws is not None else t.wb.Worksheets(sheet.name)
-
-
-def close_left(left: list) -> list[str]:
-    """The temporary workbooks move_in could not close, tried once more (and their files deleted); the warning for
-    the reply, one per workbook."""
-    notes = []
-    while left:
-        src, path = left.pop(0)
-        name = getattr(path, "name", str(path))
-        try:
-            jobs.com(lambda src=src: src.Close(False), limit=30, check=False)
-        except Exception as e:   # noqa: BLE001
-            log.warning("the temporary workbook %s still did not close: %s", path, e)
-            notes.append(f"the temporary workbook {name} could not be closed: close it without saving (it only held "
-                         "the answer's copy)")
-            continue
-        with contextlib.suppress(OSError):
-            path.unlink(missing_ok=True)
-        notes.append(f"the temporary workbook {name} did not close after the copy; it was closed at the end of the job")
-    return notes
 
 
 def _read_base(wb) -> tuple:
@@ -343,8 +305,8 @@ def _read_base(wb) -> tuple:
 def base(t) -> Base:
     """The destination's Normal font, standard sizes and date format, the base the file is built in
     (render/xlsx.Base), in one call: the first sheet's standard row height, and its last column's width in pixels
-    when that column has the standard width (else XlsxWriter's 64 px, logged: the copied widths are then off by the
-    digit widths' ratio)."""
+    when that column has the standard width (else XlsxWriter's 64 px, logged: the inserted widths are then off by
+    the digit widths' ratio)."""
     name, size, height, standard, chars, points, dates = jobs.com(lambda: _read_base(t.wb))
     col_px = round(points / 0.75)
     if chars != standard:

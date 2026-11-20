@@ -47,7 +47,7 @@ import contextlib
 import math
 
 VERSION = 1
-VERBS = {"break_links": 2}        # name -> number of arguments; each verb exists in both executors (runner.py)
+VERBS: dict[str, int] = {}        # name -> number of arguments; each verb exists in both executors (runner.py)
 INT64 = 2 ** 63
 TEXT_MAX = 40                     # a string argument longer than this is shortened in an operation's text
 
@@ -152,8 +152,7 @@ class Batch:
         self._add({"k": "mark", "name": name}, f"mark {name}")
 
     def verb(self, name: str, *args) -> Node:
-        """A named step the operation list cannot say (VERBS). break_links(wb, file_name): break the workbook's
-        links whose file name is file_name (any case); its value is the number broken."""
+        """A named step the operation list cannot say (VERBS; none yet: break_links went with the copy, Task 2a)."""
         if VERBS.get(name) != len(args):
             raise ValueError(f"no verb {name!r} with {len(args)} arguments (verbs: {VERBS})")
         vals = [self._value(a) for a in args]

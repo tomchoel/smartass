@@ -189,19 +189,6 @@ def item_copy(b, c):
     b.ret(tgt.LinkSources(1), "links")
 
 
-def item_break_links(b, c):
-    """break_links breaks the links to one file and leaves another link alone."""
-    tgt = b.workbook(c["book"])
-    for key in ("src1", "src2"):
-        src = b.app.Workbooks.Open(c[key], 0, True)
-        with b.always():
-            src.Close(False)
-        src.Worksheets(["Src A"]).Copy(MISSING, tgt.Worksheets(1))
-    b.ret(tgt.LinkSources(1), "links before")
-    b.ret(b.verb("break_links", tgt, Path(c["src1"]).name.upper()), "broke")
-    b.ret(tgt.LinkSources(1), "links after")
-
-
 def item_fails_midway(b, c):
     ws = b.workbook(c["book"]).Worksheets(1)
     ws.Range("A1").Value2 = "before"
@@ -247,7 +234,6 @@ BATTERY = [  # name, record, quiet, the user's settings before[, the values Exce
     ("every operation kind", item_operations, True, USER),
     ("number formats", item_number_formats, True, USER),
     ("copy between workbooks (MISSING, None)", item_copy, True, USER),
-    ("break_links leaves another link", item_break_links, True, USER),
     ("failing mid-batch", item_fails_midway, True,
      {"ScreenUpdating": True, "EnableEvents": False, "DisplayAlerts": True, "Calculation": MANUAL}),
     ("a try operation", item_try, True, USER),
@@ -565,7 +551,7 @@ def fixed_cost(app, raw, runs: int) -> None:
 def write_sources() -> dict:
     import openpyxl
     out = {}
-    for key in ("src1", "src2"):
+    for key in ("src1",):
         book = openpyxl.Workbook()
         a = book.active
         a.title = "Src A"

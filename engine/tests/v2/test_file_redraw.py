@@ -287,6 +287,24 @@ def test_a_failed_follow_up_leaves_the_old_answer_exactly_as_it_was(own_book, mo
     assert not _temp_files(tmp_home) and len(app.Workbooks) == 1 and wb.saved == 3
 
 
+def test_a_follow_up_whose_insert_fails_half_way_puts_the_old_answer_back(own_book, monkeypatch, tmp_home):
+    """Excel put some of the new sheets in, then the insert failed: they are removed first (rollback), then the
+    parked old sheets get their names back (restore); the workbook is exactly as it was."""
+    wb, app = own_book.wb, own_book.wb.Application
+    before = fakexl.snapshot(wb)
+    real = fakexl._Sheets.Add
+
+    def half(self, *args):
+        real(self, *args)
+        self.wb.order.remove(self("Q3 Data"))
+        raise fakexl.ComError("Add method of Sheets class failed")
+    monkeypatch.setattr(fakexl._Sheets, "Add", half)
+    with pytest.raises(fakexl.ComError, match="Add method"):
+        own_book.follow_up(_pre(), 3)
+    assert fakexl.snapshot(wb) == before and own_book.targets[-1].sheets_added == []
+    assert not _temp_files(tmp_home) and len(app.Workbooks) == 1 and wb.saved == 3
+
+
 def test_a_failed_drop_puts_the_old_sheets_back_in_their_places(own_book, monkeypatch):
     wb = own_book.wb
     order = _names(wb)

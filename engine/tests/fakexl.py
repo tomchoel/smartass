@@ -6,10 +6,13 @@ setup, names, window state) or the workbook (sheet order, names). snapshot(wb) r
 comparable form (cells with equal settings collapsed into rectangles), so a test can pin a writer's exact effect and
 prove that a batched version leaves the same workbook. count_com(monkeypatch) counts jobs.com calls.
 
-For the move-in of a built file: Application.Workbooks (Workbooks(name); Open reads an .xlsx: values, sheet
-visibility, tables; Close), wb.Worksheets([names]).Copy / .Delete as Excel does them (an omitted argument,
-pythoncom.ArgNotFound, reads as None), LinkSources / BreakLink, and Application.events: every step asked of the fake
-Excel, in order across sheets and workbooks (not part of snapshot).
+For the move-in of a built file: wb.Sheets.Add(Before, After, Count, Type:=path) inserts every sheet of an .xlsx
+(values, sheet visibility, tab colours) as Excel does it (live, 20.11.2026: a taken name becomes 'name (2)', a
+sheet with a table is refused here as between workbooks, the first new sheet is active, the active workbook stays);
+Application.Workbooks (Workbooks(name); Open reads an .xlsx the same way, plus its tables; Close),
+wb.Worksheets([names]).Copy / .Delete as Excel does them (an omitted argument, pythoncom.ArgNotFound, reads as
+None), LinkSources / BreakLink, and Application.events: every step asked of the fake Excel, in order across sheets
+and workbooks (not part of snapshot).
 """
 from __future__ import annotations
 
@@ -696,7 +699,13 @@ class _Sheets:
     def Count(self):
         return len(self.wb.order)
 
-    def Add(self, before=None, after=None):
+    def Add(self, *args, **kw):
+        """Positional (Before, After, Count, Type), as late-bound COM needs. With Type (a path): every sheet of that
+        .xlsx inserted at the anchor, in the file's order (_insert); else one new empty sheet."""
+        assert not kw, "Sheets.Add: positional arguments only"
+        before, after, _count, path = (_given(args) + (None,) * 4)[:4]
+        if path is not None:
+            return _insert(self.wb, path, before, after)
         ws = Worksheet(self.wb, f"Sheet{len(self.wb.order) + 1}")
         if after is not None:
             self.wb.order.insert(self.wb.order.index(after) + 1, ws)
@@ -762,6 +771,54 @@ class _SheetGroup:
 _VISIBLE = {"visible": -1, "hidden": 0, "veryHidden": 2}
 
 
+def _read_file(wb, path) -> list:
+    """The sheets of an .xlsx as fake Worksheets of wb (values, visibility, tab colour, tables), in the file's order."""
+    import openpyxl
+    book = openpyxl.load_workbook(path)
+    out = []
+    for src in book.worksheets:
+        ws = Worksheet(wb, src.title)
+        ws.Visible = _VISIBLE[src.sheet_state]
+        tab = src.sheet_properties.tabColor
+        if tab is not None and tab.rgb:                    # 'FF1F3864' -> BGR, as Excel reads Tab.Color
+            r, g, b = (int(tab.rgb[i:i + 2], 16) for i in (2, 4, 6))
+            ws.Tab.Color = r + (g << 8) + (b << 16)
+        for row in src.iter_rows():
+            for c in row:
+                if c.value is not None:
+                    ws.cell((c.row, c.column))["Value"] = c.value
+        for name, ref in src.tables.items():
+            lo = ListObject(ws, Range(ws, [parse_area(ref)]))
+            lo.Name = name
+            ws.ListObjects.append(lo)
+        out.append(ws)
+    return out
+
+
+def _insert(dest, path, before, after):
+    """wb.Sheets.Add(Type:=path): the file's sheets at the anchor (Before, else After, else before the active
+    sheet), a taken name as 'name (2)'; a sheet with a table is refused before anything goes in (Excel can crash
+    when such a sheet moves between workbooks). The first new sheet is the workbook's active one; the
+    application's active workbook does not change (live, 20.11.2026). Returns the first new sheet."""
+    new = _read_file(dest, path)
+    if any(s.ListObjects for s in new):
+        raise ComError("a sheet with a table inserted from a file (Excel can crash)")
+    taken = {s.Name.lower() for s in dest.order}
+    anchor = before if before is not None else after if after is not None else dest.active
+    k = dest.order.index(anchor) + (0 if after is None else 1)
+    for s in new:
+        name, i = s.Name, 2
+        while name.lower() in taken:
+            name, i = f"{s.Name} ({i})", i + 1
+        taken.add(name.lower())
+        s.Name = name
+        dest.order.insert(k, s)
+        k += 1
+    dest.active = new[0]
+    _event(new[0], "Sheets.Add", [s.Name for s in new], str(path))
+    return new[0]
+
+
 class _Workbooks(list):
     """Application.Workbooks: every open workbook; Open reads a file (values, sheet visibility, tables)."""
 
@@ -785,24 +842,10 @@ class _Workbooks(list):
     def Open(self, path, *args, **kw):
         """Positional only, as late-bound COM needs: (Filename, UpdateLinks, ReadOnly, ...)."""
         assert not kw, "Workbooks.Open: positional arguments only"
-        import openpyxl
-        book = openpyxl.load_workbook(path)
-        wb = Workbook(book.sheetnames, app=self.app, styles_ver=False)
+        wb = Workbook(("the file's sheets",), app=self.app, styles_ver=False)
+        wb.order = _read_file(wb, path)
+        wb.active = wb.order[0]
         wb.Name, wb.FullName, wb.opened_with = Path(path).name, str(path), args
-        for ws, src in zip(wb.order, book.worksheets):
-            ws.Visible = _VISIBLE[src.sheet_state]
-            tab = src.sheet_properties.tabColor
-            if tab is not None and tab.rgb:                # 'FF1F3864' -> BGR, as Excel reads Tab.Color
-                r, g, b = (int(tab.rgb[i:i + 2], 16) for i in (2, 4, 6))
-                ws.Tab.Color = r + (g << 8) + (b << 16)
-            for row in src.iter_rows():
-                for c in row:
-                    if c.value is not None:
-                        ws.cell((c.row, c.column))["Value"] = c.value
-            for name, ref in src.tables.items():
-                lo = ListObject(ws, Range(ws, [parse_area(ref)]))
-                lo.Name = name
-                ws.ListObjects.append(lo)
         _event(wb.order[0], "Open", str(path))
         return wb
 
@@ -835,6 +878,7 @@ class Workbook:
         self.Application = app or Application()
         self.order = [Worksheet(self, n) for n in names]
         self.Worksheets = _Sheets(self)
+        self.Sheets = self.Worksheets                   # the chart sheets are in Charts
         self.Names = _Names(self)
         self.Name, self.FullName = "book.xlsx", r"C:\fake\book.xlsx"
         self.links: list[str] = []                       # LinkSources(xlExcelLinks)

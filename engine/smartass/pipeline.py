@@ -1,7 +1,7 @@
 # engine/smartass/pipeline.py
 """fin_analyze in three steps. prepare(): validate, guard, fetch every grid request in parallel (HTTP, no Excel),
 compute the model. excel_job(): runs in the user's Excel (v1 host job) - target, Q<n>, the answer's sheets
-built as an .xlsx without Excel and moved into the workbook in one copy, finished there, read back, Sources, spec
+built as an .xlsx without Excel and inserted into the workbook in one call, finished there, read back, Sources, spec
 saved in _svmeta, sheet order, save our own file; redraw_job() replaces a question's sheets the same way. reply(): the
 result dict the agent quotes from (key_values only - never numbers it computed itself)."""
 from __future__ import annotations
@@ -429,7 +429,8 @@ def _lines_sheet(q: int, ls, fetched: str) -> xlsx.LinesSheet:
 
 
 def _temp_path():
-    """A new name under config.HOME / tmp (never OneDrive): move_in breaks the copy's links by the file's name."""
+    """A new name under config.HOME / tmp (never OneDrive): a file of its own for every answer (move_in inserts its
+    sheets by its path)."""
     from .core import config
     folder = config.HOME / "tmp"
     folder.mkdir(parents=True, exist_ok=True)
@@ -490,7 +491,7 @@ def _fit_text_rows(ws, plan, block: tuple) -> None:
         log.warning("could not set the page breaks %s on the Answer sheet: %s", breaks, e)
 
 
-def _file_draw(t, q: int, pre: Prepared, book, parked=None, left: list | None = None) -> dict:
+def _file_draw(t, q: int, pre: Prepared, book, parked=None) -> dict:
     """The answer's sheets built as a file (Answer look and charts, Data, Lines), moved in after the question's
     place and finished there (tables, formulas, chart labels, calculated); then the read-back, status, Key point
     heights, Sources, spec, sheet order and layout check - all of it with the user's Excel quiet, and
@@ -498,8 +499,8 @@ def _file_draw(t, q: int, pre: Prepared, book, parked=None, left: list | None = 
     charts once they are calculated; the Answer stays active. book (movein.Book): the workbook's sheets as read once
     for the job, kept up to date by every step. parked (a follow-up, movein.Parked): the new sheets go where the
     parked old ones are, and the old ones are dropped after the read-back, before Sources and the spec (a drop that
-    fails leaves both as they were). left: temporary workbooks that would not close (movein.close_left). The caller
-    owns rollback and save; the temporary file is deleted whatever happens."""
+    fails leaves both as they were). The caller owns rollback and save; the temporary file is deleted whatever
+    happens."""
     from .xl import movein, sheets
     fetched = datetime.now().astimezone()
     user = datasheet.windows_user()
@@ -521,7 +522,7 @@ def _file_draw(t, q: int, pre: Prepared, book, parked=None, left: list | None = 
         with movein.quiet(t.app, t.wb) as screen:
             with stage("move in"):
                 after, first = _place(book, q) if parked is None else _parked_place(book, parked)
-                movein.move_in(t, built, after, first, book=book, left=left)
+                movein.move_in(t, built, after, first, book=book)
                 if parked is not None:
                     _take_places(t, parked, built.sheets, book)
                 if screen.active:               # the active workbook (on screen or not) ends on its new Answer
@@ -568,7 +569,7 @@ def _parked_place(book, parked) -> tuple[str | None, bool]:
 
 def wanted_order(names: list[str], new: list[str], parked: dict[str, str]) -> list[str]:
     """The workbook's order once the parked sheets are gone, as it was before the follow-up: names (the order after
-    the copy) with each new sheet in its parked namesake's place (parked: old name -> parked name; a namesake the
+    the insert) with each new sheet in its parked namesake's place (parked: old name -> parked name; a namesake the
     new answer has no sheet for just goes), and a new sheet without one (an added lines block) right after the new
     sheet before it in new (built order). The first new sheet, the Answer, always has a namesake."""
     back = {p: n for n, p in parked.items() if n in new}
@@ -581,10 +582,10 @@ def wanted_order(names: list[str], new: list[str], parked: dict[str, str]) -> li
 
 def _take_places(t, parked, sheets: list[str], book) -> None:
     """The new sheets moved to their old namesakes' places, so the workbook's order is the one before the follow-up
-    (one copy lands them side by side; a question's sheets may not be). Only new sheets move, the fewest
+    (one insert lands them side by side; a question's sheets may not be). Only new sheets move, the fewest
     (sheetorder.plan_moves over the order without the parked sheets: a move before or after a sheet that stays is
     the same with them there): none when the old ones stood side by side. Positional Move, one call each; the Book
-    (which knows where the copy landed) gives the order and is told the new one."""
+    (which knows where the insert landed) gives the order and is told the new one."""
     from .xl import sheetorder
     from .xl.jobs import com
     names = book.names()
@@ -643,24 +644,19 @@ def _question_parts(book, q: int) -> tuple[list[str], list[str]]:
 
 def excel_job(h, pre: Prepared, target: str = "session") -> dict:
     """A new answer (_file_draw) as the next Q<n> of the target workbook. The workbook's sheets are read once. On
-    any failure the sheets it brought in are removed (they are in t.sheets_added) and the error is raised. A
-    temporary workbook that would not close is tried once more at the end (a warning says so)."""
-    from .xl import movein
+    any failure the sheets it brought in are removed (they are in t.sheets_added) and the error is raised."""
     with stage("open target"):
         t = _target(h, target, pre.spec.question[:60])
-    left: list = []
     with autosave_paused(t) as notes:
         try:
             with stage("draw"):
                 book = _book(t)
-                out = _file_draw(t, _next_q_in(book), pre, book, left=left)
+                out = _file_draw(t, _next_q_in(book), pre, book)
             with stage("save"):
                 _save(t)
         except Exception:
             _rollback(t)
             raise
-        finally:
-            notes += movein.close_left(left)
     remember(pre, out)
     return _with_notes(out, notes)
 
@@ -675,18 +671,16 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
     the ones in t.sheets_added); RestoreError only when the restore failed. A failure once the old sheets are dropped
     keeps the new answer (a rollback then would leave neither): our own file is saved and the error, of its own
     class, says the new answer is in place (the Sources rows and the spec may be missing then); so does a failing
-    save of our file, which is not tried again. A temporary workbook that would not close is tried once more at the
-    end (a warning says so)."""
+    save of our file, which is not tried again."""
     from .xl import movein
     with stage("open target"):
         t = _target(h, target, pre.spec.question[:60])
-    left: list = []
     with autosave_paused(t) as notes:
         with stage("draw"):
             book = _book(t)
             parked = movein.park(t, *_question_parts(book, q), book=book)   # all or nothing: a failed park renamed nothing
             try:
-                out = _file_draw(t, q, pre, book, parked, left)
+                out = _file_draw(t, q, pre, book, parked)
             except Exception as e:
                 if _dropped(t, parked):
                     _kept(t, e)
@@ -697,8 +691,6 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
                 except Exception as e2:   # noqa: BLE001 - the draw's error stays the cause
                     raise RestoreError(f"{e}; the restore was incomplete - {e2}") from e
                 raise
-            finally:
-                notes += movein.close_left(left)
         with stage("save"):
             try:
                 _save(t)
