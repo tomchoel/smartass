@@ -80,9 +80,11 @@
   `=SUM(Data_Q3[Value])`, cross-sheet SUMs, array formulas, chart series, defined names, also on another answer's
   sheet) survive a follow-up or `fin_refresh`: they are re-pointed at the new sheets before the old ones are dropped
   (before: #REF!). Exactly those references: never text in a string literal, a sheet whose name merely contains the
-  answer's, another workbook's. A formula Excel refuses to rewrite (a protected sheet) is a warning; a failed
-  follow-up points them back with the old answer. Not covered: conditional formats, data validation, pivot tables on
-  a `Data_Q<n>` table, linked chart titles, other workbooks; Excel's Find dialog is left with its default options.
+  answer's, another workbook's. Each write checks the formula is still what was read (a cell the user edited in
+  between is left alone and reported); a formula Excel refuses to rewrite (a protected sheet) and a protected
+  sheet with a hidden formula are warnings; a failed follow-up points them back with the old answer. Not covered:
+  conditional formats, data validation, pivot tables on a `Data_Q<n>` table, linked chart titles, sparklines, form
+  controls' links, linked shapes, other workbooks. No Range.Find is used: Excel's Find dialog keeps its options.
 - The answer lands on the new Answer whenever its workbook is the active one, also in an Excel that is not visible.
 - The Sources log's print area is `A1:N1048575` (a finite last row), so openpyxl reads our files without a warning.
 - Removed: the COM writers (`render/excel.py`'s Data/Answer writers, `render/charts.py`'s drawing,

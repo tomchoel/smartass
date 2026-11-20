@@ -27,12 +27,14 @@
   answer's sheet) is re-pointed at the new sheets before the old ones are dropped, so it shows the new answer's
   value: the same cell address, so a cell the new layout no longer has shows what is there now, or #REF! when the
   new answer has no such sheet. The reply warns about a formula Excel refused (a locked cell on a protected sheet, a
-  table column the new answer lacks) - that one shows #REF!. **Not re-pointed** (they show #REF!): conditional
-  formats, data validation lists, pivot tables built on a `Data_Q<n>` table, chart titles and labels linked to a
-  cell, and links from other workbooks. After a follow-up Excel's Find dialog has its default options (Look in
-  Formulas, whole cell off, By Rows): the search for these formulas uses Find, and Excel cannot say what they were
-  before. Nothing of the user's is saved and Excel's settings are put back; when the answer's workbook is the
-  active one it ends on the new Answer, otherwise the user's active sheet is put back.
+  table column the new answer lacks, a legacy array formula longer than 255 characters), about one the user changed
+  while the answer was drawn (each write first checks the formula is still what was read; an edited cell, or a row,
+  chart or name added in between, is left alone), and about a protected sheet with a hidden formula (it cannot be
+  read) - those show #REF!. **Not re-pointed** (they show #REF!): conditional formats, data validation lists, pivot
+  tables built on a `Data_Q<n>` table, chart titles and labels linked to a cell, sparklines, form controls'
+  linked cells and lists, shapes and text boxes linked to a cell, and links from other workbooks. Nothing of the
+  user's is saved and Excel's settings are put back; when the answer's workbook is the active one it ends on the new
+  Answer, otherwise the user's active sheet is put back.
 - **The add-in.** The first answer in an Excel builds a small Excel-DNA add-in (`smartass_run_<hash>.xll`, compiled
   with the .NET compiler that ships with Windows, under `%LOCALAPPDATA%\smartass\inproc`) and loads it into that
   Excel with `RegisterXLL`, silently, for the rest of that Excel's life; each batch of an answer's Excel work is

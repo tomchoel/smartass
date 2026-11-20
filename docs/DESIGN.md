@@ -82,15 +82,18 @@ replaces the question's sheets whole: the old ones are parked under 'old ...' na
 they were, and the old ones are dropped. Cells a user typed on a `Q<n>` sheet go with it (their own notes belong on
 their own sheets). A formula elsewhere in the workbook that points at the question's sheets or tables follows the park
 to the 'old ...' names (Excel rewrites it) and would turn #REF! with the drop: the bring-in batch finds such formulas
-(the verb `mentions`, inside Excel: per other sheet one Find per name decides whether its formulas are read at all,
-a sheet with filtered rows is read whole since Find skips them; the charts' series; the defined names), Python
-rewrites exactly the references to a parked name with a namesake in the new answer (`xl/repoint.py`: never text in
-a string literal, another workbook's sheet, or a longer name that contains it), and the close-out writes them right
-before the drop, each a write that may fail (a warning). A failure before the drop points them back first (the
-parked sheets must still be there), then the rollback and the restore. Not covered (Excel offers no exact, cheap
-way): conditional formats and data validation (their formulas come only in the user's notation and change through a
-type-specific Modify), pivot caches, linked chart titles and labels, other workbooks. Find leaves its own options as
-Excel's defaults (they cannot be read back). A failed redraw removes the new sheets and gives the old ones their
+(the verb `mentions`, inside Excel: every other sheet's used range read in chunks of at most 100 000 cells, only the
+chunks SpecialCells/Intersect finds a formula in - a protected sheet chunk by chunk, a hidden formula there makes it
+"could not be read" -, no Range.Find, which would leave its options as the Find dialog's and skips filtered rows;
+the charts' series; the defined names), Python rewrites exactly the references to a parked name with a namesake in
+the new answer (`xl/repoint.py`: never text in a string literal, another workbook's sheet, or a longer name that
+contains it), and the close-out writes them right before the drop with Calculation manual, each a compare-and-set
+inside Excel (the verb `swap`: a formula changed since the bring-in read it is left alone and reported) that may
+fail (a warning). A failure before the drop points them back first, by the same compare-and-set (the parked sheets
+must still be there), then the rollback and the restore. Not covered (Excel offers no exact, cheap way): conditional
+formats and data validation (their formulas come only in the user's separators and change through a type-specific
+Modify), pivot caches, linked chart titles and labels, sparklines, form controls' links, linked shapes, other
+workbooks. A failed redraw removes the new sheets and gives the old ones their
 names back; once the old ones
 are dropped the new answer stays and the error says so. `fin_refresh` redraws every stored v2 question; one failure
 never stops the rest.
