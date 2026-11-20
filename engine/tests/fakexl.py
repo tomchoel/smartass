@@ -14,6 +14,12 @@ Application.Workbooks (Workbooks(name); Open reads an .xlsx the same way, plus i
 wb.Worksheets([names]).Copy / .Delete as Excel does them (an omitted argument, pythoncom.ArgNotFound, reads as
 None), LinkSources / BreakLink, and Application.events: every step asked of the fake Excel, in order across sheets
 and workbooks (not part of snapshot).
+
+What Excel does to formulas when sheets and tables change (live, 20.11.2026, the probe of Task 3): renaming a sheet or
+a table rewrites every formula that names it - cells, defined names, chart series - outside string literals
+(_renamed); deleting a sheet turns a reference to it, or to a table on it, into #REF! (_deleted). Range.Find
+(LookIn formulas, part of the text, case ignored) skips the rows a filter hides, as Excel's does (Worksheet.filtered,
+FilterMode).
 """
 from __future__ import annotations
 
@@ -165,6 +171,94 @@ def _event(ws, *what) -> None:
     events = getattr(ws.wb.Application, "events", None)
     if events is not None:
         events.append((ws.Name, *what))
+
+
+# ------------------------------------------------------------------ formulas following renames and deletes
+_LITERAL = re.compile(r'("(?:[^"]|"")*")')
+_QUOTED_REF = re.compile(r"'((?:[^']|'')*)'!")
+_PLAIN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+
+def _quoted(name: str) -> str:
+    return name if _PLAIN.match(name) else "'" + name.replace("'", "''") + "'"
+
+
+def _outside_literals(text: str, fn) -> str:
+    """fn applied to the parts of a formula outside its string literals."""
+    return "".join(part if part.startswith('"') else fn(part) for part in _LITERAL.split(text))
+
+
+def _formulas(wb):
+    """(get, set) of every formula text of the workbook: cells, defined names (the workbook's and the sheets'), chart
+    series."""
+    for ws in wb.order:
+        for props in ws.cells.values():
+            v = props.get("Value")
+            if isinstance(v, str) and v.startswith("="):
+                yield (lambda p=props: p["Value"]), (lambda x, p=props: p.__setitem__("Value", x))
+        for item in ws.Names.items.values():
+            yield (lambda n=item: n.RefersTo), (lambda x, n=item: setattr(n, "RefersTo", x))
+        for co in ws.charts:
+            for s in co.Chart.series:
+                yield (lambda s=s: s.Formula), (lambda x, s=s: setattr(s, "Formula", x))
+    for item in wb.Names.items.values():
+        yield (lambda n=item: n.RefersTo), (lambda x, n=item: setattr(n, "RefersTo", x))
+
+
+def _rewrite(wb, fn) -> None:
+    for get, put in list(_formulas(wb)):
+        v = get()
+        if isinstance(v, str) and v.startswith("="):
+            new = _outside_literals(v, fn)
+            if new != v:
+                put(new)
+
+
+def _renamed_sheet(wb, old: str, new: str) -> None:
+    """As Excel: every reference to the sheet names it by its new name (quoted when it needs quotes)."""
+    def sheet(m):
+        parts = m.group(1).replace("''", "'").split(":")
+        if "[" in m.group(1) or not any(p.casefold() == old.casefold() for p in parts):
+            return m.group(0)
+        parts = [new if p.casefold() == old.casefold() else p for p in parts]
+        return "'" + ":".join(parts).replace("'", "''") + "'!"
+
+    def fn(text):
+        text = _QUOTED_REF.sub(sheet, text)
+        if _PLAIN.match(old):
+            text = re.sub(rf"(?<![\w.'!])({re.escape(old)})!", lambda m: _quoted(new) + "!", text, flags=re.I)
+        return text
+    _rewrite(wb, fn)
+
+
+def _table_word(name: str) -> str:
+    return rf"(?<![\w.\\?!\[]){re.escape(name)}(?![\w.\\?])"
+
+
+def _renamed_table(wb, old: str, new: str) -> None:
+    """As Excel: every reference to the table names it by its new name."""
+    _rewrite(wb, lambda text: re.sub(_table_word(old), new, text, flags=re.I))
+
+
+def _deleted(wb, sheets: list) -> None:
+    """As Excel: a reference to a deleted sheet becomes #REF! ('X'!E12 -> #REF!E12), a table on it #REF! with its
+    columns."""
+    names = {s.Name.casefold() for s in sheets}
+    tables = [lo.Name for s in sheets for lo in s.ListObjects]
+
+    def sheet(m):
+        parts = m.group(1).replace("''", "'").split(":")
+        return "#REF!" if "[" not in m.group(1) and any(p.casefold() in names for p in parts) else m.group(0)
+
+    def fn(text):
+        text = _QUOTED_REF.sub(sheet, text)
+        for s in sheets:
+            if _PLAIN.match(s.Name):
+                text = re.sub(rf"(?<![\w.'!]){re.escape(s.Name)}!", "#REF!", text, flags=re.I)
+        for t in tables:
+            text = re.sub(_table_word(t) + r"(\[(?:[^\[\]]|\[[^\]]*\])*\])?", "#REF!", text, flags=re.I)
+        return text
+    _rewrite(wb, fn)
 
 
 # ------------------------------------------------------------------ ranges
@@ -348,6 +442,11 @@ class Range:
             return self._get_value()
         if k == "PrefixCharacter":
             return "'" if self.rects[0][:2] in self.ws.prefixed else ""
+        if k == "HasFormula":                            # one cell: a formula, not text written with an apostrophe
+            v = self._get_value()
+            return isinstance(v, str) and v.startswith("=") and self.rects[0][:2] not in self.ws.prefixed
+        if k == "HasArray":
+            return False
         if k == "ColumnWidth":
             vals = {self.ws.colw.get(c, self.ws.StandardWidth) for _, c1, _, c2 in self.rects
                     for c in range(c1, max(c1, min(c2, CLIP_C)) + 1)}
@@ -431,6 +530,17 @@ class Range:
     def Select(self):
         self.ws.wb.selection[self.ws.Name] = ";".join(rect_text(*x) for x in self.rects)
 
+    def Find(self, what, after=None, look_in=None, look_at=None, order=None, direction=None, match_case=None,
+             match_byte=None, search_format=None):
+        """As Excel with LookIn formulas, part of the text, case ignored, by rows: the first cell whose formula or
+        constant contains what, or None; the rows a filter hides are skipped (Worksheet.filtered)."""
+        want = str(what).casefold()
+        for r, c in sorted(self.cells()):
+            v = self.ws.cells.get((r, c), {}).get("Value")
+            if r not in self.ws.filtered and v is not None and want in str(v).casefold():
+                return Range(self.ws, [(r, c, r, c)])
+        return None
+
     def AutoFit(self):
         pass
 
@@ -504,6 +614,12 @@ class ListObject:
         self.ws, self.rect, self.Name, self.TableStyle = ws, rng.rects[0], "Table1", None
         self.ShowTableStyleRowStripes = True
 
+    def __setattr__(self, k, v):
+        old = self.__dict__.get("Name")
+        super().__setattr__(k, v)
+        if k == "Name" and old is not None and old != v and self in self.ws.ListObjects:
+            _renamed_table(self.ws.wb, old, v)               # as Excel: the formulas follow the table
+
     @property
     def Range(self):
         return Range(self.ws, [self.rect])
@@ -551,12 +667,24 @@ class _ListObjects(list):
         return lo
 
 
+class _Name(SimpleNamespace):
+    """A defined name; RefersToLocal is RefersTo (the fake has no locale)."""
+
+    @property
+    def RefersToLocal(self):
+        return self.RefersTo
+
+    @RefersToLocal.setter
+    def RefersToLocal(self, v):
+        self.RefersTo = v
+
+
 class _Names:
     def __init__(self, owner):
         self.owner, self.items = owner, {}
 
     def Add(self, Name=None, RefersTo=None, Visible=True, **kw):
-        self.items[Name] = SimpleNamespace(Name=Name, RefersTo=RefersTo, Visible=Visible)
+        self.items[Name] = _Name(Name=Name, RefersTo=RefersTo, Visible=Visible)
         return self.items[Name]
 
     def __call__(self, name):
@@ -565,7 +693,9 @@ class _Names:
         return self.items[name]
 
     def Item(self, name):
-        """As Excel: a name is found without case."""
+        """As Excel: a name is found without case, or by its index."""
+        if isinstance(name, int):
+            return list(self.items.values())[name - 1]
         for key, item in self.items.items():
             if key.lower() == str(name).lower():
                 return item
@@ -577,6 +707,31 @@ class _Names:
     @property
     def Count(self):
         return len(self.items)
+
+
+class _Series(SimpleNamespace):
+    """A chart series: its formula (=SERIES(...))."""
+
+
+class _Chart:
+    def __init__(self, formulas):
+        self.series = [_Series(Formula=f) for f in formulas]
+
+    def SeriesCollection(self, i=None):
+        return list(self.series) if i is None else self.series[i - 1]
+
+
+class _ChartObjects(list):
+    """ws.ChartObjects(): chart objects (.Chart) a test adds with add(series formulas)."""
+
+    @property
+    def Count(self):
+        return len(self)
+
+    def add(self, *formulas):
+        co = SimpleNamespace(Name=f"Chart {len(self) + 1}", Chart=_Chart(formulas))
+        self.append(co)
+        return co
 
 
 class _Hyperlinks(list):
@@ -626,6 +781,21 @@ class Worksheet:
         self.prefixed: set[tuple[int, int]] = set()     # cells written with a leading apostrophe (text as text)
         self.page_breaks: list[int] | None = None       # manual page breaks: None until reset
         self.StandardHeight, self.StandardWidth, self.digit_px = 15.0, 8.43, 7     # Calibri 11, as a new workbook
+        self.charts = _ChartObjects()                   # ChartObjects(): charts with series formulas
+        self.filtered: set[int] = set()                 # rows a filter hides (Find skips them; FilterMode)
+
+    def __setattr__(self, k, v):
+        old = self.__dict__.get("Name")
+        super().__setattr__(k, v)
+        if k == "Name" and old is not None and old != v and self in self.wb.order:
+            _renamed_sheet(self.wb, old, v)               # as Excel: the formulas follow the sheet
+
+    @property
+    def FilterMode(self):
+        return bool(self.filtered)
+
+    def ChartObjects(self, i=None):
+        return self.charts if i is None else self.charts[i - 1]
 
     @property
     def Parent(self):
@@ -790,11 +960,13 @@ class _SheetGroup:
         _event(copies[0], "Copy", [s.Name for s in self.sheets])
 
     def Delete(self):
-        """As Excel: with DisplayAlerts on, a delete asks the user first (the fake refuses instead of waiting)."""
+        """As Excel: with DisplayAlerts on, a delete asks the user first (the fake refuses instead of waiting); what
+        pointed at the sheets shows #REF!."""
         if self.wb.Application.DisplayAlerts:
             raise ComError("a sheet delete with DisplayAlerts on waits for the user")
         for s in self.sheets:
             self.wb.order.remove(s)
+        _deleted(self.wb, self.sheets)
         if self.wb.active in self.sheets:
             self.wb.active = self.wb.order[0]
         _event(self.sheets[0], "Delete", [s.Name for s in self.sheets])

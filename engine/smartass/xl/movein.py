@@ -5,9 +5,11 @@ The file job's batches (pipeline._file_draw): look - the reads the build needs (
 record_base); bring in - the answer's table names checked against the workbook's defined names (record_free: a
 lookup of those names, the batch's first operation), (a follow-up: park) the insert, the moves, then finish: the
 tables, the formula blocks, the labels' position and colour (fix_labels), the calculation and the labels' lifts
-(lift_labels), and the reads the close-out needs; close out - status, heights, (a follow-up: drop), Sources, spec,
-sheet order. A function given a batch records into it; given none it builds and runs its own (read_book, base,
-move_in, finish, calculate, park, drop: the tests and scripts/check_insert.py use them so). restore and land always
+(lift_labels), the reads the close-out needs and (a follow-up) the formulas elsewhere that point at the parked
+sheets (record_mentions); close out - status, heights, (a follow-up: those formulas re-pointed at the new sheets -
+record_repoint - and the drop), Sources, spec, sheet order. A function given a batch records into it; given none it
+builds and runs its own (read_book, base, move_in, finish, calculate, park, drop: the tests and
+scripts/check_insert.py use them so). restore and land always
 run their own: they clean up after a failure, also for an abandoned job.
 
 move_in inserts every sheet of the temporary file (render/xlsx.build) with ONE Sheets.Add(Type:=<its path>): no
@@ -20,7 +22,8 @@ the answer's sheets and only those, in order (its zip is checked for both before
 tables in the workbook, then writes the formula blocks (the formulas name the tables); the per-point chart labels the
 file cannot carry (LabelFix) are positioned with the formulas and lifted once the answer is calculated (fix_labels,
 lift_labels). park / restore / drop
-rename a question's old sheets out of the way for a follow-up and delete or restore them afterwards.
+rename a question's old sheets out of the way for a follow-up and delete or restore them afterwards; record_mentions /
+record_repoint / unpoint keep the formulas elsewhere that point at them on the question (xl/repoint.py).
 
 Book is the job's picture of the workbook's sheets: read once (record_book) and kept up to date by the steps that add,
 rename, move or delete sheets, so none of them reads the sheets again. Nothing comes back from a batch as a COM object:
@@ -47,6 +50,7 @@ from .host import HostError, InputError
 from .inproc.batch import MISSING, Batch
 from .jobs import book_name
 from .inproc.runner import Result, run
+from .repoint import Repoint, plan as repoint_plan, scan_texts
 from .sheetorder import ANSWER_TAB, DATA_TAB
 
 log = logging.getLogger("smartview.movein")
@@ -603,3 +607,113 @@ def land(t, screen: Screen) -> None:
         return
     for _, _, why in res.skipped:
         log.warning("could not re-activate the sheet the job found active: %s", why)
+
+
+# ------------------------------------------------------------------ formulas that point at the question (Task 3)
+@dataclass
+class Mentions:
+    """What record_mentions found: the rewrites to make (xl/repoint.Repoint), the sheets whose formulas could not be
+    read as (sheet, why), and why the look itself failed (None: it ran)."""
+    plan: list[Repoint] = field(default_factory=list)
+    unread: list[tuple[str, str]] = field(default_factory=list)
+    failed: str | None = None
+
+
+def namesakes(parked: Parked, built: BuiltFile) -> tuple[dict[str, str], dict[str, str]]:
+    """(sheets, tables): each parked name (casefolded) -> its namesake in the new answer, spelt as the new answer has
+    it; a parked sheet or table the new answer has no namesake for is not in them (a reference to it stays, and shows
+    #REF! once it is dropped - never one to a sheet that is not there, which Excel would take for another workbook)."""
+    new_sheets = {n.casefold(): n for n in built.sheets}
+    new_tables = {spec.name.casefold(): spec.name for spec in built.tables}
+    sheets = {p.casefold(): new_sheets[o.casefold()] for o, p in parked.sheets.items() if o.casefold() in new_sheets}
+    tables = {p.casefold(): new_tables[o.casefold()] for o, p in parked.tables.items() if o.casefold() in new_tables}
+    return sheets, tables
+
+
+def record_mentions(b: Batch, wbn, parked: Parked, built: BuiltFile,
+                    key: str = "mentions") -> Callable[[Result], Mentions] | None:
+    """The formulas outside the parked and the new sheets that point at a parked sheet or table with a namesake, found
+    in b (the verb mentions: one Find per sheet and text decides whether a sheet is read) - an operation that may
+    fail: the reader then gives Mentions.failed. None (nothing recorded) when no parked name has a namesake."""
+    sheets, tables = namesakes(parked, built)
+    if not sheets and not tables:
+        return None
+    texts = scan_texts([p for p in parked.sheets.values() if p.casefold() in sheets],
+                       [p for p in parked.tables.values() if p.casefold() in tables])
+    skip = [*parked.sheets.values(), *built.sheets]
+    with b.attempt():
+        at = b.position
+        b.ret(b.verb("mentions", wbn, texts, skip), key)
+
+    def mentions(res: Result) -> Mentions:
+        rows = res.values.get(key)
+        if rows is None:
+            return Mentions(failed=next((m for i, _, m in res.skipped if i in (at, at + 1)), "not read"))
+        found, unread = repoint_plan(rows, sheets, tables, skip)
+        return Mentions(found, unread)
+    return mentions
+
+
+def _record_writes(b: Batch, wbn, plan: list[Repoint], back: bool = False) -> list[tuple[Repoint, range]]:
+    """Each formula of plan written in b - its new text, or its old one (back) - as operations that may fail; returns
+    each with the span of its operations."""
+    spans = []
+    sheets: dict[str, object] = {}
+    with b.attempt():
+        for r in plan:
+            start = b.position
+            text = r.old if back else r.new
+            if r.kind in ("cell", "array", "series"):
+                ws = sheets.get(r.where)
+                if ws is None:
+                    ws = sheets[r.where] = wbn.Worksheets(r.where)
+            if r.kind == "cell":
+                ws.Range(r.ref).Formula2 = text
+            elif r.kind == "array":
+                ws.Range(r.ref).FormulaArray = text                   # the whole legacy array
+            elif r.kind == "series":
+                i, j = (int(x) for x in r.ref.split("/"))
+                ws.ChartObjects(i).Chart.SeriesCollection(j).Formula = text
+            elif r.kind == "chart":
+                wbn.Charts(r.where).SeriesCollection(int(r.ref)).Formula = text
+            else:
+                wbn.Names.Item(int(r.ref)).RefersToLocal = text
+            spans.append((r, range(start, b.position)))
+    return spans
+
+
+def record_repoint(b: Batch, wbn, plan: list[Repoint]) -> list[tuple[Repoint, range]]:
+    """The formulas of plan re-pointed at the new answer in b (pipeline: the close-out, right before the drop), each
+    an operation that may fail (a locked cell on a protected sheet, a column the new table lacks: refused shows
+    #REF! after the drop). Returns each with the span of its operations (refused)."""
+    return _record_writes(b, wbn, plan)
+
+
+def refused(res_skipped, spans: list[tuple[Repoint, range]]) -> list[tuple[Repoint, str]]:
+    """The formulas whose write Excel refused, with its message."""
+    out = []
+    for r, span in spans:
+        why = next((m for i, _, m in res_skipped if i in span), None)
+        if why is not None:
+            out.append((r, why))
+    return out
+
+
+def unpoint(t, plan: list[Repoint]) -> list[tuple[Repoint, str]]:
+    """After a failed close-out whose re-pointing may have run, before the new sheets are removed (a formula pointing
+    at them would turn #REF! with them) and before the restore (the old texts name the parked sheets, which must still
+    be there: a formula naming a sheet that is not there is taken for another workbook's): every formula of plan gets
+    its old text back, in a quiet batch of its own (also for an abandoned job; a write of the text it has is
+    harmless). Returns those Excel refused, logged."""
+    if not plan:
+        return []
+    b = Batch(calculation=False)
+    spans = _record_writes(b, b.workbook(book_name(t)), plan, back=True)
+    try:
+        skipped = run(t.app, b, check=False).skipped
+    except Exception as e:   # noqa: BLE001 - none could be written
+        skipped = [(i, "", str(e)) for i in range(b.position)]
+    failed = refused(skipped, spans)
+    for r, why in failed:
+        log.warning("could not point %s back at the old answer: %s", r.where_text, why)
+    return failed

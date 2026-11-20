@@ -681,3 +681,214 @@ def test_a_busy_excel_inside_a_batch_is_the_busy_error_and_the_old_answer_stays(
         own_book.follow_up(_pre(), 3)
     assert str(e.value) == jobs.BUSY and isinstance(e.value.__cause__, BatchError)
     assert fakexl.snapshot(wb) == before
+
+
+# ------------------------------------------------------------------ formulas that point at the answer (Task 3)
+SUMMARY = {(1, 1): "='Q3 Answer'!E12",                       # a cell
+           (2, 1): "=SUM(Data_Q3[Value])",                    # a table
+           (3, 1): "=SUM('Q3 Data'!B2:B9)",                   # a cross-sheet SUM
+           (4, 1): "=\"'Q3 Answer'!E12\"",                    # text in a string literal: never a reference
+           (5, 1): "='Q3 Notes'!A1"}                          # the user's sheet named like a topic of Q3
+GONE = (6, 1), "='Q3 Lines b0'!A1"                            # a sheet the new answer does not have
+SERIES = "=SERIES(,,'Q3 Data'!$B$2:$B$5,1)"
+
+
+def _point_at_q3(wb):
+    """The user's formulas that point at Q3: a 'Summary' sheet of their own (cells, a chart), a cell on Q1's Answer
+    (another answer), a defined name. As Excel, the fake rewrites them when Q3's sheets are parked and turns them
+    #REF! when those are deleted."""
+    s = fakexl.Worksheet(wb, "Summary")
+    wb.order.insert(wb.order.index(wb.Worksheets("Notes")) + 1, s)
+    for rc, f in [*SUMMARY.items(), GONE]:
+        s.cells[rc] = {"Value": f}
+    s.charts.add(SERIES)
+    wb.Worksheets("Q1 Answer").cells[(40, 20)] = {"Value": "='Q3 Answer'!E12*2"}
+    wb.Names.Add("TotalQ3", "='Q3 Answer'!$E$12")
+    return s
+
+
+def _pointing(wb) -> dict:
+    s = wb.Worksheets("Summary")
+    return {"summary": {rc: s.cells[rc]["Value"] for rc in sorted(s.cells)},
+            "series": s.charts[0].Chart.series[0].Formula, "q1": wb.Worksheets("Q1 Answer").cells[(40, 20)]["Value"],
+            "name": wb.Names.items["TotalQ3"].RefersTo}
+
+
+POINTING = {"summary": {**SUMMARY, GONE[0]: GONE[1]}, "series": SERIES, "q1": "='Q3 Answer'!E12*2",
+            "name": "='Q3 Answer'!$E$12"}
+
+
+def test_formulas_elsewhere_that_point_at_the_question_point_at_the_new_answer(own_book):
+    """A follow-up parks Q3's sheets (the formulas follow the rename), brings the new ones in and drops the old ones:
+    before the drop every reference to a parked sheet or table is named as the new one again. A reference to a sheet
+    the new answer has no namesake for shows #REF! (that cell is gone), as Excel leaves it."""
+    wb = own_book.wb
+    _point_at_q3(wb)
+    out = own_book.follow_up(_pre(), 3)
+    assert _pointing(wb) == {**POINTING, "summary": {**SUMMARY, GONE[0]: "=#REF!A1"}}
+    assert not [w for w in out["warnings"] if "point" in w] and out["checks"]["sheet_equals_model"] == "OK"
+    assert wb.links == [] and not [n for n in _names(wb) if n.startswith("old ")]
+    assert not [f for f in out["layout"] if "could not run" in f]          # the layout check saw the answer's plan
+
+
+def test_a_new_answers_layout_check_sees_its_plan(own_book):
+    """The close-out's layout check gets the answer's plan also when there is nothing to re-point."""
+    out = own_book.answer(_pre())
+    assert not [f for f in out["layout"] if "could not run" in f]
+
+
+def test_six_follow_ups_in_a_row_keep_the_formulas_pointing_at_the_question(own_book):
+    """With a lines block in every new answer, a reference to the Lines sheet and its table is re-pointed too."""
+    wb = own_book.wb
+    _point_at_q3(wb)
+    wb.Worksheets("Summary").cells[(7, 1)] = {"Value": "=SUM(Lines_Q3_b0[AMOUNT])"}
+    for _ in range(6):
+        own_book.follow_up(_lines_pre(), 3)
+    assert _pointing(wb) == {**POINTING, "summary": {**POINTING["summary"], (7, 1): "=SUM(Lines_Q3_b0[AMOUNT])"}}
+
+
+def test_a_drop_refused_after_the_formulas_were_re_pointed_points_them_back(own_book, monkeypatch):
+    """The re-pointing comes right before the drop in the close-out batch; when the drop fails, the formulas are
+    pointed back at the old sheets before the new ones are removed (they would turn #REF! with them) and the old ones
+    get their names back: the workbook exactly as it was."""
+    wb = own_book.wb
+    _point_at_q3(wb)
+    before, real = fakexl.snapshot(wb), fakexl._SheetGroup.Delete
+
+    def refuse(group):
+        if group.sheets[0].Name.startswith("old "):
+            raise fakexl.ComError("the delete was refused")
+        real(group)
+    monkeypatch.setattr(fakexl._SheetGroup, "Delete", refuse)
+    with pytest.raises(BatchError, match="refused"):
+        own_book.follow_up(_pre(), 3)
+    assert fakexl.snapshot(wb) == before and _pointing(wb) == POINTING and wb.links == []
+
+
+def test_a_drop_that_deletes_and_then_fails_keeps_the_formulas_on_the_new_answer(own_book, monkeypatch):
+    wb, real = own_book.wb, fakexl._SheetGroup.Delete
+    _point_at_q3(wb)
+
+    def delete(group):
+        real(group)
+        raise fakexl.ComError("the Delete went through and then failed")
+    monkeypatch.setattr(fakexl._SheetGroup, "Delete", delete)
+    with pytest.raises(BatchError, match="then failed"):
+        own_book.follow_up(_pre(), 3)
+    assert _pointing(wb) == {**POINTING, "summary": {**SUMMARY, GONE[0]: "=#REF!A1"}}
+
+
+def _close_out_batch(b) -> bool:
+    """The batch that drops the parked sheets (Worksheets([old names]).Delete()), not the rollback's."""
+    return any(op.get("name") == "Worksheets" and isinstance(op.get("args", [None])[0], dict)
+               and str(op["args"][0].get("list", [""])[0]).startswith("old ") for op in b.to_dict()["ops"])
+
+
+@pytest.mark.parametrize("ran", [True, False])
+def test_a_close_out_whose_outcome_is_unknown_is_told_by_the_workbook(own_book, monkeypatch, ran):
+    """The add-in took the close-out and gave no result: the workbook says whether the drop went through - then the
+    new answer stays with the formulas on it, else they are pointed back and the old answer is restored."""
+    wb = own_book.wb
+    _point_at_q3(wb)
+    before, real = fakexl.snapshot(wb), runner.run
+
+    def run(app, b, *a, **k):
+        if _close_out_batch(b):
+            if ran:
+                real(app, b, *a, **k)
+            raise BatchError(None, "the batch in Excel", "the batch's outcome is unknown: test", where="inproc")
+        return real(app, b, *a, **k)
+    monkeypatch.setattr(runner, "run", run)
+    with pytest.raises(BatchError, match="unknown"):
+        own_book.follow_up(_pre(), 3)
+    if ran:
+        assert _pointing(wb) == {**POINTING, "summary": {**SUMMARY, GONE[0]: "=#REF!A1"}}
+        assert "Q3 Answer" in _names(wb) and not [n for n in _names(wb) if n.startswith("old ")]
+    else:
+        assert fakexl.snapshot(wb) == before and _pointing(wb) == POINTING
+
+
+def test_a_job_abandoned_between_the_re_pointing_and_the_drop_points_the_formulas_back(own_book, monkeypatch):
+    """Over COM an abandoned job stops at its next operation: here after the first formula was re-pointed, before the
+    drop. The clean-up (for the abandoned job too) points it back before the new sheets go."""
+    from smartass.xl import jobs
+    wb = own_book.wb
+    _point_at_q3(wb)
+    before = fakexl.snapshot(wb)
+    token = jobs.JobToken()
+    jobs.bind_job(token)
+    real = fakexl.Range.__setattr__
+
+    def setattr_(self, k, v):
+        real(self, k, v)
+        if self.ws.Name == "Summary" and k == "Formula2":
+            token.aborted = True
+    monkeypatch.setattr(fakexl.Range, "__setattr__", setattr_)
+    try:
+        with pytest.raises(jobs.JobAborted):
+            own_book.follow_up(_pre(), 3)
+    finally:
+        jobs.bind_job()
+    assert fakexl.snapshot(wb) == before and _pointing(wb) == POINTING
+
+
+def test_a_close_out_that_fails_before_the_re_pointing_needs_no_pointing_back(own_book, monkeypatch):
+    wb = own_book.wb
+    _point_at_q3(wb)
+    before, back = fakexl.snapshot(wb), []
+    monkeypatch.setattr(movein, "unpoint", lambda t, plan: back.append(plan))
+    real = pipeline._fit_text_rows
+
+    def fit_(ws, plan, block, b):
+        b.app.Workbooks("No such book.xlsx").Activate()             # fails before the re-pointing and the drop
+        return real(ws, plan, block, b)
+    monkeypatch.setattr(pipeline, "_fit_text_rows", fit_)
+    with pytest.raises(BatchError):
+        own_book.follow_up(_pre(), 3)
+    assert back == [] and fakexl.snapshot(wb) == before and _pointing(wb) == POINTING
+
+
+def test_a_formula_excel_refuses_to_re_point_is_said_and_the_rest_goes_on(own_book, monkeypatch):
+    """A locked cell on a protected sheet, or a column the new table lacks: Excel refuses the write; the drop goes on,
+    that formula shows #REF! and the reply says where."""
+    wb = own_book.wb
+    _point_at_q3(wb)
+    real = fakexl.Range.__setattr__
+
+    def setattr_(self, k, v):
+        if self.ws.Name == "Summary" and k == "Formula2" and self.rects[0][:2] == (2, 1):
+            raise fakexl.ComError("the cell is protected")
+        real(self, k, v)
+    monkeypatch.setattr(fakexl.Range, "__setattr__", setattr_)
+    out = own_book.follow_up(_pre(), 3)
+    got = _pointing(wb)
+    assert got["summary"][(2, 1)] == "=SUM(#REF!)" and got["summary"][(1, 1)] == SUMMARY[(1, 1)]
+    note = [w for w in out["warnings"] if "Summary!A2" in w]
+    assert len(note) == 1 and "protected" in note[0] and "#REF!" in note[0] and "Q3" in note[0]
+
+
+def test_a_look_for_the_formulas_that_fails_is_said_and_the_answer_is_drawn(own_book, monkeypatch):
+    wb = own_book.wb
+    _point_at_q3(wb)
+
+    def refuse(*a):
+        raise fakexl.ComError("the workbook could not be searched")
+    monkeypatch.setitem(runner.VERBS, "mentions", refuse)
+    out = own_book.follow_up(_pre(), 3)
+    assert _pointing(wb)["summary"][(1, 1)] == "=#REF!E12" and out["checks"]["sheet_equals_model"] == "OK"
+    assert [w for w in out["warnings"] if "could not be searched" in w and "Q3" in w and "#REF!" in w]
+
+
+def test_a_sheet_whose_formulas_cannot_be_read_is_said(own_book, monkeypatch):
+    wb = own_book.wb
+    _point_at_q3(wb)
+    real = fakexl.Range.__getattr__
+
+    def get(self, k):
+        if k == "Formula2" and self.ws.Name == "Summary" and len(self.cells()) > 1:
+            raise fakexl.ComError("the formulas are hidden")
+        return real(self, k)
+    monkeypatch.setattr(fakexl.Range, "__getattr__", get)
+    out = own_book.follow_up(_pre(), 3)
+    assert [w for w in out["warnings"] if "'Summary'" in w and "hidden" in w and "#REF!" in w]
+    assert _pointing(wb)["q1"] == POINTING["q1"]                  # the other sheets are re-pointed

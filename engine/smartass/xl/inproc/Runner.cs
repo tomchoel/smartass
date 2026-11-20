@@ -390,13 +390,184 @@ public static class SmartassRunner___HASH__
 
     // ------------------------------------------------------------------ verbs
     // Named steps an operation list cannot say (batch.VERBS, runner.VERBS; batch.py's module docstring says what
-    // each does): each, the one loop a batch has; nudge; exist.
+    // each does): each, the one loop a batch has; nudge; exist; mentions.
     static object Verb(string name, object[] args)
     {
         if (name == "each" && args.Length == 2) return Each(args[0], args[1] as object[]);
         if (name == "nudge" && args.Length == 4) return Nudge(args[0], Convert.ToString(args[1], Inv), args[2], args[3]);
         if (name == "exist" && args.Length == 3) return Exist(args[0], args[1] as object[], args[2]);
+        if (name == "mentions" && args.Length == 3) return Mentions(args[0], args[1] as object[], args[2] as object[]);
         throw new Exception("unknown verb '" + name + "'");
+    }
+
+    // mentions(workbook, texts, skip): every formula of the workbook outside the skipped sheets that mentions one of
+    // the texts (case ignored), as rows [kind, where, ref, formula] (batch.py's module docstring; runner._mentions):
+    // per worksheet its cells (read only when a Find finds a text or a filter hides rows), its charts' series; then
+    // the chart sheets' series and the defined names. In-process nothing is busy: an item that cannot be read is
+    // left out, a sheet whose cells cannot be read is an "unread" row.
+    static readonly object[] FindTail = { -4123, 2, 1, 1, false, false, false };    // as runner.FIND
+
+    static object Mentions(object workbook, object[] texts, object[] skip)
+    {
+        if (texts == null || skip == null) throw new Exception("mentions: the texts and the sheets to skip are lists");
+        var want = new string[texts.Length];
+        for (int i = 0; i < texts.Length; i++) want[i] = Convert.ToString(texts[i], Inv);
+        var skipped = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (object s in skip) skipped.Add(Convert.ToString(s, Inv));
+        var rows = new List<object>();
+        object sheets = Invoke(workbook, "Worksheets", Get, new object[0]);
+        int n = Count(sheets);
+        for (int i = 1; i <= n; i++)
+        {
+            object ws = Invoke(sheets, "Item", Get, new object[] { i });
+            string name = Convert.ToString(Invoke(ws, "Name", Get, new object[0]), Inv);
+            if (skipped.Contains(name)) continue;
+            try { MentionsInCells(ws, name, want, rows); }
+            catch (Exception e) { rows.Add(new object[] { "unread", name, "", Message(e) }); }
+            object charts;
+            int m;
+            try
+            {
+                charts = Invoke(ws, "ChartObjects", Get, new object[0]);
+                m = Count(charts);
+            }
+            catch (Exception) { continue; }
+            for (int c = 1; c <= m; c++)
+            {
+                object chart;
+                try { chart = Invoke(Invoke(charts, "Item", Get, new object[] { c }), "Chart", Get, new object[0]); }
+                catch (Exception) { continue; }
+                MentionsInSeries(chart, "series", name, c.ToString(Inv) + "/", want, rows);
+            }
+        }
+        object chartSheets = Invoke(workbook, "Charts", Get, new object[0]);
+        int k = Count(chartSheets);
+        for (int i = 1; i <= k; i++)
+        {
+            object chart;
+            string name;
+            try
+            {
+                chart = Invoke(chartSheets, "Item", Get, new object[] { i });
+                name = Convert.ToString(Invoke(chart, "Name", Get, new object[0]), Inv);
+            }
+            catch (Exception) { continue; }
+            MentionsInSeries(chart, "chart", name, "", want, rows);
+        }
+        object names = Invoke(workbook, "Names", Get, new object[0]);
+        int count = Count(names);
+        for (int j = 1; j <= count; j++)
+        {
+            try
+            {
+                object item = Invoke(names, "Item", Get, new object[] { j });
+                object formula = Invoke(item, "RefersToLocal", BindingFlags.GetProperty, new object[0]);
+                if (!Says(formula as string, want)) continue;     // the name's own Name only for one that mentions
+                object nm = Invoke(item, "Name", BindingFlags.GetProperty, new object[0]);
+                rows.Add(new object[] { "name", Convert.ToString(nm, Inv), j.ToString(Inv), formula });
+            }
+            catch (Exception) { }
+        }
+        return rows.ToArray();
+    }
+
+    static int Count(object collection)
+    {
+        return Convert.ToInt32(Invoke(collection, "Count", Get, new object[0]), Inv);
+    }
+
+    static bool Says(string text, string[] want)
+    {
+        if (text == null) return false;
+        foreach (string t in want)
+            if (text.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+        return false;
+    }
+
+    static string Column(int c)
+    {
+        string s = "";
+        for (; c > 0; c = (c - 1) / 26) s = (char)('A' + (c - 1) % 26) + s;
+        return s;
+    }
+
+    static string Area(int row, int col, int rows, int cols)
+    {
+        string first = Column(col) + row.ToString(Inv);
+        if (rows == 1 && cols == 1) return first;
+        return first + ":" + Column(col + cols - 1) + (row + rows - 1).ToString(Inv);
+    }
+
+    static int Int(object obj, string name)
+    {
+        return Convert.ToInt32(Invoke(obj, name, Get, new object[0]), Inv);
+    }
+
+    static void MentionsInCells(object ws, string name, string[] want, List<object> rows)
+    {
+        object used = Invoke(ws, "UsedRange", Get, new object[0]);
+        bool read = Equals(Invoke(ws, "FilterMode", Get, new object[0]), true);
+        for (int t = 0; t < want.Length && !read; t++)
+        {
+            var args = new object[2 + FindTail.Length];
+            args[0] = want[t];
+            args[1] = Type.Missing;
+            FindTail.CopyTo(args, 2);
+            read = Invoke(used, "Find", Get, args) != null;
+        }
+        if (!read) return;
+        object grid = Invoke(used, "Formula2", Get, new object[0]);
+        int r0 = Int(used, "Row"), c0 = Int(used, "Column");
+        var a = grid as Array;
+        int h = a == null ? 1 : a.GetLength(0), w = a == null ? 1 : a.GetLength(1);
+        var arrays = new HashSet<string>();
+        for (int i = 0; i < h; i++)
+        {
+            for (int j = 0; j < w; j++)
+            {
+                object v = a == null ? grid : a.GetValue(a.GetLowerBound(0) + i, a.GetLowerBound(1) + j);
+                var text = v as string;
+                if (!Says(text, want)) continue;
+                object cell = Invoke(ws, "Cells", Get, new object[] { r0 + i, c0 + j });
+                if (!Equals(Invoke(cell, "HasFormula", Get, new object[0]), true)) continue;   // text, not a formula
+                if (Equals(Invoke(cell, "HasArray", Get, new object[0]), true))
+                {
+                    object arr = Invoke(cell, "CurrentArray", Get, new object[0]);
+                    string reference = Area(Int(arr, "Row"), Int(arr, "Column"),
+                                            Int(Invoke(arr, "Rows", Get, new object[0]), "Count"),
+                                            Int(Invoke(arr, "Columns", Get, new object[0]), "Count"));
+                    if (arrays.Add(reference))
+                        rows.Add(new object[] { "array", name, reference,
+                                                Invoke(arr, "FormulaArray", Get, new object[0]) });
+                }
+                else rows.Add(new object[] { "cell", name, Area(r0 + i, c0 + j, 1, 1), text });
+            }
+        }
+    }
+
+    static void MentionsInSeries(object chart, string kind, string where, string prefix, string[] want,
+                                 List<object> rows)
+    {
+        object series;
+        int n;
+        try
+        {
+            series = Invoke(chart, "SeriesCollection", Get, new object[0]);
+            n = Count(series);
+        }
+        catch (Exception) { return; }
+        for (int j = 1; j <= n; j++)
+        {
+            object formula;
+            try
+            {
+                object item = Invoke(series, "Item", Get, new object[] { j });
+                formula = Invoke(item, "Formula", BindingFlags.GetProperty, new object[0]);
+            }
+            catch (Exception) { continue; }
+            if (Says(formula as string, want))
+                rows.Add(new object[] { kind, where, prefix + j.ToString(Inv), formula });
+        }
     }
 
     // exist(collection, keys, refuse): the items' own names of the keys that name an item of the collection

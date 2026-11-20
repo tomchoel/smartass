@@ -604,8 +604,10 @@ class _Job:
     name - the workbook's name; look; parked (a follow-up: the plan of its old sheets' names); paused - the look
     switched AutoSave off; moved - the move-in batch ran, in part or whole (the user's sheet is landed on again after a
     failure); inserted / dropped - whether the new sheets came in and the old ones went (None: unknown, the workbook
-    says); setups - (sheet, key) of a print setup whose name the save batch adds; notes - for the reply, or the
-    error's text when the job fails (final review M2)."""
+    says); mentions / repointed - a follow-up's formulas elsewhere that point at its sheets, and whether the
+    close-out re-pointed them (None: unknown; a failure before the drop points them back); setups - (sheet, key) of
+    a print setup whose name the save batch adds; notes - for the reply, or the error's text when the job fails
+    (final review M2); pointing - what the re-pointing could not do, for the reply's warnings."""
     t: object
     q: int | None = None
     name: str = ""
@@ -616,8 +618,11 @@ class _Job:
     inserted: bool | None = False
     dropped: bool | None = False
     built: object = None
+    mentions: object = None                     # a follow-up's formulas elsewhere to re-point (movein.Mentions)
+    repointed: bool | None = False              # the close-out re-pointed them (None: unknown - pointed back)
     setups: list = field(default_factory=list)
     notes: list = field(default_factory=list)
+    pointing: list = field(default_factory=list)    # what the re-pointing could not do, for the reply's warnings
 
     @staticmethod
     def after(e: BaseException, at: int) -> bool | None:
@@ -729,10 +734,11 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
     half-drawn window in the owner's Excel): (a follow-up: the old sheets parked), the file's sheets inserted, moved
     to their old places (a follow-up), then the tables, the formula blocks, the labels' position and colour, the
     calculation, the labels' lifts, the reads the close-out needs (the read-back block, the status cells, the chart
-    count, the Sources log), the Answer active (in the active workbook); quiet with Calculation manual (it writes the
-    formulas). Its time is booked as the stages 'move in' and 'finish' (split at the last move-in mark), then one
-    paint. Returns (block, (status, ties), chart count, the log or None). A failure: inserted is decided by the
-    insert's index, as a separate move-in did."""
+    count, the Sources log, a follow-up's formulas elsewhere that point at the parked sheets: movein.record_mentions),
+    the Answer active (in the active workbook); quiet with Calculation manual (it writes the formulas). Its time is
+    booked as the stages 'move in' and 'finish' (split at the last move-in mark), then one paint. Returns (block,
+    (status, ties), chart count, the log or None). A failure: inserted is decided by the insert's index, as a
+    separate move-in did."""
     from .xl import movein, sources
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import run
@@ -765,6 +771,7 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
         log_ = sources.log_of(look.kind, book.names(), f"Q{q} Data")
         with b.attempt():                               # the log is provenance: unreadable, it is a warning
             read_log = sources.record_read(b, wbn, log_)
+    mentions = movein.record_mentions(b, wbn, parked, built) if parked is not None else None
     if look.screen.active:                              # the active workbook (on screen or not) shows its new Answer
         with b.attempt():
             answer.Activate()
@@ -781,6 +788,9 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
         job.inserted = job.after(e, at)
         raise
     job.inserted = True
+    if mentions is not None:
+        job.mentions = mentions(res)
+        job.pointing += _mentions_notes(q, job.mentions)
     _note_marks(res, ("move in.", "finish."), split, time.perf_counter() - t0 - res.ms / 1000)
     movein.label_skips(res, labels)
     _paint(look)
@@ -795,9 +805,10 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
 
 def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple, mismatches: list[str],
                book) -> tuple:
-    """The close-out batch: status, the Key point heights and page breaks, a follow-up's old
-    sheets dropped, the Sources rows, the spec, the sheet order, the Answer active; then what it could not do as
-    warnings (labels and breaks logged) and the layout check over the finish's reads. Returns (the Sources warning,
+    """The close-out batch: status, the Key point heights and page breaks, a follow-up's formulas elsewhere re-pointed
+    at the new sheets (each a write that may fail) right before its old sheets are dropped, the Sources rows, the
+    spec, the sheet order, the Answer active; then what it could not do as warnings (labels and breaks logged) and
+    the layout check over the finish's reads. Returns (the Sources warning,
     the order warning, the layout findings)."""
     from .xl import movein, sheets, sources
     from .xl.inproc.batch import Batch
@@ -812,9 +823,12 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     write_status(ws, plan, mismatches)
     breaks = _fit_text_rows(ws, plan, block, b)
     b.mark("status, heights")
+    rewrites = job.mentions.plan if job.mentions is not None else []
+    spans = movein.record_repoint(b, wbn, rewrites) if job.parked is not None and rewrites else []
+    point_at = spans[0][1].start if spans else None
     drop_at = movein.drop(t, job.parked, book, b) if job.parked is not None else None
     if drop_at is not None:
-        b.mark("drop")
+        b.mark("re-point, drop" if spans else "drop")
     recorded = _write_sources(t, q, pre, b, wbn, log_, header, stamp, status, ties, look, book)
     b.mark("sources")
     if _save_spec(t, q, pre.raw, b, look.spec_rows):
@@ -831,8 +845,11 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     except BaseException as e:
         job.dropped = False if drop_at is None else None if getattr(e, "index", None) == drop_at else job.after(
             e, drop_at)
+        job.repointed = False if point_at is None else job.after(e, point_at)
         raise
     job.dropped = drop_at is not None
+    job.repointed = point_at is not None
+    job.pointing += _refused_notes(q, movein.refused(res.skipped, spans), "point", "at the new")
     _note_marks(res, ("",))
     _refused_breaks(t, answer, breaks, res)
     logged = _sources_warning(pre, recorded, res)
@@ -856,11 +873,11 @@ def _file_draw(job, pre: Prepared) -> dict:
     first - a new answer's number comes from the look - then a follow-up's old sheets parked; the insert, the moves,
     tables, formula blocks, labels, calculation and the reads the close-out needs; quiet with Calculation manual),
     then one pause for Excel to paint the new answer when the workbook is on screen; close out (status, Key point
-    heights and page breaks, a follow-up's old sheets dropped, Sources, spec, sheet order, the Answer active; quiet,
-    Calculation left alone). Each quiet batch puts the user's settings back itself. job: _Job
-    (q None: a new answer, the next Q<n>; else a follow-up of Q<q>, whose sheets are parked, replaced and dropped
-    after the read-back, before Sources and the spec). The caller owns rollback, restore and save; the temporary
-    file is deleted whatever happens."""
+    heights and page breaks, a follow-up's formulas elsewhere re-pointed at the new sheets and its old sheets
+    dropped, Sources, spec, sheet order, the Answer active; quiet, Calculation left alone). Each quiet batch puts the
+    user's settings back itself. job: _Job (q None: a new answer, the next Q<n>; else a follow-up of Q<q>, whose
+    sheets are parked, replaced and dropped after the read-back, before Sources and the spec). The caller owns
+    rollback, restore and save; the temporary file is deleted whatever happens."""
     from .xl import jobs, movein
     t = job.t
     job.name = jobs.book_name(t)
@@ -894,7 +911,8 @@ def _file_draw(job, pre: Prepared) -> dict:
     finally:
         _drop_file(path)
     return reply(pre, q, str(t.path), list(built.sheets), mismatches,
-                 built.chart_lint + [w for w in (logged, arranged) if w], layout=found, charts=built.charts)
+                 built.chart_lint + [w for w in (logged, arranged) if w] + job.pointing, layout=found,
+                 charts=built.charts)
 
 
 def _parked_place(book, parked) -> tuple[str | None, bool]:
@@ -971,6 +989,38 @@ def _kept(t, e: BaseException, save: bool = True) -> None:
         e.args = (*e.args, note.lstrip("; "))
 
 
+def _mentions_notes(q: int, found) -> list[str]:
+    """What the look for the formulas pointing at Q<q> could not do, as warnings."""
+    if found.failed is not None:
+        return [f"could not look for formulas elsewhere in the workbook that point at Q{q} ({found.failed}): any such "
+                "formula shows #REF! now"]
+    return [f"could not read the formulas on sheet '{sheet}' ({why}): a formula there that pointed at Q{q} shows "
+            "#REF! now" for sheet, why in found.unread]
+
+
+POINTED_MAX = 10                        # formulas named in one warning
+
+
+def _refused_notes(q: int, failed: list, verb: str, which: str) -> list[str]:
+    """The formulas Excel refused to point at the new (or back at the old) Q<q>, as one warning."""
+    if not failed:
+        return []
+    where = [r.where_text for r, _ in failed]
+    more = f" and {len(where) - POINTED_MAX} more" if len(where) > POINTED_MAX else ""
+    return [f"could not {verb} {len(where)} formula(s) {which} Q{q} ({failed[0][1]}): "
+            f"{', '.join(where[:POINTED_MAX])}{more} show #REF!"]
+
+
+def _point_back(job) -> None:
+    """A follow-up that failed before its old sheets were dropped, once the close-out may have re-pointed the formulas
+    elsewhere: they get their old texts back (movein.unpoint) while the parked sheets are still there; what Excel
+    refused is a note of the error."""
+    from .xl import movein
+    if job.repointed is False or job.mentions is None or not job.mentions.plan:
+        return
+    job.notes += _refused_notes(job.q, movein.unpoint(job.t, job.mentions.plan), "point", "back at the old")
+
+
 def _question_parts(book, q: int) -> tuple[list[str], list[str]]:
     """(sheets, tables) a follow-up replaces, from the Book: 'Q<q> Answer' and 'Q<q> Data' (always named, so park
     refuses a missing one by its name), every 'Q<q> Lines b<i>' present, and the answer's tables on those sheets
@@ -1016,15 +1066,19 @@ def _raise(job, e: BaseException):
 def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
     """A follow-up or refresh: the sheets of Q<q> (Answer, Data, every Lines b<i>) and their tables are parked under
     'old ...' names, the new answer is drawn by _file_draw where they were, and the old ones are dropped; the Sources
-    log gets its new rows and _svmeta's row for Q<q> is rewritten. A drawn range an earlier version stored with the
-    spec is not used: the sheets are replaced whole. A missing Answer or Data sheet is an InputError naming it,
-    before anything is renamed. On a failure the new sheets are removed first (rollback; not when the insert never
-    ran: their names were still the old sheets'), then the old ones get their names back (restore; never a rollback
-    after it, as the old names are then the ones in t.sheets_added); RestoreError only when the restore failed. A
-    failure once the old sheets are dropped keeps the new answer (a rollback then would leave neither): our own file
-    is saved and the error, of its own class, says the new answer is in place (the Sources rows and the spec may be
-    missing then); so does a failing save of our file, which is not tried again. After any failure the sheet the job
-    found active is active again and AutoSave back on in our own file; the job's notes end the error's text."""
+    log gets its new rows and _svmeta's row for Q<q> is rewritten. A formula elsewhere in the workbook that points at
+    them - a cell, a legacy array, a chart series, a defined name, also on another answer's sheet - is re-pointed at
+    the new sheets right before the drop (movein.record_mentions / record_repoint); what Excel refused is a warning.
+    A drawn range an earlier version stored with the spec is not used: the sheets are replaced whole. A missing
+    Answer or Data sheet is an InputError naming it, before anything is renamed. On a failure the re-pointed formulas
+    are pointed back first (when the close-out may have re-pointed them), then the new sheets are removed (rollback;
+    not when the insert never ran: their names were still the old sheets'), then the old ones get their names back
+    (restore; never a rollback after it, as the old names are then the ones in t.sheets_added); RestoreError only
+    when the restore failed. A failure once the old sheets are dropped keeps the new answer (a rollback then would
+    leave neither): our own file is saved and the error, of its own class, says the new answer is in place (the
+    Sources rows and the spec may be missing then); so does a failing save of our file, which is not tried again.
+    After any failure the sheet the job found active is active again and AutoSave back on in our own file; the job's
+    notes end the error's text."""
     from .xl import movein
     with stage("open target"):
         t = _target(h, target, pre.spec.question[:60])
@@ -1039,6 +1093,7 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
                                                or (job.dropped is None and _dropped(t, job.parked))):
                     _kept(t, e)
                 else:
+                    _point_back(job)                    # before the rollback: the new sheets take them along
                     job.not_inserted()
                     _rollback(t)
                     if job.moved:                       # the park may have run: the old names go back

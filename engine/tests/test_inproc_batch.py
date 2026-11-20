@@ -190,8 +190,9 @@ def test_each_is_a_verb_and_another_is_refused():
 def test_the_verbs_arguments_are_checked_when_recorded():
     """Review I1: each takes a non-empty list of names (the executors disagreed on a text for paths); nudge a property
     name, a number, None or a number; exist a non-empty list of texts and True or False. Task 2c review Minor 6: each
-    has no prefixes any more (nothing used them once the names were looked up)."""
-    assert VERBS == {"each": 2, "nudge": 4, "exist": 3}
+    has no prefixes any more (nothing used them once the names were looked up). Task 3: mentions a non-empty list of
+    texts to look for and one of the sheets to skip."""
+    assert VERBS == {"each": 2, "nudge": 4, "exist": 3, "mentions": 3}
     b = Batch()
     wss = b.workbook("Book1.xlsx").Worksheets
     for paths in ("Name", [], ["Name", ""]):
@@ -205,9 +206,14 @@ def test_the_verbs_arguments_are_checked_when_recorded():
     for keys, refuse in (("Data_Q1", False), ([], False), (["Data_Q1", ""], False), (["Data_Q1"], None)):
         with pytest.raises(ValueError, match="exist"):
             b.verb("exist", wss, keys, refuse)
+    for texts, skip in (("old Q1 ", ["Q1 Answer"]), ([], ["Q1 Answer"]), (["old Q1 "], []), (["old Q1 ", ""], ["x"]),
+                        (["old Q1 "], "Q1 Answer")):
+        with pytest.raises(ValueError, match="mentions"):
+            b.verb("mentions", b.workbook("Book1.xlsx"), texts, skip)
     b.verb("each", wss, ["Name"])
     b.verb("nudge", wss, "Top", -10.0, 10.0)
     b.verb("exist", wss, ["Data_Q1"], True)
+    b.verb("mentions", b.workbook("Book1.xlsx"), ["old Q1 ", "Data_Q1_old"], ["old Q1 Answer", "Q1 Answer"])
 
 
 def test_a_quiet_batch_may_leave_calculation_alone():

@@ -72,6 +72,8 @@ UNBOUND = "no object {}: the operation that makes it failed or did not run"
 NOT_A_VALUE = "a COM object cannot be asked back"
 NOT_A_DATE = "a date cannot be asked back (read Value2)"
 TAKEN = "taken: "                        # how the verb exist's refusal ends: the names, ", " between
+FIND = (-4123, 2, 1, 1, False, False, False)   # the verb mentions' Range.Find after What and After: LookIn xlFormulas,
+                                               # LookAt xlPart, xlByRows, xlNext, MatchCase, MatchByte, SearchFormat
 METHOD_OR_GET = pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET
 
 
@@ -724,5 +726,105 @@ def _named(collection, key):
     return None
 
 
-VERBS: dict = {"each": _each, "nudge": _nudge, "exist": _exist}    # name -> function(*args); both executors have
-                                                                   # each one (batch.VERBS, Runner.cs Verb)
+def _col(c: int) -> str:
+    s = ""
+    while c:
+        c, r = divmod(c - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _area(row: int, col: int, rows: int = 1, cols: int = 1) -> str:
+    """An A1 address without $ ("B5", "D1:D3")."""
+    first = f"{_col(col)}{row}"
+    return first if rows == cols == 1 else f"{first}:{_col(col + cols - 1)}{row + rows - 1}"
+
+
+def _readable(e: BaseException) -> None:
+    """A busy Excel goes on up (the verb is run again as a whole); anything else is the item's own failure."""
+    if is_busy(e):
+        raise e
+
+
+def _mentions(workbook, texts, skip):
+    """The verb mentions (batch.py's module docstring): every formula of the workbook outside the skipped sheets that
+    mentions one of the texts, as rows [kind, where, ref, formula]."""
+    want = [str(t).casefold() for t in texts]
+    skipped = {str(s).casefold() for s in skip}
+    rows: list = []
+
+    def says(v) -> bool:
+        return isinstance(v, str) and any(t in v.casefold() for t in want)
+    for ws in workbook.Worksheets:
+        name = str(ws.Name)
+        if name.casefold() in skipped:
+            continue
+        try:
+            _cells(ws, name, texts, says, rows)
+        except Exception as e:   # noqa: BLE001 - the sheet's formulas cannot be read: said, the rest goes on
+            _readable(e)
+            rows.append(["unread", name, "", _message(e)])
+        try:
+            charts = list(_call(ws, "ChartObjects", []))
+        except Exception as e:   # noqa: BLE001
+            _readable(e)
+            charts = []
+        for i, co in enumerate(charts, 1):
+            _series(co.Chart, "series", name, f"{i}/", says, rows)
+    for chart in workbook.Charts:
+        _series(chart, "chart", str(chart.Name), "", says, rows)
+    for k, item in enumerate(workbook.Names, 1):
+        try:
+            formula = item.RefersToLocal
+            if says(formula):                             # the name's own Name only for one that mentions a text
+                rows.append(["name", str(item.Name), str(k), formula])
+        except Exception as e:   # noqa: BLE001 - unreadable: left out
+            _readable(e)
+    return rows
+
+
+def _cells(ws, name: str, texts, says, rows: list) -> None:
+    """mentions on one worksheet's cells: read only when a Find finds a text or a filter hides rows."""
+    used = ws.UsedRange
+    if not ws.FilterMode and not any(_call(used, "Find", [t, OMITTED, *FIND]) is not None for t in texts):
+        return
+    grid, r0, c0 = used.Formula2, int(used.Row), int(used.Column)
+    if not isinstance(grid, tuple):
+        grid = ((grid,),)
+    arrays: set[str] = set()
+    for i, line in enumerate(grid):
+        for j, v in enumerate(line):
+            if not says(v):
+                continue
+            cell = _call(ws, "Cells", [r0 + i, c0 + j])
+            if not cell.HasFormula:                       # text written with an apostrophe reads like a formula
+                continue
+            if cell.HasArray:
+                arr = cell.CurrentArray
+                ref = _area(int(arr.Row), int(arr.Column), int(arr.Rows.Count), int(arr.Columns.Count))
+                if ref not in arrays:
+                    arrays.add(ref)
+                    rows.append(["array", name, ref, str(arr.FormulaArray)])
+            else:
+                rows.append(["cell", name, _area(r0 + i, c0 + j), v])
+
+
+def _series(chart, kind: str, where: str, prefix: str, says, rows: list) -> None:
+    """mentions on one chart's series: those whose formula mentions a text (one that cannot be read is left out)."""
+    try:
+        series = list(_call(chart, "SeriesCollection", []))
+    except Exception as e:   # noqa: BLE001
+        _readable(e)
+        return
+    for j, s in enumerate(series, 1):
+        try:
+            formula = s.Formula
+        except Exception as e:   # noqa: BLE001
+            _readable(e)
+            continue
+        if says(formula):
+            rows.append([kind, where, f"{prefix}{j}", formula])
+
+
+# name -> function(*args); both executors have each one (batch.VERBS, Runner.cs Verb)
+VERBS: dict = {"each": _each, "nudge": _nudge, "exist": _exist, "mentions": _mentions}

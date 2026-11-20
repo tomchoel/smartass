@@ -62,6 +62,19 @@ The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs
         With refuse True a key that is there fails the operation instead, its message ending in "taken: " and those
         names (", " between), so a batch stops there before it changes anything. A busy Excel is not taken for a
         missing key.
+    mentions(workbook, texts, skip): every formula of the workbook that mentions one of the texts (case ignored), as
+        rows [kind, where, ref, formula], for a follow-up's re-pointing (xl/repoint.py). Per worksheet not in skip,
+        in order: its cells - read only when one Find on the used range per text finds one (LookIn formulas, LookAt
+        part, by rows, case ignored: Excel's own defaults; Find keeps the options it is given as the Find dialog's,
+        and the user's own cannot be read to be put back), or when the sheet has filtered rows (FilterMode: Find
+        skips them); then the used range's Formula2 is read once and each
+        cell that holds a real formula (HasFormula) and mentions a text is a row ["cell", sheet, "B5", Formula2], or
+        for a legacy array once ["array", sheet, "D1:D3", FormulaArray]; a sheet whose formulas cannot be read
+        (a protected sheet with hidden formulas) is ["unread", sheet, "", Excel's message]. Then its charts'
+        series: ["series", sheet, "i/j", Formula] (ChartObjects(i), SeriesCollection(j)). Then every chart sheet's
+        series ["chart", chart sheet, "j", Formula], and every defined name ["name", Name, "k", RefersToLocal]
+        (Names.Item(k); the user's notation, which is what a write of RefersToLocal reads). A series or name that
+        cannot be read is left out; a busy Excel is not swallowed.
 
 quiet=True turns ScreenUpdating, EnableEvents and DisplayAlerts off and Calculation to manual (each put back after
 the batch); with calculation=False Calculation is left alone - only a batch that writes formulas needs manual
@@ -73,8 +86,8 @@ import contextlib
 import math
 
 VERSION = 1
-VERBS: dict[str, int] = {"each": 2, "nudge": 4, "exist": 3}    # name -> number of arguments; both executors have
-                                                               # each one (runner.py, Runner.cs)
+# name -> number of arguments; both executors have each one (runner.py, Runner.cs)
+VERBS: dict[str, int] = {"each": 2, "nudge": 4, "exist": 3, "mentions": 3}
 INT64 = 2 ** 63
 TEXT_MAX = 40                     # a string argument longer than this is shortened in an operation's text
 
@@ -325,6 +338,10 @@ def _check_verb(name: str, args: tuple) -> None:
         _, keys, refuse = args
         if not _texts(keys) or not isinstance(refuse, bool):
             raise ValueError("exist: the keys are a non-empty list of texts, refuse True or False")
+    elif name == "mentions":
+        _, texts, skip = args
+        if not _texts(texts) or not _texts(skip):
+            raise ValueError("mentions: the texts to look for and the sheets to skip are non-empty lists of texts")
 
 
 def _scalar(v):
