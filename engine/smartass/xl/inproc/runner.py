@@ -10,7 +10,9 @@ macro gone registers once more. Anything that keeps it from loading or answering
 compiler, a compile error, RegisterXLL False or failing, a wrong ping) means the COM executor for that Excel process,
 with one warning. A batch falls back to the COM executor only when nothing of it ran: the job file is still there,
 or the add-in's result says it failed before its first operation. Once the add-in has taken the job, a failure is a
-BatchError and the batch is never run again (see _run_inproc for how "nothing ran" is told).
+BatchError and the batch is never run again (see _run_inproc for how "nothing ran" is told). While the add-in's save
+after the reply runs (later.py) it answers "busy: ..." having read nothing: the Run is asked again as for a busy
+Excel (asked).
 
 The COM executor (execute) interprets the batch's plain data over the COM objects, inside one jobs.com. A busy Excel
 is waited for on the rejected operation only (a rejected call did not run), never by running the batch again. A call
@@ -67,6 +69,8 @@ REGISTER_LIMIT_S = 60                   # a RegisterXLL that has not returned by
 LOCK_WAIT_S = 10                        # a batch waits this long for another job's load of the add-in, then COM
 LEFTOVER_S = 600                        # job / result files older than this are leftovers of a crash: removed
 NOT_RUN = "not run: "                   # the add-in's answer when it read, deleted and ran nothing
+BUSY = "busy: "                         # ... while its save after the reply runs (later.py): nothing read or run yet
+BUSY_POLL_S = 0.05                      # how soon a Run the add-in answered BUSY is asked again
 OMITTED = pythoncom.ArgNotFound         # MISSING: sent as DISP_E_PARAMNOTFOUND, as C#'s Type.Missing
 UNBOUND = "no object {}: the operation that makes it failed or did not run"
 NOT_A_VALUE = "a COM object cannot be asked back"
@@ -337,6 +341,10 @@ class _Excel:
     def ping_macro(self) -> str:
         return f"SmartassPing_{self.hash}"
 
+    @property
+    def later_macro(self) -> str:
+        return f"SmartassSaveLater_{self.hash}"
+
 
 _EXCELS: dict[tuple, _Excel] = {}       # (pid, process start time) -> _Excel
 _EXCELS_LOCK = threading.Lock()
@@ -516,7 +524,7 @@ def _run_inproc(app, ex: _Excel, job: dict, limit: float, check: bool = True) ->
             return None
         for again in (False, True):
             try:
-                got = jobs.com(lambda: app.Run(ex.run_macro, str(path)), limit=limit, check=check)
+                got = asked(lambda: app.Run(ex.run_macro, str(path)), limit, check)
             except HostError:
                 raise                                   # busy (the Run was rejected: nothing ran) or abandoned
             except Exception as e:   # noqa: BLE001 - did the add-in get the job? Its file says
@@ -566,6 +574,21 @@ def _run_inproc(app, ex: _Excel, job: dict, limit: float, check: bool = True) ->
                 p.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def asked(call, limit: float, check: bool = True):
+    """call() - an Application.Run of the add-in - through jobs.com, asked again every BUSY_POLL_S while the add-in
+    answers BUSY: its save after the reply is running (Excel answers calls in the middle of a save of a OneDrive
+    file, live 20.11.2026, so the add-in refuses them itself, having read and run nothing), as jobs.com asks a busy
+    Excel again; HostError(jobs.BUSY) once limit has passed."""
+    end = time.monotonic() + limit
+    while True:
+        got = jobs.com(call, limit=max(end - time.monotonic(), 0.0), check=check)
+        if not (isinstance(got, str) and got.startswith(BUSY)):
+            return got
+        if time.monotonic() >= end:
+            raise HostError(jobs.BUSY)
+        time.sleep(BUSY_POLL_S)
 
 
 def _parse(record: str) -> dict:

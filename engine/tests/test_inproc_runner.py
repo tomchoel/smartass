@@ -926,6 +926,32 @@ def test_a_failure_of_the_add_in_before_its_first_operation_runs_the_batch_over_
     assert wb.Worksheets("S").cells[(1, 1)]["Value"] == "com"
 
 
+def test_a_run_the_add_in_answers_busy_while_its_save_runs_is_asked_again_and_runs_once(inproc, monkeypatch):
+    """Phase 3c Task 2: Excel answers calls in the middle of a save (live, a OneDrive file, 20.11.2026), so the add-in
+    refuses a batch while its save after the reply runs - nothing read, deleted or run - and the batch is asked again
+    as a busy Excel is; past the limit it is the busy Excel's HostError, and nothing ran."""
+    monkeypatch.setattr(runner, "BUSY_POLL_S", 0.001)
+    app, wb = excel_book()
+    runner.run(app, Batch())
+    answers = ["busy: the save after the reply is running"] * 2
+
+    def busy_then_run(path):
+        if answers:
+            assert path.exists()
+            return answers.pop()
+        app.fail_run = None
+        return app.Run(f"SmartassRun_{HASH}", str(path))
+    app.fail_run = busy_then_run
+    b = Batch()
+    b.workbook("book.xlsx").Worksheets("S").Range("A1").Value2 = "once"
+    assert runner.run(app, b).where == "inproc"
+    assert [ev for ev in app.events if ev[1] == "Value2"] == [("S", "Value2", "A1")]
+    app.fail_run = lambda path: "busy: the save after the reply is running"
+    with pytest.raises(HostError, match="busy"):
+        runner.run(app, Batch(), limit=0.01)
+    assert list((config.INPROC_DIR / "jobs").iterdir()) == []
+
+
 def test_a_batch_the_add_in_took_is_never_run_again(inproc):
     app, wb = excel_book()
     ran = []

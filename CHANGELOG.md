@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### The save happens after the reply
+
+- With the add-in, the answer's own file is no longer saved inside the job (0.4-1.1 s of every answer in the owner's
+  Excel): the job's save step asks the add-in, in one `Application.Run` of a few ms, to save it, and the reply goes
+  out. The add-in waits `SV_SAVE_DELAY` (0.3 s) on a timer of its own so Excel paints the answer first, then saves
+  as a queued macro (`ExcelAsyncUtil.QueueAsMacro`) and switches AutoSave back on (also after a failed save), and
+  writes the outcome - no figures: the workbook's name, ok or Excel's error, the seconds - to
+  `inproc\saved\<Excel's pid>.json`. Live in a visible Excel of our own (20.11.2026): with the delay the answer's
+  last picture change came 0.07-0.35 s before the save started and nothing changed during or after it; with no
+  delay (the control) the save started at once and the answer's last changes were painted only after it.
+- A follow-up that comes before that save ran has it run first, at the start of its first batch (never between its
+  batches, never twice); one that comes while it runs waits as for a busy Excel. Excel answers calls in the middle
+  of a save of a OneDrive file, so the add-in answers "busy" to a batch while its save runs and the batch is asked
+  again (live: one in four batches sent 30 ms into a save got that answer; none ran during a save).
+- The next answer in that Excel reads the outcome once: its seconds go to its run-log line as `previous save`; a
+  failed save is a warning in that reply ("the save of <file> after the last answer failed (...); it is saved now")
+  and that answer saves in the job, also that workbook when it is another one; a workbook closed before its save is
+  said ("Excel asks whether to save it when it closes" - observed: Excel's own "Save your changes to this file?"
+  dialog, and the waiting save does not run while it is shown). `fin_status` shows the last outcome
+  (`save_after_reply`).
+- Over COM (no add-in) and with `SV_SAVE=sync` the job saves before it replies, as before; a follow-up that fails
+  once its old sheets are gone still saves our file in the job. The user's own workbook is never saved.
+- `bench_answers.py` adds "saved after s" (the save's own seconds) beside the Excel job the user waits for;
+  `check_followups.py` waits for each step's saves before it reads `Workbook.Saved` or the file and prints their
+  seconds; `check_insert.py --parts newbook` waits for them too; `check_inproc.py` checks the save after the reply
+  (53 checks).
+
 ### The first answer of a new workbook is its built file
 
 - A question that starts a new workbook no longer has Excel create one from the TN template and save it as a new

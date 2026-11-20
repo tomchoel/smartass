@@ -394,7 +394,8 @@ async def fin_critic(q: int | None = None, scores: list[int] | None = None, note
 @_register(kit.ADMIN)
 async def fin_status(restart: bool = False) -> dict:
     """Health: version, atlas age, knowledge build (metrics, facts, drafts awaiting approval), where answer files go,
-    and the doctor checks (config, Excel, Smart View, VBA access, EPM, drill browser, atlas, knowledge, output
+    the last save Excel did after a reply (save_after_reply: workbook, ok, error, seconds, when; and how many are still
+    to come), and the doctor checks (config, Excel, Smart View, VBA access, EPM, drill browser, atlas, knowledge, output
     folder, HTTP API, update; only problems listed).
     restart=True after repeated errors or to load new code: the relay starts a fresh server process (its hidden
     Excel closes); run without the relay, only this server's own Excel is closed (it restarts on the next pull).
@@ -418,8 +419,10 @@ async def fin_status(restart: bool = False) -> dict:
     kn = summary(config.KNOWLEDGE_DB)
     refresh = due(config.HOME, config.KNOWLEDGE_DB)
     from .ops import doctor
+    from .xl.inproc import later
     checks = await asyncio.to_thread(doctor.run)         # network checks (EPM 5 s, HTTP 2 s) off the event loop
     return {**out, "behind_relay": bool(os.environ.get("SVKIT_PROXY")), "analyser": str(config.ANALYSER_DIR),
+            "save_after_reply": later.status(),
             "atlas": {"oldest_age_days": st["oldest_age_days"], "stale": st["stale"],
                       "dimensions_built": len(st["built"])},
             "metrics": kn.get("metrics", 0),

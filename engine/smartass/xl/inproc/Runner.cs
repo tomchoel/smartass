@@ -3,7 +3,8 @@
 // and the jobs folder in place of __JOBS__. SmartassRun is a function, not a command, because its result is its
 // return value (a command returns nothing); it refuses a cell caller and any path but a job file of that folder.
 // C# 5 (the .NET Framework compiler that ships with Windows); the batch format is described in batch.py, the result
-// record in runner.py, and the COM executor there does the same over COM from Python.
+// record in runner.py, and the COM executor there does the same over COM from Python. SmartassSaveLater saves our own
+// analysis file after the reply (xl/inproc/later.py says how and why).
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -34,6 +35,12 @@ public static class SmartassRunner___HASH__
     static readonly object[] QuietValues = { false, false, false, -4135 };
     const BindingFlags Get = BindingFlags.GetProperty | BindingFlags.InvokeMethod;
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+    static readonly Regex Token = new Regex(@"^[0-9a-f]{32}\z");
+    const int DelayMaxMs = 10000;
+    static Pending pending;                                    // the save asked for and not run yet (Excel's thread)
+    static bool saving;                                        // that save is running: Excel answers calls meanwhile
+    const string Busy = "busy: the save after the reply is running";
+    static System.Threading.Timer timer;                       // rooted here: a timer nothing holds can be collected
 
     [ExcelFunction(Name = "SmartassPing___HASH__", IsHidden = true)]
     public static object Ping()
@@ -53,6 +60,8 @@ public static class SmartassRunner___HASH__
     public static object Run(string jobPath)
     {
         if (FromCell()) return ExcelError.ExcelErrorNA;
+        if (saving) return Busy;                                 // called in the middle of the save: asked again
+        SaveNow("before a batch");                               // a save still waiting runs first: never mid-job
         string refused = Refusal(jobPath);
         if (refused != null) return NotRun + "refused: " + refused;
         string text;
@@ -74,6 +83,145 @@ public static class SmartassRunner___HASH__
         }
         if (File.Exists(jobPath)) return NotRun + "the job file could not be deleted";
         return Execute(jobPath, text);
+    }
+
+    // ------------------------------------------------------------------ the save after the reply (xl/inproc/later.py)
+    class Pending
+    {
+        public string Workbook, Token;
+        public bool AutoSave;
+        public double Queued;
+    }
+
+    // Asks for our own workbook to be saved once Excel has painted the answer: the save runs delayMs (at most
+    // DelayMaxMs) from now, as a macro when Excel is ready (ExcelAsyncUtil.QueueAsMacro), or at the start of the next
+    // batch's Run if that comes first, or of the next SaveLater; then AutoSave goes back on when autosave is True (also
+    // after a failed save) and the outcome is written to saved\<this Excel's pid>.json beside the jobs folder. A save
+    // still waiting runs first. Excel answers calls in the middle of a save (a OneDrive file, live 20.11.2026): while
+    // it runs, Run and SaveLater answer Busy having done nothing, and the caller asks again (runner.asked). Returns
+    // "queued", Busy, or "not run: ..." for a refused request; never throws.
+    [ExcelFunction(Name = "SmartassSaveLater___HASH__", IsMacroType = true, IsHidden = true)]
+    public static object SaveLater(string workbook, bool autosave, string token, double delayMs)
+    {
+        if (FromCell()) return ExcelError.ExcelErrorNA;
+        if (saving) return Busy;
+        if (string.IsNullOrEmpty(workbook)) return NotRun + "refused: no workbook";
+        if (token == null || !Token.IsMatch(token)) return NotRun + "refused: not a token";
+        try
+        {
+            SaveNow("before the next");
+            var p = new Pending();
+            p.Workbook = workbook; p.Token = token; p.AutoSave = autosave; p.Queued = Now();
+            pending = p;
+            int delay = (int)Math.Max(0, Math.Min(double.IsNaN(delayMs) ? 0 : delayMs, DelayMaxMs));
+            var old = timer;
+            timer = new System.Threading.Timer(Fire, p, delay, System.Threading.Timeout.Infinite);
+            if (old != null) old.Dispose();
+            return "queued";
+        }
+        catch (Exception e)
+        {
+            pending = null;
+            return NotRun + e.Message;
+        }
+    }
+
+    // The timer (a pool thread): the save queued as a macro; it runs only if it is still the one waiting.
+    static void Fire(object state)
+    {
+        var p = (Pending)state;
+        try
+        {
+            ExcelAsyncUtil.QueueAsMacro(delegate
+            {
+                try { if (pending == p) SaveNow("after the reply"); }
+                catch (Exception) { }
+            });
+        }
+        catch (Exception) { }                                     // Excel is closing: it asks about the workbook
+    }
+
+    // The save waiting, if any, run now on Excel's thread; never throws. how: where it ran (for the outcome).
+    static void SaveNow(string how)
+    {
+        var p = pending;
+        if (p == null || saving) return;
+        pending = null;
+        saving = true;
+        double started = Now(), seconds = 0, switched = 0;
+        var sw = Stopwatch.StartNew();
+        string error = null, autosaveError = null;
+        bool closed = false;
+        try
+        {
+            object books = Invoke(ExcelDnaUtil.Application, "Workbooks", Get, new object[0]);
+            object wb = null;
+            try { wb = Invoke(books, "Item", Get, new object[] { p.Workbook }); }
+            catch (Exception e) { closed = true; error = Message(e); }
+            if (wb != null)
+            {
+                try { Invoke(wb, "Save", Get, new object[0]); }
+                catch (Exception e) { error = Message(e); }
+                seconds = sw.Elapsed.TotalSeconds;
+                if (p.AutoSave)
+                {
+                    try { Invoke(wb, "AutoSaveOn", BindingFlags.SetProperty, new object[] { true }); }
+                    catch (Exception e) { autosaveError = Message(e); }
+                    switched = sw.Elapsed.TotalSeconds - seconds;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            if (error == null) error = Message(e);
+        }
+        finally
+        {
+            saving = false;
+        }
+        if (seconds == 0) seconds = sw.Elapsed.TotalSeconds;
+        try { WriteOutcome(p, how, error, autosaveError, closed, started, seconds, switched); }
+        catch (Exception) { }
+    }
+
+    static double Now()
+    {
+        return (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+    }
+
+    // The outcome, no figure in it: saved\<pid>.json beside the jobs folder, written whole (a temporary file renamed).
+    static void WriteOutcome(Pending p, string how, string error, string autosaveError, bool closed, double started,
+                             double seconds, double switched)
+    {
+        var sb = new StringBuilder();
+        sb.Append("{\"token\":"); Str(sb, p.Token);
+        sb.Append(",\"workbook\":"); Str(sb, p.Workbook);
+        sb.Append(",\"ok\":").Append(error == null ? "true" : "false");
+        sb.Append(",\"error\":"); Write(sb, error);
+        sb.Append(",\"closed\":").Append(closed ? "true" : "false");
+        sb.Append(",\"autosave\":").Append(p.AutoSave ? "true" : "false");
+        sb.Append(",\"autosave_error\":"); Write(sb, autosaveError);
+        sb.Append(",\"how\":"); Str(sb, how);
+        sb.Append(",\"queued\":"); Write(sb, p.Queued);
+        sb.Append(",\"started\":"); Write(sb, started);
+        sb.Append(",\"seconds\":"); Write(sb, seconds);
+        sb.Append(",\"switched\":"); Write(sb, switched);
+        sb.Append("}");
+        string folder = Path.Combine(Path.GetDirectoryName(JobsFolder), "saved");
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, Process.GetCurrentProcess().Id.ToString(Inv) + ".json");
+        string tmp = path + "." + p.Token + ".tmp";
+        File.WriteAllText(tmp, sb.ToString(), new UTF8Encoding(false));
+        try
+        {
+            if (File.Exists(path)) File.Replace(tmp, path, null);
+            else File.Move(tmp, path);
+        }
+        catch (Exception)
+        {
+            try { if (File.Exists(path)) File.Delete(path); File.Move(tmp, path); }
+            catch (Exception) { try { File.Delete(tmp); } catch (Exception) { } }
+        }
     }
 
     static bool FromCell()

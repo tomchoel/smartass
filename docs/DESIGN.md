@@ -63,7 +63,11 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    cells; the Answer active);
    **close out** (the 'Sheet = model' status (`render/readback.py`), Key point heights and page breaks, a
    follow-up's old sheets dropped, the Sources log (`xl/sources.py`), the spec in hidden `_svmeta`, sheet order
-   (`xl/sheetorder.py`)); then the save (our files only, AutoSave back on). Every quiet batch puts the user's
+   (`xl/sheetorder.py`)); then the save (our files only, AutoSave back on): with the add-in Excel does it right
+   after the reply (`xl/inproc/later.py`: one Run asks for it; the add-in waits `SV_SAVE_DELAY`, 0.3 s, so the
+   answer is painted, then saves as a queued macro and writes an outcome the next job reads; a batch that comes
+   first runs it first, one that comes while it runs is answered "busy" and asked again; a failed one is a note of
+   the next reply, which saves in the job), over COM or with `SV_SAVE=sync` in the job. Every quiet batch puts the user's
    settings back itself; Calculation is set to manual only where formulas are written - the bring-in, a close-out
    that re-points formulas elsewhere, and the point-back after a failure - since putting automatic back recalculates
    what is dirty in every open workbook; after the bring-in the job pauses once (`SV_PAINT_PAUSE`, 0.15 s) so Excel

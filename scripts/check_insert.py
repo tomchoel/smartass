@@ -46,8 +46,8 @@ provider.
    the TN template, label, SaveAs, the insert, the Sources log furnished over COM) against one whose built file is
    the workbook (Excel only opens it), each followed by a second answer with a Lines sheet and a follow-up, through
    the add-in, today's way twice (the noise); compared item by item, the expected differences named (EXPECTED_NEW),
-   the files the jobs saved labelled; and a built new workbook whose finish fails is closed unsaved and its file
-   deleted.
+   the files the jobs saved labelled (each job's save after the reply waited for: xl/inproc/later.py); and a built
+   new workbook whose finish fails is closed unsaved and its file deleted.
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 
 Prints OK / DIFF per item (never a cell value: addresses and property names only); exit 0 only when all are OK.
@@ -92,7 +92,7 @@ from smartass.render import xlsx  # noqa: E402
 from smartass.render.layout import ChartSpec  # noqa: E402
 from smartass.xl import fastcom, jobs, movein  # noqa: E402
 from smartass.xl.hostproc import windows_of  # noqa: E402
-from smartass.xl.inproc import runner  # noqa: E402
+from smartass.xl.inproc import later, runner  # noqa: E402
 from smartass.xl.inproc.batch import MISSING, Batch  # noqa: E402
 from smartass.xl.sheetorder import ANSWER_TAB, DATA_TAB  # noqa: E402
 from smartass.xl.target import Target  # noqa: E402
@@ -1258,6 +1258,11 @@ def _new_books(xl: Excel, seams: dict, questions: list, scenario: str) -> dict:
                                       int(sum(v for k, v in timings.items() if k.startswith(BATCH_PREFIX)
                                               and "." not in k[len(BATCH_PREFIX):])),
                                       sorted(set(out.get("warnings") or []) | set(out.get("layout") or [])))
+        saves = later.wait(60)                            # (Task 2) Excel's saves after the replies (SV_SAVE=sync: none)
+        check(f"{scenario} ({side}): every save after a reply went through",
+              (bool(saves) and all(s["ok"] for s in saves)) if config.SAVE == "later" else not saves,
+              f"{len(saves)} saves, {[s.get('how') for s in saves]}; failed: "
+              f"{[s.get('error') for s in saves if not s['ok']]}")
         t = holder["t"]
         books[side], files[side] = t.wb, Path(t.path)
         check(f"{scenario} ({side}): {'its built file is the workbook' if build else 'made from the template'}",

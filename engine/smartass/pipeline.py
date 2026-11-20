@@ -271,43 +271,98 @@ def _is_ours(t) -> bool:
 
 AUTOSAVE_NOTE = ("AutoSave was switched off in {} so the answer is not saved for you; save yourself or switch it back "
                  "on.")
+SAVE_FAILED = "the save of {} after the last answer failed ({})"
+SAVE_CLOSED = ("{} was closed before smartass saved it after the last answer (Excel asks whether to save it when it "
+               "closes)")
+SAVED_NOW = "; it is saved now"
 
 
 def _save(job) -> None:
-    """The save batch (not quiet: Excel saves with the user's settings): the print setup's name of a new Sources log
-    (once its setup went through), then our own analysis file saved - never the user's workbook - and AutoSave back
-    on in it when the look switched it off (a log line when Excel refuses). The user's workbook keeps AutoSave off,
-    with a note (AutoSave would otherwise save our edits into their file; v1 does the same). AutoSave stays off while
-    the job writes: left on, it wrote our file during the job's batches over COM (live, 20.11.2026,
-    scripts/check_followups.py --settle 10 with SV_INPROC=0: a write 1.75 s before the save batch; in-process the
-    file was written only by the save). No batch at all when there is nothing to do (the user's workbook, no new log): a finished answer is
-    never put at risk by a batch that does nothing. A failing save raises with AutoSave still off: the caller's
-    clean-up turns it on after its rollback, as before."""
-    from .xl import styling
-    from .xl.inproc.batch import Batch
-    from .xl.inproc.runner import run
+    """The save step (not quiet: Excel saves with the user's settings). Our own analysis file - never the user's
+    workbook - is saved by Excel itself right after the reply when the add-in is in that Excel (xl/inproc/later.py:
+    one Run asks for it; the save, then AutoSave back on when the look switched it off, run once Excel has painted the
+    answer); otherwise (the COM executor, SV_SAVE=sync, a request the add-in did not take, or a save after the last
+    answer that failed - _earlier_save) the save batch saves it here and switches AutoSave back on (a log line when
+    Excel refuses). The save batch also names the print setup of a new Sources log (once its setup went through),
+    before the save is asked for, and saves another workbook of ours whose save after the last answer failed (a note
+    says how that went). The user's workbook keeps AutoSave off, with a note (AutoSave would otherwise save our edits
+    into their file; v1 does the same). AutoSave stays off while the job writes: left on, it wrote our file during
+    the job's batches over COM (live, 20.11.2026, scripts/check_followups.py --settle 10 with SV_INPROC=0: a write
+    1.75 s before the save batch; in-process the file was written only by the save). No batch at all when there is
+    nothing to do (the user's workbook, no new log, no earlier save to repeat): a finished answer is never put at
+    risk by a batch that does nothing. A failing save raises with AutoSave still off: the caller's clean-up turns it
+    on after its rollback, as before."""
+    from .xl.inproc import later
     ours = _is_ours(job.t)
-    if ours or job.setups:
-        b = Batch(quiet=False)
-        wbn = b.workbook(job.name)
-        for sheet, key in job.setups:
-            with b.attempt():
-                styling.setup_name(wbn.Worksheets(sheet), key)
-        on_at = None
-        if ours:
-            wbn.Save()
-            if job.paused:
-                on_at = b.position
-                with b.attempt():
-                    wbn.AutoSaveOn = True
-        res = run(job.t.app, b)
-        if on_at is not None and any(i >= on_at for i, _, _ in res.skipped):
-            log.warning("could not switch AutoSave back on in %s: %s", job.name,
-                        next(m for i, _, m in res.skipped if i >= on_at))
+    again, note = job.resave if job.resave is not None else (None, None)
+    other = again if again is not None and again.casefold() != job.name.casefold() else None
+    later_ok = ours and again is None and later.available(job.t.app)
+    if job.setups or other or (ours and not later_ok):
+        _save_batch(job, save=ours and not later_ok, other=other, note=note)
+    if later_ok and later.queue(job.t.app, job.name, job.paused) is None:
+        _save_batch(job, save=True)
+    if note is not None and other is None and ours:
+        job.notes[note] += SAVED_NOW                    # this job's own save was that workbook's
     if job.paused:
         job.paused = False
         if not ours:
             job.notes.append(AUTOSAVE_NOTE.format(job.name))
+
+
+def _save_batch(job, save: bool, other: str | None = None, note: int | None = None) -> None:
+    """The save batch of _save: the print setups' names (once), our own file saved and AutoSave back on in it (save),
+    and another workbook of ours whose save after the last answer failed (other: tried; job.notes[note] says how it
+    went)."""
+    from .xl import styling
+    from .xl.inproc.batch import Batch
+    from .xl.inproc.runner import run
+    b = Batch(quiet=False)
+    wbn = b.workbook(job.name)
+    for sheet, key in job.setups:
+        with b.attempt():
+            styling.setup_name(wbn.Worksheets(sheet), key)
+    job.setups = []
+    on_at = other_at = None
+    if save:
+        wbn.Save()
+        if job.paused:
+            on_at = b.position
+            with b.attempt():
+                wbn.AutoSaveOn = True
+    if other is not None:
+        other_at = b.position
+        with b.attempt():
+            b.workbook(other).Save()
+    res = run(job.t.app, b)
+    skipped = {i: m for i, _, m in res.skipped}
+    if on_at is not None and on_at in skipped:
+        log.warning("could not switch AutoSave back on in %s: %s", job.name, skipped[on_at])
+    if other_at is not None:
+        failed = next((m for i, m in skipped.items() if i >= other_at), None)
+        job.notes[note] += SAVED_NOW if failed is None else (f"; it could not be saved now either ({failed}): save "
+                                                             "it yourself")
+
+
+def _earlier_save(job) -> None:
+    """The save the job before left to Excel in this Excel (xl/inproc/later.py), read once right after the look (whose
+    Run ran it if it was still waiting): its seconds go to this job's timings as 'previous save' (outside its stages);
+    one that failed is a note of the reply, and this job saves in the foreground (_save) - that workbook too when it
+    is another one; one whose workbook was closed first is a note only (Excel asked the user whether to save it)."""
+    from .core import timing
+    from .xl.inproc import later
+    out = later.take(job.t.app)
+    if out is None:
+        return
+    timing.aside("previous save", float(out.get("seconds") or 0.0))
+    if out.get("autosave_error"):
+        log.warning("could not switch AutoSave back on in %s: %s", out["workbook"], out["autosave_error"])
+    if out["ok"]:
+        return
+    if out.get("closed"):
+        job.notes.append(SAVE_CLOSED.format(out["workbook"]))
+        return
+    job.notes.append(SAVE_FAILED.format(out["workbook"], out.get("error") or "no reason given"))
+    job.resave = (out["workbook"], len(job.notes) - 1)
 
 
 def _rollback(t) -> None:
@@ -643,6 +698,7 @@ class _Job:
     repointed: bool | None = False              # the close-out re-pointed them (None: unknown - pointed back)
     setups: list = field(default_factory=list)
     notes: list = field(default_factory=list)
+    resave: tuple | None = None                 # (workbook, index of its note): a save after the last answer failed
     pointing: list = field(default_factory=list)    # what the re-pointing could not do, for the reply's warnings
 
     @staticmethod
@@ -932,6 +988,7 @@ def _file_draw(job, pre: Prepared) -> dict:
                 xltarget.open_new(t)
         with stage("look"):
             look = job.look = _look(job)
+            _earlier_save(job)
         book = look.book
         if t.from_template:                             # what a new workbook has: the next one is built in it
             xltarget.remember_new_base(look.base)

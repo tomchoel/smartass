@@ -5,8 +5,9 @@ operations) and the workbooks afterwards, read with plain COM (sheet order, cell
 number formats, fonts, fills, column widths, tables, defined names, links), and that the four quiet settings are as
 they were before. Then: the ping, two builds loaded side by side, broken builds (a .dna pointing at a missing dll, a
 dll with no functions: no window in Excel, the COM executor takes over), the add-in's guards (a formula calling it,
-paths outside its jobs folder, a job file it cannot delete: nothing read, deleted or run), and the fixed cost of an
-empty batch.
+paths outside its jobs folder, a job file it cannot delete: nothing read, deleted or run), the save after the reply
+(phase 3c Task 2: asked for in one Run, done after the delay, run first by a batch that comes before it, waited for
+by a batch sent while it runs, a closed workbook, refusals), and the fixed cost of an empty batch.
 
 The Excel is one this script starts itself (DispatchEx, refused unless its pid is new; check_fastcom.start_excel) and
 quits at the end; if Quit hangs, only that process is killed. The user's Excel is never touched. Nothing is saved: the
@@ -702,6 +703,117 @@ def guard_checks(app, raw, ex) -> None:
     wb.Close(False)
 
 
+def save_later_checks(app, raw, ex) -> None:
+    """(Phase 3c Task 2) The save after the reply (xl/inproc/later.py, Runner.cs SmartassSaveLater): asked for in one
+    Run and done by Excel after the delay (the workbook saved, the outcome written); a batch that comes before the
+    delay ran out runs it first, inside its Run; a batch sent while it runs waits for it; a second request runs the
+    first first; a workbook closed first is said; a bad token, no workbook name and a formula calling it are refused.
+    On copies of the labelled seed in this script's temporary folder (an unlabelled file opens read-only on this
+    tenant, and its Save writes nothing)."""
+    print()
+    seed = Path(os.environ.get("LOCALAPPDATA", "")) / "smartass" / "new_workbook_seed.xlsx"
+    if not seed.exists():
+        print("INFO save later: no labelled seed to copy; not checked")
+        return
+    folder = TMP / "later"
+    folder.mkdir(exist_ok=True)
+    outcome = config.INPROC_DIR / "saved" / f"{int(ex.pid)}.json"
+
+    def opened(tag: str):
+        path = folder / f"{tag}.xlsx"
+        shutil.copyfile(seed, path)
+        return path, raw.Workbooks.Open(str(path))
+
+    def ask(name: str, delay_ms: float) -> tuple[str, str, float]:
+        token = uuid.uuid4().hex
+        t0 = time.perf_counter()
+        got = raw.Run(ex.later_macro, name, False, token, float(delay_ms))
+        return token, got, (time.perf_counter() - t0) * 1000
+
+    def told(token: str, limit: float = 30) -> dict | None:
+        end = time.time() + limit
+        while time.time() < end:
+            try:
+                out = json.loads(outcome.read_text(encoding="utf-8"))
+                if out.get("token") == token:
+                    return out
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.01)
+        return None
+
+    path, wb = opened("later")
+    name = str(wb.Name)
+    wb.Worksheets(1).Range("A1:C20000").Value2 = tuple((r, r * 1.5, f"t{r}") for r in range(1, 20001))
+    m0 = path.stat().st_mtime_ns
+    token, got, ms = ask(name, 300)
+    sent = time.time()
+    out = told(token)
+    check("save later: asked for in one Run, done by Excel after the delay", got == "queued" and out is not None
+          and out["ok"] and out["how"] == "after the reply" and out["started"] - sent >= 0.25
+          and path.stat().st_mtime_ns != m0 and bool(wb.Saved)
+          and set(out) == {"token", "workbook", "ok", "error", "closed", "autosave", "autosave_error", "how", "queued",
+                           "started", "seconds", "switched"},
+          f"Run {ms:.1f} ms -> {got!r}; started {out and out['started'] - sent:.3f} s after, saved in "
+          f"{out and out['seconds']:.2f} s")
+
+    wb.Worksheets(1).Range("E1").Value2 = "first"
+    token, got, _ = ask(name, 2000)
+    b = Batch(quiet=False)
+    b.ret(b.workbook(name).Worksheets(1).Range("E1").Value2, "e1")
+    t0 = time.time()
+    res = runner.run(app, b)
+    out = told(token, 1)
+    time.sleep(2.3)
+    again = told(token, 0.1)
+    check("save later: a batch that comes first runs it first, once", out is not None and out["how"] == "before a batch"
+          and out["started"] >= t0 and res.values["e1"] == "first" and again is not None
+          and again["started"] == out["started"], f"{out and out['how']!r}; the timer found nothing left")
+
+    wb.Worksheets(1).Range("E1").Value2 = "busy"
+    token, got, _ = ask(name, 0)
+    time.sleep(0.03)
+    b = Batch(quiet=False)
+    b.ret(b.workbook(name).Worksheets(1).Range("E1").Value2, "e1")
+    s = time.time()
+    runner.run(app, b)
+    e = time.time()
+    out = told(token)
+    end = out["started"] + out["seconds"] + out["switched"] if out else 0
+    check("save later: a batch sent while it runs waits for it", out is not None and out["how"] == "after the reply"
+          and e >= end, f"sent +{s - out['started']:.3f} s after it started, answered {e - end:+.3f} s after it ended"
+          if out else "no outcome")
+
+    wb.Worksheets(1).Range("E1").Value2 = "twice"
+    first, _, _ = ask(name, 2000)
+    second, got, _ = ask(name, 100)
+    one, two = told(first, 0.5), told(second)
+    check("save later: a second request runs the first first", one is not None and one["how"] == "before the next"
+          and two is not None and two["how"] == "after the reply", f"{one and one['how']!r}, {two and two['how']!r}")
+
+    path2, wb2 = opened("closed")
+    name2 = str(wb2.Name)
+    wb2.Worksheets(1).Range("A1").Value2 = "x"
+    token, got, _ = ask(name2, 500)
+    wb2.Close(False)
+    out = told(token, 5)
+    check("save later: a workbook closed before its save is said", out is not None and out["closed"] is True
+          and out["ok"] is False and path2.stat().st_size > 0, f"{out and out['error']!r}")
+
+    refusals = {"a bad token": (name, False, "nope", 0.0), "no workbook": ("", False, uuid.uuid4().hex, 0.0)}
+    for what, args in refusals.items():
+        got = raw.Run(ex.later_macro, *args)
+        check(f"save later refused: {what}", isinstance(got, str) and got.startswith("not run: refused"), repr(got))
+    cell = wb.Worksheets(1).Range("G1")
+    cell.Formula = f'=SmartassSaveLater_{ex.hash}("{name}",FALSE,"{uuid.uuid4().hex}",0)'
+    shown = cell.Value2
+    cell.Clear()
+    time.sleep(0.3)
+    check("save later: a formula calling it asks for nothing", shown == -2146826246 and bool(wb.Saved) is False,
+          f"the cell shows {shown!r} (#N/A is -2146826246)")
+    wb.Close(False)
+
+
 def detector_check(raw, pid: int, ctime: float) -> None:
     """Without the .xll.config the same missing-dll build shows Excel-DNA's log window: the window watch can see one."""
     xll = broken_build("broken_without_config", None, config_file=False)
@@ -1028,6 +1140,7 @@ def main(argv=None) -> int:
         if args.repoint_bench:
             repoint_bench(app, raw)
         guard_checks(app, raw, ex)
+        save_later_checks(app, raw, ex)
         addin_checks(app, raw, pid, ctime, ex)
         detector_check(raw, pid, ctime)
     finally:

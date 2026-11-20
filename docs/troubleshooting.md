@@ -195,6 +195,19 @@ are. If one of these symptoms shows up, the cause below is already known; no new
   standard pywin32 wrapper is used. If the problem goes away, report the step; `scripts\check_fastcom.py` compares
   both wrappers idiom by idiom in a hidden Excel of its own.
 
+## The reply says the save after the last answer failed (since phase 3c)
+
+- **Symptom:** a warning `the save of <file> after the last answer failed (<Excel's message>); it is saved now`, or
+  `... could not be saved now either (...): save it yourself`, or `<file> was closed before smartass saved it after
+  the last answer`.
+- **Cause:** with the add-in, Excel saves the answer's own file right after the reply (`engine\smartass\xl\inproc\
+  later.py`), and writes the outcome to `%LOCALAPPDATA%\smartass\inproc\saved\<Excel's pid>.json`. The next answer
+  in that Excel reads it; on a failure it says so and saves in the job. `fin_status` shows the last outcome under
+  `save_after_reply`.
+- **Check:** if it repeats, set `SV_SAVE=sync` for the smartass server and restart it: every answer then saves its
+  file before it replies, as before (0.4-1.1 s slower). If Excel is closed before the save ran, Excel asks whether to
+  save the workbook (its AutoSave is still off at that moment).
+
 ## Still stuck
 
 Run `smartass doctor --bundle` and send the zip it prints to the maintainer. It contains the doctor result,

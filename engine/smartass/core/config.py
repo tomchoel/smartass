@@ -262,6 +262,8 @@ INPROC = os.environ.get("SV_INPROC", "1") != "0"     # 0: batches run over COM, 
 INPROC_DIR = HOME / "inproc"                         # the add-in's builds (one folder per hash) and the job files
 PAINT_PAUSE_S = float(os.environ.get("SV_PAINT_PAUSE", "0.15"))   # the job's pause for Excel to paint the new answer
                                                      # (only in the active workbook of a visible Excel; 0: none)
+SAVE = "sync" if os.environ.get("SV_SAVE", "").strip().lower() == "sync" else "later"   # sync: our file saved in the job
+SAVE_DELAY_S = float(os.environ.get("SV_SAVE_DELAY", "0.3"))   # the save after the reply waits this long for the paint
 DRILL_KEEP_DAYS = 90
 DRILL_LOGIN_TIMEOUT_S = 60                         # per attempt; one retry in a fresh tab (spec §6)
 SVHTTP_TIMEOUT_S = float(os.environ.get("SV_HTTP_TIMEOUT", "120"))   # one Smart View HTTP request incl. a sign-in

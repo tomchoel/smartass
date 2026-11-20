@@ -151,6 +151,20 @@ def test_fin_status_restart_behind_the_relay_reports_the_fresh_child(monkeypatch
     assert out["version"] == server.__version__
 
 
+def test_fin_status_shows_the_last_save_after_a_reply(monkeypatch):
+    """Phase 3c Task 2: the newest outcome of a save Excel did after a reply (no figure: the workbook's name, ok, the
+    error, the seconds, when) and how many are still to come."""
+    import asyncio
+
+    from smartass.xl.inproc import later
+    _status_base(monkeypatch)
+    last = {"workbook": "a.xlsx", "ok": True, "error": None, "closed": False, "seconds": 0.4, "how": "after the reply",
+            "at": "2026-11-20T21:00:00+01:00"}
+    monkeypatch.setattr(later, "status", lambda: {"last": last, "waiting": 0})
+    out = asyncio.run(server.fin_status())
+    assert out["save_after_reply"] == {"last": last, "waiting": 0}
+
+
 def test_fin_status_restart_without_relay_restarts_our_excel(monkeypatch):
     import asyncio
     _status_base(monkeypatch)

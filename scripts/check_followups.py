@@ -24,10 +24,13 @@ Usage (from the repo root; Excel open, signed in to EPM; SV_INPROC=0 runs every 
     engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--second b07]
         [--keep] [--settle 10]
 At the end it says which executor ran the batches (the in-process add-in, or COM). Per step it also watches the
-file's modification time (the job switches AutoSave off in its look and back on in its save batch, so the Save is
-the job's own write; a write during the batches is printed as a note, as OneDrive stamps the file of its own too) and
-reads Workbook.Saved afterwards (True); after fin_refresh it reads the saved file itself with openpyxl (read-only):
-every answer's sheets there and the last answer's row on its Sources log.
+file's modification time (the job switches AutoSave off in its look; with the add-in, Excel saves the file right after
+the reply and switches AutoSave back on then - xl/inproc/later.py -, over COM or with SV_SAVE=sync the job's save batch
+does both; either way the Save is the job's own write, and a write during the batches is printed as a note, as
+OneDrive stamps the file of its own too). Every step waits for the saves after the reply it caused (their seconds are
+printed as "saved after"; a failed one stops the run) before it reads Workbook.Saved (True); after fin_refresh it
+reads the saved file itself with openpyxl (read-only): every answer's sheets there and the last answer's row on its
+Sources log.
 Only the workbook this script created is touched, and closed at the end (without saving: the engine saved it after
 every answer) unless --keep; the user's own workbooks and Excel are never saved or closed. At the end only the
 engine's own hidden Excel and browser are shut down, as the server's lifespan does.
@@ -46,6 +49,7 @@ from pathlib import Path
 
 from smartass.core import config
 from smartass.testset import runner
+from smartass.xl.inproc import later
 
 FOLLOW_UPS = 6
 OTHER_PERIOD = "Jan 26..Jun 26"         # the period a follow-up switches to (and back from) by turns
@@ -368,9 +372,10 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         try:
             with Writes(path) as writes:
                 out = await call()
+                secs = time.monotonic() - t0
+                saved = await asyncio.to_thread(later.wait, 60)    # Excel's save after the reply, before any read
         except Exception as e:   # noqa: BLE001
             raise Stop(f"{label} failed: {scrub(e)}") from None
-        secs = time.monotonic() - t0
         last_end[0] = time.monotonic()
         if gap:
             print(f"{'':<14} the file was written {len(gap)} time(s) between the steps (at "
@@ -400,7 +405,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         seen = await user(lambda h: _inspect(h, path, q), what="check_followups: inspect")
         if baseline:
             order = seen["names"]
-        problems = []
+        problems = [f"the save after the reply failed: {scrub(s.get('error'))}" for s in saved if not s["ok"]]
         if refs is not None:
             problems += await user(lambda h: _pointing(h, path, refs, tool != "fin_refresh"),
                                    what="check_followups: formulas")
@@ -437,8 +442,10 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         runs = com_calls(timings, BATCHES)
         stages = "  ".join(f"{s.split('.')[-1]} {timings.get('excel job.' + s, 0):.2f}" for s in STAGES)
         counts = "/".join(f"{k} {seen['statuses'].count(k)}" for k in ("OK", "DIFF"))
+        after = (f"{sum(s['seconds'] for s in saved if s.get('seconds') is not None):4.2f} s"
+                 f"{'' if len(saved) < 2 else f' ({len(saved)} saves)'}" if saved else "-")
         print(f"{label:<14} {secs:6.1f} s  writes {'-' if not writes.path else writes.count}  excel job "
-              f"{timings.get('excel job._total', 0):5.2f} s  batches "
+              f"{timings.get('excel job._total', 0):5.2f} s  saved after {after}  batches "
               f"{'-' if runs is None else runs:>2}  COM calls {'-' if com is None else com:>4}  [{stages}]  sheet = model {status}  Sources links "
               f"{len(seen['links'])}  status {counts}  layout {found[0]} warnings {found[1]}  "
               f"{'checks OK' if not problems else 'DIFF: ' + '; '.join(problems)}", flush=True)

@@ -18,7 +18,12 @@
   with Excel quiet. The Excel work goes in three batches and a save, each run in one go inside Excel by a small
   add-in (see **The add-in** below); between the batch that brings the answer in and the one that closes it out,
   the job pauses 0.15 s so Excel paints the new answer with its numbers and charts (`SV_PAINT_PAUSE` in the
-  server's environment sets the seconds; 0: no pause). The Excel job takes about 2-2.5 s for an answer without a lines sheet (2.7 s at
+  server's environment sets the seconds; 0: no pause). With the add-in, the answer's own file is saved by Excel
+  right after the reply (0.4-1.1 s the user no longer waits for): the job asks for the save in one call, Excel waits
+  0.3 s so the answer is painted first (`SV_SAVE_DELAY`), saves, and switches AutoSave back on. A follow-up that
+  comes before that save ran has it run first; one that comes while it runs waits for it. Over COM, or with
+  `SV_SAVE=sync` in the server's environment, the job saves before it replies, as before. Never the user's own
+  workbook. The Excel job takes about 2-2.5 s for an answer without a lines sheet (2.7 s at
   61 sheets), about 4 s with a lines sheet, 1.6-1.9 s for a follow-up, and about 7 s for the first answer of a new
   workbook (the workbook is created). A follow-up or `fin_refresh` replaces the question's `Q<n>`
   sheets and tables whole: anything typed on them goes with them, so keep your own notes on your own sheets.
@@ -77,6 +82,7 @@
 | Answer workbooks | `paths.analyser` (`<OneDrive>\smartass\analyser\<project>\`) |
 | An answer's file while it is moved in (deleted after) | `tmp\` |
 | The in-process add-in (one folder per build) and its job files (deleted after each batch) | `inproc\` |
+| The outcome of each Excel's last save after a reply (no figures; `last.json`: the last one a job read) | `inproc\saved\` |
 
 The spec of every answer is stored in the workbook (hidden `_svmeta`); that is what follow-ups and `fin_refresh`
 read.
@@ -115,6 +121,8 @@ Every error names one next step. The common ones:
 | Warning in `server.log`: `in-process executor not used in Excel pid <n>: <why>` | The add-in did not load in that Excel; answers run over COM (about twice as slow for a follow-up, same result). The reason says what (no compiler, 32-bit Excel, `RegisterXLL` refused or blocked). A load that failed is tried again in a new Excel or after a server restart. A compile error is kept in `inproc\smartass_run_<hash>.failed` and not tried again for a day (delete the file to try now); an update that changes the add-in is built anew. |
 | `Excel operation None failed: the batch in Excel: the batch's outcome is unknown: …` | The add-in took one batch of the answer's Excel work, and what it did cannot be told (its answer could not be read, or the call failed after it took the job). The batch is not run again; the job is undone as far as the workbook shows (the old answer back, or the new one kept and said). Check the workbook, then retry once. If it repeats, every batch in that Excel fails the same way: restart that Excel, or set `SV_INPROC=0` in the server's environment (read when the server starts). |
 | `…; the new answer is in place (the old one is gone)` (`and saved`) | A follow-up or `fin_refresh` failed after its old sheets were dropped, or its final save failed: the new answer stays (a rollback would leave neither; `and saved`: our own analysis file was saved, the user's workbook never is). The Sources rows and the stored spec may be missing: run the same follow-up again to record them. |
+| Warning `the save of <file> after the last answer failed (<Excel's message>); it is saved now` | Excel's save of the answer's file after the previous reply failed (the file was locked, the network was gone); this answer saved it in the job. Nothing to do unless it repeats: then set `SV_SAVE=sync` and report it. `... could not be saved now either`: save that workbook yourself. `fin_status` shows the last outcome (`save_after_reply`). |
+| Warning `<file> was closed before smartass saved it after the last answer` | The workbook was closed in the moment between the reply and Excel's save of it; Excel asked whether to save it when it closed. Open it and check the last answer is there. |
 | Repeated `HostError` | `fin_status(restart=True)`, then retry; if it repeats, `smartass doctor --bundle` to the maintainer. |
 | HTTP `409 busy` / `401` / `413` | `smartass serve`: one request at a time / wrong secret / body over 1 MB. |
 

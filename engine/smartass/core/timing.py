@@ -114,6 +114,16 @@ def note(name: str, seconds: float) -> None:
     t.counts[full] = t.counts.get(full, 0) + 1
 
 
+def aside(name: str, seconds: float) -> None:
+    """A time measured outside this job's own stages (the save the job before left to Excel: xl/inproc/later.py) as a
+    key of its own at the top of the summary, in no stage and not in _total. No timer: nothing."""
+    t = Timer.current()
+    if t is None:
+        return
+    t.stages[name] = t.stages.get(name, 0.0) + seconds
+    t.counts[name] = t.counts.get(name, 0) + 1
+
+
 def say(text: str) -> None:
     """A progress note to the user of the running job (if any), and the log. Never raises."""
     log.info("note: %s", text)
