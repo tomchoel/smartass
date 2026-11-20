@@ -23,11 +23,14 @@
   dialog, and the waiting save does not run while it is shown). `fin_status` shows the last outcome
   (`save_after_reply`).
 - Over COM (no add-in) and with `SV_SAVE=sync` the job saves before it replies, as before; a follow-up that fails
-  once its old sheets are gone still saves our file in the job. The user's own workbook is never saved.
+  once its old sheets are gone still saves our file in the job. The user's own workbook is never saved: the add-in
+  keeps the workbook's full name from the request and does not save another file opened under that name, and a
+  failed save is repeated only while that file is open. A failed save that the next answer could not repeat (it
+  failed first) is left for the answer after it.
 - `bench_answers.py` adds "saved after s" (the save's own seconds) beside the Excel job the user waits for;
   `check_followups.py` waits for each step's saves before it reads `Workbook.Saved` or the file and prints their
   seconds; `check_insert.py --parts newbook` waits for them too; `check_inproc.py` checks the save after the reply
-  (53 checks).
+  (55 checks).
 
 ### The first answer of a new workbook is its built file
 
