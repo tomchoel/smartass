@@ -26,8 +26,11 @@ provider.
    right after the insert, and the Excel around it (calculation, the active workbook, windows, the recent list,
    the undo state, visible windows of the process).
 3. Whole jobs (pipeline.excel_job, a second question with a Lines sheet, then pipeline.redraw_job: a follow-up's
-   replacement) once per route in a workbook of its own, compared sheet by sheet; sheet = model per step, the move
-   in's seconds and COM calls.
+   replacement), since Task 2b the job's batches (xl/inproc) once through the COM executor (side 'copy', and
+   'control' for the noise) and once through the in-process add-in (side 'insert'), each in a workbook of its
+   own, compared sheet by sheet; sheet = model, the warnings and layout findings per step, the draw's seconds and
+   batches. (A quiet() around the routes is gone with Task 2b: the parts above put the four settings off and back
+   as a batch does, with no landing.)
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 
 Prints OK / DIFF per item (never a cell value: addresses and property names only); exit 0 only when all are OK.
@@ -72,6 +75,7 @@ from smartass.render import xlsx  # noqa: E402
 from smartass.render.layout import ChartSpec  # noqa: E402
 from smartass.xl import fastcom, jobs, movein  # noqa: E402
 from smartass.xl.hostproc import windows_of  # noqa: E402
+from smartass.xl.inproc import runner  # noqa: E402
 from smartass.xl.sheetorder import ANSWER_TAB, DATA_TAB  # noqa: E402
 from smartass.xl.target import Target  # noqa: E402
 
@@ -110,7 +114,7 @@ def copy_route(t, built, after, first=False, book=None, **_):
     """The move-in before Task 2a: the names checked, the file opened read-only, its sheets copied in one
     Worksheets.Copy, the file closed, the links the copy left broken."""
     book = book or movein.read_book(t)
-    found = movein.taken(t.wb, built.sheets, [s.name for s in built.tables], book)
+    found = movein.taken(book, built.sheets, [s.name for s in built.tables], [])
     if found:
         raise movein.NameTaken(", ".join(found))
     tables = movein.file_parts(built.path)[1]
@@ -118,7 +122,7 @@ def copy_route(t, built, after, first=False, book=None, **_):
         raise ValueError(f"the built file holds an Excel Table ({', '.join(tables)})")
     before, after_sheet = movein._anchor(book, after, first)
     path, names = str(built.path), list(built.sheets)
-    ws = lambda s: s.ws if s.ws is not None else t.wb.Worksheets(s.name)    # noqa: E731
+    ws = lambda s: t.wb.Worksheets(s.name)    # noqa: E731
     src = jobs.com(lambda: t.app.Workbooks.Open(path, 0, True), limit=120)
     try:
         t.sheets_added.extend(names)
@@ -129,7 +133,7 @@ def copy_route(t, built, after, first=False, book=None, **_):
     finally:
         jobs.com(lambda: src.Close(False), limit=30, check=False)
     k = book.sheets.index(before) if before is not None else book.sheets.index(after_sheet) + 1
-    book.sheets[k:k] = [movein.Sheet(n, None, -1, ANSWER_TAB if i == 0 else DATA_TAB) for i, n in enumerate(names)]
+    book.sheets[k:k] = [movein.Sheet(n, -1, ANSWER_TAB if i == 0 else DATA_TAB) for i, n in enumerate(names)]
     jobs.com(lambda: _break_links(t.wb, built.path.name))
 
 
@@ -853,7 +857,7 @@ def compare_fixtures(xl: Excel) -> None:
             wb = xl.fresh(side)
             t = Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0)
             book = movein.read_book(t)
-            with movein.quiet(xl.app, wb):
+            with _settings_off(xl):
                 route(t, built, "Sources", book=book)
             if book.names() != [n for n in _names(wb)]:
                 extra["the Book learns the order"].append(f"{fix} {side}")
@@ -866,7 +870,7 @@ def compare_fixtures(xl: Excel) -> None:
         for phase in ("after the move-in", "after finish and calculate"):
             if phase != "after the move-in":
                 for t, built in sides.values():
-                    with movein.quiet(xl.app, t.wb):
+                    with _settings_off(xl):
                         movein.finish(t, built)
                         movein.calculate(t, built.sheets)
             rects = book_rects([t.wb for t, _ in sides.values()], names)
@@ -923,7 +927,7 @@ def placement(xl: Excel, built0) -> None:
                 wb.Worksheets("_svmeta").Visible = 0
             t = Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0)
             book = movein.read_book(t)
-            with movein.quiet(xl.app, wb):
+            with _settings_off(xl):
                 ROUTES[side](t, built, after, first, book=book)
             got[side] = (_names(wb), [int(ws.Visible) for ws in wb.Sheets], book.names() == _names(wb))
             xl.close(wb)
@@ -940,22 +944,23 @@ def _where(xl: Excel, wb) -> tuple[str, str]:
 
 @contextlib.contextmanager
 def _settings_off(xl: Excel):
-    """quiet's four settings without its landing: what the insert itself leaves active."""
-    before = [getattr(xl.app, name) for name, _ in movein.QUIET]
-    for name, value in movein.QUIET:
+    """A quiet batch's four settings (xl/inproc/runner.QUIET) around a route: what the insert itself leaves active.
+    (Task 2b: the job's own landing is its close-out's, no longer a quiet() around the route.)"""
+    before = [getattr(xl.app, name) for name, _ in runner.QUIET]
+    for name, value in runner.QUIET:
         setattr(xl.app, name, value)
     try:
         yield
     finally:
-        for (name, _), value in reversed(list(zip(movein.QUIET, before))):
+        for (name, _), value in reversed(list(zip(runner.QUIET, before))):
             setattr(xl.app, name, value)
 
 
 def active_after(xl: Excel, built0) -> None:
-    """What is active right after the route itself (quiet's settings, not its landing), with the target the active
-    workbook and with another workbook active; and after the job's quiet (which lands on the user's sheet)."""
+    """What is active right after the route itself (a quiet batch's settings, no landing), with the target the
+    active workbook and with another workbook active."""
     for label, other_active in (("the target active", False), ("another workbook active", True)):
-        for how, around in (("right after the route", _settings_off), ("after quiet", None)):
+        for how, around in (("right after the route", _settings_off),):
             got = {}
             for side in ("copy", "insert"):
                 built = _copy_of(built0, side)
@@ -965,7 +970,7 @@ def active_after(xl: Excel, built0) -> None:
                     other.Activate()
                 t = Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0)
                 try:
-                    with (around(xl) if around else movein.quiet(xl.app, wb)):
+                    with around(xl):
                         ROUTES[side](t, built, "Sources", book=movein.read_book(t))
                     got[side] = _where(xl, wb)
                 except Exception as e:   # noqa: BLE001 - recorded: the copy route's BreakLink, see the report
@@ -974,10 +979,7 @@ def active_after(xl: Excel, built0) -> None:
                     if b is not None:
                         xl.close(b)
                 built.path.unlink(missing_ok=True)
-            if around or got["copy"][0] == "failed":
-                info(f"active {how}, {label}: copy {got['copy']} | insert {got['insert']}")
-            if around:
-                continue
+            info(f"active {how}, {label}: copy {got['copy']} | insert {got['insert']}")
             if got["copy"][0] == "failed":
                 check(f"active {how}, {label} (insert route; the copy route failed)", got["insert"][0] != "failed",
                       f"insert {got['insert']}")
@@ -999,7 +1001,7 @@ def refusals(xl: Excel, built0) -> None:
         refused = True
     check("a taken name is refused before the insert", refused and (_names(wb), int(wb.Sheets.Count)) == before
           and t.sheets_added == [], f"refused {refused}, sheets {_names(wb)}")
-    with movein.quiet(xl.app, wb):
+    with _settings_off(xl):
         wb.Sheets.Add(None, wb.Worksheets("Sources"), None, str(built.path))
     info(f"what Excel itself does with a taken name: {[n for n in _names(wb) if n not in before[0]]}")
     xl.close(wb)
@@ -1038,7 +1040,7 @@ def refusals(xl: Excel, built0) -> None:
         before = _names(wb)
         err = None
         try:
-            with movein.quiet(xl.app, wb):
+            with _settings_off(xl):
                 jobs.com(lambda wb=wb, p=p: wb.Sheets.Add(None, wb.Worksheets("Sources"), None, str(p)), limit=30)
         except Exception as e:   # noqa: BLE001
             err = type(e).__name__
@@ -1069,7 +1071,7 @@ def excel_around(xl: Excel, built0) -> None:
         book = movein.read_book(t)
         before = state(wb)
         seen = {}
-        with movein.quiet(xl.app, wb):
+        with _settings_off(xl):
             seen["events during"] = bool(xl.app.EnableEvents)
             ROUTES[side](t, built, "Sources", book=book)
         after = state(wb)
@@ -1117,34 +1119,42 @@ def _pres():
             ("follow-up of Q1 (its sheets replaced)", 1, prep(spec_dict(question="How is Business opex doing?")))]
 
 
+JOB_SIDES = {"copy": False, "insert": True, "control": False}    # (Task 2b) side -> config.INPROC: the batched job
+                                                                  # over COM, in-process, over COM again (the noise)
+
+
 def compare_jobs(xl: Excel) -> None:
-    from smartass.core.timing import COM_PREFIX
+    """Whole jobs (a new answer, a second with a Lines sheet, a follow-up) as batches (Task 2b) through the COM
+    executor ('copy' side, and 'control') and the in-process add-in ('insert' side): the same workbook either way."""
+    from smartass.core.timing import BATCH_PREFIX
     books, steps = {}, defaultdict(dict)
-    for side in ROUTES:
+    for side, inproc in JOB_SIDES.items():
         wb = xl.fresh(side, ("Sources",))
         books[side] = wb
         target = lambda h, target, title, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
-        seams = {(pipeline, "_target"): target, (pipeline, "_save"): lambda t: None,
+        seams = {(pipeline, "_target"): target, (pipeline, "_save"): lambda job: None,
                  (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
-                 (movein, "move_in"): ROUTES[side]}
+                 (config, "INPROC"): inproc}
         with _patched(seams):
             for label, q, pre in _pres():
                 job = (lambda h, pre=pre: pipeline.excel_job(h, pre)) if q is None else (
                     lambda h, pre=pre, q=q: pipeline.redraw_job(h, pre, q, "this workbook"))
                 out, timings = pipeline.with_timings(job)(None)
                 steps[label][side] = ((out.get("checks") or {}).get("sheet_equals_model"),
-                                      timings.get("draw.move in", 0.0),
-                                      int(timings.get(COM_PREFIX + "draw.move in", 0)),
-                                      int(sum(v for k, v in timings.items() if k.startswith(COM_PREFIX)
-                                              and "." not in k[len(COM_PREFIX):])))
+                                      timings.get("draw", 0.0),
+                                      int(sum(v for k, v in timings.items() if k.startswith(BATCH_PREFIX)
+                                              and "." not in k[len(BATCH_PREFIX):])),
+                                      sorted(set(out.get("warnings") or []) | set(out.get("layout") or [])))
     for label, by in steps.items():
         ok = all(v[0] == "OK" for v in by.values())
-        check(f"jobs: {label}: sheet = model on both routes", ok, f"{ {k: v[0] for k, v in by.items()} }")
-        info(f"{label}: move in copy {by['copy'][1]:.2f} s / {by['copy'][2]} calls, insert {by['insert'][1]:.2f} s"
-             f" / {by['insert'][2]} calls; the job's COM calls copy {by['copy'][3]}, insert {by['insert'][3]}")
+        check(f"jobs: {label}: sheet = model through both executors", ok, f"{ {k: v[0] for k, v in by.items()} }")
+        check(f"jobs: {label}: the same warnings and layout findings", by["copy"][3] == by["insert"][3],
+              f"com {by['copy'][3]} | inproc {by['insert'][3]}")
+        info(f"{label}: draw over COM {by['copy'][1]:.2f} s, in-process {by['insert'][1]:.2f} s; batches "
+             f"{by['copy'][2]} / {by['insert'][2]}")
     names = {side: _names(wb) for side, wb in books.items()}
     check("jobs: the same sheets in the same order", names["copy"] == names["insert"],
-          "" if names["copy"] == names["insert"] else f"copy {names['copy']} | insert {names['insert']}")
+          "" if names["copy"] == names["insert"] else f"com {names['copy']} | inproc {names['insert']}")
     rects = book_rects(list(books.values()), names["copy"])
     snaps = {side: read_book(xl.app, wb, rects, mask=True) for side, wb in books.items()}
     found, noise = route_diff(snaps)
@@ -1169,7 +1179,7 @@ def timing(xl: Excel, built0, rounds: int) -> None:
             def counting(call, *a, **k):
                 n.append(1)
                 return real(call, *a, **k)
-            with movein.quiet(xl.app, wb), _patched({(jobs, "com"): counting}):
+            with _settings_off(xl), _patched({(jobs, "com"): counting}):
                 t0 = time.perf_counter()
                 ROUTES[side](t, built, "Sources", book=book)
                 ms[side].append((time.perf_counter() - t0) * 1000)
@@ -1216,6 +1226,8 @@ def main(argv=None) -> int:
             timing(xl, answer, args.rounds)
     finally:
         xl.quit()
+        runner._EXCELS.clear()                         # the add-in the jobs part loaded went with that Excel
+        runner._last.__dict__.clear()
         shutil.rmtree(TMP, ignore_errors=True)
     failed = [n for n, ok, _ in results if not ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} checks OK" + (f"; DIFF: {', '.join(failed)}" if failed else ""))

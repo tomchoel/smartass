@@ -364,7 +364,7 @@ def _sources_warning(pre: Prepared, recorded, res) -> str | None:
     if isinstance(recorded, str):
         return recorded
     written, notes = recorded
-    refused = next((m for i, _, m in res.skipped if i in written.span), None)
+    refused = written.refused(res.skipped)
     if refused is not None:
         return f"could not log the pull on the Sources sheet ({refused}); the answer is built"
     missing = [x for x in [*(qq.id for qq in pre.spec.queries), *pre.frame.lines] if x not in written.rows]
@@ -747,7 +747,7 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     sheets dropped, the Sources rows, the spec, the sheet order, the Answer active; then what it could not do as
     warnings (labels and breaks logged) and the layout check over the finish's reads. Returns (the Sources warning,
     the order warning, the layout findings)."""
-    from .xl import movein, sheets
+    from .xl import movein, sheets, sources
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import run
     t, q, look = job.t, job.q, job.look
@@ -778,6 +778,8 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     movein.label_skips(res, fixes)
     _refused_breaks(t, answer, breaks, res)
     logged = _sources_warning(pre, recorded, res)
+    if not isinstance(recorded, str):
+        sources.unfreeze(t, recorded[0].sheet, recorded[0], res, look.screen, answer)
     if not isinstance(recorded, str) and recorded[0].setup is not None:
         key, span = recorded[0].setup
         if not any(i in span for i, _, _ in res.skipped):

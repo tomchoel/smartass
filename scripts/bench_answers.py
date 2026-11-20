@@ -5,8 +5,9 @@ printed: the replies carry figures from EPM and are never printed or kept.
 
 Usage (from the repo root; Excel open, signed in to EPM):
     engine\.venv\Scripts\python.exe scripts\bench_answers.py --rounds 3 [--case b01 ...]
-The per-round table has a column per stage of the Excel job (pipeline.excel_job: build, move in, finish, read back,
-sources, arrange, save); a stage the run did not have shows "-".
+The per-round table has a column per stage of the Excel job (pipeline.excel_job: look, build, move in, finish,
+close out, save) and its "runs": the batches it ran (xl/inproc: one Excel run each); a stage the run did not have
+shows "-". SV_INPROC=0 runs every batch over COM.
 
 One warm-up answer (the first case, target 'new') creates ONE new workbook in the analyser folder; every measured
 round then lands in that session workbook (target 'session'). Rounds run outer and cases inner, so the growing
@@ -32,15 +33,17 @@ from smartass.core import config
 from smartass.testset import runner
 
 COM = "com calls."                  # keys with this in them are COM-call counts, not seconds
+BATCHES = "batches."                # ... and these batch counts (one Excel run each)
 JOB = "excel job."                  # the Excel job's Timer summary, as server._draw_job adds it
 COLUMNS = (("_total", "_total s"), ("prepare.fetch", "prepare.fetch s"), ("prepare.drill", "prepare.drill s"),
            ("excel job._total", "excel job s"))
 
 
-def com_calls(timings: dict) -> int | None:
-    """The run's COM calls: the counts of the Excel job's top-level stages (open target, draw, save) summed; nested
-    stages already count in their parents. None when the job logged no counts (it did not run)."""
-    pre = JOB + COM
+def com_calls(timings: dict, what: str = COM) -> int | None:
+    """The run's COM calls (what BATCHES: its batches): the counts of the Excel job's top-level stages (open target,
+    draw, save) summed; nested stages already count in their parents. None when the job logged no counts (it did not
+    run)."""
+    pre = JOB + what
     tops = [v for k, v in timings.items() if k.startswith(pre) and "." not in k[len(pre):]]
     return sum(tops) if tops else None
 
@@ -90,6 +93,7 @@ def _row(label: str, runs: list[dict], errors: bool = True) -> str:
     cells = [label, f"{len(ok)}/{len(runs)}"]
     cells += [_secs(_median(r["timings"].get(k) for r in ok)) for k, _ in COLUMNS]
     cells.append(_count(_median(com_calls(r["timings"]) for r in ok)))
+    cells.append(_count(_median(com_calls(r["timings"], BATCHES) for r in ok)))
     failed = [r["error"] for r in runs if not r["ok"]]
     cells.append("; ".join(dict.fromkeys(failed)) if errors else (f"{len(failed)} failed" if failed else ""))
     return "| " + " | ".join(cells) + " |"
@@ -97,7 +101,7 @@ def _row(label: str, runs: list[dict], errors: bool = True) -> str:
 
 def table(warm: dict | None, runs: list[dict]) -> str:
     """Per case the medians over its ok rounds; then the medians over every ok run of every case; then the warm-up."""
-    head = ["case", "ok runs"] + [title for _, title in COLUMNS] + ["COM calls", "errors"]
+    head = ["case", "ok runs"] + [title for _, title in COLUMNS] + ["COM calls", "runs", "errors"]
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     by_case: dict[str, list[dict]] = {}
     for r in runs:
@@ -110,10 +114,10 @@ def table(warm: dict | None, runs: list[dict]) -> str:
 
 
 ROUND_COLUMNS = (("_total", "_total s"), ("excel job._total", "excel job s"), ("excel job.draw", "draw s"),
-                 ("excel job.draw.build", "draw.build s"), ("excel job.draw.move in", "draw.move in s"),
-                 ("excel job.draw.finish", "draw.finish s"), ("excel job.draw.read back", "draw.read back s"),
-                 ("excel job.draw.sources", "draw.sources s"), ("excel job.draw.arrange", "draw.arrange s"),
-                 ("excel job.save", "save s"), ("prepare", "prepare s"))
+                 ("excel job.draw.look", "draw.look s"), ("excel job.draw.build", "draw.build s"),
+                 ("excel job.draw.move in", "draw.move in s"), ("excel job.draw.finish", "draw.finish s"),
+                 ("excel job.draw.close out", "draw.close out s"), ("excel job.save", "save s"),
+                 ("prepare", "prepare s"))
 
 
 def _has_lines(timings: dict) -> bool:
@@ -121,15 +125,16 @@ def _has_lines(timings: dict) -> bool:
     return any(k.startswith("drills.") for k in timings)
 
 
-def round_table(runs: list[dict]) -> str:
-    """Per round the medians over the ok runs without a lines block (no drill), to show how the answers change as
-    the one workbook grows; the COM calls show whether the work itself changed."""
-    head = ["round", "runs"] + [title for _, title in ROUND_COLUMNS] + ["COM calls"]
+def round_table(runs: list[dict], lines: bool = False) -> str:
+    """Per round the medians over the ok runs without a lines block (no drill; lines: those with one), to show how
+    the answers change as the one workbook grows; the COM calls and batches show whether the work itself changed."""
+    head = ["round", "answers"] + [title for _, title in ROUND_COLUMNS] + ["COM calls", "runs"]
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for n in sorted({r["round"] for r in runs}):
-        rs = [r for r in runs if r["round"] == n and r["ok"] and not _has_lines(r["timings"])]
+        rs = [r for r in runs if r["round"] == n and r["ok"] and _has_lines(r["timings"]) == lines]
         cells = [str(n), str(len(rs))] + [_secs(_median(r["timings"].get(k) for r in rs)) for k, _ in ROUND_COLUMNS]
         cells.append(_count(_median(com_calls(r["timings"]) for r in rs)))
+        cells.append(_count(_median(com_calls(r["timings"], BATCHES) for r in rs)))
         rows.append("| " + " | ".join(cells) + " |")
     return "\n".join(rows)
 
@@ -142,7 +147,7 @@ def stage_table(runs: list[dict]) -> str:
     vals: dict[str, list[float]] = {}
     for r in ok:
         for k, v in r["timings"].items():
-            if COM not in k:
+            if COM not in k and BATCHES not in k:
                 vals.setdefault(k, []).append(v)
     rows = ["| stage | runs | median s | sum s | share of _total |", "|---|---|---|---|---|"]
     for k, vs in sorted(vals.items(), key=lambda kv: -sum(kv[1])):
@@ -260,6 +265,8 @@ async def bench(cases: list[dict], rounds: int) -> int:
         print(table(warm, runs))
         print("\n### Per round (ok runs without a lines block)\n")
         print(round_table(runs))
+        print("\n### Per round (ok runs with a lines block)\n")
+        print(round_table(runs, lines=True))
         print("\n### Stages\n")
         print(stage_table(runs), flush=True)
         print(f"\nExcel: {await _build(kit)}", flush=True)

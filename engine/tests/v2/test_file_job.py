@@ -629,3 +629,20 @@ def test_a_defined_name_an_answer_table_wants_is_refused_from_the_look_alone(fak
         _job(_pre(), calculated)
     assert len(runs) == 1 and fakexl.snapshot(fake_target.wb) == before and fake_target.sheets_added == []
     assert not [e for e in fake_target.app.events if e[1] == "Sheets.Add"]
+
+
+def test_a_frozen_header_excel_refuses_is_undone_and_no_warning(fake_target, calculated, monkeypatch):
+    """A window without a client area (a hidden Excel, live 20.11.2026) refuses FreezePanes: as styling._freeze,
+    the split is taken back and the log is complete (no Sources warning); the Answer stays the active sheet."""
+    real = fakexl._Window.__setattr__
+
+    def setattr_(win, k, v):
+        if k == "FreezePanes" and v is True:
+            raise fakexl.ComError("Unable to set the FreezePanes property of the Window class")
+        real(win, k, v)
+    monkeypatch.setattr(fakexl._Window, "__setattr__", setattr_)
+    out, _ = _job(_pre(), calculated)
+    wb = fake_target.wb
+    assert not [w for w in out["warnings"] if "Sources" in w] and not [x for x in out["layout"] if "Sources" in x]
+    assert wb.window_state["Sources"]["SplitRow"] == 0 and wb.window_state["Sources"]["FreezePanes"] is False
+    assert wb.active.Name == "Q1 Answer"

@@ -188,18 +188,27 @@ def lines_info(ls, q: int) -> dict:
 class Written:
     """What record_write recorded: rows - {query id or alias: Sources row}; span - the range of its operations (a
     skipped one there: a warning); setup - (the sheet's print setup key, the range of its operations) when the
-    furniture set it up (styling.setup_name follows once none of them was skipped), else None; sheet - the log's."""
+    furniture set it up (styling.setup_name follows once none of them was skipped), else None; sheet - the log's;
+    freeze - the range of the frozen header's operations, when the furniture froze it."""
     rows: dict
     span: range
     setup: tuple | None = None
     sheet: str = ""                      # the log's sheet
+    freeze: range | None = None          # the frozen header's operations (styling._freeze; cosmetic, undone on failure)
+
+    def refused(self, skipped) -> str | None:
+        """The message of the first operation Excel refused that leaves the log incomplete (not the frozen header or
+        the print setup: those are cosmetic, as before); None when there is none."""
+        quiet = [r for r in (self.freeze, self.setup[1] if self.setup else None) if r is not None]
+        return next((m for i, _, m in skipped if i in self.span and not any(i in r for r in quiet)), None)
 
 
-def _furnish(b, wbn, ws, log: Log, separators: tuple, screen) -> tuple | None:
+def _furnish(b, wbn, ws, log: Log, separators: tuple, screen) -> tuple:
     """The furniture recorded (see the module doc): all of it on a new log, the column formats, print setup and name
     on a log of an earlier version (it keeps its header, widths, filter and frozen row). The header row is frozen only
     when the workbook's window is visible (styling._freeze), with the log's sheet active meanwhile (the workbook
-    activated first when it is not the active one, and the user's workbook and sheet again after)."""
+    activated first when it is not the active one, and the user's workbook and sheet again after). Returns (the print
+    setup: styling.record_print_setup's, the range of the freeze's operations or None)."""
     from ..render.excel import SHEET_FOOTER, VALUE_FORMAT
     from . import styling
     tn = styling.tn
@@ -221,7 +230,9 @@ def _furnish(b, wbn, ws, log: Log, separators: tuple, screen) -> tuple | None:
         if not log.filtered:                           # AutoFilter() without arguments toggles
             cols.AutoFilter()
     ws.Names.Add(FURNITURE_NAME, f'="{FURNITURE_VERSION}"', False)      # positional: Name, RefersTo, Visible
+    freeze = None
     if new and screen.window:                          # styling._freeze: the header row, on the log's own sheet
+        start = b.position
         if not screen.active:
             wbn.Activate()
         ws.Activate()
@@ -234,7 +245,8 @@ def _furnish(b, wbn, ws, log: Log, separators: tuple, screen) -> tuple | None:
             user.Activate()
             if screen.user_sheet:
                 user.Sheets(screen.user_sheet).Activate()
-    return styling.record_print_setup(b, ws, last, PRINT_ROWS, SHEET_FOOTER, log.setup)
+        freeze = range(start, b.position)
+    return styling.record_print_setup(b, ws, last, PRINT_ROWS, SHEET_FOOTER, log.setup), freeze
 
 
 def record_write(b, wbn, t, q: int, pre, log: Log, header, fetched: str, status: dict, lines_status: dict,
@@ -250,7 +262,7 @@ def record_write(b, wbn, t, q: int, pre, log: Log, header, fetched: str, status:
     from . import styling
     from .inproc.batch import MISSING
     start = b.position
-    setup = None
+    setup = freeze = None
     with b.attempt():
         if not log.exists:
             wss = wbn.Worksheets
@@ -264,7 +276,7 @@ def record_write(b, wbn, t, q: int, pre, log: Log, header, fetched: str, status:
         else:
             ws = wbn.Worksheets(log.name)
         if not log.furnished:
-            setup = _furnish(b, wbn, ws, log, separators, screen)
+            setup, freeze = _furnish(b, wbn, ws, log, separators, screen)
         kname, data, width = log.name, log.data, len(LOG_COLUMNS)
         entries = []                                   # (id, values after Q/id/question, sheet, data link cell)
         for query in pre.spec.queries:
@@ -304,7 +316,39 @@ def record_write(b, wbn, t, q: int, pre, log: Log, header, fetched: str, status:
             ws_data = wbn.Worksheets(data)               # a new sheet (the file holds no hyperlink to clear first)
             for cell, formula in backs:
                 ws_data.Range(cell).Formula2 = formula
-    return Written(rows, range(start, b.position), setup, log.name)
+    return Written(rows, range(start, b.position), setup, log.name, freeze)
+
+
+def unfreeze(t, sheet: str, written: Written, res, screen, answer: str | None = None) -> None:
+    """When Excel refused the frozen header (a window with no client area: styling._freeze leaves no half-split
+    behind), the log's window is set back unsplit in a batch of its own, and the sheet the job ends on is active
+    again (answer, in the active workbook; else the user's)."""
+    from .inproc.batch import Batch
+    from .inproc.runner import run
+    from .jobs import book_name
+    if written.freeze is None or not any(i in written.freeze for i, _, _ in res.skipped):
+        return
+    b = Batch()
+    with b.attempt():
+        wbn = b.workbook(book_name(t))
+        if not screen.active:
+            wbn.Activate()
+        wbn.Worksheets(sheet).Activate()
+        win = wbn.Windows(1)
+        win.FreezePanes = False
+        win.SplitColumn = 0
+        win.SplitRow = 0
+        if screen.active and answer:
+            wbn.Worksheets(answer).Activate()
+        if not screen.active and screen.user_book:
+            user = b.app.Workbooks(screen.user_book)
+            user.Activate()
+            if screen.user_sheet:
+                user.Sheets(screen.user_sheet).Activate()
+    try:
+        run(t.app, b)
+    except Exception:   # noqa: BLE001 - cosmetic, as styling._freeze's own undo
+        pass
 
 
 def write_sources(t, q: int, pre, ws_data, header, fetched: str, status: dict | None = None,
@@ -336,8 +380,10 @@ def write_sources(t, q: int, pre, ws_data, header, fetched: str, status: dict | 
     written = record_write(b, b.workbook(name), t, q, pre, log, header, fetched, status or {}, lines_status or {},
                            separators, get_screen(res), notes)
     res = run(t.app, b)
-    if res.skipped:
-        raise HostError(f"the Sources log was not written: {res.skipped[0][2]}")
+    refused = written.refused(res.skipped)
+    if refused is not None:
+        raise HostError(f"the Sources log was not written: {refused}")
+    unfreeze(t, log.name, written, res, get_screen(res))
     if written.setup is not None:
         b = Batch(quiet=False)
         setup_name(b.workbook(name).Worksheets(log.name), written.setup[0])

@@ -7,17 +7,18 @@ merge_patch, _prepare and the redraw job - with a harmless patch that changes th
 the period of its queries, by turns), then fin_refresh's path once (server.fin_refresh on that workbook: both
 answers).
 
-Per step it prints the seconds, the Excel job's seconds, COM-call count and seconds per stage, sheet = model (OK /
-DIFF in n cells) and the workbook checks a fake Excel cannot prove: no 'old ...' sheet and no '..._old' table left,
+Per step it prints the seconds, the Excel job's seconds, its batches (xl/inproc: one Excel run each), COM-call
+count and seconds per stage, sheet = model (OK / DIFF in n cells) and the workbook checks a fake Excel cannot prove: no 'old ...' sheet and no '..._old' table left,
 the sheet order as after the second answer, the last drawn Answer active, every Sources link of the question still
 naming its sheet (Excel does not rewrite a hyperlink's SubAddress, nor a HYPERLINK formula's text, when the sheet is
 parked under another name), each HYPERLINK link showing its text (no click needed: the formula and what the cell
 shows are compared), and Excel still answering. Never a figure from
 EPM: the replies are dropped. The first failure stops the run (exit 2) with its message, amounts masked.
 
-Usage (from the repo root; Excel open, signed in to EPM):
+Usage (from the repo root; Excel open, signed in to EPM; SV_INPROC=0 runs every batch over COM):
     engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--second b07]
         [--keep]
+At the end it says which executor ran the batches (the in-process add-in, or COM).
 Only the workbook this script created is touched, and closed at the end (without saving: the engine saved it after
 every answer) unless --keep; the user's own workbooks and Excel are never saved or closed. At the end only the
 engine's own hidden Excel and browser are shut down, as the server's lifespan does.
@@ -38,8 +39,9 @@ from smartass.testset import runner
 FOLLOW_UPS = 6
 OTHER_PERIOD = "Jan 26..Jun 26"         # the period a follow-up switches to (and back from) by turns
 COM = "excel job.com calls."            # the Excel job's COM-call counts, as server._draw_job logs them
+BATCHES = "excel job.batches."          # ... and its batches (xl/inproc runs)
 MOVE_IN = "excel job.draw.move in"      # a stage every answer's Excel job has
-STAGES = ("draw.build", "draw.move in", "draw.finish", "draw.read back", "draw.sources", "draw.arrange", "save")
+STAGES = ("draw.look", "draw.build", "draw.move in", "draw.finish", "draw.close out", "save")
 HYPERLINK = re.compile(r'^=HYPERLINK\("#((?:[^"]|"")*)","((?:[^"]|"")*)"\)$')
 
 
@@ -53,10 +55,22 @@ def scrub(text) -> str:
     return re.sub(r"-?\d+(?:[ ,.]\d+)+|\d{4,}", "#", s)[:300]
 
 
-def com_calls(timings: dict) -> int | None:
-    """The Excel job's COM calls: its top-level stages summed (nested stages already count in their parents)."""
-    tops = [v for k, v in timings.items() if k.startswith(COM) and "." not in k[len(COM):]]
+def com_calls(timings: dict, prefix: str = COM) -> int | None:
+    """The Excel job's COM calls (prefix BATCHES: its batches): its top-level stages summed (nested stages already
+    count in their parents)."""
+    tops = [v for k, v in timings.items() if k.startswith(prefix) and "." not in k[len(prefix):]]
     return int(sum(tops)) if tops else None
+
+
+def executor() -> str:
+    """Which executor ran the batches in this process: the add-in in which Excel, or COM (and why not)."""
+    from smartass.core import config
+    from smartass.xl.inproc import runner
+    if not config.INPROC:
+        return "COM (SV_INPROC=0)"
+    ready = [f"pid {ex.pid}" for ex in runner._EXCELS.values() if ex.ready]
+    other = [f"pid {ex.pid}: {ex.ready}" for ex in runner._EXCELS.values() if not ex.ready]
+    return (f"in-process add-in ({', '.join(ready)})" if ready else "COM") + (f"; not loaded: {other}" if other else "")
 
 
 def run_line(offset: int, tool: str) -> dict | None:
@@ -224,10 +238,11 @@ async def check(case: dict, second: dict, keep: bool) -> int:
         if not seen["ready"]:
             problems.append("Excel is not ready")
         com = com_calls(timings)
+        runs = com_calls(timings, BATCHES)
         stages = "  ".join(f"{s.split('.')[-1]} {timings.get('excel job.' + s, 0):.2f}" for s in STAGES)
         counts = "/".join(f"{k} {seen['statuses'].count(k)}" for k in ("OK", "DIFF"))
-        print(f"{label:<14} {secs:6.1f} s  excel job {timings.get('excel job._total', 0):5.2f} s  COM calls "
-              f"{'-' if com is None else com:>4}  [{stages}]  sheet = model {status}  Sources links "
+        print(f"{label:<14} {secs:6.1f} s  excel job {timings.get('excel job._total', 0):5.2f} s  batches "
+              f"{'-' if runs is None else runs:>2}  COM calls {'-' if com is None else com:>4}  [{stages}]  sheet = model {status}  Sources links "
               f"{len(seen['links'])}  status {counts}  layout {found[0]} warnings {found[1]}  "
               f"{'checks OK' if not problems else 'DIFF: ' + '; '.join(problems)}", flush=True)
         if problems:
@@ -258,6 +273,7 @@ async def check(case: dict, second: dict, keep: bool) -> int:
         _shutdown(kit)
     for x in sorted(texts):
         print(f"  reply note: {x}", flush=True)
+    print(f"executor: {executor()}", flush=True)
     if failed:
         print(f"\nSTOPPED: {failed}", flush=True)
         return 2
