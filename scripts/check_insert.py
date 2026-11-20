@@ -42,6 +42,7 @@ import contextlib
 import dataclasses
 import datetime as dt
 import logging
+import math
 import os
 import re
 import shutil
@@ -112,7 +113,7 @@ def copy_route(t, built, after, first=False, book=None, **_):
     found = movein.taken(t.wb, built.sheets, [s.name for s in built.tables], book)
     if found:
         raise movein.NameTaken(", ".join(found))
-    tables = movein.file_tables(built.path)
+    tables = movein.file_parts(built.path)[1]
     if tables:
         raise ValueError(f"the built file holds an Excel Table ({', '.join(tables)})")
     before, after_sheet = movein._anchor(book, after, first)
@@ -153,7 +154,18 @@ def g(fn):
         return ERR
 
 
+def obj(fn):
+    """A COM object to read further from (never through _plain, which would make it text); None when Excel refuses
+    it, so every read from it is ERR."""
+    try:
+        return jobs.retry_busy(fn, 20)
+    except Exception:   # noqa: BLE001
+        return None
+
+
 def _plain(v):
+    if isinstance(v, float) and math.isnan(v):          # a label of an empty point: NaN Top/Left (NaN != NaN)
+        return "NaN"
     if isinstance(v, float) and v.is_integer():
         return int(v)
     if isinstance(v, tuple):
@@ -414,11 +426,11 @@ def _labels_of(s, k: int) -> dict:
     out = {}
     count = g(lambda: s.Points().Count)
     for i in range(1, (count if isinstance(count, int) else 0) + 1):
-        p = g(lambda i=i: s.Points(i))
+        p = obj(lambda i=i: s.Points(i))
         key = f"series {k} point {i}"
         out[key + " fill"] = (g(lambda: p.Format.Fill.Visible), g(lambda: p.Format.Fill.ForeColor.RGB))
         if g(lambda: p.HasDataLabel) is True:
-            lab = g(lambda: p.DataLabel)
+            lab = obj(lambda: p.DataLabel)
             out[key + " label"] = tuple(g(lambda a=a: getattr(lab, a)) for a in (
                 "Position", "Top", "Left", "NumberFormat", "ShowValue", "ShowCategoryName", "ShowSeriesName"))
             out[key + " label font"] = tuple(g(lambda a=a: getattr(lab.Font, a)) for a in ("Name", "Size", "Color",
@@ -427,7 +439,7 @@ def _labels_of(s, k: int) -> dict:
 
 
 def _chart(co, mask: bool) -> dict:
-    ch = g(lambda: co.Chart)
+    ch = obj(lambda: co.Chart)
     d = {"object": tuple(g(lambda a=a: getattr(co, a)) for a in ("Name", "Left", "Top", "Width", "Height",
                                                                 "Placement", "Visible")),
          "top left": g(lambda: co.TopLeftCell.Address), "bottom right": g(lambda: co.BottomRightCell.Address),
@@ -445,14 +457,14 @@ def _chart(co, mask: bool) -> dict:
                        g(lambda: ch.Legend.Font.Color))
     groups = g(lambda: ch.ChartGroups().Count)
     for i in range(1, (groups if isinstance(groups, int) else 0) + 1):
-        grp = g(lambda i=i: ch.ChartGroups(i))
+        grp = obj(lambda i=i: ch.ChartGroups(i))
         d[f"group {i}"] = (g(lambda: grp.Overlap), g(lambda: grp.GapWidth), g(lambda: grp.AxisGroup))
     for axis_group in (1, 2):
         for kind, label in ((XL_CATEGORY, "category"), (XL_VALUE, "value")):
             if g(lambda kind=kind, ag=axis_group: ch.HasAxis(kind, ag)) is not True:
                 d[f"{label} axis {axis_group}"] = "none"
                 continue
-            ax = g(lambda kind=kind, ag=axis_group: ch.Axes(kind, ag))
+            ax = obj(lambda kind=kind, ag=axis_group: ch.Axes(kind, ag))
             d[f"{label} axis {axis_group}"] = tuple(g(lambda a=a: getattr(ax, a)) for a in (
                 "MinimumScaleIsAuto", "MaximumScaleIsAuto", "ReversePlotOrder", "TickLabelPosition", "MajorTickMark",
                 "HasMajorGridlines", "HasMinorGridlines", "HasTitle", "Crosses"))
@@ -466,7 +478,7 @@ def _chart(co, mask: bool) -> dict:
     n = g(lambda: ch.SeriesCollection().Count)
     d["series count"] = n
     for k in range(1, (n if isinstance(n, int) else 0) + 1):
-        s = g(lambda k=k: ch.SeriesCollection(k))
+        s = obj(lambda k=k: ch.SeriesCollection(k))
         d[f"series {k} formula"] = _texts(g(lambda: s.Formula), mask)
         d[f"series {k}"] = tuple(g(lambda a=a: getattr(s, a)) for a in ("ChartType", "AxisGroup", "PlotOrder",
                                                                           "HasDataLabels", "MarkerStyle"))
@@ -475,7 +487,7 @@ def _chart(co, mask: bool) -> dict:
         d[f"series {k} line"] = (g(lambda: s.Format.Line.Visible), g(lambda: s.Format.Line.ForeColor.RGB),
                                  g(lambda: s.Format.Line.Weight), g(lambda: s.Format.Line.DashStyle))
         if d[f"series {k}"][3] is True:
-            labs = g(lambda: s.DataLabels())
+            labs = obj(lambda: s.DataLabels())
             d[f"series {k} labels"] = tuple(g(lambda a=a: getattr(labs, a)) for a in (
                 "NumberFormat", "Position", "ShowValue"))
             d[f"series {k} labels font"] = tuple(g(lambda a=a: getattr(labs.Font, a)) for a in (
@@ -502,14 +514,16 @@ def read_sheet(app, wb, name: str, rect, mask: bool = False) -> dict:
     _bisect(lambda a, b: g(lambda: ws.Range(f"{a}:{b}").RowHeight), 1, r2, sizes, lambda a, b: f"rows {a}:{b} height")
     _bisect(lambda a, b: g(lambda: ws.Range(f"{col_letter(a)}:{col_letter(b)}").ColumnWidth), 1, c2, sizes,
             lambda a, b: f"columns {col_letter(a)}:{col_letter(b)} width")
-    _bisect(lambda a, b: g(lambda: ws.Range(f"{a}:{b}").Hidden), 1, r2 + 5, hidden, lambda a, b: f"rows {a}:{b}")
-    _bisect(lambda a, b: g(lambda: ws.Range(f"{col_letter(a)}:{col_letter(b)}").Hidden), 1, c2 + 5, hidden,
+    _bisect(lambda a, b: g(lambda: ws.Range(f"{a}:{b}").EntireRow.Hidden), 1, r2 + 5, hidden,
+            lambda a, b: f"rows {a}:{b}")
+    _bisect(lambda a, b: g(lambda: ws.Range(f"{col_letter(a)}:{col_letter(b)}").EntireColumn.Hidden), 1, c2 + 5,
+            hidden,
             lambda a, b: f"columns {col_letter(a)}:{col_letter(b)}")
     out["row heights"] = {k: v for k, v in sizes.items() if k.startswith("rows")}
     out["column widths"] = {k: v for k, v in sizes.items() if k.startswith("columns")}
     out["hidden rows and columns"] = hidden
-    page = g(lambda: ws.PageSetup)
-    out["page setup"] = {a: (ERR if page == ERR else g(lambda a=a: getattr(page, a))) for a in PAGE}
+    page = obj(lambda: ws.PageSetup)
+    out["page setup"] = {a: (ERR if page is None else g(lambda a=a: getattr(page, a))) for a in PAGE}
     out["manual page breaks"] = {
         "rows": g(lambda: tuple(int(b.Location.Row) for b in ws.HPageBreaks if int(b.Type) == MANUAL_BREAK)),
         "columns": g(lambda: tuple(int(b.Location.Column) for b in ws.VPageBreaks if int(b.Type) == MANUAL_BREAK))}
@@ -523,7 +537,7 @@ def read_sheet(app, wb, name: str, rect, mask: bool = False) -> dict:
     fcs = g(lambda: ws.Cells.FormatConditions.Count)
     cf = {"count": fcs}
     for i in range(1, (fcs if isinstance(fcs, int) else 0) + 1):
-        fc = g(lambda i=i: ws.Cells.FormatConditions(i))
+        fc = obj(lambda i=i: ws.Cells.FormatConditions(i))
         cf[f"rule {i}"] = tuple(g(lambda a=a: getattr(fc, a)) for a in ("Type", "Operator", "Formula1", "StopIfTrue",
                                                                          "Priority"))
         cf[f"rule {i} applies to"] = g(lambda: fc.AppliesTo.Address)
@@ -537,14 +551,14 @@ def read_sheet(app, wb, name: str, rect, mask: bool = False) -> dict:
     out["data validation"] = {"cells": dv}
     if out["sheet"]["visible"] == -1:             # the window's settings are the active sheet's
         g(lambda: ws.Activate())
-        win = g(lambda: app.ActiveWindow)
+        win = obj(lambda: app.ActiveWindow)
         out["window"] = {a: g(lambda a=a: getattr(win, a)) for a in WINDOW}
     else:
         out["window"] = {"hidden sheet": True}
     count = g(lambda: ws.ChartObjects().Count)
     charts = {"count": count}
     for i in range(1, (count if isinstance(count, int) else 0) + 1):
-        for k, v in _chart(g(lambda i=i: ws.ChartObjects(i)), mask).items():
+        for k, v in _chart(obj(lambda i=i: ws.ChartObjects(i)), mask).items():
             charts[f"chart {i} {k}"] = v
     out["charts"] = charts
     return out
@@ -587,8 +601,12 @@ def book_rects(wbs: list, names: list[str]) -> dict:
     return out
 
 
+def _at(snap: dict, where: str, item: str, key):
+    return snap.get(where, {}).get(item, {}).get(key, "<absent>")
+
+
 def diff(a: dict, b: dict) -> dict:
-    """item -> [keys that differ] (keys only: never a value)."""
+    """item -> [(where, key) that differ] (keys only: never a value)."""
     out = defaultdict(list)
     for where in sorted(set(a) | set(b)):
         sa, sb = a.get(where, {}), b.get(where, {})
@@ -596,8 +614,66 @@ def diff(a: dict, b: dict) -> dict:
             ia, ib = sa.get(item, {}), sb.get(item, {})
             for key in sorted(set(ia) | set(ib), key=str):
                 if ia.get(key, "<absent>") != ib.get(key, "<absent>"):
-                    out[item].append(f"{where.removeprefix('sheet:')}!{key}")
+                    out[item].append((where, key))
     return out
+
+
+def shown(where: str, key) -> str:
+    return f"{where.removeprefix('sheet:')}!{key}"
+
+
+def route_diff(snaps: dict) -> tuple[dict, dict]:
+    """(item -> [keys where the insert differs from the copy], item -> [keys masked as noise]). A key the copy and the
+    control (the same copy route twice) disagree on is noise only when the insert has the copy's or the control's
+    value there (it falls inside the copy route's own spread); otherwise it is a difference too."""
+    found, masked = defaultdict(list), defaultdict(list)
+    for item, keys in diff(snaps["copy"], snaps["insert"]).items():
+        for where, key in keys:
+            ins = _at(snaps["insert"], where, item, key)
+            if ins == _at(snaps["control"], where, item, key):
+                masked[item].append(shown(where, key))
+            else:
+                found[item].append(shown(where, key))
+    return found, masked
+
+
+def _has_err(v) -> bool:
+    return v == ERR or (isinstance(v, tuple) and ERR in v)
+
+
+def _prop(key, v) -> str:
+    """A key without its cell, sheet, chart or series numbers, with the tuple positions that failed: the property."""
+    name = re.sub(r"\b[A-Z]{1,3}\d+\b", "<cell>", str(key))
+    name = re.sub(r"\d+", "#", name)
+    if isinstance(v, tuple):
+        name += f" [{','.join(str(i) for i, x in enumerate(v) if x == ERR)}]"
+    return name
+
+
+def unread(snaps: dict) -> dict:
+    """item -> {property: how many keys} that could not be read on EVERY route (never a value)."""
+    out: dict = defaultdict(lambda: defaultdict(int))
+    first, *rest = snaps.values()
+    for where, items in first.items():
+        for item, keys in items.items():
+            for key, v in keys.items():
+                if _has_err(v) and all(_has_err(s.get(where, {}).get(item, {}).get(key)) for s in rest):
+                    out[item][_prop(key, v)] += 1
+    return out
+
+
+# Properties a hidden Excel of our own cannot read on any route, and why that is no gap (printed with the count).
+NOT_READABLE: dict[str, str] = {}
+
+
+def unread_findings(bad: dict) -> tuple[list, list]:
+    """(the failing [item: property x n], the accepted ones) of unread()."""
+    fail, ok = [], []
+    for item, props in bad.items():
+        for prop, n in props.items():
+            (ok if any(re.fullmatch(p, f"{item}: {prop}") for p in NOT_READABLE) else fail).append(
+                f"{item}: {prop} x{n}")
+    return fail, ok
 
 
 # ---------------------------------------------------------------------------------------------------- fixtures
@@ -739,12 +815,30 @@ def _mentions_file(snap: dict, built) -> list[str]:
     return found
 
 
+def report_items(part: str, items, found: dict, noise: dict, errs: dict) -> None:
+    """One OK / DIFF per item: DIFF when the insert differs from the copy outside the copy route's own spread, or
+    when a property could not be read on any route (an unread property compares equal and would pass unseen),
+    unless NOT_READABLE says why that is no gap. Masked keys are printed as unproven."""
+    for item in sorted(items):
+        keys = found.get(item, [])
+        fail, accepted = unread_findings({item: errs.get(item, {})})
+        detail = (f"{len(keys)} differ: {keys[:4]}" if keys else "") + (f" unread on every route: {fail[:6]}"
+                                                                          if fail else "")
+        check(f"{part}: {item}", not keys and not fail, detail.strip())
+        if accepted:
+            info(f"unread on every route, accepted ({item}): {accepted}")
+        if noise.get(item):
+            info(f"unproven (the copy route differs from itself here; the insert has the control's value) in {item}: "
+                 f"{len(noise[item])}, e.g. {noise[item][:3]}")
+
+
 # ---------------------------------------------------------------------------------------------------- 1. the files
 def compare_fixtures(xl: Excel) -> None:
     """Per fixture: the copy route, the insert route and the control (a second copy route), compared after the
     move-in and after finish + calculate."""
     found: dict = defaultdict(list)            # item -> ["fixture phase: key", ...] (route differences)
-    noise: dict = defaultdict(list)            # item -> [...] (copy against copy)
+    noise: dict = defaultdict(list)            # item -> [...] (masked: the insert has the control's value)
+    errs: dict = defaultdict(lambda: defaultdict(int))     # item -> property -> reads failed on every route
     items: set = set()
     extra = {"links": [], "temporary file deleted right after": [], "the Book learns the order": []}
     folder = TMP / "build"
@@ -780,25 +874,23 @@ def compare_fixtures(xl: Excel) -> None:
             for snap in snaps.values():
                 for where in snap.values():
                     items.update(where)
-            control = diff(snaps["copy"], snaps["control"])
-            for item, keys in control.items():
+            real, masked = route_diff(snaps)
+            for item, keys in real.items():
+                found[item] += [f"{fix} {phase}: {k}" for k in keys]
+            for item, keys in masked.items():
                 noise[item] += [f"{fix} {phase}: {k}" for k in keys]
-            for item, keys in diff(snaps["copy"], snaps["insert"]).items():
-                real = [k for k in keys if k not in set(control.get(item, ()))]
-                found[item] += [f"{fix} {phase}: {k}" for k in real]
+            for item, props in unread(snaps).items():
+                for prop, n in props.items():
+                    errs[item][prop] += n
             t, built = sides["insert"]
             links = snaps["insert"]["workbook"]["links"]
-            if any(v not in (None, ERR) for v in links.values()):
+            if any(v is not None for v in links.values()):                 # a link, or LinkSources unreadable
                 extra["links"].append(f"{fix} {phase}: LinkSources {sorted(k for k, v in links.items() if v)}")
             extra["links"] += [f"{fix} {phase}: {k}" for k in _mentions_file(snaps["insert"], built)]
         for t, _ in sides.values():
             xl.close(t.wb)
         print(f"     compared: {fix} ({len(names)} sheets)", flush=True)
-    for item in sorted(items):
-        keys = found.get(item, [])
-        check(f"files: {item}", not keys, f"{len(keys)} differ: {keys[:4]}" if keys else "")
-        if noise.get(item):
-            info(f"noise (copy against copy) in {item}: {len(noise[item])}, e.g. {noise[item][:2]}")
+    report_items("files", items, found, noise, errs)
     check("files: links (none of any type; no formula, name or series formula mentions the file)",
           not extra["links"], str(extra["links"][:4]))
     check("files: the temporary file can be deleted right after the move-in",
@@ -912,24 +1004,31 @@ def refusals(xl: Excel, built0) -> None:
     info(f"what Excel itself does with a taken name: {[n for n in _names(wb) if n not in before[0]]}")
     xl.close(wb)
     built.path.unlink(missing_ok=True)
-    # a file holding a table
-    path = TMP / "build" / f"{uuid.uuid4().hex}.xlsx"
-    with xlsxwriter.Workbook(str(path)) as book:
-        ws = book.add_worksheet("Q3 Answer")
-        data = book.add_worksheet("Q3 Data")
-        data.add_table("A1:B3", {"name": "Data_Q3"})
-        ws.write_number(0, 0, 1.0)
-    tabled = dataclasses.replace(built0, path=path)
-    wb = xl.fresh("tabled")
-    t = Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0)
-    before = _names(wb)
-    try:
-        ROUTES["insert"](t, tabled, "Sources", book=movein.read_book(t))
-        refused = False
-    except ValueError:
-        refused = True
-    check("a file holding a Table is refused before the insert", refused and _names(wb) == before)
-    xl.close(wb)
+    # a file holding a table; a file holding one sheet more than the answer's; the answer's sheets in another order
+    def odd(names: list[str], table: bool = False):
+        path = TMP / "build" / f"{uuid.uuid4().hex}.xlsx"
+        with xlsxwriter.Workbook(str(path)) as book:
+            for name in names:
+                ws = book.add_worksheet(name)
+                ws.write_number(0, 0, 1.0)
+                if table and name == "Q3 Data":
+                    ws.add_table("C1:D3", {"name": "Data_Q3"})
+        return dataclasses.replace(built0, path=path)
+    sheets = list(built0.sheets)
+    for label, bad, words in (("a file holding a Table", odd(sheets, table=True), "Table"),
+                              ("a file holding a sheet more", odd([*sheets, "Scratch"]), "sheets"),
+                              ("a file holding the sheets in another order", odd(sheets[::-1]), "sheets")):
+        wb = xl.fresh("odd")
+        t = Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0)
+        before = _names(wb)
+        try:
+            ROUTES["insert"](t, bad, "Sources", book=movein.read_book(t))
+            refused = ""
+        except ValueError as e:
+            refused = str(e)
+        check(f"{label} is refused before the insert", words in refused and _names(wb) == before
+              and t.sheets_added == [], f"sheets {_names(wb)}" if _names(wb) != before else "")
+        xl.close(wb)
     # a file that is not there, a file that is not a workbook: what Excel leaves when the insert itself fails (the
     # zip guard would refuse both before Excel is asked, so Sheets.Add is called directly here)
     broken = TMP / "build" / "broken.xlsx"
@@ -1048,14 +1147,9 @@ def compare_jobs(xl: Excel) -> None:
           "" if names["copy"] == names["insert"] else f"copy {names['copy']} | insert {names['insert']}")
     rects = book_rects(list(books.values()), names["copy"])
     snaps = {side: read_book(xl.app, wb, rects, mask=True) for side, wb in books.items()}
-    control = diff(snaps["copy"], snaps["control"])
-    differ = diff(snaps["copy"], snaps["insert"])
-    items = sorted({item for snap in snaps.values() for where in snap.values() for item in where})
-    for item in items:
-        keys = [k for k in differ.get(item, []) if k not in set(control.get(item, ()))]
-        check(f"jobs: {item}", not keys, f"{len(keys)} differ: {keys[:4]}" if keys else "")
-        if control.get(item):
-            info(f"noise (copy against copy) in {item}: {control[item][:4]}")
+    found, noise = route_diff(snaps)
+    items = {item for snap in snaps.values() for where in snap.values() for item in where}
+    report_items("jobs", items, found, noise, unread(snaps))
     for wb in books.values():
         xl.close(wb)
 

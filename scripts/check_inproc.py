@@ -549,19 +549,17 @@ def fixed_cost(app, raw, runs: int) -> None:
 
 
 def write_sources() -> dict:
+    """The source workbook the copy item opens: {"src1": its path}."""
     import openpyxl
-    out = {}
-    for key in ("src1",):
-        book = openpyxl.Workbook()
-        a = book.active
-        a.title = "Src A"
-        a["A1"], a["B1"] = "label", "=Other!A1*2"
-        book.create_sheet("Src B")["A1"] = "plain"
-        book.create_sheet("Other")["A1"] = 21
-        path = TMP / f"inproc_{key}.xlsx"
-        book.save(path)
-        out[key] = str(path)
-    return out
+    book = openpyxl.Workbook()
+    a = book.active
+    a.title = "Src A"
+    a["A1"], a["B1"] = "label", "=Other!A1*2"
+    book.create_sheet("Src B")["A1"] = "plain"
+    book.create_sheet("Other")["A1"] = 21
+    path = TMP / "inproc_src1.xlsx"
+    book.save(path)
+    return {"src1": str(path)}
 
 
 def main(argv=None) -> int:
