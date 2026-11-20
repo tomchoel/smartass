@@ -64,8 +64,9 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    **close out** (the 'Sheet = model' status (`render/readback.py`), Key point heights and page breaks, a
    follow-up's old sheets dropped, the Sources log (`xl/sources.py`), the spec in hidden `_svmeta`, sheet order
    (`xl/sheetorder.py`)); then the save (our files only, AutoSave back on). Every quiet batch puts the user's
-   settings back itself, and only the bring-in sets Calculation to manual (putting automatic back recalculates what
-   is dirty in every open workbook); after the bring-in the job pauses once (`SV_PAINT_PAUSE`, 0.15 s) so Excel
+   settings back itself; Calculation is set to manual only where formulas are written - the bring-in, a close-out
+   that re-points formulas elsewhere, and the point-back after a failure - since putting automatic back recalculates
+   what is dirty in every open workbook; after the bring-in the job pauses once (`SV_PAINT_PAUSE`, 0.15 s) so Excel
    paints the answer with its numbers and charts when the workbook is on screen. A failure rolls back as before
    (the clean-up runs as batches of its own, also for a job abandoned by a timeout).
    Measured (docs/audit/2026-11-20-inproc-bench.md, live): 1.9-2.7 s in the Excel job for an answer without a

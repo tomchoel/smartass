@@ -30,17 +30,22 @@
   table column the new answer lacks, a legacy array formula longer than 255 characters), about one the user changed
   while the answer was drawn (each write first checks the formula is still what was read; an edited cell, or a row,
   chart or name added in between, is left alone), and about a protected sheet with a hidden formula (it cannot be
-  read) - those show #REF!. **Not re-pointed** (they show #REF!): conditional formats, data validation lists, pivot
-  tables built on a `Data_Q<n>` table, chart titles and labels linked to a cell, sparklines, form controls'
-  linked cells and lists, shapes and text boxes linked to a cell, and links from other workbooks. Nothing of the
-  user's is saved and Excel's settings are put back; when the answer's workbook is the active one it ends on the new
-  Answer, otherwise the user's active sheet is put back.
+  read) - those show #REF!. When the workbook cannot be scanned at all, the old sheets are dropped anyway and the
+  reply says the formulas pointing at them were not checked. **Not re-pointed** (they show #REF!): conditional
+  formats, data validation lists, pivot tables built on a `Data_Q<n>` table, chart titles and labels linked to a
+  cell, sparklines, form controls' linked cells and lists, shapes and text boxes linked to a cell, and links from
+  other workbooks. Nothing of the user's is saved and Excel's settings are put back; when the answer's workbook is
+  the active one it ends on the new Answer, otherwise the user's active sheet is put back.
 - **The add-in.** The first answer in an Excel builds a small Excel-DNA add-in (`smartass_run_<hash>.xll`, compiled
   with the .NET compiler that ships with Windows, under `%LOCALAPPDATA%\smartass\inproc`) and loads it into that
   Excel with `RegisterXLL`, silently, for the rest of that Excel's life; each batch of an answer's Excel work is
   then one `Application.Run` into it. Anything that keeps it from loading or answering (no compiler, a 32-bit
   Excel, a policy, a dialog: `RegisterXLL` is given 60 s) makes that Excel use the COM route instead - the same
-  work, a little slower - with one warning in `logs\server.log` ("in-process executor not used in Excel pid ...").
+  work, about twice as slow for a follow-up (4.9-6.2 s against 2.5-2.9 s in-process, measured while another session
+  worked in the same Excel) - with one warning in `logs\server.log` ("in-process executor not used in Excel pid
+  ..."). On a very large workbook the COM route costs more: every follow-up reads the defined names one call at a
+  time (3-5 s for 2 000 names), and a sheet whose used range reaches both the last row and the last column costs some
+  700 000 calls (an estimate, not measured: minutes); `fin_refresh` pays both once per question.
   `SV_INPROC=0` in the server's environment forces the COM route. The add-in runs nothing but job files the engine
   writes to `inproc\jobs` (a formula calling it gets #N/A); the user's settings it turns off while it works are
   put back by each batch itself, also when a step fails.
@@ -107,7 +112,9 @@ Every error names one next step. The common ones:
 | `there is no v2 answer in this workbook to follow up` / `Q<n> is not a v2 answer in this workbook` | Follow-ups and `fin_refresh` need an answer drawn by `fin_analyze` in that workbook (the error lists the ones there). Otherwise ask it as a new question. |
 | `Another agent has been working in that Excel for 10 min` | Turn-taking timeout in one Excel window. Try again shortly. |
 | `Excel operation <n> failed: <the operation>: operation <n> (<kind> <name>): <Excel's message>` | One step of the answer's Excel work was refused by Excel: the answer was taken out again (a follow-up's old answer put back) and Excel's settings restored. The operation and Excel's own message say what; often a protected or shared workbook, or a name the user gave a sheet. |
-| Warning in `server.log`: `in-process executor not used in Excel pid <n>: <why>` | The add-in did not load in that Excel; answers run over COM (slower, same result). The reason says what (no compiler, 32-bit Excel, `RegisterXLL` refused or blocked). It is tried again when Excel restarts. |
+| Warning in `server.log`: `in-process executor not used in Excel pid <n>: <why>` | The add-in did not load in that Excel; answers run over COM (about twice as slow for a follow-up, same result). The reason says what (no compiler, 32-bit Excel, `RegisterXLL` refused or blocked). A load that failed is tried again in a new Excel or after a server restart. A compile error is kept in `inproc\smartass_run_<hash>.failed` and not tried again for a day (delete the file to try now); an update that changes the add-in is built anew. |
+| `Excel operation None failed: the batch in Excel: the batch's outcome is unknown: …` | The add-in took one batch of the answer's Excel work, and what it did cannot be told (its answer could not be read, or the call failed after it took the job). The batch is not run again; the job is undone as far as the workbook shows (the old answer back, or the new one kept and said). Check the workbook, then retry once. If it repeats, every batch in that Excel fails the same way: restart that Excel, or set `SV_INPROC=0` in the server's environment (read when the server starts). |
+| `…; the new answer is in place (the old one is gone)` (`and saved`) | A follow-up or `fin_refresh` failed after its old sheets were dropped, or its final save failed: the new answer stays (a rollback would leave neither; `and saved`: our own analysis file was saved, the user's workbook never is). The Sources rows and the stored spec may be missing: run the same follow-up again to record them. |
 | Repeated `HostError` | `fin_status(restart=True)`, then retry; if it repeats, `smartass doctor --bundle` to the maintainer. |
 | HTTP `409 busy` / `401` / `413` | `smartass serve`: one request at a time / wrong secret / body over 1 MB. |
 
