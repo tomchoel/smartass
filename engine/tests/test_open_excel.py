@@ -436,3 +436,31 @@ def test_resolve_target_leaves_the_session_alone_for_a_workbook_the_job_builds(t
     with pytest.raises(HostError, match="did not load; the new workbook .* was not opened; its file was deleted"):
         target.resolve_target(None, "new", build_new=True)
     assert [p.name for p in tmp_path.iterdir()] == [t.made.name]
+
+
+
+def test_a_new_workbook_whose_open_was_abandoned_is_found_by_its_name_and_closed(tmp_path, monkeypatch, fast):
+    """Review minor 1: a Workbooks.Open the job gave up on (a timeout) may still open the file: with no workbook in
+    hand the clean-up looks for it among that Excel's workbooks by its name (reserved: no other open workbook has
+    it), closes it without saving, then deletes the file."""
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    books = Opener()
+    t = target._new_target(None, "Q", [(11, 110, FakeApp(books))], build_new=True)
+    late = books.Open(str(t.made))                      # Excel opened it after the call was abandoned
+    assert t.wb is None
+    note = target.discard_new(t)
+    assert late.closed == [False] and late not in books and not t.made.exists()
+    assert note == f"the new workbook {t.made.name} was closed without saving and its file deleted"
+
+
+def test_a_note_keeps_the_shape_of_a_com_error():
+    """Review minor 5: a COM error keeps its four args (hresult, text, excepinfo, argerror); the note goes into its
+    text. Any other error's text gets it at the end."""
+    e = pywintypes.com_error(-2147352567, "Exception occurred.", (0, "Microsoft Excel", "Open failed", None, 0, -1),
+                             None)
+    target._noted(e, "the new workbook x.xlsx was not opened; its file was deleted")
+    assert len(e.args) == 4 and e.args[0] == -2147352567 and e.args[2][2] == "Open failed"
+    assert e.args[1] == "Exception occurred.; the new workbook x.xlsx was not opened; its file was deleted"
+    h = HostError("the bridge did not load")
+    target._noted(h, "deleted")
+    assert h.args == ("the bridge did not load; deleted",)

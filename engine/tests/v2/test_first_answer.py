@@ -251,3 +251,52 @@ def test_a_stored_base_of_another_template_version_is_not_used(tmp_home, monkeyp
     assert xltarget.new_base() == BASE
     monkeypatch.setattr(styling, "_styles_version", lambda: "other")
     assert xltarget.new_base() is None
+
+
+
+def test_a_built_workbook_whose_base_is_not_the_stored_one_drops_it_and_keeps_the_answer(new_book, calculated,
+                                                                                         monkeypatch, caplog):
+    """Review minor 3: the look of a built workbook reads the base Excel gives it; when that is not the stored one
+    (a default font changed, a template the stored base no longer describes) the answer stays, a warning is logged and
+    the stored base is dropped - the next new workbook is made from the template once and stores a fresh one."""
+    import logging
+    real = pipeline._look
+
+    def look(job):
+        found = real(job)
+        found.base = dataclasses.replace(found.base, col_px=64)
+        return found
+    monkeypatch.setattr(pipeline, "_look", look)
+    with caplog.at_level(logging.WARNING):
+        out, _ = _job(_pre(), calculated)
+    assert out["checks"]["sheet_equals_model"] == "OK" and new_book.sessions == [out["workbook"]]
+    assert xltarget.new_base() is None
+    assert any("stored base" in r.getMessage() for r in caplog.records)
+
+
+def test_a_built_workbook_whose_base_is_the_stored_one_keeps_it(new_book, calculated):
+    _job(_pre(), calculated)
+    assert xltarget.new_base() == BASE
+
+
+def test_the_templates_theme_is_read_once_per_version_of_the_file(tmp_home, monkeypatch):
+    """Review minor 7: _new_book runs before every answer; the template's zip is read again only when the file
+    changes (its path or its time)."""
+    import os
+    import zipfile
+
+    from xlsxwriter.theme import THEME_XML_2007
+    monkeypatch.setattr(config, "SVKIT", tmp_home)
+    path = styling.template_path()
+
+    def put(theme, ns):
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("xl/theme/theme1.xml", theme)
+        os.utime(path, ns=(ns, ns))
+    put(THEME_XML_2023, 1_700_000_000_000_000_000)
+    opened, real = [], zipfile.ZipFile
+    monkeypatch.setattr(zipfile, "ZipFile", lambda *a, **k: opened.append(a[0]) or real(*a, **k))
+    assert styling.template_theme() == THEME_XML_2023 == styling.template_theme() and len(opened) == 1
+    monkeypatch.setattr(zipfile, "ZipFile", real)
+    put(THEME_XML_2007, 1_700_000_001_000_000_000)
+    assert styling.template_theme() == THEME_XML_2007

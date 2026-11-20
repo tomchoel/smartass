@@ -181,6 +181,8 @@ QUEUE_TIMEOUT_S = float(os.environ.get("SV_QUEUE_TIMEOUT", "900"))
 # Telenor sensitivity label applied before any Excel SaveAs (unlabelled saves are silently cancelled).
 LABEL_ID = _pick("SV_LABEL_ID", "label.id")
 LABEL_SITE = _pick("SV_LABEL_SITE", "label.site")
+LABEL_NAME = _pick("SV_LABEL_NAME", "label.name", "Internal")      # written into a built file's label properties
+LABEL_CONTENT_BITS = _pick("SV_LABEL_CONTENT_BITS", "label.content_bits", 2)   # ... with the marking bits Excel records
 
 _release = _pick("SMARTASS_RELEASE", "release.folder")
 RELEASE_FOLDER = str(_path(_release)) if _release else _release   # %VAR% and ~ expand; empty = not configured

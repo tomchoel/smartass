@@ -1035,6 +1035,20 @@ def _read_file(wb, path) -> list:
     return out
 
 
+DIGIT_PX = {("Telenor", 11.0): 8}                 # the Normal fonts whose digit width the fake knows (else 7 px)
+
+
+def _normal_of(wb, path) -> None:
+    """An opened file's Normal font and every sheet's standard row height and digit width, as Excel reads them."""
+    import openpyxl
+    book = openpyxl.load_workbook(path)
+    font = book._fonts[0]
+    wb.normal = (font.name, float(font.sz))
+    for ws, src in zip(wb.order, book.worksheets):
+        ws.StandardHeight = float(src.sheet_format.defaultRowHeight or 15)
+        ws.digit_px = DIGIT_PX.get(wb.normal, 7)
+
+
 def _insert(dest, path, before, after):
     """wb.Sheets.Add(Type:=path): the file's sheets at the anchor (Before, else After, else before the active
     sheet), a taken name as 'name (2)'. The first new sheet is the workbook's active one; the application's active
@@ -1085,6 +1099,7 @@ class _Workbooks(list):
         assert not kw, "Workbooks.Open: positional arguments only"
         wb = Workbook(("the file's sheets",), app=self.app, styles_ver=False)
         wb.order = _read_file(wb, path)
+        _normal_of(wb, path)
         wb.active = wb.order[0]
         wb.Name, wb.FullName, wb.opened_with = Path(path).name, str(path), args
         _event(wb.order[0], "Open", str(path))

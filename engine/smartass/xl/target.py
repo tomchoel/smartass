@@ -250,9 +250,13 @@ DELETE_TRIES, DELETE_PAUSE_S = 10, 0.2      # a file Excel has just closed can s
 
 def discard_new(t: Target) -> str:
     """A failed job's new workbook: closed without saving when it is open, and the file the job reserved deleted
-    (only that one: t.made is the name the job itself created, exclusively). Returns the note for the error's text,
-    which names the file when it could not be closed or deleted. Also for an abandoned job (check False)."""
+    (only that one: t.made is the name the job itself created, exclusively). With no workbook in hand (the Open
+    failed, or was abandoned and Excel may have opened the file all the same) it is looked for among that Excel's
+    workbooks by its name first (_opened). Returns the note for the error's text, which names the file when it could
+    not be closed or deleted. Also for an abandoned job (check False)."""
     name = t.made.name
+    if t.wb is None:
+        t.wb = _opened(t)
     if t.wb is not None:
         wb = t.wb
         try:
@@ -275,12 +279,25 @@ def discard_new(t: Target) -> str:
     return f"{what} could not be deleted ({t.made}): delete it yourself"
 
 
+def _opened(t: Target):
+    """The workbook t.made is open as in t's Excel, or None: found by its name, which no other workbook open there
+    had when it was reserved (an Excel cannot open two workbooks of one name)."""
+    name = t.made.name.lower()
+    try:
+        return jobs.com(lambda: next((b for b in t.app.Workbooks if str(b.Name).lower() == name), None), limit=30,
+                        check=False)
+    except Exception:   # noqa: BLE001 - nothing to close that can be found
+        return None
+
+
 def _noted(e: BaseException, note: str) -> None:
-    """note added to the end of e's text."""
-    if e.args and isinstance(e.args[0], str):
-        e.args = (f"{e.args[0]}; {note}", *e.args[1:])
-    else:
+    """note added to the end of e's text: its first text argument (a COM error's is its second, after the hresult:
+    the error keeps its shape), else a text argument at the end."""
+    i = next((i for i, a in enumerate(e.args) if isinstance(a, str)), None)
+    if i is None:
         e.args = (*e.args, note)
+    else:
+        e.args = (*e.args[:i], f"{e.args[i]}; {note}", *e.args[i + 1:])
 
 
 def _save_new(app, wb, title: str) -> Path:
@@ -510,17 +527,16 @@ def _seed_has_label(seed: Path) -> bool:
     return b'id="{' + lid + b'}"' in info or b"msip_label_" + lid + b"_" in custom
 
 
-LABEL_NAME = "Internal"                  # the name of the label config.LABEL_ID is (defaults.toml [label])
-
-
 def label_properties(now: dt.datetime | None = None) -> dict[str, str]:
     """Our sensitivity label as the custom document properties of a built file (MSIP_Label_<id>_*): a file with them
     opens labelled with AutoSave on and its Save writes; one without opens read-only and its Save writes nothing
     (live, hidden Excel, 20.11.2026). Enabled, set now, assigned as instances._label assigns it (privileged), our
-    site, a new action id, and the content bits Excel records for this label in its own files (2, the seed's)."""
+    site, name and content bits (config [label]: Excel records 2 for ours in its own files, the seed's), a new action
+    id."""
     when = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc)
-    p = {"Enabled": "true", "SetDate": f"{when:%Y-%m-%dT%H:%M:%SZ}", "Method": "Privileged", "Name": LABEL_NAME,
-         "SiteId": str(config.LABEL_SITE or ""), "ActionId": str(uuid.uuid4()), "ContentBits": "2"}
+    p = {"Enabled": "true", "SetDate": f"{when:%Y-%m-%dT%H:%M:%SZ}", "Method": "Privileged",
+         "Name": str(config.LABEL_NAME or ""), "SiteId": str(config.LABEL_SITE or ""), "ActionId": str(uuid.uuid4()),
+         "ContentBits": str(config.LABEL_CONTENT_BITS)}
     return {f"MSIP_Label_{config.LABEL_ID}_{k}": v for k, v in p.items()}
 
 
@@ -541,6 +557,15 @@ def new_base():
         return Base(str(d["font_name"]), d["font_size"], int(d["row_px"]), int(d["col_px"]))
     except (OSError, ValueError, KeyError, TypeError):
         return None
+
+
+def forget_new_base() -> None:
+    """The stored base dropped (it did not describe a workbook built in it): the next new workbook is made from the
+    template once, and its look stores a fresh one."""
+    try:
+        (config.HOME / NEW_BASE_FILE).unlink(missing_ok=True)
+    except OSError as e:
+        jobs.log.warning("could not drop the stored base of a new workbook: %s", e)
 
 
 def remember_new_base(base) -> None:

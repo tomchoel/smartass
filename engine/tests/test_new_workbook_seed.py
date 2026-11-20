@@ -144,14 +144,25 @@ def test_a_seed_labelled_in_its_labelinfo_part_is_found(env, monkeypatch):
 
 def test_the_label_properties_are_ours(monkeypatch):
     """The sensitivity label as custom document properties (the form Excel reads when there is no LabelInfo part,
-    live 20.11.2026): our label id and site, assigned as today's SetLabel assigns it (privileged), set now."""
+    live 20.11.2026): our label id, site, name and content bits from config, assigned as today's SetLabel assigns it
+    (privileged), set now."""
     import datetime
     monkeypatch.setattr(config, "LABEL_ID", "f604")
     monkeypatch.setattr(config, "LABEL_SITE", "1676")
+    monkeypatch.setattr(config, "LABEL_NAME", "Intern")
+    monkeypatch.setattr(config, "LABEL_CONTENT_BITS", "0")
     when = datetime.datetime(2026, 11, 20, 16, 30, tzinfo=datetime.timezone.utc)
     p = target.label_properties(when)
     k = "MSIP_Label_f604_"
     assert {n[len(k):]: v for n, v in p.items() if n.startswith(k)} == {
-        "Enabled": "true", "SetDate": "2026-11-20T16:30:00Z", "Method": "Privileged", "Name": target.LABEL_NAME,
-        "SiteId": "1676", "ActionId": p[k + "ActionId"], "ContentBits": "2"}
+        "Enabled": "true", "SetDate": "2026-11-20T16:30:00Z", "Method": "Privileged", "Name": "Intern",
+        "SiteId": "1676", "ActionId": p[k + "ActionId"], "ContentBits": "0"}
     assert len(p) == 7 and len(p[k + "ActionId"]) == 36
+
+
+def test_the_label_name_and_content_bits_are_configured_beside_its_id():
+    """Review minor 6: another tenant's label is one config change ([label] in defaults.toml / config.toml)."""
+    import tomllib
+    label = tomllib.loads((Path(config.__file__).resolve().parents[2] / "defaults.toml").read_text("utf-8"))["label"]
+    assert (label["name"], str(label["content_bits"])) == ("Internal", "2")
+    assert config.resolve({}, {"label": label}, "SV_LABEL_NAME", "label.name", None) == "Internal"

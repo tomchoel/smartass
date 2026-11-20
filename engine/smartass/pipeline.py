@@ -935,6 +935,8 @@ def _file_draw(job, pre: Prepared) -> dict:
         book = look.book
         if t.from_template:                             # what a new workbook has: the next one is built in it
             xltarget.remember_new_base(look.base)
+        if new:
+            _check_new_base(job.new_book[0], look.base)
         if not new:
             if job.q is None:
                 job.q = _next_q_in(book)
@@ -969,6 +971,18 @@ def _build(q: int, pre: Prepared, path, fetched: datetime, user: str, stamp: str
             raise GuardError(str(e), "narrow the query or the lines cell (a shorter period, a lower account or "
                              "entity) so it fits on one sheet") from None
     return built, plan, header
+
+
+def _check_new_base(built, found) -> None:
+    """The base Excel gives a workbook built in the stored base (the look's), against that base: on a mismatch (a
+    default font or template the stored base no longer describes) a warning, and the stored base dropped - the next
+    new workbook is made from the template once and stores a fresh one. The answer is kept either way."""
+    from .xl import target as xltarget
+    key = lambda b: (b.font_name, b.font_size, b.row_px, b.col_px)     # noqa: E731 - the date format is Excel's own
+    if key(found) != key(built):
+        log.warning("a new workbook built in the stored base %s opened with %s: the stored base is dropped (the next "
+                    "new workbook is made from the template and stores a fresh one)", key(built), key(found))
+        xltarget.forget_new_base()
 
 
 def _dated(t, base):

@@ -149,15 +149,27 @@ def _mark(wb, ver: str) -> None:
         pass
 
 
+_THEMES: dict = {}                          # (template path, its modification time) -> its theme
+
+
 def template_theme() -> str | None:
     """The TN template's theme (xl/theme/theme1.xml), which a workbook added from it has: the built file of a new
-    workbook takes it (pipeline._new_book). None when the template is not there (or unreadable)."""
+    workbook takes it (pipeline._new_book, before every answer). Read once per path and modification time of the
+    file. None when the template is not there (or unreadable)."""
     import zipfile
+    path = template_path()
     try:
-        with zipfile.ZipFile(template_path()) as z:
-            return z.read("xl/theme/theme1.xml").decode("utf-8")
-    except (OSError, KeyError, zipfile.BadZipFile, UnicodeDecodeError):
+        key = (str(path), path.stat().st_mtime_ns)
+    except OSError:
         return None
+    if key not in _THEMES:
+        try:
+            with zipfile.ZipFile(path) as z:
+                _THEMES.clear()
+                _THEMES[key] = z.read("xl/theme/theme1.xml").decode("utf-8")
+        except (OSError, KeyError, zipfile.BadZipFile, UnicodeDecodeError):
+            return None
+    return _THEMES[key]
 
 
 def template_path(ver: str | None = None) -> Path:
