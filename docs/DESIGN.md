@@ -51,24 +51,25 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    (`xl/inproc/batch.py`: get / call / set on named objects, one verb `each` for the only loop, a `finally`
    list), and each batch runs in one go inside Excel (`xl/inproc/runner.py`: one `Application.Run` into a small
    Excel-DNA add-in, `Runner.cs`, built on first use and loaded once per Excel process) or, where the add-in cannot
-   load or `SV_INPROC=0`, over COM from Python - the same operations, the same workbook. Four batches and a save
+   load or `SV_INPROC=0`, over COM from Python - the same operations, the same workbook. Three batches and a save
    (`pipeline._file_draw`): **look** (every read the build needs: the sheets and tables, the base, which workbook
-   is active, AutoSave, the kind of a Sources sheet, the stored specs' keys, the defined names a table could want);
-   **move in** (a follow-up's old sheets parked, the file's sheets inserted with one `Sheets.Add(Type:=<the file's
-   path>)` - no workbook opened, nothing copied, no link left; proved equal to the Open + Copy + Close it replaced
-   by `scripts/check_insert.py` - and moved to their places, the Answer active); **finish** (`xl/movein.py`: the
-   tables `Data_Q<n>` / `Lines_Q<n>_<alias>`, the formulas, calculate, and the reads the close-out needs: the
-   read-back block, the lifted chart labels, the status cells); **close out** (the 'Sheet = model' status
-   (`render/readback.py`), Key point heights and page breaks, chart labels, a follow-up's old sheets dropped, the
-   Sources log (`xl/sources.py`), the spec in hidden `_svmeta`, sheet order (`xl/sheetorder.py`)); then the
-   save (our files only). Every batch keeps the user's Excel quiet and puts its settings back itself; between the
-   batches Excel paints the formatted answer, then its numbers and charts, when the workbook is on screen. A
-   failure rolls back as before (the clean-up runs as batches of its own, also for a job abandoned by a timeout).
+   is active, the kind of a Sources sheet, the stored specs' keys, the defined names a table could want; then
+   AutoSave off while the job writes); **bring in** (a follow-up's old sheets parked, the file's sheets inserted with
+   one `Sheets.Add(Type:=<the file's path>)` - no workbook opened, nothing copied, no link left; proved equal to the
+   Open + Copy + Close it replaced by `scripts/check_insert.py` - and moved to their places, then `xl/movein.py`'s
+   finish: the tables `Data_Q<n>` / `Lines_Q<n>_<alias>`, the formulas, the chart labels' position, calculate, the
+   labels' lift, and the reads the close-out needs: the read-back block, the status cells; the Answer active);
+   **close out** (the 'Sheet = model' status (`render/readback.py`), Key point heights and page breaks, a
+   follow-up's old sheets dropped, the Sources log (`xl/sources.py`), the spec in hidden `_svmeta`, sheet order
+   (`xl/sheetorder.py`)); then the save (our files only, AutoSave back on). Every quiet batch puts the user's
+   settings back itself, and only the bring-in sets Calculation to manual (putting automatic back recalculates what
+   is dirty in every open workbook); after the bring-in the job pauses once (`SV_PAINT_PAUSE`, 0.15 s) so Excel
+   paints the answer with its numbers and charts when the workbook is on screen. A failure rolls back as before
+   (the clean-up runs as batches of its own, also for a job abandoned by a timeout).
    Measured (docs/audit/2026-11-20-inproc-bench.md, live): 1.9-2.7 s in the Excel job for an answer without a
    lines sheet as the workbook grows to 61 sheets, 3.9-4.3 s with a lines sheet, a follow-up 1.6-1.9 s, about 7 s
-   for the first answer of a new workbook (the workbook is created); 5 batches and 9 COM calls per answer. What is
-   left is mostly Excel's own work: the insert (about 0.5 s), AutoSave off and on around the job and the save of our
-   OneDrive file.
+   for the first answer of a new workbook (the workbook is created), at 5 batches per answer (4 since the review
+   fixes). What is left is mostly Excel's own work: the insert (about 0.5 s) and the save of our OneDrive file.
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
    `findings`, `checks`, `layout` (layout check findings with fixes), `charts`, `warnings`, `caveats`, `routes`,
    `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory

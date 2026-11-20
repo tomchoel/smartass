@@ -78,3 +78,55 @@ Every step "checks OK" on both executors. The follow-up goal of 1.5 s is not rea
 What is left above 1.5 s is Excel's own work on our OneDrive file: AutoSave off and back on around the job, and the
 save (the plan's Task 5 moves the save after the reply). Over COM (the fallback) a follow-up is 2.5-2.9 s: every
 operation is a call of its own there, and each quiet batch sets and puts back the four settings over COM.
+
+
+## After the review fixes (08:40-09:03, the same day)
+
+The job became four batches (look, bring in = move in + finish, close out, save), one paint pause of 0.15 s after
+the bring-in, Calculation manual only in the bring-in, the label lift inside it (verb `nudge`), AutoSave switched
+off in the look. Re-run in the owner's Excel, **while another session was working in the same Excel**: from 08:48 its
+own answer workbook ("... Pull unified FinPlan volume KPIs ...") was the active one there, and the paint pause (only
+for the active workbook) ran only in round 1 of the bench. The inserts alone took about twice as long as in the
+morning's runs above (median 1.08 s against 0.56 s), so these figures do not compare with the morning's; the gate is
+reported as measured.
+
+`scripts/bench_answers.py --rounds 3`, SV_INPROC=1, all nine cases: 27/27 ok, sheet = model OK, 4 batches and 8 COM
+calls per answer.
+
+| round | answers without a lines sheet | median excel job s (gate 3 s) | b16 (lines sheet) excel job s (gate 5 s) | gate |
+|---|---|---|---|---|
+| 1 | 8 | **4.8** | **5.3** | missed |
+| 2 | 8 | 3.0 | 4.8 | within (at the edge) |
+| 3 | 8 | **3.3** | **8.5** | missed |
+
+| round | excel job s | draw s | look s | build s | move in s | finish s | paint s | close out s | save s | runs |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 4.8 | 3.1 | 0.0 | 0.1 | 1.5 | 0.4 | 0.2 | 0.6 | 0.8 | 4 |
+| 2 | 3.0 | 1.9 | 0.0 | 0.0 | 1.0 | 0.2 | - | 0.4 | 0.7 | 4 |
+| 3 | 3.3 | 2.0 | 0.0 | 0.0 | 1.0 | 0.2 | - | 0.5 | 1.0 | 4 |
+
+Inside Excel (medians over the 27): the insert 1.08 s (0.56 s in the morning), the bring-in's end (the settings and
+Calculation put back) 0.12 s, the close-out's end 0.10 s, tables, formulas, labels and calculate 0.06 s; the save
+0.78 s (0.55 s). `open target` 0.34 s (0.12 s).
+
+`scripts/check_followups.py` in the same hour, every step "checks OK" and the saved file read back OK:
+
+| step | in-process (SV_INPROC=1) | over COM (SV_INPROC=0) |
+|---|---|---|
+| new answer | 14.39 s | 19.58 s |
+| second answer | 3.88 s | 7.45 s |
+| follow-ups 1-6 | 2.62-4.09 s | 7.34-8.55 s |
+| fin_refresh (2 answers) | 7.23 s, 8 batches | 23.83 s, 8 batches |
+
+Earlier in that hour, before the other session's workbook came (08:28-08:42, in-process, with --settle 10): follow-ups
+1.66-2.0 s at 4 batches (move in 0.60-0.68 s, finish 0.13-0.25 s, paint 0.14-0.16 s, close out 0.16-0.28 s, save
+0.25-0.38 s), the second answer 1.51-1.59 s.
+
+AutoSave (controller ruling R3, proven or not): with AutoSave left alone, the in-process job wrote our file only in
+its save batch (--settle 10, every step), but over COM the file was written once in the middle of a job's batches
+(+3.56 s, its save at +5.31 s). So the job keeps switching AutoSave off while it writes, now as the look's last
+operations. The file is also stamped 2-11 s after a save at times of OneDrive's own, with AutoSave on or off.
+
+The look with 2 000 defined names and 60 sheets (a hidden Excel; review M5): in-process 35 ms, over COM 18.3 s (the
+`each` walk over every name is one or more cross-process calls per name). In-process it stays under the 100 ms bar;
+over COM (the fallback) such a workbook pays seconds per answer.

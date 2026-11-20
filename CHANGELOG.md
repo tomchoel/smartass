@@ -9,27 +9,37 @@
   Windows) and loads silently with `RegisterXLL` once per Excel process; one `Application.Run` per batch instead
   of dozens of cross-process calls. Where it cannot load (no compiler, a 32-bit Excel, a refused or blocked
   `RegisterXLL`) or `SV_INPROC=0` is set, the same batches run over COM, with one warning in the server log.
-- The file job is four batches and a save: look (every read the build needs: the sheets, the base, which workbook is
-  active, AutoSave, the Sources log's kind, the stored specs' keys, the defined names), move in (a follow-up's park,
-  the insert, the moves, the Answer active), finish (tables, formulas, calculate, the read-back), close out (status,
-  Key point heights, chart labels, a follow-up's drop, the Sources rows, the spec, the sheet order) and the save of
-  our own file. Each batch keeps Excel quiet and puts the user's settings back itself, also when a step fails;
-  between the batches Excel paints the formatted answer, then its numbers and charts, when the workbook is on
-  screen. A failure is undone as before (rollback, the old answer's names put back, the new answer kept once the old
-  one is gone), also for a job abandoned by a timeout; an error now names the Excel operation that failed and Excel's
-  own message, and says when AutoSave was left off in the user's workbook.
+- The file job is three batches and a save: look (every read the build needs: the sheets, the base, which workbook
+  is active, the Sources log's kind, the stored specs' keys, the defined names; then AutoSave off while the job
+  writes), bring in (a follow-up's park, the insert, the moves, the tables, the formulas, the chart labels, calculate,
+  the read-back, the Answer active), close out (status, Key point heights, a follow-up's drop, the Sources rows, the
+  spec, the sheet order) and the save of our own file with AutoSave back on (no save batch in the user's workbook,
+  which is never saved). Each quiet batch puts the user's settings back itself, also when a step fails; only the one
+  that writes the formulas sets Calculation to manual. After the bring-in batch the job pauses once (0.15 s,
+  `SV_PAINT_PAUSE`; only when the workbook is the active one of a visible Excel) so Excel paints the answer with its
+  numbers and charts before the close-out. A failure is undone as before (rollback, the old answer's names put back,
+  the new answer kept once the old one is gone), also for a job abandoned by a timeout; an error now names the Excel
+  operation that failed and Excel's own message, and says when AutoSave was left off in the user's workbook.
 - Measured live (`scripts/bench_answers.py --rounds 3` and `scripts/check_followups.py` in the owner's Excel,
   20.11.2026; docs/audit/2026-11-20-inproc-bench.md): the Excel job of an answer without a lines sheet 1.9 / 2.4 /
   2.7 s per round (2.0 / 2.7 / 3.3 s before), with one 4.1 / 3.9 / 4.3 s (4.2 / 4.1 / 5.2 s): the 3 s / 5 s gate
   holds in every round now. A follow-up 1.64-1.91 s (2.08-2.41 s), `fin_refresh` of two answers 3.4 s (4.3 s);
   5 batches and 9 COM calls per answer (33-34 calls before). Over COM (the fallback) a follow-up is 2.5-2.9 s.
-- The label of a thin waterfall step is now lifted 10 pt as the chart rules mean it: the lift was set before the
-  calculation, which put the label back where Excel places it (measured in a hidden Excel); it is now read and set
-  once the answer is calculated, while the other point labels are positioned before it, as before.
+- After the review fixes (4 batches, one paint) measured again in the owner's Excel while another session worked in
+  the same Excel (its own answer workbook active there from 08:48): `check_followups.py` all steps OK on both
+  executors, follow-ups 2.6-4.1 s in-process and 7.3-8.5 s over COM; the bench 4.8 / 3.0 / 3.3 s without a lines
+  sheet and 5.3 / 4.8 / 8.5 s with one. The insert alone took twice as long as in the morning's runs (median 1.08 s
+  against 0.56 s), so these figures do not compare with the ones above (docs/audit/2026-11-20-inproc-bench.md).
+- Thin waterfall labels now sit 10 pt higher than 0.3.0 drew them in a hidden Excel: 0.3.0 set the lift before the
+  calculation, which put the label back where Excel places it; the lift is now made right after the calculation,
+  inside the same batch (the other point labels are positioned before it, as before). Whether 0.3.0 lifted them in a
+  visible Excel was not measured: the script's own Excel would not become visible.
 - `scripts/check_insert.py` now also runs whole jobs through both executors in a hidden Excel and compares the
-  workbooks item by item (76 of 76 checks the same), and makes a follow-up and a new answer fail in their finish
-  batch through both: the workbook, Excel's settings and the active sheet are as before. `scripts/check_inproc.py`
-  proves the verb `each` and the job's reads equal in both executors (34 of 34).
+  workbooks item by item, makes a follow-up and a new answer fail inside their bring-in batch through both (the
+  workbook, Excel's settings and the active sheet are as before) and measures the chart labels (81 of 81).
+  `scripts/check_inproc.py` proves the verbs `each` (a method's name in a path is never called: Excel would run it)
+  and `nudge`, quiet without Calculation, and the job's reads equal in both executors (37 of 37).
+  `scripts/check_followups.py` also watches the file's writes and reads the saved file.
 
 ### The answer's sheets inserted with one call (phase 3b)
 
