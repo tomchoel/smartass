@@ -249,26 +249,44 @@ def _is_ours(t) -> bool:
     return bool(getattr(t, "created", False)) or kit._is_our_analysis_file(str(t.path))
 
 
+AUTOSAVE_NOTE = ("AutoSave was switched off in {} so the answer is not saved for you; save yourself or switch it back "
+                 "on.")
+
+
 def _save(job) -> None:
     """The save batch (not quiet: Excel saves with the user's settings): the print setup's name of a new Sources log
-    (once its setup went through), then our own analysis file saved - never the user's workbook. AutoSave is never
-    touched (Workbook.Save costs the same with it on, and it does not save our edits between the batches: measured
-    by the controller 20.11.2026). No batch at all when there is nothing to do (the user's workbook, no new log): a
-    finished answer is never put at risk by a batch that does nothing."""
+    (once its setup went through), then our own analysis file saved - never the user's workbook - and AutoSave back
+    on in it when the look switched it off (a log line when Excel refuses). The user's workbook keeps AutoSave off,
+    with a note (AutoSave would otherwise save our edits into their file; v1 does the same). AutoSave stays off while
+    the job writes: left on, it wrote our file between the batches (live, 20.11.2026: a write 0.8 s before the save
+    batch). No batch at all when there is nothing to do (the user's workbook, no new log): a finished answer is
+    never put at risk by a batch that does nothing. A failing save raises with AutoSave still off: the caller's
+    clean-up turns it on after its rollback, as before."""
     from .xl import styling
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import run
     ours = _is_ours(job.t)
-    if not (ours or job.setups):
-        return
-    b = Batch(quiet=False)
-    wbn = b.workbook(job.name)
-    for sheet, key in job.setups:
-        with b.attempt():
-            styling.setup_name(wbn.Worksheets(sheet), key)
-    if ours:
-        wbn.Save()
-    run(job.t.app, b)
+    if ours or job.setups:
+        b = Batch(quiet=False)
+        wbn = b.workbook(job.name)
+        for sheet, key in job.setups:
+            with b.attempt():
+                styling.setup_name(wbn.Worksheets(sheet), key)
+        on_at = None
+        if ours:
+            wbn.Save()
+            if job.paused:
+                on_at = b.position
+                with b.attempt():
+                    wbn.AutoSaveOn = True
+        res = run(job.t.app, b)
+        if on_at is not None and any(i >= on_at for i, _, _ in res.skipped):
+            log.warning("could not switch AutoSave back on in %s: %s", job.name,
+                        next(m for i, _, m in res.skipped if i >= on_at))
+    if job.paused:
+        job.paused = False
+        if not ours:
+            job.notes.append(AUTOSAVE_NOTE.format(job.name))
 
 
 def _rollback(t) -> None:
@@ -541,6 +559,7 @@ class Look:
     spec_rows: object
     separators: tuple
     sources_unread: bool = False
+    autosave: bool = False                       # AutoSave was on, and the look switched it off
 
 
 def _look(t, name: str) -> Look:
@@ -555,32 +574,40 @@ def _look(t, name: str) -> Look:
     kind, spec_rows = sources.record_kind(b, wbn), sheets.record_spec_rows(b, wbn)
     b.ret(b.app.International(3), "decimal separator")
     b.ret(b.app.International(4), "thousands separator")
+    with b.attempt():                                   # last: a look that fails before leaves AutoSave alone
+        b.ret(wbn.AutoSaveOn, "autosave")               # a local file or an Excel without AutoSave: nothing
+        off_at = b.position
+        wbn.AutoSaveOn = False                          # off while the job writes (see _save)
     res = run(t.app, b)
     v = res.values
     got = book(res)
     has_sources = "Sources" in got.names()
     found = kind(res) if has_sources else None
     return Look(got, screen(res), base(res), names(res), found, spec_rows(res),
-                (v["decimal separator"], v["thousands separator"]), has_sources and found is None)
+                (v["decimal separator"], v["thousands separator"]), has_sources and found is None,
+                bool(v.get("autosave")) and not any(i == off_at for i, _, _ in res.skipped))
 
 
 @dataclass
 class _Job:
     """One file job's state, for its batches and its clean-up: t, q (None: a new answer, numbered by the look),
-    name - the workbook's name; look; parked (a follow-up: the plan of its old sheets' names); moved - the move-in
-    batch ran, in part or whole (the user's sheet is landed on again after a failure); inserted / dropped - whether
-    the new sheets came in and the old ones went (None: unknown, the workbook says); setups - (sheet, key) of a print
-    setup whose name the save batch adds."""
+    name - the workbook's name; look; parked (a follow-up: the plan of its old sheets' names); paused - the look
+    switched AutoSave off; moved - the move-in batch ran, in part or whole (the user's sheet is landed on again after a
+    failure); inserted / dropped - whether the new sheets came in and the old ones went (None: unknown, the workbook
+    says); setups - (sheet, key) of a print setup whose name the save batch adds; notes - for the reply, or the
+    error's text when the job fails (final review M2)."""
     t: object
     q: int | None = None
     name: str = ""
     look: Look | None = None
     parked: object = None
+    paused: bool = False
     moved: bool = False
     inserted: bool | None = False
     dropped: bool | None = False
     built: object = None
     setups: list = field(default_factory=list)
+    notes: list = field(default_factory=list)
 
     @staticmethod
     def after(e: BaseException, at: int) -> bool | None:
@@ -611,19 +638,36 @@ class _Job:
 
     def settle(self) -> None:
         """After a failure (and its rollback / restore): the sheet the job found active is active again once the
-        move-in ran."""
+        move-in ran, and AutoSave back on in our own file (a note for the user's workbook)."""
         from .xl import movein
+        from .xl.inproc.batch import Batch
+        from .xl.inproc.runner import run
         if self.moved and self.look is not None:
             movein.land(self.t, self.look.screen)
+        if not self.paused:
+            return
+        self.paused = False
+        if not _is_ours(self.t):
+            self.notes.append(AUTOSAVE_NOTE.format(self.name))
+            return
+        b = Batch(quiet=False)
+        b.workbook(self.name).AutoSaveOn = True
+        try:
+            run(self.t.app, b, limit=30, check=False)
+        except Exception as e:   # noqa: BLE001 - the job's error is the one raised
+            log.warning("could not switch AutoSave back on in %s: %s", self.name, e)
 
-    @staticmethod
-    def fail(e: BaseException) -> BaseException:
-        """The error a failed job raises: a busy Excel inside a batch as the HostError jobs.com gives."""
+    def fail(self, e: BaseException) -> BaseException:
+        """The error a failed job raises: a busy Excel inside a batch as the HostError jobs.com gives, and the
+        job's notes (AutoSave left off in the user's workbook) at the end of its text."""
         from .xl import jobs
         from .xl.host import HostError
         from .xl.inproc.runner import BatchError
         if isinstance(e, BatchError) and jobs.BUSY in e.message:
-            return HostError(jobs.BUSY)
+            e = HostError(jobs.BUSY)
+        if self.notes:
+            note = "; " + "; ".join(self.notes)
+            e.args = (e.args[0] + note, *e.args[1:]) if e.args and isinstance(e.args[0], str) else (*e.args, note)
         return e
 
 
@@ -811,6 +855,7 @@ def _file_draw(job, pre: Prepared) -> dict:
     try:
         with stage("look"):
             look = job.look = _look(t, job.name)
+            job.paused = look.autosave
         book = look.book
         if job.q is None:
             job.q = _next_q_in(book)
@@ -923,8 +968,8 @@ def _question_parts(book, q: int) -> tuple[list[str], list[str]]:
 
 def excel_job(h, pre: Prepared, target: str = "session") -> dict:
     """A new answer (_file_draw) as the next Q<n> of the target workbook. On any failure the sheets it brought in
-    are removed (they are in t.sheets_added), the sheet the job found active is active again, and the error is
-    raised."""
+    are removed (they are in t.sheets_added), the sheet the job found active is active again, AutoSave back on in
+    our own file, and the error is raised with the job's notes in its text."""
     with stage("open target"):
         t = _target(h, target, pre.spec.question[:60])
     job = _Job(t)
@@ -939,11 +984,12 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
         job.settle()
         _raise(job, e)
     remember(pre, out)
-    return out
+    return _with_notes(out, job.notes)
 
 
 def _raise(job, e: BaseException):
-    """Raise the failed job's error (_Job.fail): e itself, or the HostError of a busy Excel from e."""
+    """Raise the failed job's error (_Job.fail): e itself with its text completed, or the HostError of a busy Excel
+    from e."""
     err = job.fail(e)
     if err is e:
         raise e
@@ -961,7 +1007,7 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
     failure once the old sheets are dropped keeps the new answer (a rollback then would leave neither): our own file
     is saved and the error, of its own class, says the new answer is in place (the Sources rows and the spec may be
     missing then); so does a failing save of our file, which is not tried again. After any failure the sheet the job
-    found active is active again."""
+    found active is active again and AutoSave back on in our own file; the job's notes end the error's text."""
     from .xl import movein
     with stage("open target"):
         t = _target(h, target, pre.spec.question[:60])
@@ -993,7 +1039,7 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
             _raise(job, e)
     out["followup"] = True
     remember(pre, out)
-    return out
+    return _with_notes(out, job.notes)
 
 
 def _stock(pre: Prepared) -> set[str]:

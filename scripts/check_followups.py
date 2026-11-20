@@ -56,6 +56,7 @@ class Writes:
 
     def __init__(self, path: str | None):
         self.path, self.count, self._stop = path, 0, threading.Event()
+        self.at: list[float] = []                       # when (time.monotonic) each write was seen
         self._t = threading.Thread(target=self._watch, daemon=True) if path else None
 
     def _mtime(self):
@@ -70,6 +71,7 @@ class Writes:
             now = self._mtime()
             if now != last:
                 self.count += 1
+                self.at.append(time.monotonic())
                 last = now
 
     def __enter__(self):
@@ -222,6 +224,16 @@ async def check(case: dict, second: dict, keep: bool) -> int:
 
     statuses: list[str] = []
     real_redraw = server.redraw_job
+    saves: list[tuple[float, float]] = []                  # (start, end) of every save batch, for the writes
+    real_save = pipeline._save
+
+    def save(job):
+        t0 = time.monotonic()
+        try:
+            return real_save(job)
+        finally:
+            saves.append((t0, time.monotonic()))
+    pipeline._save = save
 
     notes: list[tuple[int, int]] = []                      # (layout findings, warnings) of each redraw's reply
     texts: set[str] = set()                                # their texts, amounts masked
@@ -305,7 +317,10 @@ async def check(case: dict, second: dict, keep: bool) -> int:
             problems.append("Workbook.Saved is False after the job")
         jobs_run = len(done) if tool == "fin_refresh" else 1
         if writes.path and writes.count != jobs_run:
-            problems.append(f"the file was written {writes.count} times during the step, not {jobs_run}")
+            when = ", ".join(f"+{a - t0:.2f}" for a in writes.at)
+            in_save = ", ".join(f"+{a - t0:.2f}..+{b - t0:.2f}" for a, b in saves if a >= t0)
+            problems.append(f"the file was written {writes.count} times during the step, not {jobs_run} (at {when} s;"
+                            f" the save batch at {in_save} s)")
         com = com_calls(timings)
         runs = com_calls(timings, BATCHES)
         stages = "  ".join(f"{s.split('.')[-1]} {timings.get('excel job.' + s, 0):.2f}" for s in STAGES)
@@ -344,6 +359,7 @@ async def check(case: dict, second: dict, keep: bool) -> int:
         failed = str(e)
     finally:
         server.redraw_job = real_redraw
+        pipeline._save = real_save
         if path is not None and not keep:
             try:
                 await user(lambda h: _close(h, path), what="check_followups: close")
