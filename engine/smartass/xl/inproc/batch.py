@@ -54,12 +54,16 @@ The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs
     nudge(object, property, delta, above): the numeric property read and set to its value + delta, when above is
         None or the value is more than above (else left as it is); gives the value it ends with. A value that is no
         number fails the operation.
-    exist(collection, keys, refuse): the keys that name an item of the collection - Item(key) does not fail and the
-        item's Name is the key, case ignored (Excel's Workbook.Names.Item finds a name in any case, and at times the
-        active sheet's own name, whose Name is "Sheet!key": not the workbook's) - in the keys' order: a lookup per
-        key, not a walk over every item. With refuse True a key that is there fails the operation instead, its
-        message ending in "taken: " and those keys (", " between), so a batch stops there before it changes
-        anything. A busy Excel is not taken for a missing key.
+    exist(collection, keys, refuse): for the keys that name an item of the collection - Item(key) does not fail and
+        the item's Name is the key, case ignored - the item's own Name (the workbook's spelling), in the keys'
+        order: a lookup per key, not a walk over every item. Excel's Workbook.Names.Item finds a name in any case,
+        and in one live setup (20.11.2026) also a sheet's own name, whose Name is "Sheet1!key" (not in another;
+        why was not established) - even before a workbook's name of that key. So an item of another name is left
+        out, and only then the items are walked for the one whose Name is the key: a sheet's own name is never
+        taken for the workbook's, and the workbook's is found, as the walk before did.
+        With refuse True a key that is there fails the operation instead, its message ending in "taken: " and those
+        names (", " between), so a batch stops there before it changes anything. A busy Excel is not taken for a
+        missing key.
 
 quiet=True turns ScreenUpdating, EnableEvents and DisplayAlerts off and Calculation to manual (each put back after
 the batch); with calculation=False Calculation is left alone - only a batch that writes formulas needs manual

@@ -279,7 +279,7 @@ def test_taken_also_names_a_chart_sheet_and_a_defined_name_of_the_answer(t, buil
     t.wb.Names.Add(Name="Data_Q3", RefersTo="=Notes!$A$1")
     t.wb.Names.Add(Name="Budget", RefersTo="=Notes!$A$2")
     names = _names_read(t, ["data_q3", "Lines_Q3_b0"])
-    assert names == ["data_q3"]
+    assert names == ["Data_Q3"]                                        # the workbook's own spelling
     names = _names_read(t, ["Data_Q3", "Lines_Q3_b0"])
     assert movein.taken(movein.read_book(t), SHEETS, ["Data_Q3", "Lines_Q3_b0"], names) == [
         "the chart sheet 'q3 answer'", "the name 'Data_Q3'"]

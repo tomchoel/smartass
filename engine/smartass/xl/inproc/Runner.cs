@@ -399,9 +399,10 @@ public static class SmartassRunner___HASH__
         throw new Exception("unknown verb '" + name + "'");
     }
 
-    // exist(collection, keys, refuse): the keys that name an item of the collection (Item(key) does not fail and the
-    // item's Name is the key, case ignored), in the keys' order; with refuse true a key that is there fails the
-    // operation instead (Taken and those keys).
+    // exist(collection, keys, refuse): the items' own names of the keys that name an item of the collection
+    // (Item(key) does not fail and the item's Name is the key, case ignored; when Item gives an item of another name,
+    // the one named so is looked for among the items: Named), in the keys' order; with refuse true a key that is
+    // there fails the operation instead (Taken and those names).
     static object Exist(object collection, object[] keys, object refuse)
     {
         if (keys == null) throw new Exception("exist: the keys are a list of texts");
@@ -416,7 +417,12 @@ public static class SmartassRunner___HASH__
             }
             catch (Exception) { continue; }                       // not an item
             if (string.Equals(name as string, Convert.ToString(key, Inv), StringComparison.OrdinalIgnoreCase))
-                found.Add(key);
+                found.Add(name);
+            else
+            {
+                object own = Named(collection, Convert.ToString(key, Inv));
+                if (own != null) found.Add(own);
+            }
         }
         if (Equals(refuse, true) && found.Count > 0)
         {
@@ -425,6 +431,26 @@ public static class SmartassRunner___HASH__
             throw new Exception(Taken + string.Join(", ", parts));
         }
         return found.ToArray();
+    }
+
+    // The Name of the collection's item named key (case ignored), by a walk over its items, or null: only when
+    // Item(key) gave an item of another name (with a name both the workbook and the active sheet have, Excel's
+    // Workbook.Names.Item gives the sheet's own, live 20.11.2026).
+    static object Named(object collection, string key)
+    {
+        int n = Convert.ToInt32(Invoke(collection, "Count", Get, new object[0]), Inv);
+        for (int i = 1; i <= n; i++)
+        {
+            object name;
+            try
+            {
+                object item = Invoke(collection, "Item", Get, new object[] { i });
+                name = Invoke(item, "Name", BindingFlags.GetProperty, new object[0]);
+            }
+            catch (Exception) { continue; }                       // unreadable: not this one
+            if (string.Equals(name as string, key, StringComparison.OrdinalIgnoreCase)) return name;
+        }
+        return null;
     }
 
     // each(collection, paths, prefixes): for every item (Count, then Item(1..Count)), the value at each dotted path

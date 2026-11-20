@@ -134,15 +134,15 @@ over COM (the fallback) such a workbook pays seconds per answer.
 Task 2c (re-review 2 of Task 2b) took the names out of the look: the bring-in batch looks up the answer's own table
 names (the verb `exist`, one `Item` per name) instead of walking every name, and the property check of `each`'s
 path steps is cached per interface IID, so a cached step costs no call to Excel. Measured again with 2 000 defined
-names and 60 sheets (`scripts/check_inproc.py --look-bench`, a hidden Excel, 20.11.2026; in-process the median of 3
-runs, over COM one run):
+names and 60 sheets (`scripts/check_inproc.py --look-bench`, a hidden Excel, 20.11.2026; two runs; in-process the
+median of 3, over COM one run each):
 
 | | in-process | over COM |
 |---|---|---|
-| the look (without the names now) | 16.9 ms | 675 ms |
-| the walk over every name the look made before | 37.0 ms | 5 053 ms |
-| the lookup of an answer's two table names (now) | 12.2 ms | 8.6 ms |
+| the look (without the names now) | 11.5-16.9 ms | 531-675 ms |
+| the walk over every name the look made before | 33.9-37.0 ms | 3.3-5.1 s |
+| the lookup of an answer's two table names (now) | 7.4-12.2 ms | 7.2-8.6 ms |
 
-The walk over COM is 5.1 s now against 18.3 s before (the property check no longer asks the type of every item);
-the job no longer makes it. Over COM the look's 675 ms is mostly, by its make-up, the walk over the 60 sheets (four
-paths each; not timed apart).
+The walk over COM is 3.3-5.1 s now against 18.3 s before (the property check no longer asks the type of every
+item); the job no longer makes it. Over COM the look's 0.5-0.7 s is mostly, by its make-up, the walk over the 60
+sheets (four paths each; not timed apart).

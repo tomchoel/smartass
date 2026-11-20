@@ -71,7 +71,7 @@ OMITTED = pythoncom.ArgNotFound         # MISSING: sent as DISP_E_PARAMNOTFOUND,
 UNBOUND = "no object {}: the operation that makes it failed or did not run"
 NOT_A_VALUE = "a COM object cannot be asked back"
 NOT_A_DATE = "a date cannot be asked back (read Value2)"
-TAKEN = "taken: "                        # how the verb exist's refusal ends: these keys, ", " between
+TAKEN = "taken: "                        # how the verb exist's refusal ends: the names, ", " between
 METHOD_OR_GET = pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET
 
 
@@ -693,9 +693,9 @@ def _nudge(obj, name: str, delta, above):
 
 
 def _exist(collection, keys, refuse):
-    """The verb exist (batch.py's module docstring): the keys that name an item of the collection, in order; with
-    refuse a key that is there fails the operation (TAKEN and the keys). A busy Excel goes on up (the verb is run
-    again)."""
+    """The verb exist (batch.py's module docstring): the items' own names of the keys that name an item of the
+    collection, in order; with refuse a key that is there fails the operation (TAKEN and those names). A busy Excel
+    goes on up (the verb is run again)."""
     found = []
     for key in keys:
         try:
@@ -705,10 +705,30 @@ def _exist(collection, keys, refuse):
                 raise
             continue
         if isinstance(name, str) and name.casefold() == str(key).casefold():
-            found.append(key)
+            found.append(name)
+        elif (own := _named(collection, key)) is not None:
+            found.append(own)
     if refuse and found:
         raise _Failed(TAKEN + ", ".join(found))
     return found
+
+
+
+def _named(collection, key):
+    """The Name of the collection's item named key (case ignored), by a walk over its items, or None: only when
+    Item(key) gave an item of another name (with a name both the workbook and the active sheet have, Excel's
+    Workbook.Names.Item gives the sheet's own, live 20.11.2026)."""
+    want = str(key).casefold()
+    for item in collection:
+        try:
+            name = getattr(item, "Name")
+        except Exception as e:   # noqa: BLE001 - unreadable: not this one
+            if is_busy(e):
+                raise
+            continue
+        if isinstance(name, str) and name.casefold() == want:
+            return name
+    return None
 
 
 VERBS: dict = {"each": _each, "nudge": _nudge, "exist": _exist}    # name -> function(*args); both executors have

@@ -368,11 +368,25 @@ def test_exist_gives_the_keys_that_are_items_of_the_collection_case_ignored(book
         wb.Names.Add(n, "=1", False)
     wb.Worksheets("S").Names.Add("Lines_Q4_b0", "=2", False)          # a sheet's own name: not the workbook's
     wb.Names.items["Lines_Q4_b1"] = SimpleNamespace(Name="S!Lines_Q4_b1")
-    b = Batch()                     # (Excel's Workbook.Names finds the active sheet's own name too: by its Name, not)
+    b = Batch()                     # (Excel's Workbook.Names found a sheet's own name in one live setup: its Name)
     names = b.workbook("book.xlsx").Names
     b.ret(b.verb("exist", names, ["data_q4", "Lines_Q4_b0", "Lines_Q4_b1", "Data_Q5"], False), "found")
     b.ret(b.verb("exist", names, ["Data_Q5"], True), "none")
-    assert runner.run(app, b).values == {"found": ("data_q4",), "none": ()}
+    assert runner.run(app, b).values == {"found": ("Data_Q4",), "none": ()}       # the workbook's own spelling
+
+
+def test_exist_finds_the_workbooks_name_when_item_gives_a_sheets_own_of_that_name(book, monkeypatch):
+    """Live (check_inproc, 20.11.2026): with a name both the workbook and the active sheet have, Excel's
+    Workbook.Names.Item gives the sheet's own ("Sheet1!Data_Q6"); the workbook's is then found by its Name, as the
+    walk before did, and a key only a sheet has stays out."""
+    app, wb = book
+    wb.Names.Add("Data_Q6", "=1", False)
+    real = type(wb.Names).Item
+    monkeypatch.setattr(type(wb.Names), "Item", lambda self, key: SimpleNamespace(Name=f"S!{key}")
+                        if str(key).lower() in ("data_q6", "lines_q6_b0") else real(self, key))
+    b = Batch()
+    b.ret(b.verb("exist", b.workbook("book.xlsx").Names, ["data_q6", "Lines_Q6_b0"], False), "found")
+    assert runner.run(app, b).values["found"] == ("Data_Q6",)
 
 
 def test_exist_with_refuse_fails_the_batch_there_naming_the_keys(book):
@@ -385,7 +399,7 @@ def test_exist_with_refuse_fails_the_batch_there_naming_the_keys(book):
     b.workbook("book.xlsx").Worksheets("S").Name = "never"
     with pytest.raises(runner.BatchError) as e:
         runner.run(app, b)
-    assert e.value.index == at and e.value.message.endswith(runner.TAKEN + "Data_Q4, lines_q4_b1")
+    assert e.value.index == at and e.value.message.endswith(runner.TAKEN + "Data_Q4, Lines_Q4_b1")
     assert [s.Name for s in wb.order] == ["S", "T"]
 
 

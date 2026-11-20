@@ -324,26 +324,33 @@ def item_nudge(b, c):
 
 
 def _exist_book(b, c):
-    """A workbook with a defined name, a sheet's own name and a table, for the verb exist."""
+    """A workbook with a defined name, a sheet's own name, a name both the workbook and a sheet have, and a table,
+    for the verb exist."""
     wbn = b.workbook(c["book"])
     ws = wbn.Worksheets(1)
     ws.Range("A1:B3").Value2 = (("k", "v"), ("a", 1.0), ("b", 2.0))
     ws.ListObjects.Add(1, ws.Range("A1:B3"), MISSING, 1).Name = "Data_Q1"
     wbn.Names.Add("Data_Q2", "=1", False)
     ws.Names.Add("Lines_Q2_b0", "=2", False)
+    wbn.Names.Add("Data_Q4", "=3", False)
+    ws.Names.Add("Data_Q4", "=4", False)
     return wbn
 
 
 def item_exist(b, c):
     """Re-review M5: the verb exist looks names up instead of walking them - a defined name that is there, one that
-    is not, one in another case, a sheet's own name (Workbook.Names.Item finds the active sheet's own name, live
-    20.11.2026, but its Name is "Sheet1!...": not the workbook's) and a table's name (not in Names)."""
+    is not, one in another case, a sheet's own name (here Workbook.Names.Item finds it, its Name "Sheet1!...": not
+    the workbook's), a name both the workbook and the sheet have (Item gives the sheet's: the workbook's is found by
+    its Name), and a table's name (not in Names)."""
     wbn = _exist_book(b, c)
     b.ret(b.verb("exist", wbn.Names, ["Data_Q2", "Data_Q3", "data_q2", "Lines_Q2_b0", "Data_Q1"], False), "found")
+    b.ret(b.verb("exist", wbn.Names, ["Data_Q4"], False), "both scopes")
+    b.ret(wbn.Names.Item("Data_Q4").Name, "both scopes: Item gives")
     b.ret(b.verb("exist", wbn.Names, ["Data_Q3"], True), "none taken")
 
 
-EXIST_EXPECTED = {"found": ("Data_Q2", "data_q2"), "none taken": ()}
+EXIST_EXPECTED = {"found": ("Data_Q2", "Data_Q2"), "none taken": (), "both scopes": ("Data_Q4",),
+                  "both scopes: Item gives": "Sheet1!Data_Q4"}
 
 
 def item_exist_refuses(b, c):

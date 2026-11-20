@@ -648,8 +648,8 @@ def test_a_defined_name_an_answer_table_wants_stops_the_bring_in_before_anything
     runs = _runs(monkeypatch)
     with pytest.raises(movein.NameTaken) as e:
         _job(_pre(), calculated)
-    assert str(e.value) == (f"the name 'Data_Q1' already exists in {fake_target.wb.Name}: rename or delete it, then "
-                            "ask again")
+    assert str(e.value) == (f"the name 'data_q1' already exists in {fake_target.wb.Name}: rename or delete it, then "
+                            "ask again")                       # the workbook's own spelling, as before
     assert len(runs) == 2 and fakexl.snapshot(fake_target.wb) == before and fake_target.sheets_added == []
     assert not [e for e in fake_target.app.events if e[1] == "Sheets.Add"]
     ops = runs[1].to_dict()["ops"]
