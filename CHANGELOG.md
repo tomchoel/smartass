@@ -27,6 +27,17 @@
   keeps the workbook's full name from the request and does not save another file opened under that name, and a
   failed save is repeated only while that file is open. A failed save that the next answer could not repeat (it
   failed first) is left for the answer after it.
+- A job's first contact with an Excel runs the waiting save of every smartass build loaded there (two servers of
+  different versions each load their own add-in, with a save of its own): `Application.RegisteredFunctions` names
+  the builds' `.xll` files (1-5 ms). Before, another build's save ran on its own timer in the middle of the job,
+  and its outcome could be overwritten by the job's own before anyone read it (a failed save then went untold). A
+  first contact that cannot be made is logged once per Excel process.
+- The reads made before a job's turn (`target='active'`'s active workbook, the open workbooks that every `xl_*`
+  tool scans) wait for a busy Excel, as Excel rejects calls while our save runs: a question or a tool sent within
+  about 1.4 s of a reply no longer fails with "Call was rejected by callee". A job's start waits for an Excel that
+  rejects calls (a cell in edit mode, a dialog) 30 s in all, then says so, as before the save after the reply;
+  only the add-in's own answer that a save runs is waited for longer. An abandoned job stops in every one of these
+  waits.
 - `bench_answers.py` adds "saved after s" (the save's own seconds) beside the Excel job the user waits for;
   `check_followups.py` waits for each step's saves before it reads `Workbook.Saved` or the file and prints their
   seconds; `check_insert.py --parts newbook` waits for them too; `check_inproc.py` checks the save after the reply
@@ -56,6 +67,19 @@
 - `scripts/check_insert.py` has a `newbook` part (a new workbook made today's way against one built as its file,
   item by item, and a failed one); `bench_answers.py` and `check_followups.py` show the `open target` and
   `draw.open` stages.
+- Live in the owner's Excel (a fresh Excel, 20.11.2026, the save still in the job): a new workbook's first answer
+  5.3-6.1 s against 7.5 s with 0.4.0 in the same Excel: open target 2.1-2.6 s (of it 2.0 s not Excel's),
+  `draw.open` 1.05-1.08 s, look 0.83-1.14 s, the rest 0.9 s. The workbook opened showing the formatted empty Answer
+  with "Internal" in its title, no repair prompt and no Protected View; the whole answer was on screen about 1.4 s
+  later; on disk it carries the label as one made the old way does. Second answers 1.2-1.6 s, follow-ups 1.5-2.1 s,
+  `fin_refresh` 3.4-4.1 s. 0.4.0's bench in a fresh Excel held the 3 s / 5 s gate in every round (1.3 / 1.9 / 2.0
+  s and 3.6 / 3.1 / 3.6 s). Details: docs/audit/2026-11-20-first-answer.md.
+- Two of those seconds were not Excel's and are cut. The session's parent processes are read from one snapshot of
+  the process table: psutil took one per ancestor, 1.5 s on the first answer of every server start (a plain script:
+  1.75-2.15 s before, 0.20-0.22 s after). And a server process that meets an Excel holding its build of the add-in
+  already (loaded by an earlier server) uses it as it is instead of registering it again: the look of a new
+  server's first answer took 0.45-0.49 s in a hidden Excel, now 0.04-0.09 s (the look's reads themselves take a few
+  ms). The live figure after these cuts is still to be measured.
 
 ### The answer's Excel work runs inside Excel (0.4.0)
 
