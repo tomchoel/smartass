@@ -12,8 +12,12 @@ count and seconds per stage, sheet = model (OK / DIFF in n cells) and the workbo
 the sheet order as after the second answer, the last drawn Answer active, every Sources link of the question still
 naming its sheet (Excel does not rewrite a hyperlink's SubAddress, nor a HYPERLINK formula's text, when the sheet is
 parked under another name), each HYPERLINK link showing its text (no click needed: the formula and what the cell
-shows are compared), and Excel still answering. Never a figure from
-EPM: the replies are dropped. The first failure stops the run (exit 2) with its message, amounts masked.
+shows are compared), Excel still answering, and (Task 3) a summary sheet the script adds after the second answer:
+its cell reference, table reference, cross-sheet SUM, reference to the Answer, defined name and chart series pointing
+at Q1, and a cell on Q2's Answer pointing at Q1 - after every follow-up and fin_refresh each still reads as written
+(no #REF!) and shows its target's value in the new answer (compared, never printed), and the workbook has no link to
+another workbook. The sheet order is taken again at the first follow-up (the summary sheet joins it). Never a figure
+from EPM: the replies are dropped. The first failure stops the run (exit 2) with its message, amounts masked.
 
 Usage (from the repo root; Excel open, signed in to EPM; SV_INPROC=0 runs every batch over COM):
     engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--second b07]
@@ -199,6 +203,83 @@ def _inspect(h, path: str, q: int) -> dict:
     return jobs.com(read)
 
 
+def _summarise(h, path: str) -> dict:
+    """(Task 3) A summary sheet of the user's own with formulas pointing at Q1, and a cell on Q2's Answer pointing at
+    Q1: {where: (the formula as Excel keeps it, what its value must equal: ("cell", sheet, address) |
+    ("sum", sheet, range) | None)}. The defined name and the chart series are compared by their text."""
+    from smartass import pipeline
+    from smartass.xl import jobs
+    t = pipeline._target(h, path, None)
+
+    def make():
+        wb = t.wb
+        data = wb.Worksheets("Q1 Data")
+        lo = data.ListObjects("Data_Q1")
+        heads = [str(x) for x in lo.HeaderRowRange.Value[0]]
+        k = next(i for i in range(1, len(heads) + 1)
+                 if isinstance(lo.DataBodyRange.Cells(1, i).Value2, (int, float)))
+        cell, column = str(lo.DataBodyRange.Cells(1, k).Address), str(lo.ListColumns(k).DataBodyRange.Address)
+        answer = next(a for a in ("A1", "B1", "A2", "B2") if wb.Worksheets("Q1 Answer").Range(a).Value2 is not None)
+        col = "".join("'" + ch if ch in "'[]#" else ch for ch in heads[k - 1])
+        s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+        s.Name = "Summary"
+        wb.Names.Add("Q1First", f"='Q1 Data'!{cell}")
+        refs = {"Summary!A1": (f"='Q1 Data'!{cell}", ("cell", "Q1 Data", cell)),
+                "Summary!A2": (f"=SUM(Data_Q1[{col}])", ("sum", "Q1 Data", column)),
+                "Summary!A3": (f"=SUM('Q1 Data'!{column})", ("sum", "Q1 Data", column)),
+                "Summary!A4": (f"='Q1 Answer'!{answer}", ("cell", "Q1 Answer", answer)),
+                "Summary!A5": ("=Q1First", ("cell", "Q1 Data", cell)),
+                "Q2 Answer!Z1": (f"='Q1 Data'!{cell}", ("cell", "Q1 Data", cell))}
+        for where, (formula, _) in refs.items():
+            sheet, addr = where.split("!")
+            wb.Worksheets(sheet).Range(addr).Formula2 = formula
+        s.ChartObjects().Add(300, 10, 300, 200).Chart.SetSourceData(data.Range(column))
+        out = {where: (str(wb.Worksheets(where.split("!")[0]).Range(where.split("!")[1]).Formula2), target)
+               for where, (_, target) in refs.items()}
+        out["the name Q1First"] = (str(wb.Names("Q1First").RefersTo), None)
+        out["the chart series"] = (str(s.ChartObjects(1).Chart.SeriesCollection(1).Formula), None)
+        return out
+    return jobs.com(make)
+
+
+def _pointing(h, path: str, refs: dict, q2: bool) -> list[str]:
+    """(Task 3) What is wrong with the formulas _summarise made: one that no longer reads as written (#REF!), a value
+    that is not its target's (compared here, never printed), a link to another workbook. q2 False: Q2's own redraw
+    replaced its Answer and the cell on it."""
+    from smartass import pipeline
+    from smartass.xl import jobs
+    t = pipeline._target(h, path, None)
+
+    def read():
+        wb, bad = t.wb, []
+        for where, (formula, target) in refs.items():
+            if where.startswith("Q2 ") and not q2:
+                continue
+            if where == "the name Q1First":
+                now, value = str(wb.Names("Q1First").RefersTo), None
+            elif where == "the chart series":
+                now, value = str(wb.Worksheets("Summary").ChartObjects(1).Chart.SeriesCollection(1).Formula), None
+            else:
+                sheet, addr = where.split("!")
+                now, value = str(wb.Worksheets(sheet).Range(addr).Formula2), wb.Worksheets(sheet).Range(addr).Value2
+            if now != formula:
+                bad.append(f"{where} no longer reads as written" + (" (#REF!)" if "#REF!" in now else ""))
+                continue
+            if target is None:
+                continue
+            kind, sheet, addr = target
+            got = wb.Worksheets(sheet).Range(addr).Value2
+            if kind == "sum":
+                got = sum(v for (v,) in got if isinstance(v, (int, float)) and not isinstance(v, bool))
+            num = all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (value, got))
+            if not (abs(value - got) <= 1e-9 * max(1.0, abs(got)) if num else value == got):
+                bad.append(f"{where} does not show its target's value")
+        if wb.LinkSources(1):
+            bad.append("the workbook links to another workbook")
+        return bad
+    return jobs.com(read)
+
+
 def _close(h, path: str) -> None:
     """Close the workbook this script created (only that one), without saving."""
     from smartass import pipeline
@@ -267,10 +348,11 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
     analyze, refresh = kit.guard(fin_analyze), kit.guard(fin_refresh)
     user = kit._call_user
     path, q, order, failed, disk_check = None, None, None, None, False
+    refs = None                                            # (Task 3) the summary sheet's formulas pointing at Q1
     between, last_end = Writes(None), [0.0]               # every write of the file, also between the steps
 
     async def step(label: str, tool: str, call, want_followup: bool, baseline: bool = False) -> None:
-        nonlocal path, q, order
+        nonlocal path, q, order, refs
         offset = config.RUN_LOG.stat().st_size if config.RUN_LOG.exists() else 0
         before = len(statuses)
         if path is not None and between.path is None:       # the file's writes watched from the first answer on
@@ -313,9 +395,12 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         if MOVE_IN not in timings:
             raise Stop(f"{label}: no '{MOVE_IN}' stage in the run log - not this engine's Excel job")
         seen = await user(lambda h: _inspect(h, path, q), what="check_followups: inspect")
-        if baseline:
+        if baseline or order is None:
             order = seen["names"]
         problems = []
+        if refs is not None:
+            problems += await user(lambda h: _pointing(h, path, refs, tool != "fin_refresh"),
+                                   what="check_followups: formulas")
         if status != "OK":
             problems.append(f"sheet = model {status}")
         if [n for n in seen["names"] if n.startswith("old ")]:
@@ -369,6 +454,8 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         await step("new answer", "fin_analyze", lambda: analyze(spec=spec, target="new"), False, baseline=True)
         spec2 = AnalysisSpec.model_validate(second["spec"])
         await step("second answer", "fin_analyze", lambda: analyze(spec=spec2, target=path), False, baseline=True)
+        refs = await user(lambda h: _summarise(h, path), what="check_followups: summary")
+        order = None                            # the summary sheet joins: the order is taken at the first follow-up
         stored, _, _ = await user(lambda h: pipeline.read_stored(h, path), what="check_followups: stored")
         first = stored[q]["spec"]["v2"]
         for i in range(1, FOLLOW_UPS + 1):

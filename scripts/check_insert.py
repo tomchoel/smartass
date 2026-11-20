@@ -35,6 +35,10 @@ provider.
    workbook, the four settings and the active sheet as they were before, no 'old ...' sheet left.
    Labels (Task 2b): every fixed chart label's Top in the job's order against the standalone one, and where Excel
    itself puts the lifted ones (printed as a measurement).
+   Re-pointing (Task 3): a summary sheet's formulas pointing at Q1 (a cell, a table column, a cross-sheet SUM, the
+   Answer, a defined name, a chart series) and a cell on Q2's Answer survive two follow-ups and a refresh-style
+   redraw through both executors - as the user wrote them, showing their targets' values, no link, no 'old ...'
+   sheet - and a follow-up whose drop fails points them back.
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 
 Prints OK / DIFF per item (never a cell value: addresses and property names only); exit 0 only when all are OK.
@@ -1218,6 +1222,134 @@ def failed_jobs(xl: Excel) -> None:
         xl.close(wb)
 
 
+# ---------------------------------------------------------------------------------------------------- 3d. re-pointing
+def _structured(name: str) -> str:
+    """A column name as a structured reference writes it (', [, ], # escaped with ')."""
+    return "".join("'" + ch if ch in "'[]#" else ch for ch in name)
+
+
+def _point_at_q1(xl: Excel, wb) -> dict:
+    """(Task 3) The user's formulas that point at Q1, as a summary sheet of their own holds them: a cell reference, a
+    table reference, a cross-sheet SUM, a reference to the Answer, a defined name and a cell using it, a chart series,
+    and a cell on Q2's Answer (another answer). Returns {where: (formula as Excel keeps it, how to read its target)}."""
+    data = wb.Worksheets("Q1 Data")
+    lo = data.ListObjects("Data_Q1")
+    heads = [str(h) for h in lo.HeaderRowRange.Value[0]]
+    k = next(i for i in range(1, len(heads) + 1) if _is_num(lo.DataBodyRange.Cells(1, i).Value2))
+    cell, column = str(lo.DataBodyRange.Cells(1, k).Address), str(lo.ListColumns(k).DataBodyRange.Address)
+    s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+    s.Name = "Summary"
+
+    def target_cell():
+        return wb.Worksheets("Q1 Data").Range(cell).Value2
+
+    def target_sum():
+        return sum(v for (v,) in wb.Worksheets("Q1 Data").Range(column).Value2 if _is_num(v))
+
+    answer = next(a for a in ("A1", "B1", "A2", "B2", "B3") if wb.Worksheets("Q1 Answer").Range(a).Value2 is not None)
+
+    def target_title():
+        return wb.Worksheets("Q1 Answer").Range(answer).Value2
+    wb.Names.Add("Q1First", f"='Q1 Data'!{cell}")
+    refs = {"Summary!A1": (f"='Q1 Data'!{cell}", target_cell),
+            "Summary!A2": (f"=SUM(Data_Q1[{_structured(heads[k - 1])}])", target_sum),
+            "Summary!A3": (f"=SUM('Q1 Data'!{column})", target_sum),
+            "Summary!A4": (f"='Q1 Answer'!{answer}", target_title),
+            "Summary!A5": ("=Q1First", target_cell),
+            "Q2 Answer!Z1": (f"='Q1 Data'!{cell}", target_cell)}
+    for where, (formula, _) in refs.items():
+        sheet, addr = where.split("!")
+        wb.Worksheets(sheet).Range(addr).Formula2 = formula
+    s.ChartObjects().Add(300, 10, 300, 200).Chart.SetSourceData(data.Range(column))
+    got = {where: (str(wb.Worksheets(where.split("!")[0]).Range(where.split("!")[1]).Formula2), fn)
+           for where, (_, fn) in refs.items()}
+    got["the name Q1First"] = (str(wb.Names("Q1First").RefersTo), None)
+    got["the chart series"] = (str(s.ChartObjects(1).Chart.SeriesCollection(1).Formula), None)
+    return got
+
+
+def _pointing_problems(wb, refs: dict, q2: bool = True) -> list[str]:
+    """What is wrong with the formulas that point at Q1 now: a formula that is not as the user wrote it, a value that
+    is not its target's (compared, never printed), a link to another workbook, an 'old ...' sheet left."""
+    bad = []
+    for where, (formula, target) in refs.items():
+        if where.startswith("Q2 ") and not q2:
+            continue                                    # Q2's own redraw replaced its Answer, and the cell with it
+        if where == "the name Q1First":
+            now, value = str(wb.Names("Q1First").RefersTo), None
+        elif where == "the chart series":
+            now, value = str(wb.Worksheets("Summary").ChartObjects(1).Chart.SeriesCollection(1).Formula), None
+        else:
+            sheet, addr = where.split("!")
+            rng = wb.Worksheets(sheet).Range(addr)
+            now, value = str(rng.Formula2), rng.Value2
+        if now != formula:
+            bad.append(f"{where} reads {now!r}")
+        elif target is not None:
+            want = target()
+            same = (abs(value - want) < 1e-9 * max(1.0, abs(want)) if _is_num(value) and _is_num(want)
+                    else value == want)
+            if not same:
+                bad.append(f"{where} does not show its target's value")
+    links = wb.LinkSources(1)
+    if links:
+        bad.append(f"links to {len(links)} other workbook(s)")
+    bad += [f"the sheet {n!r} is left" for n in _names(wb) if n.startswith("old ")]
+    return bad
+
+
+def _target_of(xl: Excel, wb):
+    """pipeline._target's stand-in: wb as our own analysis file in this script's Excel."""
+    return lambda h, target, title: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)
+
+
+def repointing(xl: Excel) -> None:
+    """(Task 3) Formulas elsewhere that point at an answer survive its follow-ups and a refresh-style redraw (Q1, then
+    Q2, as fin_refresh does), through both executors: after every step each formula reads as the user wrote it and
+    shows its target's value in the new answer. Then a follow-up whose drop fails, after the re-pointing in the same
+    batch: the formulas pointed back, the old answer restored, as before."""
+    pres = _pres()
+
+    def drop(t, parked, book=None, b=None):             # a drop Excel refuses, after the re-pointing
+        b.workbook(jobs.book_name(t)).Worksheets(["No such sheet"]).Delete()
+        return b.position - 1
+    for side, inproc in (("com", False), ("inproc", True)):
+        wb = xl.fresh(f"repoint_{side}", ("Sources",))
+        seams = {(pipeline, "_target"): _target_of(xl, wb), (pipeline, "_save"): lambda job: None,
+                 (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+                 (config, "INPROC"): inproc}
+        with _patched(seams):
+            pipeline.excel_job(None, pres[0][2])
+            pipeline.excel_job(None, pres[1][2])
+            refs = _point_at_q1(xl, wb)
+            check(f"re-pointing ({side}): the formulas point at Q1 before", not _pointing_problems(wb, refs))
+            steps = [("a follow-up", lambda: [pipeline.redraw_job(None, pres[2][2], 1, "this workbook")]),
+                     ("a second follow-up", lambda: [pipeline.redraw_job(None, pres[0][2], 1, "this workbook")]),
+                     ("a refresh (Q1, then Q2)", lambda: [pipeline.redraw_job(None, pres[0][2], 1, "this workbook"),
+                                                          pipeline.redraw_job(None, pres[1][2], 2, "this workbook")])]
+            for label, step in steps:
+                t0 = time.perf_counter()
+                outs = step()
+                secs = time.perf_counter() - t0
+                bad = _pointing_problems(wb, refs, q2=not label.startswith("a refresh"))
+                notes = [w for out in outs for w in out.get("warnings") or [] if "formula" in w]
+                check(f"re-pointing ({side}): after {label} every formula shows the new answer", not bad and not notes,
+                      f"{secs:.2f} s" if not bad and not notes else "; ".join(bad + notes))
+            before = _state(xl, wb)
+            with _patched({(movein, "drop"): drop}):
+                try:
+                    pipeline.redraw_job(None, pres[2][2], 1, "this workbook")
+                    failed = None
+                except Exception as e:   # noqa: BLE001 - the failure is the point
+                    failed = f"{type(e).__name__}: {str(e)[:90]}"
+            bad = _pointing_problems(wb, refs, q2=False)
+            changed = [k for k in before if before[k] != _state(xl, wb)[k]]
+            check(f"re-pointing ({side}): a follow-up whose drop fails points them back and restores the old answer",
+                  failed is not None and not bad and not changed,
+                  f"raised {failed}" + (f"; {'; '.join(bad)}; changed {changed}" if bad or changed else ""))
+        xl.close(wb)
+
+
 # ---------------------------------------------------------------------------------------------------- 3c. label order
 def label_order(xl: Excel) -> None:
     """(Task 2b, review M3) The chart labels in the job's order (movein.finish: positions and colours, calculate, the
@@ -1323,7 +1455,7 @@ def timing(xl: Excel, built0, rounds: int) -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--rounds", type=int, default=5, help="rounds per route for the timing")
-    ap.add_argument("--parts", default="files,places,jobs,failures,labels,timing",
+    ap.add_argument("--parts", default="files,places,jobs,failures,repoint,labels,timing",
                     help="what to run (comma-separated; the proof is all of them)")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
@@ -1350,6 +1482,8 @@ def main(argv=None) -> int:
             compare_jobs(xl)
         if "failures" in parts:
             failed_jobs(xl)
+        if "repoint" in parts:
+            repointing(xl)
         if "labels" in parts:
             label_order(xl)
         if "timing" in parts:

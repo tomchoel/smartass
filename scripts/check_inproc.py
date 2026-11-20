@@ -16,7 +16,7 @@ SMARTASS_HOME points at that folder too, so the builds, markers and job files ne
 Prints OK / DIFF per check with the milliseconds per executor; exit 0 only when all are OK.
 
 Usage (from the repo root):
-    engine\.venv\Scripts\python.exe scripts\check_inproc.py [--runs 30] [--look-bench]
+    engine\.venv\Scripts\python.exe scripts\check_inproc.py [--runs 30] [--look-bench] [--repoint-bench]
 """
 import argparse
 import datetime as dt
@@ -44,6 +44,7 @@ from smartass.xl import fastcom, jobs  # noqa: E402
 from smartass.xl.hostproc import windows_of  # noqa: E402
 from smartass.xl.inproc import build, runner  # noqa: E402
 from smartass.xl.inproc.batch import MISSING, Batch  # noqa: E402
+from win32com.client import dynamic  # noqa: E402
 
 AUTOMATIC, MANUAL = -4105, -4135
 USER = {"ScreenUpdating": True, "EnableEvents": True, "DisplayAlerts": False, "Calculation": AUTOMATIC}
@@ -756,6 +757,178 @@ def look_bench(app, raw) -> None:
         wb.Close(False)
 
 
+# ------------------------------------------------------------------ the verb mentions (Task 3)
+MENTION_TEXTS = ["old Q1 ", "Data_Q1_old"]
+MENTION_SKIP = ["old Q1 Answer", "old Q1 Data", "Q1 Answer", "Q1 Data"]
+SERIES_OLD = "=SERIES(,,'old Q1 Answer'!$A$1:$A$3,1)"
+LITERAL = '="\'old Q1 Answer\'!E12"'
+XL_FORMULAS, XL_VALUES, XL_PART, XL_WHOLE, XL_BY_COLUMNS = -4123, -4163, 2, 1, 2
+
+
+def _invoke(obj, name: str, *args):
+    """obj.name(*args) as the executors call it (IDispatch, LCID 0, method or get): pywin32's attribute call would
+    pass an omitted argument wrongly."""
+    ole = obj._oleobj_
+    return ole.Invoke(ole.GetIDsOfNames(name), 0, pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET, True,
+                      *args)
+
+
+def _find_state(ws) -> tuple:
+    """The Find dialog's LookIn, LookAt and SearchOrder as a Find with those arguments omitted uses them, read on the
+    known cells of ws (A1 'alpha beta', B1 and A2 'zz', A3 =UPPER("q")); such a Find changes none of them (live)."""
+    ws.Range("A1").Value2 = "alpha beta"
+    ws.Range("B1").Value2 = "zz"
+    ws.Range("A2").Value2 = "zz"
+    ws.Range("A3").Formula2 = '=UPPER("q")'
+    used = ws.UsedRange
+    omit = pythoncom.ArgNotFound
+    look_in = "formulas" if _invoke(used, "Find", "UPPER", omit, omit, XL_PART) is not None else "values"
+    look_at = "part" if _invoke(used, "Find", "alpha", omit, XL_FORMULAS, omit) is not None else "whole"
+    first = _invoke(used, "Find", "zz", omit, XL_FORMULAS, XL_PART)
+    order = "by rows" if first is not None and dynamic.Dispatch(first).Address == "$B$1" else "by columns"
+    return look_in, look_at, order
+
+
+def _mentions_workbook(raw):
+    """A workbook after a follow-up's park, pointing at the parked sheets in every way the verb looks: on Summary a
+    cell, a table, a dynamic array, a legacy array, text written with an apostrophe (no formula), a string literal,
+    a hidden row, a chart; a sheet whose only mention sits in a filtered row, a protected one with a hidden formula
+    (unreadable) and a visible one, the only mentions in a hidden row and a hidden column, a very hidden sheet, a
+    sheet without any, a chart sheet and a defined name; the parked and new sheets themselves are skipped."""
+    wb = raw.Workbooks.Add()
+    wb.Worksheets(1).Name = "Summary"
+    for n in ["old Q1 Answer", "old Q1 Data", "Q1 Answer", "Q1 Data", "Filtered", "Locked", "Plain", "Hidden",
+              "VeryHidden", "Probe"]:
+        wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count)).Name = n
+    old = wb.Worksheets("old Q1 Answer")
+    old.Range("E12").Value2 = 42
+    old.Range("A1:A3").Value2 = ((1,), (2,), (3,))
+    d = wb.Worksheets("old Q1 Data")
+    d.Range("A1:B3").Value2 = (("Key", "Value"), ("a", 10), ("b", 20))
+    d.ListObjects.Add(1, d.Range("A1:B3"), None, 1).Name = "Data_Q1_old"
+    s = wb.Worksheets("Summary")
+    s.Range("A1").Formula2 = "='old Q1 Answer'!E12"
+    s.Range("A2").Formula2 = "=SUM(Data_Q1_old[Value])"
+    s.Range("A3").Formula2 = "=SORT('old Q1 Answer'!A1:A3)"
+    s.Range("B1").Value2 = "'='old Q1 Answer'!E12"
+    s.Range("C1:C2").FormulaArray = "='old Q1 Answer'!A1:A2*2"
+    s.Range("D1").Formula2 = LITERAL
+    s.Range("A20").Formula2 = "='old Q1 Answer'!E12+1"
+    s.Rows(20).Hidden = True
+    s.ChartObjects().Add(300, 10, 200, 150).Chart.SetSourceData(old.Range("A1:A3"))
+    wb.Worksheets("Q1 Answer").Range("A1").Formula2 = "='old Q1 Answer'!E12"
+    f = wb.Worksheets("Filtered")
+    f.Range("A1:B6").Value2 = (("k", "v"), ("a", 1), ("b", 2), ("a", 3), ("b", 4), ("a", 5))
+    f.Range("B5").Formula2 = "='old Q1 Answer'!E12"
+    f.Range("A1:B6").AutoFilter(1, "a")
+    lk = wb.Worksheets("Locked")
+    lk.Range("B2").Formula2 = "='old Q1 Answer'!E12"
+    lk.Range("B2").FormulaHidden = True
+    lk.Range("C3").Formula2 = "='old Q1 Answer'!E12+1"
+    lk.Protect()
+    wb.Worksheets("Plain").Range("A1").Formula2 = "=Summary!A1"
+    h = wb.Worksheets("Hidden")
+    h.Range("A1").Value2 = 1
+    h.Range("C7").Formula2 = "='old Q1 Answer'!E12"
+    h.Rows(7).Hidden = True
+    h.Range("E2").Formula2 = "=Data_Q1_old[[#Headers],[Value]]"
+    h.Columns(5).Hidden = True
+    vh = wb.Worksheets("VeryHidden")
+    vh.Range("D4").Formula2 = "='old Q1 Answer'!A2"
+    vh.Visible = 2
+    ch = wb.Charts.Add()
+    ch.SetSourceData(old.Range("A1:A3"))
+    ch.Name = "Chart Q"
+    wb.Names.Add("TotalQ", "='old Q1 Answer'!$E$12")
+    return wb
+
+
+def mentions_check(app, raw) -> None:
+    """Task 3: the verb mentions through both executors on one workbook (it only reads): the same rows, the rows
+    Excel gives, the workbook unchanged, and the Find dialog's settings it leaves (the user's set to values, whole,
+    by columns before)."""
+    print()
+    wb = _mentions_workbook(raw)
+    name = str(wb.Name)
+    try:
+        index = next(i for i, n in enumerate(wb.Names, 1) if str(n.Name) == "TotalQ")
+        want = [("cell", "Summary", "A1", "='old Q1 Answer'!E12"),
+                ("array", "Summary", "C1:C2", "='old Q1 Answer'!A1:A2*2"),
+                ("cell", "Summary", "D1", LITERAL),
+                ("cell", "Summary", "A2", "=SUM(Data_Q1_old[Value])"),
+                ("cell", "Summary", "A3", "=SORT('old Q1 Answer'!A1:A3)"),
+                ("cell", "Summary", "A20", "='old Q1 Answer'!E12+1"),
+                ("series", "Summary", "1/1", SERIES_OLD),
+                ("cell", "Filtered", "B5", "='old Q1 Answer'!E12"),
+                ("unread", "Locked", "", "*"),
+                ("cell", "Hidden", "E2", "=Data_Q1_old[[#Headers],[Value]]"),
+                ("cell", "Hidden", "C7", "='old Q1 Answer'!E12"),
+                ("cell", "VeryHidden", "D4", "='old Q1 Answer'!A2"),
+                ("chart", "Chart Q", "1", SERIES_OLD),
+                ("name", "TotalQ", str(index), "='old Q1 Answer'!$E$12")]
+        before = sheet_picture(wb)
+        got, ms = {}, {}
+        for executor in ("com", "inproc"):
+            config.INPROC = executor == "inproc"
+            _invoke(wb.Worksheets("Probe").Range("A1:B2"), "Find", "zz", pythoncom.ArgNotFound, XL_VALUES, XL_WHOLE,
+                    XL_BY_COLUMNS)                      # the user's Find settings: values, whole, by columns
+            b = Batch(quiet=False)
+            b.ret(b.verb("mentions", b.workbook(name), MENTION_TEXTS, MENTION_SKIP), "rows")
+            t0 = time.perf_counter()
+            res = runner.run(app, b)
+            ms[executor] = (time.perf_counter() - t0) * 1000
+            rows = [tuple(r[:3]) + (r[3] if r[0] != "unread" else "*",) for r in res.values["rows"]]
+            got[executor] = (res.where, rows, _find_state(wb.Worksheets("Probe")))
+            for r in res.values["rows"]:
+                if r[0] == "unread":
+                    print(f"     mentions ({executor}): the unreadable sheet says {r[3]!r}")
+        check("the verb mentions: the same rows through both executors", got["com"][1] == got["inproc"][1]
+              and got["com"][0] == "com" and got["inproc"][0] == "inproc",
+              f"com {ms['com']:.1f} ms, in-process {ms['inproc']:.1f} ms")
+        check("the verb mentions: the rows Excel gives", got["com"][1] == want,
+              "" if got["com"][1] == want else f"got {got['com'][1]}")
+        check("the verb mentions: Find leaves Excel's defaults (formulas, part, by rows)",
+              got["com"][2] == got["inproc"][2] == ("formulas", "part", "by rows"),
+              f"{got['com'][2]} / {got['inproc'][2]}")
+        after = sheet_picture(wb)
+        check("the verb mentions only reads", before["names"] == after["names"] and before["links"] == after["links"]
+              and [s for s in before["sheets"] if s[0] != "Probe"] == [s for s in after["sheets"] if s[0] != "Probe"])
+    finally:
+        config.INPROC = True
+        wb.Close(False)
+
+
+def repoint_bench(app, raw) -> None:
+    """Task 3 (--repoint-bench): what a follow-up's look for formulas costs when nothing points at the answer - 30
+    sheets of 2 000 formulas, one of 200 000, 2 000 defined names - in both executors (in-process median of 3, over
+    COM one run)."""
+    print()
+    wb = raw.Workbooks.Add()
+    name = str(wb.Name)
+    try:
+        for _ in range(30):
+            ws = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+            ws.Range("A1:J200").Formula2 = "=ROW()+COLUMN()"
+        big = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+        big.Range("A1:T10000").Formula2 = "=ROW()+COLUMN()"
+        for i in range(2000):
+            wb.Names.Add(f"Budget_{i}", "=Sheet1!$A$" + str(i + 1))
+        for executor in ("inproc", "com"):
+            config.INPROC = executor == "inproc"
+            ts = []
+            for _ in range(3 if executor == "inproc" else 1):
+                b = Batch(quiet=False)
+                b.ret(b.verb("mentions", b.workbook(name), MENTION_TEXTS, MENTION_SKIP), "rows")
+                t0 = time.perf_counter()
+                res = runner.run(app, b)
+                ts.append((time.perf_counter() - t0) * 1000)
+            print(f"mentions, nothing points at the answer (31 sheets, 260 000 formulas, 2 000 names), {executor:<6}: "
+                  f"{statistics.median(ts):8.1f} ms ({res.where}, {len(res.values['rows'])} rows)")
+    finally:
+        config.INPROC = True
+        wb.Close(False)
+
+
 def write_sources() -> dict:
     """The source workbooks: the copy item opens src1, the insert item inserts src2: {"src1": .., "src2": ..}."""
     import openpyxl
@@ -780,6 +953,8 @@ def main(argv=None) -> int:
     ap.add_argument("--runs", type=int, default=30, help="empty batches per executor for the fixed cost (median)")
     ap.add_argument("--look-bench", action="store_true", help="also time the look and the names with 2 000 defined "
                     "names and 60 sheets, in both executors (over COM: about 20 s)")
+    ap.add_argument("--repoint-bench", action="store_true", help="also time a follow-up's look for formulas that "
+                    "point at the answer in a large workbook where none do, in both executors")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
     logging.basicConfig(level=logging.WARNING, format="  log %(levelname)s %(message)s")
@@ -799,9 +974,12 @@ def main(argv=None) -> int:
         if not ok:
             return 1
         battery(app, raw, sources)
+        mentions_check(app, raw)
         fixed_cost(app, raw, args.runs)
         if args.look_bench:
             look_bench(app, raw)
+        if args.repoint_bench:
+            repoint_bench(app, raw)
         guard_checks(app, raw, ex)
         addin_checks(app, raw, pid, ctime, ex)
         detector_check(raw, pid, ctime)
