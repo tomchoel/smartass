@@ -29,10 +29,10 @@ NAVY_BGR = 0x64381F                                  # "#1F3864" as a COM colour
 
 
 # ------------------------------------------------------------------ the built file and the user's workbook
-def _file(path, extra: str | None = None, table: bool = False, link: bool = False):
+def _file(path, table: bool = False):
     """A three-sheet file as render/xlsx.build writes it: values only, no table (unless table=True)."""
     with xlsxwriter.Workbook(str(path), {"strings_to_formulas": False}) as wb:
-        answer = wb.add_worksheet("Q3 Answer")
+        wb.add_worksheet("Q3 Answer")
         data = wb.add_worksheet("Q3 Data")
         for j, name in enumerate(("Period", "Account", "Value")):
             data.write_string(3, j, name)
@@ -45,10 +45,6 @@ def _file(path, extra: str | None = None, table: bool = False, link: bool = Fals
         lines = wb.add_worksheet("Q3 Lines b0")
         lines.write_string(3, 0, "ACCOUNT")
         lines.write_string(3, 1, "AMOUNT")
-        if extra:
-            wb.add_worksheet(extra).write_number(0, 0, 1.0)
-        if link:
-            answer.write_formula(0, 0, f"='{extra}'!A1")
     return BuiltFile(path=path, sheets=list(SHEETS), tables=list(TABLES), formulas=[ANSWER, HEADER, LINES],
                      label_fixes=list(FIXES))
 
