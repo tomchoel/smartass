@@ -233,9 +233,9 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
     looks: list[float] = []                                # when every job's look batch began
     real_save, real_look = pipeline._save, pipeline._look
 
-    def look(t, name):
+    def look(job):
         looks.append(time.monotonic())
-        return real_look(t, name)
+        return real_look(job)
     pipeline._look = look
 
     def save(job):
