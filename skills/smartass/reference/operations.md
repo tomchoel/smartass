@@ -37,12 +37,14 @@
   new answer has no such sheet. The reply warns about a formula Excel refused (a locked cell on a protected sheet, a
   table column the new answer lacks, a legacy array formula longer than 255 characters), about one the user changed
   while the answer was drawn (each write first checks the formula is still what was read; an edited cell, or a row,
-  chart or name added in between, is left alone), and about a protected sheet with a hidden formula (it cannot be
-  read) - those show #REF!. When the workbook cannot be scanned at all, the old sheets are dropped anyway and the
+  chart or name added in between, is left alone), and about a sheet whose formulas cannot be read (a protected
+  sheet with a hidden formula, or one too large to scan) when a cell there shows #REF! after the follow-up that did
+  not before (with Calculation manual: always) - those show #REF!. When the workbook cannot be scanned at all, the old sheets are dropped anyway and the
   reply says the formulas pointing at them were not checked. **Not re-pointed** (they show #REF!): conditional
   formats, data validation lists, pivot tables built on a `Data_Q<n>` table, chart titles and labels linked to a
   cell, sparklines, form controls' linked cells and lists, shapes and text boxes linked to a cell, and links from
-  other workbooks. Nothing of the user's is saved and Excel's settings are put back; when the answer's workbook is
+  other workbooks. Nothing of the user's is saved and Excel's settings are put back (also those an earlier job that did not
+  finish left changed: the next job says so); when the answer's workbook is
   the active one it ends on the new Answer, otherwise the user's active sheet is put back.
 - **The add-in.** The first answer in an Excel builds a small Excel-DNA add-in (`smartass_run_<hash>.xll`, compiled
   with the .NET compiler that ships with Windows, under `%LOCALAPPDATA%\smartass\inproc`) and loads it into that

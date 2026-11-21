@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Carry-overs from the reviews
+
+- The report style's text findings are back in the reply's warnings ("B5: text is cut off or spills over (~65 > 46
+  chars)", "B13: text does not fit (...)"), in the words of the renderer before 0.3.0, computed from the look model
+  over the block the job reads back anyway: no Excel call. The old lint's font, vertical-border and "content outside
+  the table width" findings read what Excel shows anywhere on the sheet, which the look cannot know (it writes Arial
+  with top and bottom edges only, inside its block).
+- Excel settings a job that did not finish left changed (a killed server, a put-back Excel refused) are put back by
+  the next job in that Excel and said in its warnings: before its first quiet batch a job records in
+  `jobstate\<Excel's pid>.json` what it found and what it sets (ScreenUpdating, EnableEvents, DisplayAlerts,
+  Calculation, AutoSave of our own file); its end removes it. Only a setting that still reads what that job set is
+  put back, and never in another Excel process that has the same pid.
+- A follow-up whose close-out fails after the old sheets are dropped says when its spec was not stored (the next
+  follow-up would patch the spec before it) - repeat the follow-up. A new answer whose save (or close-out) fails
+  removes its spec row and Sources rows with its sheets: no ghost question for a follow-up to pick.
+- A chart title or series name shaped like a cell reference ("Revenue beat budget!FY26") is written as text, not as
+  a broken reference.
+- Two unknown batch outcomes in a row in one Excel make that Excel use the COM executor for the rest of the server's
+  life, with one warning, instead of failing every later job.
+- The look for formulas that point at a follow-up's sheets halves each used range by cells: a sheet whose used range
+  a stray format stretched to XFD1048576 costs a few dozen steps instead of ~175 000 (in a hidden Excel 48 ms
+  in-process, 288 ms over COM); a sheet that would take more than 2 000 steps is said as unread. A sheet whose
+  formulas cannot be read (a protected sheet with a hidden formula) is warned about only when a cell there turned
+  #REF! with the follow-up.
+- Not changed: the defined names are still read one by one over COM when the add-in is not there (3-5 s for 2 000
+  names); Excel offers no exact lookup of the names that mention a sheet.
+
 ### The save happens after the reply
 
 - With the add-in, the answer's own file is no longer saved inside the job (0.4-1.1 s of every answer in the owner's

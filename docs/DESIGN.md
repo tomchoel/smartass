@@ -117,14 +117,17 @@ replaces the question's sheets whole: the old ones are parked under 'old ...' na
 they were, and the old ones are dropped. Cells a user typed on a `Q<n>` sheet go with it (their own notes belong on
 their own sheets). A formula elsewhere in the workbook that points at the question's sheets or tables follows the park
 to the 'old ...' names (Excel rewrites it) and would turn #REF! with the drop: the bring-in batch finds such formulas
-(the verb `mentions`, inside Excel: every other sheet's used range read in chunks of at most 100 000 cells, only the
-chunks SpecialCells/Intersect finds a formula in - a protected sheet chunk by chunk, a hidden formula there makes it
-"could not be read" -, no Range.Find, which would leave its options as the Find dialog's and skips filtered rows;
+(the verb `mentions`, inside Excel: every other sheet's used range halved, its longer side first, into blocks of at
+most 100 000 cells, only the blocks SpecialCells/Intersect finds a formula in halved further and read - a protected
+sheet block by block, a hidden formula there makes it "could not be read", and so does a sheet that would take more
+than 2 000 steps, such as a protected one whose used range reaches the last cell -, no Range.Find, which would leave its options as the Find dialog's and skips filtered rows;
 the charts' series; the defined names), Python rewrites exactly the references to a parked name with a namesake in
 the new answer (`xl/repoint.py`: never text in a string literal, another workbook's sheet, or a longer name that
 contains it), and the close-out writes them right before the drop with Calculation manual, each a compare-and-set
 inside Excel (the verb `swap`: a formula changed since the bring-in read it is left alone and reported) that may
-fail (a warning). A failure before the drop points them back first, by the same compare-and-set (the parked sheets
+fail (a warning). A sheet that could not be read is a warning only when a cell there shows #REF! after the drop that
+did not before (its values can be read: COUNTIF before and after the drop; with the user's Calculation manual, always,
+as that cannot be told without calculating their sheet). A failure before the drop points them back first, by the same compare-and-set (the parked sheets
 must still be there), then the rollback and the restore. Not covered (Excel offers no exact, cheap way): conditional
 formats and data validation (their formulas come only in the user's separators and change through a type-specific
 Modify), pivot caches, linked chart titles and labels, sparklines, form controls' links, linked shapes, other
