@@ -735,25 +735,54 @@ def test_a_q_quote_that_ends_early_or_cannot_be_read_with_certainty_is_refused(m
 def test_the_repos_real_drill_query_still_passes():
     assert epmhttp._read_only_sql(REAL_QUERY) and epmhttp._sql_tokens(REAL_QUERY)[:4] == ["SELECT", "ENTITY", ",", "AMOUNTX"]
 
-def test_no_code_path_sends_the_smart_view_rule_today():
-    """ALLOWED keeps POST /HyperionPlanning/SmartView for the grid route's later move onto EpmSession (the plan
-    allows it). Today the grids go over svhttp.BearerTransport: the one module that imports epmhttp is drill_token,
-    and it never names that path."""
+def test_the_provider_route_sends_the_smart_view_rule_and_nothing_else_does():
+    """POST /HyperionPlanning/SmartView is the grid route's (svhttp.BearerTransport, through its pods' EpmSessions);
+    the drill (drill_token) is the only other module that imports epmhttp, and it never names that path."""
     import ast
     import warnings
     from pathlib import Path
     root = Path(epmhttp.__file__).parents[1]
-    importers = set()
+    importers = {}
     for p in [*root.rglob("*.py"), *(root.parents[1] / "scripts").rglob("*.py")]:
         with warnings.catch_warnings():                       # a script's own escape sequences are not this test's
             warnings.simplefilter("ignore", SyntaxWarning)
-            tree = ast.parse(p.read_text(encoding="utf-8"))
+            text = p.read_text(encoding="utf-8")
+            tree = ast.parse(text)
         for node in ast.walk(tree):
             names = [a.name for a in getattr(node, "names", ())] if isinstance(node, (ast.Import, ast.ImportFrom)) else []
             module = getattr(node, "module", None) or ""
             if any(n.rsplit(".", 1)[-1] == "epmhttp" for n in [*names, module]):
-                importers.add(p.name)
-    assert importers == {"drill_token.py"}
-    text = (root / "epm" / "drill_token.py").read_text(encoding="utf-8")
-    assert "SmartView" not in text and "SMART_VIEW" not in text
-    assert epmhttp.ALLOWED[epmhttp.SMART_VIEW].method == "POST"                # kept, for that later move
+                importers[p.name] = text
+    assert set(importers) == {"drill_token.py", "svhttp.py"}
+    assert [n for n, text in importers.items() if "SmartView" in text or "SMART_VIEW" in text] == ["svhttp.py"]
+    assert "epmhttp.SMART_VIEW" in importers["svhttp.py"] and epmhttp.ALLOWED[epmhttp.SMART_VIEW].method == "POST"
+
+
+def test_a_smart_view_body_has_its_own_size_cap(make):
+    """A provider request is about 4 bytes a grid cell: a grid past 1 MB is sent, as the provider route always did;
+    a body over MAX_SMART_VIEW_BODY_BYTES is not, and a getData body keeps MAX_BODY_BYTES."""
+    from smartass.epm import svxml
+    s, op, tok = make(answers=[(200, "<res_OpenApplication/>", {})])
+    big = svxml.open_application("s" * (2 << 20), "FinMax")
+    s.request("POST", "/HyperionPlanning/SmartView", body=big)
+    assert op.sent[0].data == big.encode()
+    pad = "s" * (epmhttp.MAX_SMART_VIEW_BODY_BYTES + 1 - len(svxml.open_application("", "FinMax")))
+    with pytest.raises(epmhttp.Refused, match=f"over {epmhttp.MAX_SMART_VIEW_BODY_BYTES} bytes"):
+        s.request("POST", "/HyperionPlanning/SmartView", body=svxml.open_application(pad, "FinMax"))
+    with pytest.raises(epmhttp.Refused, match=f"over {epmhttp.MAX_BODY_BYTES} bytes"):
+        s.request("POST", GET_DATA, body='{"QUERY": "' + "x" * epmhttp.MAX_BODY_BYTES + '"}')
+    assert len(op.sent) == 1 and len(tok.asked) == 1
+
+
+def test_a_caller_may_name_more_statuses_that_take_one_new_token(make):
+    """renew_on: the grid route's gate answers (a 3xx or a 403 as well as a 401) take one new token and one more
+    try, as a 401 does - its cookies go too; by default a 3xx is the answer."""
+    from smartass.epm import svxml
+    s, op, tok = make(tokens=["at-1", "at-2"], answers=[(302, "", {"Set-Cookie": "JSESSIONID=old; Path=/"}),
+                                                       (200, "<res_ConnectToProvider/>", {})])
+    r = s.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect(), renew_on=(401, 302, 403))
+    assert r.status == 200 and [x.get_header("Authorization") for x in op.sent] == ["Bearer at-1", "Bearer at-2"]
+    assert op.sent[1].get_header("Cookie") is None and tok.asked[1] == (POD, "at-1")
+    s2, op2, _ = make(tokens=["at-1", "at-2"], answers=[(302, "", {})])
+    assert s2.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect()).status == 302
+    assert len(op2.sent) == 1

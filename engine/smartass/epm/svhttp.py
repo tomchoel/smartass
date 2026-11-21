@@ -8,25 +8,23 @@ does not need - is SvHttpError, so the caller falls back to Smart View in Excel.
 is the one exception: it is raised as it is and never falls back.
 
 BearerTransport posts over plain HTTPS with the user's OAuth access token (epm/oauth.py; no browser) to every pod that
-has a scope; without a sign-in it raises oauth.NotSignedIn, which the tool call answers with the sign-in page and code.
+has a scope, each request through the pod's epmhttp.EpmSession (its allowlist, its origin, its one new token on a
+refusal); without a sign-in it raises oauth.NotSignedIn, which the tool call answers with the sign-in page and code.
 Tests use a fake transport."""
 from __future__ import annotations
 
 import datetime as dt
-import http.cookiejar
 import logging
 import re
 import threading
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 from urllib.parse import urlsplit
 
 from ..knowledge import atlas
-from . import oauth, svxml
+from . import epmhttp, oauth, svxml
 from ..core import config
 from .grid import INVALID, MISSING, NOACCESS, Axis, Layout, full_pov, parse, validate_axes, verify_labels
 from ..xl.host import InputError
@@ -338,13 +336,10 @@ def pod_origin(base: str) -> str:
     return oauth.origin(base)
 
 
-def _fetch_ms() -> int:
-    return max(1, int(config.SVHTTP_TIMEOUT_S * 900))       # 90 % of the job's time limit, in ms
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
+def _timeout_s() -> float:
+    """One request's time: 90 % of the job's time limit (config.SVHTTP_TIMEOUT_S), within the most an EpmSession
+    takes. It is the whole answer's deadline (EpmSession reads to it), not a limit per receive."""
+    return min(max(1, int(config.SVHTTP_TIMEOUT_S * 900)) / 1000, epmhttp.MAX_TIMEOUT_S)
 
 
 AUTH_REFUSED = (301, 302, 303, 307, 401, 403)     # EPM's gate did not take the token: the request never ran
@@ -353,69 +348,59 @@ AUTH_REFUSED = (301, 302, 303, 307, 401, 403)     # EPM's gate did not take the 
 class BearerTransport:
     """Posts provider XML over plain HTTPS with the user's OAuth access token: no browser, no sign-in page (live
     2026-11-19 on plan1 and stratmodel: /HyperionPlanning/SmartView takes the token; grids, the closed month and
-    drill links are cell for cell the browser route's; a cold first grid 0.7 s against about 20 s). The bearer is only
-    sent over https to the origin of a pod with a configured scope (pod_origin: never to the scheme or port EPM's
-    data-source list gives). oauth.NotSignedIn reaches the caller as it is (the tool call answers with
-    the sign-in page and code), and so does oauth.NotSetUp when this PC has no [oauth] set-up at all; a pod without a
-    scope, any other oauth.OAuthError and a token EPM refuses twice are SvHttpError.
+    drill links are cell for cell the browser route's; a cold first grid 0.7 s against about 20 s). It builds no
+    request of its own: each goes through the pod's epmhttp.EpmSession, whose allowlist takes exactly this POST
+    (Content-Type text/xml, a body svxml.check_read_only admits) and which sends the bearer only over https to the
+    pod's origin. The base is checked first (pod_origin: never the scheme or port EPM's data-source list gives - the
+    session would quietly make any of them its pod's origin). oauth.NotSignedIn reaches the caller as it is (the tool
+    call answers with the sign-in page and code), and so does oauth.NotSetUp when this PC has no [oauth] set-up at
+    all; a pod without a scope, any other oauth.OAuthError and a token EPM refuses twice (the session's one new token
+    on a gate answer, AUTH_REFUSED) are SvHttpError; a request that left without a whole answer is RequestLost.
 
-    One cookie jar per pod, as a browser has: EPM opens a server session for every request that brings no cookie.
-    The cookie alone does not authenticate (302 without the token). Like every transport here it sends nothing
-    that svxml.check_read_only refuses - the same token would be accepted by EPM's write endpoints."""
+    One session (one cookie jar) per pod, as a browser has: EPM opens a server session for every request that brings
+    no cookie. The cookie alone does not authenticate (302 without the token). The sessions are the grid route's
+    own, not the drill's (epmhttp.session): the drill's key belongs to the EPM session of its jar, and a refused
+    token clears a session's jar - a grid's 401 would sign the drill's key out mid-drill, and the drill's renewal
+    waits only for its own requests. Like every transport here it sends nothing that svxml.check_read_only refuses -
+    the same token would be accepted by EPM's write endpoints. opener: tests put a fake wire under the sessions."""
 
-    def __init__(self, tokens=oauth, send: Callable[[str, str, str], tuple[int, str]] | None = None):
+    def __init__(self, tokens=oauth, opener=None):
         self._tokens = tokens
-        self._send = send or self._https
-        self._openers: dict[str, urllib.request.OpenerDirector] = {}
+        self._opener = opener
+        self._sessions: dict[str, epmhttp.EpmSession] = {}
         self._lock = threading.Lock()
+
+    def session(self, origin: str) -> epmhttp.EpmSession:
+        """The grid route's EpmSession for a pod origin (pod_origin's answer)."""
+        with self._lock:
+            s = self._sessions.get(origin)
+            if s is None:
+                s = self._sessions[origin] = epmhttp.EpmSession(origin, tokens=self._tokens, opener=self._opener)
+            return s
 
     def post(self, base: str, body: str) -> str:
         svxml.check_read_only(body)
         if not self._tokens.configured():
             raise oauth.NotSetUp()                       # the reply says what config.toml needs, not "retry"
-        base = pod_origin(base)                          # the only URL the bearer goes to, whatever EPM listed
-        if self._tokens.scope_for(base) is None:
-            raise NoScope(f"no OAuth scope is configured for {base} ([oauth.scopes] in config.toml)")
-        token = self._token(base)
-        status = 0
-        for attempt in (1, 2):
-            try:
-                status, text = self._send(base, body, token)
-            except OSError as e:                  # it may have reached EPM: never again on this sID
-                raise RequestLost(f"Smart View provider at {base}: lost the request ({type(e).__name__})") from None
-            if "<res_" in text or "<exception" in text:
-                return text                                       # provider XML, whatever the status: svxml judges
-            if status not in AUTH_REFUSED:
-                raise RequestLost(f"Smart View provider at {base}: answered HTTP {status} without provider XML")
-            if attempt == 1:                                      # the hour may have ended early: one new token
-                token = self._token(base, reject=token)
-        raise SvHttpError(f"Smart View provider at {base}: EPM refused the access token twice (HTTP {status})")
-
-    def _token(self, base: str, reject: str | None = None) -> str:
-        """The pod's access token. NotSignedIn as it is; any other OAuthError is an SvHttpError."""
+        base = pod_origin(base)                          # the only origin the bearer goes to, whatever EPM listed
         try:
-            return self._tokens.access_token(base, reject=reject)
+            r = self.session(base).request("POST", epmhttp.SMART_VIEW, headers={"Content-Type": "text/xml"},
+                                           body=body, timeout=_timeout_s(), renew_on=AUTH_REFUSED)
         except oauth.NotSignedIn:
             raise
         except oauth.OAuthError as e:
             raise SvHttpError(f"no EPM access token for {base}: {e}") from None
-
-    def _opener(self, base: str) -> urllib.request.OpenerDirector:
-        with self._lock:
-            op = self._openers.get(base)
-            if op is None:
-                op = self._openers[base] = urllib.request.build_opener(
-                    _NoRedirect, urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-            return op
-
-    def _https(self, base: str, body: str, token: str) -> tuple[int, str]:
-        req = urllib.request.Request(base + "/HyperionPlanning/SmartView", data=body.encode("utf-8"), method="POST",
-                                     headers={"Authorization": "Bearer " + token, "Content-Type": "text/xml"})
-        try:
-            with self._opener(base).open(req, timeout=_fetch_ms() / 1000) as r:
-                return r.status, r.read().decode("utf-8", "replace")
-        except urllib.error.HTTPError as e:
-            return e.code, e.read().decode("utf-8", "replace")
+        except epmhttp.NoScope:
+            raise NoScope(f"no OAuth scope is configured for {base} ([oauth.scopes] in config.toml)") from None
+        except (epmhttp.Refused, epmhttp.TooLarge) as e:   # their texts quote no body, token or query
+            raise SvHttpError(f"Smart View provider at {base}: {e}") from None
+        except OSError as e:                             # it may have reached EPM: never again on this sID
+            raise RequestLost(f"Smart View provider at {base}: lost the request ({type(e).__name__})") from None
+        if "<res_" in r.text or "<exception" in r.text:
+            return r.text                                # provider XML, whatever the status: svxml judges
+        if r.status in AUTH_REFUSED:                     # the session took one new token for it already
+            raise SvHttpError(f"Smart View provider at {base}: EPM refused the access token twice (HTTP {r.status})")
+        raise RequestLost(f"Smart View provider at {base}: answered HTTP {r.status} without provider XML")
 
 
 _shared: SvHttp | None = None

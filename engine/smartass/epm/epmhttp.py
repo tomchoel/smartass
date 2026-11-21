@@ -1,6 +1,6 @@
 """The token route's one way to EPM: HTTPS requests to one pod with the user's OAuth access token (epm/oauth.py) and
-a cookie jar, as a browser tab of that pod sends them - no browser, no Excel. The drill over the token (drill_token)
-is built on it.
+a cookie jar, as a browser tab of that pod sends them - no browser, no Excel. The grids (svhttp.BearerTransport, the
+Smart View provider XML) and the drill over the token (drill_token) are built on it, each on sessions of its own.
 
 What it holds to, whatever a caller asks for:
 - read-only towards EPM: a request that is not exactly on ALLOWED is refused before a token is asked for - its
@@ -54,8 +54,8 @@ _DRILL_HEADERS = frozenset({"accept", "content-type", "x-requested-with", "page_
 # The brief's table, with what each request may carry besides: the query names are those the drill sends today
 # (sui_url keeps Smart View's link minus DRILLURL; drill_token's view and getData URLs), nothing else.
 ALLOWED: dict[str, _Rule] = {
-    # No caller today: the grids go over svhttp.BearerTransport. Kept for the grid route's later move onto EpmSession,
-    # which the plan allows; tests/test_epmhttp.py pins that no code path sends it until then.
+    # The grid route's one request (svhttp.BearerTransport: no query, Content-Type text/xml only); tests/test_epmhttp.py
+    # pins that nothing else sends it.
     SMART_VIEW: _Rule("POST", {}, frozenset({"content-type"}), "text/xml"),          # + svxml.check_read_only(body)
     "/aif/ui/model/applications/servicetype": _Rule("GET", {}, _DRILL_HEADERS, None),
     "/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp": _Rule("GET", {
@@ -76,7 +76,11 @@ _SQL_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_$#]*")
 HEADER_VALUES = {"x-requested-with": re.compile("XMLHttpRequest")}
 SECRET_HEADERS = ("x-appbuilder-client-id",)            # values scrubbed from an error text and a repr, like the token
 HIDDEN_HEADERS = ("set-cookie", "set-cookie2")          # kept by the jar, never handed to a caller
-MAX_BODY_BYTES = 1 << 20                                # a getData query or a provider request is far smaller
+MAX_BODY_BYTES = 1 << 20                                # a getData query is far smaller
+# A provider request is about 4 bytes a grid cell (svxml.execute_grid, measured 2026-11-21): 1 MB would stop a grid of
+# some 260 000 cells, which the provider route always sent; 16 MB is about 4 million, about as many as an answer under
+# MAX_ANSWER_BYTES holds (12 to 18 bytes a cell in the provider's answer shape: 3.7 to 5.6 million).
+MAX_SMART_VIEW_BODY_BYTES = 16 << 20
 MAX_ANSWER_BYTES = 64 << 20                             # a 5000-line getData page is about 7 MB (1.3 kB a line)
 MAX_TIMEOUT_S = 600.0
 _URL = re.compile(r"[\x21-\x7e]+")                      # printable ASCII: urlsplit drops tab and line breaks silently
@@ -135,12 +139,13 @@ class EpmSession:
         self._jar = http.cookiejar.CookieJar()          # thread-safe; only ever sent to self.origin
 
     def request(self, method: str, url: str, headers: dict | None = None, body: str | None = None,
-                timeout: float = 120.0) -> Response:
-        """Send one allowlisted request with the bearer; a 401 takes one new token (reject=the refused one), drops
-        the session's cookies (they came with the refused token) and is sent once more. Any status is an answer
-        (a 3xx too: never followed). Refused before anything is sent; oauth.OAuthError / NotSignedIn as the token
-        source raises them; OSError when the request left and no whole answer came (its text scrubbed of
-        secrets); TooLarge for an answer over MAX_ANSWER_BYTES."""
+                timeout: float = 120.0, renew_on: tuple[int, ...] = (401,)) -> Response:
+        """Send one allowlisted request with the bearer; a 401 (or another status of renew_on: the grid route's gate
+        answers) takes one new token (reject=the refused one), drops the session's cookies (they came with the
+        refused token) and is sent once more. Any other status is an answer (a 3xx too: never followed). Refused
+        before anything is sent; oauth.OAuthError / NotSignedIn as the token source raises them; OSError when the
+        request left and no whole answer came (its text scrubbed of secrets); TooLarge for an answer over
+        MAX_ANSWER_BYTES."""
         try:
             target, rule = self._target(method, url, body)
             sent = self._headers(headers, rule)
@@ -155,7 +160,7 @@ class EpmSession:
         t0 = time.monotonic()
         token = self._tokens.access_token(self.origin)
         r = self._send(method, target, sent, data, token, timeout)
-        if r.status == 401:                             # the hour may have ended early: one new token, one more try
+        if r.status in renew_on:                        # the hour may have ended early: one new token, one more try
             self._jar.clear()                           # first: the cookies go even when no new token comes
             token = self._tokens.access_token(self.origin, reject=token)
             r = self._send(method, target, sent, data, token, timeout)
@@ -282,8 +287,9 @@ def _check_query(method: str, shown: str, query: str, rule: _Rule) -> None:
 def _check_body(method: str, shown: str, path: str, body) -> None:
     if not isinstance(body, str):
         raise Refused(f"refused: POST {shown} without a body")
-    if len(body.encode("utf-8")) > MAX_BODY_BYTES:
-        raise Refused(f"refused: POST {shown} with a body over {MAX_BODY_BYTES} bytes")
+    cap = MAX_SMART_VIEW_BODY_BYTES if path == SMART_VIEW else MAX_BODY_BYTES
+    if len(body.encode("utf-8")) > cap:
+        raise Refused(f"refused: POST {shown} with a body over {cap} bytes")
     if path == SMART_VIEW:
         try:
             svxml.check_read_only(body)

@@ -449,12 +449,17 @@ def test_the_identity_domain_must_be_an_https_url(idcs, want):
     assert config.oauth_idcs(idcs) == want
 
 
+class _NoWire:
+    def open(self, req, timeout):
+        pytest.fail("sent")
+
+
 def test_an_identity_domain_that_is_not_https_is_not_set_up(monkeypatch, oa):
     monkeypatch.setattr(config, "OAUTH_IDCS", config.oauth_idcs("http://idcs.example"))
     from smartass.epm import svhttp, svxml
     assert not oauth.configured() and oauth.pods() == []
     with pytest.raises(oauth.NotSetUp) as e:                       # a tool call answers with the set-up text
-        svhttp.BearerTransport(send=lambda *a: pytest.fail("sent")).post(POD, svxml.connect())
+        svhttp.BearerTransport(opener=_NoWire()).post(POD, svxml.connect())
     assert str(e.value) == oauth.NOT_SET_UP
 
 
