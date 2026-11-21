@@ -454,6 +454,18 @@ def test_a_new_workbook_whose_open_was_abandoned_is_found_by_its_name_and_closed
     assert note == f"the new workbook {t.made.name} was closed without saving and its file deleted"
 
 
+def test_another_sessions_workbook_of_the_same_name_is_never_closed_by_the_clean_up(tmp_path, monkeypatch, fast):
+    """Final review M8: two sessions in different project folders reserved the same title in the same minute, and
+    this job's Open failed on the name the other session's workbook holds: the clean-up finds the new workbook by its
+    full path, so the other one stays open; only this job's file is deleted."""
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    books = Opener()
+    t = target._new_target(None, "Q", [(11, 110, FakeApp(books))], build_new=True)
+    theirs = books.Open(str(tmp_path / "other project" / t.made.name))
+    assert target.discard_new(t) == f"the new workbook {t.made.name} was not opened; its file was deleted"
+    assert theirs.closed == [] and theirs in books and not t.made.exists()
+
+
 def test_a_note_keeps_the_shape_of_a_com_error():
     """Review minor 5: a COM error keeps its four args (hresult, text, excepinfo, argerror); the note goes into its
     text. Any other error's text gets it at the end."""

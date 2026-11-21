@@ -320,12 +320,13 @@ def discard_new(t: Target) -> str:
 
 
 def _opened(t: Target):
-    """The workbook t.made is open as in t's Excel, or None: found by its name, which no other workbook open there
-    had when it was reserved (an Excel cannot open two workbooks of one name)."""
-    name = t.made.name.lower()
+    """The workbook t.made is open as in t's Excel, or None: found by its full path (a OneDrive URL read as its local
+    path), never by its name alone - another session's workbook of the same name from another project folder may be
+    open there (final review M8)."""
+    want = instances._norm(t.made)
     try:
-        return jobs.com(lambda: next((b for b in t.app.Workbooks if str(b.Name).lower() == name), None), limit=30,
-                        check=False)
+        return jobs.com(lambda: next((b for b in t.app.Workbooks if instances._norm(str(b.FullName)) == want), None),
+                        limit=30, check=False)
     except Exception:   # noqa: BLE001 - nothing to close that can be found
         return None
 
