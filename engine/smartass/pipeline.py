@@ -410,6 +410,24 @@ def _earlier_save(job) -> None:
     job.resave = (out["workbook"], len(job.notes) - 1, out)
 
 
+def _settings_left(job) -> None:
+    """Before the look reads the settings: what a job in this Excel that did not finish left changed is put back
+    (xl/jobstate.put_back), said in the notes."""
+    from .xl import jobstate
+    job.excel = jobstate.key_of(job.t)
+    note = jobstate.put_back(job.t.app, job.excel)
+    if note:
+        job.notes.append(note)
+
+
+def _record_settings(job) -> None:
+    """After the look, before the first quiet batch: the settings it found and what the job sets, with our own file
+    whose AutoSave the look switched off (xl/jobstate.begin; the job's end forgets them)."""
+    from .xl import jobstate
+    ours = (job.name, job.look.full_name) if job.paused and job.look.full_name and _is_ours(job.t) else None
+    job.state = jobstate.begin(job.excel, job.look.settings, ours)
+
+
 def _rollback(t) -> None:
     from .xl import sheets
     sheets.rollback(t)
@@ -722,6 +740,7 @@ class Look:
     sources_unread: bool = False
     autosave: bool = False                       # AutoSave was on, and the look switched it off
     full_name: str = ""                          # the workbook's FullName (which file a failed earlier save was)
+    settings: dict = field(default_factory=dict)     # the quiet settings as found (xl/jobstate.record_found)
 
 
 def _look(job) -> Look:
@@ -730,13 +749,14 @@ def _look(job) -> Look:
     leaves the clean-up to switch it back on. A run whose outcome is unknown (the add-in may have run the whole batch,
     the AutoSave-off included) counts as paused in our own file, so the clean-up switches it on there; in the user's
     workbook it is left as the look may have left it, without a note (whether it went off cannot be told)."""
-    from .xl import movein, sheets, sources
+    from .xl import jobstate, movein, sheets, sources
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import BatchError, run
     t = job.t
     b = Batch(quiet=False)
     wbn = b.workbook(job.name)
     book, screen = movein.record_book(b, wbn), movein.record_screen(b, wbn)
+    found = jobstate.record_found(b)
     base = movein.record_base(b, wbn)
     kind, spec_rows = sources.record_kind(b, wbn), sheets.record_spec_rows(b, wbn)
     b.ret(b.app.International(3), "decimal separator")
@@ -757,10 +777,10 @@ def _look(job) -> Look:
     job.paused = bool(v.get("autosave")) and not any(i == off_at for i, _, _ in res.skipped)
     got = book(res)
     has_sources = "sources" in {n.casefold() for n in got.names()}     # as Excel: names without case
-    found = kind(res) if has_sources else None
-    return Look(got, screen(res), base(res), found, spec_rows(res),
-                (v["decimal separator"], v["thousands separator"]), has_sources and found is None, job.paused,
-                str(v.get("full name") or ""))
+    kind_found = kind(res) if has_sources else None
+    return Look(got, screen(res), base(res), kind_found, spec_rows(res),
+                (v["decimal separator"], v["thousands separator"]), has_sources and kind_found is None, job.paused,
+                str(v.get("full name") or ""), found(res))
 
 
 @dataclass
@@ -791,6 +811,8 @@ class _Job:
     resave: tuple | None = None                 # (workbook, its note's index, outcome): a save after the reply failed
     sync_save: bool = False                     # how the save after the last reply went is not known: save in the job
     pointing: list = field(default_factory=list)    # what the re-pointing could not do, for the reply's warnings
+    excel: tuple | None = None                  # (pid, start time) of its Excel (xl/jobstate.key_of)
+    state: tuple | None = None                  # the settings it recorded before its first quiet batch (jobstate)
     spec_stored: bool | None = False            # the close-out stored the spec (None: unknown - the workbook says)
     spec_row: int | None = None                 # the row of _svmeta the close-out writes the spec in (_forget)
     logged: tuple | None = None                 # (sheet, first row, last row) of the Sources rows it writes (_forget)
@@ -843,15 +865,23 @@ class _Job:
         except Exception as e:   # noqa: BLE001 - the job's error is the one raised
             log.warning("could not switch AutoSave back on in %s: %s", self.name, e)
 
+    def end(self) -> None:
+        """The job is over (its clean-up done): the settings it recorded are forgotten (xl/jobstate.end)."""
+        from .xl import jobstate
+        jobstate.end(self.state)
+        self.state = None
+
     def fail(self, e: BaseException) -> BaseException:
         """The error a failed job raises: a busy Excel inside a batch as the HostError jobs.com gives, and the
         job's notes (AutoSave left off in the user's workbook, a save after the last answer that failed) at the end of
         its text. A failed save after the last answer this job took but did not repeat is put back for the next job
-        (xl/inproc/later.py give_back) - not after a RestoreError (the workbook may be damaged: nothing saves it)."""
+        (xl/inproc/later.py give_back) - not after a RestoreError (the workbook may be damaged: nothing saves it).
+        The job is over then (end)."""
         from .xl import jobs
         from .xl.host import HostError
         from .xl.inproc import later
         from .xl.inproc.runner import BatchError
+        self.end()
         if self.resave is not None and not isinstance(e, RestoreError):
             later.give_back(self.t.app, self.resave[2])
             self.resave = None
@@ -1095,8 +1125,10 @@ def _file_draw(job, pre: Prepared) -> dict:
             with stage("open"):
                 xltarget.open_new(t)
         with stage("look"):
+            _settings_left(job)
             look = job.look = _look(job)
             _earlier_save(job)
+        _record_settings(job)
         book = look.book
         if t.from_template:                             # what a new workbook has: the next one is built in it
             xltarget.remember_new_base(look.base)
@@ -1323,6 +1355,7 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
             finally:
                 job.settle()
         _raise(job, e)
+    job.end()
     if t.made is not None:
         from .core import session
         session.set_workbook(t.path)
@@ -1392,6 +1425,7 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
             finally:
                 job.settle()
             _raise(job, e)
+    job.end()
     out["followup"] = True
     remember(pre, out)
     return _with_notes(out, job.notes)

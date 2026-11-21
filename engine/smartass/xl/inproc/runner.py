@@ -137,9 +137,24 @@ def available(app) -> bool:
     return _ready(app) is not None
 
 
-def _result(out: dict, batch, where: str) -> Result:
-    for text in out.get("unrestored", []):
+_restores = threading.local()            # this thread's count of batches that could not put a setting back
+
+
+def unrestored() -> int:
+    """How many batches of this thread (a job's) could not put a setting back so far (xl/jobstate: a job whose count
+    grew keeps its state for the next job)."""
+    return getattr(_restores, "count", 0)
+
+
+def _unrestored(texts: list) -> None:
+    for text in texts:
         log.warning("could not restore Application.%s", text)
+    if texts:
+        _restores.count = unrestored() + 1
+
+
+def _result(out: dict, batch, where: str) -> Result:
+    _unrestored(out.get("unrestored", []))
     skipped = [(i, batch.text(i), m) for i, m in out.get("skipped", [])]
     if not out["ok"]:
         i = out.get("index")
@@ -202,8 +217,7 @@ def execute(app, job: dict, limit: float = 120, check: bool = True) -> dict:
     finally:
         unrestored = _restore(app, changed)
     if aborted is not None:
-        for text in unrestored:
-            log.warning("could not restore Application.%s", text)
+        _unrestored(unrestored)
         raise aborted
     out.update(started=started, values=values, marks=marks, ms=(time.perf_counter() - t0) * 1000, skipped=skipped)
     if unrestored:
