@@ -26,6 +26,14 @@ Rules:
   property gets with E_INVALIDARG when the object is in a certain state (a chart without a title); shared, that one
   answer would turn the property into a method for every object of the interface.
 - The default member's name (defaultDispatchName, used by obj(...)) is shared once an object has bound it.
+- Excel's busy rejection ("call rejected": a save, AutoSave, a recalculation) surfaces as the com_error it is, so the
+  caller's wait for a busy Excel (hostproc.retry_busy) asks again (Task D2). pywin32 swallows any error of a name's
+  lookup and raises AttributeError (or "can not be set" for a put), and an object whose type information was rejected
+  would be handed out without it; live in a hidden Excel, 21.11.2026, both failed jobs with "<unknown>.FullName". So
+  wrap raises a rejection of its type-information calls, and an AttributeError of a name (_get, _put) is checked with
+  one more lookup of the name (_dispid): a rejection is raised, a name the object has is tried once more, an unknown
+  one stays an AttributeError. An object that really has no type information is late-bound by name (Untyped), with the
+  same checks.
 
 Coupling (accepted: pywin32 is pinned, pywin32==312 in engine/pyproject.toml): this module relies on pywin32's
 internals - CDispatch's instance attributes (_oleobj_, _olerepr_, _builtMethods_, _lazydata_, _username_),
@@ -36,6 +44,7 @@ standard wrapper, so an upgrade that changes them fails there.
 """
 from __future__ import annotations
 
+import logging
 import threading
 import traceback
 from collections.abc import MutableMapping
@@ -46,7 +55,9 @@ import winerror
 from win32com.client import build, dynamic, util
 
 from ..core import config
+from .hostproc import is_busy
 
+log = logging.getLogger("smartview.fastcom")
 _PyIDispatch = pythoncom.TypeIIDs[pythoncom.IID_IDispatch]
 _MAPS = ("propMap", "propMapGet", "propMapPut", "mapFuncs")
 NOT_SHARED = (pythoncom.IID_NULL, pythoncom.IID_IDispatch)      # no real interface behind these: never shared
@@ -271,13 +282,69 @@ class Fast(dynamic.CDispatch):
             except pythoncom.com_error:
                 raise AttributeError("This object can not function as an iterator") from None
             return lambda: _Iterator(enum)
-        return dynamic.CDispatch.__getattr__(self, attr)
+        return _get(self, attr)
+
+    def __setattr__(self, attr, value):
+        _put(self, attr, value)
+
+
+class Untyped(dynamic.CDispatch):
+    """pywin32's late-bound wrapper for an object without type information (names looked up with GetIDsOfNames), with
+    a busy rejection of a lookup surfacing as busy (_get, _put); what it returns is wrapped (wrap)."""
+
+    def _wrap_dispatch_(self, ob, userName=None, returnCLSID=None):
+        return wrap(ob, userName)
+
+    def __getattr__(self, attr):
+        return _get(self, attr)
+
+    def __setattr__(self, attr, value):
+        _put(self, attr, value)
+
+
+def _dispid(ob, attr: str) -> int | None:
+    """attr's dispid on ob's object, None when it has no such name; Excel's busy rejection is raised as it is."""
+    try:
+        return ob._oleobj_.GetIDsOfNames(attr)
+    except pythoncom.com_error as e:
+        if is_busy(e):
+            raise
+        return None
+
+
+def _get(ob, attr: str):
+    """pywin32's attribute get, with an AttributeError checked (the module docstring): a lookup Excel rejected is
+    raised as busy, a name the object has is got once more."""
+    try:
+        return dynamic.CDispatch.__getattr__(ob, attr)
+    except AttributeError:
+        if (attr.startswith("_") and attr.endswith("_")) or _dispid(ob, attr) is None:
+            raise
+    return dynamic.CDispatch.__getattr__(ob, attr)
+
+
+def _put(ob, attr: str, value) -> None:
+    """pywin32's attribute put, with an AttributeError checked: a lookup Excel rejected is raised as busy; a name the
+    object has is put by its dispid, Excel's error raised as it is (pywin32 swallows it)."""
+    try:
+        dynamic.CDispatch.__setattr__(ob, attr, value)
+        return
+    except AttributeError:
+        if attr in ob.__dict__ or (attr.startswith("_") and attr.endswith("_")):
+            raise
+        dispid = _dispid(ob, attr)
+        if dispid is None:
+            raise
+    ob._oleobj_.Invoke(dispid, 0, pythoncom.INVOKE_PROPERTYPUT, 0, value)
+    ob._olerepr_.propMap[attr] = build.MapEntry(dispid, (attr,))
 
 
 def wrap(obj, name: str | None = None):
     """`obj` (a PyIDispatch or any pywin32 dispatch object) wrapped Fast; a Fast object is returned unchanged, and so
-    is anything that is not a COM object (the fakes of the tests). With SV_FASTCOM=0 the standard wrapper."""
-    if isinstance(obj, Fast):
+    is anything that is not a COM object (the fakes of the tests). With SV_FASTCOM=0 the standard wrapper. Excel's busy
+    rejection of the type-information calls is raised (the caller asks again); an object without type information
+    is Untyped."""
+    if isinstance(obj, (Fast, Untyped)):
         return obj
     raw = getattr(obj, "_oleobj_", obj)
     if not isinstance(raw, _PyIDispatch):
@@ -289,16 +356,28 @@ def wrap(obj, name: str | None = None):
     try:
         typeinfo = raw.GetTypeInfo()
         iid = typeinfo.GetTypeAttr()[0]
-    except (pythoncom.com_error, AttributeError):          # no type information: pywin32 copes without it
-        return dynamic.Dispatch(raw, name)
+    except (pythoncom.com_error, AttributeError) as e:     # no type information: late-bound by name
+        return _untyped(raw, name, None, e)
     if iid in NOT_SHARED:
-        return dynamic.Dispatch(raw, name, typeinfo=typeinfo)
+        return _untyped(raw, name, typeinfo)
     iface = _IFACE.get(iid)
     typecomp = None
     if iface is None:                                      # first object of this interface
         try:
             typecomp = typeinfo.GetTypeComp()
-        except pythoncom.com_error:
-            return dynamic.Dispatch(raw, name, typeinfo=typeinfo)
+        except pythoncom.com_error as e:
+            return _untyped(raw, name, typeinfo, e)
         iface = _IFACE.setdefault(iid, _Interface(dynamic.MakeOleRepr(raw, typeinfo, typecomp), iid))
     return Fast(raw, iface, name, typeinfo, typecomp)
+
+
+def _untyped(raw, name: str | None, typeinfo, error: Exception | None = None) -> Untyped:
+    """raw as Untyped (with typeinfo when there is one); a busy rejection that kept the type information back is
+    raised instead (Excel answers it when asked again)."""
+    if error is not None and is_busy(error):
+        raise error
+    if error is not None:
+        log.debug("no type information for %s (%s): late-bound by name", name, error)
+    if typeinfo is None:
+        return Untyped(raw, dynamic.MakeOleRepr(raw, None, None), name)
+    return dynamic.Dispatch(raw, name, createClass=Untyped, typeinfo=typeinfo)

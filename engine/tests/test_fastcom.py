@@ -243,21 +243,157 @@ def test_what_one_object_learns_from_its_own_answers_stays_with_that_object(tree
     assert "Name" not in shared.olerepr.mapFuncs and "Name" not in shared.methods
 
 
-def test_an_object_without_type_information_falls_back_to_the_standard_wrapper():
-    class Server:
-        _public_methods_ = ["Hello"]
-        _public_attrs_ = ["x"]
-        x = 3
+class Server:
+    _public_methods_ = ["Hello"]
+    _public_attrs_ = ["x"]
+    x = 3
 
-        def Hello(self, who):
-            return "hi " + who
+    def Hello(self, who):
+        return "hi " + who
+
+
+def test_an_object_without_type_information_falls_back_to_the_late_bound_wrapper():
     ob = server_util.wrap(Server())                     # a real PyIDispatch whose GetTypeInfo raises com_error
     with pytest.raises(pythoncom.com_error):
         ob.GetTypeInfo()
     w = fastcom.wrap(ob)
-    assert type(w) is dynamic.CDispatch
+    assert isinstance(w, dynamic.CDispatch) and not isinstance(w, fastcom.Fast)
     assert (w.Hello("you"), w.x) == ("hi you", 3)
+    w.x = 4
+    assert w.x == 4
+    with pytest.raises(AttributeError):
+        w.NoSuchName                                    # a name the object does not have stays an AttributeError
     assert fastcom._IFACE == {}
+
+
+# ---------------------------------------------------------------------------------------------------- Task D2, item 4
+# Excel rejects calls while it is busy (a save after the reply, AutoSave, a recalculation): RPC_E_CALL_REJECTED. pywin32
+# turns such a rejection of a name's lookup into AttributeError ('<unknown>.FullName': Task D, while a save of ours
+# ran), which no wait for a busy Excel retries. Here it surfaces as the busy rejection it is.
+REJECTED = winerror.RPC_E_CALL_REJECTED
+
+
+class _Excel:
+    """Busy for the next n calls of the kinds given; then it answers."""
+
+    def __init__(self, n: int, kinds=("GetTypeInfo", "GetIDsOfNames", "Bind", "Invoke")):
+        self.n, self.kinds = n, kinds
+
+    def busy(self, kind: str) -> bool:
+        if kind in self.kinds and self.n > 0:
+            self.n -= 1
+            return True
+        return False
+
+
+def _busy_policy(excel: _Excel):
+    from win32com.server.exception import COMException
+    from win32com.server.policy import DesignatedWrapPolicy
+
+    class Policy(DesignatedWrapPolicy):
+        def _GetTypeInfo_(self, index, lcid):
+            if excel.busy("GetTypeInfo"):
+                raise COMException(hresult=REJECTED)
+            return DesignatedWrapPolicy._GetTypeInfo_(self, index, lcid)
+
+        def _GetIDsOfNames_(self, names, lcid):
+            if excel.busy("GetIDsOfNames"):
+                raise COMException(hresult=REJECTED)
+            return DesignatedWrapPolicy._GetIDsOfNames_(self, names, lcid)
+    return Policy
+
+
+class _BusyTypes:
+    """A PyIDispatch whose GetTypeInfo Excel rejects while busy (a Python COM server's own GetTypeInfo cannot answer
+    that: its gateway reports any error there as DISP_E_EXCEPTION); everything else goes to the real object."""
+
+    def __init__(self, ob, excel: _Excel):
+        self.ob, self.excel = ob, excel
+
+    def GetTypeInfo(self, *args):
+        if self.excel.busy("GetTypeInfo"):
+            raise pythoncom.com_error(REJECTED, "Call was rejected by callee.", None, None)
+        return self.ob.GetTypeInfo(*args)
+
+    def __getattr__(self, name):
+        return getattr(self.ob, name)
+
+
+def test_a_busy_rejection_while_an_object_is_wrapped_surfaces_as_busy(monkeypatch):
+    from smartass.xl.hostproc import is_busy, retry_busy
+    monkeypatch.setattr(fastcom, "_PyIDispatch", (fastcom._PyIDispatch, _BusyTypes))
+    excel = _Excel(1, ("GetTypeInfo",))
+    d = _BusyTypes(raw("Scripting.Dictionary"), excel)
+    with pytest.raises(pythoncom.com_error) as e:
+        fastcom.wrap(d)                                 # was an object without type information, handed out silently
+    assert is_busy(e.value)
+    excel.n = 2
+    w = retry_busy(lambda: fastcom.wrap(d), 10)         # asked again: Excel answers
+    assert type(w) is fastcom.Fast
+    w.Add("k", 1)
+    assert w.Item("k") == 1
+
+
+def test_a_busy_rejection_of_a_name_on_an_object_without_type_information_surfaces_as_busy():
+    from smartass.xl.hostproc import is_busy, retry_busy
+    excel = _Excel(0, ("GetIDsOfNames",))
+    w = fastcom.wrap(server_util.wrap(Server(), usePolicy=_busy_policy(excel)))
+    excel.n = 2
+    with pytest.raises(pythoncom.com_error) as e:
+        w.x                                             # was AttributeError('<unknown>.x')
+    assert is_busy(e.value)
+    excel.n = 2
+    with pytest.raises(pythoncom.com_error) as e:
+        w.x = 5                                         # was AttributeError("Property '<unknown>.x' can not be set.")
+    assert is_busy(e.value)
+    excel.n = 3
+    assert retry_busy(lambda: w.x, 10) == 3
+    excel.n = 3
+    retry_busy(lambda: setattr(w, "x", 6), 10)
+    assert w.x == 6
+
+
+class _BusyNames:
+    """An IDispatch whose name lookups Excel rejects while busy; everything else goes to the real object."""
+
+    def __init__(self, ob, excel: _Excel):
+        self.ob, self.excel = ob, excel
+
+    def GetIDsOfNames(self, *args):
+        if self.excel.busy("GetIDsOfNames"):
+            raise pythoncom.com_error(REJECTED, "Call was rejected by callee.", None, None)
+        return self.ob.GetIDsOfNames(*args)
+
+    def __getattr__(self, name):
+        return getattr(self.ob, name)
+
+
+class _BusyComp:
+    """An ITypeComp whose Bind Excel rejects while busy."""
+
+    def __init__(self, comp, excel: _Excel):
+        self.comp, self.excel = comp, excel
+
+    def Bind(self, *args):
+        if self.excel.busy("Bind"):
+            raise pythoncom.com_error(REJECTED, "Call was rejected by callee.", None, None)
+        return self.comp.Bind(*args)
+
+
+def test_a_busy_rejection_of_a_name_not_bound_yet_surfaces_as_busy(tree):
+    from smartass.xl.hostproc import is_busy, retry_busy
+    fso = fastcom.wrap(raw("Scripting.FileSystemObject"))
+    f = fso.GetFolder(str(tree))
+    excel = _Excel(0)
+    ti, comp = f._lazydata_ or f._typecomp_()
+    f.__dict__["_lazydata_"] = (ti, _BusyComp(comp, excel))
+    f.__dict__["_oleobj_"] = _BusyNames(f._oleobj_, excel)
+    excel.n = 8                                         # every lookup of the name rejected for a while
+    with pytest.raises(pythoncom.com_error) as e:
+        f.Name                                          # was AttributeError('<...>.Name')
+    assert is_busy(e.value)
+    excel.n = 8
+    assert retry_busy(lambda: f.Name, 10) == tree.name
 
 
 def test_the_users_excel_is_attached_through_the_fast_wrapper(monkeypatch):
