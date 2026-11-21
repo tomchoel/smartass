@@ -362,6 +362,54 @@ def test_a_failed_finish_leaves_the_workbook_and_excel_as_they_were(fake_target,
     assert not _temp_files(tmp_home) and len(app.Workbooks) == 1 and wb.saved == 0
 
 
+def _values(wb) -> dict:
+    """Each sheet's values (fakexl.sheet_state's hash) by name, in order."""
+    return {ws.Name: fakexl.sheet_state(ws)["values"] for ws in wb.order}
+
+
+def test_a_new_answer_whose_save_fails_leaves_no_spec_row_and_no_sources_rows(fake_target, calculated, monkeypatch):
+    """Final review M5: the close-out stored the spec and logged the pull before the save failed; the rollback
+    removes them with the sheets, so no ghost question is left for a follow-up to pick (nor for the next answer's
+    Supersedes)."""
+    _job(_pre(), calculated)
+    fake_target.sheets_added.clear()                    # every live job resolves a Target of its own
+    wb = fake_target.wb
+    before = _values(wb)
+
+    def save(job):
+        raise HostError("the file is locked")
+    monkeypatch.setattr(pipeline, "_save", save)
+    with pytest.raises(HostError, match="locked"):
+        _job(_pre(), calculated)
+    assert _values(wb) == before and 2 not in sheets._stored_specs(fake_target)
+
+
+def test_a_new_answer_whose_close_out_fails_after_the_spec_leaves_neither(fake_target, calculated, monkeypatch):
+    _job(_pre(), calculated)
+    fake_target.sheets_added.clear()                    # every live job resolves a Target of its own
+    wb = fake_target.wb
+    before = _values(wb)
+
+    def arrange(t, sheet, book, b, wbn, active, sources_ours):     # Excel refuses an operation after the spec
+        wbn.Worksheets("no such sheet").Activate()
+        return {"order": book.names(), "moves": range(0)}
+    monkeypatch.setattr(pipeline, "_arrange", arrange)
+    with pytest.raises(BatchError, match="no such sheet"):
+        _job(_pre(), calculated)
+    assert _values(wb) == before and 2 not in sheets._stored_specs(fake_target)
+
+
+def test_a_first_answer_whose_save_fails_leaves_no_hidden_spec_sheet(fake_target, calculated, monkeypatch):
+    """The hidden _svmeta the close-out made for the first answer goes with its sheets."""
+    def save(job):
+        raise HostError("the file is locked")
+    monkeypatch.setattr(pipeline, "_save", save)
+    with pytest.raises(HostError, match="locked"):
+        _job(_pre(), calculated)
+    assert [ws.Name for ws in fake_target.wb.order] == ["Sources"]
+    assert fake_target.wb.Worksheets("Sources").Range("A2:N2").Value == ((None,) * 14,)     # the log's row cleared
+
+
 def test_an_insert_that_fails_half_way_is_rolled_back(fake_target, calculated, monkeypatch, tmp_home):
     """Excel put the Answer in, then the insert failed: the rollback removes it (its name was in t.sheets_added
     before the call), the workbook and Excel are as they were and the temporary file is gone."""

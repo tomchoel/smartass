@@ -415,6 +415,35 @@ def _rollback(t) -> None:
     sheets.rollback(t)
 
 
+def _forget(job) -> None:
+    """A new answer that failed once its close-out ran, in whole or in part: its spec's row of _svmeta and its rows of
+    the Sources log (when they were there before the job: one it made went with its sheets) cleared, so no question is
+    left that has no sheets (final review M5: a default follow-up picked it, and the next answer's Supersedes linked
+    to it). One batch of operations that may fail, also for an abandoned job; logged, never raised (the job's error
+    is the one raised). Known limits keep a line the answer may have added."""
+    from .xl import sheets, sources
+    from .xl.inproc.batch import Batch
+    from .xl.inproc.runner import run
+    if job.spec_row is None and job.logged is None:
+        return
+    b = Batch(calculation=False)
+    with b.attempt():
+        wbn = b.workbook(job.name)
+        if job.spec_row is not None:
+            wbn.Worksheets(sheets.META_SHEET).Range(f"{job.spec_row}:{job.spec_row}").ClearContents()
+        if job.logged is not None:
+            sheet, first, last = job.logged
+            last_col = sources._col(len(sources.LOG_COLUMNS))
+            wbn.Worksheets(sheet).Range(f"A{first}:{last_col}{last}").ClearContents()
+    try:
+        res = run(job.t.app, b, limit=30, check=False)
+    except Exception as e:   # noqa: BLE001 - the job's error stays the one raised
+        log.warning("could not remove the spec and Sources rows of the failed Q%s: %s", job.q, e)
+        return
+    for _, _, why in res.skipped:
+        log.warning("could not remove the spec and Sources rows of the failed Q%s: %s", job.q, why)
+
+
 def _session_workbook() -> str | None:
     from .core import session
     return session.workbook()
@@ -751,6 +780,8 @@ class _Job:
     sync_save: bool = False                     # how the save after the last reply went is not known: save in the job
     pointing: list = field(default_factory=list)    # what the re-pointing could not do, for the reply's warnings
     spec_stored: bool | None = False            # the close-out stored the spec (None: unknown - the workbook says)
+    spec_row: int | None = None                 # the row of _svmeta the close-out writes the spec in (_forget)
+    logged: tuple | None = None                 # (sheet, first row, last row) of the Sources rows it writes (_forget)
 
     @staticmethod
     def after(e: BaseException, at: int) -> bool | None:
@@ -973,9 +1004,14 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     if drop_at is not None:
         b.mark("drop")
     recorded = _write_sources(t, q, pre, b, wbn, log_, header, stamp, status, ties, look, book)
+    if not isinstance(recorded, str) and log_.exists and recorded[0].rows:     # a new log goes with t.sheets_added
+        job.logged = (recorded[0].sheet, min(recorded[0].rows.values()), max(recorded[0].rows.values()))
     b.mark("sources")
     if _save_spec(t, q, pre.raw, b, look.spec_rows):
         book.sheets.append(movein.Sheet(sheets.META_SHEET, 0, False))
+        t.sheets_added.append(sheets.META_SHEET)        # made by this job: it goes with the job's sheets
+    else:
+        job.spec_row = look.spec_rows.row(f"SPEC Q{q}")[0]
     spec_end = b.position
     b.mark("spec")
     ours = log_.name == "Sources" if log_ is not None else look.kind in ("v1", "v2")
@@ -1248,8 +1284,9 @@ def _question_parts(book, q: int) -> tuple[list[str], list[str]]:
 
 def excel_job(h, pre: Prepared, target: str = "session") -> dict:
     """A new answer (_file_draw) as the next Q<n> of the target workbook. On any failure the sheets it brought in
-    are removed (they are in t.sheets_added), the sheet the job found active is active again, AutoSave back on in
-    our own file, and the error is raised with the job's notes in its text. The first answer of a new workbook (a
+    are removed (they are in t.sheets_added; a hidden _svmeta it made too), then its spec row and Sources rows
+    (_forget), the sheet the job found active is active again, AutoSave back on in our own file, and the error is
+    raised with the job's notes in its text. The first answer of a new workbook (a
     target that resolves to one in a running Excel, when _new_book knows its base and theme) is built as the workbook
     itself and only opened in Excel (target.Target.made); on any failure that workbook is closed without saving and
     the file the job reserved deleted, and the error says so; once it holds the answer it becomes the session's."""
@@ -1270,6 +1307,7 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
             try:
                 job.not_inserted()
                 _rollback(t)
+                _forget(job)
             finally:
                 job.settle()
         _raise(job, e)
