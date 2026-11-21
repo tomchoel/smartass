@@ -437,3 +437,32 @@ def test_without_any_oauth_set_up_the_reply_says_what_config_toml_needs(monkeypa
     assert "idcs" in oauth.NOT_SET_UP and "client_id" in oauth.NOT_SET_UP and "[oauth.scopes]" in oauth.NOT_SET_UP
     assert "hidden browser" not in oauth.NOT_SET_UP
     assert oauth.sign_in_reply(e) == oauth.NOT_SET_UP                           # no pod to sign in to: the set-up text
+
+# ---------------------------------------------------------------- M5: the identity domain only over https
+@pytest.mark.parametrize("idcs, want", [
+    ("https://idcs.example", "https://idcs.example"), (" https://IDCS.example/ ", "https://IDCS.example"),
+    ("https://idcs.example:443", "https://idcs.example:443"),
+    ("http://idcs.example", ""), ("idcs.example", ""), ("ftp://idcs.example", ""), ("https://", ""),
+    ("https://u:p@idcs.example", ""), ("https://idcs.example?x=1", ""), ("https://idcs.example#x", ""),
+    ("https://idcs.exa\nmple", ""), ("", ""), (None, ""), (5, "")])
+def test_the_identity_domain_must_be_an_https_url(idcs, want):
+    assert config.oauth_idcs(idcs) == want
+
+
+def test_an_identity_domain_that_is_not_https_is_not_set_up(monkeypatch, oa):
+    monkeypatch.setattr(config, "OAUTH_IDCS", config.oauth_idcs("http://idcs.example"))
+    from smartass.epm import svhttp, svxml
+    assert not oauth.configured() and oauth.pods() == []
+    with pytest.raises(oauth.NotSetUp) as e:                       # a tool call answers with the set-up text
+        svhttp.BearerTransport(send=lambda *a: pytest.fail("sent")).post(POD, svxml.connect())
+    assert str(e.value) == oauth.NOT_SET_UP
+
+
+def test_nothing_is_posted_to_an_identity_domain_that_is_not_https(monkeypatch):
+    opened = []
+    monkeypatch.setattr(oauth.urllib.request, "build_opener", lambda *h: opened.append(h))
+    for idcs in ("http://idcs.example", "https://u:p@idcs.example", "https://idcs.example?x=1", ""):
+        monkeypatch.setattr(config, "OAUTH_IDCS", idcs)
+        with pytest.raises(oauth.NotSetUp):
+            oauth._post_form("/oauth2/v1/token", {"grant_type": "refresh_token", "refresh_token": "rt-SECRET"})
+    assert opened == []

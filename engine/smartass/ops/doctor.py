@@ -75,8 +75,9 @@ def _oauth() -> Check:
     lines."""
     from ..epm import oauth
     if not oauth.configured():
-        return Check("oauth", "FAIL", "not set up: config.toml has no [oauth] idcs, client_id and scopes",
-                     oauth.NOT_SET_UP)
+        why = ("[oauth] idcs is not an https URL" if config.OAUTH_IDCS_REFUSED else
+               "config.toml has no [oauth] idcs, client_id and scopes")
+        return Check("oauth", "FAIL", f"not set up: {why}", oauth.NOT_SET_UP)
     host = lambda pod: pod.removeprefix("https://").split(".")[0]   # noqa: E731
     st = oauth.status()
     parts = [f"{host(s['pod'])}: " + ("signed in" if s["state"] == "signed_in" else

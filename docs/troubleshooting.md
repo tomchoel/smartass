@@ -68,7 +68,7 @@ drill lines over the token are the browser route's row for row, with exact ties;
 (26.1 s through the browser, its start and sign-in included). Details:
 `docs\audit\2026-11-19-drill-token-vs-browser.md`.
 
-- **Set-up (per user, `config.toml`):** `[oauth]` `idcs` (the identity domain's base URL) and `client_id` (a public
+- **Set-up (per user, `config.toml`):** `[oauth]` `idcs` (the identity domain's base URL, https) and `client_id` (a public
   client an administrator registered there, with the device-code and refresh-token grants), and one scope per pod
   under `[oauth.scopes]`: `"https://<pod host>" = "urn:opc:serviceInstanceID=<id>urn:opc:resource:consumer::all"`.
   A token covers one environment. The administrator adds an environment to the client as a resource and reads its

@@ -105,7 +105,10 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _post_form(path: str, fields: dict, timeout: float = 30) -> tuple[int, dict]:
-    """POST a form to the identity domain: (HTTP status, the JSON object or {}). No answer at all is an OAuthError."""
+    """POST a form to the identity domain: (HTTP status, the JSON object or {}). No answer at all is an OAuthError.
+    Only over https (config.oauth_idcs): otherwise NotSetUp, and nothing is sent."""
+    if not config.oauth_idcs(config.OAUTH_IDCS):
+        raise NotSetUp()
     req = urllib.request.Request(config.OAUTH_IDCS + path, data=urllib.parse.urlencode(fields).encode(),
                                  headers=_FORM, method="POST")
     try:

@@ -129,3 +129,10 @@ def test_the_renewal_thread_only_starts_when_the_route_is_set_up(monkeypatch):
     assert started == [1] and t.daemon and t.name == "oauth-keep-fresh"
     serverkit._keep_signed_in()                                    # the MCP server's start-up hook uses the same
     assert len(started) == 2 or t.join(1) is None
+
+def test_doctor_says_when_the_identity_domain_is_refused_for_not_being_https(fake, monkeypatch):
+    monkeypatch.setattr(config, "OAUTH_IDCS", "")
+    monkeypatch.setattr(config, "OAUTH_IDCS_REFUSED", True)
+    monkeypatch.setattr(oauth, "configured", lambda: False)
+    c = doctor._oauth()
+    assert (c.status, c.detail, c.fix) == ("FAIL", "not set up: [oauth] idcs is not an https URL", oauth.NOT_SET_UP)

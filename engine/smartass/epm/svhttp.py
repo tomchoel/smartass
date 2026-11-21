@@ -311,6 +311,28 @@ def _check_grid(lay: Layout, values: list[list]) -> None:
                 raise SvHttpError(f"non-numeric data in the provider grid (row {r + 1}, column {c + 1}: {v[:40]!r})")
 
 
+_URL = re.compile(r"[\x21-\x7e]+")                      # printable ASCII: urlsplit drops tab and line breaks silently
+
+
+def pod_origin(base: str) -> str:
+    """'https://host' of a pod base URL - the origin its scope is configured for (oauth.origin) - when base is https
+    on that host's own port (443) with no user, path, query or fragment; anything else (EPM's data-source list keeps
+    the scheme and the port it was given) is SvHttpError before a token is asked for. The message shows the scheme,
+    the host and the port only."""
+    base = str(base or "").rstrip("/")
+    try:
+        parts = urlsplit(base)
+        port = parts.port
+    except ValueError:
+        parts, port = urlsplit(base), -1
+    shown = f"{parts.scheme}://{parts.hostname or ''}" + (f":{port}" if port not in (None, -1) else "")
+    if (not _URL.fullmatch(base) or parts.scheme.lower() != "https" or not parts.hostname or "@" in parts.netloc
+            or port not in (None, 443) or parts.path or "?" in base or "#" in base):
+        raise SvHttpError(f"refused: {shown} is not https on an EPM pod's own host and port; the access token is not "
+                          "sent there")
+    return oauth.origin(base)
+
+
 def _fetch_ms() -> int:
     return max(1, int(config.SVHTTP_TIMEOUT_S * 900))       # 90 % of the job's time limit, in ms
 
@@ -327,7 +349,8 @@ class BearerTransport:
     """Posts provider XML over plain HTTPS with the user's OAuth access token: no browser, no sign-in page (live
     2026-11-19 on plan1 and stratmodel: /HyperionPlanning/SmartView takes the token; grids, the closed month and
     drill links are cell for cell the browser route's; a cold first grid 0.7 s against about 20 s). The bearer is only
-    sent to a pod with a configured scope. oauth.NotSignedIn reaches the caller as it is (the tool call answers with
+    sent over https to the origin of a pod with a configured scope (pod_origin: never to the scheme or port EPM's
+    data-source list gives). oauth.NotSignedIn reaches the caller as it is (the tool call answers with
     the sign-in page and code), and so does oauth.NotSetUp when this PC has no [oauth] set-up at all; a pod without a
     scope, any other oauth.OAuthError and a token EPM refuses twice are SvHttpError.
 
@@ -343,9 +366,9 @@ class BearerTransport:
 
     def post(self, base: str, body: str) -> str:
         svxml.check_read_only(body)
-        base = base.rstrip("/")
         if not self._tokens.configured():
             raise oauth.NotSetUp()                       # the reply says what config.toml needs, not "retry"
+        base = pod_origin(base)                          # the only URL the bearer goes to, whatever EPM listed
         if self._tokens.scope_for(base) is None:
             raise SvHttpError(f"no OAuth scope is configured for {base}: add it under [oauth.scopes] in config.toml")
         token = self._token(base)

@@ -81,6 +81,24 @@ def oauth_scopes(value) -> dict[str, str]:
     return out
 
 
+def oauth_idcs(value) -> str:
+    """[oauth] idcs as the identity domain's base URL when it is https with a host and no user, query or fragment (the
+    device code and the refresh token go there); '' otherwise, which leaves the bearer route not set up."""
+    import re
+    from urllib.parse import urlsplit
+    url = value.strip().rstrip("/") if isinstance(value, str) else ""
+    if not re.fullmatch(r"[\x21-\x7e]+", url):
+        return ""
+    try:
+        parts = urlsplit(url)
+        parts.port
+    except ValueError:
+        return ""
+    if parts.scheme.lower() != "https" or not parts.hostname or "@" in parts.netloc or "?" in url or "#" in url:
+        return ""
+    return url
+
+
 def _app_path(exe: str) -> str | None:
     import winreg
     for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
@@ -267,7 +285,9 @@ SVHTTP_ALLOW_TEST = _allow_test is True or str(_allow_test).strip().lower() in (
 # OAuth bearer route (epm/oauth.py): grids and drill lines need all three set (without them a tool call answers
 # with the set-up text, oauth.NOT_SET_UP). The scope names ONE environment's service instance,
 # so there is one per pod base URL: [oauth.scopes] "https://<pod host>" = "urn:opc:serviceInstanceID=...::all".
-OAUTH_IDCS = str(_pick("SMARTASS_OAUTH_IDCS", "oauth.idcs", "") or "").strip().rstrip("/")
+_idcs = str(_pick("SMARTASS_OAUTH_IDCS", "oauth.idcs", "") or "")
+OAUTH_IDCS = oauth_idcs(_idcs)                     # '' unless an https URL: refused at load (oauth.NOT_SET_UP)
+OAUTH_IDCS_REFUSED = bool(_idcs.strip()) and not OAUTH_IDCS
 OAUTH_CLIENT_ID = str(_pick("SMARTASS_OAUTH_CLIENT_ID", "oauth.client_id", "") or "").strip()
 OAUTH_SCOPES = oauth_scopes(get(SETTINGS, "oauth.scopes"))
 OAUTH_DIR = HOME / "oauth"                         # one DPAPI-protected sign-in per pod (this Windows user)

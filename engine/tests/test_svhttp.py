@@ -556,8 +556,8 @@ class _Tokens:
     def configured(self):
         return self.is_set_up
 
-    def scope_for(self, base):
-        return "urn:scope" if base in self.scopes else None
+    def scope_for(self, base):                              # as oauth.scope_for: by the origin, port and path ignored
+        return "urn:scope" if oauth.origin(base) in self.scopes else None
 
     def access_token(self, base, reject=None):
         self.asked.append((base, reject))
@@ -712,3 +712,27 @@ def test_bearer_sends_the_token_and_keeps_one_cookie_jar_per_pod(monkeypatch):
     assert [n for n, *_ in seen] == [1, 1, 2] and len(built) == 2
     assert seen[0][1:4] == ("https://strat.example/HyperionPlanning/SmartView", "Bearer at-1", "text/xml")
     assert any(h is svhttp._NoRedirect for h in built[0])
+
+# ---------------------------------------------------------------- M4: the bearer only over https to the pod's own origin
+@pytest.mark.parametrize("base", [
+    "http://strat.example", "HTTP://strat.example:443", "https://strat.example:8443", "https://strat.example:80",
+    "https://user:pw-SECRET@strat.example", "https://strat.example@evil.example", "https://evil.example",
+    "https://strat.example.evil.example", "https://strat.example/x", "https://strat.example?sso_token=SECRET",
+    "https://strat.example/?x=SECRET", "https://strat.example#SECRET", "ftp://strat.example", "//strat.example",
+    "strat.example", "https://strat.example:99999", "https://strat.example\t", "https://strat.example\n/x"])
+def test_the_bearer_goes_only_over_https_to_the_pods_own_host_and_port(base, caplog):
+    tokens = _Tokens("at-1")
+    t, sent = _bearer(tokens, OK_XML)
+    with caplog.at_level("DEBUG"), pytest.raises(svhttp.SvHttpError) as e:
+        t.post(base, svxml.connect())
+    assert tokens.asked == [] and sent == []                        # refused before a token was asked for
+    assert not isinstance(e.value, svhttp.RequestLost)
+    assert "SECRET" not in str(e.value) and "pw-" not in str(e.value) and "SECRET" not in caplog.text
+
+
+@pytest.mark.parametrize("base", ["https://strat.example", "https://strat.example/", "https://STRAT.example:443",
+                                  "HTTPS://strat.example:443/"])
+def test_the_pods_own_origin_is_where_the_bearer_goes(base):
+    t, sent = _bearer(_Tokens("at-1"), OK_XML)
+    t.post(base, svxml.connect())
+    assert sent == [("https://strat.example", "at-1")]
