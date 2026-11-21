@@ -5,6 +5,7 @@ put-back that failed) is put back by the next job in that same Excel process - n
 notes. On the fake Excel through the COM executor; every figure is invented."""
 import json
 
+import psutil
 import pytest
 from test_file_job import _pre
 from test_v2_autosave import AutoSaveBook
@@ -211,8 +212,85 @@ def test_a_job_prunes_the_state_of_an_excel_that_is_gone(excel, monkeypatch):
 
     def start(pid):
         if pid == 4245:
-            raise ProcessLookupError(pid)
+            raise psutil.NoSuchProcess(pid)
         return KEY[1] if pid == KEY[0] else 0.0
     monkeypatch.setattr(jobstate, "_start_time", start)
     exceljob.excel_job(None, _pre())
     assert sorted(p.name for p in folder.glob("*.json")) == ["4244.json"]
+
+
+def test_a_state_whose_excels_start_time_cannot_be_read_is_not_pruned(excel, monkeypatch):
+    """Final review M12: a read error (access denied) is not "process gone": that Excel's state stays."""
+    folder = jobstate.folder()
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "4246.json").write_text(json.dumps({"pid": 4246, "started": 0.0, "found": {}, "set": {},
+                                                  "autosave": None}), encoding="utf-8")
+
+    def start(pid):
+        if pid == 4246:
+            raise psutil.AccessDenied(pid)
+        return KEY[1]
+    monkeypatch.setattr(jobstate, "_start_time", start)
+    exceljob.excel_job(None, _pre())
+    assert sorted(p.name for p in folder.glob("*.json")) == ["4246.json"]
+
+
+def _state() -> dict:
+    (path,) = jobstate.folder().glob("*.json")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_what_a_failed_put_back_left_survives_the_next_whole_job_until_a_put_back_succeeds(excel, monkeypatch):
+    """Final review M1: a dead job left only Calculation manual and the next job's put-back failed. That job's own
+    record carries what could not be put back (with what the DEAD job found), so its end leaves it for the job after,
+    which puts Calculation back to automatic - it is not taken for the user's own."""
+    jobstate.begin(KEY, dict(USER), None)
+    excel.Application.Calculation = QUIET["Calculation"]
+    real = jobstate._put_back
+
+    def broken(app, found, sets, autosave):
+        raise RuntimeError("the batch failed")
+    monkeypatch.setattr(jobstate, "_put_back", broken)
+    exceljob.excel_job(None, _pre())
+    state = _state()
+    assert state["set"]["Calculation"] == QUIET["Calculation"] and state["found"]["Calculation"] == USER["Calculation"]
+    assert excel.Application.Calculation == QUIET["Calculation"]
+    monkeypatch.setattr(jobstate, "_put_back", real)
+    out = exceljob.excel_job(None, _pre())
+    assert excel.Application.Calculation == USER["Calculation"]
+    assert jobstate.NOTE.format("Calculation manual") in out["warnings"]
+    assert not list(jobstate.folder().glob("*.json"))
+
+
+def test_a_put_back_excel_refused_in_part_keeps_only_what_was_not_put_back(excel, monkeypatch):
+    _left_by_a_dead_job(excel, autosave=False)
+    calls, real_run = [], runner.run
+
+    def run(app, b, *a, **kw):                                  # the write batch: Excel refuses its first setting
+        res = real_run(app, b, *a, **kw)
+        calls.append(1)
+        if len(calls) == 2:
+            res.skipped.append((0, "", "refused"))
+        return res
+    monkeypatch.setattr(runner, "run", run)
+    jobstate.put_back(excel.Application, KEY)
+    assert _state() == {"pid": KEY[0], "started": KEY[1], "found": {"ScreenUpdating": True},
+                        "set": {"ScreenUpdating": False}, "autosave": None}
+
+
+def test_autosave_alone_kept_never_puts_back_settings_the_job_restored_itself(excel, monkeypatch):
+    """Final review M2: a job finished but Excel refused AutoSave back on; what is kept for the next job is that
+    AutoSave only - not the settings the job restored, which the user may change on purpose meanwhile."""
+    wb = StuckAutoSave(True)
+    wb.Name, wb.FullName = excel.Name, excel.FullName
+    monkeypatch.setattr(exceljob, "_target", lambda h, target, title, build_new=False: Target(
+        app=wb.Application, wb=wb, pid=KEY[0], hwnd=0, created=True))
+    monkeypatch.setattr(config, "SAVE", "sync")
+    exceljob.excel_job(None, _pre())
+    assert _state()["set"] == {} and _state()["autosave"]["name"] == "answer.xlsx"
+    wb.Application.Calculation = QUIET["Calculation"]          # the user sets manual on purpose
+    wb.refuse = False
+    out = exceljob.excel_job(None, _pre())
+    assert wb.Application.Calculation == QUIET["Calculation"] and wb.AutoSaveOn is True
+    assert [w for w in out["warnings"] if "did not finish" in w] == [jobstate.NOTE.format("AutoSave off in answer.xlsx")]
+    assert not list(jobstate.folder().glob("*.json"))
