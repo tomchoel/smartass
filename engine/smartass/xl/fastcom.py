@@ -36,9 +36,13 @@ Rules:
   (Untyped), said in the log. That wait is the job's (Task D3): a job given up on does not wait (its next checked call
   stops it), at a job's start the wait counts against the start's budget (jobs.starting) and ends with it, and a
   window scan does not wait at all (scan: a busy Excel is said as busy at once). An AttributeError of a name is
-  checked with one more lookup of the name (_dispid): a rejection is raised as busy (nothing has run yet: the caller's
-  wait asks again), a name the object has is tried once more, an unknown one stays an AttributeError - on Fast and on
-  Untyped (an object that really has no type information is Untyped too).
+  checked with one more lookup of the name (_dispid): a rejection of that lookup is raised as busy (the caller's wait
+  asks again), a name the object has is tried once more, an unknown one stays an AttributeError - on Fast and on
+  Untyped (an object that really has no type information is Untyped too). For a get, and a put whose first lookup was
+  rejected, nothing has run then. A put whose lookup answered may have been tried by pywin32 already: it swallows
+  Excel's error of that Invoke (a rejection, or Excel's refusal) and raises AttributeError, and _put tries it once
+  more - a put of a value is idempotent, so a second try is harmless.
+  With SV_FASTCOM=0 (pywin32's own wrapper) Excel's busy rejection still turns into AttributeError, as before.
 
 Coupling (accepted: pywin32 is pinned, pywin32==312 in engine/pyproject.toml): this module relies on pywin32's
 internals - CDispatch's instance attributes (_oleobj_, _olerepr_, _builtMethods_, _lazydata_, _username_),
@@ -333,8 +337,10 @@ def _get(ob, attr: str):
 
 
 def _put(ob, attr: str, value) -> None:
-    """pywin32's attribute put, with an AttributeError checked: a lookup Excel rejected is raised as busy; a name the
-    object has is put by its dispid, Excel's error raised as it is (pywin32 swallows it)."""
+    """pywin32's attribute put, with an AttributeError checked: a lookup Excel rejected is raised as busy (the put has
+    not run); a name the object has is put by its dispid, Excel's error raised as it is. pywin32 may have tried that
+    put already - its lookup by GetIDsOfNames answered, its Invoke failed (Excel's rejection or refusal), and it
+    swallowed that error - so it can be the put's second try: harmless, a put of a value is idempotent."""
     try:
         dynamic.CDispatch.__setattr__(ob, attr, value)
         return

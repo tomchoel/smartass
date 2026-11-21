@@ -82,7 +82,8 @@ the middle of its job.
   the usual wait for a busy Excel asks again. A call is never run twice for it. That wait is the request's: one the
   server gave up on does not wait (its next call stops it), at a request's start it counts against the start's 30 s
   for a busy Excel, and the scan of the Excel windows does not wait at all - a busy Excel is said as busy at once,
-  as before (it waited up to 10 s twice per window).
+  as before (it waited up to 10 s twice per window). With `SV_FASTCOM=0` (pywin32's own wrapper, for diagnosis) a busy
+  Excel still shows as such an AttributeError, as before 0.5.0.
 - What froze Excel is not known; it was not reproduced under the conditions below, which do not rule anything out.
   Through the server's own job path (`scripts/check_followups.py`'s steps: a new answer, a second one, six follow-ups,
   fin_refresh; each Excel job on its own thread; the engine's own target resolution pointed at a hidden Excel of our
