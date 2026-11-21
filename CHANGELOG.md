@@ -45,10 +45,20 @@ the middle of its job.
 
 ### After Excel froze in the live check (0.5.0)
 
-- No COM object outlives the thread of the job that made it: every Excel job - one that answers, one that fails, one
-  the server gave up on - has the Excel objects it made released on its own thread, after its answer went out (the
-  frames its error carries, and every reference cycle: the garbage collector runs there), and only then are its turns
-  in that Excel released. Released from another thread such an object calls that Excel from there and waits for it -
+- The Excel objects a job makes are released on its own thread: every Excel job - one that answers, one that fails,
+  one the server gave up on - has them released there after its answer went out, and only then are its turns in that
+  Excel released. What is enforced: the frames its error carries are cleared on its thread; its result holds no Excel
+  object; the garbage collector runs at a job's end, on its thread, only when no other Excel job is running in the
+  server (a collect is process-wide: run at the end of one job, it released the cycles of another job still running,
+  on the wrong thread - a request in the user's Excel and the engine's EPM pulls do run side by side); and the
+  reference cycles that held a job's Excel objects were found and broken where they were made (an error kept in a
+  local of a frame its own traceback holds: the error path of a batch, of a follow-up, of a taken sheet name, of a
+  batch given up on, of loading the add-in, of a sheet Excel was too busy to read), so those objects go by reference
+  counting as the job lets them go, with no collector. In a hidden Excel, check_insert's new workbook, failures,
+  mixed and re-pointing parts then leave no Excel object in any cycle. What is only made unlikely: a cycle that still
+  holds an Excel object (made in code where none was found: pywin32, a library) is freed by whichever collection meets
+  it first - Python's own collector, which runs on whatever thread happens to allocate, or the end of a later job that
+  runs alone - not necessarily on the thread that made it. Released from another thread such an object calls that Excel from there and waits for it -
   for ever, when that Excel has stopped responding (live, 21.11.2026: Excel stopped answering between one job's thread
   ending and the next one's starting, and that next thread hung releasing an object). A release that has not returned
   10 s after the answer is recovered as a job that does not answer: a request in the user's Excel is given up as below,

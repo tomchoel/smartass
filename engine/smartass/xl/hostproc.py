@@ -185,13 +185,27 @@ class _PidRegistry:
 
 
 class ComThread(threading.Thread):
-    """Single STA thread that executes callables in order and pumps messages while idle. No COM object outlives the
-    thread of the job that made it (Task D2): after each job its outcome goes to the caller first, then the objects the
-    job made are released here, on the thread whose apartment made them - the locals of the frames its error carries
-    (_frames, _clear) and every reference cycle (the garbage collector, run here) - and only then does the job's
-    'after' run (host._call_once: its turns in the user's Excel released). A proxy released on another thread while the
-    apartment that made it is alive calls that Excel from there and waits for it: for ever, when that Excel has
-    stopped responding (live, 21.11.2026: stack A, between one job's thread and the next one's)."""
+    """Single STA thread that executes callables in order and pumps messages while idle.
+
+    The rule (Task D2, D3): the COM objects a job makes are released on its own thread, the one whose apartment made
+    them. A proxy released on another thread while that apartment is alive calls that Excel from there and waits for
+    it: for ever, when that Excel has stopped responding (live, 21.11.2026: stack A, between one job's thread and the
+    next one's). After each job (_run_job) its outcome goes to the caller first, then the objects it made are released
+    here, and only then does the job's 'after' run (host._call_once: its turns in the user's Excel released; a release
+    that does not return is watched: host._watch_release).
+    What is enforced:
+    - the job's result holds no COM object (host.plain), and the frames its error carries are cleared here (_frames,
+      _clear): their locals go here, not where the error is read;
+    - the garbage collector runs at a job's end only when no other COM job is running in this process (_running), so
+      a job's end never releases a cycle a job still running on another thread made;
+    - the engine's own code makes no reference cycle that holds a job's COM objects: the ones found (an error kept in
+      a local, a parameter or a dict of a frame its own traceback holds: exceljob._raise, redraw_job and _bring_in,
+      runner.execute, _register_xll and _readable) are broken where they are made, so a job's COM objects go by
+      reference counting, on its thread, as it lets them go - with no collector at all.
+    What is only made unlikely: a cycle that still holds a COM object (made somewhere not found: pywin32, a library)
+    is freed by whichever collection meets it first - Python's automatic collector, which runs on whatever thread
+    happens to allocate, or the end of a later job that runs alone, on that job's thread. So is garbage a job made in
+    the few milliseconds it ran beside another job's collect."""
 
     def __init__(self, name: str = "excel-com"):
         super().__init__(daemon=True, name=name)
@@ -237,21 +251,37 @@ class ComThread(threading.Thread):
         return fut
 
 
+_running = 0                                      # COM jobs running in this process now (_run_job)
+_running_lock = threading.Lock()
+
+
 def _run_job(fn: Callable[[], Any], fut: cf.Future) -> None:
     """fn() on this thread: its outcome handed to fut first, then the objects it made released here (a release that
-    blocks never keeps the outcome from the caller: Task D review, Minor 3)."""
-    frames: list = []
+    blocks never keeps the outcome from the caller: Task D review, Minor 3) - the frames its error carries cleared,
+    and the garbage collector run here only when no other COM job is running in this process (_running): a collect is
+    process-wide, and would release a running job's cycles on this thread (Task D2 review, Important 2)."""
+    global _running
+    with _running_lock:
+        _running += 1
     try:
-        out = fn()
-    except BaseException as e:   # noqa: BLE001 - forwarded to the awaiting coroutine
-        frames = _frames(e)                      # before the error leaves this thread: its frames are all ours
-        fut.set_exception(e)
-    else:
-        fut.set_result(out)
-        out = None
-    _clear(frames)
-    frames = None
-    gc.collect()                                  # the job's reference cycles, released on its own thread
+        frames: list = []
+        try:
+            out = fn()
+        except BaseException as e:   # noqa: BLE001 - forwarded to the awaiting coroutine
+            frames = _frames(e)                  # before the error leaves this thread: its frames are all ours
+            fut.set_exception(e)
+        else:
+            fut.set_result(out)
+            out = None
+        _clear(frames)
+        frames = None
+        with _running_lock:
+            alone = _running == 1
+        if alone:
+            gc.collect()                          # what is left in cycles, released on this thread
+    finally:
+        with _running_lock:
+            _running -= 1
 
 
 def _frames(e: BaseException) -> list:

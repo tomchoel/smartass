@@ -220,7 +220,10 @@ def execute(app, job: dict, limit: float = 120, check: bool = True) -> dict:
         unrestored = _restore(app, changed)
     if aborted is not None:
         _unrestored(unrestored)
-        raise aborted
+        try:
+            raise aborted
+        finally:
+            aborted = None              # held by this frame, which its traceback holds: a cycle with app and the ranges
     out.update(started=started, values=values, marks=marks, ms=(time.perf_counter() - t0) * 1000, skipped=skipped)
     if unrestored:
         out["unrestored"] = unrestored
@@ -523,7 +526,7 @@ def _register_xll(app, path: str, limit: float):
     if t.is_alive():
         raise _Blocked(f"RegisterXLL did not return within {limit:.0f} s (a dialog in Excel?)")
     if "error" in box:
-        raise box["error"]
+        raise box.pop("error")          # not kept in box: this frame (app) and the error would hold each other
     return box["value"]
 
 
@@ -824,7 +827,10 @@ def _area(row: int, col: int, rows: int = 1, cols: int = 1) -> str:
 def _readable(e: BaseException) -> None:
     """A busy Excel goes on up (the verb is run again as a whole); anything else is the item's own failure."""
     if is_busy(e):
-        raise e
+        try:
+            raise e
+        finally:
+            e = None                    # the error's traceback holds this frame: no cycle with the verb's ranges
 
 
 def _mentions(workbook, texts, skip):

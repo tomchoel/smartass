@@ -880,7 +880,10 @@ def _bring_in(job, built, plan, pre: Prepared, header, book) -> tuple:
         taken = movein.name_taken(e, free_at, job.name)
         if taken is not None:                           # refused before its park and insert: nothing ran
             job.inserted, job.moved = False, False
-            raise taken from None
+            try:
+                raise taken from None
+            finally:
+                taken = None            # held by this frame, which its traceback holds: a cycle with the job's objects
         job.inserted = True if new else job.after(e, at)
         raise
     job.inserted = True
@@ -1297,9 +1300,12 @@ def _raise(job, e: BaseException):
     """Raise the failed job's error (_Job.fail): e itself with its text completed, or the HostError of a busy Excel
     from e."""
     err = job.fail(e)
-    if err is e:
-        raise e
-    raise err from e
+    try:
+        if err is e:
+            raise e
+        raise err from e
+    finally:
+        e = err = None                  # the error's traceback holds this frame: no cycle with the job's objects
 
 
 def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
@@ -1343,9 +1349,12 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
                             failure = RestoreError(f"{e}; the restore was incomplete - {e2}")
             finally:
                 job.settle()
-            if failure is e:
-                _raise(job, e)
-            raise job.fail(failure) from e
+            try:
+                if failure is e:
+                    _raise(job, e)
+                raise job.fail(failure) from e
+            finally:
+                failure = None          # held by this frame, which its traceback holds: a cycle with the job's objects
     with stage("save"):
         try:
             _save(job)
