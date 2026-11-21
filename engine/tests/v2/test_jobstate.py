@@ -124,3 +124,47 @@ def test_an_excel_that_cannot_be_told_gets_no_state_file(excel, monkeypatch):
     monkeypatch.setattr(jobstate, "_start_time", unknown)
     exceljob.excel_job(None, _pre())
     assert not jobstate.folder().exists() or not list(jobstate.folder().glob("*.json"))
+
+
+class StuckAutoSave(AutoSaveBook):
+    """Our own file whose AutoSave Excel refuses to switch back on while refuse is set."""
+    refuse = True
+
+    @property
+    def AutoSaveOn(self):
+        return self._autosave
+
+    @AutoSaveOn.setter
+    def AutoSaveOn(self, v):
+        if v and self.refuse:
+            raise fakexl.ComError("AutoSave cannot be switched on now")
+        self._autosave = v
+
+
+@pytest.mark.parametrize("fails", ["the job", "the save"])
+def test_autosave_the_job_could_not_switch_back_on_is_said_and_kept_for_the_next_job(excel, monkeypatch, fails):
+    """Task 3 review Minor 1: a failed job's clean-up, or the save batch, that cannot switch AutoSave back on in our
+    own file says so (in the error, or the reply's warnings) and keeps the state, so the next job puts it right."""
+    wb = StuckAutoSave(True)
+    wb.Name, wb.FullName = excel.Name, excel.FullName
+    monkeypatch.setattr(exceljob, "_target", lambda h, target, title, build_new=False: Target(
+        app=wb.Application, wb=wb, pid=KEY[0], hwnd=0, created=True))
+    monkeypatch.setattr(config, "SAVE", "sync")                 # the save batch switches it on
+    if fails == "the job":
+        real = fakexl._ListObjects.Add
+
+        def refuse(self, *a):
+            raise fakexl.ComError("a table was refused")
+        monkeypatch.setattr(fakexl._ListObjects, "Add", refuse)
+        with pytest.raises(runner.BatchError) as e:
+            exceljob.excel_job(None, _pre())
+        said = str(e.value)
+        monkeypatch.setattr(fakexl._ListObjects, "Add", real)
+    else:
+        said = "; ".join(exceljob.excel_job(None, _pre())["warnings"])
+    assert exceljob.AUTOSAVE_LEFT.format("answer.xlsx", "AutoSave cannot be switched on now").split(" (")[0] in said
+    assert len(list(jobstate.folder().glob("*.json"))) == 1 and wb.AutoSaveOn is False
+    wb.refuse = False
+    out = exceljob.excel_job(None, _pre())
+    assert wb.AutoSaveOn is True and jobstate.NOTE.format("AutoSave off in answer.xlsx") in out["warnings"]
+    assert not list(jobstate.folder().glob("*.json"))

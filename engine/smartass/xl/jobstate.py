@@ -91,13 +91,13 @@ def begin(key: tuple | None, found: dict, autosave: tuple[str, str] | None) -> t
     return path, runner.unrestored()
 
 
-def end(token: tuple | None) -> None:
-    """At the job's end: its state file removed - unless one of its batches could not put a setting back, which the
-    next job then puts right."""
+def end(token: tuple | None, keep: bool = False) -> None:
+    """At the job's end: its state file removed - unless one of its batches could not put a setting back, or the job
+    could not switch AutoSave back on in our own file (keep), which the next job then puts right."""
     if token is None:
         return
     path, before = token
-    if runner.unrestored() != before:
+    if keep or runner.unrestored() != before:
         log.warning("a setting of Excel could not be put back; the next job in that Excel puts it back (%s)", path)
         return
     _remove(path)

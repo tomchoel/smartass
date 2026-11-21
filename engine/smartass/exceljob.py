@@ -91,6 +91,8 @@ def _is_ours(t) -> bool:
     return bool(getattr(t, "created", False)) or kit._is_our_analysis_file(str(t.path))
 
 
+AUTOSAVE_LEFT = ("AutoSave could not be switched back on in {} ({}): the next answer in this Excel switches it on, "
+                 "or switch it on yourself")
 AUTOSAVE_NOTE = ("AutoSave was switched off in {} so the answer is not saved for you; save yourself or switch it back "
                  "on.")
 SAVE_FAILED = "the save of {} after the last answer failed ({})"
@@ -164,8 +166,7 @@ def _save_batch(job, save: bool) -> None:
                 wbn.AutoSaveOn = True
     res = run(job.t.app, b)
     if on_at is not None and any(i >= on_at for i, _, _ in res.skipped):
-        log.warning("could not switch AutoSave back on in %s: %s", job.name,
-                    next(m for i, _, m in res.skipped if i >= on_at))
+        job.autosave_left(next(m for i, _, m in res.skipped if i >= on_at))
 
 
 def _same_file(full: str | None, job) -> bool:
@@ -635,6 +636,7 @@ class _Job:
     pointing: list = field(default_factory=list)    # what the re-pointing could not do, for the reply's warnings
     excel: tuple | None = None                  # (pid, start time) of its Excel (xl/jobstate.key_of)
     state: tuple | None = None                  # the settings it recorded before its first quiet batch (jobstate)
+    keep_state: bool = False                    # AutoSave could not be switched back on: the next job does it
     spec_stored: bool | None = False            # the close-out stored the spec (None: unknown - the workbook says)
     spec_row: int | None = None                 # the row of _svmeta the close-out writes the spec in (_forget)
     logged: tuple | None = None                 # (sheet, first row, last row) of the Sources rows it writes (_forget)
@@ -685,12 +687,20 @@ class _Job:
         try:
             run(self.t.app, b, limit=30, check=False)
         except Exception as e:   # noqa: BLE001 - the job's error is the one raised
-            log.warning("could not switch AutoSave back on in %s: %s", self.name, e)
+            self.autosave_left(getattr(e, "message", None) or str(e))
+
+    def autosave_left(self, why: str) -> None:
+        """AutoSave could not be switched back on in our own file: said in the notes, and the recorded settings kept
+        for the next job in this Excel, which switches it on (xl/jobstate)."""
+        log.warning("could not switch AutoSave back on in %s: %s", self.name, why)
+        self.notes.append(AUTOSAVE_LEFT.format(self.name, why))
+        self.keep_state = True
 
     def end(self) -> None:
-        """The job is over (its clean-up done): the settings it recorded are forgotten (xl/jobstate.end)."""
+        """The job is over (its clean-up done): the settings it recorded are forgotten (xl/jobstate.end) - kept when
+        AutoSave could not be switched back on (autosave_left)."""
         from .xl import jobstate
-        jobstate.end(self.state)
+        jobstate.end(self.state, keep=self.keep_state)
         self.state = None
 
     def fail(self, e: BaseException) -> BaseException:
