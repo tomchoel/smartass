@@ -1071,6 +1071,32 @@ def test_a_result_file_that_cannot_be_read_is_an_unknown_outcome(inproc, monkeyp
         runner.run(app, Batch())
 
 
+def test_two_unknown_outcomes_in_a_row_give_up_on_the_add_in_for_that_excel_with_one_warning(inproc, caplog):
+    """An unknown outcome that recurs (phase 3b review): after the second in a row that Excel process uses the COM
+    executor for the rest of the server's life - both batches raise (never run again), one warning; a readable
+    answer between two unknowns starts the count again."""
+    app, wb = excel_book()
+    runner.run(app, Batch())
+
+    def unknown():
+        app.fail_run = lambda path: ran_then("{broken")(path, app)
+        with pytest.raises(runner.BatchError, match="outcome is unknown"):
+            runner.run(app, Batch())
+        app.fail_run = None
+    unknown()
+    assert runner.run(app, Batch()).where == "inproc"              # a readable answer: the count starts again
+    unknown()
+    assert runner.run(app, Batch()).where == "inproc"
+    unknown()
+    unknown()                                                       # the second in a row: still raised, never rerun
+    runs = len(app.runs)
+    assert runner.run(app, Batch()).where == "com" and runner.run(app, Batch()).where == "com"
+    assert len(app.runs) == runs and not runner.available(app)      # the add-in is not asked any more
+    assert caplog.text.count("in-process executor not used") == 1 and "unknown outcome" in caplog.text
+    other, _ = excel_book()
+    assert runner.run(other, Batch()).where == "inproc"             # another Excel process keeps its add-in
+
+
 def test_a_job_the_add_in_could_not_claim_runs_once_over_com(inproc, caplog):
     app, wb = excel_book()
     runner.run(app, Batch())

@@ -10,7 +10,9 @@ macro gone registers once more. Anything that keeps it from loading or answering
 compiler, a compile error, RegisterXLL False or failing, a wrong ping) means the COM executor for that Excel process,
 with one warning. A batch falls back to the COM executor only when nothing of it ran: the job file is still there,
 or the add-in's result says it failed before its first operation. Once the add-in has taken the job, a failure is a
-BatchError and the batch is never run again (see _run_inproc for how "nothing ran" is told). While the add-in's save
+BatchError and the batch is never run again (see _run_inproc for how "nothing ran" is told); an outcome that cannot
+be told at all (UnknownOutcome) that recurs - UNKNOWN_LIMIT batches in a row in one Excel process - means the COM
+executor for that Excel process from then on, with one warning. While the add-in's save
 after the reply runs (later.py) it answers "busy: ..." having read nothing: the Run is asked again as for a busy
 Excel (asked).
 
@@ -67,6 +69,7 @@ RESTORE_LIMIT_S = 30
 LOAD_LIMIT_S = 60                       # RegisterXLL and the ping: how long a busy Excel is waited for
 REGISTER_LIMIT_S = 60                   # a RegisterXLL that has not returned by then: no add-in in that Excel
 LOCK_WAIT_S = 10                        # a batch waits this long for another job's load of the add-in, then COM
+UNKNOWN_LIMIT = 2                       # unknown outcomes in a row after which an Excel's batches go over COM
 LEFTOVER_S = 600                        # job / result files older than this are leftovers of a crash: removed
 NOT_RUN = "not run: "                   # the add-in's answer when it read, deleted and ran nothing
 BUSY = "busy: "                         # ... while its save after the reply runs (later.py): nothing read or run yet
@@ -102,6 +105,10 @@ class BatchError(Exception):
         self.where = where
 
 
+class UnknownOutcome(BatchError):
+    """The add-in may have run operations of the batch, and what it did cannot be told (_unknown)."""
+
+
 def run(app, batch, limit: float = 120, check: bool = True) -> Result:
     """Run batch in app's Excel, in its process when the add-in is there, else over COM; Result, or BatchError when
     an operation failed. A busy Excel (beyond limit) or an abandoned job raises HostError, as jobs.com does (check
@@ -111,7 +118,14 @@ def run(app, batch, limit: float = 120, check: bool = True) -> Result:
     job = batch.to_dict()
     ex = _ready(app, check)
     if ex is not None:
-        out = _run_inproc(app, ex, job, limit, check)
+        try:
+            out = _run_inproc(app, ex, job, limit, check)
+        except UnknownOutcome as e:
+            ex.unknowns += 1
+            if ex.unknowns >= UNKNOWN_LIMIT:            # it recurs: that Excel's batches go over COM from now on
+                _give_up(ex, f"{ex.unknowns} batches in a row had an unknown outcome (the last: {e.message})")
+            raise
+        ex.unknowns = 0                                 # the add-in's answer could be read
         if out is not None:
             return _result(out, batch, "inproc")
     out = jobs.com(lambda: execute(app, job, limit, check), limit=limit, check=check)
@@ -332,6 +346,7 @@ class _Excel:
     xll: str = ""
     lock: threading.Lock = field(default_factory=threading.Lock)
     waited: bool = False                  # a batch gave up waiting for the lock (warned once)
+    unknowns: int = 0                     # batches in a row whose outcome was unknown (UNKNOWN_LIMIT)
 
     @property
     def run_macro(self) -> str:
@@ -501,9 +516,9 @@ def _give_up(ex: _Excel, why: str) -> None:
     log.warning("in-process executor not used in Excel pid %s: %s; its Excel work runs over COM", ex.pid, why)
 
 
-def _unknown(detail: str) -> BatchError:
+def _unknown(detail: str) -> UnknownOutcome:
     """The add-in may have run operations of the batch, and what it did cannot be told: never run it again."""
-    return BatchError(None, "the batch in Excel", f"the batch's outcome is unknown: {detail}", where="inproc")
+    return UnknownOutcome(None, "the batch in Excel", f"the batch's outcome is unknown: {detail}", where="inproc")
 
 
 def _sweep(folder: Path) -> None:
