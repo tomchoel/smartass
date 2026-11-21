@@ -281,14 +281,6 @@ def test_kill_our_chrome_matches_exact_profile_only(monkeypatch):
     assert [p.pid for p in procs if p.killed] == [1, 3, 6]
 
 
-def test_redact_strips_queries_and_tokens():
-    from smartass.epm.drill_browser import redact
-    s = "Could not open https://x.oraclecloud.com/aif/FdmeeMain.jsp?module=a&sso_token=SECRET&attribute=b: timeout"
-    out = redact(s)
-    assert "SECRET" not in out and "module=" not in out and out.startswith("Could not open https://x.oraclecloud")
-    assert "SECRET" not in redact("token sso_token=SECRET&x=1 in a console line")
-
-
 def _pages(total, sizes, has_more_always=False, include_total=True):
     """Fake getData: answers per offset from a list of page sizes."""
     pages, off = {}, 0

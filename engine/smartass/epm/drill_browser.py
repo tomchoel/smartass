@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import itertools
-import json
 import logging
 import os
 import queue
@@ -36,6 +35,8 @@ import psutil
 
 from ..core import config
 from . import drilltime
+from .drillcore import (CellTooWide, DrillBusy, DrillError, Pager, TooManyLines, redact,  # noqa: F401 - re-exported until Task 9
+                        expired as _expired, payload as _payload)
 
 try:
     from playwright.sync_api import Error as PwError
@@ -118,32 +119,7 @@ def _relay(src: cf.Future, dst: cf.Future) -> None:
             pass
 
 
-class DrillError(Exception):
-    pass
-
-
-class DrillBusy(DrillError):
-    """Another MCP server process owns the drill profile (its hidden browser is alive)."""
-
-
-class TooManyLines(DrillError):
-    def __init__(self, total: int):
-        super().__init__(f"{total} lines")
-        self.total = total
-
-
-class CellTooWide(DrillError):
-    """EPMFDM-140373: the cell spans more than 3 dimensions with over 1000 children each (summary drill refused).
-    Narrow it (e.g. child entities) and drill again."""
-
-
 # ------------------------------------------------------------------ pure helpers
-def redact(text: str) -> str:
-    """Drop every URL query string (and any stray sso_token) from text meant for messages or logs."""
-    text = re.sub(r"sso_token=[^&\s'\"]*", "sso_token=...", str(text))
-    return re.sub(r"\?[^\s'\"]*", "?...", text)
-
-
 def _page_url(captured_url: str, off: int) -> str:
     """The captured getData URL with ONLY limit and offset replaced (every other query parameter kept)."""
     from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
@@ -152,20 +128,6 @@ def _page_url(captured_url: str, off: int) -> str:
     q[:0] = [("limit", str(config.DRILL_PAGE)), ("offset", str(off))]
     return urlunsplit((u.scheme, u.netloc, u.path, urlencode(q, quote_via=quote),
                        u.fragment))
-
-
-def _payload(text: str) -> dict | None:
-    try:
-        pay = json.loads(text)["responsePayload"]
-    except (ValueError, KeyError, TypeError):
-        return None
-    return pay if isinstance(pay, dict) else None
-
-
-def _expired(status: int, pay: dict | None) -> bool:
-    """A getData answer that means 'signed out': 401/403, a failed fetch (status 0: cross-origin redirect to the
-    sign-in page), or a 200 without JSON (the sign-in page itself)."""
-    return status in (0, 401, 403) or (status == 200 and pay is None)
 
 
 def page_through(post: Callable[[int], tuple[int, str]], max_lines: int,
@@ -182,50 +144,6 @@ def page_through(post: Callable[[int], tuple[int, str]], max_lines: int,
             recover()
         elif step == "done":
             return pg.result()
-
-
-class Pager:
-    """page_through's bookkeeping, one getData answer at a time (also drill_direct's async loop). take() says what
-    comes next: 'more' (post again at .off), 'recover' (sign in again, then post at the same .off) or 'done'."""
-
-    def __init__(self, max_lines: int, progress: Callable[[int, int | None], None] | None = None,
-                 can_recover: bool = True):
-        self.max_lines, self.progress = max_lines, progress
-        self.items: list[dict] = []
-        self.off, self.total, self.recovered = 0, None, not can_recover
-
-    def take(self, status: int, text: str) -> str:
-        pay = _payload(text)
-        if status != 200 or pay is None:
-            if _expired(status, pay) and not self.recovered:
-                log.info("drill session expired at offset %d (HTTP %s); signing in again", self.off, status)
-                self.recovered = True
-                return "recover"
-            why = "without data" if pay is None else "with an error"
-            raise DrillError(f"getData returned HTTP {status} {why} at offset {self.off}.")
-        if self.total is None and pay.get("totalResults") is not None:
-            self.total = int(pay["totalResults"])
-            if self.total > self.max_lines:
-                raise TooManyLines(self.total)
-        got = pay.get("items") or []
-        self.items += got
-        if len(self.items) > self.max_lines:
-            raise TooManyLines(max(len(self.items), self.total or 0))
-        if self.progress:
-            self.progress(len(self.items), self.total)
-        if not got or not pay.get("hasMore"):
-            return "done"
-        if self.total is not None and len(self.items) >= self.total + config.DRILL_PAGE:
-            log.warning("drill paging stopped at the safety cap (%d items, totalResults %d, hasMore still set)",
-                        len(self.items), self.total)
-            return "done"
-        self.off += len(got)
-        return "more"
-
-    def result(self) -> tuple[list[dict], int | None]:
-        if self.total is not None and len(self.items) != self.total:
-            log.warning("drill paged %d items but totalResults was %d", len(self.items), self.total)
-        return self.items, self.total
 
 
 def _user_data_dir(cmdline: list[str] | None) -> str | None:
