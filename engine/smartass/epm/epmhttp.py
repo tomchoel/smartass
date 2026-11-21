@@ -40,6 +40,7 @@ GET_DATA = "/aif/ui/model/drilldown/getData"
 ANY = re.compile(r".*")
 DIGITS = re.compile(r"\d{1,12}")
 MILLIS = re.compile(r"\d{1,13}")                       # the cache buster: int(time.time() * 1000), 13 digits now
+VERSION = re.compile(r"\d{1,6}(?:\.\d{1,6}){0,3}")    # Smart View's rcp_version on its drill link (live 2026-11-21)
 
 
 class _Rule(NamedTuple):
@@ -57,7 +58,8 @@ ALLOWED: dict[str, _Rule] = {
     "/aif/ui/model/applications/servicetype": _Rule("GET", {}, _DRILL_HEADERS, None),
     "/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp": _Rule("GET", {
         "FORMAT": (1, 1, re.compile("SUI")), "module": (1, 1, re.compile(r"aif\.drilldown")),
-        "attribute": (0, None, ANY), "sso_token": (0, 1, ANY), "_": (0, 1, MILLIS)}, _DRILL_HEADERS, None),
+        "attribute": (0, None, ANY), "sso_token": (0, 1, ANY), "rcp_version": (0, 1, VERSION), "_": (0, 1, MILLIS)},
+        _DRILL_HEADERS, None),
     "/aif/ui/model/view": _Rule("GET", {
         "page": (1, 1, re.compile("DRILL_THROUGH")), "appId": (0, 1, ANY), "partitionkey": (0, 1, ANY),
         "_": (0, 1, MILLIS)}, _DRILL_HEADERS, None),
@@ -348,7 +350,7 @@ def _read(r, deadline: float, method: str, url: str) -> str:
         left = deadline - time.monotonic()
         if left <= 0:
             raise TimeoutError(f"EPM's answer to {method} {redact(url)} did not end in time")
-        if sock is not None:
+        if sock is not None and sock.fileno() != -1:   # closed for good once the body is read (urllib let go of it)
             sock.settimeout(left)
         chunk = read(1 << 16)
         if not chunk:

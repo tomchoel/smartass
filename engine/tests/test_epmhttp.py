@@ -222,6 +222,22 @@ def test_the_cache_buster_is_a_millisecond_clock(make):                 # the dr
     assert len(op.sent) == 2
 
 
+def test_smart_views_rcp_version_is_taken_on_the_drill_query(make):
+    """Live 2026-11-21 (Task 7): Smart View's drill link carries rcp_version (digits and dots); every token-route
+    drill query was refused for it. A version once, nothing else under that name."""
+    s, op, _ = make()
+    jsp = "/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp?module=aif.drilldown&FORMAT=SUI"
+    s.request("GET", f"{jsp}&rcp_version=24.06&attribute=x&_=1")
+    s.request("GET", f"{jsp}&rcp_version=11.2.15.0")
+    assert len(op.sent) == 2
+    for bad in ("rcp_version=24.06&rcp_version=24.07", "rcp_version=24a", "rcp_version=", "rcp_version=1..2"):
+        with pytest.raises(epmhttp.Refused):
+            s.request("GET", f"{jsp}&{bad}")
+    with pytest.raises(epmhttp.Refused):
+        s.request("GET", "/aif/ui/model/view?page=DRILL_THROUGH&rcp_version=24.06")    # the drill query's only
+    assert len(op.sent) == 2
+
+
 def test_a_read_only_smart_view_request_and_a_getdata_post_are_sent(make):
     from smartass.epm import svxml
     s, op, _ = make(answers=[(200, "<res_ConnectToProvider/>", {"Content-Type": "text/xml"})])
@@ -624,6 +640,31 @@ def test_a_slow_answer_on_a_real_socket_stops_at_the_deadline(late, drip):
         stop.set()
         th.join(2)
         a.close()
+        b.close()
+
+
+@pytest.mark.parametrize("answer", [b"Content-Length: 2\r\n\r\n{}",
+                                    b"Transfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n"])
+def test_a_whole_answer_on_a_real_socket_is_read_after_its_socket_closes(answer):
+    """Live 2026-11-21 (Task 7): every token-route request failed with WinError 10038. urllib closes the connection's
+    socket once the answer's head is in (the answer's file keeps it open); the answer closes it for good when its
+    body is read to the end, so the socket's timeout cannot be set for one more receive."""
+    import socket
+    a, b = socket.socketpair()
+    b.sendall(b"HTTP/1.1 200 OK\r\n" + answer)
+
+    class Wire:
+        def open(self, req, timeout):
+            a.settimeout(timeout)
+            r = http.client.HTTPResponse(a)
+            r.begin()
+            a.close()                                   # as urllib's do_open does with h.sock
+            return r
+    s = epmhttp.EpmSession(POD, tokens=_Tokens("at-1"), opener=Wire())
+    try:
+        r = s.request("GET", "/aif/ui/model/applications/servicetype", timeout=5)
+        assert (r.status, r.text) == (200, "{}")
+    finally:
         b.close()
 
 
