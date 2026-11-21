@@ -71,6 +71,7 @@ async def test_a_job_given_up_on_does_not_keep_the_next_job_waiting_for_that_exc
     ended, the turn is free again."""
     monkeypatch.setattr(config, "SVKIT", tmp_path)
     monkeypatch.setattr(jobs, "TURN_WAIT_S", 60)
+    monkeypatch.setattr(jobs, "ABANDONED_WAIT_S", 0.5)
     h = ExcelHost.__new__(ExcelHost)                 # the user-Excel jobs need no hidden Excel
     h.last_error, h.pid = None, None
     excel_answers = threading.Event()
