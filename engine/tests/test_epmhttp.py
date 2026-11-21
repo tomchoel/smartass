@@ -55,10 +55,11 @@ class _Opener:
     raised as urllib.error.HTTPError, as urllib's opener does; an exception is raised as it is."""
 
     def __init__(self, answers):
-        self.answers, self.sent = list(answers), []
+        self.answers, self.sent, self.timeouts = list(answers), [], []
 
     def open(self, req, timeout):
         self.sent.append(req)
+        self.timeouts.append(timeout)
         a = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
         if isinstance(a, Exception):
             raise a
@@ -165,6 +166,26 @@ GET_VIEW = "/aif/ui/model/view?page=DRILL_THROUGH&appId=1&partitionkey=2"
     ("GET", "/aif/ui/model/view?page=DRILL_THROUGH\r\nHost: evil.example", None, None),   # urlsplit would drop these
     ("GET", "/aif/ui/model/view?page=DRILL_THROUGH\t", None, None),
     ("GET", "/aif/ui/model/view?page=DRILL_THROUGH&x=\u00e6", None, None),
+    ("GET", "https://pl\u00e4n1.example/aif/ui/model/view?page=DRILL_THROUGH", None, None),     # an IDN host
+    ("GET", "https://xn--pln1-loa.example/aif/ui/model/view?page=DRILL_THROUGH", None, None),
+    ("GET", "https://plan1.example./aif/ui/model/view?page=DRILL_THROUGH", None, None),          # a trailing dot
+    ("GET", "https://evil.example\\@plan1.example/aif/ui/model/view?page=DRILL_THROUGH", None, None),
+    ("GET", "https://evil.example\\.plan1.example/aif/ui/model/view?page=DRILL_THROUGH", None, None),
+    ("GET", "/aif\\ui/model/view?page=DRILL_THROUGH", None, None),                                 # a backslash
+    ("GET", "/aif/ui/model/view;jsessionid=x?page=DRILL_THROUGH", None, None),                  # ;params
+    ("GET", "/aif/ui/model%2Fview?page=DRILL_THROUGH", None, None),                             # %2F in the path
+    ("GET", "/aif/ui/model/applications/servicetype?x=1", None, None),                          # query names
+    ("GET", "/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp?module=aif.drilldown&FORMAT=SUI&action=x", None,
+     None),
+    ("GET", "/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp?module=aif.other&FORMAT=SUI", None, None),
+    ("GET", "/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp?FORMAT=SUI", None, None),
+    ("GET", "/aif/ui/model/view?page=DRILL_THROUGH&appId=1&appId=2", None, None),
+    ("GET", "/aif/ui/model/view?page=DRILL_THROUGH&_=now", None, None),
+    ("POST", "/aif/ui/model/drilldown/getData?limit=5000", "{}", None),
+    ("POST", "/aif/ui/model/drilldown/getData?limit=5000&offset=0&offset=1", "{}", None),
+    ("POST", "/aif/ui/model/drilldown/getData?limit=all&offset=0", "{}", None),
+    ("POST", "/aif/ui/model/drilldown/getData?limit=5000&offset=0&delete=1", "{}", None),
+    ("POST", "/aif/ui/model/drilldown/getData", "{}", None),
     ("GET", GET_VIEW, None, {"Authorization": "Bearer mine"}),                # the session's own headers
     ("GET", GET_VIEW, None, {"cookie": "JSESSIONID=other"}),
     ("GET", GET_VIEW, None, {"Host": "evil.example"}),
@@ -180,10 +201,10 @@ def test_what_is_not_exactly_on_the_allowlist_is_refused_before_a_token(make, me
 
 def test_the_request_goes_to_the_pods_origin_whatever_the_caller_wrote(make):
     s, op, _ = make(base="https://PLAN1.example:443/HyperionPlanning")
-    s.request("GET", "https://Plan1.Example:443/aif/ui/model/view?page=DRILL_THROUGH&a=%2F#frag")
+    s.request("GET", "https://Plan1.Example:443/aif/ui/model/view?page=DRILL_THROUGH&appId=%2F#frag")
     s.request("GET", "/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp?module=aif.drilldown&FORMAT=SUI&_=1")
     assert [r.full_url for r in op.sent] == [
-        "https://plan1.example/aif/ui/model/view?page=DRILL_THROUGH&a=%2F",
+        "https://plan1.example/aif/ui/model/view?page=DRILL_THROUGH&appId=%2F",
         "https://plan1.example/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp?module=aif.drilldown&FORMAT=SUI&_=1"]
     assert [r.get_method() for r in op.sent] == ["GET", "GET"] and all(r.data is None for r in op.sent)
 
@@ -308,3 +329,202 @@ def test_sessions_are_per_pod(monkeypatch):
     monkeypatch.setattr(epmhttp, "_sessions", {})
     a, b = epmhttp.session("https://plan1.example"), epmhttp.session("https://strat.example/HyperionPlanning")
     assert a is not b and (a.origin, b.origin) == ("https://plan1.example", "https://strat.example")
+
+
+GET_DATA = "/aif/ui/model/drilldown/getData?limit=5000&offset=0"
+
+
+@pytest.mark.parametrize("name, value", [
+    ("X-HTTP-Method-Override", "DELETE"), ("X-HTTP-Method", "PUT"), ("X-Method-Override", "DELETE"),
+    ("Content-Length", "0"), ("Transfer-Encoding", "chunked"), ("Accept-Encoding", "gzip"), ("Connection", "upgrade"),
+    ("TE", "trailers"), ("Upgrade", "h2c"), ("User-Agent", "x"), ("Proxy-Authorization", "Basic x"),
+    ("X-Forwarded-Host", "evil.example"), ("X-Forwarded-For", "1.2.3.4"), ("Origin", "https://evil.example"),
+    ("Referer", "https://evil.example/"), ("Authorization", "Bearer mine"), ("Cookie", "JSESSIONID=x"),
+    ("Host", "evil.example"), ("Expect", "100-continue"), ("Range", "bytes=0-1"),
+    ("X-Requested-With", "Other"),                                            # a header it takes, with another value
+    ("Content-Type", "text/plain"), ("Content-Type", "application/x-www-form-urlencoded"),
+])
+def test_a_header_the_request_does_not_take_is_refused_before_a_token(make, name, value):
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request("POST", GET_DATA, headers={"page_id": "smartass", name: value}, body="{}")
+    assert op.sent == [] and tok.asked == []
+
+
+def test_headers_are_taken_per_request(make):
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused):                                      # Smart View takes its content type only
+        s.request("POST", "/HyperionPlanning/SmartView", headers={"page_id": "x"}, body=_svxml().connect())
+    with pytest.raises(epmhttp.Refused):
+        s.request("POST", "/HyperionPlanning/SmartView", headers={"Content-Type": "application/json"},
+                  body=_svxml().connect())
+    with pytest.raises(epmhttp.Refused):                                      # one content type, not two
+        s.request("POST", GET_DATA, headers={"Content-Type": "application/json", "content-type": "text/xml"},
+                  body="{}")
+    assert op.sent == [] and tok.asked == []
+    drill = {"Accept": "application/json, text/javascript, */*; q=0.01", "Content-Type": "application/json",
+             "X-Requested-With": "XMLHttpRequest", "page_id": "smartass", "x-appbuilder-client-id": "k1"}
+    s.request("GET", GET_VIEW, headers=drill)                                 # what drill_token sends (Task 5)
+    s.request("POST", GET_DATA, headers=drill, body='{"QUERY": "q", "PARAMS": [], "PARAMSTYPE": []}')
+    assert len(op.sent) == 2
+
+
+def _svxml():
+    from smartass.epm import svxml
+    return svxml
+
+
+def test_the_session_sets_its_own_framing_headers(make):
+    s, op, _ = make()
+    s.request("POST", GET_DATA, body="{}")
+    s.request("POST", "/HyperionPlanning/SmartView", body=_svxml().connect())
+    assert [r.get_header("Content-type") for r in op.sent] == ["application/json", "text/xml"]
+    assert all(r.get_header("Accept-encoding") == "identity" for r in op.sent)
+
+
+@pytest.mark.parametrize("body", ["[]", '"QUERY"', "not json", '{"QUERY": 1}', '{"QUERY": "q", "PARAMS": "x"}',
+                                  '{"QUERY": "q", "DELETE": true}', '{"QUERY": "a", "QUERY": "b"}',
+                                  '{"QUERY": "' + "x" * (1 << 20) + '"}'])
+def test_a_getdata_body_that_is_not_a_drill_query_is_refused(make, body):
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request("POST", GET_DATA, body=body)
+    assert op.sent == [] and tok.asked == []
+
+
+def test_a_refused_smart_view_body_is_not_quoted(make, caplog):
+    caplog.set_level(logging.DEBUG, logger="smartass.epm.epmhttp")
+    s, op, _ = make()
+    with pytest.raises(epmhttp.Refused) as e:
+        s.request("POST", "/HyperionPlanning/SmartView", body="<req_Foo><sID>SIDSECRET1234567890abcdef</sID></req_Foo>")
+    assert str(e.value) == "refused: not a single read-only Smart View request"
+    assert "SIDSECRET" not in caplog.text and "req_Foo" not in caplog.text and op.sent == []
+
+
+def test_a_401_drops_the_cookies_that_came_with_the_refused_token(make):
+    s, op, tok = make(tokens=["at-1", "at-2"], answers=[(200, "{}", {"Set-Cookie": "JSESSIONID=old; Path=/"}),
+                                                       (401, "", {}), (200, "{}", {})])
+    s.request("GET", "/aif/ui/model/applications/servicetype")
+    s.request("GET", "/aif/ui/model/applications/servicetype")
+    assert op.sent[1].get_header("Cookie") == "JSESSIONID=old" and op.sent[2].get_header("Cookie") is None
+    assert op.sent[2].get_header("Authorization") == "Bearer at-2"
+
+
+def test_a_response_hands_over_no_cookie_and_shows_no_key(make):
+    s, op, _ = make(answers=[(302, "", {"Set-Cookie": "JSESSIONID=COOKIE-SECRET; Path=/",
+                                        "x-appbuilder-client-id": "KEY-SECRET",
+                                        "Location": "https://plan1.example/interop/epmexit.jsp?sso_token=T&limit=1"})])
+    r = s.request("GET", "/aif/ui/model/applications/servicetype")
+    assert "set-cookie" not in r.headers and r.headers["x-appbuilder-client-id"] == "KEY-SECRET"   # the caller's key
+    assert _clean(repr(r)) and "KEY-SECRET" not in repr(r) and "302" in repr(r), repr(r)
+    assert s._jar and [c.value for c in s._jar] == ["COOKIE-SECRET"]                          # the jar keeps it
+
+
+def test_a_set_cookie_for_another_domain_is_ignored(make):
+    s, op, _ = make(answers=[(200, "{}", {"Set-Cookie": "EVIL=1; Domain=evil.example; Path=/"}), (200, "{}", {})])
+    s.request("GET", "/aif/ui/model/applications/servicetype")
+    s.request("GET", "/aif/ui/model/applications/servicetype")
+    assert list(s._jar) == [] and op.sent[1].get_header("Cookie") is None
+
+
+def test_an_http_base_is_still_sent_over_https(make):
+    s, op, _ = make(base="http://plan1.example")
+    s.request("GET", "/aif/ui/model/applications/servicetype")
+    assert op.sent[0].full_url == "https://plan1.example/aif/ui/model/applications/servicetype"
+
+
+@pytest.mark.parametrize("timeout", [None, 0, -1, 601, "120", True, float("nan")])
+def test_a_timeout_is_a_bounded_number_of_seconds(make, timeout):
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="timeout"):
+        s.request("GET", "/aif/ui/model/applications/servicetype", timeout=timeout)
+    assert op.sent == [] and tok.asked == []
+
+
+def test_the_timeout_reaches_the_opener(make):
+    s, op, _ = make()
+    s.request("GET", "/aif/ui/model/applications/servicetype")
+    s.request("POST", GET_DATA, body="{}", timeout=7)
+    assert op.timeouts == [120.0, 7]
+
+
+def test_an_answer_over_the_size_limit_stops_with_a_clear_error(make, monkeypatch):
+    monkeypatch.setattr(epmhttp, "MAX_ANSWER_BYTES", 10)
+    s, op, _ = make(answers=[(200, "x" * 11, {})])
+    with pytest.raises(epmhttp.TooLarge, match="over") as e:
+        s.request("POST", GET_DATA, body="{}")
+    assert "limit=" not in str(e.value)
+
+
+def test_an_answer_that_drips_past_its_timeout_is_a_timeout(make, monkeypatch):
+    clock = iter(range(0, 10_000, 100))
+    monkeypatch.setattr(epmhttp.time, "monotonic", lambda: float(next(clock)))
+    s, op, _ = make()
+    with pytest.raises(TimeoutError) as e:
+        s.request("POST", GET_DATA, body="{}", timeout=50)
+    assert "limit=" not in str(e.value)
+
+
+@pytest.mark.parametrize("error", [http.client.IncompleteRead(b"{", 10), http.client.BadStatusLine("x"),
+                                   http.client.LineTooLong("header line"),
+                                   http.client.HTTPException("bad answer to ?limit=1 with at-SECRET")])
+def test_http_clients_own_errors_are_a_lost_request(make, error):
+    s, op, _ = make(tokens=["at-SECRET"], answers=[error])
+    with pytest.raises(OSError) as e:
+        s.request("POST", GET_DATA, body="{}")
+    assert isinstance(e.value, epmhttp.RequestLost) and type(error).__name__ in str(e.value)
+    assert _clean(str(e.value)) and e.value.__suppress_context__, str(e.value)
+
+
+def test_the_error_scrub_reads_the_jar_under_its_lock(make):
+    class Lock:
+        def __init__(self):
+            self.held, self.n = 0, 0
+
+        def acquire(self, *a):
+            self.held, self.n = self.held + 1, self.n + 1
+            return True
+
+        def release(self):
+            self.held -= 1
+
+        __enter__ = acquire
+
+        def __exit__(self, *a):
+            self.release()
+    s, op, _ = make(tokens=["at-SECRET"], answers=[OSError("Bearer at-SECRET")])
+    s._jar._cookies_lock = lock = Lock()
+    seen = []
+    real = s._jar.__iter__
+    s._jar.__class__ = type("Jar", (type(s._jar),), {"__iter__": lambda self: (seen.append(lock.held), real())[1]})
+    with pytest.raises(OSError):
+        s.request("POST", GET_DATA, body="{}")
+    assert seen and all(h == 1 for h in seen)                                  # every walk under the lock
+
+
+def test_two_requests_at_once_share_one_consistent_jar(make):
+    import threading
+    gate = threading.Barrier(2, timeout=5)
+
+    class Both(_Opener):
+        def open(self, req, timeout):
+            if len(self.sent) < 2:
+                gate.wait()
+            return super().open(req, timeout)
+    s, _, _ = make()
+    s._opener = op = Both([(200, "{}", {"Set-Cookie": "A=1; Path=/"}), (200, "{}", {"Set-Cookie": "B=2; Path=/"}),
+                           (200, "{}", {})])
+    errors = []
+
+    def go():
+        try:
+            s.request("GET", "/aif/ui/model/applications/servicetype")
+        except Exception as e:   # noqa: BLE001
+            errors.append(e)
+    threads = [threading.Thread(target=go) for _ in range(2)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join(5)
+    s.request("GET", "/aif/ui/model/applications/servicetype")
+    assert errors == [] and sorted((op.sent[2].get_header("Cookie") or "").split("; ")) == ["A=1", "B=2"]
