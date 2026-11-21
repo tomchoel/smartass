@@ -42,6 +42,7 @@ def addin(monkeypatch, fake_target, tmp_path):
                                                     getattr(self, "steps", []).append(f"autosave {v}")))
     monkeypatch.setattr(later, "_queued", {})
     monkeypatch.setattr(later, "_done", {})
+    monkeypatch.setattr(later, "_mine", {})
     yield install(monkeypatch, fake_target.app, tmp_path)
     del type(wb).AutoSaveOn
 
@@ -49,6 +50,7 @@ def addin(monkeypatch, fake_target, tmp_path):
 def _asked_here(pending: dict) -> dict:
     """A save the test puts in the fake add-in's hands as one this server asked for (its token among later's)."""
     later._queued[pending["token"]] = (0, 0.0)
+    later._mine[pending["token"]] = 0.0
     return pending
 
 
@@ -209,6 +211,7 @@ def test_the_first_answer_of_a_new_workbook_is_saved_in_the_job_and_the_next_one
     nb = new_book
     monkeypatch.setattr(later, "_queued", {})
     monkeypatch.setattr(later, "_done", {})
+    monkeypatch.setattr(later, "_mine", {})
     addin = install(monkeypatch, nb.app, tmp_path)
     runs = _runs(monkeypatch)
     out, _ = _job(_pre(), calculated)
@@ -230,6 +233,7 @@ def test_a_new_workbooks_first_answer_whose_save_fails_leaves_no_file_and_no_ses
     unsaved, its file deleted, the session not pointed at it."""
     monkeypatch.setattr(later, "_queued", {})
     monkeypatch.setattr(later, "_done", {})
+    monkeypatch.setattr(later, "_mine", {})
     install(monkeypatch, new_book.app, tmp_path)
 
     def save(self):
@@ -331,6 +335,20 @@ def test_another_smartass_servers_failed_save_is_said_as_its_own(fake_target, ca
     assert [w for w in out["warnings"] if "older answer" in w] == [
         "the save of older answer.xlsx (asked by another smartass server in this Excel) after the last answer failed "
         "(locked); which file it was is not known, so it was not saved: save it yourself"]
+
+
+def test_a_failed_save_this_server_asked_for_is_its_own_also_after_a_script_waited_for_it(fake_target, calculated,
+                                                                                           addin):
+    """later.wait (the scripts) forgets the saves it waited for, not which ones this server asked for: the next job
+    says this server's own failed save without "another server"."""
+    _job(_pre(), calculated)
+    addin.save_error = "locked"
+    addin.release()
+    addin.save_error = None
+    assert [o["ok"] for o in later.wait(1)] == [False]
+    out, _ = _job(_pre(), calculated)
+    assert [w for w in out["warnings"] if "after the last answer failed" in w] == [
+        f"the save of {fake_target.wb.Name} after the last answer failed (locked); it is saved now"]
 
 
 def test_a_failed_save_this_server_did_not_ask_for_is_said_as_another_servers(fake_target, calculated, addin):

@@ -9,15 +9,18 @@ back on when the look switched it off (also after a failed save, as a failed job
 is written. A batch's Run (or another SaveLater) that comes before the save ran runs it first, before anything else:
 the next job never finds a save waiting between its batches, and no save runs twice or is lost. A job that comes
 while the save runs waits for Excel as for any busy Excel (its call is rejected and asked again: jobs.com). Without
-the add-in in that Excel (the COM executor), with SV_SAVE=sync, or when the add-in refuses or cannot be asked, the
-caller saves in the job as before (exceljob._save). Only our own file is ever asked for: never the user's workbook.
+the add-in in that Excel (the COM executor), with SV_SAVE=sync, for the first answer of a workbook the request created
+(target.Target.new), or when the add-in refuses or cannot be asked, the caller saves in the job (exceljob._save). Only
+our own file is ever asked for: never the user's workbook.
 
 The outcome is config.INPROC_DIR / "saved" / "<Excel's pid>.json", written by the add-in, with no figure in it: the
 token the request carried, the workbook's name, ok, Excel's error text, whether the workbook was closed first,
 whether AutoSave was to go back on and its own error, how the save ran ("after the reply", "before a batch", "before
 the next"), when it was queued and started (seconds since 1970) and its seconds. The next job in that Excel reads it
 right after its look (take: moved to "last.json", so it is read once, whichever server process reads it); a failed
-one is a note of that job's reply and that job saves in the foreground. One the add-in could not write comes back with
+one is a note of that job's reply and that job saves in the foreground, and an AutoSave it could not switch back on is
+a note too, switched on by that job; one this server process did not ask for is said as another server's. One the
+add-in could not write comes back with
 the next clear and is read the same way; one that cannot be read is an unknown outcome (a note, the job saves in the
 foreground). Outcomes of an Excel that is gone, or a week old, are removed when the next save is asked for. The scripts wait for the saves they caused
 (wait); fin_status shows the newest outcome (status)."""
@@ -52,6 +55,8 @@ FRESH_S = 60                                    # a save asked for longer ago wi
                                                 # Excel quit first, say)
 _done: dict[str, dict] = {}                     # token -> the outcome a job read, for wait()
 _unwritten: dict[int, list[dict]] = {}          # pid -> outcomes an add-in could not write (told by clear), in turn
+_mine: dict[str, float] = {}                    # token -> when: every save asked for here, kept after wait() (take:
+MINE_KEEP = 500                                 # an outcome whose token is not here is another server's), at most
 UNWRITTEN = "unwritten: "                       # clear's answer then, before the outcome's record
 CLEAR_LIMIT_S = 120                             # a save that runs is waited for this long (as a batch)
 KEEP_DAYS = 7                                   # an outcome older than this is removed (with those of gone Excels)
@@ -206,7 +211,9 @@ def queue(app, workbook: str, autosave: bool) -> str | None:
         return None
     with _lock:
         _queued[token] = key
-        _asked_at[token] = time.time()
+        _asked_at[token] = _mine[token] = time.time()
+        while len(_mine) > MINE_KEEP:
+            _mine.pop(next(iter(_mine)))
         for t in [t for t, at in _asked_at.items() if time.time() - at > FRESH_S and t not in _queued]:
             _asked_at.pop(t)
     return token
@@ -259,7 +266,7 @@ def take(app) -> dict | None:
     if out["started"] < started - 1:                      # written by an Excel that had this pid before
         return None
     with _lock:
-        mine = out["token"] in _queued or out["token"] in _done
+        mine = out["token"] in _mine
     if not mine and not out.get("unknown"):
         out["other_server"] = True                        # asked for by another smartass server: said as such
     _seen(out)
