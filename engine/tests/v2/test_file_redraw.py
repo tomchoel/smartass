@@ -1032,6 +1032,19 @@ def test_a_protected_sheet_whose_refs_cannot_be_read_is_warned_about_as_before(o
     assert [w for w in out["warnings"] if "'Locked'" in w and "if one there pointed at Q3" in w]
 
 
+def test_the_verb_errors_runs_only_for_a_sheet_whose_formulas_could_not_be_read(own_book, monkeypatch):
+    """Final review M4: a follow-up in a workbook whose sheets were all scanned makes no errors call at all; one with
+    an unread sheet makes two for it (before and after the drop)."""
+    calls, real = [], runner.VERBS["errors"]
+    monkeypatch.setitem(runner.VERBS, "errors", lambda ws, code: calls.append(str(ws.Name)) or real(ws, code))
+    _point_at_q3(own_book.wb)
+    own_book.follow_up(_pre(), 3)
+    assert calls == []
+    _locked(own_book.wb, "=Notes!A1")
+    own_book.follow_up(_pre(), 3)
+    assert calls == ["Locked", "Locked"]
+
+
 def test_in_the_users_manual_calculation_the_protected_sheet_is_warned_about_as_before(own_book):
     """Counting would need the sheet calculated, which the user keeps for later: today's warning, nothing read."""
     _locked(own_book.wb, "=Notes!A1")

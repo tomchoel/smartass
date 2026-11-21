@@ -1200,7 +1200,8 @@ def _unread_notes(q: int, unread: list, values: dict | None) -> list[str]:
         before = (values or {}).get(f"refs before.{sheet}")
         after = (values or {}).get(f"refs after.{sheet}")
         if isinstance(before, tuple) and isinstance(after, tuple):
-            new = [a for a in after if a not in set(before)]
+            seen = set(before)                          # once per sheet (final review M3), not per cell
+            new = [a for a in after if a not in seen]
             if new:
                 more = f" and {len(new) - POINTED_MAX} more" if len(new) > POINTED_MAX else ""
                 out.append(UNREAD_REF.format(sheet=sheet, why=why, n=len(new), q=q,
