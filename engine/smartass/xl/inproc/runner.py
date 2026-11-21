@@ -565,7 +565,12 @@ def _quick_key(app) -> tuple:
     import psutil
     import win32process
     pid = win32process.GetWindowThreadProcessId(int(app.Hwnd))[1]
-    return pid, psutil.Process(pid).create_time()
+    key = (pid, psutil.Process(pid).create_time())
+    try:
+        _last.seen = (weakref.ref(app), key)       # the job's next batches: no call
+    except TypeError:
+        pass
+    return key
 
 
 def _note_inproc_off(app) -> None:

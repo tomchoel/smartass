@@ -434,8 +434,8 @@ def _untyped(raw, name: str | None, typeinfo, error: Exception | None = None, wa
     if error is not None and is_busy(error) and state is not None:
         state[1].append(name)                      # a window scan: said as busy by its caller, not warned about here
     elif error is not None and is_busy(error) and waited:
-        log.warning("Excel rejected the type information of %s for %.0f s (busy): late-bound by name", name or "an "
-                    "object", waited)
+        log.warning("Excel rejected the type information of %s (busy; waited up to %.0f s): late-bound by name",
+                    name or "an object", waited)
     elif error is not None:
         log.debug("no type information for %s (%s): late-bound by name", name, error)
     if typeinfo is None:

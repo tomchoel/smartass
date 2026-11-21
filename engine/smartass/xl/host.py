@@ -222,7 +222,7 @@ class ExcelHost(HiddenExcel):
                 return await self._await_job(wrapped, timeout, watch_dialogs=not user_excel)
             finally:
                 if wrapped.done():                        # it answered (a result or its error): now its release
-                    self._watch_release(released, what, token if user_excel else None, self.pid)
+                    self._watch_release(released, what, *((token, None) if user_excel else (None, self.pid)))
         except asyncio.TimeoutError:
             if user_excel:
                 jobs.give_up(token)               # only this job: it rolls back when that Excel frees up
