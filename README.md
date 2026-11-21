@@ -31,6 +31,8 @@ powershell -ExecutionPolicy Bypass -File "<release folder>\<version>\installer\i
 Then restart Copilot CLI or Claude Code, open a new terminal (the installer adds `smartass` to your user PATH), and
 run `smartass doctor`. If `smartass` is not found, use the full path
 `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe`. Per user, no admin, safe to re-run.
+EPM access needs `[oauth]` in `%LOCALAPPDATA%\smartass\config.toml` (identity domain, client id, a scope per pod)
+and one `smartass login` (docs\troubleshooting.md, "oauth"); no browser is installed or started.
 Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 
 ## Data safety
@@ -74,7 +76,7 @@ the bearer route, see `docs\troubleshooting.md`, "oauth").
 .githooks\pre-commit         runs scripts\check_staged.py
 docs\                        DESIGN, troubleshooting, release, specs, plans (docs\archive: earlier designs)
 installer\install.ps1        per-user installer
-scripts\                     check_staged.py, bump.ps1, publish_release.ps1, probe_sv_http.py
+scripts\                     check_staged.py, bump.ps1, publish_release.ps1, probe_bearer.py
 knowledge\  packs\           business maps and metric catalogue; pack-only inputs (packs\produktregnskap)
 skills\smartass\             master copy of the agent skill
 engine\                      run_server.py (relay), child_server.py, VERSION, defaults.toml, vba\, tests\
@@ -83,7 +85,7 @@ engine\smartass\             server.py, pipeline.py, exceljob.py (the Excel job)
   model\      spec, periods, expressions, blocks, findings, validation (no Excel, no network)
   data\       providers: Smart View HTTP, ad hoc grid fallback, recorder
   render\     data table, answer sheet, charts, style
-  epm\        Smart View HTTP/XML, grids, sign-in, drill browser and lines
+  epm\        Smart View HTTP/XML, grids, sign-in, the drill over the token and its lines
   knowledge\  atlas, resolver, interim metric catalogue
   xl\         Excel host (hidden + user Excel), sheets, styling, formula check, snapshots
   ops\        cli, doctor, setup, update, httpapi, atlas build

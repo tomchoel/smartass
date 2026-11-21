@@ -1,6 +1,6 @@
-"""Server helpers shared by the v2 MCP server: the lifespan (drill warm-up, closing the hidden Excel), the tool guard
-(any exception -> readable text with one next step), tool annotations, the hidden-Excel host and the user-Excel job
-call with progress notes. Lifted from v1 server.py; nothing here imports a tool module."""
+"""Server helpers shared by the v2 MCP server: the lifespan (keeping the EPM sign-ins fresh, closing the hidden
+Excel), the tool guard (any exception -> readable text with one next step), tool annotations, the hidden-Excel host
+and the user-Excel job call with progress notes. Lifted from v1 server.py; nothing here imports a tool module."""
 from __future__ import annotations
 
 import contextvars
@@ -39,28 +39,6 @@ def host() -> ExcelHost:
     return _host
 
 
-def _warm_up() -> None:
-    """Start the hidden browser and sign in, in the background (never awaited; a failure is only logged)."""
-    try:
-        if not config.DRILL_KEEP_WARM:
-            return
-        from ..epm import drill_browser
-        b = drill_browser.shared_browser()
-
-        def warm(s):
-            s.deadline = time.monotonic() + config.DRILL_SETUP_S
-            s.warmup = True
-            try:
-                b._ensure(s)
-            finally:
-                s.warmup = False
-        fut = b.submit(warm)
-        fut.add_done_callback(lambda f: (None if f.cancelled() or f.exception() is None else
-                                         log.info("drill warm-up failed: %s", str(f.exception())[:200])))
-    except Exception as e:   # noqa: BLE001 - best effort
-        log.info("drill warm-up not started: %s", str(e)[:200])
-
-
 def _keep_signed_in() -> None:
     """Renew the bearer route's EPM sign-ins in the background while the server runs (epm/oauth.py)."""
     try:
@@ -72,17 +50,12 @@ def _keep_signed_in() -> None:
 
 @asynccontextmanager
 async def lifespan(_server):
-    _warm_up()
     _keep_signed_in()
     try:
         yield {}
     finally:
-        try:
-            if _host is not None:
-                _host.shutdown()
-        finally:
-            from ..epm import drill_browser
-            drill_browser.shutdown_shared()
+        if _host is not None:
+            _host.shutdown()
 
 
 def _err(e: Exception) -> ToolError:

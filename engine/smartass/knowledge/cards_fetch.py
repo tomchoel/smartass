@@ -308,12 +308,9 @@ def _line(d: dict) -> str:
 
 
 def run(connections: list[str] | None = None, progress: Callable[[str], None] = print) -> list[dict]:
-    """The CLI path: the shared headless HTTP route on the real atlas, closed at the end."""
+    """The CLI path: the shared HTTP route on the real atlas (closed at the end)."""
     import contextlib
 
-    from ..epm import drill_browser, svhttp
-    try:
-        with contextlib.closing(atlas.connect()) as db:
-            return derive_all(svhttp.shared(), db, connections, progress)
-    finally:
-        drill_browser.shutdown_shared()
+    from ..epm import svhttp
+    with contextlib.closing(atlas.connect()) as db:
+        return derive_all(svhttp.shared(), db, connections, progress)

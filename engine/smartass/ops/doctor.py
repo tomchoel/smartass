@@ -68,32 +68,29 @@ def _epm(timeout: float = 5) -> Check:
     return Check("epm", "OK", f"{config.EPM_BASE} reachable (the login itself is checked on the first query)")
 
 
-def _drill_browser() -> Check:
-    from ..epm.drill_browser import browser_health
-    h = browser_health()
-    detail = "; ".join(f"{k}: {v}" for k, v in h["channels"].items())
-    if h["usable"]:
-        return Check("drill_browser", "OK", detail)
-    return Check("drill_browser", "FAIL", detail,
-                 "Install Microsoft Edge, or ask IT why the Edge UserDataDir policy is set.")
-
-
 def _oauth() -> Check:
-    """The bearer route's sign-ins, from the token files only (no network). Not being set up is fine: grids then
-    sign in through the hidden browser, as before."""
+    """The [oauth] set-up and the stored sign-in of each pod, from config and the token files only (no network). Grids
+    and drill lines go over the user's token: without the set-up no tool call reaches EPM; a pod without a stored
+    sign-in answers its first call with the sign-in page and code; the home pod (epm.base) without a scope has no drill
+    lines."""
     from ..epm import oauth
     if not oauth.configured():
-        return Check("oauth", "OK", "not set up (grids sign in through the hidden browser)")
+        return Check("oauth", "FAIL", "not set up: config.toml has no [oauth] idcs, client_id and scopes",
+                     oauth.NOT_SET_UP)
     host = lambda pod: pod.removeprefix("https://").split(".")[0]   # noqa: E731
     st = oauth.status()
     parts = [f"{host(s['pod'])}: " + ("signed in" if s["state"] == "signed_in" else
                                       "sign-in ended" if s["state"] == "ended" else "not signed in") for s in st]
     home = oauth.origin(config.EPM_BASE or "")
-    if home and home not in oauth.pods():
-        parts.append(f"{host(home)}: no scope (hidden browser)")
+    no_scope = bool(home) and home not in oauth.pods()
+    if no_scope:
+        parts.append(f"{host(home)}: no scope (no drill lines)")
     if any(s["state"] != "signed_in" for s in st):
         return Check("oauth", "WARN", "; ".join(parts),
-                     "Run `smartass login` (one approval in the browser); grids use the hidden browser meanwhile.")
+                     "Run `smartass login` (one approval in the browser), or approve the code a tool reply shows.")
+    if no_scope:
+        return Check("oauth", "WARN", "; ".join(parts),
+                     f"Add a scope for {home} under [oauth.scopes] in config.toml, then run `smartass login`.")
     return Check("oauth", "OK", "; ".join(parts))
 
 
@@ -234,8 +231,8 @@ def _vba_access(read=_read_hkcu) -> Check:
                  "access to the VBA project object model' (close Excel first; a policy value needs IT).")
 
 
-CHECKS = (_config, _excel, _smartview, _smartview_startup, _vba_access, _epm, _oauth, _drill_browser, _atlas, _knowledge,
-          _output, _http, _update)
+CHECKS = (_config, _excel, _smartview, _smartview_startup, _vba_access, _epm, _oauth, _atlas, _knowledge, _output,
+          _http, _update)
 
 
 def run(include_http: bool = True) -> list[Check]:
@@ -272,7 +269,7 @@ def to_text(results: list[Check]) -> str:
 def _versions() -> dict:
     from importlib.metadata import PackageNotFoundError, version
     pk = {}
-    for name in ("mcp", "pydantic", "pywin32", "psutil", "openpyxl", "playwright"):
+    for name in ("mcp", "pydantic", "pywin32", "psutil", "openpyxl"):
         try:
             pk[name] = version(name)
         except PackageNotFoundError:

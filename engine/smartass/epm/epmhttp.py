@@ -52,7 +52,7 @@ class _Rule(NamedTuple):
 
 _DRILL_HEADERS = frozenset({"accept", "content-type", "x-requested-with", "page_id", "x-appbuilder-client-id"})
 # The brief's table, with what each request may carry besides: the query names are those the drill sends today
-# (sui_url keeps Smart View's link minus DRILLURL; drill_direct's view and getData URLs), nothing else.
+# (sui_url keeps Smart View's link minus DRILLURL; drill_token's view and getData URLs), nothing else.
 ALLOWED: dict[str, _Rule] = {
     SMART_VIEW: _Rule("POST", {}, frozenset({"content-type"}), "text/xml"),          # + svxml.check_read_only(body)
     "/aif/ui/model/applications/servicetype": _Rule("GET", {}, _DRILL_HEADERS, None),

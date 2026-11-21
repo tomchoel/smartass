@@ -158,7 +158,7 @@ never stops the rest.
 | `model/` | spec, periods, requests, series, resolver interface, frame, expressions, blocks, validate, findings, lines (pure; no Excel, no network) |
 | `data/` | providers (HTTP, ad hoc combo), recorder (offline replay for the test set) |
 | `render/` | layout and look (pure), the built file (`xlsx`, `xlsx_charts`), chart rules, read-back, layout check |
-| `epm/` | Smart View HTTP/XML, grids, `ops` (bridge grids, atlas dumps), SSO, the drill browser and lines |
+| `epm/` | Smart View HTTP/XML, grids, `ops` (bridge grids, atlas dumps), SSO, OAuth sign-in, the drill over the token (`drill_token` on `epmhttp`, `drillcore`, `drillstep`) and its lines |
 | `knowledge/` | atlas (SQLite), semantic files (`semantic`, `seed`), `build` (knowledge.db), `KnowledgeResolver`, monthly `refresh` |
 | `xl/` | the hidden Excel (`host`, `hostproc`, `dialogs`), the user's Excel (`instances`, `target`, `jobs`, `login`, `sheets`), `styling`, `formulas`, `movein`, `sources`, `sheetorder`, `inproc` (batches of Excel operations, their COM executor and the in-process add-in), `drill_xl`, snapshots (`workbench/history`), vendored TN style and formula checker |
 | `ops/` | `cli`, `doctor`, `setup_user`, `update`, `httpapi`, `atlas_build` |
@@ -176,17 +176,19 @@ never stops the rest.
 - **User's Excel**: attached through its window; per-Excel turns (a lock file per Excel PID); never killed. A Login
   window there waits for the SSO watcher or the user.
 - **SSO watcher** (`sso_watcher.ps1`, Startup folder) clicks 'Telenor SSO' in any Excel's Login dialog.
-- **Drill browser**: headless Edge with its own profile, one drill at a time across sessions, shared with the HTTP
-  route for sign-in.
-- **Bearer route** (`epm/oauth.py`, `svhttp.BearerTransport`; optional, per pod): the Smart View HTTP requests go
-  over plain HTTPS with the user's OAuth access token instead of through the browser. One device-code sign-in per
-  pod (`smartass login`), stored DPAPI-protected; the refresh token is single use, so every refresh runs under a
-  cross-process lock, and the servers renew it daily. A pod without a scope or a sign-in, and a refused token, fall
-  back to the browser transport. Live 19.11.2026 with scopes for plan1 and stratmodel: FinMax, FinLite and FinPlan
-  grids, the closed month and drill links are the browser route's cell for cell, and a cold start needs no browser
-  (first grid 0.7 s against about 20 s). Drill lines (SUI query + getData) still load in the browser; the SUI GET
-  answers over the token too, getData over the token is untested. The same token also opens the documented Planning
-  REST API (`exportdataslice`, member properties), which is not used yet.
+- **Bearer route** (`epm/oauth.py`; required since 0.6.0): the user's OAuth access token carries both the grids
+  and the drill lines over plain HTTPS; smartass starts no browser. Grids: `svhttp.BearerTransport` posts the Smart
+  View provider XML. Drill lines: `drill_token` on an `epmhttp` session (an allowlist of the drill's own requests:
+  the session key, EPM's drill query, the view, getData) takes a session key, asks EPM for the drill query, then pages
+  getData; at most `DRILL_PARALLEL` getData calls are in flight, and a lost session is renewed once for all pieces
+  (draining the requests still out with the old key). One device-code sign-in per pod (`smartass login`, or the page
+  and code a tool reply shows when the sign-in is missing), stored DPAPI-protected; the refresh token is single use,
+  so every refresh runs under a cross-process lock, and the servers renew it daily. Without `[oauth]` in
+  config.toml a tool call answers with the set-up text; a grid the token cannot fetch (a pod without a scope) is
+  pulled through Smart View in the hidden Excel. Live 19.11.2026: grids, the closed month and drill links are the old
+  browser route's cell for cell (first grid 0.7 s against about 20 s); 21.11.2026: drill lines on four cells are the
+  browser route's row for row (docs/audit/2026-11-19-drill-token-vs-browser.md). The same token also opens the
+  documented Planning REST API (`exportdataslice`, member properties), which is not used yet.
 - **Atlas**: `atlas.db`, rebuilt with `smartass atlas build` (or copied from the monthly release by `smartass
   setup`).
 
@@ -295,10 +297,10 @@ fields or an invalid spec, 401 secret, 409 busy, 413 over 1 MB, 503 Excel/EPM er
 
 ## Verification
 
-- Unit tests: `cd engine; uv run pytest -q` (no Excel, EPM or browser; the stdio smoke test starts
+- Unit tests: `cd engine; uv run pytest -q` (no Excel or EPM; the stdio smoke test starts
   `child_server.py` with the warm-up off).
 - Test set: `uv run python -m smartass.testset run` replays recorded grids and compares with the approved golden
   numbers (9 questions).
-- `smartass doctor` checks the install (config, Excel, Smart View, VBA access, EPM, oauth sign-ins, drill browser, atlas,
+- `smartass doctor` checks the install (config, Excel, Smart View, VBA access, EPM, oauth set-up and sign-ins, atlas,
   knowledge (build checks against the current atlas; WARN when knowledge.db is older than the atlas or the semantic
   files, or drafts await approval), output, HTTP API, update).

@@ -1,19 +1,13 @@
 """uv run python -m smartass.testset record [ids] | candidate --offline [ids] | approve ids | run
-record is live (EPM over the hidden browser, never Excel); candidate --offline (a candidate from the replay, with its
-diff to the golden), approve and run are offline. run exits 1 on any failure."""
+record is live (EPM over HTTP with the user's sign-in, never Excel); candidate --offline (a candidate from the
+replay, with its diff to the golden), approve and run are offline. run exits 1 on any failure."""
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 
-# Before core.config is imported (runner imports it): own browser profile slots and no warm browser, so a test-set
-# run never collides with the running servers' slots (an explicit setting wins).
-os.environ.setdefault("SV_DRILL_PROFILE_SLOTS", "6")
-os.environ.setdefault("SV_DRILL_KEEP_WARM", "0")
-
-from ..ops.cli import utf8_stdio  # noqa: E402
-from . import runner  # noqa: E402
+from ..ops.cli import utf8_stdio
+from . import runner
 
 
 def _pick(ids: list[str]) -> list[dict]:

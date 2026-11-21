@@ -33,7 +33,7 @@ reads the saved file itself with openpyxl (read-only): every answer's sheets the
 Sources log.
 Only the workbook this script created is touched, and closed at the end (without saving: the engine saved it after
 every answer) unless --keep; the user's own workbooks and Excel are never saved or closed. At the end only the
-engine's own hidden Excel and browser are shut down, as the server's lifespan does.
+engine's own hidden Excel is shut down, as the server's lifespan does.
 """
 import argparse
 import asyncio
@@ -506,13 +506,9 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
 
 
 def _shutdown(kit) -> None:
-    """As the server's lifespan ends: the engine's own hidden Excel and browser only."""
-    try:
-        if kit._host is not None:
-            kit._host.shutdown()
-    finally:
-        from smartass.epm import drill_browser
-        drill_browser.shutdown_shared()
+    """As the server's lifespan ends: the engine's own hidden Excel only."""
+    if kit._host is not None:
+        kit._host.shutdown()
 
 
 def main(argv=None) -> int:

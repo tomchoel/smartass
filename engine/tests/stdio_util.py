@@ -1,5 +1,5 @@
-"""Talk to the MCP server over stdio, as a client does. No Excel or browser is started: the drill warm-up is off
-(SV_DRILL_KEEP_WARM=0), SMARTASS_HOME is a temp folder, and initialize + tools/list touch neither."""
+"""Talk to the MCP server over stdio, as a client does. No Excel is started: SMARTASS_HOME is a temp folder, and
+initialize + tools/list touch neither Excel nor EPM."""
 from __future__ import annotations
 
 import json
@@ -16,7 +16,7 @@ ENGINE = Path(__file__).resolve().parents[1]
 def initialize_and_list_tools(home: Path, timeout: float = 60) -> tuple[dict, list[dict]]:
     """(initialize result, tools) from a fresh child_server.py. The child is always stopped (EOF, then kill)."""
     env = {k: v for k, v in os.environ.items() if k != "SVKIT_PROXY"}
-    env.update({"SMARTASS_HOME": str(home), "SV_DRILL_KEEP_WARM": "0", "PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1"})
+    env.update({"SMARTASS_HOME": str(home), "PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1"})
     p = subprocess.Popen([sys.executable, "-B", str(ENGINE / "child_server.py")], stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, cwd=str(ENGINE))
     lines: queue.Queue = queue.Queue()

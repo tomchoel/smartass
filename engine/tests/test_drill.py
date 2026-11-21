@@ -256,311 +256,6 @@ class _Target:
         pass
 
 
-# ------------------------------------------------------------------ drill_browser (no browser started)
-def test_kill_our_chrome_matches_exact_profile_only(monkeypatch):
-    from smartass.epm import drill_browser as db
-
-    class P:
-        def __init__(self, pid, name, cmd):
-            self.pid, self.info, self.killed = pid, {"name": name, "cmdline": cmd}, False
-
-        def kill(self):
-            self.killed = True
-    prof = Path(r"C:\Users\x\AppData\Local\svkit\drill_chrome")
-    procs = [P(1, "chrome.exe", ["chrome.exe", r"--user-data-dir=C:\Users\x\AppData\Local\svkit\drill_chrome"]),
-             P(2, "chrome.exe", ["chrome.exe", r"--user-data-dir=C:\Users\x\AppData\Local\Google\Chrome\User Data"]),
-             P(3, "msedge.exe", ["msedge.exe", r"--user-data-dir=C:\Users\x\AppData\Local\svkit\drill_chrome"]),
-             P(4, "chrome.exe", None),
-             P(5, "chrome.exe", ["chrome.exe", r"--user-data-dir=C:\Users\x\AppData\Local\svkit\drill_chrome_old"]),
-             P(6, "chrome.exe", ["chrome.exe", '--user-data-dir="c:\\users\\x\\appdata\\local\\svkit\\drill_chrome"',
-                                 "--type=renderer"]),
-             P(7, "chrome.exe", ["chrome.exe", r"--load-extension=C:\Users\x\AppData\Local\svkit\drill_chrome\ext"]),
-             P(8, "msedge.exe", ["msedge.exe", r"--user-data-dir=C:\Users\x\AppData\Local\Microsoft\Edge\User Data"])]
-    monkeypatch.setattr(db.psutil, "process_iter", lambda attrs=None: iter(procs))
-    assert db.kill_our_chrome(prof) == [1, 3, 6]          # the drill browser is Edge since 22.10.2026
-    assert [p.pid for p in procs if p.killed] == [1, 3, 6]
-
-
-def _pages(total, sizes, has_more_always=False, include_total=True):
-    """Fake getData: answers per offset from a list of page sizes."""
-    pages, off = {}, 0
-    for i, n in enumerate(sizes):
-        pay = {"items": [{"AMOUNTX": 1.0}] * n, "hasMore": has_more_always or i < len(sizes) - 1}
-        if include_total:
-            pay["totalResults"] = total
-        pages[off] = json.dumps({"responsePayload": pay})
-        off += n
-    calls = []
-    extra = {"items": [{"AMOUNTX": 1.0}], "hasMore": True}
-    if include_total:
-        extra["totalResults"] = total
-
-    def post(o):
-        calls.append(o)
-        return 200, pages.get(o, json.dumps({"responsePayload": extra}))
-    return post, calls
-
-
-def test_page_through_pages_until_total():
-    from smartass.epm.drill_browser import page_through
-    post, calls = _pages(1231, [500, 500, 231])
-    seen = []
-    items, total = page_through(post, 300000, lambda n, t: seen.append((n, t)))
-    assert (len(items), total, calls) == (1231, 1231, [0, 500, 1000])
-    assert seen[-1] == (1231, 1231)
-
-
-def test_page_through_follows_has_more_past_a_short_total(caplog):
-    from smartass.epm.drill_browser import page_through
-    post, calls = _pages(81, [81, 1])             # spec §9.2: totalResults may be one short
-    items, total = page_through(post, 300000)
-    assert len(items) == 82 and total == 81 and calls == [0, 81]
-    assert "totalResults was 81" in caplog.text
-
-
-def test_page_through_safety_cap_when_has_more_never_ends(monkeypatch):
-    from smartass.core import config
-    from smartass.epm.drill_browser import page_through
-    monkeypatch.setattr(config, "DRILL_PAGE", 10)
-    post, calls = _pages(81, [81], has_more_always=True)   # then 1-line pages with hasMore forever
-    items, total = page_through(post, 300000)
-    assert len(items) == 81 + 10 and len(calls) == 11
-
-
-def test_a_piece_up_to_the_split_size_is_one_getdata_call():
-    """EPM's offset pages have no stable order: a 623-line cell paged by 500 came back with duplicates and a
-    different sum each time (measured 02.11.2026). So any piece the split allows is fetched in ONE call."""
-    from urllib.parse import parse_qs, urlsplit
-
-    from smartass.core import config
-    from smartass.epm.drill_browser import _page_url, page_through
-    n, offsets = config.DRILL_SPLIT_AT, []
-
-    def post(off):
-        limit = int(parse_qs(urlsplit(_page_url("https://x/aif/getData?limit=50&offset=0&q=1", off)).query)["limit"][0])
-        offsets.append(off)
-        got = min(limit, n - off)
-        return 200, json.dumps({"responsePayload": {"items": [{"AMOUNTX": "-1"}] * got, "totalResults": n,
-                                                    "hasMore": off + got < n}})
-    items, total = page_through(post, config.DRILL_MAX_LINES)
-    assert len(items) == n and offsets == [0]
-
-
-def test_page_through_limit_holds_without_total():
-    from smartass.epm.drill_browser import TooManyLines, page_through
-    post, _ = _pages(None, [500] * 10, has_more_always=True, include_total=False)
-    with pytest.raises(TooManyLines) as e:
-        page_through(post, 1200)
-    assert e.value.total >= 1200
-
-
-def test_page_through_limit_from_total():
-    from smartass.epm.drill_browser import TooManyLines, page_through
-    post, calls = _pages(5000, [500], has_more_always=True)
-    with pytest.raises(TooManyLines) as e:
-        page_through(post, 1000)
-    assert e.value.total == 5000 and calls == [0]
-
-
-def test_page_through_http_error_with_json_fails():
-    from smartass.epm.drill_browser import DrillError, page_through
-    body = json.dumps({"responsePayload": {"items": [], "totalResults": 0}})
-    with pytest.raises(DrillError, match="HTTP 500"):
-        page_through(lambda o: (500, body), 1000, recover=lambda: None)
-
-
-def test_page_through_relogin_once_and_resume_at_offset():
-    from smartass.epm.drill_browser import page_through
-    post, calls = _pages(1231, [500, 500, 231])
-    state = {"expired": True, "recovered": 0}
-
-    def flaky(o):
-        if o == 500 and state["expired"]:
-            calls.append(o)
-            return 0, "TypeError: Failed to fetch"
-        return post(o)
-
-    def recover():
-        state["expired"] = False
-        state["recovered"] += 1
-    items, total = page_through(flaky, 300000, recover=recover)
-    assert len(items) == 1231 and state["recovered"] == 1 and calls == [0, 500, 500, 1000]
-
-
-def test_page_through_second_expiry_fails():
-    from smartass.epm.drill_browser import DrillError, page_through
-    n = {"r": 0}
-    with pytest.raises(DrillError, match="HTTP 401"):
-        page_through(lambda o: (401, "<html>sign in</html>"), 1000, recover=lambda: n.__setitem__("r", n["r"] + 1))
-    assert n["r"] == 1
-
-
-class _FakeClock:
-    def __init__(self):
-        self.t = 0.0
-
-    def __call__(self):
-        return self.t
-
-
-class _FakePage:
-    """Drill page that redirects to sign-in first; after the re-login the getData request comes 40 s later."""
-    def __init__(self, clock, base):
-        self.clock, self.base, self.url, self.handlers, self.gotos = clock, base, "", {}, []
-        self.armed_at = None
-
-    def on(self, ev, fn):
-        self.handlers[ev] = fn
-
-    def remove_listener(self, ev, fn):
-        self.handlers.pop(ev, None)
-
-    def goto(self, url, **kw):
-        self.gotos.append(url)
-        self.url = self.base + "/ui/v1/signin?x" if len(self.gotos) == 1 else url
-        if len(self.gotos) > 1:
-            self.armed_at = self.clock.t + 40
-
-    def wait_for_timeout(self, ms):
-        self.clock.t += ms / 1000
-        if self.armed_at is not None and self.clock.t >= self.armed_at and "request" in self.handlers:
-            base = self.base
-
-            class R:
-                url = base + "/aif/ui/model/drilldown/getData?limit=500&offset=0"
-                post_data, headers = "{}", {}
-
-            class V:
-                url = base + "/aif/ui/model/view?page=DRILL_THROUGH&appId=52"
-
-                @staticmethod
-                def json():
-                    return {"views": []}
-            self.handlers["request"](R)
-            self.handlers["response"](V)
-
-
-def test_capture_resets_timer_after_relogin(monkeypatch):
-    from smartass.epm import drill_browser as db
-    clock = _FakeClock()
-    monkeypatch.setattr(db.time, "monotonic", clock)
-    b = db.DrillBrowser.__new__(db.DrillBrowser)
-    b.base = "https://epm"
-    s = db._Session()
-    s.page = _FakePage(clock, b.base)
-    logins = []
-
-    def fake_login(sess):
-        clock.t += 30                     # a slow SSO round trip eats most of the old 45 s window
-        logins.append(1)
-        sess.ready = True
-    b._login = fake_login
-    got = b._capture(s, "./aif/x.jsp?sso_token=T")
-    assert "req" in got and "view" in got and logins == [1] and len(s.page.gotos) == 2
-
-
-def test_capture_timeout_reports_console_errors_without_token(monkeypatch):
-    from smartass.epm import drill_browser as db
-    clock = _FakeClock()
-    monkeypatch.setattr(db.time, "monotonic", clock)
-
-    class Blank(_FakePage):
-        def goto(self, url, **kw):
-            self.gotos.append(url)
-            self.url = url
-
-        def reload(self, **kw):
-            self.reloads = getattr(self, "reloads", 0) + 1
-
-        def wait_for_timeout(self, ms):
-            self.clock.t += ms / 1000
-            if "console" in self.handlers and self.clock.t < 1:
-                class M:
-                    type, text = "error", "CDN_HOST null at https://epm/x.js?sso_token=T"
-                self.handlers["console"](M)
-    b = db.DrillBrowser.__new__(db.DrillBrowser)
-    b.base = "https://epm"
-    s = db._Session()
-    s.page = Blank(clock, b.base)
-    with pytest.raises(db.DrillError) as e:
-        b._capture(s, "aif/x.jsp?sso_token=T")
-    assert "CDN_HOST null" in str(e.value) and "sso_token=T" not in str(e.value)
-    assert s.page.reloads == 1 and "also after one reload" in str(e.value)          # blank page: reloaded once
-
-
-def test_login_retries_once_in_fresh_tab():
-    from smartass.epm import drill_browser as db
-
-    class Tab:
-        closed = False
-
-        def close(self):
-            self.closed = True
-
-    class Ctx:
-        def new_page(self):
-            return Tab()
-    b = db.DrillBrowser.__new__(db.DrillBrowser)
-    tries = []
-
-    def once(p, deadline):
-        tries.append(p)
-        if len(tries) == 1:
-            raise db.DrillError("last page: signin")
-    b._login_once = once
-    s = db._Session()
-    s.ctx, s.page = Ctx(), Tab()
-    first = s.page
-    b._login(s)
-    assert s.ready and len(tries) == 2 and tries[1] is s.page and s.page is not first and first.closed
-
-    def never(p, deadline):
-        raise db.DrillError("last page: signin")
-    b._login_once = never
-    with pytest.raises(db.DrillError, match="Sign-in to EPM did not complete"):
-        b._login(s)
-    assert not s.ready
-
-
-def test_close_always_stops_driver(monkeypatch):
-    from smartass.epm import drill_browser as db
-    stopped = []
-
-    class Ctx:
-        def close(self):
-            raise RuntimeError("browser already gone")
-
-    class Pw:
-        def stop(self):
-            stopped.append(1)
-    monkeypatch.setattr(db, "_kill_driver", lambda d: stopped.append(("kill", tuple(d))))
-    s = db._Session()
-    s.ctx, s.pw, s.page, s.ready, s.driver = Ctx(), Pw(), object(), True, [(9, 1.0)]
-    db.DrillBrowser._close(s)
-    assert stopped == [1, ("kill", ((9, 1.0),))] and s.ctx is None and s.pw is None and not s.ready
-
-
-def test_kill_replaces_hung_worker_and_new_worker_runs(monkeypatch):
-    import threading
-    from smartass.epm import drill_browser as db
-    monkeypatch.setattr(db, "kill_our_chrome", lambda prof: [])
-    monkeypatch.setattr(db, "_kill_driver", lambda d: [])
-    monkeypatch.setattr(db, "KILL_WAIT_S", 0.3)
-    b = db.DrillBrowser(base="https://epm", profile=Path("x"))
-    gate = threading.Event()
-    hung = b.submit(lambda s: gate.wait(30))
-    queued = b.submit(lambda s: "never")
-    old_thread = b.thread
-    b.kill()
-    assert b.thread is not old_thread and queued.cancelled()
-    assert b.submit(lambda s: "fresh").result(timeout=5) == "fresh"
-    gate.set()
-    hung.result(timeout=5)
-    old_thread.join(timeout=5)
-    assert not old_thread.is_alive()
-    b.shutdown()
-
-
 def test_gl_posted_date_is_oslo_wall_clock():
     import datetime as dt_
     assert dl._value("ATTR17", "2026-07-06T10:25:27.000+00:00") == dt_.datetime(2026, 7, 6, 12, 25, 27)   # CEST
@@ -654,56 +349,7 @@ def _target_with_sheets(names):
 RAISES = object()
 
 
-# ------------------------------------------------------------------ cross-process profile lock
-def test_profile_lock_is_exclusive_and_reusable(tmp_path):
-    from smartass.epm import drill_browser as db
-    a, b = db.ProfileLock(tmp_path / "prof"), db.ProfileLock(tmp_path / "prof")
-    assert a.acquire() and a.acquire() and a.held          # idempotent for its owner
-    assert not b.acquire() and not b.held                  # another handle (another server) is refused
-    a.release()
-    assert not a.held and b.acquire()
-    b.release()
-
-
-def test_kill_never_touches_chrome_without_the_profile_lock(monkeypatch, tmp_path):
-    from smartass.epm import drill_browser as db
-    killed = []
-    monkeypatch.setattr(db, "kill_our_chrome", lambda prof: killed.append(prof) or [1])
-    b = db.DrillBrowser(base="https://epm", profile=tmp_path / "prof")
-    other = db.ProfileLock(tmp_path / "prof")
-    assert other.acquire()                                  # a different server owns the profile
-    assert b.kill() == [] and killed == []
-    with pytest.raises(db.DrillBusy, match="different session"):
-        b._start(db._Session())
-    b.shutdown()
-    assert killed == []                                     # shutdown fallback is guarded too
-    other.release()
-
-
-def test_idle_worker_closes_browser_and_frees_lock(monkeypatch, tmp_path):
-    import threading
-    from smartass.epm import drill_browser as db
-    lock = db.ProfileLock(tmp_path / "prof")
-    assert lock.acquire()
-    closed = threading.Event()
-    real = db.DrillBrowser._close
-
-    def spy(s):
-        real(s)
-        closed.set()
-    monkeypatch.setattr(db.DrillBrowser, "_close", staticmethod(spy))
-    monkeypatch.setattr(db, "_kill_driver", lambda d: [])
-    import queue
-    s, q = db._Session(), queue.Queue()
-    s.plock = lock
-    t = threading.Thread(target=db.DrillBrowser._loop, args=(q, s, 0.05), daemon=True)
-    t.start()
-    assert closed.wait(5) and not lock.held and s.plock is None
-    q.put((None, None))
-    t.join(5)
-
-
-# ------------------------------------------------------------------ server helpers (no Excel, no browser)
+# ------------------------------------------------------------------ server helpers (no Excel, no EPM)
 def test_server_lines_of_normalises_each_piece_once(monkeypatch):
     from smartass.epm import drillstep as server
     items = _items("whs_c40s_q326_items.json")
@@ -721,100 +367,13 @@ def test_server_lines_of_normalises_each_piece_once(monkeypatch):
     assert isinstance(L["stats"]["unfixed"], list) and L["cols"][0] == "Scenario"
 
 
-# ------------------------------------------------------------------ re-drill decisions (last review round)
-def test_chrome_start_failure_releases_the_profile_lock(monkeypatch, tmp_path):
-    from smartass.epm import drill_browser as db
-    stopped = []
-
-    class Chromium:
-        def launch_persistent_context(self, *a, **k):
-            raise RuntimeError("chrome.exe not found")
-
-    class Pw:
-        chromium = Chromium()
-
-        def stop(self):
-            stopped.append(1)
-
-    class SP:
-        def start(self):
-            return Pw()
-    import playwright.sync_api
-    monkeypatch.setattr(playwright.sync_api, "sync_playwright", lambda: SP())
-    monkeypatch.setattr(db, "kill_our_chrome", lambda prof: [])
-    monkeypatch.setattr(db, "_kill_driver", lambda d: [])
-    monkeypatch.setattr(db, "user_data_dir_policy", lambda ch: None)
-    b = db.DrillBrowser.__new__(db.DrillBrowser)
-    b.base, b.profile, b.plock = "https://epm", tmp_path / "prof", db.ProfileLock(tmp_path / "prof")
-    s = db._Session()
-    with pytest.raises(db.DrillError, match="not found"):
-        b._start(s)
-    assert stopped == [1] and not b.plock.held and s.plock is None
-    other = db.ProfileLock(tmp_path / "prof")
-    assert other.acquire()                                  # another session can take the profile right away
-    other.release()
-
-
-def test_launch_skips_policy_blocked_channel_retries_and_falls_back(monkeypatch, tmp_path):
-    from smartass.core import config
-    from smartass.epm import drill_browser as db
-    tried = []
-
-    class Chromium:
-        def launch_persistent_context(self, prof, channel, **k):
-            tried.append((channel, Path(prof).name))
-            if channel == "msedge":
-                raise RuntimeError("Target page, context or browser has been closed")
-            return "ctx"
-    monkeypatch.setattr(config, "DRILL_CHANNELS", ("msedge", "chrome", "chromium"))
-    monkeypatch.setattr(config, "DRILL_LAUNCH_TRIES", 2)
-    monkeypatch.setattr(db.time, "sleep", lambda s: None)
-    monkeypatch.setattr(db, "kill_our_chrome", lambda prof: [])
-    monkeypatch.setattr(db, "user_data_dir_policy", lambda ch: r"C:\x" if ch == "chrome" else None)
-    b = db.DrillBrowser.__new__(db.DrillBrowser)
-    b.profile = tmp_path / "drill_edge"
-
-    class Pw:
-        chromium = Chromium()
-    assert b._launch(Pw()) == ("ctx", "chromium")
-    assert tried == [("msedge", "drill_edge")] * 2 + [("chromium", "drill_edge_chromium")]   # chrome never launched
-
-    monkeypatch.setattr(config, "DRILL_CHANNELS", ("msedge", "chrome"))
-    with pytest.raises(db.DrillError, match=r"msedge: Target page.*chrome: skipped, policy UserDataDir"):
-        b._launch(Pw())
-
-
-def test_dead_browser_is_restarted_and_the_drill_retried_once(monkeypatch):
-    from smartass.epm import drill_browser as db
-    b = db.DrillBrowser.__new__(db.DrillBrowser)
-    s, calls, closed = db._Session(), [], []
-    s.ctx = "ctx"
-    monkeypatch.setattr(db.DrillBrowser, "_alive", staticmethod(lambda s: False))
-    monkeypatch.setattr(db.DrillBrowser, "_close", staticmethod(lambda s: closed.append(1)))
-
-    def once(s_, url, n, prog):
-        calls.append(url)
-        if len(calls) == 1:
-            raise db.DrillError("Target closed")
-        return {"items": [], "total": 0}
-    monkeypatch.setattr(b, "_fetch_once", once)
-    assert b._fetch(s, "u", 10, None) == {"items": [], "total": 0} and calls == ["u", "u"] and closed == [1]
-
-    calls.clear()
-    monkeypatch.setattr(db.DrillBrowser, "_alive", staticmethod(lambda s: True))    # live page: a real answer
-    monkeypatch.setattr(b, "_fetch_once", lambda *a: calls.append(1) or (_ for _ in ()).throw(db.DrillError("x")))
-    with pytest.raises(db.DrillError):
-        b._fetch(s, "u", 10, None)
-    assert calls == [1]
-
-
 # ------------------------------------------------------------------ final review round
 def _drill_fakes(monkeypatch, links: dict, totals: dict, kids: dict, split_at: int = 600):
-    """Fake Smart View links, a fake browser and a fake atlas for server._drill_cell."""
+    """Fake Smart View links, a fake line fetch and a fake atlas for server._drill_cell."""
     from smartass.core import config
     from smartass.epm import drill_split, ops
     from smartass.epm import drillstep as server
-    from smartass.epm.drill_browser import TooManyLines
+    from smartass.epm.drillcore import TooManyLines
     asked = []
 
     async def fake_call(fn, timeout=None, what="call"):
@@ -864,7 +423,7 @@ def test_drill_cell_max_lines_guard_before_splitting(monkeypatch):
 def test_drill_cell_passes_the_remaining_budget_down(monkeypatch):
     import asyncio
     from smartass.epm import drillstep as server
-    from smartass.epm.drill_browser import TooManyLines
+    from smartass.epm.drillcore import TooManyLines
     _drill_fakes(monkeypatch, _LINKS, {"q3": 1231, "jul": 400, "aug": 400, "sep": 431}, _KIDS)
     real = server._drill_fetch
 
@@ -878,7 +437,7 @@ def test_drill_cell_passes_the_remaining_budget_down(monkeypatch):
 
 
 def test_drill_cell_fetches_the_children_at_once_in_order(monkeypatch):
-    """The split children's drill pages load concurrently (the tab pump); the pieces keep the plan's order."""
+    """The split children are drilled concurrently; the pieces keep the plan's order."""
     import asyncio
     from smartass.epm import drillstep as server
     _drill_fakes(monkeypatch, _LINKS, {"q3": 1231, "jul": 400, "aug": 400, "sep": 431}, _KIDS)
@@ -928,7 +487,7 @@ def test_drill_cell_too_wide_splits_by_entity_and_skips_empty(monkeypatch):
     import asyncio
     from smartass.epm import drill_split, ops
     from smartass.epm import drillstep as server
-    from smartass.epm.drill_browser import CellTooWide
+    from smartass.epm.drillcore import CellTooWide
     links = {"un.SY": {"url": "sy", "cube_value": -161.0}, "un.SY.2SSM": {"url": "ssm", "cube_value": -98.0},
              "un.SY.2I15": {"url": "i15", "cube_value": -63.0}, "un.SY.2CON": {"url": "con", "cube_value": None}}
     fetched = []
@@ -1013,7 +572,7 @@ def test_drill_cell_too_wide_on_a_leaf_is_a_readable_error(monkeypatch):
     import asyncio
     from smartass.epm import drill_split, ops
     from smartass.epm import drillstep as server
-    from smartass.epm.drill_browser import CellTooWide
+    from smartass.epm.drillcore import CellTooWide
 
     async def fake_call(fn, timeout=None, what="call"):
         return fn(None)
@@ -1083,28 +642,6 @@ def test_drill_retries_once_on_empty_provider_response(monkeypatch):
     assert len(tries) == 1
 
 
-def test_fetch_never_leaks_the_sso_token():
-    from smartass.epm import drill_browser as db
-    b = db.DrillBrowser.__new__(db.DrillBrowser)
-    b._ensure = lambda s: None
-
-    def boom(s, url):
-        raise db.PwError("Page.goto: net::ERR at https://epm/aif/x.jsp?sso_token=abc&x=1")
-    b._capture = boom
-    with pytest.raises(db.DrillError) as e:
-        b._fetch(db._Session(), "aif/x.jsp?sso_token=abc", 10, None)
-    assert "abc" not in str(e.value)
-
-
-def test_page_url_replaces_only_limit_and_offset():
-    from urllib.parse import parse_qs, urlsplit
-    from smartass.core import config
-    from smartass.epm import drill_browser as db
-    u = db._page_url("https://epm/aif/ui/model/drilldown/getData?limit=25&offset=0&locale=nb&x=a%20b", 1500)
-    assert u.startswith("https://epm/aif/ui/model/drilldown/getData?")
-    assert parse_qs(urlsplit(u).query) == {"limit": [str(config.DRILL_PAGE)], "offset": ["1500"], "locale": ["nb"], "x": ["a b"]}
-
-
 def test_drill_link_reports_a_failed_status(monkeypatch):
     from smartass.epm import ops
     from smartass.xl.host import HostError
@@ -1162,141 +699,6 @@ def test_drill_cell_defaults_entity_and_needs_account_and_period():
     for bad in ({"All Time Periods": "Sep 26"}, {"All Accounts": "ac.12881"}):
         with pytest.raises(InputError):
             drill_cell_defaults(bad)
-
-
-def test_classify_stall():
-    from smartass.epm.drill_browser import classify_stall
-    assert classify_stall("https://login.microsoftonline.com/x", "Sign in") == "sso"
-    assert classify_stall("https://epm/cloudgate/v1/oauth2/callback", "") == "sso"
-    assert classify_stall("https://epm/aif/drill", "  ") == "blank"
-    assert classify_stall("https://epm/aif/drill", "Drill Through") == "page"
-
-
-def test_login_action_nudges_a_stalled_redirect_once():
-    from smartass.epm.drill_browser import SIGNIN, login_action
-    base = "https://epm"
-    assert login_action(base + SIGNIN, base, 1, 2, clicked=False, nudged=False) == "click"
-    assert login_action(base + "/HyperionPlanning/", base, 5, 5, clicked=True, nudged=False) == "done"
-    assert login_action(base + "/HyperionPlanning/", base, 2, 2, clicked=True, nudged=False) == "wait"
-    cb = base + "/cloudgate/v1/oauth2/callback"
-    assert login_action(cb, base, 10, 5, clicked=True, nudged=False) == "wait"
-    assert login_action(cb, base, 30, 20, clicked=True, nudged=False) == "home"     # stuck 20 s on one page
-    assert login_action(cb, base, 50, 20, clicked=True, nudged=True) == "wait"      # only once
-
-
-def test_login_skips_the_retry_when_the_drill_deadline_is_near():
-    from smartass.epm import drill_browser as db
-    b = db.DrillBrowser.__new__(db.DrillBrowser)
-    tries = []
-
-    def never(p, deadline):
-        tries.append(p)
-        raise db.DrillError("last page: oauth2/callback")
-    b._login_once = never
-    s = db._Session()
-    s.page, s.deadline = object(), db.time.monotonic() + 5
-    with pytest.raises(db.DrillError, match="open EPM once in Edge"):
-        b._login(s)
-    assert len(tries) == 1
-
-
-def test_page_loads_are_bounded_by_the_drill_deadline():
-    from smartass.epm.drill_browser import load_timeout_ms
-    assert load_timeout_ms(float("inf"), 0) == 90_000
-    assert load_timeout_ms(100.0, 70.0) == 30_000
-    assert load_timeout_ms(100.0, 120.0) == 1_000
-
-
-def test_no_nudge_without_time_left():
-    from smartass.epm.drill_browser import login_action
-    cb = "https://epm/cloudgate/v1/oauth2/callback"
-    assert login_action(cb, "https://epm", 30, 20, clicked=True, nudged=False, left=10) == "wait"
-
-
-def test_crash_retry_needs_time_left(monkeypatch):
-    from smartass.epm import drill_browser as db
-    b = db.DrillBrowser.__new__(db.DrillBrowser)
-    calls = []
-
-    def once(s, url, n, progress):
-        calls.append(1)
-        s.ctx = object()                           # a browser that is dead now
-        s.deadline = db.time.monotonic() + 5       # most of the drill's time is used up
-        raise db.DrillError("Page crashed")
-    b._fetch_once, b._alive, b._close = once, lambda s: False, lambda s: None
-    with pytest.raises(db.DrillError, match="browser crashed"):
-        b._fetch(db._Session(), "u", 10, None)
-    assert len(calls) == 1
-
-
-def test_crash_while_paging_retries_with_a_fresh_deadline():
-    from smartass.epm import drill_browser as db
-    b = db.DrillBrowser.__new__(db.DrillBrowser)
-    calls = []
-
-    def once(s, url, n, progress):
-        calls.append(s.deadline - db.time.monotonic())
-        if len(calls) == 1:
-            s.ctx, s.paging = object(), True        # captured, then crashed while paging
-            s.deadline = db.time.monotonic() - 50   # long past the setup deadline
-            raise db.DrillError("Page crashed")
-        return {"items": []}
-    b._fetch_once, b._alive, b._close = once, lambda s: False, lambda s: None
-    assert b._fetch(db._Session(), "u", 10, None) == {"items": []}
-    assert calls[1] > 60
-
-
-class _FakeLoginPage:
-    def __init__(self, clock):
-        self.url = "about:blank"
-        self.clock = clock
-
-    def goto(self, url, wait_until=None, timeout=None):
-        self.url = url
-
-    def wait_for_load_state(self, *a, **k):
-        pass
-
-    def wait_for_timeout(self, ms):
-        self.clock[0] += ms / 1000
-
-
-def test_login_once_signs_in_on_another_pod(tmp_path, monkeypatch):
-    from smartass.epm import drill_browser as db
-    clock = [0.0]                                   # fake clock: waiting advances it, so login_action's 3 s passes at once
-    monkeypatch.setattr(db.time, "monotonic", lambda: clock[0])
-    b = db.DrillBrowser(base="https://plan1.example", profile=tmp_path / "p")
-    p = _FakeLoginPage(clock)
-    b._login_once(p, float("inf"), base="https://strat.example/")
-    assert p.url == "https://strat.example/HyperionPlanning/"
-    b._login_once(p, float("inf"))
-    assert p.url == "https://plan1.example/HyperionPlanning/"
-    b.shutdown()
-
-
-def test_shutdown_shared_is_idempotent(monkeypatch):
-    from smartass.epm import drill_browser as db
-    monkeypatch.setattr(db, "_shared", None)
-    class Fake:
-        shutdowns = 0
-        def shutdown(self):
-            Fake.shutdowns += 1
-    monkeypatch.setattr(db, "DrillBrowser", Fake)
-    first = db.shared_browser()
-    db.shutdown_shared()
-    db.shutdown_shared()
-    assert Fake.shutdowns == 1
-    assert db.shared_browser() is not first
-
-
-def test_shared_browser_is_one_instance(monkeypatch):
-    from smartass.epm import drill_browser as db
-    from smartass.epm import drillstep
-    monkeypatch.setattr(db, "_shared", None)
-    made = []
-    monkeypatch.setattr(db, "DrillBrowser", lambda: made.append(1) or object())
-    first = db.shared_browser()
-    assert db.shared_browser() is first and drillstep.browser() is first and made == [1]
 
 
 def test_drill_link_uses_http_and_never_excel(monkeypatch):
@@ -1365,56 +767,15 @@ def test_split_values_without_a_sign_in_are_raised_not_sent_to_excel(monkeypatch
         asyncio.run(server._child_values("FinLite", [_CELL, {**_CELL, "All Time Periods": "Aug 26"}]))
 
 
-def test_drill_fetch_direct_first_then_pages(monkeypatch, caplog):
-    import asyncio
-    from smartass.core import config
-    from smartass.epm import drill_direct
-    from smartass.epm import drillstep as server
-    from smartass.epm.drill_browser import DrillError
-    monkeypatch.setattr(config, "DRILL_DIRECT", True)
-
-    class Direct:
-        async def fetch(self, url, max_lines):
-            raise DrillError("warm page never asked")
-    monkeypatch.setattr(drill_direct, "shared_direct", lambda: Direct())
-
-    async def pages(url, max_lines):
-        return {"items": [1], "total": 1, "view": {}, "secs": 0}
-    monkeypatch.setattr(server, "_page_fetch", pages)
-    with caplog.at_level("WARNING"):
-        assert asyncio.run(server._drill_fetch("u", 10))["items"] == [1]
-    assert "page route" in caplog.text
-
-
-def test_drill_fetch_no_data_is_an_empty_piece_with_epms_note(monkeypatch):
-    import asyncio
-    from smartass.core import config
-    from smartass.epm import drill_direct
-    from smartass.epm import drillstep as server
-    monkeypatch.setattr(config, "DRILL_DIRECT", True)
-
-    class Direct:
-        async def fetch(self, url, max_lines):
-            raise drill_direct.NoDrillData("Drill query does not return any data.")
-    monkeypatch.setattr(drill_direct, "shared_direct", lambda: Direct())
-
-    async def no_pages(url, max_lines):
-        raise AssertionError("the page route must not run for a cell without data")
-    monkeypatch.setattr(server, "_page_fetch", no_pages)      # also keeps a broken build away from the live browser
-    res = asyncio.run(server._drill_fetch("u", 10))
-    assert res["items"] == [] and "does not return any data" in res["note"]
-
-
 # ------------------------------------------------------------------ split siblings from one EPM query (step 1b)
 def _derive_setup(monkeypatch, members, cubes, lines_for, template_query=True):
     """Children of un.SY by entity; members[] = atlas lists; cubes[] = child values; lines_for(entity) = the
     AMOUNTX values a built query returns. Records which children were drilled the usual way."""
     import json as _json
     from smartass.core import config
-    from smartass.epm import drill_derive, drill_direct
+    from smartass.epm import drill_derive, drill_token
     from smartass.epm import drillstep as server
-    from smartass.epm.drill_direct import SuiQuery
-    monkeypatch.setattr(config, "DRILL_DIRECT", True)
+    from smartass.epm.drillcore import SuiQuery
     monkeypatch.setattr(config, "DRILL_DERIVE", True)
     monkeypatch.setattr(drill_derive, "members", lambda conn, m, db=None: members.get(m))
     usual = []
@@ -1432,12 +793,12 @@ def _derive_setup(monkeypatch, members, cubes, lines_for, template_query=True):
                  "view": {"v": 1}, "secs": 0, "query": q}]
     monkeypatch.setattr(server, "_drill_piece", piece)
 
-    class Direct:
+    class Token:
         async def lines(self, q, warm_url, max_lines):
             ents = _json.loads(q.body)["PARAMS"][:-1]
             return {"items": [{"AMOUNTX": str(a)} for a in lines_for(ents[0])], "total": None, "view": {"v": 1},
                     "secs": 0, "query": q}
-    monkeypatch.setattr(drill_direct, "shared_direct", lambda: Direct())
+    monkeypatch.setattr(drill_token, "shared", lambda: Token())
     return server, usual
 
 
@@ -1476,14 +837,14 @@ def test_period_splits_are_not_derived(monkeypatch):
     assert usual == ["un.SY", "un.SY"]
 
 
-def test_a_built_piece_without_lines_or_with_a_browser_error_asks_epm(monkeypatch):
+def test_a_built_piece_without_lines_or_with_an_error_asks_epm(monkeypatch):
     import asyncio
     members = {"un.SY.2TEC": ["un.SY.2TEC", "a"], "un.SY.2BUS": ["un.SY.2BUS"], "un.SY.2EI": ["un.SY.2EI", "b", "c"]}
     cubes = {"un.SY.2TEC": 0.0, "un.SY.2BUS": -1.0, "un.SY.2EI": -3.0}
 
     def lines_for(e):
         if e == "un.SY.2EI":
-            raise RuntimeError("Execution context was destroyed")   # a raw Playwright error, not a DrillError
+            raise RuntimeError("connection reset")             # any error, not only a DrillError
         return []                                          # 2TEC: no lines "tie" to its zero cube - not trusted
     server, usual = _derive_setup(monkeypatch, members, cubes, lines_for)
     parts = [{"All Accounts": "ac.C60090", "All Entities": e, "All Time Periods": "Sep 26"} for e in cubes]
@@ -1493,34 +854,51 @@ def test_a_built_piece_without_lines_or_with_a_browser_error_asks_epm(monkeypatc
     assert all("derived" not in ps[0] for ps in out)       # every child came from EPM's own query
 
 
-def test_the_token_route_is_used_when_configured(monkeypatch):
+@pytest.mark.parametrize("derive", [True, False])
+def test_split_siblings_are_built_from_one_epm_query_only_with_drill_derive(monkeypatch, derive):
+    """The derive gate on the (only) token route: _children builds the siblings' queries only when
+    config.DRILL_DERIVE is on; off, every child with a value is drilled the usual way."""
     import asyncio
 
     from smartass.core import config
+    members = {"un.SY.2TEC": ["un.SY.2TEC", "a", "b"], "un.SY.2BUS": ["un.SY.2BUS", "c"], "un.SY.2EI": ["un.SY.2EI"]}
+    cubes = {"un.SY.2TEC": -10.0, "un.SY.2BUS": -5.0, "un.SY.2EI": -2.0, "un.SY.2WHS": None}
+    lines = {"un.SY.2TEC": [-4, -6], "un.SY.2BUS": [-5]}
+    server, usual = _derive_setup(monkeypatch, members, cubes, lambda e: lines.get(e, []))
+    monkeypatch.setattr(config, "DRILL_DERIVE", derive)
+
+    async def values(conn, parts):
+        return [cubes[p["All Entities"]] for p in parts]
+    monkeypatch.setattr(server, "_child_values", values)
+    parts = [{"All Accounts": "ac.C60090", "All Entities": e, "All Time Periods": "Sep 26"} for e in cubes]
+    out = asyncio.run(server._children("FinLite", parts, 1000, "auto", {"left": 1000, "cube": None}, 0))
+    assert [p["cell"]["All Entities"] for p in out] == list(cubes)                         # plan order kept
+    assert [bool(p.get("derived")) for p in out] == ([True, True, False, False] if derive else [False] * 4)
+    assert usual == (["un.SY.2EI"] if derive else ["un.SY.2TEC", "un.SY.2BUS", "un.SY.2EI"])
+    assert out[3]["note"] == "empty cell (skipped)"
+
+
+def test_the_lines_come_over_the_token_route(monkeypatch):
+    import asyncio
+
     from smartass.epm import drill_token, drillstep
 
     class Fake:
         async def fetch(self, url, max_lines, progress=None):
             return {"items": [{"AMOUNTX": "1"}], "total": 1, "view": {"items": []}, "secs": 0.1, "query": None}
-    monkeypatch.setattr(config, "DRILL_ROUTE", "token")
-    monkeypatch.setattr(config, "DRILL_DIRECT", True)
     monkeypatch.setattr(drill_token, "shared", lambda: Fake())
     assert asyncio.run(drillstep._drill_fetch("u", 10))["total"] == 1
 
 
-def test_the_token_route_has_no_page_route_behind_it(monkeypatch):
+def test_an_error_on_the_token_route_is_raised_as_it_is(monkeypatch):
     import asyncio
 
-    from smartass.core import config
     from smartass.epm import drill_token, drillcore, drillstep
 
     class Fails:
         async def fetch(self, url, max_lines, progress=None):
             raise drillcore.DrillError("getData returned HTTP 500 with an error at offset 0.")
-    monkeypatch.setattr(config, "DRILL_ROUTE", "token")
-    monkeypatch.setattr(config, "DRILL_DIRECT", True)
     monkeypatch.setattr(drill_token, "shared", lambda: Fails())
-    monkeypatch.setattr(drillstep, "_page_fetch", lambda *a: (_ for _ in ()).throw(AssertionError("page route used")))
     with pytest.raises(drillcore.DrillError, match="offset 0"):
         asyncio.run(drillstep._drill_fetch("u", 10))
 
@@ -1528,21 +906,12 @@ def test_the_token_route_has_no_page_route_behind_it(monkeypatch):
 def test_the_token_route_gives_an_empty_piece_for_no_drill_data(monkeypatch):
     import asyncio
 
-    from smartass.core import config
     from smartass.epm import drill_token, drillcore, drillstep
 
     class Empty:
         async def fetch(self, url, max_lines, progress=None):
             raise drillcore.NoDrillData("no drill data here")
-    monkeypatch.setattr(config, "DRILL_ROUTE", "token")
     monkeypatch.setattr(drill_token, "shared", lambda: Empty())
     res = asyncio.run(drillstep._drill_fetch("u", 10))
     assert res["items"] == [] and res["note"] == "no drill data here"
 
-
-def test_the_browser_route_is_the_default(monkeypatch):
-    from smartass.core import config
-    from smartass.epm import drill_direct, drillstep
-    assert config.DRILL_ROUTE == "browser"
-    monkeypatch.setattr(drill_direct, "shared_direct", lambda: "direct")
-    assert drillstep._lines_source() == "direct"

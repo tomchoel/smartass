@@ -18,6 +18,8 @@ import pytest
 from smartass.core import config
 from smartass.epm import drill_token, drillcore, epmhttp, oauth
 
+_REAL_SHARED = drill_token.shared      # read at import: conftest swaps drill_token.shared for a guard in every test
+
 URL = ("aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp?module=aif.drilldown&DRILLURL=x&sso_token=t"
        "&attribute=Account.id.C60")
 EXIT_302 = (302, "", {"location": "https://plan1.example/interop/epmexit.jsp"})
@@ -349,7 +351,7 @@ def test_a_drill_query_lost_after_every_new_key_stops_at_the_cap_signed_out(fake
     before = len(h.calls)
     with pytest.raises(drillcore.SignedOut) as e:
         asyncio.run(d.fetch(URL, 100))
-    assert str(e.value) == "EPM answered the drill query with a page, not JSON (signed out?)"     # as drill_direct's
+    assert str(e.value) == "EPM answered the drill query with a page, not JSON (signed out?)"     # as parse_sui's
     paths = [c.path for c in h.calls[before:]]
     assert paths.count("/aif/ui/model/applications/servicetype") == drill_token.MAX_RENEWALS == 3
     assert paths.count("/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp") == drill_token.MAX_RENEWALS + 1
@@ -375,7 +377,7 @@ def test_the_view_lost_twice_is_signed_out(fake):
     h = fake(keys=["k1", "k2"], view=[(200, "<html>sign in</html>")])
     with pytest.raises(drillcore.SignedOut) as e:
         asyncio.run(drill_token.TokenDrill("https://plan1.example", http=h).fetch(URL, 100))
-    assert str(e.value) == "EPM answered the drill view with a page, not JSON (signed out?)"      # as drill_direct's
+    assert str(e.value) == "EPM answered the drill view with a page, not JSON (signed out?)"
     assert not [c for c in h.calls if c.method == "POST"]
 
 
@@ -430,6 +432,7 @@ def test_progress_is_told_each_page(fake):
 
 
 def test_one_drill_per_process(monkeypatch):
+    monkeypatch.setattr(drill_token, "shared", _REAL_SHARED)
     monkeypatch.setattr(drill_token, "_shared", None)
     monkeypatch.setattr(config, "EPM_BASE", "https://plan1.example")
     monkeypatch.setattr(epmhttp, "_sessions", {})

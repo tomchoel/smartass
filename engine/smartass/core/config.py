@@ -240,16 +240,6 @@ RESET_WAIT_S = 10.0                                 # after killing our Excel, w
 
 # ---------------------------------------------------------------- drill-through (fin_drill)
 EPM_BASE = _pick("SV_EPM_BASE", "epm.base")
-# Browsers tried in order. Edge first: an HKCU Chrome policy (UserDataDir) forces every Chrome launch onto the user's
-# own profile, so a hidden Chrome hands off to the user's running Chrome and exits (code 21). A channel whose
-# UserDataDir policy is set is skipped up front; a channel that fails to launch is retried once, then the next one.
-_ch = os.environ.get("SV_DRILL_CHANNELS")
-DRILL_CHANNELS = tuple(c.strip() for c in (_ch.split(",") if _ch else _checked(as_list(
-    get(SETTINGS, "drill.channels", ["msedge"]), "drill.channels",
-    as_list(get(ORG_SETTINGS, "drill.channels", ["msedge"]), "", ["msedge"])[0]))) if c.strip())
-DRILL_PROFILE_SLOTS = int(os.environ.get("SV_DRILL_PROFILE_SLOTS", "3"))   # one warm browser per smartass server
-DRILL_PROFILE = SVKIT / "drill_edge"              # Edge profile + lock anchor; other channels: drill_edge_<channel>
-DRILL_LAUNCH_TRIES = 2                             # per channel
 DRILL_DB = SVKIT / "drill.db"
 DRILL_PAGE = 5000                                  # rows per getData call: EPM's offset pages have no stable order
                                                    # (a 623-line cell paged by 500 gave duplicates and a different sum
@@ -265,7 +255,6 @@ PAINT_PAUSE_S = float(os.environ.get("SV_PAINT_PAUSE", "0.15"))   # the job's pa
 SAVE = "sync" if os.environ.get("SV_SAVE", "").strip().lower() == "sync" else "later"   # sync: our file saved in the job
 SAVE_DELAY_S = float(os.environ.get("SV_SAVE_DELAY", "0.3"))   # the save after the reply waits this long for the paint
 DRILL_KEEP_DAYS = 90
-DRILL_LOGIN_TIMEOUT_S = 60                         # per attempt; one retry in a fresh tab (spec §6)
 SVHTTP_TIMEOUT_S = float(os.environ.get("SV_HTTP_TIMEOUT", "120"))   # one Smart View HTTP request incl. a sign-in
 SVHTTP_SESSIONS = int(os.environ.get("SV_HTTP_SESSIONS", "8"))   # Smart View requests at once per cube, each on its own session
 CLOSED_MONTH_TTL_S = float(os.environ.get("SV_CLOSED_MONTH_TTL", "1800"))   # reuse an HTTP-read closed month this long
@@ -275,23 +264,14 @@ SVHTTP_FINMAX_SERVER = str(_pick("SV_HTTP_FINMAX_SERVER", "svhttp.finmax_server"
 SVHTTP_FINPLAN_SERVER = str(_pick("SV_HTTP_FINPLAN_SERVER", "svhttp.finplan_server", "FinPlan_for_DataLoad"))
 _allow_test = _pick("SV_HTTP_ALLOW_TEST", "svhttp.allow_test", False)
 SVHTTP_ALLOW_TEST = _allow_test is True or str(_allow_test).strip().lower() in ("1", "true", "yes")
-# OAuth bearer route (epm/oauth.py): off until all three are set. The scope names ONE environment's service instance,
+# OAuth bearer route (epm/oauth.py): grids and drill lines need all three set (without them a tool call answers
+# with the set-up text, oauth.NOT_SET_UP). The scope names ONE environment's service instance,
 # so there is one per pod base URL: [oauth.scopes] "https://<pod host>" = "urn:opc:serviceInstanceID=...::all".
 OAUTH_IDCS = str(_pick("SMARTASS_OAUTH_IDCS", "oauth.idcs", "") or "").strip().rstrip("/")
 OAUTH_CLIENT_ID = str(_pick("SMARTASS_OAUTH_CLIENT_ID", "oauth.client_id", "") or "").strip()
 OAUTH_SCOPES = oauth_scopes(get(SETTINGS, "oauth.scopes"))
 OAUTH_DIR = HOME / "oauth"                         # one DPAPI-protected sign-in per pod (this Windows user)
-DRILL_CAPTURE_TIMEOUT_S = 45
-DRILL_RELOAD_WAIT_S = 25                           # after the one reload of a page that never asked for data
-DRILL_SETUP_S = 95                                 # sign-in + capture of one drill (S8: no call past 120 s)
-DRILL_IDLE_S = int(os.environ.get("SV_DRILL_IDLE_S", "300"))   # close the hidden browser (and free the profile) when idle
-DRILL_KEEP_WARM = os.environ.get("SV_DRILL_KEEP_WARM", "1") != "0"   # never close the hidden browser when idle
-DRILL_YIELD_IDLE_S = int(os.environ.get("SV_DRILL_YIELD_IDLE_S", "120"))  # owner lets go to a waiting session only after this much non-use
-DRILL_KEEPALIVE_S = int(os.environ.get("SV_DRILL_KEEPALIVE_S", "600"))  # idle seconds between sign-in checks
-DRILL_TABS = int(os.environ.get("SV_DRILL_TABS", "4"))         # drill pages loading at once (drill_tabs)
 DRILL_PARALLEL = int(os.environ.get("SV_DRILL_PARALLEL", "4"))   # getData calls in flight at once (drill_token)
-DRILL_ROUTE = os.environ.get("SV_DRILL_ROUTE", "browser")   # "browser" (hidden browser) | "token" (HTTPS with the user's token)
-DRILL_DIRECT = os.environ.get("SV_DRILL_DIRECT", "1") != "0"   # drill lines from one warm tab (drill_direct); 0 = page per piece
 ANSWER_PREFETCH = os.environ.get("SV_ANSWER_PREFETCH", "1") != "0"   # fetch an answer's pulls at once, while Excel opens
 DRILL_DERIVE = os.environ.get("SV_DRILL_DERIVE", "1") != "0"   # split siblings' drill queries built from one of EPM's (drill_derive)
 TEXT_FIXES = KNOWLEDGE_DIR / "text_fixes.json"              # shipped; replaced by every update

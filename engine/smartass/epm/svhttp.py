@@ -9,11 +9,9 @@ is the one exception: it is raised as it is and never falls back.
 
 BearerTransport posts over plain HTTPS with the user's OAuth access token (epm/oauth.py; no browser) to every pod that
 has a scope; without a sign-in it raises oauth.NotSignedIn, which the tool call answers with the sign-in page and code.
-BrowserTransport (posts from inside the drill's hidden Edge) is no longer used and goes with the browser stack. Tests
-use a fake transport."""
+Tests use a fake transport."""
 from __future__ import annotations
 
-import concurrent.futures as cf
 import datetime as dt
 import http.cookiejar
 import logging
@@ -28,9 +26,8 @@ from typing import Callable, Protocol
 from urllib.parse import urlsplit
 
 from ..knowledge import atlas
-from . import drill_browser, oauth, svxml
+from . import oauth, svxml
 from ..core import config
-from .drill_browser import DrillError
 from .grid import INVALID, MISSING, NOACCESS, Axis, Layout, full_pov, parse, validate_axes, verify_labels
 from ..xl.host import InputError
 
@@ -55,7 +52,7 @@ class SvHttpError(Exception):
 
 
 class RequestLost(SvHttpError):
-    """The request left but its answer did not come (tab navigated or closed, or the fetch timed out): EPM may still
+    """The request left but its answer did not come (the connection dropped, or the request timed out): EPM may still
     be working on it, so its session is dropped and the request goes again on another one."""
 
 
@@ -65,11 +62,6 @@ class Transport(Protocol):
 
 def _norm_dim(name: str) -> str:
     return name.removeprefix("All ").replace(" ", "").casefold()
-
-
-def _first_line(e: BaseException) -> str:
-    """One redacted line of an exception (Playwright messages carry call logs and can quote sso_token URLs)."""
-    return drill_browser.redact(next((ln for ln in str(e).splitlines() if ln.strip()), type(e).__name__))[:200]
 
 
 @dataclass
@@ -257,7 +249,7 @@ class SvHttp:
     def _ask(self, conn: str, body, read, fatal) -> object:
         """POST body(sid, cube) on a session of its own and read(answer); at most SVHTTP_SESSIONS at once per
         connection. An error fatal(e) does not rule out (maybe an expired session) drops that session and tries
-        once more on a new one. A session whose request failed in the browser is dropped too (EPM may still be
+        once more on a new one. A session whose request was lost on the way is dropped too (EPM may still be
         working on it)."""
         slot = self._slot(conn)
         if not slot.acquire(timeout=config.SVHTTP_TIMEOUT_S):
@@ -319,164 +311,8 @@ def _check_grid(lay: Layout, values: list[list]) -> None:
                 raise SvHttpError(f"non-numeric data in the provider grid (row {r + 1}, column {c + 1}: {v[:40]!r})")
 
 
-def _origin(url: str) -> str:
-    u = urlsplit(str(url or ""))
-    return f"{u.scheme}://{u.netloc}".lower()
-
-
 def _fetch_ms() -> int:
     return max(1, int(config.SVHTTP_TIMEOUT_S * 900))       # 90 % of the job's time limit, in ms
-
-
-def _close(page) -> None:
-    try:
-        page.close()
-    except Exception:   # noqa: BLE001 - the tab may already be gone
-        pass
-
-
-class BrowserTransport:
-    """Posts provider XML from a signed-in tab of the drill browser: its own tab for its pod (plan1) and one extra
-    tab per other pod (FinPlan: stratmodel), signed in once with the same SSO. Tab work runs on the browser's worker
-    thread (_tabs is only touched there); the request itself is in flight in the tab (DrillBrowser._fire), so many
-    posts run at once. Every failure to get an answer is an SvHttpError (so extract.route can fall back); a refused
-    write stays a ValueError.
-
-    `browser` is a callable returning the drill browser, resolved on every post: after
-    drill_browser.shutdown_shared() the next post uses the new shared browser, not the shut one."""
-
-    def __init__(self, browser: Callable[[], object]):
-        self._browser = browser
-        self._tabs: dict[str, tuple[object, object]] = {}       # pod base -> (browser context, page)
-
-    def post(self, base: str, body: str) -> str:
-        """Two tries: an answer that is not provider XML (signed out?) or a request lost with its tab signs in
-        again - unless another request already did (a stale failure), then it is simply sent again."""
-        svxml.check_read_only(body)
-        base = base.rstrip("/")
-        why, stale = "no answer", None
-        for _ in (1, 2):
-            status, text, stale = self._send(base, body, stale)
-            if isinstance(text, str) and ("<res_" in text or "<exception" in text):
-                return text                                       # provider XML, whatever the status: svxml judges
-            if not status:                  # never again on this sID: EPM may still be working on the first one
-                self._settle(base, stale)
-                raise RequestLost(f"Smart View provider at {base}: lost the request "
-                                  f"({_first_line(Exception(text))})")
-            why = f"answered HTTP {status}"          # a sign-in page: EPM never ran it, so the same sID may go again
-            log.warning("svhttp: %s from %s; trying again", why, base)
-        raise SvHttpError(f"Smart View provider at {base}: {why} twice (sign-in failed?)")
-
-    def _settle(self, base: str, stale) -> None:
-        """After a lost request: let the next one sign in again if its tab is still the one that failed."""
-        try:
-            b = self._browser()
-            b.submit(lambda s: self._drop_if_stale(b, s, base, stale)).result(timeout=30)
-        except Exception as e:   # noqa: BLE001 - the next request's own checks still apply
-            log.info("svhttp: could not reset the tab after a lost request: %s", _first_line(e))
-
-    def _send(self, base: str, body: str, stale) -> tuple[int, str, tuple]:
-        deadline = time.monotonic() + config.SVHTTP_TIMEOUT_S
-        fut = None
-        try:
-            b = self._browser()
-            fut = b.submit(lambda s: self._start(b, s, base, body, stale))
-            inner, page, gen = fut.result(timeout=config.SVHTTP_TIMEOUT_S)
-            try:
-                status, text = inner.result(timeout=max(0.1, deadline - time.monotonic()))
-            except DrillError as e:                               # the tab navigated or closed under the request
-                return 0, str(e), (page, gen)
-            return status, text, (page, gen)
-        except cf.CancelledError:
-            raise SvHttpError("the drill browser job was cancelled (browser restarting or shutting down)") from None
-        except cf.TimeoutError:
-            restarted = ""
-            if fut is not None and not fut.done() and not fut.cancel():   # queued: cancelled, never runs
-                try:                         # running and hung: restart OUR browser (like fin_drill's hang guard), so
-                    b.kill()                 # later queries and drills do not queue behind a stuck worker
-                    restarted = "; the hidden browser was restarted"
-                except Exception as e:   # noqa: BLE001 - the fallback must still be offered
-                    log.warning("svhttp: killing the hung drill browser failed: %s", _first_line(e))
-            raise SvHttpError(f"the drill browser did not answer within {config.SVHTTP_TIMEOUT_S:.0f} s"
-                              f"{restarted}") from None
-        except SvHttpError:                       # (a refused write raised above, before the job)
-            raise
-        except DrillError as e:                                   # includes DrillBusy
-            raise SvHttpError(str(e)) from None
-        except Exception as e:   # noqa: BLE001 - e.g. a raw Playwright error: never hand it to the caller
-            raise SvHttpError(f"browser error: {_first_line(e)}") from None
-
-    @staticmethod
-    def _own(b, base: str) -> bool:
-        return base == b.base.rstrip("/")
-
-    def _tab(self, b, s, base: str):
-        if self._own(b, base):
-            return s.page
-        ctx, page = self._tabs.get(base, (None, None))
-        if ctx is not s.ctx or page is None or page.is_closed():
-            page = s.ctx.new_page()
-            try:
-                b._login_once(page, s.deadline, base=base)
-            except DrillError as first:
-                log.warning("svhttp: sign-in on %s failed (%s); retrying in a fresh tab", base, first)
-                _close(page)
-                page = s.ctx.new_page()
-                try:
-                    b._login_once(page, s.deadline, base=base)
-                except DrillError as second:
-                    _close(page)
-                    raise SvHttpError(f"sign-in on {base} failed twice: {second}") from None
-            self._tabs[base] = (s.ctx, page)
-        return page
-
-    def _drop(self, b, s, base: str) -> None:
-        """Forget the tab that failed: the own pod's tab is the drill session (sign in again); another pod's extra
-        tab is closed and opened afresh next time, leaving the drill session alone."""
-        if self._own(b, base):
-            s.ready = False
-            return
-        _, page = self._tabs.pop(base, (None, None))
-        if page is not None:
-            _close(page)
-
-    def _drop_if_stale(self, b, s, base: str, stale) -> None:
-        """Drop the tab a failed request used - unless it was renewed since (another request signed in again):
-        many requests fail together when a tab goes, and only the first may sign in again."""
-        page, gen = stale
-        if self._own(b, base):
-            if s.page is page and getattr(s, "gen", 0) == gen:
-                self._drop(b, s, base)
-        elif self._tabs.get(base, (None, None))[1] is page:
-            self._drop(b, s, base)
-
-    def _start(self, b, s, base: str, body: str, stale) -> tuple:
-        """Worker thread: a signed-in tab on the pod, then the request in flight: (future, page, sign-in gen)."""
-        s.deadline = time.monotonic() + config.SVHTTP_TIMEOUT_S
-        if stale is not None:
-            self._drop_if_stale(b, s, base, stale)
-        why = "no answer"
-        for attempt in (1, 2):
-            try:
-                b._ensure(s)
-                page = self._tab(b, s, base)
-                here = _origin(page.url)
-                if here != _origin(base):       # never post the session id from another origin (e.g. the IdP page)
-                    why = f"the tab is on {drill_browser.redact(here)}, not {base}"
-                    log.warning("svhttp: %s; signing in again", why)
-                    self._drop(b, s, base)
-                    continue
-                fut = b._fire(s, page, "/HyperionPlanning/SmartView",
-                              {"method": "POST", "body": body, "headers": {"Content-Type": "text/xml"}},
-                              _fetch_ms() / 1000)
-                return fut, page, getattr(s, "gen", 0)
-            except (SvHttpError, DrillError):                    # sign-in already retried inside
-                raise
-            except Exception as e:   # noqa: BLE001 - the tab navigated or the browser died: one fresh try
-                if attempt == 2:
-                    raise SvHttpError(f"browser error at {base}: {_first_line(e)}") from None
-                self._drop(b, s, base)
-        raise SvHttpError(f"Smart View provider at {base}: {why} twice (sign-in failed?)")
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -517,7 +353,7 @@ class BearerTransport:
         for attempt in (1, 2):
             try:
                 status, text = self._send(base, body, token)
-            except OSError as e:                  # it may have reached EPM: never again on this sID (as a lost tab)
+            except OSError as e:                  # it may have reached EPM: never again on this sID
                 raise RequestLost(f"Smart View provider at {base}: lost the request ({type(e).__name__})") from None
             if "<res_" in text or "<exception" in text:
                 return text                                       # provider XML, whatever the status: svxml judges

@@ -1,8 +1,8 @@
 """OAuth 2 sign-in to EPM Cloud for the bearer route (svhttp.BearerTransport): Oracle's device-code flow against the
 identity domain, with a public client an administrator registered there (Oracle: 'Authentication with OAuth 2 - Only
 for OCI (Gen 2) Environments', REST APIs for Oracle Fusion Cloud EPM). Live spike 2026-11-19 on the FinPlan pod: the
-access token is accepted by /HyperionPlanning/SmartView as well as by the REST API, so a pod with a scope needs no
-browser for grids (drill-through over the token is untested and stays in the browser).
+access token is accepted by /HyperionPlanning/SmartView as well as by the REST API; grids (svhttp.BearerTransport)
+and drill lines (drill_token over epmhttp) go over it, with no browser.
 
 What the code rests on (Oracle's page and the spike):
 - a token covers ONE environment (its scope names the service instance), so there is one sign-in and one token file
@@ -15,8 +15,9 @@ What the code rests on (Oracle's page and the spike):
 A tool call that meets NotSignedIn answers with sign_in_message(): the page and a code per pod (pending_logins starts
 the device login and finishes it in the background), so nothing waits for a browser.
 
-Off until config.toml has [oauth] idcs, client_id and [oauth.scopes] (pod base URL = scope). Tokens are
-DPAPI-protected files under HOME\\oauth (this Windows user) and are never logged or returned by status()."""
+Needs [oauth] idcs, client_id and [oauth.scopes] (pod base URL = scope) in config.toml; without them a tool call
+answers with NOT_SET_UP. Tokens are DPAPI-protected files under HOME\\oauth (this Windows user) and are never logged or
+returned by status()."""
 from __future__ import annotations
 
 import contextlib

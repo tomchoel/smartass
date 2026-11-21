@@ -10,9 +10,6 @@ site = "1676489c-5c72-46b7-ba63-9ab90c4aad44"
 name = "Internal"   # the label's name and the content bits Excel records for it (a new workbook's built file)
 content_bits = 2
 
-[drill]          # browsers tried in order for fin_drill (Edge first: Chrome's UserDataDir policy blocks a hidden Chrome)
-channels = ["msedge", "chrome"]
-
 [archive]        # under the user's OneDrive for Business root; never written unless explicitly allowed
 subdir = "Analyse (Telenor Norge AS) - Produktregnskapet"
 
@@ -22,8 +19,8 @@ folder = ""
 [http]           # localhost-only API (the secret is per user, in config.toml)
 port = 47811
 
-[oauth]          # bearer route: grids over plain HTTPS with the user's own OAuth token, no hidden browser (smartass login).
-idcs = ""        # Off until idcs, client_id and at least one scope are set. The identity domain's base URL,
+[oauth]          # grids and drill lines over plain HTTPS with the user's own OAuth token (smartass login). Required:
+idcs = ""        # without idcs, client_id and at least one scope no call reaches EPM. The identity domain's base URL,
 client_id = ""   # and a PUBLIC client registered there with device-code + refresh-token grants (no secret exists).
 # One scope per pod (a token covers one environment), keyed by the pod's base URL:
 # [oauth.scopes]

@@ -4,13 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-
-# Before core.config is imported: a CLI run gets its own browser profile slots and no warm browser, so it never
-# collides with the running servers' slots (an explicit setting wins).
-os.environ.setdefault("SV_DRILL_PROFILE_SLOTS", "6")
-os.environ.setdefault("SV_DRILL_KEEP_WARM", "0")
 
 
 def utf8_stdio() -> None:

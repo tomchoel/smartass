@@ -1,6 +1,6 @@
 """The async drill (ledger lines behind a FinLite cell) and its Excel half, shared by fin_drill and the recipes that
-drill (lines_ranking). drill() runs on the event loop (Smart View link via the host, then the hidden browser);
-write() runs inside a host job."""
+drill (lines_ranking). drill() runs on the event loop (the drill link over HTTP, then the lines over the user's
+token: drill_token); write() runs inside a host job."""
 from __future__ import annotations
 
 import logging
@@ -13,12 +13,11 @@ from mcp.server.mcpserver.exceptions import ToolError
 from ..core import config
 from . import ops
 from . import drilltime, oauth
+from .drillcore import CellTooWide, NoDrillData, TooManyLines
 
 log = logging.getLogger("smartview")
 SOURCE = "Kilde: Data Integration drill-through (FinLite)."
 EMPTY_PROVIDER = "Empty response from provider"
-_ticks: list = []           # drill pages in flight (event loop only)
-_tick = None                # their one 'still working' progress task
 
 
 @dataclass
@@ -36,11 +35,6 @@ class DrillResult:
     split_check: float | None = None
     warnings: list[str] = field(default_factory=list)
     stages: dict = field(default_factory=dict)
-
-
-def browser():
-    from .drill_browser import shared_browser
-    return shared_browser()
 
 
 async def _call(fn, what: str = "call"):
@@ -73,7 +67,7 @@ def say(text: str) -> None:
 
 async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: int = config.DRILL_MAX_LINES,
                 split: str = "auto") -> DrillResult:
-    """Drill a cell to its ledger lines: link (Smart View), lines (hidden browser), normalise, reconcile, profile.
+    """Drill a cell to its ledger lines: link (Smart View), lines (token route), normalise, reconcile, profile.
     One retry (with a note) when Smart View answers 'Empty response from provider'. Always live: nothing is cached."""
     import asyncio
 
@@ -135,8 +129,9 @@ def combine(parts: list[DrillResult]) -> DrillResult:
 
 async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], list[str], str | None]:
     """A recipe's drills ([{alias, year, cells}], d1 first) -> ({alias: result}, warnings, why d1 failed or None).
-    Every drill runs at once (Excel links queue on the host; the pages load in parallel tabs). A failed first drill
-    drops the answer to the cube (no last year without this year); a later failure is a warning."""
+    Every drill runs at once (Excel links queue on the host; at most config.DRILL_PARALLEL getData calls are in
+    flight). A failed first drill drops the answer to the cube (no last year without this year); a later failure is a
+    warning."""
     import asyncio
 
     async def one(d: dict):
@@ -165,72 +160,23 @@ async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], 
     return out, warnings, None
 
 
-def _token_route() -> bool:
-    return config.DRILL_ROUTE == "token"
-
-
 def _lines_source():
-    """The object that fetches drill lines: the token route (drill_token) when config.DRILL_ROUTE is "token", else
-    the warm tab (drill_direct). Both have fetch(url, max_lines) and lines(query, url, max_lines)."""
-    from . import drill_direct, drill_token
-    return drill_token.shared() if _token_route() else drill_direct.shared_direct()
+    """The object that fetches drill lines: the token route (drill_token), with fetch(url, max_lines) and
+    lines(query, url, max_lines). Looked up on every call, so a test's fake (and conftest's guard) binds."""
+    from . import drill_token
+    return drill_token.shared()
 
 
 async def _drill_fetch(url: str, max_lines: int) -> dict:
-    """Lines of one drill piece: over the token route when configured (no page route behind it: only "no data"
-    gives an empty piece, every other error is raised as it is); else from the warm tab (drill_direct, two requests)
-    first, and the page route (a page per piece, tab pump) when the direct route fails. No data at this cell -> an
-    empty piece with EPM's note."""
+    """Lines of one drill piece over the token route. No data at this cell -> an empty piece with EPM's note; every
+    other error is raised as it is."""
     import asyncio
 
-    from . import drill_direct
-    from .drill_browser import CellTooWide, TooManyLines
-    if _token_route():
-        try:
-            with drilltime.span("token drill"):
-                return await asyncio.wait_for(_lines_source().fetch(url, max_lines), 300)
-        except drill_direct.NoDrillData as e:
-            return {"items": [], "total": 0, "view": None, "secs": 0, "note": str(e)}
-    if config.DRILL_DIRECT:
-        try:
-            with drilltime.span("direct drill"):
-                return await asyncio.wait_for(drill_direct.shared_direct().fetch(url, max_lines), 300)
-        except drill_direct.NoDrillData as e:
-            return {"items": [], "total": 0, "view": None, "secs": 0, "note": str(e)}
-        except (CellTooWide, TooManyLines):
-            raise
-        except Exception as e:   # noqa: BLE001 - the page route takes over for this piece
-            log.warning("direct drill failed (%s); using the page route", e)
-    return await _page_fetch(url, max_lines)
-
-
-async def _page_fetch(url: str, max_lines: int) -> dict:
-    """One drill page through the tab pump (several at once, drill_tabs), with a hang guard: past the budget every
-    running drill is stopped, only OUR headless browser is killed (the next drill starts a fresh one) and the tool
-    fails readably instead of waiting forever."""
-    import asyncio
-    import math
-
-    from .drill_browser import DrillBusy
-    from .drill_tabs import shared_pump
-    budget = 300 + 10 * math.ceil(max_lines / config.DRILL_PAGE)      # login + capture (+ one browser restart),
-                                                                       # then ~10 s per page
-    global _tick
-    if _tick is None or _tick.done():               # one 'still working' note for all the drills running at once
-        _tick = asyncio.create_task(_progress("drill (hidden browser: sign-in, drill pages, lines)"))
-    _ticks.append(1)
     try:
-        with drilltime.span("browser page"):
-            return await asyncio.wait_for(asyncio.wrap_future(shared_pump().fetch(url, max_lines)), budget)
-    except asyncio.TimeoutError:
-        shared_pump().cancel_all(f"a drill page did not finish within {budget} s")
-        await asyncio.to_thread(browser().kill)
-        raise ToolError(f"The drill page did not finish within {budget} s; the hidden browser was restarted. "
-                        "Try again, or narrow the cell.") from None
-    except DrillBusy as e:
-        raise ToolError(str(e)) from None
-    finally:
-        _ticks.pop()
+        with drilltime.span("token drill"):
+            return await asyncio.wait_for(_lines_source().fetch(url, max_lines), 300)
+    except NoDrillData as e:
+        return {"items": [], "total": 0, "view": None, "secs": 0, "note": str(e)}
 
 
 async def _all(coros) -> list:
@@ -243,25 +189,6 @@ async def _all(coros) -> list:
     except BaseExceptionGroup as eg:   # noqa: F821 - builtin since Python 3.11
         raise eg.exceptions[0] from None
     return [t.result() for t in tasks]
-
-
-async def _progress(what: str) -> None:
-    """'still working: <what> (n s)' to the client every timing.PROGRESS_AFTER_S (tools that declare ctx)."""
-    import asyncio
-
-    from ..core import timing
-    from ..core.serverkit import _ctx, progress_secs
-    ctx = _ctx.get()
-    if ctx is None:
-        return
-    while True:
-        await asyncio.sleep(timing.PROGRESS_AFTER_S)
-        if not _ticks:                              # every drill page has finished
-            return
-        try:
-            await ctx.report_progress(progress_secs(), None, f"still working: {what} ({progress_secs():.0f}s)")
-        except Exception:   # noqa: BLE001 - a progress note must never break the drill
-            return
 
 
 class _KnownTooWide(Exception):
@@ -309,7 +236,6 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
     state['left'] is the line budget still free (max_lines minus the lines already fetched): a cell bigger than
     that fails with its size BEFORE any split (spec 4). Returns pieces: [{cell, cube_value, items, view, secs}]."""
     from . import drill_split
-    from .drill_browser import CellTooWide, TooManyLines
     link = await _link(connection, cell)
     if depth == 0:
         state["cube"] = link["cube_value"]
@@ -350,11 +276,12 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
 
 async def _children(connection: str, parts: list[dict], max_lines: int, split: str, state: dict,
                     depth: int) -> list[dict]:
-    """The split children drilled at once (their pages load in parallel tabs), pieces in the plan's order. Their
-    values come first in ONE retrieve, so an empty (#Missing) child costs no drill link (most children of a wide
-    entity are empty). Each starts with the budget free at that moment, so the total is checked again at the end."""
+    """The split children drilled at once, pieces in the plan's order. Their values come first in ONE retrieve, so an
+    empty (#Missing) child costs no drill link (most children of a wide entity are empty). Each starts with the budget
+    free at that moment, so the total is checked again at the end. With config.DRILL_DERIVE the siblings' queries are
+    built from one of EPM's (_children_derived)."""
     vals = await _child_values(connection, parts)
-    if vals is not None and (config.DRILL_DIRECT or _token_route()) and config.DRILL_DERIVE:
+    if vals is not None and config.DRILL_DERIVE:
         done = await _children_derived(connection, parts, vals, max_lines, split, state, depth)
     else:
         async def one(i: int, pc: dict) -> list[dict]:
@@ -422,7 +349,7 @@ async def _derived_piece(cell: dict, cube, template: tuple, body: str, state: di
         with drilltime.span("derived drill"):
             res = await asyncio.wait_for(_lines_source().lines(
                 q, template[2], min(config.DRILL_SPLIT_AT, max(state["left"], 0))), 300)
-    except Exception as e:   # noqa: BLE001 - TooManyLines, a drill or browser error, a timeout: EPM is asked
+    except Exception as e:   # noqa: BLE001 - TooManyLines, a drill error, a timeout: EPM is asked
         log.info("derived drill of %s not used (%s: %s); asking EPM", cell, type(e).__name__, e)
         return None
     total = 0.0

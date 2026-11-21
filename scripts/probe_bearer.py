@@ -8,8 +8,7 @@ Prints status codes, application and data source names and timings; never a toke
 
 First run 2026-11-19 (FinPlan pod): REST 200, Smart View connect 200, the pod's own data source list, /aif/rest 200.
 A pod whose scope is missing or wrong answers 401 'Token Audience'. Not probed here: drill-through over the token
-(the SUI query and getData are UI endpoints; getData from a session that never loaded a drill page has signed the
-whole EPM session out before, see epm/drill_direct.py)."""
+(epm/drill_token.py; its live check against the old browser route: docs/audit/2026-11-19-drill-token-vs-browser.md)."""
 from __future__ import annotations
 
 import json

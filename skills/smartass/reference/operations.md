@@ -67,9 +67,10 @@
   waiting save after the reply at its first contact, so that save can run between its batches. The add-in runs
   nothing but job files the engine writes to `inproc\jobs` (a formula calling it gets #N/A); the user's settings it
   turns off while it works are put back by each batch itself, also when a step fails.
-- **Fetch route.** Smart View HTTP first: with the user's OAuth token where a pod has one (`smartass login`, no
-  browser), else through the shared hidden Edge (signs in silently). A grid HTTP could not fetch is pulled as an ad
-  hoc grid in Excel instead (`routes` in the reply; a warning says why).
+- **Fetch route.** Smart View HTTP with the user's OAuth token (`smartass login`; no browser). A grid HTTP could not
+  fetch (a pod without a scope, a lost request) is pulled as an ad hoc grid in Excel instead (`routes` in the reply;
+  a warning says why). A missing sign-in is answered with a page and a code instead (show both to the user; after
+  the approval call again); a PC without `[oauth]` in config.toml gets the set-up text.
 - **Read-only.** Submit, calculate and business rules do not exist in the bridge.
 - **Smart View options.** Global options 104 (messages: none), 109 (home panel off), 110 (comment dialog off) are
   set while the engine's Excel runs. The user's originals are saved in `smartview_options_original.json` and
@@ -90,7 +91,8 @@
 | Query log (audit) | `logs\queries.jsonl` |
 | SSO watcher log + heartbeat | `logs\sso_watcher_ps.log`, `logs\sso_watcher.heartbeat` |
 | Sessions (which workbook belongs to which session) | `sessions.json` |
-| Drill cache, drill browser profile, failed drill pages | `drill.db`, `drill_edge\`, `logs\drill_fail_*` |
+| EPM sign-ins (one per pod, DPAPI) | `oauth\` |
+| Left from before 0.6.0, unused, safe to delete by hand: drill cache, hidden browser profiles, failed drill pages | `drill.db`, `drill_edge*\`, `logs\drill_fail_*` |
 | Text repairs of your own | `text_fixes.json` |
 | Answer workbooks | `paths.analyser` (`<OneDrive>\smartass\analyser\<project>\`) |
 | An answer's file while it is moved in (deleted after) | `tmp\` |
@@ -125,7 +127,8 @@ Every error names one next step. The common ones:
 | Warning `HTTP route failed (…); the grid was read through Smart View in Excel instead` | The data WAS fetched, through Excel. No action needed for the answer. |
 | `checks.sheet_equals_model` = `DIFF in n cells` (+ `mismatches`) | Excel calculated something else than the model: report it; do not quote those cells. |
 | Login window / `Smart View's sign-in window stopped responding` / `stayed open for more than 30s` | Sign-in: the SSO watcher clicks 'Telenor SSO'. The engine restarts its own hidden Excel when its Login hangs; a Login in the user's Excel needs the user. If an app holding WebView2 is named (often PowerPoint), ask the user to close it. |
-| Doctor `WARN oauth <pod>: not signed in` / `sign-in ended` | Answers still work (hidden browser), only slower to start. Run `smartass login` in the background, show the user the page and code it prints, and let it wait for their approval. |
+| Doctor `WARN oauth <pod>: not signed in` / `sign-in ended`, or a tool reply with a sign-in page and code | Nothing reaches that pod until the user approves. Show the user the page and code from the reply (or run `smartass login` in the background and show what it prints), let them approve, then call again. |
+| Doctor `FAIL oauth not set up` / reply `EPM access is not set up on this PC` | `[oauth]` is missing in config.toml: the user (or IT) adds idcs, client_id and the scopes, then `smartass login`. |
 | `EPM gave no response; restarting the engine's hidden Excel` / `Empty response from provider` | Retried once after a restart of the engine's Excel; if it persists, the user signs in once in their own Excel, then ask again. |
 | `Your Excel is in edit mode…` / `Excel is busy` | A cell is being typed in or a dialog is open: the user presses Enter or Esc, then ask again. |
 | `…is in the Produktregnskapet archive` | Archive guard: answers never go into the archive. Use the session workbook. |
@@ -142,5 +145,5 @@ Every error names one next step. The common ones:
 | Repeated `HostError` | `fin_status(restart=True)`, then retry; if it repeats, `smartass doctor --bundle` to the maintainer. |
 | HTTP `409 busy` / `401` / `413` | `smartass serve`: one request at a time / wrong secret / body over 1 MB. |
 
-Drill errors (sign-in, blank drill page, too wide, no drill report): [drill.md](drill.md).
+Drill errors (sign-in, set-up, session lost, too wide, no drill report): [drill.md](drill.md).
 Doctor checks one by one: `docs\troubleshooting.md` in the repo.

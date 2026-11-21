@@ -1,6 +1,5 @@
-"""The drill's pure parts, shared by the page route (drill_browser, drill_direct) and the token route: the errors, the
-getData URL and SUI query handling, the answer parsing and the paging bookkeeping. Nothing here touches the network,
-Excel or a browser.
+"""The drill's pure parts, used by the token route (drill_token) and drillstep: the errors, the SUI query handling,
+the answer parsing and the paging bookkeeping. Nothing here touches the network or Excel.
 
 Error messages and log lines never carry a URL query (the drill link holds an sso_token): redact() every URL that is
 logged or put in a message."""
@@ -19,10 +18,6 @@ log = logging.getLogger("smartview.drill")
 
 class DrillError(Exception):
     pass
-
-
-class DrillBusy(DrillError):
-    """Another MCP server process owns the drill profile (its hidden browser is alive)."""
 
 
 class TooManyLines(DrillError):
@@ -55,15 +50,15 @@ LOST = (0, 301, 302, 303, 307, 401, 403)
 
 
 def expired(status: int, pay: dict | None) -> bool:
-    """A getData answer that means 'signed out': 401/403, a failed fetch (status 0: cross-origin redirect to the
-    sign-in page, or a request lost on the way), a redirect (301/302/303/307: the token route never follows one, and
-    the pod answers a lost session with one to its exit page) or a 200 without JSON (the sign-in page itself)."""
+    """A getData answer that means 'signed out': 401/403, a request lost on the way (status 0), a redirect
+    (301/302/303/307: the token route never follows one, and the pod answers a lost session with one to its exit page)
+    or a 200 without JSON (the sign-in page itself)."""
     return status in LOST or (status == 200 and pay is None)
 
 
 class Pager:
-    """page_through's bookkeeping, one getData answer at a time (also drill_direct's async loop). take() says what
-    comes next: 'more' (post again at .off), 'recover' (sign in again, then post at the same .off) or 'done'."""
+    """getData paging bookkeeping, one answer at a time (drill_token's loop). take() says what comes next: 'more'
+    (post again at .off), 'recover' (take a new session, then post at the same .off) or 'done'."""
 
     def __init__(self, max_lines: int, progress: Callable[[int, int | None], None] | None = None,
                  can_recover: bool = True):

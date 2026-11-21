@@ -2,7 +2,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from smartass.core import serverkit as server
-from smartass.epm.drill_browser import CellTooWide
+from smartass.epm.drillcore import CellTooWide
 from smartass.xl.host import HostTimeout
 
 
@@ -111,7 +111,7 @@ def test_explain_gives_one_next_step_for_unknown_errors():
 
 @pytest.mark.anyio
 async def test_drill_errors_keep_their_class_advice():
-    from smartass.epm.drill_browser import DrillError
+    from smartass.epm.drillcore import DrillError
 
     async def fin_drill(cell=None):
         raise DrillError("getData returned HTTP 500 at offset 0.")

@@ -1,4 +1,4 @@
-"""drillcore: the drill's pure parts (errors, URL building, parsing, redaction), figures invented."""
+"""drillcore: the drill's pure parts (errors, URL building, parsing, redaction, paging), figures invented."""
 import json
 
 import pytest
@@ -67,3 +67,131 @@ def test_redact_strips_queries_and_tokens():
     out = redact(s)
     assert "SECRET" not in out and "module=" not in out and out.startswith("Could not open https://x.oraclecloud")
     assert "SECRET" not in redact("token sso_token=SECRET&x=1 in a console line")
+
+# ------------------------------------------------------------------ Pager: getData paging bookkeeping
+def _page_through(post, max_lines, progress=None, recover=None):
+    """The paging loop drill_token runs around Pager, synchronously: post(offset) -> (status, text)."""
+    pg = dc.Pager(max_lines, progress, recover is not None)
+    while True:
+        step = pg.take(*post(pg.off))
+        if step == "recover":
+            recover()
+        elif step == "done":
+            return pg.result()
+
+
+def _pages(total, sizes, has_more_always=False, include_total=True):
+    """Fake getData: answers per offset from a list of page sizes."""
+    pages, off = {}, 0
+    for i, n in enumerate(sizes):
+        pay = {"items": [{"AMOUNTX": 1.0}] * n, "hasMore": has_more_always or i < len(sizes) - 1}
+        if include_total:
+            pay["totalResults"] = total
+        pages[off] = json.dumps({"responsePayload": pay})
+        off += n
+    calls = []
+    extra = {"items": [{"AMOUNTX": 1.0}], "hasMore": True}
+    if include_total:
+        extra["totalResults"] = total
+
+    def post(o):
+        calls.append(o)
+        return 200, pages.get(o, json.dumps({"responsePayload": extra}))
+    return post, calls
+
+
+def test_pager_pages_until_total():
+    post, calls = _pages(1231, [500, 500, 231])
+    seen = []
+    items, total = _page_through(post, 300000, lambda n, t: seen.append((n, t)))
+    assert (len(items), total, calls) == (1231, 1231, [0, 500, 1000])
+    assert seen[-1] == (1231, 1231)
+
+
+def test_pager_follows_has_more_past_a_short_total(caplog):
+    post, calls = _pages(81, [81, 1])             # spec §9.2: totalResults may be one short
+    items, total = _page_through(post, 300000)
+    assert len(items) == 82 and total == 81 and calls == [0, 81]
+    assert "totalResults was 81" in caplog.text
+
+
+def test_pager_safety_cap_when_has_more_never_ends(monkeypatch):
+    from smartass.core import config
+    monkeypatch.setattr(config, "DRILL_PAGE", 10)
+    post, calls = _pages(81, [81], has_more_always=True)   # then 1-line pages with hasMore forever
+    items, total = _page_through(post, 300000)
+    assert len(items) == 81 + 10 and len(calls) == 11
+
+
+def test_a_piece_up_to_the_split_size_is_one_getdata_call():
+    """EPM's offset pages have no stable order: a 623-line cell paged by 500 came back with duplicates and a
+    different sum each time (measured 02.11.2026). So any piece the split allows is fetched in ONE call."""
+    from smartass.core import config
+    n, offsets = config.DRILL_SPLIT_AT, []
+    assert n <= config.DRILL_PAGE
+
+    def post(off):
+        limit = config.DRILL_PAGE                           # the getData limit drill_token asks for
+        offsets.append(off)
+        got = min(limit, n - off)
+        return 200, json.dumps({"responsePayload": {"items": [{"AMOUNTX": "-1"}] * got, "totalResults": n,
+                                                    "hasMore": off + got < n}})
+    items, total = _page_through(post, config.DRILL_MAX_LINES)
+    assert len(items) == n and offsets == [0]
+
+
+def test_pager_limit_holds_without_total():
+    post, _ = _pages(None, [500] * 10, has_more_always=True, include_total=False)
+    with pytest.raises(dc.TooManyLines) as e:
+        _page_through(post, 1200)
+    assert e.value.total >= 1200
+
+
+def test_pager_limit_from_total():
+    post, calls = _pages(5000, [500], has_more_always=True)
+    with pytest.raises(dc.TooManyLines) as e:
+        _page_through(post, 1000)
+    assert e.value.total == 5000 and calls == [0]
+
+
+def test_pager_http_error_with_json_fails():
+    body = json.dumps({"responsePayload": {"items": [], "totalResults": 0}})
+    with pytest.raises(DrillError, match="HTTP 500"):
+        _page_through(lambda o: (500, body), 1000, recover=lambda: None)
+
+
+def test_pager_recovers_once_and_resumes_at_the_offset():
+    post, calls = _pages(1231, [500, 500, 231])
+    state = {"expired": True, "recovered": 0}
+
+    def flaky(o):
+        if o == 500 and state["expired"]:
+            calls.append(o)
+            return 0, "TypeError: Failed to fetch"
+        return post(o)
+
+    def recover():
+        state["expired"] = False
+        state["recovered"] += 1
+    items, total = _page_through(flaky, 300000, recover=recover)
+    assert len(items) == 1231 and state["recovered"] == 1 and calls == [0, 500, 500, 1000]
+
+
+def test_pager_a_second_lost_session_fails():
+    n = {"r": 0}
+    with pytest.raises(DrillError, match="HTTP 401"):
+        _page_through(lambda o: (401, "<html>sign in</html>"), 1000, recover=lambda: n.__setitem__("r", n["r"] + 1))
+    assert n["r"] == 1
+
+def test_pager_steps_one_answer_at_a_time():
+    pg = dc.Pager(10, can_recover=True)
+    page = lambda items, more, total=None: json.dumps({"responsePayload": {"items": items, "hasMore": more,  # noqa: E731
+                                                                          "totalResults": total}})
+    assert pg.take(200, page([1, 2], True, 3)) == "more" and pg.off == 2
+    assert pg.take(200, "<html>exit</html>") == "recover" and pg.off == 2
+    assert pg.take(200, page([3], False)) == "done"
+    assert pg.result() == ([1, 2, 3], 3)
+    with pytest.raises(DrillError, match="HTTP 200 without data at offset 0"):
+        dc.Pager(10, can_recover=False).take(200, "<html/>")
+    with pytest.raises(dc.TooManyLines):
+        dc.Pager(2).take(200, page([1], True, 3))

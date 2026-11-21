@@ -2,7 +2,7 @@
 """smartass: the MCP server (stdio; started by run_server.py through child_server.py). Tools: fin_analyze (new
 question or follow-up patch), fin_lookup, fin_status, fin_refresh, fin_drill, and xl_snapshot / xl_revert / xl_tidy
 for edits to open workbooks made with Excel MCP. Error text (guard), Excel jobs (_call_user, progress notes) and the
-lifespan (warm-up, closing the hidden Excel) come from core.serverkit."""
+lifespan (keeping the EPM sign-ins fresh, closing the hidden Excel) come from core.serverkit."""
 from __future__ import annotations
 
 import asyncio
@@ -146,7 +146,7 @@ async def _draw_job(fn, what: str, question: str | None) -> dict:
 
 
 async def _drill(cell: dict):
-    """The FinLite ledger lines behind one cube cell (v1 drill: Smart View link, hidden browser, reconciliation)."""
+    """The FinLite ledger lines behind one cube cell (v1 drill: Smart View link, token route, reconciliation)."""
     from .epm import drillstep
     return await drillstep.drill(cell, connection="FinLite")
 
@@ -406,7 +406,7 @@ async def fin_critic(q: int | None = None, scores: list[int] | None = None, note
 async def fin_status(restart: bool = False) -> dict:
     """Health: version, atlas age, knowledge build (metrics, facts, drafts awaiting approval), where answer files go,
     the last save Excel did after a reply (save_after_reply: workbook, ok, error, seconds, when; and how many are still
-    to come), and the doctor checks (config, Excel, Smart View, VBA access, EPM, drill browser, atlas, knowledge, output
+    to come), and the doctor checks (config, Excel, Smart View, VBA access, EPM, oauth sign-in, atlas, knowledge, output
     folder, HTTP API, update; only problems listed).
     restart=True after repeated errors or to load new code: the relay starts a fresh server process (its hidden
     Excel closes); run without the relay, only this server's own Excel is closed (it restarts on the next pull).

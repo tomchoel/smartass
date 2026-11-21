@@ -1,6 +1,6 @@
 """`smartass login`: the EPM sign-in for the bearer route (epm/oauth.py). One browser approval per pod with a
-scope (device code: the page opens, the code is on the clipboard); after that grids need neither a browser nor a
-sign-in page for as long as smartass is used at least once a week."""
+scope (device code: the page opens, the code is on the clipboard); after that grids and drill lines need no sign-in
+page for as long as smartass is used at least once a week."""
 from __future__ import annotations
 
 import subprocess

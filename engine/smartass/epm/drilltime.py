@@ -1,6 +1,6 @@
-"""Where a recipe's drills spend their time (Excel drill links, browser start, sign-in, drill pages): thread-safe
-totals per kind, read once per answer into its timings ('drills.<kind> (n)': seconds summed over the calls; the
-pages and links overlap, so the sums do not add up to the wall time)."""
+"""Where a recipe's drills spend their time (drill links over HTTP or Excel, the token drill, derived pieces):
+thread-safe totals per kind, read once per answer into its timings ('drills.<kind> (n)': seconds summed over the
+calls; the drills and links overlap, so the sums do not add up to the wall time)."""
 from __future__ import annotations
 
 import threading

@@ -94,3 +94,12 @@ def test_the_com_writers_are_gone():
     src = (root / "pipeline.py").read_text(encoding="utf-8")
     assert "RENDER" not in src and "owned" not in src and "_backup(" not in src
     assert not hasattr(__import__("smartass.render.excel", fromlist=["x"]), "write_answer")
+
+def test_nothing_in_the_engine_needs_a_browser():
+    import pathlib, smartass
+    root = pathlib.Path(smartass.__file__).parent
+    hits = [p.name for p in root.rglob("*.py")
+            if "playwright" in p.read_text(encoding="utf-8") or "drill_browser" in p.read_text(encoding="utf-8")]
+    assert hits == []
+    assert "playwright" not in (root.parent / "pyproject.toml").read_text(encoding="utf-8")
+    assert "drill_browser" not in [c.__name__.lstrip("_") for c in doctor.CHECKS]

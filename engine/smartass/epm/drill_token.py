@@ -20,7 +20,7 @@ may take; after that it goes anyway and says so in the log.
 The bound on retries: a piece retries once per key generation - never twice on the same key - and at most
 MAX_RENEWALS times in all (its drill query, its view and its getData pages together). A session that is lost again
 on a newer key is retried once more on the next key; a session lost after every new key ends the piece after
-MAX_RENEWALS + 1 lost answers with the browser route's text (the drill query's / the view's "signed out?", Pager's
+MAX_RENEWALS + 1 lost answers with the drill's usual text (the drill query's / the view's "signed out?", Pager's
 "getData returned HTTP n without data at offset m"). A piece therefore asks for at most MAX_RENEWALS new keys.
 
 Read-only: the session refuses anything off its allowlist; getData runs EPM's SELECT. The key is a secret like the
@@ -96,8 +96,8 @@ class _Budget:
 
 
 class TokenDrill:
-    """The session key and the view cache of one pod (shared by every event loop), and the drill on top: the same
-    calls and result as drill_direct.DirectDrill. http: an object with EpmSession's request()."""
+    """The session key and the view cache of one pod (shared by every event loop), and the drill on top: fetch() and
+    lines(), as drillstep calls them. http: an object with EpmSession's request()."""
 
     def __init__(self, base: str | None = None, http=None):
         self.base = (base or config.EPM_BASE or "").rstrip("/")
@@ -215,7 +215,7 @@ class TokenDrill:
                     raise DrillError(f"EPM answered the drill view with HTTP {r.status}")
                 if not budget.may_retry(key):
                     log.info("token drill: the drill view found the session gone again (%s)", _why(r.status))
-                    raise SignedOut("EPM answered the drill view with a page, not JSON (signed out?)")  # drill_direct's
+                    raise SignedOut("EPM answered the drill view with a page, not JSON (signed out?)")
                 budget.spend(key)
                 log.info("token drill: the drill view found the session gone (%s); a new key", _why(r.status))
                 self._key, self._dead = None, key
@@ -245,7 +245,7 @@ class TokenDrill:
     async def lines(self, q: SuiQuery, warm_url: str, max_lines: int,
                     progress: Callable[[int, int | None], None] | None = None) -> dict:
         """The lines of a drill query, paged; a lost session takes a new key (Pager's recover) and the same offset
-        is asked again (the retry bound: module docstring). warm_url is DirectDrill's: there is no page to warm."""
+        is asked again (the retry bound: module docstring). warm_url (the template piece's drill link) is not used."""
         return await self._lines(q, max_lines, progress, _Budget())
 
     async def _lines(self, q: SuiQuery, max_lines: int, progress: Callable[[int, int | None], None] | None,

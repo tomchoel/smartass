@@ -84,7 +84,7 @@ def test_the_cli_routes_login_and_its_flags(monkeypatch):
     assert seen == [("run", False), ("run", True), "show", "forget"]
 
 
-def test_doctor_oauth_is_ok_when_not_set_up_and_warns_when_a_sign_in_is_missing(fake, monkeypatch):
+def test_doctor_oauth_fails_when_not_set_up_and_warns_when_a_sign_in_or_the_home_scope_is_missing(fake, monkeypatch):
     state, _ = fake
     monkeypatch.setattr(config, "EPM_BASE", "https://plan1.example")
     c = doctor._oauth()
@@ -93,13 +93,14 @@ def test_doctor_oauth_is_ok_when_not_set_up_and_warns_when_a_sign_in_is_missing(
     assert doctor._oauth().status == "OK"
     state[STRAT] = "ended"
     assert "strat: sign-in ended" in doctor._oauth().detail and doctor._oauth().status == "WARN"
-    del state[PLAN1]                                               # the home pod has no scope: said, not a warning
+    del state[PLAN1]                                               # the home pod has no scope: no drill lines
     state[STRAT] = "signed_in"
     c = doctor._oauth()
-    assert (c.status, c.detail) == ("OK", "strat: signed in; plan1: no scope (hidden browser)")
+    assert (c.status, c.detail) == ("WARN", "strat: signed in; plan1: no scope (no drill lines)")
+    assert "[oauth.scopes]" in c.fix and "https://plan1.example" in c.fix
     monkeypatch.setattr(oauth, "configured", lambda: False)
     c = doctor._oauth()
-    assert c.status == "OK" and "not set up" in c.detail
+    assert c.status == "FAIL" and "not set up" in c.detail and c.fix == oauth.NOT_SET_UP
     assert doctor._oauth in doctor.CHECKS
 
 

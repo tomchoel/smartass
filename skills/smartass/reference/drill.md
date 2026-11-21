@@ -1,7 +1,8 @@
 # Ledger lines: lines blocks and fin_drill (v2)
 
-The lines come from the FinLite drill page (Data Integration, view `DrillFilter`, 45 columns), read by a hidden
-headless Edge, never by Smart View's own drill-through. Two ways in, same engine, same sheets and checks:
+The lines come from FinLite's drill-through in Data Integration (view `DrillFilter`, 45 columns), read over HTTPS
+with the user's own EPM sign-in (no browser), never by Smart View's own drill-through. Two ways in, same engine, same
+sheets and checks:
 
 - **A `lines` block** in an `fin_analyze` spec, next to the cube blocks:
   `{"type": "lines", "cell": {"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"},
@@ -92,18 +93,16 @@ reply's `text_fixes` (candidates for your own fix list).
 
 ## Timings and limits
 
-- About 60–90 s per drill including the silent SSO login (login again after 5 idle minutes). Paging runs at about 120 lines/s (500 per page).
-- One drill at a time across sessions (lock).
-- Split above 20 000 lines per piece: months, then entities, then accounts. Each piece reconciles to its own cube cell.
+- Measured 21.11.2026: 2 839 lines in about 8 s, 7 852 lines in about 23 s, 10 413 lines (22 pieces) in about 11 s.
+  EPM's own time dominates; nothing starts or signs in first. At most 4 getData calls are in flight at once.
+- Split above 5 000 lines per piece (one getData page): months, then entities, then accounts. Each piece reconciles
+  to its own cube cell.
 - **Too wide (EPMFDM-140373):** EPM refuses a summary drill when more than 3 dimensions have over 1000 children
   (e.g. `un.SY` with all other dimensions at the top). The cell then splits by child entity (then account) by itself;
   empty (#Missing) children and children without a drill report are skipped. Example: 12881 × `un.SY` × Sep 26 →
   22 children, 4 with data, 95 lines, exact. A cell refused once splits at once on a re-drill (same server).
-- **Browser:** headless Microsoft Edge first (`config.DRILL_CHANNELS` = msedge, chrome; profile `smartass\drill_edge`).
-  A channel with a `UserDataDir` browser policy is skipped (Chrome has one: it forces every launch onto the user's
-  own profile); a failed launch is retried once, then the next channel. A browser that died is restarted and the
-  drill retried once. `smartass doctor` (check `drill_browser`) shows which channels can start. A failed drill page leaves a
-  screenshot and HTML in `smartass\logs\drill_fail_*`.
+- **Sign-in:** the user's OAuth token for the pod (`smartass login`; `smartass doctor`, check `oauth`). EPM's drill
+  session is taken with it and renewed once for all pieces when EPM drops it.
 - Excel gets key columns only above 50 000 lines. Maximum 300 000 lines; above that the tool stops after the first
   page and reports the size, and you narrow the request.
 - No drill report on the cell (data entered by journal in EPM): the answer is refused with the reason.
@@ -112,9 +111,9 @@ reply's `text_fixes` (candidates for your own fix list).
 
 | Symptom | Action |
 |---|---|
-| `Sign-in to EPM did not complete - open EPM once in Edge and log in, then retry fin_drill` | The silent SSO stalled. The user opens EPM in Edge once; retry. |
-| `The drill page loaded but never requested data (also after one reload)` | Retry once; if it repeats, the Oracle page changed (screenshot path in the error). |
-| `The hidden drill browser crashed …` / `ran out of time before it could sign in` | Retry. |
-| `another fin_drill is running in a different session` | One drill at a time across sessions: wait and retry. |
+| The reply is a sign-in page and a code | No stored sign-in for the pod: show the user the page and the code, let them approve in their own browser, then call again. |
+| `EPM access is not set up on this PC …` | `[oauth]` is missing in config.toml: the user (or IT) adds it, then `smartass login`. |
+| `refused: no OAuth scope is configured for …` | The drill's pod has no scope under `[oauth.scopes]` in config.toml: add it, then `smartass login`. |
+| `EPM answered the drill query with a page, not JSON (signed out?)` / `... the drill view ...` / `getData returned HTTP <n> without data at offset <m>` / `EPM gave no session key for the drill` | EPM's drill session was lost again after renewing it. Retry once; if it repeats, `smartass doctor --bundle` to the maintainer. |
 | `this cell has no drill-through report …` | Not a FinLite base-level intersection loaded by Data Integration: use a FinLite account and a lower entity or period. |
 | Too wide (EPMFDM-140373) | Splits by itself by child entity, then account. |
