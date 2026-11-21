@@ -42,7 +42,8 @@ CELLS = (
     {"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"},   # one piece
     {"All Accounts": "ac.C60", "All Entities": "un.SY", "All Time Periods": "Sep 26"},        # over 5 000: split
     {"All Accounts": "ac.C60080", "All Entities": "un.SY", "All Time Periods": "Yr 26"},      # too wide: derived
-)
+    {"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Q3 26"},    # over 5 000 in one
+)                                                   # query: split by the line count (cell 2 is now refused as too wide)
 ROUTES = ("browser", "token")
 CELL_S = 1500                       # one cell's budget inside a route's process (it closes its browser after)
 BLOCKED = 2
@@ -119,14 +120,26 @@ def _walk(doc, path: str = "$", out: dict | None = None) -> dict:
     return out
 
 
+def _link_note(a, b) -> str:
+    """How two links differ, by part: the path (same or not) and the names of the query items whose values differ."""
+    if not all(isinstance(x, str) and x.startswith(("http://", "https://", "/")) for x in (a, b)):
+        return ""
+    ua, ub = urlsplit(a), urlsplit(b)
+    qa, qb = ({n: v for n, _, v in _items(u.query)} for u in (ua, ub))
+    names = sorted(n for n in qa.keys() | qb.keys() if qa.get(n) != qb.get(n))
+    return f" (a link: same path {(ua.netloc, ua.path) == (ub.netloc, ub.path)}, query items that differ: " \
+           f"{', '.join(names) or 'none'})"
+
+
 def view_diff(a, b) -> dict:
-    """Two view definitions key by key: paths only in one, paths whose type differs, leaf paths whose value differs.
-    Paths and type names only - never a value."""
+    """Two view definitions key by key: paths only in one, paths whose type differs, leaf paths whose value differs
+    (a link: by part). Paths, type names and query item names only - never a value."""
     wa, wb = _walk(a), _walk(b)
     both = wa.keys() & wb.keys()
     return {"only_browser": sorted(wa.keys() - wb.keys()), "only_token": sorted(wb.keys() - wa.keys()),
             "type_differs": sorted(f"{p} ({wa[p][0]}/{wb[p][0]})" for p in both if wa[p][0] != wb[p][0]),
-            "value_differs": sorted(p for p in both if wa[p][0] == wb[p][0] and wa[p][1] != wb[p][1])}
+            "value_differs": sorted(p + _link_note(wa[p][1], wb[p][1])
+                                    for p in both if wa[p][0] == wb[p][0] and wa[p][1] != wb[p][1])}
 
 
 def _columns(view) -> list | None:
@@ -389,7 +402,7 @@ def report(picks: list[int], got: dict) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--cell", type=int, action="append", choices=range(1, len(CELLS) + 1),
-                    help="a cell to compare (1-3; default all)")
+                    help=f"a cell to compare (1-{len(CELLS)}; default all)")
     ap.add_argument("--route", choices=ROUTES, help=argparse.SUPPRESS)        # a route's own process
     ap.add_argument("--out", type=Path, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)

@@ -68,6 +68,14 @@ def test_the_view_diff_names_key_paths_and_types_never_values():
     assert not any(s in shown for s in ("Kostnad", "1795272710098", "1795272799999", "Supplier"))
 
 
+def test_a_link_that_differs_is_shown_by_its_parts_never_its_values():
+    a = {"links": [{"href": "https://pod/aif/ui/model/view?page=DRILL_THROUGH&appId=52&_=1795272710098"}]}
+    b = {"links": [{"href": "https://pod/aif/ui/model/view?page=DRILL_THROUGH&appId=52&_=1795272799999"}]}
+    d = cmp.view_diff(a, b)
+    assert d["value_differs"] == ["$.links[0].href (a link: same path True, query items that differ: _)"]
+    assert "1795272" not in "\n".join(cmp.view_lines(a, b))
+
+
 def test_the_view_lines_say_whether_the_columns_differ():
     a = {"columns": [{"name": "A"}]}
     text = "\n".join(cmp.view_lines(a, a))
