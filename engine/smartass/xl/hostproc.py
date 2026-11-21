@@ -9,6 +9,7 @@ import os
 import queue
 import threading
 import time
+import traceback
 from typing import Any, Callable
 
 import psutil
@@ -184,7 +185,9 @@ class _PidRegistry:
 
 
 class ComThread(threading.Thread):
-    """Single STA thread that executes callables in order and pumps messages while idle."""
+    """Single STA thread that executes callables in order and pumps messages while idle. A job's error leaves the
+    thread without the locals of the frames it passed through (_release_frames): the job's COM objects are released
+    here, on the thread whose apartment made them."""
 
     def __init__(self, name: str = "excel-com"):
         super().__init__(daemon=True, name=name)
@@ -211,6 +214,7 @@ class ComThread(threading.Thread):
                 try:
                     fut.set_result(fn())
                 except BaseException as e:   # noqa: BLE001 - forwarded to the awaiting coroutine
+                    _release_frames(e)
                     fut.set_exception(e)
                 finally:
                     self.busy_since = None
@@ -221,6 +225,22 @@ class ComThread(threading.Thread):
         fut: cf.Future = cf.Future()
         self.q.put((fn, fut))
         return fut
+
+
+def _release_frames(e: BaseException) -> None:
+    """The locals of every finished frame e's traceback holds - and those of its cause and context - released now, on
+    this thread. An error handed to the event loop otherwise carries the failed job's COM objects (its Target's app
+    and workbook, a batch's ranges) to that thread, which releases them when it drops the error: a proxy released on
+    another thread while the apartment that made it is alive calls that Excel from there and waits for it (Task D,
+    21.11.2026: for ever, when that Excel has stopped responding). The line numbers stay: the error logs as before."""
+    todo, seen = [e], set()
+    while todo:
+        x = todo.pop()
+        if x is None or id(x) in seen:
+            continue
+        seen.add(id(x))
+        traceback.clear_frames(x.__traceback__)
+        todo += [x.__cause__, x.__context__]
 
 
 def on_host_thread() -> bool:
