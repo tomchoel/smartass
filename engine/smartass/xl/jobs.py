@@ -50,8 +50,13 @@ def unbind_job() -> None:
 
 def give_up(token: JobToken) -> None:
     """The host gives up on the job of token (an Excel that does not answer: host._call_once): its next COM call
-    raises JobAborted, and a job of this process waiting for a turn it still holds is refused (Turn.acquire)."""
+    raises JobAborted, and a job waiting for a turn it still holds is refused (Turn.acquire) - in this process and in
+    another one (Turn.mark_given_up)."""
     token.aborted = True
+    with _holders_lock:
+        held = [tt for tt in _holders.values() if tt.token is token]
+    for tt in held:
+        tt.mark_given_up()
 
 
 def _check_alive():
@@ -141,7 +146,10 @@ class Turn:
     not answer: host._call_once), its thread may stay blocked in Excel and keeps the turn: it never writes again (its
     next call raises JobAborted) and frees the turn when it ends. A job of this process that waits for such a turn is
     refused after ABANDONED_WAIT_S with what holds it (live, 21.11.2026: the next job waited silently until it was
-    given up on too); one that ends meanwhile hands the turn over as any other."""
+    given up on too); one that ends meanwhile hands the turn over as any other. A job of ANOTHER process learns it from
+    a file next to the lock (user_excel_<pid>.given_up.json: what holds the turn, and which process), written when the
+    job is given up on and removed when its turn ends (Task D review, Minor 1). The lock itself is never freed early:
+    the given-up job's call may still complete in that Excel, and two writers there must never be possible."""
 
     def __init__(self, pid: int):
         import msvcrt
@@ -151,6 +159,11 @@ class Turn:
         self.f = open(config.SVKIT / f"user_excel_{pid}.lock", "a+b")
         self.held = False
         self.token = getattr(_job, "token", None)     # the job taking it (bind_job)
+        self.marked = False                           # the given-up file is this turn's (mark_given_up)
+
+    @property
+    def given_up_file(self):
+        return config.SVKIT / f"user_excel_{self.pid}.given_up.json"
 
     def try_acquire(self) -> bool:
         try:
@@ -167,6 +180,50 @@ class Turn:
         """Held by a job the host has given up on (its token aborted)."""
         return self.held and self.token is not None and self.token.aborted
 
+    def mark_given_up(self) -> None:
+        """This held turn's job was given up on: written for jobs of other processes (given_up_elsewhere)."""
+        import json
+        import os
+
+        import psutil
+        if not self.held:
+            return
+        me = psutil.Process()
+        what = self.token.what if self.token is not None else "a request"
+        try:
+            tmp = self.given_up_file.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps({"what": what, "owner": me.pid, "owner_ctime": me.create_time()}),
+                           encoding="utf-8")
+            os.replace(tmp, self.given_up_file)
+            self.marked = True
+        except OSError as e:
+            log.warning("could not tell other processes that the job holding Excel pid %s was given up on: %s",
+                        self.pid, e)
+
+    def given_up_elsewhere(self) -> str | None:
+        """What holds this Excel's turn in ANOTHER process, when that job was given up on (its process still runs);
+        None otherwise."""
+        import json
+        import os
+
+        import psutil
+        try:
+            d = json.loads(self.given_up_file.read_text(encoding="utf-8"))
+            owner = int(d["owner"])
+            if owner == os.getpid() or abs(psutil.Process(owner).create_time() - float(d["owner_ctime"])) >= 1.0:
+                return None
+            return str(d["what"])
+        except (OSError, ValueError, KeyError, TypeError, psutil.Error):
+            return None
+
+    def _held_by_given_up(self) -> str | None:
+        """What holds this Excel's turn when the host gave up on that job (in this process, or in another one); None
+        when it is held by a job nobody gave up on."""
+        holder = _holders.get(self.pid)
+        if holder is not None:
+            return holder.token.what if holder.given_up() else None
+        return self.given_up_elsewhere()
+
     def acquire(self, what: str) -> float:
         t0 = time.monotonic()
         while not self.try_acquire():
@@ -175,10 +232,10 @@ class Turn:
             except JobAborted:
                 self.close()
                 raise
-            holder = _holders.get(self.pid)
-            if holder is not None and holder.given_up() and time.monotonic() - t0 >= ABANDONED_WAIT_S:
+            held = self._held_by_given_up() if time.monotonic() - t0 >= ABANDONED_WAIT_S else None
+            if held is not None:
                 self.close()
-                raise HostError(ABANDONED.format(held=holder.token.what, what=what))
+                raise HostError(ABANDONED.format(held=held, what=what))
             if time.monotonic() - t0 > TURN_WAIT_S:
                 self.close()
                 raise HostError(f"Another agent has been working in that Excel for {TURN_WAIT_S // 60} min; "
@@ -191,6 +248,12 @@ class Turn:
             with _holders_lock:
                 if _holders.get(self.pid) is self:
                     del _holders[self.pid]
+            if self.marked:
+                try:
+                    self.given_up_file.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                self.marked = False
             try:
                 self.f.seek(0)
                 self._m.locking(self.f.fileno(), self._m.LK_UNLCK, 1)

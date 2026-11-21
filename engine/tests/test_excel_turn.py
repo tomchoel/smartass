@@ -1,4 +1,6 @@
 """Turn: the machine-wide queue for the user's Excel works ACROSS processes (two agents/servers)."""
+import asyncio
+import os
 import subprocess
 import sys
 import threading
@@ -104,4 +106,45 @@ async def test_a_job_given_up_on_does_not_keep_the_next_job_waiting_for_that_exc
         except HostError:
             if time.monotonic() > deadline:
                 raise
-            time.sleep(0.1)
+            await asyncio.sleep(0.1)
+
+
+GIVEN_UP = r"""
+import sys, time
+sys.path.insert(0, sys.argv[1])
+from smartass.xl import jobs
+token = jobs.JobToken("fin_refresh")
+jobs.bind_job(token)
+jobs.hold_turn(int(sys.argv[3]), what="fin_refresh")
+jobs.give_up(token)                                  # the host gave up on it; its thread still holds the turn
+print("given up", flush=True)
+time.sleep(float(sys.argv[2]))
+jobs.release_turns()
+"""
+
+
+def test_a_job_in_another_process_is_told_of_a_turn_held_by_a_job_given_up_on(monkeypatch, tmp_path):
+    """Task D review, Minor 1: a job given up on in one server process still holds that Excel's turn (its call may
+    still complete: the lock is never freed early, so never two writers); a job of ANOTHER server process waiting for
+    that turn is refused after ABANDONED_WAIT_S with what holds it (it waited up to TURN_WAIT_S in silence), and gets
+    the turn as usual once the job given up on has ended."""
+    monkeypatch.setattr(config, "SVKIT", tmp_path)
+    monkeypatch.setattr(jobs, "TURN_WAIT_S", 8)
+    monkeypatch.setattr(jobs, "ABANDONED_WAIT_S", 0.5)
+    root = __file__.rsplit("\tests", 1)[0]
+    p = subprocess.Popen([sys.executable, "-c", GIVEN_UP, root, "4", "4545"], stdout=subprocess.PIPE, text=True,
+                         env=dict(os.environ, SMARTASS_HOME=str(tmp_path)))
+    try:
+        assert p.stdout.readline().strip() == "given up"
+        t0 = time.monotonic()
+        tt = jobs.Turn(4545)
+        with pytest.raises(HostError) as e:
+            tt.acquire("this request")
+        assert "fin_refresh" in str(e.value) and "this request was not started" in str(e.value)
+        assert time.monotonic() - t0 < 3
+    finally:
+        p.wait(20)
+    tt = jobs.Turn(4545)
+    assert tt.acquire("this request") < 1.0          # the job given up on ended: the turn is free, nothing left over
+    tt.close()
+    assert not list(tmp_path.glob("*.given_up.json"))
