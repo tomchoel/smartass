@@ -54,6 +54,8 @@ _DRILL_HEADERS = frozenset({"accept", "content-type", "x-requested-with", "page_
 # The brief's table, with what each request may carry besides: the query names are those the drill sends today
 # (sui_url keeps Smart View's link minus DRILLURL; drill_token's view and getData URLs), nothing else.
 ALLOWED: dict[str, _Rule] = {
+    # No caller today: the grids go over svhttp.BearerTransport. Kept for the grid route's later move onto EpmSession,
+    # which the plan allows; tests/test_epmhttp.py pins that no code path sends it until then.
     SMART_VIEW: _Rule("POST", {}, frozenset({"content-type"}), "text/xml"),          # + svxml.check_read_only(body)
     "/aif/ui/model/applications/servicetype": _Rule("GET", {}, _DRILL_HEADERS, None),
     "/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp": _Rule("GET", {

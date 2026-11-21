@@ -734,3 +734,26 @@ def test_a_q_quote_that_ends_early_or_cannot_be_read_with_certainty_is_refused(m
 
 def test_the_repos_real_drill_query_still_passes():
     assert epmhttp._read_only_sql(REAL_QUERY) and epmhttp._sql_tokens(REAL_QUERY)[:4] == ["SELECT", "ENTITY", ",", "AMOUNTX"]
+
+def test_no_code_path_sends_the_smart_view_rule_today():
+    """ALLOWED keeps POST /HyperionPlanning/SmartView for the grid route's later move onto EpmSession (the plan
+    allows it). Today the grids go over svhttp.BearerTransport: the one module that imports epmhttp is drill_token,
+    and it never names that path."""
+    import ast
+    import warnings
+    from pathlib import Path
+    root = Path(epmhttp.__file__).parents[1]
+    importers = set()
+    for p in [*root.rglob("*.py"), *(root.parents[1] / "scripts").rglob("*.py")]:
+        with warnings.catch_warnings():                       # a script's own escape sequences are not this test's
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(p.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names = [a.name for a in getattr(node, "names", ())] if isinstance(node, (ast.Import, ast.ImportFrom)) else []
+            module = getattr(node, "module", None) or ""
+            if any(n.rsplit(".", 1)[-1] == "epmhttp" for n in [*names, module]):
+                importers.add(p.name)
+    assert importers == {"drill_token.py"}
+    text = (root / "epm" / "drill_token.py").read_text(encoding="utf-8")
+    assert "SmartView" not in text and "SMART_VIEW" not in text
+    assert epmhttp.ALLOWED[epmhttp.SMART_VIEW].method == "POST"                # kept, for that later move
