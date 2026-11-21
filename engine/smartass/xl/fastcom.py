@@ -26,6 +26,23 @@ Rules:
   property gets with E_INVALIDARG when the object is in a certain state (a chart without a title); shared, that one
   answer would turn the property into a method for every object of the interface.
 - The default member's name (defaultDispatchName, used by obj(...)) is shared once an object has bound it.
+- Excel's busy rejection ("call rejected": a save, AutoSave, a recalculation) is never turned into AttributeError
+  (Task D2). pywin32 swallows any error of a name's lookup and raises AttributeError (or "can not be set" for a put),
+  which no wait for a busy Excel retries, and wrap handed out an object without type information when Excel rejected
+  that fetch; live in a hidden Excel, 21.11.2026, both failed jobs with "<unknown>.FullName". Now wrap waits for Excel
+  in place while it rejects the type-information calls (TYPEINFO_WAIT_S): the object it is handed is the result of a
+  call that has run (Worksheets.Add), so the rejection must not reach a caller that would run that call again (the COM
+  executor asks a rejected operation again). Only if Excel stays busy longer is the object late-bound by name
+  (Untyped), said in the log. That wait is the job's (Task D3): a job given up on does not wait (its next checked call
+  stops it), at a job's start the wait counts against the start's budget (jobs.starting) and ends with it, and a
+  window scan does not wait at all (scan: as before Task D2). An AttributeError of a name is
+  checked with one more lookup of the name (_dispid): a rejection of that lookup is raised as busy (the caller's wait
+  asks again), a name the object has is tried once more, an unknown one stays an AttributeError - on Fast and on
+  Untyped (an object that really has no type information is Untyped too). For a get, and a put whose first lookup was
+  rejected, nothing has run then. A put whose lookup answered may have been tried by pywin32 already: it swallows
+  Excel's error of that Invoke (a rejection, or Excel's refusal) and raises AttributeError, and _put tries it once
+  more - a put of a value is idempotent, so a second try is harmless.
+  With SV_FASTCOM=0 (pywin32's own wrapper) Excel's busy rejection still turns into AttributeError, as before.
 
 Coupling (accepted: pywin32 is pinned, pywin32==312 in engine/pyproject.toml): this module relies on pywin32's
 internals - CDispatch's instance attributes (_oleobj_, _olerepr_, _builtMethods_, _lazydata_, _username_),
@@ -36,7 +53,10 @@ standard wrapper, so an upgrade that changes them fails there.
 """
 from __future__ import annotations
 
+import contextlib
+import logging
 import threading
+import time
 import traceback
 from collections.abc import MutableMapping
 from types import MethodType
@@ -46,8 +66,12 @@ import winerror
 from win32com.client import build, dynamic, util
 
 from ..core import config
+from .hostproc import is_busy, retry_busy
 
+log = logging.getLogger("smartview.fastcom")
+TYPEINFO_WAIT_S = 10.0                             # Excel's rejection of an object's type information waited for in wrap
 _PyIDispatch = pythoncom.TypeIIDs[pythoncom.IID_IDispatch]
+_scan = threading.local()                          # a window scan on this thread (scan): its deadline, what it met
 _MAPS = ("propMap", "propMapGet", "propMapPut", "mapFuncs")
 NOT_SHARED = (pythoncom.IID_NULL, pythoncom.IID_IDispatch)      # no real interface behind these: never shared
 _ENUM_INVOKE = pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET
@@ -271,13 +295,110 @@ class Fast(dynamic.CDispatch):
             except pythoncom.com_error:
                 raise AttributeError("This object can not function as an iterator") from None
             return lambda: _Iterator(enum)
-        return dynamic.CDispatch.__getattr__(self, attr)
+        return _get(self, attr)
+
+    def __setattr__(self, attr, value):
+        _put(self, attr, value)
 
 
-def wrap(obj, name: str | None = None):
+class Untyped(dynamic.CDispatch):
+    """pywin32's late-bound wrapper for an object without type information (names looked up with GetIDsOfNames), with
+    a busy rejection of a lookup surfacing as busy (_get, _put); what it returns is wrapped (wrap)."""
+
+    def _wrap_dispatch_(self, ob, userName=None, returnCLSID=None):
+        return wrap(ob, userName)
+
+    def __getattr__(self, attr):
+        return _get(self, attr)
+
+    def __setattr__(self, attr, value):
+        _put(self, attr, value)
+
+
+def _dispid(ob, attr: str) -> int | None:
+    """attr's dispid on ob's object, None when it has no such name; Excel's busy rejection is raised as it is."""
+    try:
+        return ob._oleobj_.GetIDsOfNames(attr)
+    except pythoncom.com_error as e:
+        if is_busy(e):
+            raise
+        return None
+
+
+def _get(ob, attr: str):
+    """pywin32's attribute get, with an AttributeError checked (the module docstring): a lookup Excel rejected is
+    raised as busy, a name the object has is got once more."""
+    try:
+        return dynamic.CDispatch.__getattr__(ob, attr)
+    except AttributeError:
+        if (attr.startswith("_") and attr.endswith("_")) or _dispid(ob, attr) is None:
+            raise
+    return dynamic.CDispatch.__getattr__(ob, attr)
+
+
+def _put(ob, attr: str, value) -> None:
+    """pywin32's attribute put, with an AttributeError checked: a lookup Excel rejected is raised as busy (the put has
+    not run); a name the object has is put by its dispid, Excel's error raised as it is. pywin32 may have tried that
+    put already - its lookup by GetIDsOfNames answered, its Invoke failed (Excel's rejection or refusal), and it
+    swallowed that error - so it can be the put's second try: harmless, a put of a value is idempotent."""
+    try:
+        dynamic.CDispatch.__setattr__(ob, attr, value)
+        return
+    except AttributeError:
+        if attr in ob.__dict__ or (attr.startswith("_") and attr.endswith("_")):
+            raise
+        dispid = _dispid(ob, attr)
+        if dispid is None:
+            raise
+    ob._oleobj_.Invoke(dispid, 0, pythoncom.INVOKE_PROPERTYPUT, 0, value)
+    ob._olerepr_.propMap[attr] = build.MapEntry(dispid, (attr,))
+
+
+@contextlib.contextmanager
+def scan(seconds: float = 0.0):
+    """A window scan (xl/instances._app_from_window) on this thread: every object wrapped in it waits for Excel's type
+    information at most until `seconds` from now, in all (a scan inside a scan ends with the outer one at the
+    latest) - none by default, as before Task D2 (it waited TYPEINFO_WAIT_S per object there, twice per window). An
+    object Excel rejected is late-bound, without the warning a job's object gets."""
+    outer = getattr(_scan, "state", None)
+    until = time.monotonic() + seconds
+    _scan.state = (until if outer is None else min(until, outer[0]),)
+    try:
+        yield
+    finally:
+        _scan.state = outer
+
+
+def _typeinfo(call, wait: float):
+    """call (a type-information fetch), Excel's busy rejection waited for: at most wait seconds, or less - what is left
+    of a window scan (scan) or of the job's start (jobs.start_limit), the seconds rejected counted against that start
+    (jobs.spent) as its other waits are. A job given up on stops waiting (its token aborted): the rejection is raised
+    and the object is late-bound, never an error out of wrap - the call that produced the object has run, and the job's
+    next checked call stops it."""
+    try:
+        return call()
+    except pythoncom.com_error as e:
+        if not is_busy(e):
+            raise
+    from . import jobs                             # here: jobs imports host, which imports this module
+    state = getattr(_scan, "state", None)
+    if state is not None:
+        wait = min(wait, max(state[0] - time.monotonic(), 0.0))
+    try:
+        return retry_busy(call, jobs.start_limit(wait), jobs._check_alive, jobs.spent)
+    except jobs.JobAborted:
+        raise pythoncom.com_error(winerror.RPC_E_CALL_REJECTED, "Call was rejected by callee (the job was given up "
+                                  "on: not waited for).", None, None) from None
+
+
+def wrap(obj, name: str | None = None, wait: float | None = None):
     """`obj` (a PyIDispatch or any pywin32 dispatch object) wrapped Fast; a Fast object is returned unchanged, and so
-    is anything that is not a COM object (the fakes of the tests). With SV_FASTCOM=0 the standard wrapper."""
-    if isinstance(obj, Fast):
+    is anything that is not a COM object (the fakes of the tests). With SV_FASTCOM=0 the standard wrapper. Excel's busy
+    rejection of the type-information calls is waited for here (_typeinfo: at most wait seconds, default
+    TYPEINFO_WAIT_S; less in a window scan or at a job's start, none for a job given up on), never raised; an object
+    without type information (or still rejected then) is Untyped."""
+    wait = TYPEINFO_WAIT_S if wait is None else wait
+    if isinstance(obj, (Fast, Untyped)):
         return obj
     raw = getattr(obj, "_oleobj_", obj)
     if not isinstance(raw, _PyIDispatch):
@@ -286,19 +407,36 @@ def wrap(obj, name: str | None = None):
         name = obj._username_
     if not config.FASTCOM:
         return dynamic.Dispatch(raw, name)
+    def fetch():
+        ti = raw.GetTypeInfo()
+        return ti, ti.GetTypeAttr()[0]
     try:
-        typeinfo = raw.GetTypeInfo()
-        iid = typeinfo.GetTypeAttr()[0]
-    except (pythoncom.com_error, AttributeError):          # no type information: pywin32 copes without it
-        return dynamic.Dispatch(raw, name)
+        typeinfo, iid = _typeinfo(fetch, wait)
+    except (pythoncom.com_error, AttributeError) as e:     # no type information: late-bound by name
+        return _untyped(raw, name, None, e, wait)
     if iid in NOT_SHARED:
-        return dynamic.Dispatch(raw, name, typeinfo=typeinfo)
+        return _untyped(raw, name, typeinfo)
     iface = _IFACE.get(iid)
     typecomp = None
     if iface is None:                                      # first object of this interface
         try:
-            typecomp = typeinfo.GetTypeComp()
-        except pythoncom.com_error:
-            return dynamic.Dispatch(raw, name, typeinfo=typeinfo)
+            typecomp = _typeinfo(typeinfo.GetTypeComp, wait)
+        except pythoncom.com_error as e:
+            return _untyped(raw, name, typeinfo, e, wait)
         iface = _IFACE.setdefault(iid, _Interface(dynamic.MakeOleRepr(raw, typeinfo, typecomp), iid))
     return Fast(raw, iface, name, typeinfo, typecomp)
+
+
+def _untyped(raw, name: str | None, typeinfo, error: Exception | None = None, waited: float = 0.0) -> Untyped:
+    """raw as Untyped (with typeinfo when there is one): late-bound by name, its lookups saying busy as busy. Excel
+    still rejecting the type information after waited seconds is logged as a warning (never silent)."""
+    if error is not None and is_busy(error) and getattr(_scan, "state", None) is not None:
+        log.debug("Excel rejected the type information of %s in a window scan (busy): late-bound by name", name)
+    elif error is not None and is_busy(error) and waited:
+        log.warning("Excel rejected the type information of %s (busy; waited up to %.0f s): late-bound by name",
+                    name or "an object", waited)
+    elif error is not None:
+        log.debug("no type information for %s (%s): late-bound by name", name, error)
+    if typeinfo is None:
+        return Untyped(raw, dynamic.MakeOleRepr(raw, None, None), name)
+    return dynamic.Dispatch(raw, name, createClass=Untyped, typeinfo=typeinfo)

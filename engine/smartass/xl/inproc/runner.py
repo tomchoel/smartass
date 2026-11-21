@@ -10,7 +10,14 @@ macro gone registers once more. Anything that keeps it from loading or answering
 compiler, a compile error, RegisterXLL False or failing, a wrong ping) means the COM executor for that Excel process,
 with one warning. A batch falls back to the COM executor only when nothing of it ran: the job file is still there,
 or the add-in's result says it failed before its first operation. Once the add-in has taken the job, a failure is a
-BatchError and the batch is never run again (see _run_inproc for how "nothing ran" is told).
+BatchError and the batch is never run again (see _run_inproc for how "nothing ran" is told); an outcome that cannot
+be told at all (UnknownOutcome) that recurs - UNKNOWN_LIMIT batches in a row in one Excel process - means the COM
+executor for that Excel process from then on, with one warning. That warning is one line per Excel process (pid and
+start time), with why and how many batches the add-in had run there; with SV_INPROC=0 an Excel that has a smartass
+add-in loaded (another server's) gets one too, so a later freeze there can be tied to the switch, or not (Task D3).
+While the add-in's save
+after the reply runs (later.py) it answers "busy: ..." having read nothing: the Run is asked again as for a busy
+Excel (asked).
 
 The COM executor (execute) interprets the batch's plain data over the COM objects, inside one jobs.com. A busy Excel
 is waited for on the rejected operation only (a rejected call did not run), never by running the batch again. A call
@@ -65,8 +72,11 @@ RESTORE_LIMIT_S = 30
 LOAD_LIMIT_S = 60                       # RegisterXLL and the ping: how long a busy Excel is waited for
 REGISTER_LIMIT_S = 60                   # a RegisterXLL that has not returned by then: no add-in in that Excel
 LOCK_WAIT_S = 10                        # a batch waits this long for another job's load of the add-in, then COM
+UNKNOWN_LIMIT = 2                       # unknown outcomes in a row after which an Excel's batches go over COM
 LEFTOVER_S = 600                        # job / result files older than this are leftovers of a crash: removed
 NOT_RUN = "not run: "                   # the add-in's answer when it read, deleted and ran nothing
+BUSY = "busy: "                         # ... while its save after the reply runs (later.py): nothing read or run yet
+BUSY_POLL_S = 0.05                      # how soon a Run the add-in answered BUSY is asked again
 OMITTED = pythoncom.ArgNotFound         # MISSING: sent as DISP_E_PARAMNOTFOUND, as C#'s Type.Missing
 UNBOUND = "no object {}: the operation that makes it failed or did not run"
 NOT_A_VALUE = "a COM object cannot be asked back"
@@ -75,6 +85,8 @@ TAKEN = "taken: "                        # how the verb exist's refusal ends: th
 XL_FORMULAS = -4123                      # xlCellTypeFormulas (the verb mentions' SpecialCells)
 XL_LAST_CELL = 11                        # xlCellTypeLastCell: SpecialCells answers on a sheet, or refuses it
 CHUNK_CELLS = 100_000                    # the verb mentions reads a sheet's formulas at most this many cells at once
+SCAN_STEPS = 2_000                       # ... and takes at most this many steps on one sheet (a test or a read of a block)
+TOO_LARGE = "its used range of {} cells is too large to scan"
 METHOD_OR_GET = pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET
 
 
@@ -98,6 +110,10 @@ class BatchError(Exception):
         self.where = where
 
 
+class UnknownOutcome(BatchError):
+    """The add-in may have run operations of the batch, and what it did cannot be told (_unknown)."""
+
+
 def run(app, batch, limit: float = 120, check: bool = True) -> Result:
     """Run batch in app's Excel, in its process when the add-in is there, else over COM; Result, or BatchError when
     an operation failed. A busy Excel (beyond limit) or an abandoned job raises HostError, as jobs.com does (check
@@ -107,8 +123,16 @@ def run(app, batch, limit: float = 120, check: bool = True) -> Result:
     job = batch.to_dict()
     ex = _ready(app, check)
     if ex is not None:
-        out = _run_inproc(app, ex, job, limit, check)
+        try:
+            out = _run_inproc(app, ex, job, limit, check)
+        except UnknownOutcome as e:
+            ex.unknowns += 1
+            if ex.unknowns >= UNKNOWN_LIMIT:            # it recurs: that Excel's batches go over COM from now on
+                _give_up(ex, f"{ex.unknowns} batches in a row had an unknown outcome (the last: {e.message})")
+            raise
+        ex.unknowns = 0                                 # the add-in's answer could be read
         if out is not None:
+            ex.batches += 1
             return _result(out, batch, "inproc")
     out = jobs.com(lambda: execute(app, job, limit, check), limit=limit, check=check)
     return _result(out, batch, "com")
@@ -119,9 +143,24 @@ def available(app) -> bool:
     return _ready(app) is not None
 
 
-def _result(out: dict, batch, where: str) -> Result:
-    for text in out.get("unrestored", []):
+_restores = threading.local()            # this thread's count of batches that could not put a setting back
+
+
+def unrestored() -> int:
+    """How many batches of this thread (a job's) could not put a setting back so far (xl/jobstate: a job whose count
+    grew keeps its state for the next job)."""
+    return getattr(_restores, "count", 0)
+
+
+def _unrestored(texts: list) -> None:
+    for text in texts:
         log.warning("could not restore Application.%s", text)
+    if texts:
+        _restores.count = unrestored() + 1
+
+
+def _result(out: dict, batch, where: str) -> Result:
+    _unrestored(out.get("unrestored", []))
     skipped = [(i, batch.text(i), m) for i, m in out.get("skipped", [])]
     if not out["ok"]:
         i = out.get("index")
@@ -184,9 +223,11 @@ def execute(app, job: dict, limit: float = 120, check: bool = True) -> dict:
     finally:
         unrestored = _restore(app, changed)
     if aborted is not None:
-        for text in unrestored:
-            log.warning("could not restore Application.%s", text)
-        raise aborted
+        _unrestored(unrestored)
+        try:
+            raise aborted
+        finally:
+            aborted = None              # held by this frame, which its traceback holds: a cycle with app and the ranges
     out.update(started=started, values=values, marks=marks, ms=(time.perf_counter() - t0) * 1000, skipped=skipped)
     if unrestored:
         out["unrestored"] = unrestored
@@ -328,6 +369,9 @@ class _Excel:
     xll: str = ""
     lock: threading.Lock = field(default_factory=threading.Lock)
     waited: bool = False                  # a batch gave up waiting for the lock (warned once)
+    unknowns: int = 0                     # batches in a row whose outcome was unknown (UNKNOWN_LIMIT)
+    started: float = 0.0                  # the process's start time (with pid: the key of _EXCELS)
+    batches: int = 0                      # batches the add-in ran there for this server
 
     @property
     def run_macro(self) -> str:
@@ -337,11 +381,20 @@ class _Excel:
     def ping_macro(self) -> str:
         return f"SmartassPing_{self.hash}"
 
+    @property
+    def later_macro(self) -> str:
+        return f"SmartassSaveLater_{self.hash}"
+
+    @property
+    def clear_macro(self) -> str:
+        return f"SmartassClear_{self.hash}"
+
 
 _EXCELS: dict[tuple, _Excel] = {}       # (pid, process start time) -> _Excel
 _EXCELS_LOCK = threading.Lock()
 _last = threading.local()               # this thread's last (weak app, key): a job's batches share one app object
 _unknown_warned = False
+_ROUTE_LOGGED: set = set()              # (pid, start time) of the Excels this server's switch to COM was logged for
 
 
 def _ready(app, check: bool = True) -> _Excel | None:
@@ -349,6 +402,7 @@ def _ready(app, check: bool = True) -> _Excel | None:
     not loaded now (that needs a live job)."""
     global _unknown_warned
     if not config.INPROC:
+        _note_inproc_off(app)
         return None
     try:
         key = _identify(app, check)
@@ -360,7 +414,7 @@ def _ready(app, check: bool = True) -> _Excel | None:
             log.warning("in-process executor not used: the Excel process is not known (%s)", e)
         return None
     with _EXCELS_LOCK:
-        ex = _EXCELS.setdefault(key, _Excel(key[0]))
+        ex = _EXCELS.setdefault(key, _Excel(key[0], started=key[1]))
     if not ex.lock.acquire(timeout=LOCK_WAIT_S):  # another job is still loading it (or stuck doing so)
         if not ex.waited:
             ex.waited = True
@@ -382,7 +436,7 @@ def _identify(app, check: bool = True) -> tuple:
         return last[1]
     import psutil
     import win32process
-    hwnd = jobs.com(lambda: int(app.Hwnd), check=check)
+    hwnd = jobs.com(lambda: int(app.Hwnd), limit=jobs.start_limit(60.0), check=check)
     pid = win32process.GetWindowThreadProcessId(hwnd)[1]
     key = (pid, psutil.Process(pid).create_time())
     try:
@@ -411,7 +465,8 @@ def _load(app, ex: _Excel) -> None:
             raise build.BuildError("Excel is 32-bit; the add-in is built for 64-bit Excel")
         xll, ex.hash = build.ensure()
         ex.xll = str(xll)
-        _register(app, ex)
+        if not _answers(app, ex):
+            _register(app, ex)
         ex.ready = True
         log.info("in-process executor loaded in Excel pid %s (%s)", ex.pid, ex.xll)
     except jobs.JobAborted:
@@ -425,6 +480,16 @@ def _load(app, ex: _Excel) -> None:
 
 class _Blocked(Exception):
     """RegisterXLL did not return in time."""
+
+
+def _answers(app, ex: _Excel) -> bool:
+    """This build's add-in answers its ping in app's Excel already: an earlier server process loaded it there, and
+    RegisterXLL again would cost 0.2-0.4 s of this process's first batch there (a hidden Excel, 21.11.2026: the look
+    of a new server's first answer). A macro that is not there (a com_error) is False; a busy Excel the caller's."""
+    try:
+        return jobs.com(lambda: app.Run(ex.ping_macro), limit=LOAD_LIMIT_S) == ex.hash
+    except pywintypes.com_error:
+        return False
 
 
 def _register(app, ex: _Excel) -> None:
@@ -469,18 +534,69 @@ def _register_xll(app, path: str, limit: float):
     if t.is_alive():
         raise _Blocked(f"RegisterXLL did not return within {limit:.0f} s (a dialog in Excel?)")
     if "error" in box:
-        raise box["error"]
+        raise box.pop("error")          # not kept in box: this frame (app) and the error would hold each other
     return box["value"]
 
 
 def _give_up(ex: _Excel, why: str) -> None:
     ex.ready = False
-    log.warning("in-process executor not used in Excel pid %s: %s; its Excel work runs over COM", ex.pid, why)
+    _switched((ex.pid, ex.started), f"{why} (after {ex.batches} batch(es) through the add-in there)")
 
 
-def _unknown(detail: str) -> BatchError:
+def _switched(key: tuple, why: str) -> None:
+    """One log line per Excel process (key: pid, start time) when this server's Excel work there goes over COM
+    instead of through the add-in - given up on (_give_up), or SV_INPROC=0 with a smartass add-in loaded there
+    (_note_inproc_off) - with why, so a later freeze in that Excel can be tied to the switch, or not (Task D3)."""
+    with _EXCELS_LOCK:
+        if key in _ROUTE_LOGGED:
+            return
+        _ROUTE_LOGGED.add(key)
+    began = time.strftime("%H:%M:%S", time.localtime(key[1])) if key[1] else "?"
+    log.warning("in-process executor not used in Excel pid %s (process started %s): %s; this server's Excel work "
+                "there runs over COM", key[0], began, why)
+
+
+def _quick_key(app) -> tuple:
+    """(pid, start time) of app's Excel process without waiting for a busy Excel (a com_error then): this thread's
+    last one (_identify), else one read of its main window."""
+    last = getattr(_last, "seen", None)
+    if last is not None and last[0]() is app:
+        return last[1]
+    import psutil
+    import win32process
+    pid = win32process.GetWindowThreadProcessId(int(app.Hwnd))[1]
+    key = (pid, psutil.Process(pid).create_time())
+    try:
+        _last.seen = (weakref.ref(app), key)       # the job's next batches: no call
+    except TypeError:
+        pass
+    return key
+
+
+def _note_inproc_off(app) -> None:
+    """SV_INPROC=0 in an Excel that has a smartass add-in loaded (another server's, or one of an earlier run): said
+    once per Excel process (_switched). Best effort, with no wait: a busy Excel, or one that cannot be read, is asked
+    again at the next batch, and never fails or delays the batch."""
+    from .later import XLL_NAME
+    try:
+        key = _quick_key(app)
+        with _EXCELS_LOCK:
+            if key in _ROUTE_LOGGED:
+                return
+        builds = sorted({m.group(1).lower() for row in (app.RegisteredFunctions or ())
+                         if row and (m := XLL_NAME.search(str(row[0])))})
+    except Exception:   # noqa: BLE001 - a log line only
+        return
+    if builds:
+        _switched(key, f"SV_INPROC=0, while smartass add-in build(s) {', '.join(builds)} are loaded there")
+    else:
+        with _EXCELS_LOCK:
+            _ROUTE_LOGGED.add(key)                      # no add-in there: nothing to say, nothing to read again
+
+
+def _unknown(detail: str) -> UnknownOutcome:
     """The add-in may have run operations of the batch, and what it did cannot be told: never run it again."""
-    return BatchError(None, "the batch in Excel", f"the batch's outcome is unknown: {detail}", where="inproc")
+    return UnknownOutcome(None, "the batch in Excel", f"the batch's outcome is unknown: {detail}", where="inproc")
 
 
 def _sweep(folder: Path) -> None:
@@ -516,7 +632,7 @@ def _run_inproc(app, ex: _Excel, job: dict, limit: float, check: bool = True) ->
             return None
         for again in (False, True):
             try:
-                got = jobs.com(lambda: app.Run(ex.run_macro, str(path)), limit=limit, check=check)
+                got = asked(lambda: app.Run(ex.run_macro, str(path)), limit, check)
             except HostError:
                 raise                                   # busy (the Run was rejected: nothing ran) or abandoned
             except Exception as e:   # noqa: BLE001 - did the add-in get the job? Its file says
@@ -566,6 +682,27 @@ def _run_inproc(app, ex: _Excel, job: dict, limit: float, check: bool = True) ->
                 p.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def asked(call, limit: float, check: bool = True):
+    """call() - an Application.Run of the add-in - through jobs.com, asked again every BUSY_POLL_S while the add-in
+    answers BUSY: its save after the reply is running (Excel answers calls in the middle of a save of a OneDrive
+    file, live 20.11.2026, so the add-in refuses them itself, having read and run nothing), as jobs.com asks a busy
+    Excel again; HostError(jobs.BUSY) once limit has passed. At a job's start Excel's own rejections of the call (a
+    cell in edit mode, a dialog) are asked again for what is left of it (jobs.start_limit) and count against it, until
+    the add-in has answered BUSY once: from then on a save of ours is known to run, its rejections are not counted,
+    and limit holds. A call that answers is never counted, also when it ran a waiting save itself (Clear)."""
+    end = time.monotonic() + limit
+    saving = False
+    while True:
+        left = max(end - time.monotonic(), 0.0)
+        got = jobs.com(call, limit=left if saving else jobs.start_limit(left), check=check, charged=not saving)
+        if not (isinstance(got, str) and got.startswith(BUSY)):
+            return got
+        saving = True
+        if time.monotonic() >= end:
+            raise HostError(jobs.BUSY)
+        time.sleep(BUSY_POLL_S)
 
 
 def _parse(record: str) -> dict:
@@ -749,7 +886,10 @@ def _area(row: int, col: int, rows: int = 1, cols: int = 1) -> str:
 def _readable(e: BaseException) -> None:
     """A busy Excel goes on up (the verb is run again as a whole); anything else is the item's own failure."""
     if is_busy(e):
-        raise e
+        try:
+            raise e
+        finally:
+            e = None                    # the error's traceback holds this frame: no cycle with the verb's ranges
 
 
 def _mentions(workbook, texts, skip):
@@ -805,13 +945,18 @@ def _mentions(workbook, texts, skip):
 
 
 def _cells(ws, name: str, says, rows: list) -> None:
-    """mentions on one worksheet's cells: the used range's formulas read in chunks of rows of at most CHUNK_CELLS
-    cells, and of those only the chunks that hold a formula (SpecialCells(xlCellTypeFormulas) once, Intersect per
-    chunk). SpecialCells raises on a sheet without a formula with the code of any other refusal and a text in Excel's
-    language: the sheet is done only when SpecialCells answers there at all (its last cell, one cheap call; not
-    UsedRange.HasFormula, which took 14 s on a used range to the last row); a refusal is the caller's "unread". A
-    protected sheet refuses SpecialCells: every chunk is read, and a hidden formula makes the read fail (the caller's
-    "unread")."""
+    """mentions on one worksheet's cells (batch.py's module docstring): the used range halved, its longer side
+    first, until a block holds at most CHUNK_CELLS cells, and of those blocks only the ones that hold a formula
+    (SpecialCells(xlCellTypeFormulas) once, Intersect per block: a block without one is never halved further) read
+    with Formula2; the rows in the sheet's order. So a used range stretched to the last row and column by a stray
+    format costs a few dozen steps, not a step per few rows. SpecialCells raises on a sheet without a formula with the
+    code of any other refusal and a text in Excel's language: the sheet is done only when SpecialCells answers there
+    at all (its last cell, one cheap call; not UsedRange.HasFormula, which took 14 s on a used range to the last row);
+    a refusal is the caller's "unread". A protected sheet refuses SpecialCells: every block is read, and a hidden
+    formula makes the read fail (the caller's "unread"). A sheet that would take more than SCAN_STEPS steps (a test
+    or a read of a block) is not scanned further: TOO_LARGE, the caller's "unread" - a protected one is told by its
+    count of blocks (_blocks) before any is read. The mentions found before a failure are kept (rows gets them, then
+    the caller its "unread"), as 0.4.0 did: they are re-pointed."""
     used = ws.UsedRange
     r0, c0 = int(used.Row), int(used.Column)
     nr, nc = int(used.Rows.Count), int(used.Columns.Count)
@@ -827,32 +972,101 @@ def _cells(ws, name: str, says, rows: list) -> None:
                 _readable(e2)
                 raise e from None
             return
+    elif _blocks(nr, nc) > SCAN_STEPS:                  # every block would be read: too many, said at once
+        raise _Failed(TOO_LARGE.format(nr * nc))
     app = ws.Application
-    step = max(1, CHUNK_CELLS // nc)
+    hits: list[tuple[int, int, list]] = []
     arrays: set[str] = set()
-    for top in range(r0, r0 + nr, step):
-        bottom = min(top + step, r0 + nr) - 1
-        chunk = _call(ws, "Range", [_call(ws, "Cells", [top, c0]), _call(ws, "Cells", [bottom, c0 + nc - 1])])
-        if formulas is not None and _call(app, "Intersect", [formulas, chunk]) is None:
+    todo = [(r0, c0, nr, nc)]
+    steps = 0
+    try:
+        while todo:
+            top, left, h, w = todo.pop()
+            leaf = h * w <= CHUNK_CELLS
+            if formulas is not None or leaf:
+                steps += 1
+                if steps > SCAN_STEPS:
+                    raise _Failed(TOO_LARGE.format(nr * nc))
+                block = _call(ws, "Range", [_call(ws, "Cells", [top, left]),
+                                            _call(ws, "Cells", [top + h - 1, left + w - 1])])
+                if formulas is not None and _call(app, "Intersect", [formulas, block]) is None:
+                    continue
+            if not leaf:                                    # halved, its longer side; the first half next
+                if h >= w:
+                    half = h // 2
+                    todo += [(top + half, left, h - half, w), (top, left, half, w)]
+                else:
+                    half = w // 2
+                    todo += [(top, left + half, h, w - half), (top, left, h, half)]
+                continue
+            grid = block.Formula2
+            if not isinstance(grid, tuple):
+                grid = ((grid,),)
+            for i, line in enumerate(grid):
+                for j, v in enumerate(line):
+                    if not says(v):
+                        continue
+                    cell = _call(ws, "Cells", [top + i, left + j])
+                    if not cell.HasFormula:                   # text written with an apostrophe reads like a formula
+                        continue
+                    if cell.HasArray:
+                        arr = cell.CurrentArray
+                        r, c = int(arr.Row), int(arr.Column)
+                        ref = _area(r, c, int(arr.Rows.Count), int(arr.Columns.Count))
+                        if ref not in arrays:
+                            arrays.add(ref)
+                            hits.append((r, c, ["array", name, ref, str(arr.FormulaArray)]))
+                    else:
+                        hits.append((top + i, left + j, ["cell", name, _area(top + i, left + j), v]))
+    finally:                                            # what was found before a failure is kept (0.4.0)
+        hits.sort(key=lambda x: x[:2])
+        rows += [row for _, _, row in hits]
+
+
+def _blocks(h: int, w: int) -> int:
+    """How many blocks the halving of _cells reads on a used range of h rows and w columns when every block is read
+    (a protected sheet): a block holds half a chunk to a whole one, so the count is told before any is read."""
+    shapes, blocks = {(h, w): 1}, 0
+    while shapes:
+        halves: dict = {}
+        for (a, b), n in shapes.items():
+            if a * b <= CHUNK_CELLS:
+                blocks += n
+                continue
+            for part in (((a // 2, b), (a - a // 2, b)) if a >= b else ((a, b // 2), (a, b - b // 2))):
+                halves[part] = halves.get(part, 0) + n
+        shapes = halves
+    return blocks
+
+
+def _errors(ws, code):
+    """The verb errors (batch.py's module docstring): the addresses of the used range's cells whose Value2 is the cell
+    error code (an int; a number reads as a float), in the sheet's order, read block by block as _cells halves a
+    protected sheet (every block read); more than SCAN_STEPS blocks: TOO_LARGE."""
+    used = ws.UsedRange
+    r0, c0 = int(used.Row), int(used.Column)
+    nr, nc = int(used.Rows.Count), int(used.Columns.Count)
+    if _blocks(nr, nc) > SCAN_STEPS:
+        raise _Failed(TOO_LARGE.format(nr * nc))
+    found: list[tuple[int, int]] = []
+    todo = [(r0, c0, nr, nc)]
+    while todo:
+        top, left, h, w = todo.pop()
+        if h * w > CHUNK_CELLS:
+            if h >= w:
+                half = h // 2
+                todo += [(top + half, left, h - half, w), (top, left, half, w)]
+            else:
+                half = w // 2
+                todo += [(top, left + half, h, w - half), (top, left, h, half)]
             continue
-        grid = chunk.Formula2
+        grid = _call(ws, "Range", [_call(ws, "Cells", [top, left]),
+                                   _call(ws, "Cells", [top + h - 1, left + w - 1])]).Value2
         if not isinstance(grid, tuple):
             grid = ((grid,),)
-        for i, line in enumerate(grid):
-            for j, v in enumerate(line):
-                if not says(v):
-                    continue
-                cell = _call(ws, "Cells", [top + i, c0 + j])
-                if not cell.HasFormula:                   # text written with an apostrophe reads like a formula
-                    continue
-                if cell.HasArray:
-                    arr = cell.CurrentArray
-                    ref = _area(int(arr.Row), int(arr.Column), int(arr.Rows.Count), int(arr.Columns.Count))
-                    if ref not in arrays:
-                        arrays.add(ref)
-                        rows.append(["array", name, ref, str(arr.FormulaArray)])
-                else:
-                    rows.append(["cell", name, _area(top + i, c0 + j), v])
+        found += [(top + i, left + j) for i, line in enumerate(grid) for j, v in enumerate(line)
+                  if type(v) is int and v == code]
+    return [_area(r, c) for r, c in sorted(found)]
 
 
 def _series(chart, kind: str, where: str, prefix: str, says, rows: list) -> None:
@@ -884,4 +1098,5 @@ def _swap(obj, name: str, expected, value):
 
 
 # name -> function(*args); both executors have each one (batch.VERBS, Runner.cs Verb)
-VERBS: dict = {"each": _each, "nudge": _nudge, "exist": _exist, "mentions": _mentions, "swap": _swap}
+VERBS: dict = {"each": _each, "nudge": _nudge, "exist": _exist, "mentions": _mentions, "swap": _swap,
+                "errors": _errors}

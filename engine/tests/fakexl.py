@@ -30,6 +30,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 MAXR, MAXC = 1048576, 16384
+REF = -2146826265                        # #REF! as Value2 reads it (pywin32 and the add-in: an int)
 CLIP_R, CLIP_C = 400, 80                 # cell-level settings on whole rows/columns: only this block is tracked
 SEP = ";"                                # nb-NO list separator (Range unions)
 class _International(tuple):
@@ -214,6 +215,14 @@ def _rewrite(wb, fn) -> None:
             new = _outside_literals(v, fn)
             if new != v:
                 put(new)
+
+
+def _shown(v):
+    """Value2 as Excel shows it where the fake can tell without calculating: a formula that names #REF! shows #REF!
+    (its error code), everything else as stored."""
+    if isinstance(v, tuple):
+        return tuple(tuple(_shown(x) for x in row) for row in v)
+    return REF if isinstance(v, str) and v.startswith("=") and "#REF!" in v else v
 
 
 def _renamed_sheet(wb, old: str, new: str) -> None:
@@ -443,7 +452,8 @@ class Range:
         if k in ("Value", "Value2", "Formula", "Formula2"):
             if k.startswith("Formula") and self.ws.ProtectContents and self.ws.hidden & set(self.cells()):
                 raise ComError("a hidden formula of a protected sheet cannot be read")
-            return self._get_value()
+            v = self._get_value()
+            return _shown(v) if k == "Value2" else v
         if k == "PrefixCharacter":
             return "'" if self.rects[0][:2] in self.ws.prefixed else ""
         if k == "HasFormula":                            # one cell: a formula, not text written with an apostrophe
@@ -1027,8 +1037,26 @@ def _read_file(wb, path) -> list:
             lo = ListObject(ws, Range(ws, [parse_area(ref)]))
             lo.Name = name
             ws.ListObjects.append(lo)
+        for name, dn in src.defined_names.items():           # the sheet's own names, as Excel reads them
+            ws.Names.Add(Name=name, RefersTo="=" + dn.attr_text, Visible=not dn.hidden)
+        if src.auto_filter.ref:
+            ws.AutoFilterMode, ws.autofilter = True, parse_area(src.auto_filter.ref)
         out.append(ws)
     return out
+
+
+DIGIT_PX = {("Telenor", 11.0): 8}                 # the Normal fonts whose digit width the fake knows (else 7 px)
+
+
+def _normal_of(wb, path) -> None:
+    """An opened file's Normal font and every sheet's standard row height and digit width, as Excel reads them."""
+    import openpyxl
+    book = openpyxl.load_workbook(path)
+    font = book._fonts[0]
+    wb.normal = (font.name, float(font.sz))
+    for ws, src in zip(wb.order, book.worksheets):
+        ws.StandardHeight = float(src.sheet_format.defaultRowHeight or 15)
+        ws.digit_px = DIGIT_PX.get(wb.normal, 7)
 
 
 def _insert(dest, path, before, after):
@@ -1081,6 +1109,7 @@ class _Workbooks(list):
         assert not kw, "Workbooks.Open: positional arguments only"
         wb = Workbook(("the file's sheets",), app=self.app, styles_ver=False)
         wb.order = _read_file(wb, path)
+        _normal_of(wb, path)
         wb.active = wb.order[0]
         wb.Name, wb.FullName, wb.opened_with = Path(path).name, str(path), args
         _event(wb.order[0], "Open", str(path))
@@ -1129,6 +1158,8 @@ class Workbook:
         self.window_state: dict[str, dict] = {}
         self.selection: dict[str, str] = {}
         self.normal = ("Calibri", 11.0)                  # the Normal style's font
+        self.saved = 0                                   # Save() calls
+        self.ReadOnly = False
         self.active = self.order[0]
         self.Application.ActiveWorkbook = self
         if isinstance(getattr(self.Application, "Workbooks", None), _Workbooks):
@@ -1150,6 +1181,9 @@ class Workbook:
 
     def Activate(self):
         self.Application.ActiveWorkbook = self
+
+    def Save(self):
+        self.saved += 1
 
     def LinkSources(self, kind):
         assert kind == 1                                   # xlExcelLinks

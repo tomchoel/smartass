@@ -8,7 +8,7 @@ from fakexl import Workbook
 from test_v2_pipeline import FakeProvider
 from v2util import facts, resolver, spec_dict
 
-from smartass import pipeline
+from smartass import exceljob, pipeline
 from smartass.render.datasheet import Header, header_rows
 from smartass.xl import sources
 
@@ -204,7 +204,7 @@ def test_sheetorder_keeps_a_v2_sources_sheet_last_in_the_users_workbook():
 
 def test_the_status_cells_are_read_in_the_finish_batch():
     """The Data header's status cell of each query and the tie-out of each lines sheet, as Excel shows them after
-    calculating (pipeline._record_status, part of the finish batch)."""
+    calculating (exceljob._record_status, part of the finish batch)."""
     from smartass.render.datasheet import LINES_STATUS
     from smartass.xl.inproc import runner
     from smartass.xl.inproc.batch import Batch
@@ -218,7 +218,7 @@ def test_the_status_cells_are_read_in_the_finish_batch():
     ws.put(r, c, "OK")
     wb.Worksheets("Q3 Lines b0").put(int(LINES_STATUS[1:]), ord(LINES_STATUS[0]) - 64, "DIFF")
     b = Batch()
-    get = pipeline._record_status(b, b.workbook(wb.Name), 3, pre, h)
+    get = exceljob._record_status(b, b.workbook(wb.Name), 3, pre, h)
     assert get(runner.run(wb.Application, b)) == ({"fm": (h.status["fm"], "OK")}, {"b0": "DIFF"})
 
 
@@ -273,11 +273,11 @@ def test_a_pull_without_its_row_is_a_warning():
     from smartass.xl.inproc.runner import Result
     pre = _pre()
     written = sources.Written({}, range(0, 3), None, "Sources")
-    assert "no row for fm" in pipeline._sources_warning(pre, (written, []), Result())
+    assert "no row for fm" in exceljob._sources_warning(pre, (written, []), Result())
     refused = Result(skipped=[(1, "a set", "Excel said no")])
-    assert pipeline._sources_warning(pre, (written, []), refused).startswith(
+    assert exceljob._sources_warning(pre, (written, []), refused).startswith(
         "could not log the pull on the Sources sheet (Excel said no)")
-    assert pipeline._sources_warning(pre, (sources.Written({"fm": 2}, range(0, 3)), [sources.V1_NOTE]),
+    assert exceljob._sources_warning(pre, (sources.Written({"fm": 2}, range(0, 3)), [sources.V1_NOTE]),
                                      Result()) == sources.V1_NOTE
 
 

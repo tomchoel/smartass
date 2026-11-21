@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from test_v2_pipeline import FakeProvider
 from v2util import CLOSED, facts, resolver, spec_dict
 
-from smartass import pipeline, server
+from smartass import exceljob, pipeline, server
 from smartass.model.analyze import compute
 from smartass.model.blocks.chart import DEFAULT_SERIES, IMPLICIT_KEY, default_series
 from smartass.model.blocks.common import BlockOut, Line, add_material, ck, evaluate
@@ -319,7 +319,7 @@ def test_a_stored_pre_v5_spec_prepares_and_is_drawn_with_an_implicit_chart(monke
     assert [b["type"] for b in pre.raw["blocks"]] == ["table"]       # the stored spec stays as given
     monkeypatch.setattr(config, "HOME", tmp_path)
     Wired(monkeypatch)
-    out = pipeline.excel_job(None, pre, target="session")
+    out = exceljob.excel_job(None, pre, target="session")
     assert out["charts"] and out["checks"]["sheet_equals_model"] == "OK"        # the implicit chart is in the file
     # a refresh re-prepares the stored spec without complete and without the guard
     again = pipeline.prepare(pre.raw, resolver(), FakeProvider(facts()))

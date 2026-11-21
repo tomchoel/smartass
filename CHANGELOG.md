@@ -2,6 +2,199 @@
 
 ## Unreleased
 
+The sections below are 0.5.0 (phase 3c). After the update, reconnect every open Claude Code session (`/mcp`):
+a session still on 0.4.0 in the same Excel has no first-contact check, so a 0.5.0 save after the reply can run in
+the middle of its job.
+
+### Carry-overs from the reviews (0.5.0)
+
+- The report style's text findings are back in the reply's warnings ("B5: text is cut off or spills over (~65 > 46
+  chars)", "B13: text does not fit (...)"), in the words of the renderer before 0.3.0, computed from the look model
+  over the block the job reads back anyway: no Excel call. The old lint's font, vertical-border and "content outside
+  the table width" findings read what Excel shows anywhere on the sheet, which the look cannot know (it writes Arial
+  with top and bottom edges only, inside its block).
+- Excel settings a job that did not finish left changed (a killed server, a put-back Excel refused) are put back by
+  the next job in that Excel and said in its warnings ("an earlier smartass job in this Excel did not finish and left
+  Calculation manual: put back now"): before its first quiet batch a job records in the state file
+  `%LOCALAPPDATA%\smartass\jobstate\<Excel's pid>.json` what it found and what it sets (ScreenUpdating,
+  EnableEvents, DisplayAlerts, Calculation, AutoSave of our own file; no figures); its end removes it. Only a setting
+  that still reads what that job set is put back, and never in another Excel process that has the same pid. What
+  Excel refuses to put back stays in the file, and only that, also through the next job, until a put-back goes
+  through; when only AutoSave could not be switched back on, only that is kept. The file of an Excel process that is
+  known to be gone is removed.
+- AutoSave of our file that could not be switched back on is said: "AutoSave could not be switched back on in <file>
+  (...)", with "the next answer in this Excel switches it on" only when the state file holds that workbook, else
+  "switch it on yourself"; after a save after the reply, the next answer says so and switches it on.
+- A follow-up whose close-out fails after the old sheets are dropped says when its spec was not stored (the next
+  follow-up would patch the spec before it) - repeat the follow-up. A new answer whose save (or close-out) fails
+  removes its spec row and Sources rows with its sheets: no ghost question for a follow-up to pick.
+- A chart title or series name shaped like a cell reference ("Revenue beat budget!FY26") is written as text, not as
+  a broken reference.
+- Two unknown batch outcomes in a row in one Excel make that Excel use the COM executor for the rest of the server's
+  life, with one warning, instead of failing every later job.
+- The look for formulas that point at a follow-up's sheets halves each used range by cells: a sheet whose used range
+  a stray format stretched to XFD1048576 costs a few dozen steps instead of ~175 000 (in a hidden Excel 48 ms
+  in-process, 288 ms over COM); a sheet that would take more than 2 000 steps is said as unread. A sheet whose
+  formulas cannot be read (a protected sheet with a hidden formula) is warned about only when a cell there turned
+  #REF! with the follow-up, and the warning names those cells ("... and 1 cell(s) there show #REF! since the old Q3
+  was dropped (B2): a formula there pointed at it"; #REF! told by Excel's error code, not its text, with the verb
+  `errors`, which runs only for such a sheet). A sheet too large to check that way as well (more than 2 000 blocks:
+  about 100-200 million cells) is warned about on every follow-up.
+- Not changed: the defined names are still read one by one over COM when the add-in is not there (3-5 s for 2 000
+  names); Excel offers no exact lookup of the names that mention a sheet.
+
+### After Excel froze in the live check (0.5.0)
+
+- The Excel objects a job makes are released on its own thread: every Excel job - one that answers, one that fails,
+  one the server gave up on - has them released there after its answer went out, and only then are its turns in that
+  Excel released. What is enforced: the frames its error carries are cleared on its thread; its result holds no Excel
+  object; the garbage collector runs at a job's end, on its thread, only when no other Excel job is running in the
+  server (a collect is process-wide: run at the end of one job, it released the cycles of another job still running,
+  on the wrong thread - a request in the user's Excel and the engine's EPM pulls do run side by side; a job that
+  stays blocked in an Excel that does not answer counts as running until it returns, so no job's end collects
+  meanwhile); and the
+  reference cycles that held a job's Excel objects were found and broken where they were made (an error kept in a
+  local of a frame its own traceback holds: the error path of a batch, of a follow-up, of a taken sheet name, of a
+  batch given up on, of loading the add-in, of a sheet Excel was too busy to read), so those objects go by reference
+  counting as the job lets them go, with no collector. In a hidden Excel, check_insert's new workbook, failures,
+  mixed and re-pointing parts then leave no Excel object in any cycle. What is only made unlikely: a cycle that still
+  holds an Excel object (made in code where none was found: pywin32, a library) is freed by whichever collection meets
+  it first - Python's own collector, which runs on whatever thread happens to allocate, or the end of a later job that
+  runs alone - not necessarily on the thread that made it. Released from another thread such an object calls that Excel from there and waits for it -
+  for ever, when that Excel has stopped responding (live, 21.11.2026: Excel stopped answering between one job's thread
+  ending and the next one's starting, and that next thread hung releasing an object). A release that has not returned
+  10 s after the answer is recovered as a job that does not answer: a request in the user's Excel is given up as below,
+  and a job in the engine's hidden Excel (an EPM pull, also one a request hands it) restarts that Excel, whose kill
+  makes the release return - before, such a release wedged the hidden Excel's thread, and every later EPM call waited
+  15 minutes and failed, with no restart. A job's result is checked to be plain data.
+- A request the server gave up on because Excel did not answer in time no longer keeps the next request in that Excel
+  waiting silently for its turn (live, 21.11.2026: the next one waited until it was given up on too): after 5 s a
+  request that waits for that Excel's turn is refused with "An earlier request in that Excel (...) was given up after
+  Excel did not respond in time, and it still holds that Excel: ... was not started", and what to check - also in
+  another smartass server process (`user_excel_<pid>.given_up.json` next to the turn's lock says which request holds
+  it; one that could not be removed at the end of that turn is said in the log, expires with that Excel process and
+  with the server that wrote it, and goes with the next turn taken in that Excel). The request given up on never writes again and frees the turn when Excel answers it; the turn is never freed
+  before that. A new question's request that looks for a free Excel (target 'new') still counts that Excel as busy:
+  it takes another free Excel, or starts one for a parallel agent, as before - but a turn that frees within 0.5 s (the
+  request before it still releasing its Excel objects after its answer) is waited for, so no other Excel is started
+  for that.
+- Excel's "call rejected" while it is busy (a save, AutoSave) no longer fails a job with "Unexpected AttributeError:
+  <unknown>.FullName" (or "Property '<unknown>.Name' can not be set" in a batch over COM): the object wrapper waits
+  for Excel's type information instead of going on without it, and a rejected lookup of a name is said as busy, so
+  the usual wait for a busy Excel asks again. A call is never run twice for it. That wait is the request's: one the
+  server gave up on does not wait (its next call stops it), at a request's start it counts against the start's 30 s
+  for a busy Excel, and the scan of the Excel windows does not wait for it at all, as before (it waited up to 10 s
+  twice per window): an Excel that answers there while it rejects that is reached late-bound. With `SV_FASTCOM=0` (pywin32's own wrapper, for diagnosis) a busy
+  Excel still shows as such an AttributeError, as before 0.5.0.
+- What froze Excel is not known; it was not reproduced under the conditions below, which do not rule anything out.
+  Through the server's own job path (`scripts/check_followups.py`'s steps: a new answer, a second one, six follow-ups,
+  fin_refresh; each Excel job on its own thread; the engine's own target resolution pointed at a hidden Excel of our
+  own; the tests' fake data, no EPM): 20 runs of two add-in processes then one COM process in one Excel with an old
+  add-in build loaded on the code before the first point above, 20 runs of the same on the code after it, and 7 runs
+  of three COM processes in an Excel with no smartass add-in loaded on each code. Earlier (Task D): 19 full and 2
+  partial sequences of a stand-in, saved. Not tried: a visible Excel, the live EPM and Smart View session, the owner's
+  workbooks, and think-cell disconnected (it is installed for all users; Excel refuses to disconnect it without an
+  administrator, and its per-user setting was not changed).
+- A server whose Excel work in an Excel process switches from the add-in to COM says so once per Excel process in the
+  log, with the reason and the process's start time: "in-process executor not used in Excel pid ... (process started
+  ...): <why> (after N batch(es) through the add-in there); this server's Excel work there runs over COM" when it
+  gives up on the add-in there, and "SV_INPROC=0, while smartass add-in build(s) ... are loaded there" when a server
+  with the add-in switched off meets an Excel that has one loaded - so a later freeze can be tied to the switch, or
+  not.
+- `scripts/check_insert.py` part "mixed" runs the executors mixed in an Excel of its own with an old add-in build
+  loaded, each phase from a new server's state, and the add-in phase's last save after the reply still queued when the
+  COM jobs start; that Excel not answering anywhere - a job, or one of the script's own calls into it between jobs,
+  each on a thread of its own with a time limit (live it froze between jobs) - is one DIFF and that Excel is killed by
+  its pid, never a hang (shown with that Excel's process suspended between two phases, and before a job). The two "manual page
+  breaks" DIFFs of the default parts were a read that fails in a hidden Excel (the sheet's list of page breaks answers
+  "invalid index"), on every route alike: the check now reads each row and column instead when that happens.
+- The same sequence passed in the owner's Excel on this code (21.11.2026 13:43-13:46: two add-in runs, then the COM
+  run, one Excel process; every step OK; docs/audit/2026-11-20-first-answer.md). The cause of the freeze was not found.
+
+### The save happens after the reply (0.5.0)
+
+- With the add-in, the answer's own file is no longer saved inside the job (0.4-1.1 s of every answer in the owner's
+  Excel): the job's save step asks the add-in, in one `Application.Run` of a few ms, to save it, and the reply goes
+  out (not for the first answer of a workbook the question created: that one is saved in the job, so the file on
+  disk holds the answer before the session points at it). The add-in waits `SV_SAVE_DELAY` (0.3 s) on a timer of its
+  own so Excel paints the answer first, then saves
+  as a queued macro (`ExcelAsyncUtil.QueueAsMacro`) and switches AutoSave back on (also after a failed save), and
+  writes the outcome - no figures: the workbook's name, ok or Excel's error, the seconds - to
+  `inproc\saved\<Excel's pid>.json`. Live in a visible Excel of our own (20.11.2026): with the delay the answer's
+  last picture change came 0.2-0.35 s before the save started and nothing changed during or after it; with no
+  delay (the control) the save started at once and the answer's last changes were painted only after it.
+- A follow-up that comes before that save ran has it run first, at the start of its first batch (never between its
+  batches, never twice); one that comes while it runs waits as for a busy Excel. Excel answers calls in the middle
+  of a save of a OneDrive file, so the add-in answers "busy" to a batch while its save runs and the batch is asked
+  again (live: one in four batches sent 30 ms into a save got that answer; none ran during a save).
+- The next answer in that Excel reads the outcome once: its seconds go to its run-log line as `previous save`; a
+  failed save is a warning in that reply ("the save of <file> after the last answer failed (...); it is saved now")
+  and that answer saves in the job, also that workbook when it is another one; a workbook closed before its save is
+  said ("Excel asks whether to save it when it closes" - observed: Excel's own "Save your changes to this file?"
+  dialog, and the waiting save does not run while it is shown). `fin_status` shows the last outcome
+  (`save_after_reply`).
+- Over COM (no add-in) and with `SV_SAVE=sync` the job saves before it replies, as before; a follow-up that fails
+  once its old sheets are gone still saves our file in the job. The user's own workbook is never saved: the add-in
+  keeps the workbook's full name from the request and does not save another file opened under that name, and a
+  failed save is repeated only while that file is open. A failed save that the next answer could not repeat (it
+  failed first) is left for the answer after it.
+- A job's first contact with an Excel runs the waiting save of every smartass build loaded there (two servers of
+  different versions each load their own add-in, with a save of its own): `Application.RegisteredFunctions` names
+  the builds' `.xll` files (1-5 ms). Before, another build's save ran on its own timer in the middle of the job,
+  and its outcome could be overwritten by the job's own before anyone read it (a failed save then went untold). A
+  first contact that cannot be made is logged once per Excel process.
+- The reads made before a job's turn (`target='active'`'s active workbook, the open workbooks that every `xl_*`
+  tool scans) wait for a busy Excel, as Excel rejects calls while our save runs: a question or a tool sent within
+  about 1.4 s of a reply no longer fails with "Call was rejected by callee". A job's start waits for an Excel that
+  rejects calls (a cell in edit mode, a dialog) 30 s in all, then says so, as before the save after the reply.
+  Only the seconds Excel rejects calls count: a save of ours is waited for through - the add-in's answer that one
+  runs, a waiting save the job's first contact runs itself, and Excel's rejections while a save this server asked
+  for may still run. Another smartass server's save is said as that server's ("(asked by another smartass server in
+  this Excel)"). A server with `SV_INPROC=0` makes no first contact, so another server's waiting save can run between
+  its batches. An abandoned job stops in every one of these waits.
+- `bench_answers.py` adds "saved after s" (the save's own seconds) beside the Excel job the user waits for;
+  `check_followups.py` waits for each step's saves before it reads `Workbook.Saved` or the file and prints their
+  seconds; `check_insert.py --parts newbook` waits for them too (`--parts newbook,failures`: 82 checks);
+  `check_inproc.py` checks the save after the reply (61 checks in all).
+
+### The first answer of a new workbook is its built file (0.5.0)
+
+- A question that starts a new workbook no longer has Excel create one from the TN template and save it as a new
+  file in the OneDrive folder, then set up a Sources log (10.6-11.3 s in the owner's Excel, 0.4.0): the renderer
+  writes the whole workbook to a reserved name in the analysis folder - the answer's sheets, the Sources log
+  furnished (header, fonts, widths, filter, frozen header, print setup and its two hidden names), the sensitivity
+  label as custom document properties and the TN template's theme - and Excel only opens it. The job then runs its
+  usual batches: look, bring in (the finish only), close out (the log's rows), save. In a hidden Excel on the
+  OneDrive folder the whole first answer's Excel work took 1.92-2.46 s against 7.05-13.72 s made today's way (four
+  rounds each, 20.11.2026; the owner's Excel is measured separately).
+- The file name is reserved by creating it empty and exclusively (parallel agents get different names) and is never
+  the name of a workbook open in that Excel. A failure once it is reserved closes the workbook without saving and
+  deletes the file (found by its full path: never another session's workbook of the same name), and the error says
+  so; the workbook becomes the session's only once the answer is in it and saved - in the job, also with the add-in.
+- The new workbook is built in the Normal style and sizes of a workbook added from the template, which the look of
+  the first one made that way stores; until then (and without a label id, without the template, in an Excel started
+  for a parallel agent, or with no Excel open) a new workbook is made as before.
+- The labelled seed of the no-Excel path is now found: Excel on this tenant keeps the label in
+  `docMetadata/LabelInfo.xml`, not in custom properties, so the seed was never copied before.
+- A built workbook has no TN cell styles until `xl_tidy` or `apply_report` installs them (as they do in any
+  workbook without them).
+- `scripts/check_insert.py` has a `newbook` part (a new workbook made today's way against one built as its file,
+  item by item, and a failed one); `bench_answers.py` and `check_followups.py` show the `open target` and
+  `draw.open` stages.
+- Live in the owner's Excel (a fresh Excel, 20.11.2026, the save still in the job): a new workbook's first answer
+  5.3-6.1 s against 7.5 s with 0.4.0 in the same Excel: open target 2.1-2.6 s (of it 2.0 s not Excel's),
+  `draw.open` 1.05-1.08 s, look 0.83-1.14 s, the rest 0.9 s. The workbook opened showing the formatted empty Answer
+  with "Internal" in its title, no repair prompt and no Protected View; the whole answer was on screen about 1.4 s
+  later; on disk it carries the label as one made the old way does. Second answers 1.2-1.6 s, follow-ups 1.5-2.1 s,
+  `fin_refresh` 3.4-4.1 s. 0.4.0's bench in a fresh Excel held the 3 s / 5 s gate in every round (1.3 / 1.9 / 2.0
+  s and 3.6 / 3.1 / 3.6 s). Details: docs/audit/2026-11-20-first-answer.md.
+- Two of those costs are cut. The session's parent processes are read from one snapshot of the process table:
+  psutil took one per ancestor, 1.5 s on the first answer of every server start (a plain script: 1.75-2.15 s before,
+  0.20-0.22 s after). And a server process that meets an Excel holding its build of the add-in already (loaded by an
+  earlier server) uses it as it is instead of registering it again: the look of a new server's first answer took
+  0.45-0.49 s in a hidden Excel, now 0.04-0.09 s (the look's reads themselves take a few ms; that this was most of
+  the live look's 0.8-1.1 s is inferred). The live figure after these cuts is still to be measured.
+
 ### The answer's Excel work runs inside Excel (0.4.0)
 
 - An answer's Excel work is recorded as batches of operations, and each batch runs in one go inside Excel through a

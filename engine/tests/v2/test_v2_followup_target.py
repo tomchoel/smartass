@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from smartass import answers, pipeline, server
+from smartass import answers, exceljob, server
 from smartass.core import config, session
 
 
@@ -87,7 +87,7 @@ def test_followup_on_book1_resolves_the_open_unsaved_workbook(home, monkeypatch)
     _by_name(monkeypatch, {22: ["Book1"]}, {22: FakeApp(Books([book1]))})
     monkeypatch.setattr(sheets, "_stored_specs", lambda t: {1: {"spec": {"v2": {}}, "wb": t.wb}})
     monkeypatch.setattr(jobs, "com", lambda fn, **k: fn())
-    stored, active, path = pipeline.read_stored(None, server._default_target("session"))
+    stored, active, path = exceljob.read_stored(None, server._default_target("session"))
     assert stored[1]["wb"] is book1 and active == "Q1 Answer" and path == "Book1"
 
 

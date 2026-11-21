@@ -17,9 +17,13 @@ format, and Excel then shows the raw value (live, 19.11.2026: 11580000 beside 10
 keep the series position, its unlabelled points deleted (a deleted label shows nothing, so it needs no format), and
 a thin waterfall step is labelled like its neighbours. What COM must set on single points after the move-in
 (charts._labels) is returned as LabelFix: a line's last label to the right of its point and a label the layout
-moves clear of another line; a thin step's label in ink, lifted 10 pt above its bar."""
+moves clear of another line; a thin step's label in ink, lifted 10 pt above its bar.
+
+XlsxWriter takes a title or series name shaped like a cell reference (REF_LIKE: "Revenue beat budget!FY26") for a
+formula; such a name is set on the chart as text after XlsxWriter has read the options without it."""
 from __future__ import annotations
 
+import re
 import warnings
 from dataclasses import dataclass
 
@@ -32,6 +36,8 @@ from .charts import (ACCENT, FILL, GAP_WIDTH, GREY, HIDDEN, INK, NAVY, PARTS, PC
 from .layout import ChartSpec, SheetPlan
 
 CHART_NAME = "smartass chart"
+REF_LIKE = re.compile(r"^=?[^!]+!\$?[A-Z]+\$?\d+")     # XlsxWriter's test for a name that is a reference (3.3.1,
+                                                      # chart.py _process_names)
 XLSX_TYPE = {51: ("column", None), 52: ("column", "stacked"), 53: ("column", "percent_stacked"), 57: ("bar", None),
              4: ("line", None)}                       # XL_TYPE's chart types as XlsxWriter's type and subtype
 LINE_WIDTH = 2.25                                     # pt
@@ -215,7 +221,7 @@ def _add(workbook, worksheet, sheet: str, spec: ChartSpec, chart_no: int) -> lis
     kind, subtype = XLSX_TYPE[XL_TYPE[spec.kind]]
     chart = workbook.add_chart({"type": kind, "name": CHART_NAME} | ({"subtype": subtype} if subtype else {}))
     for s in bars:
-        chart.add_series(s)
+        _add_series(chart, s)
     value, category = _axes(spec)
     if kind == "bar":                                     # XlsxWriter: a bar chart's x axis is its value axis
         chart.set_x_axis(value)
@@ -226,16 +232,29 @@ def _add(workbook, worksheet, sheet: str, spec: ChartSpec, chart_no: int) -> lis
     if lines:                                             # combo: the % line on a hidden secondary axis
         pct = workbook.add_chart({"type": "line"})
         for s in lines:
-            pct.add_series(s)
+            _add_series(pct, s)
         pct.set_y2_axis(dict(HIDDEN_AXIS))
         chart.combine(pct)
-    chart.set_title({"name": spec.title, "font": dict(TITLE)})
+    title_ref = bool(REF_LIKE.match(spec.title))
+    chart.set_title({"name": None if title_ref else spec.title, "font": dict(TITLE)})
+    if title_ref:
+        chart.title.name = spec.title                     # written as rich text, as any other title
     chart.set_legend({"position": "top", "font": dict(TEXT)} if legend_shown(spec) else {"none": True})
     chart.set_chartarea({"border": {"none": True}})
     chart.set_size({"width": round(spec.width * PX_PER_PT), "height": round(spec.height * PX_PER_PT)})
     row, col = xl_cell_to_rowcol(spec.anchor)
     worksheet.insert_chart(row, col, chart)
     return fixes
+
+
+def _add_series(chart, s: dict) -> None:
+    """chart.add_series(s), its name text even when XlsxWriter would read it as a reference (REF_LIKE)."""
+    name = s.get("name")
+    if not (isinstance(name, str) and REF_LIKE.match(name)):
+        chart.add_series(s)
+        return
+    chart.add_series({k: v for k, v in s.items() if k != "name"})
+    chart.series[-1]["name"] = name
 
 
 def add_charts(workbook, worksheet, sheet_name: str, plan: SheetPlan) -> tuple[list[str], list[str], list[LabelFix]]:

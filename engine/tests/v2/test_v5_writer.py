@@ -105,7 +105,7 @@ def test_the_job_closes_out_with_the_status_after_the_readback_and_sets_the_foot
     from test_v2_pipeline import FakeProvider
     from v2util import facts, resolver, spec_dict
 
-    from smartass import pipeline
+    from smartass import exceljob, pipeline
     from smartass.core import config
     from smartass.render import xlsx
     monkeypatch.setattr(config, "HOME", tmp_path)
@@ -117,10 +117,10 @@ def test_the_job_closes_out_with_the_status_after_the_readback_and_sets_the_foot
         seen.update(plan=plan)
         return real(path, name, plan, *a, **k)
     monkeypatch.setattr(xlsx, "build", build)
-    monkeypatch.setattr(pipeline, "compare", lambda *a: log.append("compare") or ["D5: sheet 1, model 2"])
-    monkeypatch.setattr(pipeline, "_close_out", wired.rec("close_out", lambda job, built, plan, pre, header, stamp,
+    monkeypatch.setattr(exceljob, "compare", lambda *a: log.append("compare") or ["D5: sheet 1, model 2"])
+    monkeypatch.setattr(exceljob, "_close_out", wired.rec("close_out", lambda job, built, plan, pre, header, stamp,
                                                           read, m, book: seen.update(m=m) or (None, None, [])))
-    out = pipeline.excel_job(None, pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts())), "session")
+    out = exceljob.excel_job(None, pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts())), "session")
     assert log.index("bring_in") + 1 == log.index("compare") and log.index("compare") + 1 == log.index("close_out")
     assert seen["m"] == ["D5: sheet 1, model 2"] and out["checks"]["sheet_equals_model"] == "DIFF in 1 cells"
     assert seen["plan"].footer.startswith("Source: Oracle EPM Cloud · fetched ")

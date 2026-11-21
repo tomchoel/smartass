@@ -5,9 +5,13 @@ printed: the replies carry figures from EPM and are never printed or kept.
 
 Usage (from the repo root; Excel open, signed in to EPM):
     engine\.venv\Scripts\python.exe scripts\bench_answers.py --rounds 3 [--case b01 ...]
-The per-round table has a column per stage of the Excel job (pipeline.excel_job: look, build, move in, finish,
-close out, save) and its "runs": the batches it ran (xl/inproc: one Excel run each); a stage the run did not have
-shows "-". SV_INPROC=0 runs every batch over COM.
+The per-round table has a column per stage of the Excel job (exceljob.excel_job: open target, build, open, look,
+move in, finish, close out, save; 'open' only for the first answer of a new workbook, whose built file is opened, and
+its build comes before the look) and its "runs": the batches it ran (xl/inproc: one Excel run each); a stage the run
+did not have shows "-". SV_INPROC=0 runs every batch over COM. With the add-in, our file is saved by Excel after the
+reply (xl/inproc/later.py): "excel job s" and "save s" are what the user waits for (the save step only asks for it),
+and "saved after s" is that save's own seconds, from its outcome - the bench waits for it after every answer, so the
+next one starts with nothing pending ("-": saved in the job, SV_SAVE=sync or over COM).
 
 One warm-up answer (the first case, target 'new') creates ONE new workbook in the analyser folder; every measured
 round then lands in that session workbook (target 'session'). Rounds run outer and cases inner, so the growing
@@ -31,10 +35,12 @@ from pathlib import Path
 from smartass import __version__
 from smartass.core import config
 from smartass.testset import runner
+from smartass.xl.inproc import later
 
 COM = "com calls."                  # keys with this in them are COM-call counts, not seconds
 BATCHES = "batches."                # ... and these batch counts (one Excel run each)
 JOB = "excel job."                  # the Excel job's Timer summary, as server._draw_job adds it
+PREVIOUS = JOB + "previous save"    # the save the answer before left to Excel (its own row has it as "saved after")
 COLUMNS = (("_total", "_total s"), ("prepare.fetch", "prepare.fetch s"), ("prepare.drill", "prepare.drill s"),
            ("excel job._total", "excel job s"))
 
@@ -92,6 +98,7 @@ def _row(label: str, runs: list[dict], errors: bool = True) -> str:
     ok = [r for r in runs if r["ok"]]
     cells = [label, f"{len(ok)}/{len(runs)}"]
     cells += [_secs(_median(r["timings"].get(k) for r in ok)) for k, _ in COLUMNS]
+    cells.append(_secs(_median(r.get("saved") for r in ok)))
     cells.append(_count(_median(com_calls(r["timings"]) for r in ok)))
     cells.append(_count(_median(com_calls(r["timings"], BATCHES) for r in ok)))
     failed = [r["error"] for r in runs if not r["ok"]]
@@ -101,7 +108,7 @@ def _row(label: str, runs: list[dict], errors: bool = True) -> str:
 
 def table(warm: dict | None, runs: list[dict]) -> str:
     """Per case the medians over its ok rounds; then the medians over every ok run of every case; then the warm-up."""
-    head = ["case", "ok runs"] + [title for _, title in COLUMNS] + ["COM calls", "runs", "errors"]
+    head = ["case", "ok runs"] + [title for _, title in COLUMNS] + ["saved after s", "COM calls", "runs", "errors"]
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     by_case: dict[str, list[dict]] = {}
     for r in runs:
@@ -113,8 +120,9 @@ def table(warm: dict | None, runs: list[dict]) -> str:
     return "\n".join(rows)
 
 
-ROUND_COLUMNS = (("_total", "_total s"), ("excel job._total", "excel job s"), ("excel job.draw", "draw s"),
-                 ("excel job.draw.look", "draw.look s"), ("excel job.draw.build", "draw.build s"),
+ROUND_COLUMNS = (("_total", "_total s"), ("excel job._total", "excel job s"), ("excel job.open target", "open target s"),
+                 ("excel job.draw", "draw s"), ("excel job.draw.build", "draw.build s"),
+                 ("excel job.draw.open", "draw.open s"), ("excel job.draw.look", "draw.look s"),
                  ("excel job.draw.move in", "draw.move in s"), ("excel job.draw.finish", "draw.finish s"),
                  ("excel job.draw.paint", "draw.paint s"), ("excel job.draw.close out", "draw.close out s"),
                  ("excel job.save", "save s"),
@@ -129,11 +137,12 @@ def _has_lines(timings: dict) -> bool:
 def round_table(runs: list[dict], lines: bool = False) -> str:
     """Per round the medians over the ok runs without a lines block (no drill; lines: those with one), to show how
     the answers change as the one workbook grows; the COM calls and batches show whether the work itself changed."""
-    head = ["round", "answers"] + [title for _, title in ROUND_COLUMNS] + ["COM calls", "runs"]
+    head = ["round", "answers"] + [title for _, title in ROUND_COLUMNS] + ["saved after s", "COM calls", "runs"]
     rows = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for n in sorted({r["round"] for r in runs}):
         rs = [r for r in runs if r["round"] == n and r["ok"] and _has_lines(r["timings"]) == lines]
         cells = [str(n), str(len(rs))] + [_secs(_median(r["timings"].get(k) for r in rs)) for k, _ in ROUND_COLUMNS]
+        cells.append(_secs(_median(r.get("saved") for r in rs)))
         cells.append(_count(_median(com_calls(r["timings"]) for r in rs)))
         cells.append(_count(_median(com_calls(r["timings"], BATCHES) for r in rs)))
         rows.append("| " + " | ".join(cells) + " |")
@@ -148,7 +157,7 @@ def stage_table(runs: list[dict]) -> str:
     vals: dict[str, list[float]] = {}
     for r in ok:
         for k, v in r["timings"].items():
-            if COM not in k and BATCHES not in k:
+            if COM not in k and BATCHES not in k and k != PREVIOUS:    # the case before's save: not this case's time
                 vals.setdefault(k, []).append(v)
     rows = ["| stage | runs | median s | sum s | share of _total |", "|---|---|---|---|---|"]
     for k, vs in sorted(vals.items(), key=lambda kv: -sum(kv[1])):
@@ -183,13 +192,19 @@ async def _run(tool, case: dict, target: str, start: datetime, round_no: int = 0
         status = ((out or {}).get("checks") or {}).get("sheet_equals_model")     # 'OK' / 'DIFF in n cells' only
     except Exception as e:   # noqa: BLE001 - a failed case is listed with its error, the bench goes on
         error = e
+    wall = time.monotonic() - t0                       # the answer as the user waits for it
+    saves = await asyncio.to_thread(later.wait, 60)     # the save after the reply: its own seconds, then on
     lines = read_lines(path, offset, start)
     question = case["spec"].get("question")
     line = next((x for x in reversed(lines) if x.get("question") in (question, None)), None)
-    rec = {"case": label, "round": round_no, "wall": time.monotonic() - t0,
-           "timings": (line or {}).get("timings") or {}, "status": status}
+    rec = {"case": label, "round": round_no, "wall": wall,
+           "timings": (line or {}).get("timings") or {}, "status": status,
+           "saved": sum(s["seconds"] for s in saves if s.get("seconds") is not None) if saves else None}
+    failed = [s for s in saves if not s["ok"]]
     if error is not None:
         rec.update(ok=False, error=scrub(error))
+    elif failed:
+        rec.update(ok=False, error=scrub(f"the save after the reply failed: {failed[0].get('error')}"))
     elif line is None:
         rec.update(ok=False, error="no run-log line")
     else:
@@ -199,14 +214,16 @@ async def _run(tool, case: dict, target: str, start: datetime, round_no: int = 0
 
 def _progress(label: str, rec: dict) -> None:
     state = f"ok, sheet = model {rec.get('status')}" if rec["ok"] else f"FAILED: {rec['error']}"
+    if rec.get("saved") is not None:
+        state += f", saved after the reply in {rec['saved']:.2f}s"
     print(f"<!-- {label} {rec['case']}: {rec['wall']:.1f}s {state} -->", flush=True)
 
 
 def _excel_build(h) -> str:
     """Application.Version and Build of the Excel the session workbook (the answers) is in."""
-    from smartass import pipeline
+    from smartass import exceljob
     from smartass.xl import jobs
-    t = pipeline._target(h, "session", None)
+    t = exceljob._target(h, "session", None)
     return jobs.com(lambda: f"{t.app.Version} (build {t.app.Build})")
 
 

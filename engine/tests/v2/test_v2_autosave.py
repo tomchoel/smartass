@@ -8,7 +8,7 @@ import pytest
 from test_file_job import _pre
 
 import fakexl
-from smartass import pipeline
+from smartass import exceljob
 from smartass.xl import jobs, movein
 from smartass.xl.inproc import runner
 from smartass.xl.inproc.runner import BatchError
@@ -50,13 +50,13 @@ class NoAutoSaveBook(fakexl.Workbook):
 def job(monkeypatch, tmp_path):
     from smartass.core import config
     monkeypatch.setattr(config, "HOME", tmp_path)
-    monkeypatch.setattr(pipeline, "remember", lambda pre, out: None)
+    monkeypatch.setattr(exceljob, "remember", lambda pre, out: None)
 
     def run(wb, ours: bool):
-        monkeypatch.setattr(pipeline, "_target", lambda h, target, title: Target(app=wb.Application, wb=wb, pid=0,
+        monkeypatch.setattr(exceljob, "_target", lambda h, target, title, build_new=False: Target(app=wb.Application, wb=wb, pid=0,
                                                                                 hwnd=0, created=ours))
-        monkeypatch.setattr(pipeline, "_is_ours", lambda t: t.created)
-        return pipeline.excel_job(None, _pre())
+        monkeypatch.setattr(exceljob, "_is_ours", lambda t: t.created)
+        return exceljob.excel_job(None, _pre())
     return run
 
 
@@ -116,13 +116,13 @@ def test_the_notes_of_a_failed_job_reach_its_error(job, monkeypatch):
     monkeypatch.setattr(fakexl._ListObjects, "Add", refuse)
     with pytest.raises(BatchError) as e:
         job(wb, ours=False)
-    assert str(e.value).endswith("; " + pipeline.AUTOSAVE_NOTE.format("book.xlsx")) and "refused" in str(e.value)
+    assert str(e.value).endswith("; " + exceljob.AUTOSAVE_NOTE.format("book.xlsx")) and "refused" in str(e.value)
     assert wb.AutoSaveOn is False and [ws.Name for ws in wb.order] == ["Sources"]
 
 
 def test_autosave_is_not_said_off_when_the_job_failed_before_it_was_switched_off(job, monkeypatch):
     wb = AutoSaveBook(True)
-    monkeypatch.setattr(pipeline, "_look", lambda job: (_ for _ in ()).throw(fakexl.ComError("Excel said no")))
+    monkeypatch.setattr(exceljob, "_look", lambda job: (_ for _ in ()).throw(fakexl.ComError("Excel said no")))
     with pytest.raises(fakexl.ComError) as e:
         job(wb, ours=False)
     assert str(e.value) == "Excel said no" and wb.AutoSaveOn is True and _steps(wb) == []
@@ -204,8 +204,8 @@ def test_a_follow_up_whose_save_fails_turns_autosave_back_on_in_our_file(job, mo
     job(wb, ours=True)
     _fail_batch(monkeypatch, 3, jobs.HostError("the file is locked"))
     with pytest.raises(jobs.HostError, match="locked") as e:
-        pipeline.redraw_job(None, _pre(), 1)
-    assert pipeline.KEPT in str(e.value) and wb.AutoSaveOn is True and _steps(wb)[-1] == ("AutoSaveOn", True)
+        exceljob.redraw_job(None, _pre(), 1)
+    assert exceljob.KEPT in str(e.value) and wb.AutoSaveOn is True and _steps(wb)[-1] == ("AutoSaveOn", True)
 
 
 def test_the_users_workbook_keeps_autosave_off_after_a_failure_too(job, monkeypatch):
@@ -216,7 +216,7 @@ def test_the_users_workbook_keeps_autosave_off_after_a_failure_too(job, monkeypa
     with pytest.raises(BatchError) as e:
         job(wb, ours=False)
     assert wb.AutoSaveOn is False and [s[:2] for s in _steps(wb) if s[0] == "AutoSaveOn"] == [("AutoSaveOn", False)]
-    assert pipeline.AUTOSAVE_NOTE.format("book.xlsx") in str(e.value)
+    assert exceljob.AUTOSAVE_NOTE.format("book.xlsx") in str(e.value)
 
 
 def test_a_look_whose_outcome_is_unknown_turns_autosave_back_on_in_our_file(job, monkeypatch):

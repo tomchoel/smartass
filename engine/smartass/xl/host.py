@@ -7,6 +7,7 @@ COM call return with an RPC error. The next call starts a fresh Excel. Other Exc
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 import threading
@@ -25,6 +26,8 @@ from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy
 
 log = logging.getLogger("smartview.host")
 BOX_WATCH_S = 3.0
+RELEASE_WAIT_S = 10.0       # a job's objects not released this long after its answer: recovered as a job that does not
+                            # answer (a user job given up on, the hidden Excel restarted)
 
 DEAD_HRESULTS = {-2147023174, -2147023170, -2147417848}   # RPC unavailable, call failed, object disconnected
 
@@ -76,6 +79,33 @@ def signin_message(d: dialogs.Dialog, again: bool, holders: list[str]) -> str:
     return (f"{cause}. Dialog: {dialogs.describe(d)}. The engine restarted Excel once; it happened again.{hold} "
             "Next step: sign in to Smart View once in your own Excel (Smart View ribbon → Panel → connect), then "
             "retry; if it repeats, run `smartass doctor --bundle`.")
+
+
+def plain(out, what: str = "a job"):
+    """out when it holds no COM object (a job's result is plain data: a COM object in it would be released on the
+    thread that reads the result, not on the job's own - Task D2); else TypeError, raised on the job's thread."""
+    import pythoncom
+    from win32com.client import dynamic
+    com_types = (pythoncom.TypeIIDs[pythoncom.IID_IUnknown], dynamic.CDispatch)
+    scalar = (str, bytes, int, float, type(None))
+    todo, seen = [out], set()
+    while todo:
+        x = todo.pop()
+        if id(x) in seen:
+            continue
+        seen.add(id(x))
+        if isinstance(x, com_types):
+            raise TypeError(f"{what} returned a COM object ({type(x).__name__}); a job's result must be plain data")
+        if isinstance(x, dict):
+            items = [*x.keys(), *x.values()]
+        elif isinstance(x, (list, tuple, set, frozenset)):
+            items = x
+        elif dataclasses.is_dataclass(x) and not isinstance(x, type):
+            items = [getattr(x, f.name) for f in dataclasses.fields(x)]
+        else:
+            continue
+        todo += [v for v in items if not isinstance(v, scalar)]     # a grid of numbers costs one pass, no stack
+    return out
 
 
 class InputError(ValueError):
@@ -151,7 +181,8 @@ class ExcelHost(HiddenExcel):
         from . import jobs
         timeout = timeout or (config.USER_CALL_TIMEOUT_S if user_excel else config.CALL_TIMEOUT_S)
         started = threading.Event()
-        token = jobs.JobToken()
+        released = threading.Event()
+        token = jobs.JobToken(what)
 
         def job():
             started.set()
@@ -159,21 +190,24 @@ class ExcelHost(HiddenExcel):
             if not user_excel:                    # jobs in the user's Excel start the hidden one only on demand
                 self._wait_reset()
                 self._ensure_started()            # (h.on_host): it costs ~10 s + an SSO login per server start
-                return fn(self)
+            return plain(fn(self), what)
+
+        def after():                              # on the job's thread, once the objects it made are released
             try:
-                return fn(self)
-            finally:
                 jobs.release_turns()         # the per-Excel turns taken while resolving the target
+                jobs.unbind_job()
+            finally:
+                released.set()
 
         if user_excel:
             # its own STA thread per job: parallel tool calls (e.g. subagents of one session) run at the same time
             # in different Excels; work in ONE Excel still takes turns (jobs.Turn)
             worker = ComThread(name=f"user-job-{what}")
             worker.start()
-            fut = worker.submit(job)
+            fut = worker.submit(job, after)
             worker.q.put((None, None))            # the thread ends after this job
         else:
-            fut = self.thread.submit(job)
+            fut = self.thread.submit(job, after)
         wrapped = asyncio.wrap_future(fut)
         wrapped.add_done_callback(lambda f: f.cancelled() or f.exception())   # an abandoned job's error is expected
         q0 = time.monotonic()                     # the deadline starts when the job STARTS, not while it queues
@@ -184,10 +218,14 @@ class ExcelHost(HiddenExcel):
                                 f"(e.g. an atlas build); {what} was not started. Try again shortly.")
             await asyncio.sleep(0.1)
         try:
-            return await self._await_job(wrapped, timeout, watch_dialogs=not user_excel)
+            try:
+                return await self._await_job(wrapped, timeout, watch_dialogs=not user_excel)
+            finally:
+                if wrapped.done():                        # it answered (a result or its error): now its release
+                    self._watch_release(released, what, *((token, None) if user_excel else (None, self.pid)))
         except asyncio.TimeoutError:
             if user_excel:
-                token.aborted = True              # only this job: it rolls back when that Excel frees up
+                jobs.give_up(token)               # only this job: it rolls back when that Excel frees up
                 self.last_error = f"{what} exceeded {timeout:.0f}s in the user's Excel"
                 raise HostTimeout(
                     f"Your Excel did not respond within {timeout:.0f}s during {what} (a dialog, edit mode, or a large "
@@ -216,6 +254,34 @@ class ExcelHost(HiddenExcel):
             log.exception("unexpected error during %s", what)
             raise HostError(f"Unexpected {type(e).__name__} during {what}: {e}. Retry once; if it repeats, run "
                             "fin_status(restart=True).") from None
+
+    def _watch_release(self, released: threading.Event, what: str, token=None, pid: int | None = None) -> None:
+        """The job has answered; its objects are being released on its thread (ComThread), which holds its turns
+        meanwhile. A release that has not returned after RELEASE_WAIT_S is into an Excel that stopped answering, and is
+        recovered as a job that does not answer is:
+        - a job in the user's Excel (token): given up on (jobs.give_up), so a job waiting for that Excel's turn is told
+          so (jobs.ABANDONED) instead of waiting silently; the turn itself is freed only when the release returns
+          (never two jobs in one Excel);
+        - a job in the engine's hidden Excel (no token; pid: that Excel when the job answered): the hidden Excel is
+          restarted (_hard_reset), whose kill makes the blocked release return, so the host's one thread is not wedged
+          and the next EPM call does not queue for QUEUE_TIMEOUT_S (Task D2 review, Important 1).
+        Watched by a thread of its own, not the event loop: the loop of a script's asyncio.run is gone by then."""
+        from . import jobs
+        wait = RELEASE_WAIT_S
+
+        def watch():
+            if released.wait(wait):
+                return
+            if token is not None:
+                if not token.aborted:
+                    log.warning("%s answered, but the Excel objects it made were not released within %.0fs (that "
+                                "Excel does not answer): it is given up on", what, wait)
+                    jobs.give_up(token)
+                return
+            log.warning("%s answered, but the objects it made in the engine's hidden Excel were not released within "
+                        "%.0fs: that Excel is restarted", what, wait)
+            self._hard_reset(f"{what}: releasing its objects did not return within {wait:.0f}s", pid)
+        threading.Thread(target=watch, name=f"release-watch {what}", daemon=True).start()
 
     async def _await_job(self, wrapped, timeout: float, watch_dialogs: bool):
         """Wait for the job; from DIALOG_CHECK_AFTER_S on, every DIALOG_POLL_S, look for a stuck Smart View sign-in in

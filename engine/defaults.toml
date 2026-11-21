@@ -7,6 +7,8 @@ base = "https://plan1-telenorepm.epm.eu-frankfurt-1.ocs.oraclecloud.com"
 [label]          # Telenor sensitivity label "Internal", applied before any Excel SaveAs
 id = "f604d2c9-1577-460e-b668-57374a0216c3"
 site = "1676489c-5c72-46b7-ba63-9ab90c4aad44"
+name = "Internal"   # the label's name and the content bits Excel records for it (a new workbook's built file)
+content_bits = 2
 
 [drill]          # browsers tried in order for fin_drill (Edge first: Chrome's UserDataDir policy blocks a hidden Chrome)
 channels = ["msedge", "chrome"]

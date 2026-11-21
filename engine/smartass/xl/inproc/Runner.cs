@@ -3,7 +3,8 @@
 // and the jobs folder in place of __JOBS__. SmartassRun is a function, not a command, because its result is its
 // return value (a command returns nothing); it refuses a cell caller and any path but a job file of that folder.
 // C# 5 (the .NET Framework compiler that ships with Windows); the batch format is described in batch.py, the result
-// record in runner.py, and the COM executor there does the same over COM from Python.
+// record in runner.py, and the COM executor there does the same over COM from Python. SmartassSaveLater saves our own
+// analysis file after the reply (xl/inproc/later.py says how and why).
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -34,6 +35,15 @@ public static class SmartassRunner___HASH__
     static readonly object[] QuietValues = { false, false, false, -4135 };
     const BindingFlags Get = BindingFlags.GetProperty | BindingFlags.InvokeMethod;
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+    static readonly Regex Token = new Regex(@"^[0-9a-f]{32}\z");
+    const int DelayMaxMs = 10000;
+    const int WriteTries = 20, WriteWaitMs = 25;               // the outcome's rename, while a reader holds the file
+    static Pending pending;                                    // the save asked for and not run yet (Excel's thread)
+    static bool saving;                                        // that save is running: Excel answers calls meanwhile
+    static string unwritten;                                   // the outcome of a save that could not be written
+    const string Busy = "busy: the save after the reply is running";
+    const string Unwritten = "unwritten: ";
+    static System.Threading.Timer timer;                       // rooted here: a timer nothing holds can be collected
 
     [ExcelFunction(Name = "SmartassPing___HASH__", IsHidden = true)]
     public static object Ping()
@@ -53,6 +63,8 @@ public static class SmartassRunner___HASH__
     public static object Run(string jobPath)
     {
         if (FromCell()) return ExcelError.ExcelErrorNA;
+        if (saving) return Busy;                                 // called in the middle of the save: asked again
+        SaveNow("before a batch");                               // a save still waiting runs first: never mid-job
         string refused = Refusal(jobPath);
         if (refused != null) return NotRun + "refused: " + refused;
         string text;
@@ -74,6 +86,196 @@ public static class SmartassRunner___HASH__
         }
         if (File.Exists(jobPath)) return NotRun + "the job file could not be deleted";
         return Execute(jobPath, text);
+    }
+
+    // ------------------------------------------------------------------ the save after the reply (xl/inproc/later.py)
+    class Pending
+    {
+        public string Workbook, FullName, Token;
+        public bool AutoSave;
+        public double Queued;
+    }
+
+    // A job's first contact with this Excel (later.clear, before any plain COM call writes in it): a save after the
+    // reply still waiting runs now; while one runs the answer is Busy (the caller asks again); then "clear", or the
+    // outcome of a save that could not be written, once, as Unwritten + its record. Never throws.
+    [ExcelFunction(Name = "SmartassClear___HASH__", IsMacroType = true, IsHidden = true)]
+    public static object Clear()
+    {
+        if (FromCell()) return ExcelError.ExcelErrorNA;
+        if (saving) return Busy;
+        try { SaveNow("before a job"); }
+        catch (Exception) { }
+        string u = unwritten;
+        unwritten = null;
+        return u == null ? "clear" : Unwritten + u;
+    }
+
+    // Asks for our own workbook to be saved once Excel has painted the answer (the workbook open by that name; its
+    // FullName is kept, and a workbook of that name with another FullName at save time is not saved: "closed"). The
+    // save runs delayMs (at most DelayMaxMs) from now, as a macro when Excel is ready (ExcelAsyncUtil.QueueAsMacro),
+    // or at the start of the next batch's Run if that comes first, or of the next SaveLater; then AutoSave goes back
+    // on when autosave is True (also after a failed save) and the outcome is written to saved\<this Excel's pid>.json
+    // beside the jobs folder. A save still waiting runs first. Excel answers calls in the middle of a save (a OneDrive
+    // file, live 20.11.2026): while it runs, Run and SaveLater answer Busy having done nothing, and the caller asks
+    // again (runner.asked). Returns "queued", Busy, or "not run: ..." for a refused request; never throws.
+    [ExcelFunction(Name = "SmartassSaveLater___HASH__", IsMacroType = true, IsHidden = true)]
+    public static object SaveLater(string workbook, bool autosave, string token, double delayMs)
+    {
+        if (FromCell()) return ExcelError.ExcelErrorNA;
+        if (saving) return Busy;
+        if (string.IsNullOrEmpty(workbook)) return NotRun + "refused: no workbook";
+        if (token == null || !Token.IsMatch(token)) return NotRun + "refused: not a token";
+        try
+        {
+            SaveNow("before the next");
+            object books = Invoke(ExcelDnaUtil.Application, "Workbooks", Get, new object[0]);
+            object wb;
+            try { wb = Invoke(books, "Item", Get, new object[] { workbook }); }
+            catch (Exception) { return NotRun + "refused: no workbook of that name is open"; }
+            var p = new Pending();
+            p.Workbook = workbook; p.Token = token; p.AutoSave = autosave; p.Queued = Now();
+            p.FullName = Convert.ToString(Invoke(wb, "FullName", BindingFlags.GetProperty, new object[0]), Inv);
+            pending = p;
+            int delay = (int)Math.Max(0, Math.Min(double.IsNaN(delayMs) ? 0 : delayMs, DelayMaxMs));
+            var old = timer;
+            timer = new System.Threading.Timer(Fire, p, delay, System.Threading.Timeout.Infinite);
+            if (old != null) old.Dispose();
+            return "queued";
+        }
+        catch (Exception e)
+        {
+            pending = null;
+            return NotRun + e.Message;
+        }
+    }
+
+    // The timer (a pool thread): the save queued as a macro; it runs only if it is still the one waiting.
+    static void Fire(object state)
+    {
+        var p = (Pending)state;
+        try
+        {
+            ExcelAsyncUtil.QueueAsMacro(delegate
+            {
+                try { if (pending == p) SaveNow("after the reply"); }
+                catch (Exception) { }
+            });
+        }
+        catch (Exception) { }                                     // Excel is closing: it asks about the workbook
+    }
+
+    // The save waiting, if any, run now on Excel's thread; never throws. how: where it ran (for the outcome).
+    static void SaveNow(string how)
+    {
+        var p = pending;
+        if (p == null || saving) return;
+        pending = null;
+        saving = true;
+        var t = timer;                                           // its work is done (or done now): not left behind
+        timer = null;
+        if (t != null) t.Dispose();
+        double started = Now(), seconds = 0, switched = 0;
+        var sw = Stopwatch.StartNew();
+        string error = null, autosaveError = null;
+        bool closed = false;
+        try
+        {
+            object books = Invoke(ExcelDnaUtil.Application, "Workbooks", Get, new object[0]);
+            object wb = null;
+            try { wb = Invoke(books, "Item", Get, new object[] { p.Workbook }); }
+            catch (Exception e) { closed = true; error = Message(e); }
+            if (wb != null && !string.Equals(Convert.ToString(Invoke(wb, "FullName", BindingFlags.GetProperty,
+                                                                     new object[0]), Inv), p.FullName,
+                                              StringComparison.OrdinalIgnoreCase))
+            {
+                wb = null; closed = true; error = "another workbook of that name is open now";
+            }
+            if (wb != null)
+            {
+                try { Invoke(wb, "Save", Get, new object[0]); }
+                catch (Exception e) { error = Message(e); }
+                seconds = sw.Elapsed.TotalSeconds;
+                if (p.AutoSave)
+                {
+                    try { Invoke(wb, "AutoSaveOn", BindingFlags.SetProperty, new object[] { true }); }
+                    catch (Exception e) { autosaveError = Message(e); }
+                    switched = sw.Elapsed.TotalSeconds - seconds;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            if (error == null) error = Message(e);
+        }
+        finally
+        {
+            saving = false;
+        }
+        if (seconds == 0) seconds = sw.Elapsed.TotalSeconds;
+        string record = Record(p, how, error, autosaveError, closed, started, seconds, switched);
+        try { WriteOutcome(p, record); }
+        catch (Exception e)                                       // told by the next Clear (the next job's first call)
+        {
+            var sb = new StringBuilder(record, 0, record.Length - 1, record.Length + 64);
+            sb.Append(",\"unwritten\":"); Str(sb, Message(e)); sb.Append("}");
+            unwritten = sb.ToString();
+        }
+    }
+
+    static double Now()
+    {
+        return (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+    }
+
+    // The outcome, no figure in it, as JSON.
+    static string Record(Pending p, string how, string error, string autosaveError, bool closed, double started,
+                         double seconds, double switched)
+    {
+        var sb = new StringBuilder();
+        sb.Append("{\"token\":"); Str(sb, p.Token);
+        sb.Append(",\"workbook\":"); Str(sb, p.Workbook);
+        sb.Append(",\"full_name\":"); Str(sb, p.FullName ?? "");
+        sb.Append(",\"ok\":").Append(error == null ? "true" : "false");
+        sb.Append(",\"error\":"); Write(sb, error);
+        sb.Append(",\"closed\":").Append(closed ? "true" : "false");
+        sb.Append(",\"autosave\":").Append(p.AutoSave ? "true" : "false");
+        sb.Append(",\"autosave_error\":"); Write(sb, autosaveError);
+        sb.Append(",\"how\":"); Str(sb, how);
+        sb.Append(",\"queued\":"); Write(sb, p.Queued);
+        sb.Append(",\"started\":"); Write(sb, started);
+        sb.Append(",\"seconds\":"); Write(sb, seconds);
+        sb.Append(",\"switched\":"); Write(sb, switched);
+        sb.Append("}");
+        return sb.ToString();
+    }
+
+    // The outcome written to saved\<pid>.json beside the jobs folder, whole (a temporary file renamed; live: a reader
+    // that holds the file makes the rename fail, so it is tried WriteTries times); a failure is the caller's (unwritten).
+    static void WriteOutcome(Pending p, string record)
+    {
+        string folder = Path.Combine(Path.GetDirectoryName(JobsFolder), "saved");
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, Process.GetCurrentProcess().Id.ToString(Inv) + ".json");
+        string tmp = path + "." + p.Token + ".tmp";
+        File.WriteAllText(tmp, record, new UTF8Encoding(false));
+        Exception last = null;
+        for (int i = 0; i < WriteTries; i++)                     // a reader holding the file (a script's poll, fin_status)
+        {                                                         // blocks the rename for a moment: tried again
+            try
+            {
+                if (File.Exists(path)) File.Replace(tmp, path, null);
+                else File.Move(tmp, path);
+                return;
+            }
+            catch (Exception e)
+            {
+                last = e;
+                System.Threading.Thread.Sleep(WriteWaitMs);
+            }
+        }
+        try { File.Delete(tmp); } catch (Exception) { }
+        throw last;
     }
 
     static bool FromCell()
@@ -398,7 +600,62 @@ public static class SmartassRunner___HASH__
         if (name == "exist" && args.Length == 3) return Exist(args[0], args[1] as object[], args[2]);
         if (name == "mentions" && args.Length == 3) return Mentions(args[0], args[1] as object[], args[2] as object[]);
         if (name == "swap" && args.Length == 4) return Swap(args[0], Convert.ToString(args[1], Inv), args[2], args[3]);
+        if (name == "errors" && args.Length == 2) return Errors(args[0], args[1]);
         throw new Exception("unknown verb '" + name + "'");
+    }
+
+    // errors(worksheet, code): the addresses of the used range's cells whose Value2 is the cell error code (an int, as
+    // both executors read an error; a number is a double), in the sheet's order, read block by block as
+    // MentionsInCells halves a protected sheet (every block read); more than ScanSteps blocks: TooLarge
+    // (runner._errors).
+    static object Errors(object ws, object code)
+    {
+        long want = Convert.ToInt64(code, Inv);
+        object used = Invoke(ws, "UsedRange", Get, new object[0]);
+        int r0 = Int(used, "Row"), c0 = Int(used, "Column");
+        int nr = Int(Invoke(used, "Rows", Get, new object[0]), "Count");
+        int nc = Int(Invoke(used, "Columns", Get, new object[0]), "Count");
+        if (Blocks(nr, nc) > ScanSteps) throw new Exception(string.Format(Inv, TooLarge, (long)nr * nc));
+        var found = new List<long>();
+        var todo = new Stack<int[]>();
+        todo.Push(new[] { r0, c0, nr, nc });
+        while (todo.Count > 0)
+        {
+            int[] next = todo.Pop();
+            int top = next[0], left = next[1], h = next[2], w = next[3];
+            if ((long)h * w > ChunkCells)
+            {
+                if (h >= w)
+                {
+                    int half = h / 2;
+                    todo.Push(new[] { top + half, left, h - half, w });
+                    todo.Push(new[] { top, left, half, w });
+                }
+                else
+                {
+                    int half = w / 2;
+                    todo.Push(new[] { top, left + half, h, w - half });
+                    todo.Push(new[] { top, left, h, half });
+                }
+                continue;
+            }
+            object block = Invoke(ws, "Range", Get, new object[] {
+                Invoke(ws, "Cells", Get, new object[] { top, left }),
+                Invoke(ws, "Cells", Get, new object[] { top + h - 1, left + w - 1 }) });
+            object grid = Invoke(block, "Value2", Get, new object[0]);
+            var a = grid as Array;
+            int gh = a == null ? 1 : a.GetLength(0), gw = a == null ? 1 : a.GetLength(1);
+            for (int i = 0; i < gh; i++)
+                for (int j = 0; j < gw; j++)
+                {
+                    object v = a == null ? grid : a.GetValue(a.GetLowerBound(0) + i, a.GetLowerBound(1) + j);
+                    if (v is int && (int)v == want) found.Add((long)(top + i) * 16385 + left + j);
+                }
+        }
+        found.Sort();
+        var rows = new List<object>();
+        foreach (long k in found) rows.Add(Area((int)(k / 16385), (int)(k % 16385), 1, 1));
+        return rows.ToArray();
     }
 
     // mentions(workbook, texts, skip): every formula of the workbook outside the skipped sheets that mentions one of
@@ -504,19 +761,24 @@ public static class SmartassRunner___HASH__
     }
 
     const int ChunkCells = 100000;                              // as runner.CHUNK_CELLS
+    const int ScanSteps = 2000;                                 // as runner.SCAN_STEPS
+    const string TooLarge = "its used range of {0} cells is too large to scan";   // as runner.TOO_LARGE
     const int XlCellTypeFormulas = -4123;
     const int XlCellTypeLastCell = 11;
 
-    // mentions on one worksheet's cells (runner._cells): the used range's Formula2 read in chunks of rows of at most
-    // ChunkCells cells, only the chunks Intersect finds a formula in (SpecialCells once; none, while SpecialCells
-    // answers on the sheet: done; a refusal: "unread"); a protected sheet refuses SpecialCells, so each of its chunks
-    // is read (a hidden formula makes the read throw: "unread").
+    // mentions on one worksheet's cells (runner._cells): the used range halved, its longer side first, until a block
+    // holds at most ChunkCells cells, and only the blocks Intersect finds a formula in halved further and read with
+    // Formula2 (SpecialCells once; none, while SpecialCells answers on the sheet: done; a refusal: "unread"); the rows
+    // in the sheet's order. A protected sheet refuses SpecialCells, so each of its blocks is read (a hidden formula
+    // makes the read throw: "unread"). More than ScanSteps steps (a test or a read of a block): TooLarge, "unread".
+    // The mentions found before a failure are kept (added, then the caller's "unread"), as 0.4.0 did.
     static void MentionsInCells(object ws, string name, string[] want, List<object> rows)
     {
         object used = Invoke(ws, "UsedRange", Get, new object[0]);
         int r0 = Int(used, "Row"), c0 = Int(used, "Column");
         int nr = Int(Invoke(used, "Rows", Get, new object[0]), "Count");
         int nc = Int(Invoke(used, "Columns", Get, new object[0]), "Count");
+        long cells = (long)nr * nc;
         object formulas = null;
         if (!Equals(Invoke(ws, "ProtectContents", Get, new object[0]), true))
         {
@@ -532,42 +794,106 @@ public static class SmartassRunner___HASH__
                 return;
             }
         }
+        else if (Blocks(nr, nc) > ScanSteps) throw new Exception(string.Format(Inv, TooLarge, cells));
         object app = Invoke(ws, "Application", Get, new object[0]);
-        int step = Math.Max(1, ChunkCells / nc);
+        var hits = new List<KeyValuePair<long, object[]>>();     // (row * 16385 + column, the row of the result)
         var arrays = new HashSet<string>();
-        for (int top = r0; top < r0 + nr; top += step)
+        var todo = new Stack<int[]>();
+        todo.Push(new[] { r0, c0, nr, nc });
+        int steps = 0;
+        try
         {
-            int bottom = Math.Min(top + step, r0 + nr) - 1;
-            object chunk = Invoke(ws, "Range", Get, new object[] {
-                Invoke(ws, "Cells", Get, new object[] { top, c0 }),
-                Invoke(ws, "Cells", Get, new object[] { bottom, c0 + nc - 1 }) });
-            if (formulas != null && Invoke(app, "Intersect", Get, new object[] { formulas, chunk }) == null) continue;
-            object grid = Invoke(chunk, "Formula2", Get, new object[0]);
-            var a = grid as Array;
-            int h = a == null ? 1 : a.GetLength(0), w = a == null ? 1 : a.GetLength(1);
-            for (int i = 0; i < h; i++)
+            while (todo.Count > 0)
             {
-                for (int j = 0; j < w; j++)
+                int[] next = todo.Pop();
+                int top = next[0], left = next[1], h = next[2], w = next[3];
+                bool leaf = (long)h * w <= ChunkCells;
+                object block = null;
+                if (formulas != null || leaf)
                 {
-                    object v = a == null ? grid : a.GetValue(a.GetLowerBound(0) + i, a.GetLowerBound(1) + j);
-                    var text = v as string;
-                    if (!Says(text, want)) continue;
-                    object cell = Invoke(ws, "Cells", Get, new object[] { top + i, c0 + j });
-                    if (!Equals(Invoke(cell, "HasFormula", Get, new object[0]), true)) continue;   // text, no formula
-                    if (Equals(Invoke(cell, "HasArray", Get, new object[0]), true))
+                    if (++steps > ScanSteps) throw new Exception(string.Format(Inv, TooLarge, cells));
+                    block = Invoke(ws, "Range", Get, new object[] {
+                        Invoke(ws, "Cells", Get, new object[] { top, left }),
+                        Invoke(ws, "Cells", Get, new object[] { top + h - 1, left + w - 1 }) });
+                    if (formulas != null && Invoke(app, "Intersect", Get, new object[] { formulas, block }) == null)
+                        continue;
+                }
+                if (!leaf)                                          // halved, its longer side; the first half next
+                {
+                    if (h >= w)
                     {
-                        object arr = Invoke(cell, "CurrentArray", Get, new object[0]);
-                        string reference = Area(Int(arr, "Row"), Int(arr, "Column"),
-                                                Int(Invoke(arr, "Rows", Get, new object[0]), "Count"),
-                                                Int(Invoke(arr, "Columns", Get, new object[0]), "Count"));
-                        if (arrays.Add(reference))
-                            rows.Add(new object[] { "array", name, reference,
-                                                    Invoke(arr, "FormulaArray", Get, new object[0]) });
+                        int half = h / 2;
+                        todo.Push(new[] { top + half, left, h - half, w });
+                        todo.Push(new[] { top, left, half, w });
                     }
-                    else rows.Add(new object[] { "cell", name, Area(top + i, c0 + j, 1, 1), text });
+                    else
+                    {
+                        int half = w / 2;
+                        todo.Push(new[] { top, left + half, h, w - half });
+                        todo.Push(new[] { top, left, h, half });
+                    }
+                    continue;
+                }
+                object grid = Invoke(block, "Formula2", Get, new object[0]);
+                var a = grid as Array;
+                int gh = a == null ? 1 : a.GetLength(0), gw = a == null ? 1 : a.GetLength(1);
+                for (int i = 0; i < gh; i++)
+                {
+                    for (int j = 0; j < gw; j++)
+                    {
+                        object v = a == null ? grid : a.GetValue(a.GetLowerBound(0) + i, a.GetLowerBound(1) + j);
+                        var text = v as string;
+                        if (!Says(text, want)) continue;
+                        object cell = Invoke(ws, "Cells", Get, new object[] { top + i, left + j });
+                        if (!Equals(Invoke(cell, "HasFormula", Get, new object[0]), true)) continue;   // text, no formula
+                        if (Equals(Invoke(cell, "HasArray", Get, new object[0]), true))
+                        {
+                            object arr = Invoke(cell, "CurrentArray", Get, new object[0]);
+                            int ar = Int(arr, "Row"), ac = Int(arr, "Column");
+                            string reference = Area(ar, ac, Int(Invoke(arr, "Rows", Get, new object[0]), "Count"),
+                                                    Int(Invoke(arr, "Columns", Get, new object[0]), "Count"));
+                            if (arrays.Add(reference))
+                                hits.Add(new KeyValuePair<long, object[]>((long)ar * 16385 + ac, new object[] {
+                                    "array", name, reference, Invoke(arr, "FormulaArray", Get, new object[0]) }));
+                        }
+                        else hits.Add(new KeyValuePair<long, object[]>((long)(top + i) * 16385 + left + j,
+                                      new object[] { "cell", name, Area(top + i, left + j, 1, 1), text }));
+                    }
                 }
             }
         }
+        finally                                                 // what was found before a failure is kept (0.4.0)
+        {
+            hits.Sort((x, y) => x.Key.CompareTo(y.Key));
+            foreach (var hit in hits) rows.Add(hit.Value);
+        }
+    }
+
+    // How many blocks MentionsInCells reads on a used range of h rows and w columns when every block is read (a
+    // protected sheet), as runner._blocks: told before any is read.
+    static long Blocks(int h, int w)
+    {
+        var shapes = new Dictionary<long, long> { { ((long)h << 32) | (uint)w, 1 } };
+        long blocks = 0;
+        while (shapes.Count > 0)
+        {
+            var halves = new Dictionary<long, long>();
+            foreach (var shape in shapes)
+            {
+                int a = (int)(shape.Key >> 32), b = (int)(shape.Key & 0xFFFFFFFF);
+                if ((long)a * b <= ChunkCells) { blocks += shape.Value; continue; }
+                long first = a >= b ? (((long)(a / 2) << 32) | (uint)b) : (((long)a << 32) | (uint)(b / 2));
+                long second = a >= b ? (((long)(a - a / 2) << 32) | (uint)b) : (((long)a << 32) | (uint)(b - b / 2));
+                foreach (long part in new[] { first, second })
+                {
+                    long n;
+                    halves.TryGetValue(part, out n);
+                    halves[part] = n + shape.Value;
+                }
+            }
+            shapes = halves;
+        }
+        return blocks;
     }
 
     // swap(object, property, expected, value): the text property set to value only when it reads expected exactly;

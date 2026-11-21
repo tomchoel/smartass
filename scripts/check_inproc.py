@@ -5,8 +5,11 @@ operations) and the workbooks afterwards, read with plain COM (sheet order, cell
 number formats, fonts, fills, column widths, tables, defined names, links), and that the four quiet settings are as
 they were before. Then: the ping, two builds loaded side by side, broken builds (a .dna pointing at a missing dll, a
 dll with no functions: no window in Excel, the COM executor takes over), the add-in's guards (a formula calling it,
-paths outside its jobs folder, a job file it cannot delete: nothing read, deleted or run), and the fixed cost of an
-empty batch.
+paths outside its jobs folder, a job file it cannot delete: nothing read, deleted or run), the save after the reply
+(phase 3c Task 2: asked for in one Run, done after the delay, run first by a batch that comes before it, waited for
+by a batch sent while it runs, a closed workbook, another file of its name, a job's first contact (SmartassClear:
+a waiting save run first, one that runs waited for, an outcome that could not be written told once), refusals; on a
+file labelled with config's label, built here - no label: those checks FAIL), and the fixed cost of an empty batch.
 
 The Excel is one this script starts itself (DispatchEx, refused unless its pid is new; check_fastcom.start_excel) and
 quits at the end; if Quit hangs, only that process is killed. The user's Excel is never touched. Nothing is saved: the
@@ -42,7 +45,7 @@ from check_fastcom import QUIT_WAIT_S, _wait_gone, kill_if_ours, start_excel  # 
 from smartass.core import config  # noqa: E402
 from smartass.xl import fastcom, jobs  # noqa: E402
 from smartass.xl.hostproc import windows_of  # noqa: E402
-from smartass.xl.inproc import build, runner  # noqa: E402
+from smartass.xl.inproc import build, later, runner  # noqa: E402
 from smartass.xl.inproc.batch import MISSING, Batch  # noqa: E402
 from win32com.client import dynamic  # noqa: E402
 
@@ -624,9 +627,10 @@ def addin_checks(app, raw, pid: int, ctime: float, ex) -> None:
         shown = new_windows(pid, before)
         handler = Warnings()
         logging.getLogger("smartview.inproc").addHandler(handler)
-        real_ensure, real_state = build.ensure, dict(runner._EXCELS)
+        real_ensure, real_state, real_logged = build.ensure, dict(runner._EXCELS), set(runner._ROUTE_LOGGED)
         build.ensure = lambda xll=xll: (xll, "0badc0de")
-        runner._EXCELS.clear()
+        runner._EXCELS.clear()                        # a new server meets this Excel: its switch is its own to log
+        runner._ROUTE_LOGGED.clear()
         try:
             b = Batch()
             b.ret(b.app.Workbooks.Count, "books")
@@ -636,6 +640,8 @@ def addin_checks(app, raw, pid: int, ctime: float, ex) -> None:
             build.ensure = real_ensure
             runner._EXCELS.clear()
             runner._EXCELS.update(real_state)
+            runner._ROUTE_LOGGED.clear()
+            runner._ROUTE_LOGGED.update(real_logged)
             logging.getLogger("smartview.inproc").removeHandler(handler)
         check(f"{name}: no window, COM executor", not shown and res.where == "com" and res2.where == "com"
               and len(handler.seen) == 1,
@@ -702,6 +708,193 @@ def guard_checks(app, raw, ex) -> None:
     wb.Close(False)
 
 
+def labelled_file(path: Path) -> Path | None:
+    """An empty workbook with our sensitivity label as custom properties (target.label_properties, as Task 1 builds a
+    new workbook): an unlabelled file opens read-only on this tenant and its Save writes nothing. None without a
+    label in the config."""
+    import xlsxwriter
+    from smartass.xl import target
+    if not (config.LABEL_ID and config.LABEL_SITE):
+        return None
+    book = xlsxwriter.Workbook(str(path))
+    for k, v in target.label_properties().items():
+        book.set_custom_property(k, v)
+    book.add_worksheet("Sheet1").write(0, 0, "labelled")
+    book.close()
+    return path
+
+
+def save_later_checks(app, raw, ex) -> None:
+    """(Phase 3c Task 2) The save after the reply (xl/inproc/later.py, Runner.cs SmartassSaveLater): asked for in one
+    Run and done by Excel after the delay (the workbook saved, the outcome written); a batch that comes before the
+    delay ran out runs it first, inside its Run; a batch sent while it runs waits for it; a second request runs the
+    first first; a workbook closed first is said; a bad token, no workbook name and a formula calling it are refused.
+    On copies of the labelled seed in this script's temporary folder (an unlabelled file opens read-only on this
+    tenant, and its Save writes nothing)."""
+    print()
+    folder = TMP / "later"
+    folder.mkdir(exist_ok=True)
+    seed = labelled_file(folder / "labelled.xlsx")
+    if not check("save later: a labelled file to save (built with config's label)", seed is not None,
+                 "no [label] id and site in the config: the save-later checks cannot run" if seed is None else ""):
+        return
+    outcome = config.INPROC_DIR / "saved" / f"{int(ex.pid)}.json"
+
+    def opened(tag: str):
+        path = folder / f"{tag}.xlsx"
+        shutil.copyfile(seed, path)
+        return path, raw.Workbooks.Open(str(path))
+
+    def ask(name: str, delay_ms: float) -> tuple[str, str, float]:
+        token = uuid.uuid4().hex
+        t0 = time.perf_counter()
+        got = raw.Run(ex.later_macro, name, False, token, float(delay_ms))
+        return token, got, (time.perf_counter() - t0) * 1000
+
+    def told(token: str, limit: float = 30) -> dict | None:
+        end = time.time() + limit
+        while time.time() < end:
+            try:
+                out = json.loads(outcome.read_text(encoding="utf-8"))
+                if out.get("token") == token:
+                    return out
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.01)
+        return None
+
+    path, wb = opened("later")
+    name = str(wb.Name)
+    wb.Worksheets(1).Range("A1:C20000").Value2 = tuple((r, r * 1.5, f"t{r}") for r in range(1, 20001))
+    m0 = path.stat().st_mtime_ns
+    token, got, ms = ask(name, 300)
+    sent = time.time()
+    out = told(token)
+    check("save later: asked for in one Run, done by Excel after the delay", got == "queued" and out is not None
+          and out["ok"] and out["how"] == "after the reply" and out["started"] - sent >= 0.25
+          and path.stat().st_mtime_ns != m0 and bool(wb.Saved)
+          and set(out) == {"token", "workbook", "full_name", "ok", "error", "closed", "autosave", "autosave_error", "how",
+                           "queued", "started", "seconds", "switched"},
+          f"Run {ms:.1f} ms -> {got!r}; started {out and out['started'] - sent:.3f} s after, saved in "
+          f"{out and out['seconds']:.2f} s")
+
+    wb.Worksheets(1).Range("E1").Value2 = "first"
+    token, got, _ = ask(name, 2000)
+    b = Batch(quiet=False)
+    b.ret(b.workbook(name).Worksheets(1).Range("E1").Value2, "e1")
+    t0 = time.time()
+    res = runner.run(app, b)
+    out = told(token, 1)
+    time.sleep(2.3)
+    again = told(token, 0.1)
+    check("save later: a batch that comes first runs it first, once", out is not None and out["how"] == "before a batch"
+          and out["started"] >= t0 and res.values["e1"] == "first" and again is not None
+          and again["started"] == out["started"], f"{out and out['how']!r}; the timer found nothing left")
+
+    wb.Worksheets(1).Range("E1").Value2 = "busy"
+    token, got, _ = ask(name, 0)
+    time.sleep(0.03)
+    b = Batch(quiet=False)
+    b.ret(b.workbook(name).Worksheets(1).Range("E1").Value2, "e1")
+    s = time.time()
+    runner.run(app, b)
+    e = time.time()
+    out = told(token)
+    end = out["started"] + out["seconds"] + out["switched"] if out else 0
+    check("save later: a batch sent while it runs waits for it", out is not None and out["how"] == "after the reply"
+          and e >= end, f"sent +{s - out['started']:.3f} s after it started, answered {e - end:+.3f} s after it ended"
+          if out else "no outcome")
+
+    wb.Worksheets(1).Range("E1").Value2 = "twice"
+    first, _, _ = ask(name, 2000)
+    second, got, _ = ask(name, 100)
+    one, two = told(first, 0.5), told(second)
+    check("save later: a second request runs the first first", one is not None and one["how"] == "before the next"
+          and two is not None and two["how"] == "after the reply", f"{one and one['how']!r}, {two and two['how']!r}")
+
+    path2, wb2 = opened("closed")
+    name2 = str(wb2.Name)
+    wb2.Worksheets(1).Range("A1").Value2 = "x"
+    token, got, _ = ask(name2, 500)
+    wb2.Close(False)
+    out = told(token, 5)
+    check("save later: a workbook closed before its save is said", out is not None and out["closed"] is True
+          and out["ok"] is False and path2.stat().st_size > 0, f"{out and out['error']!r}")
+
+    (folder / "other").mkdir(exist_ok=True)
+    shutil.copyfile(seed, folder / "other" / "closed.xlsx")
+    path2, wb2 = opened("closed")
+    wb2.Worksheets(1).Range("A1").Value2 = "x"
+    token, got, _ = ask(name2, 1000)
+    wb2.Close(False)
+    wb3 = raw.Workbooks.Open(str(folder / "other" / "closed.xlsx"))
+    wb3.Worksheets(1).Range("A1").Value2 = "the user's"
+    m3 = (folder / "other" / "closed.xlsx").stat().st_mtime_ns
+    out = told(token, 5)
+    check("save later: another file open by that name at save time is not saved", out is not None
+          and out["closed"] is True and (folder / "other" / "closed.xlsx").stat().st_mtime_ns == m3
+          and bool(wb3.Saved) is False, f"{out and out['error']!r}")
+    wb3.Close(False)
+
+    # (review fixes) a reader holding the outcome file while the save ends (a script's poll): it is still written
+    wb.Worksheets(1).Range("E1").Value2 = "held"
+    token, got, _ = ask(name, 300)
+    time.sleep(0.2)
+    held = open(outcome, "rb")                              # no FILE_SHARE_DELETE: the rename must wait for it
+    time.sleep(0.4)
+    held.close()
+    out = told(token, 5)
+    check("save later: an outcome file a reader holds as the save ends is written once it lets go",
+          out is not None and out["ok"] and "unwritten" not in out, f"{out and out['how']!r}")
+
+    # (review fixes) a job's first contact: SmartassClear runs a waiting save first, waits for one that runs
+    wb.Worksheets(1).Range("E1").Value2 = "clear"
+    token, got, _ = ask(name, 2000)
+    t0 = time.time()
+    got = raw.Run(ex.clear_macro)
+    out = told(token, 1)
+    check("clear: a job's first contact runs a waiting save first", got == "clear" and out is not None
+          and out["how"] == "before a job" and out["started"] >= t0 and bool(wb.Saved), f"{got!r}, {out and out['how']!r}")
+    wb.Worksheets(1).Range("E1").Value2 = "clear busy"
+    token, got, _ = ask(name, 0)
+    time.sleep(0.03)
+    s = time.time()
+    later.clear(app)
+    e = time.time()
+    out = told(token)
+    end = out["started"] + out["seconds"] + out["switched"] if out else 0
+    check("clear: sent while a save runs, it returns once the save has ended", out is not None and e >= end,
+          f"sent +{s - out['started']:.3f} s after it started, returned {e - end:+.3f} s after it ended" if out
+          else "no outcome")
+    blocker = outcome                                      # a folder where the outcome file goes: it cannot be written
+    outcome.unlink(missing_ok=True)
+    blocker.mkdir()
+    wb.Worksheets(1).Range("E1").Value2 = "unwritten"
+    token, got, _ = ask(name, 0)
+    time.sleep(1.5)
+    got = raw.Run(ex.clear_macro)
+    blocker.rmdir()
+    record = json.loads(got[len(later.UNWRITTEN):]) if isinstance(got, str) and got.startswith(later.UNWRITTEN) else {}
+    again = raw.Run(ex.clear_macro)
+    check("clear: a save whose outcome could not be written is told by the next first contact, once",
+          record.get("token") == token and record.get("ok") is True and bool(record.get("unwritten"))
+          and again == "clear", f"{str(got)[:60]!r} then {again!r}")
+
+    refusals = {"a bad token": (name, False, "nope", 0.0), "no workbook": ("", False, uuid.uuid4().hex, 0.0),
+                "a workbook that is not open": ("not open.xlsx", False, uuid.uuid4().hex, 0.0)}
+    for what, args in refusals.items():
+        got = raw.Run(ex.later_macro, *args)
+        check(f"save later refused: {what}", isinstance(got, str) and got.startswith("not run: refused"), repr(got))
+    cell = wb.Worksheets(1).Range("G1")
+    cell.Formula = f'=SmartassSaveLater_{ex.hash}("{name}",FALSE,"{uuid.uuid4().hex}",0)'
+    shown = cell.Value2
+    cell.Clear()
+    time.sleep(0.3)
+    check("save later: a formula calling it asks for nothing", shown == -2146826246 and bool(wb.Saved) is False,
+          f"the cell shows {shown!r} (#N/A is -2146826246)")
+    wb.Close(False)
+
+
 def detector_check(raw, pid: int, ctime: float) -> None:
     """Without the .xll.config the same missing-dll build shows Excel-DNA's log window: the window watch can see one."""
     xll = broken_build("broken_without_config", None, config_file=False)
@@ -735,7 +928,7 @@ def fixed_cost(app, raw, runs: int) -> None:
 
 def look_bench(app, raw) -> None:
     """Re-review M5 (--look-bench): a workbook of 60 sheets and 2 000 defined names, in both executors - the look's
-    reads as pipeline._look records them (the names no longer among them), and beside it the walk over every name
+    reads as exceljob._look records them (the names no longer among them), and beside it the walk over every name
     the look made before against the lookup of an answer's table names the bring-in makes now (median of 3 runs;
     over COM one run of each)."""
     from smartass.xl import movein, sheets, sources
@@ -815,13 +1008,16 @@ def _mentions_workbook(raw):
     """A workbook after a follow-up's park, pointing at the parked sheets in every way the verb looks: on Summary a
     cell, a table, a dynamic array, a legacy array, text written with an apostrophe (no formula), a string literal,
     a hidden row, a chart; a sheet whose only mention sits in a filtered row, a protected one with a hidden formula
-    (unreadable) and a visible one, the only mentions in a hidden row and a hidden column, a very hidden sheet, a
-    sheet without any, a sheet of values only and an empty one (SpecialCells finds no formula there: none, not
-    "unread"), a chart sheet and a defined name; the parked and new sheets themselves are skipped."""
+    (unreadable) and a visible one, the only mentions in a hidden row and a hidden column, a sheet whose used range
+    reaches the last row and one that reaches the last row and the last column (a stray format), a protected one
+    that does (too large to scan: "unread"), a protected one with a visible mention in its first block and a hidden
+    formula in a later one (the visible one found, the sheet "unread"), a very hidden sheet, a sheet without any, a sheet of values only and an
+    empty one (SpecialCells finds no formula there: none, not "unread"), a chart sheet and a defined name; the parked
+    and new sheets themselves are skipped."""
     wb = raw.Workbooks.Add()
     wb.Worksheets(1).Name = "Summary"
     for n in ["old Q1 Answer", "old Q1 Data", "Q1 Answer", "Q1 Data", "Filtered", "Locked", "Plain", "Hidden",
-              "Far", "VeryHidden", "Probe", "Values", "Empty"]:
+              "Far", "Wide", "Wide Locked", "Mixed Locked", "VeryHidden", "Probe", "Values", "Empty"]:
         wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count)).Name = n
     old = wb.Worksheets("old Q1 Answer")
     old.Range("E12").Value2 = 42
@@ -859,6 +1055,20 @@ def _mentions_workbook(raw):
     far.Range("A1:J30").Formula2 = "=ROW()"
     far.Range("C1048000").Formula2 = "='old Q1 Answer'!E12*3"
     far.Range("J1048576").Interior.Color = 255          # the used range reaches the last row
+    wide = wb.Worksheets("Wide")
+    wide.Range("A1:J30").Formula2 = "=ROW()"
+    wide.Range("B5").Formula2 = "='old Q1 Answer'!E12*4"
+    wide.Range("WQJ1000000").Formula2 = "='old Q1 Answer'!E12*5"
+    wide.Range("XFD1048576").Interior.Color = 255       # the used range reaches the last row and the last column
+    wl = wb.Worksheets("Wide Locked")
+    wl.Range("C3").Formula2 = "='old Q1 Answer'!E12*6"
+    wl.Range("XFD1048576").Interior.Color = 255
+    wl.Protect()                                        # no SpecialCells: too large to read block by block
+    ml = wb.Worksheets("Mixed Locked")
+    ml.Range("B2").Formula2 = "='old Q1 Answer'!E12*7"  # visible, in the first block
+    ml.Range("B200000").Formula2 = "='old Q1 Answer'!E12*8"
+    ml.Range("B200000").FormulaHidden = True            # hidden, in a later block: the sheet is unread, B2 found
+    ml.Protect()
     vh = wb.Worksheets("VeryHidden")
     vh.Range("D4").Formula2 = "='old Q1 Answer'!A2"
     vh.Visible = 2
@@ -874,7 +1084,8 @@ def _mentions_workbook(raw):
 def mentions_check(app, raw) -> None:
     """Task 3: the verb mentions through both executors on one workbook (it only reads): the same rows, the rows
     Excel gives (a protected sheet whose only mention is a hidden formula: "unread"; a mention far down a used range
-    that reaches the last row), the workbook unchanged, and the user's Find dialog settings (values, whole, by
+    that reaches the last row, and far right of one that reaches the last column too - halved by cells, phase 3c
+    Task 3; a protected sheet that large: "unread", too large to scan), the workbook unchanged, and the user's Find dialog settings (values, whole, by
     columns) as they were: no Range.Find (review ruling 1)."""
     print()
     wb = _mentions_workbook(raw)
@@ -893,10 +1104,15 @@ def mentions_check(app, raw) -> None:
                 ("cell", "Hidden", "E2", "=Data_Q1_old[[#Headers],[Value]]"),
                 ("cell", "Hidden", "C7", "='old Q1 Answer'!E12"),
                 ("cell", "Far", "C1048000", "='old Q1 Answer'!E12*3"),
+                ("cell", "Wide", "B5", "='old Q1 Answer'!E12*4"),
+                ("cell", "Wide", "WQJ1000000", "='old Q1 Answer'!E12*5"),
+                ("unread", "Wide Locked", "", "*"),
+                ("cell", "Mixed Locked", "B2", "='old Q1 Answer'!E12*7"),
+                ("unread", "Mixed Locked", "", "*"),
                 ("cell", "VeryHidden", "D4", "='old Q1 Answer'!A2"),
                 ("chart", "Chart Q", "1", SERIES_OLD),
                 ("name", "TotalQ", str(index), "='old Q1 Answer'!$E$12")]
-        before = sheet_picture(wb, ("Far", "Probe"))
+        before = sheet_picture(wb, ("Far", "Wide", "Wide Locked", "Mixed Locked", "Probe"))
         got, ms = {}, {}
         for executor in ("com", "inproc"):
             config.INPROC = executor == "inproc"
@@ -921,9 +1137,48 @@ def mentions_check(app, raw) -> None:
         check("the verb mentions leaves the user's Find dialog as it was (values, whole, by columns)",
               got["com"][2] == got["inproc"][2] == user_find != ("$A$3", "$A$1", "$B$1"),
               f"{got['com'][2]} / {got['inproc'][2]}, before {user_find}")
-        check("the verb mentions only reads", before == sheet_picture(wb, ("Far", "Probe")))
+        check("the verb mentions only reads", before == sheet_picture(wb, ("Far", "Wide", "Wide Locked", "Mixed Locked",
+                                                                           "Probe")))
         check("the verb mentions: a sheet of values and an empty sheet have no formula, not an unread one",
               all(not [r for r in rows if r[1] in ("Values", "Empty")] for _, rows, _ in got.values()))
+    finally:
+        config.INPROC = True
+        wb.Close(False)
+
+
+def errors_check(app, raw) -> None:
+    """Task 3 review: the verb errors through both executors on a protected sheet - only the cell that shows #REF!
+    (not #DIV/0!, not the text "#REF!", not the number of its code) - and on a protected sheet too large to read
+    (the operation fails, in both)."""
+    print()
+    wb = raw.Workbooks.Add()
+    ws = wb.Worksheets(1)
+    ws.Range("A1").Value2 = 5
+    ws.Range("B2").Formula2 = "=#REF!"
+    ws.Range("C3").Formula2 = "=1/0"
+    ws.Range("D4").Value2 = "'#REF!"
+    ws.Range("E5").Value2 = -2146826265
+    ws.Protect()
+    big = wb.Worksheets.Add(None, ws)
+    big.Range("XFD1048576").Interior.Color = 255
+    big.Range("A1").Formula2 = "=#REF!"
+    big.Protect()
+    name = str(wb.Name)
+    try:
+        got = {}
+        for executor in ("com", "inproc"):
+            config.INPROC = executor == "inproc"
+            b = Batch(quiet=False)
+            with b.attempt():
+                b.ret(b.verb("errors", b.workbook(name).Worksheets(1), -2146826265), "small")
+            with b.attempt():
+                b.ret(b.verb("errors", b.workbook(name).Worksheets(2), -2146826265), "big")
+            res = runner.run(app, b)
+            got[executor] = (res.where, res.values.get("small"), "big" in res.values,
+                             [m for _, _, m in res.skipped if "too large" in m] != [])
+        check("the verb errors: the #REF! cells by their code, the same through both executors",
+              got["com"][1:] == got["inproc"][1:] == (("B2",), False, True)
+              and (got["com"][0], got["inproc"][0]) == ("com", "inproc"), str(got))
     finally:
         config.INPROC = True
         wb.Close(False)
@@ -932,15 +1187,17 @@ def mentions_check(app, raw) -> None:
 def _bench_book(raw, kind: str):
     """(Review ruling 1) a workbook where nothing mentions the answer: "normal" - 10 sheets of 500 formulas; "large" -
     60 sheets, 260 000 formulas (59 of 1 000, one of 201 000); "tall" - one sheet of 300 formulas whose used range
-    reaches row 1 048 576 (a stray format)."""
+    reaches row 1 048 576 (a stray format); "wide" - one whose used range reaches the last row and the last column."""
     wb = raw.Workbooks.Add()
     first = wb.Worksheets(1)
     if kind == "normal":
         sizes = [("A1:J50", None)] * 10
     elif kind == "large":
         sizes = [("A1:J100", None)] * 59 + [("A1:T10050", None)]
-    else:
+    elif kind == "tall":
         sizes = [("A1:J30", "J1048576")]
+    else:
+        sizes = [("A1:J30", "XFD1048576")]
     for i, (rng, stray) in enumerate(sizes):
         ws = first if i == 0 else wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
         ws.Range(rng).Formula2 = "=ROW()+COLUMN()"
@@ -951,11 +1208,13 @@ def _bench_book(raw, kind: str):
 
 def repoint_bench(app, raw) -> None:
     """Task 3 (--repoint-bench, review ruling 1): what a follow-up's look for formulas costs when nothing mentions
-    the answer, in a normal workbook, a large one and one with a used range to the last row, in both executors
-    (in-process median of 3, over COM one run)."""
+    the answer, in a normal workbook, a large one, one with a used range to the last row and one with a used range to
+    the last row and the last column (phase 3c Task 3), in both executors (in-process median of 3, over COM one
+    run)."""
     print()
     for kind, label in (("normal", "10 sheets, 5 000 formulas"), ("large", "60 sheets, 260 000 formulas"),
-                        ("tall", "a used range to row 1 048 576, 300 formulas")):
+                        ("tall", "a used range to row 1 048 576, 300 formulas"),
+                        ("wide", "a used range to XFD1048576, 300 formulas")):
         wb = _bench_book(raw, kind)
         name = str(wb.Name)
         try:
@@ -1022,12 +1281,14 @@ def main(argv=None) -> int:
             return 1
         battery(app, raw, sources)
         mentions_check(app, raw)
+        errors_check(app, raw)
         fixed_cost(app, raw, args.runs)
         if args.look_bench:
             look_bench(app, raw)
         if args.repoint_bench:
             repoint_bench(app, raw)
         guard_checks(app, raw, ex)
+        save_later_checks(app, raw, ex)
         addin_checks(app, raw, pid, ctime, ex)
         detector_check(raw, pid, ctime)
     finally:

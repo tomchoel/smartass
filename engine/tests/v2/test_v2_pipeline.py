@@ -4,7 +4,7 @@ from v2util import facts, resolver, spec_dict
 
 from smartass.data.provider import FetchResult
 from smartass.model.validate import GuardError
-from smartass import pipeline
+from smartass import exceljob
 from smartass.pipeline import prepare, reply
 
 
@@ -98,8 +98,9 @@ class TStored:
 def _stored_wire(monkeypatch, session_wb="C:/a/v2/x.xlsx"):
     from smartass.xl import sheets
     calls = []
-    monkeypatch.setattr(pipeline, "_target", lambda h, target, title: calls.append(target) or TStored())
-    monkeypatch.setattr(pipeline, "_session_workbook", lambda: session_wb)
+    monkeypatch.setattr(exceljob, "_target", lambda h, target, title, build_new=False: calls.append(target)
+                        or TStored())
+    monkeypatch.setattr(exceljob, "_session_workbook", lambda: session_wb)
     monkeypatch.setattr(sheets, "_stored_specs", lambda t: {2: {}})
     monkeypatch.setattr("smartass.xl.jobs.com", lambda call, *a, **k: call())
     return calls
@@ -107,7 +108,7 @@ def _stored_wire(monkeypatch, session_wb="C:/a/v2/x.xlsx"):
 
 def test_read_stored_returns_the_absolute_workbook_path(monkeypatch):
     calls = _stored_wire(monkeypatch)
-    stored, active, path = pipeline.read_stored(None, "session")
+    stored, active, path = exceljob.read_stored(None, "session")
     assert (stored, active, path) == ({2: {}}, "Q2 Answer", "C:/a/v2/x.xlsx") and calls == ["session"]
 
 
@@ -115,7 +116,7 @@ def test_followup_refuses_target_new_before_touching_excel(monkeypatch):
     from smartass.model.validate import GuardError
     calls = _stored_wire(monkeypatch)
     with pytest.raises(GuardError, match="new"):
-        pipeline.read_stored(None, "new")
+        exceljob.read_stored(None, "new")
     assert calls == []
 
 
@@ -123,5 +124,5 @@ def test_followup_without_a_session_workbook_creates_no_file(monkeypatch):
     from smartass.model.validate import GuardError
     calls = _stored_wire(monkeypatch, session_wb=None)
     with pytest.raises(GuardError, match="no session workbook yet"):
-        pipeline.read_stored(None, "session")
+        exceljob.read_stored(None, "session")
     assert calls == []

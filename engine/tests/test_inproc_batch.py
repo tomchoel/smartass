@@ -191,8 +191,9 @@ def test_the_verbs_arguments_are_checked_when_recorded():
     """Review I1: each takes a non-empty list of names (the executors disagreed on a text for paths); nudge a property
     name, a number, None or a number; exist a non-empty list of texts and True or False. Task 2c review Minor 6: each
     has no prefixes any more (nothing used them once the names were looked up). Task 3: mentions a non-empty list of
-    texts to look for and one of the sheets to skip; swap a property name and two texts."""
-    assert VERBS == {"each": 2, "nudge": 4, "exist": 3, "mentions": 3, "swap": 4}
+    texts to look for and one of the sheets to skip; swap a property name and two texts. Phase 3c Task 3 review:
+    errors an int error code."""
+    assert VERBS == {"each": 2, "nudge": 4, "exist": 3, "mentions": 3, "swap": 4, "errors": 2}
     b = Batch()
     wss = b.workbook("Book1.xlsx").Worksheets
     for paths in ("Name", [], ["Name", ""]):
@@ -218,6 +219,10 @@ def test_the_verbs_arguments_are_checked_when_recorded():
         with pytest.raises(ValueError, match="swap"):
             b.verb("swap", wss, prop, expected, value)
     b.verb("swap", wss, "Formula2", "=a", "=b")
+    for code in ("#REF!", -2146826265.0, True):
+        with pytest.raises(ValueError, match="errors"):
+            b.verb("errors", wss, code)
+    b.verb("errors", wss, -2146826265)
 
 
 def test_a_quiet_batch_may_leave_calculation_alone():

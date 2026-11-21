@@ -24,10 +24,13 @@ Usage (from the repo root; Excel open, signed in to EPM; SV_INPROC=0 runs every 
     engine\.venv\Scripts\python.exe scripts\check_followups.py [--case b01] [--second b07]
         [--keep] [--settle 10]
 At the end it says which executor ran the batches (the in-process add-in, or COM). Per step it also watches the
-file's modification time (the job switches AutoSave off in its look and back on in its save batch, so the Save is
-the job's own write; a write during the batches is printed as a note, as OneDrive stamps the file of its own too) and
-reads Workbook.Saved afterwards (True); after fin_refresh it reads the saved file itself with openpyxl (read-only):
-every answer's sheets there and the last answer's row on its Sources log.
+file's modification time (the job switches AutoSave off in its look; with the add-in, Excel saves the file right after
+the reply and switches AutoSave back on then - xl/inproc/later.py -, over COM or with SV_SAVE=sync the job's save batch
+does both; either way the Save is the job's own write, and a write during the batches is printed as a note, as
+OneDrive stamps the file of its own too). Every step waits for the saves after the reply it caused (their seconds are
+printed as "saved after"; a failed one stops the run) before it reads Workbook.Saved (True); after fin_refresh it
+reads the saved file itself with openpyxl (read-only): every answer's sheets there and the last answer's row on its
+Sources log.
 Only the workbook this script created is touched, and closed at the end (without saving: the engine saved it after
 every answer) unless --keep; the user's own workbooks and Excel are never saved or closed. At the end only the
 engine's own hidden Excel and browser are shut down, as the server's lifespan does.
@@ -46,13 +49,15 @@ from pathlib import Path
 
 from smartass.core import config
 from smartass.testset import runner
+from smartass.xl.inproc import later
 
 FOLLOW_UPS = 6
 OTHER_PERIOD = "Jan 26..Jun 26"         # the period a follow-up switches to (and back from) by turns
 COM = "excel job.com calls."            # the Excel job's COM-call counts, as server._draw_job logs them
 BATCHES = "excel job.batches."          # ... and its batches (xl/inproc runs)
 MOVE_IN = "excel job.draw.move in"      # a stage every answer's Excel job has
-STAGES = ("draw.look", "draw.build", "draw.move in", "draw.finish", "draw.paint", "draw.close out", "save")
+STAGES = ("open target", "draw.build", "draw.open", "draw.look", "draw.move in", "draw.finish", "draw.paint",
+          "draw.close out", "save")                # draw.open: the first answer of a new workbook (its built file opened)
 HYPERLINK = re.compile(r'^=HYPERLINK\("#((?:[^"]|"")*)","((?:[^"]|"")*)"\)$')
 
 
@@ -169,9 +174,9 @@ def run_line(offset: int, tool: str) -> dict | None:
 
 def _inspect(h, path: str, q: int) -> dict:
     """One short user-Excel job: the workbook's sheets, tables, active sheet and its Sources links, by names only."""
-    from smartass import pipeline
+    from smartass import exceljob
     from smartass.xl import jobs
-    t = pipeline._target(h, path, None)
+    t = exceljob._target(h, path, None)
 
     def read():
         names = [str(s.Name) for s in t.wb.Worksheets]
@@ -208,9 +213,9 @@ def _summarise(h, path: str) -> dict:
     """(Task 3) A summary sheet of the user's own with formulas pointing at Q1, and a cell on Q2's Answer pointing at
     Q1: {where: (the formula as Excel keeps it, what its value must equal: ("cell", sheet, address) |
     ("sum", sheet, range) | None)}. The defined name and the chart series are compared by their text."""
-    from smartass import pipeline
+    from smartass import exceljob
     from smartass.xl import jobs
-    t = pipeline._target(h, path, None)
+    t = exceljob._target(h, path, None)
 
     def make():
         wb = t.wb
@@ -248,9 +253,9 @@ def _pointing(h, path: str, refs: dict, q2: bool) -> list[str]:
     """(Task 3) What is wrong with the formulas _summarise made: one that no longer reads as written (#REF!), a value
     that is not its target's (compared here, never printed), a link to another workbook. q2 False: Q2's own redraw
     replaced its Answer and the cell on it."""
-    from smartass import pipeline
+    from smartass import exceljob
     from smartass.xl import jobs
-    t = pipeline._target(h, path, None)
+    t = exceljob._target(h, path, None)
 
     def read():
         wb, bad = t.wb, []
@@ -284,9 +289,9 @@ def _pointing(h, path: str, refs: dict, q2: bool) -> list[str]:
 
 def _close(h, path: str) -> None:
     """Close the workbook this script created (only that one), without saving."""
-    from smartass import pipeline
+    from smartass import exceljob
     from smartass.xl import jobs
-    t = pipeline._target(h, path, None)
+    t = exceljob._target(h, path, None)
     name = jobs.com(lambda: str(t.wb.Name))       # FullName is the https address of a OneDrive file: path and name
     if str(t.path).casefold() != path.casefold() or name.casefold() != Path(path).name.casefold():
         raise Stop(f"refusing to close {name}: it is not the workbook this script created")
@@ -306,7 +311,7 @@ def _patch(i: int, first: dict) -> dict:
 
 
 async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> int:
-    from smartass import pipeline, server
+    from smartass import exceljob, server
     from smartass.core import serverkit as kit
     from smartass.model.spec import AnalysisSpec
 
@@ -314,12 +319,12 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
     real_redraw = server.redraw_job
     saves: list[tuple[float, float]] = []                  # (start, end) of every save batch, for the writes
     looks: list[float] = []                                # when every job's look batch began
-    real_save, real_look = pipeline._save, pipeline._look
+    real_save, real_look = exceljob._save, exceljob._look
 
     def look(job):
         looks.append(time.monotonic())
         return real_look(job)
-    pipeline._look = look
+    exceljob._look = look
 
     def save(job):
         t0 = time.monotonic()
@@ -327,7 +332,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
             return real_save(job)
         finally:
             saves.append((t0, time.monotonic()))
-    pipeline._save = save
+    exceljob._save = save
 
     notes: list[tuple[int, int]] = []                      # (layout findings, warnings) of each redraw's reply
     texts: set[str] = set()                                # their texts, amounts masked
@@ -367,9 +372,10 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         try:
             with Writes(path) as writes:
                 out = await call()
+                secs = time.monotonic() - t0
+                saved = await asyncio.to_thread(later.wait, 60)    # Excel's save after the reply, before any read
         except Exception as e:   # noqa: BLE001
             raise Stop(f"{label} failed: {scrub(e)}") from None
-        secs = time.monotonic() - t0
         last_end[0] = time.monotonic()
         if gap:
             print(f"{'':<14} the file was written {len(gap)} time(s) between the steps (at "
@@ -399,7 +405,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         seen = await user(lambda h: _inspect(h, path, q), what="check_followups: inspect")
         if baseline:
             order = seen["names"]
-        problems = []
+        problems = [f"the save after the reply failed: {scrub(s.get('error'))}" for s in saved if not s["ok"]]
         if refs is not None:
             problems += await user(lambda h: _pointing(h, path, refs, tool != "fin_refresh"),
                                    what="check_followups: formulas")
@@ -436,8 +442,10 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         runs = com_calls(timings, BATCHES)
         stages = "  ".join(f"{s.split('.')[-1]} {timings.get('excel job.' + s, 0):.2f}" for s in STAGES)
         counts = "/".join(f"{k} {seen['statuses'].count(k)}" for k in ("OK", "DIFF"))
+        after = (f"{sum(s['seconds'] for s in saved if s.get('seconds') is not None):4.2f} s"
+                 f"{'' if len(saved) < 2 else f' ({len(saved)} saves)'}" if saved else "-")
         print(f"{label:<14} {secs:6.1f} s  writes {'-' if not writes.path else writes.count}  excel job "
-              f"{timings.get('excel job._total', 0):5.2f} s  batches "
+              f"{timings.get('excel job._total', 0):5.2f} s  saved after {after}  batches "
               f"{'-' if runs is None else runs:>2}  COM calls {'-' if com is None else com:>4}  [{stages}]  sheet = model {status}  Sources links "
               f"{len(seen['links'])}  status {counts}  layout {found[0]} warnings {found[1]}  "
               f"{'checks OK' if not problems else 'DIFF: ' + '; '.join(problems)}", flush=True)
@@ -458,7 +466,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         await step("second answer", "fin_analyze", lambda: analyze(spec=spec2, target=path), False, baseline=True)
         refs = await user(lambda h: _summarise(h, path), what="check_followups: summary")
         order = (await user(lambda h: _inspect(h, path, q), what="check_followups: order"))["names"]   # with it
-        stored, _, _ = await user(lambda h: pipeline.read_stored(h, path), what="check_followups: stored")
+        stored, _, _ = await user(lambda h: exceljob.read_stored(h, path), what="check_followups: stored")
         first = stored[q]["spec"]["v2"]
         for i in range(1, FOLLOW_UPS + 1):
             patch = _patch(i, first)
@@ -469,7 +477,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         failed = str(e)
     finally:
         server.redraw_job = real_redraw
-        pipeline._save, pipeline._look = real_save, real_look
+        exceljob._save, exceljob._look = real_save, real_look
         if between.path is not None:
             between.__exit__()
         if path is not None and not keep:

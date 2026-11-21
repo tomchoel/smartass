@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import re
 import shutil
 import subprocess
 import time
+import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,10 +18,18 @@ import pywintypes
 from . import instances, jobs, login
 from ..core import config
 from .host import ExcelHost, HostError, InputError
+from .hostproc import retry_busy
+
+NAME_WAIT_S = 60                    # a busy Excel is waited for this long when the workbook's name or path is read
 
 # ------------------------------------------------------------------ target workbook
 @dataclass
 class Target:
+    """The workbook a job works in. made: the new workbook's file the job itself reserved and builds (wb is None
+    until open_new opens it); a failed job closes it unsaved and deletes that file (discard_new). from_template: a
+    new workbook added from the TN template (its look tells the base a new workbook has: remember_new_base). new: the
+    workbook was created for this request (built as its file, added and saved as, or made by the hidden Excel when
+    no Excel was open): its first answer is saved inside the job, not after the reply (final review I1)."""
     app: object
     wb: object
     pid: int
@@ -27,18 +37,25 @@ class Target:
     bridge: object = None
     created: bool = False
     sheets_added: list[str] = field(default_factory=list)
+    made: Path | None = None
+    from_template: bool = False
+    new: bool = False
 
+    # The workbook's name and path are read with a busy Excel waited for (not counted as a call of the job, no abort
+    # check: also read by an abandoned job's clean-up): Excel rejects calls while it saves - also right after a save
+    # after the reply, AutoSave back on (live, 20.11.2026: a job's _is_ours read was rejected there). At the job's
+    # start for what is left of it (jobs.starting); then the busy message.
     @property
     def name(self) -> str:
-        return self.wb.Name
+        return self.made.name if self.wb is None else _read(lambda: self.wb.Name, check=False)
 
     @property
     def path(self) -> str:
-        return instances.local_path(self.wb.FullName)
+        return str(self.made) if self.wb is None else instances.local_path(self.full_name)
 
     @property
     def full_name(self) -> str:
-        return str(self.wb.FullName)
+        return str(self.made) if self.wb is None else str(_read(lambda: self.wb.FullName, check=False))
 
     def run(self, fn: str, *args):
         """Bridge call. Smart View acts on the ACTIVE workbook/sheet, so the target sheet is activated right before
@@ -60,16 +77,41 @@ class Target:
             pass
 
 
+def _read(call, check: bool = True):
+    """A read of the target's workbook or of the open workbooks, made before the job's turn there or around it: read
+    again while Excel is busy (not counted as a call of the job), for NAME_WAIT_S or what is left of the job's start
+    (jobs.starting), the job's abort checked before every try (check); then the busy message (jobs.BUSY)."""
+    try:
+        return retry_busy(call, jobs.start_limit(NAME_WAIT_S), jobs._check_alive if check else None, jobs.spent)
+    except pywintypes.com_error as e:
+        if jobs.is_busy(e):
+            raise HostError(jobs.BUSY) from None
+        raise
+
+
 def _wait_ready(app, limit: float = jobs.EDIT_WAIT_S, pid: int | None = None, name: str | None = None):
+    """app's Excel ready for the job (not in cell edit mode, no dialog): asked every 0.5 s for limit or what is left
+    of the job's start (jobs.starting; the time it was not ready counts against it), the job's abort checked each
+    time; then the busy message."""
+    limit = jobs.start_limit(limit)
     t0 = time.monotonic()
-    while time.monotonic() - t0 < limit:
-        try:
-            if app.Ready:
-                return
-        except pywintypes.com_error as e:
-            if not jobs.is_busy(e):
-                raise
-        time.sleep(0.5)
+    waited = False
+    try:
+        while True:
+            jobs._check_alive()
+            try:
+                if app.Ready:
+                    return
+            except pywintypes.com_error as e:
+                if not jobs.is_busy(e):
+                    raise
+            waited = True
+            if time.monotonic() - t0 >= limit:
+                break
+            time.sleep(0.5)
+    finally:
+        if waited:
+            jobs.spent(time.monotonic() - t0)
     if pid:
         raise instances.busy_error(pid, name or "The workbook")
     raise HostError("Your Excel is in edit mode (a cell is being typed in) or showing a dialog. Press Enter or Esc, "
@@ -96,10 +138,20 @@ ARCHIVE_REFUSAL = ("'{name}' is in the Produktregnskapet archive (audit record) 
                    "Use target='new', or allow it explicitly for this one request (allow_archive=true).")
 
 
-def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = False, title: str | None = None) -> Target:
+def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = False, title: str | None = None,
+                   build_new: bool = False) -> Target:
     """target: 'session' (default: this session's own analysis workbook - created on its first question, reopened
     if closed), 'active' (the workbook the user is working in), 'new' (a new file, which becomes the session's
-    workbook), an absolute file path, or the name of an open workbook (e.g. an unsaved 'Book1')."""
+    workbook), an absolute file path, or the name of an open workbook (e.g. an unsaved 'Book1'). build_new: the caller
+    builds a new workbook itself (exceljob.excel_job: the first answer's built file is the workbook) - a target that
+    resolves to a new workbook in a running Excel then comes back with its file reserved and not opened (Target.made,
+    wb None; open_new opens it), made ready (bridge) all the same, and does not become the session's workbook here:
+    the caller sets it once the answer is in it. A failure after the reservation deletes the file (discard_new)."""
+    with jobs.starting():
+        return _resolve(h, target, allow_archive, title, build_new)
+
+
+def _resolve(h: ExcelHost, target: str, allow_archive: bool, title: str | None, build_new: bool) -> Target:
     from ..core import session
     from ..epm import sso
     sso.ensure_global_watcher()
@@ -117,7 +169,7 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
             with stage("find Excel windows"):
                 insts = instances.excel_instances()
             t = _find_named([(i.pid, i.hwnd, i.app) for i in insts if i.app is not None], target)
-            jobs.hold_turn(t.pid, what="this request")
+            jobs.hold_turn(t.pid, what="this request", app=t.app)
             with stage("ready + bridge"):
                 return _finish_target(h, t, allow_archive)      # the archive guard applies here too
         if instances.is_archive(p) and not allow_archive:       # refuse BEFORE opening anything
@@ -128,16 +180,23 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
     if target == "active":
         for pid, hwnd, app in excels:
             try:
-                wb = jobs.com(lambda: app.ActiveWorkbook, limit=20)
+                wb, name = active_book(app)
             except pywintypes.com_error:
                 wb = None
-            if wb is not None and not str(wb.Name).lower().endswith(".xlam"):
-                jobs.hold_turn(pid, what="this request")   # same workbook: agents take turns
+            if wb is not None and not name.lower().endswith(".xlam"):
+                jobs.hold_turn(pid, what="this request", app=app)   # same workbook: agents take turns
                 return _finish_target(h, Target(app, wb, pid, hwnd), allow_archive)
         target = "new"                                # nothing open: fall back to a new analysis workbook
     if target == "new":
         with stage("new workbook"):
-            t = _new_target(h, title or "Analysis", excels, {i.pid for i in insts})
+            t = _new_target(h, title or "Analysis", excels, {i.pid for i in insts}, build_new)
+        if t.made is not None:                        # the caller builds it, opens it, and makes it the session's
+            try:
+                with stage("ready + bridge"):
+                    return _finish_target(h, t, allow_archive)
+            except BaseException as e:
+                _noted(e, discard_new(t))
+                raise
         with stage("ready + bridge"):
             t = _finish_target(h, t, allow_archive)
         session.set_workbook(t.path)                  # a new file becomes this session's workbook
@@ -148,14 +207,17 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
         return _finish_target(h, t, allow_archive)
 
 
-def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None) -> Target:
+def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None, build_new: bool = False) -> Target:
     """A new analysis workbook in a FREE Excel, so parallel agents do not wait for each other: the first Excel whose
     turn is free; else (below MAX_EXCELS) a new Excel window started on the TN template; else wait for the first.
-    If it cannot be saved, the new workbook is closed unsaved (and an Excel started for it is closed again)."""
+    If it cannot be saved, the new workbook is closed unsaved (and an Excel started for it is closed again).
+    build_new (the caller builds the file): in a running Excel only the file's name is reserved (_reserved_target);
+    an Excel started for a parallel agent and no Excel at all make the workbook as before."""
     from . import styling
     from ..core.timing import stage
     tpl = styling.template_path()
-    choice = next((e for e in excels if jobs.hold_turn(e[0], wait=False)), None)
+    choice = next((e for e in excels if jobs.hold_turn(e[0], wait=False, app=e[2], free_within=jobs.FREE_WAIT_S)),
+                  None)                       # a turn being handed over (Task D2 review, Minor 2) is waited for
     wb = None
     spawned = False
     if choice is None and excels and len(excels) < jobs.MAX_EXCELS and tpl.exists():
@@ -163,19 +225,23 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None)
             choice, wb = _spawn_excel(tpl, {e[0] for e in excels} | (known or set()))
         spawned = True
     if choice is None and excels:
-        jobs.hold_turn(excels[0][0], what="this request")
+        jobs.hold_turn(excels[0][0], what="this request", app=excels[0][2])
         choice = excels[0]
     if choice is None:                                # no Excel at all: the hidden one creates the file, /x opens it
         t = _open_path(h, _new_analysis_file(h, title), excels)
-        t.created = True
+        t.created = t.new = True
         return t
     pid, hwnd, app = choice
+    if wb is None and build_new:
+        return _reserved_target(app, pid, hwnd, title)
+    from_template = spawned
     try:
         if wb is None:
             with stage("add from template"):
                 try:                                  # from the TN template: the styles come for free (saves ~11 s)
                     tpl_s = str(styling.ensure_template(app))
                     wb = jobs.com(lambda: app.Workbooks.Add(tpl_s))
+                    from_template = True
                 except Exception:   # noqa: BLE001 - template unavailable: plain workbook, styles installed later
                     wb = jobs.com(lambda: app.Workbooks.Add())
         with stage("save as"):
@@ -183,9 +249,95 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None)
     except BaseException:
         _discard_new(app, wb, spawned)
         raise
-    t = Target(app, wb, pid, hwnd)
-    t.created = True
+    t = Target(app, wb, pid, hwnd, from_template=from_template)
+    t.created = t.new = True
     return t
+
+
+def _reserved_target(app, pid: int, hwnd: int, title: str) -> Target:
+    """The Target of a new workbook the caller builds: a file name free on disk and not the name of a workbook open
+    in that Excel (as _save_new's), reserved (_reserve). Nothing is done in Excel; its name is known (jobs.book_name
+    reads it from the Target: the opened file's name)."""
+    try:
+        taken = {str(b.Name).lower() for b in jobs.com(lambda: app.Workbooks)}
+    except Exception:   # noqa: BLE001
+        taken = set()
+    try:
+        path = _reserve(title, taken)
+    except OSError as e:
+        raise HostError(f"Could not create the new workbook in the analysis folder ({e}). Nothing was left open; check "
+                        "that the folder exists and is writable, then ask again.") from None
+    t = Target(app, None, pid, hwnd, created=True, made=path, new=True)
+    t.book_name = path.name
+    return t
+
+
+def open_new(t: Target) -> None:
+    """The new workbook the job built (t.made) opened in its Excel with Workbooks.Open: t.wb from then on. Excel's
+    error is raised as it is (the job's clean-up deletes the file). Opened read-only it is an error too (HostError):
+    Excel opens a file whose sensitivity label it does not know read-only, and its Save then writes nothing, without
+    an error (live, 20.11.2026) - as _save_new refuses a SaveAs that made no file. The Open and that read wait for a
+    busy Excel each on its own: one retried unit ran the Open again when Excel rejected the read (Task D2 review)."""
+    t.wb = jobs.com(lambda: t.app.Workbooks.Open(str(t.made)), limit=180)
+    if jobs.com(lambda: t.wb.ReadOnly):            # its own wait: a rejected read never opens the file again
+        raise HostError(f"Excel opened the new workbook {t.made.name} read-only (sensitivity label?), so it could not "
+                        "save the answer")
+
+
+DELETE_TRIES, DELETE_PAUSE_S = 10, 0.2      # a file Excel has just closed can stay locked for a moment
+
+
+def discard_new(t: Target) -> str:
+    """A failed job's new workbook: closed without saving when it is open, and the file the job reserved deleted
+    (only that one: t.made is the name the job itself created, exclusively). With no workbook in hand (the Open
+    failed, or was abandoned and Excel may have opened the file all the same) it is looked for among that Excel's
+    workbooks by its name first (_opened). Returns the note for the error's text, which names the file when it could
+    not be closed or deleted. Also for an abandoned job (check False)."""
+    name = t.made.name
+    if t.wb is None:
+        t.wb = _opened(t)
+    if t.wb is not None:
+        wb = t.wb
+        try:
+            jobs.com(lambda: wb.Close(False), limit=30, check=False)
+        except Exception as e:   # noqa: BLE001 - the job's error is the one raised
+            jobs.log.warning("could not close the new workbook %s: %s", name, e)
+            return f"the new workbook {name} could not be closed: close it without saving and delete {t.made}"
+        t.wb = None
+        what, done = f"the new workbook {name} was closed without saving and its file", " deleted"
+    else:
+        what, done = f"the new workbook {name} was not opened; its file", " was deleted"
+    for i in range(DELETE_TRIES):
+        try:
+            t.made.unlink(missing_ok=True)
+            return what + done
+        except OSError:
+            if i < DELETE_TRIES - 1:
+                time.sleep(DELETE_PAUSE_S)
+    jobs.log.warning("could not delete the new workbook's file %s", t.made)
+    return f"{what} could not be deleted ({t.made}): delete it yourself"
+
+
+def _opened(t: Target):
+    """The workbook t.made is open as in t's Excel, or None: found by its full path (a OneDrive URL read as its local
+    path), never by its name alone - another session's workbook of the same name from another project folder may be
+    open there (final review M8)."""
+    want = instances._norm(t.made)
+    try:
+        return jobs.com(lambda: next((b for b in t.app.Workbooks if instances._norm(str(b.FullName)) == want), None),
+                        limit=30, check=False)
+    except Exception:   # noqa: BLE001 - nothing to close that can be found
+        return None
+
+
+def _noted(e: BaseException, note: str) -> None:
+    """note added to the end of e's text: its first text argument (a COM error's is its second, after the hresult:
+    the error keeps its shape), else a text argument at the end."""
+    i = next((i for i, a in enumerate(e.args) if isinstance(a, str)), None)
+    if i is None:
+        e.args = (*e.args, note)
+    else:
+        e.args = (*e.args[:i], f"{e.args[i]}; {note}", *e.args[i + 1:])
 
 
 def _save_new(app, wb, title: str) -> Path:
@@ -235,6 +387,7 @@ def _spawn_excel(tpl: Path, known: set[int]):
     proc = _launch_excel(tpl)
     t0 = time.monotonic()
     while time.monotonic() - t0 < 120:
+        jobs._check_alive()
         time.sleep(1)
         for pid, hwnd, app in instances.interactive_excels():
             if pid in known:
@@ -264,10 +417,7 @@ def _find_named(excels, name: str) -> Target:
     hits: list[Target] = []
     names: list[str] = []
     for pid, hwnd, app in excels:
-        for wb in app.Workbooks:
-            n = str(wb.Name)
-            if n.lower().endswith((".xlam", ".xla")):
-                continue
+        for wb, n, _full in open_books(app):
             names.append(n)
             if want in (n.lower(), Path(n).stem.lower()):
                 hits.append(Target(app, wb, pid, hwnd))
@@ -282,10 +432,34 @@ def _find_named(excels, name: str) -> Target:
 
 def _find_open(excels, path: Path) -> Target | None:
     for pid, hwnd, app in excels:
-        for wb in app.Workbooks:
-            if instances._norm(wb.FullName) == instances._norm(path):
+        for wb, _name, full in open_books(app):
+            if instances._norm(full) == instances._norm(path):
                 return Target(app, wb, pid, hwnd)
     return None
+
+
+def open_books(app) -> list[tuple]:
+    """(workbook, its Name, its FullName) of every workbook open in app's Excel, add-ins (.xlam, .xla) left out: read
+    as one before the job's turn there (which Excel holds the target; find_book's scan for an xl_* tool), again while
+    Excel is busy (_read: not counted as calls of the job) - it rejects calls while it saves, also a save after the
+    last reply (live, 20.11.2026)."""
+    def read():
+        out = []
+        for wb in app.Workbooks:
+            name = str(wb.Name)
+            if not name.lower().endswith((".xlam", ".xla")):
+                out.append((wb, name, str(wb.FullName)))
+        return out
+    return _read(read)
+
+
+def active_book(app, limit: float = 20) -> tuple:
+    """(the active workbook of app's Excel, its name), or (None, None): read as one before the job's turn there, again
+    while Excel is busy for limit or what is left of the job's start (jobs.starting); then the busy message."""
+    def read():
+        wb = app.ActiveWorkbook
+        return (None, None) if wb is None else (wb, str(wb.Name))
+    return jobs.com(read, limit=jobs.start_limit(limit))
 
 
 BUSY_WAIT_S = 10                    # a busy Excel that holds the target gets this long to answer before we say why
@@ -295,14 +469,16 @@ def _wait_busy_holder(pid: int, path: Path) -> Target | None:
     """The target seems open in Excel `pid` (a window caption shows its name), which does not answer COM (dialog, cell
     edit mode, busy). Take that Excel's turn (another agent may be working in it), give it BUSY_WAIT_S to answer, else
     name what blocks it. None when it answers but does not hold `path` (a same-named workbook from another folder)."""
-    jobs.hold_turn(pid, what="this request")
+    jobs.hold_turn(pid, what="this request", app=None)     # it does not answer COM yet: the first contact below
     t0 = time.monotonic()
     while True:
+        jobs._check_alive()
         insts = [i for i in instances.excel_instances() if i.pid == pid]
         if not insts:
             raise HostError(f"The Excel (pid {pid}) that had '{path.name}' open has closed. Ask again.")
         i = insts[0]
         if i.app is not None:
+            jobs.hold_turn(pid, what="this request", app=i.app)     # it answers now: the first contact
             return _find_open([(i.pid, i.hwnd, i.app)], path)
         if time.monotonic() - t0 >= BUSY_WAIT_S:
             raise instances.busy_error(pid, path.name)
@@ -316,7 +492,7 @@ def _open_path(h: ExcelHost, path: Path, excels, insts: list[instances.XlInstanc
         raise InputError(f"File not found: {path}")
     t = _find_open(excels, path)
     if t is not None:
-        jobs.hold_turn(t.pid, what="this request")
+        jobs.hold_turn(t.pid, what="this request", app=t.app)
         return t
     if insts is None:
         insts = instances.excel_instances()
@@ -329,7 +505,7 @@ def _open_path(h: ExcelHost, path: Path, excels, insts: list[instances.XlInstanc
         raise instances._locked_error(path)
     if excels:                                  # open it in the user's Excel that is already running
         pid, hwnd, app = excels[0]
-        jobs.hold_turn(pid, what="this request")
+        jobs.hold_turn(pid, what="this request", app=app)
         try:
             wb = jobs.com(lambda: app.Workbooks.Open(str(path)), limit=180)
         except pywintypes.com_error as e:
@@ -340,11 +516,12 @@ def _open_path(h: ExcelHost, path: Path, excels, insts: list[instances.XlInstanc
     proc = _launch_excel(path)
     t0 = time.monotonic()
     while time.monotonic() - t0 < OPEN_TIMEOUT_S:
+        jobs._check_alive()
         time.sleep(1)
         for pid, hwnd, app in instances.interactive_excels():
             for wb in app.Workbooks:
                 if instances._norm(wb.FullName) == instances._norm(path):
-                    jobs.hold_turn(pid, what="this request")
+                    jobs.hold_turn(pid, what="this request", app=app)
                     login.wait_login_cleared(pid, appear_grace=12)     # a fresh Excel shows the EPM login at start-up
                     return Target(app, wb, pid, hwnd)
         if proc.poll() is not None:
@@ -383,16 +560,91 @@ def _new_path(title: str, taken: set[str] | frozenset = frozenset()) -> Path:
         n += 1
 
 
+def _reserve(title: str, taken: set[str] | frozenset = frozenset()) -> Path:
+    """A new analysis file's name (_new_path: free on disk and not in taken) reserved by creating the file, empty and
+    exclusively: a parallel job that chose the same name at the same moment takes the next one. OSError when the
+    folder cannot be written."""
+    path = _new_path(title, taken)
+    for _ in range(50):
+        try:
+            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return path
+        except FileExistsError:
+            path = _new_path(title, set(taken) | {path.name.lower()})
+    raise FileExistsError(f"no free name for a new workbook next to {path}")
+
+
 def _seed_has_label(seed: Path) -> bool:
-    """The seed exists and carries OUR sensitivity label (MSIP_Label_<config.LABEL_ID>_ custom properties, id
-    compared case-insensitively), so Excel will save copies."""
+    """The seed exists and carries OUR sensitivity label, so Excel will save copies: in docMetadata/LabelInfo.xml
+    (Office's 2020 form, id="{<config.LABEL_ID>}": what Excel on this tenant writes, with no custom property - live,
+    20.11.2026) or as MSIP_Label_<config.LABEL_ID>_ custom properties (the older form, label_properties); the id
+    compared case-insensitively."""
     if not config.LABEL_ID:
         return False
+    lid = config.LABEL_ID.lower().encode()
     try:
         with zipfile.ZipFile(seed) as z:
-            return f"msip_label_{config.LABEL_ID}_".lower().encode() in z.read("docProps/custom.xml").lower()
-    except (OSError, KeyError, zipfile.BadZipFile):
+            parts = set(z.namelist())
+            info, custom = (z.read(n).lower() if n in parts else b""
+                            for n in ("docMetadata/LabelInfo.xml", "docProps/custom.xml"))
+    except (OSError, zipfile.BadZipFile):
         return False
+    return b'id="{' + lid + b'}"' in info or b"msip_label_" + lid + b"_" in custom
+
+
+def label_properties(now: dt.datetime | None = None) -> dict[str, str]:
+    """Our sensitivity label as the custom document properties of a built file (MSIP_Label_<id>_*): a file with them
+    opens labelled with AutoSave on and its Save writes; one without opens read-only and its Save writes nothing
+    (live, hidden Excel, 20.11.2026). Enabled, set now, assigned as instances._label assigns it (privileged), our
+    site, name and content bits (config [label]: Excel records 2 for ours in its own files, the seed's), a new action
+    id."""
+    when = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc)
+    p = {"Enabled": "true", "SetDate": f"{when:%Y-%m-%dT%H:%M:%SZ}", "Method": "Privileged",
+         "Name": str(config.LABEL_NAME or ""), "SiteId": str(config.LABEL_SITE or ""), "ActionId": str(uuid.uuid4()),
+         "ContentBits": str(config.LABEL_CONTENT_BITS)}
+    return {f"MSIP_Label_{config.LABEL_ID}_{k}": v for k, v in p.items()}
+
+
+NEW_BASE_FILE = "new_workbook_base.json"
+
+
+def new_base():
+    """The base (render/xlsx.Base, its date format left at the default) a new analysis workbook has: the Normal style
+    and standard sizes of a workbook added from the TN template of this style version, as the look of one found
+    them (remember_new_base). None when none is stored for this version: a new workbook is then made from the
+    template (its look stores the base)."""
+    from ..render.xlsx import Base
+    from . import styling
+    try:
+        d = json.loads((config.HOME / NEW_BASE_FILE).read_text(encoding="utf-8"))
+        if d.get("template") != styling._styles_version():
+            return None
+        return Base(str(d["font_name"]), d["font_size"], int(d["row_px"]), int(d["col_px"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def forget_new_base() -> None:
+    """The stored base dropped (it did not describe a workbook built in it): the next new workbook is made from the
+    template once, and its look stores a fresh one."""
+    try:
+        (config.HOME / NEW_BASE_FILE).unlink(missing_ok=True)
+    except OSError as e:
+        jobs.log.warning("could not drop the stored base of a new workbook: %s", e)
+
+
+def remember_new_base(base) -> None:
+    """The base a look found in a new workbook added from the TN template, stored for new_base (best effort)."""
+    from . import styling
+    d = {"template": styling._styles_version(), "font_name": base.font_name, "font_size": base.font_size,
+         "row_px": base.row_px, "col_px": base.col_px}
+    path = config.HOME / NEW_BASE_FILE
+    try:
+        if path.exists() and json.loads(path.read_text(encoding="utf-8")) == d:
+            return
+        path.write_text(json.dumps(d), encoding="utf-8")
+    except (OSError, ValueError) as e:
+        jobs.log.warning("could not store the base of a new workbook: %s", e)
 
 
 def _new_analysis_file(h: ExcelHost, title: str) -> Path:
@@ -403,16 +655,10 @@ def _new_analysis_file(h: ExcelHost, title: str) -> Path:
     if _seed_has_label(seed):
         reserved = False
         try:
-            for _ in range(50):                       # reserve the name atomically: a parallel call picks the next one
-                try:
-                    os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-                    reserved = True
-                    break
-                except FileExistsError:
-                    path = _new_path(title, taken={path.name.lower()})
-            if reserved:
-                shutil.copyfile(seed, path)
-                return path
+            path = _reserve(title)
+            reserved = True
+            shutil.copyfile(seed, path)
+            return path
         except OSError:
             if reserved:
                 try:

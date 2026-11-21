@@ -464,10 +464,10 @@ def test_mentions_gives_every_formula_that_names_one_of_the_texts_outside_the_sk
                         ("name", "TotalQ", "3", "='old Q1 Answer'!$E$12"))     # its index: after _tnStylesVer, Budget
 
 
-def test_mentions_reads_the_formulas_in_chunks_only_where_there_is_a_formula_and_never_uses_find(book, monkeypatch):
-    """Review ruling 1: no Range.Find (it leaves its options as the Find dialog's). The used range is read in chunks of
-    rows of at most CHUNK_CELLS cells, and only the chunks Intersect finds a formula in; a protected sheet (no
-    SpecialCells there) is read chunk by chunk."""
+def test_mentions_reads_the_formulas_in_blocks_only_where_there_is_a_formula_and_never_uses_find(book, monkeypatch):
+    """Review ruling 1: no Range.Find (it leaves its options as the Find dialog's). The used range is halved, its
+    longer side first, until a block holds at most CHUNK_CELLS cells, and only the blocks Intersect finds a formula
+    in are halved further and read; a protected sheet (no SpecialCells there) is read block by block."""
     app, _ = book
     _mentions_book(app)
     reads = []
@@ -486,11 +486,127 @@ def test_mentions_reads_the_formulas_in_chunks_only_where_there_is_a_formula_and
         raise AssertionError("Range.Find is never used")
     monkeypatch.setattr(Range, "__getattr__", get)
     monkeypatch.setattr(Range, "Find", find, raising=False)
-    monkeypatch.setattr(runner, "CHUNK_CELLS", 60)                # Far's used range is A1:B300: 30 rows a chunk
+    monkeypatch.setattr(runner, "CHUNK_CELLS", 60)                # Far's used range is A1:B300: 18-19 rows a block
     _mentions(app)
     far = [rows for name, rows in reads if name == "Far"]
-    assert far == [(1, 30), (271, 300)]                          # the chunks between hold no formula: not read
+    assert far == [(1, 18), (282, 300)]                          # the blocks between hold no formula: not read
     assert [rows for name, rows in reads if name == "Plain"] == []          # one cell: read as a value, not counted
+
+
+class _Sparse:
+    """SpecialCells and Intersect of the fake Excel over the cells that hold something (the fake's own walk every cell
+    of a range: a used range to the last row and column has 17 billion), and a count of the scan's calls."""
+
+    def __init__(self, monkeypatch):
+        from fakexl import Range
+        self.calls = {"Intersect": 0}                  # and "Formula2 <sheet>": the reads of each sheet
+        real_special, real_get = Range.SpecialCells, Range.__getattr__
+        sparse = self
+
+        def special(rng, kind, *a):
+            if kind != -4123:
+                return real_special(rng, kind, *a)
+            hits = [(r, c, r, c) for (r, c), p in sorted(rng.ws.cells.items())
+                    if isinstance(p.get("Value"), str) and p["Value"].startswith("=") and _inside(rng, r, c)]
+            if not hits:
+                raise fakexl.ComError("No cells were found.")
+            return Range(rng.ws, hits)
+
+        def intersect(app, a, b):
+            sparse.calls["Intersect"] += 1
+            both = [x for x in a.rects if _inside(b, x[0], x[1])]
+            return Range(a.ws, both) if both else None
+
+        def get(rng, k):
+            if k == "Formula2":
+                key = f"Formula2 {rng.ws.Name}"
+                sparse.calls[key] = sparse.calls.get(key, 0) + 1
+            return real_get(rng, k)
+        monkeypatch.setattr(Range, "SpecialCells", special)
+        monkeypatch.setattr(fakexl.Application, "Intersect", intersect)
+        monkeypatch.setattr(Range, "__getattr__", get)
+
+
+def _inside(rng, r: int, c: int) -> bool:
+    return any(r1 <= r <= r2 and c1 <= c <= c2 for r1, c1, r2, c2 in rng.rects)
+
+
+def test_a_used_range_to_the_last_row_and_column_costs_a_bounded_scan(book, monkeypatch):
+    """Phase 3b review: a stray format in XFD1048576 stretched a sheet's used range to 17 billion cells, and the scan
+    by rows (6 rows a chunk) cost ~175 000 Intersect calls. Halving by cells finds the two formulas in a few dozen
+    steps, in the order of the sheet."""
+    app, _ = book
+    wb = _mentions_book(app)
+    far = wb.Worksheets("Far")
+    far.cells[(fakexl.MAXR, fakexl.MAXC)] = {"Font.Bold": True}            # the stray format
+    far.cells[(1_000_000, 16_000)] = {"Value": "='old Q1 Answer'!A1"}
+    sparse = _Sparse(monkeypatch)
+    rows = _mentions(app)
+    assert [r for r in rows if r[1] == "Far"] == [("cell", "Far", "B300", "='old Q1 Answer'!E12*2"),
+                                                  ("cell", "Far", "WQJ1000000", "='old Q1 Answer'!A1")]
+    assert sparse.calls["Intersect"] < 200 and sparse.calls["Formula2 Far"] <= 3      # A1, B300 and WQJ1000000
+
+
+def test_a_sheet_too_large_to_scan_is_unread_and_says_why(book, monkeypatch):
+    """A protected sheet has no SpecialCells to tell where its formulas are: one whose used range would take more
+    than SCAN_STEPS blocks is not read at all, and says so (the follow-up's warning), as a sheet whose formulas are
+    spread too wide for SCAN_STEPS is."""
+    app, _ = book
+    wb = _mentions_book(app)
+    locked = wb.Worksheets("Locked")
+    locked.hidden = set()
+    locked.cells[(fakexl.MAXR, fakexl.MAXC)] = {"Font.Bold": True}
+    sparse = _Sparse(monkeypatch)
+    monkeypatch.setattr(runner, "SCAN_STEPS", 40)
+    far = wb.Worksheets("Far")
+    for r in range(1, 300, 3):                                              # formulas in every block
+        far.cells[(r, 1)] = {"Value": f"=A{r + 1}"}
+    monkeypatch.setattr(runner, "CHUNK_CELLS", 4)
+    rows = _mentions(app)
+    unread = {r[1]: r[3] for r in rows if r[0] == "unread"}
+    assert set(unread) == {"Locked", "Far"} and all(runner.TOO_LARGE.split("{")[0] in m for m in unread.values())
+    assert not [r for r in rows if r[1] == "Locked" and r[0] != "unread"]
+    assert "Formula2 Locked" not in sparse.calls and sparse.calls["Formula2 Far"] < 40
+
+
+def test_a_protected_sheet_whose_blocks_would_pass_the_bound_reads_none_of_them(book, monkeypatch):
+    """Halving leaves blocks of half a chunk to a whole one, so a protected sheet is counted in blocks before any is
+    read: one that would take more than SCAN_STEPS is "unread" at once, never after reading SCAN_STEPS blocks."""
+    app, _ = book
+    wb = _mentions_book(app)
+    band = fakexl.Worksheet(wb, "Band")
+    wb.order.append(band)
+    band.cells[(1, 1)] = {"Value": "='old Q1 Answer'!E12"}
+    band.cells[(1, 150)] = {"Font.Bold": True}                              # 150 cells: within 40 x 4, over 40 blocks
+    band.ProtectContents = True
+    monkeypatch.setattr(runner, "SCAN_STEPS", 40)
+    monkeypatch.setattr(runner, "CHUNK_CELLS", 4)
+    assert runner._blocks(1, 150) > 40
+    sparse = _Sparse(monkeypatch)
+    rows = _mentions(app)
+    assert [r[0] for r in rows if r[1] == "Band"] == ["unread"] and "Formula2 Band" not in sparse.calls
+
+
+def test_a_sheet_whose_scan_fails_part_way_keeps_the_mentions_found_before(book, monkeypatch):
+    """Task 3 review Important 1: as in 0.4.0, a mention found before the scan of its sheet fails (a hidden formula
+    in a later block of a protected sheet, or the bound) is returned with the sheet's "unread" row, so it is still
+    re-pointed."""
+    app, _ = book
+    wb = _mentions_book(app)
+    mixed = fakexl.Worksheet(wb, "Mixed")
+    wb.order.append(mixed)
+    mixed.cells[(1, 1)] = {"Value": "='old Q1 Answer'!E12"}                # visible, in the first block
+    mixed.cells[(300, 2)] = {"Value": "='old Q1 Answer'!E12*2"}            # hidden, in a later one
+    mixed.ProtectContents, mixed.hidden = True, {(300, 2)}
+    far = wb.Worksheets("Far")
+    far.cells[(2, 1)] = {"Value": "='old Q1 Answer'!A1"}                   # found before the bound is reached
+    for r in range(3, 300, 3):
+        far.cells[(r, 1)] = {"Value": f"=A{r + 1}"}
+    monkeypatch.setattr(runner, "CHUNK_CELLS", 60)
+    monkeypatch.setattr(runner, "SCAN_STEPS", 20)                # Mixed: 16 blocks; Far: a formula in every block
+    rows = _mentions(app)
+    assert [r[:3] for r in rows if r[1] == "Mixed"] == [("cell", "Mixed", "A1"), ("unread", "Mixed", "")]
+    assert [r[:3] for r in rows if r[1] == "Far"] == [("cell", "Far", "A2"), ("unread", "Far", "")]
 
 
 def test_mentions_skips_a_chart_it_cannot_read_and_goes_on(book):
@@ -791,6 +907,7 @@ def _inproc_on(monkeypatch, folder: Path) -> list:
     monkeypatch.setattr(runner, "_EXCELS", {})
     monkeypatch.setattr(runner, "_identify", lambda app, check=True: (id(app), 0.0))
     monkeypatch.setattr(runner, "_is_64bit", lambda pid: True)
+    monkeypatch.setattr(runner, "_ROUTE_LOGGED", set())
     built = []
 
     def ensure():
@@ -862,7 +979,7 @@ def test_the_add_in_is_loaded_once_per_excel_and_each_batch_is_one_run(inproc):
     for _ in range(3):
         runner.run(app, Batch())
     assert app.registered == [str(Path(config.INPROC_DIR).parent / f"smartass_run_{HASH}.xll")]
-    assert app.runs == [f"SmartassPing_{HASH}"] + [f"SmartassRun_{HASH}"] * 3
+    assert app.runs == [f"SmartassPing_{HASH}"] * 2 + [f"SmartassRun_{HASH}"] * 3   # not there, loaded, there
     assert list((config.INPROC_DIR / "jobs").iterdir()) == []          # job and result files are removed
 
 
@@ -888,6 +1005,16 @@ def test_a_failing_operation_is_the_same_batch_error_in_both_executors(inproc, m
         assert settings(app) == QUIET_OFF
     assert errors[0] == errors[1]
     assert errors[0][0] == 6 and errors[0][1] == 'Workbooks("book.xlsx").Worksheets("Nope")'
+
+
+def test_an_excel_that_holds_this_builds_add_in_already_is_not_asked_to_register_it_again(inproc):
+    """Phase 3c Task 1b: a new server process meets the user's Excel with the add-in an earlier one loaded there; it
+    answered its ping all along, and RegisterXLL again cost 0.2-0.4 s in the first look of every server start (a
+    hidden Excel, 21.11.2026; the look of the live first answer was 0.8-1.1 s)."""
+    app, wb = excel_book()
+    app.loaded = True
+    assert runner.run(app, Batch()).where == "inproc"
+    assert app.registered == [] and app.runs == [f"SmartassPing_{HASH}", f"SmartassRun_{HASH}"]
 
 
 def test_an_add_in_gone_from_excel_is_registered_once_more(inproc):
@@ -924,6 +1051,32 @@ def test_a_failure_of_the_add_in_before_its_first_operation_runs_the_batch_over_
     b.workbook("book.xlsx").Worksheets("S").Range("A1").Value2 = "com"
     assert runner.run(app, b).where == "com"
     assert wb.Worksheets("S").cells[(1, 1)]["Value"] == "com"
+
+
+def test_a_run_the_add_in_answers_busy_while_its_save_runs_is_asked_again_and_runs_once(inproc, monkeypatch):
+    """Phase 3c Task 2: Excel answers calls in the middle of a save (live, a OneDrive file, 20.11.2026), so the add-in
+    refuses a batch while its save after the reply runs - nothing read, deleted or run - and the batch is asked again
+    as a busy Excel is; past the limit it is the busy Excel's HostError, and nothing ran."""
+    monkeypatch.setattr(runner, "BUSY_POLL_S", 0.001)
+    app, wb = excel_book()
+    runner.run(app, Batch())
+    answers = ["busy: the save after the reply is running"] * 2
+
+    def busy_then_run(path):
+        if answers:
+            assert path.exists()
+            return answers.pop()
+        app.fail_run = None
+        return app.Run(f"SmartassRun_{HASH}", str(path))
+    app.fail_run = busy_then_run
+    b = Batch()
+    b.workbook("book.xlsx").Worksheets("S").Range("A1").Value2 = "once"
+    assert runner.run(app, b).where == "inproc"
+    assert [ev for ev in app.events if ev[1] == "Value2"] == [("S", "Value2", "A1")]
+    app.fail_run = lambda path: "busy: the save after the reply is running"
+    with pytest.raises(HostError, match="busy"):
+        runner.run(app, Batch(), limit=0.01)
+    assert list((config.INPROC_DIR / "jobs").iterdir()) == []
 
 
 def test_a_batch_the_add_in_took_is_never_run_again(inproc):
@@ -1033,6 +1186,32 @@ def test_a_result_file_that_cannot_be_read_is_an_unknown_outcome(inproc, monkeyp
                         if self.name.endswith(".out") else real(self, *a, **k))
     with pytest.raises(runner.BatchError, match="outcome is unknown.*locked"):
         runner.run(app, Batch())
+
+
+def test_two_unknown_outcomes_in_a_row_give_up_on_the_add_in_for_that_excel_with_one_warning(inproc, caplog):
+    """An unknown outcome that recurs (phase 3b review): after the second in a row that Excel process uses the COM
+    executor for the rest of the server's life - both batches raise (never run again), one warning; a readable
+    answer between two unknowns starts the count again."""
+    app, wb = excel_book()
+    runner.run(app, Batch())
+
+    def unknown():
+        app.fail_run = lambda path: ran_then("{broken")(path, app)
+        with pytest.raises(runner.BatchError, match="outcome is unknown"):
+            runner.run(app, Batch())
+        app.fail_run = None
+    unknown()
+    assert runner.run(app, Batch()).where == "inproc"              # a readable answer: the count starts again
+    unknown()
+    assert runner.run(app, Batch()).where == "inproc"
+    unknown()
+    unknown()                                                       # the second in a row: still raised, never rerun
+    runs = len(app.runs)
+    assert runner.run(app, Batch()).where == "com" and runner.run(app, Batch()).where == "com"
+    assert len(app.runs) == runs and not runner.available(app)      # the add-in is not asked any more
+    assert caplog.text.count("in-process executor not used") == 1 and "unknown outcome" in caplog.text
+    other, _ = excel_book()
+    assert runner.run(other, Batch()).where == "inproc"             # another Excel process keeps its add-in
 
 
 def test_a_job_the_add_in_could_not_claim_runs_once_over_com(inproc, caplog):
@@ -1195,3 +1374,44 @@ def test_a_result_file_that_cannot_be_deleted_keeps_the_result(inproc, monkeypat
     b.ret(b.workbook("book.xlsx").Worksheets("S").Name, "s" * 31000)             # a long record: the result file
     res = runner.run(app, b)
     assert res.where == "inproc" and res.values == {"s" * 31000: "S"} and held
+
+
+
+# ---------------------------------------------------------------------------------------------------- Task D3, item 6
+# A server switching an Excel from the add-in to COM is logged once per Excel process, with why: given up on, or
+# SV_INPROC=0 in an Excel that has a smartass add-in loaded - so a later freeze can be tied to the switch, or not.
+
+
+def test_an_excel_given_up_on_for_the_add_in_is_logged_once_with_why_and_how_many_batches_ran_there(inproc, caplog):
+    app, wb = excel_book()
+    assert runner.run(app, Batch()).where == "inproc"
+    ex = runner._EXCELS[(id(app), 0.0)]
+    with caplog.at_level("WARNING", logger="smartview.inproc"):
+        runner._give_up(ex, "2 batches in a row had an unknown outcome")
+        runner._give_up(ex, "the add-in and this engine disagree on the job folder")
+    lines = [r.getMessage() for r in caplog.records if "in-process executor not used" in r.getMessage()]
+    assert len(lines) == 1 and f"pid {id(app)}" in lines[0] and "unknown outcome" in lines[0]
+    assert "after 1 batch(es) through the add-in" in lines[0]
+    assert runner.run(app, Batch()).where == "com"
+
+
+def test_sv_inproc_0_in_an_excel_with_a_smartass_add_in_loaded_is_logged_once_and_the_batch_runs_over_com(
+        monkeypatch, caplog):
+    monkeypatch.setattr(config, "INPROC", False)
+    monkeypatch.setattr(runner, "_ROUTE_LOGGED", set())
+    class Refusing(Application):
+        @property
+        def RegisteredFunctions(self):
+            raise pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+    loaded, bare, refusing = Application(), Application(), Refusing()
+    loaded.RegisteredFunctions = ((r"C:\h\inproc\smartass_run_aaaa1111\smartass_run_aaaa1111.xll", "SmartassRun_aaaa1111",
+                                   "QC"), (r"C:\x\other.xll", "Other", "Q"))
+    bare.RegisteredFunctions = ((r"C:\x\other.xll", "Other", "Q"),)
+    keys = {id(loaded): (4242, 1.0), id(bare): (4343, 1.0), id(refusing): (4444, 1.0)}
+    monkeypatch.setattr(runner, "_quick_key", lambda app: keys[id(app)])
+    with caplog.at_level("WARNING", logger="smartview.inproc"):
+        for app in (loaded, loaded, bare, refusing):
+            Workbook(("S",), app=app)
+            assert runner.run(app, Batch()).where == "com"
+    lines = [r.getMessage() for r in caplog.records if "in-process executor not used" in r.getMessage()]
+    assert len(lines) == 1 and "pid 4242" in lines[0] and "SV_INPROC=0" in lines[0] and "aaaa1111" in lines[0]

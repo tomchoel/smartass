@@ -25,7 +25,7 @@ provider.
    do), a file holding a table (refused), a missing or broken file (what Excel leaves), the temporary file deleted
    right after the insert, and the Excel around it (calculation, the active workbook, windows, the recent list,
    the undo state, visible windows of the process).
-3. Whole jobs (pipeline.excel_job, a second question with a Lines sheet, then pipeline.redraw_job: a follow-up's
+3. Whole jobs (exceljob.excel_job, a second question with a Lines sheet, then exceljob.redraw_job: a follow-up's
    replacement), since Task 2b the job's batches (xl/inproc) once through the COM executor (side 'copy', and
    'control' for the noise) and once through the in-process add-in (side 'insert'), each in a workbook of its
    own, compared sheet by sheet; sheet = model, the warnings and layout findings per step, the draw's seconds and
@@ -42,6 +42,21 @@ provider.
    sheet - and a follow-up whose drop fails points them back; with a merged cell and a table's calculated column.
    --parts repoint-bench (not in the default parts): a follow-up with 500 cells pointing at it against none, both
    executors (the close-out's writes run with Calculation manual).
+   New workbook (phase 3c, --parts newbook): the first answer of a new workbook made today's way (Workbooks.Add of
+   the TN template, label, SaveAs, the insert, the Sources log furnished over COM) against one whose built file is
+   the workbook (Excel only opens it), each followed by a second answer with a Lines sheet and a follow-up, through
+   the add-in, today's way twice (the noise); compared item by item, the expected differences named (EXPECTED_NEW),
+   the files the jobs saved labelled (a first answer saved in the job, each later one's save after the reply waited
+   for: xl/inproc/later.py); and a built
+   new workbook whose finish fails is closed unsaved and its file deleted.
+   Mixed executors (Task D, D2; --parts mixed): whole jobs through the add-in, then over COM, then through the add-in
+   again, in ONE Excel process of its own with an OLD smartass build loaded (live, 21.11.2026: Excel froze on the COM
+   route right after add-in runs, two builds loaded), each phase from a new server's state and the add-in phase's
+   last save after the reply still queued at the switch, each job on an STA thread of its own through ExcelHost.call
+   as the server runs it; sheet = model, the executor of each phase, the saves after the reply, Excel ready and saved,
+   the garbage collector on a new thread afterwards. That Excel not answering - a job within MIXED_JOB_S, or one of
+   the script's own calls into it between jobs (each on a thread of its own, with MIXED_JOB_S to answer) - is one
+   DIFF, never a hang: that Excel is killed by its pid, and nothing more is asked of it.
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 
 Prints OK / DIFF per item (never a cell value: addresses and property names only); exit 0 only when all are OK.
@@ -80,13 +95,13 @@ import pywintypes  # noqa: E402
 import xlsxwriter  # noqa: E402
 
 from check_fastcom import QUIT_WAIT_S, _wait_gone, kill_if_ours, start_excel  # noqa: E402
-from smartass import pipeline  # noqa: E402
+from smartass import exceljob, pipeline  # noqa: E402
 from smartass.core import config  # noqa: E402
 from smartass.render import xlsx  # noqa: E402
 from smartass.render.layout import ChartSpec  # noqa: E402
 from smartass.xl import fastcom, jobs, movein  # noqa: E402
 from smartass.xl.hostproc import windows_of  # noqa: E402
-from smartass.xl.inproc import runner  # noqa: E402
+from smartass.xl.inproc import later, runner  # noqa: E402
 from smartass.xl.inproc.batch import MISSING, Batch  # noqa: E402
 from smartass.xl.sheetorder import ANSWER_TAB, DATA_TAB  # noqa: E402
 from smartass.xl.target import Target  # noqa: E402
@@ -168,6 +183,42 @@ def g(fn):
         return _plain(jobs.retry_busy(fn, 20))
     except Exception:   # noqa: BLE001
         return ERR
+
+
+WHY: dict[str, set] = defaultdict(set)       # "item: property" -> what Excel answered when it could not be read
+
+
+def _why(fn, key: str):
+    """g, with what Excel answered kept in WHY when the read fails (Task D2: the check says whether an unread property
+    is a read that failed - and how - or a difference)."""
+    try:
+        return _plain(jobs.retry_busy(fn, 20))
+    except Exception as e:   # noqa: BLE001
+        WHY[key].add(f"{type(e).__name__}: {str(e)[:120]}")
+        return ERR
+
+
+def _manual_breaks(ws, which: str, last: int):
+    """The rows or columns with a manual page break before them. Read from the sheet's HPageBreaks / VPageBreaks; in a
+    hidden Excel their enumeration fails at times with DISP_E_BADINDEX (Task D2: the two "manual page breaks" DIFFs of
+    the default parts, on every route alike - a read that failed, not a difference), so then each row or column up to
+    last is asked for its own PageBreak (xlPageBreakManual), the same fact read another way."""
+    coll = "HPageBreaks" if which == "rows" else "VPageBreaks"
+    key = f"manual page breaks: {which}"
+    before = set(WHY[key])
+    got = _why(lambda: tuple(int(getattr(b.Location, "Row" if which == "rows" else "Column"))
+                             for b in getattr(ws, coll) if int(b.Type) == MANUAL_BREAK), key)
+    if got != ERR:
+        return got
+    line = (lambda i: ws.Rows(i)) if which == "rows" else (lambda i: ws.Columns(i))
+    got = _why(lambda: tuple(i for i in range(1, last + 1) if int(line(i).PageBreak) == MANUAL_BREAK), key)
+    if got != ERR:                                  # read the other way: not unread; why the first way failed is said
+        FALLBACK[key] |= WHY[key] - before
+        WHY[key] = before
+    return got
+
+
+FALLBACK: dict[str, set] = defaultdict(set)       # "item: property" -> why the first way failed (_manual_breaks)
 
 
 def obj(fn):
@@ -540,9 +591,8 @@ def read_sheet(app, wb, name: str, rect, mask: bool = False) -> dict:
     out["hidden rows and columns"] = hidden
     page = obj(lambda: ws.PageSetup)
     out["page setup"] = {a: (ERR if page is None else g(lambda a=a: getattr(page, a))) for a in PAGE}
-    out["manual page breaks"] = {
-        "rows": g(lambda: tuple(int(b.Location.Row) for b in ws.HPageBreaks if int(b.Type) == MANUAL_BREAK)),
-        "columns": g(lambda: tuple(int(b.Location.Column) for b in ws.VPageBreaks if int(b.Type) == MANUAL_BREAK))}
+    out["manual page breaks"] = {"rows": _manual_breaks(ws, "rows", r2 + 5),
+                                 "columns": _manual_breaks(ws, "columns", c2 + 5)}
     out["sheet"] = {"visible": g(lambda: ws.Visible), "tab colour": g(lambda: ws.Tab.Color),
                     "tab tint": g(lambda: ws.Tab.TintAndShade), "standard width": g(lambda: ws.StandardWidth),
                     "standard height": g(lambda: ws.StandardHeight), "used range": g(lambda: ws.UsedRange.Address),
@@ -838,9 +888,18 @@ def report_items(part: str, items, found: dict, noise: dict, errs: dict) -> None
     for item in sorted(items):
         keys = found.get(item, [])
         fail, accepted = unread_findings({item: errs.get(item, {})})
+        why = sorted({w for f in fail for k, ws in WHY.items() if f.startswith(k + " ") for w in ws})
         detail = (f"{len(keys)} differ: {keys[:4]}" if keys else "") + (f" unread on every route: {fail[:6]}"
-                                                                          if fail else "")
+                                                                          if fail else "") + (
+            f" (the read failed on every route: no difference found, none ruled out; Excel answered: {why[:3]})"
+            if why else "")
         check(f"{part}: {item}", not keys and not fail, detail.strip())
+        read_other = {k: sorted(w) for k, w in FALLBACK.items() if k.startswith(item + ": ")}
+        if read_other:
+            info(f"read the other way ({item}: Excel's own list of them failed - a read in this hidden Excel, not a "
+                 f"difference - so each row / column was asked): {read_other}")
+            for k in read_other:
+                FALLBACK.pop(k)
         if accepted:
             info(f"unread on every route, accepted ({item}): {accepted}")
         if noise.get(item):
@@ -1143,15 +1202,15 @@ def compare_jobs(xl: Excel) -> None:
     for side, inproc in JOB_SIDES.items():
         wb = xl.fresh(side, ("Sources",))
         books[side] = wb
-        target = lambda h, target, title, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
-        seams = {(pipeline, "_target"): target, (pipeline, "_save"): lambda job: None,
-                 (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+        target = lambda h, target, title, build_new=False, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
+        seams = {(exceljob, "_target"): target, (exceljob, "_save"): lambda job: None,
+                 (exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now,
                  (config, "INPROC"): inproc}
         with _patched(seams):
             for label, q, pre in _pres():
-                job = (lambda h, pre=pre: pipeline.excel_job(h, pre)) if q is None else (
-                    lambda h, pre=pre, q=q: pipeline.redraw_job(h, pre, q, "this workbook"))
-                out, timings = pipeline.with_timings(job)(None)
+                job = (lambda h, pre=pre: exceljob.excel_job(h, pre)) if q is None else (
+                    lambda h, pre=pre, q=q: exceljob.redraw_job(h, pre, q, "this workbook"))
+                out, timings = exceljob.with_timings(job)(None)
                 steps[label][side] = ((out.get("checks") or {}).get("sheet_equals_model"),
                                       timings.get("draw", 0.0),
                                       int(sum(v for k, v in timings.items() if k.startswith(BATCH_PREFIX)
@@ -1174,6 +1233,410 @@ def compare_jobs(xl: Excel) -> None:
     report_items("jobs", items, found, noise, unread(snaps))
     for wb in books.values():
         xl.close(wb)
+
+
+# ---------------------------------------------------------------------------------------------------- 3e. a new workbook
+NEW_SIDES = {"copy": False, "insert": True, "control": False}     # (phase 3c) side -> its first answer's built file is
+                                                                   # the workbook (else today's: template, SaveAs, insert)
+# What a new workbook built as a file has otherwise than one made today's way, by name (item, the keys' pattern, why):
+# printed as expected, never masked; any other difference is a DIFF.
+EXPECTED_NEW: list[tuple[str, str, str]] = [
+    ("styles", r"workbook!(count|names)", "the TN template's cell styles are not in a built file (48 against 102); "
+     "xl_tidy and apply_report install them when they need them (styling.ensure_styles merges them from the template)"),
+    ("workbook names", r"workbook!_tnStylesVer \(workbook\)", "the template's style marker, added with the styles"),
+    ("window", r"Sources!(FreezePanes|ScrollRow|SplitRow)", "this hidden Excel refuses the log's frozen header over "
+     "COM (a window without a client area: undone); the built file has it frozen, as a visible Excel freezes it"),
+]
+
+
+def _new_target_seam(xl: Excel, holder: dict):
+    """exceljob._target for the new-workbook part: the first question resolves to a new workbook in this script's
+    Excel (target._new_target, today's way or the built file's), every later one to that workbook (the session's)."""
+    from smartass.xl import target as xltarget
+
+    def target(h, target, title, build_new=False):
+        if "t" not in holder:
+            holder["t"] = xltarget._new_target(None, title, [(xl.pid, 0, xl.app)], {xl.pid}, build_new)
+            return holder["t"]
+        return Target(app=xl.app, wb=holder["t"].wb, pid=xl.pid, hwnd=0, created=True)
+    return target
+
+
+def _expected(item: str, key: str) -> str | None:
+    return next((why for it, pattern, why in EXPECTED_NEW if it == item and re.fullmatch(pattern, key)), None)
+
+
+def new_workbook(xl: Excel) -> None:
+    """(Phase 3c Task 1) The first answer of a new workbook made today's way (Workbooks.Add of the TN template, the
+    label, SaveAs, the insert, the Sources log furnished over COM) against one whose built file is the workbook
+    (Excel only opens it), through the add-in, today's way twice (the noise): a first answer followed by a second with
+    a Lines sheet and a follow-up, and a first answer with a Lines sheet. Compared item by item; each workbook is saved
+    by the job in this script's temporary folder (a file Excel did not write - no label - would show here). Then the
+    TN styles installed in a built workbook (styling.ensure_styles, as xl_tidy does) leave its sheets as they were,
+    and a built new workbook whose finish fails is closed unsaved, its file deleted."""
+    from smartass.core import session
+    folder = TMP / "analyser"
+    folder.mkdir(exist_ok=True)
+    seams = {(exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now, (config, "INPROC"): True,
+             (session, "project_dir"): lambda: folder, (session, "set_workbook"): lambda p: None}
+    pres = _pres()
+    lines_first = [("first answer with a Lines sheet", None, pres[1][2])]
+    for scenario, questions in (("new workbook", pres), ("new workbook, lines first", lines_first)):
+        books = _new_books(xl, seams, questions, scenario)
+        if questions is pres:
+            _styles_installed(xl, books["insert"])
+        for wb in books.values():
+            xl.close(wb)
+    _failed_new_workbook(xl, seams, folder)
+
+
+def _new_books(xl: Excel, seams: dict, questions: list, scenario: str) -> dict:
+    """The questions answered into a new workbook per side (NEW_SIDES), compared: sheet = model, warnings, the saved
+    file labelled, the sheets, every item (the expected differences printed as such). Returns {side: workbook}."""
+    from smartass.core.timing import BATCH_PREFIX
+    from smartass.xl import target as xltarget
+    books, steps, files = {}, defaultdict(dict), {}
+    for side, build in NEW_SIDES.items():
+        holder: dict = {}
+        side_seams = seams | {(exceljob, "_target"): _new_target_seam(xl, holder)}
+        if not build:
+            side_seams[(exceljob, "_new_book")] = lambda: None
+        with _patched(side_seams):
+            for label, q, pre in questions:
+                job = (lambda h, pre=pre: exceljob.excel_job(h, pre)) if q is None else (
+                    lambda h, pre=pre, q=q: exceljob.redraw_job(h, pre, q, "this workbook"))
+                out, timings = exceljob.with_timings(job)(None)
+                steps[label][side] = ((out.get("checks") or {}).get("sheet_equals_model"),
+                                      sum(timings.get(s, 0.0) for s in ("open target", "draw", "save")),
+                                      int(sum(v for k, v in timings.items() if k.startswith(BATCH_PREFIX)
+                                              and "." not in k[len(BATCH_PREFIX):])),
+                                      sorted(set(out.get("warnings") or []) | set(out.get("layout") or [])))
+        saves = later.wait(60)                            # (Task 2) Excel's saves after the replies (SV_SAVE=sync: none)
+        check(f"{scenario} ({side}): every save after a reply went through",   # (final review I1) not the first's:
+              (len(saves) == len(questions) - 1 and all(s["ok"] for s in saves))   # a new workbook's is in the job
+              if config.SAVE == "later" else not saves,
+              f"{len(saves)} saves, {[s.get('how') for s in saves]}; failed: "
+              f"{[s.get('error') for s in saves if not s['ok']]}")
+        t = holder["t"]
+        books[side], files[side] = t.wb, Path(t.path)
+        check(f"{scenario} ({side}): {'its built file is the workbook' if build else 'made from the template'}",
+              (t.made is not None) == build, f"made {t.made}")
+    for label, by in steps.items():
+        check(f"new workbook: {label}: sheet = model either way", all(v[0] == "OK" for v in by.values()),
+              f"{ {k: v[0] for k, v in by.items()} }")
+        check(f"new workbook: {label}: the same warnings and layout findings", by["copy"][3] == by["insert"][3],
+              f"today {by['copy'][3]} | built {by['insert'][3]}")
+        info(f"{label}: the Excel job today's way {by['copy'][1]:.2f} s ({by['copy'][2]} batches), its built file "
+             f"{by['insert'][1]:.2f} s ({by['insert'][2]} batches), today's way again {by['control'][1]:.2f} s")
+    for side, wb in books.items():
+        path = files[side]
+        check(f"{scenario} ({side}): the file the job saved is labelled", path.stat().st_size > 0
+              and xltarget._seed_has_label(path), f"{path.stat().st_size} bytes")
+        info(f"{scenario} ({side}): Saved {wb.Saved} after its jobs")
+    names = {side: _names(wb) for side, wb in books.items()}
+    check(f"{scenario}: the same sheets in the same order", names["copy"] == names["insert"],
+          "" if names["copy"] == names["insert"] else f"today {names['copy']} | built {names['insert']}")
+    rects = book_rects(list(books.values()), names["copy"])
+    snaps = {side: read_book(xl.app, wb, rects, mask=True) for side, wb in books.items()}
+    found, noise = route_diff(snaps)
+    for item, keys in list(found.items()):
+        for key in list(keys):
+            why = _expected(item, key)
+            if why is not None:
+                keys.remove(key)
+                info(f"expected difference ({item}) {key}: {why}")
+    items = {item for snap in snaps.values() for where in snap.values() for item in where}
+    report_items(scenario, items, {k: v for k, v in found.items() if v}, noise, unread(snaps))
+    return books
+
+
+def _styles_installed(xl: Excel, wb) -> None:
+    """styling.ensure_styles on a built workbook (what xl_tidy and apply_report do first): the TN styles and their
+    marker arrive from the template (one Styles.Merge), with no prompt, and the answer's sheets stay as they were."""
+    from smartass.xl import styling
+    names = _names(wb)
+    rects = book_rects([wb], names)
+    before = read_book(xl.app, wb, rects, mask=True)
+    t0 = time.perf_counter()
+    styling.ensure_styles(wb)
+    ms = (time.perf_counter() - t0) * 1000
+    after = read_book(xl.app, wb, rects, mask=True)
+    changed = {item: keys for item, keys in diff(before, after).items() if item not in ("styles", "workbook names")}
+    marker = [k for k in diff(before, after).get("workbook names", []) if "_tnStylesVer" not in str(k)]
+    check("new workbook: the TN styles installed in a built workbook leave its sheets as they were",
+          styling.has_styles(wb) and int(wb.Styles.Count) > 100 and not changed and not marker,
+          f"styles {int(wb.Styles.Count)}, changed {dict(changed)} {marker}")
+    info(f"the TN styles installed in a built workbook in {ms:.0f} ms ({int(wb.Styles.Count)} styles)")
+
+
+def _failed_new_workbook(xl: Excel, seams: dict, folder: Path) -> None:
+    """A first answer whose built workbook's finish fails (an operation on a sheet that is not there): the error
+    says the workbook was closed without saving and its file deleted; it is not open, the file is gone, and the
+    four settings and the active workbook are as before."""
+    real = movein.calculate
+
+    def calculate(t, sheets, b=None):
+        real(t, sheets, b)
+        if b is not None:
+            b.workbook(jobs.book_name(t)).Worksheets("No such sheet").Calculate()
+    other = xl.fresh("around", ("Sources",))
+    before = (int(xl.app.Workbooks.Count), [getattr(xl.app, n) for n, _ in runner.QUIET],
+              str(xl.app.ActiveWorkbook.Name), sorted(p.name for p in folder.iterdir()))
+    holder: dict = {}
+    with _patched(seams | {(exceljob, "_target"): _new_target_seam(xl, holder), (movein, "calculate"): calculate}):
+        try:
+            exceljob.excel_job(None, _pres()[0][2])
+            failed = ""
+        except Exception as e:   # noqa: BLE001 - the failure is the point
+            failed = str(e)
+    after = (int(xl.app.Workbooks.Count), [getattr(xl.app, n) for n, _ in runner.QUIET],
+             str(xl.app.ActiveWorkbook.Name), sorted(p.name for p in folder.iterdir()))
+    t = holder.get("t")
+    check("new workbook: a built one that fails in its finish is closed unsaved and its file deleted",
+          "closed without saving and its file deleted" in failed and before == after and t is not None
+          and t.made is not None and not t.made.exists(), f"raised {failed[-120:]!r}; before {before}, after {after}")
+    xl.close(other)
+
+
+# ---------------------------------------------------------------------------------------------------- 3f. mixed executors
+MIXED_PHASES = (("add-in", True), ("COM", False), ("add-in again", True))   # (Task D) phase -> config.INPROC
+MIXED_JOB_S = 120                         # a job that has not answered by then: Excel is taken for frozen (a DIFF)
+PENDING_DELAY_S = 3.0                     # (Task D2) the add-in phase's saves after the reply wait this long: its last
+                                          # one is still queued when the COM phase starts, and runs during its jobs
+OLD_BUILD = "f9004f9"                     # the second build: this commit's add-in (no SmartassClear, no save after
+                                          # the reply), loaded beside the jobs' own as live on 21.11.2026
+
+
+def _old_build() -> tuple[str, str]:
+    """The OLD build (OLD_BUILD's Runner.cs, compiled by today's build.py into a folder of its own: another hash):
+    (its .xll, its hash). Compiled here, no call into Excel."""
+    import subprocess
+
+    from smartass.xl.inproc import build
+    old_cs = TMP / f"Runner_{OLD_BUILD}.cs"
+    old_cs.write_bytes(subprocess.run(["git", "-C", str(ROOT), "show", f"{OLD_BUILD}:engine/smartass/xl/inproc/Runner.cs"],
+                                      capture_output=True, check=True).stdout)
+    keep = (build.RUNNER_CS, config.INPROC_DIR)
+    build.RUNNER_CS, config.INPROC_DIR = old_cs, TMP / "inproc_old"
+    try:
+        xll, h = build.ensure()
+    finally:
+        build.RUNNER_CS, config.INPROC_DIR = keep
+    return str(xll), h
+
+
+def _second_build(mx: Excel, xll: str, h: str) -> str:
+    """The old build registered in this Excel beside the jobs' own, as live (21.11.2026: a server of an earlier
+    version had loaded it there). Its hash."""
+    if mx.raw.RegisterXLL(xll) is not True or mx.raw.Run(f"SmartassPing_{h}") != h:
+        raise RuntimeError(f"the old build {h} did not load")
+    return h
+
+
+def _new_server_state() -> None:
+    """What a new server process starts from (live: every phase was a new process): the module-level state of the
+    in-process executor, the save after the reply and the wrapper's shared interfaces dropped."""
+    runner._EXCELS.clear()
+    runner._DISPIDS.clear()
+    runner._PROPERTIES.clear()
+    runner._last.__dict__.clear()
+    runner._unknown_warned = False
+    runner._ROUTE_LOGGED.clear()
+    fastcom._IFACE.clear()
+    with later._lock:
+        for d in (later._queued, later._asked_at, later._done, later._unwritten, later._mine):
+            d.clear()
+        later._skips.clear()
+
+
+class _Frozen(Exception):
+    """The mixed part's Excel did not answer a call within MIXED_JOB_S: a job's, the script's own between jobs, or the
+    job's way in by its workbook window. One DIFF; nothing more is asked of that Excel, and it is killed by its pid."""
+
+
+def _froze(e: BaseException, no_window: type) -> bool:
+    """A job's failure that means its Excel stopped answering: the job's own deadline (HostTimeout), no answer by the
+    workbook window (no_window: the target seam's), or a turn held by an earlier job given up on - one whose release
+    after its answer did not return (jobs.ABANDONED)."""
+    from smartass.xl.host import HostTimeout
+    return isinstance(e, (HostTimeout, no_window)) or str(e).startswith(jobs.ABANDONED.split("(")[0])
+
+
+def mixed_executors() -> None:
+    """(Task D, Task D2) The executors mixed in ONE Excel process with an OLD smartass build loaded, as live on
+    21.11.2026 before Excel froze: whole jobs through the add-in (its saves after the reply), then through the COM
+    executor (its saves in the job), then through the add-in again - a new workbook's first answer, a second answer
+    with a Lines sheet, follow-ups and a refresh of both questions. Each phase starts from a new server's state
+    (_new_server_state, a new ExcelHost), and the add-in phase's last save after the reply is still queued when the
+    COM phase starts (PENDING_DELAY_S): it runs during the COM jobs, and its outcome is checked after them. Every job
+    runs on an STA thread of its own through ExcelHost.call(user_excel=True), reaching this Excel by its workbook window
+    as the server's jobs reach the user's. Per job: sheet = model; per phase: the executor it ran (the add-in's Run
+    asked, or not), every save after a reply went through, the workbook saved, Excel ready; at the end both builds
+    still loaded, and the garbage collector run on a new thread returns and Excel still answers there.
+    Excel stopping to answer anywhere is ONE DIFF and that Excel is killed by its pid, never a hang (Task D3): every
+    call of the script's own into it runs on a thread of its own (ask: the thread that started it and owns its
+    objects) with MIXED_JOB_S to answer - also between jobs, where it froze live -, and a job that does not answer
+    within MIXED_JOB_S, cannot reach it by its window, or is refused a turn a job given up on holds counts the same.
+    In an Excel of its own (started here, killed by pid at the end): the old build and a frozen Excel never reach the
+    other parts."""
+    import asyncio
+    import concurrent.futures as cf
+
+    import win32gui
+    from smartass.core import session
+    from smartass.xl import instances
+    from smartass.xl import target as xltarget
+    from smartass.xl.host import ExcelHost, HostError
+    from smartass.xl.hostproc import ComThread
+    xll, old = _old_build()
+    owner = ComThread(name="mixed-excel")                      # every call of the script's own into that Excel
+    owner.start()
+
+    def ask(fn, what: str):
+        fut = owner.submit(fn)
+        try:
+            return fut.result(MIXED_JOB_S)
+        except cf.TimeoutError:
+            raise _Frozen(f"{what}: no answer within {MIXED_JOB_S} s") from None
+
+    class NoWindow(HostError):
+        """The job could not reach that Excel by its workbook window."""
+
+    mx: Excel | None = None
+    frozen = ""
+    try:
+        mx = ask(Excel, "the start of its Excel")
+        other = ask(lambda: _second_build(mx, xll, old), "the old build's registration")
+        ask(lambda: mx.fresh("mixed_around", ("Sources",)), "a workbook to reach it by")
+        hwnd = ask(lambda: int(mx.app.Hwnd), "its main window")
+        desk = win32gui.FindWindowEx(hwnd, 0, "XLDESK", None)
+        ex7 = win32gui.FindWindowEx(desk, 0, "EXCEL7", None)
+        folder = TMP / "analyser"
+        folder.mkdir(exist_ok=True)
+        holder: dict = {}
+
+        def target(h, target, title, build_new=False):          # on the job's own thread: the app it reaches
+            app, t0 = instances._app_from_window(ex7), time.monotonic()
+            while app is None and time.monotonic() - t0 < 30:   # busy (a save of ours): waited for, as the engine
+                time.sleep(0.5)                                  # waits for a busy Excel holding the target
+                app = instances._app_from_window(ex7)
+            if app is None:
+                raise NoWindow("this Excel did not answer by its workbook window for 30 s")
+            if "name" not in holder:
+                t = xltarget._new_target(None, title, [(mx.pid, ex7, app)], {mx.pid}, build_new)
+                holder["name"] = t.made.name if t.made is not None else str(t.wb.Name)
+                return t
+            jobs.hold_turn(mx.pid, what="this request", app=app)
+            return Target(app, app.Workbooks(holder["name"]), mx.pid, ex7, created=True)
+
+        def no_spawn(tpl, known):                              # a taken turn is a finding, never another Excel
+            raise HostError("this Excel's turn was taken: the check starts no other Excel")
+        asked: list[int] = []
+        real_inproc = runner._run_inproc
+
+        def run_inproc(*a, **k):
+            asked.append(1)
+            return real_inproc(*a, **k)
+        pres = [pre for _, _, pre in _pres()]
+        first, lines, follow = pres
+        plans = {"add-in": [("first answer (a new workbook)", None, first),
+                            ("second answer with a Lines sheet", None, lines), ("follow-up of Q1", 1, follow)],
+                 "COM": [("follow-up of Q1", 1, first), ("follow-up of Q1", 1, follow), ("refresh of Q1", 1, first),
+                         ("refresh of Q2", 2, lines)],
+                 "add-in again": [("follow-up of Q1", 1, first), ("refresh of Q1", 1, follow),
+                                  ("refresh of Q2", 2, lines)]}
+        seams = {(exceljob, "_target"): target, (exceljob, "remember"): lambda pre, out: None,
+                 (exceljob, "datetime"): _Now, (session, "project_dir"): lambda: folder,
+                 (session, "set_workbook"): lambda p: None, (runner, "_run_inproc"): run_inproc,
+                 (xltarget, "_spawn_excel"): no_spawn}
+        pending: list[str] = []                                # the add-in phase's save still queued at the switch
+        with _patched(seams):
+            for phase, inproc in MIXED_PHASES:
+                _new_server_state()
+                h = ExcelHost()
+                results, n0, began = [], len(asked), time.time()
+                leave = phase == "add-in"
+                with _patched({(config, "INPROC"): inproc,
+                               (config, "SAVE_DELAY_S"): PENDING_DELAY_S if leave else config.SAVE_DELAY_S}):
+                    for label, q, pre in plans[phase]:
+                        job = (lambda hh, pre=pre: exceljob.excel_job(hh, pre)) if q is None else (
+                            lambda hh, pre=pre, q=q: exceljob.redraw_job(hh, pre, q, "this workbook"))
+                        try:
+                            out = asyncio.run(h.call(job, timeout=MIXED_JOB_S, what=f"mixed {phase}",
+                                                     user_excel=True))
+                            results.append((label, (out.get("checks") or {}).get("sheet_equals_model")))
+                        except Exception as e:   # noqa: BLE001 - a failure is a finding
+                            if _froze(e, NoWindow):
+                                raise _Frozen(f"{phase}: {label}: {type(e).__name__}: {str(e)[:120]}") from None
+                            results.append((label, f"{type(e).__name__}: {str(e)[:120]}"))
+                            break
+                    if leave:                                  # the last save is left queued; the earlier ones ran
+                        with later._lock:                      # at the next job's first contact
+                            pending = list(later._queued)
+                            saves = [later._done[t] for t in later._done]
+                    else:
+                        saves = later.wait(60)
+                ran = len(asked) - n0
+                check(f"mixed ({phase}): every job's sheet = model", all(s == "OK" for _, s in results)
+                      and len(results) == len(plans[phase]), "; ".join(f"{lb} {s}" for lb, s in results))
+                check(f"mixed ({phase}): the batches ran {'in the add-in' if inproc else 'over COM'}",
+                      ran > 0 if inproc else ran == 0, f"{ran} add-in runs")
+                expect = sum(1 for lb, _ in results if "new workbook" not in lb) - len(pending) if leave else (
+                    sum(1 for lb, _ in results if "new workbook" not in lb) if inproc else 0)
+                check(f"mixed ({phase}): every save after a reply went through" + (
+                      f", the last one left queued ({len(pending)})" if leave else ""),
+                      len(saves) == expect and all(s["ok"] for s in saves) and (len(pending) == 1 if leave else True),
+                      f"{len(saves)} saves, failed: {[s.get('error') for s in saves if not s['ok']]}")
+                if phase == "COM":                             # the save left queued at the switch: its outcome
+                    ended, got, t0 = time.time(), None, time.monotonic()
+                    while got is None and time.monotonic() - t0 < 60:
+                        got = later._read(later.folder() / f"{mx.pid}.json")
+                        got = got if got is not None and got.get("token") in pending else None
+                        time.sleep(0.1)
+                    when = None if got is None else got["started"] - began
+                    check("mixed (COM): the add-in's save left queued at the switch went through",
+                          got is not None and got.get("ok") is True,
+                          "no outcome within 60 s" if got is None else
+                          f"ok {got.get('ok')}, {got.get('how')}, started {when:+.1f} s after the switch ("
+                          f"{'during' if when <= ended - began else 'after'} the {ended - began:.1f} s of COM jobs)")
+                state = ask(lambda: jobs.retry_busy(lambda: (bool(mx.app.Workbooks(holder["name"]).Saved),
+                                                             bool(mx.app.Ready)), 30),
+                            f"{phase}: the workbook's Saved and Excel's Ready after its jobs")
+                check(f"mixed ({phase}): " + ("Excel ready afterwards (its last save still queued)" if leave else
+                                              "the workbook saved and Excel ready afterwards"),
+                      state[1] if leave else state == (True, True), f"{state}")
+        builds = ask(lambda: later._builds(mx.app) or [], "the builds loaded")
+        check("mixed: both builds still loaded in that Excel", other in builds and len(builds) == 2, f"{builds}")
+        collected: dict = {}
+        collector = ComThread(name="mixed-gc")
+        collector.start()
+        fut = collector.submit(lambda: collected.update(n=__import__("gc").collect(),
+                                                        ready=bool(instances._app_from_window(ex7).Ready)))
+        collector.q.put((None, None))
+        try:
+            fut.result(MIXED_JOB_S)
+        except cf.TimeoutError:
+            raise _Frozen(f"the garbage collector on a new thread, then Ready: no answer within {MIXED_JOB_S} s") from None
+        except Exception as e:   # noqa: BLE001
+            collected["error"] = f"{type(e).__name__}: {e}"
+        check("mixed: the garbage collector on a new thread returns and Excel still answers there",
+              collected.get("ready") is True, f"{collected}")
+    except _Frozen as e:
+        frozen = str(e)
+        check("mixed: that Excel answered every call", False,
+              f"{frozen}: taken for frozen, killed by its pid; nothing more is asked of it")
+    finally:
+        _new_server_state()                                    # the parts after this one start as before it
+        if mx is not None and frozen:
+            kill_if_ours(mx.pid, mx.ctime)                     # no call into an Excel that does not answer: the
+            _wait_gone(mx.pid, mx.ctime)                       # owner's blocked call returns once it is gone
+            owner.submit(lambda: (mx.books.clear(), setattr(mx, "raw", None), setattr(mx, "app", None)))
+        elif mx is not None:
+            try:
+                ask(mx.quit, "quit")                           # closes, quits; killed after QUIT_WAIT_S
+            except _Frozen:
+                kill_if_ours(mx.pid, mx.ctime)
+        owner.q.put((None, None))
 
 
 # ---------------------------------------------------------------------------------------------------- 3b. failed jobs
@@ -1199,15 +1662,15 @@ def failed_jobs(xl: Excel) -> None:
             b.workbook(jobs.book_name(t)).Worksheets("No such sheet").Calculate()
     for side, inproc in (("com", False), ("inproc", True)):
         wb = xl.fresh(f"fail_{side}", ("Sources",))
-        target = lambda h, target, title, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
-        seams = {(pipeline, "_target"): target, (pipeline, "_save"): lambda job: None,
-                 (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+        target = lambda h, target, title, build_new=False, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
+        seams = {(exceljob, "_target"): target, (exceljob, "_save"): lambda job: None,
+                 (exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now,
                  (config, "INPROC"): inproc}
         with _patched(seams):
             for _, _, pre in pres[:2]:
-                pipeline.excel_job(None, pre)
-            for label, job in (("a follow-up", lambda: pipeline.redraw_job(None, pres[2][2], 1, "this workbook")),
-                               ("a new answer", lambda: pipeline.excel_job(None, pres[0][2]))):
+                exceljob.excel_job(None, pre)
+            for label, job in (("a follow-up", lambda: exceljob.redraw_job(None, pres[2][2], 1, "this workbook")),
+                               ("a new answer", lambda: exceljob.excel_job(None, pres[0][2]))):
                 before = _state(xl, wb)
                 with _patched({(movein, "calculate"): calculate}):
                     try:
@@ -1341,36 +1804,41 @@ def _pointing_problems(wb, refs: dict, q2: bool = True) -> list[str]:
 
 def repoint_bench(xl: Excel) -> None:
     """(Review ruling 2) A follow-up of Q1 with 500 cells pointing at it, against one with none, through both
-    executors: the draw's seconds and the close-out's (its writes run with Calculation manual)."""
+    executors: the draw's seconds and the close-out's (its writes run with Calculation manual). Then (phase 3c Task 3)
+    the 500 cells on a sheet whose used range reaches the last row and the last column (a stray format in
+    XFD1048576): the look for them is halved by cells, so the draw costs about the same."""
     pres = _pres()
     for side, inproc in (("com", False), ("inproc", True)):
-        for count in (0, 500):
+        for count, wide in ((0, False), (500, False), (500, True)):
             wb = xl.fresh(f"bench_{side}_{count}", ("Sources",))
-            seams = {(pipeline, "_target"): _target_of(xl, wb), (pipeline, "_save"): lambda job: None,
-                     (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+            seams = {(exceljob, "_target"): _target_of(xl, wb), (exceljob, "_save"): lambda job: None,
+                     (exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now,
                      (config, "INPROC"): inproc}
             with _patched(seams):
-                pipeline.excel_job(None, pres[0][2])
+                exceljob.excel_job(None, pres[0][2])
                 if count:
                     cell = str(wb.Worksheets("Q1 Data").ListObjects("Data_Q1").DataBodyRange.Cells(1, 1).Address)
                     s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
                     s.Name = "Summary"
                     s.Range(f"A1:A{count}").Formula2 = f"='Q1 Data'!{cell}"
-                out, timings = pipeline.with_timings(
-                    lambda h: pipeline.redraw_job(h, pres[2][2], 1, "this workbook"))(None)
+                    if wide:
+                        s.Range("XFD1048576").Interior.Color = 255          # the used range to the last cell
+                out, timings = exceljob.with_timings(
+                    lambda h: exceljob.redraw_job(h, pres[2][2], 1, "this workbook"))(None)
                 left = [] if not count else [a for a, (f,) in enumerate(s.Range(f"A1:A{count}").Formula2, 1)
                                              if f != f"='Q1 Data'!{cell}"]
-            info(f"re-pointing bench ({side}): a follow-up with {count} pointing cells: draw "
+            where = " on a sheet whose used range reaches XFD1048576" if wide else ""
+            info(f"re-pointing bench ({side}): a follow-up with {count} pointing cells{where}: draw "
                  f"{timings.get('draw', 0):.2f} s, close out {timings.get('draw.close out', 0):.2f} s"
                  + (f"; {len(left)} not re-pointed" if left else ""))
             if count:
-                check(f"re-pointing bench ({side}): all {count} cells re-pointed", not left)
+                check(f"re-pointing bench ({side}): all {count} cells re-pointed{where}", not left)
             xl.close(wb)
 
 
 def _target_of(xl: Excel, wb):
-    """pipeline._target's stand-in: wb as our own analysis file in this script's Excel."""
-    return lambda h, target, title: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)
+    """exceljob._target's stand-in: wb as our own analysis file in this script's Excel."""
+    return lambda h, target, title, build_new=False: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)
 
 
 def repointing(xl: Excel) -> None:
@@ -1385,18 +1853,18 @@ def repointing(xl: Excel) -> None:
         return b.position - 1
     for side, inproc in (("com", False), ("inproc", True)):
         wb = xl.fresh(f"repoint_{side}", ("Sources",))
-        seams = {(pipeline, "_target"): _target_of(xl, wb), (pipeline, "_save"): lambda job: None,
-                 (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+        seams = {(exceljob, "_target"): _target_of(xl, wb), (exceljob, "_save"): lambda job: None,
+                 (exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now,
                  (config, "INPROC"): inproc}
         with _patched(seams):
-            pipeline.excel_job(None, pres[0][2])
-            pipeline.excel_job(None, pres[1][2])
+            exceljob.excel_job(None, pres[0][2])
+            exceljob.excel_job(None, pres[1][2])
             refs = _point_at_q1(xl, wb)
             check(f"re-pointing ({side}): the formulas point at Q1 before", not _pointing_problems(wb, refs))
-            steps = [("a follow-up", lambda: [pipeline.redraw_job(None, pres[2][2], 1, "this workbook")]),
-                     ("a second follow-up", lambda: [pipeline.redraw_job(None, pres[0][2], 1, "this workbook")]),
-                     ("a refresh (Q1, then Q2)", lambda: [pipeline.redraw_job(None, pres[0][2], 1, "this workbook"),
-                                                          pipeline.redraw_job(None, pres[1][2], 2, "this workbook")])]
+            steps = [("a follow-up", lambda: [exceljob.redraw_job(None, pres[2][2], 1, "this workbook")]),
+                     ("a second follow-up", lambda: [exceljob.redraw_job(None, pres[0][2], 1, "this workbook")]),
+                     ("a refresh (Q1, then Q2)", lambda: [exceljob.redraw_job(None, pres[0][2], 1, "this workbook"),
+                                                          exceljob.redraw_job(None, pres[1][2], 2, "this workbook")])]
             for label, step in steps:
                 t0 = time.perf_counter()
                 outs = step()
@@ -1408,7 +1876,7 @@ def repointing(xl: Excel) -> None:
             before = _state(xl, wb)
             with _patched({(movein, "drop"): drop}):
                 try:
-                    pipeline.redraw_job(None, pres[2][2], 1, "this workbook")
+                    exceljob.redraw_job(None, pres[2][2], 1, "this workbook")
                     failed = None
                 except Exception as e:   # noqa: BLE001 - the failure is the point
                     failed = f"{type(e).__name__}: {str(e)[:90]}"
@@ -1417,6 +1885,47 @@ def repointing(xl: Excel) -> None:
             check(f"re-pointing ({side}): a follow-up whose drop fails points them back and restores the old answer",
                   failed is not None and not bad and not changed,
                   f"raised {failed}" + (f"; {'; '.join(bad)}; changed {changed}" if bad or changed else ""))
+        xl.close(wb)
+
+
+def protected_sheets(xl: Excel) -> None:
+    """(Phase 3c Task 3) A protected sheet with a hidden formula cannot be scanned; it is warned about only when a
+    cell there shows #REF! after the old sheets are dropped that did not before - a follow-up where the close-out
+    runs with Calculation automatic (nothing to re-point) and one where it runs manual (a Summary formula to
+    re-point), through both executors: 'Pointing' (its hidden formula points at Q1) is said with its one new #REF!,
+    'Other' (a hidden formula that does not, and a #REF! from before) is not."""
+    pres = _pres()
+    for side, inproc in (("com", False), ("inproc", True)):
+        wb = xl.fresh(f"protected_{side}", ("Sources",))
+        seams = {(exceljob, "_target"): _target_of(xl, wb), (exceljob, "_save"): lambda job: None,
+                 (exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now,
+                 (config, "INPROC"): inproc}
+        with _patched(seams):
+            exceljob.excel_job(None, pres[0][2])
+            sheets_ = {}
+            for name, formulas in (("Pointing", ("='Q1 Answer'!A1",)), ("Other", ("=1+1", "=#REF!"))):
+                s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+                s.Name = name
+                for i, f in enumerate(formulas, 2):
+                    s.Range(f"B{i}").Formula2 = f
+                s.Range("B2").FormulaHidden = True
+                s.Protect()
+                sheets_[name] = s
+            for label, summary in (("automatic", False), ("manual: a formula re-pointed", True)):
+                if summary:
+                    p = sheets_["Pointing"]
+                    p.Unprotect()
+                    p.Range("B2").Formula2 = "='Q1 Answer'!A1"      # the first follow-up turned it #REF!
+                    p.Protect()
+                    s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+                    s.Name = "Summary"
+                    s.Range("A1").Formula2 = "='Q1 Answer'!A1"
+                out = exceljob.redraw_job(None, pres[2][2], 1, "this workbook")
+                said = [w for w in out.get("warnings") or [] if "could not read the formulas" in w]
+                ok = (len(said) == 1 and "'Pointing'" in said[0] and "1 cell(s)" in said[0]
+                      and not [w for w in said if "'Other'" in w])
+                check(f"protected sheets ({side}, close-out {label}): only the one whose cell turned #REF! is said",
+                      ok, "" if ok else "; ".join(said) or "nothing said")
         xl.close(wb)
 
 
@@ -1525,7 +2034,7 @@ def timing(xl: Excel, built0, rounds: int) -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--rounds", type=int, default=5, help="rounds per route for the timing")
-    ap.add_argument("--parts", default="files,places,jobs,failures,repoint,labels,timing",
+    ap.add_argument("--parts", default="files,places,jobs,newbook,failures,mixed,repoint,labels,timing",
                     help="what to run (comma-separated; the proof is all of them)")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
@@ -1550,10 +2059,15 @@ def main(argv=None) -> int:
             excel_around(xl, answer)
         if "jobs" in parts:
             compare_jobs(xl)
+        if "newbook" in parts:
+            new_workbook(xl)
         if "failures" in parts:
             failed_jobs(xl)
+        if "mixed" in parts:
+            mixed_executors()
         if "repoint" in parts:
             repointing(xl)
+            protected_sheets(xl)
         if "repoint-bench" in parts:
             repoint_bench(xl)
         if "labels" in parts:

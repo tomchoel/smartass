@@ -64,11 +64,13 @@ The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs
         missing key.
     mentions(workbook, texts, skip): every formula of the workbook that mentions one of the texts (case ignored), as
         rows [kind, where, ref, formula], for a follow-up's re-pointing (xl/repoint.py). Per worksheet not in skip,
-        in order: its cells - the used range's Formula2 read in chunks of rows of at most runner.CHUNK_CELLS cells
-        (memory stays bounded), and only the chunks that hold a formula (SpecialCells(xlCellTypeFormulas) once per
-        sheet, Intersect per chunk: a used range stretched to the last row by a stray format costs one cheap call
-        per chunk; a sheet without a formula is done after the SpecialCells); a protected sheet (ProtectContents)
-        refuses SpecialCells, so every chunk of it is read. No Range.Find: it would leave its options as the Find
+        in order: its cells - the used range halved, its longer side first, until a block holds at most
+        runner.CHUNK_CELLS cells (memory stays bounded), and only the blocks that hold a formula
+        (SpecialCells(xlCellTypeFormulas) once per sheet, Intersect per block) halved further and read with
+        Formula2, the rows in the sheet's order: a used range stretched to the last row and column by a stray format
+        costs a few dozen steps; a sheet without a formula is done after the SpecialCells; a protected sheet
+        (ProtectContents) refuses SpecialCells, so every block of it is read. A sheet that would take more than
+        runner.SCAN_STEPS steps (a test or a read of a block) is "unread" (runner.TOO_LARGE). No Range.Find: it would leave its options as the Find
         dialog's, it skips filtered rows and it cannot see a hidden formula. Each cell that holds a real formula
         (HasFormula) and mentions a text is a row ["cell", sheet, "B5", Formula2], a legacy array once ["array",
         sheet, "D1:D3", FormulaArray]; a sheet whose formulas cannot be read (a protected sheet with a hidden
@@ -80,6 +82,11 @@ The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs
     swap(object, property, expected, value): the text property set to value only when it reads expected exactly (a
         compare-and-set inside Excel: a formula the user changed between two batches is left alone); gives True when
         it was set, False when it read anything else.
+    errors(worksheet, code): the A1 addresses of the cells of the worksheet's used range whose Value2 is the cell
+        error code (an int, as both executors read an error - #REF! is -2146826265 - while a number reads as a
+        float: the error is told by its code, never by its text in Excel's language), in the sheet's order. The used
+        range is read block by block as mentions halves a protected sheet (values can be read on a protected sheet);
+        one that would take more than runner.SCAN_STEPS blocks fails the operation (runner.TOO_LARGE).
 
 quiet=True turns ScreenUpdating, EnableEvents and DisplayAlerts off and Calculation to manual (each put back after
 the batch); with calculation=False Calculation is left alone - only a batch that writes formulas needs manual
@@ -92,7 +99,7 @@ import math
 
 VERSION = 1
 # name -> number of arguments; both executors have each one (runner.py, Runner.cs)
-VERBS: dict[str, int] = {"each": 2, "nudge": 4, "exist": 3, "mentions": 3, "swap": 4}
+VERBS: dict[str, int] = {"each": 2, "nudge": 4, "exist": 3, "mentions": 3, "swap": 4, "errors": 2}
 INT64 = 2 ** 63
 TEXT_MAX = 40                     # a string argument longer than this is shortened in an operation's text
 
@@ -347,6 +354,10 @@ def _check_verb(name: str, args: tuple) -> None:
         _, texts, skip = args
         if not _texts(texts) or not _texts(skip):
             raise ValueError("mentions: the texts to look for and the sheets to skip are non-empty lists of texts")
+    elif name == "errors":
+        _, code = args
+        if not (isinstance(code, int) and not isinstance(code, bool)):
+            raise ValueError("errors: the cell error code is an int (#REF! is -2146826265)")
     elif name == "swap":
         _, prop, expected, value = args
         if not (isinstance(prop, str) and prop) or not isinstance(expected, str) or not isinstance(value, str):

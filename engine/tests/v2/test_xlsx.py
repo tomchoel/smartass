@@ -61,7 +61,7 @@ def _line(i: int, supplier="Accenture AS") -> dict:
 
 
 def _header_block(table="Lines_Q3_b0") -> list[list]:
-    """The F1:K3 rectangle as pipeline._lines_grid gives it: text with its leading apostrophe."""
+    """The F1:K3 rectangle as exceljob._lines_grid gives it: text with its leading apostrophe."""
     g = lines_header(table, {"Account": "ac.C50S", "Period": "Sep 26"}, "2026-11-05 09:30 +0100 · tom")
     return [["'" + x if isinstance(x, str) and x and not x.startswith("=") else x for x in r] for r in g]
 
@@ -566,3 +566,189 @@ def test_a_standard_column_xlsxwriter_has_no_digit_width_for_keeps_its_default_w
         build(path, "Q3 Answer", plan, _data(), [], base=xlsx.Base("Arial", 10, row_px=17, col_px=70))
     assert '<name val="Arial"/>' in _first_font(path)
     assert _widths(openpyxl.load_workbook(path)["Q3 Answer"])["D"] == 16.7109375     # 7 px digits, as without a base
+
+
+# ------------------------------------------------------------------ phase 3c Task 1: the file IS the new workbook
+LABEL = {"MSIP_Label_x_Enabled": "true", "MSIP_Label_x_SiteId": "site"}
+
+
+def _new_book(tmp_path, plan, lines=(), theme=None):
+    from smartass.render.xlsx import NewBook
+    return build(tmp_path / "new.xlsx", "Q3 Answer", plan, _data(), list(lines), base=telenor(),
+                 book=NewBook(properties=dict(LABEL), theme=theme))
+
+
+def test_a_new_workbook_holds_the_answer_then_the_sources_log_and_no_table(tmp_path, plan):
+    """The first answer of a new workbook: the file is the workbook itself - the answer's sheets, then the Sources
+    log, in the order sheetorder wants; still no Excel Table (they are made after the open, as after an insert);
+    BuiltFile.sheets stays the answer's own (what finish calculates and the reply names)."""
+    from smartass.xl import movein, sheetorder
+    built = _new_book(tmp_path, plan, [_lines([_line(0)])])
+    names = openpyxl.load_workbook(built.path).sheetnames
+    assert names == ["Q3 Answer", "Q3 Data", "Q3 Lines b0", "Sources"] == sheetorder.sheet_order(names, set(names))
+    assert built.sheets == ["Q3 Answer", "Q3 Data", "Q3 Lines b0"]
+    assert movein.file_parts(built.path)[1] == []
+
+
+def test_a_new_workbook_carries_the_label_as_custom_document_properties(tmp_path, plan):
+    built = _new_book(tmp_path, plan)
+    with zipfile.ZipFile(built.path) as z:
+        custom = z.read("docProps/custom.xml").decode()
+    for name, value in LABEL.items():
+        assert re.search(f'name="{name}"><vt:lpwstr>{value}</vt:lpwstr>', custom), name
+
+
+def test_the_new_workbooks_sources_log_is_furnished_in_the_file(tmp_path, plan):
+    """What sources._furnish and its print setup make in Excel, in the file: the header in TN font 9, bold navy (and
+    P1, Known limits' title cell), the columns A:N and P in font 9, the control total's number format (its header
+    cell too), the fixed widths, the AutoFilter over A:N (Excel's own over the header: A1:N1), the frozen header row
+    without gridlines, the print setup of A1:N1048575 on A4 (the paper the template's log has), and the two hidden
+    sheet-level names that tell the reads (sources.record_read) all of it is there (live parity with a log
+    furnished over COM: scripts/check_insert.py --parts newbook, 20.11.2026)."""
+    from smartass.xl import sources, styling
+    built = _new_book(tmp_path, plan)
+    wb = openpyxl.load_workbook(built.path)
+    ws = wb["Sources"]
+    assert [c.value for c in ws[1][:len(sources.LOG_COLUMNS)]] == list(sources.LOG_COLUMNS)
+    for cell in (ws["A1"], ws["N1"], ws.cell(1, sources.LIMITS_COL)):
+        assert (cell.font.name, cell.font.sz, cell.font.b, cell.font.color.rgb) == (tn.FONT, 9, True, "FF1F3864")
+    assert ws.cell(1, sources.TOTAL_COL).number_format == VALUE_FORMAT and ws["A1"].number_format == "General"
+    widths = _widths(ws)
+    shown = lambda w: int((int(w * 8 + 0.5) + 5) / 8 * 256) / 256     # noqa: E731 - the file's width: 8 px digits + 5 px
+    for c, w in enumerate(sources.WIDTHS, 1):
+        assert widths[col_letter(c)] == shown(w), col_letter(c)
+    assert widths[col_letter(sources.LIMITS_COL)] == shown(sources.LIMITS_WIDTH)
+    for c in (*range(1, len(sources.LOG_COLUMNS) + 1), sources.LIMITS_COL):
+        dim = ws.column_dimensions[col_letter(c)]
+        assert (dim.font.name, dim.font.sz) == (tn.FONT, 9), col_letter(c)
+        assert dim.number_format == (VALUE_FORMAT if c == sources.TOTAL_COL else "General"), col_letter(c)
+    xml = _xml(built.path, 2)
+    assert ws.auto_filter.ref == "A1:N1" and ws.page_setup.paperSize == 9
+    assert ws.freeze_panes == "A2" and ws.sheet_view.showGridLines is False
+    assert ws.print_area == "'Sources'!$A$1:$N$" + str(sources.PRINT_ROWS)
+    assert ws.page_setup.orientation == "landscape" and ws.sheet_properties.pageSetUpPr.fitToPage
+    assert '<oddHeader>&amp;C&amp;"Arial"&amp;8Intern</oddHeader>' in xml
+    assert f"<oddFooter>&amp;C{SHEET_FOOTER.replace('&', '&amp;')}</oddFooter>" in xml
+    with zipfile.ZipFile(built.path) as z:
+        book = z.read("xl/workbook.xml").decode()
+    names = dict(re.findall(r'<definedName name="(smartass_\w+)" localSheetId="2" hidden="1">([^<]*)</definedName>',
+                            book))                     # the third sheet's own
+    assert names == {sources.FURNITURE_NAME: f'"{sources.FURNITURE_VERSION}"',
+                     styling.PAGE_SETUP_NAME: sources.print_key()[1:].replace("&", "&amp;")}
+
+
+def test_a_new_workbook_takes_the_theme_it_is_given(tmp_path, plan):
+    """The TN template's theme (styling.template_theme): a link, a table style and a theme colour then look as in a
+    workbook added from the template (live, 20.11.2026: XlsxWriter's own theme gave the links #0000FF, not #467886)."""
+    from xlsxwriter.theme import THEME_XML_2023
+    with zipfile.ZipFile(_new_book(tmp_path, plan, theme=THEME_XML_2023).path) as z:
+        assert z.read("xl/theme/theme1.xml").decode() == THEME_XML_2023
+
+
+def test_the_print_key_is_the_one_the_furniture_over_com_gives_its_name():
+    from smartass.render.excel import SHEET_FOOTER as FOOTER_
+    from smartass.xl import sources, styling
+    from smartass.xl.inproc.batch import Batch
+    b = Batch()
+    key, _ = styling.record_print_setup(b, b.workbook("book.xlsx").Worksheets("Sources"), "N", sources.PRINT_ROWS,
+                                        FOOTER_, "")
+    assert sources.print_key() == key
+
+
+def test_an_insert_never_takes_a_new_workbooks_file(tmp_path, plan):
+    """The exact-sheets guard of the insert: a file holding the Sources log is not the answer's sheets alone."""
+    from types import SimpleNamespace
+
+    from smartass.xl import movein
+    built = _new_book(tmp_path, plan)
+    book = movein.Book([movein.Sheet("Sheet1")])
+    with pytest.raises(ValueError, match="only them"):
+        movein.move_in(SimpleNamespace(wb=None, app=None, sheets_added=[], book_name="b.xlsx"), built, None,
+                       book=book, names=[])
+
+
+
+# ------------------------------------------------------------------ review minor 2: one furniture, two writers
+def _shown_width(w: float, digit: int = 8) -> float:
+    """A width in characters as the file stores it (whole pixels of digit px + 5 px padding)."""
+    return int((int(w * digit + 0.5) + 5) / digit * 256) / 256
+
+
+def _com_furniture() -> dict:
+    """sources._furnish on a new log in the fake Excel (a visible window: the header frozen), then the print
+    setup's name as the save batch adds it; per step of sources.furniture().steps, what the sheet carries."""
+    import fakexl
+
+    from smartass.xl import movein, sources, styling
+    from smartass.xl.inproc import runner
+    from smartass.xl.inproc.batch import Batch
+    wb = fakexl.Workbook(["Sources"], styles_ver=False)
+    b = Batch()
+    wbn = b.workbook(wb.Name)
+    screen = movein.Screen(active=True, shown=True, user_book=wb.Name, user_sheet="Sources", window=True)
+    (key, _), _ = sources._furnish(b, wbn, wbn.Worksheets("Sources"), sources.Log("Sources", exists=True),
+                                   (".", ","), screen)
+    styling.setup_name(wbn.Worksheets("Sources"), key)
+    runner.run(wb.Application, b)
+    ws, f = wb.Worksheets("Sources"), sources.furniture()
+    cell = lambda r, c: ws.cells.get((r, c), {})                                         # noqa: E731
+    colour = lambda bgr: "#%02X%02X%02X" % (bgr & 255, bgr >> 8 & 255, bgr >> 16)      # noqa: E731
+    cols = [*range(1, len(f.columns) + 1), f.limits_col]
+    win, ps = wb.window_state["Sources"], ws.PageSetup
+    return {"header": tuple(cell(1, c).get("Value") for c in range(1, len(f.columns) + 1)),
+            "header font": {(cell(1, c)["Font.Bold"], colour(cell(1, c)["Font.Color"])) for c in cols},
+            "fonts": {(cell(2, c)["Font.Name"], cell(2, c)["Font.Size"]) for c in cols},
+            "total format": (cell(1, f.total_col).get("NumberFormat"), cell(2, f.total_col).get("NumberFormat")),
+            "widths": tuple(_shown_width(ws.colw[c]) for c in cols),
+            "filter": ws.AutoFilterMode,
+            "frozen header": (win["SplitRow"], win["FreezePanes"], win["DisplayGridlines"]),
+            "print setup": (ps.PrintArea, ps.Orientation == 2, (ps.FitToPagesWide, ps.FitToPagesTall), ps.CenterHorizontally,
+                            ps.CenterHeader, ps.CenterFooter, round(ps.LeftMargin / 28.3464567, 2),
+                            round(ps.RightMargin / 28.3464567, 2)),
+            "names": {n: x.RefersTo for n, x in ws.Names.items.items()}}
+
+
+def _file_furniture(path) -> dict:
+    """The same, read from the Sources sheet of a new workbook's built file."""
+    from smartass.xl import sources
+    ws, f = openpyxl.load_workbook(path)["Sources"], sources.furniture()
+    cols = [*range(1, len(f.columns) + 1), f.limits_col]
+    dims = [ws.column_dimensions[col_letter(c)] for c in cols]
+    with zipfile.ZipFile(path) as z:
+        book, xml = z.read("xl/workbook.xml").decode(), z.read("xl/worksheets/sheet3.xml").decode()
+    names = dict(re.findall(r'<definedName name="(smartass_\w+)" localSheetId="2" hidden="1">([^<]*)</definedName>',
+                            book))
+    head = re.search(r"<oddHeader>&amp;C(.*?)</oddHeader>", xml).group(1).replace("&amp;", "&")
+    foot = re.search(r"<oddFooter>&amp;C(.*?)</oddFooter>", xml).group(1).replace("&amp;", "&")
+    total = ws.column_dimensions[col_letter(f.total_col)].number_format
+    return {"header": tuple(ws.cell(1, c).value for c in range(1, len(f.columns) + 1)),
+            "header font": {(ws.cell(1, c).font.b, "#" + ws.cell(1, c).font.color.rgb[2:]) for c in cols},
+            "fonts": {(d.font.name, d.font.sz) for d in dims},
+            "total format": (ws.cell(1, f.total_col).number_format, total),
+            "widths": tuple(d.width for d in dims),
+            "filter": bool(ws.auto_filter.ref),
+            "frozen header": (1 if ws.freeze_panes == "A2" else 0, ws.freeze_panes == "A2",
+                              ws.sheet_view.showGridLines),
+            "print setup": (ws.print_area.split("!")[1], ws.page_setup.orientation == "landscape",
+                            (ws.page_setup.fitToWidth or 1, False if not ws.page_setup.fitToHeight else
+                             ws.page_setup.fitToHeight), ws.print_options.horizontalCentered, head, foot,
+                            round(ws.page_margins.left * 2.54, 2), round(ws.page_margins.right * 2.54, 2)),
+            "names": {n: "=" + v.replace("&amp;", "&") for n, v in names.items()}}
+
+
+def test_a_built_log_and_one_furnished_in_excel_carry_the_same_furniture_step_by_step(tmp_path, plan):
+    """Both name the log furnished with sources.furniture().version (record_read then never furnishes it again), so
+    both must make the same furniture: every step of the one definition, compared one by one."""
+    from smartass.xl import sources
+    com, built = _com_furniture(), _file_furniture(_new_book(tmp_path, plan).path)
+    assert set(com) == set(built) == set(sources.furniture().steps)
+    for step in sources.furniture().steps:
+        assert com[step] == built[step], step
+    assert com["names"][sources.FURNITURE_NAME] == f'="{sources.furniture().version}"'
+
+
+def test_the_furnitures_version_is_pinned_to_what_it_is():
+    """A change to the furniture (sources.furniture()) must raise its version, else a log of the old furniture
+    claims the new one and is never furnished again: change both here, on purpose."""
+    from smartass.xl import sources
+    assert (sources.furniture().version, sources.furniture_fingerprint()) == ("1", "68a71a98cf02")

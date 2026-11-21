@@ -84,6 +84,7 @@ def wait_login_cleared(pid: int, appear_grace: float = 0.0, limit: float = 90.0,
     seen = False
     recoveries, t_rec, opened, noticed, hung_since = 0, None, None, False, None
     while clock() - t0 < limit:
+        jobs._check_alive()                       # an abandoned job stops waiting
         now = clock()
         if hwnds := login_open(pid):
             opened = now if opened is None else opened

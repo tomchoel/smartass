@@ -61,11 +61,14 @@ def _excel_windows() -> list[tuple[int, int, list[tuple[int, str]]]]:
 
 
 def _app_from_window(ex7: int):
-    """Excel.Application behind a workbook window (AccessibleObjectFromWindow), or None if that Excel refuses."""
+    """Excel.Application behind a workbook window (AccessibleObjectFromWindow), or None if that Excel refuses (busy
+    too). Nothing in the scan waits for Excel's type information (fastcom.scan), as before Task D2: an Application got
+    while Excel rejects that is late-bound by name, and its calls say busy as busy."""
     try:
         _, lres = win32gui.SendMessageTimeout(ex7, WM_GETOBJECT, 0, OBJID_NATIVEOM, 2, 3000)
-        win = fastcom.wrap(pythoncom.ObjectFromLresult(lres, pythoncom.IID_IDispatch, 0))
-        return win.Application
+        with fastcom.scan():
+            win = fastcom.wrap(pythoncom.ObjectFromLresult(lres, pythoncom.IID_IDispatch, 0))
+            return win.Application
     except Exception:   # noqa: BLE001 - modal dialog, cell edit mode, busy, or not a workbook window
         return None
 

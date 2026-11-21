@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import contextlib
+import gc
 import json
 import logging
 import os
@@ -30,19 +31,33 @@ def is_busy(e: BaseException) -> bool:
     return hr in RETRY_HRESULTS or VBA_E_IGNORE in (hr, info[5] if info and len(info) > 5 else None)
 
 
-def retry_busy(call: Callable[[], Any], limit_s: float = 120):
+def retry_busy(call: Callable[[], Any], limit_s: float = 120, alive: Callable[[], Any] | None = None,
+               rejected: Callable[[float], Any] | None = None):
     """Run any COM call, retrying while Excel is busy (is_busy) for up to limit_s; then the COM error is raised.
-    pywin32 has no IMessageFilter, so this is the retry loop instead."""
-    delay, t0 = 0.1, time.monotonic()
-    while True:
-        try:
-            return call()
-        except pywintypes.com_error as e:
-            if not is_busy(e) or time.monotonic() - t0 >= limit_s:
-                raise
-            pythoncom.PumpWaitingMessages()
-            time.sleep(delay)
-            delay = min(delay * 2, 2.0)
+    pywin32 has no IMessageFilter, so this is the retry loop instead. alive: called before every try (jobs.com: the
+    job's abort, which raises). rejected: told at the end the seconds Excel rejected the call (the rejected tries and
+    the pauses after them; not the try that answered, however long it took)."""
+    delay, t0, waited = 0.1, time.monotonic(), 0.0
+    try:
+        while True:
+            if alive is not None:
+                alive()
+            t_try = time.monotonic()
+            try:
+                return call()
+            except pywintypes.com_error as e:
+                if not is_busy(e):
+                    raise
+                if time.monotonic() - t0 >= limit_s:
+                    waited += time.monotonic() - t_try
+                    raise
+                pythoncom.PumpWaitingMessages()
+                time.sleep(delay)
+                delay = min(delay * 2, 2.0)
+                waited += time.monotonic() - t_try
+    finally:
+        if rejected is not None and waited:
+            rejected(waited)
 
 
 def _excel_pids() -> set[int]:
@@ -170,7 +185,29 @@ class _PidRegistry:
 
 
 class ComThread(threading.Thread):
-    """Single STA thread that executes callables in order and pumps messages while idle."""
+    """Single STA thread that executes callables in order and pumps messages while idle.
+
+    The rule (Task D2, D3): the COM objects a job makes are released on its own thread, the one whose apartment made
+    them. A proxy released on another thread while that apartment is alive calls that Excel from there and waits for
+    it: for ever, when that Excel has stopped responding (live, 21.11.2026: stack A, between one job's thread and the
+    next one's). After each job (_run_job) its outcome goes to the caller first, then the objects it made are released
+    here, and only then does the job's 'after' run (host._call_once: its turns in the user's Excel released; a release
+    that does not return is watched: host._watch_release).
+    What is enforced:
+    - the job's result holds no COM object (host.plain), and the frames its error carries are cleared here (_frames,
+      _clear): their locals go here, not where the error is read;
+    - the garbage collector runs at a job's end only when no other COM job is running in this process (_running), so
+      a job's end never releases a cycle a job still running on another thread made. A job that stays blocked (given
+      up on in an Excel that does not answer; on a host thread replaced after a reset) counts as running until it
+      returns: no job's end collects meanwhile;
+    - the engine's own code makes no reference cycle that holds a job's COM objects: the ones found (an error kept in
+      a local, a parameter or a dict of a frame its own traceback holds: exceljob._raise, redraw_job and _bring_in,
+      runner.execute, _register_xll and _readable) are broken where they are made, so a job's COM objects go by
+      reference counting, on its thread, as it lets them go - with no collector at all.
+    What is only made unlikely: a cycle that still holds a COM object (made somewhere not found: pywin32, a library)
+    is freed by whichever collection meets it first - Python's automatic collector, which runs on whatever thread
+    happens to allocate, or the end of a later job that runs alone, on that job's thread. So is garbage a job made in
+    the few milliseconds it ran beside another job's collect."""
 
     def __init__(self, name: str = "excel-com"):
         super().__init__(daemon=True, name=name)
@@ -184,7 +221,7 @@ class ComThread(threading.Thread):
         try:
             while True:
                 try:
-                    fn, fut = self.q.get(timeout=0.05)
+                    fn, fut, *rest = self.q.get(timeout=0.05)
                 except queue.Empty:
                     pythoncom.PumpWaitingMessages()
                     continue
@@ -194,19 +231,89 @@ class ComThread(threading.Thread):
                     continue
                 self.job_no += 1
                 self.busy_since = time.monotonic()
+                after = rest[0] if rest else None
                 try:
-                    fut.set_result(fn())
-                except BaseException as e:   # noqa: BLE001 - forwarded to the awaiting coroutine
-                    fut.set_exception(e)
+                    _run_job(fn, fut)
                 finally:
+                    fn = fut = rest = None
+                    try:
+                        if after is not None:
+                            after()
+                    except Exception:   # noqa: BLE001 - the end of a job must not end this thread
+                        log.exception("the end of a job on %s failed", self.name)
+                    after = None
                     self.busy_since = None
         finally:
             pythoncom.CoUninitialize()
 
-    def submit(self, fn: Callable[[], Any]) -> cf.Future:
+    def submit(self, fn: Callable[[], Any], after: Callable[[], Any] | None = None) -> cf.Future:
+        """fn's outcome as a future; after (if any) runs on this thread once the objects fn made are released."""
         fut: cf.Future = cf.Future()
-        self.q.put((fn, fut))
+        self.q.put((fn, fut, after))
         return fut
+
+
+_running = 0                                      # COM jobs running in this process now (_run_job)
+_running_lock = threading.Lock()
+
+
+def _run_job(fn: Callable[[], Any], fut: cf.Future) -> None:
+    """fn() on this thread: its outcome handed to fut first, then the objects it made released here (a release that
+    blocks never keeps the outcome from the caller: Task D review, Minor 3) - the frames its error carries cleared,
+    and the garbage collector run here only when no other COM job is running in this process (_running): a collect is
+    process-wide, and would release a running job's cycles on this thread (Task D2 review, Important 2)."""
+    global _running
+    with _running_lock:
+        _running += 1
+    try:
+        frames: list = []
+        try:
+            out = fn()
+        except BaseException as e:   # noqa: BLE001 - forwarded to the awaiting coroutine
+            frames = _frames(e)                  # before the error leaves this thread: its frames are all ours
+            fut.set_exception(e)
+        else:
+            fut.set_result(out)
+            out = None
+        _clear(frames)
+        frames = None
+        with _running_lock:
+            alone = _running == 1
+        if alone:
+            gc.collect()                          # what is left in cycles, released on this thread
+    finally:
+        with _running_lock:
+            _running -= 1
+
+
+def _frames(e: BaseException) -> list:
+    """The frames e's traceback holds - and those of its cause and context -, read while e has not left this thread.
+    Once handed over, e's traceback grows by the frames of the thread that raises it again (the event loop's
+    coroutines), which must never be cleared from here."""
+    frames, todo, seen = [], [e], set()
+    while todo:
+        x = todo.pop()
+        if x is None or id(x) in seen:
+            continue
+        seen.add(id(x))
+        tb = x.__traceback__
+        while tb is not None:
+            frames.append(tb.tb_frame)
+            tb = tb.tb_next
+        todo += [x.__cause__, x.__context__]
+    return frames
+
+
+def _clear(frames: list) -> None:
+    """The locals of every finished frame of a failed job released now, on this thread. An error handed to the event
+    loop otherwise carries the failed job's COM objects (its Target's app and workbook, a batch's ranges) to that
+    thread, which releases them when it drops the error (Task D, 21.11.2026). The line numbers stay: the error logs as
+    before. A frame still running (this thread's own) is skipped, as traceback.clear_frames skips it."""
+    for f in frames:
+        try:
+            f.clear()
+        except RuntimeError:
+            pass
 
 
 def on_host_thread() -> bool:
@@ -230,7 +337,13 @@ class HiddenExcel:
             self._wait_reset()
             self._ensure_started()
             return fn()
-        return self.thread.submit(job).result(timeout or config.CALL_TIMEOUT_S)
+        released = threading.Event()
+        fut = self.thread.submit(job, released.set)
+        try:
+            return fut.result(timeout or config.CALL_TIMEOUT_S)
+        finally:
+            if fut.done():                        # it answered (a result or its error): its release, as call's
+                self._watch_release(released, "a job on the engine's hidden Excel", pid=self.pid)
 
     def _ensure_started(self):
         if self.app is not None:

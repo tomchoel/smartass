@@ -78,7 +78,7 @@ scripts\                     check_staged.py, bump.ps1, publish_release.ps1, pro
 knowledge\  packs\           business maps and metric catalogue; pack-only inputs (packs\produktregnskap)
 skills\smartass\             master copy of the agent skill
 engine\                      run_server.py (relay), child_server.py, VERSION, defaults.toml, vba\, tests\
-engine\smartass\             server.py, pipeline.py, followup.py, workbench.py and the packages:
+engine\smartass\             server.py, pipeline.py, exceljob.py (the Excel job), followup.py, workbench.py and the packages:
   core\       config, logs, timing, session, serverkit (tool guard, Excel jobs, lifespan)
   model\      spec, periods, expressions, blocks, findings, validation (no Excel, no network)
   data\       providers: Smart View HTTP, ad hoc grid fallback, recorder

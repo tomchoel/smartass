@@ -7,6 +7,11 @@ workbooks, so the tables are created after the sheets are copied into the user's
 name the tables) are written then too, each block with one Range.Formula2. build returns both as TableSpec and
 FormulaBlock, and the charts drawn with their lint and label fixes (BuiltFile.charts, chart_lint, label_fixes).
 
+The first answer of a new workbook builds the workbook itself (book: NewBook): the answer's sheets, then the Sources
+log furnished as xl/sources.py furnishes it over COM (the same data), with the sensitivity label as custom document
+properties; Excel only opens that file. It holds no Table either (the tables are made after the open), and never goes
+through the insert (movein's exact-sheets guard refuses it).
+
 Every text is written with write_string (XlsxWriter's string conversions are off), so 'Sep 26', '0047', 'TRUE' or
 '=SUM(A1)' stay text. XlsxWriter has no named cell styles: every cell gets a direct format (look.style_props plus the
 CellLook overrides), one format object per distinct combination. Values are those of the COM writers this file replaced
@@ -15,6 +20,7 @@ docs/audit/2026-11-19-render-map.md sections 2, 4.3, 4.4, 6.1."""
 from __future__ import annotations
 
 import datetime as dt
+import io
 import math
 import re
 from dataclasses import dataclass, field
@@ -42,6 +48,7 @@ AUTOFIT_MARGIN = 1.04                   # AutoFit over tn.text_units: lowercase 
 ANSWER_TAB, DATA_TAB = "#1F3864", "#A6A6A6"
 PRINT_HEADER = '&"Arial"&8Intern'       # styling.print_setup's CenterHeader
 MARGIN = 1.5 / 2.54                     # 1.5 cm left and right, in inches
+A4 = 9                                  # PageSetup.PaperSize of A4 (a new Sources log's, from the template)
 DATE_FMT = "dd.mm.yyyy"                 # the old COM writer's local date format, its dots literal (Base.date_format)
 VALUE_BLUE = "#0000C0"                  # blue, the FAST colour of imported numbers
 LINES_ROW = 4                           # the lines table header row
@@ -116,7 +123,16 @@ class LinesSheet:
     columns: list[str]
     rows: list[dict]
     cube_value: float | None
-    header_block: list[list]            # the F1:K3 rectangle (pipeline._lines_grid: text with its ')
+    header_block: list[list]            # the F1:K3 rectangle (exceljob._lines_grid: text with its ')
+
+
+@dataclass
+class NewBook:
+    """What makes the built file a workbook of its own: its custom document properties (the sensitivity label,
+    target.label_properties) and its theme (the TN template's, styling.template_theme: links, table styles and theme
+    colours as in a workbook added from it; None: XlsxWriter's own); the furnished Sources log comes with it."""
+    properties: dict[str, str]
+    theme: str | None = None
 
 
 @dataclass
@@ -161,10 +177,11 @@ def _table_end(first: int, body: int) -> int:
 
 
 def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines: list[LinesSheet],
-          base: Base | None = None) -> BuiltFile:
+          base: Base | None = None, book: NewBook | None = None) -> BuiltFile:
     """Write the answer's sheets to path, in the order Answer, Data, the Lines sheets, in the destination's base
-    (movein.base). Refuses (TooManyRows, ValueError) before any file is written. Returns the tables and formula
-    blocks to create after the move-in."""
+    (movein.base); with book the file is a new workbook: the Sources log after them (_sources) and book's custom
+    document properties. Refuses (TooManyRows, ValueError) before any file is written. Returns the tables and formula
+    blocks to create after the move-in (or the open); BuiltFile.sheets are the answer's own."""
     m = re.fullmatch(r"Q(\d+) Answer", answer_name)
     if m is None:
         raise ValueError(f"answer sheet {answer_name!r}: the name must be 'Q<n> Answer'")
@@ -186,6 +203,12 @@ def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines:
             table, block = _lines(wb, fmt, ls, base.date_format if base is not None else DATE_FMT)
             tables.append(table)
             formulas.append(block)
+        if book is not None:
+            _sources(wb, fmt)
+            for name, value in book.properties.items():
+                wb.set_custom_property(name, value, "text")
+            if book.theme is not None:
+                wb.use_custom_theme(io.StringIO(book.theme))
     return BuiltFile(path=Path(path), sheets=[answer_name, data.name, *(ls.name for ls in lines)], tables=tables,
                      formulas=formulas, charts=charts, chart_lint=chart_lint, label_fixes=label_fixes)
 
@@ -404,3 +427,34 @@ def _lines(wb, fmt: _Formats, ls: LinesSheet, date_fmt: str | int = DATE_FMT) ->
     _page(ws, _area(max(len(cols), c2 + 1), end), SHEET_FOOTER, title_row=LINES_ROW)
     return (TableSpec(ls.name, f"A{LINES_ROW}:{col_letter(len(cols))}{end}", ls.table, stripes=True),
             FormulaBlock(ls.name, LINES_HEADER, ls.header_block))
+
+
+def _sources(wb, fmt: _Formats) -> None:
+    """The Sources log of a new workbook, furnished as sources._furnish and its print setup furnish it over COM (the
+    same data, xl/sources.py): the header in TN font 9, bold navy, and Known limits' title cell; the columns A:N and P
+    in font 9 at their fixed widths, the control total's number format (its header cell's too, as a whole column's
+    format gives it); the AutoFilter over the header (A1:N1: what Excel's AutoFilter on A:N of a new log takes); the
+    header row frozen, no gridlines; the print setup of A1:N<PRINT_ROWS> on A4 (the template's paper; XlsxWriter's
+    default is Letter); and the hidden sheet-level names that say the furniture and the print setup are there
+    (sources.record_read reads them, so no append furnishes it again). Its rows, Known limits and links are written in
+    Excel, as for any log (live parity: scripts/check_insert.py --parts newbook)."""
+    from ..xl import sources
+    f = sources.furniture()
+    ws = wb.add_worksheet("Sources")
+    font = {"font_name": f.font, "font_size": f.size}
+    plain, total = fmt(font), fmt(font | {"num_format": f.total_format})
+    head = font | {"bold": True, "font_color": look._hex(f.header_colour)}
+    for c, w in enumerate(f.widths, 1):
+        ws.set_column(c - 1, c - 1, w, total if c == f.total_col else plain)
+    ws.set_column(f.limits_col - 1, f.limits_col - 1, f.limits_width, plain)
+    for j, name in enumerate(f.columns):
+        ws.write_string(0, j, name, fmt(head | ({"num_format": f.total_format} if j + 1 == f.total_col else {})))
+    ws.write_blank(0, f.limits_col - 1, None, fmt(head))
+    ws.autofilter(0, 0, 0, len(f.columns) - 1)
+    ws.freeze_panes(f.frozen_rows, 0)
+    ws.hide_gridlines(2)
+    _page(ws, _area(len(f.columns), f.print_rows), f.footer)
+    ws.set_paper(A4)
+    for name, value in ((sources.FURNITURE_NAME, f'="{f.version}"'), (styling.PAGE_SETUP_NAME, sources.print_key())):
+        wb.define_name(f"Sources!{name}", value)
+        wb.defined_names[-1][3] = True       # hidden, as Names.Add(.., Visible:=False): define_name has no option

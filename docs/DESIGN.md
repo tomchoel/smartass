@@ -27,13 +27,13 @@ v1 (the `sv_*` gate/recipe pipeline, retired 2026-11-04) is described in
 | `fin_lookup(query, kind, cube)` | Metrics by name or alias (description, members, `differs`), atlas members and product concepts (`kind="concept"`), with caveats; `kind="answer"`: past answers from answer memory |
 | `fin_drill(cell, group_by, top)` | A spec with one `lines` block: FinLite ledger lines ranked and tied to the cube |
 | `fin_critic(q, scores, notes)` | The stored answer's critic brief + the rubric (`knowledge/agent/critic.md`); with `scores` (six criterion scores 1–5) computes the score (mean rounded half up) and stores it |
-| `fin_status(restart)` | Version, atlas age, knowledge build and refresh due, doctor problems; `restart=True` gives a fresh server process |
+| `fin_status(restart)` | Version, atlas age, knowledge build and refresh due, doctor problems, `save_after_reply` (the newest outcome of a save Excel did after a reply, and how many are still to come); `restart=True` gives a fresh server process |
 | `xl_snapshot`, `xl_revert`, `xl_tidy` | Snapshot / undo around Excel MCP edits; TN style + tn-formelstil check |
 
 Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. Error text: every tool runs under
 `core/serverkit.guard`, which turns any exception into one readable message with one next step.
 
-## Pipeline (`pipeline.py`)
+## Pipeline (`pipeline.py`; the Excel job in `exceljob.py`)
 
 1. **Prepare** (no Excel): validate the spec (`model/spec.py`, pydantic, strict), resolve metrics and members
    (`knowledge/resolver.py` `KnowledgeResolver` over `knowledge.db` + `atlas.db`), run the hard guards
@@ -44,7 +44,7 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    (`data/adhoc.py` → `xl/pull_adhoc.py`), then prepare runs again with those facts fixed.
 3. **Compute** (`model/analyze.py`): facts → `model/frame.py` → block builders (`model/blocks/*`) → expression
    trees (`model/expr.py`) → values, findings, material lines and `key_values` (`model/findings.py`).
-4. **Excel job** (one job in the user's Excel, `pipeline.excel_job`): the answer's sheets are built as one .xlsx
+4. **Excel job** (one job in the user's Excel, `exceljob.excel_job`): the answer's sheets are built as one .xlsx
    without Excel (`render/xlsx.py`, charts `render/xlsx_charts.py` on the rules of `render/charts.py`) from a pure
    `render/layout.py` plan - `Q<n> Answer` (its look: `render/look.py`), `Q<n> Data`, `Q<n> Lines <alias>` for
    drills - under `%LOCALAPPDATA%\smartass\tmp`. Its Excel work is recorded as **batches** of operations
@@ -52,7 +52,7 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    `exist`, a `finally` list), and each batch runs in one go inside Excel (`xl/inproc/runner.py`: one
    `Application.Run` into a small Excel-DNA add-in, `Runner.cs`, built on first use and loaded once per Excel
    process) or, where the add-in cannot load or `SV_INPROC=0`, over COM from Python - the same operations, the
-   same workbook. Three batches and a save (`pipeline._file_draw`): **look** (every read the build needs: the
+   same workbook. Three batches and a save (`exceljob._file_draw`): **look** (every read the build needs: the
    sheets and tables, the base, which workbook is active, the kind of a Sources sheet, the stored specs' keys; then
    AutoSave off while the job writes); **bring in** (the answer's table names looked up among the defined names
    first, a lookup per name - a new answer's number comes from the look - then a follow-up's old sheets parked, the
@@ -63,34 +63,85 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    cells; the Answer active);
    **close out** (the 'Sheet = model' status (`render/readback.py`), Key point heights and page breaks, a
    follow-up's old sheets dropped, the Sources log (`xl/sources.py`), the spec in hidden `_svmeta`, sheet order
-   (`xl/sheetorder.py`)); then the save (our files only, AutoSave back on). Every quiet batch puts the user's
-   settings back itself; Calculation is set to manual only where formulas are written - the bring-in, a close-out
-   that re-points formulas elsewhere, and the point-back after a failure - since putting automatic back recalculates
+   (`xl/sheetorder.py`)); then the save (our files only, AutoSave back on): with the add-in Excel does it right
+   after the reply (`xl/inproc/later.py`: one Run asks for it; the add-in waits `SV_SAVE_DELAY`, 0.3 s, so the
+   answer is painted, then saves as a queued macro and writes an outcome the next job reads; a batch that comes
+   first runs it first, one that comes while it runs is answered "busy" and asked again; a failed one is a note of
+   the next reply, which saves in the job), over COM, with `SV_SAVE=sync` and for the first answer of a workbook the
+   request created (`Target.new`: its file holds the answer before the session points at it) in the job. Every
+   quiet batch puts the user's settings back itself, and what a job that did not finish left changed is put back by
+   the next: right after its look, before its first quiet batch, a job records in the state file
+   `%LOCALAPPDATA%\smartass\jobstate\<Excel's pid>.json` (`xl/jobstate.py`: that Excel's start time, the four
+   quiet settings as found, what it sets, our file whose AutoSave the look switched off; no figure) and removes it at
+   its end; the next job in that Excel process, at its first contact, puts back each setting that still reads what
+   the dead job set and says so, and keeps only what Excel refused to put back for the job after it. Calculation is
+   set to manual only where formulas are written - the bring-in, a close-out that re-points formulas elsewhere, and the point-back after a failure - since putting automatic back recalculates
    what is dirty in every open workbook; after the bring-in the job pauses once (`SV_PAINT_PAUSE`, 0.15 s) so Excel
    paints the answer with its numbers and charts when the workbook is on screen. A failure rolls back as before
    (the clean-up runs as batches of its own, also for a job abandoned by a timeout).
+   **The first answer of a new workbook** (target `new`, or `session` before the session has one, in a running
+   Excel) builds the workbook itself: `xl/target.py` chooses the Excel as for any new workbook (a free turn first)
+   and only reserves a free file name in the analysis folder (created empty and exclusively, so a parallel job takes
+   the next; never the name of a workbook open in that Excel); `render/xlsx.build(book=NewBook)` writes the
+   answer's sheets, then the Sources log furnished as `xl/sources.py` furnishes it over COM (the same data), the
+   sensitivity label as custom document properties (`target.label_properties`) and the TN template's theme, in the
+   base a workbook added from the template has (`target.new_base`, stored by the look of the first one made that
+   way); Excel only opens it (`Workbooks.Open`, stage `draw.open`) and the job goes on with the look, the bring-in
+   (the finish only: no name check, park or insert), the close-out (the log's rows: its furniture and print setup
+   came with the file) and the save, in the job - no `Workbooks.Add`, no `SaveAs`, no furniture in Excel. A
+   failure once the name is reserved closes the workbook without saving and deletes that file (only it, found by its
+   full path), and the error says so; the workbook becomes the session's once the answer is in it and saved. A new
+   workbook is still made from the template (label, SaveAs, insert) without a label id, before a base is stored, without the template, in an Excel started for a
+   parallel agent, and with no Excel at all (`_new_analysis_file`: a copy of the labelled seed - found now also
+   when Excel keeps the label in `docMetadata/LabelInfo.xml`, as it does on this tenant - then Excel launched on
+   it). The built workbook has no TN cell styles until something needs them (`styling.ensure_styles` merges them
+   from the template: `xl_tidy`, `apply_report`). Proved item by item against one made today's way by
+   `scripts/check_insert.py --parts newbook` (hidden Excel, 20.11.2026).
    Measured (docs/audit/2026-11-20-inproc-bench.md, live): 1.9-2.7 s in the Excel job for an answer without a
-   lines sheet as the workbook grows to 61 sheets, 3.9-4.3 s with a lines sheet, a follow-up 1.6-1.9 s, about 7 s
-   for the first answer of a new workbook (the workbook is created), at 5 batches per answer (4 since the review
-   fixes). What is left is mostly Excel's own work: the insert (about 0.5 s) and the save of our OneDrive file.
+   lines sheet as the workbook grows to 61 sheets, 3.9-4.3 s with a lines sheet, a follow-up 1.6-1.9 s, at 5
+   batches per answer (4 since the review fixes). What is left is mostly Excel's own work: the insert (about 0.5 s)
+   and the save of our OneDrive file. The first answer of a new workbook, built as its file (phase 3c): 2.0-3.4 s in
+   the Excel job in a hidden Excel on the OneDrive folder, against 8.0-11.6 s made from the template there (the
+   Open itself 1.0-1.8 s; 20.11.2026); 10.6-11.3 s made from the template in the owner's Excel (0.4.0 run log).
+   Measured in the owner's Excel built as its file (a fresh Excel, 20.11.2026 22:16, before the save after the
+   reply): the first answer of a new workbook 5.3-6.1 s against 7.5 s made from the template by 0.4.0 in the same
+   Excel (goal 5 s or under): open target 2.1-2.6 s, of which "new workbook" 2.0 s with no Excel in it; `draw.open`
+   1.05-1.08 s (Excel opening the file: Excel's own); look 0.83-1.14 s (0.03 s in an existing workbook);
+   everything else 0.9 s together. Since then (phase 3c Task 1b; the live figure after it is owed) the session's
+   parents are read from one snapshot of the process table instead of one per ancestor: 1.5 s of "new workbook",
+   once per server process, measured 1.75-2.15 s before and 0.20-0.22 s after in a plain script. And a server process
+   that meets an Excel holding its build of the add-in uses it as it is instead of registering it again: in a hidden
+   Excel the look of a new server's first answer went from 0.45-0.49 s to 0.04-0.09 s. That this was most of the live
+   look is inferred, not measured live. Ledger and figures: docs/audit/2026-11-20-first-answer.md.
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
    `findings`, `checks`, `layout` (layout check findings with fixes), `charts`, `warnings`, `caveats`, `routes`,
    `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
    (`answers.py`) at the end of the Excel job and of every redraw.
 
-**Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; `pipeline.redraw_job`
+**Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; `exceljob.redraw_job`
 replaces the question's sheets whole: the old ones are parked under 'old ...' names, the new answer is moved in where
 they were, and the old ones are dropped. Cells a user typed on a `Q<n>` sheet go with it (their own notes belong on
 their own sheets). A formula elsewhere in the workbook that points at the question's sheets or tables follows the park
 to the 'old ...' names (Excel rewrites it) and would turn #REF! with the drop: the bring-in batch finds such formulas
-(the verb `mentions`, inside Excel: every other sheet's used range read in chunks of at most 100 000 cells, only the
-chunks SpecialCells/Intersect finds a formula in - a protected sheet chunk by chunk, a hidden formula there makes it
-"could not be read" -, no Range.Find, which would leave its options as the Find dialog's and skips filtered rows;
-the charts' series; the defined names), Python rewrites exactly the references to a parked name with a namesake in
-the new answer (`xl/repoint.py`: never text in a string literal, another workbook's sheet, or a longer name that
-contains it), and the close-out writes them right before the drop with Calculation manual, each a compare-and-set
+(the verb `mentions`, inside Excel: every other sheet's used range halved, its longer side first, into blocks of at
+most 100 000 cells, only the blocks SpecialCells/Intersect finds a formula in halved further and read - a protected
+sheet block by block, a hidden formula there makes it "could not be read" (the mentions found before stay), and so
+does a sheet that would take more than 2 000 steps, a step being one test or one read of a block: a protected sheet
+of more than about 100-200 million cells (a used range to the last row and some 100-190 columns wide), or formulas
+spread over too many blocks - on a sheet whose used range a stray format stretched to XFD1048576 (blocks of about
+256 rows by 390 columns) a formula column taller than about 85 000 rows; such a sheet is warned about on every
+follow-up when it is too large to check as well (the check below reads at most 2 000 blocks: a used range of more
+than about 100-200 million cells, a stretched one included), else when a cell there turns #REF! -, no Range.Find,
+which would leave its options as the Find dialog's and skips filtered rows; the charts' series; the defined names),
+Python rewrites exactly the references to a parked name with a namesake in the new answer (`xl/repoint.py`: never
+text in a string literal, another workbook's sheet, or a longer name that contains it), and the close-out writes them right before the drop with Calculation manual, each a compare-and-set
 inside Excel (the verb `swap`: a formula changed since the bring-in read it is left alone and reported) that may
-fail (a warning). A failure before the drop points them back first, by the same compare-and-set (the parked sheets
+fail (a warning). A sheet that could not be read is a warning only when a cell there shows #REF! after the drop that
+did not before (its values can be read: where its cells show #REF! - the error told by its code, not its text in
+Excel's language - is read before and after the drop, bounded as the scan is, and a cell that shows it only after is
+said; with the user's Calculation manual, always, as that cannot be told without calculating their sheet; and
+always for a sheet whose values are too many to read that way (the verb `errors` runs only for a sheet that could
+not be scanned). A failure before the drop points them back first, by the same compare-and-set (the parked sheets
 must still be there), then the rollback and the restore. Not covered (Excel offers no exact, cheap way): conditional
 formats and data validation (their formulas come only in the user's separators and change through a type-specific
 Modify), pivot caches, linked chart titles and labels, sparklines, form controls' links, linked shapes, other
