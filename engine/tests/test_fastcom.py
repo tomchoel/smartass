@@ -490,9 +490,9 @@ def test_a_job_given_up_on_stops_waiting_for_type_information_and_gets_a_late_bo
 def test_the_wait_for_type_information_counts_against_the_jobs_start(monkeypatch, a_job):
     monkeypatch.setattr(fastcom, "_PyIDispatch", (fastcom._PyIDispatch, _BusyTypes))
     with jobs.starting():
-        w = fastcom.wrap(_BusyTypes(raw("Scripting.Dictionary"), _Excel(3, ("GetTypeInfo",))))
+        w = fastcom.wrap(_BusyTypes(raw("Scripting.Dictionary"), _Excel(4, ("GetTypeInfo",))))
         left = jobs._job.start_left
-    assert type(w) is fastcom.Fast and left < jobs.START_WAIT_S - 0.3      # about 0.7 s of rejections
+    assert type(w) is fastcom.Fast and left < jobs.START_WAIT_S - 0.5      # about 0.7 s of rejections waited for
 
 
 def test_the_wait_for_type_information_ends_with_what_is_left_of_the_jobs_start(monkeypatch, a_job):
