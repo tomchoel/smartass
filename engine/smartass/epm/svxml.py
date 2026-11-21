@@ -27,8 +27,10 @@ class SvXmlError(Exception):
 def check_read_only(body: str) -> None:
     """The transport's last guard: the body must be exactly one allowed request element, retrieve-only."""
     m = re.fullmatch(r"\s*<req_(\w+)>.*</req_\1>\s*", body, re.S)
-    name = m.group(1) if m else body[:40]
-    if not m or body.count("<req_") != 1 or name not in ALLOWED:
+    if not m:                                           # its start can be a session id: never quoted
+        raise ValueError("refused: not a single read-only Smart View request")
+    name = m.group(1)                                   # an element name (\w+), nothing of the body's content
+    if body.count("<req_") != 1 or name not in ALLOWED:
         raise ValueError(f"refused: {name!r} is not a single read-only Smart View request")
     if name == "ExecuteGrid" and (len(re.findall(r"<\s*action\b", body, re.I)) != 1
                                   or "<action>retrieve</action>" not in body):

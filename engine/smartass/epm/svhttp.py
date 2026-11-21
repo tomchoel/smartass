@@ -336,13 +336,25 @@ def pod_origin(base: str) -> str:
     return oauth.origin(base)
 
 
+SLOW_READ_BYTES_S = 256 << 10      # a slow but working line: the largest answer (64 MB) in 256 s
+
+
 def _timeout_s() -> float:
-    """One request's time: 90 % of the job's time limit (config.SVHTTP_TIMEOUT_S), within the most an EpmSession
-    takes. It is the whole answer's deadline (EpmSession reads to it), not a limit per receive."""
-    return min(max(1, int(config.SVHTTP_TIMEOUT_S * 900)) / 1000, epmhttp.MAX_TIMEOUT_S)
+    """One request's deadline for its whole answer (EpmSession reads to it). config.SVHTTP_TIMEOUT_S was urllib's
+    limit per receive, so a big grid could take longer in all: the deadline is its old 90 % (the server's time to the
+    first byte) plus the read of the largest answer the session takes (MAX_ANSWER_BYTES) at SLOW_READ_BYTES_S -
+    364 s by default - within the most an EpmSession takes (600 s). A request that never answers waits that long
+    before it is RequestLost (and sent again on a new sID, see SvHttp._ask)."""
+    first_byte = max(1, int(config.SVHTTP_TIMEOUT_S * 900)) / 1000
+    return min(first_byte + epmhttp.MAX_ANSWER_BYTES / SLOW_READ_BYTES_S, epmhttp.MAX_TIMEOUT_S)
 
 
 AUTH_REFUSED = (301, 302, 303, 307, 401, 403)     # EPM's gate did not take the token: the request never ran
+
+
+def _provider_xml(text: str) -> bool:
+    """The provider answered (its XML): the request reached it, whatever the status - never sent again on its sID."""
+    return "<res_" in text or "<exception" in text
 
 
 class BearerTransport:
@@ -385,7 +397,8 @@ class BearerTransport:
         base = pod_origin(base)                          # the only origin the bearer goes to, whatever EPM listed
         try:
             r = self.session(base).request("POST", epmhttp.SMART_VIEW, headers={"Content-Type": "text/xml"},
-                                           body=body, timeout=_timeout_s(), renew_on=AUTH_REFUSED)
+                                           body=body, timeout=_timeout_s(), renew_on=AUTH_REFUSED,
+                                           renew_if=lambda r: not _provider_xml(r.text))
         except oauth.NotSignedIn:
             raise
         except oauth.OAuthError as e:
@@ -396,7 +409,7 @@ class BearerTransport:
             raise SvHttpError(f"Smart View provider at {base}: {e}") from None
         except OSError as e:                             # it may have reached EPM: never again on this sID
             raise RequestLost(f"Smart View provider at {base}: lost the request ({type(e).__name__})") from None
-        if "<res_" in r.text or "<exception" in r.text:
+        if _provider_xml(r.text):
             return r.text                                # provider XML, whatever the status: svxml judges
         if r.status in AUTH_REFUSED:                     # the session took one new token for it already
             raise SvHttpError(f"Smart View provider at {base}: EPM refused the access token twice (HTTP {r.status})")

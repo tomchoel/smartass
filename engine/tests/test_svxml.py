@@ -48,6 +48,13 @@ def test_check_read_only_refuses_everything_else(body):
         svxml.check_read_only(body)
 
 
+def test_a_refused_body_is_not_quoted():
+    """A malformed body can start with a session id: the refusal names no part of it."""
+    with pytest.raises(ValueError, match="refused") as e:
+        svxml.check_read_only("<sID>sid-SECRET-123</sID><req_ExecuteGrid></req_ExecuteGrid>")
+    assert "SECRET" not in str(e.value) and "sid-" not in str(e.value)
+
+
 def test_session_requests_pass_the_allowlist():
     for body in (svxml.connect(), svxml.provisioned_data_sources(), svxml.open_application("s", "FinMax"),
                  svxml.open_cube("s", "FinMax", "FinLite")):

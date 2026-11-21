@@ -83,6 +83,9 @@ MAX_BODY_BYTES = 1 << 20                                # a getData query is far
 MAX_SMART_VIEW_BODY_BYTES = 16 << 20
 MAX_ANSWER_BYTES = 64 << 20                             # a 5000-line getData page is about 7 MB (1.3 kB a line)
 MAX_TIMEOUT_S = 600.0
+# A gate's answers: EPM did not take the token, so the request never ran and may go once more with a new one. A 200
+# or a 500 did run (sending it again would run it twice): request() refuses a renew_on outside these.
+GATE_STATUSES = frozenset({301, 302, 303, 307, 401, 403})
 _URL = re.compile(r"[\x21-\x7e]+")                      # printable ASCII: urlsplit drops tab and line breaks silently
 _NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")      # an HTTP header name (RFC 9110 token)
 _VALUE = re.compile(r"[\x20-\x7e]*")                    # no line break: http.client would quote the value in its error
@@ -139,14 +142,18 @@ class EpmSession:
         self._jar = http.cookiejar.CookieJar()          # thread-safe; only ever sent to self.origin
 
     def request(self, method: str, url: str, headers: dict | None = None, body: str | None = None,
-                timeout: float = 120.0, renew_on: tuple[int, ...] = (401,)) -> Response:
-        """Send one allowlisted request with the bearer; a 401 (or another status of renew_on: the grid route's gate
-        answers) takes one new token (reject=the refused one), drops the session's cookies (they came with the
-        refused token) and is sent once more. Any other status is an answer (a 3xx too: never followed). Refused
-        before anything is sent; oauth.OAuthError / NotSignedIn as the token source raises them; OSError when the
-        request left and no whole answer came (its text scrubbed of secrets); TooLarge for an answer over
-        MAX_ANSWER_BYTES."""
+                timeout: float = 120.0, renew_on: tuple[int, ...] = (401,), renew_if=None) -> Response:
+        """Send one allowlisted request with the bearer; a 401 (or another status of renew_on, all of them gate
+        answers: GATE_STATUSES) takes one new token (reject=the refused one), drops the session's cookies (they came
+        with the refused token) and is sent once more - unless renew_if(the answer) says no, which keeps that answer
+        as it is (it can only narrow renew_on: the grid route keeps a gate status that carries provider XML, which
+        reached the provider). Any other status is an answer (a 3xx too: never followed). Refused before anything is
+        sent; oauth.OAuthError / NotSignedIn as the token source raises them; OSError when the request left and no
+        whole answer came (its text scrubbed of secrets); TooLarge for an answer over MAX_ANSWER_BYTES."""
         try:
+            if (not isinstance(renew_on, tuple)
+                    or not all(type(s) is int and s in GATE_STATUSES for s in renew_on)):   # a bool is no status
+                raise Refused("refused: only a gate's answer (3xx, 401, 403) may take a new token and go again")
             target, rule = self._target(method, url, body)
             sent = self._headers(headers, rule)
             if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 < timeout <= MAX_TIMEOUT_S:
@@ -160,7 +167,7 @@ class EpmSession:
         t0 = time.monotonic()
         token = self._tokens.access_token(self.origin)
         r = self._send(method, target, sent, data, token, timeout)
-        if r.status in renew_on:                        # the hour may have ended early: one new token, one more try
+        if r.status in renew_on and (renew_if is None or renew_if(r)):   # the hour may have ended early: one more
             self._jar.clear()                           # first: the cookies go even when no new token comes
             token = self._tokens.access_token(self.origin, reject=token)
             r = self._send(method, target, sent, data, token, timeout)

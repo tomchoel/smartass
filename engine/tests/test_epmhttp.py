@@ -786,3 +786,29 @@ def test_a_caller_may_name_more_statuses_that_take_one_new_token(make):
     s2, op2, _ = make(tokens=["at-1", "at-2"], answers=[(302, "", {})])
     assert s2.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect()).status == 302
     assert len(op2.sent) == 1
+
+
+@pytest.mark.parametrize("renew_on", [(200,), (500,), (401, 500), (404,), (True,), (401.0,), ("401",), 401, None])
+def test_only_a_gates_answer_may_take_a_new_token(make, renew_on):
+    """renew_on names statuses whose request never ran (a gate's 3xx, 401, 403): a 200 or a 500 already ran, and
+    sending it again would run it twice. Anything else is refused before a token is asked for."""
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request("GET", "/aif/ui/model/applications/servicetype", renew_on=renew_on)
+    assert op.sent == [] and tok.asked == []
+    s.request("GET", "/aif/ui/model/applications/servicetype", renew_on=(301, 302, 303, 307, 401, 403))
+    assert len(op.sent) == 1
+
+
+def test_a_caller_may_keep_a_gate_status_as_the_answer(make):
+    """renew_if only narrows renew_on: an answer it turns down is returned as it is - one send, one token, the
+    cookies kept (the grid route: a 401 that carries provider XML reached the provider)."""
+    from smartass.epm import svxml
+    s, op, tok = make(tokens=["at-1", "at-2"], answers=[(200, "", {"Set-Cookie": "JSESSIONID=one; Path=/"}),
+                                                       (401, "<res_x/>", {})])
+    s.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect())
+    r = s.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect(), renew_on=(401,),
+                  renew_if=lambda r: "<res_" not in r.text)
+    assert r.status == 401 and len(op.sent) == 2 and tok.asked == [(POD, None), (POD, None)]
+    assert s.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect()).status == 401   # the jar kept it
+    assert op.sent[2].get_header("Cookie") == "JSESSIONID=one"

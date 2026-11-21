@@ -699,6 +699,19 @@ def test_a_refused_token_gets_one_new_one(refused):
     assert tokens.asked == [("https://strat.example", None), ("https://strat.example", "at-1")]
 
 
+@pytest.mark.parametrize("status", [401, 302, 403])
+def test_a_gate_status_that_carries_provider_xml_is_not_sent_again(status):
+    """Provider XML means the request reached the provider: it is the answer whatever the status, and it is never
+    sent again on the same sID (the session's one new token is for a gate that let nothing through)."""
+    tokens = _Tokens("at-1", "at-2")
+    t, sent = _bearer(tokens, (status, OK_XML[1]))
+    assert "<sID>s1</sID>" in t.post("https://strat.example", svxml.connect())
+    t2, sent2 = _bearer(_Tokens("at-1", "at-2"), (status, '<exception errcode="1"><desc>x</desc></exception>'))
+    assert "<exception" in t2.post("https://strat.example", svxml.connect())
+    assert sent == [("https://strat.example", "at-1")] and tokens.asked == [("https://strat.example", None)]
+    assert len(sent2) == 1
+
+
 @pytest.mark.parametrize("refused", [GATE_401, (302, ""), (403, "<html>403</html>")])
 def test_a_token_refused_twice_is_sent_twice_and_no_more(refused):
     tokens = _Tokens("at-1", "at-2", "at-3")
@@ -722,8 +735,11 @@ def test_a_pod_keeps_its_cookies_and_a_refused_token_takes_them_along():
     assert [r.get_header("Authorization") for r in wire.requests[3:]] == ["Bearer at-1", "Bearer at-2"]
 
 
-@pytest.mark.parametrize("limit, want", [(120.0, 108.0), (10.0, 9.0), (1000.0, epmhttp.MAX_TIMEOUT_S)])
-def test_a_request_has_90_percent_of_the_jobs_time_within_the_sessions_bound(monkeypatch, limit, want):
+@pytest.mark.parametrize("limit, want", [(120.0, 108.0 + 256.0), (10.0, 9.0 + 256.0), (1000.0, epmhttp.MAX_TIMEOUT_S)])
+def test_a_request_has_the_old_first_byte_limit_plus_the_read_of_the_largest_answer(monkeypatch, limit, want):
+    """The session's timeout is a deadline for the whole answer; SVHTTP_TIMEOUT_S was urllib's limit per receive. So
+    the deadline is the old 90 % of it (the server's time to the first byte) plus the read of the largest answer the
+    session takes (MAX_ANSWER_BYTES, 64 MB) at a slow 256 kB/s, within the most an EpmSession takes."""
     monkeypatch.setattr(config, "SVHTTP_TIMEOUT_S", limit)
     wire = _Wire(lambda *a: OK_XML)
     svhttp.BearerTransport(tokens=_Tokens("at-1"), opener=wire).post("https://strat.example", svxml.connect())
