@@ -14,6 +14,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import config, logsetup, runlog
+from ..epm import oauth
 from ..xl import instances
 from ..xl.host import ExcelHost, HostError, InputError
 
@@ -120,9 +121,24 @@ def explain(tool_name: str, e: Exception) -> str:
     return with_next_step(f"{tool_name} failed - {type(e).__name__}: {logsetup.redact(e)}", e)
 
 
+async def _sign_in_reply(e: Exception) -> str:
+    """A tool call that met oauth.NotSignedIn answers with the sign-in page and code for every pod that needs one
+    (oauth.sign_in_message; it may ask the identity domain, so off the event loop), else with the error itself."""
+    import anyio.to_thread
+
+    try:
+        msg = await anyio.to_thread.run_sync(oauth.sign_in_message)
+    except Exception as why:   # noqa: BLE001 - the reply must still say what is wrong
+        log.info("sign-in message not made: %s", logsetup.redact(why)[:200])
+        msg = None
+    return logsetup.redact(msg) if msg else logsetup.redact(e)
+
+
 def guard(fn):
     """ANY exception reaches the model as readable text with a next step (the SDK otherwise reports only
-    'Error executing tool X' for non-ToolError exceptions). The answer tools (RUN_LOGGED) get a run-log line."""
+    'Error executing tool X' for non-ToolError exceptions). A missing EPM sign-in (oauth.NotSignedIn) is answered with
+    the sign-in page and code instead, with no next step and no traceback. The answer tools (RUN_LOGGED) get a
+    run-log line."""
     import functools
     import inspect
 
@@ -148,6 +164,10 @@ def guard(fn):
             if logged:
                 runlog.finish(ok=False, error=str(e))
             raise ToolError(with_next_step(logsetup.redact(e))) from None
+        except oauth.NotSignedIn as e:
+            if logged:
+                runlog.finish(ok=False, error=logsetup.redact(e))
+            raise ToolError(await _sign_in_reply(e)) from None
         except Exception as e:   # noqa: BLE001
             log.exception("tool %s failed", fn.__name__)
             if logged:

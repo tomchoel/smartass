@@ -281,7 +281,6 @@ OAUTH_IDCS = str(_pick("SMARTASS_OAUTH_IDCS", "oauth.idcs", "") or "").strip().r
 OAUTH_CLIENT_ID = str(_pick("SMARTASS_OAUTH_CLIENT_ID", "oauth.client_id", "") or "").strip()
 OAUTH_SCOPES = oauth_scopes(get(SETTINGS, "oauth.scopes"))
 OAUTH_DIR = HOME / "oauth"                         # one DPAPI-protected sign-in per pod (this Windows user)
-SVHTTP_BEARER_RETRY_S = 120.0                      # after the bearer route could not authenticate: browser route this long
 DRILL_CAPTURE_TIMEOUT_S = 45
 DRILL_RELOAD_WAIT_S = 25                           # after the one reload of a page that never asked for data
 DRILL_SETUP_S = 95                                 # sign-in + capture of one drill (S8: no call past 120 s)

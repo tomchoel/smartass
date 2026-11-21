@@ -20,6 +20,7 @@ from .xl.host import InputError
 
 from .data.adhoc import adhoc_fetch
 from .data.provider import ComboProvider
+from .epm.oauth import NotSignedIn
 from .followup import find_question, merge_patch, v2_questions
 from .model.chain import restore_chain
 from .model.lines import LineSet
@@ -318,6 +319,8 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
         except RestoreError as e:
             broken = q
             done.append({"q": q, "ok": False, "error": str(e)})
+        except NotSignedIn:                     # every question needs it: the reply is the sign-in page and code
+            raise
         except Exception as e:   # noqa: BLE001 - one question never stops the pack
             done.append({"q": q, "ok": False, "error": str(e)})
     return {"refreshed": done, "workbook": workbook}

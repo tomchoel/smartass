@@ -9,6 +9,7 @@ from smartass.epm import oauth
 
 POD = "https://strat.example"
 PAIR = {"access_token": "at-1", "refresh_token": "rt-1", "expires_in": 3600, "token_type": "Bearer"}   # allow-secret
+REAL_FINISH = getattr(oauth, "_finish_in_background", None)       # the oa fixture stubs it; two tests use the real one
 
 
 class Idcs:
@@ -37,6 +38,9 @@ def oa(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "OAUTH_SCOPES", {POD: "urn:scope"})
     monkeypatch.setattr(config, "OAUTH_DIR", tmp_path / "oauth")
     oauth._mem.clear()
+    monkeypatch.setattr(oauth, "_pending", {}, raising=False)
+    # no real finishing thread outlives a test (it would ask the unpatched identity domain)
+    monkeypatch.setattr(oauth, "_finish_in_background", lambda pod, device: None, raising=False)
 
     def use(**answers):
         idcs = Idcs(**answers)
@@ -241,3 +245,101 @@ def test_forget_deletes_the_sign_in(oa):
     assert oauth.forget(POD) is True and oauth.forget(POD) is False
     with pytest.raises(oauth.NotSignedIn, match="not signed in"):
         oauth.access_token(POD)
+
+
+# ---------------------------------------------------------------- sign-in from the tool call
+def test_a_pending_login_is_started_once_and_reused_until_it_ends(oa, monkeypatch):          # Review Focus 4
+    idcs = oa(device=[(200, {"device_code": "dc", "user_code": "ABCD", "verification_uri": "https://idcs.example/ui",
+                             "expires_in": 300, "interval": 5})], token=[(400, {"error": "authorization_pending"})])
+    monkeypatch.setattr(oauth, "_finish_in_background", lambda pod, device: None)
+    first, again = oauth.pending_logins(), oauth.pending_logins()
+    assert [p["user_code"] for p in first] == ["ABCD"] and again[0]["user_code"] == "ABCD" and len(idcs.to("device")) == 1
+    assert oauth.sign_in_message() == ("EPM sign-in needed. Open https://idcs.example/ui and enter the code ABCD "
+                                       "(strat.example, valid 5 min), approve with Telenor SSO, then ask again.")
+
+
+def test_no_message_when_every_pod_is_signed_in(oa):
+    oa(token=[(500, {})])
+    _signed_in()
+    assert oauth.pending_logins() == [] and oauth.sign_in_message() is None
+
+
+def test_a_login_that_cannot_start_says_why_instead_of_a_code(oa):
+    oa(device=[(400, {"error": "invalid_scope", "error_description": "Invalid scope."})])
+    assert "invalid_scope" in oauth.pending_logins()[0]["error"] and "invalid_scope" in oauth.sign_in_message()
+
+
+def test_why_a_login_could_not_start_carries_no_url_query(oa):
+    oa(device=[(400, {"error": "invalid_request", "error_description": "see https://idcs.example/x?client=cid&s=1"})])
+    msg = oauth.sign_in_message()
+    assert "invalid_request" in msg and "client=cid" not in msg and "https://idcs.example/x?..." in msg
+
+
+def test_a_pending_login_says_only_what_the_user_needs(oa):
+    oa(device=[(200, {"device_code": "secret-dc", "user_code": "ABCD", "expires_in": 300,
+                      "verification_uri": "https://idcs.example/ui?client=x#frag"})])
+    got = oauth.pending_logins()
+    assert got == [{"pod": POD, "verification_uri": "https://idcs.example/ui", "user_code": "ABCD", "minutes_left": 5}]
+    assert "secret-dc" not in oauth.sign_in_message() and "?" not in oauth.sign_in_message()
+
+
+def test_an_ended_code_is_replaced_by_a_new_one(oa):
+    idcs = oa(device=[(200, {"device_code": "dc1", "user_code": "AAAA", "verification_uri": "https://idcs.example/ui",
+                             "expires_in": 300}),
+                      (200, {"device_code": "dc2", "user_code": "BBBB", "verification_uri": "https://idcs.example/ui",
+                             "expires_in": 300})])
+    import time
+    assert oauth.pending_logins()[0]["user_code"] == "AAAA"
+    device, _ = oauth._pending[POD]
+    oauth._pending[POD] = (device, time.monotonic() + 30)          # half a minute left: still the same code
+    assert oauth.pending_logins()[0] == {"pod": POD, "verification_uri": "https://idcs.example/ui", "user_code": "AAAA",
+                                         "minutes_left": 1}
+    oauth._pending[POD] = (device, time.monotonic() - 1)           # ended (its thread has not noticed yet)
+    assert oauth.pending_logins()[0]["user_code"] == "BBBB" and len(idcs.to("device")) == 2
+
+
+def test_concurrent_calls_get_one_code(oa, monkeypatch):
+    import time
+    gate = threading.Event()
+    idcs = oa(device=[(200, {"device_code": "dc", "user_code": "ABCD", "verification_uri": "https://idcs.example/ui",
+                             "expires_in": 300})])
+
+    def slow(path, fields, timeout=30):
+        gate.wait(5)
+        return idcs(path, fields, timeout)
+    monkeypatch.setattr(oauth, "_post_form", slow)
+    got = []
+    ts = [threading.Thread(target=lambda: got.append(oauth.pending_logins())) for _ in range(4)]
+    [t.start() for t in ts]
+    time.sleep(0.1)
+    gate.set()
+    [t.join(10) for t in ts]
+    assert len(idcs.to("device")) == 1 and [g[0]["user_code"] for g in got] == ["ABCD"] * 4
+
+
+def test_the_background_finish_waits_for_the_approval_then_drops_its_code(oa, monkeypatch):
+    oa()
+    monkeypatch.setattr(oauth, "_finish_in_background", REAL_FINISH)
+    finished = []
+    monkeypatch.setattr(oauth, "finish_login", lambda pod, device: finished.append((pod, device["device_code"])))
+    device = {"device_code": "dc", "user_code": "ABCD", "verification_uri": "https://idcs.example/ui", "expires_in": 300}
+    oauth._pending[POD] = (device, 10 ** 12)
+    t = oauth._finish_in_background(POD, device)
+    t.join(10)
+    assert t.daemon and finished == [(POD, "dc")] and POD not in oauth._pending
+
+
+def test_a_failed_background_finish_drops_only_its_own_code(oa, monkeypatch, caplog):
+    oa()
+    monkeypatch.setattr(oauth, "_finish_in_background", REAL_FINISH)
+
+    def refused(pod, device):
+        raise oauth.OAuthError("the sign-in was refused (access_denied)")
+    monkeypatch.setattr(oauth, "finish_login", refused)
+    old, new = {"device_code": "dc1", "expires_in": 300}, {"device_code": "dc2", "expires_in": 300}
+    oauth._pending[POD] = (new, 10 ** 12)                          # a newer code was handed out meanwhile
+    with caplog.at_level("WARNING"):
+        oauth._finish_in_background(POD, old).join(10)
+    assert oauth._pending[POD][0] is new and "access_denied" in caplog.text and "dc1" not in caplog.text
+    oauth._finish_in_background(POD, new).join(10)
+    assert POD not in oauth._pending

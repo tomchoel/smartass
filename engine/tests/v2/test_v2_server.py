@@ -109,6 +109,20 @@ def test_refresh_continues_past_a_failing_question(monkeypatch):
     assert calls == [("prepare", "good"), ("redraw", 3)]
 
 
+def test_refresh_without_a_sign_in_stops_so_the_reply_is_the_sign_in_message(monkeypatch):    # Review Focus 4
+    from smartass.epm import oauth
+    stored = {2: {"spec": {"v2": {"question": "a"}}, "ids": {}, "owned": None},
+              3: {"spec": {"v2": {"question": "b"}}, "ids": {}, "owned": None}}
+    calls, asyncio = _wire(monkeypatch, stored)
+
+    def prep(raw, provider, lines=None):
+        raise oauth.NotSignedIn("not signed in to https://plan1.example: run `smartass login`")
+    monkeypatch.setattr(server, "run_prepare", prep)
+    with pytest.raises(oauth.NotSignedIn):
+        asyncio.run(server.fin_refresh())
+    assert calls == []
+
+
 def test_refresh_stops_after_a_failed_restore_and_reports_the_rest_as_skipped(monkeypatch):
     from smartass.exceljob import RestoreError
     stored = {q: {"spec": {"v2": {"question": f"q{q}"}}, "ids": {}, "owned": None} for q in (2, 3, 4)}

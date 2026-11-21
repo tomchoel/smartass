@@ -554,16 +554,13 @@ def test_other_pod_failures_drop_only_that_tab():
     assert tab2.closed and b.s.ready and b.logins == 0
 
 
-def test_the_browser_is_resolved_on_every_post_so_a_shutdown_is_survived(monkeypatch):
+def test_the_browser_is_resolved_on_every_post_so_a_shutdown_is_survived():
     current = [_Browser(_Page([OK]))]
-    monkeypatch.setattr(svhttp, "_shared", None)
-    monkeypatch.setattr(drill_browser, "shared_browser", lambda: current[0])
-    sv = svhttp.shared()
-    assert sv is svhttp.shared()
+    t = svhttp.BrowserTransport(lambda: current[0])
     first = current[0]
-    sv.t.post(first.base, svxml.connect())
+    t.post(first.base, svxml.connect())
     current[0] = _Browser(_Page([OK]))                    # shutdown_shared() + a new shared_browser()
-    sv.t.post(first.base, svxml.connect())
+    t.post(first.base, svxml.connect())
     assert len(first.s.page.bodies) == 1 and len(current[0].s.page.bodies) == 1
 
 
@@ -851,18 +848,9 @@ class _Tokens:
         return t
 
 
-class _Fallback:
-    def __init__(self):
-        self.sent = []
-
-    def post(self, base, body):
-        self.sent.append((base, body))
-        return "<res_ConnectToProvider><sID>browser</sID></res_ConnectToProvider>"
-
-
 def _bearer(tokens, *answers):
-    """(transport, fallback, what was sent): answers are (status, text) or an exception, in order."""
-    sent, queue, fb = [], list(answers), _Fallback()
+    """(transport, what was sent): answers are (status, text) or an exception, in order."""
+    sent, queue = [], list(answers)
 
     def send(base, body, token):
         sent.append((base, token))
@@ -870,95 +858,102 @@ def _bearer(tokens, *answers):
         if isinstance(a, Exception):
             raise a
         return a
-    return svhttp.BearerTransport(fb, tokens=tokens, send=send), fb, sent
+    return svhttp.BearerTransport(tokens=tokens, send=send), sent
 
 
 OK_XML = (200, "<res_ConnectToProvider><sID>s1</sID></res_ConnectToProvider>")
 GATE_401 = (401, "<html><h1>401 Authorization Required</h1></html>")
 
 
-def test_bearer_posts_with_the_token_and_never_touches_the_browser():
-    t, fb, sent = _bearer(_Tokens("at-1"), OK_XML)
+def test_bearer_posts_with_the_token():
+    t, sent = _bearer(_Tokens("at-1"), OK_XML)
     assert "<sID>s1</sID>" in t.post("https://strat.example/", svxml.connect())
-    assert sent == [("https://strat.example", "at-1")] and fb.sent == []
+    assert sent == [("https://strat.example", "at-1")]
 
 
 def test_bearer_refuses_writes_before_it_asks_for_a_token():
     tokens = _Tokens("at-1")
-    t, fb, sent = _bearer(tokens, OK_XML)
+    t, sent = _bearer(tokens, OK_XML)
     with pytest.raises(ValueError, match="refused"):
         t.post("https://strat.example", "<req_SubmitData></req_SubmitData>")
-    assert tokens.asked == [] and sent == [] and fb.sent == []
+    assert tokens.asked == [] and sent == []
 
 
-def test_a_pod_without_a_scope_goes_to_the_browser_route():
-    tokens = _Tokens("at-1", scopes=("https://strat.example",))
-    t, fb, sent = _bearer(tokens, OK_XML)
-    assert "browser" in t.post("https://plan1.example", svxml.connect())
-    assert sent == [] and tokens.asked == [] and len(fb.sent) == 1
-
-
-def test_a_refused_token_gets_one_new_one_then_the_browser_route_for_a_while(monkeypatch):
+def test_a_refused_token_gets_one_new_one():
     tokens = _Tokens("at-1", "at-2")
-    t, fb, sent = _bearer(tokens, GATE_401, OK_XML)
+    t, sent = _bearer(tokens, GATE_401, OK_XML)
     assert "<sID>s1</sID>" in t.post("https://strat.example", svxml.connect())
     assert sent == [("https://strat.example", "at-1"), ("https://strat.example", "at-2")]
-    assert tokens.asked == [("https://strat.example", None), ("https://strat.example", "at-1")] and fb.sent == []
-
-    tokens = _Tokens("at-1", "at-2")
-    t, fb, sent = _bearer(tokens, GATE_401)                        # refused twice: EPM never ran it
-    assert "browser" in t.post("https://strat.example", svxml.connect())
-    assert len(sent) == 2 and len(fb.sent) == 1
-    assert "browser" in t.post("https://strat.example", svxml.connect())
-    assert len(sent) == 2 and len(tokens.asked) == 2 and len(fb.sent) == 2      # no new try yet
-    monkeypatch.setattr(config, "SVHTTP_BEARER_RETRY_S", 0.0)
-    t._off.clear()
-    t.post("https://strat.example", svxml.connect())
-    assert len(sent) == 4                                          # tried again when the wait is over
+    assert tokens.asked == [("https://strat.example", None), ("https://strat.example", "at-1")]
 
 
-@pytest.mark.parametrize("problem", [oauth.NotSignedIn("not signed in: run 'smartass login'"),
-                                     oauth.OAuthError("the identity domain did not answer")])
-def test_no_token_means_the_browser_route_not_an_error(problem):
-    t, fb, sent = _bearer(_Tokens(problem), OK_XML)
-    assert "browser" in t.post("https://strat.example", svxml.connect())
-    assert sent == [] and len(fb.sent) == 1
+def test_not_signed_in_reaches_the_caller_as_it_is():                       # Review Focus 4
+    t = svhttp.BearerTransport(tokens=_Tokens(oauth.NotSignedIn("not signed in")), send=lambda *a: OK_XML)
+    with pytest.raises(oauth.NotSignedIn):
+        t.post("https://strat.example", svxml.connect())
 
 
-def test_a_token_that_cannot_be_renewed_after_a_refusal_goes_to_the_browser_route():
-    t, fb, sent = _bearer(_Tokens("at-1", oauth.NotSignedIn("ended")), GATE_401)
-    assert "browser" in t.post("https://strat.example", svxml.connect())
-    assert len(sent) == 1 and len(fb.sent) == 1
+def test_a_sign_in_that_ends_after_a_refusal_reaches_the_caller_as_it_is():
+    t, sent = _bearer(_Tokens("at-1", oauth.NotSignedIn("ended")), GATE_401)
+    with pytest.raises(oauth.NotSignedIn):
+        t.post("https://strat.example", svxml.connect())
+    assert len(sent) == 1
+
+
+@pytest.mark.parametrize("tokens, send, msg", [
+    (_Tokens(oauth.OAuthError("the identity domain did not answer")), lambda *a: OK_XML, "identity domain"),
+    (_Tokens("at-1", "at-2"), lambda *a: GATE_401, "refused the access token"),
+    (_Tokens("at-1", scopes=()), lambda *a: OK_XML, "no OAuth scope is configured"),
+    (_Tokens("at-1", oauth.OAuthError("another query is still renewing")), lambda *a: GATE_401, "still renewing")])
+def test_everything_else_is_an_svhttp_error(tokens, send, msg):
+    with pytest.raises(svhttp.SvHttpError, match=msg) as e:
+        svhttp.BearerTransport(tokens=tokens, send=send).post("https://strat.example", svxml.connect())
+    assert not isinstance(e.value, svhttp.RequestLost)             # never retried as a lost request
+
+
+def test_a_pod_without_a_scope_says_where_to_add_it():
+    with pytest.raises(svhttp.SvHttpError) as e:
+        svhttp.BearerTransport(tokens=_Tokens("at-1", scopes=())).post("https://plan1.example/", svxml.connect())
+    assert str(e.value) == ("no OAuth scope is configured for https://plan1.example: add it under [oauth.scopes] in "
+                            "config.toml")
 
 
 @pytest.mark.parametrize("answer_", [TimeoutError("timed out"), ConnectionResetError("reset"),
                                      (502, "<html>Bad Gateway</html>")])
 def test_a_request_that_may_have_reached_epm_is_lost_not_sent_again(answer_):
-    t, fb, sent = _bearer(_Tokens("at-1"), answer_)
+    t, sent = _bearer(_Tokens("at-1"), answer_)
     with pytest.raises(svhttp.RequestLost):
         t.post("https://strat.example", svxml.connect())
-    assert len(sent) == 1 and fb.sent == []
+    assert len(sent) == 1
 
 
 def test_bearer_accepts_a_provider_answer_with_any_http_status():
-    t, fb, sent = _bearer(_Tokens("at-1"), (500, EXPIRED))
-    assert t.post("https://strat.example", svxml.connect()) == EXPIRED and fb.sent == []
+    t, sent = _bearer(_Tokens("at-1"), (500, EXPIRED))
+    assert t.post("https://strat.example", svxml.connect()) == EXPIRED
 
 
 def test_a_grid_over_the_bearer_route_is_the_same_contract(db_path):
     fake = FakeTransport(answer(GRID))
-    t = svhttp.BearerTransport(_Fallback(), tokens=_Tokens("at-1"),
-                               send=lambda base, body, token: (200, fake.post(base, body)))
+    t = svhttp.BearerTransport(tokens=_Tokens("at-1"), send=lambda base, body, token: (200, fake.post(base, body)))
     lay, parsed, _ = _q(_sv(t, db_path))
-    assert [r[1:] for r in parsed.rows] == [[100.0, 110.0], [50.0, None]] and t.fallback.sent == []
+    assert [r[1:] for r in parsed.rows] == [[100.0, 110.0], [50.0, None]]
     assert fake.tags() == ["GetProvisionedDataSources", "ConnectToProvider", "OpenApplication", "OpenCube", "ExecuteGrid"]
 
 
-def test_the_shared_route_is_bearer_in_front_of_the_browser(monkeypatch):
+def test_the_shared_route_is_the_bearer_alone(monkeypatch):
     monkeypatch.setattr(svhttp, "_shared", None)
     sv = svhttp.shared()
-    assert isinstance(sv.t, svhttp.BearerTransport) and isinstance(sv.t.fallback, svhttp.BrowserTransport)
-    assert sv.t._tokens is oauth
+    assert isinstance(sv.t, svhttp.BearerTransport) and sv.t._tokens is oauth and not hasattr(sv.t, "fallback")
+    assert not hasattr(config, "SVHTTP_BEARER_RETRY_S")
+
+
+def test_not_signed_in_is_not_swallowed_into_the_excel_fallback(db_path):
+    """run_prepare with a provider whose transport raises NotSignedIn raises NotSignedIn (no 'routes: excel')."""
+    from smartass import pipeline
+    from smartass.data.provider import SvHttpProvider
+    t = svhttp.BearerTransport(tokens=_Tokens(oauth.NotSignedIn("x")), send=lambda *a: OK_XML)
+    with pytest.raises(oauth.NotSignedIn):
+        pipeline.run_prepare({}, SvHttpProvider(_sv(t, db_path)))
 
 
 def test_bearer_sends_the_token_and_keeps_one_cookie_jar_per_pod(monkeypatch):
@@ -984,7 +979,7 @@ def test_bearer_sends_the_token_and_keeps_one_cookie_jar_per_pod(monkeypatch):
             self.status = status
     built = []
     monkeypatch.setattr(svhttp.urllib.request, "build_opener", lambda *h: built.append(h) or Opener(len(built)))
-    t = svhttp.BearerTransport(_Fallback(), tokens=_Tokens("at-1"))
+    t = svhttp.BearerTransport(tokens=_Tokens("at-1"))
     assert t._https("https://strat.example", svxml.connect(), "at-1")[0] == 200
     assert t._https("https://strat.example", svxml.provisioned_data_sources(), "at-1") == (401, "<html>401</html>")
     t._https("https://plan1.example", svxml.connect(), "at-1")

@@ -146,3 +146,41 @@ def test_login_dialog_message_asks_the_user_not_the_agent(monkeypatch):
     with pytest.raises(HostError) as e:
         login.wait_login_cleared(1, limit=0.01)
     assert "Ask the user" in str(e.value) and "PowerPoint" in str(e.value)
+
+
+def test_a_missing_sign_in_becomes_the_sign_in_message(monkeypatch, tmp_path, caplog):          # Review Focus 4
+    import asyncio
+    import json
+
+    from smartass.core import config
+    from smartass.epm import oauth
+    monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
+    monkeypatch.setattr(oauth, "sign_in_message", lambda: "EPM sign-in needed. Open https://idcs.example/ui and enter "
+                        "the code ABCD (plan1.example, valid 5 min), approve with Telenor SSO, then ask again.")
+
+    async def fin_analyze():
+        raise oauth.NotSignedIn("not signed in to https://plan1.example: run 'smartass login'")
+    with caplog.at_level("DEBUG"), pytest.raises(ToolError) as e:
+        asyncio.run(server.guard(fin_analyze)())
+    assert str(e.value).startswith("EPM sign-in needed.") and "Next step" not in str(e.value) and "code ABCD" in str(e.value)
+    assert not [r for r in caplog.records if r.exc_info]                          # no traceback logged
+    line = json.loads((tmp_path / "runs.jsonl").read_text(encoding="utf-8"))      # in the run log like any failure
+    assert line["tool"] == "fin_analyze" and line["ok"] is False and "not signed in" in line["error"]
+    assert "ABCD" not in line["error"]
+
+
+def test_without_a_sign_in_message_the_error_itself_is_the_reply(monkeypatch):
+    import asyncio
+
+    from smartass.epm import oauth
+
+    def broken():
+        raise RuntimeError("status unreadable")
+    for message in (lambda: None, broken):
+        monkeypatch.setattr(oauth, "sign_in_message", message)
+
+        async def fin_lookup():
+            raise oauth.NotSignedIn("not signed in to https://plan1.example: run 'smartass login'")
+        with pytest.raises(ToolError) as e:
+            asyncio.run(server.guard(fin_lookup)())
+        assert str(e.value) == "not signed in to https://plan1.example: run 'smartass login'"

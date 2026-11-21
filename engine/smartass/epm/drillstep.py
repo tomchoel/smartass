@@ -12,7 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from ..core import config
 from . import ops
-from . import drilltime
+from . import drilltime, oauth
 
 log = logging.getLogger("smartview")
 SOURCE = "Kilde: Data Integration drill-through (FinLite)."
@@ -288,7 +288,7 @@ async def _link(connection: str, cell: dict) -> dict:
         try:
             with drilltime.span("http drill link"):
                 return await asyncio.to_thread(_http_link, connection, cell)
-        except InputError:
+        except (InputError, oauth.NotSignedIn):          # a missing sign-in is answered with the code, not Excel
             raise
         except Exception as e:   # noqa: BLE001 - SvHttpError or anything else: the Excel route answers
             log.warning("drill link: HTTP failed (%s); using Smart View in Excel", e)
@@ -447,6 +447,8 @@ async def _child_values(connection: str, parts: list[dict]) -> list | None:
     if not _http_off():
         try:
             return await asyncio.to_thread(lambda: svhttp.shared().child_values(connection, parts))
+        except oauth.NotSignedIn:                       # answered with the sign-in code, not Excel
+            raise
         except Exception as e:   # noqa: BLE001 - fall back to Smart View in Excel
             log.warning("split values: HTTP failed (%s); using Smart View in Excel", e)
     try:

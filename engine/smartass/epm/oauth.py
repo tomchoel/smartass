@@ -12,6 +12,9 @@ What the code rests on (Oracle's page and the spike):
   servers run at once);
 - the user signs in in their own browser (Telenor SSO); smartass never sees a password.
 
+A tool call that meets NotSignedIn answers with sign_in_message(): the page and a code per pod (pending_logins starts
+the device login and finishes it in the background), so nothing waits for a browser.
+
 Off until config.toml has [oauth] idcs, client_id and [oauth.scopes] (pod base URL = scope). Tokens are
 DPAPI-protected files under HOME\\oauth (this Windows user) and are never logged or returned by status()."""
 from __future__ import annotations
@@ -19,6 +22,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import math
 import threading
 import time
 import urllib.error
@@ -28,6 +32,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from ..core import config
+from . import drillcore
 
 log = logging.getLogger(__name__)
 
@@ -44,11 +49,12 @@ _tlocks_guard = threading.Lock()
 
 
 class OAuthError(Exception):
-    """The bearer route cannot authenticate right now; the caller uses the browser route."""
+    """The bearer route cannot authenticate right now (svhttp.BearerTransport makes it an SvHttpError)."""
 
 
 class NotSignedIn(OAuthError):
-    """This pod has no usable sign-in: `smartass login` is needed."""
+    """This pod has no usable sign-in. It reaches the tool call as it is, which answers with sign_in_message() (the
+    page and a code); `smartass login` does the same in a terminal."""
 
 
 def origin(base: str) -> str:
@@ -287,6 +293,72 @@ def finish_login(base: str, device: dict, sleep=time.sleep, clock=time.monotonic
         elif j.get("error") != "authorization_pending":
             raise OAuthError(f"the sign-in was refused ({_why(status, j)})")
     raise OAuthError("the sign-in code ended before it was approved")
+
+
+# ---------------------------------------------------------------- sign-in from the tool call
+_pending: dict[str, tuple[dict, float]] = {}      # pod -> (device answer, its end as time.monotonic()); this process
+_pending_lock = threading.Lock()
+
+
+def pending_logins() -> list[dict]:
+    """For every configured pod that is not signed in: the sign-in the user has to approve, {pod, verification_uri,
+    user_code, minutes_left} - a device login started here (start_login) and finished in a daemon thread
+    (finish_login), or the one started earlier until it ends, so a second tool call shows the same code. A
+    pod whose login could not be started is {pod, error} instead. Empty when every pod is signed in. The device code
+    (what the thread polls with) never leaves this module."""
+    out = []
+    with _pending_lock:                     # held across check and start: two tool calls at once get one code
+        for s in status():
+            pod = s["pod"]
+            if s["state"] == "signed_in":
+                continue
+            device, deadline = _pending.get(pod, (None, 0.0))
+            if device is None or deadline <= time.monotonic():
+                try:
+                    device = start_login(pod)
+                except OAuthError as e:                 # the identity domain's own words: no URL query in a reply
+                    out.append({"pod": pod, "error": drillcore.redact(str(e))})
+                    continue
+                deadline = time.monotonic() + int(device.get("expires_in") or 300)
+                _pending[pod] = (device, deadline)
+                _finish_in_background(pod, device)
+            page = urlsplit(device["verification_uri"])._replace(query="", fragment="").geturl()
+            out.append({"pod": pod, "verification_uri": page, "user_code": device["user_code"],
+                        "minutes_left": max(1, math.ceil((deadline - time.monotonic()) / 60))})
+    return out
+
+
+def _finish_in_background(pod: str, device: dict) -> threading.Thread:
+    """finish_login in a daemon thread; when it ends (approved, refused or timed out) the pod's pending code is
+    dropped - unless a newer one has replaced it - so the next tool call either works or gets a new code."""
+    def run():
+        try:
+            finish_login(pod, device)
+            log.info("oauth: signed in to %s from a tool call's code", pod)
+        except Exception as e:   # noqa: BLE001 - a daemon thread: the next tool call says what is needed
+            log.warning("oauth: the sign-in to %s did not complete (%s)", pod, str(e)[:200])
+        finally:
+            with _pending_lock:
+                if _pending.get(pod, (None,))[0] is device:
+                    _pending.pop(pod, None)
+    t = threading.Thread(target=run, daemon=True, name="oauth-sign-in")
+    t.start()
+    return t
+
+
+def sign_in_message() -> str | None:
+    """What a tool call that met NotSignedIn answers: one sentence per pod with the page and the code to enter (or why
+    no code could be had); None when every pod is signed in."""
+    said = []
+    for p in pending_logins():
+        host = urlsplit(p["pod"]).hostname or p["pod"]
+        if "error" in p:
+            said.append(f"EPM sign-in needed for {host}, but it could not be started ({p['error']}); "
+                        "run `smartass login` in a terminal to see more.")
+        else:
+            said.append(f"EPM sign-in needed. Open {p['verification_uri']} and enter the code {p['user_code']} "
+                        f"({host}, valid {p['minutes_left']} min), approve with Telenor SSO, then ask again.")
+    return " ".join(said) or None
 
 
 def forget(base: str) -> bool:

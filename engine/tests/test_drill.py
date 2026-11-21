@@ -1330,6 +1330,41 @@ def test_drill_link_falls_back_to_excel_and_logs(monkeypatch, caplog):
     assert "using Smart View in Excel" in caplog.text
 
 
+def test_a_drill_link_without_a_sign_in_is_raised_not_sent_to_excel(monkeypatch):     # Review Focus 4
+    import asyncio
+    from smartass.epm import oauth
+    from smartass.epm import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+
+    def not_signed_in(*a):
+        raise oauth.NotSignedIn("not signed in to https://plan1.example: run `smartass login`")
+    monkeypatch.setattr(server, "_http_link", not_signed_in)
+
+    async def no_excel(fn, what="call"):
+        raise AssertionError("Excel was used")
+    monkeypatch.setattr(server, "_call", no_excel)
+    with pytest.raises(oauth.NotSignedIn):
+        asyncio.run(server._link("FinLite", _CELL))
+
+
+def test_split_values_without_a_sign_in_are_raised_not_sent_to_excel(monkeypatch):
+    import asyncio
+    from smartass.epm import oauth, svhttp
+    from smartass.epm import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+
+    class NoSignIn:
+        def child_values(self, *a):
+            raise oauth.NotSignedIn("not signed in")
+    monkeypatch.setattr(svhttp, "shared", NoSignIn)
+
+    async def no_excel(fn, what="call"):
+        raise AssertionError("Excel was used")
+    monkeypatch.setattr(server, "_call", no_excel)
+    with pytest.raises(oauth.NotSignedIn):
+        asyncio.run(server._child_values("FinLite", [_CELL, {**_CELL, "All Time Periods": "Aug 26"}]))
+
+
 def test_drill_fetch_direct_first_then_pages(monkeypatch, caplog):
     import asyncio
     from smartass.core import config
