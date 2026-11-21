@@ -64,11 +64,13 @@ The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs
         missing key.
     mentions(workbook, texts, skip): every formula of the workbook that mentions one of the texts (case ignored), as
         rows [kind, where, ref, formula], for a follow-up's re-pointing (xl/repoint.py). Per worksheet not in skip,
-        in order: its cells - the used range's Formula2 read in chunks of rows of at most runner.CHUNK_CELLS cells
-        (memory stays bounded), and only the chunks that hold a formula (SpecialCells(xlCellTypeFormulas) once per
-        sheet, Intersect per chunk: a used range stretched to the last row by a stray format costs one cheap call
-        per chunk; a sheet without a formula is done after the SpecialCells); a protected sheet (ProtectContents)
-        refuses SpecialCells, so every chunk of it is read. No Range.Find: it would leave its options as the Find
+        in order: its cells - the used range halved, its longer side first, until a block holds at most
+        runner.CHUNK_CELLS cells (memory stays bounded), and only the blocks that hold a formula
+        (SpecialCells(xlCellTypeFormulas) once per sheet, Intersect per block) halved further and read with
+        Formula2, the rows in the sheet's order: a used range stretched to the last row and column by a stray format
+        costs a few dozen steps; a sheet without a formula is done after the SpecialCells; a protected sheet
+        (ProtectContents) refuses SpecialCells, so every block of it is read. A sheet that would take more than
+        runner.SCAN_STEPS steps (a test or a read of a block) is "unread" (runner.TOO_LARGE). No Range.Find: it would leave its options as the Find
         dialog's, it skips filtered rows and it cannot see a hidden formula. Each cell that holds a real formula
         (HasFormula) and mentions a text is a row ["cell", sheet, "B5", Formula2], a legacy array once ["array",
         sheet, "D1:D3", FormulaArray]; a sheet whose formulas cannot be read (a protected sheet with a hidden

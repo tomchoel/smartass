@@ -1509,10 +1509,12 @@ def _pointing_problems(wb, refs: dict, q2: bool = True) -> list[str]:
 
 def repoint_bench(xl: Excel) -> None:
     """(Review ruling 2) A follow-up of Q1 with 500 cells pointing at it, against one with none, through both
-    executors: the draw's seconds and the close-out's (its writes run with Calculation manual)."""
+    executors: the draw's seconds and the close-out's (its writes run with Calculation manual). Then (phase 3c Task 3)
+    the 500 cells on a sheet whose used range reaches the last row and the last column (a stray format in
+    XFD1048576): the look for them is halved by cells, so the draw costs about the same."""
     pres = _pres()
     for side, inproc in (("com", False), ("inproc", True)):
-        for count in (0, 500):
+        for count, wide in ((0, False), (500, False), (500, True)):
             wb = xl.fresh(f"bench_{side}_{count}", ("Sources",))
             seams = {(pipeline, "_target"): _target_of(xl, wb), (pipeline, "_save"): lambda job: None,
                      (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
@@ -1524,15 +1526,18 @@ def repoint_bench(xl: Excel) -> None:
                     s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
                     s.Name = "Summary"
                     s.Range(f"A1:A{count}").Formula2 = f"='Q1 Data'!{cell}"
+                    if wide:
+                        s.Range("XFD1048576").Interior.Color = 255          # the used range to the last cell
                 out, timings = pipeline.with_timings(
                     lambda h: pipeline.redraw_job(h, pres[2][2], 1, "this workbook"))(None)
                 left = [] if not count else [a for a, (f,) in enumerate(s.Range(f"A1:A{count}").Formula2, 1)
                                              if f != f"='Q1 Data'!{cell}"]
-            info(f"re-pointing bench ({side}): a follow-up with {count} pointing cells: draw "
+            where = " on a sheet whose used range reaches XFD1048576" if wide else ""
+            info(f"re-pointing bench ({side}): a follow-up with {count} pointing cells{where}: draw "
                  f"{timings.get('draw', 0):.2f} s, close out {timings.get('draw.close out', 0):.2f} s"
                  + (f"; {len(left)} not re-pointed" if left else ""))
             if count:
-                check(f"re-pointing bench ({side}): all {count} cells re-pointed", not left)
+                check(f"re-pointing bench ({side}): all {count} cells re-pointed{where}", not left)
             xl.close(wb)
 
 

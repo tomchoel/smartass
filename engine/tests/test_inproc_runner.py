@@ -464,10 +464,10 @@ def test_mentions_gives_every_formula_that_names_one_of_the_texts_outside_the_sk
                         ("name", "TotalQ", "3", "='old Q1 Answer'!$E$12"))     # its index: after _tnStylesVer, Budget
 
 
-def test_mentions_reads_the_formulas_in_chunks_only_where_there_is_a_formula_and_never_uses_find(book, monkeypatch):
-    """Review ruling 1: no Range.Find (it leaves its options as the Find dialog's). The used range is read in chunks of
-    rows of at most CHUNK_CELLS cells, and only the chunks Intersect finds a formula in; a protected sheet (no
-    SpecialCells there) is read chunk by chunk."""
+def test_mentions_reads_the_formulas_in_blocks_only_where_there_is_a_formula_and_never_uses_find(book, monkeypatch):
+    """Review ruling 1: no Range.Find (it leaves its options as the Find dialog's). The used range is halved, its
+    longer side first, until a block holds at most CHUNK_CELLS cells, and only the blocks Intersect finds a formula
+    in are halved further and read; a protected sheet (no SpecialCells there) is read block by block."""
     app, _ = book
     _mentions_book(app)
     reads = []
@@ -486,11 +486,87 @@ def test_mentions_reads_the_formulas_in_chunks_only_where_there_is_a_formula_and
         raise AssertionError("Range.Find is never used")
     monkeypatch.setattr(Range, "__getattr__", get)
     monkeypatch.setattr(Range, "Find", find, raising=False)
-    monkeypatch.setattr(runner, "CHUNK_CELLS", 60)                # Far's used range is A1:B300: 30 rows a chunk
+    monkeypatch.setattr(runner, "CHUNK_CELLS", 60)                # Far's used range is A1:B300: 18-19 rows a block
     _mentions(app)
     far = [rows for name, rows in reads if name == "Far"]
-    assert far == [(1, 30), (271, 300)]                          # the chunks between hold no formula: not read
+    assert far == [(1, 18), (282, 300)]                          # the blocks between hold no formula: not read
     assert [rows for name, rows in reads if name == "Plain"] == []          # one cell: read as a value, not counted
+
+
+class _Sparse:
+    """SpecialCells and Intersect of the fake Excel over the cells that hold something (the fake's own walk every cell
+    of a range: a used range to the last row and column has 17 billion), and a count of the scan's calls."""
+
+    def __init__(self, monkeypatch):
+        from fakexl import Range
+        self.calls = {"Intersect": 0}                  # and "Formula2 <sheet>": the reads of each sheet
+        real_special, real_get = Range.SpecialCells, Range.__getattr__
+        sparse = self
+
+        def special(rng, kind, *a):
+            if kind != -4123:
+                return real_special(rng, kind, *a)
+            hits = [(r, c, r, c) for (r, c), p in sorted(rng.ws.cells.items())
+                    if isinstance(p.get("Value"), str) and p["Value"].startswith("=") and _inside(rng, r, c)]
+            if not hits:
+                raise fakexl.ComError("No cells were found.")
+            return Range(rng.ws, hits)
+
+        def intersect(app, a, b):
+            sparse.calls["Intersect"] += 1
+            both = [x for x in a.rects if _inside(b, x[0], x[1])]
+            return Range(a.ws, both) if both else None
+
+        def get(rng, k):
+            if k == "Formula2":
+                key = f"Formula2 {rng.ws.Name}"
+                sparse.calls[key] = sparse.calls.get(key, 0) + 1
+            return real_get(rng, k)
+        monkeypatch.setattr(Range, "SpecialCells", special)
+        monkeypatch.setattr(fakexl.Application, "Intersect", intersect)
+        monkeypatch.setattr(Range, "__getattr__", get)
+
+
+def _inside(rng, r: int, c: int) -> bool:
+    return any(r1 <= r <= r2 and c1 <= c <= c2 for r1, c1, r2, c2 in rng.rects)
+
+
+def test_a_used_range_to_the_last_row_and_column_costs_a_bounded_scan(book, monkeypatch):
+    """Phase 3b review: a stray format in XFD1048576 stretched a sheet's used range to 17 billion cells, and the scan
+    by rows (6 rows a chunk) cost ~175 000 Intersect calls. Halving by cells finds the two formulas in a few dozen
+    steps, in the order of the sheet."""
+    app, _ = book
+    wb = _mentions_book(app)
+    far = wb.Worksheets("Far")
+    far.cells[(fakexl.MAXR, fakexl.MAXC)] = {"Font.Bold": True}            # the stray format
+    far.cells[(1_000_000, 16_000)] = {"Value": "='old Q1 Answer'!A1"}
+    sparse = _Sparse(monkeypatch)
+    rows = _mentions(app)
+    assert [r for r in rows if r[1] == "Far"] == [("cell", "Far", "B300", "='old Q1 Answer'!E12*2"),
+                                                  ("cell", "Far", "WQJ1000000", "='old Q1 Answer'!A1")]
+    assert sparse.calls["Intersect"] < 200 and sparse.calls["Formula2 Far"] <= 3      # A1, B300 and WQJ1000000
+
+
+def test_a_sheet_too_large_to_scan_is_unread_and_says_why(book, monkeypatch):
+    """A protected sheet has no SpecialCells to tell where its formulas are: one whose used range would take more
+    than SCAN_STEPS blocks is not read at all, and says so (the follow-up's warning), as a sheet whose formulas are
+    spread too wide for SCAN_STEPS is."""
+    app, _ = book
+    wb = _mentions_book(app)
+    locked = wb.Worksheets("Locked")
+    locked.hidden = set()
+    locked.cells[(fakexl.MAXR, fakexl.MAXC)] = {"Font.Bold": True}
+    sparse = _Sparse(monkeypatch)
+    monkeypatch.setattr(runner, "SCAN_STEPS", 40)
+    far = wb.Worksheets("Far")
+    for r in range(1, 300, 3):                                              # formulas in every block
+        far.cells[(r, 1)] = {"Value": f"=A{r + 1}"}
+    monkeypatch.setattr(runner, "CHUNK_CELLS", 4)
+    rows = _mentions(app)
+    unread = {r[1]: r[3] for r in rows if r[0] == "unread"}
+    assert set(unread) == {"Locked", "Far"} and all(runner.TOO_LARGE.split("{")[0] in m for m in unread.values())
+    assert not [r for r in rows if r[1] == "Locked" and r[0] != "unread"]
+    assert "Formula2 Locked" not in sparse.calls and sparse.calls["Formula2 Far"] < 40
 
 
 def test_mentions_skips_a_chart_it_cannot_read_and_goes_on(book):

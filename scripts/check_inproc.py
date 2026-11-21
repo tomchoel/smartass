@@ -1005,13 +1005,15 @@ def _mentions_workbook(raw):
     """A workbook after a follow-up's park, pointing at the parked sheets in every way the verb looks: on Summary a
     cell, a table, a dynamic array, a legacy array, text written with an apostrophe (no formula), a string literal,
     a hidden row, a chart; a sheet whose only mention sits in a filtered row, a protected one with a hidden formula
-    (unreadable) and a visible one, the only mentions in a hidden row and a hidden column, a very hidden sheet, a
-    sheet without any, a sheet of values only and an empty one (SpecialCells finds no formula there: none, not
-    "unread"), a chart sheet and a defined name; the parked and new sheets themselves are skipped."""
+    (unreadable) and a visible one, the only mentions in a hidden row and a hidden column, a sheet whose used range
+    reaches the last row and one that reaches the last row and the last column (a stray format), a protected one
+    that does (too large to scan: "unread"), a very hidden sheet, a sheet without any, a sheet of values only and an
+    empty one (SpecialCells finds no formula there: none, not "unread"), a chart sheet and a defined name; the parked
+    and new sheets themselves are skipped."""
     wb = raw.Workbooks.Add()
     wb.Worksheets(1).Name = "Summary"
     for n in ["old Q1 Answer", "old Q1 Data", "Q1 Answer", "Q1 Data", "Filtered", "Locked", "Plain", "Hidden",
-              "Far", "VeryHidden", "Probe", "Values", "Empty"]:
+              "Far", "Wide", "Wide Locked", "VeryHidden", "Probe", "Values", "Empty"]:
         wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count)).Name = n
     old = wb.Worksheets("old Q1 Answer")
     old.Range("E12").Value2 = 42
@@ -1049,6 +1051,15 @@ def _mentions_workbook(raw):
     far.Range("A1:J30").Formula2 = "=ROW()"
     far.Range("C1048000").Formula2 = "='old Q1 Answer'!E12*3"
     far.Range("J1048576").Interior.Color = 255          # the used range reaches the last row
+    wide = wb.Worksheets("Wide")
+    wide.Range("A1:J30").Formula2 = "=ROW()"
+    wide.Range("B5").Formula2 = "='old Q1 Answer'!E12*4"
+    wide.Range("WQJ1000000").Formula2 = "='old Q1 Answer'!E12*5"
+    wide.Range("XFD1048576").Interior.Color = 255       # the used range reaches the last row and the last column
+    wl = wb.Worksheets("Wide Locked")
+    wl.Range("C3").Formula2 = "='old Q1 Answer'!E12*6"
+    wl.Range("XFD1048576").Interior.Color = 255
+    wl.Protect()                                        # no SpecialCells: too large to read block by block
     vh = wb.Worksheets("VeryHidden")
     vh.Range("D4").Formula2 = "='old Q1 Answer'!A2"
     vh.Visible = 2
@@ -1064,7 +1075,8 @@ def _mentions_workbook(raw):
 def mentions_check(app, raw) -> None:
     """Task 3: the verb mentions through both executors on one workbook (it only reads): the same rows, the rows
     Excel gives (a protected sheet whose only mention is a hidden formula: "unread"; a mention far down a used range
-    that reaches the last row), the workbook unchanged, and the user's Find dialog settings (values, whole, by
+    that reaches the last row, and far right of one that reaches the last column too - halved by cells, phase 3c
+    Task 3; a protected sheet that large: "unread", too large to scan), the workbook unchanged, and the user's Find dialog settings (values, whole, by
     columns) as they were: no Range.Find (review ruling 1)."""
     print()
     wb = _mentions_workbook(raw)
@@ -1083,10 +1095,13 @@ def mentions_check(app, raw) -> None:
                 ("cell", "Hidden", "E2", "=Data_Q1_old[[#Headers],[Value]]"),
                 ("cell", "Hidden", "C7", "='old Q1 Answer'!E12"),
                 ("cell", "Far", "C1048000", "='old Q1 Answer'!E12*3"),
+                ("cell", "Wide", "B5", "='old Q1 Answer'!E12*4"),
+                ("cell", "Wide", "WQJ1000000", "='old Q1 Answer'!E12*5"),
+                ("unread", "Wide Locked", "", "*"),
                 ("cell", "VeryHidden", "D4", "='old Q1 Answer'!A2"),
                 ("chart", "Chart Q", "1", SERIES_OLD),
                 ("name", "TotalQ", str(index), "='old Q1 Answer'!$E$12")]
-        before = sheet_picture(wb, ("Far", "Probe"))
+        before = sheet_picture(wb, ("Far", "Wide", "Wide Locked", "Probe"))
         got, ms = {}, {}
         for executor in ("com", "inproc"):
             config.INPROC = executor == "inproc"
@@ -1111,7 +1126,7 @@ def mentions_check(app, raw) -> None:
         check("the verb mentions leaves the user's Find dialog as it was (values, whole, by columns)",
               got["com"][2] == got["inproc"][2] == user_find != ("$A$3", "$A$1", "$B$1"),
               f"{got['com'][2]} / {got['inproc'][2]}, before {user_find}")
-        check("the verb mentions only reads", before == sheet_picture(wb, ("Far", "Probe")))
+        check("the verb mentions only reads", before == sheet_picture(wb, ("Far", "Wide", "Wide Locked", "Probe")))
         check("the verb mentions: a sheet of values and an empty sheet have no formula, not an unread one",
               all(not [r for r in rows if r[1] in ("Values", "Empty")] for _, rows, _ in got.values()))
     finally:
@@ -1122,15 +1137,17 @@ def mentions_check(app, raw) -> None:
 def _bench_book(raw, kind: str):
     """(Review ruling 1) a workbook where nothing mentions the answer: "normal" - 10 sheets of 500 formulas; "large" -
     60 sheets, 260 000 formulas (59 of 1 000, one of 201 000); "tall" - one sheet of 300 formulas whose used range
-    reaches row 1 048 576 (a stray format)."""
+    reaches row 1 048 576 (a stray format); "wide" - one whose used range reaches the last row and the last column."""
     wb = raw.Workbooks.Add()
     first = wb.Worksheets(1)
     if kind == "normal":
         sizes = [("A1:J50", None)] * 10
     elif kind == "large":
         sizes = [("A1:J100", None)] * 59 + [("A1:T10050", None)]
-    else:
+    elif kind == "tall":
         sizes = [("A1:J30", "J1048576")]
+    else:
+        sizes = [("A1:J30", "XFD1048576")]
     for i, (rng, stray) in enumerate(sizes):
         ws = first if i == 0 else wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
         ws.Range(rng).Formula2 = "=ROW()+COLUMN()"
@@ -1141,11 +1158,13 @@ def _bench_book(raw, kind: str):
 
 def repoint_bench(app, raw) -> None:
     """Task 3 (--repoint-bench, review ruling 1): what a follow-up's look for formulas costs when nothing mentions
-    the answer, in a normal workbook, a large one and one with a used range to the last row, in both executors
-    (in-process median of 3, over COM one run)."""
+    the answer, in a normal workbook, a large one, one with a used range to the last row and one with a used range to
+    the last row and the last column (phase 3c Task 3), in both executors (in-process median of 3, over COM one
+    run)."""
     print()
     for kind, label in (("normal", "10 sheets, 5 000 formulas"), ("large", "60 sheets, 260 000 formulas"),
-                        ("tall", "a used range to row 1 048 576, 300 formulas")):
+                        ("tall", "a used range to row 1 048 576, 300 formulas"),
+                        ("wide", "a used range to XFD1048576, 300 formulas")):
         wb = _bench_book(raw, kind)
         name = str(wb.Name)
         try:

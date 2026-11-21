@@ -82,6 +82,8 @@ TAKEN = "taken: "                        # how the verb exist's refusal ends: th
 XL_FORMULAS = -4123                      # xlCellTypeFormulas (the verb mentions' SpecialCells)
 XL_LAST_CELL = 11                        # xlCellTypeLastCell: SpecialCells answers on a sheet, or refuses it
 CHUNK_CELLS = 100_000                    # the verb mentions reads a sheet's formulas at most this many cells at once
+SCAN_STEPS = 2_000                       # ... and takes at most this many steps on one sheet (a test or a read of a block)
+TOO_LARGE = "its used range of {} cells is too large to scan"
 METHOD_OR_GET = pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET
 
 
@@ -878,13 +880,16 @@ def _mentions(workbook, texts, skip):
 
 
 def _cells(ws, name: str, says, rows: list) -> None:
-    """mentions on one worksheet's cells: the used range's formulas read in chunks of rows of at most CHUNK_CELLS
-    cells, and of those only the chunks that hold a formula (SpecialCells(xlCellTypeFormulas) once, Intersect per
-    chunk). SpecialCells raises on a sheet without a formula with the code of any other refusal and a text in Excel's
-    language: the sheet is done only when SpecialCells answers there at all (its last cell, one cheap call; not
-    UsedRange.HasFormula, which took 14 s on a used range to the last row); a refusal is the caller's "unread". A
-    protected sheet refuses SpecialCells: every chunk is read, and a hidden formula makes the read fail (the caller's
-    "unread")."""
+    """mentions on one worksheet's cells (batch.py's module docstring): the used range halved, its longer side
+    first, until a block holds at most CHUNK_CELLS cells, and of those blocks only the ones that hold a formula
+    (SpecialCells(xlCellTypeFormulas) once, Intersect per block: a block without one is never halved further) read
+    with Formula2; the rows in the sheet's order. So a used range stretched to the last row and column by a stray
+    format costs a few dozen steps, not a step per few rows. SpecialCells raises on a sheet without a formula with the
+    code of any other refusal and a text in Excel's language: the sheet is done only when SpecialCells answers there
+    at all (its last cell, one cheap call; not UsedRange.HasFormula, which took 14 s on a used range to the last row);
+    a refusal is the caller's "unread". A protected sheet refuses SpecialCells: every block is read, and a hidden
+    formula makes the read fail (the caller's "unread"). A sheet that would take more than SCAN_STEPS steps (a test
+    or a read of a block) is not scanned further: TOO_LARGE, the caller's "unread"."""
     used = ws.UsedRange
     r0, c0 = int(used.Row), int(used.Column)
     nr, nc = int(used.Rows.Count), int(used.Columns.Count)
@@ -900,32 +905,53 @@ def _cells(ws, name: str, says, rows: list) -> None:
                 _readable(e2)
                 raise e from None
             return
+    elif nr * nc > CHUNK_CELLS * SCAN_STEPS:            # every block would be read: too many, said at once
+        raise _Failed(TOO_LARGE.format(nr * nc))
     app = ws.Application
-    step = max(1, CHUNK_CELLS // nc)
+    hits: list[tuple[int, int, list]] = []
     arrays: set[str] = set()
-    for top in range(r0, r0 + nr, step):
-        bottom = min(top + step, r0 + nr) - 1
-        chunk = _call(ws, "Range", [_call(ws, "Cells", [top, c0]), _call(ws, "Cells", [bottom, c0 + nc - 1])])
-        if formulas is not None and _call(app, "Intersect", [formulas, chunk]) is None:
+    todo = [(r0, c0, nr, nc)]
+    steps = 0
+    while todo:
+        top, left, h, w = todo.pop()
+        leaf = h * w <= CHUNK_CELLS
+        if formulas is not None or leaf:
+            steps += 1
+            if steps > SCAN_STEPS:
+                raise _Failed(TOO_LARGE.format(nr * nc))
+            block = _call(ws, "Range", [_call(ws, "Cells", [top, left]),
+                                        _call(ws, "Cells", [top + h - 1, left + w - 1])])
+            if formulas is not None and _call(app, "Intersect", [formulas, block]) is None:
+                continue
+        if not leaf:                                    # halved, its longer side; the first half next
+            if h >= w:
+                half = h // 2
+                todo += [(top + half, left, h - half, w), (top, left, half, w)]
+            else:
+                half = w // 2
+                todo += [(top, left + half, h, w - half), (top, left, h, half)]
             continue
-        grid = chunk.Formula2
+        grid = block.Formula2
         if not isinstance(grid, tuple):
             grid = ((grid,),)
         for i, line in enumerate(grid):
             for j, v in enumerate(line):
                 if not says(v):
                     continue
-                cell = _call(ws, "Cells", [top + i, c0 + j])
+                cell = _call(ws, "Cells", [top + i, left + j])
                 if not cell.HasFormula:                   # text written with an apostrophe reads like a formula
                     continue
                 if cell.HasArray:
                     arr = cell.CurrentArray
-                    ref = _area(int(arr.Row), int(arr.Column), int(arr.Rows.Count), int(arr.Columns.Count))
+                    r, c = int(arr.Row), int(arr.Column)
+                    ref = _area(r, c, int(arr.Rows.Count), int(arr.Columns.Count))
                     if ref not in arrays:
                         arrays.add(ref)
-                        rows.append(["array", name, ref, str(arr.FormulaArray)])
+                        hits.append((r, c, ["array", name, ref, str(arr.FormulaArray)]))
                 else:
-                    rows.append(["cell", name, _area(top + i, c0 + j), v])
+                    hits.append((top + i, left + j, ["cell", name, _area(top + i, left + j), v]))
+    hits.sort(key=lambda x: x[:2])
+    rows += [row for _, _, row in hits]
 
 
 def _series(chart, kind: str, where: str, prefix: str, says, rows: list) -> None:
