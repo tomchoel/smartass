@@ -18,7 +18,7 @@ import logging
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlsplit
@@ -69,10 +69,60 @@ def _norm_dim(name: str) -> str:
 
 @dataclass
 class Fetched:
-    """A provider grid as fetched: Smart View's own shape from A1 (POV row, column headers, row labels, data)."""
+    """A provider grid as fetched: Smart View's own shape from A1 (POV row, column headers, row labels, data). route:
+    which engine fetched it ("http": the provider; "rest": epm/rest.py); warnings: what that engine wants said."""
     layout: Layout
     values: list[list]
     seconds: float
+    route: str = "http"
+    warnings: list[str] = field(default_factory=list)
+
+
+def dimensions_in(db, conn: str) -> list[str]:
+    """The connection's dimensions in the atlas (an open atlas.db); SvHttpError if it has none or any of them was
+    not built (failed or empty; age does not matter) - a grid would then be built on a wrong dimension list."""
+    dims = atlas.known_dimensions(db, conn)              # incl. failed builds (their members are deleted)
+    stale = [d for d in dims if not atlas.built(db, conn, d)]
+    if not dims:
+        raise SvHttpError(f"the atlas has no dimensions for {conn}: build it with `smartass atlas build`")
+    if stale:
+        raise SvHttpError(f"the atlas is incomplete or stale for {conn} (dimensions {', '.join(stale)})")
+    return dims
+
+
+def layout(conn: str, dims: list[str], pov: dict | None, rows: list[Axis], cols: list[Axis]) -> Layout:
+    """The grid's layout on the cube's dimensions (any spelling of a dimension, 'Accounts' or 'All Accounts'): the
+    axes as asked and a POV member for every other dimension. InputError for a query wrong on every route;
+    SvHttpError for a dimension the atlas does not have."""
+    by_norm = {_norm_dim(d): d for d in dims}
+
+    def canon(d: str) -> str:
+        return by_norm.get(_norm_dim(d), d)
+    pov = {canon(d): m for d, m in (pov or {}).items()}
+    rows = [Axis(canon(a.dimension), a.members) for a in rows]
+    cols = [Axis(canon(a.dimension), a.members) for a in cols]
+    problems = validate_axes(dims, pov, rows, cols)
+    unknown = [p for p in problems if p.startswith("unknown dimension")]
+    if unknown:                       # the atlas may lack a dimension the cube has: let COM decide
+        raise SvHttpError(f"the atlas is incomplete or stale for {conn} ({'; '.join(unknown)})")
+    if problems:
+        raise InputError("Invalid query: " + "; ".join(problems))
+    return Layout(full_pov(dims, pov, rows, cols), rows, cols)
+
+
+def check_layout(lay: Layout, values: list[list], who: str = "the provider") -> None:
+    """The layout check a grid must pass before anything is built on it (both engines): it covers the layout, its
+    data cells are numbers or Smart View's labels, no POV member was appended, and every label that names its member
+    is the member asked for at that place. SvHttpError otherwise; who: the engine, for the text."""
+    _check_grid(lay, values, who)
+    full = parse(lay, values, False, False)
+    if full.pov_problems:              # COM shows the same as a warning; here it means the layout is not the cube's
+        raise SvHttpError(f"{who} appended POV members; the atlas may lack a dimension ("
+                          + "; ".join(full.pov_problems) + ")")
+    bad = verify_labels(lay, full)
+    if bad:
+        raise SvHttpError(f"{who} returned a different layout than requested (rows/columns moved): "
+                          + "; ".join(bad[:5]))
 
 
 class SvHttp:
@@ -146,15 +196,9 @@ class SvHttp:
         better."""
         db = atlas.connect(self.db_path)
         try:
-            dims = atlas.known_dimensions(db, conn)              # incl. failed builds (their members are deleted)
-            stale = [d for d in dims if not atlas.built(db, conn, d)]
+            return dimensions_in(db, conn)
         finally:
             db.close()
-        if not dims:
-            raise SvHttpError(f"the atlas has no dimensions for {conn}: build it with `smartass atlas build`")
-        if stale:
-            raise SvHttpError(f"the atlas is incomplete or stale for {conn} (dimensions {', '.join(stale)})")
-        return dims
 
     def retrieve(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis],
                  suppress_missing: bool, suppress_zeros: bool):
@@ -166,31 +210,9 @@ class SvHttp:
         if conn not in CUBES:
             raise SvHttpError(f"no HTTP route for connection {conn}")
         t0 = time.monotonic()
-        dims = self.dimensions(conn)
-        by_norm = {_norm_dim(d): d for d in dims}
-
-        def canon(d: str) -> str:
-            return by_norm.get(_norm_dim(d), d)
-        pov = {canon(d): m for d, m in (pov or {}).items()}
-        rows = [Axis(canon(a.dimension), a.members) for a in rows]
-        cols = [Axis(canon(a.dimension), a.members) for a in cols]
-        problems = validate_axes(dims, pov, rows, cols)
-        unknown = [p for p in problems if p.startswith("unknown dimension")]
-        if unknown:                       # the atlas may lack a dimension the cube has: let COM decide
-            raise SvHttpError(f"the atlas is incomplete or stale for {conn} ({'; '.join(unknown)})")
-        if problems:
-            raise InputError("Invalid query: " + "; ".join(problems))
-        lay = Layout(full_pov(dims, pov, rows, cols), rows, cols)
+        lay = layout(conn, self.dimensions(conn), pov, rows, cols)
         values = self._execute(conn, lay)
-        _check_grid(lay, values)
-        full = parse(lay, values, False, False)
-        if full.pov_problems:              # COM shows the same as a warning; here it means the layout is not the cube's
-            raise SvHttpError("the provider appended POV members; the atlas may lack a dimension ("
-                              + "; ".join(full.pov_problems) + ")")
-        bad = verify_labels(lay, full)
-        if bad:
-            raise SvHttpError("Smart View provider returned a different layout than requested (rows/columns "
-                              "moved): " + "; ".join(bad[:5]))
+        check_layout(lay, values)
         return Fetched(lay, values, time.monotonic() - t0)
 
     def closed_month(self, conn: str = "FinMax") -> str:
@@ -296,22 +318,23 @@ class SvHttp:
                          or any(m in str(e) for m in ALIAS_CLASH))   # alias clash: deterministic too
 
 
-def _check_grid(lay: Layout, values: list[list]) -> None:
+def _check_grid(lay: Layout, values: list[list], who: str = "the provider") -> None:
     """The returned slice must cover the requested layout (wider is fine: appended POV cells) and every data cell
     must be a number, blank or a Smart View label (#Missing, #NoAccess, #Invalid); anything else is not data."""
     m = lay.matrix()
     h, w = len(m), len(m[0])
     if len(values) < h:
-        raise SvHttpError(f"the provider returned fewer rows than requested ({len(values)} < {h})")
+        raise SvHttpError(f"{who} returned fewer rows than requested ({len(values)} < {h})")
     got_w = min((len(r) for r in values), default=0)
     if got_w < w:
-        raise SvHttpError(f"the provider returned fewer columns than requested ({got_w} < {w})")
+        raise SvHttpError(f"{who} returned fewer columns than requested ({got_w} < {w})")
     labels = MISSING | NOACCESS | INVALID
     for r in range(1 + lay.nc, h):
         for c in range(lay.nr, lay.nr + len(lay.col_tuples)):
             v = values[r][c]
             if isinstance(v, str) and v.strip() not in labels:
-                raise SvHttpError(f"non-numeric data in the provider grid (row {r + 1}, column {c + 1}: {v[:40]!r})")
+                raise SvHttpError(f"non-numeric data in the grid {who} returned (row {r + 1}, column {c + 1}: "
+                                  f"{v[:40]!r})")
 
 
 _URL = re.compile(r"[\x21-\x7e]+")                      # printable ASCII: urlsplit drops tab and line breaks silently

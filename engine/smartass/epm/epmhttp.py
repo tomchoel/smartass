@@ -1,12 +1,13 @@
 """The token route's one way to EPM: HTTPS requests to one pod with the user's OAuth access token (epm/oauth.py) and
 a cookie jar, as a browser tab of that pod sends them - no browser, no Excel. The grids (svhttp.BearerTransport, the
-Smart View provider XML) and the drill over the token (drill_token) are built on it, each on sessions of its own.
+Smart View provider XML), the second grid engine (rest: Planning REST exportdataslice) and the drill over the token
+(drill_token) are built on it.
 
 What it holds to, whatever a caller asks for:
 - read-only towards EPM: a request that is not exactly on ALLOWED is refused before a token is asked for - its
-  method, its path, the query names that path takes, the header names it takes and, for the two POST targets, the
-  body (Smart View provider XML that svxml.check_read_only admits; the drill's getData query object). The same token
-  would be accepted by EPM's write endpoints;
+  method, its path, the query names that path takes, the header names it takes and, for the POST targets, the body
+  (Smart View provider XML that svxml.check_read_only admits; the drill's getData query object; one exportdataslice
+  grid definition). The same token would be accepted by EPM's write endpoints (importdataslice, jobs): never here;
 - the bearer goes only to the session's own pod, and only when config.OAUTH_SCOPES has a scope for it: the URL that
   is sent is built from the pod's origin and the allowed path, never from the host a caller wrote; a redirect is
   never followed (a 3xx is the answer, for the caller to judge);
@@ -37,6 +38,23 @@ log = logging.getLogger(__name__)
 
 SMART_VIEW = "/HyperionPlanning/SmartView"
 GET_DATA = "/aif/ui/model/drilldown/getData"
+PLANNING_REST = "/HyperionPlanning/rest/v3/applications"
+# Planning REST (Oracle's documented API): the (application, plan type) pairs the grid route reads - svhttp.CUBES's,
+# pinned equal by tests/test_epmhttp.py (svhttp imports this module, not the other way round). Each rule below is a
+# whole path built from them: no pattern, so an encoded, dotted, longer or other-case path is none of them.
+REST_CUBES = (("FinMax", "FinMax"), ("FinMax", "FinLite"), ("FinPlan", "FinPlan"))
+
+
+def export_slice(app: str, cube: str) -> str:
+    """POST: one grid's cells (exportdataslice exports: a read; importdataslice is never on ALLOWED)."""
+    return f"{PLANNING_REST}/{app}/plantypes/{cube}/exportdataslice"
+
+
+def dimension_list(app: str, cube: str) -> str:
+    """GET (Oracle's "Get Dimensions for a Plan Type", 26.04): the plan type's dimensions under the names REST takes,
+    with their Default aliases (?aliasTableName=Default) - rest.py maps the atlas's names onto them."""
+    return f"{PLANNING_REST}/{app}/plantypes/{cube}/dimensions"
+
 ANY = re.compile(r".*")
 DIGITS = re.compile(r"\d{1,12}")
 MILLIS = re.compile(r"\d{1,13}")                       # the cache buster: int(time.time() * 1000), 13 digits now
@@ -67,8 +85,20 @@ ALLOWED: dict[str, _Rule] = {
         "_": (0, 1, MILLIS)}, _DRILL_HEADERS, None),
     GET_DATA: _Rule("POST", {"limit": (1, 1, re.compile(r"\d{1,5}")), "offset": (1, 1, DIGITS)}, _DRILL_HEADERS,
                     "application/json"),
+    # The REST grid (rest.py): no query, Content-Type application/json only, a body _slice_grid admits.
+    **{export_slice(app, cube): _Rule("POST", {}, frozenset({"content-type"}), "application/json")
+       for app, cube in REST_CUBES},
+    **{dimension_list(app, cube): _Rule("GET", {"aliasTableName": (1, 1, re.compile("Default"))}, frozenset(), None)
+       for app, cube in REST_CUBES},
 }
+SLICE_PATHS = frozenset(export_slice(app, cube) for app, cube in REST_CUBES)
 GET_DATA_KEYS = {"QUERY": str, "PARAMS": list, "PARAMSTYPE": list}   # drillcore.parse_sui / drill_derive build these
+# exportdataslice's body (Oracle's documented request; rest.py builds it): exactly these keys at every level
+SLICE_KEYS = frozenset({"exportPlanningData", "gridDefinition"})
+SLICE_GRID_KEYS = frozenset({"suppressMissingBlocks", "suppressMissingRows", "suppressMissingColumns", "pov", "columns",
+                             "rows"})
+SLICE_AXIS_KEYS = frozenset({"dimensions", "members"})
+_SLICE_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,255}")   # a dimension or member name: no control character
 # Statement words that write or administer: never a word of a drill query (outside strings, quoted names, comments)
 SQL_WRITES = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE",
                         "EXEC", "EXECUTE", "CALL", "BEGIN", "COMMIT", "DECLARE"})
@@ -303,6 +333,20 @@ def _check_body(method: str, shown: str, path: str, body) -> None:
         except ValueError:                              # its text quotes the body's start (a session id): not here
             raise Refused("refused: not a single read-only Smart View request") from None
         return
+    j = _json_object(shown, body)
+    if path in SLICE_PATHS:
+        if not _slice_grid(j):                          # its text is never quoted (member names)
+            raise Refused(f"refused: POST {shown} with a body that is not one exportdataslice grid")
+        return
+    if not isinstance(j, dict) or any(k not in GET_DATA_KEYS or not isinstance(v, GET_DATA_KEYS[k])
+                                      for k, v in j.items()):
+        raise Refused(f"refused: POST {shown} with a body that is not a drill query ({', '.join(GET_DATA_KEYS)})")
+    if "QUERY" in j and not _read_only_sql(j["QUERY"]):
+        raise Refused("refused: the drill query is not one read-only SELECT")      # its text is never quoted
+
+
+def _json_object(shown: str, body: str):
+    """The body as JSON with no key twice (a second key would be read by one parser and not by another)."""
 
     def no_twice(pairs):
         keys = [k for k, _ in pairs]
@@ -310,14 +354,32 @@ def _check_body(method: str, shown: str, path: str, body) -> None:
             raise ValueError("a key twice")
         return dict(pairs)
     try:
-        j = json.loads(body, object_pairs_hook=no_twice)
+        return json.loads(body, object_pairs_hook=no_twice)
     except ValueError:
         raise Refused(f"refused: POST {shown} with a body that is not one JSON object") from None
-    if not isinstance(j, dict) or any(k not in GET_DATA_KEYS or not isinstance(v, GET_DATA_KEYS[k])
-                                      for k, v in j.items()):
-        raise Refused(f"refused: POST {shown} with a body that is not a drill query ({', '.join(GET_DATA_KEYS)})")
-    if "QUERY" in j and not _read_only_sql(j["QUERY"]):
-        raise Refused("refused: the drill query is not one read-only SELECT")      # its text is never quoted
+
+
+def _slice_grid(j) -> bool:
+    """One exportdataslice grid: exportPlanningData false (no supporting detail or comments), the three suppress
+    flags as booleans, a POV with one member per dimension, and at least one column and one row segment - each a
+    list of dimension names with one non-empty member list per dimension. Nothing else, at any level."""
+    def names(xs) -> bool:
+        return isinstance(xs, list) and all(isinstance(x, str) and _SLICE_NAME.fullmatch(x) for x in xs)
+
+    def segment(s, pov: bool = False) -> bool:
+        if not isinstance(s, dict) or set(s) != SLICE_AXIS_KEYS:
+            return False
+        dims, members = s["dimensions"], s["members"]
+        return (names(dims) and (pov or bool(dims)) and isinstance(members, list) and len(members) == len(dims)
+                and all(names(m) and (len(m) == 1 if pov else bool(m)) for m in members))
+    if not isinstance(j, dict) or set(j) != SLICE_KEYS or j["exportPlanningData"] is not False:
+        return False
+    g = j["gridDefinition"]
+    return (isinstance(g, dict) and set(g) == SLICE_GRID_KEYS
+            and all(type(g[k]) is bool for k in ("suppressMissingBlocks", "suppressMissingRows",
+                                                 "suppressMissingColumns"))
+            and segment(g["pov"], pov=True)
+            and all(isinstance(g[k], list) and g[k] and all(segment(s) for s in g[k]) for k in ("columns", "rows")))
 
 
 _Q_CLOSE = {"[": "]", "{": "}", "(": ")", "<": ">"}   # Oracle's q'[...]': a bracket closes with its pair

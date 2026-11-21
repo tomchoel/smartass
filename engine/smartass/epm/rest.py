@@ -1,0 +1,359 @@
+"""The second engine: one grid over Oracle's documented Planning REST API - POST
+/HyperionPlanning/rest/v3/applications/{app}/plantypes/{cube}/exportdataslice (a read: it exports a slice) through the
+pod's epmhttp.EpmSession - returned as the provider route's Fetched (the same layout, labels and cells), so everything
+after the fetch is unchanged. Nothing calls it yet: it is the fallback for a grid the provider route could not fetch
+(phase 2, Task 3).
+
+What differs from the provider, and how it is made the same (live 2026-11-21, read-only, one-cell grids on plan1 and
+stratmodel, compared with the provider route by key paths, types and booleans only):
+- dimension names: REST takes the cube's own names ('Accounts', 'TimePeriods'; FinPlan's 'Account', 'BalanceTypes');
+  the atlas has Smart View's ('All Accounts', 'Account', 'All Balance Types'). The plan type's own list (GET
+  .../plantypes/{cube}/dimensions?aliasTableName=Default, Oracle 26.04) gives each name with its Default alias, and
+  every atlas dimension is its alias or its name there (map_dimensions); one it does not list is an error naming it;
+- members: REST takes a member by name or alias and answers its NAME. The atlas keeps Smart View's labels and, where
+  a label has no 'code alias (prefix)' form ('Sep 26', 'Periodic', FinPlan's members), the label as the name - REST
+  then answers a name the atlas does not know ('Y26M09'). Each label is the atlas's: of the member REST answered,
+  else of the member asked for at that place (REST resolved the spelling the atlas keeps); else the name is kept and
+  one warning says so. A top member is sent and answered under its dimension's REST name;
+- cells: numbers come as text and are read with float(), as svxml reads the provider's; an empty cell ("" or " " in
+  Oracle's documentation) is "#Missing", as the provider shows it with missingLabelText #Missing;
+- no suppression: every row and column asked comes back, in the order asked (the provider route suppresses nothing
+  either - grid.parse does). The answer must be exactly the grid asked for (_answer, _matrix), then the provider
+  route's own layout check runs (svhttp.check_layout);
+- a grid over MAX_CELLS is split along its rows into requests of at most MAX_CELLS cells, stitched in order.
+
+Errors are svhttp.SvHttpError (RestError): EPM refusing the grid (HTTP 400, Oracle's message scrubbed), a 404 on the
+plan type (NotConfigured), an answer that is not the grid asked for. A 401 is the session's one new token; a lost
+request is svhttp.RequestLost; oauth.NotSignedIn reaches the caller as it is; a query wrong on every route is
+InputError, as on the provider route."""
+from __future__ import annotations
+
+import json
+import math
+import re
+import threading
+import time
+
+from . import epmhttp, oauth, svhttp, svxml
+from .drillcore import redact
+from .grid import Axis, Layout, name_from_label
+from .svhttp import Fetched, SvHttpError
+
+ROUTE = "rest"
+# Cells per request. No cap is documented (the Apache-2.0 pbj-pbcs-client pages big grids the same way); the live
+# probe sent one-cell grids only, so this default is not yet confirmed live (Task 3's comparison has a split grid).
+MAX_CELLS = 100_000
+MAX_MESSAGE = 300                                     # characters of Oracle's message in an error text
+_JWT = re.compile(r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+
+
+class RestError(SvHttpError):
+    """The REST engine could not fetch the grid: EPM refused it, or its answer is not the grid asked for."""
+
+
+class NotConfigured(RestError):
+    """HTTP 404 on the plan type: the pod has no such application or plan type (svhttp.CUBES, the data source's pod)."""
+
+
+class RequestLost(RestError, svhttp.RequestLost):
+    """The request left and no whole answer came (it is a read: a caller may send it again)."""
+
+
+_listed: dict[tuple[str, str, str], list[tuple]] = {}   # (pod, app, cube) -> the plan type's (name, alias, type)
+_listed_lock = threading.Lock()
+
+
+def fetch(session: epmhttp.EpmSession, request, atlas_db) -> list[Fetched]:
+    """A GridRequest's grids over REST, as the provider route fetches them (data.provider._grids: one grid, or one
+    per year for FinPlan), in that order. atlas_db: an open atlas.db (knowledge.atlas.connect)."""
+    from ..data.provider import _grids
+    return [fetch_grid(session, request.cube, pov, rows, cols, atlas_db) for pov, rows, cols, _ in _grids(request)]
+
+
+def fetch_grid(session: epmhttp.EpmSession, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis],
+               atlas_db) -> Fetched:
+    """One grid over REST - the arguments and the answer of svhttp.SvHttp.fetch - on the session of the
+    connection's pod."""
+    if conn not in svhttp.CUBES:
+        raise RestError(f"no REST route for connection {conn}")
+    t0 = time.monotonic()
+    _, app, cube = svhttp.CUBES[conn]
+    dims = svhttp.dimensions_in(atlas_db, conn)
+    lay = svhttp.layout(conn, dims, pov, rows, cols)
+    if lay.nc != 1:                                   # every grid smartass asks has one; Oracle's shape for more unseen
+        raise RestError(f"a REST grid takes one column dimension, not {lay.nc}")
+    names = _rest_dimensions(session, conn, app, cube, dims)
+    per_row = len(lay.col_tuples)
+    if per_row > MAX_CELLS:
+        raise RestError(f"one row of {per_row} cells is over the cell budget of a REST request ({MAX_CELLS})")
+    got_pov = got_cols = None
+    heads: list[list[str]] = []
+    data: list[list] = []
+    for part in _split(lay.rows, MAX_CELLS // per_row):
+        p, c, h, d = _answer(_post(session, app, cube, _body(lay, part, names)), lay, part)
+        if got_pov is not None and (p, c) != (got_pov, got_cols):
+            raise RestError("the REST requests of one grid answered different POV or column members")
+        got_pov, got_cols = p, c
+        heads += h
+        data += d
+    values, warnings = _matrix(atlas_db, conn, lay, names, got_pov, got_cols, heads, data)
+    svhttp.check_layout(lay, values, "Planning REST")
+    return Fetched(lay, values, time.monotonic() - t0, ROUTE, warnings)
+
+
+# ---------------------------------------------------------------- dimension names
+def map_dimensions(conn: str, dims: list[str], listed: list[tuple]) -> dict[str, str]:
+    """{atlas dimension: REST name}: the one listed dimension whose Default alias or name is the atlas's name
+    (exactly, else in any case, as Essbase compares names). listed: (name, alias[, dimType]) of the plan type. A
+    dimension with no single match is an error naming it; a listed dimension the atlas lacks (attribute dimensions
+    aside) means the atlas is incomplete or stale - the grid would leave it out."""
+    base = [(n, a) for n, a, *t in listed if not (t and str(t[0]).startswith("Attribute"))]
+    out, unmapped = {}, []
+    for d in dims:
+        hits = {n for n, a in base if d in (n, a)} or {n for n, a in base if d.casefold() in (n.casefold(),
+                                                                                           (a or "").casefold())}
+        if len(hits) == 1:
+            out[d] = hits.pop()
+        else:
+            unmapped.append(d)
+    if unmapped:
+        raise RestError(f"Planning REST lists no single dimension for {conn}'s {', '.join(map(repr, unmapped))} "
+                        f"(it lists {', '.join(n + (f' ({a})' if a else '') for n, a in base) or 'none'})")
+    extra = [n for n, _ in base if n not in out.values()]
+    if extra:
+        raise RestError(f"the atlas is incomplete or stale for {conn} (Planning REST also lists {', '.join(extra)})")
+    return out
+
+
+def _rest_dimensions(session, conn: str, app: str, cube: str, dims: list[str]) -> dict[str, str]:
+    key = (session.origin, app, cube)
+    with _listed_lock:
+        listed = _listed.get(key)
+    if listed is None:
+        r = _send(session, "GET", epmhttp.dimension_list(app, cube) + "?aliasTableName=Default", None, app, cube)
+        j = _json(r.text)
+        items = j.get("items") if isinstance(j, dict) else None
+        if not isinstance(items, list) or not all(isinstance(it, dict) and isinstance(it.get("name"), str)
+                                                  for it in items):
+            raise RestError("not a Planning REST dimension list")
+        if j.get("hasMore"):
+            raise RestError(f"Planning REST lists more than {len(items)} dimensions for {app}/{cube} (one page)")
+        listed = [(it["name"], it.get("alias") if isinstance(it.get("alias"), str) else None, it.get("dimType"))
+                  for it in items]
+        with _listed_lock:
+            _listed[key] = listed
+    return map_dimensions(conn, dims, listed)
+
+
+# ---------------------------------------------------------------- the request
+def _split(rows: list[Axis], most: int) -> list[list[Axis]]:
+    """The row axes as cross products of at most 'most' rows each, in the grid's row order: the outermost axis is
+    cut into runs; where one of its members is still too many rows, its inner axes are cut the same way."""
+    n = math.prod(len(a.members) for a in rows)
+    if n <= most:
+        return [rows]
+    first, inner = rows[0], rows[1:]
+    per = math.prod(len(a.members) for a in inner)
+    if per <= most:
+        k = most // per
+        return [[Axis(first.dimension, first.members[i:i + k]), *inner] for i in range(0, len(first.members), k)]
+    return [[Axis(first.dimension, [m]), *part] for m in first.members for part in _split(inner, most)]
+
+
+def _sent(dim: str, member: str, names: dict[str, str]) -> str:
+    """A member as REST takes it: a dimension's top member under the dimension's REST name, any other as asked."""
+    return names[dim] if member.casefold() == dim.casefold() else member
+
+
+def _body(lay: Layout, rows: list[Axis], names: dict[str, str]) -> dict:
+    def segment(axes: list[Axis]) -> dict:
+        return {"dimensions": [names[a.dimension] for a in axes],
+                "members": [[_sent(a.dimension, m, names) for m in a.members] for a in axes]}
+    return {"exportPlanningData": False, "gridDefinition": {
+        "suppressMissingBlocks": False, "suppressMissingRows": False, "suppressMissingColumns": False,
+        "pov": {"dimensions": [names[d] for d, _ in lay.pov], "members": [[_sent(d, m, names)] for d, m in lay.pov]},
+        "columns": [segment(lay.cols)], "rows": [segment(rows)]}}
+
+
+def _post(session, app: str, cube: str, body: dict):
+    return _json(_send(session, "POST", epmhttp.export_slice(app, cube), json.dumps(body), app, cube).text)
+
+
+def _send(session, method: str, url: str, body: str | None, app: str, cube: str):
+    """One request through the session; its answer when HTTP 200, else the error for its status."""
+    where = f"Planning REST at {session.origin}"
+    try:
+        r = session.request(method, url, headers={"Content-Type": "application/json"} if body is not None else None,
+                            body=body, timeout=svhttp._timeout_s())
+    except oauth.NotSignedIn:
+        raise
+    except oauth.OAuthError as e:
+        raise RestError(f"no EPM access token for {session.origin}: {e}") from None
+    except epmhttp.NoScope:
+        raise svhttp.NoScope(f"no OAuth scope is configured for {session.origin} ([oauth.scopes] in config.toml)") \
+            from None
+    except (epmhttp.Refused, epmhttp.TooLarge) as e:   # their texts quote no body, token or query
+        raise RestError(f"{where}: {e}") from None
+    except OSError as e:
+        raise RequestLost(f"{where}: lost the request ({type(e).__name__})") from None
+    if r.status == 200:
+        return r
+    if r.status == 400:
+        raise RestError(f"{where} refused the grid (HTTP 400): {_message(r.text)}")
+    if r.status == 401:                               # the session took one new token for it already
+        raise RestError(f"{where}: EPM refused the access token twice (HTTP 401)")
+    if r.status == 404:
+        raise NotConfigured(f"{where} has no plan type {cube} in application {app} (HTTP 404): check the "
+                            "application and plan type names (svhttp.CUBES) and the data source's pod")
+    raise RestError(f"{where} answered HTTP {r.status}")
+
+
+def _message(text: str) -> str:
+    """Oracle's message from an error answer, without a URL query, a token-like string or a line break, cut short."""
+    try:
+        j = json.loads(text)
+    except ValueError:
+        return "not JSON"
+    msg = next((j[k] for k in ("detail", "message", "title", "error")
+                if isinstance(j, dict) and isinstance(j.get(k), str) and j[k].strip()), None)
+    if msg is None:
+        return "no message"
+    msg = redact(_JWT.sub("...", re.sub(r"\s+", " ", msg))).strip()
+    return msg[:MAX_MESSAGE] + (" ..." if len(msg) > MAX_MESSAGE else "")
+
+
+def _json(text: str):
+    try:
+        return json.loads(text)
+    except ValueError:
+        raise RestError("not a Planning REST answer (not JSON)") from None
+
+
+# ---------------------------------------------------------------- the answer
+def _answer(j, lay: Layout, rows: list[Axis]) -> tuple[list[str], list[str], list[list[str]], list[list]]:
+    """(POV names, column names, row names, row cells) of one answer, in Oracle's shape: {"pov": [names], "columns":
+    [[a name per column]], "rows": [{"headers": [names], "data": [cells]}]} - exactly as many of each as asked."""
+    def names(xs, n: int) -> bool:
+        return isinstance(xs, list) and len(xs) == n and all(isinstance(x, str) for x in xs)
+    if (not isinstance(j, dict) or not {"pov", "columns", "rows"} <= set(j) or not isinstance(j["rows"], list)
+            or not all(isinstance(r, dict) for r in j["rows"])):
+        raise RestError("not a Planning REST grid (no pov, columns and rows)")
+    ncols, nrows = len(lay.col_tuples), math.prod(len(a.members) for a in rows)
+    if not names(j["pov"], len(lay.pov)):
+        raise RestError(f"the Planning REST grid's POV is not the {len(lay.pov)} members asked")
+    cols = j["columns"]
+    if not (isinstance(cols, list) and len(cols) == 1 and names(cols[0], ncols)):
+        raise RestError(f"the Planning REST grid's columns are not the {ncols} column members asked")
+    if len(j["rows"]) != nrows:
+        raise RestError(f"the Planning REST grid has {nrows} rows asked, {len(j['rows'])} answered")
+    heads, data = [], []
+    for r in j["rows"]:
+        if not names(r.get("headers"), lay.nr):
+            raise RestError(f"a Planning REST row has not {lay.nr} member headers")
+        if not isinstance(r.get("data"), list) or len(r["data"]) != ncols:
+            raise RestError(f"a Planning REST row has not {ncols} cells")
+        heads.append(r["headers"])
+        data.append([_cell(v) for v in r["data"]])
+    return j["pov"], cols[0], heads, data
+
+
+def _cell(v):
+    """A REST cell as the provider route's Fetched holds it: a float, "#Missing" (blank), Smart View's label
+    (#NoAccess, #Invalid), or the text itself - which the layout check refuses as non-numeric data."""
+    if v is None:
+        return "#Missing"
+    if isinstance(v, bool) or not isinstance(v, (str, int, float)):
+        return json.dumps(v)
+    if isinstance(v, (int, float)):
+        return float(v) if math.isfinite(v) else str(v)
+    s = v.strip()
+    if not s:
+        return "#Missing"
+    special = svxml._SPECIAL.get(s.casefold())
+    if special:
+        return special
+    try:
+        f = float(s)
+    except ValueError:
+        return v
+    return f if math.isfinite(f) else v
+
+
+def _labels(db, conn: str, dim: str, spellings: set[str]) -> tuple[dict, dict]:
+    """The atlas's members of one dimension among these spellings: ({folded name: (name, label)}, {folded label:
+    (name, label)}) - by name exactly (one indexed query), else by name in any case or by label (one pass)."""
+    by_name: dict[str, tuple[str, str]] = {}
+    by_label: dict[str, tuple[str, str]] = {}
+    want = {s.casefold() for s in spellings}
+    ordered = sorted(spellings)
+    for i in range(0, len(ordered), 500):              # SQLite's limit on query parameters
+        part = ordered[i:i + 500]
+        for n, lab in db.execute(f"SELECT name, label FROM member WHERE connection=? AND dimension=? AND name IN "
+                                 f"({','.join('?' * len(part))})", (conn, dim, *part)):
+            by_name[n.casefold()] = (n, lab or n)
+    if want - set(by_name):
+        for n, lab in db.execute("SELECT name, label FROM member WHERE connection=? AND dimension=?", (conn, dim)):
+            if n.casefold() in want:
+                by_name.setdefault(n.casefold(), (n, lab or n))
+            if lab and lab.casefold() in want:
+                by_label.setdefault(lab.casefold(), (n, lab))
+    return by_name, by_label
+
+
+def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], cols: list[str],
+            heads: list[list[str]], data: list[list]) -> tuple[list[list], list[str]]:
+    """The provider's matrix from A1 with the atlas's labels for the names REST answered, and the warnings. Each
+    place's name must be the member asked there: exactly that name where the atlas keeps the member under its real
+    name (its label is 'code alias (prefix)') or for a top member; elsewhere (the atlas keeps the label as the name)
+    one member asked is always one name answered, and two members two names. Otherwise RestError."""
+    places: dict[str, list[tuple[str, str]]] = {}     # dimension -> [(asked, answered), ...] in grid order
+    for (d, m), got in zip(lay.pov, pov):
+        places.setdefault(d, []).append((m, got))
+    for k, combo in enumerate(lay.col_tuples):
+        places.setdefault(lay.cols[0].dimension, []).append((combo[0], cols[k]))
+    for i, combo in enumerate(lay.row_tuples):
+        for d, a in enumerate(lay.rows):
+            places.setdefault(a.dimension, []).append((combo[d], heads[i][d]))
+    label: dict[tuple[str, str, str], str] = {}       # (dimension, asked, answered) -> label
+    warnings: list[str] = []
+    for d, pairs in places.items():
+        _one_to_one(d, pairs)
+        looked = {a for a, _ in pairs} | {g for a, g in pairs if a.casefold() not in (g.casefold(), d.casefold())}
+        by_name, by_label = _labels(db, conn, d, looked)   # not a top member's REST name: no pass over the dimension
+        for asked, got in dict.fromkeys(pairs):
+            top = asked.casefold() == d.casefold()
+            known = by_name.get(asked.casefold()) or by_label.get(asked.casefold())
+            if top or (known and name_from_label(known[1])):      # REST answers the very name asked
+                if got.casefold() != _sent(d, asked, names).casefold():
+                    raise RestError(f"Planning REST returned a different layout than requested: {d} {asked} "
+                                    f"answered as {got}")
+                label[d, asked, got] = known[1] if known else d
+            elif hit := by_name.get(got.casefold()):
+                label[d, asked, got] = hit[1]
+            elif known:                               # REST resolved the label the atlas keeps as the name
+                label[d, asked, got] = known[1]
+            else:
+                label[d, asked, got] = got
+                warnings.append(f"{conn}: the atlas has no label for {d} member {got} (kept as its name)")
+    m = lay.matrix()
+    for j, ((d, asked), got) in enumerate(zip(lay.pov, pov)):
+        m[0][lay.nr + j] = label[d, asked, got]
+    for k, combo in enumerate(lay.col_tuples):
+        m[1][lay.nr + k] = label[lay.cols[0].dimension, combo[0], cols[k]]
+    for i, combo in enumerate(lay.row_tuples):
+        r = 1 + lay.nc + i
+        for d, a in enumerate(lay.rows):
+            m[r][d] = label[a.dimension, combo[d], heads[i][d]]
+        m[r][lay.nr:lay.nr + len(data[i])] = data[i]
+    return m, warnings
+
+
+def _one_to_one(dim: str, pairs: list[tuple[str, str]]) -> None:
+    """One member asked is always one name answered, and two members asked are two names."""
+    seen: dict[str, str] = {}
+    back: dict[str, str] = {}
+    for asked, got in pairs:
+        a, g = asked.casefold(), got.casefold()
+        if seen.setdefault(a, g) != g or back.setdefault(g, a) != a:
+            raise RestError(f"Planning REST returned a different layout than requested: {dim} {asked} answered as "
+                            f"{got}")
