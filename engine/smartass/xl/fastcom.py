@@ -33,10 +33,12 @@ Rules:
   in place while it rejects the type-information calls (TYPEINFO_WAIT_S): the object it is handed is the result of a
   call that has run (Worksheets.Add), so the rejection must not reach a caller that would run that call again (the COM
   executor asks a rejected operation again). Only if Excel stays busy longer is the object late-bound by name
-  (Untyped), said in the log. An AttributeError of a name is checked with one more lookup of the name (_dispid): a
-  rejection is raised as busy (nothing has run yet: the caller's wait asks again), a name the object has is tried once
-  more, an unknown one stays an AttributeError - on Fast and on Untyped (an object that really has no type
-  information is Untyped too).
+  (Untyped), said in the log. That wait is the job's (Task D3): a job given up on does not wait (its next checked call
+  stops it), at a job's start the wait counts against the start's budget (jobs.starting) and ends with it, and a
+  window scan does not wait at all (scan: a busy Excel is said as busy at once). An AttributeError of a name is
+  checked with one more lookup of the name (_dispid): a rejection is raised as busy (nothing has run yet: the caller's
+  wait asks again), a name the object has is tried once more, an unknown one stays an AttributeError - on Fast and on
+  Untyped (an object that really has no type information is Untyped too).
 
 Coupling (accepted: pywin32 is pinned, pywin32==312 in engine/pyproject.toml): this module relies on pywin32's
 internals - CDispatch's instance attributes (_oleobj_, _olerepr_, _builtMethods_, _lazydata_, _username_),
@@ -47,8 +49,10 @@ standard wrapper, so an upgrade that changes them fails there.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
+import time
 import traceback
 from collections.abc import MutableMapping
 from types import MethodType
@@ -63,6 +67,7 @@ from .hostproc import is_busy, retry_busy
 log = logging.getLogger("smartview.fastcom")
 TYPEINFO_WAIT_S = 10.0                             # Excel's rejection of an object's type information waited for in wrap
 _PyIDispatch = pythoncom.TypeIIDs[pythoncom.IID_IDispatch]
+_scan = threading.local()                          # a window scan on this thread (scan): its deadline, what it met
 _MAPS = ("propMap", "propMapGet", "propMapPut", "mapFuncs")
 NOT_SHARED = (pythoncom.IID_NULL, pythoncom.IID_IDispatch)      # no real interface behind these: never shared
 _ENUM_INVOKE = pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET
@@ -343,11 +348,49 @@ def _put(ob, attr: str, value) -> None:
     ob._olerepr_.propMap[attr] = build.MapEntry(dispid, (attr,))
 
 
+@contextlib.contextmanager
+def scan(seconds: float = 0.0):
+    """A window scan (xl/instances._app_from_window) on this thread: every object wrapped in it waits for Excel's type
+    information at most until `seconds` from now, in all - none by default, so a busy Excel is said as busy at once,
+    as before Task D2 (it waited TYPEINFO_WAIT_S per object there, twice per window). Yields a list that gets an entry
+    for each object Excel rejected (busy) for longer."""
+    outer = getattr(_scan, "state", None)
+    met: list = []
+    _scan.state = (time.monotonic() + seconds, met)
+    try:
+        yield met
+    finally:
+        _scan.state = outer
+
+
+def _typeinfo(call, wait: float):
+    """call (a type-information fetch), Excel's busy rejection waited for: at most wait seconds, or less - what is left
+    of a window scan (scan) or of the job's start (jobs.start_limit), the seconds rejected counted against that start
+    (jobs.spent) as its other waits are. A job given up on stops waiting (its token aborted): the rejection is raised
+    and the object is late-bound, never an error out of wrap - the call that produced the object has run, and the job's
+    next checked call stops it."""
+    try:
+        return call()
+    except pythoncom.com_error as e:
+        if not is_busy(e):
+            raise
+    from . import jobs                             # here: jobs imports host, which imports this module
+    state = getattr(_scan, "state", None)
+    if state is not None:
+        wait = min(wait, max(state[0] - time.monotonic(), 0.0))
+    try:
+        return retry_busy(call, jobs.start_limit(wait), jobs._check_alive, jobs.spent)
+    except jobs.JobAborted:
+        raise pythoncom.com_error(winerror.RPC_E_CALL_REJECTED, "Call was rejected by callee (the job was given up "
+                                  "on: not waited for).", None, None) from None
+
+
 def wrap(obj, name: str | None = None, wait: float | None = None):
     """`obj` (a PyIDispatch or any pywin32 dispatch object) wrapped Fast; a Fast object is returned unchanged, and so
     is anything that is not a COM object (the fakes of the tests). With SV_FASTCOM=0 the standard wrapper. Excel's busy
-    rejection of the type-information calls is waited for here for wait seconds (default TYPEINFO_WAIT_S), never
-    raised; an object without type information (or still rejected then) is Untyped."""
+    rejection of the type-information calls is waited for here (_typeinfo: at most wait seconds, default
+    TYPEINFO_WAIT_S; less in a window scan or at a job's start, none for a job given up on), never raised; an object
+    without type information (or still rejected then) is Untyped."""
     wait = TYPEINFO_WAIT_S if wait is None else wait
     if isinstance(obj, (Fast, Untyped)):
         return obj
@@ -362,7 +405,7 @@ def wrap(obj, name: str | None = None, wait: float | None = None):
         ti = raw.GetTypeInfo()
         return ti, ti.GetTypeAttr()[0]
     try:
-        typeinfo, iid = retry_busy(fetch, wait)
+        typeinfo, iid = _typeinfo(fetch, wait)
     except (pythoncom.com_error, AttributeError) as e:     # no type information: late-bound by name
         return _untyped(raw, name, None, e, wait)
     if iid in NOT_SHARED:
@@ -371,7 +414,7 @@ def wrap(obj, name: str | None = None, wait: float | None = None):
     typecomp = None
     if iface is None:                                      # first object of this interface
         try:
-            typecomp = retry_busy(typeinfo.GetTypeComp, wait)
+            typecomp = _typeinfo(typeinfo.GetTypeComp, wait)
         except pythoncom.com_error as e:
             return _untyped(raw, name, typeinfo, e, wait)
         iface = _IFACE.setdefault(iid, _Interface(dynamic.MakeOleRepr(raw, typeinfo, typecomp), iid))
@@ -381,7 +424,10 @@ def wrap(obj, name: str | None = None, wait: float | None = None):
 def _untyped(raw, name: str | None, typeinfo, error: Exception | None = None, waited: float = 0.0) -> Untyped:
     """raw as Untyped (with typeinfo when there is one): late-bound by name, its lookups saying busy as busy. Excel
     still rejecting the type information after waited seconds is logged as a warning (never silent)."""
-    if error is not None and is_busy(error) and waited:
+    state = getattr(_scan, "state", None)
+    if error is not None and is_busy(error) and state is not None:
+        state[1].append(name)                      # a window scan: said as busy by its caller, not warned about here
+    elif error is not None and is_busy(error) and waited:
         log.warning("Excel rejected the type information of %s for %.0f s (busy): late-bound by name", name or "an "
                     "object", waited)
     elif error is not None:

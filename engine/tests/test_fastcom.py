@@ -1,6 +1,7 @@
 """xl/fastcom.py: the late-bound wrapper that learns each interface once, against pywin32's standard wrapper on a COM
 server every Windows has (scrrun.dll: Scripting.FileSystemObject and Scripting.Dictionary, in-process). No Excel."""
 import threading
+import time
 from types import SimpleNamespace
 
 import pythoncom
@@ -10,7 +11,7 @@ from win32com.client import build, dynamic
 from win32com.server import util as server_util
 
 from smartass.core import config
-from smartass.xl import fastcom
+from smartass.xl import fastcom, jobs
 
 COM_TYPES = tuple(pythoncom.TypeIIDs.values())          # PyIDispatch, PyITypeInfo, PyITypeComp ...
 
@@ -451,3 +452,77 @@ def test_the_pywin32_internals_this_module_relies_on_are_there():
         assert callable(getattr(dynamic.CDispatch, name)), name
     item = build.LazyDispatchItem((pythoncom.IID_NULL,), None)
     assert all(isinstance(getattr(item, m), dict) for m in fastcom._MAPS) and item.defaultDispatchName is None
+
+
+# ---------------------------------------------------------------------------------------------------- Task D3, item 3
+# The wait for a rejected type-information fetch in wrap (Task D2) is the job's: a job given up on stops waiting, the
+# seconds count against its start's budget where the start's other waits do, and the window scan does not wait at all
+# (a busy Excel is said as busy at once, as before Task D2: it waited 10 s per object there).
+
+
+def _rejected_forever():
+    """A dictionary (it has type information) whose GetTypeInfo Excel keeps rejecting."""
+    return _BusyTypes(raw("Scripting.Dictionary"), _Excel(10_000, ("GetTypeInfo",)))
+
+
+@pytest.fixture
+def a_job():
+    token = jobs.JobToken("the job")
+    jobs.bind_job(token)
+    try:
+        yield token
+    finally:
+        jobs.unbind_job()
+
+
+def test_a_job_given_up_on_stops_waiting_for_type_information_and_gets_a_late_bound_object(monkeypatch, a_job):
+    """No error from wrap (the call that made the object has run): the job's next checked call stops it."""
+    monkeypatch.setattr(fastcom, "_PyIDispatch", (fastcom._PyIDispatch, _BusyTypes))
+    monkeypatch.setattr(fastcom, "TYPEINFO_WAIT_S", 3.0)
+    a_job.aborted = True
+    t0 = time.monotonic()
+    w = fastcom.wrap(_rejected_forever())
+    assert isinstance(w, fastcom.Untyped) and time.monotonic() - t0 < 1.0
+    with pytest.raises(jobs.JobAborted):
+        jobs.com(lambda: w.Add("k", 1))
+
+
+def test_the_wait_for_type_information_counts_against_the_jobs_start(monkeypatch, a_job):
+    monkeypatch.setattr(fastcom, "_PyIDispatch", (fastcom._PyIDispatch, _BusyTypes))
+    with jobs.starting():
+        w = fastcom.wrap(_BusyTypes(raw("Scripting.Dictionary"), _Excel(3, ("GetTypeInfo",))))
+        left = jobs._job.start_left
+    assert type(w) is fastcom.Fast and left < jobs.START_WAIT_S - 0.3      # about 0.7 s of rejections
+
+
+def test_the_wait_for_type_information_ends_with_what_is_left_of_the_jobs_start(monkeypatch, a_job):
+    monkeypatch.setattr(fastcom, "_PyIDispatch", (fastcom._PyIDispatch, _BusyTypes))
+    monkeypatch.setattr(fastcom, "TYPEINFO_WAIT_S", 5.0)
+    with jobs.starting():
+        jobs._job.start_left = 0.3
+        t0 = time.monotonic()
+        w = fastcom.wrap(_rejected_forever())
+        took = time.monotonic() - t0
+    assert isinstance(w, fastcom.Untyped) and took < 1.5
+
+
+def test_the_window_scan_does_not_wait_for_a_busy_excel_and_says_it_is_busy(monkeypatch):
+    """The window object answers; the Application behind it is rejected (busy): None at once, as before Task D2."""
+    from smartass.xl import instances
+    monkeypatch.setattr(fastcom, "_PyIDispatch", (fastcom._PyIDispatch, _BusyTypes))
+    monkeypatch.setattr(fastcom, "TYPEINFO_WAIT_S", 3.0)
+
+    class Window:                                       # not a COM object: wrap hands it back as it is
+        @property
+        def Application(self):
+            return fastcom.wrap(_rejected_forever())    # as a Fast window's get wraps what it returns
+    monkeypatch.setattr(instances.win32gui, "SendMessageTimeout", lambda *a: (0, 7))
+    monkeypatch.setattr(instances.pythoncom, "ObjectFromLresult", lambda lres, iid, wp: Window())
+    t0 = time.monotonic()
+    assert instances._app_from_window(1) is None
+    assert time.monotonic() - t0 < 1.0
+    with fastcom.scan() as busy:                        # every object wrapped in the scan: no wait
+        t0 = time.monotonic()
+        assert isinstance(fastcom.wrap(_rejected_forever()), fastcom.Untyped)
+        assert isinstance(fastcom.wrap(_rejected_forever()), fastcom.Untyped)
+        assert time.monotonic() - t0 < 1.0 and busy
