@@ -65,6 +65,9 @@ class TokenDrill:
         self.http = http or epmhttp.session(self.base)
         self._key: str | None = None
         self._views: dict[tuple, dict] = {}
+        self._taken = 0                                # key requests ended so far (with a key or not)
+        self._dead: str | None = None                  # the last key found gone
+        self._take_error: BaseException | None = None  # why the last one failed (None: it gave a key)
         self._per_loop: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
         self._per_loop_lock = threading.Lock()
 
@@ -91,28 +94,44 @@ class TokenDrill:
 
     async def _take_key(self) -> str:
         """A new key; the views of the old one go with it. Only with the loop's lock held."""
-        self._key, self._views = None, {}
-        r = await self._call("GET", SERVICE_TYPE, None)
-        key = r.headers.get("x-appbuilder-client-id")
-        if not key:
-            log.info("token drill: no session key in EPM's answer (HTTP %s)", r.status)
-            raise DrillError("EPM gave no session key for the drill")
+        self._key, self._views, self._take_error = None, {}, None
+        try:
+            r = await self._call("GET", SERVICE_TYPE, None)
+            key = r.headers.get("x-appbuilder-client-id")
+            if not key:
+                log.info("token drill: no session key in EPM's answer (HTTP %s)", r.status)
+                raise DrillError("EPM gave no session key for the drill")
+        except BaseException as e:
+            self._take_error = e
+            raise
+        finally:
+            self._taken += 1
         self._key = key
         log.info("token drill: session key taken")
         return key
 
-    async def _current_key(self) -> str:
+    async def _key_for(self, seen: str | None = None) -> str:
+        """The current key, taking one if there is none. seen: the key the asking piece had (None: none yet). A key
+        request that failed is the failure of every piece that waited for it or whose key it was to replace: one
+        request, one error for all of them, as a renewal that succeeds is one request for all."""
         key = self._key
         if key is not None:
             return key
+        waited_from = self._taken
         async with self._sync()[0]:
-            return self._key if self._key is not None else await self._take_key()
+            if self._key is not None:
+                return self._key
+            shared = self._taken != waited_from or (seen is not None and seen == self._dead)
+            if self._take_error is not None and shared:
+                raise self._take_error
+            return await self._take_key()
 
     async def _renew(self, used: str) -> None:
-        """A request with key used found the session gone: a new key - unless another piece already took one."""
-        async with self._sync()[0]:
-            if self._key is None or self._key == used:
-                await self._take_key()
+        """A request with key used found the session gone: the key is dropped at once, so no request leaves with it
+        from here on, and a new one is taken - unless another piece already did."""
+        if self._key == used:
+            self._key, self._dead = None, used
+        await self._key_for(used)
 
     async def _view(self, q: SuiQuery) -> dict:
         """The drill view of q's application and partition, asked once per key; a lost session: a new key, once."""
@@ -133,15 +152,16 @@ class TokenDrill:
                     raise DrillError(f"EPM answered the drill view with HTTP {r.status}")
                 if attempt == 1:
                     log.info("token drill: the drill view found the session gone (%s); a new key", _why(r.status))
-                    self._key = None
-        raise SignedOut(f"EPM lost the drill session twice when asked for the drill view ({_why(r.status)})")
+                    self._key, self._dead = None, key
+        log.info("token drill: the drill view found the session gone again (%s)", _why(r.status))
+        raise SignedOut("EPM answered the drill view with a page, not JSON (signed out?)")       # drill_direct's text
 
     # ---------------------------------------------------------------- the drill
     async def query(self, url: str) -> SuiQuery:
         """EPM's own drill query for a drill link. EPM's refusals (CellTooWide, NoDrillData, DrillError) are raised
         at once; a lost session takes a new key and is asked once more."""
         for attempt in (1, 2):
-            key = await self._current_key()
+            key = await self._key_for()
             r = await self._call("GET", sui_url(self.base, url, _now_ms()), key)
             j = _object(r.text)
             if not expired(r.status, j):
@@ -151,7 +171,8 @@ class TokenDrill:
             if attempt == 1:
                 log.info("token drill: the drill query found the session gone (%s); a new key", _why(r.status))
                 await self._renew(key)
-        raise SignedOut(f"EPM lost the drill session twice when asked for the drill query ({_why(r.status)})")
+        log.info("token drill: the drill query found the session gone again (%s)", _why(r.status))
+        raise SignedOut("EPM answered the drill query with a page, not JSON (signed out?)")      # parse_sui's text
 
     async def lines(self, q: SuiQuery, warm_url: str, max_lines: int,
                     progress: Callable[[int, int | None], None] | None = None) -> dict:
@@ -161,9 +182,10 @@ class TokenDrill:
         gate = self._sync()[1]
         t1 = time.monotonic()
         pg = Pager(max_lines, progress, True)
+        key = self._key
         while True:
-            key = await self._current_key()          # read before the gate: pieces queued there carry it too
-            async with gate:
+            async with gate:                         # the key is read in the gate: after a renewal began, a piece
+                key = await self._key_for(key)       # that waited for its turn sends the new one, never the old
                 r = await self._call("POST", f"{GET_DATA}?limit={config.DRILL_PAGE}&offset={pg.off}", key, q.body)
             step = pg.take(r.status, r.text)
             if step == "recover":

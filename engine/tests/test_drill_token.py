@@ -51,10 +51,11 @@ class FakeHttp:
     """EpmSession.request as the drill sees it: records every call and answers by path, in order (the last answer
     repeats). keys: the servicetype answers' x-appbuilder-client-id (None: no such header); an answer that is an
     exception is raised. slow_post: seconds a getData call takes (its answer and the in-flight count are taken on
-    entry)."""
+    entry). dead: keys whose getData is answered with the exit redirect whatever comes next in lines; "old": every
+    key but the newest one handed out."""
 
-    def __init__(self, keys=("k1",), sui=None, view=None, lines=(PAGE(1, 1),), slow_post=0.0):
-        self.keys, self.sui = list(keys), list(sui or [SUI()])
+    def __init__(self, keys=("k1",), sui=None, view=None, lines=(PAGE(1, 1),), slow_post=0.0, dead=()):
+        self.keys, self.sui, self.dead, self.handed = list(keys), list(sui or [SUI()]), dead, []
         self.view, self.lines = list(view or [(200, json.dumps(VIEW))]), list(lines)
         self.slow_post, self.calls = slow_post, []
         self.lock = threading.Lock()
@@ -66,9 +67,12 @@ class FakeHttp:
             self.calls.append(Call(method, url, dict(headers or {}), body, path))
             if path == "/aif/ui/model/applications/servicetype":
                 k = _next(self.keys)
+                self.handed.append(k)
                 return epmhttp.Response(200, "{}", {} if k is None else {"x-appbuilder-client-id": k})
             if method == "POST":
-                answer = _next(self.lines)
+                key = (headers or {}).get("x-appbuilder-client-id")
+                dead = key != self.handed[-1] if self.dead == "old" else key in self.dead
+                answer = EXIT_302 if dead else _next(self.lines)
                 self.in_flight += 1
                 self.max_posts_in_flight = max(self.max_posts_in_flight, self.in_flight)
             else:
@@ -143,14 +147,53 @@ def test_twenty_pieces_at_once_take_the_key_once_and_at_most_four_are_in_flight(
     assert [c.path for c in h.calls].count("/aif/ui/model/applications/servicetype") == 1 and h.max_posts_in_flight <= 4
 
 
-def test_a_renewal_needed_by_many_pieces_happens_once(fake):
-    h = fake(keys=["k1", "k2"], lines=[EXIT_302] * 6 + [PAGE(items=1, total=1)], slow_post=0.02)
+def test_a_renewal_needed_by_many_pieces_happens_once(fake, monkeypatch):
+    monkeypatch.setattr(config, "DRILL_PARALLEL", 4)
+    h = fake(keys=["k1", "k2"], dead={"k1"}, lines=[PAGE(items=1, total=1)], slow_post=0.02)   # k1's session is gone
     d = drill_token.TokenDrill("https://plan1.example", http=h)
 
     async def go():
         return await asyncio.gather(*(d.fetch(URL, 100) for _ in range(6)))
-    asyncio.run(go())
+    assert all(len(r["items"]) == 1 for r in asyncio.run(go()))
     assert [c.path for c in h.calls].count("/aif/ui/model/applications/servicetype") == 2
+
+
+def test_once_a_renewal_has_started_no_getdata_leaves_with_the_old_key(fake, monkeypatch):
+    monkeypatch.setattr(config, "DRILL_PARALLEL", 4)
+    h = fake(keys=["k1", "k2", "k3"], dead="old", lines=[EXIT_302, PAGE(items=1, total=1)], slow_post=0.05)
+    d = drill_token.TokenDrill("https://plan1.example", http=h)
+
+    async def go():
+        return await asyncio.wait_for(asyncio.gather(*(d.fetch(URL, 100) for _ in range(20))), 20)
+    assert all(len(r["items"]) == 1 for r in asyncio.run(go()))
+    keys = [i for i, c in enumerate(h.calls) if c.path == "/aif/ui/model/applications/servicetype"]
+    assert len(keys) == 2                       # only the ones in flight when it started carried k1 (sent before it)
+    assert not [c for c in h.calls[keys[1]:] if c.headers.get("x-appbuilder-client-id") == "k1"]
+
+
+def test_a_failed_renewal_is_one_request_and_one_error_for_every_piece_waiting_on_it(fake, monkeypatch):
+    monkeypatch.setattr(config, "DRILL_PARALLEL", 4)
+    h = fake(keys=["k1", None], dead={"k1"}, slow_post=0.05)
+
+    async def go():
+        d = drill_token.TokenDrill("https://plan1.example", http=h)
+        return await asyncio.gather(*(d.fetch(URL, 100) for _ in range(6)), return_exceptions=True)
+    res = asyncio.run(go())
+    assert all(isinstance(e, drillcore.DrillError) and "no session key" in str(e) for e in res)
+    assert [c.path for c in h.calls].count("/aif/ui/model/applications/servicetype") == 2
+
+
+def test_a_piece_that_queued_with_the_lost_key_shares_its_failed_renewal_too(fake, monkeypatch):
+    monkeypatch.setattr(config, "DRILL_PARALLEL", 1)       # one getData at a time: the third piece gets its turn only
+    h = fake(keys=["k1", None], dead={"k1"}, slow_post=0.1)   # after the renewal has failed for the first two
+
+    async def go():
+        d = drill_token.TokenDrill("https://plan1.example", http=h)
+        return await asyncio.gather(*(d.fetch(URL, 100) for _ in range(3)), return_exceptions=True)
+    res = asyncio.run(go())
+    assert all(isinstance(e, drillcore.DrillError) and "no session key" in str(e) for e in res)
+    assert [c.path for c in h.calls].count("/aif/ui/model/applications/servicetype") == 2
+    assert len([c for c in h.calls if c.method == "POST"]) == 1
 
 
 @pytest.mark.parametrize("sui, exc", [({"details": "EPMFDM-140373 more than 3 dimensions"}, drillcore.CellTooWide),
@@ -177,6 +220,15 @@ def test_no_key_from_epm_is_a_clear_error_without_the_url(fake):
     assert "sso_token" not in str(e.value)
 
 
+def test_a_drill_after_a_failed_key_request_asks_for_a_key_again(fake):
+    h = fake(keys=[None, "k2"])
+    d = drill_token.TokenDrill("https://plan1.example", http=h)
+    with pytest.raises(drillcore.DrillError, match="no session key"):
+        asyncio.run(d.fetch(URL, 100))
+    assert len(asyncio.run(d.fetch(URL, 100))["items"]) == 1
+    assert [c.path for c in h.calls].count("/aif/ui/model/applications/servicetype") == 2
+
+
 def test_lines_for_a_built_query_reuse_the_view(fake):                 # drill_derive's siblings
     h = fake(lines=[PAGE(items=1, total=1), PAGE(items=2, total=2)])
     d = drill_token.TokenDrill("https://plan1.example", http=h)
@@ -197,8 +249,9 @@ def test_a_refusal_takes_no_new_key_and_is_not_asked_again(fake):
 
 def test_the_drill_query_lost_twice_is_signed_out(fake):
     h = fake(keys=["k1", "k2", "k3"], sui=[EXIT_302])
-    with pytest.raises(drillcore.SignedOut, match="HTTP 302"):
+    with pytest.raises(drillcore.SignedOut) as e:
         asyncio.run(drill_token.TokenDrill("https://plan1.example", http=h).fetch(URL, 100))
+    assert str(e.value) == "EPM answered the drill query with a page, not JSON (signed out?)"     # as drill_direct's
     assert [c.path for c in h.calls].count("/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp") == 2
 
 
@@ -220,8 +273,9 @@ def test_a_lost_view_takes_a_new_key_and_the_view_once_more(fake):
 
 def test_the_view_lost_twice_is_signed_out(fake):
     h = fake(keys=["k1", "k2"], view=[(200, "<html>sign in</html>")])
-    with pytest.raises(drillcore.SignedOut, match="view"):
+    with pytest.raises(drillcore.SignedOut) as e:
         asyncio.run(drill_token.TokenDrill("https://plan1.example", http=h).fetch(URL, 100))
+    assert str(e.value) == "EPM answered the drill view with a page, not JSON (signed out?)"      # as drill_direct's
     assert not [c for c in h.calls if c.method == "POST"]
 
 
