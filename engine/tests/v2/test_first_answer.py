@@ -82,8 +82,9 @@ def _made(folder) -> list[str]:
 
 def test_the_first_answer_is_its_built_file_opened_in_four_batches(new_book, calculated, monkeypatch):
     """No Workbooks.Add, no SaveAs, no insert, no Sources furniture in Excel: the file holds it all. COM calls: the
-    open workbooks' names (the file name), the Excel's International (the base's date format), the Open, then one per
-    batch - look, bring in (the finish only), close out, save."""
+    open workbooks' names (the file name), the Excel's International (the base's date format), the Open and its
+    read-only check (each waits for a busy Excel on its own), then one per batch - look, bring in (the finish only),
+    close out, save."""
     calls = fakexl.count_com(monkeypatch)
     runs = _runs(monkeypatch)
     out, timings = _job(_pre(), calculated)
@@ -97,7 +98,7 @@ def test_the_first_answer_is_its_built_file_opened_in_four_batches(new_book, cal
     kinds = [k for _, k, *_ in app.events]
     assert kinds.count("Open") == 1 and not {"Sheets.Add", "SaveAs", "Add"} & set(kinds)
     assert _batches(timings) == {"draw.look": 1, "draw.close out": 1, "save": 1} and timings[BATCH_PREFIX + "draw"] == 3
-    assert len(calls) == 7 and len(runs) == 4
+    assert len(calls) == 8 and len(runs) == 4
     assert "draw.build" in timings and "draw.open" in timings
     assert _furniture(runs) == []
     assert wb.saved == 1 and new_book.sessions == [str(path)]
