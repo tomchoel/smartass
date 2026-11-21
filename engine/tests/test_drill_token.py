@@ -55,10 +55,11 @@ class FakeHttp:
     exception is raised. slow_post: seconds a getData call takes (its answer and the in-flight count are taken on
     entry); post_s: the same per getData body (a function). dead: keys whose getData is answered with the exit
     redirect whatever comes next in lines; "old": every key but the newest one handed out. events: every request's
-    start and end, in order (kind, method, path, key, body)."""
+    start and end, in order (kind, method, path, key, body). key_s: seconds a key request takes."""
 
-    def __init__(self, keys=("k1",), sui=None, view=None, lines=(PAGE(1, 1),), slow_post=0.0, dead=(), post_s=None):
-        self.keys, self.sui, self.dead, self.handed = list(keys), list(sui or [SUI()]), dead, []
+    def __init__(self, keys=("k1",), sui=None, view=None, lines=(PAGE(1, 1),), slow_post=0.0, dead=(), post_s=None,
+                 key_s=0.0):
+        self.keys, self.sui, self.dead, self.handed, self.key_s = list(keys), list(sui or [SUI()]), dead, [], key_s
         self.view, self.lines = list(view or [(200, json.dumps(VIEW))]), list(lines)
         self.slow_post, self.post_s, self.calls, self.events = slow_post, post_s, [], []
         self.lock = threading.Lock()
@@ -73,9 +74,7 @@ class FakeHttp:
             if path == "/aif/ui/model/applications/servicetype":
                 k = _next(self.keys)
                 self.handed.append(k)
-                self.events.append(("end", *mark))
-                return epmhttp.Response(200, "{}", {} if k is None else {"x-appbuilder-client-id": k})
-            if method == "POST":
+            elif method == "POST":
                 key = (headers or {}).get("x-appbuilder-client-id")
                 dead = key != self.handed[-1] if self.dead == "old" else key in self.dead
                 answer = EXIT_302 if dead else _next(self.lines)
@@ -83,6 +82,11 @@ class FakeHttp:
                 self.max_posts_in_flight = max(self.max_posts_in_flight, self.in_flight)
             else:
                 answer = _next(self.sui if path.endswith("FdmeeMain.jsp") else self.view)
+        if path == "/aif/ui/model/applications/servicetype":
+            time.sleep(self.key_s)
+            with self.lock:
+                self.events.append(("end", *mark))
+            return epmhttp.Response(200, "{}", {} if k is None else {"x-appbuilder-client-id": k})
         try:
             if method == "POST":
                 time.sleep(self.post_s(body) if self.post_s else self.slow_post)
@@ -521,3 +525,79 @@ def test_no_key_token_or_query_in_a_log_line_or_an_error(caplog):
     assert any("expired" in m for m in shown)                         # the renewal was logged
     for secret in ("KEY-SECRET", "AT-SECRET", "SSO-SECRET", "limit=", "offset="):
         assert not [m for m in shown if secret in m], secret
+
+# ---------------------------------------------------------------- a cancelled piece (final review I3, M6)
+SERVICE = "/aif/ui/model/applications/servicetype"
+
+
+def test_a_cancelled_key_request_does_not_cancel_the_pieces_that_waited_for_it(fake):
+    h = fake(keys=["k1", "k2"], key_s=0.3)
+    d = drill_token.TokenDrill("https://plan1.example", http=h)
+
+    async def go():
+        first = asyncio.ensure_future(d.fetch(URL, 100))            # it sends the key request
+        await asyncio.sleep(0.1)
+        other = asyncio.ensure_future(d.fetch(URL, 100))            # another tool call's piece waits for that key
+        await asyncio.sleep(0.05)
+        first.cancel()
+        return first, await asyncio.wait_for(other, 10)
+    first, res = asyncio.run(go())
+    assert first.cancelled() and len(res["items"]) == 1
+    ev = h.events
+    keys = [i for i, e in enumerate(ev) if e[0] == "start" and e[2] == SERVICE]
+    first_back = next(i for i, e in enumerate(ev) if e[0] == "end" and e[2] == SERVICE)
+    assert len(keys) == 2 and first_back < keys[1]       # the waiter sent its own, after the cancelled one came back
+    assert [c.headers.get("x-appbuilder-client-id") for c in h.calls if c.method == "POST"] == ["k2"]
+
+
+def test_a_failed_key_request_is_still_shared_but_a_cancelled_one_is_not(fake):
+    h = fake(keys=[None, "k2"], key_s=0.2)
+    d = drill_token.TokenDrill("https://plan1.example", http=h)
+
+    async def go():
+        return await asyncio.gather(d.fetch(URL, 100), d.fetch(URL, 100), return_exceptions=True)
+    res = asyncio.run(go())
+    assert all(isinstance(e, drillcore.DrillError) and "no session key" in str(e) for e in res)
+    assert [c.path for c in h.calls].count(SERVICE) == 1
+
+
+def test_a_cancelled_request_still_at_epm_is_drained_before_a_new_key(fake, monkeypatch):
+    monkeypatch.setattr(config, "DRILL_PARALLEL", 4)
+    h = fake(keys=["k1", "k2"], dead={"k1"}, post_s=lambda body: 0.4 if "slow" in body else 0.02)
+    d = drill_token.TokenDrill("https://plan1.example", http=h)
+
+    async def go():
+        q = await d.query(URL)
+        slow = dataclasses.replace(q, body='{"QUERY": "slow"}')
+        t = asyncio.ensure_future(d.lines(slow, URL, 100))
+        await asyncio.sleep(0.1)                                    # its getData is at EPM
+        t.cancel()                                                  # e.g. a sibling failed and _all cancelled it
+        await asyncio.gather(t, return_exceptions=True)
+        return await asyncio.wait_for(d.lines(q, URL, 100), 20)    # finds k1 gone: a new key
+    assert len(asyncio.run(go())["items"]) == 1
+    ev = h.events
+    slow_back = ev.index(("end", "POST", "/aif/ui/model/drilldown/getData", "k1", '{"QUERY": "slow"}'))
+    keys = [i for i, e in enumerate(ev) if e[0] == "start" and e[2] == SERVICE]
+    assert len(keys) == 2 and slow_back < keys[1]
+
+
+def test_an_error_of_a_request_nobody_waits_for_any_more_is_not_left_unretrieved(fake, monkeypatch):
+    import gc
+    import warnings
+    h = fake(lines=[ConnectionResetError("reset")], slow_post=0.2)
+    d = drill_token.TokenDrill("https://plan1.example", http=h)
+    seen = []
+
+    async def go():
+        asyncio.get_running_loop().set_exception_handler(lambda loop, c: seen.append(c.get("message")))
+        q = await d.query(URL)
+        t = asyncio.ensure_future(d.lines(q, URL, 100))
+        await asyncio.sleep(0.05)
+        t.cancel()
+        await asyncio.gather(t, return_exceptions=True)
+        await asyncio.sleep(0.4)                                    # the thread's error arrives with nobody waiting
+        gc.collect()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        asyncio.run(go())
+    assert seen == []

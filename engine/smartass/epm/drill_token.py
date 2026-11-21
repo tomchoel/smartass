@@ -14,8 +14,10 @@ carried is compared with the current one). At most config.DRILL_PARALLEL getData
 
 A renewal drains first (live, 2026-11-21: a request with the old key that reaches EPM after the new key was taken
 signs the new session out): from the moment a piece finds the session lost no request leaves with the old key, and
-the key request waits until every request still out with it has come back - at most _DRAIN_S, the time one request
-may take; after that it goes anyway and says so in the log.
+the key request waits until every request still out at EPM has come back - also one whose piece was cancelled
+meanwhile, and a key request whose piece was - at most _DRAIN_S, the time one request may take; after that it goes
+anyway and says so in the log. A key request that fails is the failure of every piece that waited for it; one whose
+piece was cancelled is not shared: the waiters ask for a key themselves.
 
 The bound on retries: a piece retries once per key generation - never twice on the same key - and at most
 MAX_RENEWALS times in all (its drill query, its view and its getData pages together). A session that is lost again
@@ -28,6 +30,8 @@ token: it is never logged and never in an error. Nothing is cached beyond the ke
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import functools
 import json
 import logging
 import threading
@@ -71,7 +75,7 @@ def _why(status: int) -> str:
 
 class _Loop:
     """One event loop's share of a TokenDrill: the lock (the key and the view cache), the getData gate and the
-    requests out with a key (a new key waits until none is)."""
+    requests still out at EPM (a new key waits until none is)."""
 
     def __init__(self):
         self.lock = asyncio.Lock()
@@ -79,6 +83,16 @@ class _Loop:
         self.out = 0
         self.idle = asyncio.Event()
         self.idle.set()
+
+
+def _back(st: _Loop, sent: asyncio.Future) -> None:
+    """A request's thread has returned: it is no longer out at EPM. Its error is read here, so one that nobody waits
+    for any more (a cancelled piece) is not reported as never retrieved."""
+    if not sent.cancelled():
+        sent.exception()
+    st.out -= 1
+    if st.out == 0:
+        st.idle.set()
 
 
 class _Budget:
@@ -122,35 +136,35 @@ class TokenDrill:
 
     async def _call(self, method: str, url: str, key: str | None, body: str | None = None) -> epmhttp.Response:
         """One request on a worker thread; key None: the key request itself. A request lost on the way (OSError,
-        epmhttp.RequestLost) is answered as status 0, like a page fetch that failed."""
+        epmhttp.RequestLost) is answered as status 0, like a page fetch that failed. It counts as out at EPM until its
+        thread has returned (at most _REQUEST_S), also when the piece that sent it was cancelled meanwhile: a new key
+        waits for it (_drain)."""
         headers = {"page_id": PAGE_ID} if key is None else {**_HEADERS, "x-appbuilder-client-id": key}
         st = self._sync()
-        if key is not None:
-            st.out += 1
-            st.idle.clear()
+        st.out += 1
+        st.idle.clear()
+        run = functools.partial(contextvars.copy_context().run, self.http.request, method, url, headers=headers,
+                                body=body, timeout=_REQUEST_S)
+        sent = asyncio.get_running_loop().run_in_executor(None, run)
+        sent.add_done_callback(functools.partial(_back, st))
         try:
-            return await asyncio.to_thread(self.http.request, method, url, headers=headers, body=body,
-                                           timeout=_REQUEST_S)
+            return await asyncio.shield(sent)            # a cancelled piece stops waiting; the request is still out
         except OSError as e:
             log.info("token drill: %s %s was lost (%s)", method, redact(url), type(e).__name__)
             return epmhttp.Response(0, "", {})
-        finally:
-            if key is not None:
-                st.out -= 1
-                if st.out == 0:
-                    st.idle.set()
 
     async def _drain(self) -> None:
-        """Wait until no request is out with a key (the old one: no new request takes a key while there is none),
-        at most _DRAIN_S. Only with the loop's lock held and the key dropped."""
+        """Wait until no request is out at EPM (with the old key, or a key request whose piece was cancelled: no new
+        request takes a key while there is none), at most _DRAIN_S. Only with the loop's lock held and the key
+        dropped."""
         st = self._sync()
         if st.out == 0:
             return
-        log.info("token drill: a new key waits for %d request(s) still out with the old one", st.out)
+        log.info("token drill: a new key waits for %d request(s) still out at EPM", st.out)
         try:
             await asyncio.wait_for(st.idle.wait(), _DRAIN_S)
         except TimeoutError:
-            log.warning("token drill: %d request(s) with the old key still out after %g s; taking a new key anyway",
+            log.warning("token drill: %d request(s) still out at EPM after %g s; taking a new key anyway",
                         st.out, _DRAIN_S)
 
     async def _take_key(self) -> str:
@@ -163,8 +177,8 @@ class TokenDrill:
             if not key:
                 log.info("token drill: no session key in EPM's answer (HTTP %s)", r.status)
                 raise DrillError("EPM gave no session key for the drill")
-        except BaseException as e:
-            self._take_error = e
+        except Exception as e:                        # shared with the waiters; a cancellation is not (they
+            self._take_error = e                      # take a key themselves: _key_for)
             raise
         finally:
             self._taken += 1
