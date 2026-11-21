@@ -20,8 +20,10 @@
   lines answer took 10.6 s, its drill 7.3 s.
 - **What a PC needs:** `[oauth]` in `%LOCALAPPDATA%\smartass\config.toml` (`idcs`, `client_id` and a scope per pod
   under `[oauth.scopes]`; docs\troubleshooting.md, "oauth") and one sign-in. Without it every call that reads EPM
-  answers with the set-up text, and `smartass doctor` reports `FAIL oauth not set up`. The pod of `epm.base`
-  without a scope is a `WARN`: no drill lines there, and its grids come through Smart View in Excel.
+  answers with the set-up text, and `smartass doctor` reports `FAIL oauth not set up`. The pod of `epm.base` needs
+  a scope too: without one no answer works (every answer reads the closed month and the data-source list there, with
+  no Excel fallback), and the doctor reports `FAIL`. Another pod without a scope loses only what is asked of that
+  pod: its grids come through Smart View in Excel. `idcs` must be an https URL.
 - **Gone:** the doctor check `drill_browser` (also from `fin_status`); the `[drill] channels` setting (ignored when
   still in config.toml); the variables `SV_DRILL_ROUTE`, `SV_DRILL_DIRECT`, `SV_DRILL_CHANNELS`,
   `SV_DRILL_PROFILE_SLOTS`, `SV_DRILL_KEEP_WARM`, `SV_DRILL_IDLE_S`, `SV_DRILL_YIELD_IDLE_S`,

@@ -96,6 +96,10 @@ class Refused(ValueError):
     """The request is not on the allowlist or leaves the pod: nothing was sent and no token was asked for."""
 
 
+class NoScope(Refused):
+    """The pod has no scope under [oauth.scopes]: nothing was sent (serverkit.NEXT_STEP says which scope to add)."""
+
+
 class RequestLost(ConnectionError):
     """http.client's own errors (a cut-off answer, a bad status line) as an OSError: the request left, its answer
     did not come whole."""
@@ -141,7 +145,7 @@ class EpmSession:
             if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 < timeout <= MAX_TIMEOUT_S:
                 raise Refused(f"refused: a timeout must be a number of seconds over 0 and at most {MAX_TIMEOUT_S:g}")
             if self._tokens.scope_for(self.origin) is None:
-                raise Refused(f"refused: no OAuth scope is configured for {self.origin or redact(self.base)!r}")
+                raise NoScope(f"refused: no OAuth scope is configured for {self.origin or redact(self.base)!r}")
         except Refused as e:
             log.warning("epmhttp: %s", e)
             raise

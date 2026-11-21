@@ -638,10 +638,22 @@ def test_without_any_oauth_set_up_the_caller_gets_the_set_up_text():
 
 
 def test_a_pod_without_a_scope_says_where_to_add_it():
-    with pytest.raises(svhttp.SvHttpError) as e:
+    with pytest.raises(svhttp.NoScope) as e:                      # an SvHttpError: another pod's grid falls back
         svhttp.BearerTransport(tokens=_Tokens("at-1", scopes=())).post("https://plan1.example/", svxml.connect())
-    assert str(e.value) == ("no OAuth scope is configured for https://plan1.example: add it under [oauth.scopes] in "
-                            "config.toml")
+    assert isinstance(e.value, svhttp.SvHttpError)
+    assert str(e.value) == "no OAuth scope is configured for https://plan1.example ([oauth.scopes] in config.toml)"
+
+
+def test_the_home_pod_without_a_scope_stops_the_closed_month_with_the_add_the_scope_step(db_path):
+    from smartass.core import serverkit
+    sv = svhttp.SvHttp(svhttp.BearerTransport(tokens=_Tokens("at-1", scopes=("https://strat.example",)),
+                                              send=lambda *a: pytest.fail("sent")), home="https://plan1.example",
+                       db_path=db_path)
+    with pytest.raises(svhttp.NoScope) as e:
+        sv.closed_month("FinMax")
+    msg = serverkit.explain("fin_analyze", e.value)
+    assert "Retry once" not in msg and msg.count("Next step:") == 1
+    assert "[oauth.scopes]" in msg.split("Next step:")[1] and "smartass login" in msg and "administrator" in msg
 
 
 @pytest.mark.parametrize("answer_", [TimeoutError("timed out"), ConnectionResetError("reset"),

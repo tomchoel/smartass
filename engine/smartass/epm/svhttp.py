@@ -51,6 +51,11 @@ class SvHttpError(Exception):
     """The HTTP route could not answer; extract.route then uses Smart View in Excel."""
 
 
+class NoScope(SvHttpError):
+    """The pod has no scope under [oauth.scopes]: no token can be asked for it (serverkit.NEXT_STEP says which scope
+    to add and where it comes from). For the home pod (epm.base) no answer works; another pod's grid falls back."""
+
+
 class RequestLost(SvHttpError):
     """The request left but its answer did not come (the connection dropped, or the request timed out): EPM may still
     be working on it, so its session is dropped and the request goes again on another one."""
@@ -370,7 +375,7 @@ class BearerTransport:
             raise oauth.NotSetUp()                       # the reply says what config.toml needs, not "retry"
         base = pod_origin(base)                          # the only URL the bearer goes to, whatever EPM listed
         if self._tokens.scope_for(base) is None:
-            raise SvHttpError(f"no OAuth scope is configured for {base}: add it under [oauth.scopes] in config.toml")
+            raise NoScope(f"no OAuth scope is configured for {base} ([oauth.scopes] in config.toml)")
         token = self._token(base)
         status = 0
         for attempt in (1, 2):

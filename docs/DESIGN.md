@@ -184,11 +184,13 @@ never stops the rest.
   (draining the requests still out with the old key). One device-code sign-in per pod (`smartass login`, or the page
   and code a tool reply shows when the sign-in is missing), stored DPAPI-protected; the refresh token is single use,
   so every refresh runs under a cross-process lock, and the servers renew it daily. Without `[oauth]` in
-  config.toml a tool call answers with the set-up text; a grid the token cannot fetch (a pod without a scope) is
-  pulled through Smart View in the hidden Excel. Live 19.11.2026: grids, the closed month and drill links are the old
-  browser route's cell for cell (first grid 0.7 s against about 20 s); 21.11.2026: drill lines on four cells are the
-  browser route's row for row (docs/audit/2026-11-19-drill-token-vs-browser.md). The same token also opens the
-  documented Planning REST API (`exportdataslice`, member properties), which is not used yet.
+  config.toml a tool call answers with the set-up text. The pod of `epm.base` must have a scope: the closed month and
+  the data-source list are read there with no Excel fallback, so without it no answer works (doctor FAIL); a grid on
+  another pod without a scope is pulled through Smart View in the hidden Excel. Live 19.11.2026: grids, the closed
+  month and drill links are the old browser route's cell for cell (first grid 0.7 s against about 20 s); 21.11.2026:
+  drill lines on four cells are the browser route's row for row (docs/audit/2026-11-19-drill-token-vs-browser.md).
+  The same token also opens the documented Planning REST API (`exportdataslice`, member properties), which is not
+  used yet.
 - **Atlas**: `atlas.db`, rebuilt with `smartass atlas build` (or copied from the monthly release by `smartass
   setup`).
 

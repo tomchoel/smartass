@@ -71,6 +71,10 @@ NEXT_STEP = {
     "DrillError": "Retry the drill once; " + ESCALATE,
     "CellTooWide": "Narrow the cell (e.g. child entities) and drill again.",
     "TimeoutError": "Retry with a smaller request (fewer members or periods).",
+    "NoScope": ("Add the scope of the pod named above under [oauth.scopes] in config.toml, as \"https://<pod host>\" = "
+                "\"urn:opc:serviceInstanceID=...\" (the identity domain's administrator reads it where that environment "
+                "was added to the OAuth client as a resource; docs\\troubleshooting.md, 'oauth'), then run "
+                "`smartass login`."),
 }
 # A message that already says what to do ('Next step: ...', 'If it repeats, run fin_status(restart=True).', '... Try again
 # shortly.', '; pass force=true') gets no second piece of advice.

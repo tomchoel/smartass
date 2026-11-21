@@ -684,3 +684,13 @@ def test_a_scrubbed_error_keeps_no_link_to_the_original(make, error):
         s.request("POST", GET_DATA, body="{}")
     assert e.value is not error and e.value.__context__ is None and e.value.__cause__ is None
     assert _clean(str(e.value))
+
+def test_a_pod_without_a_scope_is_refused_with_the_add_the_scope_step(make):
+    from smartass.core import serverkit
+    s, op, tok = make(base="https://other.example")
+    with pytest.raises(epmhttp.NoScope) as e:
+        s.request("GET", "/aif/ui/model/applications/servicetype")
+    assert isinstance(e.value, epmhttp.Refused) and op.sent == [] and tok.asked == []
+    msg = serverkit.explain("fin_drill", e.value)
+    assert "Retry once" not in msg and msg.count("Next step:") == 1
+    assert "[oauth.scopes]" in msg.split("Next step:")[1] and "smartass login" in msg

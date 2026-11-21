@@ -70,9 +70,9 @@ def _epm(timeout: float = 5) -> Check:
 
 def _oauth() -> Check:
     """The [oauth] set-up and the stored sign-in of each pod, from config and the token files only (no network). Grids
-    and drill lines go over the user's token: without the set-up no tool call reaches EPM; a pod without a stored
-    sign-in answers its first call with the sign-in page and code; the home pod (epm.base) without a scope has no drill
-    lines."""
+    and drill lines go over the user's token: without the set-up no tool call reaches EPM; the home pod (epm.base)
+    without a scope is a FAIL too (every answer reads the closed month and the data-source list there, with no Excel
+    fallback); a pod without a stored sign-in answers its first call with the sign-in page and code."""
     from ..epm import oauth
     if not oauth.configured():
         why = ("[oauth] idcs is not an https URL" if config.OAUTH_IDCS_REFUSED else
@@ -85,13 +85,14 @@ def _oauth() -> Check:
     home = oauth.origin(config.EPM_BASE or "")
     no_scope = bool(home) and home not in oauth.pods()
     if no_scope:
-        parts.append(f"{host(home)}: no scope (no drill lines)")
+        parts.append(f"{host(home)}: no scope (epm.base: no answers)")
+        return Check("oauth", "FAIL", "; ".join(parts),
+                     f"Add the scope of {home} under [oauth.scopes] in config.toml (the identity domain's administrator "
+                     "reads it where that environment was added to the OAuth client as a resource), then run "
+                     "`smartass login`.")
     if any(s["state"] != "signed_in" for s in st):
         return Check("oauth", "WARN", "; ".join(parts),
                      "Run `smartass login` (one approval in the browser), or approve the code a tool reply shows.")
-    if no_scope:
-        return Check("oauth", "WARN", "; ".join(parts),
-                     f"Add a scope for {home} under [oauth.scopes] in config.toml, then run `smartass login`.")
     return Check("oauth", "OK", "; ".join(parts))
 
 

@@ -76,10 +76,14 @@ drill lines over the token are the browser route's row for row, with exact ties;
 - **Symptom:** `FAIL  oauth  not set up: config.toml has no [oauth] idcs, client_id and scopes`; a tool reply says
   "EPM access is not set up on this PC".
 - **Fix:** add the three settings above to config.toml, then run `smartass login`.
-- **Symptom:** `WARN  oauth  <pod>: no scope (no drill lines)` (the pod of `epm.base`).
-- **Cause:** that pod has no scope under `[oauth.scopes]`: fin_drill and lines blocks fail there, and its grids are
-  pulled through Smart View in the hidden Excel instead (slower).
-- **Fix:** Add a scope for the pod under [oauth.scopes] in config.toml, then run `smartass login`.
+- **Symptom:** `FAIL  oauth  <pod>: no scope (epm.base: no answers)`; every tool reply that reads EPM says "no OAuth
+  scope is configured for https://<pod>".
+- **Cause:** the pod of `epm.base` has no scope under `[oauth.scopes]`. Every answer reads the closed month and the
+  list of data sources from that pod first, and those have no fallback through Excel: no answer works, no drill
+  either. Another pod without a scope loses only what is asked of that pod: its grids are pulled through Smart View
+  in the hidden Excel instead (slower).
+- **Fix:** Add the pod's scope under [oauth.scopes] in config.toml (the identity domain's administrator reads it
+  where that environment was added to the OAuth client as a resource), then run `smartass login`.
 - **Symptom:** `WARN  oauth  <pod>: not signed in` or `<pod>: sign-in ended`; a tool reply gives a page and a code.
 - **Cause:** no sign-in was made on this PC, or it was not used for 7 days (Oracle's lifetime for a refresh token;
   the MCP server and `smartass serve` renew it daily while they run), or the identity domain withdrew it.
