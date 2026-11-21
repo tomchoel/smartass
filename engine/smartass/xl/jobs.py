@@ -130,6 +130,7 @@ def book_name(t) -> str:
 TURN_WAIT_S = 600
 MAX_EXCELS = 4                     # the user's Excel(s) + extra windows started for parallel agents
 ABANDONED_WAIT_S = 5               # a turn a job given up on still holds is waited for this long, then refused
+UNMARK_TRIES = 10                  # a given-up mark another process is reading is removed again this often
 ABANDONED = ("An earlier request in that Excel ({held}) was given up after Excel did not respond in time, and it still "
              "holds that Excel: {what} was not started. Check Excel for an open dialog or a cell in edit mode (press Esc "
              "or Enter); if Excel has stopped responding, it has to be closed. Then ask again.")
@@ -148,7 +149,8 @@ class Turn:
     refused after ABANDONED_WAIT_S with what holds it (live, 21.11.2026: the next job waited silently until it was
     given up on too); one that ends meanwhile hands the turn over as any other. A job of ANOTHER process learns it from
     a file next to the lock (user_excel_<pid>.given_up.json: what holds the turn, and which process), written when the
-    job is given up on and removed when its turn ends (Task D review, Minor 1). The lock itself is never freed early:
+    job is given up on and removed when its turn ends (Task D review, Minor 1); one left behind (its removal failed)
+    expires with that Excel process and with the process that wrote it, and goes with the next turn taken there. The lock itself is never freed early:
     the given-up job's call may still complete in that Excel, and two writers there must never be possible."""
 
     def __init__(self, pid: int):
@@ -166,16 +168,21 @@ class Turn:
         return config.SVKIT / f"user_excel_{self.pid}.given_up.json"
 
     def try_acquire(self) -> bool:
+        """The turn, if it is free now. A given-up mark found then is stale - only the job holding the turn marks it,
+        and its close could not remove it (Task D2 review, Minor 4) - and is removed."""
         try:
             self.f.seek(0)
             self._m.locking(self.f.fileno(), self._m.LK_NBLCK, 1)
             self.held = True
             with _holders_lock:
                 _holders[self.pid] = self
+                try:
+                    self.given_up_file.unlink(missing_ok=True)
+                except OSError:
+                    pass                          # it expires with its Excel or its process (given_up_elsewhere)
         except OSError:
             pass
         return self.held
-
     def given_up(self) -> bool:
         """Held by a job the host has given up on (its token aborted)."""
         return self.held and self.token is not None and self.token.aborted
@@ -190,13 +197,17 @@ class Turn:
         import psutil
         me = psutil.Process()
         what = self.token.what if self.token is not None else "a request"
+        try:
+            excel_ctime = psutil.Process(self.pid).create_time()
+        except psutil.Error:
+            excel_ctime = None                        # that Excel is gone: the mark is stale from the start
         with _holders_lock:
             if not self.held or _holders.get(self.pid) is not self:
                 return
             try:
                 tmp = self.given_up_file.with_suffix(f".{os.getpid()}.tmp")
-                tmp.write_text(json.dumps({"what": what, "owner": me.pid, "owner_ctime": me.create_time()}),
-                               encoding="utf-8")
+                tmp.write_text(json.dumps({"what": what, "owner": me.pid, "owner_ctime": me.create_time(),
+                                           "excel_ctime": excel_ctime}), encoding="utf-8")
                 os.replace(tmp, self.given_up_file)
                 self.marked = True
             except OSError as e:
@@ -204,8 +215,9 @@ class Turn:
                             self.pid, e)
 
     def given_up_elsewhere(self) -> str | None:
-        """What holds this Excel's turn in ANOTHER process, when that job was given up on (its process still runs);
-        None otherwise."""
+        """What holds this Excel's turn in ANOTHER process, when that job was given up on; None otherwise. A mark
+        expires with the process that wrote it and with the Excel process it was written for (pid and start time:
+        another Excel may get that pid), so one left behind refuses no waiter for longer (Task D2 review, Minor 4)."""
         import json
         import os
 
@@ -214,6 +226,8 @@ class Turn:
             d = json.loads(self.given_up_file.read_text(encoding="utf-8"))
             owner = int(d["owner"])
             if owner == os.getpid() or abs(psutil.Process(owner).create_time() - float(d["owner_ctime"])) >= 1.0:
+                return None
+            if abs(psutil.Process(self.pid).create_time() - float(d["excel_ctime"])) >= 1.0:
                 return None
             return str(d["what"])
         except (OSError, ValueError, KeyError, TypeError, psutil.Error):
@@ -226,6 +240,21 @@ class Turn:
         if holder is not None:
             return holder.token.what if holder.given_up() else None
         return self.given_up_elsewhere()
+
+    def _unmark(self) -> None:
+        """The given-up mark removed, tried again for a moment while another process reads it (a sharing violation);
+        one that stays is said, and expires (given_up_elsewhere) or goes with the next turn taken (try_acquire)."""
+        for i in range(UNMARK_TRIES):
+            try:
+                self.given_up_file.unlink(missing_ok=True)
+                return
+            except OSError as e:
+                if i == UNMARK_TRIES - 1:
+                    log.warning("could not remove %s (%s): other processes' waiters may be told of a job given up on "
+                                "until that Excel or this process ends, or the next turn there is taken",
+                                self.given_up_file.name, e)
+                else:
+                    time.sleep(0.02)
 
     def acquire(self, what: str) -> float:
         t0 = time.monotonic()
@@ -252,10 +281,7 @@ class Turn:
                 if _holders.get(self.pid) is self:
                     del _holders[self.pid]
                 if self.marked:
-                    try:
-                        self.given_up_file.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                    self._unmark()
                     self.marked = False
             try:
                 self.f.seek(0)

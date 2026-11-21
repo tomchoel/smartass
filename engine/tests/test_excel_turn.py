@@ -1,11 +1,14 @@
 """Turn: the machine-wide queue for the user's Excel works ACROSS processes (two agents/servers)."""
 import asyncio
+import json
 import os
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
+import psutil
 import pytest
 
 sys.path.insert(0, __file__.rsplit("\\tests", 1)[0])
@@ -138,19 +141,20 @@ def test_a_job_in_another_process_is_told_of_a_turn_held_by_a_job_given_up_on(mo
     monkeypatch.setattr(jobs, "TURN_WAIT_S", 8)
     monkeypatch.setattr(jobs, "ABANDONED_WAIT_S", 0.5)
     root = __file__.rsplit("\\tests", 1)[0]
-    p = subprocess.Popen([sys.executable, "-c", GIVEN_UP, root, "4", "4545"], stdout=subprocess.PIPE, text=True,
+    excel = os.getpid()                              # stands for that Excel: a process that runs
+    p = subprocess.Popen([sys.executable, "-c", GIVEN_UP, root, "4", str(excel)], stdout=subprocess.PIPE, text=True,
                          env=dict(os.environ, SMARTASS_HOME=str(tmp_path)))
     try:
         assert p.stdout.readline().strip() == "given up"
         t0 = time.monotonic()
-        tt = jobs.Turn(4545)
+        tt = jobs.Turn(excel)
         with pytest.raises(HostError) as e:
             tt.acquire("this request")
         assert "fin_refresh" in str(e.value) and "this request was not started" in str(e.value)
         assert time.monotonic() - t0 < 3
     finally:
         p.wait(20)
-    tt = jobs.Turn(4545)
+    tt = jobs.Turn(excel)
     assert tt.acquire("this request") < 1.0          # the job given up on ended: the turn is free, nothing left over
     tt.close()
     assert not list(tmp_path.glob("*.given_up.json"))
@@ -169,3 +173,63 @@ def test_a_turn_whose_close_has_begun_is_not_marked_given_up(monkeypatch, tmp_pa
     assert not tt.marked and not list(tmp_path.glob("*.given_up.json"))
     tt.close()
     jobs.unbind_job()
+
+
+
+# ------------------------------------------------------------------------------- Task D2 review, Minor 4: a stale mark
+def _mark(tmp_path, pid: int, owner, excel_ctime) -> None:
+    (tmp_path / f"user_excel_{pid}.given_up.json").write_text(json.dumps(
+        {"what": "fin_refresh", "owner": owner.pid, "owner_ctime": owner.create_time(), "excel_ctime": excel_ctime}),
+        encoding="utf-8")
+
+
+def test_a_given_up_mark_expires_with_the_excel_it_was_for(monkeypatch, tmp_path):
+    """A mark left behind (its close could not remove it) never refuses waiters once that Excel process is gone - a
+    pid used again by another Excel is another process - nor once the process that marked it is gone."""
+    monkeypatch.setattr(config, "SVKIT", tmp_path)
+    excel = psutil.Process()                         # stands for the Excel: a process that runs
+    other = excel.parent()                           # the server process that marked it: another one, running
+    _mark(tmp_path, excel.pid, other, excel.create_time())
+    assert jobs.Turn(excel.pid).given_up_elsewhere() == "fin_refresh"
+    _mark(tmp_path, excel.pid, other, excel.create_time() - 60)      # another Excel had that pid
+    assert jobs.Turn(excel.pid).given_up_elsewhere() is None
+    _mark(tmp_path, excel.pid, other, None)                           # that Excel was not running when marked
+    assert jobs.Turn(excel.pid).given_up_elsewhere() is None
+
+
+def test_the_next_turn_taken_in_that_excel_removes_a_mark_left_behind(monkeypatch, tmp_path):
+    """Only the job holding the turn marks it: whoever holds the turn next knows that mark is stale."""
+    monkeypatch.setattr(config, "SVKIT", tmp_path)
+    excel = psutil.Process()
+    _mark(tmp_path, excel.pid, excel.parent(), excel.create_time())
+    tt = jobs.Turn(excel.pid)
+    assert tt.try_acquire()
+    tt.close()
+    assert not list(tmp_path.glob("*.given_up.json"))
+
+
+def test_a_turn_whose_mark_cannot_be_removed_at_once_tries_again_and_says_so(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(config, "SVKIT", tmp_path)
+    real_unlink = Path.unlink
+    for refusals, left in ((2, False), (10_000, True)):
+        refused = [refusals]
+
+        def unlink(self, missing_ok=False):
+            if self.name.endswith(".given_up.json") and refused[0]:
+                refused[0] -= 1
+                raise PermissionError("another process is reading it")
+            return real_unlink(self, missing_ok=missing_ok)
+        token = jobs.JobToken("fin_refresh")
+        jobs.bind_job(token)
+        tt = jobs.Turn(os.getpid())
+        assert tt.try_acquire()
+        tt.mark_given_up()
+        assert tt.marked
+        with monkeypatch.context() as m, caplog.at_level("WARNING", logger="smartview.excel"):
+            m.setattr(Path, "unlink", unlink)
+            tt.close()
+        jobs.unbind_job()
+        assert bool(list(tmp_path.glob("*.given_up.json"))) is left
+        assert ("could not remove" in caplog.text) is left
+        for f in tmp_path.glob("*.given_up.json"):
+            f.unlink()

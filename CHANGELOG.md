@@ -70,7 +70,8 @@ the middle of its job.
   request that waits for that Excel's turn is refused with "An earlier request in that Excel (...) was given up after
   Excel did not respond in time, and it still holds that Excel: ... was not started", and what to check - also in
   another smartass server process (`user_excel_<pid>.given_up.json` next to the turn's lock says which request holds
-  it). The request given up on never writes again and frees the turn when Excel answers it; the turn is never freed
+  it; one that could not be removed at the end of that turn is said in the log, expires with that Excel process and
+  with the server that wrote it, and goes with the next turn taken in that Excel). The request given up on never writes again and frees the turn when Excel answers it; the turn is never freed
   before that. A new question's request that looks for a free Excel (target 'new') still counts that Excel as busy:
   it takes another free Excel, or starts one for a parallel agent, as before.
 - Excel's "call rejected" while it is busy (a save, AutoSave) no longer fails a job with "Unexpected AttributeError:
