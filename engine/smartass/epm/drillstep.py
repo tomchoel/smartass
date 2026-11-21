@@ -25,7 +25,7 @@ EMPTY_PROVIDER = "Empty response from provider"
 # A drill piece's time budget (piece_budget). Live, a 5 000-line getData page took about 11 s (audit (b): 7 852 lines
 # in two pages, 22.8-23.1 s with the key and the view): PAGE_S allows a third more. One renewal on a slow EPM is the
 # lost request, the drain and the key request, each at most one request's timeout.
-PIECE_FLOOR_S = 300.0            # the key, EPM's drill query, the view and the first page; all a piece has until then
+PIECE_FLOOR_S = 300.0            # the key, EPM's drill query, the view and a few pages, before the renewal allowance
 PAGE_S = 15.0                    # per getData page of config.DRILL_PAGE lines
 RENEWAL_S = 3 * _REQUEST_S       # 360 s
 OLD_CAP_S = 900.0                # the old page route's cap (300 + 10 s a page at 300 000 lines)
@@ -173,19 +173,22 @@ def _lines_source():
     return drill_token.shared()
 
 
+def _need(pages: int) -> float:
+    return max(PIECE_FLOOR_S, pages * PAGE_S) + RENEWAL_S
+
+
 def piece_cap() -> float:
     """The most a piece may take: the old 900 s, or what config.DRILL_MAX_LINES needs if that is more (300 000 lines:
-    60 pages * 15 s + 360 s = 1 260 s), so a piece within the line limit is never cut short by the cap."""
-    return max(OLD_CAP_S, math.ceil(config.DRILL_MAX_LINES / config.DRILL_PAGE) * PAGE_S + RENEWAL_S)
+    max(300 s, 60 pages * 15 s) + 360 s = 1 260 s), so a piece within the line limit is never cut short by the cap."""
+    return max(OLD_CAP_S, _need(math.ceil(config.DRILL_MAX_LINES / config.DRILL_PAGE)))
 
 
 def piece_budget(total: int | None) -> float:
-    """Seconds one drill piece may take, counted from its start: PIECE_FLOOR_S until its first page tells the total
-    (None); then its pages times PAGE_S plus one renewal (RENEWAL_S), never under the floor, at most piece_cap()."""
-    if total is None:
-        return PIECE_FLOOR_S
-    need = max(1, math.ceil(total / config.DRILL_PAGE)) * PAGE_S + RENEWAL_S
-    return min(max(PIECE_FLOOR_S, need), piece_cap())
+    """Seconds one drill piece may take, counted from its start: the larger of PIECE_FLOOR_S and its pages times
+    PAGE_S (no pages until its first page tells the total: None), plus one renewal (RENEWAL_S: a lost session on the
+    drill query, the view or any page), at most piece_cap()."""
+    pages = 0 if total is None else max(1, math.ceil(total / config.DRILL_PAGE))
+    return min(_need(pages), piece_cap())
 
 
 class PieceTimeout(Exception):
@@ -203,15 +206,15 @@ async def _drill_fetch(url: str, max_lines: int) -> dict:
     import asyncio
 
     loop = asyncio.get_running_loop()
-    t0, seen = loop.time(), {"got": 0, "total": None, "budget": PIECE_FLOOR_S}
-    budget = asyncio.timeout_at(t0 + PIECE_FLOOR_S)
+    t0, seen = loop.time(), {"got": 0, "total": None, "budget": piece_budget(None)}
+    budget = asyncio.timeout_at(t0 + seen["budget"])
     notes = _NOTES.get()
     piece = notes.new() if notes is not None else None
 
     def progress(got: int, total: int | None) -> None:     # on the event loop, after each page
         seen.update(got=got, total=total)
-        seen["budget"] = piece_budget(total if total is not None else got + config.DRILL_PAGE)
-        budget.reschedule(t0 + seen["budget"])
+        seen["budget"] = max(seen["budget"], piece_budget(total if total is not None else got + config.DRILL_PAGE))
+        budget.reschedule(t0 + seen["budget"])        # never earlier: a deadline already past would fire at once
         if notes is not None:
             notes.page(piece, got, total)
     try:

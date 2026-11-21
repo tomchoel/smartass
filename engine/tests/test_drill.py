@@ -904,8 +904,8 @@ def test_a_pieces_budget_grows_with_its_pages_from_a_floor_to_a_cap(monkeypatch)
     monkeypatch.setattr(config, "DRILL_PAGE", 5000)
     monkeypatch.setattr(config, "DRILL_MAX_LINES", 300_000)
     assert drillstep.RENEWAL_S == 360                       # the lost request, the drain, the key request: 120 s each
-    assert drillstep.piece_budget(None) == 300               # until the first page tells the total
-    assert drillstep.piece_budget(1) == 375                  # 1 page * 15 s + 360 s
+    assert drillstep.piece_budget(None) == 660               # until the first page tells the total: 300 s + 360 s
+    assert drillstep.piece_budget(1) == 660                  # max(300 s, 1 page * 15 s) + 360 s
     assert drillstep.piece_budget(150_000) == 810            # 30 pages: where a flat 300 s ran out (about 11 s a page)
     assert drillstep.piece_budget(300_000) == drillstep.piece_cap() == 1260     # 60 pages: the line limit needs more
     assert drillstep.piece_budget(10_000_000) == 1260
@@ -1024,3 +1024,15 @@ def test_the_unused_drill_settings_and_the_uncalled_drill_all_are_gone():
     from smartass.epm import drillstep
     assert not hasattr(config, "DRILL_DB") and not hasattr(config, "DRILL_KEEP_DAYS")
     assert not hasattr(drillstep, "drill_all") and not hasattr(drillstep, "combine")
+
+def test_a_renewal_before_the_first_page_has_its_allowance_too(monkeypatch):
+    import asyncio
+
+    from smartass.core import config
+    from smartass.epm import drillstep
+    monkeypatch.setattr(config, "DRILL_PAGE", 5000)
+    monkeypatch.setattr(drillstep, "PIECE_FLOOR_S", 0.2)
+    monkeypatch.setattr(drillstep, "PAGE_S", 0.05)
+    monkeypatch.setattr(drillstep, "RENEWAL_S", 0.3)
+    _slow_source(monkeypatch, [0.35], 5000)          # a lost session on the drill query: the first page after the floor
+    assert asyncio.run(drillstep._drill_fetch("u", 100_000))["total"] == 3

@@ -105,8 +105,8 @@ reply's `text_fixes` (candidates for your own fix list).
   session is taken with it and renewed once for all pieces when EPM drops it.
 - Excel gets key columns only above 50 000 lines. Maximum 300 000 lines; above that the tool stops after the first
   page and reports the size, and you narrow the request.
-- Each piece has a time budget: 300 s until its first page tells its size, then 15 s a page plus 360 s for one
-  session renewal (1 260 s at 300 000 lines).
+- Each piece has a time budget: 300 s, or 15 s a page once its first page tells its size if that is more, plus
+  360 s for one session renewal (660 s up to 20 pages, 1 260 s at 300 000 lines).
 - No drill report on the cell (data entered by journal in EPM): the answer is refused with the reason.
 
 ## Errors
