@@ -53,9 +53,10 @@ the middle of its job.
 - A failed job's Excel objects (its workbook, the ranges of a batch) are released on the job's own thread, no longer
   on the thread that reads its error: released from another thread they can call Excel from there and wait for it -
   for ever, when that Excel has stopped responding.
-- What froze Excel is not known: the live sequence was run 20 times in hidden Excels of our own (two add-in builds
-  loaded, add-in jobs then COM jobs, each job on its own thread) without a freeze. `scripts/check_insert.py` has a
-  part "mixed" that runs the executors mixed in one Excel with a second build loaded.
+- What froze Excel is not known. A stand-in for the live sequence (the tests' fake data, no EPM, hidden Excels of our
+  own with two add-in builds and the usual add-ins loaded; add-in jobs, then COM jobs, each job on its own thread)
+  ran 22 times without a freeze; what needs a visible Excel or the live EPM session could not be tried.
+  `scripts/check_insert.py` has a part "mixed" that runs the executors mixed in one Excel with a second build loaded.
 
 ### The save happens after the reply (0.5.0)
 
