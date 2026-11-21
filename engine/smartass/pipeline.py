@@ -750,6 +750,7 @@ class _Job:
     resave: tuple | None = None                 # (workbook, its note's index, outcome): a save after the reply failed
     sync_save: bool = False                     # how the save after the last reply went is not known: save in the job
     pointing: list = field(default_factory=list)    # what the re-pointing could not do, for the reply's warnings
+    spec_stored: bool | None = False            # the close-out stored the spec (None: unknown - the workbook says)
 
     @staticmethod
     def after(e: BaseException, at: int) -> bool | None:
@@ -975,6 +976,7 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     b.mark("sources")
     if _save_spec(t, q, pre.raw, b, look.spec_rows):
         book.sheets.append(movein.Sheet(sheets.META_SHEET, 0, False))
+    spec_end = b.position
     b.mark("spec")
     ours = log_.name == "Sources" if log_ is not None else look.kind in ("v1", "v2")
     arranged = _arrange(t, answer, book, b, wbn, look.screen.active, ours)
@@ -988,9 +990,11 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
         job.dropped = False if drop_at is None else None if getattr(e, "index", None) == drop_at else job.after(
             e, drop_at)
         job.repointed = False if point_at is None else job.after(e, point_at)
+        job.spec_stored = job.after(e, spec_end)        # its operations are no attempts: past them, it is stored
         raise
     job.dropped = drop_at is not None
     job.repointed = point_at is not None
+    job.spec_stored = True
     if writes is not None:
         refused, changed = writes.outcome(res.values, res.skipped)
         job.pointing += _refused_notes(q, refused, "point", "at the new") + _changed_notes(q, changed)
@@ -1156,12 +1160,17 @@ def _dropped(t, parked) -> bool:
 
 
 KEPT = "; the new answer is in place (the old one is gone)"
+SPEC_NOT_STORED = ("; its spec could not be stored, so a next follow-up of Q{q} would patch the spec before it: "
+                   "repeat this follow-up to store it")
+SPEC_UNKNOWN = ("; whether its spec was stored is not known (if not, a next follow-up of Q{q} would patch the spec "
+                "before it): repeat this follow-up to be sure")
 
 
-def _kept(t, e: BaseException, save: bool = True) -> None:
+def _kept(t, e: BaseException, save: bool = True, job=None) -> None:
     """A follow-up that failed once its old sheets were dropped: the new answer is in place and the error says so;
     our own file (never the user's) is saved first, as on success - not when it was the save that failed (save
-    False). The error keeps its class."""
+    False). With job (a failure in the close-out): a spec the close-out did not store, or may not have stored, is
+    said too (final review M4: the next follow-up would patch the spec before it). The error keeps its class."""
     from .xl.inproc.batch import Batch
     from .xl.inproc.runner import run
     from .xl.jobs import book_name
@@ -1174,6 +1183,8 @@ def _kept(t, e: BaseException, save: bool = True) -> None:
             note += " and saved"
         except Exception as e2:   # noqa: BLE001 - the draw's error stays the one raised
             log.warning("could not save %s after a failed follow-up: %s", book_name(t), e2)
+    if job is not None and job.spec_stored is not True:
+        note += (SPEC_NOT_STORED if job.spec_stored is False else SPEC_UNKNOWN).format(q=job.q)
     if e.args and isinstance(e.args[0], str):
         e.args = (e.args[0] + note, *e.args[1:])
     else:
@@ -1291,7 +1302,8 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
     (restore; never a rollback after it, as the old names are then the ones in t.sheets_added); RestoreError only
     when the restore failed. A failure once the old sheets are dropped keeps the new answer (a rollback then would
     leave neither): our own file is saved and the error, of its own class, says the new answer is in place (the
-    Sources rows and the spec may be missing then); so does a failing save of our file, which is not tried again.
+    Sources rows may be missing then; a spec the close-out did not store, or may not have, is said too: _kept); so
+    does a failing save of our file, which is not tried again.
     After any failure the sheet the job found active is active again and AutoSave back on in our own file; the job's
     notes end the error's text."""
     from .xl import movein
@@ -1306,7 +1318,7 @@ def redraw_job(h, pre: Prepared, q: int, target: str = "session") -> dict:
             try:
                 if job.parked is not None and (job.dropped is True
                                                or (job.dropped is None and _dropped(t, job.parked))):
-                    _kept(t, e)
+                    _kept(t, e, job=job)
                 else:
                     _point_back(job)                    # before the rollback: the new sheets take them along
                     job.not_inserted()

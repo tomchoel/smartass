@@ -389,6 +389,43 @@ def test_a_failure_after_the_drop_never_saves_the_users_workbook(monkeypatch, tm
     assert b.wb.saved == 0 and "Q1 Answer" in _names(b.wb)
 
 
+def _spec_row(wb, q: int):
+    meta = wb.Worksheets(sheets.META_SHEET)
+    return next(meta.Range(f"A{r}:C{r}").Value2 for r in range(1, 50) if meta.Range(f"A{r}").Value2 == f"SPEC Q{q}")
+
+
+def test_a_spec_that_could_not_be_stored_after_the_drop_is_said_with_the_kept_answer(own_book, monkeypatch):
+    """Final review M4: the close-out fails at the spec, after the old sheets are gone: the new answer is kept, and
+    the error says that the spec stored is still the one before (a next follow-up would patch that one)."""
+    from smartass.xl import jobs
+    wb = own_book.wb
+    old = _spec_row(wb, 3)
+
+    def save_spec(t, q, raw, b, rows):                  # Excel refuses the spec's write
+        b.workbook(jobs.book_name(t)).Worksheets("no such sheet").Range("A1").Value = "the spec"
+        return False
+    monkeypatch.setattr(pipeline, "_save_spec", save_spec)
+    with pytest.raises(BatchError) as e:
+        own_book.follow_up(_pre(spec_dict(question="Opex by month, again")), 3)
+    assert pipeline.KEPT in str(e.value) and pipeline.SPEC_NOT_STORED.format(q=3) in str(e.value)
+    assert _spec_row(wb, 3) == old and "Q3 Answer" in _names(wb)
+
+
+def test_a_spec_whose_store_cannot_be_told_after_the_drop_is_said_as_such(own_book, monkeypatch):
+    """The close-out's failure has no index (the job was abandoned in it): the spec may or may not be stored."""
+    real = runner.run
+
+    def run(app, b, *a, **kw):
+        res = real(app, b, *a, **kw)
+        if any(op.get("k") == "mark" and op.get("name") == "spec" for op in b.to_dict()["ops"]):
+            raise BatchError(None, "the batch in Excel", "the batch's outcome is unknown: gone", where="inproc")
+        return res
+    monkeypatch.setattr(runner, "run", run)
+    with pytest.raises(BatchError) as e:
+        own_book.follow_up(_pre(), 3)
+    assert pipeline.KEPT in str(e.value) and pipeline.SPEC_UNKNOWN.format(q=3) in str(e.value)
+
+
 def test_a_follow_up_in_the_active_workbook_of_a_hidden_excel_ends_on_the_new_answer(own_book):
     """Task 8B review 1: quiet lands on the new Answer whenever the target is the active workbook, visible or not
     (the Book's active sheet, renamed by the park, is not trusted)."""
