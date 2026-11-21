@@ -119,8 +119,12 @@ their own sheets). A formula elsewhere in the workbook that points at the questi
 to the 'old ...' names (Excel rewrites it) and would turn #REF! with the drop: the bring-in batch finds such formulas
 (the verb `mentions`, inside Excel: every other sheet's used range halved, its longer side first, into blocks of at
 most 100 000 cells, only the blocks SpecialCells/Intersect finds a formula in halved further and read - a protected
-sheet block by block, a hidden formula there makes it "could not be read", and so does a sheet that would take more
-than 2 000 steps, such as a protected one whose used range reaches the last cell -, no Range.Find, which would leave its options as the Find dialog's and skips filtered rows;
+sheet block by block, a hidden formula there makes it "could not be read" (the mentions found before stay), and so
+does a sheet that would take more than 2 000 steps, a step being one test or one read of a block: a protected sheet
+of more than about 100-200 million cells (a used range to the last row and some 100-190 columns wide), or formulas
+spread over too many blocks - on a sheet whose used range a stray format stretched to XFD1048576 (blocks of about
+256 rows by 390 columns) a formula column taller than about 85 000 rows; such a sheet is warned about when a cell
+there turns #REF! -, no Range.Find, which would leave its options as the Find dialog's and skips filtered rows;
 the charts' series; the defined names), Python rewrites exactly the references to a parked name with a namesake in
 the new answer (`xl/repoint.py`: never text in a string literal, another workbook's sheet, or a longer name that
 contains it), and the close-out writes them right before the drop with Calculation manual, each a compare-and-set
