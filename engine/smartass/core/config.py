@@ -291,6 +291,7 @@ DRILL_YIELD_IDLE_S = int(os.environ.get("SV_DRILL_YIELD_IDLE_S", "120"))  # owne
 DRILL_KEEPALIVE_S = int(os.environ.get("SV_DRILL_KEEPALIVE_S", "600"))  # idle seconds between sign-in checks
 DRILL_TABS = int(os.environ.get("SV_DRILL_TABS", "4"))         # drill pages loading at once (drill_tabs)
 DRILL_PARALLEL = int(os.environ.get("SV_DRILL_PARALLEL", "4"))   # getData calls in flight at once (drill_token)
+DRILL_ROUTE = os.environ.get("SV_DRILL_ROUTE", "browser")   # "browser" (hidden browser) | "token" (HTTPS with the user's token)
 DRILL_DIRECT = os.environ.get("SV_DRILL_DIRECT", "1") != "0"   # drill lines from one warm tab (drill_direct); 0 = page per piece
 ANSWER_PREFETCH = os.environ.get("SV_ANSWER_PREFETCH", "1") != "0"   # fetch an answer's pulls at once, while Excel opens
 DRILL_DERIVE = os.environ.get("SV_DRILL_DERIVE", "1") != "0"   # split siblings' drill queries built from one of EPM's (drill_derive)

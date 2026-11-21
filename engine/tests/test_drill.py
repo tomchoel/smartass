@@ -1456,3 +1456,58 @@ def test_a_built_piece_without_lines_or_with_a_browser_error_asks_epm(monkeypatc
                                                {"left": 1000}, 0))
     assert usual[0] == "un.SY.2BUS" and sorted(usual) == sorted(cubes)   # template (fewest members), then both
     assert all("derived" not in ps[0] for ps in out)       # every child came from EPM's own query
+
+
+def test_the_token_route_is_used_when_configured(monkeypatch):
+    import asyncio
+
+    from smartass.core import config
+    from smartass.epm import drill_token, drillstep
+
+    class Fake:
+        async def fetch(self, url, max_lines, progress=None):
+            return {"items": [{"AMOUNTX": "1"}], "total": 1, "view": {"items": []}, "secs": 0.1, "query": None}
+    monkeypatch.setattr(config, "DRILL_ROUTE", "token")
+    monkeypatch.setattr(config, "DRILL_DIRECT", True)
+    monkeypatch.setattr(drill_token, "shared", lambda: Fake())
+    assert asyncio.run(drillstep._drill_fetch("u", 10))["total"] == 1
+
+
+def test_the_token_route_has_no_page_route_behind_it(monkeypatch):
+    import asyncio
+
+    from smartass.core import config
+    from smartass.epm import drill_token, drillcore, drillstep
+
+    class Fails:
+        async def fetch(self, url, max_lines, progress=None):
+            raise drillcore.DrillError("getData returned HTTP 500 with an error at offset 0.")
+    monkeypatch.setattr(config, "DRILL_ROUTE", "token")
+    monkeypatch.setattr(config, "DRILL_DIRECT", True)
+    monkeypatch.setattr(drill_token, "shared", lambda: Fails())
+    monkeypatch.setattr(drillstep, "_page_fetch", lambda *a: (_ for _ in ()).throw(AssertionError("page route used")))
+    with pytest.raises(drillcore.DrillError, match="offset 0"):
+        asyncio.run(drillstep._drill_fetch("u", 10))
+
+
+def test_the_token_route_gives_an_empty_piece_for_no_drill_data(monkeypatch):
+    import asyncio
+
+    from smartass.core import config
+    from smartass.epm import drill_token, drillcore, drillstep
+
+    class Empty:
+        async def fetch(self, url, max_lines, progress=None):
+            raise drillcore.NoDrillData("no drill data here")
+    monkeypatch.setattr(config, "DRILL_ROUTE", "token")
+    monkeypatch.setattr(drill_token, "shared", lambda: Empty())
+    res = asyncio.run(drillstep._drill_fetch("u", 10))
+    assert res["items"] == [] and res["note"] == "no drill data here"
+
+
+def test_the_browser_route_is_the_default(monkeypatch):
+    from smartass.core import config
+    from smartass.epm import drill_direct, drillstep
+    assert config.DRILL_ROUTE == "browser"
+    monkeypatch.setattr(drill_direct, "shared_direct", lambda: "direct")
+    assert drillstep._lines_source() == "direct"

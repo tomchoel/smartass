@@ -165,13 +165,32 @@ async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], 
     return out, warnings, None
 
 
+def _token_route() -> bool:
+    return config.DRILL_ROUTE == "token"
+
+
+def _lines_source():
+    """The object that fetches drill lines: the token route (drill_token) when config.DRILL_ROUTE is "token", else
+    the warm tab (drill_direct). Both have fetch(url, max_lines) and lines(query, url, max_lines)."""
+    from . import drill_direct, drill_token
+    return drill_token.shared() if _token_route() else drill_direct.shared_direct()
+
+
 async def _drill_fetch(url: str, max_lines: int) -> dict:
-    """Lines of one drill piece: from the warm tab (drill_direct, two requests) first; the page route (a page per
-    piece, tab pump) when the direct route fails. No data at this cell -> an empty piece with EPM's note."""
+    """Lines of one drill piece: over the token route when configured (no page route behind it: only "no data"
+    gives an empty piece, every other error is raised as it is); else from the warm tab (drill_direct, two requests)
+    first, and the page route (a page per piece, tab pump) when the direct route fails. No data at this cell -> an
+    empty piece with EPM's note."""
     import asyncio
 
     from . import drill_direct
     from .drill_browser import CellTooWide, TooManyLines
+    if _token_route():
+        try:
+            with drilltime.span("token drill"):
+                return await asyncio.wait_for(_lines_source().fetch(url, max_lines), 300)
+        except drill_direct.NoDrillData as e:
+            return {"items": [], "total": 0, "view": None, "secs": 0, "note": str(e)}
     if config.DRILL_DIRECT:
         try:
             with drilltime.span("direct drill"):
@@ -335,7 +354,7 @@ async def _children(connection: str, parts: list[dict], max_lines: int, split: s
     values come first in ONE retrieve, so an empty (#Missing) child costs no drill link (most children of a wide
     entity are empty). Each starts with the budget free at that moment, so the total is checked again at the end."""
     vals = await _child_values(connection, parts)
-    if vals is not None and config.DRILL_DIRECT and config.DRILL_DERIVE:
+    if vals is not None and (config.DRILL_DIRECT or _token_route()) and config.DRILL_DERIVE:
         done = await _children_derived(connection, parts, vals, max_lines, split, state, depth)
     else:
         async def one(i: int, pc: dict) -> list[dict]:
@@ -398,11 +417,10 @@ async def _derived_piece(cell: dict, cube, template: tuple, body: str, state: di
     import asyncio
     import dataclasses
 
-    from . import drill_direct
     q = dataclasses.replace(template[1], body=body)
     try:
         with drilltime.span("derived drill"):
-            res = await asyncio.wait_for(drill_direct.shared_direct().lines(
+            res = await asyncio.wait_for(_lines_source().lines(
                 q, template[2], min(config.DRILL_SPLIT_AT, max(state["left"], 0))), 300)
     except Exception as e:   # noqa: BLE001 - TooManyLines, a drill or browser error, a timeout: EPM is asked
         log.info("derived drill of %s not used (%s: %s); asking EPM", cell, type(e).__name__, e)
