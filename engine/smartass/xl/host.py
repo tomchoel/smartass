@@ -26,7 +26,8 @@ from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy
 
 log = logging.getLogger("smartview.host")
 BOX_WATCH_S = 3.0
-RELEASE_WAIT_S = 10.0       # a user job's objects not released this long after its answer: the job is given up on
+RELEASE_WAIT_S = 10.0       # a job's objects not released this long after its answer: recovered as a job that does not
+                            # answer (a user job given up on, the hidden Excel restarted)
 
 DEAD_HRESULTS = {-2147023174, -2147023170, -2147417848}   # RPC unavailable, call failed, object disconnected
 
@@ -220,8 +221,8 @@ class ExcelHost(HiddenExcel):
             try:
                 return await self._await_job(wrapped, timeout, watch_dialogs=not user_excel)
             finally:
-                if user_excel and wrapped.done():         # it answered (a result or its error): now its release
-                    self._watch_release(released, token, what)
+                if wrapped.done():                        # it answered (a result or its error): now its release
+                    self._watch_release(released, what, token if user_excel else None, self.pid)
         except asyncio.TimeoutError:
             if user_excel:
                 jobs.give_up(token)               # only this job: it rolls back when that Excel frees up
@@ -254,21 +255,33 @@ class ExcelHost(HiddenExcel):
             raise HostError(f"Unexpected {type(e).__name__} during {what}: {e}. Retry once; if it repeats, run "
                             "fin_status(restart=True).") from None
 
-    @staticmethod
-    def _watch_release(released: threading.Event, token, what: str) -> None:
-        """The job has answered; its objects are being released on its thread, holding its turns (ComThread). A
-        release that has not returned after RELEASE_WAIT_S is into an Excel that stopped answering: the job is given
-        up on (jobs.give_up), so a job waiting for that Excel's turn is told so (jobs.ABANDONED) instead of waiting
-        silently; the turn itself is freed only when the release returns (never two jobs in one Excel)."""
-        import asyncio
+    def _watch_release(self, released: threading.Event, what: str, token=None, pid: int | None = None) -> None:
+        """The job has answered; its objects are being released on its thread (ComThread), which holds its turns
+        meanwhile. A release that has not returned after RELEASE_WAIT_S is into an Excel that stopped answering, and is
+        recovered as a job that does not answer is:
+        - a job in the user's Excel (token): given up on (jobs.give_up), so a job waiting for that Excel's turn is told
+          so (jobs.ABANDONED) instead of waiting silently; the turn itself is freed only when the release returns
+          (never two jobs in one Excel);
+        - a job in the engine's hidden Excel (no token; pid: that Excel when the job answered): the hidden Excel is
+          restarted (_hard_reset), whose kill makes the blocked release return, so the host's one thread is not wedged
+          and the next EPM call does not queue for QUEUE_TIMEOUT_S (Task D2 review, Important 1).
+        Watched by a thread of its own, not the event loop: the loop of a script's asyncio.run is gone by then."""
         from . import jobs
+        wait = RELEASE_WAIT_S
 
-        def check():
-            if not released.is_set() and not token.aborted:
-                log.warning("%s answered, but the Excel objects it made were not released within %.0fs (that Excel "
-                            "does not answer): it is given up on", what, RELEASE_WAIT_S)
-                jobs.give_up(token)
-        asyncio.get_running_loop().call_later(RELEASE_WAIT_S, check)
+        def watch():
+            if released.wait(wait):
+                return
+            if token is not None:
+                if not token.aborted:
+                    log.warning("%s answered, but the Excel objects it made were not released within %.0fs (that "
+                                "Excel does not answer): it is given up on", what, wait)
+                    jobs.give_up(token)
+                return
+            log.warning("%s answered, but the objects it made in the engine's hidden Excel were not released within "
+                        "%.0fs: that Excel is restarted", what, wait)
+            self._hard_reset(f"{what}: releasing its objects did not return within {wait:.0f}s", pid)
+        threading.Thread(target=watch, name=f"release-watch {what}", daemon=True).start()
 
     async def _await_job(self, wrapped, timeout: float, watch_dialogs: bool):
         """Wait for the job; from DIALOG_CHECK_AFTER_S on, every DIALOG_POLL_S, look for a stuck Smart View sign-in in

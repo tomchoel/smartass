@@ -51,7 +51,10 @@ the middle of its job.
   in that Excel released. Released from another thread such an object calls that Excel from there and waits for it -
   for ever, when that Excel has stopped responding (live, 21.11.2026: Excel stopped answering between one job's thread
   ending and the next one's starting, and that next thread hung releasing an object). A release that has not returned
-  10 s after the answer gives the request up as below. A job's result is checked to be plain data.
+  10 s after the answer is recovered as a job that does not answer: a request in the user's Excel is given up as below,
+  and a job in the engine's hidden Excel (an EPM pull, also one a request hands it) restarts that Excel, whose kill
+  makes the release return - before, such a release wedged the hidden Excel's thread, and every later EPM call waited
+  15 minutes and failed, with no restart. A job's result is checked to be plain data.
 - A request the server gave up on because Excel did not answer in time no longer keeps the next request in that Excel
   waiting silently for its turn (live, 21.11.2026: the next one waited until it was given up on too): after 5 s a
   request that waits for that Excel's turn is refused with "An earlier request in that Excel (...) was given up after

@@ -305,7 +305,10 @@ class HiddenExcel:
             self._wait_reset()
             self._ensure_started()
             return fn()
-        return self.thread.submit(job).result(timeout or config.CALL_TIMEOUT_S)
+        released = threading.Event()
+        out = self.thread.submit(job, released.set).result(timeout or config.CALL_TIMEOUT_S)
+        self._watch_release(released, "a job on the engine's hidden Excel", pid=self.pid)   # as ExcelHost.call's
+        return out
 
     def _ensure_started(self):
         if self.app is not None:

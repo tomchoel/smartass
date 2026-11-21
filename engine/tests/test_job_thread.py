@@ -80,6 +80,27 @@ def _host() -> ExcelHost:
     return h
 
 
+class _Registry:
+    def remove(self, pid):
+        pass
+
+
+def _hidden_host() -> ExcelHost:
+    """The host with its own long-lived COM thread and a hidden Excel that is only a pid: nothing is started (its
+    start is a no-op) and nothing is killed (the tests patch kill_ours)."""
+    h = ExcelHost.__new__(ExcelHost)
+    h.thread = ComThread()
+    h.thread.start()
+    h.registry = _Registry()
+    h.app = h.wb = None
+    h.pid, h.ctime = 4848, 1.0
+    h.connected = {}
+    h.restarts, h.last_error, h.reset_gen = 0, None, 0
+    h._resetting, h._reset_lock = threading.Event(), threading.Lock()
+    h._ensure_started = lambda: None
+    return h
+
+
 def _made(released: list) -> None:
     """A job's objects: one only its frame holds, one in a reference cycle (only the garbage collector frees it)."""
     local, cyclic = Proxy(released), Proxy(released)
@@ -214,6 +235,71 @@ async def test_a_release_that_does_not_return_does_not_keep_the_next_job_waiting
             if time.monotonic() > deadline:
                 raise
             await asyncio.sleep(0.1)
+
+
+@pytest.mark.anyio
+async def test_a_hidden_jobs_release_that_does_not_return_restarts_the_hidden_excel(monkeypatch, no_gc):
+    """Task D2 review, Important 1: the hidden Excel's jobs (the EPM pulls) run one after another on the host's one
+    long-lived thread. A release after a job's answer that does not return wedged that thread: every later call queued
+    for QUEUE_TIMEOUT_S and failed, with no reset. Now a release that has not returned RELEASE_WAIT_S after the answer
+    restarts the hidden Excel as a job that does not answer does: the kill makes the blocked release return, and the
+    next call runs."""
+    monkeypatch.setattr(xlhost, "RELEASE_WAIT_S", 0.3)
+    monkeypatch.setattr(config, "QUEUE_TIMEOUT_S", 3)
+    monkeypatch.setattr(config, "RESET_WAIT_S", 3)
+    excel = threading.Event()                        # set: that Excel answers again (here: it was killed)
+    killed: list = []
+
+    def kill(pid, ctime):                            # the reset's kill of the engine's own Excel
+        killed.append(pid)
+        excel.set()
+        return True
+    monkeypatch.setattr(xlhost, "kill_ours", kill)
+    monkeypatch.setattr(xlhost, "windows_of", lambda pid: [])
+    h = _hidden_host()
+
+    def pull(hh):
+        stuck = _Stuck(excel)                        # released by the collector at the job's end
+        stuck.me = stuck
+        return "pulled"
+    try:
+        t0 = time.monotonic()
+        assert await h.call(pull, timeout=5, what="an EPM pull") == "pulled"
+        assert time.monotonic() - t0 < 2             # the answer first
+        assert await h.call(lambda hh: "next", timeout=5, what="the next pull") == "next"
+        assert killed == [4848] and h.pid is None and h.restarts == 1
+    finally:
+        excel.set()
+        h.thread.q.put((None, None))
+
+
+def test_the_release_after_a_job_handed_to_the_hidden_excel_from_a_user_job_is_watched_too(monkeypatch, no_gc):
+    """on_host (a user job's work in the hidden Excel: the bridge add-in's build, a new analysis file) runs on the same
+    host thread: its release is watched as ExcelHost.call's."""
+    monkeypatch.setattr(xlhost, "RELEASE_WAIT_S", 0.3)
+    monkeypatch.setattr(config, "RESET_WAIT_S", 3)
+    excel = threading.Event()
+    killed: list = []
+
+    def kill(pid, ctime):
+        killed.append(pid)
+        excel.set()
+        return True
+    monkeypatch.setattr(xlhost, "kill_ours", kill)
+    monkeypatch.setattr(xlhost, "windows_of", lambda pid: [])
+    h = _hidden_host()
+
+    def build(hh=None):
+        stuck = _Stuck(excel)
+        stuck.me = stuck
+        return "built"
+    try:
+        assert h.on_host(build, timeout=5) == "built"
+        assert h.on_host(lambda: "next", timeout=5) == "next"
+        assert killed == [4848]
+    finally:
+        excel.set()
+        h.thread.q.put((None, None))
 
 
 @pytest.mark.anyio
