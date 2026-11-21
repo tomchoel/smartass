@@ -55,9 +55,10 @@ import winerror
 from win32com.client import build, dynamic, util
 
 from ..core import config
-from .hostproc import is_busy
+from .hostproc import is_busy, retry_busy
 
 log = logging.getLogger("smartview.fastcom")
+TYPEINFO_WAIT_S = 10.0                             # Excel's rejection of an object's type information waited for in wrap
 _PyIDispatch = pythoncom.TypeIIDs[pythoncom.IID_IDispatch]
 _MAPS = ("propMap", "propMapGet", "propMapPut", "mapFuncs")
 NOT_SHARED = (pythoncom.IID_NULL, pythoncom.IID_IDispatch)      # no real interface behind these: never shared
@@ -339,11 +340,12 @@ def _put(ob, attr: str, value) -> None:
     ob._olerepr_.propMap[attr] = build.MapEntry(dispid, (attr,))
 
 
-def wrap(obj, name: str | None = None):
+def wrap(obj, name: str | None = None, wait: float | None = None):
     """`obj` (a PyIDispatch or any pywin32 dispatch object) wrapped Fast; a Fast object is returned unchanged, and so
     is anything that is not a COM object (the fakes of the tests). With SV_FASTCOM=0 the standard wrapper. Excel's busy
-    rejection of the type-information calls is raised (the caller asks again); an object without type information
-    is Untyped."""
+    rejection of the type-information calls is waited for here for wait seconds (default TYPEINFO_WAIT_S), never
+    raised; an object without type information (or still rejected then) is Untyped."""
+    wait = TYPEINFO_WAIT_S if wait is None else wait
     if isinstance(obj, (Fast, Untyped)):
         return obj
     raw = getattr(obj, "_oleobj_", obj)
@@ -353,30 +355,33 @@ def wrap(obj, name: str | None = None):
         name = obj._username_
     if not config.FASTCOM:
         return dynamic.Dispatch(raw, name)
+    def fetch():
+        ti = raw.GetTypeInfo()
+        return ti, ti.GetTypeAttr()[0]
     try:
-        typeinfo = raw.GetTypeInfo()
-        iid = typeinfo.GetTypeAttr()[0]
+        typeinfo, iid = retry_busy(fetch, wait)
     except (pythoncom.com_error, AttributeError) as e:     # no type information: late-bound by name
-        return _untyped(raw, name, None, e)
+        return _untyped(raw, name, None, e, wait)
     if iid in NOT_SHARED:
         return _untyped(raw, name, typeinfo)
     iface = _IFACE.get(iid)
     typecomp = None
     if iface is None:                                      # first object of this interface
         try:
-            typecomp = typeinfo.GetTypeComp()
+            typecomp = retry_busy(typeinfo.GetTypeComp, wait)
         except pythoncom.com_error as e:
-            return _untyped(raw, name, typeinfo, e)
+            return _untyped(raw, name, typeinfo, e, wait)
         iface = _IFACE.setdefault(iid, _Interface(dynamic.MakeOleRepr(raw, typeinfo, typecomp), iid))
     return Fast(raw, iface, name, typeinfo, typecomp)
 
 
-def _untyped(raw, name: str | None, typeinfo, error: Exception | None = None) -> Untyped:
-    """raw as Untyped (with typeinfo when there is one); a busy rejection that kept the type information back is
-    raised instead (Excel answers it when asked again)."""
+def _untyped(raw, name: str | None, typeinfo, error: Exception | None = None, waited: float = 0.0) -> Untyped:
+    """raw as Untyped (with typeinfo when there is one): late-bound by name, its lookups saying busy as busy. Excel
+    still rejecting the type information after waited seconds is logged as a warning (never silent)."""
     if error is not None and is_busy(error):
-        raise error
-    if error is not None:
+        log.warning("Excel rejected the type information of %s for %.0f s (busy): late-bound by name", name or "an "
+                    "object", waited)
+    elif error is not None:
         log.debug("no type information for %s (%s): late-bound by name", name, error)
     if typeinfo is None:
         return Untyped(raw, dynamic.MakeOleRepr(raw, None, None), name)

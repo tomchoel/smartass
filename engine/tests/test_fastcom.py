@@ -319,19 +319,40 @@ class _BusyTypes:
         return getattr(self.ob, name)
 
 
-def test_a_busy_rejection_while_an_object_is_wrapped_surfaces_as_busy(monkeypatch):
-    from smartass.xl.hostproc import is_busy, retry_busy
+def test_a_busy_rejection_of_an_objects_type_information_is_waited_for_and_the_call_runs_once(monkeypatch):
+    """The object wrap is handed is the result of a call that has run (Worksheets.Add, ListObjects.Add): Excel's
+    rejection of its type information is waited for right there, never raised to a caller that would run the call
+    again (the COM executor asks a rejected operation again) - and never an object without type information, as
+    before."""
+    from smartass.xl.hostproc import retry_busy
     monkeypatch.setattr(fastcom, "_PyIDispatch", (fastcom._PyIDispatch, _BusyTypes))
-    excel = _Excel(1, ("GetTypeInfo",))
-    d = _BusyTypes(raw("Scripting.Dictionary"), excel)
-    with pytest.raises(pythoncom.com_error) as e:
-        fastcom.wrap(d)                                 # was an object without type information, handed out silently
-    assert is_busy(e.value)
-    excel.n = 2
-    w = retry_busy(lambda: fastcom.wrap(d), 10)         # asked again: Excel answers
-    assert type(w) is fastcom.Fast
+    excel = _Excel(3, ("GetTypeInfo",))
+    added: list = []
+
+    def add():                                          # the call, then its result wrapped
+        added.append(1)
+        return fastcom.wrap(_BusyTypes(raw("Scripting.Dictionary"), excel))
+    w = retry_busy(add, 10)
+    assert added == [1] and type(w) is fastcom.Fast     # was an object without type information, handed out silently
     w.Add("k", 1)
     assert w.Item("k") == 1
+
+
+def test_an_object_whose_type_information_stays_rejected_is_late_bound_and_says_busy(monkeypatch, caplog):
+    from smartass.xl.hostproc import is_busy
+    monkeypatch.setattr(fastcom, "_PyIDispatch", (fastcom._PyIDispatch, _BusyTypes))
+    monkeypatch.setattr(fastcom, "TYPEINFO_WAIT_S", 0.2)
+    excel = _Excel(10_000, ("GetTypeInfo",))
+    ob = server_util.wrap(Server(), usePolicy=_busy_policy(_Excel(0)))
+    with caplog.at_level("WARNING", logger="smartview.fastcom"):
+        w = fastcom.wrap(_BusyTypes(ob, excel))
+    assert isinstance(w, fastcom.Untyped) and "late-bound" in caplog.text   # said, never silent
+    ob_excel = _Excel(2, ("GetIDsOfNames",))
+    w.__dict__["_oleobj_"] = _BusyNames(ob, ob_excel)
+    with pytest.raises(pythoncom.com_error) as e:
+        w.x                                             # a rejected lookup surfaces as busy, nothing ran
+    assert is_busy(e.value)
+    assert w.Hello("you") == "hi you"
 
 
 def test_a_busy_rejection_of_a_name_on_an_object_without_type_information_surfaces_as_busy():
@@ -402,7 +423,7 @@ def test_the_users_excel_is_attached_through_the_fast_wrapper(monkeypatch):
     monkeypatch.setattr(instances.win32gui, "SendMessageTimeout", lambda *a: (0, 7))
     monkeypatch.setattr(instances.pythoncom, "ObjectFromLresult", lambda lres, iid, wp: pointer)
     monkeypatch.setattr(instances.fastcom, "wrap",
-                        lambda ob, name=None: wrapped.append(ob) or SimpleNamespace(Application="app"))
+                        lambda ob, name=None, wait=None: wrapped.append(ob) or SimpleNamespace(Application="app"))
     assert instances._app_from_window(1) == "app" and wrapped == [pointer]
 
 
