@@ -45,18 +45,39 @@ the middle of its job.
 
 ### After Excel froze in the live check (0.5.0)
 
+- No COM object outlives the thread of the job that made it: every Excel job - one that answers, one that fails, one
+  the server gave up on - has the Excel objects it made released on its own thread, after its answer went out (the
+  frames its error carries, and every reference cycle: the garbage collector runs there), and only then are its turns
+  in that Excel released. Released from another thread such an object calls that Excel from there and waits for it -
+  for ever, when that Excel has stopped responding (live, 21.11.2026: Excel stopped answering between one job's thread
+  ending and the next one's starting, and that next thread hung releasing an object). A release that has not returned
+  10 s after the answer gives the request up as below. A job's result is checked to be plain data.
 - A request the server gave up on because Excel did not answer in time no longer keeps the next request in that Excel
-  waiting silently for its turn (live, 21.11.2026: the next one waited until it was given up on too): after 5 s that
-  request is refused with "An earlier request in that Excel (...) was given up after Excel did not respond in time,
-  and it still holds that Excel: ... was not started", and what to check. The request given up on never writes again
-  and frees the turn when Excel answers it.
-- A failed job's Excel objects (its workbook, the ranges of a batch) are released on the job's own thread, no longer
-  on the thread that reads its error: released from another thread they can call Excel from there and wait for it -
-  for ever, when that Excel has stopped responding.
-- What froze Excel is not known. A stand-in for the live sequence (the tests' fake data, no EPM, hidden Excels of our
-  own with two add-in builds and the usual add-ins loaded; add-in jobs, then COM jobs, each job on its own thread)
-  ran 22 times without a freeze; what needs a visible Excel or the live EPM session could not be tried.
-  `scripts/check_insert.py` has a part "mixed" that runs the executors mixed in one Excel with a second build loaded.
+  waiting silently for its turn (live, 21.11.2026: the next one waited until it was given up on too): after 5 s a
+  request that waits for that Excel's turn is refused with "An earlier request in that Excel (...) was given up after
+  Excel did not respond in time, and it still holds that Excel: ... was not started", and what to check - also in
+  another smartass server process (`user_excel_<pid>.given_up.json` next to the turn's lock says which request holds
+  it). The request given up on never writes again and frees the turn when Excel answers it; the turn is never freed
+  before that. A new question's request that looks for a free Excel (target 'new') still counts that Excel as busy:
+  it takes another free Excel, or starts one for a parallel agent, as before.
+- Excel's "call rejected" while it is busy (a save, AutoSave) no longer fails a job with "Unexpected AttributeError:
+  <unknown>.FullName" (or "Property '<unknown>.Name' can not be set" in a batch over COM): the object wrapper waits
+  for Excel's type information instead of going on without it, and a rejected lookup of a name is said as busy, so
+  the usual wait for a busy Excel asks again. A call is never run twice for it.
+- What froze Excel is not known; it was not reproduced under the conditions below, which do not rule anything out.
+  Through the server's own job path (`scripts/check_followups.py`'s steps: a new answer, a second one, six follow-ups,
+  fin_refresh; each Excel job on its own thread; the engine's own target resolution pointed at a hidden Excel of our
+  own; the tests' fake data, no EPM): 20 runs of two add-in processes then one COM process in one Excel with an old
+  add-in build loaded on the code before the first point above, 20 runs of the same on the code after it, and 7 runs
+  of three COM processes in an Excel with no smartass add-in loaded on each code. Earlier (Task D): 19 full and 2
+  partial sequences of a stand-in, saved. Not tried: a visible Excel, the live EPM and Smart View session, the owner's
+  workbooks, and think-cell disconnected (it is installed for all users; Excel refuses to disconnect it without an
+  administrator, and its per-user setting was not changed).
+- `scripts/check_insert.py` part "mixed" runs the executors mixed in an Excel of its own with an old add-in build
+  loaded, each phase from a new server's state, and the add-in phase's last save after the reply still queued when the
+  COM jobs start; a job that does not answer is a DIFF and that Excel is killed by its pid. The two "manual page
+  breaks" DIFFs of the default parts were a read that fails in a hidden Excel (the sheet's list of page breaks answers
+  "invalid index"), on every route alike: the check now reads each row and column instead when that happens.
 
 ### The save happens after the reply (0.5.0)
 
