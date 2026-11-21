@@ -890,7 +890,8 @@ def _cells(ws, name: str, says, rows: list) -> None:
     a refusal is the caller's "unread". A protected sheet refuses SpecialCells: every block is read, and a hidden
     formula makes the read fail (the caller's "unread"). A sheet that would take more than SCAN_STEPS steps (a test
     or a read of a block) is not scanned further: TOO_LARGE, the caller's "unread" - a protected one is told by its
-    count of blocks (_blocks) before any is read."""
+    count of blocks (_blocks) before any is read. The mentions found before a failure are kept (rows gets them, then
+    the caller its "unread"), as 0.4.0 did: they are re-pointed."""
     used = ws.UsedRange
     r0, c0 = int(used.Row), int(used.Column)
     nr, nc = int(used.Rows.Count), int(used.Columns.Count)
@@ -913,46 +914,48 @@ def _cells(ws, name: str, says, rows: list) -> None:
     arrays: set[str] = set()
     todo = [(r0, c0, nr, nc)]
     steps = 0
-    while todo:
-        top, left, h, w = todo.pop()
-        leaf = h * w <= CHUNK_CELLS
-        if formulas is not None or leaf:
-            steps += 1
-            if steps > SCAN_STEPS:
-                raise _Failed(TOO_LARGE.format(nr * nc))
-            block = _call(ws, "Range", [_call(ws, "Cells", [top, left]),
-                                        _call(ws, "Cells", [top + h - 1, left + w - 1])])
-            if formulas is not None and _call(app, "Intersect", [formulas, block]) is None:
-                continue
-        if not leaf:                                    # halved, its longer side; the first half next
-            if h >= w:
-                half = h // 2
-                todo += [(top + half, left, h - half, w), (top, left, half, w)]
-            else:
-                half = w // 2
-                todo += [(top, left + half, h, w - half), (top, left, h, half)]
-            continue
-        grid = block.Formula2
-        if not isinstance(grid, tuple):
-            grid = ((grid,),)
-        for i, line in enumerate(grid):
-            for j, v in enumerate(line):
-                if not says(v):
+    try:
+        while todo:
+            top, left, h, w = todo.pop()
+            leaf = h * w <= CHUNK_CELLS
+            if formulas is not None or leaf:
+                steps += 1
+                if steps > SCAN_STEPS:
+                    raise _Failed(TOO_LARGE.format(nr * nc))
+                block = _call(ws, "Range", [_call(ws, "Cells", [top, left]),
+                                            _call(ws, "Cells", [top + h - 1, left + w - 1])])
+                if formulas is not None and _call(app, "Intersect", [formulas, block]) is None:
                     continue
-                cell = _call(ws, "Cells", [top + i, left + j])
-                if not cell.HasFormula:                   # text written with an apostrophe reads like a formula
-                    continue
-                if cell.HasArray:
-                    arr = cell.CurrentArray
-                    r, c = int(arr.Row), int(arr.Column)
-                    ref = _area(r, c, int(arr.Rows.Count), int(arr.Columns.Count))
-                    if ref not in arrays:
-                        arrays.add(ref)
-                        hits.append((r, c, ["array", name, ref, str(arr.FormulaArray)]))
+            if not leaf:                                    # halved, its longer side; the first half next
+                if h >= w:
+                    half = h // 2
+                    todo += [(top + half, left, h - half, w), (top, left, half, w)]
                 else:
-                    hits.append((top + i, left + j, ["cell", name, _area(top + i, left + j), v]))
-    hits.sort(key=lambda x: x[:2])
-    rows += [row for _, _, row in hits]
+                    half = w // 2
+                    todo += [(top, left + half, h, w - half), (top, left, h, half)]
+                continue
+            grid = block.Formula2
+            if not isinstance(grid, tuple):
+                grid = ((grid,),)
+            for i, line in enumerate(grid):
+                for j, v in enumerate(line):
+                    if not says(v):
+                        continue
+                    cell = _call(ws, "Cells", [top + i, left + j])
+                    if not cell.HasFormula:                   # text written with an apostrophe reads like a formula
+                        continue
+                    if cell.HasArray:
+                        arr = cell.CurrentArray
+                        r, c = int(arr.Row), int(arr.Column)
+                        ref = _area(r, c, int(arr.Rows.Count), int(arr.Columns.Count))
+                        if ref not in arrays:
+                            arrays.add(ref)
+                            hits.append((r, c, ["array", name, ref, str(arr.FormulaArray)]))
+                    else:
+                        hits.append((top + i, left + j, ["cell", name, _area(top + i, left + j), v]))
+    finally:                                            # what was found before a failure is kept (0.4.0)
+        hits.sort(key=lambda x: x[:2])
+        rows += [row for _, _, row in hits]
 
 
 def _blocks(h: int, w: int) -> int:

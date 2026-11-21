@@ -587,6 +587,28 @@ def test_a_protected_sheet_whose_blocks_would_pass_the_bound_reads_none_of_them(
     assert [r[0] for r in rows if r[1] == "Band"] == ["unread"] and "Formula2 Band" not in sparse.calls
 
 
+def test_a_sheet_whose_scan_fails_part_way_keeps_the_mentions_found_before(book, monkeypatch):
+    """Task 3 review Important 1: as in 0.4.0, a mention found before the scan of its sheet fails (a hidden formula
+    in a later block of a protected sheet, or the bound) is returned with the sheet's "unread" row, so it is still
+    re-pointed."""
+    app, _ = book
+    wb = _mentions_book(app)
+    mixed = fakexl.Worksheet(wb, "Mixed")
+    wb.order.append(mixed)
+    mixed.cells[(1, 1)] = {"Value": "='old Q1 Answer'!E12"}                # visible, in the first block
+    mixed.cells[(300, 2)] = {"Value": "='old Q1 Answer'!E12*2"}            # hidden, in a later one
+    mixed.ProtectContents, mixed.hidden = True, {(300, 2)}
+    far = wb.Worksheets("Far")
+    far.cells[(2, 1)] = {"Value": "='old Q1 Answer'!A1"}                   # found before the bound is reached
+    for r in range(3, 300, 3):
+        far.cells[(r, 1)] = {"Value": f"=A{r + 1}"}
+    monkeypatch.setattr(runner, "CHUNK_CELLS", 60)
+    monkeypatch.setattr(runner, "SCAN_STEPS", 20)                # Mixed: 16 blocks; Far: a formula in every block
+    rows = _mentions(app)
+    assert [r[:3] for r in rows if r[1] == "Mixed"] == [("cell", "Mixed", "A1"), ("unread", "Mixed", "")]
+    assert [r[:3] for r in rows if r[1] == "Far"] == [("cell", "Far", "A2"), ("unread", "Far", "")]
+
+
 def test_mentions_skips_a_chart_it_cannot_read_and_goes_on(book):
     """Review Minor 4: the COM executor skips that chart, as the add-in does."""
     app, _ = book

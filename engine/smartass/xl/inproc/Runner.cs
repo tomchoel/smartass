@@ -716,6 +716,7 @@ public static class SmartassRunner___HASH__
     // Formula2 (SpecialCells once; none, while SpecialCells answers on the sheet: done; a refusal: "unread"); the rows
     // in the sheet's order. A protected sheet refuses SpecialCells, so each of its blocks is read (a hidden formula
     // makes the read throw: "unread"). More than ScanSteps steps (a test or a read of a block): TooLarge, "unread".
+    // The mentions found before a failure are kept (added, then the caller's "unread"), as 0.4.0 did.
     static void MentionsInCells(object ws, string name, string[] want, List<object> rows)
     {
         object used = Invoke(ws, "UsedRange", Get, new object[0]);
@@ -745,66 +746,72 @@ public static class SmartassRunner___HASH__
         var todo = new Stack<int[]>();
         todo.Push(new[] { r0, c0, nr, nc });
         int steps = 0;
-        while (todo.Count > 0)
+        try
         {
-            int[] next = todo.Pop();
-            int top = next[0], left = next[1], h = next[2], w = next[3];
-            bool leaf = (long)h * w <= ChunkCells;
-            object block = null;
-            if (formulas != null || leaf)
+            while (todo.Count > 0)
             {
-                if (++steps > ScanSteps) throw new Exception(string.Format(Inv, TooLarge, cells));
-                block = Invoke(ws, "Range", Get, new object[] {
-                    Invoke(ws, "Cells", Get, new object[] { top, left }),
-                    Invoke(ws, "Cells", Get, new object[] { top + h - 1, left + w - 1 }) });
-                if (formulas != null && Invoke(app, "Intersect", Get, new object[] { formulas, block }) == null)
-                    continue;
-            }
-            if (!leaf)                                          // halved, its longer side; the first half next
-            {
-                if (h >= w)
+                int[] next = todo.Pop();
+                int top = next[0], left = next[1], h = next[2], w = next[3];
+                bool leaf = (long)h * w <= ChunkCells;
+                object block = null;
+                if (formulas != null || leaf)
                 {
-                    int half = h / 2;
-                    todo.Push(new[] { top + half, left, h - half, w });
-                    todo.Push(new[] { top, left, half, w });
+                    if (++steps > ScanSteps) throw new Exception(string.Format(Inv, TooLarge, cells));
+                    block = Invoke(ws, "Range", Get, new object[] {
+                        Invoke(ws, "Cells", Get, new object[] { top, left }),
+                        Invoke(ws, "Cells", Get, new object[] { top + h - 1, left + w - 1 }) });
+                    if (formulas != null && Invoke(app, "Intersect", Get, new object[] { formulas, block }) == null)
+                        continue;
                 }
-                else
+                if (!leaf)                                          // halved, its longer side; the first half next
                 {
-                    int half = w / 2;
-                    todo.Push(new[] { top, left + half, h, w - half });
-                    todo.Push(new[] { top, left, h, half });
-                }
-                continue;
-            }
-            object grid = Invoke(block, "Formula2", Get, new object[0]);
-            var a = grid as Array;
-            int gh = a == null ? 1 : a.GetLength(0), gw = a == null ? 1 : a.GetLength(1);
-            for (int i = 0; i < gh; i++)
-            {
-                for (int j = 0; j < gw; j++)
-                {
-                    object v = a == null ? grid : a.GetValue(a.GetLowerBound(0) + i, a.GetLowerBound(1) + j);
-                    var text = v as string;
-                    if (!Says(text, want)) continue;
-                    object cell = Invoke(ws, "Cells", Get, new object[] { top + i, left + j });
-                    if (!Equals(Invoke(cell, "HasFormula", Get, new object[0]), true)) continue;   // text, no formula
-                    if (Equals(Invoke(cell, "HasArray", Get, new object[0]), true))
+                    if (h >= w)
                     {
-                        object arr = Invoke(cell, "CurrentArray", Get, new object[0]);
-                        int ar = Int(arr, "Row"), ac = Int(arr, "Column");
-                        string reference = Area(ar, ac, Int(Invoke(arr, "Rows", Get, new object[0]), "Count"),
-                                                Int(Invoke(arr, "Columns", Get, new object[0]), "Count"));
-                        if (arrays.Add(reference))
-                            hits.Add(new KeyValuePair<long, object[]>((long)ar * 16385 + ac, new object[] {
-                                "array", name, reference, Invoke(arr, "FormulaArray", Get, new object[0]) }));
+                        int half = h / 2;
+                        todo.Push(new[] { top + half, left, h - half, w });
+                        todo.Push(new[] { top, left, half, w });
                     }
-                    else hits.Add(new KeyValuePair<long, object[]>((long)(top + i) * 16385 + left + j,
-                                  new object[] { "cell", name, Area(top + i, left + j, 1, 1), text }));
+                    else
+                    {
+                        int half = w / 2;
+                        todo.Push(new[] { top, left + half, h, w - half });
+                        todo.Push(new[] { top, left, h, half });
+                    }
+                    continue;
+                }
+                object grid = Invoke(block, "Formula2", Get, new object[0]);
+                var a = grid as Array;
+                int gh = a == null ? 1 : a.GetLength(0), gw = a == null ? 1 : a.GetLength(1);
+                for (int i = 0; i < gh; i++)
+                {
+                    for (int j = 0; j < gw; j++)
+                    {
+                        object v = a == null ? grid : a.GetValue(a.GetLowerBound(0) + i, a.GetLowerBound(1) + j);
+                        var text = v as string;
+                        if (!Says(text, want)) continue;
+                        object cell = Invoke(ws, "Cells", Get, new object[] { top + i, left + j });
+                        if (!Equals(Invoke(cell, "HasFormula", Get, new object[0]), true)) continue;   // text, no formula
+                        if (Equals(Invoke(cell, "HasArray", Get, new object[0]), true))
+                        {
+                            object arr = Invoke(cell, "CurrentArray", Get, new object[0]);
+                            int ar = Int(arr, "Row"), ac = Int(arr, "Column");
+                            string reference = Area(ar, ac, Int(Invoke(arr, "Rows", Get, new object[0]), "Count"),
+                                                    Int(Invoke(arr, "Columns", Get, new object[0]), "Count"));
+                            if (arrays.Add(reference))
+                                hits.Add(new KeyValuePair<long, object[]>((long)ar * 16385 + ac, new object[] {
+                                    "array", name, reference, Invoke(arr, "FormulaArray", Get, new object[0]) }));
+                        }
+                        else hits.Add(new KeyValuePair<long, object[]>((long)(top + i) * 16385 + left + j,
+                                      new object[] { "cell", name, Area(top + i, left + j, 1, 1), text }));
+                    }
                 }
             }
         }
-        hits.Sort((x, y) => x.Key.CompareTo(y.Key));
-        foreach (var hit in hits) rows.Add(hit.Value);
+        finally                                                 // what was found before a failure is kept (0.4.0)
+        {
+            hits.Sort((x, y) => x.Key.CompareTo(y.Key));
+            foreach (var hit in hits) rows.Add(hit.Value);
+        }
     }
 
     // How many blocks MentionsInCells reads on a used range of h rows and w columns when every block is read (a

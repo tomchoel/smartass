@@ -1007,13 +1007,14 @@ def _mentions_workbook(raw):
     a hidden row, a chart; a sheet whose only mention sits in a filtered row, a protected one with a hidden formula
     (unreadable) and a visible one, the only mentions in a hidden row and a hidden column, a sheet whose used range
     reaches the last row and one that reaches the last row and the last column (a stray format), a protected one
-    that does (too large to scan: "unread"), a very hidden sheet, a sheet without any, a sheet of values only and an
+    that does (too large to scan: "unread"), a protected one with a visible mention in its first block and a hidden
+    formula in a later one (the visible one found, the sheet "unread"), a very hidden sheet, a sheet without any, a sheet of values only and an
     empty one (SpecialCells finds no formula there: none, not "unread"), a chart sheet and a defined name; the parked
     and new sheets themselves are skipped."""
     wb = raw.Workbooks.Add()
     wb.Worksheets(1).Name = "Summary"
     for n in ["old Q1 Answer", "old Q1 Data", "Q1 Answer", "Q1 Data", "Filtered", "Locked", "Plain", "Hidden",
-              "Far", "Wide", "Wide Locked", "VeryHidden", "Probe", "Values", "Empty"]:
+              "Far", "Wide", "Wide Locked", "Mixed Locked", "VeryHidden", "Probe", "Values", "Empty"]:
         wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count)).Name = n
     old = wb.Worksheets("old Q1 Answer")
     old.Range("E12").Value2 = 42
@@ -1060,6 +1061,11 @@ def _mentions_workbook(raw):
     wl.Range("C3").Formula2 = "='old Q1 Answer'!E12*6"
     wl.Range("XFD1048576").Interior.Color = 255
     wl.Protect()                                        # no SpecialCells: too large to read block by block
+    ml = wb.Worksheets("Mixed Locked")
+    ml.Range("B2").Formula2 = "='old Q1 Answer'!E12*7"  # visible, in the first block
+    ml.Range("B200000").Formula2 = "='old Q1 Answer'!E12*8"
+    ml.Range("B200000").FormulaHidden = True            # hidden, in a later block: the sheet is unread, B2 found
+    ml.Protect()
     vh = wb.Worksheets("VeryHidden")
     vh.Range("D4").Formula2 = "='old Q1 Answer'!A2"
     vh.Visible = 2
@@ -1098,10 +1104,12 @@ def mentions_check(app, raw) -> None:
                 ("cell", "Wide", "B5", "='old Q1 Answer'!E12*4"),
                 ("cell", "Wide", "WQJ1000000", "='old Q1 Answer'!E12*5"),
                 ("unread", "Wide Locked", "", "*"),
+                ("cell", "Mixed Locked", "B2", "='old Q1 Answer'!E12*7"),
+                ("unread", "Mixed Locked", "", "*"),
                 ("cell", "VeryHidden", "D4", "='old Q1 Answer'!A2"),
                 ("chart", "Chart Q", "1", SERIES_OLD),
                 ("name", "TotalQ", str(index), "='old Q1 Answer'!$E$12")]
-        before = sheet_picture(wb, ("Far", "Wide", "Wide Locked", "Probe"))
+        before = sheet_picture(wb, ("Far", "Wide", "Wide Locked", "Mixed Locked", "Probe"))
         got, ms = {}, {}
         for executor in ("com", "inproc"):
             config.INPROC = executor == "inproc"
@@ -1126,7 +1134,8 @@ def mentions_check(app, raw) -> None:
         check("the verb mentions leaves the user's Find dialog as it was (values, whole, by columns)",
               got["com"][2] == got["inproc"][2] == user_find != ("$A$3", "$A$1", "$B$1"),
               f"{got['com'][2]} / {got['inproc'][2]}, before {user_find}")
-        check("the verb mentions only reads", before == sheet_picture(wb, ("Far", "Wide", "Wide Locked", "Probe")))
+        check("the verb mentions only reads", before == sheet_picture(wb, ("Far", "Wide", "Wide Locked", "Mixed Locked",
+                                                                           "Probe")))
         check("the verb mentions: a sheet of values and an empty sheet have no formula, not an unread one",
               all(not [r for r in rows if r[1] in ("Values", "Empty")] for _, rows, _ in got.values()))
     finally:
