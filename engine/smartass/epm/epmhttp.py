@@ -305,10 +305,27 @@ def _check_body(method: str, shown: str, path: str, body) -> None:
         raise Refused("refused: the drill query is not one read-only SELECT")      # its text is never quoted
 
 
+_Q_CLOSE = {"[": "]", "{": "}", "(": ")", "<": ">"}   # Oracle's q'[...]': a bracket closes with its pair
+_SPACE = " \t\r\n\f\v"                                  # ASCII whitespace only: anything else is not certain
+
+
+def _q_end(query: str, k: int) -> int | None:
+    """The index after Oracle's alternative quoting q'<d>...<d>' whose delimiter <d> is at k (a bracket closes with
+    its pair, any other character with itself, followed by a quote); None when there is no delimiter, it is
+    whitespace, a quote or not printable ASCII, or the literal does not end."""
+    d = query[k] if k < len(query) else ""
+    if not d or d in _SPACE or d == "'" or not (d.isascii() and d.isprintable()):
+        return None
+    j = query.find(_Q_CLOSE.get(d, d) + "'", k + 1)
+    return None if j < 0 else j + 2
+
+
 def _sql_tokens(query: str) -> list[str] | None:
-    """The words (upper case) and other characters of an SQL text outside its strings ('...'), quoted names
-    ("...") and comments (-- and /* */); None when one of those does not end. A tokeniser, not a parser: it only
-    has to know what EPM would read as a statement word or a statement end."""
+    """The words (upper case) and other characters of an SQL text outside its strings ('...', and Oracle's q'[...]'
+    and nq'[...]'), quoted names ("...") and comments (-- and /* */); None when one of those does not end, or when
+    anything outside them cannot be read with certainty (a character that is not printable ASCII or ASCII
+    whitespace, a q-quote glued to what comes before it). A tokeniser, not a parser: it only has to know what EPM
+    would read as a statement word or a statement end - and refuse what it cannot tell."""
     out, i, n = [], 0, len(query)
     while i < n:
         c = query[i]
@@ -326,14 +343,24 @@ def _sql_tokens(query: str) -> list[str] | None:
             if j < 0:
                 return None
             i = j + 2
-        elif c.isspace():
+        elif c in _SPACE:
             i += 1
         elif m := _SQL_WORD.match(query, i):
-            out.append(m.group().upper())
+            word = m.group().upper()
+            if word in ("Q", "NQ") and query.startswith("'", m.end()):
+                if i > 0 and (query[i - 1].isalnum() or query[i - 1] in "_$#.@'\""):
+                    return None                         # 1q'[...]', 'a'q'[...]', t.q'[...]': not certain
+                i = _q_end(query, m.end() + 1)
+                if i is None:
+                    return None
+                continue
+            out.append(word)
             i = m.end()
-        else:
+        elif c.isascii() and c.isprintable():
             out.append(c)
             i += 1
+        else:
+            return None                                 # not ASCII, or a control character: not certain
     return out
 
 

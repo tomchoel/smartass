@@ -694,3 +694,43 @@ def test_a_pod_without_a_scope_is_refused_with_the_add_the_scope_step(make):
     msg = serverkit.explain("fin_drill", e.value)
     assert "Retry once" not in msg and msg.count("Next step:") == 1
     assert "[oauth.scopes]" in msg.split("Next step:")[1] and "smartass login" in msg
+
+# ---------------------------------------------------------------- Oracle's q-quoting in the drill query (final review M2)
+@pytest.mark.parametrize("query", [
+    "SELECT q'[;DELETE FROM t]' FROM dual", "SELECT q'{ ; DROP TABLE t }' FROM dual", "SELECT q'(x; UPDATE t)' FROM dual",
+    "SELECT q'<a; GRANT b>' FROM dual", "SELECT q'!it's; DELETE!' FROM dual", "SELECT q'#--#', q'|/*|' FROM dual",
+    "SELECT nq'[; DELETE]' FROM dual", "SELECT Q'[;]', NQ'{;}', Nq'(;)', nQ'<;>' FROM dual",
+    "SELECT q'[a]b; DROP]' FROM dual", "SELECT x||q'[;]' FROM dual", "SELECT (q'[;]') FROM dual",
+    "SELECT 'Høyhastighet; DELETE' FROM dual", "SELECT q'[Høy;]' FROM dual",       # letters beyond ASCII in a literal
+    "SELECT q FROM t WHERE q = 'x'", "SELECT nq, q FROM t",                       # q and nq as plain names
+])
+def test_an_oracle_q_quoted_literal_with_a_keyword_or_a_semicolon_inside_is_sent(make, query):
+    s, op, _ = make()
+    s.request("POST", GET_DATA, body=json.dumps({"QUERY": query, "PARAMS": [], "PARAMSTYPE": []}))
+    assert len(op.sent) == 1
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT q'[']' ; DELETE FROM t --' FROM dual",                                 # the final review's probe
+    "SELECT q'[x]' ; DELETE FROM t", "SELECT q'[x]' FROM t WHERE DELETE", "SELECT nq'{x}'; DROP TABLE t",
+    "SELECT Q'(x)' FROM t; GRANT DBA TO u", "SELECT q'<x>' FROM t /* */ ; COMMIT",
+    "SELECT q'[x", "SELECT q'[x]", "SELECT q'", "SELECT nq'{x}", "SELECT q'!x! FROM t",   # no end
+    "SELECT q' x ' FROM t", "SELECT q'\tx\t' FROM t", "SELECT q'\nx\n' FROM t",          # whitespace as delimiter
+    "SELECT q''x'' FROM t", "SELECT q'éxé' FROM t",                                       # a quote or non-ASCII one
+    "SELECT éq'['; DELETE FROM t; --]' FROM dual", "SELECT 1q'['; DELETE FROM t; --]' FROM dual",
+    "SELECT 'a'q'['; DELETE FROM t; --]' FROM dual", 'SELECT "a"q\'[\'; DELETE FROM t; --]\' FROM dual',
+    "SELECT t.q'['; DELETE FROM t; --]' FROM dual",
+    "SELECT\u00a0q'['; DELETE FROM t; --]' FROM dual", "SELECT 1\u2028; DELETE FROM t",   # not ASCII outside a literal
+    "SELECT 1 \x00; DELETE FROM t", "SELECT ;x",
+])
+def test_a_q_quote_that_ends_early_or_cannot_be_read_with_certainty_is_refused(make, caplog, query):
+    caplog.set_level(logging.DEBUG, logger="smartass.epm.epmhttp")
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused) as e:
+        s.request("POST", GET_DATA, body=json.dumps({"QUERY": query, "PARAMS": []}))
+    assert str(e.value) == "refused: the drill query is not one read-only SELECT"
+    assert op.sent == [] and tok.asked == []
+
+
+def test_the_repos_real_drill_query_still_passes():
+    assert epmhttp._read_only_sql(REAL_QUERY) and epmhttp._sql_tokens(REAL_QUERY)[:4] == ["SELECT", "ENTITY", ",", "AMOUNTX"]
