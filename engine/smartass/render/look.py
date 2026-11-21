@@ -10,7 +10,13 @@ Two of its decisions read Excel's calculated values today; here they get a pure 
   block read back from Excel;
 - a value in a table column without a number kind is TN Heltall when it is a number or a formula whose text is not
   given, TN Etikett otherwise.
-No COM, no Excel, no file: plain data in, plain data out."""
+No COM, no Excel, no file: plain data in, plain data out.
+
+style_findings gives back what apply_report's lint (styling._lint_fast) told the reply before 0.3.0, as far as the
+look can know it: a text that does not fit its merged row and a text cut off or spilling over its column, in the
+same words, from the read-back block. The lint's other findings read Excel itself - the sheet's font, vertical
+borders and content outside the table width anywhere on the sheet: the look writes Arial with top and bottom edges
+only, inside its block, and what Excel or the user does to the sheet afterwards it cannot see."""
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -278,6 +284,43 @@ def _runs(cells: list[tuple[int, int]]) -> list[tuple[int, int, int]]:
         else:
             out.append([c, r, r])
     return [(c, a, b) for c, a, b in out]
+
+
+def style_findings(plan: SheetPlan, block: tuple) -> list[str]:
+    """The text findings of apply_report's lint (styling._lint_fast) for the drawn Answer, in its words: a merged
+    text (a Key point, a wrapped title) that does not fit its row's height, and a text that is not right-aligned or
+    wrapped and is wider than its column and the empty columns to its right. block: the read-back of A1:<last col>
+    <last row> (Value2, as the lint read it); the look's styles, widths and merges, and its heights with the
+    calculated Key points' (text_heights). Pure: no Excel call."""
+    lk = answer_look(plan)
+    heights = lk.heights | text_heights(plan, lk, block)
+    roles = answer_roles(plan)
+    last = col_number(roles["last_col"])
+    widths = {c: lk.widths.get(col_letter(c), DEFAULT_WIDTH) for c in range(1, last + 1)}
+    merged = {(r, c1): c2 for r, c1, c2 in lk.merges}
+    defs = _defs()
+    out: list[str] = []
+    for r, row in enumerate(block[:plan.last_row], 1):
+        for c, v in enumerate(row[:last], 1):
+            if not isinstance(v, str) or not v or v.startswith("="):
+                continue
+            p = defs.get(lk.cells[(r, c)].style, {})
+            size, bold, a = p.get("size", 10), bool(p.get("bold")), f"{col_letter(c)}{r}"
+            if (r, c) in merged:
+                lines = tn.wrap_lines(v, sum(widths[k] for k in range(c, merged[(r, c)] + 1)), size, bold)
+                h = heights.get(r, 15)
+                if lines is None or lines * (size + 3) > h + 1:
+                    out.append(f"{a}: text does not fit ({lines or 'word too long'} lines, {h:.0f} pt)")
+            elif p.get("h", tn.H_LEFT) != tn.H_RIGHT and not p.get("wrap"):
+                avail = widths[c]
+                for k in range(c + 1, last + 1):
+                    if row[k - 1] not in (None, ""):
+                        break
+                    avail += widths[k]
+                need = tn.text_units(v, size, bold)
+                if need > avail:
+                    out.append(f"{a}: text is cut off or spills over (~{need:.0f} > {avail:.0f} chars)")
+    return out
 
 
 def text_heights(plan: SheetPlan, look: SheetLook, block: tuple) -> dict[int, float]:

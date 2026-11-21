@@ -270,6 +270,48 @@ def test_the_cases_reach_every_rule():
     assert merged == {"TN Tittel", "TN Tekst"}               # a wrapped title and a merged Key point
 
 
+# ------------------------------------------------------------------ the style findings (final review M1)
+def _too_long(case):
+    """The case with a label far wider than its column and a Key point that is one word longer than the table is
+    wide: what the report-style lint finds."""
+    def made():
+        plan, values = case()
+        lines = {r["row"] for r in plan.rows if r["kind"] == "line"}
+        label = next(rc for rc, v in sorted(plan.cells.items()) if rc[0] in lines and rc[1] == 3
+                     and isinstance(v, str) and not v.startswith("=") and (rc[0], 4) in plan.cells)
+        point = next((r["row"] for r in plan.rows if r["kind"] == "text"), None)
+        values[label] = plan.cells[label] = "A label far too long for its column, with words enough to spill over " * 2
+        if point is not None:
+            values[(point, 2)] = "W" * 300
+        return plan, values
+    made.__name__ = case.__name__ + "_too_long"
+    return made
+
+
+@pytest.mark.parametrize("case", CASES + [_too_long(c) for c in CASES], ids=lambda f: f.__name__)
+def test_the_style_findings_are_the_text_findings_apply_report_gives(case):
+    """The look's findings over the read-back block are apply_report's 'text does not fit' and 'text is cut off'
+    findings, in its words, for the same sheet."""
+    plan, values = case()
+    ws = fakexl_sheet_with(plan, values)
+    found = [f for f in styling.apply_report(ws, answer_roles(plan)) if ": text " in f]
+    block = ws.Range("A1:" + plan.last_col + str(plan.last_row)).Value2
+    assert look_mod.style_findings(plan, block) == found
+    if case.__name__.endswith("_too_long"):
+        assert any("text is cut off" in f for f in found)
+        assert any("text does not fit" in f for f in found) == any(r["kind"] == "text" for r in plan.rows)
+
+
+def test_the_look_gives_every_cell_arial_and_no_vertical_border():
+    """What the look cannot get wrong, so the style findings need not check it: every format it writes is Arial,
+    with a top and bottom edge at most (the font and vertical borders apply_report read from Excel)."""
+    for case in CASES:
+        plan, _ = case()
+        for cl in answer_look(plan).cells.values():
+            props = style_props(cl.style)
+            assert props["font_name"] == "Arial" and not {"left", "right"} & set(props)
+
+
 # ------------------------------------------------------------------ the pure rules
 def test_every_cell_of_the_block_has_a_look_and_blank_cells_are_tn_tom():
     plan, _ = pl_table()

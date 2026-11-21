@@ -181,6 +181,23 @@ def test_the_chart_lint_and_the_drawn_charts_reach_the_reply_once(wired, monkeyp
     assert out["charts"] == wired.built[0].charts and out["charts"]
 
 
+def test_a_label_cut_off_on_the_drawn_answer_is_a_warning_of_the_reply(fake_target, calculated, monkeypatch):
+    """Final review M1: the style findings (look.style_findings over the read-back block) reach the reply's warnings
+    again, before the chart lint, as apply_report's did before 0.3.0."""
+    real = pipeline.layout
+
+    def layout(*a, **k):
+        plan = real(*a, **k)
+        r = next(x["row"] for x in plan.rows if x["kind"] == "line")
+        plan.cells[(r, 3)] = "A label far too long for its column, with words enough to spill over " * 2
+        plan.chart_lint.append("chart 'P&L': a lint line")
+        return plan
+    monkeypatch.setattr(pipeline, "layout", layout)
+    out, _ = _job(_pre(), calculated)
+    cut = [w for w in out["warnings"] if "text is cut off or spills over" in w]
+    assert len(cut) == 1 and out["warnings"].index(cut[0]) < out["warnings"].index("chart 'P&L': a lint line")
+
+
 def test_the_reply_has_the_keys_of_excel_jobs_reply(wired):
     pre = _pre()
     out = pipeline.excel_job(H, pre)

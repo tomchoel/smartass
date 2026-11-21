@@ -541,6 +541,18 @@ def _check(plan, block, charts, status, sources_ok: bool) -> list[str]:
     return check(plan, block, charts, status, sources_ok)
 
 
+def _style_findings(plan, block) -> list[str]:
+    """The report style's text findings over the read-back block (render/look.style_findings: a text cut off or
+    that does not fit, apply_report's words) for the reply's warnings, first, as before 0.3.0 (final review M1);
+    never raised."""
+    from .render import look
+    try:
+        return look.style_findings(plan, block)
+    except Exception as e:   # noqa: BLE001 - a finding is never worth a failed answer
+        log.warning("the style findings could not be made: %s", e)
+        return []
+
+
 def _answer_plan(q: int, pre: Prepared, fetched: datetime):
     """The Answer's layout with its print footer (one timestamp per draw); more than 5 free Key points are a
     warning."""
@@ -1105,8 +1117,8 @@ def _file_draw(job, pre: Prepared) -> dict:
         if path is not None:
             _drop_file(path)
     return reply(pre, q, str(t.path), list(built.sheets), mismatches,
-                 built.chart_lint + [w for w in (logged, arranged) if w] + job.pointing, layout=found,
-                 charts=built.charts)
+                 _style_findings(plan, read[0]) + built.chart_lint + [w for w in (logged, arranged) if w]
+                 + job.pointing, layout=found, charts=built.charts)
 
 
 def _build(q: int, pre: Prepared, path, fetched: datetime, user: str, stamp: str, base, book=None) -> tuple:
