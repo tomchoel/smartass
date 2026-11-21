@@ -250,6 +250,20 @@ def test_a_first_contact_without_the_list_of_builds_is_logged_once_per_excel(mon
     assert "only this build's add-in" in said[0] and "not made" in said[1]
 
 
+def test_a_save_of_ours_waiting_where_the_add_in_was_given_up_is_still_run(monkeypatch, caplog):
+    """Task 3 review Minor 6: after the server gave up on its add-in in an Excel (unknown outcomes), a save it had
+    asked for there may still be waiting; a first contact that cannot read the builds loaded there still asks this
+    build's Clear for it, rather than letting it run during the job's writes."""
+    asked = []
+    app = _two_servers(monkeypatch, lambda macro: asked.append(macro) or "clear", None)
+    del app.RegisteredFunctions
+    runner._EXCELS[(id(app), 0.0)] = runner._Excel(id(app), ready=False)
+    monkeypatch.setattr(later, "_queued", {"t" * 32: (id(app), 0.0)})
+    with caplog.at_level(logging.WARNING, logger="smartview.inproc"):
+        later.clear(app)
+    assert asked == ["SmartassClear_aaaa1111"]
+
+
 def test_an_unwritten_outcome_of_another_build_is_kept_apart_and_none_is_lost(monkeypatch):
     """Review (Task 1b): another build's outcome that its add-in could not write was filed as this server's own, and a
     second one overwrote the first: both are kept, read in turn, and another server's is marked as such."""

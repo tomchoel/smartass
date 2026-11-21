@@ -73,7 +73,8 @@ def clear(app, limit: float = CLEAR_LIMIT_S) -> None:
     """A job's first contact with app's Excel (jobs.hold_turn calls it once it holds the turn there), before any plain
     COM call of the job writes in it: the Clear of every smartass add-in build loaded there (_builds - two servers of
     different versions each load their own, with a save after the reply of its own that the other's Clear does not
-    see; without that list, this build's) runs a save after the reply still waiting there, and while one runs the
+    see; without that list, this build's - also where the server gave up on its add-in, while a save it asked for
+    there may still wait) runs a save after the reply still waiting there, and while one runs the
     add-in answers busy and the call is asked again (runner.asked: bounded by limit, abortable: HostError). No build
     loaded: no save of ours can be waiting. An outcome an add-in could not write comes back here and is kept for the
     next look (take). A contact that could not be made is logged once per Excel process (_skipped)."""
@@ -90,9 +91,12 @@ def clear(app, limit: float = CLEAR_LIMIT_S) -> None:
     own = ex.hash if ex is not None and ex.ready else _build_hash()
     builds = _builds(app)                                   # also where this build does not load: another may
     listed = builds is not None
+    ours_waiting = False
     if not listed:
         unread = "the smartass builds loaded there could not be read"
-        if ex is not None and ex.ready is False:            # this build's add-in does not load in that Excel
+        with _lock:
+            ours_waiting = any(k == key for k in _queued.values())     # asked for there before the give-up
+        if ex is not None and ex.ready is False and not ours_waiting:   # this build's add-in is not used there
             _skipped((key, "not made"), f"the first contact with Excel pid {key[0]} was not made ({unread}, and this "
                                         "build's add-in does not load there)")
             return
@@ -106,7 +110,7 @@ def clear(app, limit: float = CLEAR_LIMIT_S) -> None:
         except HostError:
             raise
         except Exception as e:   # noqa: BLE001 - not listed: the macro is not there, no add-in in that Excel
-            if listed or (ex is not None and ex.ready):
+            if listed or ours_waiting or (ex is not None and ex.ready):
                 _skipped(key, f"the first contact with Excel pid {key[0]} could not run {macro} "
                               f"({runner._message(e)})")
             continue
