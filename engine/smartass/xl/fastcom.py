@@ -35,7 +35,7 @@ Rules:
   executor asks a rejected operation again). Only if Excel stays busy longer is the object late-bound by name
   (Untyped), said in the log. That wait is the job's (Task D3): a job given up on does not wait (its next checked call
   stops it), at a job's start the wait counts against the start's budget (jobs.starting) and ends with it, and a
-  window scan does not wait at all (scan: a busy Excel is said as busy at once). An AttributeError of a name is
+  window scan does not wait at all (scan: as before Task D2). An AttributeError of a name is
   checked with one more lookup of the name (_dispid): a rejection of that lookup is raised as busy (the caller's wait
   asks again), a name the object has is tried once more, an unknown one stays an AttributeError - on Fast and on
   Untyped (an object that really has no type information is Untyped too). For a get, and a put whose first lookup was
@@ -357,14 +357,14 @@ def _put(ob, attr: str, value) -> None:
 @contextlib.contextmanager
 def scan(seconds: float = 0.0):
     """A window scan (xl/instances._app_from_window) on this thread: every object wrapped in it waits for Excel's type
-    information at most until `seconds` from now, in all - none by default, so a busy Excel is said as busy at once,
-    as before Task D2 (it waited TYPEINFO_WAIT_S per object there, twice per window). Yields a list that gets an entry
-    for each object Excel rejected (busy) for longer."""
+    information at most until `seconds` from now, in all (a scan inside a scan ends with the outer one at the
+    latest) - none by default, as before Task D2 (it waited TYPEINFO_WAIT_S per object there, twice per window). An
+    object Excel rejected is late-bound, without the warning a job's object gets."""
     outer = getattr(_scan, "state", None)
-    met: list = []
-    _scan.state = (time.monotonic() + seconds, met)
+    until = time.monotonic() + seconds
+    _scan.state = (until if outer is None else min(until, outer[0]),)
     try:
-        yield met
+        yield
     finally:
         _scan.state = outer
 
@@ -430,9 +430,8 @@ def wrap(obj, name: str | None = None, wait: float | None = None):
 def _untyped(raw, name: str | None, typeinfo, error: Exception | None = None, waited: float = 0.0) -> Untyped:
     """raw as Untyped (with typeinfo when there is one): late-bound by name, its lookups saying busy as busy. Excel
     still rejecting the type information after waited seconds is logged as a warning (never silent)."""
-    state = getattr(_scan, "state", None)
-    if error is not None and is_busy(error) and state is not None:
-        state[1].append(name)                      # a window scan: said as busy by its caller, not warned about here
+    if error is not None and is_busy(error) and getattr(_scan, "state", None) is not None:
+        log.debug("Excel rejected the type information of %s in a window scan (busy): late-bound by name", name)
     elif error is not None and is_busy(error) and waited:
         log.warning("Excel rejected the type information of %s (busy; waited up to %.0f s): late-bound by name",
                     name or "an object", waited)

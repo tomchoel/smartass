@@ -506,8 +506,9 @@ def test_the_wait_for_type_information_ends_with_what_is_left_of_the_jobs_start(
     assert isinstance(w, fastcom.Untyped) and took < 1.5
 
 
-def test_the_window_scan_does_not_wait_for_a_busy_excel_and_says_it_is_busy(monkeypatch):
-    """The window object answers; the Application behind it is rejected (busy): None at once, as before Task D2."""
+def test_the_window_scan_waits_for_no_type_information(monkeypatch):
+    """As before Task D2: an Application whose type information Excel rejects (busy) comes back at once, late-bound
+    (its calls say busy as busy); one Excel will not hand out at all is None, at once."""
     from smartass.xl import instances
     monkeypatch.setattr(fastcom, "_PyIDispatch", (fastcom._PyIDispatch, _BusyTypes))
     monkeypatch.setattr(fastcom, "TYPEINFO_WAIT_S", 3.0)
@@ -516,13 +517,21 @@ def test_the_window_scan_does_not_wait_for_a_busy_excel_and_says_it_is_busy(monk
         @property
         def Application(self):
             return fastcom.wrap(_rejected_forever())    # as a Fast window's get wraps what it returns
+
+    class Refusing:
+        @property
+        def Application(self):
+            raise pythoncom.com_error(REJECTED, "Call was rejected by callee.", None, None)
     monkeypatch.setattr(instances.win32gui, "SendMessageTimeout", lambda *a: (0, 7))
-    monkeypatch.setattr(instances.pythoncom, "ObjectFromLresult", lambda lres, iid, wp: Window())
+    window = [Window()]
+    monkeypatch.setattr(instances.pythoncom, "ObjectFromLresult", lambda lres, iid, wp: window[0])
     t0 = time.monotonic()
+    assert isinstance(instances._app_from_window(1), fastcom.Untyped)
+    window[0] = Refusing()
     assert instances._app_from_window(1) is None
     assert time.monotonic() - t0 < 1.0
-    with fastcom.scan() as busy:                        # every object wrapped in the scan: no wait
+    with fastcom.scan():                                # every object wrapped in a scan: no wait
         t0 = time.monotonic()
         assert isinstance(fastcom.wrap(_rejected_forever()), fastcom.Untyped)
         assert isinstance(fastcom.wrap(_rejected_forever()), fastcom.Untyped)
-        assert time.monotonic() - t0 < 1.0 and busy
+        assert time.monotonic() - t0 < 1.0

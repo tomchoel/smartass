@@ -197,7 +197,9 @@ class ComThread(threading.Thread):
     - the job's result holds no COM object (host.plain), and the frames its error carries are cleared here (_frames,
       _clear): their locals go here, not where the error is read;
     - the garbage collector runs at a job's end only when no other COM job is running in this process (_running), so
-      a job's end never releases a cycle a job still running on another thread made;
+      a job's end never releases a cycle a job still running on another thread made. A job that stays blocked (given
+      up on in an Excel that does not answer; on a host thread replaced after a reset) counts as running until it
+      returns: no job's end collects meanwhile;
     - the engine's own code makes no reference cycle that holds a job's COM objects: the ones found (an error kept in
       a local, a parameter or a dict of a frame its own traceback holds: exceljob._raise, redraw_job and _bring_in,
       runner.execute, _register_xll and _readable) are broken where they are made, so a job's COM objects go by
@@ -336,9 +338,12 @@ class HiddenExcel:
             self._ensure_started()
             return fn()
         released = threading.Event()
-        out = self.thread.submit(job, released.set).result(timeout or config.CALL_TIMEOUT_S)
-        self._watch_release(released, "a job on the engine's hidden Excel", pid=self.pid)   # as ExcelHost.call's
-        return out
+        fut = self.thread.submit(job, released.set)
+        try:
+            return fut.result(timeout or config.CALL_TIMEOUT_S)
+        finally:
+            if fut.done():                        # it answered (a result or its error): its release, as call's
+                self._watch_release(released, "a job on the engine's hidden Excel", pid=self.pid)
 
     def _ensure_started(self):
         if self.app is not None:

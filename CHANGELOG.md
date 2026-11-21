@@ -50,7 +50,9 @@ the middle of its job.
   Excel released. What is enforced: the frames its error carries are cleared on its thread; its result holds no Excel
   object; the garbage collector runs at a job's end, on its thread, only when no other Excel job is running in the
   server (a collect is process-wide: run at the end of one job, it released the cycles of another job still running,
-  on the wrong thread - a request in the user's Excel and the engine's EPM pulls do run side by side); and the
+  on the wrong thread - a request in the user's Excel and the engine's EPM pulls do run side by side; a job that
+  stays blocked in an Excel that does not answer counts as running until it returns, so no job's end collects
+  meanwhile); and the
   reference cycles that held a job's Excel objects were found and broken where they were made (an error kept in a
   local of a frame its own traceback holds: the error path of a batch, of a follow-up, of a taken sheet name, of a
   batch given up on, of loading the add-in, of a sheet Excel was too busy to read), so those objects go by reference
@@ -81,8 +83,8 @@ the middle of its job.
   for Excel's type information instead of going on without it, and a rejected lookup of a name is said as busy, so
   the usual wait for a busy Excel asks again. A call is never run twice for it. That wait is the request's: one the
   server gave up on does not wait (its next call stops it), at a request's start it counts against the start's 30 s
-  for a busy Excel, and the scan of the Excel windows does not wait at all - a busy Excel is said as busy at once,
-  as before (it waited up to 10 s twice per window). With `SV_FASTCOM=0` (pywin32's own wrapper, for diagnosis) a busy
+  for a busy Excel, and the scan of the Excel windows does not wait for it at all, as before (it waited up to 10 s
+  twice per window): an Excel that answers there while it rejects that is reached late-bound. With `SV_FASTCOM=0` (pywin32's own wrapper, for diagnosis) a busy
   Excel still shows as such an AttributeError, as before 0.5.0.
 - What froze Excel is not known; it was not reproduced under the conditions below, which do not rule anything out.
   Through the server's own job path (`scripts/check_followups.py`'s steps: a new answer, a second one, six follow-ups,
