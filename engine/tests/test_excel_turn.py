@@ -148,3 +148,18 @@ def test_a_job_in_another_process_is_told_of_a_turn_held_by_a_job_given_up_on(mo
     assert tt.acquire("this request") < 1.0          # the job given up on ended: the turn is free, nothing left over
     tt.close()
     assert not list(tmp_path.glob("*.given_up.json"))
+
+
+def test_a_turn_whose_close_has_begun_is_not_marked_given_up(monkeypatch, tmp_path):
+    """give_up runs on the event loop's thread while the job's own thread may be closing its turn: a turn no longer
+    held there is never marked, so no given-up file is left behind for other processes' waiters to be refused by."""
+    monkeypatch.setattr(config, "SVKIT", tmp_path)
+    jobs.bind_job(jobs.JobToken("fin_refresh"))
+    tt = jobs.Turn(4646)
+    assert tt.try_acquire()
+    with jobs._holders_lock:                         # its close has begun: no longer this process's holder there
+        del jobs._holders[4646]
+    tt.mark_given_up()
+    assert not tt.marked and not list(tmp_path.glob("*.given_up.json"))
+    tt.close()
+    jobs.unbind_job()

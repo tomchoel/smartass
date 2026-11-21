@@ -181,24 +181,27 @@ class Turn:
         return self.held and self.token is not None and self.token.aborted
 
     def mark_given_up(self) -> None:
-        """This held turn's job was given up on: written for jobs of other processes (given_up_elsewhere)."""
+        """This held turn's job was given up on: written for jobs of other processes (given_up_elsewhere). Under
+        _holders_lock, as close's removal of the file: a turn whose close has begun is not marked (a file left behind
+        by that race would have other processes' waiters refused while this server runs)."""
         import json
         import os
 
         import psutil
-        if not self.held:
-            return
         me = psutil.Process()
         what = self.token.what if self.token is not None else "a request"
-        try:
-            tmp = self.given_up_file.with_suffix(f".{os.getpid()}.tmp")
-            tmp.write_text(json.dumps({"what": what, "owner": me.pid, "owner_ctime": me.create_time()}),
-                           encoding="utf-8")
-            os.replace(tmp, self.given_up_file)
-            self.marked = True
-        except OSError as e:
-            log.warning("could not tell other processes that the job holding Excel pid %s was given up on: %s",
-                        self.pid, e)
+        with _holders_lock:
+            if not self.held or _holders.get(self.pid) is not self:
+                return
+            try:
+                tmp = self.given_up_file.with_suffix(f".{os.getpid()}.tmp")
+                tmp.write_text(json.dumps({"what": what, "owner": me.pid, "owner_ctime": me.create_time()}),
+                               encoding="utf-8")
+                os.replace(tmp, self.given_up_file)
+                self.marked = True
+            except OSError as e:
+                log.warning("could not tell other processes that the job holding Excel pid %s was given up on: %s",
+                            self.pid, e)
 
     def given_up_elsewhere(self) -> str | None:
         """What holds this Excel's turn in ANOTHER process, when that job was given up on (its process still runs);
@@ -248,12 +251,12 @@ class Turn:
             with _holders_lock:
                 if _holders.get(self.pid) is self:
                     del _holders[self.pid]
-            if self.marked:
-                try:
-                    self.given_up_file.unlink(missing_ok=True)
-                except OSError:
-                    pass
-                self.marked = False
+                if self.marked:
+                    try:
+                        self.given_up_file.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    self.marked = False
             try:
                 self.f.seek(0)
                 self._m.locking(self.f.fileno(), self._m.LK_UNLCK, 1)
