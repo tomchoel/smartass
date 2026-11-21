@@ -26,14 +26,17 @@ Rules:
   property gets with E_INVALIDARG when the object is in a certain state (a chart without a title); shared, that one
   answer would turn the property into a method for every object of the interface.
 - The default member's name (defaultDispatchName, used by obj(...)) is shared once an object has bound it.
-- Excel's busy rejection ("call rejected": a save, AutoSave, a recalculation) surfaces as the com_error it is, so the
-  caller's wait for a busy Excel (hostproc.retry_busy) asks again (Task D2). pywin32 swallows any error of a name's
-  lookup and raises AttributeError (or "can not be set" for a put), and an object whose type information was rejected
-  would be handed out without it; live in a hidden Excel, 21.11.2026, both failed jobs with "<unknown>.FullName". So
-  wrap raises a rejection of its type-information calls, and an AttributeError of a name (_get, _put) is checked with
-  one more lookup of the name (_dispid): a rejection is raised, a name the object has is tried once more, an unknown
-  one stays an AttributeError. An object that really has no type information is late-bound by name (Untyped), with the
-  same checks.
+- Excel's busy rejection ("call rejected": a save, AutoSave, a recalculation) is never turned into AttributeError
+  (Task D2). pywin32 swallows any error of a name's lookup and raises AttributeError (or "can not be set" for a put),
+  which no wait for a busy Excel retries, and wrap handed out an object without type information when Excel rejected
+  that fetch; live in a hidden Excel, 21.11.2026, both failed jobs with "<unknown>.FullName". Now wrap waits for Excel
+  in place while it rejects the type-information calls (TYPEINFO_WAIT_S): the object it is handed is the result of a
+  call that has run (Worksheets.Add), so the rejection must not reach a caller that would run that call again (the COM
+  executor asks a rejected operation again). Only if Excel stays busy longer is the object late-bound by name
+  (Untyped), said in the log. An AttributeError of a name is checked with one more lookup of the name (_dispid): a
+  rejection is raised as busy (nothing has run yet: the caller's wait asks again), a name the object has is tried once
+  more, an unknown one stays an AttributeError - on Fast and on Untyped (an object that really has no type
+  information is Untyped too).
 
 Coupling (accepted: pywin32 is pinned, pywin32==312 in engine/pyproject.toml): this module relies on pywin32's
 internals - CDispatch's instance attributes (_oleobj_, _olerepr_, _builtMethods_, _lazydata_, _username_),
@@ -378,7 +381,7 @@ def wrap(obj, name: str | None = None, wait: float | None = None):
 def _untyped(raw, name: str | None, typeinfo, error: Exception | None = None, waited: float = 0.0) -> Untyped:
     """raw as Untyped (with typeinfo when there is one): late-bound by name, its lookups saying busy as busy. Excel
     still rejecting the type information after waited seconds is logged as a warning (never silent)."""
-    if error is not None and is_busy(error):
+    if error is not None and is_busy(error) and waited:
         log.warning("Excel rejected the type information of %s for %.0f s (busy): late-bound by name", name or "an "
                     "object", waited)
     elif error is not None:
