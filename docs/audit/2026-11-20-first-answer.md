@@ -130,3 +130,39 @@ when it answers. The live figure after both cuts is owed.
 Measured in a visible Excel of the builder's own (20.11.2026): with the 0.3 s delay the answer's last picture change
 came 0.2-0.35 s before the save started and nothing changed during or after it. In the owner's Excel it is not yet
 measured (owed: the paint, `check_followups.py`, the bench).
+
+## Live in the owner's Excel, 21.11.2026 (controller runs, frozen checkout)
+
+Seconds are the Excel job as the user waits for it; `scripts/check_followups.py`, every step "checks OK" unless said.
+
+| run | route | new workbook's first answer | second answer | follow-ups | `fin_refresh` (2 answers) | save after the reply |
+|---|---|---|---|---|---|---|
+| 05:05, head b63e198, Excel fresh since 21:11 | add-in | 4.36 (builds and loads the add-in) | 1.09 | 1.25-1.70 | 2.60 | 0.29-0.46 |
+| 05:06, same | add-in | 2.94 | 1.12 | 1.38-1.91 | 2.93 | 0.34-0.45 |
+| 13:43, head 9dbe8f9, Excel just started | add-in | 6.25 (builds and loads the add-in) | 1.31 | 1.55-2.00 | 3.25 | 0.27-0.58 |
+| 13:44, same | add-in | 2.72 | 1.14 | 1.42-2.52 | 3.16 | 0.24-0.33 |
+| 13:45, same Excel | COM (`SV_INPROC=0`) | 4.88 | 2.12 | 2.81-4.42 | 5.31 | in the job |
+| 20.11 22:19, 0.4.0, for comparison | add-in | 7.52 | 1.19 | 1.62-1.95 | 3.20 | in the job (0.25-0.31) |
+
+The goal of 5 s or under for a new workbook's first answer is met once the add-in is loaded in that Excel (2.7-2.9 s);
+the first answer after Excel starts pays the add-in's load once (4.4-6.3 s).
+
+**The bench** (`scripts/bench_answers.py --rounds 3`, 05:16, head b63e198): 27 of 27 ok; the Excel job 1.2 / 1.3 / 1.3 s
+without a lines sheet and 2.9 / 2.9 / 2.5 s with one, the saves 0.3-0.6 s after the reply. It ran in a second Excel
+the engine had started for itself (the owner's was frozen, see below), a brand-new instance: not comparable one to
+one with 0.4.0's 1.3 / 1.9 / 2.0 s and 3.6 / 3.1 / 3.6 s in the owner's main Excel.
+
+**The freeze of 05:08.** After the two add-in runs of 05:05-05:07 the same script ran with `SV_INPROC=0` in the same
+Excel: new answer, second answer and six follow-ups passed (2.5-3.1 s); then, between the job that reads the stored
+specs for `fin_refresh` and the first redraw job, Excel stopped answering for good (no CPU use, no dialog). The
+script's job thread was found releasing a COM object in a call that never returned; nothing of the add-in's was
+pending (its last save record: ok, 05:06:50). The controller ended the Excel process; it held only the script's test
+workbook. That Excel instance had started at 21:11:31 the evening before, in the middle of a think-cell update
+(Windows log: MsiInstaller 21:11:57-21:12:55, "machine restart is required"), and had shown Excel's "problems with
+the 'thinkcell.addin' add-in" dialog at its start. The cause was not found: about 115 runs of the sequence in hidden
+Excels (a stand-in, then the engine's real job path; with and without the add-in; the old and the new code) did not
+freeze. What changed because of it is in the CHANGELOG ("After Excel froze in the live check"): a job's COM objects
+are released on its own thread before the thread ends, a busy Excel never shows up as an AttributeError, an
+abandoned job no longer keeps the next one waiting in silence, and `scripts/check_insert.py --parts mixed` runs both
+executors in one Excel. On that code the same sequence (add-in twice, then COM, one Excel) passed at 13:43-13:46 -
+the rows above. That shows "not reproduced", not a proven fix.

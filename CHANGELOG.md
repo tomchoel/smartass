@@ -108,6 +108,8 @@ the middle of its job.
   its pid, never a hang (shown with that Excel's process suspended between two phases, and before a job). The two "manual page
   breaks" DIFFs of the default parts were a read that fails in a hidden Excel (the sheet's list of page breaks answers
   "invalid index"), on every route alike: the check now reads each row and column instead when that happens.
+- The same sequence passed in the owner's Excel on this code (21.11.2026 13:43-13:46: two add-in runs, then the COM
+  run, one Excel process; every step OK; docs/audit/2026-11-20-first-answer.md). The cause of the freeze was not found.
 
 ### The save happens after the reply (0.5.0)
 

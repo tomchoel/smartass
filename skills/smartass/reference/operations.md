@@ -33,7 +33,7 @@
   workbook as it was before that answer. The Excel job takes about 2-2.5 s for an answer without a lines sheet (2.7 s at
   61 sheets), about 4 s with a lines sheet, 1.6-1.9 s for a follow-up, and 5.3-6.1 s for the first answer of a new
   workbook (live, a fresh Excel, 20.11.2026, before the cuts of phase 3c Task 1b; 0.4.0 took 7.5 s there).
-  After those cuts: (controller fills in). A follow-up or `fin_refresh` replaces the question's `Q<n>`
+  After those cuts, measured in the owner's Excel (21.11.2026): 2.7-2.9 s once the add-in is loaded in that Excel (4.4-6.3 s for the first answer after Excel starts, which loads the add-in; 7.5 s in 0.4.0). A follow-up or `fin_refresh` replaces the question's `Q<n>`
   sheets and tables whole: anything typed on them goes with them, so keep your own notes on your own sheets.
   A formula elsewhere in the workbook that points at a `Q<n>` sheet or its table (`='Q3 Answer'!E12`,
   `=SUM(Data_Q3[Value])`, a cross-sheet SUM, an array formula, a chart series, a defined name; also on another
