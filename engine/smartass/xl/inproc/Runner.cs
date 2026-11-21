@@ -738,7 +738,7 @@ public static class SmartassRunner___HASH__
                 return;
             }
         }
-        else if (cells > (long)ChunkCells * ScanSteps) throw new Exception(string.Format(Inv, TooLarge, cells));
+        else if (Blocks(nr, nc) > ScanSteps) throw new Exception(string.Format(Inv, TooLarge, cells));
         object app = Invoke(ws, "Application", Get, new object[0]);
         var hits = new List<KeyValuePair<long, object[]>>();     // (row * 16385 + column, the row of the result)
         var arrays = new HashSet<string>();
@@ -805,6 +805,33 @@ public static class SmartassRunner___HASH__
         }
         hits.Sort((x, y) => x.Key.CompareTo(y.Key));
         foreach (var hit in hits) rows.Add(hit.Value);
+    }
+
+    // How many blocks MentionsInCells reads on a used range of h rows and w columns when every block is read (a
+    // protected sheet), as runner._blocks: told before any is read.
+    static long Blocks(int h, int w)
+    {
+        var shapes = new Dictionary<long, long> { { ((long)h << 32) | (uint)w, 1 } };
+        long blocks = 0;
+        while (shapes.Count > 0)
+        {
+            var halves = new Dictionary<long, long>();
+            foreach (var shape in shapes)
+            {
+                int a = (int)(shape.Key >> 32), b = (int)(shape.Key & 0xFFFFFFFF);
+                if ((long)a * b <= ChunkCells) { blocks += shape.Value; continue; }
+                long first = a >= b ? (((long)(a / 2) << 32) | (uint)b) : (((long)a << 32) | (uint)(b / 2));
+                long second = a >= b ? (((long)(a - a / 2) << 32) | (uint)b) : (((long)a << 32) | (uint)(b - b / 2));
+                foreach (long part in new[] { first, second })
+                {
+                    long n;
+                    halves.TryGetValue(part, out n);
+                    halves[part] = n + shape.Value;
+                }
+            }
+            shapes = halves;
+        }
+        return blocks;
     }
 
     // swap(object, property, expected, value): the text property set to value only when it reads expected exactly;

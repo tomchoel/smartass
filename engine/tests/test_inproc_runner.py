@@ -569,6 +569,24 @@ def test_a_sheet_too_large_to_scan_is_unread_and_says_why(book, monkeypatch):
     assert "Formula2 Locked" not in sparse.calls and sparse.calls["Formula2 Far"] < 40
 
 
+def test_a_protected_sheet_whose_blocks_would_pass_the_bound_reads_none_of_them(book, monkeypatch):
+    """Halving leaves blocks of half a chunk to a whole one, so a protected sheet is counted in blocks before any is
+    read: one that would take more than SCAN_STEPS is "unread" at once, never after reading SCAN_STEPS blocks."""
+    app, _ = book
+    wb = _mentions_book(app)
+    band = fakexl.Worksheet(wb, "Band")
+    wb.order.append(band)
+    band.cells[(1, 1)] = {"Value": "='old Q1 Answer'!E12"}
+    band.cells[(1, 150)] = {"Font.Bold": True}                              # 150 cells: within 40 x 4, over 40 blocks
+    band.ProtectContents = True
+    monkeypatch.setattr(runner, "SCAN_STEPS", 40)
+    monkeypatch.setattr(runner, "CHUNK_CELLS", 4)
+    assert runner._blocks(1, 150) > 40
+    sparse = _Sparse(monkeypatch)
+    rows = _mentions(app)
+    assert [r[0] for r in rows if r[1] == "Band"] == ["unread"] and "Formula2 Band" not in sparse.calls
+
+
 def test_mentions_skips_a_chart_it_cannot_read_and_goes_on(book):
     """Review Minor 4: the COM executor skips that chart, as the add-in does."""
     app, _ = book

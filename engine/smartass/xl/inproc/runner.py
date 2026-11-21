@@ -889,7 +889,8 @@ def _cells(ws, name: str, says, rows: list) -> None:
     at all (its last cell, one cheap call; not UsedRange.HasFormula, which took 14 s on a used range to the last row);
     a refusal is the caller's "unread". A protected sheet refuses SpecialCells: every block is read, and a hidden
     formula makes the read fail (the caller's "unread"). A sheet that would take more than SCAN_STEPS steps (a test
-    or a read of a block) is not scanned further: TOO_LARGE, the caller's "unread"."""
+    or a read of a block) is not scanned further: TOO_LARGE, the caller's "unread" - a protected one is told by its
+    count of blocks (_blocks) before any is read."""
     used = ws.UsedRange
     r0, c0 = int(used.Row), int(used.Column)
     nr, nc = int(used.Rows.Count), int(used.Columns.Count)
@@ -905,7 +906,7 @@ def _cells(ws, name: str, says, rows: list) -> None:
                 _readable(e2)
                 raise e from None
             return
-    elif nr * nc > CHUNK_CELLS * SCAN_STEPS:            # every block would be read: too many, said at once
+    elif _blocks(nr, nc) > SCAN_STEPS:                  # every block would be read: too many, said at once
         raise _Failed(TOO_LARGE.format(nr * nc))
     app = ws.Application
     hits: list[tuple[int, int, list]] = []
@@ -952,6 +953,22 @@ def _cells(ws, name: str, says, rows: list) -> None:
                     hits.append((top + i, left + j, ["cell", name, _area(top + i, left + j), v]))
     hits.sort(key=lambda x: x[:2])
     rows += [row for _, _, row in hits]
+
+
+def _blocks(h: int, w: int) -> int:
+    """How many blocks the halving of _cells reads on a used range of h rows and w columns when every block is read
+    (a protected sheet): a block holds half a chunk to a whole one, so the count is told before any is read."""
+    shapes, blocks = {(h, w): 1}, 0
+    while shapes:
+        halves: dict = {}
+        for (a, b), n in shapes.items():
+            if a * b <= CHUNK_CELLS:
+                blocks += n
+                continue
+            for part in (((a // 2, b), (a - a // 2, b)) if a >= b else ((a, b // 2), (a, b - b // 2))):
+                halves[part] = halves.get(part, 0) + n
+        shapes = halves
+    return blocks
 
 
 def _series(chart, kind: str, where: str, prefix: str, says, rows: list) -> None:
