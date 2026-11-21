@@ -25,6 +25,7 @@ from smartass.render import look
 from smartass.xl import movein, sheets
 from smartass.xl.host import HostError, InputError
 from smartass.xl.inproc import runner
+from smartass.xl.inproc.batch import Batch
 from smartass.xl.inproc.runner import BatchError
 from smartass.xl.target import Target
 
@@ -991,15 +992,42 @@ def test_a_protected_sheet_whose_hidden_formula_pointed_at_the_answer_says_how_m
     out = own_book.follow_up(_pre(), 3)
     (note,) = [w for w in out["warnings"] if "'Locked'" in w]
     assert note == exceljob.UNREAD_REF.format(sheet="Locked", why="a hidden formula of a protected sheet cannot be read",
-                                              n=1, q=3)
+                                              n=1, q=3, cells="B2")
 
 
-def test_a_protected_sheet_whose_values_cannot_be_counted_is_warned_about_as_before(own_book, monkeypatch):
+def test_a_new_ref_on_a_protected_sheet_is_said_also_when_the_follow_up_cleared_another_there(own_book, monkeypatch):
+    """Task 3 review Minor 2: compared by where, not by how many - B3's #REF! gone and B2's new one is one new
+    #REF!, though the count stays 1."""
+    lk = _locked(own_book.wb, "='Q3 Answer'!E12")
+    real = fakexl._SheetGroup.Delete
+
+    def delete(group):
+        real(group)
+        lk.cells[(3, 2)] = {"Value": 5}                         # cleared in the same follow-up
+    monkeypatch.setattr(fakexl._SheetGroup, "Delete", delete)
+    out = own_book.follow_up(_pre(), 3)
+    assert [w for w in out["warnings"] if "'Locked'" in w and "1 cell(s)" in w and "(B2)" in w]
+
+
+def test_the_ref_is_told_by_its_error_code_not_its_text():
+    """Task 3 review Minor 3: Value2 gives an error as its code in both executors (a number as a float), so the
+    #REF! test does not depend on Excel's language."""
+    wb = fakexl.Workbook(["S"])
+    ws = wb.Worksheets("S")
+    ws.cells[(1, 1)] = {"Value": float(exceljob.REF_ERROR)}            # the number, not the error
+    ws.cells[(2, 1)] = {"Value": "=#REF!A1"}
+    ws.cells[(3, 2)] = {"Value": "#REF!"}                                # the text, not the error
+    b = Batch(quiet=False)
+    b.ret(b.verb("errors", b.workbook(wb.Name).Worksheets("S"), exceljob.REF_ERROR), "refs")
+    assert runner.run(wb.Application, b).values["refs"] == ("A2",)
+
+
+def test_a_protected_sheet_whose_refs_cannot_be_read_is_warned_about_as_before(own_book, monkeypatch):
     _locked(own_book.wb, "=Notes!A1")
 
-    def refuse(self, rng, criteria):
-        raise fakexl.ComError("COUNTIF refused")
-    monkeypatch.setattr(fakexl._WorksheetFunction, "CountIf", refuse)
+    def refuse(ws, code):
+        raise fakexl.ComError("the values could not be read")
+    monkeypatch.setitem(runner.VERBS, "errors", refuse)
     out = own_book.follow_up(_pre(), 3)
     assert [w for w in out["warnings"] if "'Locked'" in w and "if one there pointed at Q3" in w]
 

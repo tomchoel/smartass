@@ -974,6 +974,36 @@ def _blocks(h: int, w: int) -> int:
     return blocks
 
 
+def _errors(ws, code):
+    """The verb errors (batch.py's module docstring): the addresses of the used range's cells whose Value2 is the cell
+    error code (an int; a number reads as a float), in the sheet's order, read block by block as _cells halves a
+    protected sheet (every block read); more than SCAN_STEPS blocks: TOO_LARGE."""
+    used = ws.UsedRange
+    r0, c0 = int(used.Row), int(used.Column)
+    nr, nc = int(used.Rows.Count), int(used.Columns.Count)
+    if _blocks(nr, nc) > SCAN_STEPS:
+        raise _Failed(TOO_LARGE.format(nr * nc))
+    found: list[tuple[int, int]] = []
+    todo = [(r0, c0, nr, nc)]
+    while todo:
+        top, left, h, w = todo.pop()
+        if h * w > CHUNK_CELLS:
+            if h >= w:
+                half = h // 2
+                todo += [(top + half, left, h - half, w), (top, left, half, w)]
+            else:
+                half = w // 2
+                todo += [(top, left + half, h, w - half), (top, left, h, half)]
+            continue
+        grid = _call(ws, "Range", [_call(ws, "Cells", [top, left]),
+                                   _call(ws, "Cells", [top + h - 1, left + w - 1])]).Value2
+        if not isinstance(grid, tuple):
+            grid = ((grid,),)
+        found += [(top + i, left + j) for i, line in enumerate(grid) for j, v in enumerate(line)
+                  if type(v) is int and v == code]
+    return [_area(r, c) for r, c in sorted(found)]
+
+
 def _series(chart, kind: str, where: str, prefix: str, says, rows: list) -> None:
     """mentions on one chart's series: those whose formula mentions a text (one that cannot be read is left out)."""
     try:
@@ -1003,4 +1033,5 @@ def _swap(obj, name: str, expected, value):
 
 
 # name -> function(*args); both executors have each one (batch.VERBS, Runner.cs Verb)
-VERBS: dict = {"each": _each, "nudge": _nudge, "exist": _exist, "mentions": _mentions, "swap": _swap}
+VERBS: dict = {"each": _each, "nudge": _nudge, "exist": _exist, "mentions": _mentions, "swap": _swap,
+                "errors": _errors}

@@ -82,6 +82,11 @@ The verbs (VERBS; each is implemented in both executors, runner.py and Runner.cs
     swap(object, property, expected, value): the text property set to value only when it reads expected exactly (a
         compare-and-set inside Excel: a formula the user changed between two batches is left alone); gives True when
         it was set, False when it read anything else.
+    errors(worksheet, code): the A1 addresses of the cells of the worksheet's used range whose Value2 is the cell
+        error code (an int, as both executors read an error - #REF! is -2146826265 - while a number reads as a
+        float: the error is told by its code, never by its text in Excel's language), in the sheet's order. The used
+        range is read block by block as mentions halves a protected sheet (values can be read on a protected sheet);
+        one that would take more than runner.SCAN_STEPS blocks fails the operation (runner.TOO_LARGE).
 
 quiet=True turns ScreenUpdating, EnableEvents and DisplayAlerts off and Calculation to manual (each put back after
 the batch); with calculation=False Calculation is left alone - only a batch that writes formulas needs manual
@@ -94,7 +99,7 @@ import math
 
 VERSION = 1
 # name -> number of arguments; both executors have each one (runner.py, Runner.cs)
-VERBS: dict[str, int] = {"each": 2, "nudge": 4, "exist": 3, "mentions": 3, "swap": 4}
+VERBS: dict[str, int] = {"each": 2, "nudge": 4, "exist": 3, "mentions": 3, "swap": 4, "errors": 2}
 INT64 = 2 ** 63
 TEXT_MAX = 40                     # a string argument longer than this is shortened in an operation's text
 
@@ -349,6 +354,10 @@ def _check_verb(name: str, args: tuple) -> None:
         _, texts, skip = args
         if not _texts(texts) or not _texts(skip):
             raise ValueError("mentions: the texts to look for and the sheets to skip are non-empty lists of texts")
+    elif name == "errors":
+        _, code = args
+        if not (isinstance(code, int) and not isinstance(code, bool)):
+            raise ValueError("errors: the cell error code is an int (#REF! is -2146826265)")
     elif name == "swap":
         _, prop, expected, value = args
         if not (isinstance(prop, str) and prop) or not isinstance(expected, str) or not isinstance(value, str):

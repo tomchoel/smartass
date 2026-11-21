@@ -600,7 +600,62 @@ public static class SmartassRunner___HASH__
         if (name == "exist" && args.Length == 3) return Exist(args[0], args[1] as object[], args[2]);
         if (name == "mentions" && args.Length == 3) return Mentions(args[0], args[1] as object[], args[2] as object[]);
         if (name == "swap" && args.Length == 4) return Swap(args[0], Convert.ToString(args[1], Inv), args[2], args[3]);
+        if (name == "errors" && args.Length == 2) return Errors(args[0], args[1]);
         throw new Exception("unknown verb '" + name + "'");
+    }
+
+    // errors(worksheet, code): the addresses of the used range's cells whose Value2 is the cell error code (an int, as
+    // both executors read an error; a number is a double), in the sheet's order, read block by block as
+    // MentionsInCells halves a protected sheet (every block read); more than ScanSteps blocks: TooLarge
+    // (runner._errors).
+    static object Errors(object ws, object code)
+    {
+        long want = Convert.ToInt64(code, Inv);
+        object used = Invoke(ws, "UsedRange", Get, new object[0]);
+        int r0 = Int(used, "Row"), c0 = Int(used, "Column");
+        int nr = Int(Invoke(used, "Rows", Get, new object[0]), "Count");
+        int nc = Int(Invoke(used, "Columns", Get, new object[0]), "Count");
+        if (Blocks(nr, nc) > ScanSteps) throw new Exception(string.Format(Inv, TooLarge, (long)nr * nc));
+        var found = new List<long>();
+        var todo = new Stack<int[]>();
+        todo.Push(new[] { r0, c0, nr, nc });
+        while (todo.Count > 0)
+        {
+            int[] next = todo.Pop();
+            int top = next[0], left = next[1], h = next[2], w = next[3];
+            if ((long)h * w > ChunkCells)
+            {
+                if (h >= w)
+                {
+                    int half = h / 2;
+                    todo.Push(new[] { top + half, left, h - half, w });
+                    todo.Push(new[] { top, left, half, w });
+                }
+                else
+                {
+                    int half = w / 2;
+                    todo.Push(new[] { top, left + half, h, w - half });
+                    todo.Push(new[] { top, left, h, half });
+                }
+                continue;
+            }
+            object block = Invoke(ws, "Range", Get, new object[] {
+                Invoke(ws, "Cells", Get, new object[] { top, left }),
+                Invoke(ws, "Cells", Get, new object[] { top + h - 1, left + w - 1 }) });
+            object grid = Invoke(block, "Value2", Get, new object[0]);
+            var a = grid as Array;
+            int gh = a == null ? 1 : a.GetLength(0), gw = a == null ? 1 : a.GetLength(1);
+            for (int i = 0; i < gh; i++)
+                for (int j = 0; j < gw; j++)
+                {
+                    object v = a == null ? grid : a.GetValue(a.GetLowerBound(0) + i, a.GetLowerBound(1) + j);
+                    if (v is int && (int)v == want) found.Add((long)(top + i) * 16385 + left + j);
+                }
+        }
+        found.Sort();
+        var rows = new List<object>();
+        foreach (long k in found) rows.Add(Area((int)(k / 16385), (int)(k % 16385), 1, 1));
+        return rows;
     }
 
     // mentions(workbook, texts, skip): every formula of the workbook outside the skipped sheets that mentions one of

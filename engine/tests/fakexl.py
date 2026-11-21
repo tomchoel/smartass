@@ -30,6 +30,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 MAXR, MAXC = 1048576, 16384
+REF = -2146826265                        # #REF! as Value2 reads it (pywin32 and the add-in: an int)
 CLIP_R, CLIP_C = 400, 80                 # cell-level settings on whole rows/columns: only this block is tracked
 SEP = ";"                                # nb-NO list separator (Range unions)
 class _International(tuple):
@@ -214,6 +215,14 @@ def _rewrite(wb, fn) -> None:
             new = _outside_literals(v, fn)
             if new != v:
                 put(new)
+
+
+def _shown(v):
+    """Value2 as Excel shows it where the fake can tell without calculating: a formula that names #REF! shows #REF!
+    (its error code), everything else as stored."""
+    if isinstance(v, tuple):
+        return tuple(tuple(_shown(x) for x in row) for row in v)
+    return REF if isinstance(v, str) and v.startswith("=") and "#REF!" in v else v
 
 
 def _renamed_sheet(wb, old: str, new: str) -> None:
@@ -443,7 +452,8 @@ class Range:
         if k in ("Value", "Value2", "Formula", "Formula2"):
             if k.startswith("Formula") and self.ws.ProtectContents and self.ws.hidden & set(self.cells()):
                 raise ComError("a hidden formula of a protected sheet cannot be read")
-            return self._get_value()
+            v = self._get_value()
+            return _shown(v) if k == "Value2" else v
         if k == "PrefixCharacter":
             return "'" if self.rects[0][:2] in self.ws.prefixed else ""
         if k == "HasFormula":                            # one cell: a formula, not text written with an apostrophe
@@ -1106,18 +1116,6 @@ class _Workbooks(list):
         return wb
 
 
-class _WorksheetFunction:
-    REF = -2146826265                           # #REF! as Value2 reads it
-
-    def CountIf(self, rng, criteria):
-        """COUNTIF(rng, "#REF!") only: the cells that show #REF! - the error value, or (the fake does not calculate) a
-        formula that names #REF!."""
-        assert criteria == "#REF!"
-        values = [rng.ws.cells.get(rc, {}).get("Value") for rc in rng.cells()]
-        return float(sum(1 for v in values if v == self.REF or (isinstance(v, str) and v.startswith("=")
-                                                                 and "#REF!" in v)))
-
-
 class Application:
     def __init__(self):
         self.Workbooks = _Workbooks(self)
@@ -1136,10 +1134,6 @@ class Application:
     @property
     def ActiveWindow(self):
         return self.ActiveWorkbook.window
-
-    @property
-    def WorksheetFunction(self):
-        return _WorksheetFunction()
 
     def Intersect(self, a, b):
         """The cells two ranges of one sheet share, or None."""

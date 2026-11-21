@@ -860,14 +860,14 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     write_status(ws, plan, mismatches)
     breaks = _fit_text_rows(ws, plan, block, b)
     b.mark("status, heights")
+    unread = job.mentions.unread if job.parked is not None and job.mentions is not None else []
+    counted = bool(unread) and look.settings.get("Calculation") == AUTOMATIC    # the user's manual: not calculated
+    if counted:                                         # before anything of the follow-up is written
+        _record_refs(b, wbn, unread, "refs before")
     writes = movein.record_repoint(b, wbn, rewrites) if rewrites else None
     point_at = writes.start if writes is not None else None
     if writes is not None:
         b.mark("re-point")
-    unread = job.mentions.unread if job.parked is not None and job.mentions is not None else []
-    counted = bool(unread) and look.settings.get("Calculation") == AUTOMATIC    # the user's manual: not calculated
-    if counted:
-        _record_refs(b, wbn, unread, "refs before")
     drop_at = movein.drop(t, job.parked, book, b) if job.parked is not None else None
     if drop_at is not None:
         b.mark("drop")
@@ -1111,34 +1111,39 @@ def _mentions_notes(q: int, found) -> list[str]:
 
 
 UNREAD = "could not read the formulas on sheet '{sheet}' ({why}): if one there pointed at Q{q}, it shows #REF! now"
-UNREAD_REF = ("could not read the formulas on sheet '{sheet}' ({why}), and {n} more cell(s) there show #REF! since the "
-              "old Q{q} was dropped: a formula there pointed at it")
+UNREAD_REF = ("could not read the formulas on sheet '{sheet}' ({why}), and {n} cell(s) there show #REF! since the "
+              "old Q{q} was dropped ({cells}): a formula there pointed at it")
 AUTOMATIC = -4105                       # xlCalculationAutomatic
+REF_ERROR = -2146826265                 # #REF! as Value2 gives it in both executors: told by its code, not its text
 
 
 def _record_refs(b, wbn, unread: list, key: str, calculate: bool = False) -> None:
-    """The cells that show #REF! on each sheet the look could not read (a protected sheet's values can be read when
-    its formulas cannot), counted in b - after the sheet is calculated (calculate: the batch runs with Calculation
-    manual); each sheet operations that may fail."""
+    """Where the cells that show #REF! are on each sheet the look could not read (a protected sheet's values can be
+    read when its formulas cannot): the verb errors, bounded as the scan is, recorded in b - after the sheet is
+    calculated (calculate: the batch runs with Calculation manual); each sheet operations that may fail."""
     for sheet, _ in unread:
         with b.attempt():
             ws = wbn.Worksheets(sheet)
             if calculate:
                 ws.Calculate()
-            b.ret(b.app.WorksheetFunction.CountIf(ws.UsedRange, "#REF!"), f"{key}.{sheet}")
+            b.ret(b.verb("errors", ws, REF_ERROR), f"{key}.{sheet}")
 
 
 def _unread_notes(q: int, unread: list, values: dict | None) -> list[str]:
     """A sheet whose formulas the look could not read, as a warning only when it could matter: a cell there shows
-    #REF! after the drop that did not before (phase 3b review: a protected sheet with a hidden formula warned on every
-    follow-up); when that cannot be told (values None, or a count not read) as before."""
+    #REF! after the drop that did not before - compared by where, so a #REF! the follow-up cleared cannot hide a new
+    one (phase 3b review: a protected sheet with a hidden formula warned on every follow-up); when that cannot be
+    told (values None, or a read that failed) as before."""
     out = []
     for sheet, why in unread:
         before = (values or {}).get(f"refs before.{sheet}")
         after = (values or {}).get(f"refs after.{sheet}")
-        if isinstance(before, (int, float)) and isinstance(after, (int, float)):
-            if after > before:
-                out.append(UNREAD_REF.format(sheet=sheet, why=why, n=int(after - before), q=q))
+        if isinstance(before, tuple) and isinstance(after, tuple):
+            new = [a for a in after if a not in set(before)]
+            if new:
+                more = f" and {len(new) - POINTED_MAX} more" if len(new) > POINTED_MAX else ""
+                out.append(UNREAD_REF.format(sheet=sheet, why=why, n=len(new), q=q,
+                                             cells=", ".join(new[:POINTED_MAX]) + more))
             continue
         out.append(UNREAD.format(sheet=sheet, why=why, q=q))
     return out

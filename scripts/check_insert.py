@@ -1627,7 +1627,7 @@ def protected_sheets(xl: Excel) -> None:
                     s.Range("A1").Formula2 = "='Q1 Answer'!A1"
                 out = exceljob.redraw_job(None, pres[2][2], 1, "this workbook")
                 said = [w for w in out.get("warnings") or [] if "could not read the formulas" in w]
-                ok = (len(said) == 1 and "'Pointing'" in said[0] and "1 more cell(s)" in said[0]
+                ok = (len(said) == 1 and "'Pointing'" in said[0] and "1 cell(s)" in said[0]
                       and not [w for w in said if "'Other'" in w])
                 check(f"protected sheets ({side}, close-out {label}): only the one whose cell turned #REF! is said",
                       ok, "" if ok else "; ".join(said) or "nothing said")

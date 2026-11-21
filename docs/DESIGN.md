@@ -126,7 +126,9 @@ the new answer (`xl/repoint.py`: never text in a string literal, another workboo
 contains it), and the close-out writes them right before the drop with Calculation manual, each a compare-and-set
 inside Excel (the verb `swap`: a formula changed since the bring-in read it is left alone and reported) that may
 fail (a warning). A sheet that could not be read is a warning only when a cell there shows #REF! after the drop that
-did not before (its values can be read: COUNTIF before and after the drop; with the user's Calculation manual, always,
+did not before (its values can be read: where its cells show #REF! - the error told by its code, not its text in
+Excel's language - is read before and after the drop, bounded as the scan is, and a cell that shows it only after is
+said; with the user's Calculation manual, always,
 as that cannot be told without calculating their sheet). A failure before the drop points them back first, by the same compare-and-set (the parked sheets
 must still be there), then the rollback and the restore. Not covered (Excel offers no exact, cheap way): conditional
 formats and data validation (their formulas come only in the user's separators and change through a type-specific
