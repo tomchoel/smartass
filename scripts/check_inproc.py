@@ -627,9 +627,10 @@ def addin_checks(app, raw, pid: int, ctime: float, ex) -> None:
         shown = new_windows(pid, before)
         handler = Warnings()
         logging.getLogger("smartview.inproc").addHandler(handler)
-        real_ensure, real_state = build.ensure, dict(runner._EXCELS)
+        real_ensure, real_state, real_logged = build.ensure, dict(runner._EXCELS), set(runner._ROUTE_LOGGED)
         build.ensure = lambda xll=xll: (xll, "0badc0de")
-        runner._EXCELS.clear()
+        runner._EXCELS.clear()                        # a new server meets this Excel: its switch is its own to log
+        runner._ROUTE_LOGGED.clear()
         try:
             b = Batch()
             b.ret(b.app.Workbooks.Count, "books")
@@ -639,6 +640,8 @@ def addin_checks(app, raw, pid: int, ctime: float, ex) -> None:
             build.ensure = real_ensure
             runner._EXCELS.clear()
             runner._EXCELS.update(real_state)
+            runner._ROUTE_LOGGED.clear()
+            runner._ROUTE_LOGGED.update(real_logged)
             logging.getLogger("smartview.inproc").removeHandler(handler)
         check(f"{name}: no window, COM executor", not shown and res.where == "com" and res2.where == "com"
               and len(handler.seen) == 1,
