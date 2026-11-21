@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-The three sections below are 0.5.0 (phase 3c). After the update, reconnect every open Claude Code session (`/mcp`):
+The sections below are 0.5.0 (phase 3c). After the update, reconnect every open Claude Code session (`/mcp`):
 a session still on 0.4.0 in the same Excel has no first-contact check, so a 0.5.0 save after the reply can run in
 the middle of its job.
 
@@ -42,6 +42,20 @@ the middle of its job.
   about 100-200 million cells) is warned about on every follow-up.
 - Not changed: the defined names are still read one by one over COM when the add-in is not there (3-5 s for 2 000
   names); Excel offers no exact lookup of the names that mention a sheet.
+
+### After Excel froze in the live check (0.5.0)
+
+- A request the server gave up on because Excel did not answer in time no longer keeps the next request in that Excel
+  waiting silently for its turn (live, 21.11.2026: the next one waited until it was given up on too): after 5 s that
+  request is refused with "An earlier request in that Excel (...) was given up after Excel did not respond in time,
+  and it still holds that Excel: ... was not started", and what to check. The request given up on never writes again
+  and frees the turn when Excel answers it.
+- A failed job's Excel objects (its workbook, the ranges of a batch) are released on the job's own thread, no longer
+  on the thread that reads its error: released from another thread they can call Excel from there and wait for it -
+  for ever, when that Excel has stopped responding.
+- What froze Excel is not known: the live sequence was run 20 times in hidden Excels of our own (two add-in builds
+  loaded, add-in jobs then COM jobs, each job on its own thread) without a freeze. `scripts/check_insert.py` has a
+  part "mixed" that runs the executors mixed in one Excel with a second build loaded.
 
 ### The save happens after the reply (0.5.0)
 
