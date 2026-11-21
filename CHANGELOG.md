@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-### Carry-overs from the reviews
+The three sections below are 0.5.0 (phase 3c). After the update, reconnect every open Claude Code session (`/mcp`):
+a session still on 0.4.0 in the same Excel has no first-contact check, so a 0.5.0 save after the reply can run in
+the middle of its job.
+
+### Carry-overs from the reviews (0.5.0)
 
 - The report style's text findings are back in the reply's warnings ("B5: text is cut off or spills over (~65 > 46
   chars)", "B13: text does not fit (...)"), in the words of the renderer before 0.3.0, computed from the look model
@@ -10,10 +14,17 @@
   the table width" findings read what Excel shows anywhere on the sheet, which the look cannot know (it writes Arial
   with top and bottom edges only, inside its block).
 - Excel settings a job that did not finish left changed (a killed server, a put-back Excel refused) are put back by
-  the next job in that Excel and said in its warnings: before its first quiet batch a job records in
-  `jobstate\<Excel's pid>.json` what it found and what it sets (ScreenUpdating, EnableEvents, DisplayAlerts,
-  Calculation, AutoSave of our own file); its end removes it. Only a setting that still reads what that job set is
-  put back, and never in another Excel process that has the same pid.
+  the next job in that Excel and said in its warnings ("an earlier smartass job in this Excel did not finish and left
+  Calculation manual: put back now"): before its first quiet batch a job records in the state file
+  `%LOCALAPPDATA%\smartass\jobstate\<Excel's pid>.json` what it found and what it sets (ScreenUpdating,
+  EnableEvents, DisplayAlerts, Calculation, AutoSave of our own file; no figures); its end removes it. Only a setting
+  that still reads what that job set is put back, and never in another Excel process that has the same pid. What
+  Excel refuses to put back stays in the file, and only that, also through the next job, until a put-back goes
+  through; when only AutoSave could not be switched back on, only that is kept. The file of an Excel process that is
+  known to be gone is removed.
+- AutoSave of our file that could not be switched back on is said: "AutoSave could not be switched back on in <file>
+  (...)", with "the next answer in this Excel switches it on" only when the state file holds that workbook, else
+  "switch it on yourself"; after a save after the reply, the next answer says so and switches it on.
 - A follow-up whose close-out fails after the old sheets are dropped says when its spec was not stored (the next
   follow-up would patch the spec before it) - repeat the follow-up. A new answer whose save (or close-out) fails
   removes its spec row and Sources rows with its sheets: no ghost question for a follow-up to pick.
@@ -25,15 +36,20 @@
   a stray format stretched to XFD1048576 costs a few dozen steps instead of ~175 000 (in a hidden Excel 48 ms
   in-process, 288 ms over COM); a sheet that would take more than 2 000 steps is said as unread. A sheet whose
   formulas cannot be read (a protected sheet with a hidden formula) is warned about only when a cell there turned
-  #REF! with the follow-up.
+  #REF! with the follow-up, and the warning names those cells ("... and 1 cell(s) there show #REF! since the old Q3
+  was dropped (B2): a formula there pointed at it"; #REF! told by Excel's error code, not its text, with the verb
+  `errors`, which runs only for such a sheet). A sheet too large to check that way as well (more than 2 000 blocks:
+  about 100-200 million cells) is warned about on every follow-up.
 - Not changed: the defined names are still read one by one over COM when the add-in is not there (3-5 s for 2 000
   names); Excel offers no exact lookup of the names that mention a sheet.
 
-### The save happens after the reply
+### The save happens after the reply (0.5.0)
 
 - With the add-in, the answer's own file is no longer saved inside the job (0.4-1.1 s of every answer in the owner's
   Excel): the job's save step asks the add-in, in one `Application.Run` of a few ms, to save it, and the reply goes
-  out. The add-in waits `SV_SAVE_DELAY` (0.3 s) on a timer of its own so Excel paints the answer first, then saves
+  out (not for the first answer of a workbook the question created: that one is saved in the job, so the file on
+  disk holds the answer before the session points at it). The add-in waits `SV_SAVE_DELAY` (0.3 s) on a timer of its
+  own so Excel paints the answer first, then saves
   as a queued macro (`ExcelAsyncUtil.QueueAsMacro`) and switches AutoSave back on (also after a failed save), and
   writes the outcome - no figures: the workbook's name, ok or Excel's error, the seconds - to
   `inproc\saved\<Excel's pid>.json`. Live in a visible Excel of our own (20.11.2026): with the delay the answer's
@@ -65,14 +81,15 @@
   rejects calls (a cell in edit mode, a dialog) 30 s in all, then says so, as before the save after the reply.
   Only the seconds Excel rejects calls count: a save of ours is waited for through - the add-in's answer that one
   runs, a waiting save the job's first contact runs itself, and Excel's rejections while a save this server asked
-  for may still run. Another smartass server's save that its add-in could not report is said as that server's. An
-  abandoned job stops in every one of these waits.
+  for may still run. Another smartass server's save is said as that server's ("(asked by another smartass server in
+  this Excel)"). A server with `SV_INPROC=0` makes no first contact, so another server's waiting save can run between
+  its batches. An abandoned job stops in every one of these waits.
 - `bench_answers.py` adds "saved after s" (the save's own seconds) beside the Excel job the user waits for;
   `check_followups.py` waits for each step's saves before it reads `Workbook.Saved` or the file and prints their
-  seconds; `check_insert.py --parts newbook` waits for them too; `check_inproc.py` checks the save after the reply
-  (55 checks).
+  seconds; `check_insert.py --parts newbook` waits for them too (`--parts newbook,failures`: 82 checks);
+  `check_inproc.py` checks the save after the reply (61 checks in all).
 
-### The first answer of a new workbook is its built file
+### The first answer of a new workbook is its built file (0.5.0)
 
 - A question that starts a new workbook no longer has Excel create one from the TN template and save it as a new
   file in the OneDrive folder, then set up a Sources log (10.6-11.3 s in the owner's Excel, 0.4.0): the renderer
@@ -80,12 +97,12 @@
   furnished (header, fonts, widths, filter, frozen header, print setup and its two hidden names), the sensitivity
   label as custom document properties and the TN template's theme - and Excel only opens it. The job then runs its
   usual batches: look, bring in (the finish only), close out (the log's rows), save. In a hidden Excel on the
-  OneDrive folder the whole first answer's Excel work took 1.9-2.5 s against 7.1-10.5 s made today's way (rounds
-  1-3 of four each, 20.11.2026; the first today's round also built the template; the owner's Excel is measured
-  separately).
+  OneDrive folder the whole first answer's Excel work took 1.92-2.46 s against 7.05-13.72 s made today's way (four
+  rounds each, 20.11.2026; the owner's Excel is measured separately).
 - The file name is reserved by creating it empty and exclusively (parallel agents get different names) and is never
   the name of a workbook open in that Excel. A failure once it is reserved closes the workbook without saving and
-  deletes the file, and the error says so; the workbook becomes the session's only once the answer is in it.
+  deletes the file (found by its full path: never another session's workbook of the same name), and the error says
+  so; the workbook becomes the session's only once the answer is in it and saved - in the job, also with the add-in.
 - The new workbook is built in the Normal style and sizes of a workbook added from the template, which the look of
   the first one made that way stores; until then (and without a label id, without the template, in an Excel started
   for a parallel agent, or with no Excel open) a new workbook is made as before.

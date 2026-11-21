@@ -8,6 +8,8 @@
   (`scripts\bump.ps1` bumps it together with `pyproject.toml`) or when a client calls `fin_status(restart=True)`.
   Editing a `.py` file alone does nothing to a running server. After a reload, Claude Code may keep an old tool
   schema: run `/mcp` and reconnect smartass. Only an edit to `run_server.py` itself always needs a reconnect.
+  After an update, reconnect every open session: one still on 0.4.0 in the same Excel has no first-contact check, so
+  a 0.5.0 save after the reply can run in the middle of its job.
 - **Two Excels.** The engine's own hidden Excel (`DispatchEx`, one COM thread, the VBA bridge `vba\modBridge.bas`
   + Oracle's `smartview_body.bas` loaded into an unsaved workbook) does ad hoc fallback grids; the answer is drawn
   in the user's Excel (session workbook, or `target="active"`). Only the engine's own Excel is ever killed or
@@ -29,8 +31,9 @@
   Excel crashes after the reply before that save ran (0.3 s plus the save's own time; longer while a cell is being
   edited, as the save waits until Excel is ready), that answer is lost without a note - the file on disk is the
   workbook as it was before that answer. The Excel job takes about 2-2.5 s for an answer without a lines sheet (2.7 s at
-  61 sheets), about 4 s with a lines sheet, 1.6-1.9 s for a follow-up, and about 7 s for the first answer of a new
-  workbook (the workbook is created). A follow-up or `fin_refresh` replaces the question's `Q<n>`
+  61 sheets), about 4 s with a lines sheet, 1.6-1.9 s for a follow-up, and 5.3-6.1 s for the first answer of a new
+  workbook (live, a fresh Excel, 20.11.2026, before the cuts of phase 3c Task 1b; 0.4.0 took 7.5 s there).
+  After those cuts: (controller fills in). A follow-up or `fin_refresh` replaces the question's `Q<n>`
   sheets and tables whole: anything typed on them goes with them, so keep your own notes on your own sheets.
   A formula elsewhere in the workbook that points at a `Q<n>` sheet or its table (`='Q3 Answer'!E12`,
   `=SUM(Data_Q3[Value])`, a cross-sheet SUM, an array formula, a chart series, a defined name; also on another
@@ -41,13 +44,15 @@
   while the answer was drawn (each write first checks the formula is still what was read; an edited cell, or a row,
   chart or name added in between, is left alone), and about a sheet whose formulas cannot be read (a protected
   sheet with a hidden formula, or one too large to scan) when a cell there shows #REF! after the follow-up that did
-  not before (with Calculation manual: always) - those show #REF!. When the workbook cannot be scanned at all, the old sheets are dropped anyway and the
-  reply says the formulas pointing at them were not checked. **Not re-pointed** (they show #REF!): conditional
+  not before; always with Calculation manual, and for a sheet too large to check as well (a used range of more than
+  about 100-200 million cells, such as one a stray format stretched to the last row and column) - those show #REF!.
+  When the workbook cannot be scanned at all, the old sheets are dropped anyway and the reply says the formulas pointing at them were not checked. **Not re-pointed** (they show #REF!): conditional
   formats, data validation lists, pivot tables built on a `Data_Q<n>` table, chart titles and labels linked to a
   cell, sparklines, form controls' linked cells and lists, shapes and text boxes linked to a cell, and links from
-  other workbooks. Nothing of the user's is saved and Excel's settings are put back (also those an earlier job that did not
-  finish left changed: the next job says so); when the answer's workbook is
-  the active one it ends on the new Answer, otherwise the user's active sheet is put back.
+  other workbooks. Nothing of the user's is saved and Excel's settings are put back (also those an earlier job that
+  did not finish left changed: the next job in that Excel puts back what it recorded in its state file, `jobstate\`,
+  and says so); when the answer's workbook is the active one it ends on the new Answer, otherwise the user's active
+  sheet is put back.
 - **The add-in.** The first answer in an Excel builds a small Excel-DNA add-in (`smartass_run_<hash>.xll`, compiled
   with the .NET compiler that ships with Windows, under `%LOCALAPPDATA%\smartass\inproc`) and loads it into that
   Excel with `RegisterXLL`, silently, for the rest of that Excel's life; each batch of an answer's Excel work is
@@ -58,9 +63,10 @@
   ..."). On a very large workbook the COM route costs more: every follow-up reads the defined names one call at a
   time (3-5 s for 2 000 names), and a sheet whose used range reaches both the last row and the last column costs some
   700 000 calls (an estimate, not measured: minutes); `fin_refresh` pays both once per question.
-  `SV_INPROC=0` in the server's environment forces the COM route. The add-in runs nothing but job files the engine
-  writes to `inproc\jobs` (a formula calling it gets #N/A); the user's settings it turns off while it works are
-  put back by each batch itself, also when a step fails.
+  `SV_INPROC=0` in the server's environment forces the COM route; such a server does not run another session's
+  waiting save after the reply at its first contact, so that save can run between its batches. The add-in runs
+  nothing but job files the engine writes to `inproc\jobs` (a formula calling it gets #N/A); the user's settings it
+  turns off while it works are put back by each batch itself, also when a step fails.
 - **Fetch route.** Smart View HTTP first: with the user's OAuth token where a pod has one (`smartass login`, no
   browser), else through the shared hidden Edge (signs in silently). A grid HTTP could not fetch is pulled as an ad
   hoc grid in Excel instead (`routes` in the reply; a warning says why).
@@ -90,6 +96,7 @@
 | An answer's file while it is moved in (deleted after) | `tmp\` |
 | The in-process add-in (one folder per build) and its job files (deleted after each batch) | `inproc\` |
 | The outcome of each Excel's last save after a reply (no figures; `last.json`: the last one a job read) | `inproc\saved\` |
+| The Excel settings a running job changed, for the next job in that Excel if it dies (no figures; removed at the job's end) | `jobstate\<Excel's pid>.json` |
 
 The spec of every answer is stored in the workbook (hidden `_svmeta`); that is what follow-ups and `fin_refresh`
 read.
@@ -129,6 +136,8 @@ Every error names one next step. The common ones:
 | `Excel operation None failed: the batch in Excel: the batch's outcome is unknown: …` | The add-in took one batch of the answer's Excel work, and what it did cannot be told (its answer could not be read, or the call failed after it took the job). The batch is not run again; the job is undone as far as the workbook shows (the old answer back, or the new one kept and said). Check the workbook, then retry once. If it repeats, every batch in that Excel fails the same way: restart that Excel, or set `SV_INPROC=0` in the server's environment (read when the server starts). |
 | `…; the new answer is in place (the old one is gone)` (`and saved`) | A follow-up or `fin_refresh` failed after its old sheets were dropped, or its final save failed: the new answer stays (a rollback would leave neither; `and saved`: our own analysis file was saved, the user's workbook never is). The Sources rows and the stored spec may be missing: run the same follow-up again to record them. |
 | Warning `the save of <file> after the last answer failed (<Excel's message>); it is saved now` | Excel's save of the answer's file after the previous reply failed (the file was locked, the network was gone); this answer saved it in the job. Nothing to do unless it repeats: then set `SV_SAVE=sync` and report it. `... could not be saved now either`: save that workbook yourself. `fin_status` shows the last outcome (`save_after_reply`). |
+| Warning `an earlier smartass job in this Excel did not finish and left <settings>: put back now` | A job died (a killed server, a put-back Excel refused) and left Excel's settings changed; this answer put them back from its state file (`jobstate\`). Nothing to do. |
+| Warning `AutoSave could not be switched back on in <file> ...` | Excel refused AutoSave on in the answer's file. `the next answer in this Excel switches it on` / `this answer switches it on` / `it is switched on now`: nothing to do; `switch it on yourself`: switch AutoSave on in that workbook. |
 | Warning `<file> was closed before smartass saved it after the last answer` | The workbook was closed in the moment between the reply and Excel's save of it; Excel asked whether to save it when it closed. Open it and check the last answer is there. |
 | Repeated `HostError` | `fin_status(restart=True)`, then retry; if it repeats, `smartass doctor --bundle` to the maintainer. |
 | HTTP `409 busy` / `401` / `413` | `smartass serve`: one request at a time / wrong secret / body over 1 MB. |

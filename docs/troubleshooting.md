@@ -174,6 +174,7 @@ are. If one of these symptoms shows up, the cause below is already known; no new
 | The first FinMax call after a server start takes 15–30 s | It starts the hidden Excel (about 13–19 s) and does the hourly SSO login. | None; later calls are fast. |
 | A build in a newly started Excel window takes 35–50 s in `open target.new workbook` | A cold Excel start plus SSO for a new interactive Excel (a parallel agent, or no Excel open). | None; the next build in that Excel takes about 2 s. |
 | A new analysis workbook has no TN cell styles (`TN Heltall`, ...) in its style gallery | Since phase 3c the first answer's built file is the workbook; the styles are installed when something needs them. | Run `xl_tidy` on a sheet (it merges them from the TN template), or ignore: the answer's own cells carry their formats. |
+| An empty (0-byte) analysis file, or one with an answer's sheets but no formulas, tables, Sources rows or stored spec, in the analyser folder | The server was killed (or Excel died) while the first answer of a new workbook was made: the name is reserved as an empty file, then the built file is written and Excel opens it; only the job's clean-up deletes it, and the session points at it only after the job's save. | Close it in Excel without saving if it is open, and delete it; ask the question again. |
 | A new analysis file that a failed answer (or a probe) deleted is back in the analyser folder minutes later, online-only | OneDrive restores a file Excel had just saved to the cloud when the local delete races that upload (seen with probe files Excel saved and closed, 20.11.2026). | Delete it again. |
 | Progress notes (`still working: …`) keep arriving after a call to your Excel timed out | The abandoned job's COM call is still hung; its ticker runs until that call returns. The client drops notes for a finished request. | Harmless. It stops when Excel answers or closes. |
 | Many `msedgewebview2.exe --type=crashpad-handler` processes for the Smart View WebView folder, with their parent gone | Each forced restart of the engine's hidden Excel leaves Smart View's WebView2 crash reporter behind. | Harmless (they do not lock the folder). They disappear at log off; ending them by hand is safe. |
@@ -203,10 +204,24 @@ are. If one of these symptoms shows up, the cause below is already known; no new
 - **Cause:** with the add-in, Excel saves the answer's own file right after the reply (`engine\smartass\xl\inproc\
   later.py`), and writes the outcome to `%LOCALAPPDATA%\smartass\inproc\saved\<Excel's pid>.json`. The next answer
   in that Excel reads it; on a failure it says so and saves in the job. `fin_status` shows the last outcome under
-  `save_after_reply`.
+  `save_after_reply`. (The first answer of a new workbook is always saved in the job.)
 - **Check:** if it repeats, set `SV_SAVE=sync` for the smartass server and restart it: every answer then saves its
   file before it replies, as before (0.4-1.1 s slower). If Excel is closed before the save ran, Excel asks whether to
   save the workbook (its AutoSave is still off at that moment).
+
+## The reply says an earlier smartass job did not finish (since 0.5.0)
+
+- **Symptom:** a warning `an earlier smartass job in this Excel did not finish and left Calculation manual, ...: put
+  back now`, or `AutoSave could not be switched back on in <file> ...`.
+- **Cause:** every answer's job records the Excel settings it changes (ScreenUpdating, EnableEvents, DisplayAlerts,
+  Calculation, and AutoSave of the answer's own file; no figures) in the state file
+  `%LOCALAPPDATA%\smartass\jobstate\<Excel's pid>.json` before it changes them, and removes it at its end. A job that
+  died (a killed server) or whose put-back Excel refused leaves the file, and the next job in that same Excel process
+  puts back each setting that still reads as the dead job left it - one you changed since is left alone - and says
+  so. What Excel refuses again stays in the file for the job after; a file of an Excel process that is gone is
+  removed. The file is never used in another Excel process that got the same pid.
+- **Check:** nothing to do. If the same warning comes with every answer, Excel keeps refusing a setting: restart that
+  Excel. Deleting the folder is safe when no answer is running.
 
 ## Still stuck
 

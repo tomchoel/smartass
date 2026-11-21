@@ -46,7 +46,8 @@ provider.
    the TN template, label, SaveAs, the insert, the Sources log furnished over COM) against one whose built file is
    the workbook (Excel only opens it), each followed by a second answer with a Lines sheet and a follow-up, through
    the add-in, today's way twice (the noise); compared item by item, the expected differences named (EXPECTED_NEW),
-   the files the jobs saved labelled (each job's save after the reply waited for: xl/inproc/later.py); and a built
+   the files the jobs saved labelled (a first answer saved in the job, each later one's save after the reply waited
+   for: xl/inproc/later.py); and a built
    new workbook whose finish fails is closed unsaved and its file deleted.
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 

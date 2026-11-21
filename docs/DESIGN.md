@@ -27,7 +27,7 @@ v1 (the `sv_*` gate/recipe pipeline, retired 2026-11-04) is described in
 | `fin_lookup(query, kind, cube)` | Metrics by name or alias (description, members, `differs`), atlas members and product concepts (`kind="concept"`), with caveats; `kind="answer"`: past answers from answer memory |
 | `fin_drill(cell, group_by, top)` | A spec with one `lines` block: FinLite ledger lines ranked and tied to the cube |
 | `fin_critic(q, scores, notes)` | The stored answer's critic brief + the rubric (`knowledge/agent/critic.md`); with `scores` (six criterion scores 1–5) computes the score (mean rounded half up) and stores it |
-| `fin_status(restart)` | Version, atlas age, knowledge build and refresh due, doctor problems; `restart=True` gives a fresh server process |
+| `fin_status(restart)` | Version, atlas age, knowledge build and refresh due, doctor problems, `save_after_reply` (the newest outcome of a save Excel did after a reply, and how many are still to come); `restart=True` gives a fresh server process |
 | `xl_snapshot`, `xl_revert`, `xl_tidy` | Snapshot / undo around Excel MCP edits; TN style + tn-formelstil check |
 
 Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. Error text: every tool runs under
@@ -67,9 +67,15 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    after the reply (`xl/inproc/later.py`: one Run asks for it; the add-in waits `SV_SAVE_DELAY`, 0.3 s, so the
    answer is painted, then saves as a queued macro and writes an outcome the next job reads; a batch that comes
    first runs it first, one that comes while it runs is answered "busy" and asked again; a failed one is a note of
-   the next reply, which saves in the job), over COM or with `SV_SAVE=sync` in the job. Every quiet batch puts the user's
-   settings back itself; Calculation is set to manual only where formulas are written - the bring-in, a close-out
-   that re-points formulas elsewhere, and the point-back after a failure - since putting automatic back recalculates
+   the next reply, which saves in the job), over COM, with `SV_SAVE=sync` and for the first answer of a workbook the
+   request created (`Target.new`: its file holds the answer before the session points at it) in the job. Every
+   quiet batch puts the user's settings back itself, and what a job that did not finish left changed is put back by
+   the next: right after its look, before its first quiet batch, a job records in the state file
+   `%LOCALAPPDATA%\smartass\jobstate\<Excel's pid>.json` (`xl/jobstate.py`: that Excel's start time, the four
+   quiet settings as found, what it sets, our file whose AutoSave the look switched off; no figure) and removes it at
+   its end; the next job in that Excel process, at its first contact, puts back each setting that still reads what
+   the dead job set and says so, and keeps only what Excel refused to put back for the job after it. Calculation is
+   set to manual only where formulas are written - the bring-in, a close-out that re-points formulas elsewhere, and the point-back after a failure - since putting automatic back recalculates
    what is dirty in every open workbook; after the bring-in the job pauses once (`SV_PAINT_PAUSE`, 0.15 s) so Excel
    paints the answer with its numbers and charts when the workbook is on screen. A failure rolls back as before
    (the clean-up runs as batches of its own, also for a job abandoned by a timeout).
@@ -82,10 +88,10 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    base a workbook added from the template has (`target.new_base`, stored by the look of the first one made that
    way); Excel only opens it (`Workbooks.Open`, stage `draw.open`) and the job goes on with the look, the bring-in
    (the finish only: no name check, park or insert), the close-out (the log's rows: its furniture and print setup
-   came with the file) and the save - no `Workbooks.Add`, no `SaveAs`, no furniture in Excel. A failure once the
-   name is reserved closes the workbook without saving and deletes that file (only it), and the error says so; the
-   workbook becomes the session's once the answer is in it. A new workbook is still made from the template (label,
-   SaveAs, insert) without a label id, before a base is stored, without the template, in an Excel started for a
+   came with the file) and the save, in the job - no `Workbooks.Add`, no `SaveAs`, no furniture in Excel. A
+   failure once the name is reserved closes the workbook without saving and deletes that file (only it, found by its
+   full path), and the error says so; the workbook becomes the session's once the answer is in it and saved. A new
+   workbook is still made from the template (label, SaveAs, insert) without a label id, before a base is stored, without the template, in an Excel started for a
    parallel agent, and with no Excel at all (`_new_analysis_file`: a copy of the labelled seed - found now also
    when Excel keeps the label in `docMetadata/LabelInfo.xml`, as it does on this tenant - then Excel launched on
    it). The built workbook has no TN cell styles until something needs them (`styling.ensure_styles` merges them
@@ -123,17 +129,19 @@ sheet block by block, a hidden formula there makes it "could not be read" (the m
 does a sheet that would take more than 2 000 steps, a step being one test or one read of a block: a protected sheet
 of more than about 100-200 million cells (a used range to the last row and some 100-190 columns wide), or formulas
 spread over too many blocks - on a sheet whose used range a stray format stretched to XFD1048576 (blocks of about
-256 rows by 390 columns) a formula column taller than about 85 000 rows; such a sheet is warned about when a cell
-there turns #REF! -, no Range.Find, which would leave its options as the Find dialog's and skips filtered rows;
-the charts' series; the defined names), Python rewrites exactly the references to a parked name with a namesake in
-the new answer (`xl/repoint.py`: never text in a string literal, another workbook's sheet, or a longer name that
-contains it), and the close-out writes them right before the drop with Calculation manual, each a compare-and-set
+256 rows by 390 columns) a formula column taller than about 85 000 rows; such a sheet is warned about on every
+follow-up when it is too large to check as well (the check below reads at most 2 000 blocks: a used range of more
+than about 100-200 million cells, a stretched one included), else when a cell there turns #REF! -, no Range.Find,
+which would leave its options as the Find dialog's and skips filtered rows; the charts' series; the defined names),
+Python rewrites exactly the references to a parked name with a namesake in the new answer (`xl/repoint.py`: never
+text in a string literal, another workbook's sheet, or a longer name that contains it), and the close-out writes them right before the drop with Calculation manual, each a compare-and-set
 inside Excel (the verb `swap`: a formula changed since the bring-in read it is left alone and reported) that may
 fail (a warning). A sheet that could not be read is a warning only when a cell there shows #REF! after the drop that
 did not before (its values can be read: where its cells show #REF! - the error told by its code, not its text in
 Excel's language - is read before and after the drop, bounded as the scan is, and a cell that shows it only after is
-said; with the user's Calculation manual, always,
-as that cannot be told without calculating their sheet). A failure before the drop points them back first, by the same compare-and-set (the parked sheets
+said; with the user's Calculation manual, always, as that cannot be told without calculating their sheet; and
+always for a sheet whose values are too many to read that way (the verb `errors` runs only for a sheet that could
+not be scanned). A failure before the drop points them back first, by the same compare-and-set (the parked sheets
 must still be there), then the rollback and the restore. Not covered (Excel offers no exact, cheap way): conditional
 formats and data validation (their formulas come only in the user's separators and change through a type-specific
 Modify), pivot caches, linked chart titles and labels, sparklines, form controls' links, linked shapes, other
