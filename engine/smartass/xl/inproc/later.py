@@ -215,7 +215,9 @@ def queue(app, workbook: str, autosave: bool) -> str | None:
 def take(app) -> dict | None:
     """The outcome of the save last asked for in app's Excel (by any server process), once: moved to LAST, so no
     other job reads it again; None when there is none to read (none asked for, already read, an earlier Excel's
-    with the same pid, or no add-in in use). Read right after a job's look: that Run ran any save still waiting."""
+    with the same pid, or no add-in in use). Read right after a job's look: that Run ran any save still waiting. One
+    this server process did not ask for is marked other_server (final review M11: said as another server's; one put
+    back by give_back keeps how it was first said)."""
     if not config.INPROC:
         return None
     try:
@@ -256,6 +258,10 @@ def take(app) -> dict | None:
             pass
     if out["started"] < started - 1:                      # written by an Excel that had this pid before
         return None
+    with _lock:
+        mine = out["token"] in _queued or out["token"] in _done
+    if not mine and not out.get("unknown"):
+        out["other_server"] = True                        # asked for by another smartass server: said as such
     _seen(out)
     return out
 

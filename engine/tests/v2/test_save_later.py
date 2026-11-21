@@ -46,6 +46,12 @@ def addin(monkeypatch, fake_target, tmp_path):
     del type(wb).AutoSaveOn
 
 
+def _asked_here(pending: dict) -> dict:
+    """A save the test puts in the fake add-in's hands as one this server asked for (its token among later's)."""
+    later._queued[pending["token"]] = (0, 0.0)
+    return pending
+
+
 def test_the_reply_comes_before_the_save_and_autosave_is_back_on_after_it(fake_target, calculated, addin):
     out, timings = _job(_pre(), calculated)
     wb = fake_target.wb
@@ -98,8 +104,8 @@ def test_a_failed_save_of_another_workbook_of_ours_is_saved_by_the_next_job_too(
     other = fakexl.Workbook(["Q1 Answer"], app=fake_target.app, styles_ver=False)
     other.Name, other.FullName = "older answer.xlsx", r"C:\analyser\older answer.xlsx"
     fake_target.app.ActiveWorkbook = fake_target.wb
-    addin.pending = {"workbook": other.Name, "full_name": other.FullName, "autosave": False, "token": "0" * 32,
-                     "queued": 0.0}
+    addin.pending = _asked_here({"workbook": other.Name, "full_name": other.FullName, "autosave": False, "token": "0" * 32,
+                     "queued": 0.0})
     addin.save_error = "the network went away"
     addin.release()
     addin.save_error = None
@@ -138,8 +144,8 @@ def test_another_file_open_by_that_name_now_is_not_saved_by_the_next_job(fake_ta
     other = fakexl.Workbook(["Q1 Answer"], app=fake_target.app, styles_ver=False)
     other.Name, other.FullName = "older answer.xlsx", r"C:\analyser\older answer.xlsx"
     fake_target.app.ActiveWorkbook = fake_target.wb
-    addin.pending = {"workbook": other.Name, "full_name": other.FullName, "autosave": False, "token": "2" * 32,
-                     "queued": 0.0}
+    addin.pending = _asked_here({"workbook": other.Name, "full_name": other.FullName, "autosave": False, "token": "2" * 32,
+                     "queued": 0.0})
     addin.save_error = "the network went away"
     addin.release()
     addin.save_error = None
@@ -152,7 +158,7 @@ def test_another_file_open_by_that_name_now_is_not_saved_by_the_next_job(fake_ta
 
 
 def test_a_workbook_closed_before_its_save_is_a_note_only(fake_target, calculated, addin):
-    addin.pending = {"workbook": "closed answer.xlsx", "autosave": True, "token": "1" * 32, "queued": 0.0}
+    addin.pending = _asked_here({"workbook": "closed answer.xlsx", "autosave": True, "token": "1" * 32, "queued": 0.0})
     addin.release()
     out, _ = _job(_pre(), calculated)
     assert [w for w in out["warnings"] if "closed answer" in w] == [
@@ -269,8 +275,8 @@ def test_autosave_left_off_in_another_workbook_of_ours_is_switched_on_by_the_nex
     other.Name, other.FullName = "older answer.xlsx", r"C:\analyser\older answer.xlsx"
     other.__dict__["_autosave"] = False
     fake_target.app.ActiveWorkbook = fake_target.wb
-    addin.pending = {"workbook": other.Name, "full_name": other.FullName, "autosave": True, "token": "6" * 32,
-                     "queued": 0.0}
+    addin.pending = _asked_here({"workbook": other.Name, "full_name": other.FullName, "autosave": True, "token": "6" * 32,
+                     "queued": 0.0})
     addin.autosave_refused = "AutoSave is not available now"
     addin.release()
     addin.autosave_refused = None
@@ -287,7 +293,7 @@ def test_a_failed_outcome_without_the_files_path_never_saves_by_name(fake_target
     other = fakexl.Workbook(["Mine"], app=fake_target.app, styles_ver=False)
     other.Name = "older answer.xlsx"
     fake_target.app.ActiveWorkbook = fake_target.wb
-    addin.pending = {"workbook": other.Name, "autosave": False, "token": "3" * 32, "queued": 0.0}
+    addin.pending = _asked_here({"workbook": other.Name, "autosave": False, "token": "3" * 32, "queued": 0.0})
     addin.save_error = "the network went away"
     addin.release()
     addin.save_error = None
@@ -300,8 +306,8 @@ def test_a_failed_outcome_without_the_files_path_never_saves_by_name(fake_target
 
 def test_a_failed_save_of_another_file_of_the_same_name_is_not_said_saved(fake_target, calculated, addin):
     """Review M4: the failed file had this workbook's name but another path: this job's save is not that file's."""
-    addin.pending = {"workbook": fake_target.wb.Name, "full_name": r"C:\\elsewhere\\" + fake_target.wb.Name,
-                     "autosave": False, "token": "4" * 32, "queued": 0.0}
+    addin.pending = _asked_here({"workbook": fake_target.wb.Name, "full_name": r"C:\\elsewhere\\" + fake_target.wb.Name,
+                     "autosave": False, "token": "4" * 32, "queued": 0.0})
     real = fake_target.wb.FullName
     fake_target.wb.FullName = r"C:\\elsewhere\\" + fake_target.wb.Name
     addin.save_error = "locked"
@@ -325,6 +331,24 @@ def test_another_smartass_servers_failed_save_is_said_as_its_own(fake_target, ca
     assert [w for w in out["warnings"] if "older answer" in w] == [
         "the save of older answer.xlsx (asked by another smartass server in this Excel) after the last answer failed "
         "(locked); which file it was is not known, so it was not saved: save it yourself"]
+
+
+def test_a_failed_save_this_server_did_not_ask_for_is_said_as_another_servers(fake_target, calculated, addin):
+    """Final review M11: the outcome file holds a save another smartass server asked for in this Excel (its token
+    was not asked for here): the note says so, as for one its add-in could not write."""
+    import fakexl
+    other = fakexl.Workbook(["Q1 Answer"], app=fake_target.app, styles_ver=False)
+    other.Name, other.FullName = "older answer.xlsx", r"C:\analyser\older answer.xlsx"
+    fake_target.app.ActiveWorkbook = fake_target.wb
+    addin.pending = {"workbook": other.Name, "full_name": other.FullName, "autosave": False, "token": "7" * 32,
+                     "queued": 0.0}
+    addin.save_error = "locked"
+    addin.release()
+    addin.save_error = None
+    out, _ = _job(_pre(), calculated)
+    assert [w for w in out["warnings"] if "older answer" in w] == [
+        "the save of older answer.xlsx (asked by another smartass server in this Excel) after the last answer failed "
+        "(locked); it is saved now"]
 
 
 def test_an_outcome_that_cannot_be_read_is_said_and_the_job_saves_in_the_foreground(fake_target, calculated, addin):
