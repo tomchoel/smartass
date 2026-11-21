@@ -168,3 +168,51 @@ def test_autosave_the_job_could_not_switch_back_on_is_said_and_kept_for_the_next
     out = exceljob.excel_job(None, _pre())
     assert wb.AutoSaveOn is True and jobstate.NOTE.format("AutoSave off in answer.xlsx") in out["warnings"]
     assert not list(jobstate.folder().glob("*.json"))
+
+
+def test_a_put_back_that_fails_keeps_the_state_for_the_next_job(excel, monkeypatch):
+    """Task 3 review Minor 8: what could not be put back is not forgotten - the batch failed, or Excel refused one
+    of its settings."""
+    _left_by_a_dead_job(excel)
+
+    def broken(app, found, sets, autosave):
+        raise RuntimeError("the batch failed")
+    real = jobstate._put_back
+    monkeypatch.setattr(jobstate, "_put_back", broken)
+    jobstate.put_back(excel.Application, KEY)
+    assert len(list(jobstate.folder().glob("*.json"))) == 1
+    calls = []
+    real_run = runner.run
+
+    def run(app, b, *a, **kw):                                  # the put-back's write batch: Excel refuses one
+        res = real_run(app, b, *a, **kw)
+        calls.append(1)
+        if len(calls) == 2:
+            res.skipped.append((0, "", "refused"))
+        return res
+    monkeypatch.setattr(jobstate, "_put_back", real)
+    monkeypatch.setattr(runner, "run", run)
+    jobstate.put_back(excel.Application, KEY)
+    assert len(list(jobstate.folder().glob("*.json"))) == 1
+    monkeypatch.setattr(runner, "run", real_run)
+    jobstate.put_back(excel.Application, KEY)                       # (the fake did set it: nothing left to put back)
+    assert not list(jobstate.folder().glob("*.json"))
+
+
+def test_a_job_prunes_the_state_of_an_excel_that_is_gone(excel, monkeypatch):
+    """Task 3 review Minor 4: a state whose Excel process is gone (no such pid, or one started at another time) is
+    removed when a job starts; a live one of another Excel is left alone."""
+    folder = jobstate.folder()
+    folder.mkdir(parents=True, exist_ok=True)
+    states = {4243: 5.0, 4244: 0.0, 4245: 0.0}                  # 4243 restarted since, 4244 alive, 4245 gone
+    for pid, started in states.items():
+        (folder / f"{pid}.json").write_text(json.dumps({"pid": pid, "started": started, "found": {}, "set": {},
+                                                        "autosave": None}), encoding="utf-8")
+
+    def start(pid):
+        if pid == 4245:
+            raise ProcessLookupError(pid)
+        return KEY[1] if pid == KEY[0] else 0.0
+    monkeypatch.setattr(jobstate, "_start_time", start)
+    exceljob.excel_job(None, _pre())
+    assert sorted(p.name for p in folder.glob("*.json")) == ["4244.json"]

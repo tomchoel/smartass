@@ -105,10 +105,13 @@ def end(token: tuple | None, keep: bool = False) -> None:
 
 def put_back(app, key: tuple | None) -> str | None:
     """What a job that did not finish left changed in app's Excel (key: key_of) put back; the note that says so, or
-    None (no state of this Excel, or nothing still as that job set it). Removes the file. Never raises but for a busy
-    Excel or an abandoned job (HostError): the job then fails at its start as for any busy Excel."""
+    None (no state of this Excel, or nothing still as that job set it). Removes the file - kept when the put-back
+    failed or Excel refused a setting of it, for the next job. The states of Excel processes that are gone are pruned
+    first. Never raises but for a busy Excel or an abandoned job (HostError): the job then fails at its start as for
+    any busy Excel."""
     if key is None:
         return None
+    _prune(key)
     path = folder() / f"{key[0]}.json"
     if not path.exists():
         return None
@@ -124,19 +127,42 @@ def put_back(app, key: tuple | None) -> str | None:
         _remove(path)
         return None
     try:
-        said = _put_back(app, found, sets, autosave)
+        said, whole = _put_back(app, found, sets, autosave)
     except HostError:
         raise
     except Exception as e:   # noqa: BLE001 - the job goes on; its own batches put back what they change
         log.warning("could not put back the Excel settings an earlier job left: %s", e)
-        said = []
-    _remove(path)
+        said, whole = [], False
+    if whole:
+        _remove(path)
+    else:
+        log.warning("the Excel settings an earlier job left are not all put back; the next job tries again (%s)", path)
     return NOTE.format(", ".join(said)) if said else None
 
 
-def _put_back(app, found: dict, sets: dict, autosave: dict | None) -> list[str]:
-    """One batch reads what the dead job set (and its workbook's AutoSave), one puts back what still reads so; the
-    texts of what was put back."""
+def _prune(key: tuple) -> None:
+    """The state files of Excel processes that are gone - no such pid, or one started at another time - removed
+    (this Excel's own is read by put_back; a live one of another Excel is left alone)."""
+    try:
+        paths = [p for p in folder().glob("*.json") if p.stem != str(key[0])]
+    except OSError:
+        return
+    for p in paths:
+        try:
+            pid, started = int(p.stem), float(json.loads(p.read_text(encoding="utf-8"))["started"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue                                    # being written, or not ours to judge
+        try:
+            gone = abs(_start_time(pid) - started) >= SAME_START_S
+        except Exception:   # noqa: BLE001 - no such process
+            gone = True
+        if gone:
+            _remove(p)
+
+
+def _put_back(app, found: dict, sets: dict, autosave: dict | None) -> tuple[list[str], bool]:
+    """One batch reads what the dead job set (and its workbook's AutoSave), one puts back what still reads so: (the
+    texts of what was put back, whether all of it was)."""
     from .inproc.runner import run
     b = Batch(quiet=False)
     with b.attempt():
@@ -162,9 +188,10 @@ def _put_back(app, found: dict, sets: dict, autosave: dict | None) -> list[str]:
             b.app.Workbooks(autosave["name"]).AutoSaveOn = True
             spans.append((f"AutoSave off in {autosave['name']}", range(start, b.position)))
     if not spans:
-        return []
+        return [], True
     skipped = {i for i, _, _ in run(app, b, limit=30).skipped}
-    return [text for text, span in spans if not skipped & set(span)]
+    said = [text for text, span in spans if not skipped & set(span)]
+    return said, len(said) == len(spans)
 
 
 def _remove(path: Path) -> None:
