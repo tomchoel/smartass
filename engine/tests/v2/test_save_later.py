@@ -244,6 +244,43 @@ def test_a_workbook_added_and_saved_as_for_the_question_is_saved_in_the_job_too(
 
 
 # ------------------------------------------------------------------ review fixes
+def test_autosave_a_save_after_the_reply_could_not_switch_on_is_said_and_switched_on_by_the_next_answer(
+        fake_target, calculated, addin):
+    """Final review M6: the add-in's save went through but AutoSave could not go back on (the outcome's
+    autosave_error): the next answer says so, and its own save switches it on in that workbook."""
+    _job(_pre(), calculated)
+    wb = fake_target.wb
+    addin.autosave_refused = "AutoSave is not available now"
+    addin.release()
+    addin.autosave_refused = None
+    assert wb.saved == 1 and wb.AutoSaveOn is False
+    out, _ = _job(_pre(), calculated)
+    assert [w for w in out["warnings"] if "AutoSave" in w] == [
+        f"AutoSave could not be switched back on in {wb.Name} after the save after the last answer (AutoSave is not "
+        "available now); this answer switches it on"]
+    addin.release()
+    assert wb.saved == 2 and wb.AutoSaveOn is True
+
+
+def test_autosave_left_off_in_another_workbook_of_ours_is_switched_on_by_the_next_answer(fake_target, calculated,
+                                                                                         addin):
+    import fakexl
+    other = fakexl.Workbook(["Q1 Answer"], app=fake_target.app, styles_ver=False)
+    other.Name, other.FullName = "older answer.xlsx", r"C:\analyser\older answer.xlsx"
+    other.__dict__["_autosave"] = False
+    fake_target.app.ActiveWorkbook = fake_target.wb
+    addin.pending = {"workbook": other.Name, "full_name": other.FullName, "autosave": True, "token": "6" * 32,
+                     "queued": 0.0}
+    addin.autosave_refused = "AutoSave is not available now"
+    addin.release()
+    addin.autosave_refused = None
+    out, _ = _job(_pre(), calculated)
+    assert other.AutoSaveOn is True and [w for w in out["warnings"] if "older answer" in w] == [
+        "AutoSave could not be switched back on in older answer.xlsx after the save after the last answer (AutoSave "
+        "is not available now); it is switched on now"]
+
+
+
 def test_a_failed_outcome_without_the_files_path_never_saves_by_name(fake_target, calculated, addin):
     """Review M1: the user's own workbook can share a name with ours: no path, no save - a note only."""
     import fakexl

@@ -116,6 +116,15 @@ def end(token: tuple | None, keep: bool = False) -> None:
     _remove(path)
 
 
+def records_autosave(token: tuple | None, full_name: str) -> bool:
+    """The state begin() wrote (its token) records the workbook of that full name for AutoSave: a job that cannot
+    switch it back on leaves it to the next job."""
+    if token is None or not full_name:
+        return False
+    autosave = token[2]["autosave"]
+    return autosave is not None and str(autosave["full_name"]).casefold() == full_name.casefold()
+
+
 def _carried(path: Path, key: tuple) -> dict:
     """What this Excel's state file holds when a job begins - left there by a put-back that failed ({"found", "set",
     "autosave"}, empty when there is none, or it is another process's, or it cannot be read)."""

@@ -93,6 +93,13 @@ def _is_ours(t) -> bool:
 
 AUTOSAVE_LEFT = ("AutoSave could not be switched back on in {} ({}): the next answer in this Excel switches it on, "
                  "or switch it on yourself")
+AUTOSAVE_YOURSELF = "AutoSave could not be switched back on in {} ({}): switch it on yourself"   # nothing recorded it
+AUTOSAVE_AFTER = "AutoSave could not be switched back on in {} after the save after the last answer ({})"
+ON_WITH_THIS = "; this answer switches it on"
+ON_NOW = "; it is switched on now"
+NOT_ON_NOW = "; it could not be switched on now either ({}): switch it on yourself"
+NOT_KNOWN_ON = "; which file it was is not known: switch it on yourself"
+ANOTHER_LEFT = "; the workbook open by that name now is another file, so it was left alone"
 AUTOSAVE_NOTE = ("AutoSave was switched off in {} so the answer is not saved for you; save yourself or switch it back "
                  "on.")
 SAVE_FAILED = "the save of {} after the last answer failed ({})"
@@ -225,7 +232,7 @@ def _earlier_save(job) -> None:
         return
     book = out["workbook"] + (OTHER_SERVER if out.get("other_server") else "")
     if out.get("autosave_error"):
-        log.warning("could not switch AutoSave back on in %s: %s", book, out["autosave_error"])
+        _autosave_again(job, out, book)
     if out["ok"]:
         return
     if out.get("closed"):
@@ -233,6 +240,43 @@ def _earlier_save(job) -> None:
         return
     job.notes.append(SAVE_FAILED.format(book, out.get("error") or "no reason given"))
     job.resave = (out["workbook"], len(job.notes) - 1, out)
+
+
+def _autosave_again(job, out: dict, book: str) -> None:
+    """The save after the last answer could not switch AutoSave back on in its workbook (the outcome's autosave_error;
+    final review M6): a note, and AutoSave switched on - by this job's own save when it is this job's workbook (as if
+    its look had switched it off: also recorded for the next job, and its clean-up switches it on), else now, only in
+    the workbook open by that name when it is still that file (its FullName as the request found it). Never raises."""
+    from .xl.inproc.batch import Batch
+    from .xl.inproc.runner import run
+    log.warning("could not switch AutoSave back on in %s: %s", book, out["autosave_error"])
+    job.notes.append(AUTOSAVE_AFTER.format(book, out["autosave_error"]))
+    note = len(job.notes) - 1
+    full = out.get("full_name")
+    if not full:
+        job.notes[note] += NOT_KNOWN_ON
+        return
+    if _same_file(full, job):
+        job.paused = True
+        job.notes[note] += ON_WITH_THIS
+        return
+    try:
+        b = Batch(quiet=False)
+        with b.attempt():
+            b.ret(b.workbook(out["workbook"]).FullName, "full")
+        now = run(job.t.app, b).values.get("full")
+        if now is None:
+            job.notes[note] += NOT_OPEN_NOW
+            return
+        if str(now).casefold() != full.casefold():
+            job.notes[note] += ANOTHER_LEFT
+            return
+        b = Batch(quiet=False)
+        b.workbook(out["workbook"]).AutoSaveOn = True
+        run(job.t.app, b)
+        job.notes[note] += ON_NOW
+    except Exception as e:   # noqa: BLE001 - said in the note
+        job.notes[note] += NOT_ON_NOW.format(getattr(e, "message", None) or e)
 
 
 def _settings_left(job) -> None:
@@ -693,9 +737,14 @@ class _Job:
 
     def autosave_left(self, why: str) -> None:
         """AutoSave could not be switched back on in our own file: said in the notes, and the recorded settings kept
-        for the next job in this Excel, which switches it on (xl/jobstate)."""
+        for the next job in this Excel, which switches it on (xl/jobstate) - the note promises that only when the
+        state recorded this workbook (final review M7: not after a look that failed before the state was written, or
+        whose read of the full name failed)."""
+        from .xl import jobstate
         log.warning("could not switch AutoSave back on in %s: %s", self.name, why)
-        self.notes.append(AUTOSAVE_LEFT.format(self.name, why))
+        full = self.look.full_name if self.look is not None else ""
+        said = AUTOSAVE_LEFT if jobstate.records_autosave(self.state, full) else AUTOSAVE_YOURSELF
+        self.notes.append(said.format(self.name, why))
         self.keep_state = True
 
     def end(self) -> None:

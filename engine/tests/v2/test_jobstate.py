@@ -171,6 +171,31 @@ def test_autosave_the_job_could_not_switch_back_on_is_said_and_kept_for_the_next
     assert not list(jobstate.folder().glob("*.json"))
 
 
+def test_autosave_left_off_promises_the_next_answer_only_when_the_state_recorded_the_file(excel, monkeypatch):
+    """Final review M7: a look whose outcome is unknown may have switched AutoSave off in our file before any state
+    was recorded; when the clean-up cannot switch it back on, the error says to switch it on - not that the next
+    answer does - and no state is kept for it."""
+    wb = StuckAutoSave(True)
+    wb.Name, wb.FullName = excel.Name, excel.FullName
+    monkeypatch.setattr(exceljob, "_target", lambda h, target, title, build_new=False: Target(
+        app=wb.Application, wb=wb, pid=KEY[0], hwnd=0, created=True))
+    real, runs = runner.run, []
+
+    def run(app, b, *a, **kw):                                  # the look runs, then its outcome is unknown
+        res = real(app, b, *a, **kw)
+        runs.append(1)
+        if len(runs) == 1:
+            raise runner.UnknownOutcome(None, "the batch in Excel", "the batch's outcome is unknown")
+        return res
+    monkeypatch.setattr(runner, "run", run)
+    with pytest.raises(runner.BatchError) as e:
+        exceljob.excel_job(None, _pre())
+    said = str(e.value)
+    assert wb.AutoSaveOn is False and "AutoSave could not be switched back on in answer.xlsx (" in said
+    assert said.endswith("AutoSave cannot be switched on now): switch it on yourself") and "next answer" not in said
+    assert not list(jobstate.folder().glob("*.json"))
+
+
 def test_a_put_back_that_fails_keeps_the_state_for_the_next_job(excel, monkeypatch):
     """Task 3 review Minor 8: what could not be put back is not forgotten - the batch failed, or Excel refused one
     of its settings."""

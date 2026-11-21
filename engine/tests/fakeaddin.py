@@ -28,6 +28,7 @@ class AddIn:
         self.asked: list[tuple] = []                    # every SaveLater's arguments
         self.answer: str | None = None                  # SaveLater's answer instead of "queued" (a refusal)
         self.save_error: str | None = None              # the next save fails with this text
+        self.autosave_refused: str | None = None        # switching AutoSave back on fails with this text
         self.log: list[str] = []                        # "save <name>", "autosave <name> True", "batch", "clear"
         self.busy = 0                                   # the next calls answer BUSY this many times (a save running)
         self.write_fails = False                        # the outcome cannot be written: kept for the next Clear
@@ -96,8 +97,13 @@ class AddIn:
             except Exception as e:   # noqa: BLE001
                 error = str(e)
             if p["autosave"]:
-                wb.AutoSaveOn = True
-                self.log.append(f"autosave {p['workbook']} True")
+                try:
+                    if self.autosave_refused is not None:
+                        raise RuntimeError(self.autosave_refused)
+                    wb.AutoSaveOn = True
+                    self.log.append(f"autosave {p['workbook']} True")
+                except Exception as e:   # noqa: BLE001 - in the outcome, as Runner.cs
+                    autosave_error = str(e)
         out = {"token": p["token"], "workbook": p["workbook"], "full_name": p.get("full_name", ""), "ok": error is None, "error": error, "closed": closed,
                "autosave": p["autosave"], "autosave_error": autosave_error, "how": how, "queued": p["queued"],
                "started": started, "seconds": 0.25, "switched": 0.0}
