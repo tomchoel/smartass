@@ -49,6 +49,11 @@ provider.
    the files the jobs saved labelled (a first answer saved in the job, each later one's save after the reply waited
    for: xl/inproc/later.py); and a built
    new workbook whose finish fails is closed unsaved and its file deleted.
+   Mixed executors (Task D, --parts mixed): whole jobs through the add-in, then over COM, then through the add-in
+   again, in ONE Excel process with a second smartass build loaded (live, 21.11.2026: Excel froze on the COM route right
+   after add-in runs, two builds loaded), each job on an STA thread of its own through ExcelHost.call as the server
+   runs it; sheet = model, the executor of each phase, the saves after the reply, Excel ready and saved, the garbage
+   collector on a new thread afterwards; a job Excel does not answer within MIXED_JOB_S is a DIFF, never a hang.
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 
 Prints OK / DIFF per item (never a cell value: addresses and property names only); exit 0 only when all are OK.
@@ -1346,6 +1351,132 @@ def _failed_new_workbook(xl: Excel, seams: dict, folder: Path) -> None:
     xl.close(other)
 
 
+# ---------------------------------------------------------------------------------------------------- 3f. mixed executors
+MIXED_PHASES = (("add-in", True), ("COM", False), ("add-in again", True))   # (Task D) phase -> config.INPROC
+MIXED_JOB_S = 120                         # a job that has not answered by then: Excel is taken for frozen (a DIFF)
+
+
+def _second_build(xl: Excel) -> str:
+    """A second smartass build loaded in this Excel beside the jobs' own: today's source built for another jobs folder
+    (another hash), as a server of another version loads its own (live, 21.11.2026: two builds in one Excel). Its
+    hash."""
+    from smartass.xl.inproc import build
+    home = config.INPROC_DIR
+    config.INPROC_DIR = TMP / "inproc_second"
+    try:
+        xll, h = build.ensure()
+    finally:
+        config.INPROC_DIR = home
+    if xl.raw.RegisterXLL(str(xll)) is not True or xl.raw.Run(f"SmartassPing_{h}") != h:
+        raise RuntimeError(f"the second build {h} did not load")
+    return h
+
+
+def mixed_executors(xl: Excel) -> None:
+    """(Task D) The executors mixed in ONE Excel process with a second smartass build loaded, as live on 21.11.2026
+    before Excel froze: whole jobs through the add-in (its saves after the reply), then through the COM executor
+    (its saves in the job), then through the add-in again - a new workbook's first answer, a second answer with a
+    Lines sheet, follow-ups and a refresh of both questions. Every job runs on an STA thread of its own through
+    ExcelHost.call(user_excel=True), reaching this Excel by its workbook window as the server's jobs reach the
+    user's, so a COM object one job made can be released on another's thread. Per job: sheet = model, an answer
+    within MIXED_JOB_S (else Excel is taken for frozen); per phase: the executor it ran (the add-in's Run asked, or
+    not), every save after a reply went through, the workbook saved, Excel ready; at the end the garbage collector run
+    on a new thread returns and Excel still answers there."""
+    import asyncio
+
+    import win32gui
+    from smartass.core import session
+    from smartass.xl import instances
+    from smartass.xl import target as xltarget
+    from smartass.xl.host import ExcelHost, HostError
+    from smartass.xl.hostproc import ComThread
+    other = _second_build(xl)
+    jobs.release_turns()                 # this thread's turn in that Excel (an earlier part's new workbook took it)
+    around = xl.fresh("mixed_around", ("Sources",))            # a workbook window the job threads reach Excel by
+    desk = win32gui.FindWindowEx(int(xl.app.Hwnd), 0, "XLDESK", None)
+    ex7 = win32gui.FindWindowEx(desk, 0, "EXCEL7", None)
+    folder = TMP / "analyser"
+    folder.mkdir(exist_ok=True)
+    holder: dict = {}
+
+    def target(h, target, title, build_new=False):              # on the job's own thread: the app it reaches
+        app = instances._app_from_window(ex7)
+        if app is None:
+            raise HostError("this Excel did not answer by its workbook window")
+        if "name" not in holder:
+            t = xltarget._new_target(None, title, [(xl.pid, ex7, app)], {xl.pid}, build_new)
+            holder["name"] = t.made.name if t.made is not None else str(t.wb.Name)
+            return t
+        jobs.hold_turn(xl.pid, what="this request", app=app)
+        return Target(app, app.Workbooks(holder["name"]), xl.pid, ex7, created=True)
+
+    def no_spawn(tpl, known):                                  # a taken turn is a finding, never another Excel
+        raise HostError("this Excel's turn was taken: the check starts no other Excel")
+    asked: list[int] = []
+    real_inproc = runner._run_inproc
+
+    def run_inproc(*a, **k):
+        asked.append(1)
+        return real_inproc(*a, **k)
+    pres = [pre for _, _, pre in _pres()]
+    first, lines, follow = pres
+    plans = {"add-in": [("first answer (a new workbook)", None, first), ("second answer with a Lines sheet", None, lines),
+                        ("follow-up of Q1", 1, follow)],
+             "COM": [("follow-up of Q1", 1, first), ("follow-up of Q1", 1, follow), ("refresh of Q1", 1, first),
+                     ("refresh of Q2", 2, lines)],
+             "add-in again": [("follow-up of Q1", 1, first), ("refresh of Q1", 1, follow), ("refresh of Q2", 2, lines)]}
+    h = ExcelHost()
+    seams = {(exceljob, "_target"): target, (exceljob, "remember"): lambda pre, out: None,
+             (exceljob, "datetime"): _Now, (session, "project_dir"): lambda: folder,
+             (session, "set_workbook"): lambda p: None, (runner, "_run_inproc"): run_inproc,
+             (xltarget, "_spawn_excel"): no_spawn}
+    frozen = False
+    with _patched(seams):
+        for phase, inproc in MIXED_PHASES:
+            results, n0 = [], len(asked)
+            with _patched({(config, "INPROC"): inproc}):
+                for label, q, pre in plans[phase]:
+                    job = (lambda hh, pre=pre: exceljob.excel_job(hh, pre)) if q is None else (
+                        lambda hh, pre=pre, q=q: exceljob.redraw_job(hh, pre, q, "this workbook"))
+                    try:
+                        out = asyncio.run(h.call(job, timeout=MIXED_JOB_S, what=f"mixed {phase}", user_excel=True))
+                        results.append((label, (out.get("checks") or {}).get("sheet_equals_model")))
+                    except Exception as e:   # noqa: BLE001 - a failure is a finding
+                        results.append((label, f"{type(e).__name__}: {str(e)[:120]}"))
+                        frozen = frozen or "did not respond" in str(e)
+                        break
+                saves = later.wait(60)
+            ran = len(asked) - n0
+            check(f"mixed ({phase}): every job's sheet = model", all(s == "OK" for _, s in results)
+                  and len(results) == len(plans[phase]), "; ".join(f"{lb} {s}" for lb, s in results))
+            check(f"mixed ({phase}): the batches ran {'in the add-in' if inproc else 'over COM'}",
+                  ran > 0 if inproc else ran == 0, f"{ran} add-in runs")
+            expect = sum(1 for lb, _ in results if "new workbook" not in lb) if inproc else 0
+            check(f"mixed ({phase}): every save after a reply went through", len(saves) == expect
+                  and all(s["ok"] for s in saves), f"{len(saves)} saves, failed: {[s.get('error') for s in saves if not s['ok']]}")
+            if frozen:
+                break
+            state = jobs.retry_busy(lambda: (bool(xl.app.Workbooks(holder["name"]).Saved), bool(xl.app.Ready)), 30)
+            check(f"mixed ({phase}): the workbook saved and Excel ready afterwards", state == (True, True), f"{state}")
+    builds = later._builds(xl.app) or []
+    check("mixed: both builds still loaded in that Excel", other in builds and len(builds) == 2, f"{builds}")
+    collected: dict = {}
+    collector = ComThread(name="mixed-gc")
+    collector.start()
+    fut = collector.submit(lambda: collected.update(n=__import__("gc").collect(),
+                                                    ready=bool(instances._app_from_window(ex7).Ready)))
+    collector.q.put((None, None))
+    try:
+        fut.result(MIXED_JOB_S)
+    except Exception as e:   # noqa: BLE001
+        collected["error"] = f"{type(e).__name__}: {e}"
+    check("mixed: the garbage collector on a new thread returns and Excel still answers there",
+          collected.get("ready") is True, f"{collected}")
+    if "name" in holder and not frozen:
+        xl.close(xl.app.Workbooks(holder["name"]))
+    xl.close(around)
+
+
 # ---------------------------------------------------------------------------------------------------- 3b. failed jobs
 def _state(xl: Excel, wb) -> dict:
     """What a failed job must leave as it was: the sheets in order with their visibility, the tables, the four quiet
@@ -1741,7 +1872,7 @@ def timing(xl: Excel, built0, rounds: int) -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--rounds", type=int, default=5, help="rounds per route for the timing")
-    ap.add_argument("--parts", default="files,places,jobs,newbook,failures,repoint,labels,timing",
+    ap.add_argument("--parts", default="files,places,jobs,newbook,failures,mixed,repoint,labels,timing",
                     help="what to run (comma-separated; the proof is all of them)")
     args = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
@@ -1770,6 +1901,8 @@ def main(argv=None) -> int:
             new_workbook(xl)
         if "failures" in parts:
             failed_jobs(xl)
+        if "mixed" in parts:
+            mixed_executors(xl)
         if "repoint" in parts:
             repointing(xl)
             protected_sheets(xl)
