@@ -1441,6 +1441,7 @@ def _new_server_state() -> None:
     runner._PROPERTIES.clear()
     runner._last.__dict__.clear()
     runner._unknown_warned = False
+    runner._ROUTE_LOGGED.clear()
     fastcom._IFACE.clear()
     with later._lock:
         for d in (later._queued, later._asked_at, later._done, later._unwritten, later._mine):

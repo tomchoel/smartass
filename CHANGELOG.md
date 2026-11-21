@@ -93,6 +93,12 @@ the middle of its job.
   partial sequences of a stand-in, saved. Not tried: a visible Excel, the live EPM and Smart View session, the owner's
   workbooks, and think-cell disconnected (it is installed for all users; Excel refuses to disconnect it without an
   administrator, and its per-user setting was not changed).
+- A server whose Excel work in an Excel process switches from the add-in to COM says so once per Excel process in the
+  log, with the reason and the process's start time: "in-process executor not used in Excel pid ... (process started
+  ...): <why> (after N batch(es) through the add-in there); this server's Excel work there runs over COM" when it
+  gives up on the add-in there, and "SV_INPROC=0, while smartass add-in build(s) ... are loaded there" when a server
+  with the add-in switched off meets an Excel that has one loaded - so a later freeze can be tied to the switch, or
+  not.
 - `scripts/check_insert.py` part "mixed" runs the executors mixed in an Excel of its own with an old add-in build
   loaded, each phase from a new server's state, and the add-in phase's last save after the reply still queued when the
   COM jobs start; that Excel not answering anywhere - a job, or one of the script's own calls into it between jobs,

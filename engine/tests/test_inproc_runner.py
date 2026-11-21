@@ -907,6 +907,7 @@ def _inproc_on(monkeypatch, folder: Path) -> list:
     monkeypatch.setattr(runner, "_EXCELS", {})
     monkeypatch.setattr(runner, "_identify", lambda app, check=True: (id(app), 0.0))
     monkeypatch.setattr(runner, "_is_64bit", lambda pid: True)
+    monkeypatch.setattr(runner, "_ROUTE_LOGGED", set())
     built = []
 
     def ensure():
@@ -1373,3 +1374,44 @@ def test_a_result_file_that_cannot_be_deleted_keeps_the_result(inproc, monkeypat
     b.ret(b.workbook("book.xlsx").Worksheets("S").Name, "s" * 31000)             # a long record: the result file
     res = runner.run(app, b)
     assert res.where == "inproc" and res.values == {"s" * 31000: "S"} and held
+
+
+
+# ---------------------------------------------------------------------------------------------------- Task D3, item 6
+# A server switching an Excel from the add-in to COM is logged once per Excel process, with why: given up on, or
+# SV_INPROC=0 in an Excel that has a smartass add-in loaded - so a later freeze can be tied to the switch, or not.
+
+
+def test_an_excel_given_up_on_for_the_add_in_is_logged_once_with_why_and_how_many_batches_ran_there(inproc, caplog):
+    app, wb = excel_book()
+    assert runner.run(app, Batch()).where == "inproc"
+    ex = runner._EXCELS[(id(app), 0.0)]
+    with caplog.at_level("WARNING", logger="smartview.inproc"):
+        runner._give_up(ex, "2 batches in a row had an unknown outcome")
+        runner._give_up(ex, "the add-in and this engine disagree on the job folder")
+    lines = [r.getMessage() for r in caplog.records if "in-process executor not used" in r.getMessage()]
+    assert len(lines) == 1 and f"pid {id(app)}" in lines[0] and "unknown outcome" in lines[0]
+    assert "after 1 batch(es) through the add-in" in lines[0]
+    assert runner.run(app, Batch()).where == "com"
+
+
+def test_sv_inproc_0_in_an_excel_with_a_smartass_add_in_loaded_is_logged_once_and_the_batch_runs_over_com(
+        monkeypatch, caplog):
+    monkeypatch.setattr(config, "INPROC", False)
+    monkeypatch.setattr(runner, "_ROUTE_LOGGED", set())
+    class Refusing(Application):
+        @property
+        def RegisteredFunctions(self):
+            raise pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+    loaded, bare, refusing = Application(), Application(), Refusing()
+    loaded.RegisteredFunctions = ((r"C:\h\inproc\smartass_run_aaaa1111\smartass_run_aaaa1111.xll", "SmartassRun_aaaa1111",
+                                   "QC"), (r"C:\x\other.xll", "Other", "Q"))
+    bare.RegisteredFunctions = ((r"C:\x\other.xll", "Other", "Q"),)
+    keys = {id(loaded): (4242, 1.0), id(bare): (4343, 1.0), id(refusing): (4444, 1.0)}
+    monkeypatch.setattr(runner, "_quick_key", lambda app: keys[id(app)])
+    with caplog.at_level("WARNING", logger="smartview.inproc"):
+        for app in (loaded, loaded, bare, refusing):
+            Workbook(("S",), app=app)
+            assert runner.run(app, Batch()).where == "com"
+    lines = [r.getMessage() for r in caplog.records if "in-process executor not used" in r.getMessage()]
+    assert len(lines) == 1 and "pid 4242" in lines[0] and "SV_INPROC=0" in lines[0] and "aaaa1111" in lines[0]

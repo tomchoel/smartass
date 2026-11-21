@@ -12,7 +12,10 @@ with one warning. A batch falls back to the COM executor only when nothing of it
 or the add-in's result says it failed before its first operation. Once the add-in has taken the job, a failure is a
 BatchError and the batch is never run again (see _run_inproc for how "nothing ran" is told); an outcome that cannot
 be told at all (UnknownOutcome) that recurs - UNKNOWN_LIMIT batches in a row in one Excel process - means the COM
-executor for that Excel process from then on, with one warning. While the add-in's save
+executor for that Excel process from then on, with one warning. That warning is one line per Excel process (pid and
+start time), with why and how many batches the add-in had run there; with SV_INPROC=0 an Excel that has a smartass
+add-in loaded (another server's) gets one too, so a later freeze there can be tied to the switch, or not (Task D3).
+While the add-in's save
 after the reply runs (later.py) it answers "busy: ..." having read nothing: the Run is asked again as for a busy
 Excel (asked).
 
@@ -129,6 +132,7 @@ def run(app, batch, limit: float = 120, check: bool = True) -> Result:
             raise
         ex.unknowns = 0                                 # the add-in's answer could be read
         if out is not None:
+            ex.batches += 1
             return _result(out, batch, "inproc")
     out = jobs.com(lambda: execute(app, job, limit, check), limit=limit, check=check)
     return _result(out, batch, "com")
@@ -366,6 +370,8 @@ class _Excel:
     lock: threading.Lock = field(default_factory=threading.Lock)
     waited: bool = False                  # a batch gave up waiting for the lock (warned once)
     unknowns: int = 0                     # batches in a row whose outcome was unknown (UNKNOWN_LIMIT)
+    started: float = 0.0                  # the process's start time (with pid: the key of _EXCELS)
+    batches: int = 0                      # batches the add-in ran there for this server
 
     @property
     def run_macro(self) -> str:
@@ -388,6 +394,7 @@ _EXCELS: dict[tuple, _Excel] = {}       # (pid, process start time) -> _Excel
 _EXCELS_LOCK = threading.Lock()
 _last = threading.local()               # this thread's last (weak app, key): a job's batches share one app object
 _unknown_warned = False
+_ROUTE_LOGGED: set = set()              # (pid, start time) of the Excels this server's switch to COM was logged for
 
 
 def _ready(app, check: bool = True) -> _Excel | None:
@@ -395,6 +402,7 @@ def _ready(app, check: bool = True) -> _Excel | None:
     not loaded now (that needs a live job)."""
     global _unknown_warned
     if not config.INPROC:
+        _note_inproc_off(app)
         return None
     try:
         key = _identify(app, check)
@@ -406,7 +414,7 @@ def _ready(app, check: bool = True) -> _Excel | None:
             log.warning("in-process executor not used: the Excel process is not known (%s)", e)
         return None
     with _EXCELS_LOCK:
-        ex = _EXCELS.setdefault(key, _Excel(key[0]))
+        ex = _EXCELS.setdefault(key, _Excel(key[0], started=key[1]))
     if not ex.lock.acquire(timeout=LOCK_WAIT_S):  # another job is still loading it (or stuck doing so)
         if not ex.waited:
             ex.waited = True
@@ -532,7 +540,53 @@ def _register_xll(app, path: str, limit: float):
 
 def _give_up(ex: _Excel, why: str) -> None:
     ex.ready = False
-    log.warning("in-process executor not used in Excel pid %s: %s; its Excel work runs over COM", ex.pid, why)
+    _switched((ex.pid, ex.started), f"{why} (after {ex.batches} batch(es) through the add-in there)")
+
+
+def _switched(key: tuple, why: str) -> None:
+    """One log line per Excel process (key: pid, start time) when this server's Excel work there goes over COM
+    instead of through the add-in - given up on (_give_up), or SV_INPROC=0 with a smartass add-in loaded there
+    (_note_inproc_off) - with why, so a later freeze in that Excel can be tied to the switch, or not (Task D3)."""
+    with _EXCELS_LOCK:
+        if key in _ROUTE_LOGGED:
+            return
+        _ROUTE_LOGGED.add(key)
+    began = time.strftime("%H:%M:%S", time.localtime(key[1])) if key[1] else "?"
+    log.warning("in-process executor not used in Excel pid %s (process started %s): %s; this server's Excel work "
+                "there runs over COM", key[0], began, why)
+
+
+def _quick_key(app) -> tuple:
+    """(pid, start time) of app's Excel process without waiting for a busy Excel (a com_error then): this thread's
+    last one (_identify), else one read of its main window."""
+    last = getattr(_last, "seen", None)
+    if last is not None and last[0]() is app:
+        return last[1]
+    import psutil
+    import win32process
+    pid = win32process.GetWindowThreadProcessId(int(app.Hwnd))[1]
+    return pid, psutil.Process(pid).create_time()
+
+
+def _note_inproc_off(app) -> None:
+    """SV_INPROC=0 in an Excel that has a smartass add-in loaded (another server's, or one of an earlier run): said
+    once per Excel process (_switched). Best effort, with no wait: a busy Excel, or one that cannot be read, is asked
+    again at the next batch, and never fails or delays the batch."""
+    from .later import XLL_NAME
+    try:
+        key = _quick_key(app)
+        with _EXCELS_LOCK:
+            if key in _ROUTE_LOGGED:
+                return
+        builds = sorted({m.group(1).lower() for row in (app.RegisteredFunctions or ())
+                         if row and (m := XLL_NAME.search(str(row[0])))})
+    except Exception:   # noqa: BLE001 - a log line only
+        return
+    if builds:
+        _switched(key, f"SV_INPROC=0, while smartass add-in build(s) {', '.join(builds)} are loaded there")
+    else:
+        with _EXCELS_LOCK:
+            _ROUTE_LOGGED.add(key)                      # no add-in there: nothing to say, nothing to read again
 
 
 def _unknown(detail: str) -> UnknownOutcome:
