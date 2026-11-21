@@ -23,7 +23,7 @@ Task 9 may delete the browser stack only when **all three** of these have passed
 
 | | What | Status |
 |---|---|---|
-| (a) | Step 4: b16 on the token route, finishing with `checks.sheet_equals_model` OK. Its run-log line must have a `drills.token drill` timing, and no `drills.direct drill` or `drills.browser page` timing. | **NOT RUN**: the controller runs it with the owner's go (see below) |
+| (a) | Step 4: b16 on the token route, finishing with `checks.sheet_equals_model` OK. Its run-log line must have a `drills.token drill` timing, and no `drills.direct drill` or `drills.browser page` timing. | **passed** (2026-11-21 18:16, see below) |
 | (b) | Paging probe: cell 4 drilled without a split, so the token route pages (getData at offsets 0 and 5 000), first against itself, then against the browser route. | **PASSED** 2026-11-21 |
 | (c) | Forced-renewal probe: the session lost while cell 2's getData requests are queued and in flight, then a later drill in the same process. | **PASSED** 2026-11-21 |
 
@@ -269,7 +269,7 @@ twice, for two reasons:
 
 Nothing else was refused in any later run (`refused 0` everywhere).
 
-## (a) Step 4 - the test set's drill questions on the token route (NOT RUN YET)
+## (a) Step 4 - the test set's drill questions on the token route (run 2026-11-21 18:16: passed)
 
 To be run by the controller with the owner's go, because it draws into the owner's Excel. b16 is the only test-set
 case whose spec has a `lines` block. From the repo root, in PowerShell:
