@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("setup", help="per-user setup (run by installer\\install.ps1)")
     u = sub.add_parser("update", help="install the release from the release folder")
     u.add_argument("--force", action="store_true")
-    lg = sub.add_parser("login", help="sign in to EPM for the fast route (one browser approval per pod)")
+    lg = sub.add_parser("login", help="sign in to EPM for grids and drill lines (one browser approval per pod)")
     lg.add_argument("--status", action="store_true", help="show the sign-ins, change nothing")
     lg.add_argument("--force", action="store_true", help="sign in again, also where a sign-in exists")
     lg.add_argument("--forget", action="store_true", help="delete the stored sign-ins from this PC")
