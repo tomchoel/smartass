@@ -454,25 +454,6 @@ def test_drill_cell_fetches_the_children_at_once_in_order(monkeypatch):
     assert live["peak"] == 3 and [p["cell"]["All Time Periods"] for p in pieces] == ["Jul 26", "Aug 26", "Sep 26"]
 
 
-def test_drill_all_runs_the_plan_at_once(monkeypatch):
-    import asyncio
-    from smartass.epm import drillstep as server
-    live = {"now": 0, "peak": 0}
-
-    async def fake_drill(cell, say=None, **kw):
-        live["now"] += 1
-        live["peak"] = max(live["peak"], live["now"])
-        await asyncio.sleep(0.01)
-        live["now"] -= 1
-        return server.DrillResult(cell, [{"x": 1}], ["x"], -1.0, {"lines": 1, "gap": 0.0}, None, server.SOURCE, 1.0)
-    monkeypatch.setattr(server, "drill", fake_drill)
-    plan = [{"alias": "d1", "year": 26, "cells": [{"a": 1}, {"a": 2}]}, {"alias": "d2", "year": 25, "cells": [{"a": 3}]}]
-    notes = []
-    out, warnings, failed = asyncio.run(server.drill_all(plan, say=notes.append))
-    assert live["peak"] == 3 and failed is None and list(out) == ["d1", "d2"] and len(out["d1"].rows) == 2
-    assert notes[0].startswith("Drilled 2 lines for 2026")
-
-
 def test_drill_cell_mixed_piece_without_drill_report(monkeypatch):
     import asyncio
     from smartass.epm import drillstep as server
@@ -1037,3 +1018,9 @@ def test_a_drill_tells_its_progress_with_counts_only(monkeypatch):
         "5,000 of 10,000 lines so far, 0 pieces done", "10,000 of 10,000 lines so far, 0 pieces done",
         "10,000 of 10,000 lines so far, 1 piece done"]
     assert all(s.startswith("still working: drill (") and "1234" not in s and "1,234" not in s for s in said)
+
+def test_the_unused_drill_settings_and_the_uncalled_drill_all_are_gone():
+    from smartass.core import config
+    from smartass.epm import drillstep
+    assert not hasattr(config, "DRILL_DB") and not hasattr(config, "DRILL_KEEP_DAYS")
+    assert not hasattr(drillstep, "drill_all") and not hasattr(drillstep, "combine")

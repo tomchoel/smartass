@@ -166,56 +166,6 @@ async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: 
                        L["split_check"], warnings, stages)
 
 
-def combine(parts: list[DrillResult]) -> DrillResult:
-    """The drills of one alias (one cell per account) as one result: rows concatenated, columns in first-seen order."""
-    if len(parts) == 1:
-        return parts[0]
-    cols = list(dict.fromkeys(c for p in parts for c in p.columns))
-    rows = [r for p in parts for r in p.rows]
-    vals = [p.cell_value for p in parts]
-    gaps = [p.reconciliation.get("gap") for p in parts]
-    cell = {**parts[0].cell, "All Accounts": ", ".join(str(p.cell.get("All Accounts")) for p in parts)}
-    notes = list(dict.fromkeys(p.source.removeprefix(SOURCE) for p in parts if p.source != SOURCE))
-    return DrillResult(cell, rows, cols, None if None in vals else sum(vals),
-                       {"lines": len(rows), "gap": None if None in gaps else sum(gaps)}, None,
-                       SOURCE + "".join(notes), round(sum(p.secs for p in parts), 1),
-                       warnings=[w for p in parts for w in p.warnings],
-                       stages={"drill": round(sum(p.stages.get("drill", 0.0) for p in parts), 2)})
-
-
-async def drill_all(plan: list[dict], say=say) -> tuple[dict[str, DrillResult], list[str], str | None]:
-    """A recipe's drills ([{alias, year, cells}], d1 first) -> ({alias: result}, warnings, why d1 failed or None).
-    Every drill runs at once (Excel links queue on the host; at most config.DRILL_PARALLEL getData calls are in
-    flight). A failed first drill drops the answer to the cube (no last year without this year); a later failure is a
-    warning."""
-    import asyncio
-
-    async def one(d: dict):
-        t0 = time.monotonic()
-        res = combine(await _all(drill(cell, say=say) for cell in d["cells"]))
-        say(f"Drilled {len(res.rows):,} lines for 20{d['year']:02d} ({time.monotonic() - t0:.0f} s)")
-        return res
-    tasks = [asyncio.ensure_future(one(d)) for d in plan]
-    out, warnings = {}, []
-    try:
-        for i, (d, t) in enumerate(zip(plan, tasks)):
-            try:
-                res = await t
-            except Exception as e:   # noqa: BLE001 - the answer falls back to the cube (D21)
-                why = str(e)[:300]
-                if i == 0:
-                    return {}, [], why
-                warnings.append(f"The drill of 20{d['year']:02d} ({d['alias']}) failed: {why}")
-                continue
-            out[d["alias"]] = res
-            warnings += res.warnings
-    finally:
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-    return out, warnings, None
-
-
 def _lines_source():
     """The object that fetches drill lines: the token route (drill_token), with fetch(url, max_lines) and
     lines(query, url, max_lines). Looked up on every call, so a test's fake (and conftest's guard) binds."""

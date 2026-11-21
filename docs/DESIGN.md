@@ -300,7 +300,7 @@ fields or an invalid spec, 401 secret, 409 busy, 413 over 1 MB, 503 Excel/EPM er
 ## Verification
 
 - Unit tests: `cd engine; uv run pytest -q` (no Excel or EPM; the stdio smoke test starts
-  `child_server.py` with the warm-up off).
+  `child_server.py`).
 - Test set: `uv run python -m smartass.testset run` replays recorded grids and compares with the approved golden
   numbers (9 questions).
 - `smartass doctor` checks the install (config, Excel, Smart View, VBA access, EPM, oauth set-up and sign-ins, atlas,

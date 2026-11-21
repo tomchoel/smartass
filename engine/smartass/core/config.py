@@ -258,7 +258,6 @@ RESET_WAIT_S = 10.0                                 # after killing our Excel, w
 
 # ---------------------------------------------------------------- drill-through (fin_drill)
 EPM_BASE = _pick("SV_EPM_BASE", "epm.base")
-DRILL_DB = SVKIT / "drill.db"
 DRILL_PAGE = 5000                                  # rows per getData call: EPM's offset pages have no stable order
                                                    # (a 623-line cell paged by 500 gave duplicates and a different sum
                                                    # each time, 02.11.2026), so a piece must fit in ONE call
@@ -272,7 +271,6 @@ PAINT_PAUSE_S = float(os.environ.get("SV_PAINT_PAUSE", "0.15"))   # the job's pa
                                                      # (only in the active workbook of a visible Excel; 0: none)
 SAVE = "sync" if os.environ.get("SV_SAVE", "").strip().lower() == "sync" else "later"   # sync: our file saved in the job
 SAVE_DELAY_S = float(os.environ.get("SV_SAVE_DELAY", "0.3"))   # the save after the reply waits this long for the paint
-DRILL_KEEP_DAYS = 90
 SVHTTP_TIMEOUT_S = float(os.environ.get("SV_HTTP_TIMEOUT", "120"))   # one Smart View HTTP request incl. a sign-in
 SVHTTP_SESSIONS = int(os.environ.get("SV_HTTP_SESSIONS", "8"))   # Smart View requests at once per cube, each on its own session
 CLOSED_MONTH_TTL_S = float(os.environ.get("SV_CLOSED_MONTH_TTL", "1800"))   # reuse an HTTP-read closed month this long
