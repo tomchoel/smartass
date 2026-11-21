@@ -285,4 +285,4 @@ $env:SV_DRILL_ROUTE = "token"; engine\.venv\Scripts\python.exe scripts\bench_ans
   Check that b16's line in the run log (`config.RUN_LOG`) has a `drills.token drill (n)` timing, and has no
   `drills.direct drill` or `drills.browser page` timing.
 
-**Result:** _(to be added: ok runs, seconds, `checks.sheet_equals_model`, the drills.* timing keys)_
+**Result (controller run, 2026-11-21 18:16, the owner's Excel on his go, frozen checkout at 399b4f9, `SV_DRILL_ROUTE=token scripts/bench_answers.py --rounds 1 --case b16`):** exit 0; warm-up (a new workbook) ok in 18.2 s with `sheet = model OK`; round 1 ok in 10.6 s with `sheet = model OK` (prepare.drill 7.5 s, the Excel job 2.8 s, saved 0.8 s after the reply). The run log carries `drills.token drill (1)` 7.30 s and `drills.http drill link (1)` 0.20 s; no browser timing key (no `drills.browser start`, no `drills.browser sign-in`). So gate (a) is passed; with (b) and (c) above, the three-part gate for Task 9 is met.
