@@ -91,7 +91,9 @@ the middle of its job.
   administrator, and its per-user setting was not changed).
 - `scripts/check_insert.py` part "mixed" runs the executors mixed in an Excel of its own with an old add-in build
   loaded, each phase from a new server's state, and the add-in phase's last save after the reply still queued when the
-  COM jobs start; a job that does not answer is a DIFF and that Excel is killed by its pid. The two "manual page
+  COM jobs start; that Excel not answering anywhere - a job, or one of the script's own calls into it between jobs,
+  each on a thread of its own with a time limit (live it froze between jobs) - is one DIFF and that Excel is killed by
+  its pid, never a hang (shown with that Excel's process suspended between two phases, and before a job). The two "manual page
   breaks" DIFFs of the default parts were a read that fails in a hidden Excel (the sheet's list of page breaks answers
   "invalid index"), on every route alike: the check now reads each row and column instead when that happens.
 
