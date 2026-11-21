@@ -323,8 +323,8 @@ def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], c
         for asked, got in dict.fromkeys(pairs):
             top = asked.casefold() == d.casefold()
             known = by_name.get(asked.casefold()) or by_label.get(asked.casefold())
-            if top or (known and name_from_label(known[1])):      # REST answers the very name asked
-                if got.casefold() != _sent(d, asked, names).casefold():
+            if top or (known and name_from_label(known[1])):      # REST answers that very name
+                if got.casefold() != (names[d] if top else known[0]).casefold():
                     raise RestError(f"Planning REST returned a different layout than requested: {d} {asked} "
                                     f"answered as {got}")
                 label[d, asked, got] = known[1] if known else d

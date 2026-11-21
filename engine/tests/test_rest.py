@@ -38,7 +38,8 @@ ATLAS = [
     ("FinPlan", "Version", [("Version", "Version"), ("Final", "Final")]),
     ("FinPlan", "Years", [("Years", "Years"), ("FY25", "FY25"), ("FY26", "FY26")]),
 ]
-REAL = {"Sep 26": "Y26M09", "Aug 26": "Y26M08", "EBX Ebitda X": "EBX", "1TEC Tech": "1TEC", "2BUS Biz": "2BUS"}
+REAL = {"Sep 26": "Y26M09", "Aug 26": "Y26M08", "EBX Ebitda X": "EBX", "1TEC Tech": "1TEC", "2BUS Biz": "2BUS",
+        "C30 REVENUES (ac)": "ac.C30"}
 # The plan types' dimension lists as GET .../plantypes/{cube}/dimensions?aliasTableName=Default answers them (live:
 # FinMax names without "All " and spaces, the atlas's names as their Default alias; FinPlan's mostly without alias)
 LISTED = {
@@ -285,6 +286,15 @@ def test_the_atlas_is_read_by_name_without_a_pass_over_a_dimension_when_every_na
     db.set_trace_callback(None)
     scans = [s for s in statements if "SELECT name, label FROM member" in s and " IN (" not in s]
     assert len(scans) == 1 and "'All Time Periods'" in scans[0]                # 'Aug 26' answered as Y26M08 only
+
+
+def test_a_member_asked_by_its_label_is_answered_under_its_name(db):
+    """REST takes the label (an alias) and answers the name: that is the member asked, as the provider route sees it."""
+    f = _grid(_Epm(), db, accounts=("C30 REVENUES (ac)", "ac.C70"))
+    assert [r[0] for r in f.values[2:]] == ["C30 REVENUES (ac)", "C70 COSTS (ac)"] and f.warnings == []
+    with pytest.raises(rest.RestError, match="different layout.*answered as ac.C70"):
+        _grid(_Epm(answer=_answer_with(rows=lambda rs: [{**r, "headers": ["ac.C70", r["headers"][1]]} for r in rs])),
+              db, accounts=("C30 REVENUES (ac)",))
 
 
 def test_a_member_the_atlas_does_not_know_keeps_its_name_and_adds_one_warning(db, monkeypatch):
