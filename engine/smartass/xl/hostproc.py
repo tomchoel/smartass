@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import contextlib
+import gc
 import json
 import logging
 import os
 import queue
 import threading
 import time
-import traceback
 from typing import Any, Callable
 
 import psutil
@@ -185,9 +185,13 @@ class _PidRegistry:
 
 
 class ComThread(threading.Thread):
-    """Single STA thread that executes callables in order and pumps messages while idle. A job's error leaves the
-    thread without the locals of the frames it passed through (_release_frames): the job's COM objects are released
-    here, on the thread whose apartment made them."""
+    """Single STA thread that executes callables in order and pumps messages while idle. No COM object outlives the
+    thread of the job that made it (Task D2): after each job its outcome goes to the caller first, then the objects the
+    job made are released here, on the thread whose apartment made them - the locals of the frames its error carries
+    (_frames, _clear) and every reference cycle (the garbage collector, run here) - and only then does the job's
+    'after' run (host._call_once: its turns in the user's Excel released). A proxy released on another thread while the
+    apartment that made it is alive calls that Excel from there and waits for it: for ever, when that Excel has
+    stopped responding (live, 21.11.2026: stack A, between one job's thread and the next one's)."""
 
     def __init__(self, name: str = "excel-com"):
         super().__init__(daemon=True, name=name)
@@ -201,7 +205,7 @@ class ComThread(threading.Thread):
         try:
             while True:
                 try:
-                    fn, fut = self.q.get(timeout=0.05)
+                    fn, fut, *rest = self.q.get(timeout=0.05)
                 except queue.Empty:
                     pythoncom.PumpWaitingMessages()
                     continue
@@ -211,36 +215,73 @@ class ComThread(threading.Thread):
                     continue
                 self.job_no += 1
                 self.busy_since = time.monotonic()
+                after = rest[0] if rest else None
                 try:
-                    fut.set_result(fn())
-                except BaseException as e:   # noqa: BLE001 - forwarded to the awaiting coroutine
-                    _release_frames(e)
-                    fut.set_exception(e)
+                    _run_job(fn, fut)
                 finally:
+                    fn = fut = rest = None
+                    try:
+                        if after is not None:
+                            after()
+                    except Exception:   # noqa: BLE001 - the end of a job must not end this thread
+                        log.exception("the end of a job on %s failed", self.name)
+                    after = None
                     self.busy_since = None
         finally:
             pythoncom.CoUninitialize()
 
-    def submit(self, fn: Callable[[], Any]) -> cf.Future:
+    def submit(self, fn: Callable[[], Any], after: Callable[[], Any] | None = None) -> cf.Future:
+        """fn's outcome as a future; after (if any) runs on this thread once the objects fn made are released."""
         fut: cf.Future = cf.Future()
-        self.q.put((fn, fut))
+        self.q.put((fn, fut, after))
         return fut
 
 
-def _release_frames(e: BaseException) -> None:
-    """The locals of every finished frame e's traceback holds - and those of its cause and context - released now, on
-    this thread. An error handed to the event loop otherwise carries the failed job's COM objects (its Target's app
-    and workbook, a batch's ranges) to that thread, which releases them when it drops the error: a proxy released on
-    another thread while the apartment that made it is alive calls that Excel from there and waits for it (Task D,
-    21.11.2026: for ever, when that Excel has stopped responding). The line numbers stay: the error logs as before."""
-    todo, seen = [e], set()
+def _run_job(fn: Callable[[], Any], fut: cf.Future) -> None:
+    """fn() on this thread: its outcome handed to fut first, then the objects it made released here (a release that
+    blocks never keeps the outcome from the caller: Task D review, Minor 3)."""
+    frames: list = []
+    try:
+        out = fn()
+    except BaseException as e:   # noqa: BLE001 - forwarded to the awaiting coroutine
+        frames = _frames(e)                      # before the error leaves this thread: its frames are all ours
+        fut.set_exception(e)
+    else:
+        fut.set_result(out)
+        out = None
+    _clear(frames)
+    frames = None
+    gc.collect()                                  # the job's reference cycles, released on its own thread
+
+
+def _frames(e: BaseException) -> list:
+    """The frames e's traceback holds - and those of its cause and context -, read while e has not left this thread.
+    Once handed over, e's traceback grows by the frames of the thread that raises it again (the event loop's
+    coroutines), which must never be cleared from here."""
+    frames, todo, seen = [], [e], set()
     while todo:
         x = todo.pop()
         if x is None or id(x) in seen:
             continue
         seen.add(id(x))
-        traceback.clear_frames(x.__traceback__)
+        tb = x.__traceback__
+        while tb is not None:
+            frames.append(tb.tb_frame)
+            tb = tb.tb_next
         todo += [x.__cause__, x.__context__]
+    return frames
+
+
+def _clear(frames: list) -> None:
+    """The locals of every finished frame of a failed job released now, on this thread. An error handed to the event
+    loop otherwise carries the failed job's COM objects (its Target's app and workbook, a batch's ranges) to that
+    thread, which releases them when it drops the error (Task D, 21.11.2026). The line numbers stay: the error logs as
+    before. A frame still running (this thread's own) is skipped, as traceback.clear_frames skips it."""
+    for f in frames:
+        try:
+            f.clear()
+        except RuntimeError:
+            pass
 
 
 def on_host_thread() -> bool:

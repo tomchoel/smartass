@@ -42,6 +42,18 @@ def bind_job(token: "JobToken | None" = None) -> None:
     _job.start_left = None
 
 
+def unbind_job() -> None:
+    """The job's end on its thread (host._call_once, after its turns are released): nothing of it stays bound there."""
+    for name in ("token", "turns", "start_left"):
+        _job.__dict__.pop(name, None)
+
+
+def give_up(token: JobToken) -> None:
+    """The host gives up on the job of token (an Excel that does not answer: host._call_once): its next COM call
+    raises JobAborted, and a job of this process waiting for a turn it still holds is refused (Turn.acquire)."""
+    token.aborted = True
+
+
 def _check_alive():
     tk = getattr(_job, "token", None)
     if tk is not None and tk.aborted:
