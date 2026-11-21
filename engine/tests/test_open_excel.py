@@ -393,6 +393,36 @@ def test_a_failed_open_of_a_new_workbook_is_the_error_and_leaves_its_file(tmp_pa
     assert t.wb is None and target.discard_new(t).endswith("its file was deleted") and not t.made.exists()
 
 
+def test_a_busy_excel_rejecting_the_read_only_check_never_opens_the_new_workbook_twice(tmp_path, monkeypatch, fast):
+    """Task D2 review, Minor 3: Workbooks.Open and wb.ReadOnly were one retried unit, so a busy rejection of the read
+    (likely right after Excel opened a OneDrive file) ran the Open again."""
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    rejected = [2]
+
+    class BusyAfterOpen(OpenedWb):
+        @property
+        def ReadOnly(self):
+            if rejected[0]:
+                rejected[0] -= 1
+                raise pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+            return False
+
+        @ReadOnly.setter
+        def ReadOnly(self, value):
+            pass
+
+    class Books(Opener):
+        def Open(self, path):
+            wb = BusyAfterOpen(path, self)
+            self.opened.append(wb)
+            self.append(wb)
+            return wb
+    books = Books()
+    t = target._new_target(None, "Q", [(11, 110, FakeApp(books))], build_new=True)
+    target.open_new(t)
+    assert len(books.opened) == 1 and t.wb is books.opened[0] and rejected == [0]
+
+
 def test_a_new_workbook_excel_opens_read_only_is_refused_and_can_be_discarded(tmp_path, monkeypatch, fast):
     """A file Excel cannot save (no sensitivity label it knows: live, 20.11.2026, it opens read-only and its Save
     writes nothing, without an error) is an error at the open - as a SaveAs that made no file is - and the workbook

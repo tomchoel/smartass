@@ -275,12 +275,10 @@ def open_new(t: Target) -> None:
     """The new workbook the job built (t.made) opened in its Excel with Workbooks.Open: t.wb from then on. Excel's
     error is raised as it is (the job's clean-up deletes the file). Opened read-only it is an error too (HostError):
     Excel opens a file whose sensitivity label it does not know read-only, and its Save then writes nothing, without
-    an error (live, 20.11.2026) - as _save_new refuses a SaveAs that made no file."""
-    def open_():
-        wb = t.app.Workbooks.Open(str(t.made))
-        return wb, wb.ReadOnly
-    t.wb, read_only = jobs.com(open_, limit=180)
-    if read_only:
+    an error (live, 20.11.2026) - as _save_new refuses a SaveAs that made no file. The Open and that read wait for a
+    busy Excel each on its own: one retried unit ran the Open again when Excel rejected the read (Task D2 review)."""
+    t.wb = jobs.com(lambda: t.app.Workbooks.Open(str(t.made)), limit=180)
+    if jobs.com(lambda: t.wb.ReadOnly):            # its own wait: a rejected read never opens the file again
         raise HostError(f"Excel opened the new workbook {t.made.name} read-only (sensitivity label?), so it could not "
                         "save the answer")
 
