@@ -131,6 +131,8 @@ TURN_WAIT_S = 600
 MAX_EXCELS = 4                     # the user's Excel(s) + extra windows started for parallel agents
 ABANDONED_WAIT_S = 5               # a turn a job given up on still holds is waited for this long, then refused
 UNMARK_TRIES = 10                  # a given-up mark another process is reading is removed again this often
+FREE_WAIT_S = 0.5                  # a turn being handed over (its job's objects released after its answer: tens of ms)
+                                   # is waited for this long by a request that looks for a free Excel (target 'new')
 ABANDONED = ("An earlier request in that Excel ({held}) was given up after Excel did not respond in time, and it still "
              "holds that Excel: {what} was not started. Check Excel for an open dialog or a cell in edit mode (press Esc "
              "or Enter); if Excel has stopped responding, it has to be closed. Then ask again.")
@@ -183,6 +185,16 @@ class Turn:
         except OSError:
             pass
         return self.held
+
+    def try_acquire_within(self, seconds: float) -> bool:
+        """try_acquire, asked again every 50 ms for up to seconds (0: once)."""
+        deadline = time.monotonic() + seconds
+        while not self.try_acquire():
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+        return True
+
     def given_up(self) -> bool:
         """Held by a job the host has given up on (its token aborted)."""
         return self.held and self.token is not None and self.token.aborted
@@ -292,8 +304,9 @@ class Turn:
         self.f.close()
 
 
-def hold_turn(pid: int, wait: bool = True, what: str = "this request", app=None) -> bool:
-    """Take this job's turn in Excel `pid` (kept until the job ends). wait=False: only if it is free right now. With
+def hold_turn(pid: int, wait: bool = True, what: str = "this request", app=None, free_within: float = 0.0) -> bool:
+    """Take this job's turn in Excel `pid` (kept until the job ends). wait=False: only if it is free right now, or
+    frees within free_within seconds (a turn being handed over: target._new_target, FREE_WAIT_S). With
     app (that Excel), the job's first contact with it follows once the turn is held, every time it is asked for
     (inproc/later.clear: a save after the last reply still waiting there runs first, one that runs is waited for),
     before the caller's plain COM writes there."""
@@ -305,7 +318,7 @@ def hold_turn(pid: int, wait: bool = True, what: str = "this request", app=None)
         return True
     tt = Turn(pid)
     if not wait:
-        if not tt.try_acquire():
+        if not tt.try_acquire_within(free_within):
             tt.close()
             return False
     else:

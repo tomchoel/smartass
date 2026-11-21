@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -507,3 +509,35 @@ def test_a_note_keeps_the_shape_of_a_com_error():
     h = HostError("the bridge did not load")
     target._noted(h, "deleted")
     assert h.args == ("the bridge did not load; deleted",)
+
+
+def test_a_new_question_waits_a_moment_for_a_turn_being_handed_over_before_starting_another_excel(tmp_path,
+                                                                                                  monkeypatch):
+    """Task D2 review, Minor 2: a job keeps its turn while the objects it made are released after its answer (tens of
+    ms); a new question's request (target 'new') that came then found that Excel taken and started another, visible
+    Excel. It waits a moment (jobs.FREE_WAIT_S) for a turn that frees."""
+    monkeypatch.setattr(config, "SVKIT", tmp_path / "svkit")
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+    tpl = tmp_path / "tn.xltx"
+    tpl.write_bytes(b"x")
+    monkeypatch.setattr(styling, "template_path", lambda *a: tpl)
+    monkeypatch.setattr(target, "_spawn_excel", lambda tpl, known: pytest.fail("started another Excel"))
+    monkeypatch.setattr(jobs, "_first_contact", lambda app: None)
+    held = threading.Event()
+
+    def previous_job():                              # answered; its objects are being released, its turn still held
+        tt = jobs.Turn(11)
+        assert tt.try_acquire()
+        held.set()
+        time.sleep(0.2)
+        tt.close()
+    th = threading.Thread(target=previous_job)
+    th.start()
+    assert held.wait(5)
+    jobs.bind_job()
+    try:
+        t = target._new_target(None, "Q", [(11, 110, FakeApp(Opener()))], build_new=True)
+        assert t.pid == 11
+    finally:
+        jobs.release_turns()
+        th.join(5)

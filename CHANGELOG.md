@@ -73,7 +73,9 @@ the middle of its job.
   it; one that could not be removed at the end of that turn is said in the log, expires with that Excel process and
   with the server that wrote it, and goes with the next turn taken in that Excel). The request given up on never writes again and frees the turn when Excel answers it; the turn is never freed
   before that. A new question's request that looks for a free Excel (target 'new') still counts that Excel as busy:
-  it takes another free Excel, or starts one for a parallel agent, as before.
+  it takes another free Excel, or starts one for a parallel agent, as before - but a turn that frees within 0.5 s (the
+  request before it still releasing its Excel objects after its answer) is waited for, so no other Excel is started
+  for that.
 - Excel's "call rejected" while it is busy (a save, AutoSave) no longer fails a job with "Unexpected AttributeError:
   <unknown>.FullName" (or "Property '<unknown>.Name' can not be set" in a batch over COM): the object wrapper waits
   for Excel's type information instead of going on without it, and a rejected lookup of a name is said as busy, so

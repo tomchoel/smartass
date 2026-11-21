@@ -216,7 +216,8 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None,
     from . import styling
     from ..core.timing import stage
     tpl = styling.template_path()
-    choice = next((e for e in excels if jobs.hold_turn(e[0], wait=False, app=e[2])), None)
+    choice = next((e for e in excels if jobs.hold_turn(e[0], wait=False, app=e[2], free_within=jobs.FREE_WAIT_S)),
+                  None)                       # a turn being handed over (Task D2 review, Minor 2) is waited for
     wb = None
     spawned = False
     if choice is None and excels and len(excels) < jobs.MAX_EXCELS and tpl.exists():
