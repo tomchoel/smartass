@@ -1593,6 +1593,47 @@ def repointing(xl: Excel) -> None:
         xl.close(wb)
 
 
+def protected_sheets(xl: Excel) -> None:
+    """(Phase 3c Task 3) A protected sheet with a hidden formula cannot be scanned; it is warned about only when a
+    cell there shows #REF! after the old sheets are dropped that did not before - a follow-up where the close-out
+    runs with Calculation automatic (nothing to re-point) and one where it runs manual (a Summary formula to
+    re-point), through both executors: 'Pointing' (its hidden formula points at Q1) is said with its one new #REF!,
+    'Other' (a hidden formula that does not, and a #REF! from before) is not."""
+    pres = _pres()
+    for side, inproc in (("com", False), ("inproc", True)):
+        wb = xl.fresh(f"protected_{side}", ("Sources",))
+        seams = {(pipeline, "_target"): _target_of(xl, wb), (pipeline, "_save"): lambda job: None,
+                 (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+                 (config, "INPROC"): inproc}
+        with _patched(seams):
+            pipeline.excel_job(None, pres[0][2])
+            sheets_ = {}
+            for name, formulas in (("Pointing", ("='Q1 Answer'!A1",)), ("Other", ("=1+1", "=#REF!"))):
+                s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+                s.Name = name
+                for i, f in enumerate(formulas, 2):
+                    s.Range(f"B{i}").Formula2 = f
+                s.Range("B2").FormulaHidden = True
+                s.Protect()
+                sheets_[name] = s
+            for label, summary in (("automatic", False), ("manual: a formula re-pointed", True)):
+                if summary:
+                    p = sheets_["Pointing"]
+                    p.Unprotect()
+                    p.Range("B2").Formula2 = "='Q1 Answer'!A1"      # the first follow-up turned it #REF!
+                    p.Protect()
+                    s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
+                    s.Name = "Summary"
+                    s.Range("A1").Formula2 = "='Q1 Answer'!A1"
+                out = pipeline.redraw_job(None, pres[2][2], 1, "this workbook")
+                said = [w for w in out.get("warnings") or [] if "could not read the formulas" in w]
+                ok = (len(said) == 1 and "'Pointing'" in said[0] and "1 more cell(s)" in said[0]
+                      and not [w for w in said if "'Other'" in w])
+                check(f"protected sheets ({side}, close-out {label}): only the one whose cell turned #REF! is said",
+                      ok, "" if ok else "; ".join(said) or "nothing said")
+        xl.close(wb)
+
+
 # ---------------------------------------------------------------------------------------------------- 3c. label order
 def label_order(xl: Excel) -> None:
     """(Task 2b, review M3) The chart labels in the job's order (movein.finish: positions and colours, calculate, the
@@ -1729,6 +1770,7 @@ def main(argv=None) -> int:
             failed_jobs(xl)
         if "repoint" in parts:
             repointing(xl)
+            protected_sheets(xl)
         if "repoint-bench" in parts:
             repoint_bench(xl)
         if "labels" in parts:

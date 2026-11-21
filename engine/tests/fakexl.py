@@ -1106,6 +1106,18 @@ class _Workbooks(list):
         return wb
 
 
+class _WorksheetFunction:
+    REF = -2146826265                           # #REF! as Value2 reads it
+
+    def CountIf(self, rng, criteria):
+        """COUNTIF(rng, "#REF!") only: the cells that show #REF! - the error value, or (the fake does not calculate) a
+        formula that names #REF!."""
+        assert criteria == "#REF!"
+        values = [rng.ws.cells.get(rc, {}).get("Value") for rc in rng.cells()]
+        return float(sum(1 for v in values if v == self.REF or (isinstance(v, str) and v.startswith("=")
+                                                                 and "#REF!" in v)))
+
+
 class Application:
     def __init__(self):
         self.Workbooks = _Workbooks(self)
@@ -1124,6 +1136,10 @@ class Application:
     @property
     def ActiveWindow(self):
         return self.ActiveWorkbook.window
+
+    @property
+    def WorksheetFunction(self):
+        return _WorksheetFunction()
 
     def Intersect(self, a, b):
         """The cells two ranges of one sheet share, or None."""

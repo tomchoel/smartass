@@ -969,6 +969,49 @@ def test_a_protected_sheet_whose_only_mention_is_a_hidden_formula_is_said(own_bo
     assert [w for w in out["warnings"] if "'Locked'" in w and "hidden formula" in w and "Q3" in w]
 
 
+def _locked(wb, formula: str):
+    lk = fakexl.Worksheet(wb, "Locked")
+    wb.order.append(lk)
+    lk.cells[(2, 2)] = {"Value": formula}
+    lk.cells[(3, 2)] = {"Value": "=#REF!A1"}                    # a #REF! the user had before: not ours
+    lk.ProtectContents, lk.hidden = True, {(2, 2)}
+    return lk
+
+
+def test_a_protected_sheet_whose_hidden_formula_does_not_point_at_the_answer_is_not_warned_about(own_book):
+    """Phase 3b review: a protected sheet with a hidden formula warned on every follow-up. Its values can be read:
+    the warning comes only when a cell there shows #REF! after the drop that did not before."""
+    _locked(own_book.wb, "=Notes!A1")
+    out = own_book.follow_up(_pre(), 3)
+    assert not [w for w in out["warnings"] if "'Locked'" in w]
+
+
+def test_a_protected_sheet_whose_hidden_formula_pointed_at_the_answer_says_how_many_cells_show_ref(own_book):
+    _locked(own_book.wb, "='Q3 Answer'!E12")
+    out = own_book.follow_up(_pre(), 3)
+    (note,) = [w for w in out["warnings"] if "'Locked'" in w]
+    assert note == pipeline.UNREAD_REF.format(sheet="Locked", why="a hidden formula of a protected sheet cannot be read",
+                                              n=1, q=3)
+
+
+def test_a_protected_sheet_whose_values_cannot_be_counted_is_warned_about_as_before(own_book, monkeypatch):
+    _locked(own_book.wb, "=Notes!A1")
+
+    def refuse(self, rng, criteria):
+        raise fakexl.ComError("COUNTIF refused")
+    monkeypatch.setattr(fakexl._WorksheetFunction, "CountIf", refuse)
+    out = own_book.follow_up(_pre(), 3)
+    assert [w for w in out["warnings"] if "'Locked'" in w and "if one there pointed at Q3" in w]
+
+
+def test_in_the_users_manual_calculation_the_protected_sheet_is_warned_about_as_before(own_book):
+    """Counting would need the sheet calculated, which the user keeps for later: today's warning, nothing read."""
+    _locked(own_book.wb, "=Notes!A1")
+    own_book.wb.Application.Calculation = -4135
+    out = own_book.follow_up(_pre(), 3)
+    assert [w for w in out["warnings"] if "'Locked'" in w and "if one there pointed at Q3" in w]
+
+
 def test_a_formula_the_user_changed_while_the_answer_was_drawn_is_left_alone_and_said(own_book, monkeypatch):
     """Review ruling 3: each write checks the formula is still the text the bring-in read. Between the two batches
     the user edits a cell and adds a name that shifts the names' order: neither is written, the rest is."""

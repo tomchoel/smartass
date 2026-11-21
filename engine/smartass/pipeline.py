@@ -1042,9 +1042,15 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     point_at = writes.start if writes is not None else None
     if writes is not None:
         b.mark("re-point")
+    unread = job.mentions.unread if job.parked is not None and job.mentions is not None else []
+    counted = bool(unread) and look.settings.get("Calculation") == AUTOMATIC    # the user's manual: not calculated
+    if counted:
+        _record_refs(b, wbn, unread, "refs before")
     drop_at = movein.drop(t, job.parked, book, b) if job.parked is not None else None
     if drop_at is not None:
         b.mark("drop")
+        if counted:
+            _record_refs(b, wbn, unread, "refs after", calculate=bool(rewrites))
     recorded = _write_sources(t, q, pre, b, wbn, log_, header, stamp, status, ties, look, book)
     if not isinstance(recorded, str) and log_.exists and recorded[0].rows:     # a new log goes with t.sheets_added
         job.logged = (recorded[0].sheet, min(recorded[0].rows.values()), max(recorded[0].rows.values()))
@@ -1076,6 +1082,7 @@ def _close_out(job, built, plan, pre: Prepared, header, stamp: str, read: tuple,
     if writes is not None:
         refused, changed = writes.outcome(res.values, res.skipped)
         job.pointing += _refused_notes(q, refused, "point", "at the new") + _changed_notes(q, changed)
+    job.pointing += _unread_notes(q, unread, res.values if counted else None)
     _note_marks(res, ("",))
     _refused_breaks(t, answer, breaks, res)
     logged = _sources_warning(pre, recorded, res)
@@ -1272,14 +1279,47 @@ def _kept(t, e: BaseException, save: bool = True, job=None) -> None:
 
 
 def _mentions_notes(q: int, found) -> list[str]:
-    """What the look for the formulas pointing at Q<q> could not do, as warnings. A look that failed as a whole does
-    not stop the follow-up (an answer never fails because another sheet could not be scanned): its warning says the
-    formulas were not checked."""
+    """What the look for the formulas pointing at Q<q> could not do as a whole, as a warning: it does not stop the
+    follow-up (an answer never fails because another sheet could not be scanned), and says the formulas were not
+    checked. A sheet it could not read is said after the drop, when it could matter (_unread_notes)."""
     if found.failed is not None:
         return [f"formulas elsewhere in the workbook that point at the old Q{q} were not checked ({found.failed}): its "
                 "old sheets were dropped anyway, so any such formula may show #REF! now"]
-    return [f"could not read the formulas on sheet '{sheet}' ({why}): if one there pointed at Q{q}, it shows #REF! "
-            "now" for sheet, why in found.unread]
+    return []
+
+
+UNREAD = "could not read the formulas on sheet '{sheet}' ({why}): if one there pointed at Q{q}, it shows #REF! now"
+UNREAD_REF = ("could not read the formulas on sheet '{sheet}' ({why}), and {n} more cell(s) there show #REF! since the "
+              "old Q{q} was dropped: a formula there pointed at it")
+AUTOMATIC = -4105                       # xlCalculationAutomatic
+
+
+def _record_refs(b, wbn, unread: list, key: str, calculate: bool = False) -> None:
+    """The cells that show #REF! on each sheet the look could not read (a protected sheet's values can be read when
+    its formulas cannot), counted in b - after the sheet is calculated (calculate: the batch runs with Calculation
+    manual); each sheet operations that may fail."""
+    for sheet, _ in unread:
+        with b.attempt():
+            ws = wbn.Worksheets(sheet)
+            if calculate:
+                ws.Calculate()
+            b.ret(b.app.WorksheetFunction.CountIf(ws.UsedRange, "#REF!"), f"{key}.{sheet}")
+
+
+def _unread_notes(q: int, unread: list, values: dict | None) -> list[str]:
+    """A sheet whose formulas the look could not read, as a warning only when it could matter: a cell there shows
+    #REF! after the drop that did not before (phase 3b review: a protected sheet with a hidden formula warned on every
+    follow-up); when that cannot be told (values None, or a count not read) as before."""
+    out = []
+    for sheet, why in unread:
+        before = (values or {}).get(f"refs before.{sheet}")
+        after = (values or {}).get(f"refs after.{sheet}")
+        if isinstance(before, (int, float)) and isinstance(after, (int, float)):
+            if after > before:
+                out.append(UNREAD_REF.format(sheet=sheet, why=why, n=int(after - before), q=q))
+            continue
+        out.append(UNREAD.format(sheet=sheet, why=why, q=q))
+    return out
 
 
 POINTED_MAX = 10                        # formulas named in one warning
