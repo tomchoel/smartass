@@ -3,6 +3,7 @@ The network is faked: an opener that records what it is given (or, for the redir
 over a fake HTTPS handler). Nothing here reaches EPM."""
 import http.client
 import io
+import json
 import logging
 import time
 import urllib.error
@@ -226,9 +227,9 @@ def test_a_read_only_smart_view_request_and_a_getdata_post_are_sent(make):
     s, op, _ = make(answers=[(200, "<res_ConnectToProvider/>", {"Content-Type": "text/xml"})])
     r = s.request("POST", "/HyperionPlanning/SmartView", headers={"Content-Type": "text/xml"}, body=svxml.connect())
     assert r == epmhttp.Response(200, "<res_ConnectToProvider/>", {"content-type": "text/xml"})
-    s.request("POST", "/aif/ui/model/drilldown/getData?limit=5000&offset=0", body='{"QUERY": "q"}', timeout=7)
+    s.request("POST", "/aif/ui/model/drilldown/getData?limit=5000&offset=0", body='{"QUERY": "SELECT 1"}', timeout=7)
     assert [(x.get_method(), x.data) for x in op.sent] == [("POST", svxml.connect().encode()),
-                                                            ("POST", b'{"QUERY": "q"}')]
+                                                            ("POST", b'{"QUERY": "SELECT 1"}')]
 
 
 def test_the_session_keeps_its_cookies_to_itself(make):
@@ -377,7 +378,7 @@ def test_headers_are_taken_per_request(make):
     drill = {"Accept": "application/json, text/javascript, */*; q=0.01", "Content-Type": "application/json",
              "X-Requested-With": "XMLHttpRequest", "page_id": "smartass", "x-appbuilder-client-id": "k1"}
     s.request("GET", GET_VIEW, headers=drill)                                 # what drill_token sends (Task 5)
-    s.request("POST", GET_DATA, headers=drill, body='{"QUERY": "q", "PARAMS": [], "PARAMSTYPE": []}')
+    s.request("POST", GET_DATA, headers=drill, body='{"QUERY": "SELECT 1", "PARAMS": [], "PARAMSTYPE": []}')
     assert len(op.sent) == 2
 
 
@@ -540,3 +541,105 @@ def test_two_requests_at_once_share_one_consistent_jar(make):
         th.join(5)
     s.request("GET", "/aif/ui/model/applications/servicetype")
     assert errors == [] and sorted((op.sent[2].get_header("Cookie") or "").split("; ")) == ["A=1", "B=2"]
+
+
+# ---------------------------------------------------------------- re-review 2: the drill query, the drip, the jar
+# EPM's drill query as the live probe of 2026-11-03 saw it (tests/test_drill_derive.py)
+REAL_QUERY = ("SELECT ENTITY, AMOUNTX FROM TDATASEG abdv WHERE ( tpovpartition.partitionkey in ( ?,? ) ) AND"
+              " abdv.catKey IN ( ? ) AND abdv.periodKey IN ( ? ) AND Entityx IN (?,?,? ) AND Accountx IN (?,? )"
+              " AND Ud1x = ?")
+
+
+@pytest.mark.parametrize("query", [
+    REAL_QUERY, "SELECT 1", "SELECT 1 WHERE Entityx = ? AND x = ?",
+    "  \n\t-- EPM's drill\n /* the cell */ select ENTITY FROM TDATASEG",          # leading space and comments
+    "WITH t AS (SELECT 1 FROM dual) SELECT * FROM t",
+    "SELECT 'a; DELETE FROM t' FROM dual", "SELECT 'it''s; DROP TABLE t' FROM dual",   # inside a string
+    'SELECT "DELETE", "x;y" FROM dual',                                               # quoted identifiers
+    "SELECT UPDATE_DATE, t.delete_flag, CREATED_BY FROM t",                           # not standalone words
+    "SELECT 1 FROM t -- ; DELETE FROM t", "SELECT /*+ INDEX(t) */ 1 FROM t /* ; DROP */",   # inside a comment
+])
+def test_a_drill_query_that_only_reads_is_sent(make, query):
+    s, op, _ = make()
+    s.request("POST", GET_DATA, body=json.dumps({"QUERY": query, "PARAMS": [], "PARAMSTYPE": []}))
+    assert len(op.sent) == 1
+
+
+@pytest.mark.parametrize("query", [
+    "DELETE FROM TDATASEG", "  \n UPDATE t SET x = 1", "SELECT 1; DELETE FROM TDATASEG", "SELECT 1;",
+    "select 1 from t where x in (select 1) ; drop table t", "SELECT 1 /* x */ DELETE FROM t",
+    "SELECT 1/**/;/**/DELETE FROM t", "SELECT 1 -- x\n DELETE FROM t", "SELECT 1 -- x\r DELETE FROM t",
+    "/* SELECT */ DELETE FROM t", "-- SELECT\nDELETE FROM t", "sElEcT 1 FrOm t WhErE x = 1 Or DeLeTe",
+    "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d", "SELECT 'x' FROM t; GRANT DBA TO u",
+    "SELECT * FROM t FOR UPDATE", "MERGE INTO t USING s ON (1=1)", "SELECT 1 FROM t WHERE TRUNCATE",
+    "EXECUTE IMMEDIATE 'DROP TABLE t'", "EXEC p", "CALL p()", "BEGIN NULL; END;", "DECLARE x NUMBER",
+    "SELECT ALTER", "SELECT CREATE", "SELECT REVOKE", "SELECT COMMIT", "SELECT INSERT",
+    "SELECT 'unterminated", 'SELECT "unterminated', "SELECT 1 /* unterminated", "", "   ", "-- only a comment",
+    "SELECTX 1", "WITHOUT 1", "(SELECT 1)",
+])
+def test_a_drill_query_that_could_write_is_refused_before_a_token(make, caplog, query):
+    caplog.set_level(logging.DEBUG, logger="smartass.epm.epmhttp")
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused) as e:
+        s.request("POST", GET_DATA, body=json.dumps({"QUERY": query + "\n-- Q-SECRET", "PARAMS": []}))
+    assert str(e.value) == "refused: the drill query is not one read-only SELECT"
+    assert "Q-SECRET" not in caplog.text and op.sent == [] and tok.asked == []
+
+
+@pytest.mark.parametrize("late, drip", [(0.0, 0.2), (0.8, None)])
+def test_a_slow_answer_on_a_real_socket_stops_at_the_deadline(late, drip):
+    """A local socket pair (no network), timeout 1 s: the answer's 40 bytes come one per 0.2 s, or its head comes at
+    0.8 s with one byte and then nothing. Either way it ends near 1 s, not a socket timeout per byte later."""
+    import socket
+    import threading
+    import time
+    a, b = socket.socketpair()
+    stop = threading.Event()
+
+    def wire():
+        try:
+            if stop.wait(late):
+                return
+            b.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\n\r\nx")
+            while drip and not stop.wait(drip):
+                b.sendall(b"x")
+        except OSError:
+            pass
+    th = threading.Thread(target=wire, daemon=True)
+    th.start()
+
+    class Wire:
+        def open(self, req, timeout):
+            a.settimeout(timeout)                       # as urllib does: per receive, not per answer
+            r = http.client.HTTPResponse(a)
+            r.begin()
+            return r
+    s = epmhttp.EpmSession(POD, tokens=_Tokens("at-1"), opener=Wire())
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError):
+            s.request("GET", "/aif/ui/model/applications/servicetype", timeout=1)
+        assert time.monotonic() - t0 < 1.5
+    finally:
+        stop.set()
+        th.join(2)
+        a.close()
+        b.close()
+
+
+def test_a_401_whose_renewal_fails_still_drops_the_cookies(make):
+    s, op, _ = make(tokens=["at-1", "at-1", oauth.NotSignedIn("ended")],
+                    answers=[(200, "{}", {"Set-Cookie": "JSESSIONID=old; Path=/"}), (401, "", {})])
+    s.request("GET", "/aif/ui/model/applications/servicetype")
+    with pytest.raises(oauth.NotSignedIn):
+        s.request("GET", "/aif/ui/model/applications/servicetype")
+    assert list(s._jar) == []
+
+
+@pytest.mark.parametrize("error", [OSError("Bearer at-SECRET"), http.client.HTTPException("at ?limit=1 at-SECRET")])
+def test_a_scrubbed_error_keeps_no_link_to_the_original(make, error):
+    s, op, _ = make(tokens=["at-SECRET"], answers=[error])
+    with pytest.raises(OSError) as e:
+        s.request("POST", GET_DATA, body="{}")
+    assert e.value is not error and e.value.__context__ is None and e.value.__cause__ is None
+    assert _clean(str(e.value))

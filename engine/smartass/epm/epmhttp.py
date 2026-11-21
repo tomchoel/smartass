@@ -22,6 +22,7 @@ import http.cookiejar
 import json
 import logging
 import re
+import socket
 import threading
 import time
 import urllib.error
@@ -64,6 +65,10 @@ ALLOWED: dict[str, _Rule] = {
                     "application/json"),
 }
 GET_DATA_KEYS = {"QUERY": str, "PARAMS": list, "PARAMSTYPE": list}   # drillcore.parse_sui / drill_derive build these
+# Statement words that write or administer: never a word of a drill query (outside strings, quoted names, comments)
+SQL_WRITES = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE",
+                        "EXEC", "EXECUTE", "CALL", "BEGIN", "COMMIT", "DECLARE"})
+_SQL_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_$#]*")
 HEADER_VALUES = {"x-requested-with": re.compile("XMLHttpRequest")}
 SECRET_HEADERS = ("x-appbuilder-client-id",)            # values scrubbed from an error text and a repr, like the token
 HIDDEN_HEADERS = ("set-cookie", "set-cookie2")          # kept by the jar, never handed to a caller
@@ -143,8 +148,8 @@ class EpmSession:
         token = self._tokens.access_token(self.origin)
         r = self._send(method, target, sent, data, token, timeout)
         if r.status == 401:                             # the hour may have ended early: one new token, one more try
+            self._jar.clear()                           # first: the cookies go even when no new token comes
             token = self._tokens.access_token(self.origin, reject=token)
-            self._jar.clear()
             r = self._send(method, target, sent, data, token, timeout)
         log.debug("epmhttp: %s %s -> HTTP %s (%.2f s)", method, redact(target), r.status, time.monotonic() - t0)
         return r
@@ -207,6 +212,7 @@ class EpmSession:
         self._jar.add_cookie_header(req)
         deadline = time.monotonic() + timeout
         secrets = [token, *(v for k, v in headers.items() if k.lower() in SECRET_HEADERS)]
+        err = None
         try:
             try:
                 r = self._opener.open(req, timeout=timeout)
@@ -218,9 +224,11 @@ class EpmSession:
                 text = _read(r, deadline, method, url)
                 info = r.headers
         except OSError as e:
-            raise self._scrubbed(e, secrets) from None
+            err = self._scrubbed(e, secrets)
         except http.client.HTTPException as e:          # IncompleteRead, BadStatusLine, LineTooLong ...
-            raise self._scrubbed(RequestLost(f"{type(e).__name__}: {e}"), secrets) from None
+            err = self._scrubbed(RequestLost(f"{type(e).__name__}: {e}"), secrets)
+        if err is not None:                             # raised out here: a scrubbed error has no __context__
+            raise err from None
         return Response(status, text, {k.lower(): v for k, v in info.items() if k.lower() not in HIDDEN_HEADERS})
 
     def _scrubbed(self, e: OSError, secrets: list[str]) -> OSError:
@@ -287,19 +295,79 @@ def _check_body(method: str, shown: str, path: str, body) -> None:
     if not isinstance(j, dict) or any(k not in GET_DATA_KEYS or not isinstance(v, GET_DATA_KEYS[k])
                                       for k, v in j.items()):
         raise Refused(f"refused: POST {shown} with a body that is not a drill query ({', '.join(GET_DATA_KEYS)})")
+    if "QUERY" in j and not _read_only_sql(j["QUERY"]):
+        raise Refused("refused: the drill query is not one read-only SELECT")      # its text is never quoted
+
+
+def _sql_tokens(query: str) -> list[str] | None:
+    """The words (upper case) and other characters of an SQL text outside its strings ('...'), quoted names
+    ("...") and comments (-- and /* */); None when one of those does not end. A tokeniser, not a parser: it only
+    has to know what EPM would read as a statement word or a statement end."""
+    out, i, n = [], 0, len(query)
+    while i < n:
+        c = query[i]
+        if c in "'\"":
+            j = i + 1
+            j = query.find(c, i + 1)                    # 'it''s' reads as two strings: the same here
+            if j < 0:
+                return None
+            i = j + 1
+        elif query.startswith("--", i):
+            ends = [k for k in (query.find("\n", i), query.find("\r", i)) if k >= 0]
+            i = min(ends) if ends else n
+        elif query.startswith("/*", i):
+            j = query.find("*/", i + 2)
+            if j < 0:
+                return None
+            i = j + 2
+        elif c.isspace():
+            i += 1
+        elif m := _SQL_WORD.match(query, i):
+            out.append(m.group().upper())
+            i = m.end()
+        else:
+            out.append(c)
+            i += 1
+    return out
+
+
+def _read_only_sql(query: str) -> bool:
+    """EPM's drill query (it hands it out; the client posts it back): one SELECT (or WITH ... SELECT) - it starts
+    with that word, has no ';' and no word that writes or administers, outside strings and comments."""
+    tokens = _sql_tokens(query)
+    return (bool(tokens) and tokens[0] in ("SELECT", "WITH") and ";" not in tokens
+            and not SQL_WRITES.intersection(tokens))
 
 
 def _read(r, deadline: float, method: str, url: str) -> str:
-    """The answer's text, at most MAX_ANSWER_BYTES and no later than the deadline."""
+    """The answer's text, at most MAX_ANSWER_BYTES and no later than the deadline: one receive at a time (read1),
+    each with the socket's timeout set to the time left, so a slow drip cannot outlast it."""
+    sock, read = _socket(r), getattr(r, "read1", None) or r.read
     chunks, n = [], 0
-    while chunk := r.read(1 << 20):
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError(f"EPM's answer to {method} {redact(url)} did not end in time")
+        if sock is not None:
+            sock.settimeout(left)
+        chunk = read(1 << 16)
+        if not chunk:
+            return b"".join(chunks).decode("utf-8", "replace")
         n += len(chunk)
         if n > MAX_ANSWER_BYTES:
             raise TooLarge(f"EPM's answer to {method} {redact(url)} is over {MAX_ANSWER_BYTES >> 20} MB")
-        if time.monotonic() > deadline:
-            raise TimeoutError(f"EPM's answer to {method} {redact(url)} did not end in time")
         chunks.append(chunk)
-    return b"".join(chunks).decode("utf-8", "replace")
+
+
+def _socket(r) -> socket.socket | None:
+    """The socket under an answer (http.client.HTTPResponse, or the one an HTTPError wraps); None for a fake."""
+    fp = r
+    for _ in range(4):
+        sock = getattr(getattr(fp, "raw", None), "_sock", None)
+        if isinstance(sock, socket.socket):
+            return sock
+        fp = getattr(fp, "fp", None)
+    return None
 
 
 def _check_value(name: str, value) -> None:
