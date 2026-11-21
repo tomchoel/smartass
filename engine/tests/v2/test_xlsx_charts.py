@@ -537,3 +537,17 @@ def test_the_built_file_carries_the_answer_charts_and_reports_them(tmp_path):
     with zipfile.ZipFile(built.path) as z:
         rels = z.read("xl/worksheets/_rels/sheet1.xml.rels").decode("utf-8")
     assert "drawing1.xml" in rels                                          # on the Answer sheet, the first one
+
+
+@pytest.mark.filterwarnings("error")
+def test_a_title_or_series_name_xlsxwriter_would_read_as_a_cell_reference_is_written_as_text(tmp_path):
+    """Final review M9: XlsxWriter takes a name shaped like Sheet!A1 for a formula (a broken title reference); the
+    chart's title and a series name stay the text the spec gives."""
+    s = spec("column", [("Opex!B2", "D", "ac")], title="Revenue beat budget!FY26")
+    titles, lint, (root,) = draw(tmp_path, s)
+    assert titles == ["Revenue beat budget!FY26"] and lint == []
+    title = root.find(f"{C}chart/{C}title")
+    assert "".join(t.text for t in title.iter(A + "t")) == "Revenue beat budget!FY26"
+    assert title.find(f"{C}tx/{C}strRef") is None
+    (ser,) = sers(root)
+    assert name(ser) == "Opex!B2" and ser.find(f"{C}tx/{C}strRef") is None
