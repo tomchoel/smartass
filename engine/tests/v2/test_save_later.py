@@ -15,7 +15,7 @@ from test_file_job import _job, _pre
 
 import test_file_job
 import test_first_answer
-from smartass import pipeline
+from smartass import exceljob
 from smartass.core import config
 from smartass.core.timing import BATCH_PREFIX
 from smartass.xl.inproc import later
@@ -116,15 +116,15 @@ def test_a_failed_save_is_kept_for_the_job_after_next_when_the_next_one_fails_fi
     addin.save_error = "the file is locked by another user"
     addin.release()
     addin.save_error = None
-    real = pipeline._close_out
+    real = exceljob._close_out
 
     def broken(*a, **k):
         raise RuntimeError("the close-out broke")
-    monkeypatch.setattr(pipeline, "_close_out", broken)
+    monkeypatch.setattr(exceljob, "_close_out", broken)
     with pytest.raises(RuntimeError, match="the close-out broke.*after the last answer failed"):
         _job(_pre(), calculated)
     assert fake_target.wb.saved == 0
-    monkeypatch.setattr(pipeline, "_close_out", real)
+    monkeypatch.setattr(exceljob, "_close_out", real)
     out, _ = _job(_pre(), calculated)
     assert [w for w in out["warnings"] if "after the last answer failed" in w] == [
         f"the save of {fake_target.wb.Name} after the last answer failed (the file is locked by another user); it is "
@@ -174,7 +174,7 @@ def test_a_refused_request_saves_in_the_job(fake_target, calculated, addin):
 
 
 def test_the_users_workbook_is_never_asked_to_be_saved(fake_target, calculated, addin, monkeypatch):
-    monkeypatch.setattr(pipeline, "_is_ours", lambda t: False)
+    monkeypatch.setattr(exceljob, "_is_ours", lambda t: False)
     _job(_pre(), calculated)
     _job(_pre(), calculated)
     assert addin.asked == [] and fake_target.wb.saved == 0
@@ -184,7 +184,7 @@ def test_a_follow_up_asks_for_its_save_after_the_reply_too(fake_target, calculat
     _job(_pre(), calculated)
     addin.release()
     calculated["pre"] = pre = _pre()
-    out, _ = pipeline.with_timings(lambda h: pipeline.redraw_job(h, pre, 1))(None)
+    out, _ = exceljob.with_timings(lambda h: exceljob.redraw_job(h, pre, 1))(None)
     assert out["followup"] is True and len(addin.asked) == 2 and fake_target.wb.saved == 1
     addin.release()
     assert fake_target.wb.saved == 2 and fake_target.wb.AutoSaveOn is True

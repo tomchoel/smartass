@@ -61,7 +61,7 @@ def _line(i: int, supplier="Accenture AS") -> dict:
 
 
 def _header_block(table="Lines_Q3_b0") -> list[list]:
-    """The F1:K3 rectangle as pipeline._lines_grid gives it: text with its leading apostrophe."""
+    """The F1:K3 rectangle as exceljob._lines_grid gives it: text with its leading apostrophe."""
     g = lines_header(table, {"Account": "ac.C50S", "Period": "Sep 26"}, "2026-11-05 09:30 +0100 · tom")
     return [["'" + x if isinstance(x, str) and x and not x.startswith("=") else x for x in r] for r in g]
 

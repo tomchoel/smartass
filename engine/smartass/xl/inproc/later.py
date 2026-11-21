@@ -10,7 +10,7 @@ is written. A batch's Run (or another SaveLater) that comes before the save ran 
 the next job never finds a save waiting between its batches, and no save runs twice or is lost. A job that comes
 while the save runs waits for Excel as for any busy Excel (its call is rejected and asked again: jobs.com). Without
 the add-in in that Excel (the COM executor), with SV_SAVE=sync, or when the add-in refuses or cannot be asked, the
-caller saves in the job as before (pipeline._save). Only our own file is ever asked for: never the user's workbook.
+caller saves in the job as before (exceljob._save). Only our own file is ever asked for: never the user's workbook.
 
 The outcome is config.INPROC_DIR / "saved" / "<Excel's pid>.json", written by the add-in, with no figure in it: the
 token the request carried, the workbook's name, ok, Excel's error text, whether the workbook was closed first,

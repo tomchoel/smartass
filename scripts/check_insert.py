@@ -25,7 +25,7 @@ provider.
    do), a file holding a table (refused), a missing or broken file (what Excel leaves), the temporary file deleted
    right after the insert, and the Excel around it (calculation, the active workbook, windows, the recent list,
    the undo state, visible windows of the process).
-3. Whole jobs (pipeline.excel_job, a second question with a Lines sheet, then pipeline.redraw_job: a follow-up's
+3. Whole jobs (exceljob.excel_job, a second question with a Lines sheet, then exceljob.redraw_job: a follow-up's
    replacement), since Task 2b the job's batches (xl/inproc) once through the COM executor (side 'copy', and
    'control' for the noise) and once through the in-process add-in (side 'insert'), each in a workbook of its
    own, compared sheet by sheet; sheet = model, the warnings and layout findings per step, the draw's seconds and
@@ -86,7 +86,7 @@ import pywintypes  # noqa: E402
 import xlsxwriter  # noqa: E402
 
 from check_fastcom import QUIT_WAIT_S, _wait_gone, kill_if_ours, start_excel  # noqa: E402
-from smartass import pipeline  # noqa: E402
+from smartass import exceljob, pipeline  # noqa: E402
 from smartass.core import config  # noqa: E402
 from smartass.render import xlsx  # noqa: E402
 from smartass.render.layout import ChartSpec  # noqa: E402
@@ -1150,14 +1150,14 @@ def compare_jobs(xl: Excel) -> None:
         wb = xl.fresh(side, ("Sources",))
         books[side] = wb
         target = lambda h, target, title, build_new=False, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
-        seams = {(pipeline, "_target"): target, (pipeline, "_save"): lambda job: None,
-                 (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+        seams = {(exceljob, "_target"): target, (exceljob, "_save"): lambda job: None,
+                 (exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now,
                  (config, "INPROC"): inproc}
         with _patched(seams):
             for label, q, pre in _pres():
-                job = (lambda h, pre=pre: pipeline.excel_job(h, pre)) if q is None else (
-                    lambda h, pre=pre, q=q: pipeline.redraw_job(h, pre, q, "this workbook"))
-                out, timings = pipeline.with_timings(job)(None)
+                job = (lambda h, pre=pre: exceljob.excel_job(h, pre)) if q is None else (
+                    lambda h, pre=pre, q=q: exceljob.redraw_job(h, pre, q, "this workbook"))
+                out, timings = exceljob.with_timings(job)(None)
                 steps[label][side] = ((out.get("checks") or {}).get("sheet_equals_model"),
                                       timings.get("draw", 0.0),
                                       int(sum(v for k, v in timings.items() if k.startswith(BATCH_PREFIX)
@@ -1197,7 +1197,7 @@ EXPECTED_NEW: list[tuple[str, str, str]] = [
 
 
 def _new_target_seam(xl: Excel, holder: dict):
-    """pipeline._target for the new-workbook part: the first question resolves to a new workbook in this script's
+    """exceljob._target for the new-workbook part: the first question resolves to a new workbook in this script's
     Excel (target._new_target, today's way or the built file's), every later one to that workbook (the session's)."""
     from smartass.xl import target as xltarget
 
@@ -1224,7 +1224,7 @@ def new_workbook(xl: Excel) -> None:
     from smartass.core import session
     folder = TMP / "analyser"
     folder.mkdir(exist_ok=True)
-    seams = {(pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now, (config, "INPROC"): True,
+    seams = {(exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now, (config, "INPROC"): True,
              (session, "project_dir"): lambda: folder, (session, "set_workbook"): lambda p: None}
     pres = _pres()
     lines_first = [("first answer with a Lines sheet", None, pres[1][2])]
@@ -1245,14 +1245,14 @@ def _new_books(xl: Excel, seams: dict, questions: list, scenario: str) -> dict:
     books, steps, files = {}, defaultdict(dict), {}
     for side, build in NEW_SIDES.items():
         holder: dict = {}
-        side_seams = seams | {(pipeline, "_target"): _new_target_seam(xl, holder)}
+        side_seams = seams | {(exceljob, "_target"): _new_target_seam(xl, holder)}
         if not build:
-            side_seams[(pipeline, "_new_book")] = lambda: None
+            side_seams[(exceljob, "_new_book")] = lambda: None
         with _patched(side_seams):
             for label, q, pre in questions:
-                job = (lambda h, pre=pre: pipeline.excel_job(h, pre)) if q is None else (
-                    lambda h, pre=pre, q=q: pipeline.redraw_job(h, pre, q, "this workbook"))
-                out, timings = pipeline.with_timings(job)(None)
+                job = (lambda h, pre=pre: exceljob.excel_job(h, pre)) if q is None else (
+                    lambda h, pre=pre, q=q: exceljob.redraw_job(h, pre, q, "this workbook"))
+                out, timings = exceljob.with_timings(job)(None)
                 steps[label][side] = ((out.get("checks") or {}).get("sheet_equals_model"),
                                       sum(timings.get(s, 0.0) for s in ("open target", "draw", "save")),
                                       int(sum(v for k, v in timings.items() if k.startswith(BATCH_PREFIX)
@@ -1329,9 +1329,9 @@ def _failed_new_workbook(xl: Excel, seams: dict, folder: Path) -> None:
     before = (int(xl.app.Workbooks.Count), [getattr(xl.app, n) for n, _ in runner.QUIET],
               str(xl.app.ActiveWorkbook.Name), sorted(p.name for p in folder.iterdir()))
     holder: dict = {}
-    with _patched(seams | {(pipeline, "_target"): _new_target_seam(xl, holder), (movein, "calculate"): calculate}):
+    with _patched(seams | {(exceljob, "_target"): _new_target_seam(xl, holder), (movein, "calculate"): calculate}):
         try:
-            pipeline.excel_job(None, _pres()[0][2])
+            exceljob.excel_job(None, _pres()[0][2])
             failed = ""
         except Exception as e:   # noqa: BLE001 - the failure is the point
             failed = str(e)
@@ -1368,14 +1368,14 @@ def failed_jobs(xl: Excel) -> None:
     for side, inproc in (("com", False), ("inproc", True)):
         wb = xl.fresh(f"fail_{side}", ("Sources",))
         target = lambda h, target, title, build_new=False, wb=wb: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)  # noqa: E731
-        seams = {(pipeline, "_target"): target, (pipeline, "_save"): lambda job: None,
-                 (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+        seams = {(exceljob, "_target"): target, (exceljob, "_save"): lambda job: None,
+                 (exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now,
                  (config, "INPROC"): inproc}
         with _patched(seams):
             for _, _, pre in pres[:2]:
-                pipeline.excel_job(None, pre)
-            for label, job in (("a follow-up", lambda: pipeline.redraw_job(None, pres[2][2], 1, "this workbook")),
-                               ("a new answer", lambda: pipeline.excel_job(None, pres[0][2]))):
+                exceljob.excel_job(None, pre)
+            for label, job in (("a follow-up", lambda: exceljob.redraw_job(None, pres[2][2], 1, "this workbook")),
+                               ("a new answer", lambda: exceljob.excel_job(None, pres[0][2]))):
                 before = _state(xl, wb)
                 with _patched({(movein, "calculate"): calculate}):
                     try:
@@ -1516,11 +1516,11 @@ def repoint_bench(xl: Excel) -> None:
     for side, inproc in (("com", False), ("inproc", True)):
         for count, wide in ((0, False), (500, False), (500, True)):
             wb = xl.fresh(f"bench_{side}_{count}", ("Sources",))
-            seams = {(pipeline, "_target"): _target_of(xl, wb), (pipeline, "_save"): lambda job: None,
-                     (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+            seams = {(exceljob, "_target"): _target_of(xl, wb), (exceljob, "_save"): lambda job: None,
+                     (exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now,
                      (config, "INPROC"): inproc}
             with _patched(seams):
-                pipeline.excel_job(None, pres[0][2])
+                exceljob.excel_job(None, pres[0][2])
                 if count:
                     cell = str(wb.Worksheets("Q1 Data").ListObjects("Data_Q1").DataBodyRange.Cells(1, 1).Address)
                     s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
@@ -1528,8 +1528,8 @@ def repoint_bench(xl: Excel) -> None:
                     s.Range(f"A1:A{count}").Formula2 = f"='Q1 Data'!{cell}"
                     if wide:
                         s.Range("XFD1048576").Interior.Color = 255          # the used range to the last cell
-                out, timings = pipeline.with_timings(
-                    lambda h: pipeline.redraw_job(h, pres[2][2], 1, "this workbook"))(None)
+                out, timings = exceljob.with_timings(
+                    lambda h: exceljob.redraw_job(h, pres[2][2], 1, "this workbook"))(None)
                 left = [] if not count else [a for a, (f,) in enumerate(s.Range(f"A1:A{count}").Formula2, 1)
                                              if f != f"='Q1 Data'!{cell}"]
             where = " on a sheet whose used range reaches XFD1048576" if wide else ""
@@ -1542,7 +1542,7 @@ def repoint_bench(xl: Excel) -> None:
 
 
 def _target_of(xl: Excel, wb):
-    """pipeline._target's stand-in: wb as our own analysis file in this script's Excel."""
+    """exceljob._target's stand-in: wb as our own analysis file in this script's Excel."""
     return lambda h, target, title, build_new=False: Target(app=xl.app, wb=wb, pid=xl.pid, hwnd=0, created=True)
 
 
@@ -1558,18 +1558,18 @@ def repointing(xl: Excel) -> None:
         return b.position - 1
     for side, inproc in (("com", False), ("inproc", True)):
         wb = xl.fresh(f"repoint_{side}", ("Sources",))
-        seams = {(pipeline, "_target"): _target_of(xl, wb), (pipeline, "_save"): lambda job: None,
-                 (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+        seams = {(exceljob, "_target"): _target_of(xl, wb), (exceljob, "_save"): lambda job: None,
+                 (exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now,
                  (config, "INPROC"): inproc}
         with _patched(seams):
-            pipeline.excel_job(None, pres[0][2])
-            pipeline.excel_job(None, pres[1][2])
+            exceljob.excel_job(None, pres[0][2])
+            exceljob.excel_job(None, pres[1][2])
             refs = _point_at_q1(xl, wb)
             check(f"re-pointing ({side}): the formulas point at Q1 before", not _pointing_problems(wb, refs))
-            steps = [("a follow-up", lambda: [pipeline.redraw_job(None, pres[2][2], 1, "this workbook")]),
-                     ("a second follow-up", lambda: [pipeline.redraw_job(None, pres[0][2], 1, "this workbook")]),
-                     ("a refresh (Q1, then Q2)", lambda: [pipeline.redraw_job(None, pres[0][2], 1, "this workbook"),
-                                                          pipeline.redraw_job(None, pres[1][2], 2, "this workbook")])]
+            steps = [("a follow-up", lambda: [exceljob.redraw_job(None, pres[2][2], 1, "this workbook")]),
+                     ("a second follow-up", lambda: [exceljob.redraw_job(None, pres[0][2], 1, "this workbook")]),
+                     ("a refresh (Q1, then Q2)", lambda: [exceljob.redraw_job(None, pres[0][2], 1, "this workbook"),
+                                                          exceljob.redraw_job(None, pres[1][2], 2, "this workbook")])]
             for label, step in steps:
                 t0 = time.perf_counter()
                 outs = step()
@@ -1581,7 +1581,7 @@ def repointing(xl: Excel) -> None:
             before = _state(xl, wb)
             with _patched({(movein, "drop"): drop}):
                 try:
-                    pipeline.redraw_job(None, pres[2][2], 1, "this workbook")
+                    exceljob.redraw_job(None, pres[2][2], 1, "this workbook")
                     failed = None
                 except Exception as e:   # noqa: BLE001 - the failure is the point
                     failed = f"{type(e).__name__}: {str(e)[:90]}"
@@ -1602,11 +1602,11 @@ def protected_sheets(xl: Excel) -> None:
     pres = _pres()
     for side, inproc in (("com", False), ("inproc", True)):
         wb = xl.fresh(f"protected_{side}", ("Sources",))
-        seams = {(pipeline, "_target"): _target_of(xl, wb), (pipeline, "_save"): lambda job: None,
-                 (pipeline, "remember"): lambda pre, out: None, (pipeline, "datetime"): _Now,
+        seams = {(exceljob, "_target"): _target_of(xl, wb), (exceljob, "_save"): lambda job: None,
+                 (exceljob, "remember"): lambda pre, out: None, (exceljob, "datetime"): _Now,
                  (config, "INPROC"): inproc}
         with _patched(seams):
-            pipeline.excel_job(None, pres[0][2])
+            exceljob.excel_job(None, pres[0][2])
             sheets_ = {}
             for name, formulas in (("Pointing", ("='Q1 Answer'!A1",)), ("Other", ("=1+1", "=#REF!"))):
                 s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
@@ -1625,7 +1625,7 @@ def protected_sheets(xl: Excel) -> None:
                     s = wb.Worksheets.Add(None, wb.Worksheets(wb.Worksheets.Count))
                     s.Name = "Summary"
                     s.Range("A1").Formula2 = "='Q1 Answer'!A1"
-                out = pipeline.redraw_job(None, pres[2][2], 1, "this workbook")
+                out = exceljob.redraw_job(None, pres[2][2], 1, "this workbook")
                 said = [w for w in out.get("warnings") or [] if "could not read the formulas" in w]
                 ok = (len(said) == 1 and "'Pointing'" in said[0] and "1 more cell(s)" in said[0]
                       and not [w for w in said if "'Other'" in w])

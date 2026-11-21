@@ -16,7 +16,7 @@ import test_file_job
 from test_file_job import BASE, _batches, _job, _pre
 
 import fakexl
-from smartass import pipeline
+from smartass import exceljob, pipeline
 from smartass.core import config, session
 from smartass.core.timing import BATCH_PREFIX
 from smartass.render import xlsx
@@ -55,8 +55,8 @@ def new_book(monkeypatch, tmp_home, tmp_path):
     def target(h, target, title, build_new=False):
         asked.append(build_new)
         return xltarget._new_target(None, title, [(7, 70, app)], build_new=build_new)
-    monkeypatch.setattr(pipeline, "_target", target)
-    monkeypatch.setattr(pipeline, "remember", lambda pre, out: None)
+    monkeypatch.setattr(exceljob, "_target", target)
+    monkeypatch.setattr(exceljob, "remember", lambda pre, out: None)
     return SimpleNamespace(app=app, mine=mine, folder=folder, sessions=sessions, asked=asked)
 
 
@@ -136,7 +136,7 @@ def test_a_second_answer_finds_the_new_workbooks_log_furnished(new_book, calcula
     out, _ = _job(_pre(), calculated)
     wb = new_book.app.Workbooks(Path(out["workbook"]).name)
     t = xltarget.Target(app=new_book.app, wb=wb, pid=7, hwnd=70, created=True)
-    monkeypatch.setattr(pipeline, "_target", lambda h, target, title, build_new=False: t)
+    monkeypatch.setattr(exceljob, "_target", lambda h, target, title, build_new=False: t)
     runs = _runs(monkeypatch)
     out2, _ = _job(_pre(), calculated)
     assert out2["q"] == 2 and out2["checks"]["sheet_equals_model"] == "OK"
@@ -227,9 +227,9 @@ def test_the_job_builds_a_new_workbook_only_with_a_label_a_known_base_and_the_te
     def target(h, target, title, build_new=False):
         asked.append(build_new)
         raise HostError("stop here")
-    monkeypatch.setattr(pipeline, "_target", target)
+    monkeypatch.setattr(exceljob, "_target", target)
     with pytest.raises(HostError, match="stop here"):
-        pipeline.excel_job(None, _pre())
+        exceljob.excel_job(None, _pre())
     assert asked == [want]
 
 
@@ -238,8 +238,8 @@ def test_a_new_workbook_made_from_the_template_stores_the_base_its_look_found(tm
     wb.Name, wb.FullName = "2026-11-20_0930 answer.xlsx", str(tmp_home / "answer.xlsx")
     wb.normal = ("Telenor", 11.0)
     t = xltarget.Target(app=wb.Application, wb=wb, pid=0, hwnd=0, created=True, from_template=True)
-    monkeypatch.setattr(pipeline, "_target", lambda h, target, title, build_new=False: t)
-    monkeypatch.setattr(pipeline, "remember", lambda pre, out: None)
+    monkeypatch.setattr(exceljob, "_target", lambda h, target, title, build_new=False: t)
+    monkeypatch.setattr(exceljob, "remember", lambda pre, out: None)
     assert xltarget.new_base() is None
     _job(_pre(), calculated)
     got = xltarget.new_base()
@@ -260,13 +260,13 @@ def test_a_built_workbook_whose_base_is_not_the_stored_one_drops_it_and_keeps_th
     (a default font changed, a template the stored base no longer describes) the answer stays, a warning is logged and
     the stored base is dropped - the next new workbook is made from the template once and stores a fresh one."""
     import logging
-    real = pipeline._look
+    real = exceljob._look
 
     def look(job):
         found = real(job)
         found.base = dataclasses.replace(found.base, col_px=64)
         return found
-    monkeypatch.setattr(pipeline, "_look", look)
+    monkeypatch.setattr(exceljob, "_look", look)
     with caplog.at_level(logging.WARNING):
         out, _ = _job(_pre(), calculated)
     assert out["checks"]["sheet_equals_model"] == "OK" and new_book.sessions == [out["workbook"]]

@@ -1,7 +1,7 @@
 """The built answer's sheets moved into the user's open workbook and finished there (the Excel side of the file render),
 as operations recorded into batches (xl/inproc/batch.py) that run in one go inside Excel (xl/inproc/runner.py).
 
-The file job's batches (pipeline._file_draw): look - the reads the build needs (record_book, record_screen,
+The file job's batches (exceljob._file_draw): look - the reads the build needs (record_book, record_screen,
 record_base); bring in - the answer's table names checked against the workbook's defined names (record_free: a
 lookup of those names, the batch's first operation), (a follow-up: park) the insert, the moves, then finish: the
 tables, the formula blocks, the labels' position and colour (fix_labels), the calculation and the labels' lifts
@@ -298,7 +298,7 @@ def move_in(t, built: BuiltFile, after: str | None, first: bool = False, book: B
     told where the insert landed; names: which of the answer's table names are defined names (record_defined). Each
     is read in a batch of its own when not given - except the names when the insert is recorded into b: then the
     caller passes them, or records the check in b first (record_free, before anything it renames) and passes its
-    index as free_at (pipeline._bring_in); neither is a ValueError, before anything is recorded. Recorded into b,
+    index as free_at (exceljob._bring_in); neither is a ValueError, before anything is recorded. Recorded into b,
     the index of the insert operation there is returned (a failure before it inserted nothing); without b the insert
     runs in a quiet batch of its own (None)."""
     wanted = [spec.name for spec in built.tables]

@@ -419,7 +419,7 @@ def test_without_an_excel_a_new_workbook_is_made_as_today_even_when_the_job_woul
 
 
 def test_resolve_target_leaves_the_session_alone_for_a_workbook_the_job_builds(tmp_path, monkeypatch, fast):
-    """The session's workbook is set once the answer is in it (pipeline.excel_job): a job that fails deletes the
+    """The session's workbook is set once the answer is in it (exceljob.excel_job): a job that fails deletes the
     file. A failure while the Excel is made ready (the bridge) deletes the reserved file too."""
     from smartass.epm import sso
     monkeypatch.setattr(sso, "ensure_global_watcher", lambda: True)

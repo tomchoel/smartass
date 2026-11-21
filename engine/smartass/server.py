@@ -25,7 +25,8 @@ from .model.chain import restore_chain
 from .model.lines import LineSet
 from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError, guard_chart, guard_key_points
-from .pipeline import RestoreError, excel_job, read_stored, redraw_job, run_prepare, with_timings
+from .exceljob import RestoreError, excel_job, read_stored, redraw_job, with_timings
+from .pipeline import run_prepare
 
 TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "fin_critic", "xl_snapshot",
               "xl_revert", "xl_tidy")

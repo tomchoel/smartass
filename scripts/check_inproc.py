@@ -925,7 +925,7 @@ def fixed_cost(app, raw, runs: int) -> None:
 
 def look_bench(app, raw) -> None:
     """Re-review M5 (--look-bench): a workbook of 60 sheets and 2 000 defined names, in both executors - the look's
-    reads as pipeline._look records them (the names no longer among them), and beside it the walk over every name
+    reads as exceljob._look records them (the names no longer among them), and beside it the walk over every name
     the look made before against the lookup of an answer's table names the bring-in makes now (median of 3 runs;
     over COM one run of each)."""
     from smartass.xl import movein, sheets, sources

@@ -137,12 +137,12 @@ def test_excel_job_stores_the_run(home, monkeypatch):
     from test_v2_pipeline import FakeProvider
     from v2util import facts, resolver, spec_dict
 
-    from smartass import pipeline
-    remember = pipeline.remember                       # the real one: Wired replaces it
+    from smartass import exceljob, pipeline
+    remember = exceljob.remember                       # the real one: Wired replaces it
     Wired(monkeypatch)
-    monkeypatch.setattr(pipeline, "remember", remember)
+    monkeypatch.setattr(exceljob, "remember", remember)
     pre = pipeline.prepare(spec_dict(), resolver(), FakeProvider(facts()))
-    out = pipeline.excel_job(None, pre, target="session")
+    out = exceljob.excel_job(None, pre, target="session")
     row = answers.get(out["workbook"], out["q"])
     assert row["question"] == spec_dict()["question"] and row["purpose"] == "Explain Business opex vs LY"
     assert row["metrics"] == ["EBITDA", "Opex", "Revenue"] and row["entities"] == ["un.SY.2BUS"]

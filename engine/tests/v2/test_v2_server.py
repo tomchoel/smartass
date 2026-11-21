@@ -110,7 +110,7 @@ def test_refresh_continues_past_a_failing_question(monkeypatch):
 
 
 def test_refresh_stops_after_a_failed_restore_and_reports_the_rest_as_skipped(monkeypatch):
-    from smartass.pipeline import RestoreError
+    from smartass.exceljob import RestoreError
     stored = {q: {"spec": {"v2": {"question": f"q{q}"}}, "ids": {}, "owned": None} for q in (2, 3, 4)}
     calls, asyncio = _wire(monkeypatch, stored)
 

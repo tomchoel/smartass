@@ -123,7 +123,7 @@ class LinesSheet:
     columns: list[str]
     rows: list[dict]
     cube_value: float | None
-    header_block: list[list]            # the F1:K3 rectangle (pipeline._lines_grid: text with its ')
+    header_block: list[list]            # the F1:K3 rectangle (exceljob._lines_grid: text with its ')
 
 
 @dataclass

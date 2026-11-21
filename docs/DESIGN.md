@@ -33,7 +33,7 @@ v1 (the `sv_*` gate/recipe pipeline, retired 2026-11-04) is described in
 Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. Error text: every tool runs under
 `core/serverkit.guard`, which turns any exception into one readable message with one next step.
 
-## Pipeline (`pipeline.py`)
+## Pipeline (`pipeline.py`; the Excel job in `exceljob.py`)
 
 1. **Prepare** (no Excel): validate the spec (`model/spec.py`, pydantic, strict), resolve metrics and members
    (`knowledge/resolver.py` `KnowledgeResolver` over `knowledge.db` + `atlas.db`), run the hard guards
@@ -44,7 +44,7 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    (`data/adhoc.py` → `xl/pull_adhoc.py`), then prepare runs again with those facts fixed.
 3. **Compute** (`model/analyze.py`): facts → `model/frame.py` → block builders (`model/blocks/*`) → expression
    trees (`model/expr.py`) → values, findings, material lines and `key_values` (`model/findings.py`).
-4. **Excel job** (one job in the user's Excel, `pipeline.excel_job`): the answer's sheets are built as one .xlsx
+4. **Excel job** (one job in the user's Excel, `exceljob.excel_job`): the answer's sheets are built as one .xlsx
    without Excel (`render/xlsx.py`, charts `render/xlsx_charts.py` on the rules of `render/charts.py`) from a pure
    `render/layout.py` plan - `Q<n> Answer` (its look: `render/look.py`), `Q<n> Data`, `Q<n> Lines <alias>` for
    drills - under `%LOCALAPPDATA%\smartass\tmp`. Its Excel work is recorded as **batches** of operations
@@ -52,7 +52,7 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    `exist`, a `finally` list), and each batch runs in one go inside Excel (`xl/inproc/runner.py`: one
    `Application.Run` into a small Excel-DNA add-in, `Runner.cs`, built on first use and loaded once per Excel
    process) or, where the add-in cannot load or `SV_INPROC=0`, over COM from Python - the same operations, the
-   same workbook. Three batches and a save (`pipeline._file_draw`): **look** (every read the build needs: the
+   same workbook. Three batches and a save (`exceljob._file_draw`): **look** (every read the build needs: the
    sheets and tables, the base, which workbook is active, the kind of a Sources sheet, the stored specs' keys; then
    AutoSave off while the job writes); **bring in** (the answer's table names looked up among the defined names
    first, a lookup per name - a new answer's number comes from the look - then a follow-up's old sheets parked, the
@@ -112,7 +112,7 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
    (`answers.py`) at the end of the Excel job and of every redraw.
 
-**Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; `pipeline.redraw_job`
+**Follow-ups and packs** (`followup.py`): a patch is an RFC 7386 merge on the stored spec; `exceljob.redraw_job`
 replaces the question's sheets whole: the old ones are parked under 'old ...' names, the new answer is moved in where
 they were, and the old ones are dropped. Cells a user typed on a `Q<n>` sheet go with it (their own notes belong on
 their own sheets). A formula elsewhere in the workbook that points at the question's sheets or tables follows the park

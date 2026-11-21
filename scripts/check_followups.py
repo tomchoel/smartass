@@ -174,9 +174,9 @@ def run_line(offset: int, tool: str) -> dict | None:
 
 def _inspect(h, path: str, q: int) -> dict:
     """One short user-Excel job: the workbook's sheets, tables, active sheet and its Sources links, by names only."""
-    from smartass import pipeline
+    from smartass import exceljob
     from smartass.xl import jobs
-    t = pipeline._target(h, path, None)
+    t = exceljob._target(h, path, None)
 
     def read():
         names = [str(s.Name) for s in t.wb.Worksheets]
@@ -213,9 +213,9 @@ def _summarise(h, path: str) -> dict:
     """(Task 3) A summary sheet of the user's own with formulas pointing at Q1, and a cell on Q2's Answer pointing at
     Q1: {where: (the formula as Excel keeps it, what its value must equal: ("cell", sheet, address) |
     ("sum", sheet, range) | None)}. The defined name and the chart series are compared by their text."""
-    from smartass import pipeline
+    from smartass import exceljob
     from smartass.xl import jobs
-    t = pipeline._target(h, path, None)
+    t = exceljob._target(h, path, None)
 
     def make():
         wb = t.wb
@@ -253,9 +253,9 @@ def _pointing(h, path: str, refs: dict, q2: bool) -> list[str]:
     """(Task 3) What is wrong with the formulas _summarise made: one that no longer reads as written (#REF!), a value
     that is not its target's (compared here, never printed), a link to another workbook. q2 False: Q2's own redraw
     replaced its Answer and the cell on it."""
-    from smartass import pipeline
+    from smartass import exceljob
     from smartass.xl import jobs
-    t = pipeline._target(h, path, None)
+    t = exceljob._target(h, path, None)
 
     def read():
         wb, bad = t.wb, []
@@ -289,9 +289,9 @@ def _pointing(h, path: str, refs: dict, q2: bool) -> list[str]:
 
 def _close(h, path: str) -> None:
     """Close the workbook this script created (only that one), without saving."""
-    from smartass import pipeline
+    from smartass import exceljob
     from smartass.xl import jobs
-    t = pipeline._target(h, path, None)
+    t = exceljob._target(h, path, None)
     name = jobs.com(lambda: str(t.wb.Name))       # FullName is the https address of a OneDrive file: path and name
     if str(t.path).casefold() != path.casefold() or name.casefold() != Path(path).name.casefold():
         raise Stop(f"refusing to close {name}: it is not the workbook this script created")
@@ -311,7 +311,7 @@ def _patch(i: int, first: dict) -> dict:
 
 
 async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> int:
-    from smartass import pipeline, server
+    from smartass import exceljob, server
     from smartass.core import serverkit as kit
     from smartass.model.spec import AnalysisSpec
 
@@ -319,12 +319,12 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
     real_redraw = server.redraw_job
     saves: list[tuple[float, float]] = []                  # (start, end) of every save batch, for the writes
     looks: list[float] = []                                # when every job's look batch began
-    real_save, real_look = pipeline._save, pipeline._look
+    real_save, real_look = exceljob._save, exceljob._look
 
     def look(job):
         looks.append(time.monotonic())
         return real_look(job)
-    pipeline._look = look
+    exceljob._look = look
 
     def save(job):
         t0 = time.monotonic()
@@ -332,7 +332,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
             return real_save(job)
         finally:
             saves.append((t0, time.monotonic()))
-    pipeline._save = save
+    exceljob._save = save
 
     notes: list[tuple[int, int]] = []                      # (layout findings, warnings) of each redraw's reply
     texts: set[str] = set()                                # their texts, amounts masked
@@ -466,7 +466,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         await step("second answer", "fin_analyze", lambda: analyze(spec=spec2, target=path), False, baseline=True)
         refs = await user(lambda h: _summarise(h, path), what="check_followups: summary")
         order = (await user(lambda h: _inspect(h, path, q), what="check_followups: order"))["names"]   # with it
-        stored, _, _ = await user(lambda h: pipeline.read_stored(h, path), what="check_followups: stored")
+        stored, _, _ = await user(lambda h: exceljob.read_stored(h, path), what="check_followups: stored")
         first = stored[q]["spec"]["v2"]
         for i in range(1, FOLLOW_UPS + 1):
             patch = _patch(i, first)
@@ -477,7 +477,7 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         failed = str(e)
     finally:
         server.redraw_job = real_redraw
-        pipeline._save, pipeline._look = real_save, real_look
+        exceljob._save, exceljob._look = real_save, real_look
         if between.path is not None:
             between.__exit__()
         if path is not None and not keep:

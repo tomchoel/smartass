@@ -1,5 +1,5 @@
-"""The scripts in scripts/ patch engine functions to watch or replace them (check_followups wraps pipeline._look,
-check_insert swaps pipeline._save, ...). Neither pytest nor ruff runs those scripts, so a signature the engine changes
+"""The scripts in scripts/ patch engine functions to watch or replace them (check_followups wraps exceljob._look,
+check_insert swaps exceljob._save, ...). Neither pytest nor ruff runs those scripts, so a signature the engine changes
 would only show when a live script dies (Task 2c review Important 1: pipeline._look(t, name) became _look(job)).
 This reads every script's source (it does not import or run them) and checks each patched name still exists and
 that the replacement takes the arguments the engine's own function takes."""
@@ -69,8 +69,22 @@ CASES = [(p.name, *patch) for p in sorted(SCRIPTS.glob("*.py")) for patch in _pa
 
 
 def test_the_scripts_patch_engine_functions():
-    """The check below has something to check (check_followups, check_insert and audit_testset patch pipeline)."""
-    assert {name for _, _, mod, name, _ in CASES if mod.endswith("pipeline")} >= {"_look", "_save", "_target"}
+    """The check below has something to check (check_followups, check_insert and audit_testset patch the Excel job,
+    exceljob)."""
+    assert {name for _, _, mod, name, _ in CASES if mod.endswith("exceljob")} >= {"_look", "_save", "_target"}
+
+
+@pytest.mark.parametrize("script, line, mod, name, shape", CASES,
+                         ids=[f"{c[0]}:{c[1]} {c[3]}" for c in CASES])
+def test_a_patched_engine_function_is_patched_in_the_module_that_calls_it(script, line, mod, name, shape):
+    """A function patched on a module that neither defines nor calls it is not replaced where the engine calls it
+    (the Excel job moved out of pipeline.py into exceljob.py, phase 3c Task 3): a script patches the module that
+    defines the function, or one that imports it and calls it by that name (server.redraw_job)."""
+    module = _module(mod)
+    real = getattr(module, name, None)
+    if inspect.isfunction(real) and real.__module__ != module.__name__:
+        calls = [ln for ln in inspect.getsource(module).splitlines() if f"{name}(" in ln and "import" not in ln]
+        assert calls, f"{script}:{line} patches {mod}.{name}, defined in {real.__module__} and not called there"
 
 
 @pytest.mark.parametrize("script, line, mod, name, shape", CASES,

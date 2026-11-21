@@ -23,7 +23,7 @@ first answer of a new workbook: the file is the workbook, its log comes furnishe
 area up to its last row then) gets the column formats, the print setup and the name once, on its next append; its
 rows, links, widths and filter stay as they are.
 
-In the file job (pipeline._file_draw) the log is read and written inside its batches: the kind of a 'Sources' sheet
+In the file job (exceljob._file_draw) the log is read and written inside its batches: the kind of a 'Sources' sheet
 in the look (record_kind: which sheet is the log), the log itself in the finish (record_read: its last row, the rows
 already logged, Known limits, the furniture's name), and everything written in the close-out (record_write: a new
 sheet, the furniture, the new rows as one Formula2 rectangle whose links (Data sheet, Supersedes) are HYPERLINK

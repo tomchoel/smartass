@@ -154,7 +154,7 @@ _THEMES: dict = {}                          # (template path, its modification t
 
 def template_theme() -> str | None:
     """The TN template's theme (xl/theme/theme1.xml), which a workbook added from it has: the built file of a new
-    workbook takes it (pipeline._new_book, before every answer). Read once per path and modification time of the
+    workbook takes it (exceljob._new_book, before every answer). Read once per path and modification time of the
     file. None when the template is not there (or unreadable)."""
     import zipfile
     path = template_path()

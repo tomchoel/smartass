@@ -1,5 +1,5 @@
 # engine/tests/v2/test_file_redraw.py
-"""Phase 3 Tasks 7 and 9: pipeline.redraw_job, a follow-up or refresh - the sheets of Q<n> parked, the new answer
+"""Phase 3 Tasks 7 and 9: exceljob.redraw_job, a follow-up or refresh - the sheets of Q<n> parked, the new answer
 moved in where they were, the old ones dropped; on a failure the new sheets removed and the old ones given their names
 back, and once the old ones are gone the new answer kept and said so (never saving the user's workbook). Also
 server.py using it for fin_analyze(patch=...) and fin_refresh, and the two carry-over fixes in _fit_text_rows. All on
@@ -18,7 +18,7 @@ from test_v2_pipeline import LINE_CELL, FakeProvider, lines_only_spec
 from v2util import facts, resolver, spec_dict
 
 import fakexl
-from smartass import pipeline, server
+from smartass import exceljob, pipeline, server
 from smartass.core import config
 from smartass.model.lines import LineSet
 from smartass.render import look
@@ -69,7 +69,7 @@ class Book:
         def target(h, target, title, build_new=False):
             self.targets.append(Target(app=wb.Application, wb=wb, pid=0, hwnd=0, created=ours))
             return self.targets[-1]
-        real = pipeline.read_block
+        real = exceljob.read_block
 
         def read_block(ws, plan, b):
             get = real(ws, plan, b)
@@ -81,17 +81,17 @@ class Book:
                     got[r - 1][c - 1] = self.pre.result.cells.get(key)
                 return tuple(tuple(row) for row in got)
             return block
-        monkeypatch.setattr(pipeline, "_target", target)
-        monkeypatch.setattr(pipeline, "read_block", read_block)
-        monkeypatch.setattr(pipeline, "remember", lambda pre, out: None)
+        monkeypatch.setattr(exceljob, "_target", target)
+        monkeypatch.setattr(exceljob, "read_block", read_block)
+        monkeypatch.setattr(exceljob, "remember", lambda pre, out: None)
 
     def answer(self, pre) -> dict:
         self.pre = pre
-        return pipeline.excel_job(H, pre)
+        return exceljob.excel_job(H, pre)
 
     def follow_up(self, pre, q: int) -> dict:
         self.pre = pre
-        return pipeline.redraw_job(H, pre, q, PATH)
+        return exceljob.redraw_job(H, pre, q, PATH)
 
 
 @pytest.fixture
@@ -342,7 +342,7 @@ def test_a_drop_that_deletes_and_then_fails_keeps_the_new_answer(own_book, monke
     monkeypatch.setattr(fakexl._SheetGroup, "Delete", delete)
     with pytest.raises(BatchError, match="then failed") as e:
         own_book.follow_up(_pre(), 3)
-    assert not isinstance(e.value, pipeline.RestoreError)
+    assert not isinstance(e.value, exceljob.RestoreError)
     assert {"Q3 Answer", "Q3 Data"} <= set(_names(wb)) and not [n for n in _names(wb) if n.startswith("old ")]
     assert "Data_Q3" in _tables(wb)
 
@@ -350,11 +350,11 @@ def test_a_drop_that_deletes_and_then_fails_keeps_the_new_answer(own_book, monke
 def test_a_failure_after_the_drop_keeps_the_new_answer_saves_our_file_and_says_so(own_book, monkeypatch):
     def check(*a):
         raise HostError("the job was abandoned")
-    monkeypatch.setattr(pipeline, "_check", check)
+    monkeypatch.setattr(exceljob, "_check", check)
     saved = own_book.wb.saved
     with pytest.raises(HostError, match="abandoned") as e:
         own_book.follow_up(_pre(), 3)
-    assert not isinstance(e.value, pipeline.RestoreError)
+    assert not isinstance(e.value, exceljob.RestoreError)
     assert str(e.value).startswith("the job was abandoned") and "the new answer is in place" in str(e.value)
     assert own_book.wb.saved == saved + 1
     assert "Q3 Answer" in _names(own_book.wb) and "Q3 Lines b0" not in _names(own_book.wb)
@@ -366,12 +366,12 @@ def test_a_save_that_fails_after_the_drop_keeps_the_new_answer_and_says_so_witho
     (and the save is not tried a second time)."""
     def save(t):
         raise HostError("the file is locked")
-    monkeypatch.setattr(pipeline, "_save", save)
+    monkeypatch.setattr(exceljob, "_save", save)
     saved = own_book.wb.saved
     with pytest.raises(HostError, match="locked") as e:
         own_book.follow_up(_pre(), 3)
-    assert not isinstance(e.value, pipeline.RestoreError)
-    assert str(e.value) == "the file is locked" + pipeline.KEPT and own_book.wb.saved == saved
+    assert not isinstance(e.value, exceljob.RestoreError)
+    assert str(e.value) == "the file is locked" + exceljob.KEPT and own_book.wb.saved == saved
     assert "Q3 Answer" in _names(own_book.wb) and not [n for n in _names(own_book.wb) if n.startswith("old ")]
 
 
@@ -382,10 +382,10 @@ def test_a_failure_after_the_drop_never_saves_the_users_workbook(monkeypatch, tm
 
     def check(*a):
         raise HostError("the job was abandoned")
-    monkeypatch.setattr(pipeline, "_check", check)
+    monkeypatch.setattr(exceljob, "_check", check)
     with pytest.raises(HostError, match="abandoned") as e:
         b.follow_up(_pre(), 1)
-    assert str(e.value) == "the job was abandoned" + pipeline.KEPT and "saved" not in str(e.value)
+    assert str(e.value) == "the job was abandoned" + exceljob.KEPT and "saved" not in str(e.value)
     assert b.wb.saved == 0 and "Q1 Answer" in _names(b.wb)
 
 
@@ -404,10 +404,10 @@ def test_a_spec_that_could_not_be_stored_after_the_drop_is_said_with_the_kept_an
     def save_spec(t, q, raw, b, rows):                  # Excel refuses the spec's write
         b.workbook(jobs.book_name(t)).Worksheets("no such sheet").Range("A1").Value = "the spec"
         return False
-    monkeypatch.setattr(pipeline, "_save_spec", save_spec)
+    monkeypatch.setattr(exceljob, "_save_spec", save_spec)
     with pytest.raises(BatchError) as e:
         own_book.follow_up(_pre(spec_dict(question="Opex by month, again")), 3)
-    assert pipeline.KEPT in str(e.value) and pipeline.SPEC_NOT_STORED.format(q=3) in str(e.value)
+    assert exceljob.KEPT in str(e.value) and exceljob.SPEC_NOT_STORED.format(q=3) in str(e.value)
     assert _spec_row(wb, 3) == old and "Q3 Answer" in _names(wb)
 
 
@@ -423,7 +423,7 @@ def test_a_spec_whose_store_cannot_be_told_after_the_drop_is_said_as_such(own_bo
     monkeypatch.setattr(runner, "run", run)
     with pytest.raises(BatchError) as e:
         own_book.follow_up(_pre(), 3)
-    assert pipeline.KEPT in str(e.value) and pipeline.SPEC_UNKNOWN.format(q=3) in str(e.value)
+    assert exceljob.KEPT in str(e.value) and exceljob.SPEC_UNKNOWN.format(q=3) in str(e.value)
 
 
 def test_a_follow_up_in_the_active_workbook_of_a_hidden_excel_ends_on_the_new_answer(own_book):
@@ -443,15 +443,15 @@ def test_a_follow_up_is_four_batches_and_reads_the_sheets_once(own_book, monkeyp
     monkeypatch.setitem(runner.VERBS, "each", lambda c, paths: reads.append(list(paths)) or real(c, paths))
     calls = fakexl.count_com(monkeypatch)
     own_book.pre = _pre()
-    out, timings = pipeline.with_timings(lambda h: pipeline.redraw_job(h, own_book.pre, 3, PATH))(H)
+    out, timings = exceljob.with_timings(lambda h: exceljob.redraw_job(h, own_book.pre, 3, PATH))(H)
     assert _batches(timings) == BATCHES and len(calls) == 5 and out["checks"]["sheet_equals_model"] == "OK"
     assert reads == [movein.BOOK_PATHS, ["Name"]]
 
 
 def test_a_failed_follow_up_rolls_back_before_it_restores_and_never_after(own_book, monkeypatch):
     seen = []
-    real_rollback, real_restore = pipeline._rollback, movein.restore
-    monkeypatch.setattr(pipeline, "_rollback", lambda t: seen.append(("rollback", list(t.sheets_added)))
+    real_rollback, real_restore = exceljob._rollback, movein.restore
+    monkeypatch.setattr(exceljob, "_rollback", lambda t: seen.append(("rollback", list(t.sheets_added)))
                         or real_rollback(t))
     monkeypatch.setattr(movein, "restore", lambda t, parked: seen.append(("restore", dict(parked.sheets)))
                         or real_restore(t, parked))
@@ -472,7 +472,7 @@ def test_a_restore_that_fails_is_a_restore_error(own_book, monkeypatch):
         raise HostError("could not put back the names of sheet 'old Q3 Data' -> 'Q3 Data'")
     monkeypatch.setattr(fakexl._ListObjects, "Add", refuse)
     monkeypatch.setattr(movein, "restore", restore)
-    with pytest.raises(pipeline.RestoreError) as e:
+    with pytest.raises(exceljob.RestoreError) as e:
         own_book.follow_up(_pre(), 3)
     assert "a table was refused" in str(e.value) and "the restore was incomplete" in str(e.value)
     assert "'old Q3 Data' -> 'Q3 Data'" in str(e.value) and isinstance(e.value.__cause__, BatchError)
@@ -509,7 +509,7 @@ def test_a_defined_name_a_follow_ups_new_table_wants_is_refused_before_the_park(
     monkeypatch.setattr(movein, "restore", lambda t, parked: seen.append("restore"))
     with pytest.raises(movein.NameTaken, match="the name 'Lines_Q2_b0' already exists") as e:
         own_book.follow_up(_lines_pre(), 2)
-    assert not isinstance(e.value, pipeline.RestoreError) and seen == []
+    assert not isinstance(e.value, exceljob.RestoreError) and seen == []
     assert fakexl.snapshot(wb) == before and own_book.targets[-1].sheets_added == []
 
 
@@ -520,10 +520,10 @@ def test_each_new_sheet_takes_its_namesakes_place_and_an_added_one_follows_the_s
     names = ["Notes", "Q3 Answer", "Q3 Data", "Q3 Lines b0", "Q3 Lines b1", "old Q3 Answer", "Budget",
              "old Q3 Lines b1", "Q2 Data", "old Q3 Data", "old Q3 Lines b2", "Sources"]
     new = ["Q3 Answer", "Q3 Data", "Q3 Lines b0", "Q3 Lines b1"]
-    assert pipeline.wanted_order(names, new, parked) == [
+    assert exceljob.wanted_order(names, new, parked) == [
         "Notes", "Q3 Answer", "Budget", "Q3 Lines b1", "Q2 Data", "Q3 Data", "Q3 Lines b0", "Sources"]
     side_by_side = ["Q3 Answer", "Q3 Data", "old Q3 Answer", "old Q3 Data", "Sources"]
-    assert pipeline.wanted_order(side_by_side, new[:2], parked) == ["Q3 Answer", "Q3 Data", "Sources"]
+    assert exceljob.wanted_order(side_by_side, new[:2], parked) == ["Q3 Answer", "Q3 Data", "Sources"]
 
 
 
@@ -575,9 +575,9 @@ def test_fin_refresh_carries_each_questions_warnings_and_layout_findings(monkeyp
     rewrite, the scan for such formulas failing, AutoSave left off) or a layout finding reaches the refresh's reply;
     a question without any keeps today's small entry."""
     from smartass.xl.movein import Mentions
-    said = [*pipeline._mentions_notes(1, Mentions(failed="operation 83 (verb mentions): busy")),
+    said = [*exceljob._mentions_notes(1, Mentions(failed="operation 83 (verb mentions): busy")),
             "could not point 1 formula(s) at the new Q1 (the cell is protected): Summary!A2 show #REF!",
-            pipeline.AUTOSAVE_NOTE.format("book.xlsx")]
+            exceljob.AUTOSAVE_NOTE.format("book.xlsx")]
     found = ["Q1 Answer: a chart title is cut - shorten it (patch blocks[2].title)"]
 
     def job(pre, q, target):
@@ -600,7 +600,7 @@ def test_fin_refresh_goes_on_after_a_failure_and_stops_after_a_failed_restore(mo
         if q == 1:
             raise HostError("Excel is busy")
         if q == 3:
-            raise pipeline.RestoreError("refused; the restore was incomplete - sheet 'old Q3 Data' -> 'Q3 Data'")
+            raise exceljob.RestoreError("refused; the restore was incomplete - sheet 'old Q3 Data' -> 'Q3 Data'")
         return {"q": q, "workbook": target, "closed": {}}
     _wire_server(monkeypatch, _stored(1, 2, 3, 4), job)
     out = asyncio.run(server.fin_refresh(target=PATH))
@@ -896,12 +896,12 @@ def test_a_close_out_that_fails_before_the_re_pointing_needs_no_pointing_back(ow
     _point_at_q3(wb)
     before, back = fakexl.snapshot(wb), []
     monkeypatch.setattr(movein, "unpoint", lambda t, plan: back.append(plan))
-    real = pipeline._fit_text_rows
+    real = exceljob._fit_text_rows
 
     def fit_(ws, plan, block, b):
         b.app.Workbooks("No such book.xlsx").Activate()             # fails before the re-pointing and the drop
         return real(ws, plan, block, b)
-    monkeypatch.setattr(pipeline, "_fit_text_rows", fit_)
+    monkeypatch.setattr(exceljob, "_fit_text_rows", fit_)
     with pytest.raises(BatchError):
         own_book.follow_up(_pre(), 3)
     assert back == [] and fakexl.snapshot(wb) == before and _pointing(wb) == POINTING
@@ -990,7 +990,7 @@ def test_a_protected_sheet_whose_hidden_formula_pointed_at_the_answer_says_how_m
     _locked(own_book.wb, "='Q3 Answer'!E12")
     out = own_book.follow_up(_pre(), 3)
     (note,) = [w for w in out["warnings"] if "'Locked'" in w]
-    assert note == pipeline.UNREAD_REF.format(sheet="Locked", why="a hidden formula of a protected sheet cannot be read",
+    assert note == exceljob.UNREAD_REF.format(sheet="Locked", why="a hidden formula of a protected sheet cannot be read",
                                               n=1, q=3)
 
 
@@ -1017,13 +1017,13 @@ def test_a_formula_the_user_changed_while_the_answer_was_drawn_is_left_alone_and
     the user edits a cell and adds a name that shifts the names' order: neither is written, the rest is."""
     wb = own_book.wb
     _point_at_q3(wb)
-    real = pipeline._paint
+    real = exceljob._paint
 
     def paint(look):
         wb.Worksheets("Summary").cells[(1, 1)]["Value"] = "='old Q3 Answer'!E12+1"
         wb.Names.items = {"AAA": fakexl._Name(Name="AAA", RefersTo="=1", Visible=True), **wb.Names.items}
         real(look)
-    monkeypatch.setattr(pipeline, "_paint", paint)
+    monkeypatch.setattr(exceljob, "_paint", paint)
     out = own_book.follow_up(_pre(), 3)
     got = _pointing(wb)
     assert got["summary"][(1, 1)] == "=#REF!E12+1" and got["name"] == "=#REF!$E$12"     # not re-pointed

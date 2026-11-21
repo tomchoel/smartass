@@ -16,7 +16,7 @@ import win32process
 sys.path.insert(0, os.path.dirname(__file__))
 from render_answers import export  # noqa: E402
 
-from smartass import pipeline  # noqa: E402
+from smartass import exceljob, pipeline  # noqa: E402
 from smartass.testset import runner  # noqa: E402
 from smartass.xl.target import Target  # noqa: E402
 
@@ -56,9 +56,9 @@ def main() -> None:
         wb = app.Workbooks.Add()
         pid = win32process.GetWindowThreadProcessId(app.Hwnd)[1]
         t = Target(app=app, wb=wb, pid=pid, hwnd=app.Hwnd, created=False)
-        pipeline._target = lambda h, target, title, build_new=False: t            # the audit book, never a session/user workbook
-        pipeline._save = lambda t: None                          # never saved
-        pipeline.remember = lambda pre, out: None                # no answer memory from an audit
+        exceljob._target = lambda h, target, title, build_new=False: t            # the audit book, never a session/user workbook
+        exceljob._save = lambda t: None                          # never saved
+        exceljob.remember = lambda pre, out: None                # no answer memory from an audit
         cases = runner.load_cases()
         if "--charts" in ids:              # the chart kinds an agent picks (the test set only has implicit charts)
             ids.discard("--charts")
@@ -81,7 +81,7 @@ def main() -> None:
             ids.discard("--synthetic")
             for title, pre in _synthetic():
                 try:
-                    res = pipeline.excel_job(None, pre, "session")
+                    res = exceljob.excel_job(None, pre, "session")
                     print(f"synthetic Q{res['q']}: {title}")
                     for k in ("warnings", "layout", "findings", "mismatches"):
                         for x in res.get(k) or []:
@@ -95,7 +95,7 @@ def main() -> None:
                 continue
             try:
                 _, pre = runner._replay({**case, "id": case.get("rec", case["id"])})
-                res = pipeline.excel_job(None, pre, "session")
+                res = exceljob.excel_job(None, pre, "session")
                 print(f"{case['id']} Q{res['q']}: {case['spec']['question']}")
                 print('    keys:', sorted(res))
                 for k, v in res.items():

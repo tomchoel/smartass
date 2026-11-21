@@ -5,7 +5,7 @@ printed: the replies carry figures from EPM and are never printed or kept.
 
 Usage (from the repo root; Excel open, signed in to EPM):
     engine\.venv\Scripts\python.exe scripts\bench_answers.py --rounds 3 [--case b01 ...]
-The per-round table has a column per stage of the Excel job (pipeline.excel_job: open target, build, open, look,
+The per-round table has a column per stage of the Excel job (exceljob.excel_job: open target, build, open, look,
 move in, finish, close out, save; 'open' only for the first answer of a new workbook, whose built file is opened, and
 its build comes before the look) and its "runs": the batches it ran (xl/inproc: one Excel run each); a stage the run
 did not have shows "-". SV_INPROC=0 runs every batch over COM. With the add-in, our file is saved by Excel after the
@@ -221,9 +221,9 @@ def _progress(label: str, rec: dict) -> None:
 
 def _excel_build(h) -> str:
     """Application.Version and Build of the Excel the session workbook (the answers) is in."""
-    from smartass import pipeline
+    from smartass import exceljob
     from smartass.xl import jobs
-    t = pipeline._target(h, "session", None)
+    t = exceljob._target(h, "session", None)
     return jobs.com(lambda: f"{t.app.Version} (build {t.app.Build})")
 
 

@@ -1,5 +1,5 @@
 # engine/tests/v2/test_file_job.py
-"""Phase 3 Tasks 5 and 9, phase 3b Task 2b: pipeline.excel_job, a new answer through a built file (render/xlsx.build,
+"""Phase 3 Tasks 5 and 9, phase 3b Task 2b: exceljob.excel_job, a new answer through a built file (render/xlsx.build,
 then xl/movein) brought in by batches (xl/inproc, here through the COM executor on the fake Excel): the steps in
 order, the rollback and the temporary file on a failure, the batches of a whole job, the reply, one timestamp per
 draw, where the job lands and when Excel may paint, and server.py drawing every new question with it. All on fakes;
@@ -16,7 +16,7 @@ from test_v2_pipeline import LINE_CELL, FakeProvider, lines_only_spec
 from v2util import facts, resolver, spec_dict
 
 import fakexl
-from smartass import followup, pipeline, server
+from smartass import exceljob, followup, pipeline, server
 from smartass.core import config
 from smartass.core.timing import BATCH_PREFIX, COM_PREFIX
 from smartass.model.errors import GuardError
@@ -51,8 +51,8 @@ def _temp_files(home) -> list:
 
 
 # ------------------------------------------------------------------ the steps, every seam replaced
-def _look(book=None, **kw) -> pipeline.Look:
-    return pipeline.Look(book or movein.Book([movein.Sheet("Sources")]), kw.pop("screen", movein.Screen()), BASE, [],
+def _look(book=None, **kw) -> exceljob.Look:
+    return exceljob.Look(book or movein.Book([movein.Sheet("Sources")]), kw.pop("screen", movein.Screen()), BASE, [],
                          None, sheets.SpecRows(), (",", "\xa0"))
 
 
@@ -82,15 +82,15 @@ class Wired:
         def rollback(t):
             self.rolled_back = list(t.sheets_added)
         put = monkeypatch.setattr
-        put(pipeline, "_target", self.rec("target", ret=self.t))
-        put(pipeline, "_look", self.rec("look", ret=_look()))
+        put(exceljob, "_target", self.rec("target", ret=self.t))
+        put(exceljob, "_look", self.rec("look", ret=_look()))
         put(xlsx, "build", self.rec("build", build))
-        put(pipeline, "_bring_in", self.rec("bring_in", bring_in))
-        put(pipeline, "compare", lambda *a: [])
-        put(pipeline, "_close_out", self.rec("close_out", ret=(None, None, [])))
-        put(pipeline, "_save", self.rec("save"))
-        put(pipeline, "_rollback", self.rec("rollback", rollback))
-        put(pipeline, "remember", self.rec("remember"))
+        put(exceljob, "_bring_in", self.rec("bring_in", bring_in))
+        put(exceljob, "compare", lambda *a: [])
+        put(exceljob, "_close_out", self.rec("close_out", ret=(None, None, [])))
+        put(exceljob, "_save", self.rec("save"))
+        put(exceljob, "_rollback", self.rec("rollback", rollback))
+        put(exceljob, "remember", self.rec("remember"))
 
     def rec(self, name, fn=None, ret=None):
         def f(*a, **k):
@@ -110,28 +110,28 @@ def wired(monkeypatch, tmp_home):
 
 
 def test_the_file_job_runs_its_steps_in_order(wired, tmp_home):
-    out = pipeline.excel_job(H, _pre())
+    out = exceljob.excel_job(H, _pre())
     assert wired.calls == ["target", "look", "build", "bring_in", "close_out", "save", "remember"]
     assert out["sheets"] == ["Q1 Answer", "Q1 Data"] and out["checks"]["sheet_equals_model"] == "OK"
     assert wired.path.parent == tmp_home / "tmp" and wired.path.suffix == ".xlsx" and not wired.path.exists()
 
 
 def test_the_file_is_built_in_the_destinations_base(wired):
-    pipeline.excel_job(H, _pre())
+    exceljob.excel_job(H, _pre())
     assert wired.base == BASE
 
 
 def test_the_temporary_file_has_a_new_name_every_time(wired):
-    pipeline.excel_job(H, _pre())
+    exceljob.excel_job(H, _pre())
     first = wired.path
-    pipeline.excel_job(H, _pre())
+    exceljob.excel_job(H, _pre())
     assert wired.path != first and len(wired.path.stem) == 32                  # a uuid4 hex
 
 
 def test_a_failure_after_the_move_in_removes_the_new_sheets_and_the_temp_file(wired, tmp_home):   # Review Focus 3
     wired.fail("close_out", HostError("Excel is busy"))
     with pytest.raises(HostError, match="busy"):
-        pipeline.excel_job(H, _pre())
+        exceljob.excel_job(H, _pre())
     assert wired.rolled_back == ["Q1 Answer", "Q1 Data"] and not _temp_files(tmp_home)
     assert wired.calls.count("rollback") == 1
     assert "save" not in wired.calls and "remember" not in wired.calls
@@ -143,7 +143,7 @@ def test_a_build_that_fails_leaves_no_partial_file_and_inserts_nothing(wired, tm
         raise ValueError("the build broke")
     monkeypatch.setattr(xlsx, "build", wired.rec("build", half))
     with pytest.raises(ValueError, match="broke"):
-        pipeline.excel_job(H, _pre())
+        exceljob.excel_job(H, _pre())
     assert "move_in" not in wired.calls and wired.calls[-1] == "rollback" and not _temp_files(tmp_home)
 
 
@@ -152,7 +152,7 @@ def test_more_lines_than_a_sheet_has_rows_is_a_refusal_with_its_fix(wired, tmp_h
         raise xlsx.TooManyRows("sheet 'Q1 Lines b0' would need 1 100 000 rows; an Excel sheet has 1 048 576")
     monkeypatch.setattr(xlsx, "build", wired.rec("build", too_many))
     with pytest.raises(GuardError, match="1 100 000 rows") as e:
-        pipeline.excel_job(H, _pre())
+        exceljob.excel_job(H, _pre())
     assert "narrow" in e.value.fix and wired.calls[-1] == "rollback" and not _temp_files(tmp_home)
 
 
@@ -169,14 +169,14 @@ def test_the_spec_is_stored_without_a_drawn_range(fake_target, calculated, monke
 
 
 def test_the_chart_lint_and_the_drawn_charts_reach_the_reply_once(wired, monkeypatch):
-    real = pipeline.layout
+    real = exceljob.layout
 
     def layout(*a, **k):
         plan = real(*a, **k)
         plan.chart_lint.append("chart 'P&L': a lint line")
         return plan
-    monkeypatch.setattr(pipeline, "layout", layout)
-    out = pipeline.excel_job(H, _pre())
+    monkeypatch.setattr(exceljob, "layout", layout)
+    out = exceljob.excel_job(H, _pre())
     assert out["warnings"].count("chart 'P&L': a lint line") == 1
     assert out["charts"] == wired.built[0].charts and out["charts"]
 
@@ -184,7 +184,7 @@ def test_the_chart_lint_and_the_drawn_charts_reach_the_reply_once(wired, monkeyp
 def test_a_label_cut_off_on_the_drawn_answer_is_a_warning_of_the_reply(fake_target, calculated, monkeypatch):
     """Final review M1: the style findings (look.style_findings over the read-back block) reach the reply's warnings
     again, before the chart lint, as apply_report's did before 0.3.0."""
-    real = pipeline.layout
+    real = exceljob.layout
 
     def layout(*a, **k):
         plan = real(*a, **k)
@@ -192,7 +192,7 @@ def test_a_label_cut_off_on_the_drawn_answer_is_a_warning_of_the_reply(fake_targ
         plan.cells[(r, 3)] = "A label far too long for its column, with words enough to spill over " * 2
         plan.chart_lint.append("chart 'P&L': a lint line")
         return plan
-    monkeypatch.setattr(pipeline, "layout", layout)
+    monkeypatch.setattr(exceljob, "layout", layout)
     out, _ = _job(_pre(), calculated)
     cut = [w for w in out["warnings"] if "text is cut off or spills over" in w]
     assert len(cut) == 1 and out["warnings"].index(cut[0]) < out["warnings"].index("chart 'P&L': a lint line")
@@ -200,7 +200,7 @@ def test_a_label_cut_off_on_the_drawn_answer_is_a_warning_of_the_reply(fake_targ
 
 def test_the_reply_has_the_keys_of_excel_jobs_reply(wired):
     pre = _pre()
-    out = pipeline.excel_job(H, pre)
+    out = exceljob.excel_job(H, pre)
     assert set(out) == set(pipeline.reply(pre, 1, "x", [], [], [])) and out["q"] == 1
 
 
@@ -229,7 +229,7 @@ def test_the_answer_has_live_key_points_and_the_agents_free_points(wired, monkey
     monkeypatch.setattr(xlsx, "build", build)
     d = spec_dict()
     d["blocks"].append({"type": "commentary", "key_points": ["Agent point"]})
-    pipeline.excel_job(H, _pre(d))
+    exceljob.excel_job(H, _pre(d))
     p = plans[0]
     r = dict(p.zones)["key_points"]
     pts = [p.cells.get((row, TEXT_COL)) for row in range(r + 1, dict(p.zones)["charts"])]
@@ -244,18 +244,18 @@ def test_the_reply_carries_the_layout_findings_and_the_check_knows_when_sources_
     def check(plan, block, charts, status, sources_ok):
         seen.update(ok=sources_ok, status=status)
         return ["layout: column E too narrow; fix: widen column E"]
-    monkeypatch.setattr(pipeline, "_check", check)
+    monkeypatch.setattr(exceljob, "_check", check)
     out, _ = _job(_pre(), calculated)
     assert out["layout"] == ["layout: column E too narrow; fix: widen column E"] and seen["ok"] is True
     assert list(seen["status"]) == ["fm"]                       # the Data header's status cell, read in the finish
-    monkeypatch.setattr(pipeline, "_write_sources", lambda *a: "could not log the pull on the Sources sheet (x)")
+    monkeypatch.setattr(exceljob, "_write_sources", lambda *a: "could not log the pull on the Sources sheet (x)")
     _job(_pre(), calculated)
     assert seen["ok"] is False
 
 
 def test_the_real_check_seam_never_raises_on_odd_reads():
     from smartass.render.layout import SheetPlan
-    out = pipeline._check(SheetPlan(), None, None, {"fm": ("D13", None)}, True)
+    out = exceljob._check(SheetPlan(), None, None, {"fm": ("D13", None)}, True)
     assert out and all(f.startswith("layout:") for f in out)
 
 
@@ -271,8 +271,8 @@ def fake_target(monkeypatch, tmp_home):
         wb.saved += 1
     wb.Save = save
     t = Target(app=wb.Application, wb=wb, pid=0, hwnd=0, created=True)
-    monkeypatch.setattr(pipeline, "_target", lambda h, target, title, build_new=False: t)
-    monkeypatch.setattr(pipeline, "remember", lambda pre, out: None)
+    monkeypatch.setattr(exceljob, "_target", lambda h, target, title, build_new=False: t)
+    monkeypatch.setattr(exceljob, "remember", lambda pre, out: None)
     return t
 
 
@@ -280,7 +280,7 @@ def fake_target(monkeypatch, tmp_home):
 def calculated(monkeypatch):
     """The fake Excel does not calculate: the real block is read (in the finish batch), then the model's values are
     laid over it where the plan put them, as Excel would show them."""
-    real, seen = pipeline.read_block, {}
+    real, seen = exceljob.read_block, {}
 
     def read_block(ws, plan, b):
         seen["plan"] = plan
@@ -293,13 +293,13 @@ def calculated(monkeypatch):
                 got[r - 1][c - 1] = seen["pre"].result.cells.get(key)
             return tuple(tuple(row) for row in got)
         return block
-    monkeypatch.setattr(pipeline, "read_block", read_block)
+    monkeypatch.setattr(exceljob, "read_block", read_block)
     return seen
 
 
 def _job(pre, calculated):
     calculated["pre"] = pre
-    return pipeline.with_timings(lambda h: pipeline.excel_job(h, pre))(H)
+    return exceljob.with_timings(lambda h: exceljob.excel_job(h, pre))(H)
 
 
 def _batches(timings: dict) -> dict:
@@ -395,7 +395,7 @@ def test_a_new_answer_whose_save_fails_leaves_no_spec_row_and_no_sources_rows(fa
 
     def save(job):
         raise HostError("the file is locked")
-    monkeypatch.setattr(pipeline, "_save", save)
+    monkeypatch.setattr(exceljob, "_save", save)
     with pytest.raises(HostError, match="locked"):
         _job(_pre(), calculated)
     assert _values(wb) == before and 2 not in sheets._stored_specs(fake_target)
@@ -410,7 +410,7 @@ def test_a_new_answer_whose_close_out_fails_after_the_spec_leaves_neither(fake_t
     def arrange(t, sheet, book, b, wbn, active, sources_ours):     # Excel refuses an operation after the spec
         wbn.Worksheets("no such sheet").Activate()
         return {"order": book.names(), "moves": range(0)}
-    monkeypatch.setattr(pipeline, "_arrange", arrange)
+    monkeypatch.setattr(exceljob, "_arrange", arrange)
     with pytest.raises(BatchError, match="no such sheet"):
         _job(_pre(), calculated)
     assert _values(wb) == before and 2 not in sheets._stored_specs(fake_target)
@@ -420,7 +420,7 @@ def test_a_first_answer_whose_save_fails_leaves_no_hidden_spec_sheet(fake_target
     """The hidden _svmeta the close-out made for the first answer goes with its sheets."""
     def save(job):
         raise HostError("the file is locked")
-    monkeypatch.setattr(pipeline, "_save", save)
+    monkeypatch.setattr(exceljob, "_save", save)
     with pytest.raises(HostError, match="locked"):
         _job(_pre(), calculated)
     assert [ws.Name for ws in fake_target.wb.order] == ["Sources"]
@@ -467,7 +467,7 @@ def test_the_lines_sheet_carries_todays_title_source_and_provenance(fake_target,
     _job(_pre(lines_only_spec(), lines={"b0": ls}), calculated)
     ws = fake_target.wb.Worksheets("Q1 Lines b0")
     v = lambda a: ws.Range(a).Value                     # noqa: E731
-    assert v("A1") == "Ledger lines behind ac.C60 / un.SY.2TEC / Yr 26" and v("A2") == pipeline.LINES_SOURCE
+    assert v("A1") == "Ledger lines behind ac.C60 / un.SY.2TEC / Yr 26" and v("A2") == exceljob.LINES_SOURCE
     assert (v("C3"), v("D3")) == ("Cube value", -100.0)
     assert v("F1") == "Drill cell" and (1, 6) in ws.prefixed and v("G2").endswith(" · tom")
     assert v("G3") == "=SUM(Lines_Q1_b0[AMOUNT])" and (3, 7) not in ws.prefixed
@@ -504,7 +504,7 @@ def _paints(monkeypatch, app) -> list:
         assert s == movein.PAINT_PAUSE > 0
         app.events.append(("", "paint", app.ScreenUpdating))
     import time
-    monkeypatch.setattr(pipeline, "time", SimpleNamespace(sleep=sleep, perf_counter=time.perf_counter))
+    monkeypatch.setattr(exceljob, "time", SimpleNamespace(sleep=sleep, perf_counter=time.perf_counter))
     return app.events
 
 
@@ -575,9 +575,9 @@ def test_the_draw_stamps_one_time_for_the_data_header_and_the_answer_footer(wire
         seen.update(plan=plan, header=data.header)
         return real(path, name, plan, data, lines, **k)
     monkeypatch.setattr(xlsx, "build", build)
-    monkeypatch.setattr(pipeline, "datetime", Fixed)
+    monkeypatch.setattr(exceljob, "datetime", Fixed)
     monkeypatch.setattr(datasheet, "windows_user", lambda: "tom")
-    pipeline.excel_job(H, _pre())
+    exceljob.excel_job(H, _pre())
     assert dict(seen["header"])["Fetched"] == "2026-11-04 23:59 +0100 · tom"
     assert seen["plan"].footer == "Source: Oracle EPM Cloud · fetched 2026-11-04 · page &P of &N"
 
@@ -606,13 +606,13 @@ def _point_plan(text: str):
 
 
 def fit(ws, plan, block) -> list:
-    """pipeline._fit_text_rows recorded on the fake sheet ws and run as a batch, then the file's breaks again when
+    """exceljob._fit_text_rows recorded on the fake sheet ws and run as a batch, then the file's breaks again when
     Excel refused one (_refused_breaks); the batch's operations."""
     t = SimpleNamespace(app=ws.wb.Application, wb=ws.wb)
     b = Batch()
-    breaks = pipeline._fit_text_rows(b.workbook(ws.wb.Name).Worksheets(ws.Name), plan, block, b)
+    breaks = exceljob._fit_text_rows(b.workbook(ws.wb.Name).Worksheets(ws.Name), plan, block, b)
     res = runner.run(t.app, b)
-    pipeline._refused_breaks(t, ws.Name, breaks, res)
+    exceljob._refused_breaks(t, ws.Name, breaks, res)
     return b.to_dict()["ops"]
 
 
@@ -680,7 +680,7 @@ def test_a_new_question_is_drawn_by_excel_job(monkeypatch):
 
 def test_there_is_one_renderer_and_no_switch_for_it():
     assert not hasattr(config, "RENDER") and not hasattr(server, "_answer_job")
-    assert not hasattr(pipeline, "file_job") and not hasattr(pipeline, "file_redraw_job")
+    assert not hasattr(exceljob, "file_job") and not hasattr(exceljob, "file_redraw_job")
 
 
 # ------------------------------------------------------------------ phase 3b Task 2b: the batches
@@ -773,7 +773,7 @@ def test_fix_labels_positions_and_colours_and_lift_labels_nudges_inside_excel():
 def test_in_the_users_workbook_there_is_no_save_batch(fake_target, calculated, monkeypatch):
     """Review I2: the user's workbook is never saved; with no new Sources log to name, no save batch runs at all
     (a batch that does nothing must not put a finished answer at risk): look, bring in, close out."""
-    monkeypatch.setattr(pipeline, "_is_ours", lambda t: False)
+    monkeypatch.setattr(exceljob, "_is_ours", lambda t: False)
     _job(_pre(), calculated)                            # the first answer's new log: its print setup named in a batch
     runs = _runs(monkeypatch)
     out, timings = _job(_pre(), calculated)

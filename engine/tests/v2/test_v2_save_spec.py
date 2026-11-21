@@ -2,7 +2,7 @@
 import json
 
 import fakexl
-from smartass import pipeline
+from smartass import exceljob
 from smartass.xl import sheets
 from smartass.xl.inproc import runner
 from smartass.xl.inproc.batch import Batch
@@ -62,7 +62,7 @@ def test_arrange_mode_and_activation(monkeypatch):
         return movein.Book([movein.Sheet("Q3 Answer"), movein.Sheet("Notes")], active="Notes")
     for tg, active in ((Tg("C:/u/book.xlsx", False), False), (Tg("OURS/a.xlsx", False), False),
                        (Tg("C:/new.xlsx", True), True)):
-        assert isinstance(pipeline._arrange(tg, "Q3 Answer", book(), None, None, active, True), dict)
+        assert isinstance(exceljob._arrange(tg, "Q3 Answer", book(), None, None, active, True), dict)
     assert calls == [("active", None, None, True), ("full", None, None, True),
                      ("full", "Q3 Answer", "Q3 Answer", True)]
 
@@ -79,7 +79,7 @@ def test_arrange_failure_is_a_warning_not_an_error(monkeypatch):
     class Tg:
         wb, path, created = object(), "x", True
     from smartass.xl import movein
-    msg = pipeline._arrange(Tg(), "Q1 Answer", movein.Book([movein.Sheet("Q1 Answer")]), None, None, True, True)
+    msg = exceljob._arrange(Tg(), "Q1 Answer", movein.Book([movein.Sheet("Q1 Answer")]), None, None, True, True)
     assert "excel said no" in msg
 
 
