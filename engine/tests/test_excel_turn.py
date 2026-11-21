@@ -1,10 +1,15 @@
 """Turn: the machine-wide queue for the user's Excel works ACROSS processes (two agents/servers)."""
 import subprocess
 import sys
+import threading
 import time
 
+import pytest
+
 sys.path.insert(0, __file__.rsplit("\\tests", 1)[0])
+from smartass.core import config  # noqa: E402
 from smartass.xl import jobs  # noqa: E402
+from smartass.xl.host import ExcelHost, HostError, HostTimeout  # noqa: E402
 
 HOLDER = r"""
 import sys, time
@@ -56,3 +61,46 @@ def test_turn_is_free_again_and_reentrant_sequentially():
         tt.acquire("again")
         tt.close()
         assert time.monotonic() - t0 < 1.0
+
+
+@pytest.mark.anyio
+async def test_a_job_given_up_on_does_not_keep_the_next_job_waiting_for_that_excels_turn(monkeypatch, tmp_path):
+    """Task D (live, 21.11.2026: stack B): the host gave up on a user-Excel job whose Excel did not answer, but that
+    job's thread still held the Excel's turn, so the next job in that Excel waited silently for the turn until it was
+    given up on too. Now the next job is refused at once with what holds the turn; once the job given up on has
+    ended, the turn is free again."""
+    monkeypatch.setattr(config, "SVKIT", tmp_path)
+    monkeypatch.setattr(jobs, "TURN_WAIT_S", 60)
+    h = ExcelHost.__new__(ExcelHost)                 # the user-Excel jobs need no hidden Excel
+    h.last_error, h.pid = None, None
+    excel_answers = threading.Event()
+
+    def stuck(hh):
+        jobs.hold_turn(4242, what="fin_refresh")
+        excel_answers.wait(30)                       # a COM call into an Excel that does not answer
+        return "late"
+
+    def next_job(hh):
+        jobs.hold_turn(4242, what="this request")
+        return "ran"
+
+    with pytest.raises(HostTimeout):
+        await h.call(stuck, timeout=0.3, what="fin_refresh", user_excel=True)
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(HostError) as e:
+            await h.call(next_job, timeout=20, what="fin_analyze", user_excel=True)
+        assert not isinstance(e.value, HostTimeout)
+        assert "fin_refresh" in str(e.value) and "this request was not started" in str(e.value)
+        assert time.monotonic() - t0 < jobs.ABANDONED_WAIT_S + 2
+    finally:
+        excel_answers.set()
+    deadline = time.monotonic() + 10
+    while True:                                      # the job given up on ends and frees the turn
+        try:
+            assert await h.call(next_job, timeout=5, what="fin_analyze", user_excel=True) == "ran"
+            break
+        except HostError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.1)

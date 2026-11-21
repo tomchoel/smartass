@@ -151,7 +151,7 @@ class ExcelHost(HiddenExcel):
         from . import jobs
         timeout = timeout or (config.USER_CALL_TIMEOUT_S if user_excel else config.CALL_TIMEOUT_S)
         started = threading.Event()
-        token = jobs.JobToken()
+        token = jobs.JobToken(what)
 
         def job():
             started.set()

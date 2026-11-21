@@ -31,8 +31,9 @@ class JobAborted(HostError):
 
 
 class JobToken:
-    def __init__(self):
+    def __init__(self, what: str = "a request"):
         self.aborted = False
+        self.what = what                     # the request, as a job waiting for a turn this job holds names it
 
 
 def bind_job(token: "JobToken | None" = None) -> None:
@@ -111,12 +112,24 @@ def book_name(t) -> str:
 
 TURN_WAIT_S = 600
 MAX_EXCELS = 4                     # the user's Excel(s) + extra windows started for parallel agents
+ABANDONED_WAIT_S = 5               # a turn a job given up on still holds is waited for this long, then refused
+ABANDONED = ("An earlier request in that Excel ({held}) was given up after Excel did not respond in time, and it still "
+             "holds that Excel: {what} was not started. Check Excel for an open dialog or a cell in edit mode (press Esc "
+             "or Enter); if Excel has stopped responding, it has to be closed. Then ask again.")
+_holders: dict[int, "Turn"] = {}   # Excel pid -> the turn a job of this process holds there (Turn.given_up)
+_holders_lock = threading.Lock()
 
 
 class Turn:
     """Turn-taking for ONE Excel process, across threads, servers and agents (a lock file per Excel pid). One Excel
     runs all automation on its single UI thread and Smart View works on the active sheet, so two writers in the same
-    Excel would only interleave and could put numbers on each other's sheets. Different Excels run in parallel."""
+    Excel would only interleave and could put numbers on each other's sheets. Different Excels run in parallel.
+
+    A turn belongs to the job whose thread took it (its token). When the host gives up on that job (an Excel that does
+    not answer: host._call_once), its thread may stay blocked in Excel and keeps the turn: it never writes again (its
+    next call raises JobAborted) and frees the turn when it ends. A job of this process that waits for such a turn is
+    refused after ABANDONED_WAIT_S with what holds it (live, 21.11.2026: the next job waited silently until it was
+    given up on too); one that ends meanwhile hands the turn over as any other."""
 
     def __init__(self, pid: int):
         import msvcrt
@@ -125,15 +138,22 @@ class Turn:
         self.pid = pid
         self.f = open(config.SVKIT / f"user_excel_{pid}.lock", "a+b")
         self.held = False
+        self.token = getattr(_job, "token", None)     # the job taking it (bind_job)
 
     def try_acquire(self) -> bool:
         try:
             self.f.seek(0)
             self._m.locking(self.f.fileno(), self._m.LK_NBLCK, 1)
             self.held = True
+            with _holders_lock:
+                _holders[self.pid] = self
         except OSError:
             pass
         return self.held
+
+    def given_up(self) -> bool:
+        """Held by a job the host has given up on (its token aborted)."""
+        return self.held and self.token is not None and self.token.aborted
 
     def acquire(self, what: str) -> float:
         t0 = time.monotonic()
@@ -143,6 +163,10 @@ class Turn:
             except JobAborted:
                 self.close()
                 raise
+            holder = _holders.get(self.pid)
+            if holder is not None and holder.given_up() and time.monotonic() - t0 >= ABANDONED_WAIT_S:
+                self.close()
+                raise HostError(ABANDONED.format(held=holder.token.what, what=what))
             if time.monotonic() - t0 > TURN_WAIT_S:
                 self.close()
                 raise HostError(f"Another agent has been working in that Excel for {TURN_WAIT_S // 60} min; "
@@ -152,6 +176,9 @@ class Turn:
 
     def close(self):
         if self.held:
+            with _holders_lock:
+                if _holders.get(self.pid) is self:
+                    del _holders[self.pid]
             try:
                 self.f.seek(0)
                 self._m.locking(self.f.fileno(), self._m.LK_UNLCK, 1)
