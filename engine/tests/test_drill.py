@@ -915,3 +915,91 @@ def test_the_token_route_gives_an_empty_piece_for_no_drill_data(monkeypatch):
     res = asyncio.run(drillstep._drill_fetch("u", 10))
     assert res["items"] == [] and res["note"] == "no drill data here"
 
+
+# ---------------------------------------------------------------- a piece's time budget (final review I2)
+def test_a_pieces_budget_grows_with_its_pages_from_a_floor_to_a_cap(monkeypatch):
+    from smartass.core import config
+    from smartass.epm import drillstep
+    monkeypatch.setattr(config, "DRILL_PAGE", 5000)
+    monkeypatch.setattr(config, "DRILL_MAX_LINES", 300_000)
+    assert drillstep.RENEWAL_S == 360                       # the lost request, the drain, the key request: 120 s each
+    assert drillstep.piece_budget(None) == 300               # until the first page tells the total
+    assert drillstep.piece_budget(1) == 375                  # 1 page * 15 s + 360 s
+    assert drillstep.piece_budget(150_000) == 810            # 30 pages: where a flat 300 s ran out (about 11 s a page)
+    assert drillstep.piece_budget(300_000) == drillstep.piece_cap() == 1260     # 60 pages: the line limit needs more
+    assert drillstep.piece_budget(10_000_000) == 1260
+    monkeypatch.setattr(config, "DRILL_MAX_LINES", 50_000)
+    assert drillstep.piece_cap() == 900 and drillstep.piece_budget(300_000) == 900   # the old page route's cap
+
+
+def _slow_source(monkeypatch, pages: list, total):
+    """drill_token.shared() -&gt; a fetch that tells progress after each page: pages = seconds per page."""
+    import asyncio
+
+    from smartass.epm import drill_token
+
+    class Slow:
+        async def fetch(self, url, max_lines, progress=None):
+            n = 0
+            for secs in pages:
+                await asyncio.sleep(secs)
+                n += 5000
+                if progress:
+                    progress(n, total)
+            return {"items": [{"AMOUNTX": "1"}] * 3, "total": 3, "view": {"items": []}, "secs": 0, "query": None}
+    monkeypatch.setattr(drill_token, "shared", lambda: Slow())
+
+
+def _small_budget(monkeypatch):
+    from smartass.core import config
+    from smartass.epm import drillstep
+    monkeypatch.setattr(config, "DRILL_PAGE", 5000)
+    monkeypatch.setattr(drillstep, "PIECE_FLOOR_S", 0.3)
+    monkeypatch.setattr(drillstep, "PAGE_S", 0.2)
+    monkeypatch.setattr(drillstep, "RENEWAL_S", 0.0)
+
+
+def test_a_big_piece_gets_the_time_its_pages_need_once_its_total_is_known(monkeypatch):
+    import asyncio
+
+    from smartass.epm import drillstep
+    _small_budget(monkeypatch)
+    _slow_source(monkeypatch, [0.05, 0.2, 0.2, 0.2], 20_000)         # 0.65 s: over the floor, within 4 * 0.2 s
+    assert asyncio.run(drillstep._drill_fetch("u", 100_000))["total"] == 3
+
+
+def test_a_piece_over_its_budget_is_a_readable_error_that_names_the_cell(monkeypatch):
+    import asyncio
+
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from smartass.core import serverkit
+    from smartass.epm import drillstep
+    _small_budget(monkeypatch)
+    _slow_source(monkeypatch, [0.05, 0.6], 10_000)                   # 2 pages: 0.4 s, the second one takes longer
+
+    async def link(connection, cell):
+        return {"url": "u", "cube_value": -5.0}
+    monkeypatch.setattr(drillstep, "_link", link)
+
+    async def fin_drill(cell=None):
+        return await drillstep.drill(cell, split="off")
+    with pytest.raises(ToolError) as e:
+        asyncio.run(serverkit.guard(fin_drill)(cell={"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC",
+                                                     "All Time Periods": "Sep 26"}))
+    msg = str(e.value)
+    assert "TimeoutError" not in msg and "ac.C60 × un.SY.2TEC × Sep 26" in msg
+    assert "5,000 of 10,000 lines" in msg and "Narrow the cell" in msg and "Retry" not in msg
+
+
+def test_a_timeout_inside_the_fetch_is_not_taken_for_the_budget(monkeypatch):
+    import asyncio
+
+    from smartass.epm import drill_token, drillstep
+
+    class Raises:
+        async def fetch(self, url, max_lines, progress=None):
+            raise TimeoutError("EPM's answer did not end in time")
+    monkeypatch.setattr(drill_token, "shared", lambda: Raises())
+    with pytest.raises(TimeoutError, match="did not end in time"):
+        asyncio.run(drillstep._drill_fetch("u", 10))

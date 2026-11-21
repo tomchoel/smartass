@@ -105,6 +105,8 @@ reply's `text_fixes` (candidates for your own fix list).
   session is taken with it and renewed once for all pieces when EPM drops it.
 - Excel gets key columns only above 50 000 lines. Maximum 300 000 lines; above that the tool stops after the first
   page and reports the size, and you narrow the request.
+- Each piece has a time budget: 300 s until its first page tells its size, then 15 s a page plus 360 s for one
+  session renewal (1 260 s at 300 000 lines).
 - No drill report on the cell (data entered by journal in EPM): the answer is refused with the reason.
 
 ## Errors
@@ -115,5 +117,6 @@ reply's `text_fixes` (candidates for your own fix list).
 | `EPM access is not set up on this PC …` | `[oauth]` is missing in config.toml: the user (or IT) adds it, then `smartass login`. |
 | `refused: no OAuth scope is configured for …` | The drill's pod has no scope under `[oauth.scopes]` in config.toml: add it, then `smartass login`. |
 | `EPM answered the drill query with a page, not JSON (signed out?)` / `... the drill view ...` / `getData returned HTTP <n> without data at offset <m>` / `EPM gave no session key for the drill` | EPM's drill session was lost again after renewing it. Retry once; if it repeats, `smartass doctor --bundle` to the maintainer. |
+| `The drill of <cell> did not finish within <n> s (…)` | EPM was too slow for the piece's time budget: narrow the cell (a lower entity or account, or one month) and drill again. |
 | `this cell has no drill-through report …` | Not a FinLite base-level intersection loaded by Data Integration: use a FinLite account and a lower entity or period. |
 | Too wide (EPMFDM-140373) | Splits by itself by child entity, then account. |

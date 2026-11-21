@@ -4,6 +4,7 @@ token: drill_token); write() runs inside a host job."""
 from __future__ import annotations
 
 import logging
+import math
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -13,11 +14,19 @@ from mcp.server.mcpserver.exceptions import ToolError
 from ..core import config
 from . import ops
 from . import drilltime, oauth
+from .drill_token import _REQUEST_S
 from .drillcore import CellTooWide, NoDrillData, TooManyLines
 
 log = logging.getLogger("smartview")
 SOURCE = "Kilde: Data Integration drill-through (FinLite)."
 EMPTY_PROVIDER = "Empty response from provider"
+# A drill piece's time budget (piece_budget). Live, a 5 000-line getData page took about 11 s (audit (b): 7 852 lines
+# in two pages, 22.8-23.1 s with the key and the view): PAGE_S allows a third more. One renewal on a slow EPM is the
+# lost request, the drain and the key request, each at most one request's timeout.
+PIECE_FLOOR_S = 300.0            # the key, EPM's drill query, the view and the first page; all a piece has until then
+PAGE_S = 15.0                    # per getData page of config.DRILL_PAGE lines
+RENEWAL_S = 3 * _REQUEST_S       # 360 s
+OLD_CAP_S = 900.0                # the old page route's cap (300 + 10 s a page at 300 000 lines)
 
 
 @dataclass
@@ -167,16 +176,64 @@ def _lines_source():
     return drill_token.shared()
 
 
+def piece_cap() -> float:
+    """The most a piece may take: the old 900 s, or what config.DRILL_MAX_LINES needs if that is more (300 000 lines:
+    60 pages * 15 s + 360 s = 1 260 s), so a piece within the line limit is never cut short by the cap."""
+    return max(OLD_CAP_S, math.ceil(config.DRILL_MAX_LINES / config.DRILL_PAGE) * PAGE_S + RENEWAL_S)
+
+
+def piece_budget(total: int | None) -> float:
+    """Seconds one drill piece may take, counted from its start: PIECE_FLOOR_S until its first page tells the total
+    (None); then its pages times PAGE_S plus one renewal (RENEWAL_S), never under the floor, at most piece_cap()."""
+    if total is None:
+        return PIECE_FLOOR_S
+    need = max(1, math.ceil(total / config.DRILL_PAGE)) * PAGE_S + RENEWAL_S
+    return min(max(PIECE_FLOOR_S, need), piece_cap())
+
+
+class PieceTimeout(Exception):
+    """A drill piece ran past its budget (piece_budget); _drill_piece names the cell."""
+
+    def __init__(self, secs: float, got: int, total: int | None):
+        super().__init__(f"the drill did not finish within {secs:.0f} s")
+        self.secs, self.got, self.total = secs, got, total
+
+
 async def _drill_fetch(url: str, max_lines: int) -> dict:
-    """Lines of one drill piece over the token route. No data at this cell -> an empty piece with EPM's note; every
-    other error is raised as it is."""
+    """Lines of one drill piece over the token route, within piece_budget (it grows once the first page tells the
+    total). No data at this cell -> an empty piece with EPM's note; past the budget PieceTimeout; every other error
+    is raised as it is."""
     import asyncio
 
+    loop = asyncio.get_running_loop()
+    t0, seen = loop.time(), {"got": 0, "total": None, "budget": PIECE_FLOOR_S}
+    budget = asyncio.timeout_at(t0 + PIECE_FLOOR_S)
+
+    def progress(got: int, total: int | None) -> None:     # on the event loop, after each page
+        seen.update(got=got, total=total)
+        seen["budget"] = piece_budget(total if total is not None else got + config.DRILL_PAGE)
+        budget.reschedule(t0 + seen["budget"])
     try:
-        with drilltime.span("token drill"):
-            return await asyncio.wait_for(_lines_source().fetch(url, max_lines), 300)
+        async with budget:
+            with drilltime.span("token drill"):
+                return await _lines_source().fetch(url, max_lines, progress)
     except NoDrillData as e:
         return {"items": [], "total": 0, "view": None, "secs": 0, "note": str(e)}
+    except TimeoutError:
+        if not budget.expired():
+            raise                                       # a request's own timeout inside the fetch: not the budget
+        raise PieceTimeout(seen["budget"], seen["got"], seen["total"]) from None
+
+
+async def _fetch_piece(cell: dict, url: str, max_lines: int) -> dict:
+    """_drill_fetch for one cell; past its budget a readable ToolError that names the cell and what to do."""
+    try:
+        return await _drill_fetch(url, max_lines)
+    except PieceTimeout as e:
+        of = f" of {e.total:,}" if e.total is not None else ""
+        raise ToolError(f"The drill of {' × '.join(cell.values())} did not finish within {e.secs:.0f} s ({e.got:,}"
+                        f"{of} lines fetched). Narrow the cell (a lower entity or account, or one month) and drill "
+                        "again.") from None
 
 
 async def _all(coros) -> list:
@@ -252,7 +309,7 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
     try:
         if drill_split.too_wide_key(connection, cell) in drill_split.known_too_wide() and can_split:
             raise _KnownTooWide()                   # seen before: skip the ~20 s round trip to EPM's refusal
-        res = await _drill_fetch(link["url"], limit)
+        res = await _fetch_piece(cell, link["url"], limit)
     except (CellTooWide, _KnownTooWide) as e:
         # too many dimensions open at once: narrow by entity (then account) - a period split would not help
         parts = drill_split.plan_split(cell, drill_split.atlas_children(connection),
@@ -269,7 +326,7 @@ async def _drill_piece(connection: str, cell: dict, max_lines: int, split: str, 
         parts = drill_split.plan_split(cell, drill_split.atlas_children(connection)) if can_split else None
         if parts:                                   # too big: drill each child cell instead (recursively)
             return await _children(connection, parts, max_lines, split, state, depth)
-        res = await _drill_fetch(link["url"], left)                       # leaf: page it all
+        res = await _fetch_piece(cell, link["url"], left)                 # leaf: page it all
     state["left"] -= len(res["items"])
     return [{"cell": cell, "cube_value": link["cube_value"], "drill_url": link["url"], **res}]
 
