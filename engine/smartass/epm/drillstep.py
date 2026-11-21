@@ -3,6 +3,8 @@ drill (lines_ranking). drill() runs on the event loop (the drill link over HTTP,
 token: drill_token); write() runs inside a host job."""
 from __future__ import annotations
 
+import contextvars
+import itertools
 import logging
 import math
 import time
@@ -11,7 +13,7 @@ from dataclasses import dataclass, field
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from ..core import config
+from ..core import config, timing
 from . import ops
 from . import drilltime, oauth
 from .drill_token import _REQUEST_S
@@ -74,6 +76,47 @@ def say(text: str) -> None:
         pass
 
 
+class _Notes:
+    """A drill's sign of life: 'still working: drill (<lines so far> of <their total> lines so far, <n> pieces done)
+    (<s>s)', at most one note per timing.PROGRESS_AFTER_S and the first after that long. Counts only: never a figure
+    from EPM. One per drill, shared by its pieces (_NOTES)."""
+
+    def __init__(self, say, clock=time.monotonic):
+        self.say, self.clock = say, clock
+        self.t0 = self.last = clock()
+        self.lines: dict[int, tuple[int, int | None]] = {}     # piece -> (lines so far, its total or None)
+        self.done = 0
+        self._ids = itertools.count()
+
+    def new(self) -> int:
+        return next(self._ids)
+
+    def page(self, piece, got: int, total: int | None) -> None:
+        self.lines[piece] = (got, total)
+        self._tell()
+
+    def forget(self, piece) -> None:
+        """A piece whose lines are not used (a built query that did not tie): its count goes."""
+        self.lines.pop(piece, None)
+
+    def piece_done(self) -> None:
+        self.done += 1
+        self._tell()
+
+    def _tell(self) -> None:
+        now = self.clock()
+        if now - self.last < timing.PROGRESS_AFTER_S:
+            return
+        self.last = now
+        got = sum(g for g, _ in self.lines.values())
+        total = sum(g if t is None else t for g, t in self.lines.values())
+        self.say(f"still working: drill ({got:,} of {total:,} lines so far, {self.done} piece"
+                 f"{'' if self.done == 1 else 's'} done) ({now - self.t0:.0f}s)")
+
+
+_NOTES: contextvars.ContextVar[_Notes | None] = contextvars.ContextVar("smartass_drill_notes", default=None)
+
+
 async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: int = config.DRILL_MAX_LINES,
                 split: str = "auto") -> DrillResult:
     """Drill a cell to its ledger lines: link (Smart View), lines (token route), normalise, reconcile, profile.
@@ -83,15 +126,19 @@ async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: 
     from . import drill_lines as dl
     t0, stages = time.monotonic(), {}
     cell, warnings = ops.drill_cell_defaults(cell)
-    with timed(stages, "drill"):
-        try:
-            pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
-        except Exception as e:   # noqa: BLE001 - only the empty provider response is retried
-            if EMPTY_PROVIDER.lower() not in str(e).lower():
-                raise
-            say(f"Smart View gave an empty response for the drill link of {' × '.join(cell.values())}; "
-                "retrying once")
-            pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
+    notes = _NOTES.set(_Notes(say))                 # the pieces' tasks inherit it
+    try:
+        with timed(stages, "drill"):
+            try:
+                pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
+            except Exception as e:   # noqa: BLE001 - only the empty provider response is retried
+                if EMPTY_PROVIDER.lower() not in str(e).lower():
+                    raise
+                say(f"Smart View gave an empty response for the drill link of {' × '.join(cell.values())}; "
+                    "retrying once")
+                pieces, parent_cube = await _drill_cell(connection, cell, max_lines, split)
+    finally:
+        _NOTES.reset(notes)
     source = SOURCE
     view = next((p["view"] for p in pieces if p.get("view")), None)
     if view is None:                                # spec 6: no drill report -> cube value, 0 lines, the reason
@@ -208,11 +255,15 @@ async def _drill_fetch(url: str, max_lines: int) -> dict:
     loop = asyncio.get_running_loop()
     t0, seen = loop.time(), {"got": 0, "total": None, "budget": PIECE_FLOOR_S}
     budget = asyncio.timeout_at(t0 + PIECE_FLOOR_S)
+    notes = _NOTES.get()
+    piece = notes.new() if notes is not None else None
 
     def progress(got: int, total: int | None) -> None:     # on the event loop, after each page
         seen.update(got=got, total=total)
         seen["budget"] = piece_budget(total if total is not None else got + config.DRILL_PAGE)
         budget.reschedule(t0 + seen["budget"])
+        if notes is not None:
+            notes.page(piece, got, total)
     try:
         async with budget:
             with drilltime.span("token drill"):
@@ -228,12 +279,16 @@ async def _drill_fetch(url: str, max_lines: int) -> dict:
 async def _fetch_piece(cell: dict, url: str, max_lines: int) -> dict:
     """_drill_fetch for one cell; past its budget a readable ToolError that names the cell and what to do."""
     try:
-        return await _drill_fetch(url, max_lines)
+        res = await _drill_fetch(url, max_lines)
     except PieceTimeout as e:
         of = f" of {e.total:,}" if e.total is not None else ""
         raise ToolError(f"The drill of {' × '.join(cell.values())} did not finish within {e.secs:.0f} s ({e.got:,}"
                         f"{of} lines fetched). Narrow the cell (a lower entity or account, or one month) and drill "
                         "again.") from None
+    notes = _NOTES.get()
+    if notes is not None:
+        notes.piece_done()
+    return res
 
 
 async def _all(coros) -> list:
@@ -402,25 +457,36 @@ async def _derived_piece(cell: dict, cube, template: tuple, body: str, state: di
     import dataclasses
 
     q = dataclasses.replace(template[1], body=body)
+    notes = _NOTES.get()
+    piece = notes.new() if notes is not None else None
+    progress = (lambda got, total: notes.page(piece, got, total)) if notes is not None else None
+    used = False
     try:
-        with drilltime.span("derived drill"):
-            res = await asyncio.wait_for(_lines_source().lines(
-                q, template[2], min(config.DRILL_SPLIT_AT, max(state["left"], 0))), 300)
-    except Exception as e:   # noqa: BLE001 - TooManyLines, a drill error, a timeout: EPM is asked
-        log.info("derived drill of %s not used (%s: %s); asking EPM", cell, type(e).__name__, e)
-        return None
-    total = 0.0
-    for it in res["items"]:
         try:
-            total += float(it.get("AMOUNTX") or 0)
-        except (TypeError, ValueError):
+            with drilltime.span("derived drill"):
+                res = await asyncio.wait_for(_lines_source().lines(
+                    q, template[2], min(config.DRILL_SPLIT_AT, max(state["left"], 0)), progress=progress), 300)
+        except Exception as e:   # noqa: BLE001 - TooManyLines, a drill error, a timeout: EPM is asked
+            log.info("derived drill of %s not used (%s: %s); asking EPM", cell, type(e).__name__, e)
             return None
-    if not res["items"] or cube is None or abs(round(total, 2) - round(float(cube), 2)) >= 0.005:
-        # no lines proves nothing (an atlas gap ties to a zero cube): only EPM's own query may say "none"
-        log.info("derived drill of %s does not tie to the cube; asking EPM", cell)
-        return None
-    state["left"] -= len(res["items"])
-    return {"cell": cell, "cube_value": cube, "drill_url": template[2], **res, "derived": True}
+        total = 0.0
+        for it in res["items"]:
+            try:
+                total += float(it.get("AMOUNTX") or 0)
+            except (TypeError, ValueError):
+                return None
+        if not res["items"] or cube is None or abs(round(total, 2) - round(float(cube), 2)) >= 0.005:
+            # no lines proves nothing (an atlas gap ties to a zero cube): only EPM's own query may say "none"
+            log.info("derived drill of %s does not tie to the cube; asking EPM", cell)
+            return None
+        used = True
+        state["left"] -= len(res["items"])
+        return {"cell": cell, "cube_value": cube, "drill_url": template[2], **res, "derived": True}
+    finally:
+        if notes is not None and used:
+            notes.piece_done()
+        elif notes is not None:                     # lines not used are not counted: EPM is asked for them
+            notes.forget(piece)
 
 
 async def _child_values(connection: str, parts: list[dict]) -> list | None:

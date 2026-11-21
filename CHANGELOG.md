@@ -28,8 +28,9 @@
   still in config.toml); the variables `SV_DRILL_ROUTE`, `SV_DRILL_DIRECT`, `SV_DRILL_CHANNELS`,
   `SV_DRILL_PROFILE_SLOTS`, `SV_DRILL_KEEP_WARM`, `SV_DRILL_IDLE_S`, `SV_DRILL_YIELD_IDLE_S`,
   `SV_DRILL_KEEPALIVE_S`, `SV_DRILL_TABS`; the run log's `drills.browser page` and `drills.direct drill` timings
-  (a drill is `drills.token drill`); the progress note "still working: drill (hidden browser ...)". Tool names,
-  parameters and reply fields are unchanged.
+  (a drill is `drills.token drill`); the progress note "still working: drill (hidden browser ...)": a drill now
+  says "still working: drill (<n> of <total> lines so far, <k> pieces done) (<s>s)", at most once every 10 s (counts
+  only). Tool names, parameters and reply fields are unchanged.
 - **Safe to delete by hand** (smartass never deletes them): the old browser profiles
   `%LOCALAPPDATA%\smartass\drill_edge*`, the failed drill pages `logs\drill_fail_*` and the unused `drill.db`.
 

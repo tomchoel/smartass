@@ -794,7 +794,7 @@ def _derive_setup(monkeypatch, members, cubes, lines_for, template_query=True):
     monkeypatch.setattr(server, "_drill_piece", piece)
 
     class Token:
-        async def lines(self, q, warm_url, max_lines):
+        async def lines(self, q, warm_url, max_lines, progress=None):
             ents = _json.loads(q.body)["PARAMS"][:-1]
             return {"items": [{"AMOUNTX": str(a)} for a in lines_for(ents[0])], "total": None, "view": {"v": 1},
                     "secs": 0, "query": q}
@@ -932,8 +932,8 @@ def test_a_pieces_budget_grows_with_its_pages_from_a_floor_to_a_cap(monkeypatch)
     assert drillstep.piece_cap() == 900 and drillstep.piece_budget(300_000) == 900   # the old page route's cap
 
 
-def _slow_source(monkeypatch, pages: list, total):
-    """drill_token.shared() -&gt; a fetch that tells progress after each page: pages = seconds per page."""
+def _slow_source(monkeypatch, pages: list, total, view=None):
+    """drill_token.shared() -> a fetch that tells progress after each page: pages = seconds per page."""
     import asyncio
 
     from smartass.epm import drill_token
@@ -946,7 +946,8 @@ def _slow_source(monkeypatch, pages: list, total):
                 n += 5000
                 if progress:
                     progress(n, total)
-            return {"items": [{"AMOUNTX": "1"}] * 3, "total": 3, "view": {"items": []}, "secs": 0, "query": None}
+            return {"items": [{"AMOUNTX": "1"}] * 3, "total": 3, "view": view or {"items": []}, "secs": 0,
+                    "query": None}
     monkeypatch.setattr(drill_token, "shared", lambda: Slow())
 
 
@@ -1003,3 +1004,36 @@ def test_a_timeout_inside_the_fetch_is_not_taken_for_the_budget(monkeypatch):
     monkeypatch.setattr(drill_token, "shared", lambda: Raises())
     with pytest.raises(TimeoutError, match="did not end in time"):
         asyncio.run(drillstep._drill_fetch("u", 10))
+
+# ---------------------------------------------------------------- a sign of life during a drill (final review M1)
+def test_drill_notes_say_lines_and_pieces_at_most_once_per_ten_seconds():
+    from smartass.epm import drillstep
+    now, said = [0.0], []
+    notes = drillstep._Notes(said.append, clock=lambda: now[0])
+    for t, event in [(1, ("page", "a", 5000, 20000)), (10.5, ("page", "a", 10000, 20000)), (12, ("page", "b", 700, 700)),
+                     (15, ("done",)), (21, ("page", "a", 15000, 20000)), (25, ("done",)), (31.5, ("done",))]:
+        now[0] = t
+        notes.page(*event[1:]) if event[0] == "page" else notes.piece_done()
+    assert said == ["still working: drill (10,000 of 20,000 lines so far, 0 pieces done) (10s)",
+                    "still working: drill (15,700 of 20,700 lines so far, 1 piece done) (21s)",
+                    "still working: drill (15,700 of 20,700 lines so far, 3 pieces done) (32s)"]
+
+
+def test_a_drill_tells_its_progress_with_counts_only(monkeypatch):
+    import asyncio
+
+    from smartass.core import timing
+    from smartass.epm import drillstep
+    monkeypatch.setattr(timing, "PROGRESS_AFTER_S", 0)              # every page and piece may speak
+    _slow_source(monkeypatch, [0.0, 0.0], 10_000, json.loads((FIX / "view_definition.json").read_text(encoding="utf-8")))
+
+    async def link(connection, cell):
+        return {"url": "u", "cube_value": -1234.5}
+    monkeypatch.setattr(drillstep, "_link", link)
+    said = []
+    asyncio.run(drillstep.drill({"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"},
+                                say=said.append, split="off"))
+    assert [s.split(" (", 1)[1].rsplit(") (", 1)[0] for s in said] == [
+        "5,000 of 10,000 lines so far, 0 pieces done", "10,000 of 10,000 lines so far, 0 pieces done",
+        "10,000 of 10,000 lines so far, 1 piece done"]
+    assert all(s.startswith("still working: drill (") and "1234" not in s and "1,234" not in s for s in said)
