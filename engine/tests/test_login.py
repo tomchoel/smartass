@@ -84,7 +84,7 @@ def test_the_cli_routes_login_and_its_flags(monkeypatch):
     assert seen == [("run", False), ("run", True), "show", "forget"]
 
 
-def test_doctor_oauth_is_ok_when_not_set_up_and_warns_when_a_sign_in_is_missing(fake, monkeypatch):
+def test_doctor_oauth_fails_when_not_set_up_or_the_home_scope_is_missing_and_warns_when_a_sign_in_is(fake, monkeypatch):
     state, _ = fake
     monkeypatch.setattr(config, "EPM_BASE", "https://plan1.example")
     c = doctor._oauth()
@@ -93,13 +93,17 @@ def test_doctor_oauth_is_ok_when_not_set_up_and_warns_when_a_sign_in_is_missing(
     assert doctor._oauth().status == "OK"
     state[STRAT] = "ended"
     assert "strat: sign-in ended" in doctor._oauth().detail and doctor._oauth().status == "WARN"
-    del state[PLAN1]                                               # the home pod has no scope: said, not a warning
+    del state[PLAN1]                       # the home pod has no scope: no answer at all (the closed month is read there)
     state[STRAT] = "signed_in"
     c = doctor._oauth()
-    assert (c.status, c.detail) == ("OK", "strat: signed in; plan1: no scope (hidden browser)")
+    assert (c.status, c.detail) == ("FAIL", "strat: signed in; plan1: no scope (epm.base: no answers)")
+    assert "[oauth.scopes]" in c.fix and "https://plan1.example" in c.fix and "smartass login" in c.fix
+    assert "administrator" in c.fix
+    state[STRAT] = "not_signed_in"                 # a missing sign-in elsewhere does not hide the FAIL
+    assert doctor._oauth().status == "FAIL"
     monkeypatch.setattr(oauth, "configured", lambda: False)
     c = doctor._oauth()
-    assert c.status == "OK" and "not set up" in c.detail
+    assert c.status == "FAIL" and "not set up" in c.detail and c.fix == oauth.NOT_SET_UP
     assert doctor._oauth in doctor.CHECKS
 
 
@@ -128,3 +132,10 @@ def test_the_renewal_thread_only_starts_when_the_route_is_set_up(monkeypatch):
     assert started == [1] and t.daemon and t.name == "oauth-keep-fresh"
     serverkit._keep_signed_in()                                    # the MCP server's start-up hook uses the same
     assert len(started) == 2 or t.join(1) is None
+
+def test_doctor_says_when_the_identity_domain_is_refused_for_not_being_https(fake, monkeypatch):
+    monkeypatch.setattr(config, "OAUTH_IDCS", "")
+    monkeypatch.setattr(config, "OAUTH_IDCS_REFUSED", True)
+    monkeypatch.setattr(oauth, "configured", lambda: False)
+    c = doctor._oauth()
+    assert (c.status, c.detail, c.fix) == ("FAIL", "not set up: [oauth] idcs is not an https URL", oauth.NOT_SET_UP)

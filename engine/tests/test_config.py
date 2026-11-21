@@ -67,15 +67,25 @@ def test_import_survives_wrong_typed_user_config(tmp_path):
     import os
     import subprocess
     import sys
-    (tmp_path / "config.toml").write_text('packs.enabled = "p1"\n[http]\nport = "x"\n[drill]\nchannels = "chrome"\n',
-                                          encoding="utf-8")
+    (tmp_path / "config.toml").write_text('packs.enabled = "p1"\n[http]\nport = "x"\n', encoding="utf-8")
     env = {**os.environ, "SMARTASS_HOME": str(tmp_path)}
-    for k in ("SMARTASS_HTTP_PORT", "SV_DRILL_CHANNELS"):
-        env.pop(k, None)
+    env.pop("SMARTASS_HTTP_PORT", None)
     code = ("from smartass.core import config as c; "
-            "print(c.HTTP_PORT, c.DRILL_CHANNELS, c.PACKS, repr(c.CONFIG_ERROR))")
+            "print(c.HTTP_PORT, c.PACKS, repr(c.CONFIG_ERROR))")
     out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout
-    assert "47811 ('chrome',) ['p1']" in out and "http.port" in out
+    assert "47811 ['p1']" in out and "http.port" in out
+
+
+def test_an_old_drill_section_in_the_user_config_is_ignored(tmp_path):
+    """PCs set up before 0.6.0 may still have [drill] channels (the hidden browser's); it is no error now."""
+    import os
+    import subprocess
+    import sys
+    (tmp_path / "config.toml").write_text('[drill]\nchannels = ["msedge", "chrome"]\n', encoding="utf-8")
+    env = {**os.environ, "SMARTASS_HOME": str(tmp_path)}
+    code = "from smartass.core import config as c; print(repr(c.CONFIG_ERROR), hasattr(c, 'DRILL_CHANNELS'))"
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout
+    assert out.split() == ["None", "False"]
 
 
 def test_release_folder_expands_env_vars_and_empty_means_not_configured(tmp_path):
@@ -99,7 +109,7 @@ def test_shipped_defaults_parse_and_hold_org_values():
 
     s, err = config.load_settings(config.DEFAULTS_FILE, config.DEFAULTS_FILE.with_name("absent.toml"))
     assert err is None
-    assert s["epm"]["base"].startswith("https://") and s["drill"]["channels"][0] == "msedge"
+    assert s["epm"]["base"].startswith("https://") and "drill" not in s           # no browser to choose since 0.6.0
     assert s["label"]["id"] and s["http"]["port"] > 1024
 
 

@@ -20,7 +20,7 @@ with its error (amounts masked), never hidden; when the warm-up and the first me
 (the cause is the environment, not a case). A case that guard_chart refuses (no chart block) runs the same steps as
 server._new_question minus that one guard, still logged as fin_analyze, and its row is marked '(no chart block)';
 the case files are not changed. Never saves or closes a workbook of the user's; at the end only the
-engine's own hidden Excel and browser are shut down, as the server's lifespan does.
+engine's own hidden Excel is shut down, as the server's lifespan does.
 """
 import argparse
 import asyncio
@@ -238,13 +238,9 @@ async def _build(kit) -> str:
 
 
 def _shutdown(kit) -> None:
-    """As the server's lifespan ends: the engine's own hidden Excel and browser only."""
-    try:
-        if kit._host is not None:
-            kit._host.shutdown()
-    finally:
-        from smartass.epm import drill_browser
-        drill_browser.shutdown_shared()
+    """As the server's lifespan ends: the engine's own hidden Excel only."""
+    if kit._host is not None:
+        kit._host.shutdown()
 
 
 async def bench(cases: list[dict], rounds: int) -> int:

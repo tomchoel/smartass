@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Drill lines over the token; the hidden browser is gone (0.6.0)
+
+- **No browser.** smartass no longer installs Playwright or starts a hidden Edge. Grids and now also the ledger
+  lines behind a number (`fin_drill`, `lines` blocks) go over plain HTTPS with your own OAuth sign-in. The
+  server's start no longer warms a browser and its shutdown kills none.
+- **A missing sign-in is answered in the reply:** the page and a code to approve in your own browser; the next call
+  then works. `smartass login` does the same from a terminal.
+- **A lines answer's first drill no longer waits for a browser** to start and sign in by SSO. After the first drill
+  both routes took about as long: EPM's own time dominates.
+- **Live comparison (21.11.2026, read-only; docs/audit/2026-11-19-drill-token-vs-browser.md).** Four cells, the old
+  browser route against the token route: the same lines row for row, exact ties and equal cube values on all four.
+  Seconds browser / token: 26.1 / 8.4 (2 839 lines, the browser's start and sign-in included; its cold first run of
+  the day took 101.5 s), 10.6 / 10.8 (10 413 lines, 22 pieces), 3.8 / 4.4 (57 lines), 22.2 / 23.2 (7 852 lines, 3
+  pieces). Paging: 7 852 lines over two getData pages, the same rows on both routes. A session lost under load (4
+  requests in flight): one new session key for all of them, 10 413 lines, the same rows. Drawn live in Excel, a
+  lines answer took 10.6 s, its drill 7.3 s.
+- **What a PC needs:** `[oauth]` in `%LOCALAPPDATA%\smartass\config.toml` (`idcs`, `client_id` and a scope per pod
+  under `[oauth.scopes]`; docs\troubleshooting.md, "oauth") and one sign-in. Without it every call that reads EPM
+  answers with the set-up text, and `smartass doctor` reports `FAIL oauth not set up`. The pod of `epm.base` needs
+  a scope too: without one no answer works (every answer reads the closed month and the data-source list there, with
+  no Excel fallback), and the doctor reports `FAIL`. Another pod without a scope loses only what is asked of that
+  pod: its grids come through Smart View in Excel. `idcs` must be an https URL.
+- **Gone:** the doctor check `drill_browser` (also from `fin_status`); the `[drill] channels` setting (ignored when
+  still in config.toml); the variables `SV_DRILL_ROUTE`, `SV_DRILL_DIRECT`, `SV_DRILL_CHANNELS`,
+  `SV_DRILL_PROFILE_SLOTS`, `SV_DRILL_KEEP_WARM`, `SV_DRILL_IDLE_S`, `SV_DRILL_YIELD_IDLE_S`,
+  `SV_DRILL_KEEPALIVE_S`, `SV_DRILL_TABS`; the run log's `drills.browser page` and `drills.direct drill` timings
+  (a drill is `drills.token drill`); the progress note "still working: drill (hidden browser ...)": a drill now
+  says "still working: drill (<n> of <total> lines so far, <k> pieces done) (<s>s)", at most once every 10 s (counts
+  only). Tool names, parameters and reply fields are unchanged.
+- **Safe to delete by hand** (smartass never deletes them): the old browser profiles
+  `%LOCALAPPDATA%\smartass\drill_edge*`, the failed drill pages `logs\drill_fail_*` and the unused `drill.db`.
+
 The sections below are 0.5.0 (phase 3c). After the update, reconnect every open Claude Code session (`/mcp`):
 a session still on 0.4.0 in the same Excel has no first-contact check, so a 0.5.0 save after the reply can run in
 the middle of its job.

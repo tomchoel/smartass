@@ -14,6 +14,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ..core import config
+from ..epm import oauth
 from ..xl.host import HostError, InputError
 
 log = logging.getLogger("smartass.http")
@@ -130,6 +131,9 @@ def make_server(port: int, secret: str, health=None, analyze=None) -> ThreadingH
                 self._send(400, {"error": f"{e.reason} - {e.fix}"})
             except HostError as e:
                 self._send(503, {"error": str(e)})
+            except oauth.NotSignedIn as e:               # the same page and code the MCP tools answer with
+                log.info("POST %s: EPM sign-in needed", path)
+                self._send(503, {"error": oauth.sign_in_reply(e)})
             except Exception:   # noqa: BLE001 - the client gets a short answer, the log the traceback
                 log.exception("POST %s failed", path)
                 self._send(500, {"error": "internal error; see server.log"})

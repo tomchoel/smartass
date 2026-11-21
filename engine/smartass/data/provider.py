@@ -16,7 +16,7 @@ from ..model.frame import Fact
 from ..model.periods import Month, parse
 from ..model.requests import GridRequest
 
-RETRY_WAIT_S = 5.0     # a cold browser loses the first request while it signs in; one retry after this wait
+RETRY_WAIT_S = 5.0     # a request lost on the way (svhttp.RequestLost) is retried once after this wait
 
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 

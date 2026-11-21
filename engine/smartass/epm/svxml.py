@@ -2,7 +2,7 @@
 (docs/specs/2026-10-25-stage0-epm-access-probe.md). Pure functions: request bodies and response parsing.
 
 Read-only by construction: check_read_only() admits only the requests built here, and ExecuteGrid only with the
-'retrieve' action. svhttp.BrowserTransport passes every body through it before sending."""
+'retrieve' action. svhttp.BearerTransport passes every body through it before sending."""
 from __future__ import annotations
 
 import html

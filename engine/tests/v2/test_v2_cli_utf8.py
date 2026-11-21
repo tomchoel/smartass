@@ -1,7 +1,17 @@
 """Plan 2D task 4: the CLI entry points (smartass CLI, python -m smartass.testset) print UTF-8 on a pipe, whatever
 the Windows code page."""
+import os
+import subprocess
+import sys
+
 import pytest
-from test_v2_cli_env import _run
+
+
+def _run(code: str) -> subprocess.CompletedProcess:
+    """code in a fresh Python with the console encodings unset, as a pipe from another program has them."""
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
+    return subprocess.run([sys.executable, "-B", "-c", code], env=env, capture_output=True,
+                          stdin=subprocess.DEVNULL, timeout=120)
 
 
 @pytest.mark.parametrize("call", [

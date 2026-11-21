@@ -31,6 +31,17 @@ def test_prepare_fetches_every_request_and_computes():
     assert pre.routes == {"http": len(prov.asked)}
 
 
+def test_a_grid_that_meets_no_sign_in_is_raised_not_left_to_the_excel_fallback():
+    """prepare keeps only SvHttpError for the ad hoc fallback (Prepared.failed): NotSignedIn from a grid is raised."""
+    from smartass.epm import oauth
+
+    class NotSignedInProvider(FakeProvider):
+        def fetch(self, req):
+            raise oauth.NotSignedIn("not signed in to https://plan1.example: run `smartass login`")
+    with pytest.raises(oauth.NotSignedIn):
+        prepare(spec_dict(), resolver(), NotSignedInProvider(facts()))
+
+
 def test_prepare_guards_before_fetching():
     prov = FakeProvider(facts())
     d = spec_dict()

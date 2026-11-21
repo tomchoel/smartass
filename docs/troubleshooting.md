@@ -57,38 +57,45 @@ by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe
 
 ## oauth
 
-The bearer route: on a pod that has a scope, grids are fetched over plain HTTPS with your own OAuth access token, so
-no hidden browser has to sign in there first. It is optional; without it, and whenever it cannot authenticate, grids
-sign in through the hidden browser as before. Drill-through uses the browser (over the token it is untested).
+Grids and drill lines go over plain HTTPS with your own OAuth access token; smartass starts no browser (since 0.6.0
+there is no hidden browser at all). Without the set-up below every tool call that reads EPM answers with the set-up
+text instead.
 
 Measured 19.11.2026 with scopes for plan1 (FinMax, FinLite) and stratmodel (FinPlan): from a cold start a FinMax
-grid took 0.7 s, a FinPlan grid 0.7 s and the closed month 0.1 s, with no browser started; through the browser's
-sign-in the first grid took about 20 s. Every grid compared was the browser route's cell for cell. A drill link
-(GetDrillThroughReports) also goes over the token; the drill lines themselves still load in the hidden browser
-(a 2 839-line drill: 28 s including the browser's start, reconciled exactly).
+grid took 0.7 s, a FinPlan grid 0.7 s and the closed month 0.1 s; through the old browser's sign-in the first grid
+took about 20 s. Every grid compared was the browser route's cell for cell. Measured 21.11.2026 on four cells: the
+drill lines over the token are the browser route's row for row, with exact ties; a 2 839-line drill took 8.4 s
+(26.1 s through the browser, its start and sign-in included). Details:
+`docs\audit\2026-11-19-drill-token-vs-browser.md`.
 
-- **Set-up (per user, `config.toml`):** `[oauth]` `idcs` (the identity domain's base URL) and `client_id` (a public
+- **Set-up (per user, `config.toml`):** `[oauth]` `idcs` (the identity domain's base URL, https) and `client_id` (a public
   client an administrator registered there, with the device-code and refresh-token grants), and one scope per pod
   under `[oauth.scopes]`: `"https://<pod host>" = "urn:opc:serviceInstanceID=<id>urn:opc:resource:consumer::all"`.
-  A token covers one environment, so a pod without a scope keeps using the browser
-  (`oauth  ...: no scope (hidden browser)`). The administrator adds an environment to the client as a resource and
-  reads its scope there.
-- **Symptom:** `WARN  oauth  <pod>: not signed in` or `<pod>: sign-in ended`.
+  A token covers one environment. The administrator adds an environment to the client as a resource and reads its
+  scope there.
+- **Symptom:** `FAIL  oauth  not set up: config.toml has no [oauth] idcs, client_id and scopes`; a tool reply says
+  "EPM access is not set up on this PC".
+- **Fix:** add the three settings above to config.toml, then run `smartass login`.
+- **Symptom:** `FAIL  oauth  <pod>: no scope (epm.base: no answers)`; every tool reply that reads EPM says "no OAuth
+  scope is configured for https://<pod>".
+- **Cause:** the pod of `epm.base` has no scope under `[oauth.scopes]`. Every answer reads the closed month and the
+  list of data sources from that pod first, and those have no fallback through Excel: no answer works, no drill
+  either. Another pod without a scope loses only what is asked of that pod: its grids are pulled through Smart View
+  in the hidden Excel instead (slower).
+- **Fix:** Add the pod's scope under [oauth.scopes] in config.toml (the identity domain's administrator reads it
+  where that environment was added to the OAuth client as a resource), then run `smartass login`.
+- **Symptom:** `WARN  oauth  <pod>: not signed in` or `<pod>: sign-in ended`; a tool reply gives a page and a code.
 - **Cause:** no sign-in was made on this PC, or it was not used for 7 days (Oracle's lifetime for a refresh token;
   the MCP server and `smartass serve` renew it daily while they run), or the identity domain withdrew it.
 - **Fix:** Run `smartass login`: a page opens in your browser and the code is on the clipboard; paste it and
-  approve with Telenor SSO. `smartass login --status` shows the sign-ins, `--forget` deletes them from this PC.
+  approve with Telenor SSO. Or approve the code the tool reply shows and call the tool again.
+  `smartass login --status` shows the sign-ins, `--forget` deletes them from this PC.
 - The sign-in is stored per pod in `%LOCALAPPDATA%\smartass\oauth\`, DPAPI-protected for your Windows user; smartass
-  never sees a password. The token is only ever sent with the read-only Smart View requests.
-- Log line `svhttp: no bearer route to <pod> (...); using the browser route`: the reason is in the brackets; the
-  bearer route is tried again after two minutes.
-
-## drill_browser
-
-- **Symptom:** `FAIL  drill_browser  msedge: ...; chrome: ...`.
-- **Cause:** `fin_drill` (and lines blocks) need a hidden Edge or Chrome (`drill.channels`). None is installed, or a policy blocks it
-  (Chrome's UserDataDir policy blocks a hidden Chrome, which is why Edge is tried first).
-- **Fix:** Install Microsoft Edge, or ask IT why the Edge UserDataDir policy is set.
+  never sees a password. The token is only ever sent with read-only requests: the Smart View provider's and the
+  drill's own (its query, view and getData).
+- **Left over from before 0.6.0, safe to delete by hand:** the old hidden browser's profile folders
+  `%LOCALAPPDATA%\smartass\drill_edge*` and failed drill pages `logs\drill_fail_*`. smartass no longer uses them and
+  never deletes them itself. A `[drill] channels` line in config.toml is ignored.
 
 ## atlas
 

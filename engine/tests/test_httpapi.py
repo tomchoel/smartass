@@ -105,6 +105,9 @@ def pipe():
             raise GuardError("unknown entity", "find the member with fin_lookup")
         if spec.question == "bad":
             raise InputError("no such member")
+        if spec.question == "unsigned":
+            from smartass.epm import oauth
+            raise oauth.NotSignedIn("not signed in to https://plan1.example: run `smartass login`")
         return {"sheet": "Q1 Answer", "key_values": {"Opex": -1}}
 
     s = httpapi.make_server(0, SECRET, health=lambda: {}, analyze=analyze)
@@ -178,3 +181,15 @@ def test_one_request_at_a_time(pipe):
         _post(url + "/analyze", {"spec": SPEC})
     assert e.value.code == 409
     t.join()
+
+
+def test_a_missing_sign_in_is_answered_with_the_sign_in_message(pipe, monkeypatch, caplog):
+    from smartass.epm import oauth
+    msg = ("EPM sign-in needed. Open https://idcs.example/ui and enter the code ABCD (plan1.example, valid 5 min), "
+           "approve with Telenor SSO, then ask again.")
+    monkeypatch.setattr(oauth, "sign_in_message", lambda: msg)
+    url, _ = pipe
+    with caplog.at_level("DEBUG"), pytest.raises(urllib.error.HTTPError) as e:
+        _post(url + "/analyze", {"spec": {**SPEC, "question": "unsigned"}})
+    assert e.value.code == 503 and json.loads(e.value.read()) == {"error": msg}     # as an Excel that is gone
+    assert not [r for r in caplog.records if r.exc_info]

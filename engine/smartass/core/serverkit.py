@@ -1,6 +1,6 @@
-"""Server helpers shared by the v2 MCP server: the lifespan (drill warm-up, closing the hidden Excel), the tool guard
-(any exception -> readable text with one next step), tool annotations, the hidden-Excel host and the user-Excel job
-call with progress notes. Lifted from v1 server.py; nothing here imports a tool module."""
+"""Server helpers shared by the v2 MCP server: the lifespan (keeping the EPM sign-ins fresh, closing the hidden
+Excel), the tool guard (any exception -> readable text with one next step), tool annotations, the hidden-Excel host
+and the user-Excel job call with progress notes. Lifted from v1 server.py; nothing here imports a tool module."""
 from __future__ import annotations
 
 import contextvars
@@ -14,6 +14,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import config, logsetup, runlog
+from ..epm import oauth
 from ..xl import instances
 from ..xl.host import ExcelHost, HostError, InputError
 
@@ -38,28 +39,6 @@ def host() -> ExcelHost:
     return _host
 
 
-def _warm_up() -> None:
-    """Start the hidden browser and sign in, in the background (never awaited; a failure is only logged)."""
-    try:
-        if not config.DRILL_KEEP_WARM:
-            return
-        from ..epm import drill_browser
-        b = drill_browser.shared_browser()
-
-        def warm(s):
-            s.deadline = time.monotonic() + config.DRILL_SETUP_S
-            s.warmup = True
-            try:
-                b._ensure(s)
-            finally:
-                s.warmup = False
-        fut = b.submit(warm)
-        fut.add_done_callback(lambda f: (None if f.cancelled() or f.exception() is None else
-                                         log.info("drill warm-up failed: %s", str(f.exception())[:200])))
-    except Exception as e:   # noqa: BLE001 - best effort
-        log.info("drill warm-up not started: %s", str(e)[:200])
-
-
 def _keep_signed_in() -> None:
     """Renew the bearer route's EPM sign-ins in the background while the server runs (epm/oauth.py)."""
     try:
@@ -71,17 +50,12 @@ def _keep_signed_in() -> None:
 
 @asynccontextmanager
 async def lifespan(_server):
-    _warm_up()
     _keep_signed_in()
     try:
         yield {}
     finally:
-        try:
-            if _host is not None:
-                _host.shutdown()
-        finally:
-            from ..epm import drill_browser
-            drill_browser.shutdown_shared()
+        if _host is not None:
+            _host.shutdown()
 
 
 def _err(e: Exception) -> ToolError:
@@ -97,6 +71,10 @@ NEXT_STEP = {
     "DrillError": "Retry the drill once; " + ESCALATE,
     "CellTooWide": "Narrow the cell (e.g. child entities) and drill again.",
     "TimeoutError": "Retry with a smaller request (fewer members or periods).",
+    "NoScope": ("Add the scope of the pod named above under [oauth.scopes] in config.toml, as \"https://<pod host>\" = "
+                "\"urn:opc:serviceInstanceID=...\" (the identity domain's administrator reads it where that environment "
+                "was added to the OAuth client as a resource; docs\\troubleshooting.md, 'oauth'), then run "
+                "`smartass login`."),
 }
 # A message that already says what to do ('Next step: ...', 'If it repeats, run fin_status(restart=True).', '... Try again
 # shortly.', '; pass force=true') gets no second piece of advice.
@@ -120,9 +98,17 @@ def explain(tool_name: str, e: Exception) -> str:
     return with_next_step(f"{tool_name} failed - {type(e).__name__}: {logsetup.redact(e)}", e)
 
 
+async def _sign_in_reply(e: Exception) -> str:
+    """oauth.sign_in_reply off the event loop: it may ask the identity domain for a code."""
+    import anyio.to_thread
+    return await anyio.to_thread.run_sync(oauth.sign_in_reply, e)
+
+
 def guard(fn):
     """ANY exception reaches the model as readable text with a next step (the SDK otherwise reports only
-    'Error executing tool X' for non-ToolError exceptions). The answer tools (RUN_LOGGED) get a run-log line."""
+    'Error executing tool X' for non-ToolError exceptions). A missing EPM sign-in (oauth.NotSignedIn) is answered with
+    the sign-in page and code instead, with no next step and no traceback. The answer tools (RUN_LOGGED) get a
+    run-log line."""
     import functools
     import inspect
 
@@ -148,6 +134,10 @@ def guard(fn):
             if logged:
                 runlog.finish(ok=False, error=str(e))
             raise ToolError(with_next_step(logsetup.redact(e))) from None
+        except oauth.NotSignedIn as e:
+            if logged:
+                runlog.finish(ok=False, error=logsetup.redact(e))
+            raise ToolError(await _sign_in_reply(e)) from None
         except Exception as e:   # noqa: BLE001
             log.exception("tool %s failed", fn.__name__)
             if logged:
