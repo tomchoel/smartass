@@ -655,7 +655,7 @@ public static class SmartassRunner___HASH__
         found.Sort();
         var rows = new List<object>();
         foreach (long k in found) rows.Add(Area((int)(k / 16385), (int)(k % 16385), 1, 1));
-        return rows;
+        return rows.ToArray();
     }
 
     // mentions(workbook, texts, skip): every formula of the workbook outside the skipped sheets that mentions one of

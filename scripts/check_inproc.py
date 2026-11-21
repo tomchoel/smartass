@@ -1143,6 +1143,44 @@ def mentions_check(app, raw) -> None:
         wb.Close(False)
 
 
+def errors_check(app, raw) -> None:
+    """Task 3 review: the verb errors through both executors on a protected sheet - only the cell that shows #REF!
+    (not #DIV/0!, not the text "#REF!", not the number of its code) - and on a protected sheet too large to read
+    (the operation fails, in both)."""
+    print()
+    wb = raw.Workbooks.Add()
+    ws = wb.Worksheets(1)
+    ws.Range("A1").Value2 = 5
+    ws.Range("B2").Formula2 = "=#REF!"
+    ws.Range("C3").Formula2 = "=1/0"
+    ws.Range("D4").Value2 = "'#REF!"
+    ws.Range("E5").Value2 = -2146826265
+    ws.Protect()
+    big = wb.Worksheets.Add(None, ws)
+    big.Range("XFD1048576").Interior.Color = 255
+    big.Range("A1").Formula2 = "=#REF!"
+    big.Protect()
+    name = str(wb.Name)
+    try:
+        got = {}
+        for executor in ("com", "inproc"):
+            config.INPROC = executor == "inproc"
+            b = Batch(quiet=False)
+            with b.attempt():
+                b.ret(b.verb("errors", b.workbook(name).Worksheets(1), -2146826265), "small")
+            with b.attempt():
+                b.ret(b.verb("errors", b.workbook(name).Worksheets(2), -2146826265), "big")
+            res = runner.run(app, b)
+            got[executor] = (res.where, res.values.get("small"), "big" in res.values,
+                             [m for _, _, m in res.skipped if "too large" in m] != [])
+        check("the verb errors: the #REF! cells by their code, the same through both executors",
+              got["com"][1:] == got["inproc"][1:] == (("B2",), False, True)
+              and (got["com"][0], got["inproc"][0]) == ("com", "inproc"), str(got))
+    finally:
+        config.INPROC = True
+        wb.Close(False)
+
+
 def _bench_book(raw, kind: str):
     """(Review ruling 1) a workbook where nothing mentions the answer: "normal" - 10 sheets of 500 formulas; "large" -
     60 sheets, 260 000 formulas (59 of 1 000, one of 201 000); "tall" - one sheet of 300 formulas whose used range
@@ -1240,6 +1278,7 @@ def main(argv=None) -> int:
             return 1
         battery(app, raw, sources)
         mentions_check(app, raw)
+        errors_check(app, raw)
         fixed_cost(app, raw, args.runs)
         if args.look_bench:
             look_bench(app, raw)
