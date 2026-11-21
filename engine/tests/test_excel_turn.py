@@ -15,7 +15,10 @@ from smartass.xl.host import ExcelHost, HostError, HostTimeout  # noqa: E402
 
 HOLDER = r"""
 import sys, time
+from pathlib import Path
 sys.path.insert(0, sys.argv[1])
+import smartass
+assert Path(smartass.__file__).resolve().is_relative_to(Path(sys.argv[1]).resolve()), smartass.__file__
 from smartass.xl import jobs
 tt = jobs.Turn(int(sys.argv[3]))
 tt.acquire("holder")
@@ -111,7 +114,10 @@ async def test_a_job_given_up_on_does_not_keep_the_next_job_waiting_for_that_exc
 
 GIVEN_UP = r"""
 import sys, time
+from pathlib import Path
 sys.path.insert(0, sys.argv[1])
+import smartass
+assert Path(smartass.__file__).resolve().is_relative_to(Path(sys.argv[1]).resolve()), smartass.__file__
 from smartass.xl import jobs
 token = jobs.JobToken("fin_refresh")
 jobs.bind_job(token)
@@ -131,7 +137,7 @@ def test_a_job_in_another_process_is_told_of_a_turn_held_by_a_job_given_up_on(mo
     monkeypatch.setattr(config, "SVKIT", tmp_path)
     monkeypatch.setattr(jobs, "TURN_WAIT_S", 8)
     monkeypatch.setattr(jobs, "ABANDONED_WAIT_S", 0.5)
-    root = __file__.rsplit("\tests", 1)[0]
+    root = __file__.rsplit("\\tests", 1)[0]
     p = subprocess.Popen([sys.executable, "-c", GIVEN_UP, root, "4", "4545"], stdout=subprocess.PIPE, text=True,
                          env=dict(os.environ, SMARTASS_HOME=str(tmp_path)))
     try:
