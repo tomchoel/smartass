@@ -1,0 +1,193 @@
+"""Drill lines over the user's OAuth token (epmhttp.EpmSession): no browser, no page per piece. The same protocol
+the drill page runs (spike 2026-11-19), request for request:
+
+1. the session key: GET /aif/ui/model/applications/servicetype with a page_id header; EPM's answer carries the key in
+   its x-appbuilder-client-id header, and every later request carries the key and the page_id;
+2. EPM's own drill query: the drill link's JSON form (drillcore.sui_url), read with drillcore.parse_sui;
+3. the drill view, once per (application, partition) for the life of the key;
+4. the lines: getData with that query, paged (drillcore.Pager).
+
+A lost session (a redirect to the pod's exit page, 401/403, or a 200 that is not the JSON asked for) takes a new key
+once and the same request is sent once more; for getData that is Pager's one recover, at the same offset. Pieces that
+run at once share the key: it is taken once, and a renewal several of them need happens once (the key a failed
+request carried is compared with the current one). At most config.DRILL_PARALLEL getData calls are in flight.
+
+Read-only: the session refuses anything off its allowlist; getData runs EPM's SELECT. The key is a secret like the
+token: it is never logged and never in an error. Nothing is cached beyond the key and the view: every drill is live."""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import threading
+import time
+import weakref
+from typing import Callable
+
+from ..core import config
+from . import epmhttp
+from .drillcore import DrillError, Pager, SignedOut, SuiQuery, expired, parse_sui, redact, sui_url
+
+log = logging.getLogger("smartview.drill")
+
+PAGE_ID = "smartass"
+SERVICE_TYPE = "/aif/ui/model/applications/servicetype"
+VIEW = "/aif/ui/model/view"
+GET_DATA = "/aif/ui/model/drilldown/getData"
+_HEADERS = {"Accept": "application/json, text/javascript, */*; q=0.01", "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest", "page_id": PAGE_ID}
+_REQUEST_S = 120.0                 # one key / SUI / view / getData request
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _object(text: str) -> dict | None:
+    """text as a JSON object, or None (a sign-in or exit page, an empty answer)."""
+    try:
+        j = json.loads(text)
+    except ValueError:
+        return None
+    return j if isinstance(j, dict) else None
+
+
+def _why(status: int) -> str:
+    return "the request was lost" if status == 0 else "a page, not JSON" if status == 200 else f"HTTP {status}"
+
+
+class TokenDrill:
+    """The session key and the view cache of one pod (shared by every event loop), and the drill on top: the same
+    calls and result as drill_direct.DirectDrill. http: an object with EpmSession's request()."""
+
+    def __init__(self, base: str | None = None, http=None):
+        self.base = (base or config.EPM_BASE or "").rstrip("/")
+        self.http = http or epmhttp.session(self.base)
+        self._key: str | None = None
+        self._views: dict[tuple, dict] = {}
+        self._per_loop: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+        self._per_loop_lock = threading.Lock()
+
+    # ---------------------------------------------------------------- the key and the view (under the loop's lock)
+    def _sync(self) -> tuple[asyncio.Lock, asyncio.Semaphore]:
+        """This event loop's lock (the key and the view cache) and getData gate."""
+        loop = asyncio.get_running_loop()
+        with self._per_loop_lock:
+            got = self._per_loop.get(loop)
+            if got is None:
+                got = self._per_loop[loop] = (asyncio.Lock(), asyncio.Semaphore(config.DRILL_PARALLEL))
+            return got
+
+    async def _call(self, method: str, url: str, key: str | None, body: str | None = None) -> epmhttp.Response:
+        """One request on a worker thread; key None: the key request itself. A request lost on the way (OSError,
+        epmhttp.RequestLost) is answered as status 0, like a page fetch that failed."""
+        headers = {"page_id": PAGE_ID} if key is None else {**_HEADERS, "x-appbuilder-client-id": key}
+        try:
+            return await asyncio.to_thread(self.http.request, method, url, headers=headers, body=body,
+                                           timeout=_REQUEST_S)
+        except OSError as e:
+            log.info("token drill: %s %s was lost (%s)", method, redact(url), type(e).__name__)
+            return epmhttp.Response(0, "", {})
+
+    async def _take_key(self) -> str:
+        """A new key; the views of the old one go with it. Only with the loop's lock held."""
+        self._key, self._views = None, {}
+        r = await self._call("GET", SERVICE_TYPE, None)
+        key = r.headers.get("x-appbuilder-client-id")
+        if not key:
+            log.info("token drill: no session key in EPM's answer (HTTP %s)", r.status)
+            raise DrillError("EPM gave no session key for the drill")
+        self._key = key
+        log.info("token drill: session key taken")
+        return key
+
+    async def _current_key(self) -> str:
+        key = self._key
+        if key is not None:
+            return key
+        async with self._sync()[0]:
+            return self._key if self._key is not None else await self._take_key()
+
+    async def _renew(self, used: str) -> None:
+        """A request with key used found the session gone: a new key - unless another piece already took one."""
+        async with self._sync()[0]:
+            if self._key is None or self._key == used:
+                await self._take_key()
+
+    async def _view(self, q: SuiQuery) -> dict:
+        """The drill view of q's application and partition, asked once per key; a lost session: a new key, once."""
+        vk = (q.app_id, q.partition)
+        async with self._sync()[0]:
+            for attempt in (1, 2):
+                key = self._key if self._key is not None else await self._take_key()
+                view = self._views.get(vk)
+                if view is not None:
+                    return view
+                r = await self._call("GET", f"{VIEW}?page=DRILL_THROUGH&appId={q.app_id}&partitionkey={q.partition}"
+                                            f"&_={_now_ms()}", key)
+                view = _object(r.text)
+                if r.status == 200 and view is not None:
+                    self._views[vk] = view
+                    return view
+                if not expired(r.status, view):
+                    raise DrillError(f"EPM answered the drill view with HTTP {r.status}")
+                if attempt == 1:
+                    log.info("token drill: the drill view found the session gone (%s); a new key", _why(r.status))
+                    self._key = None
+        raise SignedOut(f"EPM lost the drill session twice when asked for the drill view ({_why(r.status)})")
+
+    # ---------------------------------------------------------------- the drill
+    async def query(self, url: str) -> SuiQuery:
+        """EPM's own drill query for a drill link. EPM's refusals (CellTooWide, NoDrillData, DrillError) are raised
+        at once; a lost session takes a new key and is asked once more."""
+        for attempt in (1, 2):
+            key = await self._current_key()
+            r = await self._call("GET", sui_url(self.base, url, _now_ms()), key)
+            j = _object(r.text)
+            if not expired(r.status, j):
+                if j is None:
+                    raise DrillError(f"EPM answered the drill query with HTTP {r.status}")
+                return parse_sui(r.text)
+            if attempt == 1:
+                log.info("token drill: the drill query found the session gone (%s); a new key", _why(r.status))
+                await self._renew(key)
+        raise SignedOut(f"EPM lost the drill session twice when asked for the drill query ({_why(r.status)})")
+
+    async def lines(self, q: SuiQuery, warm_url: str, max_lines: int,
+                    progress: Callable[[int, int | None], None] | None = None) -> dict:
+        """The lines of a drill query, paged; a lost session takes a new key once (Pager's recover) and the same
+        offset is asked again. warm_url is DirectDrill's: there is no page to warm here."""
+        view = await self._view(q)
+        gate = self._sync()[1]
+        t1 = time.monotonic()
+        pg = Pager(max_lines, progress, True)
+        while True:
+            key = await self._current_key()          # read before the gate: pieces queued there carry it too
+            async with gate:
+                r = await self._call("POST", f"{GET_DATA}?limit={config.DRILL_PAGE}&offset={pg.off}", key, q.body)
+            step = pg.take(r.status, r.text)
+            if step == "recover":
+                await self._renew(key)
+            elif step == "done":
+                break
+        items, total = pg.result()
+        return {"items": items, "total": total, "view": view, "secs": round(time.monotonic() - t1, 1), "query": q}
+
+    async def fetch(self, url: str, max_lines: int,
+                    progress: Callable[[int, int | None], None] | None = None) -> dict:
+        """One drill piece: EPM's drill query, then its lines. The result carries the query ('query') so a split
+        can build its siblings' queries from it (drill_derive)."""
+        return await self.lines(await self.query(url), url, max_lines, progress)
+
+
+_shared: TokenDrill | None = None
+_shared_lock = threading.Lock()
+
+
+def shared() -> TokenDrill:
+    """The process's one drill (config.EPM_BASE's pod)."""
+    global _shared
+    with _shared_lock:
+        if _shared is None:
+            _shared = TokenDrill()
+        return _shared

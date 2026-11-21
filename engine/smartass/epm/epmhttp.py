@@ -38,6 +38,7 @@ SMART_VIEW = "/HyperionPlanning/SmartView"
 GET_DATA = "/aif/ui/model/drilldown/getData"
 ANY = re.compile(r".*")
 DIGITS = re.compile(r"\d{1,12}")
+MILLIS = re.compile(r"\d{1,13}")                       # the cache buster: int(time.time() * 1000), 13 digits now
 
 
 class _Rule(NamedTuple):
@@ -55,10 +56,10 @@ ALLOWED: dict[str, _Rule] = {
     "/aif/ui/model/applications/servicetype": _Rule("GET", {}, _DRILL_HEADERS, None),
     "/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp": _Rule("GET", {
         "FORMAT": (1, 1, re.compile("SUI")), "module": (1, 1, re.compile(r"aif\.drilldown")),
-        "attribute": (0, None, ANY), "sso_token": (0, 1, ANY), "_": (0, 1, DIGITS)}, _DRILL_HEADERS, None),
+        "attribute": (0, None, ANY), "sso_token": (0, 1, ANY), "_": (0, 1, MILLIS)}, _DRILL_HEADERS, None),
     "/aif/ui/model/view": _Rule("GET", {
         "page": (1, 1, re.compile("DRILL_THROUGH")), "appId": (0, 1, ANY), "partitionkey": (0, 1, ANY),
-        "_": (0, 1, DIGITS)}, _DRILL_HEADERS, None),
+        "_": (0, 1, MILLIS)}, _DRILL_HEADERS, None),
     GET_DATA: _Rule("POST", {"limit": (1, 1, re.compile(r"\d{1,5}")), "offset": (1, 1, DIGITS)}, _DRILL_HEADERS,
                     "application/json"),
 }

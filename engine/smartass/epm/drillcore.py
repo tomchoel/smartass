@@ -51,10 +51,14 @@ def payload(text: str) -> dict | None:
     return pay if isinstance(pay, dict) else None
 
 
+LOST = (0, 301, 302, 303, 307, 401, 403)
+
+
 def expired(status: int, pay: dict | None) -> bool:
     """A getData answer that means 'signed out': 401/403, a failed fetch (status 0: cross-origin redirect to the
-    sign-in page), or a 200 without JSON (the sign-in page itself)."""
-    return status in (0, 401, 403) or (status == 200 and pay is None)
+    sign-in page, or a request lost on the way), a redirect (301/302/303/307: the token route never follows one, and
+    the pod answers a lost session with one to its exit page) or a 200 without JSON (the sign-in page itself)."""
+    return status in LOST or (status == 200 and pay is None)
 
 
 class Pager:

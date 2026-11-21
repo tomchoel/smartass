@@ -4,6 +4,7 @@ over a fake HTTPS handler). Nothing here reaches EPM."""
 import http.client
 import io
 import logging
+import time
 import urllib.error
 import urllib.request
 import urllib.response
@@ -207,6 +208,17 @@ def test_the_request_goes_to_the_pods_origin_whatever_the_caller_wrote(make):
         "https://plan1.example/aif/ui/model/view?page=DRILL_THROUGH&appId=%2F",
         "https://plan1.example/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp?module=aif.drilldown&FORMAT=SUI&_=1"]
     assert [r.get_method() for r in op.sent] == ["GET", "GET"] and all(r.data is None for r in op.sent)
+
+
+def test_the_cache_buster_is_a_millisecond_clock(make):                 # the drill sends int(time.time() * 1000)
+    s, op, _ = make()
+    now = str(int(time.time() * 1000))
+    s.request("GET", f"/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp?module=aif.drilldown&FORMAT=SUI&_={now}")
+    s.request("GET", f"/aif/ui/model/view?page=DRILL_THROUGH&appId=52&partitionkey=39&_={now}")
+    assert len(op.sent) == 2 and len(now) == 13
+    with pytest.raises(epmhttp.Refused):
+        s.request("GET", "/aif/ui/model/view?page=DRILL_THROUGH&_=12345678901234")      # 14 digits: no clock
+    assert len(op.sent) == 2
 
 
 def test_a_read_only_smart_view_request_and_a_getdata_post_are_sent(make):

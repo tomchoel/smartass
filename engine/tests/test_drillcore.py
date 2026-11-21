@@ -54,6 +54,14 @@ def test_parse_sui_other_refusal():
         dc.parse_sui(json.dumps({"status": 1, "details": "boom"}))
 
 
+@pytest.mark.parametrize("status, text, gone", [
+    (0, "", True), (301, "", True), (302, "", True), (303, "", True), (307, "", True), (401, "", True),
+    (403, "", True), (200, "<html>sign in</html>", True), (200, '{"responsePayload": {}}', False),
+    (500, "", False), (404, "", False)])
+def test_expired_takes_a_redirect_to_the_exit_page_as_a_lost_session(status, text, gone):
+    assert dc.expired(status, dc.payload(text)) is gone
+
+
 def test_redact_strips_queries_and_tokens():
     s = "Could not open https://x.oraclecloud.com/aif/FdmeeMain.jsp?module=a&sso_token=SECRET&attribute=b: timeout"
     out = redact(s)
