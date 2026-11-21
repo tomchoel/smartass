@@ -167,6 +167,25 @@ def test_a_failed_save_deletes_the_new_workbook_too(new_book, calculated, monkey
     assert _made(new_book.folder) == [] and list(new_book.app.Workbooks) == [new_book.mine]
 
 
+@pytest.mark.parametrize("route", ["built", "added and saved as", "no Excel"])
+def test_every_route_of_a_new_workbook_marks_its_target_new(new_book, monkeypatch, route):
+    """Final review I1: the job saves a workbook it created in the foreground - the built file, one added from the
+    template and saved as, and one the hidden Excel made when no Excel was open; the session's workbook is not new."""
+    if route == "no Excel":
+        made = new_book.folder / "made.xlsx"
+        monkeypatch.setattr(xltarget, "_new_analysis_file", lambda h, title: made)
+        monkeypatch.setattr(xltarget, "_open_path", lambda h, path, excels, *a: xltarget.Target(
+            app=new_book.app, wb=None, pid=8, hwnd=0))
+        t = xltarget._new_target(None, "T", [])
+    else:
+        monkeypatch.setattr(xltarget, "_save_new", lambda app, wb, title: new_book.folder / "added.xlsx")
+        monkeypatch.setattr(fakexl._Workbooks, "Add", lambda self, *a: fakexl.Workbook(
+            ["Sources"], app=new_book.app, styles_ver=False), raising=False)
+        t = xltarget._new_target(None, "T", [(7, 70, new_book.app)], build_new=route == "built")
+    assert t.new is True and t.created is True and (t.made is not None) == (route == "built")
+    assert xltarget.Target(app=None, wb=None, pid=0, hwnd=0, created=True).new is False
+
+
 def test_a_build_that_fails_deletes_the_reserved_file_and_opens_nothing(new_book, calculated, monkeypatch):
     def too_many(path, *a, **k):
         path.write_bytes(b"PK half a file")

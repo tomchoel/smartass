@@ -112,9 +112,10 @@ def _save(job) -> None:
     """The save step (not quiet: Excel saves with the user's settings). Our own analysis file - never the user's
     workbook - is saved by Excel itself right after the reply when the add-in is in that Excel (xl/inproc/later.py:
     one Run asks for it; the save, then AutoSave back on when the look switched it off, run once Excel has painted the
-    answer); otherwise (the COM executor, SV_SAVE=sync, a request the add-in did not take, or a save after the last
-    answer that failed - _earlier_save) the save batch saves it here and switches AutoSave back on (a log line when
-    Excel refuses). The save batch also names the print setup of a new Sources log (once its setup went through),
+    answer); otherwise (the COM executor, SV_SAVE=sync, a workbook this request created - target.Target.new: its
+    first answer is on disk before the session points at it, so a crash right after the reply leaves no hollow file
+    (final review I1) -, a request the add-in did not take, or a save after the last answer that failed -
+    _earlier_save) the save batch saves it here and switches AutoSave back on (a note when Excel refuses). The save batch also names the print setup of a new Sources log (once its setup went through),
     before the save is asked for. Another workbook of ours whose save after the last answer failed is saved after
     this one's (_resave; a note says how that went). The user's workbook keeps AutoSave off, with a note (AutoSave
     would otherwise save our edits into their file; v1 does the same). AutoSave stays off while the job writes: left
@@ -128,7 +129,8 @@ def _save(job) -> None:
     ours = _is_ours(job.t)
     again = job.resave
     same = again is not None and _same_file(again[2].get("full_name"), job)
-    later_ok = ours and again is None and not job.sync_save and later.available(job.t.app)
+    later_ok = (ours and again is None and not job.sync_save and not getattr(job.t, "new", False)
+                and later.available(job.t.app))
     if job.setups or (ours and not later_ok):
         _save_batch(job, save=ours and not later_ok)
     if later_ok and later.queue(job.t.app, job.name, job.paused) is None:
@@ -1210,7 +1212,8 @@ def excel_job(h, pre: Prepared, target: str = "session") -> dict:
     raised with the job's notes in its text. The first answer of a new workbook (a
     target that resolves to one in a running Excel, when _new_book knows its base and theme) is built as the workbook
     itself and only opened in Excel (target.Target.made); on any failure that workbook is closed without saving and
-    the file the job reserved deleted, and the error says so; once it holds the answer it becomes the session's."""
+    the file the job reserved deleted, and the error says so. A workbook the job created is saved inside the job
+    (_save), and becomes the session's only once that save went through."""
     from .xl import target as xltarget
     book = _new_book()
     with stage("open target"):

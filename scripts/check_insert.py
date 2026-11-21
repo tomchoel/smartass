@@ -1259,8 +1259,9 @@ def _new_books(xl: Excel, seams: dict, questions: list, scenario: str) -> dict:
                                               and "." not in k[len(BATCH_PREFIX):])),
                                       sorted(set(out.get("warnings") or []) | set(out.get("layout") or [])))
         saves = later.wait(60)                            # (Task 2) Excel's saves after the replies (SV_SAVE=sync: none)
-        check(f"{scenario} ({side}): every save after a reply went through",
-              (bool(saves) and all(s["ok"] for s in saves)) if config.SAVE == "later" else not saves,
+        check(f"{scenario} ({side}): every save after a reply went through",   # (final review I1) not the first's:
+              (len(saves) == len(questions) - 1 and all(s["ok"] for s in saves))   # a new workbook's is in the job
+              if config.SAVE == "later" else not saves,
               f"{len(saves)} saves, {[s.get('how') for s in saves]}; failed: "
               f"{[s.get('error') for s in saves if not s['ok']]}")
         t = holder["t"]

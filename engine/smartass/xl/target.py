@@ -27,7 +27,9 @@ NAME_WAIT_S = 60                    # a busy Excel is waited for this long when 
 class Target:
     """The workbook a job works in. made: the new workbook's file the job itself reserved and builds (wb is None
     until open_new opens it); a failed job closes it unsaved and deletes that file (discard_new). from_template: a
-    new workbook added from the TN template (its look tells the base a new workbook has: remember_new_base)."""
+    new workbook added from the TN template (its look tells the base a new workbook has: remember_new_base). new: the
+    workbook was created for this request (built as its file, added and saved as, or made by the hidden Excel when
+    no Excel was open): its first answer is saved inside the job, not after the reply (final review I1)."""
     app: object
     wb: object
     pid: int
@@ -37,6 +39,7 @@ class Target:
     sheets_added: list[str] = field(default_factory=list)
     made: Path | None = None
     from_template: bool = False
+    new: bool = False
 
     # The workbook's name and path are read with a busy Excel waited for (not counted as a call of the job, no abort
     # check: also read by an abandoned job's clean-up): Excel rejects calls while it saves - also right after a save
@@ -225,7 +228,7 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None,
         choice = excels[0]
     if choice is None:                                # no Excel at all: the hidden one creates the file, /x opens it
         t = _open_path(h, _new_analysis_file(h, title), excels)
-        t.created = True
+        t.created = t.new = True
         return t
     pid, hwnd, app = choice
     if wb is None and build_new:
@@ -246,7 +249,7 @@ def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None,
         _discard_new(app, wb, spawned)
         raise
     t = Target(app, wb, pid, hwnd, from_template=from_template)
-    t.created = True
+    t.created = t.new = True
     return t
 
 
@@ -263,7 +266,7 @@ def _reserved_target(app, pid: int, hwnd: int, title: str) -> Target:
     except OSError as e:
         raise HostError(f"Could not create the new workbook in the analysis folder ({e}). Nothing was left open; check "
                         "that the folder exists and is writable, then ask again.") from None
-    t = Target(app, None, pid, hwnd, created=True, made=path)
+    t = Target(app, None, pid, hwnd, created=True, made=path, new=True)
     t.book_name = path.name
     return t
 

@@ -13,6 +13,7 @@ import pytest
 from fakeaddin import install
 from test_file_job import _job, _pre
 
+import fakexl
 import test_file_job
 import test_first_answer
 from smartass import exceljob
@@ -190,19 +191,56 @@ def test_a_follow_up_asks_for_its_save_after_the_reply_too(fake_target, calculat
     assert fake_target.wb.saved == 2 and fake_target.wb.AutoSaveOn is True
 
 
-def test_the_first_answer_of_a_new_workbook_asks_for_its_save_after_the_reply_too(new_book, calculated, monkeypatch,
-                                                                                    tmp_path):
-    """Task 1's built workbook, opened by Excel, ends in the same save step."""
+def test_the_first_answer_of_a_new_workbook_is_saved_in_the_job_and_the_next_one_after_the_reply(
+        new_book, calculated, monkeypatch, tmp_path):
+    """Final review I1 (the controller's ruling): a workbook the job created is saved inside the job, with the add-in
+    loaded - its batches end in the save, nothing is asked for later, no outcome is written - so the file on disk
+    holds the answer (formulas, tables, spec, Sources rows) before the session points at it; the next answer into that
+    workbook asks for its save after the reply as any other."""
+    from test_first_answer import _runs, _writes
+
+    from smartass.xl import target as xltarget
     nb = new_book
     monkeypatch.setattr(later, "_queued", {})
     monkeypatch.setattr(later, "_done", {})
     addin = install(monkeypatch, nb.app, tmp_path)
+    runs = _runs(monkeypatch)
     out, _ = _job(_pre(), calculated)
     wb = nb.app.Workbooks(Path(out["workbook"]).name)
-    assert len(addin.asked) == 1 and wb.saved == 0 and nb.mine.saved == 0
+    assert addin.asked == [] and wb.saved == 1 and nb.mine.saved == 0
+    assert addin.log.count("batch") == len(runs) and any(x.endswith(".Save()") for x in _writes(runs[-1]))
+    assert not list((config.INPROC_DIR / "saved").glob("*.json")) and nb.sessions == [out["workbook"]]
+    t = xltarget.Target(app=nb.app, wb=wb, pid=7, hwnd=70, created=True)      # the session's workbook from now on
+    monkeypatch.setattr(exceljob, "_target", lambda h, target, title, build_new=False: t)
+    _job(_pre(), calculated)
+    assert len(addin.asked) == 1 and wb.saved == 1
     addin.release()
-    assert wb.saved == 1 and nb.mine.saved == 0
+    assert wb.saved == 2 and nb.mine.saved == 0
 
+
+def test_a_new_workbooks_first_answer_whose_save_fails_leaves_no_file_and_no_session_workbook(
+        new_book, calculated, monkeypatch, tmp_path):
+    """The foreground save of a new workbook fails with the add-in loaded: today's clean-up - the workbook closed
+    unsaved, its file deleted, the session not pointed at it."""
+    monkeypatch.setattr(later, "_queued", {})
+    monkeypatch.setattr(later, "_done", {})
+    install(monkeypatch, new_book.app, tmp_path)
+
+    def save(self):
+        raise fakexl.ComError("the save was cancelled")
+    monkeypatch.setattr(fakexl.Workbook, "Save", save)
+    with pytest.raises(Exception, match="cancelled.*closed without saving and its file deleted"):
+        _job(_pre(), calculated)
+    assert not list(new_book.folder.iterdir()) and new_book.sessions == []
+    assert list(new_book.app.Workbooks) == [new_book.mine]
+
+
+def test_a_workbook_added_and_saved_as_for_the_question_is_saved_in_the_job_too(fake_target, calculated, addin):
+    """The old route of a new workbook (Workbooks.Add of the template, then SaveAs: target.Target.new without made):
+    its first answer is saved in the job as well."""
+    fake_target.new = True
+    _job(_pre(), calculated)
+    assert addin.asked == [] and fake_target.wb.saved == 1 and fake_target.wb.AutoSaveOn is True
 
 
 # ------------------------------------------------------------------ review fixes
