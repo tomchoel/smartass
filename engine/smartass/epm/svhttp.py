@@ -492,8 +492,8 @@ class BearerTransport:
     2026-11-19 on plan1 and stratmodel: /HyperionPlanning/SmartView takes the token; grids, the closed month and
     drill links are cell for cell the browser route's; a cold first grid 0.7 s against about 20 s). The bearer is only
     sent to a pod with a configured scope. oauth.NotSignedIn reaches the caller as it is (the tool call answers with
-    the sign-in page and code); a pod without a scope, any other oauth.OAuthError and a token EPM refuses twice are
-    SvHttpError.
+    the sign-in page and code), and so does oauth.NotSetUp when this PC has no [oauth] set-up at all; a pod without a
+    scope, any other oauth.OAuthError and a token EPM refuses twice are SvHttpError.
 
     One cookie jar per pod, as a browser has: EPM opens a server session for every request that brings no cookie.
     The cookie alone does not authenticate (302 without the token). Like every transport here it sends nothing
@@ -508,6 +508,8 @@ class BearerTransport:
     def post(self, base: str, body: str) -> str:
         svxml.check_read_only(body)
         base = base.rstrip("/")
+        if not self._tokens.configured():
+            raise oauth.NotSetUp()                       # the reply says what config.toml needs, not "retry"
         if self._tokens.scope_for(base) is None:
             raise SvHttpError(f"no OAuth scope is configured for {base}: add it under [oauth.scopes] in config.toml")
         token = self._token(base)

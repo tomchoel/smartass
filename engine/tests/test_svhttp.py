@@ -834,8 +834,11 @@ def test_an_alias_clash_does_not_spend_a_reconnect(db_path):
 class _Tokens:
     """epm/oauth.py as the transport sees it: scope_for and access_token (which may raise)."""
 
-    def __init__(self, *tokens, scopes=("https://strat.example", "https://plan1.example")):
-        self.tokens, self.scopes, self.asked = list(tokens), scopes, []
+    def __init__(self, *tokens, scopes=("https://strat.example", "https://plan1.example"), configured=True):
+        self.tokens, self.scopes, self.asked, self.is_set_up = list(tokens), scopes, [], configured
+
+    def configured(self):
+        return self.is_set_up
 
     def scope_for(self, base):
         return "urn:scope" if base in self.scopes else None
@@ -909,6 +912,13 @@ def test_everything_else_is_an_svhttp_error(tokens, send, msg):
     with pytest.raises(svhttp.SvHttpError, match=msg) as e:
         svhttp.BearerTransport(tokens=tokens, send=send).post("https://strat.example", svxml.connect())
     assert not isinstance(e.value, svhttp.RequestLost)             # never retried as a lost request
+
+
+def test_without_any_oauth_set_up_the_caller_gets_the_set_up_text():
+    t = svhttp.BearerTransport(tokens=_Tokens("at-1", scopes=(), configured=False), send=lambda *a: OK_XML)
+    with pytest.raises(oauth.NotSetUp) as e:
+        t.post("https://plan1.example", svxml.connect())
+    assert str(e.value) == oauth.NOT_SET_UP
 
 
 def test_a_pod_without_a_scope_says_where_to_add_it():

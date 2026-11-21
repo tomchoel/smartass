@@ -53,8 +53,29 @@ class OAuthError(Exception):
 
 
 class NotSignedIn(OAuthError):
-    """This pod has no usable sign-in. It reaches the tool call as it is, which answers with sign_in_message() (the
+    """This pod has no usable sign-in. It reaches the tool call as it is, which answers with sign_in_reply() (the
     page and a code); `smartass login` does the same in a terminal."""
+
+
+NOT_SET_UP = ("EPM access is not set up on this PC: config.toml needs [oauth] idcs (the identity domain's URL) and "
+              "client_id, and [oauth.scopes] with one scope per EPM pod; the identity domain's administrator gives "
+              "these values (docs\\troubleshooting.md, 'oauth'). Next step: add them to config.toml, then run "
+              "`smartass login`.")
+
+
+class NotSetUp(NotSignedIn):
+    """No [oauth] set-up at all on this PC: no code can be offered, the reply is what config.toml needs."""
+
+    def __init__(self, msg: str = NOT_SET_UP):
+        super().__init__(msg)
+
+
+class LoginDeclined(OAuthError):
+    """The user (or the identity domain) declined the device code."""
+
+
+class LoginExpired(OAuthError):
+    """The device code ended before it was approved."""
 
 
 def origin(base: str) -> str:
@@ -268,19 +289,31 @@ def start_login(base: str) -> dict:
         raise OAuthError(f"the identity domain gave no sign-in code ({_why(status, j)})")
     if origin(j["verification_uri"]) != origin(config.OAUTH_IDCS):
         raise OAuthError("the sign-in page is not on the configured identity domain; nothing was opened")
+    if urlsplit(j["verification_uri"]).scheme.lower() != "https":
+        raise OAuthError("the sign-in page is not https; nothing was opened")
     return j
 
 
+TRANSIENT = (429, 500, 502, 503, 504)   # the token endpoint is busy or down for a moment: the code is still good
+
+
 def finish_login(base: str, device: dict, sleep=time.sleep, clock=time.monotonic) -> None:
-    """Wait until the user has approved the code, then store the sign-in. OAuthError when it is refused or the
-    code ends first."""
+    """Wait until the user has approved the code, then store the sign-in. Polls every interval (longer after
+    slow_down or 429) until the code ends; no answer at all, a 429 and a 5xx are waited out like
+    authorization_pending, so a network blip does not lose an approval. LoginDeclined (access_denied),
+    LoginExpired (expired_token, or the code's time is up) and OAuthError for any other refusal end it."""
     pod = origin(base)
     interval = max(1, int(device.get("interval") or 5))
     deadline = clock() + int(device.get("expires_in") or 300)
     while clock() < deadline:
         sleep(interval)
-        status, j = _post_form("/oauth2/v1/token", {"grant_type": DEVICE_GRANT, "device_code": device["device_code"],
-                                                    "client_id": config.OAUTH_CLIENT_ID})
+        try:
+            status, j = _post_form("/oauth2/v1/token", {"grant_type": DEVICE_GRANT,
+                                                        "device_code": device["device_code"],
+                                                        "client_id": config.OAUTH_CLIENT_ID})
+        except OAuthError as e:                     # no answer (network, VPN, sleep): the code is still good
+            log.info("oauth: no answer while waiting for the sign-in to %s (%s); still waiting", pod, e)
+            continue
         if status == 200 and j.get("access_token"):
             if not j.get("refresh_token"):
                 raise OAuthError("the identity domain gave no refresh token (the client lacks offline access)")
@@ -288,59 +321,108 @@ def finish_login(base: str, device: dict, sleep=time.sleep, clock=time.monotonic
                 _write(pod, _blob(j, None, time.time()))
             _mem.pop(pod, None)
             return
-        if j.get("error") == "slow_down":
+        err = j.get("error")
+        if err == "slow_down" or status == 429:
             interval += 5
-        elif j.get("error") != "authorization_pending":
+        elif err == "authorization_pending" or status in TRANSIENT:
+            continue
+        elif err == "access_denied":
+            raise LoginDeclined(f"the sign-in was declined ({_why(status, j)})")
+        elif err == "expired_token":
+            raise LoginExpired("the sign-in code ended before it was approved")
+        else:
             raise OAuthError(f"the sign-in was refused ({_why(status, j)})")
-    raise OAuthError("the sign-in code ended before it was approved")
+    raise LoginExpired("the sign-in code ended before it was approved")
 
 
 # ---------------------------------------------------------------- sign-in from the tool call
 _pending: dict[str, tuple[dict, float]] = {}      # pod -> (device answer, its end as time.monotonic()); this process
-_pending_lock = threading.Lock()
+_starting: dict[str, threading.Event] = {}        # pod -> set when the start_login under way has ended
+_ended: dict[str, str] = {}                       # pod -> why its last code ended without a sign-in (said once)
+_pending_lock = threading.Lock()                  # guards the three dicts; never held over a network call
+START_WAIT_S = 40.0                               # a start_login takes at most its 30 s timeout
 
 
 def pending_logins() -> list[dict]:
     """For every configured pod that is not signed in: the sign-in the user has to approve, {pod, verification_uri,
-    user_code, minutes_left} - a device login started here (start_login) and finished in a daemon thread
-    (finish_login), or the one started earlier until it ends, so a second tool call shows the same code. A
-    pod whose login could not be started is {pod, error} instead. Empty when every pod is signed in. The device code
-    (what the thread polls with) never leaves this module."""
+    user_code, minutes_left} (plus note: why the earlier code was replaced, once) - a device login started here
+    (start_login) and finished in a daemon thread (finish_login), or the one started earlier until it ends, so a
+    second tool call shows the same code. A pod whose login could not be started is {pod, error} instead. Empty when
+    every pod is signed in. The device code (what the thread polls with) never leaves this module."""
     out = []
-    with _pending_lock:                     # held across check and start: two tool calls at once get one code
-        for s in status():
-            pod = s["pod"]
-            if s["state"] == "signed_in":
-                continue
-            device, deadline = _pending.get(pod, (None, 0.0))
-            if device is None or deadline <= time.monotonic():
-                try:
-                    device = start_login(pod)
-                except OAuthError as e:                 # the identity domain's own words: no URL query in a reply
-                    out.append({"pod": pod, "error": drillcore.redact(str(e))})
-                    continue
-                deadline = time.monotonic() + int(device.get("expires_in") or 300)
-                _pending[pod] = (device, deadline)
-                _finish_in_background(pod, device)
-            page = urlsplit(device["verification_uri"])._replace(query="", fragment="").geturl()
-            out.append({"pod": pod, "verification_uri": page, "user_code": device["user_code"],
-                        "minutes_left": max(1, math.ceil((deadline - time.monotonic()) / 60))})
+    for s in status():
+        if s["state"] == "signed_in":
+            with _pending_lock:
+                _ended.pop(s["pod"], None)
+            continue
+        out.append(_pending_for(s["pod"]))
     return out
 
 
+def _pending_for(pod: str) -> dict:
+    """The pod's waiting code, or a new one. One start per pod at a time: a second caller waits for the first one's
+    code instead of asking for another (Review Focus 4), without the lock being held over the network."""
+    while True:
+        with _pending_lock:
+            device, deadline = _pending.get(pod, (None, 0.0))
+            if device is not None and deadline > time.monotonic():
+                return _shown(pod, device, deadline)
+            starting = _starting.get(pod)
+            mine = starting is None
+            if mine:
+                starting = _starting[pod] = threading.Event()
+        if not mine:
+            starting.wait(START_WAIT_S)
+            continue
+        try:
+            try:
+                device = start_login(pod)
+            except OAuthError as e:                     # the identity domain's own words: no URL query in a reply
+                return {"pod": pod, "error": drillcore.redact(str(e))}
+            deadline = time.monotonic() + int(device.get("expires_in") or 300)
+            with _pending_lock:
+                _pending[pod] = (device, deadline)
+                shown = _shown(pod, device, deadline)
+            _finish_in_background(pod, device)
+            return shown
+        finally:
+            with _pending_lock:
+                _starting.pop(pod, None)
+            starting.set()
+
+
+def _shown(pod: str, device: dict, deadline: float) -> dict:
+    """What the user is shown for a waiting code (the caller holds the lock)."""
+    page = urlsplit(device["verification_uri"])._replace(query="", fragment="").geturl()
+    out = {"pod": pod, "verification_uri": page, "user_code": device["user_code"],
+           "minutes_left": max(1, math.ceil((deadline - time.monotonic()) / 60))}
+    note = _ended.pop(pod, None)
+    return {**out, "note": note} if note else out
+
+
 def _finish_in_background(pod: str, device: dict) -> threading.Thread:
-    """finish_login in a daemon thread; when it ends (approved, refused or timed out) the pod's pending code is
-    dropped - unless a newer one has replaced it - so the next tool call either works or gets a new code."""
+    """finish_login in a daemon thread; when it ends (approved, declined, expired or refused) the pod's pending code
+    is dropped - unless a newer one has replaced it - so the next tool call either works or gets a new code, with a
+    note saying why the earlier one was replaced."""
     def run():
+        why = None
         try:
             finish_login(pod, device)
             log.info("oauth: signed in to %s from a tool call's code", pod)
+        except LoginDeclined:
+            why = "The earlier sign-in was declined."
+        except LoginExpired:
+            why = "The earlier code expired before it was approved."
         except Exception as e:   # noqa: BLE001 - a daemon thread: the next tool call says what is needed
-            log.warning("oauth: the sign-in to %s did not complete (%s)", pod, str(e)[:200])
+            why = f"The earlier sign-in did not complete ({drillcore.redact(str(e))[:200]})."
         finally:
+            if why:
+                log.warning("oauth: the sign-in to %s did not complete: %s", pod, why)
             with _pending_lock:
                 if _pending.get(pod, (None,))[0] is device:
                     _pending.pop(pod, None)
+                    if why:
+                        _ended[pod] = why
     t = threading.Thread(target=run, daemon=True, name="oauth-sign-in")
     t.start()
     return t
@@ -356,9 +438,22 @@ def sign_in_message() -> str | None:
             said.append(f"EPM sign-in needed for {host}, but it could not be started ({p['error']}); "
                         "run `smartass login` in a terminal to see more.")
         else:
-            said.append(f"EPM sign-in needed. Open {p['verification_uri']} and enter the code {p['user_code']} "
+            said.append((f"{p['note']} " if p.get("note") else "")
+                        + f"EPM sign-in needed. Open {p['verification_uri']} and enter the code {p['user_code']} "
                         f"({host}, valid {p['minutes_left']} min), approve with Telenor SSO, then ask again.")
     return " ".join(said) or None
+
+
+def sign_in_reply(e: Exception) -> str:
+    """The reply to a call that met NotSignedIn (MCP tools and the add-in's HTTP API alike): sign_in_message(), else
+    the error's own text (NotSetUp: what config.toml needs). Redacted; never raises."""
+    from ..core import logsetup
+    try:
+        msg = sign_in_message()
+    except Exception as why:   # noqa: BLE001 - the reply must still say what is wrong
+        log.info("oauth: sign-in message not made: %s", logsetup.redact(why)[:200])
+        msg = None
+    return logsetup.redact(msg or e)
 
 
 def forget(base: str) -> bool:

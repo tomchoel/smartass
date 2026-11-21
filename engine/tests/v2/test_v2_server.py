@@ -123,6 +123,28 @@ def test_refresh_without_a_sign_in_stops_so_the_reply_is_the_sign_in_message(mon
     assert calls == []
 
 
+def test_refresh_that_meets_no_sign_in_mid_pack_keeps_what_it_redrew_then_the_sign_in_message(monkeypatch):
+    from smartass.core import serverkit
+    from smartass.epm import oauth
+    stored = {q: {"spec": {"v2": {"question": f"q{q}"}}, "ids": {}, "owned": None} for q in (2, 3, 4)}
+    calls, asyncio = _wire(monkeypatch, stored)
+    msg = "EPM sign-in needed. Open https://idcs.example/ui and enter the code ABCD (plan1.example, valid 5 min), " \
+          "approve with Telenor SSO, then ask again."
+    monkeypatch.setattr(oauth, "sign_in_message", lambda: msg)
+
+    def prep(raw, provider, lines=None):
+        if raw["question"] == "q3":
+            raise oauth.NotSignedIn("the sign-in to https://plan1.example has ended: run `smartass login`")
+        calls.append(("prepare", raw["question"]))
+        return raw
+    monkeypatch.setattr(server, "run_prepare", prep)
+    out = asyncio.run(serverkit.guard(server.fin_refresh)())
+    r = out["refreshed"]
+    assert [(x["q"], x["ok"]) for x in r] == [(2, True), (3, False), (4, False)]
+    assert r[1]["error"] == msg and r[2].get("skipped") is True and "sign-in" in r[2]["error"]
+    assert calls == [("prepare", "q2"), ("redraw", 2)]
+
+
 def test_refresh_stops_after_a_failed_restore_and_reports_the_rest_as_skipped(monkeypatch):
     from smartass.exceljob import RestoreError
     stored = {q: {"spec": {"v2": {"question": f"q{q}"}}, "ids": {}, "owned": None} for q in (2, 3, 4)}

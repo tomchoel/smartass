@@ -301,11 +301,15 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
     provider = _provider()
     target = _default_target(target)
     stored, _, path = await _user(lambda h: read_stored(h, target), "fin_refresh")
-    done, workbook, broken = [], None, None
+    done, workbook, broken, unsigned = [], None, None, None
     for q in v2_questions(stored):
         if broken is not None:                  # a failed restore may have left the workbook damaged: draw nothing more
             done.append({"q": q, "ok": False, "skipped": True,
                          "error": f"skipped: the restore of Q{broken} failed - check the workbook first"})
+            continue
+        if unsigned is not None:                # every question needs EPM: the sign-in is in Q<unsigned>'s entry
+            done.append({"q": q, "ok": False, "skipped": True,
+                         "error": f"skipped: EPM sign-in needed (see Q{unsigned})"})
             continue
         try:
             pre, notes = await _prepare(stored[q]["spec"]["v2"], provider, target=path)
@@ -319,8 +323,11 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
         except RestoreError as e:
             broken = q
             done.append({"q": q, "ok": False, "error": str(e)})
-        except NotSignedIn:                     # every question needs it: the reply is the sign-in page and code
-            raise
+        except NotSignedIn as e:                # nothing done yet: the reply is the sign-in page and code (guard)
+            if not done:
+                raise
+            unsigned = q                        # else what was redrawn stays in the reply, then the sign-in
+            done.append({"q": q, "ok": False, "error": await kit._sign_in_reply(e)})
         except Exception as e:   # noqa: BLE001 - one question never stops the pack
             done.append({"q": q, "ok": False, "error": str(e)})
     return {"refreshed": done, "workbook": workbook}

@@ -9,7 +9,7 @@ from smartass.epm import oauth
 
 POD = "https://strat.example"
 PAIR = {"access_token": "at-1", "refresh_token": "rt-1", "expires_in": 3600, "token_type": "Bearer"}   # allow-secret
-REAL_FINISH = getattr(oauth, "_finish_in_background", None)       # the oa fixture stubs it; two tests use the real one
+REAL_FINISH = oauth._finish_in_background                         # the oa fixture stubs it; some tests use the real one
 
 
 class Idcs:
@@ -38,9 +38,10 @@ def oa(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "OAUTH_SCOPES", {POD: "urn:scope"})
     monkeypatch.setattr(config, "OAUTH_DIR", tmp_path / "oauth")
     oauth._mem.clear()
-    monkeypatch.setattr(oauth, "_pending", {}, raising=False)
+    monkeypatch.setattr(oauth, "_pending", {})
+    monkeypatch.setattr(oauth, "_ended", {})
     # no real finishing thread outlives a test (it would ask the unpatched identity domain)
-    monkeypatch.setattr(oauth, "_finish_in_background", lambda pod, device: None, raising=False)
+    monkeypatch.setattr(oauth, "_finish_in_background", lambda pod, device: None)
 
     def use(**answers):
         idcs = Idcs(**answers)
@@ -97,7 +98,9 @@ def test_a_sign_in_page_on_another_host_is_never_handed_out(oa):
 
 
 @pytest.mark.parametrize("answers, msg", [
-    ([(400, {"error": "access_denied", "error_description": "no"})], "refused .access_denied - no"),
+    ([(400, {"error": "access_denied", "error_description": "no"})], "declined .access_denied - no"),
+    ([(400, {"error": "expired_token"})], "ended before it was approved"),
+    ([(400, {"error": "invalid_grant"})], "refused .invalid_grant"),
     ([(400, {"error": "authorization_pending"})], "ended before it was approved"),
     ([(200, {"access_token": "at-1", "expires_in": 3600})], "no refresh token"),   # allow-secret
 ])
@@ -343,3 +346,94 @@ def test_a_failed_background_finish_drops_only_its_own_code(oa, monkeypatch, cap
     assert oauth._pending[POD][0] is new and "access_denied" in caplog.text and "dc1" not in caplog.text
     oauth._finish_in_background(POD, new).join(10)
     assert POD not in oauth._pending
+
+
+def test_the_sign_in_page_must_be_https(oa):
+    oa(device=[(200, {"device_code": "dc", "user_code": "ABCD", "verification_uri": "http://idcs.example/ui"})])
+    with pytest.raises(oauth.OAuthError, match="https"):
+        oauth.start_login(POD)
+
+
+@pytest.mark.parametrize("blip", [oauth.OAuthError("the identity domain did not answer (URLError)"),
+                                  (503, {}), (502, {"error": "bad_gateway"}), (429, {"error": "too_many_requests"})])
+def test_a_transient_failure_while_waiting_does_not_end_the_sign_in(oa, blip):
+    idcs = oa(token=[(400, {"error": "authorization_pending"}), blip, (200, PAIR)])
+    slept = []
+    oauth.finish_login(POD, {"device_code": "dc", "expires_in": 300, "interval": 5}, sleep=slept.append)
+    assert len(idcs.to("token")) == 3 and oauth.status()[0]["state"] == "signed_in"
+    assert slept == ([5, 5, 10] if blip == (429, {"error": "too_many_requests"}) else [5, 5, 5])   # 429: wait longer
+
+
+def test_transient_failures_are_still_bounded_by_the_code_s_end(oa):
+    oa(token=[oauth.OAuthError("the identity domain did not answer (URLError)")])
+    t = iter(range(0, 10_000, 100))
+    with pytest.raises(oauth.LoginExpired, match="ended before it was approved"):
+        oauth.finish_login(POD, {"device_code": "dc", "expires_in": 300}, sleep=lambda s: None, clock=lambda: next(t))
+
+
+def test_starting_a_code_does_not_hold_the_lock_over_the_network(oa, monkeypatch):
+    gate, inside = threading.Event(), threading.Event()
+    idcs = oa(device=[(200, {"device_code": "dc", "user_code": "ABCD", "verification_uri": "https://idcs.example/ui",
+                             "expires_in": 300})])
+
+    def slow(path, fields, timeout=30):
+        inside.set()
+        gate.wait(5)
+        return idcs(path, fields, timeout)
+    monkeypatch.setattr(oauth, "_post_form", slow)
+    t = threading.Thread(target=oauth.pending_logins)
+    t.start()
+    try:
+        assert inside.wait(5)
+        free = oauth._pending_lock.acquire(timeout=1)
+        if free:
+            oauth._pending_lock.release()
+    finally:
+        gate.set()
+        t.join(10)
+    assert free and oauth._pending[POD][0]["user_code"] == "ABCD"
+
+
+@pytest.mark.parametrize("failure, note", [
+    (oauth.LoginDeclined("the sign-in was declined (access_denied)"), "The earlier sign-in was declined."),
+    (oauth.LoginExpired("the sign-in code ended before it was approved"),
+     "The earlier code expired before it was approved."),
+    (oauth.OAuthError("the identity domain gave no refresh token"), "The earlier sign-in did not complete "
+                                                                    "(the identity domain gave no refresh token).")])
+def test_the_next_code_says_why_the_earlier_one_was_replaced(oa, monkeypatch, failure, note):
+    oa(device=[(200, {"device_code": "dc1", "user_code": "AAAA", "verification_uri": "https://idcs.example/ui",
+                      "expires_in": 300}),
+               (200, {"device_code": "dc2", "user_code": "BBBB", "verification_uri": "https://idcs.example/ui",
+                      "expires_in": 300})])
+    assert oauth.pending_logins()[0]["user_code"] == "AAAA"
+    device, _ = oauth._pending[POD]
+
+    def fails(pod, d):
+        raise failure
+    monkeypatch.setattr(oauth, "finish_login", fails)
+    REAL_FINISH(POD, device).join(10)
+    msg = oauth.sign_in_message()
+    assert msg.startswith(note + " EPM sign-in needed. Open https://idcs.example/ui and enter the code BBBB")
+    assert not oauth.sign_in_message().startswith("The earlier")                 # said once, with the new code
+
+
+def test_the_background_warning_carries_no_url_query(oa, monkeypatch, caplog):
+    oa()
+
+    def refused(pod, device):
+        raise oauth.OAuthError("the sign-in was refused (see https://idcs.example/e?client_id=cid&x=1)")
+    monkeypatch.setattr(oauth, "finish_login", refused)
+    with caplog.at_level("WARNING"):
+        REAL_FINISH(POD, {"device_code": "dc", "expires_in": 300}).join(10)
+    assert "https://idcs.example/e?..." in caplog.text and "client_id=cid" not in caplog.text
+
+
+def test_without_any_oauth_set_up_the_reply_says_what_config_toml_needs(monkeypatch):
+    monkeypatch.setattr(config, "OAUTH_IDCS", "")
+    monkeypatch.setattr(config, "OAUTH_CLIENT_ID", "")
+    monkeypatch.setattr(config, "OAUTH_SCOPES", {})
+    e = oauth.NotSetUp()
+    assert isinstance(e, oauth.NotSignedIn) and str(e) == oauth.NOT_SET_UP
+    assert "idcs" in oauth.NOT_SET_UP and "client_id" in oauth.NOT_SET_UP and "[oauth.scopes]" in oauth.NOT_SET_UP
+    assert "hidden browser" not in oauth.NOT_SET_UP
+    assert oauth.sign_in_reply(e) == oauth.NOT_SET_UP                           # no pod to sign in to: the set-up text

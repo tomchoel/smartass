@@ -184,3 +184,20 @@ def test_without_a_sign_in_message_the_error_itself_is_the_reply(monkeypatch):
         with pytest.raises(ToolError) as e:
             asyncio.run(server.guard(fin_lookup)())
         assert str(e.value) == "not signed in to https://plan1.example: run 'smartass login'"
+
+
+def test_no_oauth_set_up_is_answered_with_the_set_up_text_and_no_retry_advice(monkeypatch, caplog):
+    import asyncio
+
+    from smartass.core import config
+    from smartass.epm import oauth
+    monkeypatch.setattr(config, "OAUTH_IDCS", "")
+    monkeypatch.setattr(config, "OAUTH_CLIENT_ID", "")
+    monkeypatch.setattr(config, "OAUTH_SCOPES", {})
+
+    async def fin_drill():
+        raise oauth.NotSetUp()
+    with caplog.at_level("DEBUG"), pytest.raises(ToolError) as e:
+        asyncio.run(server.guard(fin_drill)())
+    assert str(e.value) == oauth.NOT_SET_UP and "Retry once" not in str(e.value)
+    assert not [r for r in caplog.records if r.exc_info]

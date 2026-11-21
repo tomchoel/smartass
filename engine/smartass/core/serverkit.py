@@ -122,16 +122,9 @@ def explain(tool_name: str, e: Exception) -> str:
 
 
 async def _sign_in_reply(e: Exception) -> str:
-    """A tool call that met oauth.NotSignedIn answers with the sign-in page and code for every pod that needs one
-    (oauth.sign_in_message; it may ask the identity domain, so off the event loop), else with the error itself."""
+    """oauth.sign_in_reply off the event loop: it may ask the identity domain for a code."""
     import anyio.to_thread
-
-    try:
-        msg = await anyio.to_thread.run_sync(oauth.sign_in_message)
-    except Exception as why:   # noqa: BLE001 - the reply must still say what is wrong
-        log.info("sign-in message not made: %s", logsetup.redact(why)[:200])
-        msg = None
-    return logsetup.redact(msg) if msg else logsetup.redact(e)
+    return await anyio.to_thread.run_sync(oauth.sign_in_reply, e)
 
 
 def guard(fn):
