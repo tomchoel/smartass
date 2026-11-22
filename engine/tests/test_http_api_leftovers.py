@@ -102,6 +102,17 @@ def test_another_installs_startup_entry_is_left_and_said(pc):
     assert doctor.fix_leftovers(say=lambda s: None) == [] and lnk.exists()
 
 
+def test_windows_reading_of_the_shortcut_is_final_when_it_names_another_install(pc, monkeypatch):
+    """Task 2's review, Minor 3: when WScript.Shell gives a target, the bytes are not searched for this venv (an
+    argument, the working folder or a description naming it would make another install's entry ours)."""
+    lnk = pc.startup / "smartass-engine.lnk"
+    lnk.write_bytes(OUR_LNK)
+    monkeypatch.setattr(setup_user, "_lnk_target", lambda p: r"C:\other\smartass\engine\.venv\Scripts\pythonw.exe")
+    assert setup_user.engine_startup() == (lnk, False)
+    monkeypatch.setattr(setup_user, "_lnk_target", lambda p: "")               # not readable so: the bytes decide
+    assert setup_user.engine_startup() == (lnk, True)
+
+
 def test_setup_with_nothing_left_says_there_is_nothing_to_do(pc):
     assert setup_user.startup_entries() == ["startup: nothing to remove"]
 

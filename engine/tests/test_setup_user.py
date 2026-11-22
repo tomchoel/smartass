@@ -188,23 +188,62 @@ def test_setup_makes_no_startup_shortcut_and_removes_an_older_releases_watcher(t
                    for n in ("smartass-sso-watcher.lnk", "svkit-sso-watcher.lnk")]
 
 
+def _watcher(pid, running=True):
+    """A watcher as its listing gives it: the psutil.Process object (is_running False once its pid is another's)."""
+    import types
+    return types.SimpleNamespace(pid=pid, is_running=lambda: running)
+
+
 def test_only_this_installs_watcher_is_stopped_another_is_left_and_said(monkeypatch):
     killed = []
-    out = setup_user.stop_old_watcher(found=lambda: [(11, True), (22, False)], kill=killed.append)
+    out = setup_user.stop_old_watcher(found=lambda: [(_watcher(11), True), (_watcher(22), False)],
+                                      kill=lambda p: killed.append(p.pid))
     assert killed == [11]
-    assert out == ["startup: stopped the old Smart View SSO watcher (pid 11)",
+    assert out == ["startup: stopping the old Smart View SSO watcher (pid 11): the SSO watcher is gone",
                    "startup: an SSO watcher of another smartass install (pid 22) is left running"]
 
 
-def test_a_watcher_is_ours_only_when_its_command_line_names_this_installs_script(monkeypatch, tmp_path):
+def test_a_watcher_is_stopped_through_the_process_its_listing_found_never_a_reused_pid():
+    """Carry-in c: as `serve`'s stop - the object the listing found, only while it still runs (psutil refuses one
+    whose pid a new process has taken); one shared helper says each outcome."""
     import psutil
+    killed = []
+    ended = _watcher(11, running=False)
+    out = setup_user.stop_old_watcher(found=lambda: [(ended, True)], kill=killed.append)
+    assert killed == [] and out == ["startup: the old Smart View SSO watcher (pid 11) had already ended"]
 
+    def gone(p):
+        raise psutil.NoSuchProcess(p.pid)
+    out = setup_user.stop_old_watcher(found=lambda: [(_watcher(12), True)], kill=gone)
+    assert out[-1] == "startup: the old Smart View SSO watcher (pid 12) had already ended"
+
+    def refused(p):
+        raise psutil.AccessDenied(p.pid)
+    out = setup_user.stop_old_watcher(found=lambda: [(_watcher(13), True)], kill=refused)
+    assert out[-1] == ("startup: the old Smart View SSO watcher (pid 13) could not be stopped (AccessDenied); it ends "
+                       "at the next logoff")
+
+
+def test_kill_takes_only_the_listed_process_object():
+    """No pid is looked up at kill time (the suite's guard replaces _kill itself, so its source is read)."""
+    import inspect
+    src = inspect.getsource(setup_user)
+    kill = src[src.index("def _kill("):src.index("\ndef ", src.index("def _kill("))]
+    assert "psutil.Process(" not in kill and ".kill()" in kill
+
+
+def test_a_watcher_is_ours_only_when_its_command_line_names_this_installs_script(monkeypatch, tmp_path):
     class P:
         def __init__(self, pid, name, cmd):
-            self.pid, self.info = pid, {"name": name, "cmdline": cmd}
+            self.pid, self.info, self._cmd = pid, {"name": name}, cmd
+
+        def cmdline(self):
+            assert self.info["name"].lower() in ("powershell.exe", "pwsh.exe"), "read for a process that is not one"
+            return self._cmd
     ours = str(tmp_path / "engine" / "sso_watcher.ps1")
     procs = [P(1, "powershell.exe", ["powershell.exe", "-File", ours.upper()]),
              P(2, "powershell.exe", ["powershell.exe", "-File", r"C:\other\engine\sso_watcher.ps1"]),
              P(3, "powershell.exe", ["powershell.exe", "-File", "x.ps1"]), P(4, "python.exe", ["sso_watcher.ps1"])]
-    monkeypatch.setattr(psutil, "process_iter", lambda attrs: procs)
-    assert setup_user._watchers(tmp_path / "engine" / "sso_watcher.ps1") == [(1, True), (2, False)]
+    monkeypatch.setattr(setup_user, "_process_list", lambda: procs)
+    found = setup_user._watchers(tmp_path / "engine" / "sso_watcher.ps1")
+    assert [(p.pid, ours) for p, ours in found] == [(1, True), (2, False)] and found[0][0] is procs[0]

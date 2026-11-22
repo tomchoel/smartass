@@ -172,14 +172,14 @@ def _lnk_target(lnk: Path) -> str:
 
 def engine_startup() -> tuple[Path, bool] | None:
     """(the Startup entry smartass-engine.lnk, ours) when there is one: ours when its target is in THIS install's venv
-    Scripts folder (every release made it start that folder's pythonw.exe), read as Windows reads it, else found in its
-    bytes; None when there is none."""
+    Scripts folder (every release made it start that folder's pythonw.exe), read as Windows reads it - final when it
+    gives a target - else found in its bytes; None when there is none."""
     lnk = STARTUP / ENGINE_STARTUP
     if not lnk.exists():
         return None
     want = str(VENV_SCRIPTS).replace("/", "\\").rstrip("\\") + "\\"
-    if _lnk_target(lnk).replace("/", "\\").lower().startswith(want.lower()):
-        return lnk, True
+    if target := _lnk_target(lnk):               # Windows' reading is final: the bytes only when it gives none
+        return lnk, target.replace("/", "\\").lower().startswith(want.lower())
     try:
         data = lnk.read_bytes()
     except OSError:
@@ -286,35 +286,46 @@ def stop_old_serve(say, found=None, kill=None) -> None:
             except psutil.Error:
                 say(f"startup: the old `smartass serve`'s launcher (pid {p.pid}) ended with it")
                 continue
-        if not p.is_running():                      # ended, or its pid belongs to a new process now
-            say(f"startup: the old `smartass serve` (pid {p.pid}) had already ended")
-            continue
-        say(f"startup: stopping this install's old `smartass serve` (pid {p.pid}): the HTTP API is gone")
-        try:
-            kill(p)
+        if _stop(p, kill, say, "the old `smartass serve`", "this install's old `smartass serve`",
+                 "the HTTP API is gone"):
             stopped.add(p.pid)
-        except psutil.NoSuchProcess:              # its launcher ended with its child
-            say(f"startup: the old `smartass serve` (pid {p.pid}) had already ended")
-        except psutil.Error as e:
-            say(f"startup: the old `smartass serve` (pid {p.pid}) could not be stopped ({type(e).__name__}); it ends "
-                "at the next logoff")
     if unreadable:
         say(f"startup: the command line of {unreadable} Python process(es) could not be read: an old `smartass serve` "
             "among them was not looked at")
 
 
-def _watchers(script: Path = WATCHER_PS1) -> list[tuple[int, bool]]:
-    """(pid, ours) of each running PowerShell whose command line names an sso_watcher.ps1: ours only when it names
-    THIS install's script by its full path (case-insensitive) - another checkout's watcher on this PC is not."""
+def _stop(p, kill, say, name: str, ours: str, why: str) -> bool:
+    """Stop a process through the psutil.Process its listing found, only while it still runs (a pid a new process has
+    taken is never stopped: is_running, and psutil's own check at the kill), said before it is done; each other
+    outcome said too. name: 'the old <what>'; ours: what the stop line calls it. True when it was stopped."""
+    import psutil
+    if not p.is_running():                          # ended, or its pid belongs to a new process now
+        say(f"startup: {name} (pid {p.pid}) had already ended")
+        return False
+    say(f"startup: stopping {ours} (pid {p.pid}): {why}")
+    try:
+        kill(p)
+        return True
+    except psutil.NoSuchProcess:                  # ended meanwhile (a launcher with its child)
+        say(f"startup: {name} (pid {p.pid}) had already ended")
+    except psutil.Error as e:                     # not ours to end: setup goes on
+        say(f"startup: {name} (pid {p.pid}) could not be stopped ({type(e).__name__}); it ends at the next logoff")
+    return False
+
+
+def _watchers(script: Path = WATCHER_PS1) -> list[tuple[object, bool]]:
+    """(the psutil.Process, ours) of each running PowerShell whose command line names an sso_watcher.ps1: ours only
+    when it names THIS install's script by its full path (case-insensitive) - another checkout's watcher on this PC is
+    not. From _process_list: a command line is read only for a PowerShell."""
     import psutil
     want = str(script).lower()
     out = []
-    for p in psutil.process_iter(["name", "cmdline"]):
+    for p in _process_list():
         try:
             if (p.info["name"] or "").lower() in ("powershell.exe", "pwsh.exe"):
-                cmd = " ".join(p.info["cmdline"] or []).lower()
+                cmd = " ".join(str(c) for c in (p.cmdline() or [])).lower()
                 if "sso_watcher.ps1" in cmd:
-                    out.append((p.pid, want in cmd))
+                    out.append((p, want in cmd))
         except psutil.Error:
             continue
     return out
@@ -322,27 +333,22 @@ def _watchers(script: Path = WATCHER_PS1) -> list[tuple[int, bool]]:
 
 def _kill(p) -> None:
     """Stop a process through the psutil.Process its listing found (psutil refuses one whose pid a new process has
-    taken: NoSuchProcess); a bare pid (the SSO watcher's listing) is looked up now."""
-    import psutil
-    (p if isinstance(p, psutil.Process) else psutil.Process(p)).kill()
+    taken: NoSuchProcess). The one kill of setup and doctor --fix (the suite's guard replaces it)."""
+    p.kill()
 
 
 def stop_old_watcher(found=None, kill=None) -> list[str]:
     """The SSO watcher an older release started at logon, stopped when its command line proves it is ours (it names
-    this install's script path); any other is left running, and said so."""
-    import psutil
+    this install's script path) through the process its listing found (_stop, as `serve`'s); any other is left
+    running, and said so."""
     found, kill = found or _watchers, kill or _kill
-    out = []
-    for pid, ours in found():
+    out: list[str] = []
+    for p, ours in found():
         if not ours:
-            out.append(f"startup: an SSO watcher of another smartass install (pid {pid}) is left running")
+            out.append(f"startup: an SSO watcher of another smartass install (pid {p.pid}) is left running")
             continue
-        try:
-            kill(pid)
-            out.append(f"startup: stopped the old Smart View SSO watcher (pid {pid})")
-        except psutil.Error as e:                 # gone meanwhile, or not ours to end: setup goes on
-            out.append(f"startup: the old Smart View SSO watcher (pid {pid}) could not be stopped ({type(e).__name__});"
-                       " it ends at the next logoff")
+        _stop(p, kill, out.append, "the old Smart View SSO watcher", "the old Smart View SSO watcher",
+              "the SSO watcher is gone")
     return out
 
 

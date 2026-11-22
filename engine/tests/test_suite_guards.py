@@ -63,7 +63,7 @@ def test_no_process_can_be_killed(below):
     with pytest.raises(GuardViolation, match="never kill a process"):
         hostproc.kill_ours(4242, 1.0)
     with pytest.raises(GuardViolation, match="never kill a process"):
-        setup_user.stop_old_watcher(found=lambda: [(4242, True)])
+        setup_user.stop_old_watcher(found=lambda: [(types.SimpleNamespace(pid=4242, is_running=lambda: True), True)])
     with pytest.raises(GuardViolation, match="never kill a process"):
         found = [setup_user.Serve(types.SimpleNamespace(pid=4242, is_running=lambda: True), True, ())]
         setup_user.stop_old_serve(lambda s: None, found=lambda: (found, 0))
