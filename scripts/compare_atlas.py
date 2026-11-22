@@ -128,6 +128,23 @@ def part_build() -> bool:
 MEMBER_COLUMNS = ["connection", "dimension", "name", "label", "parent", "depth", "ord"]
 
 
+def exposure(db) -> dict[tuple[str, str], tuple[int, int]]:
+    """Task 4b review, Important 1: per (connection, dimension), the keys that a trusted side row records as the real
+    name of a member behind ANOTHER key, and how many of those are not among their own real names. Counts only."""
+    owners: dict[tuple[str, str], dict[str, set[str]]] = {}
+    for c, d, n, rn in db.execute("SELECT r.connection, r.dimension, r.name, r.real_name FROM member_real r "
+                                  "JOIN build b ON b.connection = r.connection AND b.dimension = r.dimension AND "
+                                  "b.built_at = r.built_at"):
+        owners.setdefault((c, d), {}).setdefault(rn.casefold(), set()).add(n)
+    out: dict[tuple[str, str], tuple[int, int]] = {}
+    for c, d, n in db.execute("SELECT DISTINCT connection, dimension, name FROM member"):
+        keys = owners.get((c, d), {}).get(n.casefold(), set())     # the keys whose members are named n in EPM
+        if keys - {n}:
+            hit, alone = out.get((c, d), (0, 0))
+            out[c, d] = (hit + 1, alone + (n not in keys))
+    return out
+
+
 def schema() -> bool:
     """The member table has exactly the seven columns every release knows; the side table holds every real member."""
     with contextlib.closing(ro(REBUILT)) as db:
@@ -138,8 +155,12 @@ def schema() -> bool:
         twins = db.execute("SELECT count(*) FROM (SELECT 1 FROM member_real GROUP BY connection, dimension, name, "
                            "parent HAVING count(*) > 1)").fetchone()[0]
         rows = db.execute("SELECT count(*) FROM member").fetchone()[0]
+        shared = exposure(db)
     say(f"schema: member columns are the seven {cols == MEMBER_COLUMNS} | member rows {rows} | side rows {side}, "
         f"trusted {trusted} | (key, parent) pairs with more than one real member {twins}")
+    say("schema: keys that are EPM's name of a member behind another key (REST answering such a key as itself is "
+        "refused), per dimension: " + (", ".join(f"{c}/{d} {n} (not among their own real names {o})"
+                                                 for (c, d), (n, o) in sorted(shared.items())) or "none"))
     return cols == MEMBER_COLUMNS and side == trusted and side >= rows
 
 

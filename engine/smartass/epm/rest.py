@@ -17,12 +17,14 @@ stratmodel, compared with the provider route by key paths, types and booleans on
   place (REST resolved the spelling the atlas keeps - its answered name may even be one the atlas holds for another
   member, live), else of the member REST answered; else the name is kept and one warning says so. A top member is
   sent and answered under its dimension's REST name. Where the atlas was built over REST (epm/members.py) its side
-  table holds the real names behind each key (two members can give one key), and REST must answer one of them, or
-  the key itself, at its place. In an atlas without a trusted side table (the hidden Excel's, or one an older release
-  rebuilt) a member kept under its label has its place as the only link between label and number, so the order
-  matters there: REST answers rows and columns in the order asked (live
-  2026-11-22: three such members asked against outline order on rows and on columns, per application, each read
-  alone first for its name, cell for cell the provider route's answer);
+  table holds the real names behind each key (two members can give one key), and REST must answer one of them at its
+  place - the key itself only when it is one of them (else EPM resolved the key to another member whose name it is);
+  a key without side rows there may not be answered under a name the side table records behind another key. In an
+  atlas without a trusted side table (the hidden Excel's, or one an older release rebuilt) the check is the one
+  before the side table: a member kept under its label has its place as the only link between label and number, so
+  the order matters there: REST answers rows and columns in the order asked (live 2026-11-22: three such members
+  asked against outline order on rows and on columns, per application, each read alone first for its name, cell for
+  cell the provider route's answer);
 - cells: numbers come as text and are read with float(), as svxml reads the provider's; an empty cell ("" live, " "
   in Oracle's documentation) is None, as the provider route's Fetched holds a blank (live 2026-11-22: every missing
   cell of 20 grids is "" over REST and None from the provider);
@@ -463,11 +465,14 @@ def _labels(db, conn: str, dim: str, spellings: set[str]) -> tuple[dict, dict]:
 def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], cols: list[str],
             heads: list[list[str]], data: list[list]) -> tuple[list[list], list[str]]:
     """The provider's matrix from A1 with the atlas's labels for the names REST answered, and the warnings. Each
-    place's name must be the member asked there: one of its real names or the key itself where the atlas's side table
-    is trusted (an atlas built over REST), exactly the key where the atlas keeps the member under a 'code alias
-    (prefix)' label, the dimension's REST name for a top member; elsewhere (an older atlas that keeps the label as the
-    name) one member asked is always one name answered, and two members two names - and the place itself ties label
-    and number, so REST must answer in the order asked (live: it does). Otherwise RestError."""
+    place's name must be the member asked there: one of its real names where the atlas's side table is trusted and
+    holds the key (an atlas built over REST; the key itself only as one of them), exactly the key where the atlas keeps
+    the member under a 'code alias (prefix)' label, the dimension's REST name for a top member; elsewhere (an older
+    atlas that keeps the label as the name) one member asked is always one name answered, and two members two names -
+    and the place itself ties label and number, so REST must answer in the order asked (live: it does). A key without
+    side rows in a trusted side table is never answered under a name it records behind another key (atlas.real_owners).
+    Otherwise RestError, naming the key by its code: an error for the grid, never another member's numbers under the
+    key's label."""
     places: dict[str, list[tuple[str, str]]] = {}     # dimension -> [(asked, answered), ...] in grid order
     for (d, m), got in zip(lay.pov, pov):
         places.setdefault(d, []).append((m, got))
@@ -482,14 +487,22 @@ def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], c
         _one_to_one(d, pairs)
         looked = {a for a, _ in pairs} | {g for a, g in pairs if a.casefold() not in (g.casefold(), d.casefold())}
         by_name, by_label = _labels(db, conn, d, looked)   # not a top member's REST name: no pass over the dimension
+        owners: list = []                             # atlas.real_owners of d, read once at the first key it needs
         for asked, got in dict.fromkeys(pairs):
             top = asked.casefold() == d.casefold()
             known = by_name.get(asked.casefold()) or by_label.get(asked.casefold())
+            if known and not top and not known[2]:    # no side row: is the name answered another key's member?
+                if not owners:
+                    owners.append(atlas.real_owners(db, conn, d))
+                other = sorted((owners[0] or {}).get(got.casefold(), set()) - {known[0]})
+                if other:
+                    raise RestError(f"Planning REST returned a different layout than requested: {d} {known[0]} "
+                                    f"answered as {got}, EPM's name of the member behind {other[0]} in the atlas")
             if top or (known and (known[2] or name_from_label(known[1]))):   # REST answers that very name
                 if got.casefold() not in ({names[d].casefold()} if top else
-                                          {x.casefold() for x in (*known[2], known[0])}):
-                    raise RestError(f"Planning REST returned a different layout than requested: {d} {asked} "
-                                    f"answered as {got}")
+                                          {x.casefold() for x in known[2] or (known[0],)}):
+                    raise RestError(f"Planning REST returned a different layout than requested: {d} "
+                                    f"{asked if top else known[0]} answered as {got}")
                 label[d, asked, got] = known[1] if known else d
             elif known:                               # REST resolved the label the atlas keeps as the name
                 label[d, asked, got] = known[1]

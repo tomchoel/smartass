@@ -404,32 +404,124 @@ def test_a_key_used_twice_with_two_real_names_takes_either(db):
         _finplan(db, _Epm(answer=answering("1TECC")))
 
 
-def test_twins_under_one_parent_may_be_answered_under_either_real_name_or_the_key(db):
-    """The reviewer's case (Task 4 review, Important 1): two members give one key under one parent; the member table
-    keeps one row, the side table both real names. EPM resolving the key to either member is right; so is the key
-    itself (the check before a45bda9); a third name is not."""
+def _twins(db, *reals):
+    """FinMax's ac.C30 as the build over REST stores two members that give one key under one parent: the member table
+    keeps one row, the side table both real names."""
     atlas.store(db, "FinMax", "All Accounts", [
         {"name": "All Accounts", "label": "All Accounts", "parent": None, "depth": 0, "order": 0,
          "real_name": "Accounts"},
-        {"name": "ac.C30", "label": "C30 REVENUES (ac)", "parent": "All Accounts", "depth": 1, "order": 1,
-         "real_name": "ac.C30B"},
-        {"name": "ac.C30", "label": "C30 REVENUES (ac)", "parent": "All Accounts", "depth": 1, "order": 2,
-         "real_name": "ac.C30C"},
-        {"name": "ac.C70", "label": "C70 COSTS (ac)", "parent": "All Accounts", "depth": 1, "order": 3,
+        *({"name": "ac.C30", "label": "C30 REVENUES (ac)", "parent": "All Accounts", "depth": 1, "order": 1 + i,
+           "real_name": r} for i, r in enumerate(reals)),
+        {"name": "ac.C70", "label": "C70 COSTS (ac)", "parent": "All Accounts", "depth": 1, "order": 9,
          "real_name": "ac.C70"}], 1.0)
 
-    def answering(name):
+
+def _answering(asked, name):
+    """exportdataslice answering name where the member asked was sent (each other member under its real name)."""
+    def answer(path, body):
+        if path.endswith("exportdataslice"):
+            j = json.loads(_Epm()._slice(body)[1])
+            for r in j["rows"]:
+                r["headers"] = [name if h == asked else h for h in r["headers"]]
+            return 200, json.dumps(j)
+    return answer
+
+
+def test_twins_under_one_parent_may_be_answered_under_either_real_name_never_the_key_itself(db):
+    """The reviewer's case (Task 4 review, Important 1; Task 4b review, Important 1): two members give one key under one
+    parent. EPM resolving the key to either member is right; the key itself is not, when neither member is named so -
+    then EPM answered a third member whose name is the key, and its numbers would carry ac.C30's label."""
+    _twins(db, "ac.C30B", "ac.C30C")
+    for name in ("ac.C30B", "ac.C30C"):
+        assert _grid(_Epm(answer=_answering("ac.C30", name)), db).values[2][0] == "C30 REVENUES (ac)"
+    for name in ("ac.C30", "ac.C30D"):
+        with pytest.raises(rest.RestError, match=f"different layout.*All Accounts ac.C30 answered as {name}$"):
+            _grid(_Epm(answer=_answering("ac.C30", name)), db)
+
+
+def test_the_key_itself_passes_only_as_a_real_name_recorded_behind_it(db):
+    """The "ac.C30" answer passes for the right reason: one of the twins IS named ac.C30 in EPM (the side table records
+    it behind the key), not because it is the key."""
+    _twins(db, "ac.C30", "ac.C30B")
+    for name in ("ac.C30", "ac.C30B"):
+        assert _grid(_Epm(answer=_answering("ac.C30", name)), db).values[2][0] == "C30 REVENUES (ac)"
+    with pytest.raises(rest.RestError, match="different layout.*ac.C30 answered as ac.C30D"):
+        _grid(_Epm(answer=_answering("ac.C30", "ac.C30D")), db)
+
+
+def test_a_key_whose_member_has_another_real_name_is_refused_when_rest_answers_the_key(db):
+    """Task 4b review, Important 1 (the reviewer's scratch case): the side table says un.SY.E2's member is named un.E2.
+    REST answering un.SY.E2 means EPM resolved the key to a different member named so: refused for the grid, never
+    that member's numbers under E2's label."""
+    _real_names(db, real=[("un.SY.E2", "un.E2")])
+    with pytest.raises(rest.RestError, match="different layout.*All Entities un.SY.E2 answered as un.SY.E2$"):
+        _grid(_Epm(), db, accounts=("ac.C30",), entities=("un.SY.E2",))
+    f = _grid(_Epm(answer=_answering("un.SY.E2", "un.E2")), db, accounts=("ac.C30",), entities=("un.SY.E2",))
+    assert f.values[2][:2] == ["C30 REVENUES (ac)", "E2 Entity two (un.SY)"]
+
+
+def _no_entry(db, e2_real):
+    """FinMax's entities as the build over REST stores them, un.SY.E1 without a side row; un.SY.E2's member named
+    e2_real."""
+    atlas.store(db, "FinMax", "All Entities", [
+        {"name": "All Entities", "label": "All Entities", "parent": None, "depth": 0, "order": 0,
+         "real_name": "Entities"},
+        {"name": "un.SY.E1", "label": "E1 Entity one (un.SY)", "parent": "All Entities", "depth": 1, "order": 1},
+        {"name": "un.SY.E2", "label": "E2 Entity two (un.SY)", "parent": "All Entities", "depth": 1, "order": 2,
+         "real_name": e2_real}], 1.0)
+
+
+def test_a_key_without_a_side_row_passes_as_itself_only_when_no_other_key_names_a_member_so(db):
+    """A trusted side table without a row for the key: the key itself is answered for it only when the side table
+    does not record that name behind a DIFFERENT key - then it is that key's member, refused for the grid (named by
+    its code)."""
+    _no_entry(db, "un.E2")
+    f = _grid(_Epm(), db, accounts=("ac.C30",), entities=("un.SY.E1",))
+    assert f.values[2][:2] == ["C30 REVENUES (ac)", "E1 Entity one (un.SY)"]
+    _no_entry(db, "un.SY.E1")
+    with pytest.raises(rest.RestError, match="All Entities un.SY.E1 answered as un.SY.E1, EPM's name of the member "
+                                             "behind un.SY.E2"):
+        _grid(_Epm(), db, accounts=("ac.C30",), entities=("un.SY.E1",))
+
+
+def test_a_key_without_a_side_row_keeps_the_old_check_where_the_side_table_is_not_trusted(db):
+    """The same atlas after an older release rebuilt the dimension (its side rows no longer trusted): exactly the check
+    before a45bda9 - the key itself passes."""
+    _no_entry(db, "un.SY.E1")
+    with db:
+        db.execute("UPDATE build SET built_at = built_at + 1 WHERE connection='FinMax' AND dimension='All Entities'")
+    f = _grid(_Epm(), db, accounts=("ac.C30",), entities=("un.SY.E1",))
+    assert f.values[2][:2] == ["C30 REVENUES (ac)", "E1 Entity one (un.SY)"]
+
+
+def test_a_member_kept_under_its_label_without_a_side_row_is_refused_under_another_keys_real_name(db):
+    """FinPlan keeps its members under their labels: without a side row the place alone ties a label to its number.
+    Where the side table is trusted and records the answered name behind another key, that member answered: refused
+    (stricter than the order check); without a trusted side table, the order check as before."""
+    def entities(db):
+        atlas.store(db, "FinPlan", "Entity", [
+            {"name": "Entity", "label": "Entity", "parent": None, "depth": 0, "order": 0, "real_name": "Entity"},
+            {"name": "1TEC Tech", "label": "1TEC Tech", "parent": "Entity", "depth": 1, "order": 1},
+            {"name": "2BUS Biz", "label": "2BUS Biz", "parent": "Entity", "depth": 1, "order": 2,
+             "real_name": "2BUS"}], 1.0)
+
+    def one(db, answered):
         def answer(path, body):
             if path.endswith("exportdataslice"):
-                j = json.loads(_Epm()._slice(body)[1])
-                for r in j["rows"]:
-                    r["headers"] = [name if h == "ac.C30" else h for h in r["headers"]]
-                return 200, json.dumps(j)
-        return answer
-    for name in ("ac.C30B", "ac.C30C", "ac.C30"):
-        assert _grid(_Epm(answer=answering(name)), db).values[2][0] == "C30 REVENUES (ac)"
-    with pytest.raises(rest.RestError, match="different layout.*ac.C30 answered as ac.C30D"):
-        _grid(_Epm(answer=answering("ac.C30D")), db)
+                return 200, json.dumps({"pov": ["BalanceTypes", "Target", "Final", "FY26"], "columns": [["Dec"]],
+                                        "rows": [{"headers": ["EBX", answered], "data": ["1"]}]})
+        return rest.fetch_grid(_session(_Epm(answer=answer)), "FinPlan",
+                               {"Scenario": "Target", "Version": "Final", "Years": "FY26"},
+                               [Axis("Account", ["EBX Ebitda X"]), Axis("Entity", ["1TEC Tech"])],
+                               [Axis("Period", ["Dec"])], db)
+    entities(db)
+    assert one(db, "1TEC").values[2][:2] == ["EBX Ebitda X", "1TEC Tech"]
+    with pytest.raises(rest.RestError, match="Entity 1TEC Tech answered as 2BUS, EPM's name of the member behind "
+                                             "2BUS Biz"):
+        one(db, "2BUS")
+    with db:
+        db.execute("UPDATE build SET built_at = built_at + 1 WHERE connection='FinPlan' AND dimension='Entity'")
+    assert one(db, "2BUS").values[2][:2] == ["EBX Ebitda X", "1TEC Tech"]
 
 
 def test_a_side_table_an_older_release_left_behind_is_not_believed(db):

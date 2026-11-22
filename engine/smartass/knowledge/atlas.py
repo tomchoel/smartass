@@ -92,6 +92,25 @@ def real_names(db, conn: str, dim: str, names: set[str]) -> dict[str, set[str]]:
     return out
 
 
+def real_owners(db, conn: str, dim: str) -> dict[str, set[str]] | None:
+    """{casefolded real name: the keys whose trusted side rows hold it} over one dimension; None where the dimension has
+    no trusted side rows (none stored, or an older release rebuilt it since). A store gives all of a dimension's side
+    rows one stamp, so one row tells (an untrusted dimension costs no pass); a trusted one is read in one pass - for
+    the rare key that has no side row of its own."""
+    if not _has_real(db):
+        return None
+    stamp = db.execute("SELECT built_at FROM member_real WHERE connection=? AND dimension=? LIMIT 1",
+                       (conn, dim)).fetchone()
+    built = db.execute("SELECT built_at FROM build WHERE connection=? AND dimension=?", (conn, dim)).fetchone()
+    if stamp is None or built is None or stamp[0] != built[0]:
+        return None
+    out: dict[str, set[str]] = {}
+    for n, rn in db.execute("SELECT name, real_name FROM member_real WHERE connection=? AND dimension=? AND built_at=?",
+                            (conn, dim, built[0])):
+        out.setdefault(rn.casefold(), set()).add(n)
+    return out
+
+
 def store_cards(db, conn: str, dim: str, rows: list[tuple]) -> None:
     """rows: (name, parent, operator, time_balance, account_type, shared); replaces the dimension's cards. A row
     without a time balance keeps the one its (name, parent) had (the time balance is derived in a later step, which
