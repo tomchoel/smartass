@@ -12,25 +12,34 @@ from pathlib import Path
 _TAG = r"(?:<|&(?:amp;)*lt;)"                               # '<', also HTML-escaped once or more
 _END = r"(?:>|&(?:amp;)*gt;)"
 _EQ = r"[ \t]*(?:=|%3D|%3A)[ \t]*"                             # name = value, URL-encoded name=value
+_Q = r"(?:[\"']|&(?:amp;)*(?:quot|apos|#0?39);)"                # a quote, also HTML-escaped (once or more)
 _NAMES = (r"sID|JSESSIONID|ORA_[\w-]*|OAM[\w-]*|_WL_[\w-]*|X-Smartass-Secret|"
           r"[\w-]*(?:session|token|secret|password|passwd)[\w-]*")
+# The secret keys by their exact names: after one of them "name: value" is scrubbed whatever the value's length (never
+# a generic name: value rule - the scrub runs on reply warnings, whose sentences have colons).
+_KEYS = (r"sID|sessionId|session_id|JSESSIONID|ssoToken|sso_token|access_token|refresh_token|id_token|"
+         r"client_secret|password|passwd|X-Smartass-Secret|ORA_[\w-]*|OAM[\w-]*|_WL_[\w-]*")
 _PATTERNS = [
     (re.compile(rf"({_TAG}\s*sID\s*{_END}).*?({_TAG}\s*/\s*sID\s*{_END})", re.S | re.I), r"\1***\2"),
     (re.compile(r"(?<=[\w/.%-])\?(?=[\w%])[^\s'\"<>]+"), "?..."),          # a URL's query string, whole (not 'label?)')
+    (re.compile(r"(?:^|(?<=\s))\?(?=[\w.-]+=)[^\s'\"<>]+"), "?..."),          # ... after a space or at the start: ?name=
+    (re.compile(r"%3F(?=[\w.~-]+%3D)[^\s'\"<>]+", re.I), "%3F..."),           # a URL-encoded query (%3Fname%3D...)
     (re.compile(r"\b((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*[\"']?)(?:[A-Za-z]+[ \t]+)?[^\s\"',;<>&}]+",
                 re.I), r"\1***"),                                                  # an Authorization header
-    (re.compile(r"\b(Bearer\s+)(?!\*\*\*)[A-Za-z0-9._~+/=-]+", re.I), r"\1***"),
+    (re.compile(r"\b(Bearer(?:\s+|%20|\+))(?!\*\*\*)[A-Za-z0-9._~+/=-]+", re.I), r"\1***"),
     (re.compile(r"\b(Basic\s+)(?!\*\*\*)[A-Za-z0-9._~+/=-]{12,}"), r"\1***"),       # basic credentials
     (re.compile(r"\beyJ[\w-]*\.[\w-]+(?:\.[\w-]*)?"), "***"),                          # a JWT (header.payload.sig)
     (re.compile(r"\b((?:set-)?cookie[ \t]*:[ \t]*)[^\n<]*", re.I), r"\1***"),            # a cookie header, whole
+    (re.compile(r"([\"'](?:set-)?cookie[\"'][ \t]*:[ \t]*[\"'])[^\"']+", re.I), r"\1***"),  # ... as a dict/JSON key
     (re.compile(r"\b(x-[\w-]+[ \t]*:[ \t]*)(?!\*\*\*)(?=[A-Za-z0-9._~+/=-]{12})[^\s,;<>\"']+", re.I),
      r"\1***"),                                                         # an X-... header's key-like value
     # a session key, token, secret or cookie: name=value (any value), "name": "value" (JSON), name: value (a value of
     # 16 key-like characters or more - not the words after a class name in a logged error, 'NoToken: no EPM ...')
-    (re.compile(rf"([\"']?(?<![\w-])(?:{_NAMES})[\"']?{_EQ}[\"']?)(?!\*\*\*)[^\s;<>\"'&,}}]+", re.I), r"\1***"),
+    (re.compile(rf"({_Q}?(?<![\w-])(?:{_NAMES}){_Q}?{_EQ}{_Q}?)(?!\*\*\*)[^\s;<>\"'&,}}]+", re.I), r"\1***"),
     (re.compile(rf"([\"'](?:{_NAMES})[\"'][ \t]*:[ \t]*[\"'])(?!\*\*\*)[^\"']+", re.I), r"\1***"),
-    (re.compile(rf"((?<![\w-])(?:{_NAMES})[ \t]*:[ \t]*)(?!\*\*\*)(?=[A-Za-z0-9._~+/=-]{{16}})[^\s;<>\"'&,}}]+",
+    (re.compile(rf"((?<![\w-])(?:{_NAMES})[ \t]*:[ \t]*{_Q}?)(?!\*\*\*)(?=[A-Za-z0-9._~+/=-]{{16}})[^\s;<>\"'&,}}]+",
                 re.I), r"\1***"),
+    (re.compile(rf"((?<![\w-])(?:{_KEYS})[ \t]*:[ \t]*{_Q}?)(?!\*\*\*)[^\s;<>\"'&,}}]+", re.I), r"\1***"),
 ]
 _secrets: list[str] = []
 
