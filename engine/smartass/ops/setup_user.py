@@ -13,7 +13,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from ..core import config
+from ..core import config, retry
 
 SERVER_NAME = "smartass"
 LEGACY_SERVER_NAMES = ("smartview", "smartass2")   # smartview renamed 2026-10-23, smartass2 (v2 beside v1) retired 2026-11-04
@@ -126,18 +126,14 @@ REPLACE_TRIES, REPLACE_PAUSE_S = 10, 0.1    # Windows can hold a file it has jus
 def _replace(tmp: Path, path: Path) -> None:
     """os.replace, tried again briefly while Windows refuses it (PermissionError: antivirus or the indexer holds the
     file just written); after REPLACE_TRIES the error is raised and the temp file removed (path is unchanged)."""
-    for i in range(REPLACE_TRIES):
+    try:
+        retry.tried_again(lambda: os.replace(tmp, path), REPLACE_TRIES, REPLACE_PAUSE_S)
+    except PermissionError:
         try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            if i == REPLACE_TRIES - 1:
-                try:
-                    tmp.unlink(missing_ok=True)
-                except OSError:
-                    pass
-                raise
-            time.sleep(REPLACE_PAUSE_S)
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def _is_junction(p: Path) -> bool:

@@ -16,7 +16,7 @@ from pathlib import Path
 import pywintypes
 
 from . import dialogs, instances, jobs
-from ..core import config
+from ..core import config, retry
 from ..core.errors import HostError, InputError
 from .hostproc import retry_busy
 
@@ -282,13 +282,11 @@ def discard_new(t: Target) -> str:
         what, done = f"the new workbook {name} was closed without saving and its file", " deleted"
     else:
         what, done = f"the new workbook {name} was not opened; its file", " was deleted"
-    for i in range(DELETE_TRIES):
-        try:
-            t.made.unlink(missing_ok=True)
-            return what + done
-        except OSError:
-            if i < DELETE_TRIES - 1:
-                time.sleep(DELETE_PAUSE_S)
+    try:
+        retry.tried_again(lambda: t.made.unlink(missing_ok=True), DELETE_TRIES, DELETE_PAUSE_S, on=OSError)
+        return what + done
+    except OSError:
+        pass
     jobs.log.warning("could not delete the new workbook's file %s", t.made)
     return f"{what} could not be deleted ({t.made}): delete it yourself"
 
@@ -682,14 +680,8 @@ def _keep_seed(path: Path, seed: Path) -> None:
     try:
         seed.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, tmp)
-        for i in range(DELETE_TRIES):                 # a seed just read can be held for a moment (WinError 5)
-            try:
-                os.replace(tmp, seed)
-                break
-            except PermissionError:
-                if i == DELETE_TRIES - 1:
-                    raise
-                time.sleep(DELETE_PAUSE_S)
+        # a seed just read can be held for a moment (WinError 5)
+        retry.tried_again(lambda: os.replace(tmp, seed), DELETE_TRIES, DELETE_PAUSE_S)
     except OSError:
         try:
             tmp.unlink(missing_ok=True)
