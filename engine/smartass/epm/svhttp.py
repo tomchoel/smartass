@@ -161,7 +161,7 @@ def check_layout(lay: Layout, values: list[list], who: str = "the provider") -> 
     is the member asked for at that place. SvHttpError otherwise; who: the engine, for the text."""
     _check_grid(lay, values, who)
     full = parse(lay, values, False, False)
-    if full.pov_problems:              # COM shows the same as a warning; here it means the layout is not the cube's
+    if full.pov_problems:              # an appended POV member: the layout is not the cube's
         raise SvHttpError(f"{who} appended POV members; the atlas may lack a dimension ("
                           + "; ".join(full.pov_problems) + ")")
     bad = verify_labels(lay, full)
@@ -254,8 +254,7 @@ class SvHttp:
 
     def dimensions(self, conn: str) -> list[str]:
         """The connection's dimensions from the atlas; SvHttpError if it has none or any of them was not built
-        (failed or empty; age does not matter) - the grid would then be built on a wrong dimension list, COM knows
-        better."""
+        (failed or empty; age does not matter) - the grid would then be built on a wrong dimension list."""
         db = atlas.connect(self.db_path)
         try:
             return dimensions_in(db, conn)
@@ -279,7 +278,7 @@ class SvHttp:
         return f.layout, parse(f.layout, f.values, suppress_missing, suppress_zeros), f.seconds
 
     def fetch(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis]) -> "Fetched":
-        """The checked provider grid, unparsed: what a source sheet is written from (core/source.py)."""
+        """The checked provider grid, unparsed: what the facts are parsed from (data/provider.py)."""
         if conn not in CUBES:
             raise SvHttpError(f"no HTTP route for connection {conn}")
         t0 = time.monotonic()
@@ -291,8 +290,8 @@ class SvHttp:
     def closed_month(self, conn: str = "FinMax") -> str:
         """The last closed month ('Current Reporting Month') as 'Sep 26': the one child of member CurrRepMonth in
         provider dimension TimePeriods, '[CurrRepMonth].[Y26M09]' (proven live 2026-10-25, FinMax only: FinLite is
-        answered from the FinMax session). A month in the future or more than 3 months back is refused, so the
-        caller's COM route gives a second opinion instead of a silently wrong month."""
+        answered from the FinMax session). A month in the future or more than 3 months back is refused: a clear error
+        instead of a silently wrong month."""
         if conn not in ("FinMax", "FinLite"):
             raise SvHttpError(f"{conn} has no Current Reporting Month")
         names = self._enum("FinMax", "TimePeriods", "CurrRepMonth")
@@ -309,7 +308,7 @@ class SvHttp:
         return f"{_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
 
     def drill_link(self, conn: str, cell: dict[str, str]) -> dict:
-        """ops.drill_link over HTTP: {cube_value, url (relative to the EPM base), report}. One 1x1 retrieve gives
+        """A cell's drill link over HTTP: {cube_value, url (relative to the EPM base), report}. One 1x1 retrieve gives
         the value and the Default-alias labels Smart View sends; then GetDrillThroughReports (read-only)."""
         from .drillcore import DRILL_DEFAULTS, drill_cell_defaults
         cell, _ = drill_cell_defaults(cell)

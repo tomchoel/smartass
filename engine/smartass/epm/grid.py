@@ -232,8 +232,8 @@ def parse(layout: Layout, values: tuple | list, suppress_missing: bool, suppress
 
 def verify_labels(lay: Layout, parsed) -> list[str]:
     """Each returned label must be the requested member (where Smart View's 'code alias (prefix)' display lets us
-    derive the name). A mismatch means rows/columns moved - never build formulas on that. Used by both routes
-    (COM and svhttp): `parsed` is parse(lay, values, False, False)."""
+    derive the name). A mismatch means rows/columns moved - never build formulas on that. Used by both engines
+    (svhttp.check_layout: the provider route and Planning REST): `parsed` is parse(lay, values, False, False)."""
     bad = []
     for kind, tuples, labels in (("row", lay.row_tuples, parsed.row_labels),
                                  ("column", lay.col_tuples, parsed.col_labels)):
