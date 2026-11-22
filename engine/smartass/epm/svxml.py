@@ -136,7 +136,16 @@ def raise_for_exception(text: str) -> None:
     if m:
         raise SvXmlError(html.unescape(m.group(2)).strip(), int(m.group(1)))
     if "<res_" not in text:
-        raise SvXmlError("not a Smart View provider answer: " + re.sub(r"\s+", " ", text)[:120])
+        raise SvXmlError(f"not a Smart View provider answer ({_shape(text)})")
+
+
+def _shape(text: str) -> str:
+    """What an answer that is not the provider's looks like, in words of our own and its length - never a part of it:
+    the error reaches the tool reply, and such an answer may hold a session id, a token or a cookie."""
+    head = text.lstrip()[:500].casefold()
+    kind = ("empty" if not head else "an HTML page" if "<html" in head or head.startswith("<!doctype")
+            else "JSON" if head.startswith(("{", "[")) else "other XML" if head.startswith("<") else "text")
+    return f"{kind}, {len(text)} characters"
 
 
 def sid_of(text: str) -> str:

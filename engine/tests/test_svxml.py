@@ -70,6 +70,31 @@ def test_sid_and_exceptions():
         svxml.sid_of("<html>401 Authorization Required</html>")
 
 
+SECRETS = ("sid-7f3a9c",
+           "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0b20ifQ.c2lnbmF0dXJlX29mX3Rva2Vu",  # allow-secret (an invented token)
+           "JSESSIONID=c00k1e9", "ORA_OCIS_42=ocis-c00k1e")
+# Answers that are not the provider's, each carrying a session id, a token and cookies: one with an <exception>
+# element but no desc passes the transport (svhttp._provider_xml), and its text must still never be quoted.
+NOT_PROVIDER = [
+    f"<exception><sID>{SECRETS[0]}</sID><token>{SECRETS[1]}</token></exception> Set-Cookie: {SECRETS[2]}; {SECRETS[3]}",
+    f"<html><body>Signed out. <input name='sID' value='{SECRETS[0]}'> Bearer {SECRETS[1]} {SECRETS[2]} "
+    f"{SECRETS[3]}</body></html>",
+    f"sID={SECRETS[0]}&token={SECRETS[1]}&cookie={SECRETS[2]}&{SECRETS[3]}",
+    f"<req_Connect><sID>{SECRETS[0]}</sID></req_Connect>{SECRETS[1]}{SECRETS[2]}{SECRETS[3]}",
+]
+
+
+@pytest.mark.parametrize("text", NOT_PROVIDER)
+def test_an_answer_that_is_not_the_providers_is_never_quoted(text):
+    """Its error text reaches the tool reply (a failed grid's warning, a drill link's error): it says what the answer
+    looked like in words of our own, never a part of it - no session id, token or cookie can be in it."""
+    with pytest.raises(svxml.SvXmlError) as e:
+        svxml.raise_for_exception(text)
+    said = str(e.value)
+    assert said.startswith("not a Smart View provider answer (") and not any(s in said for s in SECRETS)
+    assert not any(part in said for part in ("sID", "token", "cookie", "Bearer", "JSESSIONID"))
+
+
 def test_data_sources_give_the_pod_per_app():
     text = ('<res_GetProvisionedDataSources><Product id="HP"><Server name="FinMax" '
             'context="https://plan1.example/HyperionPlanning/SmartView" appName="FinMax"/></Product>'

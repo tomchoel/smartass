@@ -449,6 +449,25 @@ def test_drill_link_reconnects_once_on_an_expired_session(lite_db):
     assert t.tags().count("ConnectToProvider") == 2
 
 
+def test_a_drill_link_error_puts_no_session_id_token_or_cookie_into_the_reply(lite_db, monkeypatch):
+    """drillstep._link quotes the route's error in the tool reply: an answer that is not the provider's, carrying a
+    session id, a token and a cookie, twice (the one reconnect), reaches it in words of our own only."""
+    import asyncio
+
+    from smartass.epm import drillstep
+    secrets = ("sid-7f3a9c",
+               "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0b20ifQ.c2lnbmF0dXJlX29mX3Rva2Vu",  # allow-secret (an invented token)
+               "JSESSIONID=c00k1e9")
+    bad = f"<exception><sID>{secrets[0]}</sID><token>{secrets[1]}</token></exception> Set-Cookie: {secrets[2]}"
+    sv = _sv(FakeTransport(answer(ONE_CELL), bad, bad), lite_db)
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+    monkeypatch.setattr(drillstep, "_http_link", sv.drill_link)
+    with pytest.raises(drillstep.ToolError) as e:
+        asyncio.run(drillstep._link("FinLite", CELL))
+    said = str(e.value)
+    assert "not a Smart View provider answer (other XML," in said and not any(s in said for s in secrets)
+
+
 PARTS = [{"All Accounts": "ac.C60080", "All Entities": e, "All Time Periods": "Sep 26"}
          for e in ("un.SY.2TEC", "un.SY.2BUS")]
 
