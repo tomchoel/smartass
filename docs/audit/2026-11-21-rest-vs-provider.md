@@ -1,10 +1,11 @@
 # The second engine against the provider route (phase 2, Task 3 and 3b), 2026-11-21/22
 
 Live, read-only against EPM (plan1 and stratmodel), without Excel, from the owner's PC with the stored refresh tokens
-(no sign-in was needed). Script: `scripts/compare_grid_routes.py all` (deleted in Task 7), run from `engine/` on
-the tree of the commit that adds this version of the file (a copy of it made with `git archive`: commit d2cf8a4 plus
-this commit's script). Every line below is the script's own output: counts, booleans, seconds and member CODES only -
-no figure, no label, no business text, no token, cookie or URL query. Errors are shown as their class (and HTTP
+(no sign-in was needed). Script: `scripts/compare_grid_routes.py all` (deleted after the phase's last gate run on
+the release head), run from `engine/` on the tree of the commit that adds this version of the file (a copy of it
+made with `git archive`: commit d2cf8a4 plus this commit's script). Every line below is the script's own output:
+counts, booleans, seconds and member CODES only - no figure, no label, no business text, no token, cookie or URL
+query. Errors are shown as their class (and HTTP
 status). A FinPlan member's name is its label: such a member is shown by its dimension and place (`Account #3`).
 
 ## Verdict (Task 3b re-run, 2026-11-22 01:17-01:22 UTC): passed
@@ -68,8 +69,8 @@ several years (01, 04, 06, 08, 09, 11: 2 grids; 13: 3 grids), the largest (02, 5
 (01, 02, 03, 05 ...), empty cells among numbers (04, 20), products as a third row dimension (02, 03), FinMax and
 FinPlan; every grid has members the atlas keeps under their label (periods, FinPlan's accounts and entities). The
 run log holds no FinLite request: line 21 is request 02 asked on FinLite (an extra, not one of the 20). No logged
-grid comes near the cell budget, so 02 was also fetched over a lowered budget (247 counted cells: 4 requests, stitched) and the
-probe below splits a 400 000-cell grid over the default budget.
+grid comes near the cell budget, so 02 was also fetched over a lowered budget (247 counted cells: 4 requests,
+stitched) and the probe below splits a 400 000-cell grid over the default budget.
 
 Task 3 ran these parts first (21-22 November): the same result, except that the split probe's 11 label cells were
 counted as differences (the stale-alias class, accepted since) and the wrong-member requests were not run.
@@ -82,10 +83,11 @@ counted as differences (the stale-alias class, accepted since) and the wrong-mem
   exports "only cells for which the user has read-write access" and names no marker for the others, so over REST a
   cell the user may not read cannot be told apart from an empty one: it reads as missing, not as #NoAccess. The
   reply's one warning for REST grids says so. To be checked when a no-access cell is available.
-- **The split loop after the gate (open item)**: the gate ran on d2cf8a4; 93c6215 changed the split loop afterwards
+- **The split loop after the gate**: the gate ran on d2cf8a4; 93c6215 changed the split loop afterwards
   (each part's answer is checked before the next part is sent), covered offline by item 1's test of Task 3c
-  (`test_rest.py::test_a_split_grid_whose_first_answer_is_not_the_grid_asked_sends_no_other_part`, 8ab749e); the
-  controller re-runs the grids part before the release.
+  (`test_rest.py::test_a_split_grid_whose_first_answer_is_not_the_grid_asked_sends_no_other_part`, 8ab749e). The
+  grids part was run again at a695d72 (Task 4b): all equal; the controller runs both gates once more on the
+  release head.
 - **Unknown member** (an invented code, `ac.ZZ_NO_SUCH_MEMBER`): REST's HTTP 400 names it (`MemberRefused`); on
   rows it can be left out, in the POV it cannot. The provider route fails the grid without naming it.
 - **Cell budget**: EPM refuses a grid over 500 000 cells as it counts them: the grid's data rows and its two header

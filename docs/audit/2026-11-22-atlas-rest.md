@@ -134,12 +134,12 @@ Get Member answers **201** (Oracle documents it as this GET's "historical" succe
 
 ## Gate (Step 2), 2026-11-22 03:25-03:35 UTC: passed
 
-Script: `scripts/compare_atlas.py <work folder> all` (deleted with the hidden-Excel build in Task 6), run from
-`engine/` at commit a45bda9. It copies today's atlas (read-only) into a work folder in the scratch area, builds over
-REST into a copy there (`atlas_build.build_into` + `build_rest`, as `smartass atlas build` does) and points every
+Script: `scripts/compare_atlas.py <work folder> all` (deleted after the phase's last gate run on the release head), run
+from `engine/` at commit a45bda9. It copies today's atlas (read-only) into a work folder in the scratch area, builds
+over REST into a copy there (`atlas_build.build_into` + `build_rest`, as `smartass atlas build` does) and points every
 consumer check at those copies (`config.ATLAS_DB` / `KNOWLEDGE_DB` are set before anything opens a database; a work
-folder in the smartass home is refused). The owner's `atlas.db` and `knowledge.db` were not written (their
-modification time is still 2026-11-10). Every line is the script's own output, shortened.
+folder in the smartass home is refused). The owner's `atlas.db` and `knowledge.db` were not written (their modification
+time is still 2026-11-10). Every line is the script's own output, shortened.
 
 | Part | Result |
 | --- | --- |

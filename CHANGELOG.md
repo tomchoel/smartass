@@ -2,26 +2,101 @@
 
 ## Unreleased
 
-### Planning REST is the second engine; the Excel fallback for a grid is gone (phase 2)
+### Every fetch over HTTPS; smartass's own Excel is gone (0.7.0)
 
-- **A grid the Smart View provider route cannot fetch** is fetched once over Oracle's documented Planning REST API
-  (`exportdataslice`) with the same sign-in, no Excel. The reply's `routes` counts `rest`, and one warning says
-  how many grids came that way. Live gate (22.11.2026, read-only): 21 of 21 real grids identical on both routes,
-  the order proof 4 of 4, a 466 637-cell split equal (docs/audit/2026-11-21-rest-vs-provider.md).
-- **A member EPM no longer has** (renamed or removed since the atlas or the question) is left out of that grid over
-  REST when other members remain on its axis. The answer then has one warning and one caveat per such member
-  (Caveats on the Answer, Known limits on the Sources sheet) saying its figures are missing and every total that
-  includes it is INCOMPLETE. A POV member or the only member of its axis (often the question's one entity) cannot
-  be left out: the error names it and says to check it or run `smartass atlas build`. The Excel fallback did this
-  silently, and not at all for an axis's only member.
-- **Gone:** the ad hoc grid in your Excel when a grid could not be fetched (`data/adhoc.py`, `xl/pull_adhoc.py`).
-  A grid neither engine can fetch is now a warning. A drill link the provider route cannot fetch is an error with
-  its reason (Planning REST has no drill-report request), no longer a Smart View pull in the hidden Excel. A split
-  drill reads its children's values over REST when the provider route cannot.
-- **Over REST a cell you may not read reads as empty**, not #NoAccess: Oracle exports only cells with read-write
-  access and documents no marker (never seen live; an open item). The REST warning says so.
-- No pod without a scope, refused token, stale atlas or alias clash is sent to REST: it would meet the same error.
-  Tool names, parameters and reply fields are unchanged.
+**What changed for you**
+
+- **smartass no longer has an Excel of its own.** It used to start a hidden Excel with Smart View in it. That Excel,
+  its VBA bridge and the Smart View automation are gone. Every number now comes over HTTPS with your own sign-in.
+  Your Excel is used only to draw the answer.
+- **A grid comes from Smart View's provider route first, and from Oracle's Planning REST second.** When the first
+  route cannot fetch a grid, the second fetches it with the same sign-in, and a warning in the reply says so. The
+  old last resort, a Smart View pull in Excel, is gone.
+- **A member EPM refuses is left out, and the reply says so.** When EPM no longer has a member (renamed or removed)
+  and other members remain beside it, the grid is fetched without it. The reply then warns that its figures are
+  missing and that every total including it is INCOMPLETE. The same text is under Caveats on the Answer and in Known
+  limits on the Sources sheet. The old Excel route left such a member out without a word. When the refused member is
+  a POV member or the only one on its axis, the answer fails with an error that names it.
+- **The member catalogue (the atlas) builds in seconds.** `smartass atlas build` now reads EPM over Planning REST:
+  no Excel, about half a minute for both pods. It replaces your atlas only when every dimension was built; otherwise
+  it says "NOT replaced" and why, and the atlas stays as it was. The atlas file gains a side table with each
+  member's real EPM name. A release before 0.7.0 can still write the file, and this release reads an older file.
+- **No automatic "Telenor SSO" click any more.** The watcher that clicked it in Smart View's Login is gone, also when
+  you use Smart View by hand: you click it yourself. While Smart View's Login is open in an Excel, smartass stays out
+  of that Excel and says so in the reply, naming the window.
+- **A drill link has no second route.** Planning REST cannot give a cell's drill link. When the provider route cannot
+  fetch it, the drill fails with the reason and one next step (for example `smartass login --force`, or drill
+  again in a minute).
+- **With no Excel open,** smartass opens your Excel on the new workbook, as before; the workbook is no longer made
+  in a hidden Excel first.
+- Tool names, parameters and reply fields are unchanged. `fin_status(restart=True)` without the relay now starts
+  the EPM sessions and the Excel job runner afresh (`restarted: "sessions"`). `smartass doctor` lost its
+  `smartview` and `vba_access` checks and gained `leftovers`.
+
+**Figures (live, read-only, no Excel, 21-22.11.2026)**
+
+- Grids on both routes: 21 of 21 real grids from stored answers identical cell for cell (20 plus a FinLite extra);
+  a grid of 466 637 cells split into 2 requests, equal; rows and columns come back in the order asked (4 of 4).
+  docs/audit/2026-11-21-rest-vs-provider.md.
+- Members left out: an invented code in a real FinMax and a real FinPlan request was left out with one warning, and
+  every other figure (315 and 116 facts) equalled the provider route's. Of 6 stored requests with a member EPM no
+  longer has, 2 were fetched with it left out and warned; 4 failed with the clear error.
+- Atlas: Get Member read all 22 dimension trees of both pods in about 10 s (9.7 s plan1, 0.9 s stratmodel; the
+  build 22-24 s in all), where the hidden Excel's zooms took 133 s, its start not counted. No real difference from
+  the old atlas: 268 members added since, 4 moved, 16 with a new alias. The golden test set passed 9 of 9 with
+  either atlas, and 18 771 of 18 782 members of 460 stored questions resolve the same with either atlas.
+  docs/audit/2026-11-22-atlas-rest.md.
+- Both gates were run again on the release head before the release; each audit records that run.
+
+**What a PC needs now**
+
+- Desktop Excel, for the answers.
+- `[oauth]` in `%LOCALAPPDATA%\smartass\config.toml` and one `smartass login`, as in 0.6.0. The same scope
+  covers Planning REST.
+- The atlas: copied from the release by `smartass setup`, or `smartass atlas build`.
+
+**What a PC no longer needs**
+
+- Smart View. smartass does not use it; it may stay installed. If `smartass doctor` says so, untick its start-up
+  update check, so its Login does not open at every Excel start.
+- "Trust access to the VBA project object model" in Excel's Trust Center.
+- The Startup entry `smartass-sso-watcher.lnk`: `smartass setup` removes it and stops the old watcher of this
+  install.
+- What an older release left: `smartass doctor` (check `leftovers`) reports a copy of Smart View's options that a
+  crashed run could not put back, with the values to set by hand in Smart View's Options, and the unused bridge
+  add-in files; `smartass doctor --fix` removes them, naming each first. At server start smartass ends an Excel an
+  older release started hidden, only when that release's own record proves it.
+
+**Known limits / open items**
+
+- Over Planning REST a cell you may not read reads as empty, not #NoAccess: Oracle exports only cells with read-write
+  access and documents no marker. Never seen live.
+- EPM's account type and time balance are stored in the atlas but not used yet: the behaviour cards still derive
+  theirs from data. Using EPM's would newly decide about 435 FinPlan accounts: a decision for later (the atlas audit,
+  "Not used yet").
+- Two members with one key under one parent (11 such pairs) keep one label in the atlas; all their real names are
+  kept.
+- Over Planning REST smartass sends the atlas's key of a member, not its real EPM name. EPM resolves those keys today.
+- Four stored FinPlan requests name an entity EPM no longer has. They fail with a clear error: ask them again with
+  today's entity.
+- Not yet checked live in your Excel: the first workbook when no Excel is open, and `scripts/check_insert.py` after
+  its rewrite.
+
+**Notes**
+
+- On 22.11.2026 one test run started smartass's hidden Excel by mistake, and two of Smart View's options were left
+  changed. They were restored and checked the same morning, and your atlas and knowledge files were not touched; the
+  test suite can no longer start Excel or open a network connection.
+
+**Details**
+
+- Grids: `data/provider.py` asks `epm/rest.py` (`exportdataslice`) after the provider route, not for an error REST
+  would meet too (`svhttp.NoFallback`: no token, a token refused twice, no scope, a stale atlas, an alias clash).
+  `routes` counts `rest`. The atlas: `epm/members.py` (Get Member), `ops/atlas_build.py`, side table
+  `member_real`. Every request goes through `epm/epmhttp.py` `EpmSession`'s allowlist (docs/DESIGN.md, Runtime).
+- Deleted: `data/adhoc.py`, `xl/pull_adhoc.py`, `xl/host.py`, `xl/hidden.py`, `xl/login.py`, `epm/ops.py`,
+  `epm/sso.py`, `engine/sso_watcher.ps1`, `engine/vba/`, `smartass atlas build --excel`. The setting
+  `paths.smartview_dll` and the variables `SV_SMARTVIEW_DLL`, `SV_CALL_TIMEOUT` and `SV_LOGIN_GRACE` are ignored.
 
 ### Drill lines over the token; the hidden browser is gone (0.6.0)
 

@@ -10,10 +10,10 @@
   schema: run `/mcp` and reconnect smartass. Only an edit to `run_server.py` itself always needs a reconnect.
   After an update, reconnect every open session: one still on 0.4.0 in the same Excel has no first-contact check, so
   a 0.5.0 save after the reply can run in the middle of its job.
-- **Two Excels.** The engine's own hidden Excel (`DispatchEx`, one COM thread, the VBA bridge `vba\modBridge.bas`
-  + Oracle's `smartview_body.bas` loaded into an unsaved workbook) fetches no grid any more (phase 2); the answer is
-  drawn in the user's Excel (session workbook, or `target="active"`). Only the engine's own Excel is ever killed or
-  restarted; the PIDs it started are in `%LOCALAPPDATA%\smartass\pids.json` with the owning server.
+- **One Excel: the user's.** The engine has no Excel of its own (since 0.7.0). Every answer is drawn in the user's
+  Excel (session workbook, or `target="active"`), each job on a thread of its own, taking turns per Excel. The
+  engine starts an Excel only as the user's, visible, on a workbook (no Excel open, or a parallel agent's new
+  workbook), and never closes, kills or restarts it.
 - **How an answer reaches Excel.** The answer's sheets are built as an .xlsx without Excel (under
   `%LOCALAPPDATA%\smartass\tmp`, deleted when the answer is in), inserted into the workbook in one call (Excel's
   own insert of a file's sheets: no second workbook is opened) and finished there (tables, formulas, chart labels),
@@ -70,12 +70,14 @@
 - **Fetch route.** Smart View HTTP with the user's OAuth token (`smartass login`; no browser). A grid that route
   could not fetch (a lost request, a broken session, a member the cube no longer has) is fetched once over Planning
   REST, the second engine, with the same token (`routes` in the reply counts `rest`; one warning says so). Never
-  through Excel. A pod without a scope, a refused token or a stale atlas stops both engines: the grid is a warning. A missing sign-in is answered with a page and a code instead (show both to the user; after
-  the approval call again); a PC without `[oauth]` in config.toml gets the set-up text.
-- **Read-only.** Submit, calculate and business rules do not exist in the bridge.
-- **Smart View options.** Global options 104 (messages: none), 109 (home panel off), 110 (comment dialog off) are
-  set while the engine's Excel runs. The user's originals are saved in `smartview_options_original.json` and
-  restored on shutdown; after a crash they are restored at the next start.
+  through Excel. A pod without a scope, a refused token or a stale atlas stops both engines: the grid is a warning.
+  A missing sign-in is answered with a page and a code instead (show both to the user; after the approval call
+  again); a PC without `[oauth]` in config.toml gets the set-up text.
+- **Read-only.** Every request to EPM passes one allowlist of read requests (`epm/epmhttp.py`); submit, calculate,
+  import and business rules do not exist in the engine.
+- **Smart View.** The engine does not use it. Where it is installed it can still open its own Login in the user's
+  Excel (often at Excel's start); while it is open the engine refuses to work in Excel and the error names that
+  Excel: the user signs in there or closes the Login, then ask again. Nothing clicks it any more.
 - **Parallel sessions** are fine. Each session has its own workbook; writes into one Excel window take turns (a
   lock per Excel), different Excels run in parallel. Long stages send `still working: <stage> (n s)` every 10 s:
   wait, do not call again.
@@ -90,10 +92,11 @@
 | Server log, relay log | `logs\server.log`, `logs\proxy.log` |
 | Run log (one line per answer) | `logs\runs.jsonl` |
 | Query log (audit) | `logs\queries.jsonl` |
-| SSO watcher log + heartbeat | `logs\sso_watcher_ps.log`, `logs\sso_watcher.heartbeat` |
 | Sessions (which workbook belongs to which session) | `sessions.json` |
 | EPM sign-ins (one per pod, DPAPI) | `oauth\` |
 | Left from before 0.6.0, unused, safe to delete by hand: drill cache, hidden browser profiles, failed drill pages | `drill.db`, `drill_edge*\`, `logs\drill_fail_*` |
+| Left from before 0.7.0: a copy of Smart View's options a crashed run could not restore, the unused bridge add-ins (`smartass doctor` reports them, `smartass doctor --fix` removes them) | `smartview_options_original.json`, `svbridge_*.xlam` |
+| The atlas build's last attempt (`smartass atlas status`: `last_build`) | `atlas.db.last.json` |
 | Text repairs of your own | `text_fixes.json` |
 | Answer workbooks | `paths.analyser` (`<OneDrive>\smartass\analyser\<project>\`) |
 | An answer's file while it is moved in (deleted after) | `tmp\` |
@@ -108,8 +111,8 @@ read.
 
 | Command | Does |
 |---|---|
-| `smartass doctor` (`--json`, `--bundle`) | Health checks with a fix per problem; `--bundle` zips logs, redacted config and versions for the maintainer |
-| `smartass atlas status` / `smartass atlas build [--cube X] [--dimension D]` | Atlas age; rebuild from Smart View (own hidden Excel, read-only, a few minutes). Then `gen_atlas_md.py` refreshes `reference\cubes.md` |
+| `smartass doctor` (`--json`, `--bundle`, `--fix`) | Health checks with a fix per problem; `--bundle` zips logs, redacted config and versions for the maintainer; `--fix` removes what an older release left (each file named first) |
+| `smartass atlas status` / `smartass atlas build [--cube X] [--dimension D]` | Atlas age and the last build's outcome; rebuild over Planning REST with the user's sign-in (read-only, no Excel, about half a minute). It replaces the atlas only when every dimension was built, else says `NOT replaced (<why>)`. Then `gen_atlas_md.py` refreshes `reference\cubes.md` |
 | `smartass login` (`--status`, `--force`, `--forget`) | EPM sign-in for the bearer route: prints a page and a code (page opens, code on the clipboard), waits for the approval. Needed once, and again after 7 days without use |
 | `smartass setup` | Per-user setup (config, secret, MCP entries, skill link, Startup entries, PATH, atlas copy) |
 | `smartass update` | Install the release from the release folder |
@@ -129,10 +132,9 @@ Every error names one next step. The common ones:
 | Error/warning `… member X … cannot be left out - check the member or rebuild the atlas` | A POV member or the query's only entity (or another single member) is refused: that grid is not fetched. Find today's member with fin_lookup and patch the spec. |
 | Warning `N grid(s) could not be fetched (the Smart View provider route, then Planning REST): …` | Neither engine could fetch them; those numbers are missing. Retry; if it repeats, `smartass doctor`. |
 | `checks.sheet_equals_model` = `DIFF in n cells` (+ `mismatches`) | Excel calculated something else than the model: report it; do not quote those cells. |
-| Login window / `Smart View's sign-in window stopped responding` / `stayed open for more than 30s` | Sign-in: the SSO watcher clicks 'Telenor SSO'. The engine restarts its own hidden Excel when its Login hangs; a Login in the user's Excel needs the user. If an app holding WebView2 is named (often PowerPoint), ask the user to close it. |
+| `Smart View's Login is open in the Excel showing … ; smartass does not touch an Excel while it is …` | Smart View's own EPM Login is open in the user's Excel (often at Excel's start). Ask the user to sign in there or close it, then call again. If it shows at every Excel start, the error names the Smart View option to untick. |
 | Doctor `WARN oauth <pod>: not signed in` / `sign-in ended`, or a tool reply with a sign-in page and code | Nothing reaches that pod until the user approves. Show the user the page and code from the reply (or run `smartass login` in the background and show what it prints), let them approve, then call again. |
 | Doctor `FAIL oauth not set up` / reply `EPM access is not set up on this PC` | `[oauth]` is missing in config.toml: the user (or IT) adds idcs, client_id and the scopes, then `smartass login`. |
-| `EPM gave no response; restarting the engine's hidden Excel` / `Empty response from provider` | Retried once after a restart of the engine's Excel; if it persists, the user signs in once in their own Excel, then ask again. |
 | `Your Excel is in edit mode…` / `Excel is busy` | A cell is being typed in or a dialog is open: the user presses Enter or Esc, then ask again. |
 | `…is in the Produktregnskapet archive` | Archive guard: answers never go into the archive. Use the session workbook. |
 | `there is no v2 answer in this workbook to follow up` / `Q<n> is not a v2 answer in this workbook` | Follow-ups and `fin_refresh` need an answer drawn by `fin_analyze` in that workbook (the error lists the ones there). Otherwise ask it as a new question. |

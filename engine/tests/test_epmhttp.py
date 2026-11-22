@@ -849,7 +849,8 @@ def test_the_rest_rules_are_the_configured_cubes_exactly():
            for app, cube in epmhttp.REST_CUBES},
         **{epmhttp.member_tree(app, dim): epmhttp._Rule("GET", {"fields": (1, 1, re.compile(re.escape(
             epmhttp.MEMBER_FIELDS)))}, frozenset(), None) for app, dim in epmhttp.MEMBER_TREES}}
-    assert epmhttp.export_slice("FinMax", "FinLite") == "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinLite/exportdataslice"
+    assert epmhttp.export_slice("FinMax", "FinLite") == (
+        "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinLite/exportdataslice")
     assert not any("import" in p.lower() or "job" in p.lower() or "clear" in p.lower() for p in epmhttp.ALLOWED)
 
 
@@ -858,7 +859,8 @@ def test_an_exportdataslice_grid_and_a_dimension_list_are_sent(make):
     for app, cube in epmhttp.REST_CUBES:
         s.request("POST", epmhttp.export_slice(app, cube), body=json.dumps(_grid()))
     s.request("GET", DIMS)
-    s.request("GET", "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinPlan/dimensions?aliasTableName=Default")
+    s.request("GET", "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinPlan/dimensions"
+                     "?aliasTableName=Default")
     s.request("POST", SLICE, headers={"Content-Type": "application/json; charset=utf-8"}, body=json.dumps(_grid(
         pov={"dimensions": [], "members": []}, suppressMissingBlocks=True,
         rows=[{"dimensions": ["Accounts"], "members": [["ac.A", "C30 REVENUES (ac)", "X99 Margin % (pc)"]]},
@@ -868,7 +870,8 @@ def test_an_exportdataslice_grid_and_a_dimension_list_are_sent(make):
         ("POST", POD + "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinLite/exportdataslice"),
         ("POST", POD + "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinPlan/exportdataslice"),
         ("GET", POD + DIMS),
-        ("GET", POD + "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinPlan/dimensions?aliasTableName=Default"),
+        ("GET", POD + "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinPlan/dimensions"
+                      "?aliasTableName=Default"),
         ("POST", POD + SLICE)]
     assert op.sent[0].get_header("Content-type") == "application/json" and op.sent[3].data is None
 
@@ -892,7 +895,8 @@ def test_an_exportdataslice_grid_and_a_dimension_list_are_sent(make):
     ("GET", DIMS + "&limit=-1"), ("GET", DIMS + "&q=%7B%7D"), ("GET", DIMS.replace("Default", "%44efault")),
     ("GET", DIMS.replace("Default", "default")), ("GET", DIMS.replace("Default", "DefaultX")),       # the value as sent
     ("GET", DIMS.replace("=Default", "=")), ("GET", DIMS.replace("=Default", "")),
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/dimensions/Accounts?aliasTableName=Default"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/dimensions/Accounts"
+            "?aliasTableName=Default"),
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax?aliasTableName=Default"),
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes"),
     ("GET", SLICE), ("POST", DIMS), ("PUT", SLICE), ("DELETE", DIMS), ("post", SLICE),            # the method
@@ -922,7 +926,8 @@ def test_what_is_not_exactly_a_rest_rule_is_refused_before_a_token(make, method,
     assert op.sent == [] and tok.asked == []
 
 
-@pytest.mark.parametrize("headers", [{"Content-Type": "text/xml"}, {"Content-Type": "application/x-www-form-urlencoded"},
+@pytest.mark.parametrize("headers", [{"Content-Type": "text/xml"},
+                                     {"Content-Type": "application/x-www-form-urlencoded"},
                                      {"Accept": "application/json"}, {"X-Requested-With": "XMLHttpRequest"},
                                      {"Authorization": "Basic x"}, {"Cookie": "a=b"}])
 def test_a_rest_request_takes_no_header_but_a_json_content_type(make, headers):

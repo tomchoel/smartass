@@ -170,7 +170,7 @@ def _status_base(monkeypatch):
     monkeypatch.setattr(build, "summary", lambda path: {"metrics": 2, "facts": 5, "drafts": 0, "built_at": "x"})
     from smartass.ops import doctor
     monkeypatch.setattr(doctor, "run", lambda: [doctor.Check("excel", "OK", "x"),
-                                                doctor.Check("vba_access", "FAIL", "blocked", "tick it")])
+                                                doctor.Check("oauth", "FAIL", "not set up", "add [oauth]")])
 
 
 class _FakeDb:
@@ -227,7 +227,7 @@ def test_fin_status_without_restart_changes_nothing(monkeypatch):
     assert "restarted" not in out and out["metrics"] == 2
     assert out["atlas"] == {"oldest_age_days": 3.0, "stale": False, "dimensions_built": 1}
     assert out["doctor"]["overall"] == "FAIL"
-    assert [p["name"] for p in out["doctor"]["problems"]] == ["vba_access"]
+    assert [p["name"] for p in out["doctor"]["problems"]] == ["oauth"]
 
 
 def test_instructions_mention_the_critic_and_the_prompts():

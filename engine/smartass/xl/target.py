@@ -112,11 +112,12 @@ def resolve_target(target: str = "session", allow_archive: bool = False, title: 
                    build_new: bool = False) -> Target:
     """target: 'session' (default: this session's own analysis workbook - created on its first question, reopened if
     closed), 'active' (the workbook the user is working in), 'new' (a new file, which becomes the session's
-    workbook), an absolute file path, or the name of an open workbook (e.g. an unsaved 'Book1'). build_new: the caller builds a new workbook itself
-    (exceljob.excel_job: the first answer's built file is the workbook) - a target that resolves to a new workbook in a
-    running Excel then comes back with its file reserved and not opened (Target.made, wb None; open_new opens it), made
-    ready all the same, and does not become the session's workbook here: the caller sets it once the answer is in it.
-    A failure after the reservation deletes the file (discard_new)."""
+    workbook), an absolute file path, or the name of an open workbook (e.g. an unsaved 'Book1'). build_new: the
+    caller builds a new workbook itself (exceljob.excel_job: the first answer's built file is the workbook) - a
+    target that resolves to a new workbook in a running Excel then comes back with its file reserved and not opened
+    (Target.made, wb None; open_new opens it), made ready all the same, and does not become the session's workbook
+    here: the caller sets it once the answer is in it. A failure after the reservation deletes the file
+    (discard_new)."""
     with jobs.starting():
         return _resolve(target, allow_archive, title, build_new)
 

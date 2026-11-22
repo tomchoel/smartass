@@ -38,8 +38,9 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 ## Data safety
 
 - **Read-only against EPM.** The engine only retrieves data; it never submits data to the cubes.
-- **Your own login.** Every user connects with their own Smart View / Telenor SSO login and sees only what
-  they are allowed to see.
+- **Your own login.** Every user signs in to EPM once with their own account (`smartass login`, approved with
+  Telenor SSO in their browser) and sees only what they are allowed to see. Every request to EPM passes one
+  allowlist of read requests.
 - **Nothing leaves the PC** except the calls to EPM themselves. The HTTP API listens on `127.0.0.1` only and
   needs a per-user secret (DPAPI-protected).
 - **Your own workbooks are never saved** by the engine. Changes made in a workbook you opened are left unsaved
@@ -65,9 +66,10 @@ Errors: 400 (bad JSON, unknown fields, invalid spec or input, with its message),
 
 ## Command line
 
-`smartass doctor [--json | --bundle]`, `smartass atlas status`, `smartass atlas build [--cube X] [--dimension D]`,
-`smartass setup`, `smartass update`, `smartass serve`, `smartass login [--status | --force | --forget]` (EPM sign-in for
-the bearer route, see `docs\troubleshooting.md`, "oauth").
+`smartass doctor [--json | --bundle | --fix]`, `smartass atlas status`,
+`smartass atlas build [--cube X] [--dimension D]` (over Planning REST, no Excel), `smartass setup`, `smartass update`,
+`smartass serve`, `smartass login [--status | --force | --forget]` (EPM sign-in for the bearer route, see
+`docs\troubleshooting.md`, "oauth").
 
 ## Layout
 
@@ -79,15 +81,15 @@ installer\install.ps1        per-user installer
 scripts\                     check_staged.py, bump.ps1, publish_release.ps1, probe_bearer.py
 knowledge\  packs\           business maps and metric catalogue; pack-only inputs (packs\produktregnskap)
 skills\smartass\             master copy of the agent skill
-engine\                      run_server.py (relay), child_server.py, VERSION, defaults.toml, vba\, tests\
+engine\                      run_server.py (relay), child_server.py, VERSION, defaults.toml, tests\
 engine\smartass\             server.py, pipeline.py, exceljob.py (the Excel job), followup.py, workbench.py and the packages:
   core\       config, logs, timing, session, serverkit (tool guard, Excel jobs, lifespan)
   model\      spec, periods, expressions, blocks, findings, validation (no Excel, no network)
   data\       providers: Smart View HTTP, Planning REST (second engine), recorder
   render\     data table, answer sheet, charts, style
-  epm\        Smart View HTTP/XML, grids, sign-in, the drill over the token and its lines
+  epm\        the HTTPS boundary, sign-in, Smart View HTTP/XML, Planning REST, grids, the drill over the token
   knowledge\  atlas, resolver, interim metric catalogue
-  xl\         Excel host (hidden + user Excel), sheets, styling, formula check, snapshots
+  xl\         jobs in the user's Excel, sheets, styling, formula check, snapshots
   ops\        cli, doctor, setup, update, httpapi, atlas build
   testset\    the B-question test set (golden numbers outside git)
 ```

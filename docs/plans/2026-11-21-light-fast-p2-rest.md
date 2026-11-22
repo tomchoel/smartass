@@ -160,3 +160,39 @@ changed for the user; the audits' figures; what a PC needs), the MCP instruction
 The newer agent-facing REST endpoints Oracle announced for 26.04 / 26.11: check which the two pods answer today
 (plan1 is two updates behind stratmodel), read-only, and record in the audit what each returns by shape. No code
 depends on them in this phase.
+
+## As built (2026-11-22)
+
+What differs from the tasks above. The ledger of every ruling is
+`.superpowers/sdd/2026-11-21-light-fast-p2-rest/progress.md`; the gates are in `docs/audit/`.
+
+- **Task 3 became 3, 3b and 3c.** Task 3's gate passed (the order proof, 20 real grids identical), but a member EPM no
+  longer has failed the whole grid over REST, where the Excel fallback had dropped it silently. So the fallback was
+  not deleted then. Task 3b leaves such a member out over REST when its axis has others, with one warning and one
+  caveat that every total with it is INCOMPLETE; a POV member or an axis's only member is a clear error. The gate
+  was re-run and passed; only then were `data/adhoc.py` and `xl/pull_adhoc.py` deleted. Task 3c was the review's
+  fix round (the split loop, a dated Known-limits line, the drill link's next step by cause, no raw provider text in
+  an error, the recorder refusing a run with a member left out).
+- **Task 4 became 4, 4b and 4c, on a revised brief.** It started with a probe and a hard stop: Oracle's Get Member
+  answered this non-administrator user for every dimension, so the provider's `EnumMembers` fallback was never
+  built. The member keys and rows stay exactly as the Excel zoom made them. 4b moved the real names and properties
+  from new columns into a stamped side table, `member_real`, so that an older installed release can still write the
+  atlas; a dimension EPM adds is skipped instead of blocking the build; a build that replaces nothing says so. 4c
+  made the REST engine's name check strict with a trusted side table. EPM's account type and time balance are stored,
+  not used (an owner decision for later).
+- **Tasks 5 and 6 ran on revised briefs.** Task 5 also took the review carry-ins of 3c, moved the engine's errors to a
+  neutral module and pinned the user-job runner with characterisation tests before the split; it kept the two cold
+  paths of a user job (the bridge add-in, a first workbook with no Excel) as a hand-off for Task 6. Task 6 replaced
+  them (no bridge; a first workbook built without Excel or opened from the TN template in the user's Excel), and
+  deleted the SSO watcher by ruling: the automatic "Telenor SSO" click is gone for every Excel.
+- **Kept, though the plan's Task 6 deleted it:** `xl/dialogs.py`, slimmed to a dialog finder for busy errors and a
+  guard that refuses at once to work in an Excel whose Smart View Login is open (COM into it blocks); `xl/hostproc.py`
+  (a job's COM thread, and a one-time sweep of the hidden Excels an older release left, by its pid file); the doctor's
+  `smartview_startup` check, reworded (Smart View's start-up Login blocks smartass in that Excel). New:
+  `smartass doctor --fix` and the `leftovers` check for what an older release left.
+- **Task 7 ran on a revised brief.** `scripts/compare_grid_routes.py` and `scripts/compare_atlas.py` were NOT
+  deleted in it: code the gates cover changed after their run of 22.11 08:13 (local time), so the controller re-runs
+  both gates on the release head, records them in the audits and deletes the scripts then. Task 7 also removed the
+  resolve's unused runner parameter that Task 6 left.
+- **Not done in this phase:** the plan's "Also to test" (Oracle's newer agent-facing REST endpoints of 26.04 /
+  26.11): no probe was run, and nothing depends on them.

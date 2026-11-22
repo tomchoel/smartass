@@ -105,6 +105,28 @@ def test_only_the_users_excel_is_ever_started_and_only_on_a_workbook():
     assert launch_callers == {"smartass/xl/target.py:_open_path", "smartass/xl/target.py:_spawn_excel"}
 
 
+# The documents a user or an agent reads for how smartass works now (light-fast phase 2 Task 7). The CHANGELOG, the
+# audits, the plans, the specs and docs/archive are history and keep the old names.
+DOCS = ["README.md", "docs/DESIGN.md", "docs/troubleshooting.md", "docs/release.md", "installer/install.ps1",
+        "engine/defaults.toml", "skills/smartass/SKILL.md", "skills/smartass/reference/*.md"]
+DOC_NAMES = [*NAMES, "the hidden Excel", "engine's own hidden Excel", "VBA bridge", "vba_access", "VBA project",
+             "smartview_dll", "HsAddin", "SSO watcher", "pull_adhoc", "adhoc.py", "--excel", "B_Ping", "SV_LOGIN_GRACE",
+             "SV_CALL_TIMEOUT", "WebView2", "xl/host", "epm/ops", "Smart View options", "Global options"]
+DOC_LEFTOVERS = {("docs/troubleshooting.md", "svbridge"): "doctor --fix removes an older release's bridge files",
+                 ("docs/troubleshooting.md", "VBA bridge"): "the doctor's leftovers text, quoted",
+                 ("skills/smartass/reference/operations.md", "svbridge"): "the files an older release left"}
+
+
+def test_the_docs_a_user_or_an_agent_reads_name_no_deleted_part():
+    repo = ENGINE.parent
+    found = []
+    for pattern in DOCS:
+        for p in sorted(repo.glob(pattern)):
+            rel, text = p.relative_to(repo).as_posix(), p.read_text(encoding="utf-8")
+            found += [f"{rel}: {n}" for n in DOC_NAMES if n in text and (rel, n) not in DOC_LEFTOVERS]
+    assert found == []
+
+
 def test_the_errors_live_in_one_neutral_module():
     from smartass.core import errors
     from smartass.xl import userjobs
