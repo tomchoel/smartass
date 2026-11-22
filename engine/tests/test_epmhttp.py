@@ -844,7 +844,9 @@ def test_the_rest_rules_are_the_configured_cubes_exactly():
            for app, cube in epmhttp.REST_CUBES},
         **{epmhttp.dimension_list(app, cube): epmhttp._Rule("GET", {"aliasTableName": (1, 1, re.compile("Default"))},
                                                              frozenset(), None)
-           for app, cube in epmhttp.REST_CUBES}}
+           for app, cube in epmhttp.REST_CUBES},
+        **{epmhttp.member_tree(app, dim): epmhttp._Rule("GET", {}, frozenset(), None)
+           for app, dim in epmhttp.MEMBER_TREES}}
     assert epmhttp.export_slice("FinMax", "FinLite") == "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinLite/exportdataslice"
     assert not any("import" in p.lower() or "job" in p.lower() or "clear" in p.lower() for p in epmhttp.ALLOWED)
 
@@ -876,7 +878,7 @@ def test_an_exportdataslice_grid_and_a_dimension_list_are_sent(make):
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/jobs"),
     ("GET", "/HyperionPlanning/rest/v3/applications"),
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax"),
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Accounts/members/Accounts"),  # not yet (Task 4)
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Accounts/members/Accounts"),  # not a tree read
     ("POST", "/HyperionPlanning/rest/v3/applications/Vision/plantypes/Plan1/exportdataslice"),     # not configured
     ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinPlan/exportdataslice"),   # not a pair
     ("POST", "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinMax/exportdataslice"),
@@ -927,6 +929,70 @@ def test_a_rest_request_takes_no_header_but_a_json_content_type(make, headers):
         s.request("POST", SLICE, headers=headers, body=json.dumps(_grid()))
     with pytest.raises(epmhttp.Refused, match="refused"):
         s.request("GET", DIMS, headers=headers)
+    assert op.sent == [] and tok.asked == []
+
+
+# ---------------------------------------------------------------- Planning REST: a dimension's member tree (Task 4)
+TREE = "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members/TimePeriods"
+
+
+def test_a_member_tree_is_a_dimension_read_from_its_top_member_and_nothing_else():
+    """Oracle's "Get Member" (GET .../applications/{app}/dimensions/{dim}/members/{member}: the member and, by
+    default, its whole visible subtree; it creates nothing) - only for the (application, dimension) pairs of
+    MEMBER_TREES, from the dimension's top member, as whole paths, with no query and no header."""
+    assert epmhttp.MEMBER_TREES == (("FinMax", "TimePeriods"), ("FinPlan", "Period"))
+    assert epmhttp.member_tree("FinMax", "TimePeriods") == TREE
+    assert {app for app, _ in epmhttp.MEMBER_TREES} <= {app for app, _ in epmhttp.REST_CUBES}
+
+
+def test_a_member_tree_is_sent(make):
+    s, op, tok = make(answers=[(201, "{}", {})])
+    for app, dim in epmhttp.MEMBER_TREES:
+        assert s.request("GET", epmhttp.member_tree(app, dim)).status == 201
+    assert [(r.get_method(), r.full_url, r.data) for r in op.sent] == [
+        ("GET", POD + TREE, None),
+        ("GET", POD + "/HyperionPlanning/rest/v3/applications/FinPlan/dimensions/Period/members/Period", None)]
+
+
+@pytest.mark.parametrize("method, url", [
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members/Jan"),   # not the top
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Accounts/members/Accounts"),  # not on the list
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinPlan/dimensions/TimePeriods/members/TimePeriods"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Period/members/Period"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/Vision/dimensions/Period/members/Period"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members"),        # a collection
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods"),
+    ("GET", TREE + "/children"), ("GET", TREE + "/"), ("GET", TREE + "/.."),                          # extra segment
+    ("GET", TREE.replace("/members/TimePeriods", "/members/TimePeriods/../Accounts")),
+    ("GET", TREE.replace("TimePeriods/members", "Time%50eriods/members")),                          # encoded
+    ("GET", TREE.replace("members/TimePeriods", "members/Time%20Periods")),
+    ("GET", TREE.replace("members/TimePeriods", "members/timeperiods")),                           # case
+    ("GET", TREE.replace("/v3/", "/v1/")), ("GET", TREE.replace("/v3/", "/V3/")),
+    ("GET", TREE + "?maxDepth=-1"), ("GET", TREE + "?fields=name"), ("GET", TREE + "?x"),           # no query item
+    ("GET", TREE + "?aliasTableName=Default"), ("GET", TREE + "?q=%7B%7D"), ("GET", TREE + ";x=1"),
+    ("POST", TREE), ("PUT", TREE), ("DELETE", TREE), ("PATCH", TREE), ("get", TREE),             # the method
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members"),       # Add Member
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/dimensions/TimePeriods/memberselectionmembers"),
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/members/action/search"),
+    ("GET", "https://evil.example" + TREE), ("GET", "https://plan1.example:8443" + TREE),           # another origin
+    ("GET", "http://plan1.example" + TREE),
+])
+def test_what_is_not_exactly_a_member_tree_read_is_refused_before_a_token(make, method, url):
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request(method, url, body="{}" if method.upper() in ("POST", "PUT", "PATCH") else None)
+    assert op.sent == [] and tok.asked == []
+
+
+@pytest.mark.parametrize("headers", [{"Content-Type": "application/json"}, {"Accept": "application/json"},
+                                     {"X-HTTP-Method-Override": "DELETE"}, {"Authorization": "Basic x"},
+                                     {"Cookie": "a=b"}])
+def test_a_member_tree_read_takes_no_header_and_no_body(make, headers):
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request("GET", TREE, headers=headers)
+    with pytest.raises(epmhttp.Refused, match="refused: GET .* with a body"):
+        s.request("GET", TREE, body="{}")
     assert op.sent == [] and tok.asked == []
 
 

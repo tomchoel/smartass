@@ -55,6 +55,17 @@ def dimension_list(app: str, cube: str) -> str:
     with their Default aliases (?aliasTableName=Default) - rest.py maps the atlas's names onto them."""
     return f"{PLANNING_REST}/{app}/plantypes/{cube}/dimensions"
 
+# Oracle's "Get Member" (GET, the member and by default its whole visible subtree; it creates nothing - Add Member is a
+# POST to .../members, never here): the atlas reads a dimension's tree from its top member, which is the dimension's
+# own name. Only these (application, dimension) pairs, as whole paths, no query.
+MEMBER_TREES = (("FinMax", "TimePeriods"), ("FinPlan", "Period"))
+
+
+def member_tree(app: str, dim: str) -> str:
+    """GET: dimension dim of application app as one tree, read from its top member (Oracle's Get Member)."""
+    return f"{PLANNING_REST}/{app}/dimensions/{dim}/members/{dim}"
+
+
 ANY = re.compile(r".*")
 DIGITS = re.compile(r"\d{1,12}")
 MILLIS = re.compile(r"\d{1,13}")                       # the cache buster: int(time.time() * 1000), 13 digits now
@@ -90,6 +101,8 @@ ALLOWED: dict[str, _Rule] = {
        for app, cube in REST_CUBES},
     **{dimension_list(app, cube): _Rule("GET", {"aliasTableName": (1, 1, re.compile("Default"))}, frozenset(), None)
        for app, cube in REST_CUBES},
+    # A dimension's member tree (the atlas): no query, no header, no body.
+    **{member_tree(app, dim): _Rule("GET", {}, frozenset(), None) for app, dim in MEMBER_TREES},
 }
 SLICE_PATHS = frozenset(export_slice(app, cube) for app, cube in REST_CUBES)
 GET_DATA_KEYS = {"QUERY": str, "PARAMS": list, "PARAMSTYPE": list}   # drillcore.parse_sui / drill_derive build these
