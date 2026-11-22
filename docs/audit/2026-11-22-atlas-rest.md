@@ -153,7 +153,9 @@ modification time is still 2026-11-10). Every line is the script's own output, s
 
 ### The classes (per connection and dimension)
 
-- **Added since** (counts; codes when fewer than 20): Counterparts +30 (FinMax and FinLite each), Entities +39, Legal
+- **Added since** (counts; codes when fewer than 20; a sample proven after the gate run: 11 of 11 added code-keyed
+  members across Counterparts, Entities, Legal Entities, Projects, Systems and Reserves are shown by the provider route
+  under their rebuilt label): Counterparts +30 (FinMax and FinLite each), Entities +39, Legal
   Entities +30, Projects +59, Reserves +1 (`re.SN.0017960393`), Systems +4 (`sy.S05666`, `sy.S05795`, `sy.S05796`,
   `sy.S05797`), FinPlan Entity +6 (label-keyed, not named). **Removed since**: 0.
 - **Re-parented since** (one code removed under one parent, added under another; its subtree keeps its keys, its
@@ -164,7 +166,10 @@ modification time is still 2026-11-10). Every line is the script's own output, s
   parents) and 15 projects: `pj.BR.BR.BRZ142`, `pj.BR.BR.BRZ186`, `pj.SY.SY.SY4Y15`, `pj.SY.SY.SY5Y13`,
   `pj.SY.SY.SY5Y15`, `pj.SY.SY.SY5Z22`, `pj.SY.SY.SY5Z24`, `pj.SY.SY.SY6P74`, `pj.SY.SY.SY7Z39`,
   `pj.SY.SY.SY9Z11`, `pj.SY.SY.SYHA29`, `pj.SY.SY.SYLA18`, `pj.SY.SY.SYNA13`, `pj.SY.SY.SYRZ06`,
-  `pj.SY.SY.SYRZ15` - 16 members, at least the 6 Task 3 counted (its audit counts them, it does not list codes).
+  `pj.SY.SY.SYRZ15` - 16 members. Task 3 counted 6 stale aliases (its report: `ac.24074` and 5 of 18 028 FinMax
+  entities, measured over the real-named members it fetched); `ac.24074` is in this class; the 5 entities could not be
+  matched by code (Task 3 lists none, and this gate finds no code-keyed entity whose label changed - Entities differ
+  only by 39 added, 1 re-parented and 1 label-keyed rename).
   Label-keyed (today's key was a label without the "code alias (prefix)" form; its new alias has it, so its key is
   now its code): 1 each in Counterparts, Entities and Legal Entities (FinMax and FinLite), paired with today's key by
   place (parents, depth and children). Live, by asking the provider route for each sample by its label: the rebuilt
@@ -185,6 +190,10 @@ modification time is still 2026-11-10). Every line is the script's own output, s
   error).
 
 ### Verdict: passed
+
+The gate ran at a45bda9. Commits after it: 276247a (a message string), b11bbd3 (the REST engine accepts either real
+name of a key used twice - live: 5 FinPlan account keys, 1 entity key), 0f62eb8 (the swap's wait for a lock bounded
+to 30 s), 9e21637 (test guards); none changes what the gate compares.
 
 `smartass atlas build` builds over REST by default (commit 9de44d6); `--excel` keeps the hidden Excel's zoom until
 Task 6. The owner's `atlas.db` is replaced by a rebuilt one only by the controller, after review. Before that: an
