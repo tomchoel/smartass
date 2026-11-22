@@ -544,3 +544,45 @@ def test_a_new_question_waits_a_moment_for_a_turn_being_handed_over_before_start
     finally:
         jobs.release_turns()
         th.join(5)
+
+
+# ---- Task 6b: _spawn_excel (now also the cold route) as _open_path: an Excel that exits, a cold Excel that rejects
+
+def test_spawn_excel_fails_fast_when_the_new_excel_exits(tmp_path, monkeypatch, fast):
+    proc = FakeProc(exits_after=2)
+    monkeypatch.setattr(target, "_launch_excel", lambda p: proc)
+    monkeypatch.setattr(instances, "interactive_excels", lambda: [])
+    with pytest.raises(HostError, match=r"Excel \(pid 4242\) closed before it opened the TN template"):
+        target._spawn_excel(tmp_path / "tn_template.xltx", set(), target.OPEN_TIMEOUT_S)
+    assert proc.polls == 2
+
+
+def test_spawn_excel_waits_while_a_cold_excel_rejects_its_workbooks(tmp_path, monkeypatch, fast):
+    """A cold Excel rejects calls while it loads (Smart View, OneDrive): its workbooks are read again next round, not
+    raised out of the scan."""
+    class ColdApp:
+        def __init__(self):
+            self.reads = 0
+
+        @property
+        def Workbooks(self):
+            self.reads += 1
+            if self.reads <= 2:
+                raise pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+            return [FakeWb(str(tmp_path / "tn_template1"))]
+    app = ColdApp()
+    monkeypatch.setattr(target, "_launch_excel", lambda p: FakeProc(exits_after=None))
+    monkeypatch.setattr(instances, "interactive_excels", lambda: [(9, 90, app)])
+    (pid, _hwnd, got), wb = target._spawn_excel(tmp_path / "tn_template.xltx", set(), target.OPEN_TIMEOUT_S)
+    assert (pid, got, app.reads) == (9, app, 3) and wb.Name == "tn_template1"
+
+
+def test_spawn_excel_raises_a_com_error_that_is_not_busy(tmp_path, monkeypatch, fast):
+    class BrokenApp:
+        @property
+        def Workbooks(self):
+            raise pywintypes.com_error(-2147352567, "Exception occurred.", None, None)
+    monkeypatch.setattr(target, "_launch_excel", lambda p: FakeProc(exits_after=None))
+    monkeypatch.setattr(instances, "interactive_excels", lambda: [(9, 90, BrokenApp())])
+    with pytest.raises(pywintypes.com_error):
+        target._spawn_excel(tmp_path / "tn_template.xltx", set())

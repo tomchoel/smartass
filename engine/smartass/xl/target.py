@@ -362,7 +362,8 @@ SPAWN_TIMEOUT_S = 120              # an Excel started beside a running one opens
 
 def _spawn_excel(tpl: Path, known: set[int], limit: float = SPAWN_TIMEOUT_S):
     """Start a new interactive Excel on the TN template (opens as a new unsaved workbook) and take its turn. limit:
-    how long it may take to show the template (a first Excel on a cold PC: OPEN_TIMEOUT_S, as _open_path)."""
+    how long it may take to show the template (a first Excel on a cold PC: OPEN_TIMEOUT_S, as _open_path). As there,
+    an Excel that exits is said at once; a cold Excel's busy answers while it loads are read again next round."""
     proc = _launch_excel(tpl)
     t0 = time.monotonic()                             # the launch: Smart View's start-up Login is timed from here
     while time.monotonic() - t0 < limit:
@@ -371,12 +372,21 @@ def _spawn_excel(tpl: Path, known: set[int], limit: float = SPAWN_TIMEOUT_S):
         for pid, hwnd, app in instances.interactive_excels():
             if pid in known:
                 continue
-            for wb in app.Workbooks:
+            try:
+                books = list(app.Workbooks)
+            except pywintypes.com_error as e:
+                if not jobs.is_busy(e):
+                    raise
+                continue                              # a cold Excel rejects calls while it loads: next round
+            for wb in books:
                 if str(wb.Name).lower().startswith(tpl.stem.lower()):
                     jobs.hold_turn(pid, wait=False)
                     dialogs.watch_after_start(pid, grace=dialogs.launch_grace(t0), alive=jobs._check_alive)
                     jobs.log.info("started Excel pid %s on the TN template", pid)
                     return (pid, hwnd, app), wb
+        if proc.poll() is not None:
+            raise HostError(f"Excel (pid {proc.pid}) closed before it opened the TN template. "
+                            "Next step: open Excel yourself (any workbook), then ask again.")
     raise HostError(f"A new Excel (pid {proc.pid}) did not open the TN template within {limit:.0f} s.")
 
 
