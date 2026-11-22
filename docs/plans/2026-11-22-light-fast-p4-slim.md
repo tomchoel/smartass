@@ -136,6 +136,11 @@ What differs from the tasks above. The ledger of every ruling is
   `connect_read` and `open_without_atlas`; every `fin_lookup` kind pinned without an atlas. A docs guard for this
   phase's names (`tests/test_no_updater.py`) also checks the MCP instructions. The instructions were not changed:
   nothing in them was false, and they are at 2 487 of their 2 500 characters.
+- **The final whole-branch review's round** (also Task 4): `smartass setup` prints each line as it comes, so a
+  removal or a stop is said before it is done; the old pane's `addin/` folder left in a checkout is in `.gitignore`
+  and reported by doctor (never deleted: nothing inside a git checkout is); the classic add-in's step names one
+  folder, `svkit\addin`; a home that is the old svkit home has its Smart View record left unchecked; config.toml
+  is written through a unique temp file; the CHANGELOG's releases got their own headings.
 - **Kept, though the plan's text could read otherwise:** the `xl_*` MCP tools (only the CLI twins went), the relay,
   and `ops/pane_leftovers.py` (read only, for the leftovers check).
 - **Owed on the owner's PC after the merge (controller, with his word):** `smartass setup` (the Startup entry),

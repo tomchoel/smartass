@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-### The task pane, the background service and the updater are gone (0.8.0)
+## 0.8.0 (2026-11-22)
+
+### The task pane, the background service and the updater are gone
 
 **What changed for you**
 
@@ -46,9 +48,12 @@
 Each leftover is removed by the command that owns it. `smartass setup` removes what would start or run old code: the
 Startup entry and the old background service. `smartass doctor --fix` removes files and edits `config.toml` (it
 also removes this install's `smartass-engine.lnk` and stops its old `smartass serve`, when setup was not run). Both
-act only on what belongs to this install, and say each thing before they do it.
+say each thing before they do it. A Startup entry or a background service of another smartass install is left
+alone, and said.
 
-1. Get the new code: `git pull`, then `uv sync` in `engine`.
+1. Get the new code: `git pull`, then `uv sync` in `engine`. If your copy of the repository still has a folder
+   `addin` after the pull (the old pane's build output), delete it by hand: git now ignores it, and
+   `smartass doctor` names it until it is gone. smartass never deletes a folder in your copy of the repository.
 2. Run `smartass setup`. It removes the old Startup entry `smartass-engine.lnk` and stops this install's old
    background service (`smartass serve`) if it runs.
 3. Run `smartass doctor` in a terminal and read its `leftovers` line. (`fin_status` leaves that check out.)
@@ -59,12 +64,13 @@ act only on what belongs to this install, and say each thing before they do it.
    it leaves the file as it is and names the lines to delete by hand.
 5. By hand in Excel (`smartass doctor` lists both, with these steps, until they are done):
    - File > Options > Add-ins > Manage: Excel Add-ins > Go: untick "TNClaude" (the pane's ribbon button), OK, and
-     restart Excel. Then delete the add-in's folder that `smartass doctor` names.
+     restart Excel. Then delete the add-in's folder that `smartass doctor` names (`%LOCALAPPDATA%\svkit\addin`).
    - File > Options > Trust Center > Trust Center Settings > Trusted Add-in Catalogs: remove the entry for a network
      folder named TNClaudeCatalog, tick "Next time Office starts, clear all previously-started web add-ins cache",
      OK, and restart Excel.
 
-   smartass never changes what Excel loads and never edits Office's registry keys.
+   smartass never changes which add-ins Excel loads at start, and never edits Office's registry keys. (For its
+   answers it loads its own small add-in into a running Excel, for that Excel's session only.)
 6. Reconnect every open Claude Code session (`/mcp`), so each one runs 0.8.0.
 
 **A PC that still runs an install from the release folder**
@@ -135,20 +141,24 @@ New in 0.8.0:
 - `leftovers` (`ops/doctor.py`, `ops/pane_leftovers.py`): this install's `smartass-engine.lnk` (its target read
   through WScript.Shell; another install's is left and said) and running `serve` (ours when its executable is in
   this install's `.venv`, or its parent's is), `secret.bin`, a plain `[http] secret`, `release.*` / `http.*`
-  settings, `update_attempt.json`, the pane's Startup entry, and the pane's registration in Office's settings
-  (Trusted Add-in Catalogs matched by the folder name only, never read; an `OPEN<n>` value naming
-  `TNClaude64.xll`), read only and reported with the steps in Excel. The old svkit record counts only when
-  `HKCU\Software\Hyperion Solutions\HyperionSmartView\Options` `CAOptionsXML` (`messageDisplay`,
-  `bDisplayHomePanelOnStartup`, `bCommentDlgEnable`) differs from it.
+  settings, `update_attempt.json`, the pane's Startup entry (by its own text), the pane's registration in Office's
+  settings (Trusted Add-in Catalogs matched by the folder name only, never read; an `OPEN<n>` value naming
+  `TNClaude64.xll`; the folder to delete after it, `svkit\addin`), read only and reported with the steps in Excel,
+  and the pane's folder `addin/` left in this install's checkout (reported only; `addin/` is in `.gitignore`). The
+  old svkit record counts only when `HKCU\Software\Hyperion Solutions\HyperionSmartView\Options` `CAOptionsXML`
+  (`messageDisplay`, `bDisplayHomePanelOnStartup`, `bCommentDlgEnable`) differs from it, and never when the home
+  is the old svkit home (`SVKIT_DIR`).
 - `doctor --fix` and `config.toml`: read and written as bytes (line ends kept); a backup first
   (`config.toml.bak-<date>`, `-2` ... never over an earlier one; one of the same day with the same bytes is used
   again); written only when the result parses as the old settings without `[release]` and `[http]`, else left
-  byte for byte with the lines to delete said; a failed write leaves no `.tmp`.
-- `smartass setup` writes no Startup entry. It removes the SSO watcher's entries and `smartass-engine.lnk` when it is
-  this install's, and stops this install's old `serve` and old SSO watcher through the process its listing found
-  (a pid taken since by another process is never hit). The watcher's line is said before the stop: "startup:
-  stopping the old Smart View SSO watcher (pid N): the SSO watcher is gone". Its last line comes from
-  `doctor.pending_leftovers` / `fixable_leftovers` (no process listing).
+  byte for byte with the lines to delete said; written through a temp file of a unique name next to it, removed when
+  the write fails.
+- `smartass setup` writes no Startup entry. It removes the SSO watcher's Startup entries (by their names) and
+  `smartass-engine.lnk` when it is this install's, and stops this install's old `serve` and old SSO watcher through
+  the process its listing found (a pid taken since by another process is never hit). It prints each line as it comes
+  (`setup_user.run(say=print)`), so a removal or a stop is said before it is done: "startup: removing
+  smartass-engine.lnk ...", "startup: stopping the old Smart View SSO watcher (pid N): the SSO watcher is gone". Its
+  last line comes from `doctor.pending_leftovers` / `fixable_leftovers` (no process listing).
 - `smartass login` exit codes: 0 signed in (and the atlas there, or skipped), 1 a sign-in failed, 2 not set up, 3
   signed in but the atlas the PC lacks was not built.
 - No atlas (`knowledge/atlas.py`: `present`, `need_atlas`, `no_atlas_command`): a missing file or one without
@@ -159,7 +169,9 @@ New in 0.8.0:
   `scripts/check_fresh_home.py`: setup and doctor on a new home in a temp folder of its own, with only the sign-in
   and the atlas left to do (`tests/test_fresh_home.py` runs it with Excel pointed at a file that exists).
 
-### Every fetch over HTTPS; smartass's own Excel is gone (0.7.0)
+## 0.7.0 (2026-11-22)
+
+### Every fetch over HTTPS; smartass's own Excel is gone
 
 **What changed for you**
 
@@ -334,6 +346,8 @@ New in 0.8.0:
 - Texts reworded: an Excel that closed or cut the connection during a job ("Excel closed or disconnected during
   ...; smartass never closes or restarts your Excel. Check that Excel is open, then ask again."), and the advice to
   restart (`fin_status(restart=True)`: what it resets now).
+
+## Before 0.7.0 (0.2.x to 0.6.0; each section names its release where it has one)
 
 ### Drill lines over the token; the hidden browser is gone (0.6.0)
 

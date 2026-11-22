@@ -42,6 +42,7 @@ when there is none (about half a minute, then the behaviour cards; `--no-atlas` 
 builds it later). When you are signed in but the atlas was not built, `smartass login` says so and ends with exit
 code 3. `smartass setup` and `smartass login` can be run again at any time. Then restart Copilot CLI or Claude Code,
 open a new terminal and run `smartass doctor`. Nothing of smartass runs at logon: the agent starts the MCP server.
+The knowledge base (`knowledge.db`) is built at the first tool call, or with `smartass knowledge build`.
 Update: `git pull`, then `uv sync --frozen` in `engine` (and `smartass setup` when the CHANGELOG says so).
 Working on smartass itself: `git config core.hooksPath .githooks` turns on the pre-commit data and secret guard.
 Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
@@ -49,7 +50,8 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 ## Upgrading
 
 From 0.7.0: [CHANGELOG.md](CHANGELOG.md), "Upgrading from 0.7.0" - `git pull` and `uv sync`, `smartass setup`,
-`smartass doctor`, `smartass doctor --fix`, then two steps by hand in Excel that `smartass doctor` lists.
+`smartass doctor`, `smartass doctor --fix`, then two steps by hand in Excel that `smartass doctor` lists. A folder
+`addin` left in your copy after the pull (the old pane's build output) is deleted by hand.
 
 A PC where the old installer script copied smartass to `%LOCALAPPDATA%\smartass\app` cannot be updated there (that
 copy has no git), and a new copy leaves that copy's Startup entry and background service alone. By hand, in this order:

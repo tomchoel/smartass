@@ -21,9 +21,10 @@ The install (README, "Install") is three commands: `uv sync`, `smartass setup`, 
 - **After the `[oauth]` step, before `smartass login`:** `WARN  oauth  <pod>: not signed in` (a tool call answers
   with a page and a code), `FAIL  atlas  no atlas on this PC yet` and `WARN  knowledge  ...; members not checked:
   waits for the atlas`. Each fix names one command, `smartass login`: it signs you in, then builds the atlas.
-- **After `smartass login`:** `oauth`, `atlas` and `knowledge` OK. When it ends with "The atlas was not built (...);
-  your sign-in is kept. Run `smartass atlas build` later to build the atlas." (exit code 3), run `smartass atlas build`
-  when EPM answers again (see "atlas" below).
+- **After `smartass login`:** `oauth` and `atlas` OK. `knowledge` says "knowledge.db not built yet (built on first
+  use)" until the first tool call builds it (or run `smartass knowledge build`). When login ends with "The atlas was
+  not built (...); your sign-in is kept. Run `smartass atlas build` later to build the atlas." (exit code 3), run
+  `smartass atlas build` when EPM answers again (see "atlas" below).
 
 `smartass login`'s exit codes: 0 signed in (and the atlas there, or skipped with `--no-atlas`), 1 a sign-in failed
 (nothing is built), 2 `[oauth]` is not set up, 3 signed in but the atlas the PC lacks was not built.
@@ -185,14 +186,14 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
 
 ## leftovers
 
-What an older release left is removed by the command that owns it. `smartass setup` removes what would start or run
-old code: the Startup entries and this install's old background processes. `smartass doctor --fix` removes files and
-edits `config.toml`, after a backup copy (it also removes this install's `smartass-engine.lnk` and stops its old
-`smartass serve`, when setup was not run). Each says every thing before it does it, and acts only on what belongs to
-this install. What lives in Office's own settings is yours to
-remove in Excel (below). `smartass setup`'s last line says what comes next: "leftovers: ... run `smartass doctor`,
-then `smartass doctor --fix`", or, when only steps by hand are left, "... run `smartass doctor` and follow its
-manual steps". The `leftovers` check runs in `smartass doctor` (and `--bundle`) only, not in `fin_status`.
+What an older release left is removed by the command that owns it. `smartass setup` removes what would start or run old
+code: the Startup entries and this install's old background processes. `smartass doctor --fix` removes files and edits
+`config.toml`, after a backup copy (it also removes this install's `smartass-engine.lnk` and stops its old `smartass
+serve`, when setup was not run). Each says every thing before it does it. A Startup entry or a background service of
+another smartass install is left alone, and said. What lives in Office's own settings, and a folder left in your copy of
+the repository, are yours to remove (below). `smartass setup`'s last line says what comes next: "leftovers: ... run
+`smartass doctor`, then `smartass doctor --fix`", or, when only steps by hand are left, "... run `smartass doctor` and
+follow its manual steps". The `leftovers` check runs in `smartass doctor` (and `--bundle`) only, not in `fin_status`.
 
 - **Symptom:** `WARN  leftovers  an older smartass crashed with Smart View's options changed; the originals recorded in
   ...\smartview_options_original.json: ...` and/or `N VBA bridge add-in file(s) of an older release in ... (unused)`.
@@ -238,6 +239,12 @@ manual steps". The `leftovers` check runs in `smartass doctor` (and `--bundle`) 
     registry by hand, Excel renumbers those values and rewrites them when it closes. Then delete the add-in's folder
     (`%LOCALAPPDATA%\svkit\addin`) by hand; smartass never changes the old svkit folder.
   - If the pane's local server still runs (`node server.mjs` on port 3000), end it in Task Manager, or log off.
+- **Symptom:** `WARN  leftovers  the old task pane's folder ...\addin is left in this git checkout (untracked; nothing
+  uses it)`.
+- **Cause:** a copy of the repository where the pane was once built keeps its build output (`node_modules`, `dist`)
+  after the pull: the pane's own ignore file went with it. Git now ignores `addin/`.
+- **Fix:** delete that `addin` folder by hand. `smartass doctor --fix` never deletes a folder in your copy of the
+  repository.
 
 **The updater (up to 0.7.0)**
 
