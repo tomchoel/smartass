@@ -17,6 +17,7 @@ from ..core import config
 from ..knowledge import atlas
 
 CUBES = ("FinMax", "FinLite", "FinPlan")
+SWAP_TIMEOUT_S = 30.0          # build_into waits at most this long for another process's lock on the atlas
 DUMP_TIMEOUT_S = 600
 
 Call = Callable[..., Awaitable]
@@ -116,15 +117,19 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
     build added: atlas.add_member_columns) - which replaces target only when run returned and recorded no error:
     never a half-built atlas in place. (done, replaced). An error, or run raising, leaves target untouched (and
     says so); the new file is removed. The swap is SQLite's backup into target, one transaction: a reader that has
-    target open sees the old atlas or the new one; a writer holding it fails the swap cleanly."""
+    target open sees the old atlas or the new one; a lock another process holds longer than SWAP_TIMEOUT_S leaves it
+    unchanged (not replaced, said so)."""
     target = Path(target)
     new = target.with_name(target.name + ".new")
     new.unlink(missing_ok=True)
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         if target.exists():
-            with contextlib.closing(sqlite3.connect(target)) as src, contextlib.closing(sqlite3.connect(new)) as dst:
-                src.backup(dst)
+            try:
+                _copy(target, new)
+            except (sqlite3.Error, TimeoutError) as e:
+                progress(f"atlas not built: {target} could not be read ({e}); it is unchanged")
+                return [{"connection": "-", "error": f"the atlas could not be read: {e}"}], False
         with contextlib.closing(atlas.connect(new)) as db:
             atlas.add_member_columns(db)
             done = run(db)
@@ -135,14 +140,26 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
             progress(f"atlas not replaced: {why}; {target} is unchanged")
             return done, False
         try:
-            with contextlib.closing(sqlite3.connect(new)) as src, contextlib.closing(sqlite3.connect(target)) as dst:
-                src.backup(dst)
-        except sqlite3.Error as e:
+            _copy(new, target)
+        except (sqlite3.Error, TimeoutError) as e:
             progress(f"atlas not replaced: {target} could not be written ({e}); it is unchanged")
             return [*done, {"connection": "-", "error": f"the atlas could not be replaced: {e}"}], False
         return done, True
     finally:
         new.unlink(missing_ok=True)
+
+
+def _copy(src_path: Path, dst_path: Path) -> None:
+    """SQLite's online backup of src into dst, one step: dst is replaced in one transaction. Python's backup retries
+    for as long as another connection holds a lock; this gives up after SWAP_TIMEOUT_S (TimeoutError), dst unchanged."""
+    deadline = time.monotonic() + SWAP_TIMEOUT_S
+
+    def waiting(status, remaining, total):
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"in use by another process for over {SWAP_TIMEOUT_S:g} s")
+    with contextlib.closing(sqlite3.connect(src_path, timeout=1.0)) as src, \
+            contextlib.closing(sqlite3.connect(dst_path, timeout=1.0)) as dst:
+        src.backup(dst, progress=waiting)
 
 
 def run_build(connections: list[str] | None = None, dimensions: list[str] | None = None, excel: bool = False

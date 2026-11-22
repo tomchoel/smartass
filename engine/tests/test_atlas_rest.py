@@ -364,6 +364,42 @@ def test_a_build_that_raises_leaves_todays_atlas_untouched(tmp_path):
     assert target.read_bytes() == before and not (tmp_path / "atlas.db.new").exists()
 
 
+def test_an_atlas_another_process_holds_locked_is_left_unchanged_after_a_bounded_wait(tmp_path, monkeypatch):
+    """Python's backup would retry as long as the lock lasts: the swap gives up after SWAP_TIMEOUT_S, says so, and the
+    atlas is as it was; a lock released in time does not stop it."""
+    import threading
+    target = tmp_path / "atlas.db"
+    _today(target)
+    monkeypatch.setattr(atlas_build, "SWAP_TIMEOUT_S", 0.5)
+    def run(db):
+        return atlas_build.build_rest(_Source(TREES, DIMS), ["FinPlan"], db=db, progress=lambda m: None)
+    holder = sqlite3.connect(target, isolation_level=None, check_same_thread=False)
+    real_copy = atlas_build._copy
+
+    def copy_then_lock(src, dst):                       # the copy of today's atlas reads; the swap meets the lock
+        if dst == target:
+            holder.execute("BEGIN EXCLUSIVE")
+        real_copy(src, dst)
+    monkeypatch.setattr(atlas_build, "_copy", copy_then_lock)
+    said = []
+    done, swapped = atlas_build.build_into(target, run, progress=said.append)
+    holder.execute("ROLLBACK")
+    assert not swapped and "could not be written" in said[-1] and "in use" in said[-1]
+    with contextlib.closing(sqlite3.connect(target)) as db:
+        assert db.execute("SELECT count(*) FROM member WHERE connection='FinPlan'").fetchone()[0] == 1   # as it was
+    monkeypatch.setattr(atlas_build, "SWAP_TIMEOUT_S", 10.0)
+
+    def lock_briefly(src, dst):
+        if dst == target:
+            holder.execute("BEGIN EXCLUSIVE")
+            threading.Timer(0.3, lambda: holder.execute("ROLLBACK")).start()
+        real_copy(src, dst)
+    monkeypatch.setattr(atlas_build, "_copy", lock_briefly)
+    done, swapped = atlas_build.build_into(target, run, progress=said.append)
+    holder.close()
+    assert swapped
+
+
 def test_a_first_build_creates_the_atlas(tmp_path):
     target = tmp_path / "home" / "atlas.db"
     done, swapped = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
