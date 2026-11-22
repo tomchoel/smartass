@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
                    help="only this cube (repeatable; default all three)")
     b.add_argument("--dimension", action="append", help="only this dimension (repeatable; no purge of the cube)")
+    b.add_argument("--rest", action="store_true",
+                   help="over the EPM sign-in (Planning REST, no Excel, about 10 s); replaces the atlas when complete")
     ac = at_sub.add_parser("cards", help="derive behaviour cards from data (read-only, about 2 minutes)")
     ac.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
                     help="only this cube (repeatable; default all three; FinLite copies FinMax)")
@@ -110,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
             failed = [d for d in done if d.get("error")]
             print(f"cards: {len(done) - len(failed)} derived, {len(failed)} failed ({config.ATLAS_DB})")
             return 1 if failed else 0
-        done = atlas_build.run_build(a.cube, a.dimension)
+        done = atlas_build.run_build(a.cube, a.dimension, rest=a.rest)
         failed = [d for d in done if d.get("error")]
         print(f"atlas: {len(done) - len(failed)} built, {len(failed)} failed ({config.ATLAS_DB})")
         return 1 if failed else 0

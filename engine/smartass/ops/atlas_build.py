@@ -1,12 +1,16 @@
 """`smartass atlas build` / `smartass atlas status`: (re)build the local atlas (every dimension tree of FinMax,
-FinLite and FinPlan) through Smart View zoom-all-levels in the engine's own hidden Excel. Read-only against EPM;
-takes a few minutes. Run it when `fin_status` or `smartass doctor` says the atlas is stale and the release
-folder has no fresher copy (`smartass setup` copies the monthly one)."""
+FinLite and FinPlan). Two routes, both read-only against EPM: over the token session (build_rest: Planning REST's Get
+Member, epm/members.py; about 10 s for both pods, no Excel) and, until the old route is deleted, Smart View
+zoom-all-levels in the engine's own hidden Excel (build; a few minutes). The REST build writes a new file and swaps it
+in only when every dimension was built (build_into). Run it when `fin_status` or `smartass doctor` says the atlas is
+stale and the release folder has no fresher copy (`smartass setup` copies the monthly one)."""
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import sqlite3
 import time
+from pathlib import Path
 from typing import Awaitable, Callable
 
 from ..core import config
@@ -60,9 +64,101 @@ async def build(call: Call, connections: list[str] | None = None, dimensions: li
     return done
 
 
-def run_build(connections: list[str] | None = None, dimensions: list[str] | None = None) -> list[dict]:
-    """The CLI path: its own hidden Excel for the build, closed at the end (Smart View options restored). A full
-    build (no `dimensions`) then derives the behaviour cards of the cubes built (cards_after_build)."""
+def _canon(name: str) -> str:
+    return name.removeprefix("All ").replace(" ", "").casefold()
+
+
+def build_rest(source, connections: list[str] | None = None, dimensions: list[str] | None = None, db=None,
+               progress: Callable[[str], None] = print) -> list[dict]:
+    """build's shape over the token session. source: members.Source (dimensions(conn) -> [(REST name, atlas name)],
+    tree(conn, REST name) -> Get Member's tree). `dimensions`: any spelling of a dimension (its atlas name, its REST
+    name, with or without 'All ' and spaces). A full build of a cube purges it first; errors (members.TreeError,
+    svhttp.SvHttpError) are recorded per dimension and never stop the build; oauth.NotSignedIn stops it."""
+    from ..epm import members, svhttp
+    own = db is None
+    db = db or atlas.connect()
+    done: list[dict] = []
+    wanted = {_canon(d) for d in dimensions} if dimensions else None
+    try:
+        for conn in connections or CUBES:
+            cube = svhttp.CUBES[conn][2]
+            try:
+                dims = source.dimensions(conn)
+            except (members.TreeError, svhttp.SvHttpError) as e:
+                done.append({"connection": conn, "error": str(e)})
+                progress(f"{conn}: {e}")
+                continue
+            if wanted is None:
+                atlas.purge(db, conn)
+            for rest_name, dim in dims:
+                if wanted and not wanted & {_canon(rest_name), _canon(dim)}:
+                    continue
+                t0 = time.monotonic()
+                try:
+                    rows = members.rows(source.tree(conn, rest_name), cube)
+                    atlas.store(db, conn, dim, rows, time.monotonic() - t0)
+                    done.append({"connection": conn, "dimension": dim, "members": len(rows),
+                                 "seconds": round(time.monotonic() - t0, 1)})
+                    progress(f"{conn}/{dim}: {len(rows)} members")
+                except (members.TreeError, svhttp.SvHttpError) as e:
+                    atlas.store(db, conn, dim, [], time.monotonic() - t0, str(e))
+                    done.append({"connection": conn, "dimension": dim, "error": str(e)})
+                    progress(f"{conn}/{dim}: {e}")
+    finally:
+        if own:
+            db.close()
+    return done
+
+
+def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
+               progress: Callable[[str], None] = print) -> tuple[list[dict], bool]:
+    """run(db) on a NEW file - a copy of target (its cards and every other table kept; the member columns of the REST
+    build added: atlas.add_member_columns) - which replaces target only when run returned and recorded no error:
+    never a half-built atlas in place. (done, replaced). An error, or run raising, leaves target untouched (and
+    says so); the new file is removed. The swap is SQLite's backup into target, one transaction: a reader that has
+    target open sees the old atlas or the new one; a writer holding it fails the swap cleanly."""
+    target = Path(target)
+    new = target.with_name(target.name + ".new")
+    new.unlink(missing_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if target.exists():
+            with contextlib.closing(sqlite3.connect(target)) as src, contextlib.closing(sqlite3.connect(new)) as dst:
+                src.backup(dst)
+        with contextlib.closing(atlas.connect(new)) as db:
+            atlas.add_member_columns(db)
+            done = run(db)
+        failed = [d for d in done if d.get("error")]
+        if failed or not done:
+            progress(f"atlas not replaced: {len(failed)} {'dimension' if len(failed) == 1 else 'dimensions'} or "
+                     f"cubes failed; {target} is unchanged")
+            return done, False
+        try:
+            with contextlib.closing(sqlite3.connect(new)) as src, contextlib.closing(sqlite3.connect(target)) as dst:
+                src.backup(dst)
+        except sqlite3.Error as e:
+            progress(f"atlas not replaced: {target} could not be written ({e}); it is unchanged")
+            return [*done, {"connection": "-", "error": f"the atlas could not be replaced: {e}"}], False
+        return done, True
+    finally:
+        new.unlink(missing_ok=True)
+
+
+def run_build(connections: list[str] | None = None, dimensions: list[str] | None = None, rest: bool = False
+              ) -> list[dict]:
+    """The CLI path. rest: over the token session into a new file swapped in when complete (build_into); else its own
+    hidden Excel for the build, closed at the end (Smart View options restored). A full build (no `dimensions`)
+    then derives the behaviour cards of the cubes built (cards_after_build) - after the swap."""
+    if rest:
+        from ..epm import members, oauth
+        try:
+            done, replaced = build_into(config.ATLAS_DB, lambda db: build_rest(
+                members.Source(), connections, dimensions, db))
+        except oauth.NotSignedIn:
+            return [{"connection": "-", "error": "not signed in to EPM: run `smartass login`; the atlas is unchanged"}]
+        if replaced and not dimensions:
+            cards_after_build(done)
+        return done
     from ..xl.host import ExcelHost
 
     async def main():

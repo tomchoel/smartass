@@ -7,7 +7,7 @@ import re
 import time
 
 from ..core import config, timing
-from .grid import Axis, Layout, full_pov, indent_of, name_from_label, parse
+from .grid import Axis, Layout, full_pov, parse, tree_from_labels
 from ..xl.host import ExcelHost, HostError, InputError, ProviderEmpty
 
 log = logging.getLogger("smartview.ops")
@@ -182,31 +182,6 @@ def dump_dimension(h: ExcelHost, conn: str, dim: str, root: str | None = None) -
     labels = [r[0] for r in vals[2:] if r and isinstance(r[0], str) and r[0].strip()]
     _apply_sheet_options(h, sheet, {5: 0, 33: False})
     return tree_from_labels(labels)
-
-
-def tree_from_labels(labels: list[str]) -> list[dict]:
-    """Indentation -> depth/parent. Handles both ancestor-on-top and ancestor-at-bottom ordering."""
-    if not labels:
-        return []
-    ind = [indent_of(x) for x in labels]
-    bottom_up = ind[-1] < ind[0]                # top member last = ancestors below their children
-    seq = list(zip(labels, ind))
-    if bottom_up:
-        seq.reverse()
-    base = min(i for _, i in seq)
-    steps = sorted({i for _, i in seq})
-    step = (steps[1] - steps[0]) if len(steps) > 1 else 1
-    out, stack = [], []
-    for order, (lab, i) in enumerate(seq):
-        depth = (i - base) // step if step else 0
-        while len(stack) > depth:
-            stack.pop()
-        parent = stack[-1] if stack else None
-        clean = lab.strip()
-        name = name_from_label(clean) or clean
-        out.append({"label": clean, "name": name, "depth": depth, "parent": parent, "order": order})
-        stack.append(name)
-    return out
 
 
 def canon_dim(conn: str, name: str) -> str:

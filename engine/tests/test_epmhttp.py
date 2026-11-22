@@ -738,8 +738,9 @@ def test_the_repos_real_drill_query_still_passes():
 
 def test_the_provider_route_sends_the_smart_view_rule_and_nothing_else_does():
     """POST /HyperionPlanning/SmartView is the grid route's (svhttp.BearerTransport, through its pods' EpmSessions);
-    the drill (drill_token) and the REST grid (rest) are the only other modules that import epmhttp, and neither names
-    that path; only rest names the Planning REST paths."""
+    the drill (drill_token), the REST grid (rest) and the atlas's member trees (members) are the only other modules
+    that import epmhttp, and none names that path; only rest names the Planning REST grid paths, only members the
+    member-tree read."""
     import ast
     import warnings
     from pathlib import Path
@@ -755,11 +756,12 @@ def test_the_provider_route_sends_the_smart_view_rule_and_nothing_else_does():
             module = getattr(node, "module", None) or ""
             if any(n.rsplit(".", 1)[-1] == "epmhttp" for n in [*names, module]):
                 importers[p.name] = text
-    assert set(importers) == {"drill_token.py", "svhttp.py", "rest.py"}
+    assert set(importers) == {"drill_token.py", "svhttp.py", "rest.py", "members.py"}
     assert [n for n, text in importers.items() if "SmartView" in text or "SMART_VIEW" in text] == ["svhttp.py"]
     assert "epmhttp.SMART_VIEW" in importers["svhttp.py"] and epmhttp.ALLOWED[epmhttp.SMART_VIEW].method == "POST"
     assert [n for n, text in importers.items() if "export_slice" in text or "dimension_list" in text
             or "rest/v3" in text] == ["rest.py"]
+    assert [n for n, text in importers.items() if "member_tree" in text or "MEMBER_FIELDS" in text] == ["members.py"]
 
 
 def test_a_smart_view_body_has_its_own_size_cap(make):

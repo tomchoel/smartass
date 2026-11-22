@@ -47,7 +47,7 @@ def test_build_of_some_dimensions_does_not_purge_the_cube(tmp_path, monkeypatch)
 
 
 def test_cli_atlas_build_reports_and_fails_on_errors(monkeypatch, capsys):
-    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims: [{"connection": "FinMax", "dimension": "x",
+    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims, rest: [{"connection": "FinMax", "dimension": "x",
                                                                         "members": 3},
                                                                        {"connection": "FinPlan", "error": "down"}])
     assert cli.main(["atlas", "build", "--cube", "FinMax"]) == 1

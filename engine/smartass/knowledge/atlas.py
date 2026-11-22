@@ -36,12 +36,34 @@ def connect(path: Path = config.ATLAS_DB) -> sqlite3.Connection:
     return db
 
 
+# What the build over REST adds to a member (epm/members.py EXTRA): its real name (the key stays the one derived from
+# its label, as the zoom gave it), its Default alias, data storage, account type and time balance. Added to the
+# member table by add_member_columns - only by a build, on its new file: reading the atlas never adds them, and the
+# old readers name their columns, so they do not notice.
+MEMBER_EXTRA = ("real_name", "alias", "storage", "account_type", "time_balance")
+_BASE = ("connection", "dimension", "name", "label", "parent", "depth", "ord")
+
+
+def add_member_columns(db) -> None:
+    """The schema migration of the build over REST: the MEMBER_EXTRA columns, where the member table lacks them."""
+    have = {r[1] for r in db.execute("PRAGMA table_info(member)")}
+    with db:
+        for c in MEMBER_EXTRA:
+            if c not in have:
+                db.execute(f"ALTER TABLE member ADD COLUMN {c} TEXT")
+
+
 def store(db, conn: str, dim: str, members: list[dict], seconds: float, error: str | None = None):
+    """Replace a dimension's members (the first of a (name, parent) given twice is kept) and record the build. A
+    member's MEMBER_EXTRA values are stored where the table has those columns (add_member_columns)."""
+    extra = [c for c in MEMBER_EXTRA if c in {r[1] for r in db.execute("PRAGMA table_info(member)")}]
+    cols = (*_BASE, *extra)
     with db:
         db.execute("DELETE FROM member WHERE connection=? AND dimension=?", (conn, dim))
         db.executemany(
-            "INSERT OR IGNORE INTO member VALUES (?,?,?,?,?,?,?)",
-            [(conn, dim, m["name"], m["label"], m["parent"], m["depth"], m["order"]) for m in members])
+            f"INSERT OR IGNORE INTO member ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+            [(conn, dim, m["name"], m["label"], m["parent"], m["depth"], m["order"], *(m.get(c) for c in extra))
+             for m in members])
         db.execute("INSERT OR REPLACE INTO build VALUES (?,?,?,?,?,?)",
                    (conn, dim, time.time(), len(members), seconds, error))
 
