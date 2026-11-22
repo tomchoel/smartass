@@ -809,6 +809,26 @@ def test_split_values_are_not_asked_of_rest_after_an_error_rest_would_meet_too(m
         assert asyncio.run(server._child_values("FinLite", parts)) is None and asked == [False]
 
 
+def test_split_values_the_provider_refused_for_an_alias_clash_are_asked_of_rest(monkeypatch):
+    """Carry-in (Task 3c review, Minor): GridRefused is a NoFallback for a grid (REST would resolve the clash without
+    saying which member it took), but the split values are only an optimisation: REST's reading of them is used."""
+    import asyncio
+    from smartass.epm import svhttp
+    from smartass.epm import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+    asked = []
+
+    class Routes:
+        def child_values(self, conn, parts, rest=False):
+            asked.append(rest)
+            if not rest:
+                raise svhttp.GridRefused("Found duplicate aliases or member name conflicting with alias")
+            return [-1.0, None]
+    monkeypatch.setattr(svhttp, "shared", Routes)
+    parts = [_CELL, {**_CELL, "All Time Periods": "Aug 26"}]
+    assert asyncio.run(server._child_values("FinLite", parts)) == [-1.0, None] and asked == [False, True]
+
+
 def test_split_values_neither_route_can_read_are_none_and_every_child_is_linked(monkeypatch):
     import asyncio
     from smartass.epm import svhttp
