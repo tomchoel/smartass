@@ -248,6 +248,7 @@ def cards_after_build(done: list[dict], derive: Callable | None = None, progress
 
 
 def status() -> dict:
-    with contextlib.closing(atlas.connect()) as db:
+    """`smartass atlas status`: read only - a home with no atlas gets no atlas.db from it (atlas.connect_read)."""
+    with contextlib.closing(atlas.connect_read()) as db:
         return {**atlas.status(db), "cards": atlas.cards_status(db), "atlas_db": str(config.ATLAS_DB),
                 "last_build": last_attempt()}

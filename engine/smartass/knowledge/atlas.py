@@ -36,6 +36,20 @@ def connect(path: Path = config.ATLAS_DB) -> sqlite3.Connection:
     return db
 
 
+def empty() -> sqlite3.Connection:
+    """An atlas with no members, in memory: what a home with no atlas reads as (no file is made)."""
+    db = sqlite3.connect(":memory:")
+    db.executescript(SCHEMA)
+    return db
+
+
+def connect_read() -> sqlite3.Connection:
+    """The home's atlas for a read (fin_status, `smartass atlas status`): connect() when the file is there (its CREATE
+    IF NOT EXISTS gives an older atlas the tables a status reads), else empty() - a status never makes an atlas.db on
+    a fresh home."""
+    return connect() if Path(config.ATLAS_DB).exists() else empty()
+
+
 # What the build over REST knows of a member beyond today's seven columns: its real name (the key stays the one derived
 # from its label, as the zoom gave it), its Default alias, data storage, account type and time balance. They live in
 # a SIDE table, never in member: an installed older release (0.6.0) purges and rewrites member with a positional

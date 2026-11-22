@@ -234,3 +234,19 @@ def test_no_atlas_is_answered_at_once_while_another_process_holds_the_atlas_lock
     finally:
         holder.execute("ROLLBACK")
         holder.close()
+
+
+
+def test_fin_status_and_atlas_status_create_no_atlas_file_on_a_fresh_home(tmp_path, monkeypatch):
+    """Carry-in d: a read of the atlas (fin_status, `smartass atlas status`) on a home with none reports no atlas and
+    makes no file (an empty atlas.db was what made "no atlas" need its member-less special case)."""
+    from smartass.ops import atlas_build
+    a = tmp_path / "atlas.db"
+    monkeypatch.setattr(config, "ATLAS_DB", a)
+    monkeypatch.setattr(atlas.connect, "__defaults__", (a,))
+    monkeypatch.setattr(doctor, "run", lambda: [])
+    out = asyncio.run(server.fin_status())
+    assert out["atlas"] == {"oldest_age_days": None, "stale": True, "dimensions_built": 0}
+    st = atlas_build.status()
+    assert st["built"] == [] and st["cards"] == [] and st["stale"] is True
+    assert not a.exists()

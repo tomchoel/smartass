@@ -426,7 +426,7 @@ async def fin_status(restart: bool = False) -> dict:
             drill_token.reset()                      # the drill's route and sessions
             kit._users = None                        # the runner of Excel jobs (its last error, its count)
             out["restarted"] = "sessions"
-    with contextlib.closing(atlas.connect()) as db:
+    with contextlib.closing(atlas.connect_read()) as db:     # a home with none: no atlas.db is made
         st = atlas.status(db)
     from .knowledge.build import summary
     from .knowledge.refresh import due

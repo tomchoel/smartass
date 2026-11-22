@@ -432,8 +432,7 @@ def open_without_atlas(forecast_year: int) -> KnowledgeResolver | None:
             return None
     except (OSError, sqlite3.Error):
         return None
-    empty = sqlite3.connect(":memory:")
-    empty.executescript(atlas.SCHEMA)
+    empty = atlas.empty()
     try:
         return KnowledgeResolver(sqlite3.connect(path), empty, forecast_year)
     except Exception:
