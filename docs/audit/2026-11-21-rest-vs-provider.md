@@ -247,6 +247,6 @@ error is classified on its raw `<desc>`, which `epm/svxml.py` keeps beside the s
 check refuses CDATA, a comment, a DOCTYPE or a processing instruction), the scrub (`core/logsetup.py`: narrower on
 ordinary text after `Basic` and `Authorization:`, and the `%` values after a cookie's name, `SID` or `SESSION_ID`
 that Task 8's change stopped catching are caught again) and `pipeline.py` (the REST warning's quoted error is
-scrubbed); not `data/provider.py`, `epm/epmhttp.py`, the name check or the atlas build. The routes comparison was
-run again after the final fix round; the audit records it.
+scrubbed); not `data/provider.py`, `epm/epmhttp.py`, the name check or the atlas build. So the controller runs
+the routes part again at the head of the final fix round and records that run here, below.
 <!-- Task 9: the controller records here the run of the routes part at Task 9's head (date, head, result). -->
