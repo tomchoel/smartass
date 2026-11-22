@@ -7,6 +7,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import re
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -35,16 +36,18 @@ WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent
 ADMIN = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
 
 _host: ExcelHost | None = None
+_host_lock = threading.Lock()             # host() is also reached from job threads (UserJobs.on_host / app)
 _users: UserJobs | None = None
 
 
 def host() -> ExcelHost:
     """The engine's hidden Excel (xl/host.py), made on first use: nothing on a tool call's path imports it before."""
     global _host
-    if _host is None:
-        from ..xl.host import ExcelHost
-        _host = ExcelHost(visible=False)
-    return _host
+    with _host_lock:                      # two jobs asking at once must not make two hidden Excels
+        if _host is None:
+            from ..xl.host import ExcelHost
+            _host = ExcelHost(visible=False)
+        return _host
 
 
 def user_jobs() -> UserJobs:

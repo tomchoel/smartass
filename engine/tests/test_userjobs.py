@@ -91,6 +91,82 @@ def test_the_hidden_excel_is_asked_for_only_when_a_job_uses_it():
     assert users.on_host(lambda: "built", 7) == ("on the host thread", "built", 7) and asked == [1, 1]
 
 
+def test_two_jobs_asking_for_the_hidden_excel_at_once_make_one(monkeypatch):
+    """UserJobs.on_host / app reach serverkit.host() from the jobs' own threads: two parallel first jobs that both need
+    the bridge built must not each start a hidden Excel (one of them would never be shut down)."""
+    from smartass.core import serverkit
+    from smartass.xl import host
+    made = []
+
+    class SlowHost:
+        def __init__(self, visible=False):
+            time.sleep(0.2)                          # ExcelHost's construction takes a moment
+            made.append(self)
+    monkeypatch.setattr(host, "ExcelHost", SlowHost)
+    monkeypatch.setattr(serverkit, "_host", None)
+    got = []
+    threads = [threading.Thread(target=lambda: got.append(serverkit.host())) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert len(made) == 1 and got == made * 4
+
+
+class _Book:
+    """A workbook the hidden Excel adds: what _build_bridge and _new_analysis_file_host use of it."""
+
+    def __init__(self, saved):
+        self.saved, self.closed, self.modules = saved, [], []
+        sheet = type("Sheet", (), {"Name": "Sheet1"})()
+        self.Worksheets = lambda i: sheet
+        self.sheet = sheet
+        label = type("Label", (), {"GetLabel": lambda s: type("Info", (), {"LabelId": "ours"})()})()
+        self.SensitivityLabel = label
+        book = self
+
+        class _Components:
+            def Add(self, kind):
+                m = type("Module", (), {})()
+                m.CodeModule = type("Code", (), {"AddFromString": lambda s, text: None})()
+                book.modules.append(m)
+                return m
+        self.VBProject = type("Project", (), {"VBComponents": _Components()})()
+
+    def SaveAs(self, path, fmt):
+        from pathlib import Path
+        Path(path).write_bytes(b"")
+        self.saved.append((Path(path).name, fmt))
+
+    def Close(self, save):
+        self.closed.append(save)
+
+
+def test_the_hidden_excels_work_runs_with_the_runner_as_h(tmp_path):
+    """The closures a user job hands to the hidden Excel (cold paths (a) and (b), Task 6 replaces them) are given the
+    runner as h: h.com and h.app reach the hidden Excel's Application through it."""
+    from smartass.xl import instances, target
+    saved, books = [], []
+
+    class HiddenApp:
+        class Workbooks:
+            @staticmethod
+            def Add():
+                books.append(_Book(saved))
+                return books[-1]
+
+    class Hidden:
+        app = HiddenApp()
+
+        def on_host(self, fn, timeout=None):
+            return fn()
+    users = UserJobs(hidden=Hidden)
+    made = target._new_analysis_file_host(users, tmp_path / "New.xlsx")
+    assert made == tmp_path / "New.xlsx" and saved == [("New.xlsx", 51)] and books[0].sheet.Name == "Sources"
+    assert instances._build_bridge(users, "v1", tmp_path / "svbridge_v1.xlam") == "v1"
+    assert saved[-1] == ("svbridge_v1.xlam", 55) and len(books[1].modules) > 1 and books[1].closed == [False]
+
+
 def test_the_servers_runner_is_made_without_the_hidden_excel(monkeypatch):
     from smartass.core import serverkit
     monkeypatch.setattr(serverkit, "_users", None)
