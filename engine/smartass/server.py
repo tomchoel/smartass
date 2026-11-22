@@ -404,7 +404,7 @@ async def fin_status(restart: bool = False) -> dict:
     """Health: version, atlas age, knowledge build (metrics, facts, drafts awaiting approval), where answer files go,
     the last save Excel did after a reply (save_after_reply: workbook, ok, error, seconds, when; and how many are still
     to come), and the doctor checks (config, Excel, Smart View start-up, EPM, oauth sign-in, atlas, knowledge, output
-    folder, leftovers of an older release; only problems listed).
+    folder; only problems listed; what an older release left is `smartass doctor`'s).
     restart=True after repeated errors or to load new code: the relay starts a fresh server process; run without the
     relay, this server's EPM sessions and its runner of Excel jobs start afresh (the next call makes new ones).
     A stale atlas: run `smartass atlas build` in a terminal."""

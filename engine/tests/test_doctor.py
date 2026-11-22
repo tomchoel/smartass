@@ -41,6 +41,7 @@ def test_bundle_has_doctor_versions_logs_and_redacted_config(monkeypatch, tmp_pa
     monkeypatch.setattr(config, "HOME", tmp_path)
     monkeypatch.setattr(config, "USER_CONFIG", tmp_path / "config.toml")
     monkeypatch.setattr(doctor, "CHECKS", (lambda: doctor.Check("a", "OK", "fine"),))
+    monkeypatch.setattr(doctor, "LEFTOVERS", ())            # the bundle runs them too (the config's [http] is one)
     path = doctor.bundle()
     with zipfile.ZipFile(path) as z:
         names = set(z.namelist())
@@ -66,7 +67,7 @@ def test_smartview_startup_check_warns_when_the_login_at_startup_or_diagnostics_
 
 def test_the_checks_of_excel_as_engine_smart_view_and_vba_access_are_gone():
     """Task 6: what a PC needs now is Excel for answers, the sign-in and the atlas - not Smart View, not VBA access."""
-    names = [f.__name__ for f in doctor.CHECKS]
+    names = [f.__name__ for f in doctor.CHECKS + doctor.LEFTOVERS]
     assert "_vba_access" not in names and "_smartview" not in names
     assert {"_excel", "_oauth", "_atlas", "_smartview_startup", "_leftovers"} <= set(names)
 
@@ -142,7 +143,7 @@ def test_cli_doctor_fix_runs_the_fix_then_the_checks(monkeypatch, capsys):
     from smartass.ops import cli
     order = []
     monkeypatch.setattr(doctor, "fix_leftovers", lambda say=print: order.append("fix"))
-    monkeypatch.setattr(doctor, "run", lambda: order.append("run") or [])
+    monkeypatch.setattr(doctor, "run", lambda leftovers=False: order.append("run") or [])
     assert cli.main(["doctor", "--fix"]) == 0 and order == ["fix", "run"]
 
 
@@ -151,7 +152,7 @@ def test_cli_doctor_fix_json_prints_only_json_and_the_fix_lines_to_stderr(monkey
 
     from smartass.ops import cli
     monkeypatch.setattr(doctor, "fix_leftovers", lambda say=print: say("removing C:/old/svbridge_1.xlam"))
-    monkeypatch.setattr(doctor, "run", lambda: [doctor.Check("config", "OK", "fine")])
+    monkeypatch.setattr(doctor, "run", lambda leftovers=False: [doctor.Check("config", "OK", "fine")])
     assert cli.main(["doctor", "--fix", "--json"]) == 0
     out = capsys.readouterr()
     assert json.loads(out.out)["checks"][0]["name"] == "config" and "removing" in out.err

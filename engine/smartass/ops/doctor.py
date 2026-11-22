@@ -1,5 +1,5 @@
 """smartass doctor: cheap health checks (starts neither Excel nor a browser). Each check gives OK / WARN / FAIL,
-a detail and the fix. Used by the CLI and fin_status. `smartass doctor --fix` removes what an older release left
+a detail and the fix. Used by the CLI and fin_status (fin_status leaves out the leftovers check: run(leftovers=)). `smartass doctor --fix` removes what an older release left
 behind (leftovers, fix_leftovers) - each thing said before it goes; what lives in Office's own settings is only
 reported, with the steps to remove it in Excel."""
 from __future__ import annotations
@@ -427,12 +427,15 @@ def _remove(p: Path, say) -> list[Path]:
         return []
 
 
-CHECKS = (_config, _excel, _smartview_startup, _epm, _oauth, _atlas, _knowledge, _output, _leftovers)
+# What fin_status runs on every call (each cheap); `smartass doctor` and the bundle add LEFTOVERS: a process scan and
+# a read of every Startup file (an older release's leftovers), paid once by the command, never by a tool call.
+CHECKS = (_config, _excel, _smartview_startup, _epm, _oauth, _atlas, _knowledge, _output)
+LEFTOVERS = (_leftovers,)
 
 
-def run() -> list[Check]:
+def run(leftovers: bool = False) -> list[Check]:
     out = []
-    for f in CHECKS:
+    for f in CHECKS + (LEFTOVERS if leftovers else ()):
         try:
             out.append(f())
         except Exception as e:   # noqa: BLE001 - a check never breaks the doctor
@@ -482,7 +485,7 @@ def bundle(dest_dir: Path | None = None) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     path = dest_dir / f"smartass-doctor-{time.strftime('%Y%m%d-%H%M%S')}.zip"
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("doctor.json", json.dumps(as_dict(run()), indent=2))
+        z.writestr("doctor.json", json.dumps(as_dict(run(leftovers=True)), indent=2))
         z.writestr("versions.json", json.dumps(_versions(), indent=2))
         if config.USER_CONFIG.exists():
             z.writestr("config.toml", logsetup.redact(config.USER_CONFIG.read_text(encoding="utf-8")))

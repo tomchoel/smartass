@@ -363,3 +363,33 @@ def test_a_broken_config_is_not_touched_by_the_fix(pc):
     assert doctor._leftovers().status == "OK"
     doctor.fix_leftovers(say=lambda s: None)
     assert cfg.read_text() == '[http]\nsecret = "abc\n'
+
+
+# ---------------------------------------------------------------- fin_status stays cheap (review 6)
+
+
+def test_fin_status_makes_no_process_listing_and_reads_no_startup_file(pc, monkeypatch):
+    """The leftovers check (a process scan, every Startup file's bytes) runs in `smartass doctor` only: fin_status's
+    doctor summary leaves it out."""
+    import asyncio
+
+    from smartass import server
+
+    def never(*args, **kwargs):
+        pytest.fail("fin_status looked for an older release's leftovers")
+    monkeypatch.setattr(setup_user, "_process_list", never)
+    monkeypatch.setattr(pane_leftovers, "startup_entries", never)
+    assert doctor._leftovers not in doctor.CHECKS
+    monkeypatch.setattr(doctor, "CHECKS", tuple(f for f in doctor.CHECKS if f is not doctor._epm))   # no network
+    (pc.home / "secret.bin").write_bytes(b"DPAPI")                     # a leftover the CLI's doctor would list
+    out = asyncio.run(server.fin_status())
+    assert "leftovers" not in [p["name"] for p in out["doctor"]["problems"]]
+
+
+def test_the_doctor_command_and_the_bundle_include_the_leftovers(pc, monkeypatch, capsys):
+    from smartass.ops import cli
+    (pc.home / "secret.bin").write_bytes(b"DPAPI")
+    monkeypatch.setattr(doctor, "CHECKS", ())
+    assert cli.main(["doctor"]) == 0
+    assert "leftovers" in capsys.readouterr().out
+    assert [c.name for c in doctor.run(leftovers=True)] == ["leftovers"] and doctor.run() == []
