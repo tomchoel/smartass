@@ -316,26 +316,68 @@ def test_a_cold_first_workbook_excel_opened_read_only_is_a_clear_error(env, monk
             target._new_target("A", [], set())
         assert opened[0].name in str(e.value) and str(opened[0]) in str(e.value)
         assert opened[0].exists()                         # nothing closed: the text says what to do with it
-        assert not config.NEW_WORKBOOK_SEED.exists()      # the seed it came from is not copied again (Task 10)
     else:
         t = target._new_target("A", [], set())
         assert t.created and t.new and t.wb.ReadOnly is False
         assert config.NEW_WORKBOOK_SEED.exists()
 
 
+def _read_only_open(monkeypatch) -> list:
+    """target._open_path faked: Excel opened the file read-only; the paths opened."""
+    class Book:
+        ReadOnly = True
+    opened = []
+    monkeypatch.setattr(target, "_open_path",
+                        lambda path, excels, insts=None: opened.append(path) or target.Target("app", Book(), 7, 70))
+    return opened
+
+
+def test_a_seed_that_existed_before_is_never_removed_when_its_copy_opens_read_only(env, monkeypatch):
+    """Task 10, controller review: a copy of an existing seed (one that has worked for weeks) can open read-only for
+    a passing reason (a lock, a sync); the seed is left exactly as it is - its bytes and its time."""
+    seed = _xlsx(config.NEW_WORKBOOK_SEED, CUSTOM)
+    before = (seed.read_bytes(), seed.stat().st_mtime_ns)
+    Builds(monkeypatch, made=lambda p: pytest.fail("a seed with our label is copied"))
+    opened = _read_only_open(monkeypatch)
+    with pytest.raises(target.HostError, match="read-only"):
+        target._new_target("A", [], set())
+    assert opened and (seed.read_bytes(), seed.stat().st_mtime_ns) == before
+
+
+def test_a_seed_written_by_this_call_is_removed_when_its_file_opens_read_only(env, monkeypatch):
+    """Task 10 (final review, Minor 1): the file was built here and kept as the seed in this same call; it opened
+    read-only, so that seed (the same bytes) is removed, best effort - later cold starts would copy it and hit the
+    same error."""
+    from smartass.xl import styling
+    monkeypatch.setattr(styling, "template_path", lambda: env / "no_template.xltx")   # no template route
+    b = Builds(monkeypatch)
+    opened = _read_only_open(monkeypatch)
+    with pytest.raises(target.HostError, match="read-only") as e:
+        target._new_target("A", [], set())
+    assert b.calls == 1 and str(opened[0]) in str(e.value) and opened[0].exists()
+    assert not config.NEW_WORKBOOK_SEED.exists()
+
+
 def test_a_seed_that_cannot_be_deleted_still_gives_the_read_only_error(env, monkeypatch):
-    """Task 10 (final review, Minor 1): the seed is deleted best effort - a seed that cannot be deleted does not hide
-    the read-only error."""
+    """Task 10 (final review, Minor 1): the seed this call wrote is deleted best effort - a seed that cannot be deleted
+    does not hide the read-only error."""
+    tried = []
+
     class Seed:
         def unlink(self, missing_ok=False):
+            tried.append(1)
             raise PermissionError("held")
 
     class Book:
         ReadOnly = True
     path = env / "out" / "A.xlsx"
-    monkeypatch.setattr(config, "NEW_WORKBOOK_SEED", Seed())
     monkeypatch.setattr(target, "_seed_has_label", lambda seed: True)
-    monkeypatch.setattr(target, "_new_analysis_file", lambda title: path)
+
+    def new_file(title, kept=None):                   # built here and kept as the seed (_keep_seed)
+        kept.append(Seed())
+        return path
+    monkeypatch.setattr(target, "_new_analysis_file", new_file)
     monkeypatch.setattr(target, "_open_path", lambda path, excels, insts=None: target.Target("app", Book(), 7, 70))
     with pytest.raises(target.HostError, match="read-only"):
         target._new_target("A", [], set())
+    assert tried == [1]

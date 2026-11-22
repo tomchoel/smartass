@@ -175,7 +175,7 @@ def test_every_route_of_a_new_workbook_marks_its_target_new(new_book, monkeypatc
     template and saved as, and one made without Excel when no Excel was open; the session's workbook is not new."""
     if route == "no Excel":
         made = new_book.folder / "made.xlsx"
-        monkeypatch.setattr(xltarget, "_new_analysis_file", lambda title: made)
+        monkeypatch.setattr(xltarget, "_new_analysis_file", lambda title, kept=None: made)
         monkeypatch.setattr(xltarget, "_open_path", lambda path, excels, *a: xltarget.Target(
             app=new_book.app, wb=types.SimpleNamespace(ReadOnly=False), pid=8, hwnd=0))   # Excel opened it to write
         t = xltarget._new_target("T", [])

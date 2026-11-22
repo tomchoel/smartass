@@ -203,14 +203,16 @@ def _new_target(title: str, excels, known: set[int] | None = None, build_new: bo
             choice, wb = _spawn_excel(tpl, known or set(), OPEN_TIMEOUT_S)   # a cold Excel; its look stores the base
         spawned = True
     if choice is None:                                # no Excel at all: the file is made without Excel, /x opens it
-        path = _new_analysis_file(title)
+        kept: list = []
+        path = _new_analysis_file(title, kept)
         t = _open_path(path, excels)
         t.created = t.new = True
         if jobs.com(lambda: t.wb.ReadOnly):           # as open_new: Excel's Save of it would write nothing, silently
-            try:                                      # the seed it was copied from would give the next one the same:
-                config.NEW_WORKBOOK_SEED.unlink(missing_ok=True)   # gone, best effort (never open in Excel itself)
-            except OSError:
-                pass
+            for seed in kept:                         # only a seed this call wrote from that file (the next cold start
+                try:                                  # would copy it): gone, best effort; one that existed before is
+                    seed.unlink(missing_ok=True)      # never removed. A seed is never open in Excel, only its copies
+                except OSError:
+                    pass
             raise HostError(f"Excel opened the new workbook {path.name} read-only (sensitivity label?), so it could "
                             "not save the answer. Nothing was closed: close it in Excel without saving, delete "
                             f"{path}, and ask again.")
@@ -648,12 +650,12 @@ def remember_new_base(base) -> None:
         jobs.log.warning("could not store the base of a new workbook: %s", e)
 
 
-def _new_analysis_file(title: str) -> Path:
+def _new_analysis_file(title: str, kept: list | None = None) -> Path:
     """The file of a new analysis workbook when no Excel is running, made without Excel: a copy of the labelled seed
     under the new name; without a usable seed (or when its copy fails) the file is built (_build_first_file) and, when
     it was built in the stored base, kept as the seed for the next time (_keep_seed, best effort) - one built without
     it is a plain workbook, and the template route (its look stores the base) must still run for the next one. Its
-    name is reserved (_reserve) either way."""
+    name is reserved (_reserve) either way. kept, when given, gets the seed when this call stored it (_keep_seed)."""
     seed = config.NEW_WORKBOOK_SEED
     path: Path | None = None
     if _seed_has_label(seed):
@@ -676,26 +678,28 @@ def _new_analysis_file(title: str) -> Path:
         except OSError:
             pass
         raise
-    if based:
-        _keep_seed(path, seed)
+    if based and _keep_seed(path, seed) and kept is not None:
+        kept.append(seed)
     return path
 
 
-def _keep_seed(path: Path, seed: Path) -> None:
+def _keep_seed(path: Path, seed: Path) -> bool:
     """path copied as the seed, whole: to a temp file of its own beside the seed, then os.replace (two cold jobs can
     write the seed at once; a torn seed could still pass _seed_has_label). Best effort: a failure leaves no temp
-    file."""
+    file. True: the seed was written."""
     tmp = seed.with_name(f"{seed.stem}.{uuid.uuid4().hex}.tmp")
     try:
         seed.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, tmp)
         # a seed just read can be held for a moment (WinError 5)
         retry.tried_again(lambda: os.replace(tmp, seed), DELETE_TRIES, DELETE_PAUSE_S)
+        return True
     except OSError:
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
+        return False
 
 
 def _build_first_file(path: Path) -> bool:

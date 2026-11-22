@@ -443,7 +443,7 @@ def test_without_an_excel_a_new_workbook_is_made_as_today_even_when_the_job_woul
     """No Excel at all (the seed gives or a build makes the file without Excel, then an Excel is launched on it) and an
     Excel started for a parallel agent (on the TN template) keep today's way: the Target comes back open."""
     made = tmp_path / "made.xlsx"
-    monkeypatch.setattr(target, "_new_analysis_file", lambda title: made)
+    monkeypatch.setattr(target, "_new_analysis_file", lambda title, kept=None: made)
     monkeypatch.setattr(target, "_open_path", lambda p, excels: target.Target(None, FakeWb(str(p)), 1, 1))
     t = target._new_target("Q", [], build_new=True)
     assert t.made is None and t.wb.FullName == str(made) and t.created
