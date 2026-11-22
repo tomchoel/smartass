@@ -675,7 +675,14 @@ def _keep_seed(path: Path, seed: Path) -> None:
     try:
         seed.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, tmp)
-        os.replace(tmp, seed)
+        for i in range(DELETE_TRIES):                 # a seed just read can be held for a moment (WinError 5)
+            try:
+                os.replace(tmp, seed)
+                break
+            except PermissionError:
+                if i == DELETE_TRIES - 1:
+                    raise
+                time.sleep(DELETE_PAUSE_S)
     except OSError:
         try:
             tmp.unlink(missing_ok=True)

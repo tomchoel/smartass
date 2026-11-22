@@ -264,9 +264,30 @@ def test_the_seed_is_written_through_a_temp_file_of_its_own_and_replaced(env, mo
     assert first == a.read_bytes() and target._seed_has_label(seed)
 
 
+def test_a_seed_replace_windows_refuses_for_a_moment_is_tried_again(env, monkeypatch):
+    """Replacing a seed that was just read (_seed_has_label) can be refused for a moment on Windows (WinError 5: the
+    full suite saw it once): tried again, as a delete is (DELETE_TRIES)."""
+    _xlsx(config.NEW_WORKBOOK_SEED, None)                      # a seed without our label: rebuilt and replaced
+    labelled = _xlsx(env / "labelled.xlsx", CUSTOM)             # made before os.replace is faked (_xlsx uses it)
+    Builds(monkeypatch, made=lambda p: p.write_bytes(labelled.read_bytes()))
+    calls, real = [], target.os.replace
+
+    def replace(a, b):
+        calls.append(b)
+        if len(calls) <= 2:
+            raise PermissionError(13, "Access is denied", str(b))
+        real(a, b)
+    monkeypatch.setattr(target.os, "replace", replace)
+    monkeypatch.setattr(target.time, "sleep", lambda s: None)
+    target._new_analysis_file("A")
+    assert len(calls) == 3 and target._seed_has_label(config.NEW_WORKBOOK_SEED)
+    assert sorted(x.name for x in env.iterdir()) == ["labelled.xlsx", "out", "seed.xlsx"]
+
+
 def test_a_failed_seed_write_leaves_no_temp_file(env, monkeypatch):
     Builds(monkeypatch, made=lambda p: p.write_bytes(b"built"))
     monkeypatch.setattr(target.os, "replace", lambda a, b: (_ for _ in ()).throw(PermissionError("locked")))
+    monkeypatch.setattr(target.time, "sleep", lambda s: None)
     p = target._new_analysis_file("A")
     assert p.exists() and not config.NEW_WORKBOOK_SEED.exists()
     assert sorted(x.name for x in env.iterdir()) == ["out"]
