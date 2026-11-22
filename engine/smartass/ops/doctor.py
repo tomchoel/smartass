@@ -216,7 +216,8 @@ OLD_SECRET_BIN = "secret.bin"     # the HTTP API's secret (DPAPI) an older relea
 OLD_UPDATE_ATTEMPT = "update_attempt.json"   # the updater's last try at login, an older release's (up to 0.7.0)
 # The sections of config.toml only an older release read (up to 0.7.0): what is gone with them.
 UNUSED_SECTIONS = {"release": "the updater", "http": "the HTTP API"}
-_SECTION = re.compile(r"(?m)^[ \t]*\[([^\]]+)\][ \t]*(?:#.*)?$")
+# A table header line of config.toml: [name] or [[name]], with either line end.
+_HEADER = re.compile(r"(?m)^[ \t]*(\[\[?)([^\]\r\n]+)\]\]?[ \t]*(?:#[^\r\n]*)?\r?$")
 
 
 def _secret_file() -> Path | None:
@@ -251,15 +252,62 @@ def _unused_settings() -> list[str]:
             if f"{s}.{k}" != "http.secret"]
 
 
-def _drop_sections(text: str, names) -> str:
-    """config.toml without the named sections: each header with everything up to the next header (other sections
-    untouched)."""
-    heads = list(_SECTION.finditer(text))
+def _real_headers(text: str) -> list[re.Match]:
+    """The table headers of config.toml's text ([name] and [[name]]): a header-looking line counts only where the text
+    before it is TOML on its own (one inside a multi-line string is not a header)."""
+    out = []
+    for m in _HEADER.finditer(text):
+        try:
+            tomllib.loads(text[:m.start()])
+        except tomllib.TOMLDecodeError:
+            continue
+        out.append(m)
+    return out
+
+
+def _section_end(text: str, heads: list[re.Match], i: int) -> int:
+    """Where header i's section ends: at the next header, before the comment lines just above it (they belong to it)."""
+    end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+    while i + 1 < len(heads):
+        line = text.rfind("\n", heads[i].end(), end - 1) + 1
+        if line <= heads[i].end() or not text[line:end].lstrip(" \t").startswith("#"):
+            break
+        end = line
+    return end
+
+
+def _drop_sections(raw: bytes, names) -> bytes | None:
+    """config.toml's bytes without the named tables (each header with its lines up to the next header; comment lines
+    just above that one stay with it); every other byte as it was - line ends, no newline at the end. None when in
+    doubt: not UTF-8 TOML, or the result is not exactly the old settings without those tables."""
+    try:
+        text = raw.decode("utf-8")
+        old = tomllib.loads(text)
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+    heads = _real_headers(text)
+    out = text
     for i in reversed(range(len(heads))):
-        if heads[i].group(1).strip() in names:
-            end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
-            text = text[:heads[i].start()] + text[end:]
-    return text
+        if heads[i].group(2).strip() in names:
+            out = out[:heads[i].start()] + out[_section_end(text, heads, i):]
+    try:
+        new = tomllib.loads(out)
+    except tomllib.TOMLDecodeError:
+        return None
+    return out.encode("utf-8") if new == {k: v for k, v in old.items() if k not in names} else None
+
+
+def _by_hand(raw: bytes, names) -> str:
+    """The lines of config.toml that set the named tables, for the user to delete by hand ('lines 4-6 ([http])')."""
+    text = raw.decode("utf-8", errors="replace")
+    heads = _real_headers(text)
+    line = lambda pos: text.count("\n", 0, pos) + 1   # noqa: E731
+    out = [f"lines {line(h.start())}-{line(max(h.start(), _section_end(text, heads, i) - 1))} ({h.group(0).strip()})"
+           for i, h in enumerate(heads) if h.group(2).strip().split(".")[0].strip() in names]
+    keys = re.compile(r"^[ \t]*(" + "|".join(map(re.escape, names)) + r")[ \t]*[.=]", re.M)
+    first = heads[0].start() if heads else len(text)
+    out += [f"line {line(m.start())}" for m in keys.finditer(text, 0, first)]
+    return ", ".join(out) or "the lines that set " + " and ".join(f"[{n}]" for n in names)
 
 
 CATALOGUE_STEP = ("in Excel: File > Options > Trust Center > Trust Center Settings > Trusted Add-in Catalogs: remove "
@@ -392,30 +440,64 @@ def fix_leftovers(say=print) -> list[Path]:
 
 def _fix_config(say) -> bool:
     """The sections only an older release read ([release]: the updater's; [http]: the HTTP API's port and plain
-    secret) taken out of config.toml whole (written whole, then put in place), each said first; a value is never said.
-    What is still set after it (a dotted key, an inline table) is said to be left."""
+    secret) taken out of config.toml whole, each said first; a value is never said. A copy of the file goes next to it
+    first (config.toml.bak-<date>, never over an earlier one), and it is said. The new file is written only when it is
+    exactly the old settings without those two tables (_drop_sections); otherwise the file is left as it is and the
+    lines to delete by hand are said. What is still set after it (a dotted key, an inline table) is said to be left."""
     secret, names = _plain_http_secret(), _unused_settings()
     if not secret and not names:
         return False
     cfg = config.USER_CONFIG
+    try:
+        raw = cfg.read_bytes()
+    except OSError as e:
+        say(f"could not read {cfg} ({e.strerror or e}); delete its {_sections()} sections by hand")
+        return False
+    new = _drop_sections(raw, UNUSED_SECTIONS)
+    if new is None:
+        what = ", ".join((["a plain [http] secret"] if secret else []) + names)
+        say(f"{cfg} is left as it is ({what}: no longer used; taking out its {_sections()} sections would change "
+            f"more than them) - delete it by hand: {_by_hand(raw, UNUSED_SECTIONS)}")
+        return False
     if secret:
         say(f"removing the plain [http] secret from {cfg} (the HTTP API is gone; the value is not shown)")
     if names:
         say(f"removing {', '.join(names)} from {cfg}: no longer used ({_gone(names)} gone)")
-    try:
-        tmp = cfg.with_name(cfg.name + ".tmp")
-        tmp.write_text(_drop_sections(cfg.read_text(encoding="utf-8"), UNUSED_SECTIONS), encoding="utf-8")
-        os.replace(tmp, cfg)
-    except OSError as e:
-        say(f"could not change {cfg} ({e.strerror or e}); delete its {' and '.join(f'[{s}]' for s in UNUSED_SECTIONS)} "
-            "sections by hand")
-        return False
+    if new != raw:
+        try:
+            bak = _backup(cfg, raw, say)
+            tmp = cfg.with_name(cfg.name + ".tmp")
+            tmp.write_bytes(new)
+            os.replace(tmp, cfg)
+        except OSError as e:
+            say(f"could not change {cfg} ({e.strerror or e}); delete its {_sections()} sections by hand")
+            return False
+        say(f"{cfg} changed; the copy from before is {bak}")
     left = _unused_settings()
     if _plain_http_secret():                        # written another way (a dotted key, an inline table)
         say(f"the plain [http] secret is still in {cfg}: delete it by hand")
     if left:
         say(f"{', '.join(left)} still set in {cfg}: delete it by hand")
-    return not (left or _plain_http_secret())
+    return new != raw and not (left or _plain_http_secret())
+
+
+def _sections() -> str:
+    return " and ".join(f"[{s}]" for s in UNUSED_SECTIONS)
+
+
+def _backup(cfg: Path, raw: bytes, say) -> Path:
+    """A copy of config.toml next to it, config.toml.bak-<date> (-2, -3 ... when that name is taken: an earlier backup
+    is never overwritten), said before it is written. OSError when it cannot be written (then nothing is changed)."""
+    stamp = time.strftime("%Y-%m-%d")
+    for n in range(1, 1000):
+        bak = cfg.with_name(f"{cfg.name}.bak-{stamp}" + (f"-{n}" if n > 1 else ""))
+        if bak.exists():
+            continue
+        say(f"backing up {cfg} to {bak} before it is changed")
+        with open(bak, "xb") as f:                 # x: never over a file that appeared meanwhile
+            f.write(raw)
+        return bak
+    raise FileExistsError(f"no free backup name for {cfg}")
 
 
 def _remove(p: Path, say) -> list[Path]:

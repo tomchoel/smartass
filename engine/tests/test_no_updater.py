@@ -155,3 +155,77 @@ def test_the_config_check_says_to_run_setup(monkeypatch, tmp_path):
     assert doctor._config().fix == "Run `smartass setup`."
     monkeypatch.setattr(config, "CONFIG_ERROR", "config.toml: Expected ']'")
     assert "`smartass setup`" in doctor._config().fix
+
+
+# ---------------------------------------------------------------- Task 3 (b): the user's config.toml is edited safely
+
+
+def _fixed(home, raw: bytes) -> tuple[bytes, list[str]]:
+    cfg = home / "config.toml"
+    cfg.write_bytes(raw)
+    said = []
+    doctor.fix_leftovers(say=said.append)
+    return cfg.read_bytes(), said
+
+
+def _backups(home) -> list:
+    return sorted(p.name for p in home.glob("config.toml.bak-*"))
+
+
+def test_a_backup_is_written_and_said_before_the_config_is_changed_and_never_overwritten(home):
+    import time
+    raw = b"[paths]\nanalyser = 'C:/a'\n\n[release]\nfolder = 'C:/rel'\n"
+    day = time.strftime("%Y-%m-%d")
+    (home / f"config.toml.bak-{day}").write_bytes(b"an earlier migration's copy")
+    cfg = home / "config.toml"
+    cfg.write_bytes(raw)
+    said = []
+    doctor.fix_leftovers(say=lambda s: said.append((s, cfg.read_bytes())))
+    assert cfg.read_bytes() == b"[paths]\nanalyser = 'C:/a'\n\n"
+    bak = home / f"config.toml.bak-{day}-2"
+    assert bak.read_bytes() == raw and (home / f"config.toml.bak-{day}").read_bytes() == b"an earlier migration's copy"
+    assert [text for s, text in said if s.startswith("backing up") and str(bak) in s] == [raw]   # said first
+    assert _backups(home) == [f"config.toml.bak-{day}", f"config.toml.bak-{day}-2"]
+
+
+def test_crlf_lines_are_kept_crlf_and_lf_lines_lf(home):
+    crlf = b"[paths]\r\nanalyser = 'C:/a'\r\n\r\n[http]\r\nport = 8765\r\n\r\n[packs]\r\nenabled = []\r\n"
+    assert _fixed(home, crlf)[0] == b"[paths]\r\nanalyser = 'C:/a'\r\n\r\n[packs]\r\nenabled = []\r\n"
+    lf = crlf.replace(b"\r\n", b"\n")
+    assert _fixed(home, lf)[0] == b"[paths]\nanalyser = 'C:/a'\n\n[packs]\nenabled = []\n"
+
+
+def test_a_config_with_a_bom_is_left_byte_for_byte(home):
+    """smartass reads config.toml as UTF-8 without a BOM: such a file is the config check's FAIL already (TOML does
+    not take the mark) and the fix never touches it."""
+    raw = b"\xef\xbb\xbf[paths]\nanalyser = 'C:/a'\n\n[http]\nport = 8765\n"
+    assert _fixed(home, raw)[0] == raw and _backups(home) == []
+
+
+def test_a_last_section_without_a_trailing_newline_goes(home):
+    assert _fixed(home, b"[paths]\nanalyser = 'C:/a'\n\n[http]\nport = 8765")[0] == b"[paths]\nanalyser = 'C:/a'\n\n"
+
+
+def test_an_http_line_inside_a_multi_line_string_is_not_a_section(home):
+    raw = b'[paths]\nnote = """\n[http]\nport = 1\n"""\n\n[http]\nport = 8765\n'
+    assert _fixed(home, raw)[0] == b'[paths]\nnote = """\n[http]\nport = 1\n"""\n\n'
+
+
+def test_an_array_of_tables_after_the_section_is_kept(home):
+    raw = b'[http]\nport = 1\n\n[[tables]]\nname = "keep"\n'
+    assert _fixed(home, raw)[0] == b'[[tables]]\nname = "keep"\n'
+
+
+def test_comment_lines_just_above_the_next_section_stay_with_it(home):
+    raw = b'[http]\nport = 1\n\n# my oauth settings\n[oauth]\nidcs = "https://idcs.example"\n'
+    assert _fixed(home, raw)[0] == b'# my oauth settings\n[oauth]\nidcs = "https://idcs.example"\n'
+
+
+def test_when_in_doubt_the_file_is_left_as_it_is_and_the_lines_are_said(home):
+    """A sub-table of [http] would be left behind by taking the section out: the result is not the old config minus
+    the two tables, so nothing is written and the lines to delete by hand are said."""
+    raw = b"[paths]\nanalyser = 'C:/a'\n\n[http]\nport = 1\n\n[http.extra]\nx = 1\n"
+    new, said = _fixed(home, raw)
+    assert new == raw and _backups(home) == []
+    hand = [s for s in said if "by hand" in s]
+    assert hand and "lines 4-6" in hand[0] and "lines 7-8" in hand[0], said
