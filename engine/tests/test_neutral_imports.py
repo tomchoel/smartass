@@ -109,16 +109,25 @@ def test_only_the_users_excel_is_ever_started_and_only_on_a_workbook():
 
 # Every process start (Task 6b): os.startfile / ShellExecute* start whatever a file's type opens - a workbook path
 # starts Excel without naming it - and a subprocess or os call can take Excel's path from a variable. So each start is
-# allowed by its (file, function), with why; anything else, whatever it names, fails the guard.
+# allowed by its (file, function), with why; anything else, whatever it names, fails the guard. The allowlist is by
+# function: a second start inside an allowed function passes too (each allowed function is short; read it).
 START_NAMES = {"startfile", "ShellExecute", "ShellExecuteW", "ShellExecuteEx", "ShellExecuteExW", "CreateProcess",
                "CreateProcessW", "CreateProcessAsUser", "Popen"}   # Popen on any receiver: subprocess under an alias
 SUBPROCESS_STARTS = {"Popen", "run", "call", "check_call", "check_output", "getoutput", "getstatusoutput"}
 OS_STARTS = {"startfile", "system", "popen", "spawnl", "spawnle", "spawnlp", "spawnv", "spawnve", "spawnvp", "execv",
              "execve", "execl", "execlp", "execvp", "posix_spawn"}
+# The modules whose functions start a process (webbrowser.open: os.startfile underneath on Windows), by module; a
+# module or a function of one is found under its own name, an alias (import subprocess as sp) or imported bare (from
+# subprocess import run). A start function handed on as a value (login.run's open_page=webbrowser.open) counts where
+# it is named; Popen only when called (as a name it is a type: an annotation).
+START_MODULES = {"subprocess": SUBPROCESS_STARTS, "os": OS_STARTS,
+                 "asyncio": {"create_subprocess_exec", "create_subprocess_shell"},
+                 "webbrowser": {"open", "open_new", "open_new_tab"}}
 ALLOWED_STARTS = {
     "smartass/xl/target.py:_launch_excel": "the user's Excel on a workbook (EXCEL.EXE /x <file>)",
     "run_server.py:start_child": "the relay's server child (this Python)",
     "smartass/ops/login.py:_copy": "clip.exe: the sign-in code to the clipboard",
+    "smartass/ops/login.py:run": "the browser on the identity domain's sign-in page (webbrowser.open, as open_page)",
     "smartass/ops/setup_user.py:link_skill": "cmd mklink /J: the skill's junction",
     "smartass/ops/update.py:apply": "the release's installer (smartass update)",
     "smartass/ops/update.py:start_if_available": "the release's installer, detached (serve at login)",
@@ -128,10 +137,24 @@ ALLOWED_STARTS = {
 
 def process_starts(source: str, rel: str) -> list[str]:
     """'rel:function receiver.name' of every call in source that starts a process: os.startfile / ShellExecute* /
-    CreateProcess* on any receiver or imported bare, subprocess.<start> and os.<start> (the receiver resolved: a
-    bare .run is asyncio's, a doctor's or a COM object's, not a process), Popen / startfile imported bare."""
+    CreateProcess* on any receiver or imported bare, a start function of START_MODULES on its module under any alias
+    or imported bare under any name (the receiver resolved: a bare .run is asyncio's, a doctor's or a COM object's,
+    not a process), Popen / startfile imported bare; and such a start function named without a call (handed on)."""
     tree = ast.parse(source)
     parents = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+    modules = {m: m for m in START_MODULES}                 # local name -> module
+    bare: set[str] = set()                                  # local names of start functions imported bare
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update({a.asname or a.name: a.name for a in node.names if a.name in START_MODULES})
+        elif isinstance(node, ast.ImportFrom) and node.module in START_MODULES:
+            bare.update(a.asname or a.name for a in node.names if a.name in START_MODULES[node.module])
+
+    def start_of(f) -> str:
+        """'receiver.name' or 'name' when f names a start function of START_MODULES, else ''."""
+        if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in modules:
+            return f"{f.value.id}.{f.attr}" if f.attr in START_MODULES[modules[f.value.id]] else ""
+        return f.id if isinstance(f, ast.Name) and f.id in bare else ""
 
     def enclosing(node):
         while node in parents:
@@ -139,13 +162,17 @@ def process_starts(source: str, rel: str) -> list[str]:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 return node.name
         return "<module>"
-    out = []
+    out, called = [], set()
     for node, name in _calls(tree):
         f = node.func
+        called.add(f)
         recv = f.value.id if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) else ""
-        if (name in START_NAMES or (recv == "subprocess" and name in SUBPROCESS_STARTS)
-                or (recv == "os" and name in OS_STARTS)):
+        if name in START_NAMES or start_of(f):
             out.append(f"{rel}:{enclosing(node)} {recv + '.' if recv else ''}{name}")
+    for node in ast.walk(tree):
+        if (isinstance(node, (ast.Attribute, ast.Name)) and isinstance(node.ctx, ast.Load) and node not in called
+                and (named := start_of(node)) and not named.endswith("Popen")):
+            out.append(f"{rel}:{enclosing(node)} {named}")
     return out
 
 
@@ -160,8 +187,25 @@ def process_starts(source: str, rel: str) -> list[str]:
      ["x.py:go shell.ShellExecuteEx"]),
     ("import os\ndef go(p):\n    os.system(f'start {p}')\n", ["x.py:go os.system"]),
     ("import asyncio\ndef go(c, doctor, app):\n    asyncio.run(c)\n    doctor.run()\n    app.Run('M')\n", []),
+    ("import subprocess as sp\ndef go(p):\n    sp.run(p)\n", ["x.py:go sp.run"]),
+    ("from subprocess import run\ndef go(p):\n    run(p)\n", ["x.py:go run"]),
+    ("from os import system\ndef go(p):\n    system(p)\n", ["x.py:go system"]),
+    ("import asyncio\nasync def go(p):\n    await asyncio.create_subprocess_exec(p)\n",
+     ["x.py:go asyncio.create_subprocess_exec"]),
+    ("import asyncio as aio\nasync def go(p):\n    await aio.create_subprocess_shell(p)\n",
+     ["x.py:go aio.create_subprocess_shell"]),
+    ("from asyncio import create_subprocess_exec\nasync def go(p):\n    await create_subprocess_exec(p)\n",
+     ["x.py:go create_subprocess_exec"]),
+    ("import webbrowser\ndef go(book):\n    webbrowser.open(book)\n", ["x.py:go webbrowser.open"]),
+    ("from webbrowser import open as browse\ndef go(book):\n    browse(book)\n", ["x.py:go browse"]),
+    ("import webbrowser\ndef go(page, open_page=webbrowser.open):\n    open_page(page)\n",
+     ["x.py:go webbrowser.open"]),
+    ("import subprocess\nfrom asyncio import run\ndef go(c, proc: subprocess.Popen) -> subprocess.Popen:\n"
+     "    run(c)\n    return proc\n", []),
 ], ids=["startfile", "popen-variable", "popen-imported", "popen-alias", "shellexecute", "shellexecuteex", "os-system",
-        "not-a-start"])
+        "not-a-start", "run-alias", "run-imported", "system-imported", "asyncio-exec", "asyncio-alias-shell",
+        "asyncio-exec-imported", "webbrowser-open", "webbrowser-open-imported", "webbrowser-open-handed-on",
+        "not-a-start-asyncio-run-and-annotations"])
 def test_the_launch_guard_sees_a_process_start_that_does_not_name_excel(source, found):
     assert process_starts(source, "x.py") == found
 
