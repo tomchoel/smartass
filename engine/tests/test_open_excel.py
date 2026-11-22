@@ -577,6 +577,23 @@ def test_spawn_excel_waits_while_a_cold_excel_rejects_its_workbooks(tmp_path, mo
     assert (pid, got, app.reads) == (9, app, 3) and wb.Name == "tn_template1"
 
 
+def test_spawn_excel_waits_while_a_cold_excel_rejects_a_workbooks_name(tmp_path, monkeypatch, fast):
+    class ColdBook:
+        reads = 0
+
+        @property
+        def Name(self):
+            ColdBook.reads += 1
+            if ColdBook.reads == 1:
+                raise pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+            return "tn_template1"
+    app = FakeApp([ColdBook()])
+    monkeypatch.setattr(target, "_launch_excel", lambda p: FakeProc(exits_after=None))
+    monkeypatch.setattr(instances, "interactive_excels", lambda: [(9, 90, app)])
+    (pid, _hwnd, got), _wb = target._spawn_excel(tmp_path / "tn_template.xltx", set(), target.OPEN_TIMEOUT_S)
+    assert (pid, got, ColdBook.reads) == (9, app, 2)
+
+
 def test_spawn_excel_raises_a_com_error_that_is_not_busy(tmp_path, monkeypatch, fast):
     class BrokenApp:
         @property

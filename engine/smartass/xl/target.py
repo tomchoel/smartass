@@ -373,13 +373,13 @@ def _spawn_excel(tpl: Path, known: set[int], limit: float = SPAWN_TIMEOUT_S):
             if pid in known:
                 continue
             try:
-                books = list(app.Workbooks)
+                books = [(wb, str(wb.Name)) for wb in app.Workbooks]
             except pywintypes.com_error as e:
                 if not jobs.is_busy(e):
                     raise
                 continue                              # a cold Excel rejects calls while it loads: next round
-            for wb in books:
-                if str(wb.Name).lower().startswith(tpl.stem.lower()):
+            for wb, name in books:
+                if name.lower().startswith(tpl.stem.lower()):
                     jobs.hold_turn(pid, wait=False)
                     dialogs.watch_after_start(pid, grace=dialogs.launch_grace(t0), alive=jobs._check_alive)
                     jobs.log.info("started Excel pid %s on the TN template", pid)
@@ -670,7 +670,8 @@ def _new_analysis_file(title: str) -> Path:
 
 def _keep_seed(path: Path, seed: Path) -> None:
     """path copied as the seed, whole: to a temp file of its own beside the seed, then os.replace (two cold jobs can
-    write the seed at once; a torn seed could still pass _seed_has_label). Best effort: a failure leaves no temp file."""
+    write the seed at once; a torn seed could still pass _seed_has_label). Best effort: a failure leaves no temp
+    file."""
     tmp = seed.with_name(f"{seed.stem}.{uuid.uuid4().hex}.tmp")
     try:
         seed.parent.mkdir(parents=True, exist_ok=True)

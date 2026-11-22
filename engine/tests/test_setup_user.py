@@ -167,7 +167,8 @@ def test_register_mcp_retries_a_replace_windows_refuses_for_a_moment(tmp_path, m
     p.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
     calls, pauses = _replace_failing(monkeypatch, fails=2)
     assert setup_user.register_mcp(p, {"type": "stdio", "command": "py.exe", "args": [], "env": {}}) == "updated"
-    assert len(calls) == 3 and len(pauses) == 2 and "smartass" in json.loads(p.read_text(encoding="utf-8"))["mcpServers"]
+    assert len(calls) == 3 and len(pauses) == 2
+    assert "smartass" in json.loads(p.read_text(encoding="utf-8"))["mcpServers"]
 
 
 def test_register_mcp_gives_up_on_a_replace_that_stays_refused(tmp_path, monkeypatch):

@@ -22,7 +22,7 @@ _KEYS = (r"sID|sessionId|session_id|JSESSIONID|ssoToken|sso_token|access_token|r
 _PATTERNS = [
     (re.compile(rf"({_TAG}\s*sID\s*{_END}).*?({_TAG}\s*/\s*sID\s*{_END})", re.S | re.I), r"\1***\2"),
     (re.compile(r"(?<=[\w/.%-])\?(?=[\w%])[^\s'\"<>]+"), "?..."),          # a URL's query string, whole (not 'label?)')
-    (re.compile(r"(?:^|(?<=\s))\?(?=[\w.-]+=)[^\s'\"<>]+"), "?..."),          # ... after a space or at the start: ?name=
+    (re.compile(r"(?:^|(?<=\s))\?(?=[\w.-]+=)[^\s'\"<>]+"), "?..."),          # ... after a space or at the start
     (re.compile(r"%3F(?=[\w.~-]+%3D)[^\s'\"<>]+", re.I), "%3F..."),           # a URL-encoded query (%3Fname%3D...)
     (re.compile(r"\b((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*[\"']?)(?:[A-Za-z]+[ \t]+)?[^\s\"',;<>&}]+",
                 re.I), r"\1***"),                                                  # an Authorization header
