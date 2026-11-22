@@ -112,6 +112,50 @@ def test_ordinary_sentences_pass_the_scrub_unchanged(text):
     assert logsetup.redact(text) == text
 
 
+# Task 9 (final review A, M2 and M3; B, M1): narrower on ordinary text - Basic and Authorization need a credential's
+# shape - and not weaker on secrets: a named key with a space or hyphen, HTML-escaped JSON pairs, and a value with '%'
+# after a cookie's name or SID / SESSION_ID (values made at run time; never a real key)
+@pytest.mark.parametrize("text", [
+    "Revenue from Basic subscriptions fell 4 %", "Basic Infrastructure costs", "Budget authorization: approved by CFO",
+    "authorization: approved", "Authorization: pending (2026-11)", "session ID: unknown", "Session_id: unknown",
+])
+def test_ordinary_text_basic_and_authorization_ate_passes_unchanged(text):
+    assert logsetup.redact(text) == text
+
+
+def _pct() -> str:
+    return f"{secrets.token_hex(2)}%2B{secrets.token_hex(8)}"     # URL-encoded, over 16 characters, with '%' early
+
+
+@pytest.mark.parametrize("shape, said", [
+    ("Invalid session ID: {k} for the grid", "Invalid session ID: *** for the grid"),
+    ("Session ID: {k} is invalid", "Session ID: *** is invalid"),
+    ("Session-ID: {k} ok", "Session-ID: *** ok"),
+    ("client secret: {s} ok", "client secret: *** ok"),
+    ("Client-Secret: {s} ok", "Client-Secret: *** ok"),
+    ("&#34;access_token&#34;:&#34;{k}&#34;", "&#34;access_token&#34;:&#34;***&#34;"),
+    ("{{&quot;refresh_token&quot;: &quot;{k}&quot;, &quot;n&quot;: 1}}",
+     "{&quot;refresh_token&quot;: &quot;***&quot;, &quot;n&quot;: 1}"),
+    ("OAMAuthnCookie: {p} ok", "OAMAuthnCookie: *** ok"),
+    ("ORA_OCIS_CG: {p} ok", "ORA_OCIS_CG: *** ok"),
+    ("SESSION_ID: {p} ok", "SESSION_ID: *** ok"),
+    ("SID: {p} ok", "SID: *** ok"),
+    ("sent Basic {b} ok", "sent Basic *** ok"),
+    ("Authorization: Bearer {s} ok", "Authorization: *** ok"),
+    ("Authorization: SharedKey acct:{k} ok", "Authorization: *** ok"),
+    ("authorization: {k} ok", "authorization: *** ok"),
+], ids=["session-ID-spaced", "Session-ID-start", "Session-ID-hyphen", "client-secret-spaced", "Client-Secret-hyphen",
+        "escaped-34-json", "escaped-quot-json", "OAM-percent", "ORA-percent", "SESSION_ID-percent", "SID-percent",
+        "basic-base64", "authorization-bearer", "authorization-other-scheme", "authorization-bare"])
+def test_each_secret_shape_of_the_final_review_is_scrubbed(shape, said):
+    import base64
+    k, s, p = secrets.token_hex(12), _short(), _pct()
+    b = base64.b64encode(f"invented:{secrets.token_hex(2)}".encode()).decode()   # 'user:password' shape, with '='
+    text = shape.format(k=k, s=s, p=p, b=b)
+    assert logsetup.redact(text) == said
+    assert not any(v in logsetup.redact(text) for v in (k, s, p, b))
+
+
 def test_the_sign_in_reply_keeps_its_page_and_code(monkeypatch):
     """The sign-in reply is redacted (oauth.sign_in_reply): its page and code must survive the scrub."""
     from smartass.epm import oauth

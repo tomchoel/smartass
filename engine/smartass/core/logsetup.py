@@ -16,12 +16,20 @@ _Q = r"(?:[\"']|&(?:amp;)*(?:quot|apos|#0?39|#34|#[xX]0?2[27]);)"   # a quote, a
 _NAMES = (r"sID|JSESSIONID|ORA_[\w-]*|OAM[\w-]*|_WL_[\w-]*|X-Smartass-Secret|device_code|"
           r"[\w-]*(?:session|token|secret|password|passwd)[\w-]*")
 # The secret keys by their whole names (no prefix: 'Oamaru: 3' is text): after one of them "name: value" is scrubbed
-# whatever the value's length (never a generic name: value rule - the scrub runs on reply warnings, whose sentences
-# have colons). sID and session_id only in their own case ('SID: 4', 'Session_id: unknown' are text), the others in
-# any. id_token is not here: 'id_token: missing' is text, and an ID token is a JWT (the JWT rule) of more than 16
-# characters (the rule of the 16 key-like characters).
-_KEYS = (r"sID|session_id|(?i:sessionId|JSESSIONID|ssoToken|sso_token|access_token|refresh_token|client_secret|"
+# whatever the value's length. Never a generic name: value rule: the scrub runs on texts whose sentences have colons -
+# every log line, every tool error (core/serverkit), the run log, the provider's own error text (epm/svxml) and the two
+# reply warnings that quote an engine's error (pipeline.prepare: the grids not fetched, the grids fetched over REST);
+# the other reply warnings are the engine's own words and do not pass it. sID and session_id only in their own case
+# ('SID: 4', 'Session_id: unknown' are text), the others in any; client secret also with a space or a hyphen.
+# id_token is not here: 'id_token: missing' is text, and an ID token is a JWT (the JWT rule) of more than 16
+# characters (the rule of the 16 key-like characters, which also takes 'session ID: <value>').
+_KEYS = (r"sID|session_id|(?i:sessionId|JSESSIONID|ssoToken|sso_token|access_token|refresh_token|client[ _-]secret|"
          r"device_code|password|passwd|X-Smartass-Secret)")
+_KEYLIKE = r"[A-Za-z0-9._~+/=%-]"                              # a key's characters, URL-encoded ones too
+# A credential's shape: 16 key-like characters, or 12 with a digit, one of + / = % or a capital after a small letter
+# (base64: 'dXNlcjpwYXNz'); 'Basic subscriptions' is text
+_SHAPED = rf"(?:(?={_KEYLIKE}*(?:[0-9+/=%]|(?-i:[a-z][A-Z]))){_KEYLIKE}{{12}}|{_KEYLIKE}{{16}})"
+_EQUOTE = r"&(?:amp;)*(?:quot|apos|#0?39|#34|#[xX]0?2[27]);"   # a quote HTML-escaped (once or more)
 # A query after a space or at the start is scrubbed only when it names a secret key ('Use ?period=Sep' is text).
 _QUERY_KEYS = rf"code|{_NAMES}"
 _PATTERNS = [
@@ -30,11 +38,12 @@ _PATTERNS = [
     (re.compile(rf"(?:^|(?<=\s))\?(?=(?:[^\s'\"<>&]*&)*(?:{_QUERY_KEYS})=)[^\s'\"<>]+", re.I),
      "?..."),                                                      # ... after a space or at the start: a secret key's only
     (re.compile(r"%3F(?=[\w.~-]+%3D)[^\s'\"<>]+", re.I), "%3F..."),           # a URL-encoded query (%3Fname%3D...)
-    (re.compile(r"\b((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*[\"']?)(?:[A-Za-z]+[ \t]+)?[^\s\"',;<>&}]+",
-                re.I), r"\1***"),                                                  # an Authorization header
+    (re.compile(r"\b((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*[\"']?)(?:(?:Bearer|Basic|Digest|Negotiate|NTLM)"
+                rf"[ \t]+[^\s\"',;<>&}}]+|(?:[A-Za-z][\w-]*[ \t]+)?(?=[^\s\"',;<>&}}]*?{_SHAPED})[^\s\"',;<>&}}]+)", re.I),
+     r"\1***"),                    # an Authorization header: a scheme's value, else a credential's shape ('approved')
     (re.compile(r"\b(Bearer(?:\s+|%20|\+))(?!\*\*\*)[A-Za-z0-9._~+/=-]{16,}", re.I),
      r"\1***"),                                                   # a token's length: not 'the cost bearer of'
-    (re.compile(r"\b(Basic\s+)(?!\*\*\*)[A-Za-z0-9._~+/=-]{12,}"), r"\1***"),       # basic credentials
+    (re.compile(rf"\b(Basic\s+)(?!\*\*\*)(?={_SHAPED})[A-Za-z0-9._~+/=-]+"), r"\1***"),   # basic credentials
     (re.compile(r"\beyJ[\w-]*\.[\w-]+(?:\.[\w-]*)?"), "***"),                          # a JWT (header.payload.sig)
     (re.compile(r"\b((?:set-)?cookie[ \t]*:[ \t]*)[^\n<]*", re.I), r"\1***"),            # a cookie header, whole
     (re.compile(r"([\"'](?:set-)?cookie[\"'][ \t]*[:,][ \t]*[\"'])[^\"']+", re.I), r"\1***"),  # ... dict key, pair
@@ -45,8 +54,10 @@ _PATTERNS = [
     # 16 key-like characters or more - not the words after a class name in a logged error, 'NoToken: no EPM ...')
     (re.compile(rf"({_Q}?(?<![\w-])(?:{_NAMES}){_Q}?{_EQ}{_Q}?)(?!\*\*\*)[^\s;<>\"'&,}}]+", re.I), r"\1***"),
     (re.compile(rf"([\"'](?:{_NAMES})[\"'][ \t]*:[ \t]*[\"'])(?!\*\*\*)[^\"']+", re.I), r"\1***"),
-    (re.compile(rf"((?<![\w-])(?:{_NAMES})[ \t]*:[ \t]*{_Q}?)(?!\*\*\*)(?=[A-Za-z0-9._~+/=-]{{16}})[^\s;<>\"'&,}}]+",
-                re.I), r"\1***"),
+    (re.compile(rf"({_EQUOTE}(?:{_NAMES}){_EQUOTE}[ \t]*:[ \t]*{_EQUOTE})(?!\*\*\*)[^&\"'<>]+", re.I),
+     r"\1***"),                                                   # ... the same pair with its quotes HTML-escaped
+    (re.compile(rf"((?<![\w-])(?:{_NAMES}|session[ \t]+id)[ \t]*:[ \t]*{_Q}?)(?!\*\*\*)(?={_KEYLIKE}{{16}})"
+                r"[^\s;<>\"'&,}]+", re.I), r"\1***"),
     (re.compile(rf"((?<![\w-])(?:{_KEYS})[ \t]*:[ \t]*{_Q}?)(?!\*\*\*)[^\s;<>\"'&,}}]+"), r"\1***"),
 ]
 _secrets: list[str] = []
