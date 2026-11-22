@@ -88,17 +88,16 @@ def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 
     concepts: [id, title, kind, blocks, notes ...], entities, kpis, vocab, rules};
     kind 'answer': {answers: past answers from answers.db (workbook, q, question, when, score, top key values)}.
     No atlas: the answer comes from the knowledge.db that is there (no members), with one warning naming the command;
-    with no usable knowledge.db either it is refused with that command (atlas_build.need_atlas)."""
+    with no usable knowledge.db either it is refused with that command (atlas.need_atlas)."""
     if kind == "answer":
         from . import answers
         return {"answers": [_past(r) for r in answers.search(query, limit)]}
     from .knowledge.resolver import open_without_atlas
-    from .ops.atlas_build import need_atlas, no_atlas_warning
     bare = None if atlas.present() else open_without_atlas(dt.date.today().year % 100)
     if bare is not None:
         with contextlib.closing(bare) as r:
-            return {**r.search(query, kind, cube, limit), "warnings": [no_atlas_warning()]}
-    need_atlas()
+            return {**r.search(query, kind, cube, limit), "warnings": [atlas.no_atlas_warning()]}
+    atlas.need_atlas()
     from .knowledge.resolver import freshness_notes
     with contextlib.closing(_resolver()) as r:
         out = r.search(query, kind, cube, limit)
@@ -154,10 +153,9 @@ async def _draw_job(fn, what: str, question: str | None) -> dict:
 
 async def _drill(cell: dict):
     """The FinLite ledger lines behind one cube cell (v1 drill: Smart View link, token route, reconciliation). No atlas:
-    refused before EPM is asked (atlas_build.need_atlas)."""
+    refused before EPM is asked (atlas.need_atlas; it never waits on a lock)."""
     from .epm import drillstep
-    from .ops.atlas_build import need_atlas
-    need_atlas()
+    atlas.need_atlas()
     return await drillstep.drill(cell, connection="FinLite")
 
 

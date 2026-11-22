@@ -17,7 +17,7 @@ from smartass.core import config, serverkit
 from smartass.epm import oauth
 from smartass.knowledge import atlas
 from smartass.model.spec import AnalysisSpec
-from smartass.ops import atlas_build, doctor
+from smartass.ops import doctor
 
 LOGIN, BUILD = "`smartass login`", "`smartass atlas build`"
 CELL = {"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"}
@@ -125,7 +125,7 @@ def test_the_doctor_says_no_atlas_with_its_one_command_and_knowledge_waits_for_i
     k = doctor._knowledge()
     assert k.status == "WARN" and "waits for the atlas" in k.detail and command in k.fix
     assert "semantic" not in k.fix
-    assert atlas_build.no_atlas_command() == command.strip("`")
+    assert atlas.no_atlas_command() == command.strip("`")
 
 
 # ---------------------------------------------------------------- Task 3 (a): fin_lookup answers from knowledge.db
@@ -201,3 +201,36 @@ def test_with_a_knowledge_db_and_no_atlas_every_other_entry_still_refuses_with_o
     said = _said(ENTRIES[entry])
     assert "no atlas" in said and command in said, said
     assert other not in said and "smartass knowledge build" not in said, said
+
+
+def test_the_tool_path_and_the_knowledge_layer_never_import_the_clis_atlas_module():
+    """need_atlas and its one command live beside present() in knowledge/atlas.py (Task 2's review, Minor 4)."""
+    import re
+    from pathlib import Path
+
+    import smartass
+    root = Path(smartass.__file__).parent
+    files = [root / "server.py", *sorted((root / "knowledge").glob("*.py"))]
+    imports = re.compile(r"ops\.atlas_build|import atlas_build|from \.\.?ops import .*atlas_build")
+    assert [f.name for f in files if imports.search(f.read_text(encoding="utf-8"))] == []
+
+
+def test_no_atlas_is_answered_at_once_while_another_process_holds_the_atlas_locked(tmp_path):
+    """The check runs on the event loop in fin_drill: a lock (a build's swap) counts as an atlas and is never waited
+    on (Task 2's review, Minor 5)."""
+    import sqlite3
+    import time
+    p = tmp_path / "atlas.db"
+    with sqlite3.connect(p) as db:
+        db.executescript(atlas.SCHEMA)
+        db.execute("INSERT INTO member VALUES ('FinMax', 'All Accounts', 'ac.X', 'X', 'ac', 1, 1)")
+    db.close()
+    holder = sqlite3.connect(p, isolation_level=None)
+    try:
+        holder.execute("BEGIN EXCLUSIVE")
+        t0 = time.monotonic()
+        assert atlas.present(p) is True
+        assert time.monotonic() - t0 < 1.0
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()

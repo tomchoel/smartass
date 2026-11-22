@@ -90,10 +90,9 @@ def _oauth() -> Check:
 
 def _atlas(max_age_days: float = 35) -> Check:
     from ..knowledge import atlas
-    from .atlas_build import no_atlas_step
     p = config.ATLAS_DB
     if not atlas.present(p):
-        step = no_atlas_step()
+        step = atlas.no_atlas_step()
         return Check("atlas", "FAIL", f"no atlas on this PC yet ({p}{'' if p.exists() else ': missing'})",
                      f"{step[0].upper()}{step[1:]}.")
     age = (time.time() - p.stat().st_mtime) / 86400
@@ -125,9 +124,8 @@ def _knowledge() -> Check:
               f"{len(sem.rules)} rules, {len(sem.entities)} entities, {len(sem.kpis)} kpis, "
               f"{len(sem.vocab)} vocab, {len(sem.notes)} notes")
     from ..knowledge import atlas
-    from .atlas_build import no_atlas_step
     if not atlas.present(config.ATLAS_DB):
-        step = no_atlas_step()
+        step = atlas.no_atlas_step()
         return Check("knowledge", "WARN", f"{detail}; members not checked: waits for the atlas",
                      f"{step[0].upper()}{step[1:]}; the knowledge is checked against it after.")
     report = BuildReport(out=config.KNOWLEDGE_DB)
