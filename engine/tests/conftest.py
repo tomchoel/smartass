@@ -11,8 +11,9 @@ def pytest_configure(config):
 
 @pytest.fixture(autouse=True)
 def _no_live_drill_routes(monkeypatch):
-    """Tests never reach EPM: the HTTP drill link/values are off unless a test turns them on (drillstep then uses its
-    Excel route, which the tests fake), and the token drill raises unless a test that drills sets its own fake."""
+    """Tests never reach EPM: the HTTP drill link/values are off unless a test turns them on (drillstep then has no
+    route: a drill link is an error, split values are not read; tests that drill fake drillstep._http_link), and the
+    token drill raises unless a test that drills sets its own fake."""
     from smartass.core import config
     from smartass.epm import drill_token
 

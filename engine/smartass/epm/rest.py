@@ -150,16 +150,15 @@ def fetch_grid(session: epmhttp.EpmSession, conn: str, pov: dict | None, rows: l
     heads: list[list[str]] = []
     data: list[list] = []
     try:
-        answers = [(part, _post(session, app, cube, body)) for part, body in _requests(lay, names, most)]
+        for part, body in _requests(lay, names, most):
+            p, c, h, d = _answer(_post(session, app, cube, body), lay, part)
+            if got_pov is not None and (p, c) != (got_pov, got_cols):
+                raise RestError("the REST requests of one grid answered different POV or column members")
+            got_pov, got_cols = p, c
+            heads += h
+            data += d
     except _NamesMember as e:
         raise _refused(conn, lay, names, e) from None
-    for part, j in answers:
-        p, c, h, d = _answer(j, lay, part)
-        if got_pov is not None and (p, c) != (got_pov, got_cols):
-            raise RestError("the REST requests of one grid answered different POV or column members")
-        got_pov, got_cols = p, c
-        heads += h
-        data += d
     values, warnings = _matrix(atlas_db, conn, lay, names, got_pov, got_cols, heads, data)
     svhttp.check_layout(lay, values, "Planning REST")
     return Fetched(lay, values, time.monotonic() - t0, ROUTE, warnings)
