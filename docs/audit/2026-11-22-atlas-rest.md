@@ -134,12 +134,12 @@ Get Member answers **201** (Oracle documents it as this GET's "historical" succe
 
 ## Gate (Step 2), 2026-11-22 03:25-03:35 UTC: passed
 
-Script: `scripts/compare_atlas.py <work folder> all` (deleted after the phase's last gate run on the release head), run
-from `engine/` at commit a45bda9. It copies today's atlas (read-only) into a work folder in the scratch area, builds
-over REST into a copy there (`atlas_build.build_into` + `build_rest`, as `smartass atlas build` does) and points every
-consumer check at those copies (`config.ATLAS_DB` / `KNOWLEDGE_DB` are set before anything opens a database; a work
-folder in the smartass home is refused). The owner's `atlas.db` and `knowledge.db` were not written (their modification
-time is still 2026-11-10). Every line is the script's own output, shortened.
+Script: `scripts/compare_atlas.py <work folder> all` (deleted after the phase's final gate run, 22.11.2026 at
+8049f2a: see "Final run"), run from `engine/` at commit a45bda9. It copies today's atlas (read-only) into a work folder
+in the scratch area, builds over REST into a copy there (`atlas_build.build_into` + `build_rest`, as `smartass atlas
+build` does) and points every consumer check at those copies (`config.ATLAS_DB` / `KNOWLEDGE_DB` are set before anything
+opens a database; a work folder in the smartass home is refused). The owner's `atlas.db` and `knowledge.db` were not
+written (their modification time is still 2026-11-10). Every line is the script's own output, shortened.
 
 | Part | Result |
 | --- | --- |
@@ -245,3 +245,44 @@ next REST build writes them again. This release's reads never add a table; only 
   names (Task 3 probably counted a key / real-name mismatch); a question for the controller, nothing depends on it.
 - Open, not for this phase (the review's Minor 10): `rest.py` still SENDS the atlas key in the exportdataslice body;
   sending a trusted real name instead would stop depending on EPM resolving keys like `pj.SY.SY.X`.
+
+## Final run, 2026-11-22 12:27-12:44 local time (11:27-11:44 UTC), at 8049f2a: passed
+
+Run by the controller from `engine/` at 8049f2a (the phase's head before its last round), read-only, without Excel:
+`scripts/compare_atlas.py <work folder> all`, the same work-folder rules as above (the owner's `atlas.db` and
+`knowledge.db` untouched). Every part passed; exit 0. Every figure below is the script's own output.
+
+| Part | Result |
+| --- | --- |
+| Build | passed (29.9 s for the part): 32 dimensions, 0 errors, 0 skipped, swapped in: 23.6 s in all; Get Member **7.9 s for plan1** (FinMax and FinLite: 14 trees, each read once) and **0.9 s for stratmodel** (8) |
+| Schema | the member table has exactly the seven columns; 376 753 member rows; 376 767 side rows, all trusted; 11 (key, parent) pairs with more than one real member behind them; 0 member keys without a trusted side row |
+| Exposure | keys that are EPM's name of a member behind another key (REST answering such a key as itself is refused): FinPlan/Account 1 (not among its own real names) |
+| An older release on this atlas | release 0.6.0's purge and positional INSERT of FinPlan on a copy: worked, rows as before; FinPlan keys with a trusted real name after it 0; FinMax's still trusted |
+| Compare | passed (5.7 s): **real differences: False**; added 268, removed 0, alias changed by code 17, label-keyed renamed 6, re-parented 4, out of order 24 (all below a re-parented member) |
+| Labels | passed (7.2 s): 12 samples (`ac.24074` in FinLite and FinMax, 4 projects, 6 label-keyed): the rebuilt label is EPM's, today's is refused (12 of 12); the alias-changed class proven |
+| Knowledge | passed (12.1 s): built from each atlas, 0 errors, 0 warnings; every count equal but `member_fts` 54 275 -> 54 359 (the added entities) |
+| Offline test set | passed (40.5 s): golden 9 of 9 with either atlas |
+| Stored specs | passed (564.0 s): 460 specs, all planned; 18 782 members asked, 18 771 resolved with either atlas; the same 11 missed (FinPlan Account 6, Entity 5: label-keyed); missed only with one atlas: none |
+| grid_smoke | passed (22.5 s): b01 OK 1.7 s, b07 OK 1.0 s, b16 OK 17.6 s (1 line set) |
+| Both engines | passed (223.5 s): docs/audit/2026-11-21-rest-vs-provider.md, "Final run" |
+
+How the compare classes count: per connection and dimension, so FinLite's copy of FinMax's members counts again.
+268 added is 169 members plus FinLite's 99 (Counterparts 30, Entities 39, Legal Entities 30); 17 alias changed by code
+is 16 members (`ac.24074`, in FinMax and FinLite, and the 15 projects); 6 label-keyed renames are 3 members; 4
+re-parented are 3 (`un.SY.G332` in FinMax and FinLite, `pj.L1.L1.L1PBA6`, `pj.L8.L8.L8PBA6`). The same classes and
+counts as at a45bda9 and a695d72.
+
+An earlier run of all parts, 22.11.2026 08:13-08:32 at c3cc57e (Task 4c's stricter name check), passed the same way
+(build 23.8 s, exposure 1 key, the same compare classes, specs 511 s, both engines all equal); the phase's ledger
+records it.
+
+The commits after 8049f2a (Task 8 of the phase) change the scrub of texts (`core/logsetup.py`, which the
+provider route's error text also passes), how `xl/target._open_path` reads the workbooks of an Excel it just
+launched, one bounded retry for a file replace or delete (`core/retry.py`), the test guards, the CLI's help text and
+the docs. None touches the fetch routes (`epm/svhttp.py`, `epm/rest.py`, `data/provider.py`, `epm/epmhttp.py`), the
+name check or the atlas build (`epm/members.py`, `ops/atlas_build.py`, `knowledge/atlas.py`): `git diff --stat
+8049f2a..` over those files is empty. The scrub change rewrites less ordinary text and adds only secret-named shapes
+(a cookie list, quotes escaped by number, `device_code`); the provider's wrong-member sentence it may pass is matched
+as before. After this run both gate scripts were deleted (`scripts/compare_grid_routes.py`,
+`scripts/compare_atlas.py`); this file keeps their results and the "Final run" of
+docs/audit/2026-11-21-rest-vs-provider.md those of the grid comparison.

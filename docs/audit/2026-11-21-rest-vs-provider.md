@@ -1,10 +1,10 @@
 # The second engine against the provider route (phase 2, Task 3 and 3b), 2026-11-21/22
 
 Live, read-only against EPM (plan1 and stratmodel), without Excel, from the owner's PC with the stored refresh tokens
-(no sign-in was needed). Script: `scripts/compare_grid_routes.py all` (deleted after the phase's last gate run on
-the release head), run from `engine/` on the tree of the commit that adds this version of the file (a copy of it
-made with `git archive`: commit d2cf8a4 plus this commit's script). Every line below is the script's own output:
-counts, booleans, seconds and member CODES only - no figure, no label, no business text, no token, cookie or URL
+(no sign-in was needed). Script: `scripts/compare_grid_routes.py all` (deleted after the phase's final gate run,
+22.11.2026 at 8049f2a: see "Final run"), run from `engine/` on the tree of the commit that adds this version of the file
+(a copy of it made with `git archive`: commit d2cf8a4 plus this commit's script). Every line below is the script's own
+output: counts, booleans, seconds and member CODES only - no figure, no label, no business text, no token, cookie or URL
 query. Errors are shown as their class (and HTTP
 status). A FinPlan member's name is its label: such a member is shown by its dimension and place (`Account #3`).
 
@@ -86,8 +86,8 @@ counted as differences (the stale-alias class, accepted since) and the wrong-mem
 - **The split loop after the gate**: the gate ran on d2cf8a4; 93c6215 changed the split loop afterwards
   (each part's answer is checked before the next part is sent), covered offline by item 1's test of Task 3c
   (`test_rest.py::test_a_split_grid_whose_first_answer_is_not_the_grid_asked_sends_no_other_part`, 8ab749e). The
-  grids part was run again at a695d72 (Task 4b): all equal; the controller runs both gates once more on the
-  release head.
+  grids part was run again at a695d72 (Task 4b): all equal; the controller ran both gates once more at 8049f2a
+  ("Final run" below).
 - **Unknown member** (an invented code, `ac.ZZ_NO_SUCH_MEMBER`): REST's HTTP 400 names it (`MemberRefused`); on
   rows it can be left out, in the POV it cannot. The provider route fails the grid without naming it.
 - **Cell budget**: EPM refuses a grid over 500 000 cells as it counts them: the grid's data rows and its two header
@@ -177,3 +177,62 @@ file's open re-run after 93c6215.
 - Wrong members, 6 requests: 2 left out (Account #3) with a warning and a caveat, what remains equal; 4 refused with
   the clear error (the request's only Entity; 1 distinct FinPlan entity, not in the rebuilt atlas either).
 - Result: all equal.
+
+## Final run, 2026-11-22 12:27-12:44 local time (11:27-11:44 UTC), at 8049f2a: passed
+
+Run by the controller from `engine/` at 8049f2a (the phase's head before its last round), read-only, without Excel:
+`scripts/compare_atlas.py <work folder> all`, whose `routes` part runs `scripts/compare_grid_routes.py grids` with
+config pointed at the atlas it rebuilt over REST (the owner's atlas untouched), and the `routes` part once more on its
+own. Both printed the same lines and exited 0 (the part took 223.5 s in the first, 227.2 s in the second). What ran:
+the grids part only - the 20 stored grids, the FinLite extra and request 02 over a lowered cell budget, the two drop
+probes and the wrong-member requests. Not run here: Part 1 (order) and the probes (the 466 637-cell split, the cell
+budget, the unknown member); their last live run is Task 3b's above.
+
+| Part | Result |
+| --- | --- |
+| Requests | 460 stored answers, all planned, 913 grid requests; 69 different, 63 fetched by the provider route (the other 6 refused by it as `svhttp.WrongMember`) |
+| Grids on both routes | 22 OK (the 21 grids and 02 over the lowered budget): all equal |
+| Drop probes | FinMax (an invented member at place 3 of 5 accounts) and FinPlan (place 6 of 12): left out, one warning, 315 and 116 facts equal to the provider route's for the request as stored |
+| Wrong members | 6 requests, all `WrongMember` on the provider route: 4 refused over REST with the clear error (the request's only Entity, one FinPlan entity, not in today's atlas); 2 left out (Account #3) with one warning and one caveat, the 3 grids without it equal (128 cells), facts equal |
+| Raw REST cells that are not numbers | 1 521 blank strings, read as empty |
+| Result | all equal |
+
+The routes lines, verbatim (the second run's; the first printed the same):
+
+```
+stored answers 460 | planned 460 | requests 913
+candidate FinPlan: provider failed (WrongMember) - not chosen
+candidate FinPlan: provider failed (WrongMember) - not chosen
+candidate FinPlan: provider failed (WrongMember) - not chosen
+candidate FinPlan: provider failed (WrongMember) - not chosen
+candidate FinPlan: provider failed (WrongMember) - not chosen
+candidate FinPlan: provider failed (WrongMember) - not chosen
+grids: 69 different requests from 460 answers, 63 fetched by the provider
+extra: the run log holds no FinLite request - the last line is a FinMax request of the run log asked on FinLite (the same members)
+probe left out FinMax: invented member at place 3 of 5 accounts | left out True | reply warnings 1 | facts 315, of them not 0 311, equal to the provider's for the request as stored True | OK
+probe left out FinPlan: invented member at place 6 of 12 accounts | left out True | reply warnings 1 | facts 116, of them not 0 113, equal to the provider's for the request as stored True | OK
+wrong members: 6 requests the provider route refused, 6 of them svhttp.WrongMember
+wrong 01 FinPlan: provider WrongMember | REST refused a member that cannot be left out: Entity, axis of 1 | clear error True | REFUSED
+wrong 02 FinPlan: provider WrongMember | REST refused a member that cannot be left out: Entity, axis of 1 | clear error True | REFUSED
+wrong 03 FinPlan: provider WrongMember | REST refused a member that cannot be left out: Entity, axis of 1 | clear error True | REFUSED
+wrong 04 FinPlan: provider WrongMember | REST refused a member that cannot be left out: Entity, axis of 1 | clear error True | REFUSED
+wrong 05 FinPlan: provider WrongMember | REST left out 1 (Account #3) | reply warnings 1 caveats 1 | without them: grids 3 equal 128 close 0 stale aliases 0 differ 0 | facts 0, equal True | rest 0.4s | OK
+wrong 06 FinPlan: provider WrongMember | REST left out 1 (Account #3) | reply warnings 1 caveats 1 | without them: grids 3 equal 128 close 0 stale aliases 0 differ 0 | facts 0, equal True | rest 0.4s | OK
+wrong members that cannot be left out: 1 distinct member(s)
+   FinPlan Entity #1: in today's atlas False
+raw REST cells that are not numbers, over the grids: {"blank str of 0 -> None (blank)": 1521}
+result: all equal
+grids OK 22, exit 0
+== routes: passed (227.2 s)
+```
+
+The commits after 8049f2a (Task 8 of the phase) change the scrub of texts (`core/logsetup.py`, which the
+provider route's error text also passes), how `xl/target._open_path` reads the workbooks of an Excel it just
+launched, one bounded retry for a file replace or delete (`core/retry.py`), the test guards, the CLI's help text and
+the docs. None touches the fetch routes (`epm/svhttp.py`, `epm/rest.py`, `data/provider.py`, `epm/epmhttp.py`), the
+name check or the atlas build (`epm/members.py`, `ops/atlas_build.py`, `knowledge/atlas.py`): `git diff --stat
+8049f2a..` over those files is empty. The scrub change rewrites less ordinary text and adds only secret-named shapes
+(a cookie list, quotes escaped by number, `device_code`); the provider's wrong-member sentence it may pass is matched
+as before. After this run both gate scripts were deleted (`scripts/compare_grid_routes.py`,
+`scripts/compare_atlas.py`); this file keeps their results and the "Final run" of docs/audit/2026-11-22-atlas-rest.md
+those of the atlas gate.
