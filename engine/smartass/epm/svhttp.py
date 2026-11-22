@@ -1,11 +1,12 @@
 """Grids over the Smart View provider's HTTP protocol - no Excel, no COM (Stage 0, 2026-10-25:
-docs/specs/2026-10-25-stage0-epm-access-probe.md). retrieve() returns what ops._query_once returns,
-(Layout, Parsed, seconds), so extract.route can use either route; the COM route stays the fallback.
+docs/specs/2026-10-25-stage0-epm-access-probe.md). retrieve() returns (Layout, Parsed, seconds); fetch() the checked
+grid unparsed (Fetched). The second engine (epm/rest.py: Planning REST, fetch_rest) is the fallback for a grid this
+route could not fetch (data/provider.py).
 
-Error contract for extract.route: InputError only for a query that is wrong whatever the route (a dimension
-used twice, no members, no row/column axis); everything else - including an incomplete or stale atlas, which COM
-does not need - is SvHttpError, so the caller falls back to Smart View in Excel. A missing sign-in (oauth.NotSignedIn)
-is the one exception: it is raised as it is and never falls back.
+Error contract: InputError only for a query that is wrong whatever the route (a dimension used twice, no members, no
+row/column axis); everything else is SvHttpError - NoFallback when the second engine would meet it as well (the same
+token, scope or atlas, or a grid EPM refuses for its members), so only the others are fetched again over REST. A
+missing sign-in (oauth.NotSignedIn) is raised as it is and never falls back.
 
 BearerTransport posts over plain HTTPS with the user's OAuth access token (epm/oauth.py; no browser) to every pod that
 has a scope, each request through the pod's epmhttp.EpmSession (its allowlist, its origin, its one new token on a
@@ -42,16 +43,40 @@ CUBES = {"FinMax": (config.SVHTTP_FINMAX_SERVER, "FinMax", "FinMax"),
 # 'Found duplicate aliases or member name conflicting with alias under parent ...' and
 # 'Duplicate name <m> found in grid; cannot resolve. Please replace it with qualified name.'
 ALIAS_CLASH = ("duplicate aliases", "qualified name")
+# A member the cube does not have where the grid puts it (live 2026-11-22, stored answers with members renamed since):
+# deterministic too, and REST refuses the same grid ('The member ... does not exist in the ... dimension').
+WRONG_MEMBER = ("Grid is Invalid", "Member name and Alias placed on", "is out of place")
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 class SvHttpError(Exception):
-    """The HTTP route could not answer; extract.route then uses Smart View in Excel."""
+    """The HTTP route could not answer; the second engine (epm/rest.py) is tried unless it is NoFallback."""
 
 
-class NoScope(SvHttpError):
+class NoFallback(SvHttpError):
+    """An error the second engine would meet as well - the same token, scope or atlas, or a grid EPM refuses for its
+    members - so the grid is not fetched again over REST: this error is the answer."""
+
+
+class NoScope(NoFallback):
     """The pod has no scope under [oauth.scopes]: no token can be asked for it (serverkit.NEXT_STEP says which scope
-    to add and where it comes from). For the home pod (epm.base) no answer works; another pod's grid falls back."""
+    to add and where it comes from). The second engine sends to the same pod with the same scope."""
+
+
+class TokenRefused(NoFallback):
+    """EPM's gate refused the access token twice (the session's one new token did not help either)."""
+
+
+class AtlasStale(NoFallback):
+    """The atlas has no dimensions for the connection, or one of them was not built, or the grid names a dimension
+    it does not have: build it (`smartass atlas build`). Both engines lay the grid out from the atlas."""
+
+
+class GridRefused(NoFallback):
+    """The provider refuses the grid for its members whatever the session: a member the cube does not have there
+    (WRONG_MEMBER: 'Grid is Invalid', a name and alias that do not match, a member out of place - REST refuses it too)
+    or an alias clash (a member name that is another member's alias: ambiguous - REST would resolve it without saying
+    which)."""
 
 
 class RequestLost(SvHttpError):
@@ -84,9 +109,9 @@ def dimensions_in(db, conn: str) -> list[str]:
     dims = atlas.known_dimensions(db, conn)              # incl. failed builds (their members are deleted)
     stale = [d for d in dims if not atlas.built(db, conn, d)]
     if not dims:
-        raise SvHttpError(f"the atlas has no dimensions for {conn}: build it with `smartass atlas build`")
+        raise AtlasStale(f"the atlas has no dimensions for {conn}: build it with `smartass atlas build`")
     if stale:
-        raise SvHttpError(f"the atlas is incomplete or stale for {conn} (dimensions {', '.join(stale)})")
+        raise AtlasStale(f"the atlas is incomplete or stale for {conn} (dimensions {', '.join(stale)})")
     return dims
 
 
@@ -103,8 +128,8 @@ def layout(conn: str, dims: list[str], pov: dict | None, rows: list[Axis], cols:
     cols = [Axis(canon(a.dimension), a.members) for a in cols]
     problems = validate_axes(dims, pov, rows, cols)
     unknown = [p for p in problems if p.startswith("unknown dimension")]
-    if unknown:                       # the atlas may lack a dimension the cube has: let COM decide
-        raise SvHttpError(f"the atlas is incomplete or stale for {conn} ({'; '.join(unknown)})")
+    if unknown:                       # the atlas may lack a dimension the cube has
+        raise AtlasStale(f"the atlas is incomplete or stale for {conn} ({'; '.join(unknown)})")
     if problems:
         raise InputError("Invalid query: " + "; ".join(problems))
     return Layout(full_pov(dims, pov, rows, cols), rows, cols)
@@ -158,17 +183,34 @@ class SvHttp:
                               "set svhttp.allow_test = true to use it")
         return base
 
+    def _base(self, conn: str) -> str:
+        """The pod of the connection's data source (base_for), one lookup at a time."""
+        server, app, _ = CUBES[conn]
+        if not self._bases_lock.acquire(timeout=config.SVHTTP_TIMEOUT_S * 2):   # behind a cold start's sign-in
+            raise SvHttpError("the HTTP route is busy looking up the EPM data sources")
+        try:
+            return self.base_for(server, app)
+        finally:
+            self._bases_lock.release()
+
+    def rest_session(self, conn: str) -> epmhttp.EpmSession:
+        """The EpmSession of the connection's pod that the grid route sends through (one cookie jar per pod): the
+        second engine (epm/rest.py) sends through it too. The pod is the data source's (base_for: a cached list
+        once it was read), checked by pod_origin; SvHttpError when it cannot be found or the transport has no
+        sessions (only the bearer route has them)."""
+        if conn not in CUBES:
+            raise SvHttpError(f"no HTTP route for connection {conn}")
+        session = getattr(self.t, "session", None)
+        if session is None:
+            raise SvHttpError("the second engine needs the bearer route's sessions")
+        return session(pod_origin(self._base(conn)))
+
     def _take(self, conn: str) -> tuple[str, str, str]:
         """(pod base, cube, sID) for ONE request: an idle session of the pool, else a new one. A session is never
         used by two requests at once: parallel grids on one sID come back wrong (2-3 of 8 corrupted, live
         2026-11-03), on their own sIDs all 8 are right."""
-        server, app, cube = CUBES[conn]
-        if not self._bases_lock.acquire(timeout=config.SVHTTP_TIMEOUT_S * 2):   # behind a cold start's sign-in
-            raise SvHttpError("the HTTP route is busy looking up the EPM data sources")
-        try:
-            base = self.base_for(server, app)
-        finally:
-            self._bases_lock.release()
+        _, app, cube = CUBES[conn]
+        base = self._base(conn)
         if not self._lock.acquire(timeout=config.SVHTTP_TIMEOUT_S):
             raise SvHttpError("the HTTP route is busy with another query")
         try:
@@ -197,6 +239,17 @@ class SvHttp:
         db = atlas.connect(self.db_path)
         try:
             return dimensions_in(db, conn)
+        finally:
+            db.close()
+
+    def fetch_rest(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis]) -> "Fetched":
+        """The same grid over the second engine (epm/rest.py: Planning REST) on the pod's session. The atlas is opened
+        here, on the calling thread (a sqlite connection belongs to the thread that opened it), and closed."""
+        from . import rest
+        session = self.rest_session(conn)
+        db = atlas.connect(self.db_path)
+        try:
+            return rest.fetch_grid(session, conn, pov, rows, cols, db)
         finally:
             db.close()
 
@@ -271,11 +324,11 @@ class SvHttp:
         return [v if isinstance(v, float) else None
                 for v in (f.values[1 + lay.nc + i][lay.nr] for i in range(len(parts)))]
 
-    def _ask(self, conn: str, body, read, fatal) -> object:
+    def _ask(self, conn: str, body, read, fatal, refused: type[SvHttpError] = SvHttpError) -> object:
         """POST body(sid, cube) on a session of its own and read(answer); at most SVHTTP_SESSIONS at once per
         connection. An error fatal(e) does not rule out (maybe an expired session) drops that session and tries
-        once more on a new one. A session whose request was lost on the way is dropped too (EPM may still be
-        working on it)."""
+        once more on a new one; a fatal one is raised at once as refused. A session whose request was lost on the
+        way is dropped too (EPM may still be working on it)."""
         slot = self._slot(conn)
         if not slot.acquire(timeout=config.SVHTTP_TIMEOUT_S):
             raise SvHttpError("the HTTP route is busy with other queries")
@@ -299,7 +352,7 @@ class SvHttp:
                         with self._lock:
                             self._bases = None                # ... and re-read where the apps live
                     if fatal(e) or attempt == 2:
-                        raise SvHttpError(f"Smart View provider: {e}") from None
+                        raise (refused if fatal(e) else SvHttpError)(f"Smart View provider: {e}") from None
                     log.info("svhttp %s: %s - reconnecting once", conn, e)
                     continue
                 self._give(conn, sid)
@@ -314,8 +367,9 @@ class SvHttp:
 
     def _execute(self, conn: str, lay: Layout) -> list[list]:
         return self._ask(conn, lambda sid, cube: svxml.execute_grid(sid, cube, lay), svxml.grid_values,
-                         lambda e: "Grid is Invalid" in str(e)        # unknown member: deterministic
-                         or any(m in str(e) for m in ALIAS_CLASH))   # alias clash: deterministic too
+                         lambda e: any(m in str(e) for m in WRONG_MEMBER)   # a member the cube lacks there
+                         or any(m in str(e) for m in ALIAS_CLASH),    # alias clash: deterministic too
+                         GridRefused)
 
 
 def _check_grid(lay: Layout, values: list[list], who: str = "the provider") -> None:
@@ -362,7 +416,7 @@ def pod_origin(base: str) -> str:
 SLOW_READ_BYTES_S = 256 << 10      # a slow but working line: the largest answer (64 MB) in 256 s
 
 
-def _timeout_s() -> float:
+def timeout_s() -> float:
     """One request's deadline for its whole answer (EpmSession reads to it). config.SVHTTP_TIMEOUT_S was urllib's
     limit per receive, so a big grid could take longer in all: the deadline is its old 90 % (the server's time to the
     first byte) plus the read of the largest answer the session takes (MAX_ANSWER_BYTES) at SLOW_READ_BYTES_S -
@@ -370,9 +424,6 @@ def _timeout_s() -> float:
     before it is RequestLost (and sent again on a new sID, see SvHttp._ask)."""
     first_byte = max(1, int(config.SVHTTP_TIMEOUT_S * 900)) / 1000
     return min(first_byte + epmhttp.MAX_ANSWER_BYTES / SLOW_READ_BYTES_S, epmhttp.MAX_TIMEOUT_S)
-
-
-AUTH_REFUSED = (301, 302, 303, 307, 401, 403)     # EPM's gate did not take the token: the request never ran
 
 
 def _provider_xml(text: str) -> bool:
@@ -390,7 +441,8 @@ class BearerTransport:
     session would quietly make any of them its pod's origin). oauth.NotSignedIn reaches the caller as it is (the tool
     call answers with the sign-in page and code), and so does oauth.NotSetUp when this PC has no [oauth] set-up at
     all; a pod without a scope, any other oauth.OAuthError and a token EPM refuses twice (the session's one new token
-    on a gate answer, AUTH_REFUSED) are SvHttpError; a request that left without a whole answer is RequestLost.
+    on a gate answer, epmhttp.GATE_STATUSES: TokenRefused) are SvHttpError; a request that left without a whole
+    answer is RequestLost.
 
     One session (one cookie jar) per pod, as a browser has: EPM opens a server session for every request that brings
     no cookie. The cookie alone does not authenticate (302 without the token). The sessions are the grid route's
@@ -420,7 +472,7 @@ class BearerTransport:
         base = pod_origin(base)                          # the only origin the bearer goes to, whatever EPM listed
         try:
             r = self.session(base).request("POST", epmhttp.SMART_VIEW, headers={"Content-Type": "text/xml"},
-                                           body=body, timeout=_timeout_s(), renew_on=AUTH_REFUSED,
+                                           body=body, timeout=timeout_s(), renew_on=epmhttp.GATE_STATUSES,
                                            renew_if=lambda r: not _provider_xml(r.text))
         except oauth.NotSignedIn:
             raise
@@ -434,8 +486,8 @@ class BearerTransport:
             raise RequestLost(f"Smart View provider at {base}: lost the request ({type(e).__name__})") from None
         if _provider_xml(r.text):
             return r.text                                # provider XML, whatever the status: svxml judges
-        if r.status in AUTH_REFUSED:                     # the session took one new token for it already
-            raise SvHttpError(f"Smart View provider at {base}: EPM refused the access token twice (HTTP {r.status})")
+        if r.status in epmhttp.GATE_STATUSES:            # the session took one new token for it already
+            raise TokenRefused(f"Smart View provider at {base}: EPM refused the access token twice (HTTP {r.status})")
         raise RequestLost(f"Smart View provider at {base}: answered HTTP {r.status} without provider XML")
 
 

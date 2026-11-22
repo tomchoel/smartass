@@ -13,7 +13,7 @@ from .grid import Layout
 ALLOWED = frozenset({"ConnectToProvider", "GetProvisionedDataSources", "OpenApplication", "OpenCube", "ExecuteGrid",
                      "EnumMembers", "GetDrillThroughReports"})     # lists drill reports; Execute... is never allowed
 CLIENT_XML_VERSION = "4.2.5.7.3"
-_SPECIAL = {"#noaccess": "#NoAccess", "#no access": "#NoAccess", "#missing": "#Missing", "#invalid": "#Invalid"}
+SPECIAL = {"#noaccess": "#NoAccess", "#no access": "#NoAccess", "#missing": "#Missing", "#invalid": "#Invalid"}
 
 
 class SvXmlError(Exception):
@@ -173,7 +173,7 @@ def data_sources(text: str) -> dict[str, list[tuple[str, str]]]:
 def _cell(v: str, t: str):
     if v == "":
         return None
-    special = _SPECIAL.get(v.strip().casefold())
+    special = SPECIAL.get(v.strip().casefold())
     if special:
         return special
     if t not in ("0", "7"):

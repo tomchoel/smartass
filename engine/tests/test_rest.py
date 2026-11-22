@@ -14,7 +14,6 @@ import pytest
 from smartass.epm import epmhttp, oauth, rest, svhttp
 from smartass.epm.grid import Axis
 from smartass.knowledge import atlas
-from smartass.model.requests import GridRequest
 from smartass.xl.host import InputError
 
 POD = "https://plan1.example"
@@ -160,7 +159,7 @@ def _slices(epm):
 # ---------------------------------------------------------------- the grid, as the provider route returns it
 def test_a_grid_comes_back_in_the_provider_routes_shape_with_its_labels(db):
     """The provider's Fetched from A1: the POV row, the column headers, the row labels (repeated) and the cells -
-    labels as Smart View shows them (the atlas's), #Missing for an empty cell, floats for numbers."""
+    labels as Smart View shows them (the atlas's), None for an empty cell (as the provider's), floats for numbers."""
     f = _grid(_Epm(), db, accounts=("ac.C30", "ac.C70", "ac.C90"))
     assert f.route == "rest" and f.warnings == [] and f.seconds >= 0
     assert [(d, m) for d, m in f.layout.pov] == [("All Balance Types", "Periodic"), ("All Currencies", "NOK"),
@@ -170,8 +169,8 @@ def test_a_grid_comes_back_in_the_provider_routes_shape_with_its_labels(db):
         [None, None, "Periodic", "NOK", "Actual"],
         [None, None, "Aug 26", "Sep 26", None],
         ["C30 REVENUES (ac)", "E1 Entity one (un.SY)", *c30, None],
-        ["C70 COSTS (ac)", "E1 Entity one (un.SY)", "#Missing", "#Missing", None],
-        ["C90 OTHER (ac)", "E1 Entity one (un.SY)", 1234.5, "#Missing", None]]
+        ["C70 COSTS (ac)", "E1 Entity one (un.SY)", None, None, None],
+        ["C90 OTHER (ac)", "E1 Entity one (un.SY)", 1234.5, None, None]]
 
 
 def test_the_request_is_oracles_grid_definition_with_rests_dimension_names(db):
@@ -213,6 +212,35 @@ def test_the_plan_types_dimension_list_is_read_once_per_pod(db):
     _grid(epm, db, s=s)
     _grid(epm, db, s=s)
     assert [m for m, _ in epm.sent] == ["GET", "POST", "POST"]
+
+
+def test_the_dimension_list_is_read_again_after_it_expires(db, monkeypatch):
+    epm = _Epm()
+    s = _session(epm)
+    now = [1000.0]
+    monkeypatch.setattr(rest, "_clock", lambda: now[0])
+    _grid(epm, db, s=s)
+    now[0] += rest.LIST_TTL_S - 1
+    _grid(epm, db, s=s)
+    assert sum(u.endswith("Default") for _, u in epm.sent) == 1
+    now[0] += 2
+    _grid(epm, db, s=s)
+    assert sum(u.endswith("Default") for _, u in epm.sent) == 2
+
+
+def test_a_list_that_no_longer_maps_is_read_again_once_not_kept(db):
+    """A dimension renamed in EPM and the atlas rebuilt: the cached list no longer maps, so it is read again."""
+    epm = _Epm()
+    s = _session(epm)
+    _grid(epm, db, s=s)
+    with db:
+        for table in ("member", "build"):
+            db.execute(f"UPDATE {table} SET dimension='Plan Scenarios' WHERE dimension='All Scenarios'")
+    epm.listed = {**LISTED, "FinMax": [(n, "Plan Scenarios" if a == "All Scenarios" else a)
+                                       for n, a in LISTED["FinMax"]]}
+    f = _grid(epm, db, s=s, pov={"Plan Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"})
+    assert f.values[2][0] == "C30 REVENUES (ac)"
+    assert sum(u.endswith("Default") for _, u in epm.sent) == 2
 
 
 # ---------------------------------------------------------------- dimension names: from the plan type's own list
@@ -288,6 +316,21 @@ def test_the_atlas_is_read_by_name_without_a_pass_over_a_dimension_when_every_na
     assert len(scans) == 1 and "'All Time Periods'" in scans[0]                # 'Aug 26' answered as Y26M08 only
 
 
+def test_a_member_kept_under_its_label_keeps_that_label_when_its_name_is_another_atlas_members(db):
+    """Live 2026-11-22: REST answered a FinPlan account asked by its label under a name the atlas holds for a member
+    with another label (the atlas derived it from that label); the provider labels the place with the asked one."""
+    atlas.store(db, "FinPlan", "Account", [{"name": "Account", "label": "Account", "parent": None, "depth": 0,
+                                            "order": 0},
+                                           {"name": "EBX Ebitda X", "label": "EBX Ebitda X", "parent": "Account",
+                                            "depth": 1, "order": 1},
+                                           {"name": "EBX", "label": "EBX Percent (pc)", "parent": "Account",
+                                            "depth": 1, "order": 2}], 1.0)
+    f = rest.fetch_grid(_session(_Epm()), "FinPlan", {"Scenario": "Target", "Version": "Final", "Years": "FY26"},
+                        [Axis("Account", ["EBX Ebitda X"]), Axis("Entity", ["1TEC Tech"])], [Axis("Period", ["Dec"])],
+                        db)
+    assert f.values[2][:2] == ["EBX Ebitda X", "1TEC Tech"] and f.warnings == []
+
+
 def test_a_member_asked_by_its_label_is_answered_under_its_name(db):
     """REST takes the label (an alias) and answers the name: that is the member asked, as the provider route sees it."""
     f = _grid(_Epm(), db, accounts=("C30 REVENUES (ac)", "ac.C70"))
@@ -298,7 +341,7 @@ def test_a_member_asked_by_its_label_is_answered_under_its_name(db):
 
 
 def test_a_member_the_atlas_does_not_know_keeps_its_name_and_adds_one_warning(db, monkeypatch):
-    monkeypatch.setattr(rest, "MAX_CELLS", 2)                                 # the member in two requests
+    monkeypatch.setattr(rest, "MAX_CELLS", 4)                                 # the member in two requests
     f = _grid(_Epm(), db, accounts=("ac.C30",), entities=("un.SY.E1", "un.SY.E9"))
     assert [r[:2] for r in f.values[2:]] == [["C30 REVENUES (ac)", "E1 Entity one (un.SY)"], ["C30 REVENUES (ac)",
                                                                                             "un.SY.E9"]]
@@ -307,7 +350,8 @@ def test_a_member_the_atlas_does_not_know_keeps_its_name_and_adds_one_warning(db
 
 # ---------------------------------------------------------------- numbers and missing cells
 @pytest.mark.parametrize("cell, want", [
-    ("", "#Missing"), (" ", "#Missing"), ("#Missing", "#Missing"), ("#missing", "#Missing"), (None, "#Missing"),
+    ("", None), (" ", None), (None, None),       # live: REST's "" where the provider's Fetched holds None
+    ("#Missing", "#Missing"), ("#missing", "#Missing"),
     ("#NoAccess", "#NoAccess"), ("#Invalid", "#Invalid"),
     ("1234.5", 1234.5), ("-0.1", -0.1), ("1e3", 1000.0), (" 42 ", 42.0), (7, 7.0), (0.30000000000000004, 0.30000000000000004),
     ("123456789.12345678", 123456789.12345678), ("0.1", 0.1),
@@ -326,9 +370,11 @@ def test_a_cell_that_is_not_a_number_or_a_label_fails_the_grid(db, cell):
 
 # ---------------------------------------------------------------- the cell budget: split along rows, stitched
 def test_a_grid_over_the_cell_budget_is_split_along_rows_and_stitched(db, monkeypatch):
+    """Cells as EPM counts them (live 2026-11-22: 'Error Threshold: 500000, Current Value: 588028' for 42 000 rows of
+    2 member headers and 12 cells): a row is its member headers and its data cells - here 2 + 2."""
     accounts, entities = ("ac.C30", "ac.C70", "ac.C90"), ("un.SY.E1", "un.SY.E2")
     whole = _grid(_Epm(), db, accounts=accounts, entities=entities)
-    for cells, requests in ((4, 3), (2, 6), (12, 1), (8, 2)):
+    for cells, requests in ((8, 3), (4, 6), (24, 1), (16, 2)):
         monkeypatch.setattr(rest, "MAX_CELLS", cells)
         epm = _Epm()
         f = _grid(epm, db, accounts=accounts, entities=entities)
@@ -337,15 +383,63 @@ def test_a_grid_over_the_cell_budget_is_split_along_rows_and_stitched(db, monkey
         assert len(sent) == requests
         for b in sent:
             (seg,) = b["gridDefinition"]["rows"]
-            assert len(list(product(*seg["members"]))) * 2 <= cells
+            assert len(list(product(*seg["members"]))) * 4 <= cells
 
 
-def test_the_default_cell_budget_is_100_000():
-    assert rest.MAX_CELLS == 100_000
+def test_a_grid_of_exactly_the_cell_budget_is_one_request_and_one_row_more_is_two(db, monkeypatch):
+    accounts, entities = ("ac.C30", "ac.C70", "ac.C90"), ("un.SY.E1", "un.SY.E2")
+    monkeypatch.setattr(rest, "MAX_CELLS", 24)                     # 6 rows of 2 headers and 2 cells
+    epm = _Epm()
+    _grid(epm, db, accounts=accounts, entities=entities)
+    assert len(_slices(epm)) == 1
+    monkeypatch.setattr(rest, "MAX_CELLS", 23)
+    epm = _Epm()
+    _grid(epm, db, accounts=accounts, entities=entities)
+    assert len(_slices(epm)) == 2
+
+
+def test_a_split_grid_whose_middle_request_fails_is_no_grid_at_all(db, monkeypatch):
+    monkeypatch.setattr(rest, "MAX_CELLS", 4)                      # a row is 2 headers and 2 cells
+    n = []
+
+    def answer(path, body):
+        if path.endswith("exportdataslice"):
+            n.append(1)
+            if len(n) == 2:
+                return 500, "{}"
+    epm = _Epm(answer=answer)
+    with pytest.raises(rest.RestError, match="HTTP 500"):
+        _grid(epm, db, accounts=("ac.C30", "ac.C70", "ac.C90"))
+    assert len(_slices(epm)) == 2                                   # the third is never asked
+
+
+def test_a_request_body_over_the_size_cap_is_split_further_not_refused(db, monkeypatch):
+    accounts, entities = ("ac.C30", "ac.C70", "ac.C90"), ("un.SY.E1", "un.SY.E2")
+    whole = _grid(_Epm(), db, accounts=accounts, entities=entities)
+    one = _Epm()
+    _grid(one, db, accounts=accounts[:1], entities=entities)
+    cap = len(json.dumps(_slices(one)[0]).encode()) + 5             # one account's request, not two
+    monkeypatch.setattr(epmhttp, "MAX_BODY_BYTES", cap)
+    epm = _Epm()
+    f = _grid(epm, db, accounts=accounts, entities=entities)
+    assert f.values == whole.values and len(_slices(epm)) == 3
+    assert all(len(json.dumps(b).encode()) <= cap for b in _slices(epm))
+
+
+def test_one_row_whose_request_is_over_the_size_cap_is_an_error_before_anything_is_sent(db, monkeypatch):
+    monkeypatch.setattr(epmhttp, "MAX_BODY_BYTES", 100)
+    epm = _Epm()
+    with pytest.raises(rest.RestError, match="over the .* bytes a request takes"):
+        _grid(epm, db, accounts=("ac.C30",), entities=("un.SY.E1",))
+    assert _slices(epm) == []
+
+
+def test_the_cell_budget_is_half_epms_threshold():
+    assert rest.MAX_CELLS * 2 == rest.EPM_CELL_THRESHOLD == 500_000
 
 
 def test_one_row_over_the_cell_budget_is_an_error_not_a_bigger_request(db, monkeypatch):
-    monkeypatch.setattr(rest, "MAX_CELLS", 1)
+    monkeypatch.setattr(rest, "MAX_CELLS", 3)                      # a row is 4
     epm = _Epm()
     with pytest.raises(rest.RestError, match="cell budget"):
         _grid(epm, db)
@@ -353,7 +447,7 @@ def test_one_row_over_the_cell_budget_is_an_error_not_a_bigger_request(db, monke
 
 
 def test_split_requests_that_disagree_on_the_columns_fail_the_grid(db, monkeypatch):
-    monkeypatch.setattr(rest, "MAX_CELLS", 2)
+    monkeypatch.setattr(rest, "MAX_CELLS", 4)
     n = []
 
     def answer(path, body):
@@ -362,7 +456,7 @@ def test_split_requests_that_disagree_on_the_columns_fail_the_grid(db, monkeypat
             if len(n) == 2:
                 return 200, json.dumps({"pov": ["BalanceTypes", "NOK", "Actual"], "columns": [["Y26M07", "Y26M09"]],
                                         "rows": [{"headers": ["ac.C70", "un.SY.E1"], "data": ["1", "2"]}]})
-    with pytest.raises(rest.RestError):
+    with pytest.raises(rest.RestError, match="answered different POV or column members"):
         _grid(_Epm(answer=answer), db, pov={"All Scenarios": "Actual", "All Currencies": "NOK"})
 
 
@@ -408,6 +502,18 @@ def test_a_pov_member_answered_as_another_is_caught_where_it_can_be(db, pov, at)
         _grid(_Epm(answer=answer), db, pov=pov)
 
 
+def test_a_pov_member_the_atlas_keeps_under_its_real_name_answered_as_another_is_caught(db):
+    def answer(path, body):
+        if path.endswith("exportdataslice"):
+            status, text = _Epm()._slice(body)
+            j = json.loads(text)
+            j["pov"] = ["un.SY.E2" if m == "un.SY.E1" else m for m in j["pov"]]
+            return status, json.dumps(j)
+    with pytest.raises(rest.RestError, match="different layout.*un.SY.E1 answered as un.SY.E2"):
+        rest.fetch_grid(_session(_Epm(answer=answer)), "FinMax", {"All Entities": "un.SY.E1"},
+                        [Axis("All Accounts", ["ac.C30"])], [Axis("All Time Periods", ["Sep 26"])], db)
+
+
 def test_columns_moved_among_real_names_are_caught(db):
     def answer(path, body):
         if path.endswith("exportdataslice"):
@@ -432,6 +538,17 @@ def test_rows_moved_among_members_the_atlas_keeps_under_their_labels_are_caught_
                                                                    "Years": "FY26"},
                         [Axis("Account", ["EBX Ebitda X"]), Axis("Entity", ["1TEC Tech", "2BUS Biz"])],
                         [Axis("Period", ["Dec"])], db)
+
+
+@pytest.mark.parametrize("accounts, periods", [(("ac.C30", "ac.C70", "ac.C30"), ("Sep 26",)),
+                                               (("ac.C30",), ("Sep 26", "Aug 26", "sep 26"))])
+def test_a_member_asked_twice_on_an_axis_is_refused_before_anything_is_sent(db, accounts, periods):
+    """Live 2026-11-22: REST answers a member asked twice once (984 rows for 1 000 asked, 16 of them twice), where the
+    provider repeats it; rest.py refuses such a grid before it is sent rather than answer another shape."""
+    epm = _Epm()
+    with pytest.raises(rest.RestError, match="asked twice"):
+        _grid(epm, db, accounts=accounts, periods=periods)
+    assert _slices(epm) == []
 
 
 def test_more_than_one_column_dimension_is_refused_until_its_answer_shape_is_seen(db):
@@ -491,6 +608,27 @@ def test_a_401_takes_the_sessions_one_new_token(db):
     assert f.values[2][0] == "C30 REVENUES (ac)" and s._tokens.asked == [None, None, "at-1"]
 
 
+@pytest.mark.parametrize("status", [302, 403])
+def test_a_gates_answer_takes_the_sessions_one_new_token_as_on_the_provider_route(db, status):
+    calls = []
+
+    def answer(path, body):
+        if path.endswith("exportdataslice"):
+            calls.append(1)
+            return (status, "<html/>") if len(calls) == 1 else None
+    epm = _Epm(answer=answer)
+    s = _session(epm, "at-1", "at-1", "at-2")
+    assert _grid(epm, db, s=s).values[2][0] == "C30 REVENUES (ac)" and s._tokens.asked == [None, None, "at-1"]
+
+
+@pytest.mark.parametrize("status", [401, 302, 403])
+def test_a_token_a_gate_refuses_twice_is_the_token_refused_error(db, status):
+    epm = _Epm(answer=_fails(status, ""))
+    with pytest.raises(svhttp.TokenRefused, match=f"refused the access token twice \\(HTTP {status}\\)") as e:
+        _grid(epm, db, s=_session(epm, "at-1", "at-2", "at-3"))
+    assert isinstance(e.value, rest.RestError) and len(_slices(epm)) == 2
+
+
 def test_a_token_refused_twice_is_an_error_after_two_sends(db):
     epm = _Epm(answer=_fails(401, ""))
     with pytest.raises(rest.RestError, match="refused the access token twice \\(HTTP 401\\)"):
@@ -506,7 +644,7 @@ def test_a_404_on_the_plan_type_is_a_configuration_error(db):
 
 
 @pytest.mark.parametrize("status", [403, 302, 500, 503])
-def test_another_status_is_an_error_naming_it(db, status):
+def test_another_status_is_an_error_naming_it(db, status):     # a gate's 302 / 403 after its one new token too
     with pytest.raises(rest.RestError, match=f"HTTP {status}"):
         _grid(_Epm(answer=_fails(status, "<html/>")), db)
 
@@ -538,14 +676,3 @@ def test_no_sign_in_reaches_the_caller_as_it_is(db):
     assert epm.sent == []
 
 
-# ---------------------------------------------------------------- a GridRequest
-def test_a_grid_request_is_its_grids_one_per_finplan_year(db):
-    """GridRequest -> the grids the provider route fetches for it (data.provider._grids): FinPlan one per year."""
-    epm = _Epm(cell=lambda row, col, pov: 1.0)
-    req = GridRequest("fp", "FinPlan", ("EBX Ebitda X",), ("1TEC Tech",), ("Dec 25", "Jan 26"), "Target", "Final")
-    got = rest.fetch(_session(epm), req, db)
-    assert [dict(f.layout.pov)["Years"] for f in got] == ["FY25", "FY26"]
-    assert [f.layout.col_tuples for f in got] == [[("Dec",)], [("Jan",)]] and all(f.route == "rest" for f in got)
-    fm = rest.fetch(_session(_Epm()), GridRequest("fm", "FinMax", ("ac.C30",), ("un.SY.E1",), ("Sep 26",),
-                                                  "Actual", "", "Periodic"), db)
-    assert len(fm) == 1 and fm[0].values[2][:2] == ["C30 REVENUES (ac)", "E1 Entity one (un.SY)"]

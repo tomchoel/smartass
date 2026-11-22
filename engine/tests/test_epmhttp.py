@@ -857,7 +857,8 @@ def test_an_exportdataslice_grid_and_a_dimension_list_are_sent(make):
     s.request("GET", "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinPlan/dimensions?aliasTableName=Default")
     s.request("POST", SLICE, headers={"Content-Type": "application/json; charset=utf-8"}, body=json.dumps(_grid(
         pov={"dimensions": [], "members": []}, suppressMissingBlocks=True,
-        rows=[{"dimensions": ["Accounts"], "members": [["ac.A"]]}, {"dimensions": ["Accounts"], "members": [["ac.B"]]}])))
+        rows=[{"dimensions": ["Accounts"], "members": [["ac.A", "C30 REVENUES (ac)", "X99 Margin % (pc)"]]},
+              {"dimensions": ["Accounts"], "members": [["ac.B"]]}])))           # a label with brackets is a name
     assert [(r.get_method(), r.full_url) for r in op.sent] == [
         ("POST", POD + "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/exportdataslice"),
         ("POST", POD + "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinLite/exportdataslice"),
@@ -885,6 +886,8 @@ def test_an_exportdataslice_grid_and_a_dimension_list_are_sent(make):
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/dimensions"),         # its one query item
     ("GET", DIMS.replace("Default", "Other")), ("GET", DIMS + "&aliasTableName=Default"),
     ("GET", DIMS + "&limit=-1"), ("GET", DIMS + "&q=%7B%7D"), ("GET", DIMS.replace("Default", "%44efault")),
+    ("GET", DIMS.replace("Default", "default")), ("GET", DIMS.replace("Default", "DefaultX")),       # the value as sent
+    ("GET", DIMS.replace("=Default", "=")), ("GET", DIMS.replace("=Default", "")),
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/dimensions/Accounts?aliasTableName=Default"),
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax?aliasTableName=Default"),
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes"),
@@ -928,6 +931,13 @@ def test_a_rest_request_takes_no_header_but_a_json_content_type(make, headers):
 
 
 _BAD_SEG = {"dimensions": ["Accounts"], "members": [["ac.A"]]}
+# Oracle's member functions (a grid smartass builds names its members; GridRequest holds names only): refused, in any
+# case and with a space before the bracket; '@' starts an Essbase function. No atlas member has either form (live
+# 2026-11-22: 0 of 376 485 names and labels).
+FUNCTIONS = ["ILvl0Descendants(Accounts)", "Descendants(ac.A)", "IDescendants(ac.A)", "Children(ac.A)",
+             "IChildren(ac.A)", "Lvl0Descendants(ac.A)", "Ancestors(ac.A)", "IAncestors(ac.A)", "Siblings(ac.A)",
+             "ISiblings(ac.A)", "Parent(ac.A)", "IParent(ac.A)", "Relative(ac.A, 0)", "UDA(Accounts, x)",
+             "children (ac.A)", " ILVL0DESCENDANTS( Accounts )", "@Relative(ac.A, 0)", "@ac.A", "Foo(ac.A)"]
 
 
 @pytest.mark.parametrize("body", [
@@ -956,6 +966,9 @@ _BAD_SEG = {"dimensions": ["Accounts"], "members": [["ac.A"]]}
     json.dumps(_grid(rows=[{"dimensions": [""], "members": [["ac.A"]]}])),
     json.dumps(_grid(rows=[{"dimensions": ["Accounts"], "members": [["ac.A\n"]]}])),
     json.dumps(_grid(pov={"dimensions": ["Scenarios"], "members": [["Actual", "Budget"]]})),      # one POV member
+    *[json.dumps(_grid(rows=[{"dimensions": ["Accounts"], "members": [[f]]}])) for f in FUNCTIONS],   # member functions
+    json.dumps(_grid(columns=[{"dimensions": ["TimePeriods"], "members": [["Children(Q3 26)"]]}])),
+    json.dumps(_grid(pov={"dimensions": ["Scenarios"], "members": [["@Relative(Actual, 0)"]]})),
     '{"exportPlanningData": false, "exportPlanningData": true, "gridDefinition": {}}',          # a key twice
     json.dumps(_grid()).replace('"rows"', '"rows": [], "rows"', 1),
 ])

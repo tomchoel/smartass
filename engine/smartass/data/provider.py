@@ -1,16 +1,21 @@
-"""Provider over v1's Smart View HTTP route (svhttp.SvHttp, read-only, ~0.2 s per grid once signed in).
+"""Provider over the Smart View provider's HTTP route (svhttp.SvHttp, read-only, ~0.2 s per grid once signed in).
 FinMax/FinLite: rows Accounts x Entities, columns Time Periods ('Sep 26'), POV scenario, NOK, balance.
 FinPlan: rows Account x Entity, columns Period ('Sep'), POV Scenario, Version, Years ('FY26'), balance - one grid
 per year, periods relabelled to 'Sep 26'. A request with products adds 'All Products' (the dimension's name in all
 three cubes) as a third row dimension. #Missing gives no fact (missing is never zero); #NoAccess / #Invalid
-give a warning and no fact. The ad hoc Excel fallback arrives in Plan 1C."""
+give a warning and no fact.
+
+A request the provider route could not fetch is fetched once over the second engine (epm/rest.py, Planning REST:
+svhttp.SvHttp.fetch_rest), the same grids parsed the same way - unless its error is one REST would meet as well
+(svhttp.NoFallback: the token, the scope, the atlas, a grid EPM refuses for its members) or a missing sign-in. Its
+FetchResult says route "rest" and why (fallback: the provider route's error)."""
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
 
-from ..epm.grid import Axis
-from ..epm.svhttp import SvHttpError
+from ..epm.grid import Axis, parse as parse_grid
+from ..epm.svhttp import NoFallback, SvHttpError
 
 from ..model.frame import Fact
 from ..model.periods import Month, parse
@@ -28,10 +33,11 @@ class FetchResult:
     warnings: list[str] = field(default_factory=list)
     route: str = "http"
     seconds: float = 0.0
+    fallback: str = ""          # route "rest": the provider route's error that sent the request to the second engine
 
 
-def _grids(req: GridRequest) -> list[tuple[dict, list[Axis], list[Axis], dict[str, str]]]:
-    """(pov, rows, cols, {column member: 'Sep 26' label}) per grid."""
+def grids(req: GridRequest) -> list[tuple[dict, list[Axis], list[Axis], dict[str, str]]]:
+    """(pov, rows, cols, {column member: 'Sep 26' label}) per grid, as both engines fetch them."""
     if req.cube == "FinPlan":
         by_year: dict[str, list[str]] = {}
         for p in req.periods:
@@ -56,7 +62,7 @@ def _products(req: GridRequest) -> list[Axis]:
 
 
 def facts_from_parsed(req: GridRequest, parsed, labels: dict[str, str]) -> tuple[list[Fact], list[str]]:
-    """Facts and warnings from one parsed grid (grid.parse output), the same for the HTTP and the ad hoc route.
+    """Facts and warnings from one parsed grid (grid.parse output), the same for both engines.
     #Missing (None) gives no fact; an error cell gives a warning and no fact."""
     facts: list[Fact] = []
     warnings: list[str] = []
@@ -99,14 +105,33 @@ class SvHttpProvider:
         return self.sv.retrieve(*args)
 
     def fetch(self, req: GridRequest) -> FetchResult:
-        out = FetchResult(req)
         t0 = time.monotonic()
-        for pov, rows, cols, labels in _grids(req):
-            _, parsed, _ = self._retrieve(out, req.cube, pov, rows, cols, False, False)
-            facts, warns = facts_from_parsed(req, parsed, labels)
-            out.facts += facts
-            out.warnings += warns
+        try:
+            out = FetchResult(req)
+            for pov, rows, cols, labels in grids(req):
+                _, parsed, _ = self._retrieve(out, req.cube, pov, rows, cols, False, False)
+                facts, warns = facts_from_parsed(req, parsed, labels)
+                out.facts += facts
+                out.warnings += warns
+        except NoFallback:
+            raise
+        except SvHttpError as e:
+            out = self._over_rest(req, e)
         out.seconds = time.monotonic() - t0
+        return out
+
+    def _over_rest(self, req: GridRequest, first: SvHttpError) -> FetchResult:
+        """The request's grids over the second engine, once; if it cannot fetch them either, the provider route's
+        error with REST's after it."""
+        out = FetchResult(req, route="rest", fallback=str(first))
+        try:
+            for pov, rows, cols, labels in grids(req):
+                f = self.sv.fetch_rest(req.cube, pov, rows, cols)
+                facts, warns = facts_from_parsed(req, parse_grid(f.layout, f.values, False, False), labels)
+                out.facts += facts
+                out.warnings += f.warnings + warns
+        except SvHttpError as e:
+            raise SvHttpError(f"{first} - the second engine (Planning REST) could not fetch it either: {e}") from None
         return out
 
     def closed_months(self) -> dict[str, Month]:

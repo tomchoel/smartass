@@ -99,6 +99,12 @@ SLICE_GRID_KEYS = frozenset({"suppressMissingBlocks", "suppressMissingRows", "su
                              "rows"})
 SLICE_AXIS_KEYS = frozenset({"dimensions", "members"})
 _SLICE_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,255}")   # a dimension or member name: no control character
+# Oracle's member functions (Children(x), ILvl0Descendants(x) ...) and Essbase's @-functions: a grid smartass builds
+# names its members (GridRequest holds names; no atlas member has either form, live 2026-11-22), so a member that
+# reads as a function - '@...', a word right before a bracket, or a function's name before one - is refused.
+_SLICE_FUNCTION = re.compile(r"\s*(?:@|[A-Za-z_]\w*\(|(?:I?L?R?Siblings|I?Children|I?Descendants|I?Ancestors|I?Parents?"
+                             r"|I?Lvl0Descendants|Level0Descendants|Relative|UDA|Attribute|Generation|Level|Match"
+                             r"|Range)\s*\()", re.I)
 # Statement words that write or administer: never a word of a drill query (outside strings, quoted names, comments)
 SQL_WRITES = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE",
                         "EXEC", "EXECUTE", "CALL", "BEGIN", "COMMIT", "DECLARE"})
@@ -115,7 +121,7 @@ MAX_ANSWER_BYTES = 64 << 20                             # a 5000-line getData pa
 MAX_TIMEOUT_S = 600.0
 # A gate's answers: EPM did not take the token, so the request never ran and may go once more with a new one. A 200
 # or a 500 did run (sending it again would run it twice): request() refuses a renew_on outside these.
-GATE_STATUSES = frozenset({301, 302, 303, 307, 401, 403})
+GATE_STATUSES = (301, 302, 303, 307, 401, 403)        # a tuple: renew_on takes one (svhttp, rest)
 _URL = re.compile(r"[\x21-\x7e]+")                      # printable ASCII: urlsplit drops tab and line breaks silently
 _NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")      # an HTTP header name (RFC 9110 token)
 _VALUE = re.compile(r"[\x20-\x7e]*")                    # no line break: http.client would quote the value in its error
@@ -362,9 +368,11 @@ def _json_object(shown: str, body: str):
 def _slice_grid(j) -> bool:
     """One exportdataslice grid: exportPlanningData false (no supporting detail or comments), the three suppress
     flags as booleans, a POV with one member per dimension, and at least one column and one row segment - each a
-    list of dimension names with one non-empty member list per dimension. Nothing else, at any level."""
+    list of dimension names with one non-empty member list per dimension; no name is a member function. Nothing
+    else, at any level."""
     def names(xs) -> bool:
-        return isinstance(xs, list) and all(isinstance(x, str) and _SLICE_NAME.fullmatch(x) for x in xs)
+        return isinstance(xs, list) and all(isinstance(x, str) and _SLICE_NAME.fullmatch(x)
+                                            and not _SLICE_FUNCTION.match(x) for x in xs)
 
     def segment(s, pov: bool = False) -> bool:
         if not isinstance(s, dict) or set(s) != SLICE_AXIS_KEYS:

@@ -3,7 +3,7 @@ Excel (v1 excel/adhoc.pull, which needs Smart View and the bridge), parsed by th
 temporary sheet removed. Runs as one user-Excel job; a grid that fails here is a warning, never a crash."""
 from __future__ import annotations
 
-from .provider import FetchResult, _grids, facts_from_parsed
+from .provider import FetchResult, grids, facts_from_parsed
 
 
 def _target(h, target):
@@ -32,7 +32,7 @@ def adhoc_fetch(h, reqs, target: str) -> dict:
     out: dict = {}
     for req in reqs:
         res = FetchResult(req, route="adhoc")
-        for pov, rows, cols, labels in _grids(req):
+        for pov, rows, cols, labels in grids(req):
             try:
                 p = _pull(h, t, q, req.cube, pov, rows, cols)
             except Exception as e:   # noqa: BLE001 - one grid failing must not stop the others

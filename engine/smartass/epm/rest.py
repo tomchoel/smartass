@@ -1,8 +1,9 @@
 """The second engine: one grid over Oracle's documented Planning REST API - POST
 /HyperionPlanning/rest/v3/applications/{app}/plantypes/{cube}/exportdataslice (a read: it exports a slice) through the
 pod's epmhttp.EpmSession - returned as the provider route's Fetched (the same layout, labels and cells), so everything
-after the fetch is unchanged. Nothing calls it yet: it is the fallback for a grid the provider route could not fetch
-(phase 2, Task 3).
+after the fetch is unchanged. It is the fallback for a grid the provider route could not fetch
+(svhttp.SvHttp.fetch_rest, data/provider.py); live 2026-11-22 it equalled the provider route cell for cell on 20
+grids of the run log (docs/audit/2026-11-21-rest-vs-provider.md).
 
 What differs from the provider, and how it is made the same (live 2026-11-21, read-only, one-cell grids on plan1 and
 stratmodel, compared with the provider route by key paths, types and booleans only):
@@ -12,20 +13,28 @@ stratmodel, compared with the provider route by key paths, types and booleans on
   every atlas dimension is its alias or its name there (map_dimensions); one it does not list is an error naming it;
 - members: REST takes a member by name or alias and answers its NAME. The atlas keeps Smart View's labels and, where
   a label has no 'code alias (prefix)' form ('Sep 26', 'Periodic', FinPlan's members), the label as the name - REST
-  then answers a name the atlas does not know ('Y26M09'). Each label is the atlas's: of the member REST answered,
-  else of the member asked for at that place (REST resolved the spelling the atlas keeps); else the name is kept and
-  one warning says so. A top member is sent and answered under its dimension's REST name;
-- cells: numbers come as text and are read with float(), as svxml reads the provider's; an empty cell ("" or " " in
-  Oracle's documentation) is "#Missing", as the provider shows it with missingLabelText #Missing;
-- no suppression: every row and column asked comes back, in the order asked (the provider route suppresses nothing
-  either - grid.parse does). The answer must be exactly the grid asked for (_answer, _matrix), then the provider
-  route's own layout check runs (svhttp.check_layout);
-- a grid over MAX_CELLS is split along its rows into requests of at most MAX_CELLS cells, stitched in order.
+  then answers a name the atlas does not know ('Y26M09'). Each label is the atlas's: of the member asked for at that
+  place (REST resolved the spelling the atlas keeps - its answered name may even be one the atlas holds for another
+  member, live), else of the member REST answered; else the name is kept and one warning says so. A top member is
+  sent and answered under its dimension's REST name. For a member the atlas keeps under its label the place is the
+  only link between label and number, so the order matters: REST answers rows and columns in the order asked (live
+  2026-11-22: three such members asked against outline order on rows and on columns, per application, each read
+  alone first for its name, cell for cell the provider route's answer);
+- cells: numbers come as text and are read with float(), as svxml reads the provider's; an empty cell ("" live, " "
+  in Oracle's documentation) is None, as the provider route's Fetched holds a blank (live 2026-11-22: every missing
+  cell of 20 grids is "" over REST and None from the provider);
+- no suppression: every row and column asked comes back (the provider route suppresses nothing either - grid.parse
+  does). The answer must be exactly the grid asked for (_answer, _matrix), then the provider route's own layout check
+  runs (svhttp.check_layout);
+- a grid over MAX_CELLS (cells as EPM counts them: a row's member headers and its data cells) is split along its rows
+  into requests of at most MAX_CELLS cells (and bodies within the rule's size cap, epmhttp.MAX_BODY_BYTES), stitched
+  in order; EPM itself refuses a request over 500 000 (live).
 
 Errors are svhttp.SvHttpError (RestError): EPM refusing the grid (HTTP 400, Oracle's message scrubbed), a 404 on the
-plan type (NotConfigured), an answer that is not the grid asked for. A 401 is the session's one new token; a lost
-request is svhttp.RequestLost; oauth.NotSignedIn reaches the caller as it is; a query wrong on every route is
-InputError, as on the provider route."""
+plan type (NotConfigured), an answer that is not the grid asked for. A gate's answer (401, 3xx, 403:
+epmhttp.GATE_STATUSES, as on the provider route) is the session's one new token, then TokenRefused; a lost request is
+svhttp.RequestLost; oauth.NotSignedIn reaches the caller as it is; a query wrong on every route is InputError and a
+stale atlas svhttp.AtlasStale, as on the provider route."""
 from __future__ import annotations
 
 import json
@@ -33,6 +42,7 @@ import math
 import re
 import threading
 import time
+from collections import Counter
 
 from . import epmhttp, oauth, svhttp, svxml
 from .drillcore import redact
@@ -40,9 +50,12 @@ from .grid import Axis, Layout, name_from_label
 from .svhttp import Fetched, SvHttpError
 
 ROUTE = "rest"
-# Cells per request. No cap is documented (the Apache-2.0 pbj-pbcs-client pages big grids the same way); the live
-# probe sent one-cell grids only, so this default is not yet confirmed live (Task 3's comparison has a split grid).
-MAX_CELLS = 100_000
+# Cells per request as EPM counts them: a row is its member headers and its data cells. EPM refuses a grid over its
+# threshold with HTTP 400 ('Unable to load the form as the number of cells exceeded the threshold ... Error
+# Threshold: 500000', live 2026-11-22; 466 000 counted cells answered in 5.7 s, 2.8 MB): a request takes half of it.
+EPM_CELL_THRESHOLD = 500_000
+MAX_CELLS = EPM_CELL_THRESHOLD // 2
+LIST_TTL_S = 3600.0                                   # a plan type's dimension list is read again after an hour
 MAX_MESSAGE = 300                                     # characters of Oracle's message in an error text
 _JWT = re.compile(r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
 
@@ -59,21 +72,21 @@ class RequestLost(RestError, svhttp.RequestLost):
     """The request left and no whole answer came (it is a read: a caller may send it again)."""
 
 
-_listed: dict[tuple[str, str, str], list[tuple]] = {}   # (pod, app, cube) -> the plan type's (name, alias, type)
+class TokenRefused(RestError, svhttp.TokenRefused):
+    """EPM's gate refused the access token twice (the session's one new token did not help)."""
+
+
+# (pod, app, cube) -> (when read, the plan type's (name, alias, type)): read again after LIST_TTL_S, or at once when it
+# no longer maps the atlas's dimensions (a dimension renamed in EPM needs no restart)
+_listed: dict[tuple[str, str, str], tuple[float, list[tuple]]] = {}
 _listed_lock = threading.Lock()
-
-
-def fetch(session: epmhttp.EpmSession, request, atlas_db) -> list[Fetched]:
-    """A GridRequest's grids over REST, as the provider route fetches them (data.provider._grids: one grid, or one
-    per year for FinPlan), in that order. atlas_db: an open atlas.db (knowledge.atlas.connect)."""
-    from ..data.provider import _grids
-    return [fetch_grid(session, request.cube, pov, rows, cols, atlas_db) for pov, rows, cols, _ in _grids(request)]
+_clock = time.monotonic
 
 
 def fetch_grid(session: epmhttp.EpmSession, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis],
                atlas_db) -> Fetched:
     """One grid over REST - the arguments and the answer of svhttp.SvHttp.fetch - on the session of the
-    connection's pod."""
+    connection's pod. atlas_db: an open atlas.db (knowledge.atlas.connect) of the calling thread."""
     if conn not in svhttp.CUBES:
         raise RestError(f"no REST route for connection {conn}")
     t0 = time.monotonic()
@@ -82,15 +95,19 @@ def fetch_grid(session: epmhttp.EpmSession, conn: str, pov: dict | None, rows: l
     lay = svhttp.layout(conn, dims, pov, rows, cols)
     if lay.nc != 1:                                   # every grid smartass asks has one; Oracle's shape for more unseen
         raise RestError(f"a REST grid takes one column dimension, not {lay.nc}")
+    for a in lay.rows + lay.cols:                     # live: REST answers a member asked twice once
+        twice = [m for m, n in Counter(m.casefold() for m in a.members).items() if n > 1]
+        if twice:
+            raise RestError(f"{a.dimension} member {twice[0]} is asked twice: Planning REST answers it once")
     names = _rest_dimensions(session, conn, app, cube, dims)
-    per_row = len(lay.col_tuples)
+    per_row = lay.nr + len(lay.col_tuples)            # as EPM counts a row: its member headers and its cells
     if per_row > MAX_CELLS:
         raise RestError(f"one row of {per_row} cells is over the cell budget of a REST request ({MAX_CELLS})")
     got_pov = got_cols = None
     heads: list[list[str]] = []
     data: list[list] = []
-    for part in _split(lay.rows, MAX_CELLS // per_row):
-        p, c, h, d = _answer(_post(session, app, cube, _body(lay, part, names)), lay, part)
+    for part, body in _requests(lay, names, MAX_CELLS // per_row):
+        p, c, h, d = _answer(_post(session, app, cube, body), lay, part)
         if got_pov is not None and (p, c) != (got_pov, got_cols):
             raise RestError("the REST requests of one grid answered different POV or column members")
         got_pov, got_cols = p, c
@@ -126,26 +143,57 @@ def map_dimensions(conn: str, dims: list[str], listed: list[tuple]) -> dict[str,
 
 
 def _rest_dimensions(session, conn: str, app: str, cube: str, dims: list[str]) -> dict[str, str]:
+    """The atlas's dimensions mapped to the plan type's REST names, from its list - cached, read again once it is
+    LIST_TTL_S old, and at once (once) when the cached one no longer maps."""
     key = (session.origin, app, cube)
     with _listed_lock:
-        listed = _listed.get(key)
-    if listed is None:
-        r = _send(session, "GET", epmhttp.dimension_list(app, cube) + "?aliasTableName=Default", None, app, cube)
-        j = _json(r.text)
-        items = j.get("items") if isinstance(j, dict) else None
-        if not isinstance(items, list) or not all(isinstance(it, dict) and isinstance(it.get("name"), str)
-                                                  for it in items):
-            raise RestError("not a Planning REST dimension list")
-        if j.get("hasMore"):
-            raise RestError(f"Planning REST lists more than {len(items)} dimensions for {app}/{cube} (one page)")
-        listed = [(it["name"], it.get("alias") if isinstance(it.get("alias"), str) else None, it.get("dimType"))
-                  for it in items]
-        with _listed_lock:
-            _listed[key] = listed
+        read_at, listed = _listed.get(key, (None, None))
+    if listed is not None and _clock() - read_at < LIST_TTL_S:
+        try:
+            return map_dimensions(conn, dims, listed)
+        except RestError:                             # renamed in EPM since it was read: read it again
+            with _listed_lock:
+                _listed.pop(key, None)
+    listed = _read_list(session, app, cube)
+    with _listed_lock:
+        _listed[key] = (_clock(), listed)
     return map_dimensions(conn, dims, listed)
 
 
+def _read_list(session, app: str, cube: str) -> list[tuple]:
+    """The plan type's dimensions as (name, Default alias, type), one page."""
+    r = _send(session, "GET", epmhttp.dimension_list(app, cube) + "?aliasTableName=Default", None, app, cube)
+    j = _json(r.text)
+    items = j.get("items") if isinstance(j, dict) else None
+    if not isinstance(items, list) or not all(isinstance(it, dict) and isinstance(it.get("name"), str)
+                                              for it in items):
+        raise RestError("not a Planning REST dimension list")
+    if j.get("hasMore"):
+        raise RestError(f"Planning REST lists more than {len(items)} dimensions for {app}/{cube} (one page)")
+    return [(it["name"], it.get("alias") if isinstance(it.get("alias"), str) else None, it.get("dimType"))
+            for it in items]
+
+
 # ---------------------------------------------------------------- the request
+def _requests(lay: Layout, names: dict[str, str], most: int) -> list[tuple[list[Axis], str]]:
+    """(row axes, JSON body) of each request, in the grid's row order: at most 'most' rows each (_split), and a body
+    within the rule's size cap (epmhttp.MAX_BODY_BYTES) - a part whose body is over it is cut in two along its rows.
+    All are built before the first is sent; one row whose body is over the cap is an error."""
+    out: list[tuple[list[Axis], str]] = []
+    todo = _split(lay.rows, most)[::-1]
+    while todo:
+        part = todo.pop()
+        body = json.dumps(_body(lay, part, names))
+        if len(body.encode("utf-8")) <= epmhttp.MAX_BODY_BYTES:
+            out.append((part, body))
+            continue
+        n = math.prod(len(a.members) for a in part)
+        if n == 1:
+            raise RestError(f"one row's request is over the {epmhttp.MAX_BODY_BYTES} bytes a request takes")
+        todo += _split(part, (n + 1) // 2)[::-1]
+    return out
+
+
 def _split(rows: list[Axis], most: int) -> list[list[Axis]]:
     """The row axes as cross products of at most 'most' rows each, in the grid's row order: the outermost axis is
     cut into runs; where one of its members is still too many rows, its inner axes are cut the same way."""
@@ -175,16 +223,17 @@ def _body(lay: Layout, rows: list[Axis], names: dict[str, str]) -> dict:
         "columns": [segment(lay.cols)], "rows": [segment(rows)]}}
 
 
-def _post(session, app: str, cube: str, body: dict):
-    return _json(_send(session, "POST", epmhttp.export_slice(app, cube), json.dumps(body), app, cube).text)
+def _post(session, app: str, cube: str, body: str):
+    return _json(_send(session, "POST", epmhttp.export_slice(app, cube), body, app, cube).text)
 
 
 def _send(session, method: str, url: str, body: str | None, app: str, cube: str):
-    """One request through the session; its answer when HTTP 200, else the error for its status."""
+    """One request through the session; its answer when HTTP 200, else the error for its status. A gate's answer
+    takes the session's one new token, as on the provider route."""
     where = f"Planning REST at {session.origin}"
     try:
         r = session.request(method, url, headers={"Content-Type": "application/json"} if body is not None else None,
-                            body=body, timeout=svhttp._timeout_s())
+                            body=body, timeout=svhttp.timeout_s(), renew_on=epmhttp.GATE_STATUSES)
     except oauth.NotSignedIn:
         raise
     except oauth.OAuthError as e:
@@ -200,8 +249,8 @@ def _send(session, method: str, url: str, body: str | None, app: str, cube: str)
         return r
     if r.status == 400:
         raise RestError(f"{where} refused the grid (HTTP 400): {_message(r.text)}")
-    if r.status == 401:                               # the session took one new token for it already
-        raise RestError(f"{where}: EPM refused the access token twice (HTTP 401)")
+    if r.status in epmhttp.GATE_STATUSES:             # the session took one new token for it already
+        raise TokenRefused(f"{where}: EPM refused the access token twice (HTTP {r.status})")
     if r.status == 404:
         raise NotConfigured(f"{where} has no plan type {cube} in application {app} (HTTP 404): check the "
                             "application and plan type names (svhttp.CUBES) and the data source's pod")
@@ -258,18 +307,18 @@ def _answer(j, lay: Layout, rows: list[Axis]) -> tuple[list[str], list[str], lis
 
 
 def _cell(v):
-    """A REST cell as the provider route's Fetched holds it: a float, "#Missing" (blank), Smart View's label
-    (#NoAccess, #Invalid), or the text itself - which the layout check refuses as non-numeric data."""
+    """A REST cell as the provider route's Fetched holds it: a float, None (an empty cell, svxml's blank), Smart View's
+    label (#Missing, #NoAccess, #Invalid), or the text itself - which the layout check refuses as non-numeric data."""
     if v is None:
-        return "#Missing"
+        return None
     if isinstance(v, bool) or not isinstance(v, (str, int, float)):
         return json.dumps(v)
     if isinstance(v, (int, float)):
         return float(v) if math.isfinite(v) else str(v)
     s = v.strip()
     if not s:
-        return "#Missing"
-    special = svxml._SPECIAL.get(s.casefold())
+        return None
+    special = svxml.SPECIAL.get(s.casefold())
     if special:
         return special
     try:
@@ -305,7 +354,8 @@ def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], c
     """The provider's matrix from A1 with the atlas's labels for the names REST answered, and the warnings. Each
     place's name must be the member asked there: exactly that name where the atlas keeps the member under its real
     name (its label is 'code alias (prefix)') or for a top member; elsewhere (the atlas keeps the label as the name)
-    one member asked is always one name answered, and two members two names. Otherwise RestError."""
+    one member asked is always one name answered, and two members two names - and the place itself ties label and
+    number, so REST must answer in the order asked (live: it does). Otherwise RestError."""
     places: dict[str, list[tuple[str, str]]] = {}     # dimension -> [(asked, answered), ...] in grid order
     for (d, m), got in zip(lay.pov, pov):
         places.setdefault(d, []).append((m, got))
@@ -328,10 +378,10 @@ def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], c
                     raise RestError(f"Planning REST returned a different layout than requested: {d} {asked} "
                                     f"answered as {got}")
                 label[d, asked, got] = known[1] if known else d
-            elif hit := by_name.get(got.casefold()):
-                label[d, asked, got] = hit[1]
             elif known:                               # REST resolved the label the atlas keeps as the name
                 label[d, asked, got] = known[1]
+            elif hit := by_name.get(got.casefold()):  # asked in a spelling the atlas does not keep
+                label[d, asked, got] = hit[1]
             else:
                 label[d, asked, got] = got
                 warnings.append(f"{conn}: the atlas has no label for {d} member {got} (kept as its name)")

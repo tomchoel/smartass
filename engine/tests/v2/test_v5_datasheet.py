@@ -68,6 +68,13 @@ def test_route_names_the_ad_hoc_fallback_and_failed_grids():
     assert dict(header_rows(3, pre.spec, pre, WHEN, "tom"))["Route"].endswith("HTTP failed for 1 grid(s)")
 
 
+def test_route_names_the_second_engine():
+    pre = _pre()
+    first = next(iter(pre.fetched))
+    pre.fetched[first] = type(pre.fetched[first])(first, [], [], "rest")
+    assert dict(header_rows(3, pre.spec, pre, WHEN, "tom"))["Route"] == "HTTP + Planning REST"
+
+
 def test_control_total_is_the_static_sum_beside_live_formulas():
     pre, h = _header()
     r, tol = _row(h, "Control total"), _row(h, "Tolerance (NOK)")

@@ -541,6 +541,46 @@ def test_a_lost_request_goes_again_on_a_new_session_and_the_old_one_is_dropped(d
 
 
 
+def test_the_errors_the_second_engine_would_meet_as_well_are_no_fallback(db_path, tmp_path):
+    """A stale atlas, a grid EPM refuses for its members (Grid is Invalid, an alias clash), a pod without a scope and a
+    token refused twice are svhttp.NoFallback: the provider's error is the answer, REST is not tried."""
+    clash = ('<exception errcode="1000" type="error"><desc>Found duplicate aliases or member name conflicting with '
+             'alias under parent x.</desc></exception>')
+    # live 2026-11-22, a member the cube no longer has (REST: 'The member ... does not exist in the Entity dimension')
+    mismatch = ('<exception errcode="1000" type="error"><desc>Member name and Alias placed on row 3 do not match.'
+                '</desc></exception>')
+    out_of_place = '<exception errcode="1000" type="error"><desc>Member x is out of place.</desc></exception>'
+    for body in (INVALID, clash, mismatch, out_of_place):
+        t = FakeTransport(body, answer(GRID))
+        with pytest.raises(svhttp.GridRefused) as e:
+            _q(_sv(t, db_path))
+        assert isinstance(e.value, svhttp.NoFallback) and t.tags().count("ExecuteGrid") == 1      # no reconnect
+    with pytest.raises(svhttp.AtlasStale):
+        _q(_sv(FakeTransport(), tmp_path / "empty.db"))
+    with pytest.raises(svhttp.AtlasStale):
+        _sv(FakeTransport(), db_path).retrieve("FinMax", {"All Bogus": "x"}, [Axis("All Accounts", ["a"])],
+                                              [Axis("All Time Periods", ["p"])], True, False)
+    assert issubclass(svhttp.NoScope, svhttp.NoFallback) and issubclass(svhttp.TokenRefused, svhttp.NoFallback)
+    for t in (FakeTransport(EXPIRED, EXPIRED), FakeTransport(answer(SHIFTED))):     # what a new route may fix
+        with pytest.raises(svhttp.SvHttpError) as e:
+            _q(_sv(t, db_path))
+        assert not isinstance(e.value, svhttp.NoFallback)
+
+
+def test_the_second_engine_sends_through_the_grid_routes_session_of_the_cubes_pod(db_path):
+    t = svhttp.BearerTransport(tokens=_Tokens("at-1"), opener=_Wire(lambda *a: (200, SOURCES)))
+    sv = _sv(t, db_path)
+    assert sv.rest_session("FinPlan") is t.session("https://strat.example")
+    assert sv.rest_session("FinLite") is sv.rest_session("FinMax") is t.session("https://plan1.example")
+    with pytest.raises(svhttp.SvHttpError, match="no HTTP route"):
+        sv.rest_session("Vision")
+    with pytest.raises(svhttp.SvHttpError, match="the bearer route's sessions"):
+        _sv(FakeTransport(), db_path).rest_session("FinMax")
+    empty = svhttp.BearerTransport(tokens=_Tokens("at-1"), opener=_Wire(lambda *a: (200, NO_SOURCES)))
+    with pytest.raises(svhttp.SvHttpError, match="no Smart View data source"):
+        _sv(empty, db_path).rest_session("FinMax")
+
+
 def test_an_alias_clash_does_not_spend_a_reconnect(db_path):
     """FinPlan's 'Duplicate name ... qualified name' is deterministic: cards_fetch.grid splits the chunk itself."""
     clash = ('<exception errcode="1000" type="error"><desc>Duplicate name oWUKONORGE WUKONORGE Elim found in grid; '

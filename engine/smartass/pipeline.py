@@ -37,7 +37,7 @@ class Prepared:
     routes: dict[str, int] = field(default_factory=dict)
     fetch_seconds: float = 0.0
     aggregation: dict[str, str] = field(default_factory=dict)
-    failed: list[GridRequest] = field(default_factory=list)          # grids the HTTP route could not fetch
+    failed: list[GridRequest] = field(default_factory=list)          # grids neither engine could fetch
     failed_errors: list[str] = field(default_factory=list)
     fetched: dict = field(default_factory=dict)       # GridRequest -> FetchResult the HTTP route fetched (reused by the fallback round)
     caveats: list[dict] = field(default_factory=list)  # {id, text, severity} of the facts the answer touched
@@ -94,6 +94,10 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     routes: dict[str, int] = {}
     for g in got:
         routes[g.route] = routes.get(g.route, 0) + 1
+    second = [g for g in got if g.route == "rest"]
+    if second:                          # one warning, however many grids: the reply's routes count them
+        warnings.append(f"{len(second)} grid(s) were fetched over Planning REST, the second engine: the Smart View "
+                        f"provider route could not fetch them ({second[0].fallback})")
     result = compute(spec, resolver, closed, frame)
     aggregation = {m: resolver.aggregation(m) for q in spec.queries for m in q.metrics}
     return Prepared(spec, raw, closed, reqs, frame, result, warnings, routes, sum(g.seconds for g in got),
