@@ -318,9 +318,9 @@ class SvHttp:
         return {"cube_value": val if isinstance(val, float) else None,
                 "url": got[1] if got else None, "report": got[0] if got else None}
 
-    def child_values(self, conn: str, parts: list[dict]) -> list | None:
-        """drill_split.child_values_on over HTTP: the parts differ in one dimension - one column retrieve,
-        float or None per part (None for the whole list when they differ in nothing)."""
+    def child_values(self, conn: str, parts: list[dict], rest: bool = False) -> list | None:
+        """A drill split's children's cube values: the parts differ in one dimension - one column grid, float or
+        None per part (None for the whole list when they differ in nothing); rest: over the second engine."""
         from .ops import DRILL_DEFAULTS
         first = parts[0]
         dim = next((k for k in first if any(p.get(k) != first[k] for p in parts)), None)
@@ -328,7 +328,8 @@ class SvHttp:
             return None
         col = "All Time Periods" if dim != "All Time Periods" else "All Accounts"
         pov = {**DRILL_DEFAULTS, **{k: v for k, v in first.items() if k not in (dim, col)}}
-        f = self.fetch(conn, pov, [Axis(dim, [p[dim] for p in parts])], [Axis(col, [first[col]])])
+        f = (self.fetch_rest if rest else self.fetch)(conn, pov, [Axis(dim, [p[dim] for p in parts])],
+                                                     [Axis(col, [first[col]])])
         lay = f.layout
         return [v if isinstance(v, float) else None
                 for v in (f.values[1 + lay.nc + i][lay.nr] for i in range(len(parts)))]

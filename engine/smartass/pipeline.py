@@ -37,9 +37,9 @@ class Prepared:
     routes: dict[str, int] = field(default_factory=dict)
     fetch_seconds: float = 0.0
     aggregation: dict[str, str] = field(default_factory=dict)
-    failed: list[GridRequest] = field(default_factory=list)          # grids neither engine could fetch
+    failed: list[GridRequest] = field(default_factory=list)          # grids neither engine could fetch (warned)
     failed_errors: list[str] = field(default_factory=list)
-    fetched: dict = field(default_factory=dict)       # GridRequest -> FetchResult the HTTP route fetched (reused by the fallback round)
+    fetched: dict = field(default_factory=dict)       # GridRequest -> FetchResult (its route, what was left out)
     caveats: list[dict] = field(default_factory=list)  # {id, text, severity} of the facts the answer touched
 
 
@@ -78,7 +78,7 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     def fetch_one(req):
         try:
             return provider.fetch(req), None
-        except SvHttpError as e:        # only the HTTP route's failure; a wrong member (InputError) is wrong on every route
+        except SvHttpError as e:        # neither engine could fetch it: a warning; InputError is wrong on every route
             return None, str(e)
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as ex:
@@ -90,7 +90,9 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     frame.lines = dict(lines)
     warnings = [w for g in got for w in g.warnings]
     if failed:
-        warnings.append(f"{len(failed)} grid(s) could not be fetched over HTTP: {'; '.join(failed_errors[:3])}")
+        warnings.append(f"{len(failed)} grid(s) could not be fetched (the Smart View provider route, then Planning "
+                        f"REST): {'; '.join(failed_errors[:3])}" + (f" (and {len(failed) - 3} more)" if len(failed) > 3
+                                                                    else ""))
     routes: dict[str, int] = {}
     for g in got:
         routes[g.route] = routes.get(g.route, 0) + 1

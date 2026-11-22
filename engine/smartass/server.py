@@ -18,8 +18,6 @@ from .core.timing import COM_PREFIX
 from .core import serverkit as kit
 from .xl.host import InputError
 
-from .data.adhoc import adhoc_fetch
-from .data.provider import ComboProvider
 from .epm.oauth import NotSignedIn
 from .followup import find_question, merge_patch, v2_questions
 from .model.chain import restore_chain
@@ -176,11 +174,11 @@ def _has_lines(raw: dict) -> bool:
 async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target: str = "session",
                    complete: bool = False):
     """(Prepared, drill warnings). A stored or patched raw spec with lines blocks is re-drilled, so lines are fresh.
-    Grids neither engine could fetch (the provider route, then Planning REST: data/provider.py) are pulled as ad hoc
-    grids in the user's Excel (one job), then the model is prepared again with those results fixed; this fallback
-    runs at most once. complete (new questions and follow-up
+    Every grid is fetched over HTTP (the provider route, then Planning REST: data/provider.py); one neither engine
+    could fetch is a warning (Prepared.failed) - no Excel is asked for a grid. complete (new questions and follow-up
     patches, not fin_refresh): the P&L chain is completed in the spec (pipeline.prepare), and the completed spec is
-    what gets stored."""
+    what gets stored. target: no longer used here (the Excel fallback that pulled into it is gone); kept so its
+    callers (fin_analyze, fin_refresh, scripts/bench_answers.py) keep their calls."""
     with runlog.span("prepare"):
         notes: list[str] = []
         kw = {"complete": True} if complete else {}
@@ -194,12 +192,6 @@ async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target
                 runlog.add({f"drills.{k}": v for k, v in drilltime.take().items()})
         with runlog.span("prepare.fetch"):
             pre = await asyncio.to_thread(run_prepare, raw, provider, lines=lines, **kw)
-        failed = getattr(pre, "failed", None)
-        if failed:
-            fixed = await _user(lambda h: adhoc_fetch(h, failed, target), "ad hoc fallback")
-            with runlog.span("prepare.fetch"):
-                pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, {**pre.fetched, **fixed}),
-                                              lines=lines, **kw)
     return pre, notes
 
 

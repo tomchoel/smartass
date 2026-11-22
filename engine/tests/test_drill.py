@@ -369,27 +369,29 @@ def test_server_lines_of_normalises_each_piece_once(monkeypatch):
 
 # ------------------------------------------------------------------ final review round
 def _drill_fakes(monkeypatch, links: dict, totals: dict, kids: dict, split_at: int = 600):
-    """Fake Smart View links, a fake line fetch and a fake atlas for server._drill_cell."""
+    """Fake drill links (the HTTP route), a fake line fetch and a fake atlas for server._drill_cell; the split
+    children's values are not read (None: every child is linked)."""
     from smartass.core import config
-    from smartass.epm import drill_split, ops
+    from smartass.epm import drill_split
     from smartass.epm import drillstep as server
     from smartass.epm.drillcore import TooManyLines
     asked = []
 
-    async def fake_call(fn, timeout=None, what="call"):
-        return fn(None)
-
-    def fake_link(h, conn, cell):
+    def fake_link(conn, cell):
         asked.append(cell["All Time Periods"])
         return links[cell["All Time Periods"]]
+
+    async def no_values(connection, parts):
+        return None
 
     async def fake_fetch(url, max_lines):
         n = totals[url]
         if n > max_lines:
             raise TooManyLines(n)
         return {"items": [{"AMOUNTX": "-1"}] * n, "total": n, "view": {"v": 1}, "secs": 0}
-    monkeypatch.setattr(server, "_call", fake_call)
-    monkeypatch.setattr(ops, "drill_link", fake_link)
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+    monkeypatch.setattr(server, "_http_link", fake_link)
+    monkeypatch.setattr(server, "_child_values", no_values)
     monkeypatch.setattr(server, "_drill_fetch", fake_fetch)
     monkeypatch.setattr(config, "DRILL_SPLIT_AT", split_at)
     monkeypatch.setattr(drill_split, "atlas_children", lambda conn: lambda dim, m: kids.get(m, []))
@@ -466,23 +468,24 @@ def test_drill_cell_mixed_piece_without_drill_report(monkeypatch):
 def test_drill_cell_too_wide_splits_by_entity_and_skips_empty(monkeypatch):
     """EPMFDM-140373 on a top entity: drill its child entities (not periods); #Missing children are skipped."""
     import asyncio
-    from smartass.epm import drill_split, ops
+    from smartass.epm import drill_split
     from smartass.epm import drillstep as server
     from smartass.epm.drillcore import CellTooWide
     links = {"un.SY": {"url": "sy", "cube_value": -161.0}, "un.SY.2SSM": {"url": "ssm", "cube_value": -98.0},
              "un.SY.2I15": {"url": "i15", "cube_value": -63.0}, "un.SY.2CON": {"url": "con", "cube_value": None}}
     fetched = []
 
-    async def fake_call(fn, timeout=None, what="call"):
-        return fn(None)
+    async def no_values(connection, parts):
+        return None
 
     async def fake_fetch(url, max_lines):
         fetched.append(url)
         if url == "sy":
             raise CellTooWide("EPMFDM-140373: more than 3 dimensions have more than 1000 child members")
         return {"items": [{"AMOUNTX": "-1"}], "total": 1, "view": {"v": 1}, "secs": 0}
-    monkeypatch.setattr(server, "_call", fake_call)
-    monkeypatch.setattr(ops, "drill_link", lambda h, conn, cell: links[cell["All Entities"]])
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+    monkeypatch.setattr(server, "_http_link", lambda conn, cell: links[cell["All Entities"]])
+    monkeypatch.setattr(server, "_child_values", no_values)
     monkeypatch.setattr(server, "_drill_fetch", fake_fetch)
     monkeypatch.setattr(drill_split, "_too_wide", set())
     kids = {"Q3 26": ["Sep 26"], "un.SY": ["un.SY.2SSM", "un.SY.2I15", "un.SY.2CON"]}
@@ -525,43 +528,16 @@ def test_split_links_only_the_children_with_a_value(monkeypatch):
     assert [p.get("note") for p in pieces] == [None, "empty cell (skipped)", None]
 
 
-def test_child_values_reads_one_retrieve_in_order():
-    from types import SimpleNamespace
-
-    from smartass.epm import drill_split, ops
-    seen = {}
-
-    def query(h, conn, pov, rows, cols, sm, sz):
-        seen.update(pov=pov, rows=(rows[0].dimension, rows[0].members), cols=(cols[0].dimension, cols[0].members))
-        return SimpleNamespace(nr=1, nc=1), None, 0.1
-    cells = {"B3": -1.5, "B4": None, "B5": 0.0}                  # row 1 POV, row 2 header, data from 2+nc
-    ws = SimpleNamespace(Range=lambda a: SimpleNamespace(Value=cells[a.replace("$", "")]))
-    h = SimpleNamespace(wb=SimpleNamespace(Worksheets=lambda s: ws))
-    parts = [{**_CELL, "All Time Periods": m} for m in ("Jul 26", "Aug 26", "Sep 26")]
-    mp = pytest.MonkeyPatch()
-    mp.setattr(ops, "query", query)
-    mp.setattr(ops, "ensure_grid_sheet", lambda h, conn: "g")
-    try:
-        assert drill_split.child_values_on(h, "FinLite", parts) == [-1.5, None, 0.0]
-    finally:
-        mp.undo()
-    assert seen["rows"] == ("All Time Periods", ["Jul 26", "Aug 26", "Sep 26"])
-    assert seen["cols"] == ("All Accounts", ["ac.C40S"]) and seen["pov"]["All Entities"] == "un.SY.2WHS"
-
-
 def test_drill_cell_too_wide_on_a_leaf_is_a_readable_error(monkeypatch):
     import asyncio
-    from smartass.epm import drill_split, ops
+    from smartass.epm import drill_split
     from smartass.epm import drillstep as server
     from smartass.epm.drillcore import CellTooWide
 
-    async def fake_call(fn, timeout=None, what="call"):
-        return fn(None)
-
     async def fake_fetch(url, max_lines):
         raise CellTooWide("EPMFDM-140373")
-    monkeypatch.setattr(server, "_call", fake_call)
-    monkeypatch.setattr(ops, "drill_link", lambda h, conn, cell: {"url": "x", "cube_value": -1.0})
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+    monkeypatch.setattr(server, "_http_link", lambda conn, cell: {"url": "x", "cube_value": -1.0})
     monkeypatch.setattr(server, "_drill_fetch", fake_fetch)
     monkeypatch.setattr(drill_split, "atlas_children", lambda conn: lambda dim, m: [])
     with pytest.raises(server.ToolError, match="too wide"):
@@ -694,23 +670,75 @@ def test_drill_link_uses_http_and_never_excel(monkeypatch):
     assert asyncio.run(server._link("FinLite", _CELL)) == {"url": "u", "cube_value": -1.0, "report": "r"}
 
 
-def test_drill_link_falls_back_to_excel_and_logs(monkeypatch, caplog):
+def test_a_drill_link_the_http_route_cannot_fetch_is_a_clear_error_never_excel(monkeypatch):
+    """Planning REST has no drill-report request: there is no second route for the drill link."""
     import asyncio
-    from smartass.epm import ops, svhttp
+    from smartass.epm import svhttp
     from smartass.epm import drillstep as server
     monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
 
     def broken(conn, cell):
-        raise svhttp.SvHttpError("session gone")
+        raise svhttp.SvHttpError("Smart View provider: session gone")
     monkeypatch.setattr(server, "_http_link", broken)
-    monkeypatch.setattr(ops, "drill_link", lambda h, conn, cell: {"url": "x", "cube_value": -2.0, "report": "r"})
 
-    async def fake_call(fn, what="call"):
-        return fn(None)
-    monkeypatch.setattr(server, "_call", fake_call)
-    with caplog.at_level("WARNING"):
-        assert asyncio.run(server._link("FinLite", _CELL))["url"] == "x"
-    assert "using Smart View in Excel" in caplog.text
+    async def no_excel(fn, what="call"):
+        raise AssertionError("Excel was used")
+    monkeypatch.setattr(server, "_call", no_excel)
+    with pytest.raises(server.ToolError, match="drill link .* could not be fetched.*session gone.*no other route"):
+        asyncio.run(server._link("FinLite", _CELL))
+
+
+def test_with_the_http_route_switched_off_the_drill_link_says_so(monkeypatch):
+    import asyncio
+    from smartass.epm import drillstep as server
+
+    async def no_excel(fn, what="call"):
+        raise AssertionError("Excel was used")
+    monkeypatch.setattr(server, "_call", no_excel)
+    monkeypatch.setattr(server, "_http_link", lambda conn, cell: pytest.fail("the HTTP route is off"))
+    with pytest.raises(server.ToolError, match="switched off.*SV_TEST_NO_HTTP_DRILL"):
+        asyncio.run(server._link("FinLite", _CELL))
+
+
+def test_split_values_come_over_rest_when_the_provider_route_cannot_read_them(monkeypatch):
+    import asyncio
+    from smartass.epm import svhttp
+    from smartass.epm import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+    asked = []
+
+    class Routes:
+        def child_values(self, conn, parts, rest=False):
+            asked.append(rest)
+            if not rest:
+                raise svhttp.SvHttpError("Smart View provider: session gone")
+            return [-1.0, None]
+    monkeypatch.setattr(svhttp, "shared", Routes)
+
+    async def no_excel(fn, what="call"):
+        raise AssertionError("Excel was used")
+    monkeypatch.setattr(server, "_call", no_excel)
+    parts = [_CELL, {**_CELL, "All Time Periods": "Aug 26"}]
+    assert asyncio.run(server._child_values("FinLite", parts)) == [-1.0, None] and asked == [False, True]
+
+
+def test_split_values_neither_route_can_read_are_none_and_every_child_is_linked(monkeypatch):
+    import asyncio
+    from smartass.epm import svhttp
+    from smartass.epm import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+
+    class Broken:
+        def child_values(self, conn, parts, rest=False):
+            raise svhttp.SvHttpError("down")
+    monkeypatch.setattr(svhttp, "shared", Broken)
+
+    async def no_excel(fn, what="call"):
+        raise AssertionError("Excel was used")
+    monkeypatch.setattr(server, "_call", no_excel)
+    assert asyncio.run(server._child_values("FinLite", [_CELL, {**_CELL, "All Time Periods": "Aug 26"}])) is None
+    monkeypatch.setenv("SV_TEST_NO_HTTP_DRILL", "1")                     # the HTTP route off: not read at all
+    assert asyncio.run(server._child_values("FinLite", [_CELL, {**_CELL, "All Time Periods": "Aug 26"}])) is None
 
 
 def test_a_drill_link_without_a_sign_in_is_raised_not_sent_to_excel(monkeypatch):     # Review Focus 4
@@ -737,7 +765,7 @@ def test_split_values_without_a_sign_in_are_raised_not_sent_to_excel(monkeypatch
     monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
 
     class NoSignIn:
-        def child_values(self, *a):
+        def child_values(self, *a, **k):
             raise oauth.NotSignedIn("not signed in")
     monkeypatch.setattr(svhttp, "shared", NoSignIn)
 

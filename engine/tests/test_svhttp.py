@@ -461,6 +461,20 @@ def test_child_values_one_column(lite_db):
     assert t.tags().count("ExecuteGrid") == 1
 
 
+def test_child_values_over_rest_ask_the_same_one_column_grid_of_the_second_engine(lite_db, monkeypatch):
+    sv = _sv(FakeTransport(), lite_db)
+    asked = []
+
+    def fetch_rest(conn, pov, rows, cols):
+        asked.append((conn, rows[0].dimension, rows[0].members, cols[0].members))
+        lay = svhttp.layout(conn, FINLITE_DIMS, pov, rows, cols)
+        return svhttp.Fetched(lay, [[None] * 5, [None] * 5, ["x", -3.0], ["y", None]], 0.0, "rest")
+    monkeypatch.setattr(sv, "fetch_rest", fetch_rest)
+    monkeypatch.setattr(sv, "fetch", lambda *a: pytest.fail("the provider route"))
+    assert sv.child_values("FinLite", PARTS, rest=True) == [-3.0, None]
+    assert asked == [("FinLite", "All Entities", ["un.SY.2TEC", "un.SY.2BUS"], ["Sep 26"])]
+
+
 def test_child_values_none_when_parts_do_not_differ(lite_db):
     assert _sv(FakeTransport(), lite_db).child_values("FinLite", [PARTS[0], dict(PARTS[0])]) is None
 

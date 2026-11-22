@@ -59,11 +59,9 @@ def test_finplan_query_lists_scenario_and_version_per_series_and_the_ytd_span():
     assert v["Periods"] == "Jan 26 – Sep 26 (closed-ytd)"
 
 
-def test_route_names_the_ad_hoc_fallback_and_failed_grids():
+def test_route_names_failed_grids():
     pre = _pre()
     first = next(iter(pre.fetched))
-    pre.fetched[first] = type(pre.fetched[first])(first, [], [], "adhoc")
-    assert dict(header_rows(3, pre.spec, pre, WHEN, "tom"))["Route"] == "HTTP + Smart View ad hoc"
     pre.failed = [first]
     assert dict(header_rows(3, pre.spec, pre, WHEN, "tom"))["Route"].endswith("HTTP failed for 1 grid(s)")
 

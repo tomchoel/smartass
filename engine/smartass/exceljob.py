@@ -60,7 +60,7 @@ def _new_book() -> tuple | None:
 
 def _save_spec(t, q: int, raw: dict, b, rows) -> bool:
     """The spec recorded into the close-out batch b, in _svmeta's row for Q<q> (rows: sheets.SpecRows from the look;
-    the hidden sheet made first when there is none, as save_meta makes it): True when it is made. No drawn range is
+    the hidden sheet made first when there is none): True when it is made. No drawn range is
     stored: a follow-up replaces the question's sheets whole."""
     from .xl import sheets
     return sheets.save_spec(t, q, {"v2": raw}, ids={}, create=True, b=b, rows=rows)

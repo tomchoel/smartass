@@ -98,16 +98,6 @@ def park_sheets(t: target.Target, names: list[str]) -> dict[str, str]:
     return parked
 
 
-def drop_parked(t: target.Target, parked: dict[str, str]) -> None:
-    prev = jobs.com(lambda: t.app.DisplayAlerts, check=False)
-    jobs.com(lambda: setattr(t.app, "DisplayAlerts", False), check=False)
-    try:
-        for tmp in parked:
-            jobs.com(lambda tmp=tmp: t.wb.Worksheets(tmp).Delete(), check=False)
-    finally:
-        jobs.com(lambda: setattr(t.app, "DisplayAlerts", prev), check=False)
-
-
 def restore_parked(t: target.Target, parked: dict[str, str]) -> None:
     for tmp, orig in parked.items():
         if _sheet_exists(t, tmp) and not _sheet_exists(t, orig):
@@ -176,44 +166,12 @@ class Pull:
     positional: bool = False  # labels not unique -> formulas reference cells by position
 
 
-# Grid options forced on every data sheet: the layout is mapped by POSITION, so Smart View must not drop rows/columns
-# (the user's own defaults may suppress missing/zero/no-access rows - that would silently shift every label).
-DATA_SHEET_OPTIONS = {5: 0, 6: False, 7: False, 9: False, 41: False, 42: False, 43: False, 44: False,
-                      13: "#NumericZero", 14: "#NoAccess", 30: True}
-
-
 META_SHEET = "_svmeta"
-
-
-def save_meta(t: target.Target, p: "Pull", extra: dict | None = None) -> None:
-    """Persist the pull's layout in a hidden sheet, so answers can be (re)built after a server restart."""
-    if not _sheet_exists(t, META_SHEET):
-        ws = jobs.com(lambda: t.wb.Worksheets.Add(None, t.wb.Worksheets(t.wb.Worksheets.Count)))   # positional: see add_sheet
-        jobs.com(lambda: _name_hidden(ws, META_SHEET))
-    ws, r = jobs.com(lambda: _next_row(t.wb.Worksheets(META_SHEET)))
-    blob = json.dumps({"connection": p.connection, "pov": p.layout.pov,
-                       "rows": [[a.dimension, a.members] for a in p.layout.rows],
-                       "cols": [[a.dimension, a.members] for a in p.layout.cols],
-                       "warnings": [w for w in p.parsed.pov_problems if w.startswith("Smart View rejected")],
-                       **(extra or {})},
-                      ensure_ascii=False)
-    chunks = [blob[i:i + 30000] for i in range(0, len(blob), 30000)]   # a cell holds max 32 767 characters
-    row = ("'" + p.sheet, *("'" + c for c in chunks))         # name + blob chunks: one row, one write
-    if any(len(c) > 8000 for c in chunks):                    # long cells: one write each (an array write may truncate)
-        for i, v in enumerate(row, 1):
-            jobs.com(lambda i=i, v=v: setattr(ws.Cells(r, i), "Value", v))
-    else:
-        jobs.com(lambda: setattr(ws.Range(ws.Cells(r, 1), ws.Cells(r, len(row))), "Value", (row,)))
 
 
 def _name_hidden(ws, name: str) -> None:
     ws.Name = name
     ws.Visible = 0                                      # xlSheetHidden
-
-
-def _next_row(ws) -> tuple:
-    """(ws, the first empty row below column A's last value): one COM call."""
-    return ws, ws.Cells(ws.Rows.Count, 1).End(-4162).Row + 1
 
 
 SPEC_CHUNK = 30000                                      # a cell holds max 32 767 characters
@@ -345,12 +303,6 @@ def load_pulls(t: target.Target, q: int) -> dict:
         parsed.pov_problems[:0] = meta.get("warnings", [])
         out[sheet] = _make_pull(sheet, meta["connection"], lay, parsed, 0.0)
     return out
-
-
-def fte_rows(lay: Layout, parsed) -> list[int]:
-    """Sheet rows (1-based) of FTE / man-year lines: they are styled as decimals, not NOK."""
-    return [2 + lay.nc + i for i, labs in enumerate(parsed.row_labels)
-            if any(isinstance(x, str) and ("STA" in x or "man-years" in x.lower()) for x in labs)]
 
 
 def _make_pull(name, connection, lay, parsed, secs) -> "Pull":

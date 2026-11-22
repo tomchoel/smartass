@@ -25,7 +25,7 @@ _OURS = re.compile(r"^Q(\d+) (Answer|Data|FinMax|FinLite|FinPlan|Lines)(?: (.+))
 _RANK = {"Data": -1, "FinMax": 0, "FinLite": 1, "FinPlan": 2, "Lines": 3}   # v2 Q<n> Data before the pulls
 SOURCES = ("Sources", "Sources SV")
 ANSWER_TAB = 0x64381F          # TN navy (BGR of #1F3864), as answer.answer_sheet
-DATA_TAB = 0xA6A6A6          # grey, as add_sheet(color=...) / styling.GREY_TAB
+DATA_TAB = 0xA6A6A6          # grey, as add_sheet(color=...)
 
 
 def _suffix_key(sfx: str | None) -> tuple[int, int]:

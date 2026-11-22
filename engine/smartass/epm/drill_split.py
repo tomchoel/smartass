@@ -83,26 +83,3 @@ def remember_too_wide(key: tuple) -> None:
         (config.SVKIT / "drill_too_wide.json").write_text(json.dumps(sorted(_too_wide)), encoding="utf-8")
     except Exception as e:   # noqa: BLE001 - only an optimisation
         log.info("too-wide memo not saved: %s", e)
-
-
-def child_values_on(h, connection: str, parts: list[dict]) -> list | None:
-    """Host job (a drill split): the cells differ in one dimension - retrieve them as one column (#Missing -> None)."""
-    from . import ops
-    from .grid import Axis
-    first = parts[0]
-    dim = next((k for k in first if any(p.get(k) != first[k] for p in parts)), None)
-    if dim is None:
-        return None
-    col = "All Time Periods" if dim != "All Time Periods" else "All Accounts"
-    pov = {**ops.DRILL_DEFAULTS, **{k: v for k, v in first.items() if k not in (dim, col)}}
-    lay, p, _ = ops.query(h, connection, pov, [Axis(dim, [pc[dim] for pc in parts])], [Axis(col, [first[col]])],
-                          False, False)
-    if p is not None and p.pov_problems:              # a member was dropped: rows no longer line up
-        return None
-    ws = h.wb.Worksheets(ops.ensure_grid_sheet(h, connection))
-    c = chr(ord("A") + lay.nr)
-    out = []
-    for i in range(len(parts)):
-        v = ws.Range(f"${c}${2 + lay.nc + i}").Value
-        out.append(v if isinstance(v, float) else None)
-    return out

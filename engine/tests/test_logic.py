@@ -2,7 +2,7 @@
 from types import SimpleNamespace
 
 from smartass.epm.grid import Axis, Layout
-from smartass.xl.pull_adhoc import _verify_labels
+from smartass.epm.grid import verify_labels as _verify_labels
 from smartass.xl.instances import is_archive, local_path
 
 

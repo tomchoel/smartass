@@ -173,16 +173,3 @@ def _without(axes: list[Axis], left: list[tuple[str, str]]) -> list[Axis]:
         kept = [m for m in a.members if (a.dimension, m) not in left]
         out.append(Axis(a.dimension, kept or list(a.members)))
     return out
-
-
-class ComboProvider:
-    """Fixed results (the ad hoc fallback's) for the requests that failed over HTTP, the primary provider for the rest."""
-
-    def __init__(self, primary, fixed: dict):
-        self.primary, self.fixed = primary, fixed
-
-    def closed_months(self):
-        return self.primary.closed_months()
-
-    def fetch(self, req: GridRequest) -> FetchResult:
-        return self.fixed[req] if req in self.fixed else self.primary.fetch(req)

@@ -3,13 +3,11 @@
 The style definitions (fonts, colours, named cell styles ``TN ...``, number formats, locale translation and the
 Arial text-width / wrap calibration) are reused from the ``tn-rapportstil`` skill, through the pinned copy in
 ``smartass/xl/vendor/tn_rapportstil.py``; this
-module only adds the live-workbook plumbing: COM retry, row-role based application, a COM-based lint, and a
-non-destructive look for Smart View ad hoc grids.
+module only adds the live-workbook plumbing: COM retry, row-role based application and a COM-based lint.
 
 Public API
     ensure_styles(wb)                                   create/refresh the TN named styles (idempotent)
     apply_report(ws, roles) -> list[str]                style an answer sheet (contents untouched), returns lint findings
-    apply_data_sheet(ws, header_rows, label_cols, fte_rows=None)   financial look for a live Smart View grid
 
 Nothing here saves a workbook, attaches to a running Excel or clears cell contents.
 """
@@ -78,7 +76,6 @@ def _check_ranges(cells: list[tuple[int, int]]) -> list[str]:
 
 
 GREEN = (0, 112, 60)
-GREY_TAB = (166, 166, 166)
 NUM_ALIAS = {"heltall": "heltall", "tall1": "tall1", "prosent1": "prosent1", "prosent": "prosent",
              "faktor": "faktor", "belop": "belop",
              "avvik": "heltall", "avvikpst": "prosent1", "markor": "heltall"}    # new kinds: base TN style
@@ -88,7 +85,6 @@ NUM_FORMATS = {"avvik": '[Color10]"▲ "#,##0;[Red]"▼ ("#,##0")";"–"',
                "avvikpst": '[Color10]"▲ "0.0 %;[Red]"▼ ("0.0 %")";"–"',
                "markor": '"●";"●";""'}
 TALL1_THOUSANDS = '#,##0.0_);(#,##0.0);"–"_)'    # spec: 'tall1' is one decimal WITH thousands separator
-HELTALL = tn.NUM["heltall"]
 
 
 def _style_for(kind: str, emph: str) -> str:
@@ -832,22 +828,6 @@ def setup_name(ws, key: str) -> None:
     ws.Names.Add(PAGE_SETUP_NAME, key, False)
 
 
-# ---------------------------------------------------------------- apply_data_sheet
-def _format_numbers(rng, fmt: str, align: bool) -> None:
-    """Number format (and right alignment) on the numeric constants and numeric formula results in rng, inside ONE
-    COM call; no such cells is not an error, a busy Excel is raised (the call is rerun as a whole)."""
-    for kind in (2, -4123):          # xlCellTypeConstants, xlCellTypeFormulas
-        try:
-            part = rng.SpecialCells(kind, 1)   # xlNumbers
-        except Exception as e:   # noqa: BLE001 - no such cells
-            if _busy(e):
-                raise
-            continue
-        part.NumberFormatLocal = fmt
-        if align:
-            part.HorizontalAlignment = tn.H_RIGHT
-
-
 def local_format(obj, fmt: str) -> str:
     """fmt (en-US codes: ',' thousands, '.' decimal) in the user's locale. Through late-bound COM (pywin32 passes the
     user's LCID) Excel reads Range.NumberFormat and DataLabels.NumberFormat in the user's locale too: '#,##0.0' was
@@ -858,72 +838,3 @@ def local_format(obj, fmt: str) -> str:
     except Exception:   # noqa: BLE001 - a fake or a detached object: the code as given
         return fmt
 
-
-def _sheet_info(ws):
-    """(decimal sep, thousands sep, first row, first col, row count, col count) of ws's UsedRange: one COM call."""
-    tup = ws.Parent.Application.International
-    ur = ws.UsedRange
-    return tup[2], tup[3], ur.Row, ur.Column, ur.Rows.Count, ur.Columns.Count
-
-
-def apply_data_sheet(ws, header_rows: int, label_cols: int, fte_rows: list[int] | None = None) -> None:
-    """Financial look for a LIVE Smart View ad hoc grid. Never clears/moves cells, never ClearFormats, never
-    inserts rows/columns. Rows/cols are absolute sheet indexes (1-based). The fixed look (fonts, header, alignment,
-    border) is one COM call, the number formats one per range, widths + tab colour one: every setting is absolute,
-    so a call that Excel rejects while busy is rerun as a whole."""
-    dec, thou, r0, c0, nrow, ncol = _retry(lambda: _sheet_info(ws))
-    last_r, last_c = max(r0 + nrow - 1, header_rows), max(c0 + ncol - 1, label_cols)
-
-    def a(r1, c1, r2, c2):
-        return f"{_cl(c1)}{r1}:{_cl(c2)}{r2}"
-
-    def look():
-        f = ws.Range(a(1, 1, last_r, last_c)).Font
-        f.Name = tn.FONT
-        f.Size = 10
-        if header_rows > 0:
-            f = ws.Range(a(1, 1, header_rows, last_c)).Font
-            f.Bold = True
-            f.Color = _rgb(tn.NAVY)
-            if last_c > label_cols:
-                ws.Range(a(1, label_cols + 1, header_rows, last_c)).HorizontalAlignment = tn.H_RIGHT
-            if label_cols:
-                ws.Range(a(1, 1, header_rows, label_cols)).HorizontalAlignment = tn.H_LEFT
-            bd = ws.Range(a(header_rows, 1, header_rows, last_c)).Borders(tn.B)
-            bd.LineStyle = tn.CONT
-            bd.Weight = tn.THIN
-            bd.Color = _rgb(tn.NAVY)
-        if last_r > header_rows and label_cols:
-            ws.Range(a(header_rows + 1, 1, last_r, label_cols)).HorizontalAlignment = tn.H_LEFT
-    _retry(look)
-
-    if last_r > header_rows and last_c > label_cols:
-        f0 = tn.to_local(HELTALL, dec, thou)
-        f1 = tn.to_local(TALL1_THOUSANDS, dec, thou)
-        _retry(lambda: _format_numbers(ws.Range(a(header_rows + 1, label_cols + 1, last_r, last_c)), f0, True))
-        for fr in fte_rows or []:
-            if header_rows < fr <= last_r:
-                _retry(lambda fr=fr: _format_numbers(ws.Range(a(fr, label_cols + 1, fr, last_c)), f1, False))
-
-    # widths: ~46 shared by the label columns, 16 for data columns
-    per_label = max(20.0, 46.0 / label_cols) if label_cols > 1 else 46.0
-
-    def widths_and_tab():
-        if label_cols:
-            ws.Range(a(1, 1, 1, label_cols)).EntireColumn.ColumnWidth = per_label
-        if last_c > label_cols:
-            ws.Range(a(1, label_cols + 1, 1, last_c)).EntireColumn.ColumnWidth = 16
-        ws.Tab.Color = _rgb(GREY_TAB)
-    _retry(widths_and_tab)
-    _freeze(ws, header_rows, label_cols)
-    def last_number_col() -> int:      # the grid's width: Smart View's POV row runs further right (D..M) and
-        vals = ws.Range(a(header_rows + 1, 1, last_r, last_c)).Value2       # would shrink the table to a strip
-        rows = vals if isinstance(vals, tuple) else ((vals,),)
-        cols = [j + 1 for row in rows for j, v in enumerate(row) if isinstance(v, (int, float))]
-        return max(cols) if cols else last_c
-    try:                               # prints like the other data sheets: landscape, one page wide, a footer (it
-        width = max(_retry(last_number_col), label_cols or 1) if last_r > header_rows else last_c
-        print_setup(ws, _cl(width), last_r, "Source: Oracle EPM Cloud · &A · page &P of &N",     # was portrait,
-                    title_rows=f"$1:${header_rows}" if header_rows else "")                     # 4 pages, bare)
-    except Exception:   # noqa: BLE001 - no printer: the data is styled
-        pass
