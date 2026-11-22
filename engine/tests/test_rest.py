@@ -379,6 +379,30 @@ def test_a_member_kept_under_its_label_must_be_answered_under_its_real_name_wher
         _finplan(db, _Epm(answer=_swapped))
 
 
+def test_a_key_used_twice_with_two_real_names_takes_either(db):
+    """A name used twice in one dimension (live: 5 FinPlan account keys, 1 entity key, each under two parents with two
+    real names): REST may answer either real name for it, never a third."""
+    _real_names(db)
+    atlas.store(db, "FinPlan", "Entity", [
+        {"name": "Entity", "label": "Entity", "parent": None, "depth": 0, "order": 0, "real_name": "Entity"},
+        {"name": "1TEC Tech", "label": "1TEC Tech", "parent": "Entity", "depth": 1, "order": 1, "real_name": "1TEC"},
+        {"name": "1TEC Tech", "label": "1TEC Tech", "parent": "X", "depth": 2, "order": 2, "real_name": "1TECB"},
+        {"name": "2BUS Biz", "label": "2BUS Biz", "parent": "Entity", "depth": 1, "order": 3, "real_name": "2BUS"}],
+        1.0)
+
+    def answering(first):
+        def answer(path, body):
+            if path.endswith("exportdataslice"):
+                return 200, json.dumps({"pov": ["BalanceTypes", "Target", "Final", "FY26"], "columns": [["Dec"]],
+                                        "rows": [{"headers": ["EBX", first], "data": ["1"]},
+                                                 {"headers": ["EBX", "2BUS"], "data": ["2"]}]})
+        return answer
+    for real in ("1TEC", "1TECB"):
+        assert _finplan(db, _Epm(answer=answering(real))).values[2][:2] == ["EBX Ebitda X", "1TEC Tech"]
+    with pytest.raises(rest.RestError, match="different layout.*1TEC Tech answered as 1TECC"):
+        _finplan(db, _Epm(answer=answering("1TECC")))
+
+
 def test_a_member_whose_key_is_not_its_real_name_is_matched_by_its_real_name(db):
     """Live: most FinMax projects' keys, derived from 'code alias (prefix)', are not EPM's names (pj.SY.SY.X for
     pj.SY.X). REST answers the real name: with the atlas's real name it is that member; without it, an error."""

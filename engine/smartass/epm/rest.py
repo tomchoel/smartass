@@ -431,26 +431,34 @@ def _cell(v):
 
 
 def _labels(db, conn: str, dim: str, spellings: set[str]) -> tuple[dict, dict]:
-    """The atlas's members of one dimension among these spellings: ({folded name: (name, label, real name)}, {folded
-    label: (name, label, real name)}) - by name exactly (one indexed query), else by name in any case or by label (one
-    pass). The real name is EPM's, where the atlas was built over REST (its real_name column); else None."""
+    """The atlas's members of one dimension among these spellings: ({folded name: (name, label, real names)}, {folded
+    label: (name, label, real names)}) - by name exactly (one indexed query), else by name in any case or by label (one
+    pass). The real names are EPM's, where the atlas was built over REST (its real_name column; a name used twice in a
+    dimension can have two); else empty."""
     real = "real_name" if any(r[1] == "real_name" for r in db.execute("PRAGMA table_info(member)")) else "NULL"
-    by_name: dict[str, tuple[str, str, str | None]] = {}
-    by_label: dict[str, tuple[str, str, str | None]] = {}
+    by_name: dict[str, tuple[str, str, frozenset[str]]] = {}
+    by_label: dict[str, tuple[str, str, frozenset[str]]] = {}
+
+    def add(into: dict, key: str, n: str, lab: str, rn: str | None) -> None:
+        old = into.get(key)
+        if old is None:
+            into[key] = (n, lab, frozenset({rn} if rn else ()))
+        elif old[0] == n and rn:
+            into[key] = (*old[:2], old[2] | {rn})
     want = {s.casefold() for s in spellings}
     ordered = sorted(spellings)
     for i in range(0, len(ordered), 500):              # SQLite's limit on query parameters
         part = ordered[i:i + 500]
         for n, lab, rn in db.execute(f"SELECT name, label, {real} FROM member WHERE connection=? AND dimension=? AND "
                                      f"name IN ({','.join('?' * len(part))})", (conn, dim, *part)):
-            by_name[n.casefold()] = (n, lab or n, rn)
+            add(by_name, n.casefold(), n, lab or n, rn)
     if want - set(by_name):
         for n, lab, rn in db.execute(f"SELECT name, label, {real} FROM member WHERE connection=? AND dimension=?",
                                      (conn, dim)):
             if n.casefold() in want:
-                by_name.setdefault(n.casefold(), (n, lab or n, rn))
+                add(by_name, n.casefold(), n, lab or n, rn)
             if lab and lab.casefold() in want:
-                by_label.setdefault(lab.casefold(), (n, lab, rn))
+                add(by_label, lab.casefold(), n, lab, rn)
     return by_name, by_label
 
 
@@ -480,7 +488,8 @@ def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], c
             top = asked.casefold() == d.casefold()
             known = by_name.get(asked.casefold()) or by_label.get(asked.casefold())
             if top or (known and (known[2] or name_from_label(known[1]))):   # REST answers that very name
-                if got.casefold() != (names[d] if top else known[2] or known[0]).casefold():
+                if got.casefold() not in ({names[d].casefold()} if top else
+                                          {x.casefold() for x in known[2] or (known[0],)}):
                     raise RestError(f"Planning REST returned a different layout than requested: {d} {asked} "
                                     f"answered as {got}")
                 label[d, asked, got] = known[1] if known else d
