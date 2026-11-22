@@ -259,3 +259,8 @@ Task 10's commits come after that run. Of the fetch routes they touch only `epm/
 too large for a float, such as `10**400`, now fails its grid with a `RestError` naming its type, as a text `1e999`
 already did, instead of an `OverflowError`); the controller runs the routes comparison once more at the release head
 and appends its result here.
+
+The routes part at e6983bd (22.11.2026 15:52-15:56, read-only, without Excel): passed, exit 0. 69 different requests
+from 460 answers, 63 fetched by the provider; the wrong-member requests and both left-out probes as before; 1521
+blanks read as empty; all equal. The one commit after it (40a1c4c) touches `xl/target.py` and its tests only (the
+seed after a read-only first workbook), none of the fetch routes. This is the release's last run.
