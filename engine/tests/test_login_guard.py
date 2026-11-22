@@ -35,6 +35,19 @@ def test_a_login_open_in_any_excel_refuses_at_once_naming_it_and_touching_none(m
     assert "sign in there or close that Login window, then ask again" in said and "Check for updates" in said
 
 
+def test_an_excel_with_no_workbook_window_is_named_by_its_main_windows_title(monkeypatch):
+    """A fresh Excel showing only the Login has no workbook window yet: the refusal reads its main window's title
+    (dialogs.titles, no COM) instead of naming the pid alone."""
+    monkeypatch.setattr(instances, "_excel_windows", lambda: [(33, 330, [])])
+    monkeypatch.setattr(instances, "_is_embedding", lambda pid: False)
+    monkeypatch.setattr(instances, "engine_excel_pids", lambda: set())
+    monkeypatch.setattr(dialogs, "login_open", lambda pid: [5])
+    monkeypatch.setattr(dialogs, "windows", lambda pid=None, parent=None: [(330, "XLMAIN", "Excel"),
+                                                                           (5, "#32770", "Login")])
+    with pytest.raises(HostError, match=r"Smart View's Login is open in the Excel showing 'Excel' \(pid 33\)"):
+        instances.excel_instances()
+
+
 def test_without_a_login_the_excels_are_listed_as_before(monkeypatch):
     asked = _windows(monkeypatch, set())
     got = instances.excel_instances()
