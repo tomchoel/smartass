@@ -1,6 +1,6 @@
 """The atlas over the token session: one dimension's member tree from Oracle's Planning REST "Get Member" - GET
-epmhttp.member_tree(app, dim) (.../applications/{app}/dimensions/{dim}/members/{dim}) with ?fields=MEMBER_FIELDS, the top
-member and its whole visible subtree, nested - turned into the rows the hidden Excel's zoom gave the atlas
+epmhttp.member_tree(app, dim) (.../applications/{app}/dimensions/{dim}/members/{dim}) with ?fields=MEMBER_FIELDS, the
+top member and its whole visible subtree, nested - turned into the rows the hidden Excel's zoom gave the atlas
 (ops.dump_dimension: Smart View zooms the top member to all levels and grid.tree_from_labels reads the indented
 labels). Live 2026-11-22 (docs/audit/2026-11-22-atlas-rest.md): 201 on every dimension of both pods, all of them in
 about 8 s; today's rows reproduced, key for key.
@@ -12,8 +12,8 @@ How the zoom's display is rebuilt from the tree (each rule found in today's atla
   from the label (grid.name_from_label), a member kept under its label, a shared member under each parent, a name
   given twice under one parent (atlas.store keeps the first) all come out as before;
 - the zoom shows neither the Dynamic Time Series members of a period dimension (`H-T-D` .. `D-T-D`, the first
-  children of its top in Get Member's answer) nor a member whose `usedIn` does not name the plan type (with its subtree):
-  FinLite's dimensions are FinMax's application dimensions, read once for both.
+  children of its top in Get Member's answer) nor a member whose `usedIn` does not name the plan type (with its
+  subtree): FinLite's dimensions are FinMax's application dimensions, read once for both.
 Each row also carries the member's real name, alias, data storage, account type and time balance (EXTRA: the atlas's
 side table, atlas.store; nothing reads the types yet).
 

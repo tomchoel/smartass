@@ -19,10 +19,10 @@ from ..core import config
 from ..knowledge import atlas
 
 CUBES = ("FinMax", "FinLite", "FinPlan")
-SWAP_TIMEOUT_S = 30.0
+SWAP_TIMEOUT_S = 30.0          # build_into waits at most this long for another process's lock on the atlas
 # A dimension EPM lists that the allowlist has no member-tree rule for (epmhttp.MEMBER_TREES is fixed: each rule a
 # whole path, no pattern): skipped, its old rows kept, said in the result, the CLI's last line and `atlas status`.
-NEW_DIMENSION = "dimension {dim} is new in EPM; this release cannot read it - update smartass"          # build_into waits at most this long for another process's lock on the atlas
+NEW_DIMENSION = "dimension {dim} is new in EPM; this release cannot read it - update smartass"
 DUMP_TIMEOUT_S = 600
 
 Call = Callable[..., Awaitable]

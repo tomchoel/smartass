@@ -58,7 +58,8 @@ def _no_excel_no_network():
 
     def no_network(*args, **kwargs):
         raise AssertionError("the test suite must never reach the network")
-    real_connect, real_connect_ex, real_getaddrinfo = socket.socket.connect, socket.socket.connect_ex, socket.getaddrinfo
+    real_connect, real_connect_ex = socket.socket.connect, socket.socket.connect_ex
+    real_getaddrinfo = socket.getaddrinfo
 
     def connect(self, address):
         return real_connect(self, address) if _address_ok(self, address) else no_network()

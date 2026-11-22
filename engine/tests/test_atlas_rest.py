@@ -71,7 +71,8 @@ def test_the_rows_are_the_rows_the_zoom_gave():
 
 
 def test_each_row_carries_the_members_real_name_alias_storage_and_types():
-    tree = node("Account", None, node("EBX", "EBX Ebitda X", accountType="Revenue", timeBalance="None", used=("FinPlan",)),
+    tree = node("Account", None, node("EBX", "EBX Ebitda X", accountType="Revenue", timeBalance="None",
+                                      used=("FinPlan",)),
                 node("HC", None, storage="Never Share", accountType="Expense", timeBalance="Average",
                      used=("FinPlan",)),
                 used=("FinPlan",))
@@ -81,7 +82,8 @@ def test_each_row_carries_the_members_real_name_alias_storage_and_types():
         "time_balance": "None"}
     assert got["EBX Ebitda X"]["name"] == "EBX Ebitda X"            # the key stays the label, as today
     assert {k: got["HC"][k] for k in members.EXTRA} == {
-        "real_name": "HC", "alias": None, "storage": "Never Share", "account_type": "Expense", "time_balance": "Average"}
+        "real_name": "HC", "alias": None, "storage": "Never Share", "account_type": "Expense",
+        "time_balance": "Average"}
     assert got["Account"]["account_type"] is None and got["Account"]["real_name"] == "Account"
 
 
@@ -270,8 +272,8 @@ DIMS = {"FinMax": [("Accounts", "All Accounts"), ("Entities", "All Entities")],
 
 
 def _rows(db, conn, dim):
-    return db.execute("SELECT name, label, parent, depth, ord FROM member WHERE connection=? AND dimension=? ORDER BY ord",
-                      (conn, dim)).fetchall()
+    return db.execute("SELECT name, label, parent, depth, ord FROM member WHERE connection=? AND dimension=? "
+                      "ORDER BY ord", (conn, dim)).fetchall()
 
 
 def test_build_rest_stores_every_dimension_of_every_cube(tmp_path):
@@ -381,7 +383,8 @@ def _today(path):
         CREATE TABLE build (connection TEXT, dimension TEXT, built_at REAL, n INT, seconds REAL, error TEXT,
                             PRIMARY KEY (connection, dimension));
         CREATE TABLE card (connection TEXT, dimension TEXT, name TEXT, parent TEXT, operator TEXT, time_balance TEXT,
-                           account_type TEXT, shared INT, derived_at REAL, PRIMARY KEY (connection, dimension, name, parent));
+                           account_type TEXT, shared INT, derived_at REAL,
+                           PRIMARY KEY (connection, dimension, name, parent));
         CREATE TABLE snapshot (x);
         INSERT INTO member VALUES ('FinMax', 'All Accounts', 'ac.OLD', 'OLD Old (ac)', 'All Accounts', 1, 1);
         INSERT INTO member VALUES ('FinPlan', 'Account', 'Old', 'Old', 'Account', 1, 1);
@@ -441,7 +444,8 @@ def test_every_attempt_is_recorded_for_atlas_status(tmp_path, monkeypatch):
         _Source(TREES, dims), ["FinMax"], db=db, progress=lambda m: None), progress=lambda m: None)
     last = atlas_build.last_attempt(target)
     assert last["replaced"] is True and last["why"] == "" and last["at"]
-    assert last["skipped"] == ["FinMax: dimension All Colours is new in EPM; this release cannot read it - update smartass"]
+    assert last["skipped"] == [
+        "FinMax: dimension All Colours is new in EPM; this release cannot read it - update smartass"]
     done, _ = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
         _Source(TREES, DIMS, fail=("Entities",)), ["FinMax"], db=db, progress=lambda m: None), progress=lambda m: None)
     assert done[-1] == {"connection": "-", "error": "atlas not replaced: 1 dimension or cube failed"}

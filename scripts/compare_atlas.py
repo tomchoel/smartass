@@ -193,8 +193,7 @@ def part_compare() -> bool:
         totals = Counter()
         for conn, dim in dims:
             t, r = rows(dt, conn, dim), rows(dr, conn, dim)
-            nt = (dt.execute("SELECT n FROM build WHERE connection=? AND dimension=?", (conn, dim)).fetchone() or [0])[0]
-            nr = (dr.execute("SELECT n FROM build WHERE connection=? AND dimension=?", (conn, dim)).fetchone() or [0])[0]
+            nt, nr = (n_built(d, conn, dim) for d in (dt, dr))
             m = renames(t, r)
             tm = {(m.get(n, n), m.get(p, p)): v for (n, p), v in t.items()}
             removed = [(n, p, t[n, p][0]) for (n, p) in t if (m.get(n, n), m.get(p, p)) not in r]
@@ -227,13 +226,17 @@ def part_compare() -> bool:
                 f"{shown(removed)} | alias changed: code-keyed {len(code_alias)}"
                 f"{' codes ' + str(sorted({c for c, _ in code_alias})) if code_alias else ''}, label-keyed renamed "
                 f"{len(m)} | re-parented since {len(reparented)}"
-                f"{' codes ' + str(sorted(reparented)) if reparented and all(CODE.fullmatch(n) for n in reparented) else ''}"
+                f"{' codes ' + str(sorted(reparented)) if reparented and all(map(CODE.fullmatch, reparented)) else ''}"
                 f" | of "
                 f"{len(common)} common: depth differs {len(depth_moved)} ({depth} not below a re-parented member), "
-                f"label differs otherwise {len(other_label)}, out of order {len(moved)} ({len(unexplained)} not below a "
-                f"re-parented member){' | REAL DIFFERENCE' if real else ''}")
+                f"label differs otherwise {len(other_label)}, out of order {len(moved)} ({len(unexplained)} not "
+                f"below a re-parented member){' | REAL DIFFERENCE' if real else ''}")
         say(f"compare: {dict(totals)}; real differences: {not good}")
     return good
+
+
+def n_built(db, conn: str, dim: str) -> int:
+    return (db.execute("SELECT n FROM build WHERE connection=? AND dimension=?", (conn, dim)).fetchone() or [0])[0]
 
 
 def descendants(r: dict, names: set[str]) -> set[str]:

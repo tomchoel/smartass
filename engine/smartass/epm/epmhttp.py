@@ -62,9 +62,11 @@ def dimension_list(app: str, cube: str) -> str:
 # MEMBER_FIELDS: the properties the atlas keeps (all of them: some 800 to 1300 bytes a member, live, which would put
 # the largest dimension, 140 000 members, over MAX_ANSWER_BYTES).
 MEMBER_TREES = (
-    *(("FinMax", d) for d in ("Accounts", "BalanceTypes", "Counterparts", "Currencies", "Entities", "Functions", "GLSources",
-                              "LegalEntities", "Products", "Projects", "Reserves", "Scenarios", "Systems", "TimePeriods")),
-    *(("FinPlan", d) for d in ("Account", "BalanceTypes", "Entity", "Period", "Products", "Scenario", "Version", "Years")))
+    *(("FinMax", d) for d in ("Accounts", "BalanceTypes", "Counterparts", "Currencies", "Entities", "Functions",
+                              "GLSources", "LegalEntities", "Products", "Projects", "Reserves", "Scenarios", "Systems",
+                              "TimePeriods")),
+    *(("FinPlan", d) for d in ("Account", "BalanceTypes", "Entity", "Period", "Products", "Scenario", "Version",
+                               "Years")))
 
 
 MEMBER_FIELDS = "name,alias,dataStorage,usedIn,accountType,timeBalance,children"
