@@ -1,5 +1,6 @@
 ﻿import logging
 import os
+import secrets
 
 import pytest
 
@@ -12,7 +13,25 @@ def test_redact_hides_tokens_and_secrets():
             'secret = "zzzzzzzzzzzzzzzzzzzz" and s3cr3t-value-123')  # allow-secret
     out = logsetup.redact(text)
     assert "abcDEF" not in out and "eyJhbG" not in out and "zzzz" not in out and "s3cr3t" not in out
-    assert "sso_token=***" in out
+    assert "GET /x?... " in out                                   # the URL's query goes whole (drillcore.redact's way)
+    assert logsetup.redact(f"drill sso_token={secrets.token_urlsafe(18)} ended") == "drill sso_token=*** ended"
+
+
+def test_a_log_line_gets_the_same_scrub_as_the_providers_error_text(tmp_path):
+    """One scrub (logsetup.redact) for a log line and a reply text: svxml's error text goes through it."""
+    from smartass.epm import svxml
+    x = secrets.token_urlsafe(24)
+    text = f"Grid is Invalid. JSESSIONID = {x}; sessionId: {x} X-Auth: {x} https://h.example/p?code={x}"
+    h = logsetup.configure(tmp_path / "logs" / "s.log")
+    try:
+        logging.getLogger("smartview.test").warning("%s", text)
+        h.flush()
+        logged = (tmp_path / "logs" / "s.log").read_text(encoding="utf-8")
+    finally:
+        logging.getLogger().removeHandler(h)
+        h.close()
+    assert x not in logged and x not in svxml._scrubbed(text)
+    assert logsetup.redact(text) in logged and svxml._scrubbed(text) == logsetup.redact(text)
 
 
 def test_configure_writes_redacted_rotating_log(tmp_path):

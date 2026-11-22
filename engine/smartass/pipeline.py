@@ -10,6 +10,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from .core import logsetup
 from .model.analyze import Result, compute, plan_requests
 from .model.blocks.concept import concept_caveats
 from .model.chain import complete_chain, restore_chain
@@ -80,7 +81,7 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
         try:
             return provider.fetch(req), None
         except SvHttpError as e:        # neither engine could fetch it: a warning; InputError is wrong on every route
-            return None, str(e)
+            return None, logsetup.redact(e)     # a reply field: it never passes the tool guard's redaction
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as ex:
         fetched = list(ex.map(fetch_one, reqs))

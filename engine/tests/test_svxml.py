@@ -138,6 +138,30 @@ def test_cookie_pairs_in_the_providers_own_error_text_are_scrubbed(cookies):
     assert a not in said and b not in said and said.startswith("Grid is Invalid.")
 
 
+@pytest.mark.parametrize("shape", [
+    "Grid is Invalid. JSESSIONID = {x}",
+    "Grid is Invalid. ssoToken = {x}",
+    "Grid is Invalid. sessionId: {x}",
+    'Grid is Invalid. {{"token": "{x}"}}',
+    "Grid is Invalid. See https://h.example/p?code={x}&state=1",
+    "Grid is Invalid. Authorization: Basic {x}",
+    "Grid is Invalid. Basic {x}",
+    "Grid is Invalid. X-Auth: {x}",
+    "Grid is Invalid. https://h.example/p;sID%3D{x}",
+    "Grid is Invalid. session &amp;lt;sID&amp;gt;{x}&amp;lt;/sID&amp;gt; ended",
+])
+def test_every_shape_of_a_session_key_or_query_in_the_providers_error_text_is_scrubbed(shape):
+    x = _invented()
+    said = _desc(shape.format(x=x))
+    assert x not in said and said.startswith("Grid is Invalid.")
+
+
+def test_a_bearer_token_is_replaced_once_and_cleanly():
+    jwt = ".".join(["eyJ" + _invented(12), "eyJ" + _invented(20), _invented(30)])
+    said = _desc(f"Authorization denied: Bearer {jwt} - access denied")
+    assert "Bearer ***" in said and "removed]" not in said and "access denied" in said
+
+
 def test_the_providers_own_error_text_is_capped_in_length():
     said = _desc("Grid is Invalid: " + "x" * 5000)
     assert said.startswith("Grid is Invalid: xxx") and len(said) < 700 and "5017 characters" in said

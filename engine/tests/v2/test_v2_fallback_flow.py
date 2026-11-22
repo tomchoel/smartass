@@ -50,6 +50,21 @@ def test_a_grid_neither_engine_could_fetch_is_a_warning_and_no_excel_job(no_exce
     assert any("could not be fetched" in w and "lost the request" in w for w in pre.warnings)
 
 
+def test_a_failed_grids_warning_carries_no_session_key_or_query(no_excel):
+    """The warning is a reply field (it never passes the tool guard): the engine's one scrub is applied to it."""
+    import secrets
+    x = secrets.token_urlsafe(24)
+
+    class Leaky(FakeProvider):
+        def fetch(self, req):
+            if req.periods == ("Sep 25",):
+                raise SvHttpError(f"lost the request (sessionId: {x}; see https://h.example/p?code={x})")
+            return super().fetch(req)
+    pre, _ = asyncio.run(server._prepare(spec_dict(), Leaky(facts())))
+    said = " ".join(pre.warnings)
+    assert "could not be fetched" in said and "lost the request" in said and x not in said
+
+
 def test_a_member_that_cannot_be_left_out_reaches_the_reply_by_code_with_what_to_do(no_excel):
     """Ruling (a): the request's only entity refused on both engines - the request fails, the reply says which
     member and what to do, and no Excel is asked to rescue it."""

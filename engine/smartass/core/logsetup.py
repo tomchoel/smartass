@@ -1,4 +1,5 @@
-"""Engine logging: one rotating file per process kind, with sso tokens, bearer tokens and the HTTP secret redacted."""
+"""Engine logging: one rotating file per process kind, every line redacted (redact: session keys, tokens, cookies,
+credential headers, URL query strings and the HTTP secret)."""
 from __future__ import annotations
 
 import logging
@@ -8,9 +9,23 @@ import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-_PATTERNS = [re.compile(r"(sso_token=)[^&\s'\"]+"),
-             re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/=-]+"),
-             re.compile(r"((?:X-Smartass-Secret|secret)\s*[:=]\s*['\"]?)[^\s'\",}]+", re.I)]
+_TAG = r"(?:<|&(?:amp;)*lt;)"                               # '<', also HTML-escaped once or more
+_END = r"(?:>|&(?:amp;)*gt;)"
+_SEP = r"[ \t]*(?:[=:]|%3D|%3A)[ \t]*"                         # name = value, name: value, URL-encoded '='
+_NAMES = (r"sID|JSESSIONID|ORA_[\w-]*|OAM[\w-]*|_WL_[\w-]*|X-Smartass-Secret|"
+          r"[\w-]*(?:session|token|secret|password|passwd)[\w-]*")
+_PATTERNS = [
+    (re.compile(rf"({_TAG}\s*sID\s*{_END}).*?({_TAG}\s*/\s*sID\s*{_END})", re.S | re.I), r"\1***\2"),
+    (re.compile(r"(?<=[\w/.%-])\?[^\s'\"<>]+"), "?..."),                       # a URL's query string, whole
+    (re.compile(r"\b((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*[\"']?)(?:[A-Za-z]+[ \t]+)?[^\s\"',;<>&}]+",
+                re.I), r"\1***"),                                                  # an Authorization header
+    (re.compile(r"\b(Bearer\s+)(?!\*\*\*)[A-Za-z0-9._~+/=-]+", re.I), r"\1***"),
+    (re.compile(r"\b(Basic\s+)(?!\*\*\*)[A-Za-z0-9._~+/=-]{8,}"), r"\1***"),        # basic credentials
+    (re.compile(r"\beyJ[\w-]*\.[\w-]+(?:\.[\w-]*)?"), "***"),                          # a JWT (header.payload.sig)
+    (re.compile(r"\b((?:set-)?cookie[ \t]*:[ \t]*)[^\n<]*", re.I), r"\1***"),            # a cookie header, whole
+    (re.compile(r"\b(x-[\w-]+[ \t]*:[ \t]*)(?!\*\*\*)[^\s,;<>\"']+", re.I), r"\1***"),   # an X-... header's value
+    (re.compile(rf"([\"']?(?<![\w-])(?:{_NAMES})[\"']?{_SEP}[\"']?)(?!\*\*\*)[^\s;<>\"'&,}}]+", re.I), r"\1***"),
+]                                                       # a session key, token, secret or cookie pair (also JSON)
 _secrets: list[str] = []
 
 
@@ -20,9 +35,12 @@ def add_secret(value: str | None) -> None:
 
 
 def redact(text) -> str:
+    """text as it may go into a log line, a tool reply, the run log or an exception text: every shape of a session
+    key, token, cookie, credential header or URL query string replaced (_PATTERNS), and the secrets this process
+    holds (add_secret). The one scrub for all of them (also svxml's: the provider's own error text)."""
     out = str(text)
-    for p in _PATTERNS:
-        out = p.sub(r"\1***", out)
+    for p, repl in _PATTERNS:
+        out = p.sub(repl, out)
     for s in _secrets:
         out = out.replace(s, "***")
     return out

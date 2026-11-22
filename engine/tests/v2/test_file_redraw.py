@@ -611,6 +611,18 @@ def test_fin_refresh_goes_on_after_a_failure_and_stops_after_a_failed_restore(mo
     assert got[4]["skipped"] is True and "Q3" in got[4]["error"] and out["workbook"] == PATH
 
 
+def test_a_refreshed_questions_error_carries_no_session_key_or_query(monkeypatch):
+    """A question's error is a reply field (the guard does not see it): the engine's one scrub is applied."""
+    import secrets
+    x = secrets.token_urlsafe(24)
+
+    def job(pre, q, target):
+        raise HostError(f"lost: sessionId: {x} at https://h.example/p?code={x}")
+    _wire_server(monkeypatch, _stored(1), job)
+    got = asyncio.run(server.fin_refresh(target=PATH))["refreshed"][0]
+    assert got["ok"] is False and got["error"].startswith("lost: sessionId: ") and x not in got["error"]
+
+
 # ------------------------------------------------------------------ carry-overs in _fit_text_rows
 def test_the_key_point_rows_are_operations_of_the_batch(monkeypatch):
     """ws.Range is an Excel call too: it is an operation of the batch (busy retry, abort check, the count), never a

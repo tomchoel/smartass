@@ -13,7 +13,7 @@ from mcp.server.mcpserver import Context, MCPServer
 
 from . import __version__
 from .knowledge import atlas
-from .core import runlog
+from .core import logsetup, runlog
 from .core.timing import COM_PREFIX
 from .core import serverkit as kit
 from .core.errors import InputError
@@ -313,14 +313,14 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
                          **{k: out[k] for k in REFRESH_SAYS if out.get(k)}})
         except RestoreError as e:
             broken = q
-            done.append({"q": q, "ok": False, "error": str(e)})
+            done.append({"q": q, "ok": False, "error": logsetup.redact(e)})
         except NotSignedIn as e:                # nothing done yet: the reply is the sign-in page and code (guard)
             if not done:
                 raise
             unsigned = q                        # else what was redrawn stays in the reply, then the sign-in
             done.append({"q": q, "ok": False, "error": await kit._sign_in_reply(e)})
         except Exception as e:   # noqa: BLE001 - one question never stops the pack
-            done.append({"q": q, "ok": False, "error": str(e)})
+            done.append({"q": q, "ok": False, "error": logsetup.redact(e)})     # a reply field: past the guard
     return {"refreshed": done, "workbook": workbook}
 
 
