@@ -9,7 +9,8 @@ same one. Prints the checks and exits 0 only then.
 
 Each stage runs in a fresh Python (config is read at import, as by a user's separate commands) with these fakes: the
 process list is empty and a kill is a tripwire (no running `serve` or watcher is looked at or stopped); the registry
-readers of Smart View and Office answer "not set"; doctor's EPM check is a stub (it needs the network). A registry
+readers of Smart View and Office answer "not set"; doctor's EPM check is a stub (it needs the network); the
+checkout's old addin folder (a leftover of the checkout, not of the home) reads as none. A registry
 WRITE (winreg SetValue*/CreateKey*/DeleteKey*/DeleteValue), a COM object (win32com.client), a network connection and
 any child process started through subprocess but `mklink /J` of the skill links inside the temp folder are
 tripwires. Before anything runs, every place a stage can write (home, config, atlas, knowledge, the sign-ins, the
@@ -118,6 +119,7 @@ def _fakes() -> None:
     pane_leftovers._hkcu_values = _counted("Office registry values (none)", {})
     pane_leftovers._hkcu_subkeys = _counted("Office registry subkeys (none)", {})
     dialogs.read_hkcu = _counted("Smart View registry values (not set)", None)
+    doctor._pane_build = _counted("the checkout's old addin folder (none)", None)   # the checkout, not the home
 
     def epm():
         CALLS["epm check (a stub)"] = CALLS.get("epm check (a stub)", 0) + 1

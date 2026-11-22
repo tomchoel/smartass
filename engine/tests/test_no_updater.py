@@ -14,6 +14,7 @@ from test_neutral_imports import DOCS, ENGINE, _rel, _sources, doc_findings
 
 from smartass.core import config
 from smartass.ops import doctor, setup_user
+from smartass.ops.doctor import _pane_build as real_pane_build
 
 NAMES = ["RELEASE_FOLDER", "RELEASE_PIN", "SMARTASS_RELEASE", "copy_atlas", "latest.json", "WithAtlas",
          "smartass update", "publish_release", "update.check", "update.apply", "install.ps1"]
@@ -324,3 +325,32 @@ def test_the_mcp_instructions_name_no_deleted_part():
     text = " ".join(server.INSTRUCTIONS.split())
     names = P4_NAMES + test_neutral_imports.DOC_NAMES + test_no_http_server.DOC_NAMES
     assert [n for n in names if n in text] == []
+
+
+def test_the_old_panes_folder_left_in_the_checkout_is_reported_never_deleted(home, monkeypatch, tmp_path):
+    """Final review, Important 1: the pane's addin/tn-claude/.gitignore went with the pull, so a checkout that once built
+    the pane keeps addin/ (node_modules, dist) as an untracked folder. doctor reports it with the step by hand;
+    `doctor --fix` never deletes a folder inside a git checkout; setup's last line sends the user to the manual steps."""
+    repo = tmp_path / "repo"
+    left = repo / "addin" / "tn-claude" / "node_modules"
+    left.mkdir(parents=True)
+    monkeypatch.setattr(config, "REPO_DIR", repo)
+    monkeypatch.setattr(doctor, "_pane_build", real_pane_build)
+    c = doctor._leftovers()
+    assert c.status == "WARN" and str(repo / "addin") in c.detail and "delete" in c.fix and "by hand" in c.fix
+    assert "then run `smartass doctor --fix`" not in c.fix          # --fix clears nothing here
+    said = []
+    doctor.fix_leftovers(say=said.append)
+    assert left.exists() and any(str(repo / "addin") in s and "by hand" in s for s in said)
+    assert doctor.pending_leftovers() and not doctor.fixable_leftovers()
+
+
+def test_no_pane_folder_no_finding(home, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "REPO_DIR", tmp_path)
+    monkeypatch.setattr(doctor, "_pane_build", real_pane_build)
+    assert doctor._pane_build() is None and doctor._leftovers().status == "OK"
+
+
+def test_the_root_gitignore_ignores_the_old_panes_folder():
+    lines = (ENGINE.parent / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "addin/" in lines

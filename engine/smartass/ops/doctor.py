@@ -379,6 +379,24 @@ XLL_STEP = ("in Excel: File > Options > Add-ins > Manage: Excel Add-ins > Go: un
             "delete {folder} by hand")
 
 
+def _pane_build() -> Path | None:
+    """The old task pane's folder left in this install's git checkout: its build output (node_modules, dist) was
+    ignored by addin/tn-claude/.gitignore, which the pull deleted with the pane. Reported, never deleted: smartass
+    removes nothing inside a git checkout."""
+    p = Path(config.REPO_DIR) / "addin"
+    return p if p.is_dir() else None
+
+
+def _manual_items() -> list[tuple[str, str]]:
+    """(what, the step by hand) for what only the user removes: the pane's registration in Office's settings and its
+    folder left in the checkout."""
+    out = _office_items()
+    if p := _pane_build():
+        out.append((f"the old task pane's folder {p} is left in this git checkout (untracked; nothing uses it)",
+                    f"delete {p} by hand (`smartass doctor --fix` never deletes a folder inside a git checkout)"))
+    return out
+
+
 def _office_items() -> list[tuple[str, str]]:
     """(what, the manual step) for the pane's registration in Office's own settings: never changed by smartass."""
     from . import pane_leftovers as pane
@@ -436,7 +454,7 @@ def _leftovers() -> Check:
     release settings in config.toml) and the Excel task pane (its Startup entry; its registration in Office's settings,
     which the user removes)."""
     from . import setup_user
-    opts, bridges, office = _options_files(), _bridge_files(), _office_items()
+    opts, bridges, office = _options_files(), _bridge_files(), _manual_items()
     serves, unreadable = setup_user._serves()
     http = _http_api_items(serves) + _config_items()
     # Pythons whose command line could not be read are said, never a finding of their own: a managed PC's service
@@ -473,7 +491,7 @@ def pending_leftovers() -> bool:
     from . import pane_leftovers as pane
     from . import setup_user
     return bool(_options_files() or _bridge_files() or _secret_file() or _config_items()
-                or pane.startup_entries(setup_user.STARTUP) or _office_items())
+                or pane.startup_entries(setup_user.STARTUP) or _manual_items())
 
 
 def fixable_leftovers() -> bool:
@@ -521,6 +539,8 @@ def fix_leftovers(say=print) -> list[Path]:
     changed = _fix_config(say)
     for what, step in _office_items():
         say(f"left for you (Office's own settings, never changed by smartass): {what} - {step}")
+    if p := _pane_build():
+        say(f"left for you (a folder in this git checkout, never deleted by smartass): {p} - delete it by hand")
     if not removed and not changed:
         say("nothing removed")
     return removed

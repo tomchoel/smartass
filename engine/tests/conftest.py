@@ -160,9 +160,11 @@ def _no_atlas_build_at_login(monkeypatch):
 def _no_leftovers_of_this_pc(monkeypatch, tmp_path_factory):
     """What an older release left on a PC (setup's and the doctor's leftovers) is looked for in an empty Startup folder
     of the test's own, an empty process list and empty Office settings: the suite never reads, removes or stops this
-    PC's (its Startup entries, a running `serve`, the task pane's registration), unless a test sets its own fakes."""
-    from smartass.ops import pane_leftovers, setup_user
+    PC's (its Startup entries, a running `serve`, the task pane's registration, its folder left in the checkout), unless
+    a test sets its own fakes."""
+    from smartass.ops import doctor, pane_leftovers, setup_user
     monkeypatch.setattr(setup_user, "STARTUP", tmp_path_factory.mktemp("Startup"))
+    monkeypatch.setattr(doctor, "_pane_build", lambda: None)           # the checkout this suite runs in is not read
     monkeypatch.setattr(setup_user, "_process_list", lambda: [])
     monkeypatch.setattr(pane_leftovers, "_hkcu_subkeys", lambda path: {})
     monkeypatch.setattr(pane_leftovers, "_hkcu_values", lambda path: {})
