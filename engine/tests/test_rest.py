@@ -494,10 +494,12 @@ def test_a_key_without_a_side_row_keeps_the_old_check_where_the_side_table_is_no
     assert f.values[2][:2] == ["C30 REVENUES (ac)", "E1 Entity one (un.SY)"]
 
 
-def test_a_member_kept_under_its_label_without_a_side_row_is_refused_under_another_keys_real_name(db):
+def test_a_member_kept_under_its_label_without_a_side_row_passes_only_as_its_key_where_the_side_table_is_trusted(db):
     """FinPlan keeps its members under their labels: without a side row the place alone ties a label to its number.
-    Where the side table is trusted and records the answered name behind another key, that member answered: refused
-    (stricter than the order check); without a trusted side table, the order check as before."""
+    Where the side table is trusted (a build over REST gives every member a side row), the key itself is the only
+    answer for it, and only when no other key's member is named so; any other name is refused (stricter than the order
+    check: an unrecorded name would be another member's numbers under the key's label). Without a trusted side table,
+    the order check as before."""
     def entities(db):
         atlas.store(db, "FinPlan", "Entity", [
             {"name": "Entity", "label": "Entity", "parent": None, "depth": 0, "order": 0, "real_name": "Entity"},
@@ -515,13 +517,17 @@ def test_a_member_kept_under_its_label_without_a_side_row_is_refused_under_anoth
                                [Axis("Account", ["EBX Ebitda X"]), Axis("Entity", ["1TEC Tech"])],
                                [Axis("Period", ["Dec"])], db)
     entities(db)
-    assert one(db, "1TEC").values[2][:2] == ["EBX Ebitda X", "1TEC Tech"]
+    assert one(db, "1TEC Tech").values[2][:2] == ["EBX Ebitda X", "1TEC Tech"]       # label = name: the key itself
+    with pytest.raises(rest.RestError, match="Entity 1TEC Tech answered as 1TEC, a name the atlas's side table does "
+                                             "not record for it"):
+        one(db, "1TEC")
     with pytest.raises(rest.RestError, match="Entity 1TEC Tech answered as 2BUS, EPM's name of the member behind "
                                              "2BUS Biz"):
         one(db, "2BUS")
     with db:
         db.execute("UPDATE build SET built_at = built_at + 1 WHERE connection='FinPlan' AND dimension='Entity'")
-    assert one(db, "2BUS").values[2][:2] == ["EBX Ebitda X", "1TEC Tech"]
+    for answered in ("1TEC", "2BUS"):
+        assert one(db, answered).values[2][:2] == ["EBX Ebitda X", "1TEC Tech"]
 
 
 def test_a_side_table_an_older_release_left_behind_is_not_believed(db):

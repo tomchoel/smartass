@@ -19,12 +19,12 @@ stratmodel, compared with the provider route by key paths, types and booleans on
   sent and answered under its dimension's REST name. Where the atlas was built over REST (epm/members.py) its side
   table holds the real names behind each key (two members can give one key), and REST must answer one of them at its
   place - the key itself only when it is one of them (else EPM resolved the key to another member whose name it is);
-  a key without side rows there may not be answered under a name the side table records behind another key. In an
-  atlas without a trusted side table (the hidden Excel's, or one an older release rebuilt) the check is the one
-  before the side table: a member kept under its label has its place as the only link between label and number, so
-  the order matters there: REST answers rows and columns in the order asked (live 2026-11-22: three such members
-  asked against outline order on rows and on columns, per application, each read alone first for its name, cell for
-  cell the provider route's answer);
+  a key without side rows there passes only as itself, and not when the side table records that name behind another
+  key. In an atlas without a trusted side table (the hidden Excel's, or one an older release rebuilt) the check is
+  the one before the side table: a member kept under its label has its place as the only link between label and
+  number, so the order matters there: REST answers rows and columns in the order asked (live 2026-11-22: three such
+  members asked against outline order on rows and on columns, per application, each read alone first for its name,
+  cell for cell the provider route's answer);
 - cells: numbers come as text and are read with float(), as svxml reads the provider's; an empty cell ("" live, " "
   in Oracle's documentation) is None, as the provider route's Fetched holds a blank (live 2026-11-22: every missing
   cell of 20 grids is "" over REST and None from the provider);
@@ -470,9 +470,9 @@ def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], c
     the member under a 'code alias (prefix)' label, the dimension's REST name for a top member; elsewhere (an older
     atlas that keeps the label as the name) one member asked is always one name answered, and two members two names -
     and the place itself ties label and number, so REST must answer in the order asked (live: it does). A key without
-    side rows in a trusted side table is never answered under a name it records behind another key (atlas.real_owners).
-    Otherwise RestError, naming the key by its code: an error for the grid, never another member's numbers under the
-    key's label."""
+    side rows in a trusted side table passes only as itself, and not when the side table records that name behind
+    another key (atlas.real_owners). Otherwise RestError, naming the key by its code: an error for the grid, never
+    another member's numbers under the key's label."""
     places: dict[str, list[tuple[str, str]]] = {}     # dimension -> [(asked, answered), ...] in grid order
     for (d, m), got in zip(lay.pov, pov):
         places.setdefault(d, []).append((m, got))
@@ -491,13 +491,16 @@ def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], c
         for asked, got in dict.fromkeys(pairs):
             top = asked.casefold() == d.casefold()
             known = by_name.get(asked.casefold()) or by_label.get(asked.casefold())
-            if known and not top and not known[2]:    # no side row: is the name answered another key's member?
+            if known and not top and not known[2]:    # no side row: only the key itself, and not another key's member
                 if not owners:
                     owners.append(atlas.real_owners(db, conn, d))
-                other = sorted((owners[0] or {}).get(got.casefold(), set()) - {known[0]})
-                if other:
-                    raise RestError(f"Planning REST returned a different layout than requested: {d} {known[0]} "
-                                    f"answered as {got}, EPM's name of the member behind {other[0]} in the atlas")
+                if owners[0] is not None:             # the side table is trusted: a build over REST, every member in it
+                    other = sorted(owners[0].get(got.casefold(), set()) - {known[0]})
+                    if other or got.casefold() != known[0].casefold():
+                        why = (f"EPM's name of the member behind {other[0]} in the atlas" if other else
+                               "a name the atlas's side table does not record for it")
+                        raise RestError(f"Planning REST returned a different layout than requested: {d} {known[0]} "
+                                        f"answered as {got}, {why}")
             if top or (known and (known[2] or name_from_label(known[1]))):   # REST answers that very name
                 if got.casefold() not in ({names[d].casefold()} if top else
                                           {x.casefold() for x in known[2] or (known[0],)}):
