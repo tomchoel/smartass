@@ -423,3 +423,53 @@ def test_the_doctor_command_and_the_bundle_include_the_leftovers(pc, monkeypatch
     assert cli.main(["doctor"]) == 0
     assert "leftovers" in capsys.readouterr().out
     assert [c.name for c in doctor.run(leftovers=True)] == ["leftovers"] and doctor.run() == []
+
+
+
+# ---------------------------------------------------------------- Task 3: setup's set, and its last line
+
+
+def _setup(pc, monkeypatch):
+    monkeypatch.setattr(setup_user, "USER", pc.home.parent / "user")
+    monkeypatch.setattr(setup_user, "link_skill", lambda src, dst, backup: "linked")
+    monkeypatch.setattr(setup_user, "path_step", lambda: "path: unchanged")
+    listed = []
+    procs = pc.procs
+    monkeypatch.setattr(setup_user, "_process_list", lambda: listed.append(1) or procs)
+    return setup_user.run(), listed
+
+
+def test_setup_writes_no_startup_entry_and_says_nothing_more_on_a_clean_pc(pc, monkeypatch):
+    out, _ = _setup(pc, monkeypatch)
+    assert list(pc.startup.iterdir()) == [] and out[-1] == "path: unchanged"
+    assert not any("smartass doctor" in line for line in out)
+
+
+def test_setup_leaves_files_and_the_config_to_doctor_fix_and_says_so_in_its_last_line(pc, monkeypatch):
+    """The controller's ruling (B) of 22.11: setup removes the Startup entries and stops this install's old processes
+    (what would start or keep running old code); a file or the user's config.toml is doctor --fix's, run after reading
+    doctor. setup's last line says so, from a cheap check: no second process listing."""
+    secret = pc.home / "secret.bin"
+    secret.write_bytes(b"DPAPI")
+    cfg = pc.home / "config.toml"
+    cfg.write_text("[release]\nfolder = 'C:/rel'\n")
+    (pc.startup / "smartass-engine.lnk").write_bytes(OUR_LNK)
+    out, listed = _setup(pc, monkeypatch)
+    assert secret.exists() and cfg.read_text() == "[release]\nfolder = 'C:/rel'\n"
+    assert not (pc.startup / "smartass-engine.lnk").exists()
+    assert out[-1] == ("leftovers: an older release left files or settings that `smartass doctor` lists: run "
+                       "`smartass doctor`, then `smartass doctor --fix`")
+    assert len(listed) == 2                          # the watcher's and the serve's: the last line lists nothing
+
+
+@pytest.mark.parametrize("leftover", ["update_attempt.json", "svbridge_1.xlam", "smartview_options_original.json",
+                                      "pane entry", "office"])
+def test_each_leftover_doctor_fix_handles_makes_setups_last_line(pc, monkeypatch, leftover):
+    if leftover == "pane entry":
+        (pc.startup / "start-claude-pane.vbs").write_text("' TN Claude pane")
+    elif leftover == "office":
+        pc.options.update({"OPEN2": f'/R "{XLL}"'})
+    else:
+        (pc.home / leftover).write_text("{}")
+    out, _ = _setup(pc, monkeypatch)
+    assert "smartass doctor --fix" in out[-1]

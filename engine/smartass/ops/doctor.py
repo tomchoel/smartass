@@ -466,6 +466,15 @@ def _leftovers() -> Check:
     return Check("leftovers", "WARN", "; ".join(said + ([unread] if unread else [])), "; ".join(fixes))
 
 
+def pending_leftovers() -> bool:
+    """True when `smartass doctor` would list a leftover that is a file, a setting in config.toml or an entry in
+    Office's settings (what `smartass setup` leaves to `doctor --fix` or to the user) - cheap: no process listing."""
+    from . import pane_leftovers as pane
+    from . import setup_user
+    return bool(_options_files() or _bridge_files() or _secret_file() or _config_items()
+                or pane.startup_entries(setup_user.STARTUP) or _office_items())
+
+
 def fix_leftovers(say=print) -> list[Path]:
     """`smartass doctor --fix`: the left-behind files removed, each said first (the options file after its recorded
     values; the old svkit home's copy is never changed); a file in use (a bridge still loaded in an Excel) stays and

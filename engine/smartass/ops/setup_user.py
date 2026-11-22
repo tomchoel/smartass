@@ -1,6 +1,8 @@
 """Per-user setup (`smartass setup`, the second of the README's three install commands). Idempotent: every step reports
 created/updated/unchanged. Never needs admin rights. What an older release started at logon (the Smart View SSO
-watcher, the HTTP API `smartass serve`) is removed and stopped here when it is provably this install's."""
+watcher, the HTTP API `smartass serve`) is removed and stopped here when it is provably this install's; its files and
+config.toml settings are `smartass doctor --fix`'s (setup's last line says when there are any). No Startup entry is
+written."""
 from __future__ import annotations
 
 import json
@@ -429,7 +431,14 @@ def path_step(executable: str | None = None, **reg) -> str:
     return f"path: {r} ({scripts}; open a new terminal to use `smartass`)"
 
 
+PENDING = ("leftovers: an older release left files or settings that `smartass doctor` lists: run `smartass doctor`, "
+           "then `smartass doctor --fix`")
+
+
 def run() -> list[str]:
+    """setup's steps, each a line: config, the agents' MCP entries, the skill links, the Startup entries and processes
+    an older release left (removed and stopped here: they would start or keep running old code), the user PATH; and,
+    when `smartass doctor` would list leftovers that are files or settings (doctor --fix's), a last line saying so."""
     config.HOME.mkdir(parents=True, exist_ok=True)
     out = [f"config: {write_user_config()} ({config.USER_CONFIG})"]
     e = mcp_entries(config.ENGINE_DIR / ".venv" / "Scripts" / "python.exe", config.ENGINE_DIR / "run_server.py")
@@ -443,4 +452,7 @@ def run() -> list[str]:
                    f"; legacy smartview: {drop_legacy_skill(skills / 'smartview', backup)}")
     out += startup_entries()
     out.append(path_step())
+    from . import doctor
+    if doctor.pending_leftovers():          # a file or config.toml is doctor --fix's, run after reading doctor
+        out.append(PENDING)
     return out
