@@ -845,8 +845,8 @@ def test_the_rest_rules_are_the_configured_cubes_exactly():
         **{epmhttp.dimension_list(app, cube): epmhttp._Rule("GET", {"aliasTableName": (1, 1, re.compile("Default"))},
                                                              frozenset(), None)
            for app, cube in epmhttp.REST_CUBES},
-        **{epmhttp.member_tree(app, dim): epmhttp._Rule("GET", {}, frozenset(), None)
-           for app, dim in epmhttp.MEMBER_TREES}}
+        **{epmhttp.member_tree(app, dim): epmhttp._Rule("GET", {"fields": (1, 1, re.compile(re.escape(
+            epmhttp.MEMBER_FIELDS)))}, frozenset(), None) for app, dim in epmhttp.MEMBER_TREES}}
     assert epmhttp.export_slice("FinMax", "FinLite") == "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinLite/exportdataslice"
     assert not any("import" in p.lower() or "job" in p.lower() or "clear" in p.lower() for p in epmhttp.ALLOWED)
 
@@ -933,56 +933,70 @@ def test_a_rest_request_takes_no_header_but_a_json_content_type(make, headers):
 
 
 # ---------------------------------------------------------------- Planning REST: a dimension's member tree (Task 4)
-TREE = "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members/TimePeriods"
+TREE_PATH = "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members/TimePeriods"
+TREE = TREE_PATH + "?fields=name,alias,dataStorage,usedIn,accountType,timeBalance,children"
 
 
 def test_a_member_tree_is_a_dimension_read_from_its_top_member_and_nothing_else():
     """Oracle's "Get Member" (GET .../applications/{app}/dimensions/{dim}/members/{member}: the member and, by
     default, its whole visible subtree; it creates nothing) - only for the (application, dimension) pairs of
-    MEMBER_TREES, from the dimension's top member, as whole paths, with no query and no header. The pairs are the
+    MEMBER_TREES, from the dimension's top member, as whole paths, with exactly one query item - the fields the atlas
+    keeps, so the largest dimension's answer stays far under MAX_ANSWER_BYTES - and no header. The pairs are the
     dimensions the pods' plan-type lists named on 2026-11-21 (FinMax 14, FinPlan 8; FinLite's 10 are FinMax's)."""
+    assert epmhttp.MEMBER_FIELDS == "name,alias,dataStorage,usedIn,accountType,timeBalance,children"
     assert epmhttp.MEMBER_TREES == (
         *(("FinMax", d) for d in ("Accounts", "BalanceTypes", "Counterparts", "Currencies", "Entities", "Functions",
                                   "GLSources", "LegalEntities", "Products", "Projects", "Reserves", "Scenarios",
                                   "Systems", "TimePeriods")),
         *(("FinPlan", d) for d in ("Account", "BalanceTypes", "Entity", "Period", "Products", "Scenario", "Version",
                                    "Years")))
-    assert epmhttp.member_tree("FinMax", "TimePeriods") == TREE
+    assert epmhttp.member_tree("FinMax", "TimePeriods") == TREE_PATH
     assert {app for app, _ in epmhttp.MEMBER_TREES} <= {app for app, _ in epmhttp.REST_CUBES}
 
 
 def test_a_member_tree_is_sent(make):
     s, op, tok = make(answers=[(201, "{}", {})])
     for app, dim in epmhttp.MEMBER_TREES:
-        assert s.request("GET", epmhttp.member_tree(app, dim)).status == 201
+        assert s.request("GET", epmhttp.member_tree(app, dim) + "?fields=" + epmhttp.MEMBER_FIELDS).status == 201
     assert [(r.get_method(), r.full_url, r.data) for r in op.sent] == [
-        ("GET", POD + epmhttp.member_tree(app, dim), None) for app, dim in epmhttp.MEMBER_TREES]
+        ("GET", POD + epmhttp.member_tree(app, dim) + "?fields=" + epmhttp.MEMBER_FIELDS, None)
+        for app, dim in epmhttp.MEMBER_TREES]
     assert op.sent[13].full_url == POD + TREE
-    assert op.sent[17].full_url == POD + "/HyperionPlanning/rest/v3/applications/FinPlan/dimensions/Period/members/Period"
+    assert op.sent[17].full_url == POD + TREE.replace("TimePeriods", "Period").replace("FinMax", "FinPlan")
+
+
+_Q = "?fields=name,alias,dataStorage,usedIn,accountType,timeBalance,children"
+_APPS = "/HyperionPlanning/rest/v3/applications"
 
 
 @pytest.mark.parametrize("method, url", [
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members/Jan"),   # not the top
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Account/members/Account"),    # not on the list
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinPlan/dimensions/TimePeriods/members/TimePeriods"),
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Period/members/Period"),
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinLite/dimensions/Accounts/members/Accounts"),  # a plan type
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Accounts/members/Entities"),   # a cross pair
-    ("GET", "/HyperionPlanning/rest/v3/applications/Vision/dimensions/Period/members/Period"),
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members"),        # a collection
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods"),
-    ("GET", TREE + "/children"), ("GET", TREE + "/"), ("GET", TREE + "/.."),                          # extra segment
-    ("GET", TREE.replace("/members/TimePeriods", "/members/TimePeriods/../Accounts")),
-    ("GET", TREE.replace("TimePeriods/members", "Time%50eriods/members")),                          # encoded
-    ("GET", TREE.replace("members/TimePeriods", "members/Time%20Periods")),
-    ("GET", TREE.replace("members/TimePeriods", "members/timeperiods")),                           # case
-    ("GET", TREE.replace("/v3/", "/v1/")), ("GET", TREE.replace("/v3/", "/V3/")),
-    ("GET", TREE + "?maxDepth=-1"), ("GET", TREE + "?fields=name"), ("GET", TREE + "?x"),           # no query item
-    ("GET", TREE + "?aliasTableName=Default"), ("GET", TREE + "?q=%7B%7D"), ("GET", TREE + ";x=1"),
+    ("GET", _APPS + "/FinMax/dimensions/TimePeriods/members/Jan" + _Q),                       # not the top member
+    ("GET", _APPS + "/FinMax/dimensions/Account/members/Account" + _Q),                         # not on the list
+    ("GET", _APPS + "/FinPlan/dimensions/TimePeriods/members/TimePeriods" + _Q),
+    ("GET", _APPS + "/FinMax/dimensions/Period/members/Period" + _Q),
+    ("GET", _APPS + "/FinLite/dimensions/Accounts/members/Accounts" + _Q),                      # a plan type
+    ("GET", _APPS + "/FinMax/dimensions/Accounts/members/Entities" + _Q),                       # a cross pair
+    ("GET", _APPS + "/Vision/dimensions/Period/members/Period" + _Q),
+    ("GET", _APPS + "/FinMax/dimensions/TimePeriods/members" + _Q),                             # a collection
+    ("GET", _APPS + "/FinMax/dimensions/TimePeriods" + _Q),
+    ("GET", TREE_PATH + "/children" + _Q), ("GET", TREE_PATH + "/" + _Q), ("GET", TREE_PATH + "/.." + _Q),
+    ("GET", TREE_PATH.replace("/members/TimePeriods", "/members/TimePeriods/../Accounts") + _Q),    # dots
+    ("GET", TREE_PATH.replace("TimePeriods/members", "Time%50eriods/members") + _Q),               # encoded
+    ("GET", TREE_PATH.replace("members/TimePeriods", "members/Time%20Periods") + _Q),
+    ("GET", TREE_PATH.replace("members/TimePeriods", "members/timeperiods") + _Q),                 # case
+    ("GET", TREE.replace("/v3/", "/v1/")), ("GET", TREE.replace("/v3/", "/V3/")),                  # another version
+    ("GET", TREE_PATH), ("GET", TREE_PATH + "?x"), ("GET", TREE_PATH + "?maxDepth=-1"),           # its one query item
+    ("GET", TREE + "&maxDepth=-1"), ("GET", TREE + "&maxDepth=0"), ("GET", TREE + "&aliasTableName=Default"),
+    ("GET", TREE + "&fields=name"), ("GET", TREE + "&q=%7B%7D"), ("GET", TREE + ";x=1"),
+    ("GET", TREE_PATH + "?fields=name"), ("GET", TREE_PATH + "?fields="),                          # its value as sent
+    ("GET", TREE_PATH + "?fields=name,alias,dataStorage,usedIn,accountType,timeBalance,children,formula"),
+    ("GET", TREE_PATH + "?fields=name%2Calias%2CdataStorage%2CusedIn%2CaccountType%2CtimeBalance%2Cchildren"),
+    ("GET", TREE_PATH + "?fields=NAME,alias,dataStorage,usedIn,accountType,timeBalance,children"),
+    ("GET", TREE_PATH + "?fields=name,alias,dataStorage,usedIn,accountType,timeBalance,children "),
     ("POST", TREE), ("PUT", TREE), ("DELETE", TREE), ("PATCH", TREE), ("get", TREE),             # the method
-    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members"),       # Add Member
-    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/dimensions/TimePeriods/memberselectionmembers"),
-    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/members/action/search"),
+    ("POST", _APPS + "/FinMax/dimensions/TimePeriods/members"),                                   # Add Member
+    ("POST", _APPS + "/FinMax/plantypes/FinMax/dimensions/TimePeriods/memberselectionmembers"),
+    ("POST", _APPS + "/FinMax/members/action/search"),
     ("GET", "https://evil.example" + TREE), ("GET", "https://plan1.example:8443" + TREE),           # another origin
     ("GET", "http://plan1.example" + TREE),
 ])
