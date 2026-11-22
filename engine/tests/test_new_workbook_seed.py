@@ -315,7 +315,27 @@ def test_a_cold_first_workbook_excel_opened_read_only_is_a_clear_error(env, monk
         with pytest.raises(target.HostError, match="read-only") as e:
             target._new_target("A", [], set())
         assert opened[0].name in str(e.value) and str(opened[0]) in str(e.value)
-        assert opened[0].exists()                         # nothing closed or deleted: the text says what to do
+        assert opened[0].exists()                         # nothing closed: the text says what to do with it
+        assert not config.NEW_WORKBOOK_SEED.exists()      # the seed it came from is not copied again (Task 10)
     else:
         t = target._new_target("A", [], set())
         assert t.created and t.new and t.wb.ReadOnly is False
+        assert config.NEW_WORKBOOK_SEED.exists()
+
+
+def test_a_seed_that_cannot_be_deleted_still_gives_the_read_only_error(env, monkeypatch):
+    """Task 10 (final review, Minor 1): the seed is deleted best effort - a seed that cannot be deleted does not hide
+    the read-only error."""
+    class Seed:
+        def unlink(self, missing_ok=False):
+            raise PermissionError("held")
+
+    class Book:
+        ReadOnly = True
+    path = env / "out" / "A.xlsx"
+    monkeypatch.setattr(config, "NEW_WORKBOOK_SEED", Seed())
+    monkeypatch.setattr(target, "_seed_has_label", lambda seed: True)
+    monkeypatch.setattr(target, "_new_analysis_file", lambda title: path)
+    monkeypatch.setattr(target, "_open_path", lambda path, excels, insts=None: target.Target("app", Book(), 7, 70))
+    with pytest.raises(target.HostError, match="read-only"):
+        target._new_target("A", [], set())

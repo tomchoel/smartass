@@ -207,6 +207,10 @@ def _new_target(title: str, excels, known: set[int] | None = None, build_new: bo
         t = _open_path(path, excels)
         t.created = t.new = True
         if jobs.com(lambda: t.wb.ReadOnly):           # as open_new: Excel's Save of it would write nothing, silently
+            try:                                      # the seed it was copied from would give the next one the same:
+                config.NEW_WORKBOOK_SEED.unlink(missing_ok=True)   # gone, best effort (never open in Excel itself)
+            except OSError:
+                pass
             raise HostError(f"Excel opened the new workbook {path.name} read-only (sensitivity label?), so it could "
                             "not save the answer. Nothing was closed: close it in Excel without saving, delete "
                             f"{path}, and ask again.")
