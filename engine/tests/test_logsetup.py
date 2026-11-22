@@ -34,6 +34,28 @@ def test_a_log_line_gets_the_same_scrub_as_the_providers_error_text(tmp_path):
     assert logsetup.redact(text) in logged and svxml._scrubbed(text) == logsetup.redact(text)
 
 
+@pytest.mark.parametrize("text", [
+    "Could not create C:\\a\\b.xlsx (sensitivity label?).",
+    "atlas: NOT replaced (nothing was built (no such dimension?)); 0 built",
+    "NoToken: no EPM access token for https://plan1.example: the identity domain did not answer (URLError)",
+    "TokenRefused: Smart View provider at https://plan1.example: EPM refused the access token twice (HTTP 403)",
+    "Your session: expired. Basic settings are kept. Why? Ask again.",
+    "x-axis: months; tokens: 3; member code=ac.C60 under All Accounts",
+])
+def test_ordinary_sentences_pass_the_scrub_unchanged(text):
+    assert logsetup.redact(text) == text
+
+
+def test_the_sign_in_reply_keeps_its_page_and_code(monkeypatch):
+    """The sign-in reply is redacted (oauth.sign_in_reply): its page and code must survive the scrub."""
+    from smartass.epm import oauth
+    monkeypatch.setattr(oauth, "pending_logins", lambda: [{
+        "pod": "https://plan1.example", "verification_uri": "https://idcs.example/ui/v1/device",
+        "user_code": "QWER-TYUI", "minutes_left": 9}])
+    said = oauth.sign_in_reply(oauth.NotSignedIn("x"))
+    assert "Open https://idcs.example/ui/v1/device and enter the code QWER-TYUI (plan1.example, valid 9 min)" in said
+
+
 def test_configure_writes_redacted_rotating_log(tmp_path):
     h = logsetup.configure(tmp_path / "logs" / "t.log", max_bytes=200, backups=2)
     try:
