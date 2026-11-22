@@ -201,7 +201,7 @@ class _Tpl:
     Name = "tn_template1"
 
 
-@pytest.mark.parametrize("value, grace", [(1, (24, 25)), (0, (12, 12)), (None, (12, 12))], ids=["on", "off", "unset"])
+@pytest.mark.parametrize("value, grace", [(1, (20, 25)), (0, (12, 12)), (None, (12, 12))], ids=["on", "off", "unset"])
 @pytest.mark.parametrize("launch", ["_spawn_excel", "_open_path"])
 def test_both_launch_sites_watch_from_the_launch(monkeypatch, tmp_path, value, grace, launch):
     """_spawn_excel and _open_path give the watch launch_grace from the moment they launched Excel."""

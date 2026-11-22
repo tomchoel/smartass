@@ -49,7 +49,9 @@ def _pipeline() -> list[str]:
             if req.periods == ("Sep 25",):
                 raise SvHttpError(REFUSED)
             return super().fetch(req)
-    texts = list(prepare(spec_dict(), resolver(), Flaky(facts())).warnings)
+    failed = prepare(spec_dict(), resolver(), Flaky(facts())).warnings
+    assert any(REFUSED in w for w in failed)              # the provider's text reached the warning whole, scrubbed
+    texts = [REFUSED, *failed]
     texts += prepare(spec_dict(), resolver(), _Rest(facts(), lambda req: True)).warnings
     got = [SimpleNamespace(dropped=[("FinMax", "Account", "ac.C50S"), ("FinMax", "Entity", "un.SY.B2")])]
     warnings, caveats = left_out(spec_dict_model(), got, resolver())
@@ -67,7 +69,7 @@ def _sign_in(monkeypatch) -> list[str]:
          "verification_uri": "https://idcs-0a1b2c3d4e.identity.oraclecloud.com/ui/v1/device", "user_code": "QWER-TYUI",
          "minutes_left": 9, "note": "The earlier sign-in did not complete (expired_token)."},
         {"pod": "https://stratmodel.example", "error": "the identity domain did not answer (URLError)"}])
-    return [oauth.sign_in_message()]
+    return [oauth.sign_in_message(), oauth.NOT_SET_UP]
 
 
 def _atlas() -> list[str]:

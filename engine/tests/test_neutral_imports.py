@@ -111,7 +111,7 @@ def test_only_the_users_excel_is_ever_started_and_only_on_a_workbook():
 # starts Excel without naming it - and a subprocess or os call can take Excel's path from a variable. So each start is
 # allowed by its (file, function), with why; anything else, whatever it names, fails the guard.
 START_NAMES = {"startfile", "ShellExecute", "ShellExecuteW", "ShellExecuteEx", "ShellExecuteExW", "CreateProcess",
-               "CreateProcessW", "CreateProcessAsUser"}
+               "CreateProcessW", "CreateProcessAsUser", "Popen"}   # Popen on any receiver: subprocess under an alias
 SUBPROCESS_STARTS = {"Popen", "run", "call", "check_call", "check_output", "getoutput", "getstatusoutput"}
 OS_STARTS = {"startfile", "system", "popen", "spawnl", "spawnle", "spawnlp", "spawnv", "spawnve", "spawnvp", "execv",
              "execve", "execl", "execlp", "execvp", "posix_spawn"}
@@ -144,7 +144,7 @@ def process_starts(source: str, rel: str) -> list[str]:
         f = node.func
         recv = f.value.id if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) else ""
         if (name in START_NAMES or (recv == "subprocess" and name in SUBPROCESS_STARTS)
-                or (recv == "os" and name in OS_STARTS) or (isinstance(f, ast.Name) and name == "Popen")):
+                or (recv == "os" and name in OS_STARTS)):
             out.append(f"{rel}:{enclosing(node)} {recv + '.' if recv else ''}{name}")
     return out
 
@@ -153,13 +153,15 @@ def process_starts(source: str, rel: str) -> list[str]:
     ("import os\ndef open_book(book):\n    os.startfile(book)\n", ["x.py:open_book os.startfile"]),
     ("import subprocess\ndef go(exe, p):\n    subprocess.Popen([exe, p])\n", ["x.py:go subprocess.Popen"]),
     ("from subprocess import Popen\ndef go(exe, p):\n    Popen([exe, p])\n", ["x.py:go Popen"]),
+    ("import subprocess as sp\ndef go(exe, p):\n    sp.Popen([exe, p])\n", ["x.py:go sp.Popen"]),
     ("import win32api\ndef go(p):\n    win32api.ShellExecute(0, 'open', p, None, None, 1)\n",
      ["x.py:go win32api.ShellExecute"]),
     ("from win32com.shell import shell\ndef go(p):\n    shell.ShellExecuteEx(lpFile=p)\n",
      ["x.py:go shell.ShellExecuteEx"]),
     ("import os\ndef go(p):\n    os.system(f'start {p}')\n", ["x.py:go os.system"]),
     ("import asyncio\ndef go(c, doctor, app):\n    asyncio.run(c)\n    doctor.run()\n    app.Run('M')\n", []),
-], ids=["startfile", "popen-variable", "popen-imported", "shellexecute", "shellexecuteex", "os-system", "not-a-start"])
+], ids=["startfile", "popen-variable", "popen-imported", "popen-alias", "shellexecute", "shellexecuteex", "os-system",
+        "not-a-start"])
 def test_the_launch_guard_sees_a_process_start_that_does_not_name_excel(source, found):
     assert process_starts(source, "x.py") == found
 

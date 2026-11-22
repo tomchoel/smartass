@@ -91,7 +91,7 @@ def excel_instances() -> list[XlInstance]:
         if pid in engine or _is_embedding(pid):
             continue
         if dialogs.login_open(pid):               # window enumeration only: no COM into that Excel
-            raise dialogs.login_refusal(pid, [c for _e, c in ex7s] or None)   # none: its main windows' titles
+            raise dialogs.login_refusal(pid, [c for _e, c in ex7s if c] or None)   # none: its main windows' titles
         if not ex7s:
             continue
         app = None
