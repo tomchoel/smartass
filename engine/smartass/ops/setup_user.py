@@ -137,19 +137,33 @@ ENGINE_STARTUP = "smartass-engine.lnk"      # an older release's (up to 0.7.0): 
 VENV_SCRIPTS = config.ENGINE_DIR / ".venv" / "Scripts"   # this install's interpreters
 
 
-def startup_entries() -> list[str]:
+def _teller(say):
+    """(the lines said so far, a say that keeps each line and passes it on at once: said before the next step)."""
+    out: list[str] = []
+
+    def tell(line: str) -> None:
+        out.append(line)
+        if say:
+            say(line)
+    return out, tell
+
+
+def startup_entries(say=None) -> list[str]:
     """smartass starts nothing at logon any more (the agent's MCP client starts the server): what an older release
-    put in the Startup folder is removed, and what it started is stopped when it is provably this install's."""
-    out = []
+    put in the Startup folder is removed, and what it started is stopped when it is provably this install's. Each
+    line goes to say as it comes, before what it names is done; the lines are returned too."""
+    out, tell = _teller(say)
     for name in LEGACY_STARTUP:
         legacy = STARTUP / name
         if legacy.exists():
+            tell(f"startup: removing {name} (the Smart View SSO watcher is gone)")
             legacy.unlink()
-            out.append(f"startup: removed {name} (the Smart View SSO watcher is gone)")
-    drop_engine_startup(out.append)
-    stop_old_serve(out.append)
-    out += stop_old_watcher()
-    return out or ["startup: nothing to remove"]
+    drop_engine_startup(tell)
+    stop_old_serve(tell)
+    stop_old_watcher(say=tell)
+    if not out:
+        tell("startup: nothing to remove")
+    return out
 
 
 def _names(data: bytes, text: str) -> bool:
@@ -339,17 +353,17 @@ def _kill(p) -> None:
     p.kill()
 
 
-def stop_old_watcher(found=None, kill=None) -> list[str]:
+def stop_old_watcher(found=None, kill=None, say=None) -> list[str]:
     """The SSO watcher an older release started at logon, stopped when its command line proves it is ours (it names
     this install's script path) through the process its listing found (_stop, as `serve`'s); any other is left
-    running, and said so."""
+    running, and said so. Each line goes to say as it comes (the stop is said before it is done)."""
     found, kill = found or _watchers, kill or _kill
-    out: list[str] = []
+    out, tell = _teller(say)
     for p, ours in found():
         if not ours:
-            out.append(f"startup: an SSO watcher of another smartass install (pid {p.pid}) is left running")
+            tell(f"startup: an SSO watcher of another smartass install (pid {p.pid}) is left running")
             continue
-        _stop(p, kill, out.append, "the old Smart View SSO watcher", "the old Smart View SSO watcher",
+        _stop(p, kill, tell, "the old Smart View SSO watcher", "the old Smart View SSO watcher",
               "the SSO watcher is gone")
     return out
 
@@ -437,26 +451,28 @@ MANUAL = ("leftovers: an older release left settings that `smartass doctor` list
           "`smartass doctor` and follow its manual steps")
 
 
-def run() -> list[str]:
-    """setup's steps, each a line: config, the agents' MCP entries, the skill links, the Startup entries and processes
-    an older release left (removed and stopped here: they would start or keep running old code), the user PATH; and,
-    when `smartass doctor` would list leftovers that are files or settings, a last line saying so: run doctor, then
+def run(say=print) -> list[str]:
+    """setup's steps, each a line said as it comes (say: print for the command line), so a removal or a stop is said
+    before it is done: config, the agents' MCP entries, the skill links, the Startup entries and processes an older
+    release left (removed and stopped here: they would start or keep running old code), the user PATH; and, when
+    `smartass doctor` would list leftovers that are files or settings, a last line saying so: run doctor, then
     doctor --fix when it can clear one of them, else follow doctor's manual steps (Office's settings, the old svkit
-    home's record)."""
+    home's record). The lines are returned too."""
+    out, tell = _teller(say)
     config.HOME.mkdir(parents=True, exist_ok=True)
-    out = [f"config: {write_user_config()} ({config.USER_CONFIG})"]
+    tell(f"config: {write_user_config()} ({config.USER_CONFIG})")
     e = mcp_entries(config.ENGINE_DIR / ".venv" / "Scripts" / "python.exe", config.ENGINE_DIR / "run_server.py")
-    out.append(f"copilot mcp: {register_mcp(USER / '.copilot' / 'mcp-config.json', e['copilot'], create=True)}")
-    out.append(f"claude mcp: {register_mcp(USER / '.claude.json', e['claude'])}")
+    tell(f"copilot mcp: {register_mcp(USER / '.copilot' / 'mcp-config.json', e['copilot'], create=True)}")
+    tell(f"claude mcp: {register_mcp(USER / '.claude.json', e['claude'])}")
     skill_src = config.REPO_DIR / "skills" / "smartass"
     backup = config.HOME / "backup"
     for agent in (".claude", ".agents"):
         skills = USER / agent / "skills"
-        out.append(f"skill ({agent[1:]}): {link_skill(skill_src, skills / 'smartass', backup)}"
-                   f"; legacy smartview: {drop_legacy_skill(skills / 'smartview', backup)}")
-    out += startup_entries()
-    out.append(path_step())
+        tell(f"skill ({agent[1:]}): {link_skill(skill_src, skills / 'smartass', backup)}"
+             f"; legacy smartview: {drop_legacy_skill(skills / 'smartview', backup)}")
+    startup_entries(tell)
+    tell(path_step())
     from . import doctor
     if doctor.pending_leftovers():          # a file or config.toml is doctor --fix's, run after reading doctor
-        out.append(PENDING if doctor.fixable_leftovers() else MANUAL)
+        tell(PENDING if doctor.fixable_leftovers() else MANUAL)
     return out

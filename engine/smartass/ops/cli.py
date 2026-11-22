@@ -76,8 +76,7 @@ def main(argv: list[str] | None = None) -> int:
                                                                                          atlas=not a.no_atlas)
     if a.cmd == "setup":
         from . import setup_user
-        for line in setup_user.run():
-            print(line)
+        setup_user.run(say=print)                       # each line printed as it comes, before what it names is done
         return 0
     if a.cmd == "atlas":
         from . import atlas_build

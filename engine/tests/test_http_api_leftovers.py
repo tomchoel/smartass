@@ -499,3 +499,42 @@ def test_a_manual_leftover_beside_one_doctor_fix_clears_keeps_the_fix_line(pc, m
     (pc.home / "secret.bin").write_bytes(b"DPAPI")
     out, _ = _setup(pc, monkeypatch)
     assert out[-1] == setup_user.PENDING
+
+
+def test_setup_prints_each_removal_and_stop_before_it_is_done(pc, monkeypatch):
+    """Final review, Important 2: `smartass setup` says each thing as it goes, before it does it - the line about
+    smartass-engine.lnk is printed while the file is still there, the stop of an old serve before the kill - not as a
+    list after run() returned. The SSO watcher's old Startup entry likewise."""
+    (pc.startup / "smartass-engine.lnk").write_bytes(OUR_LNK)
+    (pc.startup / "smartass-sso-watcher.lnk").write_bytes(b"lnk")
+    pc.procs = [_serve(VENV + r"\pythonw.exe", 10)]
+    events = []
+
+    def say(line):
+        events.append(("said", line, (pc.startup / "smartass-engine.lnk").exists(),
+                       (pc.startup / "smartass-sso-watcher.lnk").exists(), list(pc.killed)))
+    monkeypatch.setattr(setup_user, "USER", pc.home.parent / "user")
+    monkeypatch.setattr(setup_user, "link_skill", lambda src, dst, backup: "linked")
+    monkeypatch.setattr(setup_user, "path_step", lambda: "path: unchanged")
+    out = setup_user.run(say=say)
+    assert [e[1] for e in events] == out                                # every line printed, in order, as it goes
+    engine = next(e for e in events if "smartass-engine.lnk" in e[1])
+    assert engine[1].startswith("startup: removing") and engine[2] is True
+    watcher = next(e for e in events if "smartass-sso-watcher.lnk" in e[1])
+    assert watcher[1].startswith("startup: removing") and watcher[3] is True
+    stop = next(e for e in events if "stopping this install's old `smartass serve`" in e[1])
+    assert stop[4] == []
+    assert pc.killed == [10] and not (pc.startup / "smartass-engine.lnk").exists()
+
+
+def test_the_cli_prints_setups_lines_as_they_come(monkeypatch, capsys):
+    from smartass.ops import cli
+    seen = []
+
+    def run(say):
+        say("config: kept")
+        seen.append(capsys.readouterr().out)                         # printed before run() went on
+        return ["config: kept"]
+    monkeypatch.setattr(setup_user, "run", run)
+    assert cli.main(["setup"]) == 0
+    assert seen == ["config: kept\n"] and capsys.readouterr().out == ""

@@ -184,7 +184,7 @@ def test_setup_makes_no_startup_shortcut_and_removes_an_older_releases_watcher(t
     monkeypatch.setattr(setup_user, "_watchers", lambda: [])
     out = setup_user.startup_entries()
     assert list(tmp_path.iterdir()) == []
-    assert out == [f"startup: removed {n} (the Smart View SSO watcher is gone)"
+    assert out == [f"startup: removing {n} (the Smart View SSO watcher is gone)"
                    for n in ("smartass-sso-watcher.lnk", "svkit-sso-watcher.lnk")]
 
 
