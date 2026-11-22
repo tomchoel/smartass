@@ -63,6 +63,36 @@ def test_each_shape_that_leaked_is_scrubbed(shape, said):
     assert x not in logsetup.redact(text) and s not in logsetup.redact(text)
 
 
+# Task 8: the named-key rule takes whole key names in their own case, a query after a space only with a named secret
+# key in it, and the Bearer rule a token-shaped value; the shapes still found leaking (values made at run time)
+@pytest.mark.parametrize("shape, said", [
+    ("[('Set-Cookie', 'FOO={x}')]", "[('Set-Cookie', '***')]"),          # a header list of pairs
+    ("{{'Set-Cookie': ['FOO={x}', 'BAR={x}']}}", "{'Set-Cookie': [***]}"),  # a list-valued header dict
+    ("<a sID=&#34;{x}&#34;>", "<a sID=&#34;***&#34;>"),                  # quotes escaped by number
+    ("<a sID=&#x27;{x}&#x27;>", "<a sID=&#x27;***&#x27;>"),                # ... and by hex (html.escape)
+    ("posted device_code={x}&client_id=a", "posted device_code=***&client_id=a"),
+    ('{{"device_code": "{x}", "interval": 5}}', '{"device_code": "***", "interval": 5}'),
+    ("device_code: {s} ok", "device_code: *** ok"),
+    ("see ?state=1&code={x} there", "see ?... there"),                  # the named key not first in the query
+    ("sent Bearer {x} ok", "sent Bearer *** ok"),
+], ids=["cookie-pairs", "cookie-list", "escaped-34", "escaped-x27", "device_code-pair", "device_code-json",
+        "device_code-short", "query-key-later", "bearer-token"])
+def test_each_shape_still_found_leaking_is_scrubbed(shape, said):
+    x, s = secrets.token_hex(12), _short()
+    text = shape.format(x=x, s=s)
+    assert logsetup.redact(text) == said
+    assert x not in logsetup.redact(text) and s not in logsetup.redact(text)
+
+
+@pytest.mark.parametrize("text", [
+    "SID: 4 (subsidiaries in the group)", "Session_id: unknown", "id_token: missing", "Oamaru: 3",
+    "Bearer+Sender split", "Use ?period=Sep to filter", "Use ?period=Sep&view=2 to filter",
+    "the cost bearer of the unit", "The cost bearer of ac.24074",
+])
+def test_ordinary_text_the_named_keys_and_the_bearer_rule_ate_passes_unchanged(text):
+    assert logsetup.redact(text) == text
+
+
 @pytest.mark.parametrize("text", [
     "Could not create C:\\a\\b.xlsx (sensitivity label?).",
     "atlas: NOT replaced (nothing was built (no such dimension?)); 0 built",
