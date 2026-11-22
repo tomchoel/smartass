@@ -72,7 +72,10 @@ def test_a_finplan_request_is_one_rest_grid_per_year_in_the_provider_routes_orde
 
 
 @pytest.mark.parametrize("fails", [svhttp.NoScope("no scope"), svhttp.TokenRefused("refused twice"),
-                                   svhttp.AtlasStale("atlas is stale"), svhttp.GridRefused("Grid is Invalid")])
+                                   svhttp.AtlasStale("atlas is stale"),
+                                   svhttp.GridRefused("Found duplicate aliases or member name conflicting with alias"),
+                                   svhttp.NoFallback("no EPM access token for https://plan1.example: expired"),
+                                   svhttp.NoFallback("the HTTP route is busy looking up the EPM data sources")])
 def test_an_error_rest_would_meet_as_well_is_the_answer_and_rest_is_not_asked(atlas_path, monkeypatch, fails):
     prov, epm, _ = _route(atlas_path, monkeypatch, fails)
     with pytest.raises(type(fails)):
@@ -91,7 +94,7 @@ def test_a_grid_neither_route_can_fetch_is_the_provider_routes_error_with_rests(
     epm = _Epm(answer=lambda path, body: (500, "{}") if path.endswith("exportdataslice") else None)
     prov, _, _ = _route(atlas_path, monkeypatch, svhttp.SvHttpError("Smart View provider: session expired"), epm)
     with pytest.raises(svhttp.SvHttpError, match="session expired.*the second engine \\(Planning REST\\) could not "
-                                                 "fetch it either: .*HTTP 500"):
+                                                 "fetch it either \\(query fm\\): .*HTTP 500"):
         prov.fetch(FM)
 
 
@@ -137,3 +140,93 @@ def test_rest_reads_the_atlas_on_the_thread_that_fetches_and_closes_it(atlas_pat
     for t in threads:
         t.join()
     assert out == ["rest"] * 3 and len(set(opened)) == 3 and len(closed) == 3
+
+
+# ---------------------------------------------------------------- a wrong member over REST (Task 3b)
+def _rest_only(atlas_path, monkeypatch, epm):
+    return _route(atlas_path, monkeypatch, svhttp.WrongMember("Smart View provider: Grid is Invalid."), epm)[0]
+
+
+def _facts(got):
+    return sorted((f.account, f.entity, f.period, f.value) for f in got.facts)
+
+
+def test_the_providers_wrong_member_error_goes_on_to_rest(atlas_path, monkeypatch):
+    prov, epm, _ = _route(atlas_path, monkeypatch, svhttp.WrongMember("Smart View provider: Grid is Invalid."))
+    assert prov.fetch(FM).route == "rest" and len(_slices(epm)) == 1
+
+
+def test_a_member_rest_refuses_in_the_middle_of_the_rows_is_left_out_and_the_rest_sits_on_its_own_code(
+        atlas_path, monkeypatch):
+    """ac.C70 between ac.C30 and ac.C90: every remaining fact must be the one a request without ac.C70 gives (facts
+    are built from the members asked: a shifted place would put a number on the wrong code, silently), ac.C70 has
+    none (absent, not 0), and the request says which member was left out (one entry)."""
+    import test_rest
+    cell = lambda row, col, pov: float(int(row[0][-2]) * 100 + int(row[1][-1]) * 10 + int(col[0][-1]))  # noqa: E731
+    asked = GridRequest("fm", "FinMax", ("ac.C30", "ac.C70", "ac.C90"), ("un.SY.E1", "un.SY.E2"),
+                        ("Aug 26", "Sep 26"), "Actual", "", "Periodic")
+    reduced = GridRequest("fm", "FinMax", ("ac.C30", "ac.C90"), ("un.SY.E1", "un.SY.E2"), ("Aug 26", "Sep 26"),
+                          "Actual", "", "Periodic")
+    epm = _Epm(cell=cell, answer=test_rest.refusing("ac.C70"))
+    got = _rest_only(atlas_path, monkeypatch, epm).fetch(asked)
+    alone = _Epm(cell=cell)
+    want = _rest_only(atlas_path, monkeypatch, alone).fetch(reduced)
+    assert _facts(got) == _facts(want) and len(got.facts) == 8
+    assert not any(f.account == "ac.C70" for f in got.facts)
+    assert got.dropped == [("FinMax", "All Accounts", "ac.C70")] and got.route == "rest"
+    assert [b for b in epm.bodies if b and "gridDefinition" in b][-1] == alone.bodies[-1]      # without ac.C70
+
+
+def test_a_period_rest_refuses_in_the_middle_of_the_columns_is_left_out_the_same_way(atlas_path, monkeypatch):
+    import test_rest
+    cell = lambda row, col, pov: float(int(col[0][-2:]) * 10 + len(row[0]))      # noqa: E731
+    asked = GridRequest("fm", "FinMax", ("ac.C30", "ac.C90"), ("un.SY.E1",), ("Aug 26", "Jul 26", "Sep 26"),
+                        "Actual", "", "Periodic")
+    reduced = GridRequest("fm", "FinMax", ("ac.C30", "ac.C90"), ("un.SY.E1",), ("Aug 26", "Sep 26"), "Actual", "",
+                          "Periodic")
+    monkeypatch.setitem(test_rest.REAL, "Jul 26", "Y26M07")
+    got = _rest_only(atlas_path, monkeypatch, _Epm(cell=cell, answer=test_rest.refusing("Jul 26"))).fetch(asked)
+    want = _rest_only(atlas_path, monkeypatch, _Epm(cell=cell)).fetch(reduced)
+    assert _facts(got) == _facts(want) and {f.period for f in got.facts} == {"Aug 26", "Sep 26"}
+    assert got.dropped == [("FinMax", "All Time Periods", "Jul 26")]
+
+
+@pytest.mark.parametrize("wrong, where", [("NOK", "a POV member"), ("un.SY.E1", "the only All Entities member")])
+def test_a_member_that_cannot_be_left_out_fails_the_request_with_its_code_the_grid_and_what_to_do(
+        atlas_path, monkeypatch, wrong, where):
+    import test_rest
+    epm = _Epm(answer=test_rest.refusing(wrong))
+    with pytest.raises(svhttp.SvHttpError) as e:
+        _rest_only(atlas_path, monkeypatch, epm).fetch(FM)
+    text = str(e.value)
+    assert wrong in text and where in text and "query fm" in text and "FinMax grid" in text
+    assert "smartass atlas build" in text and len(_slices(epm)) == 1                 # never a reduced request
+
+
+def test_more_than_three_wrong_members_fail_the_request_with_the_list_of_those_found(atlas_path, monkeypatch):
+    import test_rest
+    wrong = ("ac.C10", "ac.C20", "ac.C40", "ac.C70")
+    req = GridRequest("fm", "FinMax", ("ac.C30", *wrong), ("un.SY.E1",), ("Sep 26",), "Actual", "", "Periodic")
+    epm = _Epm(answer=test_rest.refusing(*wrong))
+    with pytest.raises(svhttp.SvHttpError, match="more than 3 members.*ac.C10, ac.C20, ac.C40, ac.C70"):
+        _rest_only(atlas_path, monkeypatch, epm).fetch(req)
+    assert len(_slices(epm)) == 4
+
+
+def test_a_finplan_member_refused_in_one_years_grid_is_left_out_of_every_year_once(atlas_path, monkeypatch):
+    """One GridRequest is one grid per year: the member is left out of both, the request names it once, and the
+    remaining facts are those of the request without it."""
+    import test_rest
+
+    def answer(path, body):                     # 2BUS Biz exists in FY25 only: EPM refuses it in FY26's grid
+        if path.endswith("exportdataslice") and ["FY26"] in body["gridDefinition"]["pov"]["members"]:
+            return test_rest.refusing("2BUS Biz")(path, body)
+    req = GridRequest("fp", "FinPlan", ("EBX Ebitda X",), ("1TEC Tech", "2BUS Biz"), ("Dec 25", "Jan 26"), "Target",
+                      "Final")
+    reduced = GridRequest("fp", "FinPlan", ("EBX Ebitda X",), ("1TEC Tech",), ("Dec 25", "Jan 26"), "Target", "Final")
+    cell = lambda row, col, pov: float(sum(map(ord, row[1] + col[0] + "".join(pov))))      # noqa: E731
+    got = _rest_only(atlas_path, monkeypatch, _Epm(cell=cell, answer=answer)).fetch(req)
+    want = _rest_only(atlas_path, monkeypatch, _Epm(cell=cell)).fetch(reduced)
+    assert got.dropped == [("FinPlan", "Entity", "2BUS Biz")]
+    assert _facts(got) == _facts(want) and {f.entity for f in got.facts} == {"1TEC Tech"}
+    assert sorted(f.period for f in got.facts) == ["Dec 25", "Jan 26"]

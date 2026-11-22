@@ -5,8 +5,10 @@ route could not fetch (data/provider.py).
 
 Error contract: InputError only for a query that is wrong whatever the route (a dimension used twice, no members, no
 row/column axis); everything else is SvHttpError - NoFallback when the second engine would meet it as well (the same
-token, scope or atlas, or a grid EPM refuses for its members), so only the others are fetched again over REST. A
-missing sign-in (oauth.NotSignedIn) is raised as it is and never falls back.
+token, scope or atlas, or an alias clash), so only the others are fetched again over REST. A member the cube does not
+have where the grid puts it (WrongMember) is final on this route (no reconnect) but goes on to REST, whose HTTP 400
+names it (data/provider.py leaves it out). A missing sign-in (oauth.NotSignedIn) is raised as it is and never falls
+back.
 
 BearerTransport posts over plain HTTPS with the user's OAuth access token (epm/oauth.py; no browser) to every pod that
 has a scope, each request through the pod's epmhttp.EpmSession (its allowlist, its origin, its one new token on a
@@ -44,8 +46,11 @@ CUBES = {"FinMax": (config.SVHTTP_FINMAX_SERVER, "FinMax", "FinMax"),
 # 'Duplicate name <m> found in grid; cannot resolve. Please replace it with qualified name.'
 ALIAS_CLASH = ("duplicate aliases", "qualified name")
 # A member the cube does not have where the grid puts it (live 2026-11-22, stored answers with members renamed since):
-# deterministic too, and REST refuses the same grid ('The member ... does not exist in the ... dimension').
-WRONG_MEMBER = ("Grid is Invalid", "Member name and Alias placed on", "is out of place")
+# deterministic, and REST's HTTP 400 names it ('The member ... does not exist in the ... dimension'). Matched from the
+# start of the provider's message (its desc), the whole sentence, so a transient error that only quotes a phrase is
+# not taken for one.
+WRONG_MEMBER = re.compile(r"(?:Error: )?(?:Grid is Invalid\.(?: .*)?|Member name and Alias placed on row \d+ do not "
+                          r"match\.?|Member \S.* is out of place\.?)", re.S)
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
@@ -73,10 +78,14 @@ class AtlasStale(NoFallback):
 
 
 class GridRefused(NoFallback):
-    """The provider refuses the grid for its members whatever the session: a member the cube does not have there
-    (WRONG_MEMBER: 'Grid is Invalid', a name and alias that do not match, a member out of place - REST refuses it too)
-    or an alias clash (a member name that is another member's alias: ambiguous - REST would resolve it without saying
-    which)."""
+    """The provider refuses the grid for an alias clash whatever the session (a member name that is another member's
+    alias: ambiguous - REST would resolve it without saying which)."""
+
+
+class WrongMember(SvHttpError):
+    """The provider refuses the grid for a member the cube does not have where the grid puts it (WRONG_MEMBER: 'Grid
+    is Invalid', a name and alias that do not match, a member out of place), whatever the session - so no reconnect;
+    but not NoFallback: Planning REST's HTTP 400 names the member, so the second engine can leave it out."""
 
 
 class RequestLost(SvHttpError):
@@ -324,11 +333,11 @@ class SvHttp:
         return [v if isinstance(v, float) else None
                 for v in (f.values[1 + lay.nc + i][lay.nr] for i in range(len(parts)))]
 
-    def _ask(self, conn: str, body, read, fatal, refused: type[SvHttpError] = SvHttpError) -> object:
+    def _ask(self, conn: str, body, read, fatal, refused=lambda e: SvHttpError) -> object:
         """POST body(sid, cube) on a session of its own and read(answer); at most SVHTTP_SESSIONS at once per
         connection. An error fatal(e) does not rule out (maybe an expired session) drops that session and tries
-        once more on a new one; a fatal one is raised at once as refused. A session whose request was lost on the
-        way is dropped too (EPM may still be working on it)."""
+        once more on a new one; a fatal one is raised at once as the class refused(e) gives. A session whose request
+        was lost on the way is dropped too (EPM may still be working on it)."""
         slot = self._slot(conn)
         if not slot.acquire(timeout=config.SVHTTP_TIMEOUT_S):
             raise SvHttpError("the HTTP route is busy with other queries")
@@ -352,7 +361,7 @@ class SvHttp:
                         with self._lock:
                             self._bases = None                # ... and re-read where the apps live
                     if fatal(e) or attempt == 2:
-                        raise (refused if fatal(e) else SvHttpError)(f"Smart View provider: {e}") from None
+                        raise (refused(e) if fatal(e) else SvHttpError)(f"Smart View provider: {e}") from None
                     log.info("svhttp %s: %s - reconnecting once", conn, e)
                     continue
                 self._give(conn, sid)
@@ -366,10 +375,13 @@ class SvHttp:
                          lambda e: e.code in (4996, 4997))  # unknown member or dimension: a new session won't help
 
     def _execute(self, conn: str, lay: Layout) -> list[list]:
+        def wrong(e) -> bool:                             # a member the cube lacks there
+            return bool(WRONG_MEMBER.fullmatch(str(e).strip()))
+
+        def clash(e) -> bool:                             # alias clash: deterministic too
+            return any(m in str(e) for m in ALIAS_CLASH)
         return self._ask(conn, lambda sid, cube: svxml.execute_grid(sid, cube, lay), svxml.grid_values,
-                         lambda e: any(m in str(e) for m in WRONG_MEMBER)   # a member the cube lacks there
-                         or any(m in str(e) for m in ALIAS_CLASH),    # alias clash: deterministic too
-                         GridRefused)
+                         lambda e: wrong(e) or clash(e), lambda e: WrongMember if wrong(e) else GridRefused)
 
 
 def _check_grid(lay: Layout, values: list[list], who: str = "the provider") -> None:

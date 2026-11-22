@@ -676,3 +676,82 @@ def test_no_sign_in_reaches_the_caller_as_it_is(db):
     assert epm.sent == []
 
 
+# ---------------------------------------------------------------- a wrong member (Oracle's HTTP 400 names it)
+def oracle_400(member, dimension):
+    """Oracle's answer for a member the plan type does not have there (shape live 2026-11-22: the same text under
+    detail, message and localizedMessage; the member as sent, in double quotes when it has a space; the dimension's
+    REST name). The members here are invented."""
+    shown = f'"{member}"' if " " in member else member
+    msg = (f"The member {shown} does not exist in the {dimension} dimension for the specified cube or you do not have "
+           "access to it.")
+    return 400, json.dumps({"status": 400, "detail": msg, "message": msg, "localizedMessage": msg})
+
+
+def refusing(*wrong):
+    """exportdataslice answers HTTP 400 naming the first member of 'wrong' it was sent (POV, columns, rows)."""
+    def answer(path, body):
+        if not path.endswith("exportdataslice"):
+            return None
+        g = body["gridDefinition"]
+        for seg in (g["pov"], *g["columns"], *g["rows"]):
+            for dim, ms in zip(seg["dimensions"], seg["members"]):
+                for m in ms:
+                    if m in wrong:
+                        return oracle_400(m, dim)
+    return answer
+
+
+def test_a_400_naming_a_member_asked_on_an_axis_of_several_is_a_member_that_can_be_left_out(db):
+    with pytest.raises(rest.MemberRefused) as e:
+        _grid(_Epm(answer=refusing("ac.C70")), db, accounts=("ac.C30", "ac.C70", "ac.C90"))
+    assert (e.value.dimension, e.value.member, e.value.droppable) == ("All Accounts", "ac.C70", True)
+    assert isinstance(e.value, svhttp.SvHttpError) and not isinstance(e.value, svhttp.NoFallback)
+    assert "All Accounts member ac.C70" in str(e.value) and "FinMax" in str(e.value)
+
+
+def test_a_member_with_a_space_is_read_from_oracles_quotes(db):
+    with pytest.raises(rest.MemberRefused) as e:
+        rest.fetch_grid(_session(_Epm(answer=refusing("2BUS Biz"))), "FinPlan",
+                        {"Scenario": "Target", "Version": "Final", "Years": "FY26", "All Balance Types": "Periodic"},
+                        [Axis("Account", ["EBX Ebitda X"]), Axis("Entity", ["1TEC Tech", "2BUS Biz"])],
+                        [Axis("Period", ["Jan"])], db)
+    assert (e.value.dimension, e.value.member, e.value.droppable) == ("Entity", "2BUS Biz", True)
+
+
+@pytest.mark.parametrize("wrong, where", [("NOK", "a POV member"), ("un.SY.E1", "the only All Entities member")])
+def test_a_member_that_cannot_be_left_out_is_a_clear_error_naming_it(db, wrong, where):
+    """A POV member, or the only member on its axis: leaving it out would change what every remaining cell means or
+    leave no cell - the error names the member, the grid and what to do."""
+    epm = _Epm(answer=refusing(wrong))
+    with pytest.raises(rest.MemberRefused) as e:
+        _grid(epm, db, accounts=("ac.C30", "ac.C70"))
+    assert e.value.member == wrong and not e.value.droppable
+    assert where in str(e.value) and "cannot be left out" in str(e.value) and "smartass atlas build" in str(e.value)
+    assert len(_slices(epm)) == 1                                                  # no reduced request was sent
+
+
+@pytest.mark.parametrize("named", ["ac.C7", "ac.C300", "AC.C70", "ac.ZZ9"])
+def test_a_400_naming_a_member_that_was_not_asked_is_never_acted_on(db, named):
+    """Matched against the members asked exactly: a part, a longer name or another case of one is not that member."""
+    with pytest.raises(rest.RestError) as e:
+        _grid(_Epm(answer=_fails(*oracle_400(named, "Accounts"))), db, accounts=("ac.C30", "ac.C70"))
+    assert not isinstance(e.value, rest.MemberRefused)
+    assert "not asked" in str(e.value) and "smartass atlas build" in str(e.value)
+
+
+def test_a_member_named_under_another_dimension_than_the_one_asked_is_not_acted_on(db):
+    with pytest.raises(rest.RestError) as e:
+        _grid(_Epm(answer=_fails(*oracle_400("ac.C70", "Entities"))), db, accounts=("ac.C30", "ac.C70"))
+    assert not isinstance(e.value, rest.MemberRefused)
+
+
+@pytest.mark.parametrize("detail", [
+    "Error: The member ac.C70 does not exist in the Accounts dimension for the specified cube or you do not have "
+    "access to it.",
+    "The member ac.C70 does not exist in the Accounts dimension for the specified cube or you do not have access to "
+    "it. Retry later.",
+    "The member ac.C70 does not exist in the Accounts dimension"])
+def test_only_oracles_whole_wrong_member_sentence_names_a_member(db, detail):
+    with pytest.raises(rest.RestError) as e:
+        _grid(_Epm(answer=_fails(400, json.dumps({"status": 400, "detail": detail}))), db, accounts=("ac.C30", "ac.C70"))
+    assert not isinstance(e.value, rest.MemberRefused)

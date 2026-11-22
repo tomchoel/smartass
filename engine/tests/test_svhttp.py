@@ -542,19 +542,14 @@ def test_a_lost_request_goes_again_on_a_new_session_and_the_old_one_is_dropped(d
 
 
 def test_the_errors_the_second_engine_would_meet_as_well_are_no_fallback(db_path, tmp_path):
-    """A stale atlas, a grid EPM refuses for its members (Grid is Invalid, an alias clash), a pod without a scope and a
-    token refused twice are svhttp.NoFallback: the provider's error is the answer, REST is not tried."""
+    """A stale atlas, an alias clash, a pod without a scope and a token refused twice are svhttp.NoFallback: the
+    provider's error is the answer, REST is not tried."""
     clash = ('<exception errcode="1000" type="error"><desc>Found duplicate aliases or member name conflicting with '
              'alias under parent x.</desc></exception>')
-    # live 2026-11-22, a member the cube no longer has (REST: 'The member ... does not exist in the Entity dimension')
-    mismatch = ('<exception errcode="1000" type="error"><desc>Member name and Alias placed on row 3 do not match.'
-                '</desc></exception>')
-    out_of_place = '<exception errcode="1000" type="error"><desc>Member x is out of place.</desc></exception>'
-    for body in (INVALID, clash, mismatch, out_of_place):
-        t = FakeTransport(body, answer(GRID))
-        with pytest.raises(svhttp.GridRefused) as e:
-            _q(_sv(t, db_path))
-        assert isinstance(e.value, svhttp.NoFallback) and t.tags().count("ExecuteGrid") == 1      # no reconnect
+    t = FakeTransport(clash, answer(GRID))
+    with pytest.raises(svhttp.GridRefused) as e:
+        _q(_sv(t, db_path))
+    assert isinstance(e.value, svhttp.NoFallback) and t.tags().count("ExecuteGrid") == 1      # no reconnect
     with pytest.raises(svhttp.AtlasStale):
         _q(_sv(FakeTransport(), tmp_path / "empty.db"))
     with pytest.raises(svhttp.AtlasStale):
@@ -565,6 +560,31 @@ def test_the_errors_the_second_engine_would_meet_as_well_are_no_fallback(db_path
         with pytest.raises(svhttp.SvHttpError) as e:
             _q(_sv(t, db_path))
         assert not isinstance(e.value, svhttp.NoFallback)
+
+
+# live 2026-11-22, a member the cube no longer has (REST: 'The member ... does not exist in the Entity dimension')
+MISMATCH = ('<exception errcode="1000" type="error"><desc>Member name and Alias placed on row 3 do not match.'
+            '</desc></exception>')
+OUT_OF_PLACE = '<exception errcode="1000" type="error"><desc>Member x is out of place.</desc></exception>'
+
+
+@pytest.mark.parametrize("body", [INVALID, INVALID.replace("<desc>", "<desc>Error: "), MISMATCH, OUT_OF_PLACE])
+def test_a_wrong_member_is_final_on_the_provider_route_and_goes_on_to_the_second_engine(db_path, body):
+    """Deterministic (no reconnect), but not NoFallback: Planning REST's HTTP 400 names the member, so the second
+    engine can leave it out (data/provider.py)."""
+    t = FakeTransport(body, answer(GRID))
+    with pytest.raises(svhttp.WrongMember) as e:
+        _q(_sv(t, db_path))
+    assert not isinstance(e.value, svhttp.NoFallback) and t.tags().count("ExecuteGrid") == 1
+
+
+@pytest.mark.parametrize("desc", ["session expired: the grid is out of place in the queue",
+                                  "Cannot connect: Member name and Alias placed on row 3 do not match",
+                                  "Grid is Invalidated by a restart, try again", "Member x is out of place. Retry"])
+def test_a_transient_error_that_only_contains_a_wrong_member_phrase_is_not_taken_for_one(db_path, desc):
+    t = FakeTransport(f'<exception errcode="1000" type="error"><desc>{desc}</desc></exception>', answer(GRID))
+    _q(_sv(t, db_path))                                                 # reconnected once, then answered
+    assert t.tags().count("ExecuteGrid") == 2
 
 
 def test_the_second_engine_sends_through_the_grid_routes_session_of_the_cubes_pod(db_path):

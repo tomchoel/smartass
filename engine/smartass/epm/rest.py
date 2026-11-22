@@ -31,7 +31,11 @@ stratmodel, compared with the provider route by key paths, types and booleans on
   in order; EPM itself refuses a request over 500 000 (live).
 
 Errors are svhttp.SvHttpError (RestError): EPM refusing the grid (HTTP 400, Oracle's message scrubbed), a 404 on the
-plan type (NotConfigured), an answer that is not the grid asked for. A gate's answer (401, 3xx, 403:
+plan type (NotConfigured), an answer that is not the grid asked for. A 400 whose message is Oracle's sentence for a
+member the plan type does not have there (or the user may not read: _NO_MEMBER, live 2026-11-22) and names a member
+asked - exactly as it was sent, in that dimension - is MemberRefused: data/provider.py leaves a member of an axis of
+several out of the request and fetches it again; a POV member or an axis's only member cannot be left out. A 400
+naming a member that was not asked is never acted on (an error that says to rebuild the atlas). A gate's answer (401, 3xx, 403:
 epmhttp.GATE_STATUSES, as on the provider route) is the session's one new token, then TokenRefused; a lost request is
 svhttp.RequestLost; oauth.NotSignedIn reaches the caller as it is; a query wrong on every route is InputError and a
 stale atlas svhttp.AtlasStale, as on the provider route."""
@@ -58,6 +62,13 @@ MAX_CELLS = EPM_CELL_THRESHOLD // 2
 LIST_TTL_S = 3600.0                                   # a plan type's dimension list is read again after an hour
 MAX_MESSAGE = 300                                     # characters of Oracle's message in an error text
 _JWT = re.compile(r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+# Oracle's HTTP 400 for a member the plan type does not have there (live 2026-11-22, invented members on rows,
+# columns and the POV of both applications: the same text under 'detail', 'message' and 'localizedMessage'; the
+# member as sent - in double quotes when it has a space -, the dimension's REST name; only the first such member of
+# the grid is named). The whole sentence must match: anything else is a refused grid like any other 400.
+_NO_MEMBER = re.compile(r'The member (?:"(?P<quoted>.+)"|(?P<bare>\S+)) does not exist in the (?P<dim>.+?) dimension '
+                        r'for the specified cube or you do not have access to it\.')
+ATLAS_BUILD = "check the member or rebuild the atlas (`smartass atlas build`)"
 
 
 class RestError(SvHttpError):
@@ -74,6 +85,25 @@ class RequestLost(RestError, svhttp.RequestLost):
 
 class TokenRefused(RestError, svhttp.TokenRefused):
     """EPM's gate refused the access token twice (the session's one new token did not help)."""
+
+
+class MemberRefused(RestError):
+    """EPM refused the grid for one member asked (HTTP 400: it does not exist there, or the user may not read it).
+    dimension: the atlas's; member: as asked; droppable: it is on an axis of several members, so the grid can be
+    fetched without it - a POV member or the only member of its axis cannot be left out (every remaining cell would
+    mean something else, or there would be none)."""
+
+    def __init__(self, text: str, dimension: str, member: str, droppable: bool):
+        super().__init__(text)
+        self.dimension, self.member, self.droppable = dimension, member, droppable
+
+
+class _NamesMember(RestError):
+    """A 400 with Oracle's wrong-member sentence, before fetch_grid has matched its member against the grid."""
+
+    def __init__(self, text: str, rest_dimension: str, member: str):
+        super().__init__(text)
+        self.rest_dimension, self.member = rest_dimension, member
 
 
 # (pod, app, cube) -> (when read, the plan type's (name, alias, type)): read again after LIST_TTL_S, or at once when it
@@ -106,8 +136,12 @@ def fetch_grid(session: epmhttp.EpmSession, conn: str, pov: dict | None, rows: l
     got_pov = got_cols = None
     heads: list[list[str]] = []
     data: list[list] = []
-    for part, body in _requests(lay, names, MAX_CELLS // per_row):
-        p, c, h, d = _answer(_post(session, app, cube, body), lay, part)
+    try:
+        answers = [(part, _post(session, app, cube, body)) for part, body in _requests(lay, names, MAX_CELLS // per_row)]
+    except _NamesMember as e:
+        raise _refused(conn, lay, names, e) from None
+    for part, j in answers:
+        p, c, h, d = _answer(j, lay, part)
         if got_pov is not None and (p, c) != (got_pov, got_cols):
             raise RestError("the REST requests of one grid answered different POV or column members")
         got_pov, got_cols = p, c
@@ -248,7 +282,9 @@ def _send(session, method: str, url: str, body: str | None, app: str, cube: str)
     if r.status == 200:
         return r
     if r.status == 400:
-        raise RestError(f"{where} refused the grid (HTTP 400): {_message(r.text)}")
+        text = f"{where} refused the grid (HTTP 400): {_message(r.text)}"
+        named = _named(r.text)
+        raise _NamesMember(text, *named) if named else RestError(text)
     if r.status in epmhttp.GATE_STATUSES:             # the session took one new token for it already
         raise TokenRefused(f"{where}: EPM refused the access token twice (HTTP {r.status})")
     if r.status == 404:
@@ -269,6 +305,42 @@ def _message(text: str) -> str:
         return "no message"
     msg = redact(_JWT.sub("...", re.sub(r"\s+", " ", msg))).strip()
     return msg[:MAX_MESSAGE] + (" ..." if len(msg) > MAX_MESSAGE else "")
+
+
+def _named(text: str) -> tuple[str, str] | None:
+    """(REST dimension, member as sent) from Oracle's wrong-member sentence (_NO_MEMBER, the whole message), else
+    None."""
+    try:
+        j = json.loads(text)
+    except ValueError:
+        return None
+    for k in ("detail", "message", "localizedMessage"):
+        m = _NO_MEMBER.fullmatch(j.get(k) or "") if isinstance(j, dict) and isinstance(j.get(k), str) else None
+        if m:
+            return m["dim"], m["quoted"] if m["quoted"] is not None else m["bare"]
+    return None
+
+
+def _refused(conn: str, lay: Layout, names: dict[str, str], e: _NamesMember) -> RestError:
+    """The member a 400 names, matched against the grid asked: exactly as it was sent (_sent), in the dimension it
+    names. MemberRefused when it was asked there; else an error that acts on nothing."""
+    grid = f"the {conn} grid ({' / '.join(m for _, m in lay.pov)})"
+    dim = next((d for d, n in names.items() if n == e.rest_dimension), None)
+    pov = [m for d, m in lay.pov if d == dim and _sent(d, m, names) == e.member]
+    axis = next((a for a in lay.rows + lay.cols if a.dimension == dim
+                 and any(_sent(dim, m, names) == e.member for m in a.members)), None)
+    if dim is None or not (pov or axis):
+        return RestError(f"{e} - Planning REST refused {grid} for a member that was not asked: {ATLAS_BUILD}")
+    if pov:
+        return MemberRefused(f"Planning REST refused {grid}: {dim} member {pov[0]} does not exist there or you have no "
+                             f"access to it; as a POV member it cannot be left out - {ATLAS_BUILD}", dim, pov[0], False)
+    member = next(m for m in axis.members if _sent(dim, m, names) == e.member)
+    if len(axis.members) == 1:
+        return MemberRefused(f"Planning REST refused {grid}: {dim} member {member} does not exist there or you have no "
+                             f"access to it; as the only {dim} member asked it cannot be left out - {ATLAS_BUILD}",
+                             dim, member, False)
+    return MemberRefused(f"Planning REST refused {grid}: {dim} member {member} does not exist there or you have no "
+                         "access to it", dim, member, True)
 
 
 def _json(text: str):

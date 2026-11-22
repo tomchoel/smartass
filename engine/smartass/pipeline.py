@@ -98,11 +98,36 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     if second:                          # one warning, however many grids: the reply's routes count them
         warnings.append(f"{len(second)} grid(s) were fetched over Planning REST, the second engine: the Smart View "
                         f"provider route could not fetch them ({second[0].fallback})")
+    left_warnings, left_caveats = left_out(spec, got, resolver)
+    warnings += left_warnings
     result = compute(spec, resolver, closed, frame)
     aggregation = {m: resolver.aggregation(m) for q in spec.queries for m in q.metrics}
     return Prepared(spec, raw, closed, reqs, frame, result, warnings, routes, sum(g.seconds for g in got),
                     aggregation, failed, failed_errors, {g.request: g for g in got},
-                    caveats(spec, reqs, resolver) + concept_caveats(spec, resolver))
+                    caveats(spec, reqs, resolver) + concept_caveats(spec, resolver) + left_caveats)
+
+
+def left_out(spec: AnalysisSpec, got: list, resolver) -> tuple[list[str], list[dict]]:
+    """One warning and one warn caveat (the Answer's Caveats, the Sources sheet's Known limits) per member the second
+    engine left out (FetchResult.dropped: EPM refused it over Planning REST), however many requests asked it. It has
+    no fact - the path of a missing cell - so a total over several members shows the others' sum: the text says it is
+    INCOMPLETE and names the spec's metrics that pick the member (resolver.members)."""
+    texts: list[str] = []
+    cavs: list[dict] = []
+    for cube, dim, member in dict.fromkeys(d for g in got for d in getattr(g, "dropped", ())):
+        metrics = []
+        for q in spec.queries:
+            for m in q.metrics:
+                with contextlib.suppress(Exception):          # a metric the resolver cannot place names nothing
+                    if q.cube == cube and member in resolver.members(m, cube) and m not in metrics:
+                        metrics.append(m)
+        which = f" ({', '.join(metrics)})" if metrics else ""
+        text = (f"{cube}: EPM refused {dim} member {member} over Planning REST (it does not exist there, or you have "
+                f"no access to it), so it was left out: its figures are missing from this answer and every total that "
+                f"includes it{which} is INCOMPLETE - check the member or rebuild the atlas (`smartass atlas build`)")
+        texts.append(text)
+        cavs.append({"id": f"left-out:{cube}:{member}", "text": text, "severity": "warn"})
+    return texts, cavs
 
 
 _YEAR = re.compile(r"(?:Yr|FY) ?(\d{2})")

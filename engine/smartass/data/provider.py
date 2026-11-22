@@ -7,14 +7,21 @@ give a warning and no fact.
 
 A request the provider route could not fetch is fetched once over the second engine (epm/rest.py, Planning REST:
 svhttp.SvHttp.fetch_rest), the same grids parsed the same way - unless its error is one REST would meet as well
-(svhttp.NoFallback: the token, the scope, the atlas, a grid EPM refuses for its members) or a missing sign-in. Its
-FetchResult says route "rest" and why (fallback: the provider route's error)."""
+(svhttp.NoFallback: the token, the scope, the atlas, an alias clash) or a missing sign-in. Its FetchResult says route
+"rest" and why (fallback: the provider route's error).
+
+A member EPM refuses over REST (rest.MemberRefused: it does not exist there, or the user may not read it) on an axis of
+several is left out of every grid of the request, and the request is fetched again without it - at most MAX_LEFT_OUT
+members, one per round; the facts are then exactly those of the request without it, the member has none (the path of
+a missing cell), and FetchResult.dropped names it, so the reply says its figures are missing (pipeline.prepare). A POV
+member, an axis's only member or more than MAX_LEFT_OUT members fail the request with a clear error."""
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
 
 from ..epm.grid import Axis, parse as parse_grid
+from ..epm.rest import ATLAS_BUILD, MemberRefused
 from ..epm.svhttp import NoFallback, SvHttpError
 
 from ..model.frame import Fact
@@ -22,6 +29,7 @@ from ..model.periods import Month, parse
 from ..model.requests import GridRequest
 
 RETRY_WAIT_S = 5.0     # a request lost on the way (svhttp.RequestLost) is retried once after this wait
+MAX_LEFT_OUT = 3       # members EPM refuses over REST that one request is fetched without, one per round
 
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
@@ -34,6 +42,7 @@ class FetchResult:
     route: str = "http"
     seconds: float = 0.0
     fallback: str = ""          # route "rest": the provider route's error that sent the request to the second engine
+    dropped: list[tuple[str, str, str]] = field(default_factory=list)   # (cube, dimension, member) left out over REST
 
 
 def grids(req: GridRequest) -> list[tuple[dict, list[Axis], list[Axis], dict[str, str]]]:
@@ -121,23 +130,49 @@ class SvHttpProvider:
         return out
 
     def _over_rest(self, req: GridRequest, first: SvHttpError) -> FetchResult:
-        """The request's grids over the second engine, once; if it cannot fetch them either, the provider route's
-        error with REST's after it."""
-        out = FetchResult(req, route="rest", fallback=str(first))
-        try:
-            for pov, rows, cols, labels in grids(req):
-                f = self.sv.fetch_rest(req.cube, pov, rows, cols)
-                facts, warns = facts_from_parsed(req, parse_grid(f.layout, f.values, False, False), labels)
-                out.facts += facts
-                out.warnings += f.warnings + warns
-        except SvHttpError as e:
-            raise SvHttpError(f"{first} - the second engine (Planning REST) could not fetch it either: {e}") from None
+        """The request's grids over the second engine; a member EPM refuses there is left out of all of them and the
+        request fetched again (at most MAX_LEFT_OUT). If it cannot be fetched, the provider route's error with REST's
+        after it."""
+        left: list[tuple[str, str]] = []              # (dimension, member) left out, in the order EPM named them
+        while True:
+            try:
+                return self._rest_round(req, first, left)
+            except MemberRefused as e:
+                if e.droppable and len(left) < MAX_LEFT_OUT:
+                    left.append((e.dimension, e.member))
+                    continue
+                why = e if not e.droppable else SvHttpError(
+                    f"Planning REST refused more than {MAX_LEFT_OUT} members of the {req.cube} grid: "
+                    f"{', '.join(m for _, m in left + [(e.dimension, e.member)])} - {ATLAS_BUILD}")
+            except SvHttpError as e:
+                why = e
+            raise SvHttpError(f"{first} - the second engine (Planning REST) could not fetch it either (query "
+                              f"{req.query}): {why}") from None
+
+    def _rest_round(self, req: GridRequest, first: SvHttpError, left: list[tuple[str, str]]) -> FetchResult:
+        out = FetchResult(req, route="rest", fallback=str(first), dropped=[(req.cube, d, m) for d, m in left])
+        for pov, rows, cols, labels in grids(req):
+            f = self.sv.fetch_rest(req.cube, pov, _without(rows, left), _without(cols, left))
+            facts, warns = facts_from_parsed(req, parse_grid(f.layout, f.values, False, False), labels)
+            out.facts += facts
+            out.warnings += f.warnings + warns
         return out
 
     def closed_months(self) -> dict[str, Month]:
         """FinMax's 'Current Reporting Month' for every cube (FinLite and FinPlan close with FinMax)."""
         m = parse(self.sv.closed_month("FinMax"))
         return {"FinMax": m, "FinLite": m, "FinPlan": m}
+
+
+def _without(axes: list[Axis], left: list[tuple[str, str]]) -> list[Axis]:
+    """The axes without the members left out - an axis keeps its members when none would remain (one year's grid of
+    a FinPlan request may hold only that member there): EPM then refuses it again, as a member that cannot be left
+    out."""
+    out = []
+    for a in axes:
+        kept = [m for m in a.members if (a.dimension, m) not in left]
+        out.append(Axis(a.dimension, kept or list(a.members)))
+    return out
 
 
 class ComboProvider:
