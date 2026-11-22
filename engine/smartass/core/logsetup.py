@@ -1,5 +1,5 @@
 """Engine logging: one rotating file per process kind, every line redacted (redact: session keys, tokens, cookies,
-credential headers, URL query strings and the HTTP secret)."""
+credential headers and URL query strings)."""
 from __future__ import annotations
 
 import logging
@@ -68,23 +68,13 @@ _PATTERNS = [
                 r"[^\s;<>\"'&,}]+", re.I), r"\1***"),
     (re.compile(rf"((?<![\w-])(?:{_KEYS})[ \t]*:[ \t]*{_Q}?)(?!\*\*\*)[^\s;<>\"'&,}}]+"), r"\1***"),
 ]
-_secrets: list[str] = []
-
-
-def add_secret(value: str | None) -> None:
-    if value and len(value) >= 8 and value not in _secrets:
-        _secrets.append(value)
-
-
 def redact(text) -> str:
     """text as it may go into a log line, a tool reply, the run log or an exception text: every shape of a session
-    key, token, cookie, credential header or URL query string replaced (_PATTERNS), and the secrets this process
-    holds (add_secret). The one scrub for all of them (also svxml's: the provider's own error text)."""
+    key, token, cookie, credential header or URL query string replaced (_PATTERNS). The one scrub for all of them
+    (also svxml's: the provider's own error text)."""
     out = str(text)
     for p, repl in _PATTERNS:
         out = p.sub(repl, out)
-    for s in _secrets:
-        out = out.replace(s, "***")
     return out
 
 

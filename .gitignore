@@ -22,3 +22,6 @@ engine/Microsoft/
 # local build workspaces (git worktrees, subagent ledgers)
 .worktrees/
 .superpowers/
+
+# leftovers of the deleted Excel task pane (its build output, once ignored by addin/tn-claude/.gitignore)
+addin/

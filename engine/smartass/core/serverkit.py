@@ -20,7 +20,6 @@ from ..epm import oauth
 from ..xl.userjobs import UserJobs
 
 logsetup.configure(config.SERVER_LOG)
-logsetup.add_secret(config.HTTP_SECRET)
 log = logging.getLogger("smartview")
 
 RUN_LOGGED = ("fin_analyze", "fin_drill", "fin_refresh")   # tools with a line in config.RUN_LOG (core/runlog.py)

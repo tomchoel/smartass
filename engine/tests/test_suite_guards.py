@@ -3,6 +3,7 @@ puts a sentinel ONE LEVEL BELOW the guard (the COM call that would create Excel,
 guard could not start Excel or open a connection: what is tested is that the guard stops the call first."""
 import asyncio
 import socket
+import types
 import urllib.request
 
 import pytest
@@ -53,17 +54,19 @@ def test_excel_cannot_be_dispatched_and_the_users_excel_cannot_be_launched(below
 
 
 def test_no_process_can_be_killed(below):
-    """The sweep of an older release's hidden Excels and setup's stop of its SSO watcher are the engine package's only
-    kills. Two more sites end processes, outside the package: the relay's run_server.end_tree (a server that did not
-    exit in time, with its tree, never an Excel in it or what runs under that Excel: tests/test_relay_stop.py), and the
-    task pane's Stop (addin/tn-claude/server.mjs: taskkill /T /F of a pane run's tree, an Excel that run's server
-    launched included - an open item)."""
+    """The sweep of an older release's hidden Excels and setup's stop of its SSO watcher and of its `smartass serve`
+    are the engine package's only kills. One more site ends processes, outside the package: the relay's
+    run_server.end_tree (a server that did not exit in time, with its tree, never an Excel in it or what runs under
+    that Excel: tests/test_relay_stop.py)."""
     from smartass.ops import setup_user
     from smartass.xl import hostproc
     with pytest.raises(GuardViolation, match="never kill a process"):
         hostproc.kill_ours(4242, 1.0)
     with pytest.raises(GuardViolation, match="never kill a process"):
-        setup_user.stop_old_watcher(found=lambda: [(4242, True)])
+        setup_user.stop_old_watcher(found=lambda: [(types.SimpleNamespace(pid=4242, is_running=lambda: True), True)])
+    with pytest.raises(GuardViolation, match="never kill a process"):
+        found = [setup_user.Serve(types.SimpleNamespace(pid=4242, is_running=lambda: True), True, ())]
+        setup_user.stop_old_serve(lambda s: None, found=lambda: (found, 0))
     assert below == []
 
 

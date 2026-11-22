@@ -391,6 +391,8 @@ def ensure_built(notes: list[str] | None = None) -> Path:
         if not missing and fresh:
             return path
         report = build(semantic, Path(config.ATLAS_DB), path)
+    if not report.ok:
+        atlas.need_atlas()          # no atlas at all: one command to run, not the build's member errors
     if not report.ok and not missing and same_semantic:
         if notes is not None:       # only the atlas changed: never block answers on a refresh, keep what works
             notes.append(f"knowledge.db kept from {meta.get('built_at', '?')}: the new atlas breaks it: "
@@ -416,6 +418,30 @@ def freshness_notes(db) -> list[str]:
                 "missing - run `smartass atlas build`."] if age is not None else [
                 "The atlas has never been built - run `smartass atlas build`."]
     return []
+
+
+def open_without_atlas(forecast_year: int) -> KnowledgeResolver | None:
+    """fin_lookup on a PC with no atlas: a KnowledgeResolver on the knowledge.db that is there when it matches the
+    semantic files (the one ensure_built would keep), over an empty atlas in memory - no file is created, and no member
+    is found (members are the atlas's). None when there is no usable knowledge.db (missing, unreadable, or older than
+    the semantic files: it cannot be rebuilt without an atlas)."""
+    from ..core import config
+    path = Path(config.KNOWLEDGE_DB)
+    try:
+        if not path.exists() or str(summary(path).get("semantic_hash", "")) != semantic_hash(Path(config.SEMANTIC_DIR)):
+            return None
+    except (OSError, sqlite3.Error):
+        return None
+    empty = atlas.empty()
+    known = None
+    try:
+        known = sqlite3.connect(path)
+        return KnowledgeResolver(known, empty, forecast_year)
+    except Exception:
+        for db in (known, empty):
+            if db is not None:
+                db.close()
+        raise
 
 
 def open_resolver(forecast_year: int, notes: list[str] | None = None) -> KnowledgeResolver:

@@ -50,12 +50,6 @@ def test_knowledge_file_falls_back_to_enabled_pack(tmp_path, monkeypatch):
     assert config.knowledge_file("b.json") == core / "b.json"
 
 
-def test_wrong_typed_int_falls_back_with_message():
-    assert config.as_int(47999, "http.port", 47811) == (47999, None)
-    port, err = config.as_int("x", "http.port", 47811)
-    assert port == 47811 and "http.port" in err and "'x'" in err and "47811" in err
-
-
 def test_string_list_value_becomes_one_element_list_and_junk_falls_back():
     assert config.as_list("chrome", "drill.channels", ["msedge"]) == (["chrome"], None)
     assert config.as_list(["a", "b"], "packs.enabled", []) == (["a", "b"], None)
@@ -67,13 +61,25 @@ def test_import_survives_wrong_typed_user_config(tmp_path):
     import os
     import subprocess
     import sys
-    (tmp_path / "config.toml").write_text('packs.enabled = "p1"\n[http]\nport = "x"\n', encoding="utf-8")
+    (tmp_path / "config.toml").write_text('packs.enabled = 5\n', encoding="utf-8")
     env = {**os.environ, "SMARTASS_HOME": str(tmp_path)}
-    env.pop("SMARTASS_HTTP_PORT", None)
-    code = ("from smartass.core import config as c; "
-            "print(c.HTTP_PORT, c.PACKS, repr(c.CONFIG_ERROR))")
+    code = "from smartass.core import config as c; print(c.PACKS, repr(c.CONFIG_ERROR))"
     out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout
-    assert "47811 ['p1']" in out and "http.port" in out
+    assert out.startswith("[] ") and "packs.enabled" in out
+
+
+def test_an_old_http_section_in_the_user_config_is_read_without_error(tmp_path):
+    """PCs set up before phase 4 may still have [http] port and a plain secret (the HTTP API's, deleted): no error,
+    and nothing of it is kept (the doctor lists a plain secret; doctor --fix removes it)."""
+    import os
+    import subprocess
+    import sys
+    (tmp_path / "config.toml").write_text('[http]\nport = "x"\nsecret = "old-plain"\n', encoding="utf-8")
+    env = {**os.environ, "SMARTASS_HOME": str(tmp_path)}
+    code = ("from smartass.core import config as c; "
+            "print(repr(c.CONFIG_ERROR), [n for n in dir(c) if n.startswith('HTTP') or 'SECRET' in n])")
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout
+    assert out.split() == ["None", "[]"]
 
 
 def test_an_old_drill_section_in_the_user_config_is_ignored(tmp_path):
@@ -88,28 +94,11 @@ def test_an_old_drill_section_in_the_user_config_is_ignored(tmp_path):
     assert out.split() == ["None", "False"]
 
 
-def test_release_folder_expands_env_vars_and_empty_means_not_configured(tmp_path):
-    import os
-    import subprocess
-    import sys
-    code = "from smartass.core import config as c; print(repr(c.RELEASE_FOLDER))"
-
-    def run(value):
-        (tmp_path / "config.toml").write_text(f"[release]\nfolder = '{value}'\n", encoding="utf-8")
-        env = {**os.environ, "SMARTASS_HOME": str(tmp_path), "SMARTASS_TEST_SHARE": r"C:\share"}
-        env.pop("SMARTASS_RELEASE", None)
-        return subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True,
-                              check=True).stdout.strip()
-
-    assert run(r"%SMARTASS_TEST_SHARE%\rel") == repr(r"C:\share\rel")
-    assert run("") == repr(None)
-
-
 def test_shipped_defaults_parse_and_hold_org_values():
 
     s, err = config.load_settings(config.DEFAULTS_FILE, config.DEFAULTS_FILE.with_name("absent.toml"))
     assert err is None
     assert s["epm"]["base"].startswith("https://") and "drill" not in s           # no browser to choose since 0.6.0
-    assert s["label"]["id"] and s["http"]["port"] > 1024
+    assert s["label"]["id"] and "http" not in s                                    # no HTTP API since phase 4
 
 

@@ -86,10 +86,18 @@ def _past(row: dict) -> dict:
 def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 15) -> dict:
     """{metrics: [id, name, aliases, description, differs, members, caveats ...], members: [... with caveats],
     concepts: [id, title, kind, blocks, notes ...], entities, kpis, vocab, rules};
-    kind 'answer': {answers: past answers from answers.db (workbook, q, question, when, score, top key values)}."""
+    kind 'answer': {answers: past answers from answers.db (workbook, q, question, when, score, top key values)}.
+    No atlas: the answer comes from the knowledge.db that is there (no members), with one warning naming the command;
+    with no usable knowledge.db either it is refused with that command (atlas.need_atlas)."""
     if kind == "answer":
         from . import answers
         return {"answers": [_past(r) for r in answers.search(query, limit)]}
+    from .knowledge.resolver import open_without_atlas
+    bare = None if atlas.present() else open_without_atlas(dt.date.today().year % 100)
+    if bare is not None:
+        with contextlib.closing(bare) as r:
+            return {**r.search(query, kind, cube, limit), "warnings": [atlas.no_atlas_warning()]}
+    atlas.need_atlas()
     from .knowledge.resolver import freshness_notes
     with contextlib.closing(_resolver()) as r:
         out = r.search(query, kind, cube, limit)
@@ -144,8 +152,10 @@ async def _draw_job(fn, what: str, question: str | None) -> dict:
 
 
 async def _drill(cell: dict):
-    """The FinLite ledger lines behind one cube cell (v1 drill: Smart View link, token route, reconciliation)."""
+    """The FinLite ledger lines behind one cube cell (v1 drill: Smart View link, token route, reconciliation). No atlas:
+    refused before EPM is asked (atlas.need_atlas; it never waits on a lock)."""
     from .epm import drillstep
+    atlas.need_atlas()
     return await drillstep.drill(cell, connection="FinLite")
 
 
@@ -399,7 +409,7 @@ async def fin_status(restart: bool = False) -> dict:
     """Health: version, atlas age, knowledge build (metrics, facts, drafts awaiting approval), where answer files go,
     the last save Excel did after a reply (save_after_reply: workbook, ok, error, seconds, when; and how many are still
     to come), and the doctor checks (config, Excel, Smart View start-up, EPM, oauth sign-in, atlas, knowledge, output
-    folder, HTTP API, update, leftovers of an older release; only problems listed).
+    folder; only problems listed; what an older release left is `smartass doctor`'s).
     restart=True after repeated errors or to load new code: the relay starts a fresh server process; run without the
     relay, this server's EPM sessions and its runner of Excel jobs start afresh (the next call makes new ones).
     A stale atlas: run `smartass atlas build` in a terminal."""
@@ -416,7 +426,7 @@ async def fin_status(restart: bool = False) -> dict:
             drill_token.reset()                      # the drill's route and sessions
             kit._users = None                        # the runner of Excel jobs (its last error, its count)
             out["restarted"] = "sessions"
-    with contextlib.closing(atlas.connect()) as db:
+    with contextlib.closing(atlas.connect_read()) as db:     # a home with none: no atlas.db is made
         st = atlas.status(db)
     from .knowledge.build import summary
     from .knowledge.refresh import due
@@ -424,7 +434,7 @@ async def fin_status(restart: bool = False) -> dict:
     refresh = due(config.HOME, config.KNOWLEDGE_DB)
     from .ops import doctor
     from .xl.inproc import later
-    checks = await asyncio.to_thread(doctor.run)         # network checks (EPM 5 s, HTTP 2 s) off the event loop
+    checks = await asyncio.to_thread(doctor.run)         # the EPM check (5 s) off the event loop
     return {**out, "behind_relay": bool(os.environ.get("SVKIT_PROXY")), "analyser": str(config.ANALYSER_DIR),
             "save_after_reply": later.status(),
             "atlas": {"oldest_age_days": st["oldest_age_days"], "stale": st["stale"],

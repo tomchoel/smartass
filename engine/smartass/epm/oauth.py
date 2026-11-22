@@ -276,8 +276,8 @@ def run_keep_fresh(every_s: float = 6 * 3600, sleep=time.sleep, rounds: int | No
 
 
 def start_keep_fresh() -> threading.Thread | None:
-    """Start run_keep_fresh in a daemon thread (the MCP server and `smartass serve` do, so a PC that is on once a
-    week never has to sign in again); None when the bearer route is not set up."""
+    """Start run_keep_fresh in a daemon thread (the MCP server does, so a PC that is on once a week never has to
+    sign in again); None when the bearer route is not set up."""
     if not configured():
         return None
     t = threading.Thread(target=run_keep_fresh, daemon=True, name="oauth-keep-fresh")
@@ -454,7 +454,7 @@ def sign_in_message() -> str | None:
 
 
 def sign_in_reply(e: Exception) -> str:
-    """The reply to a call that met NotSignedIn (MCP tools and the add-in's HTTP API alike): sign_in_message(), else
+    """The reply to a call that met NotSignedIn (the MCP tools): sign_in_message(), else
     the error's own text (NotSetUp: what config.toml needs). Redacted; never raises."""
     from ..core import logsetup
     try:

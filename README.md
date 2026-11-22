@@ -24,16 +24,41 @@ v1 (the `sv_*` tools and the `xl_*` workbench) was retired in November 2026; the
 
 ## Install (colleagues)
 
+Needs git, [uv](https://docs.astral.sh/uv/getting-started/installation/) and desktop Excel. Per user, no admin rights:
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File "<release folder>\<version>\installer\install.ps1"
+git clone https://github.com/tomchoel/smartass.git; cd smartass\engine
+uv sync --frozen
+uv run --frozen smartass setup
+# then add [oauth] to %LOCALAPPDATA%\smartass\config.toml (see below) before:
+uv run --frozen smartass login
 ```
 
-Then restart Copilot CLI or Claude Code, open a new terminal (the installer adds `smartass` to your user PATH), and
-run `smartass doctor`. If `smartass` is not found, use the full path
-`%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe`. Per user, no admin, safe to re-run.
-EPM access needs `[oauth]` in `%LOCALAPPDATA%\smartass\config.toml` (identity domain, client id, a scope per pod)
-and one `smartass login` (docs\troubleshooting.md, "oauth"); no browser is installed or started.
+`smartass setup` writes your `%LOCALAPPDATA%\smartass\config.toml`, registers the MCP server for Claude Code and
+Copilot CLI, links the skill and puts `smartass` on your user PATH. EPM access needs `[oauth]` in that config.toml
+(identity domain, client id, a scope per pod; docs\troubleshooting.md, "oauth") before `smartass login`, which signs
+you in (one approval in your browser; no browser is installed or started by smartass) and builds the member atlas
+when there is none (about half a minute, then the behaviour cards; `--no-atlas` skips it, `smartass atlas build`
+builds it later). When you are signed in but the atlas was not built, `smartass login` says so and ends with exit
+code 3. `smartass setup` and `smartass login` can be run again at any time. Then restart Copilot CLI or Claude Code,
+open a new terminal and run `smartass doctor`. Nothing of smartass runs at logon: the agent starts the MCP server.
+The knowledge base (`knowledge.db`) is built at the first tool call, or with `smartass knowledge build`.
+Update: `git pull`, then `uv sync --frozen` in `engine` (and `smartass setup` when the CHANGELOG says so).
+Working on smartass itself: `git config core.hooksPath .githooks` turns on the pre-commit data and secret guard.
 Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
+
+## Upgrading
+
+From 0.7.0: [CHANGELOG.md](CHANGELOG.md), "Upgrading from 0.7.0" - `git pull` and `uv sync`, `smartass setup`,
+`smartass doctor`, `smartass doctor --fix`, then two steps by hand in Excel that `smartass doctor` lists. A folder
+`addin` left in your copy after the pull (the old pane's build output) is deleted by hand.
+
+A PC where the old installer script copied smartass to `%LOCALAPPDATA%\smartass\app` cannot be updated there (that
+copy has no git), and a new copy leaves that copy's Startup entry and background service alone. By hand, in this order:
+delete `smartass-engine.lnk` from the Startup folder (Win+R, `shell:startup`); log off and on; delete the folder
+`%LOCALAPPDATA%\smartass\app` and only that folder (`config.toml`, the sign-ins and the atlas are in the folder above
+it and stay); then install as above and run `smartass doctor` and `smartass doctor --fix`. Details:
+docs\troubleshooting.md, "leftovers".
 
 ## Data safety
 
@@ -41,38 +66,29 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 - **Your own login.** Every user signs in to EPM once with their own account (`smartass login`, approved with Telenor
   SSO in their browser) and sees only what they are allowed to see. Every request to EPM with your sign-in passes one
   allowlist of read requests.
-- **Nothing leaves the PC** except the calls to EPM themselves. The HTTP API listens on `127.0.0.1` only and
-  needs a per-user secret (DPAPI-protected).
+- **Nothing leaves the PC** except the calls to EPM themselves. smartass opens no port: the agent starts the MCP
+  server and talks to it over stdio.
 - **Your own workbooks are never saved** by the engine. Changes made in a workbook you opened are left unsaved for you
   to review (`xl_snapshot` before an edit, `xl_revert` undoes it). Only the engine's own answer workbooks are saved, in
   your `analyser` folder (`paths.analyser`). The engine never restarts your Excel, and closes one only when it started
   that Excel itself for a new workbook that could not be saved. A server that does not stop within a minute has its
-  own processes ended, never an Excel. Open item: the Excel task pane's Stop ends everything its run started, also an
-  Excel smartass started for that run, and so does anything that ends the server's processes from outside.
+  own processes ended, never an Excel. Open item: anything that ends the server's processes from outside also ends an
+  Excel smartass started for it.
 - **The Produktregnskapet archive is protected:** answers are never written there.
 - **No data, databases or tokens in git.** The pre-commit hook and CI enforce this (`scripts\check_staged.py`);
   logs and `smartass doctor --bundle` redact tokens and secrets.
 
-## HTTP API (`smartass serve`)
-
-Started at login; listens on `127.0.0.1` only (`http.port`), every request with the header `X-Smartass-Secret`
-(stored DPAPI-protected in `%LOCALAPPDATA%\smartass\secret.bin` by `smartass setup`). One request at a time (a
-second gets 409).
-
-| Endpoint | Body | Returns |
-|---|---|---|
-| `GET /health` | – | the `smartass doctor` checks |
-| `POST /analyze` | `{"spec": <AnalysisSpec v2>, "target": "session"}` | what `fin_analyze(spec=...)` returns |
-
-Errors: 400 (bad JSON, unknown fields, invalid spec or input, with its message), 401 (secret), 413 (body over
-1 MB), 503 (Excel/EPM error with its message).
-
 ## Command line
 
-`smartass doctor [--json | --bundle | --fix]`, `smartass atlas status`,
-`smartass atlas build [--cube X] [--dimension D]` (over Planning REST, no Excel), `smartass setup`, `smartass update`,
-`smartass serve`, `smartass login [--status | --force | --forget]` (EPM sign-in for the bearer route, see
-`docs\troubleshooting.md`, "oauth").
+Five commands:
+
+- `smartass doctor [--json | --bundle | --fix]`: the health checks; `--fix` removes what an older release left.
+- `smartass setup`: per-user setup (config, MCP entries, skill link, PATH; an older release's Startup entries).
+- `smartass login [--status | --force | --forget | --no-atlas]`: the EPM sign-in; builds the atlas on a PC that has
+  none (docs\troubleshooting.md, "oauth").
+- `smartass atlas status | build [--cube X] [--dimension D] | cards`: the member atlas, built over Planning REST
+  (read-only, no Excel).
+- `smartass knowledge build | refresh | approve <id|all> | status`: the knowledge layer and its monthly refresh.
 
 ## Layout
 
@@ -80,8 +96,7 @@ Errors: 400 (bad JSON, unknown fields, invalid spec or input, with its message),
 .github\workflows\ci.yml     CI: ruff, pytest, data/secret guard
 .githooks\pre-commit         runs scripts\check_staged.py
 docs\                        DESIGN, troubleshooting, release, specs, plans (docs\archive: earlier designs)
-installer\install.ps1        per-user installer
-scripts\                     check_staged.py, bump.ps1, publish_release.ps1
+scripts\                     check_staged.py, bump.ps1, check_fresh_home.py (a fresh install's proof)
 knowledge\  packs\           business maps and metric catalogue; pack-only inputs (packs\produktregnskap)
 skills\smartass\             master copy of the agent skill
 engine\                      run_server.py (relay), child_server.py, VERSION, defaults.toml, tests\
@@ -93,7 +108,7 @@ engine\smartass\             server.py, pipeline.py, exceljob.py (the Excel job)
   epm\        the HTTPS boundary, sign-in, Smart View HTTP/XML, Planning REST, grids, the drill over the token
   knowledge\  atlas, resolver, interim metric catalogue
   xl\         jobs in the user's Excel, sheets, styling, formula check, snapshots
-  ops\        cli, doctor, setup, update, httpapi, atlas build
+  ops\        cli, doctor (and an older release's leftovers), setup, login, atlas build
   testset\    the B-question test set (golden numbers outside git)
 ```
 

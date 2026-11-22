@@ -129,8 +129,6 @@ ALLOWED_STARTS = {
     "smartass/ops/login.py:_copy": "clip.exe: the sign-in code to the clipboard",
     "smartass/ops/login.py:run": "the browser on the identity domain's sign-in page (webbrowser.open, as open_page)",
     "smartass/ops/setup_user.py:link_skill": "cmd mklink /J: the skill's junction",
-    "smartass/ops/update.py:apply": "the release's installer (smartass update)",
-    "smartass/ops/update.py:start_if_available": "the release's installer, detached (serve at login)",
     "smartass/xl/inproc/build.py:_compile": "csc.exe: the in-process add-in's compiler",
 }
 
@@ -218,8 +216,8 @@ def test_every_process_start_is_one_of_the_allowed_and_only_launch_excel_starts_
 
 # The documents a user or an agent reads for how smartass works now (light-fast phase 2 Task 7). The CHANGELOG, the
 # audits, the plans, the specs and docs/archive are history and keep the old names.
-DOCS = ["README.md", "docs/DESIGN.md", "docs/troubleshooting.md", "docs/release.md", "installer/install.ps1",
-        "engine/defaults.toml", "skills/smartass/SKILL.md", "skills/smartass/reference/*.md"]
+DOCS = ["README.md", "docs/DESIGN.md", "docs/troubleshooting.md", "docs/release.md", "engine/defaults.toml",
+        "skills/smartass/SKILL.md", "skills/smartass/reference/*.md"]
 DOC_NAMES = [*NAMES, "hidden Excel", "VBA bridge", "vba_access", "VBA project", "smartview_dll", "HsAddin",
              "SSO watcher", "pull_adhoc", "adhoc.py", "--excel", "B_Ping", "SV_LOGIN_GRACE", "SV_CALL_TIMEOUT",
              "WebView2", "xl/host", "epm/ops", "Smart View options", "Global options"]
@@ -232,13 +230,18 @@ DOC_TIMES = {
     ("docs/DESIGN.md", "hidden Excel"): (4, "check_insert ran in the engine's hidden Excel of 0.6.0 and now in one of "
                                            "its own; two measurements made in a script's own hidden Excel"),
     ("docs/troubleshooting.md", "hidden Excel"): (2, "what a release before 0.7.0 ran; check_fastcom's own Excel"),
+    ("docs/troubleshooting.md", "SSO watcher"): (2, "setup's line when it stops an older release's watcher, quoted"),
 }
 
 
-def doc_findings(repo: Path, docs: list[str]) -> list[str]:
+def doc_findings(repo: Path, docs: list[str], names=None, leftovers=None, times=None) -> list[str]:
     """'file: name' for every deleted part a listed document names (whitespace folded, so a name wrapped over two
     lines is found), unless DOC_LEFTOVERS allows it or DOC_TIMES allows exactly that many uses; a pattern that matches
-    no file is a finding too (a renamed document would leave the guard nothing to read)."""
+    no file is a finding too (a renamed document would leave the guard nothing to read). Another guard passes its own
+    names, leftovers and times."""
+    names = DOC_NAMES if names is None else names
+    leftovers = DOC_LEFTOVERS if leftovers is None else leftovers
+    counts = DOC_TIMES if times is None else times
     found = []
     for pattern in docs:
         paths = sorted(repo.glob(pattern))
@@ -246,10 +249,10 @@ def doc_findings(repo: Path, docs: list[str]) -> list[str]:
             found.append(f"{pattern}: no such file")
         for p in paths:
             rel, text = p.relative_to(repo).as_posix(), " ".join(p.read_text(encoding="utf-8").split())
-            for n in DOC_NAMES:
-                times, used = DOC_TIMES.get((rel, n), (0, ""))[0], text.count(n)
-                if used != times and (rel, n) not in DOC_LEFTOVERS:
-                    found.append(f"{rel}: {n} {used} time(s), {times} allowed")
+            for n in names:
+                allowed, used = counts.get((rel, n), (0, ""))[0], text.count(n)
+                if used != allowed and (rel, n) not in leftovers:
+                    found.append(f"{rel}: {n} {used} time(s), {allowed} allowed")
     return found
 
 

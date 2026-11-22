@@ -51,14 +51,6 @@ def resolve(env, settings: dict, env_name: str | None, dotted: str, default=None
     return get(settings, dotted, default)
 
 
-def as_int(value, name: str, fallback: int) -> tuple[int, str | None]:
-    """value as int, else the fallback plus a readable error (a wrong-typed user value must not stop the server)."""
-    try:
-        return int(value), None
-    except (TypeError, ValueError):
-        return fallback, f"{name} must be an integer, got {value!r} - using {fallback}"
-
-
 def as_list(value, name: str, fallback: list) -> tuple[list, str | None]:
     """value as a list of strings (a single string is a one-element list), else the fallback plus a readable error."""
     if isinstance(value, str):
@@ -199,41 +191,11 @@ LABEL_SITE = _pick("SV_LABEL_SITE", "label.site")
 LABEL_NAME = _pick("SV_LABEL_NAME", "label.name", "Internal")      # written into a built file's label properties
 LABEL_CONTENT_BITS = _pick("SV_LABEL_CONTENT_BITS", "label.content_bits", 2)   # ... with the marking bits Excel records
 
-_release = _pick("SMARTASS_RELEASE", "release.folder")
-RELEASE_FOLDER = str(_path(_release)) if _release else _release   # %VAR% and ~ expand; empty = not configured
-RELEASE_PIN = get(SETTINGS, "release.version")
-HTTP_PORT = _checked(as_int(_pick("SMARTASS_HTTP_PORT", "http.port", 47811), "http.port",
-                            as_int(get(ORG_SETTINGS, "http.port", 47811), "", 47811)[0]),
-                     "SMARTASS_HTTP_PORT" if os.environ.get("SMARTASS_HTTP_PORT") else "config.toml")
-SECRET_FILE = HOME / "secret.bin"                          # HTTP API secret, DPAPI-protected (this Windows user)
-
-
 def _dpapi():
+    """win32crypt: the sign-ins (epm/oauth.py) are DPAPI-protected for this Windows user."""
     import win32crypt
     return win32crypt
 
-
-def protect_secret(text: str) -> bytes:
-    return _dpapi().CryptProtectData(text.encode("utf-8"), "smartass http secret", None, None, None, 0)
-
-
-def read_secret(path: Path = SECRET_FILE) -> str | None:
-    """The secret from a DPAPI blob; None when the file is missing or cannot be unprotected (other user/machine)."""
-    try:
-        blob = path.read_bytes()
-        return _dpapi().CryptUnprotectData(blob, None, None, None, 0)[1].decode("utf-8") or None
-    except Exception:   # noqa: BLE001 - OSError, pywintypes.error, bad bytes: all mean "no usable secret"
-        return None
-
-
-def load_http_secret(env=os.environ, path: Path = SECRET_FILE, settings: dict | None = None) -> str | None:
-    """SMARTASS_HTTP_SECRET, else secret.bin, else a not yet migrated plain http.secret in config.toml
-    (`smartass setup` migrates it into secret.bin and removes it from the file)."""
-    return (env.get("SMARTASS_HTTP_SECRET") or read_secret(path)
-            or get(SETTINGS if settings is None else settings, "http.secret") or None)
-
-
-HTTP_SECRET = load_http_secret()
 
 # ---------------------------------------------------------------- drill-through (fin_drill)
 EPM_BASE = _pick("SV_EPM_BASE", "epm.base")

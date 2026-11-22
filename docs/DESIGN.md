@@ -180,14 +180,14 @@ never stops the rest.
 
 | Package | Contents |
 |---|---|
-| `core/` | `config` (paths, settings, DPAPI secret), `logsetup`, `timing` (stages, progress), `session` (session workbooks, `sessions.json`), `serverkit` (guard, Excel jobs, lifespan) |
+| `core/` | `config` (paths, settings, DPAPI for the stored sign-ins), `logsetup`, `timing` (stages, progress), `session` (session workbooks, `sessions.json`), `serverkit` (guard, Excel jobs, lifespan) |
 | `model/` | spec, periods, requests, series, resolver interface, frame, expressions, blocks, validate, findings, lines (pure; no Excel, no network) |
 | `data/` | the provider (the Smart View provider route, Planning REST as its second engine), recorder (offline replay for the test set) |
 | `render/` | layout and look (pure), the built file (`xlsx`, `xlsx_charts`), chart rules, read-back, layout check |
 | `epm/` | the HTTPS boundary (`epmhttp`), OAuth sign-in (`oauth`), Smart View's provider XML (`svhttp`, `svxml`), grids, Planning REST (`rest`: the second grid engine; `members`: the atlas's trees), the drill over the token (`drill_token`, `drillcore`, `drillstep`) and its lines |
 | `knowledge/` | atlas (SQLite), semantic files (`semantic`, `seed`), `build` (knowledge.db), `KnowledgeResolver`, monthly `refresh` |
 | `xl/` | the user's Excel (`userjobs`: the job runner; `hostproc`: a job's COM thread and the sweep of an older release's Excels; `jobs`: turns; `instances`, `target`, `dialogs`: Smart View's Login guard; `sheets`), `styling`, `formulas`, `movein`, `sources`, `sheetorder`, `inproc` (batches of Excel operations, their COM executor and the in-process add-in), `drill_xl`, snapshots (`workbench/history`), vendored TN style and formula checker |
-| `ops/` | `cli`, `doctor`, `setup_user`, `update`, `httpapi`, `atlas_build` |
+| `ops/` | `cli`, `doctor`, `setup_user`, `login`, `atlas_build`, `pane_leftovers` (an older release's task pane in Office's settings, read only) |
 | `testset/` | the B-question test set: specs in git, recordings and golden numbers outside git |
 
 ## Runtime
@@ -266,8 +266,7 @@ never stops the rest.
   side rows are then stale, and this release ignores them until its next build. With a trusted side table the REST
   engine accepts only a real name of the key it asked for. EPM's account type and time balance are stored, not used
   (the behaviour cards still derive theirs from data). A full build then derives the cards (`atlas cards`,
-  read-only grids). `smartass setup` copies the monthly atlas from the release folder, but never over a local atlas
-  with a trusted side table when the copy has none; the doctor's `atlas` check warns on an atlas without one
+  read-only grids). The doctor's `atlas` check warns on an atlas without a trusted side table
   (`knowledge/atlas.trust`): the strict check is off there until the next build.
 - **Your Excel** (`xl/userjobs.py` `UserJobs`): every job in it (an answer, a follow-up, a drill's sheets, the
   `xl_*` tools) runs on an STA thread of its own, so jobs in different Excels run side by side; work in one Excel
@@ -292,15 +291,15 @@ never stops the rest.
   no stored base). What smartass ends: an Excel it launched itself for a new workbook that could not be saved, when
   nothing else is open in it (`_discard_new` quits it), and an older release's processes: at server start an Excel
   that release started hidden, when its `pids.json` proves it (pid, creation time, `-Embedding`; then the file
-  goes), and in `smartass setup` that release's sign-in watcher of this install. Outside the engine package two
-  more sites end processes. The relay (`run_server.py` `end_tree`) ends a server that has not exited 60 s after it
-  was told to stop, with every process under it except each Excel and what runs under that Excel: an Excel smartass
-  launched is a child of the server process, and it is your Excel. The task pane's Stop
-  (`addin/tn-claude/server.mjs`, `taskkill /T /F`) ends a pane run's whole process tree, and with it an Excel that
-  run's server launched: an open item, as is anything that ends the server's tree from outside (whether Claude Code
-  does when it ends its MCP server is not known). `tests/test_neutral_imports.py` pins the start sites;
-  `tests/conftest.py` and `tests/test_suite_guards.py` pin the engine's kills, `tests/test_relay_stop.py` the
-  relay's.
+  goes), and in `smartass setup` that release's sign-in watcher and its `smartass serve` of this install (`smartass
+  doctor --fix` stops that serve too; ours when its executable is in this install's `.venv`, or its parent's is; it
+  is stopped through the process object the listing found, so a pid a new process has taken since is never hit).
+  Outside the engine package one more site ends processes. The relay (`run_server.py` `end_tree`) ends a server
+  that has not exited 60 s after it was told to stop, with every process under it except each Excel and what runs
+  under that Excel: an Excel smartass launched is a child of the server process, and it is your Excel. Anything that
+  ends the server's tree from outside ends such an Excel with it: an open item (whether Claude Code does when it ends
+  its MCP server is not known). `tests/test_neutral_imports.py` pins the start sites; `tests/conftest.py` and
+  `tests/test_suite_guards.py` pin the engine's kills, `tests/test_relay_stop.py` the relay's.
 
 ## Knowledge layer (`knowledge/`, sub-spec 2 §1–§4, §8)
 
@@ -399,11 +398,54 @@ never stops the rest.
   or `###`, the Data header, the Sources rows. The findings go in the reply as `layout`, each with its fix, and the
   agent applies the fix by patch.
 
-## HTTP API (`ops/httpapi.py`, `smartass serve`)
+## Command line, install and upgrade (`ops/`)
 
-Localhost only, per-user secret (`secret.bin`, DPAPI), one request at a time: `GET /health` (the doctor checks)
-and `POST /analyze` (`{"spec", "target"}`, the same `_new_question` as `fin_analyze`). 400 for bad JSON, unknown
-fields or an invalid spec, 401 secret, 409 busy, 413 over 1 MB, 503 Excel/EPM error, 500 (logged) otherwise.
+smartass is the MCP server the agent starts over stdio (the relay above); it opens no port, and nothing of it runs at
+logon. The command line (`ops/cli.py`, the console script `smartass`) has five commands:
+
+- **`smartass setup`** (`ops/setup_user.py`), per user, each step one line: `config.toml` from a template when there is
+  none; the MCP entries for Copilot CLI and Claude Code (an old `smartview` / `smartass2` entry replaced); the
+  skill linked for both agents; the Startup entries and processes an older release left, removed and stopped when
+  they are this install's (they would start or keep running old code: the old sign-in watcher's entries and process,
+  `smartass-engine.lnk` when its target, read through WScript.Shell, is in this install's `.venv`, and this install's
+  old `serve`; each stopped through the process object its listing found, said first); the user PATH. It writes no
+  Startup entry. When `smartass doctor` would list a leftover that is a file or a setting, its last line says to run
+  `smartass doctor`, then `smartass doctor --fix` (or, when only Office's settings or the old svkit record are left,
+  to follow doctor's manual steps): `doctor.pending_leftovers` / `fixable_leftovers`, no process listing.
+- **`smartass login`** (`ops/login.py`): the device-code sign-in per pod; then, on a PC with no atlas, the atlas build
+  (said first; `--no-atlas` skips it; never over an atlas that is there). Exit codes: 0 signed in, 1 a sign-in failed
+  (nothing built), 2 not set up, 3 signed in but the atlas was not built.
+- **`smartass atlas status | build | cards`** (`ops/atlas_build.py`) and **`smartass knowledge build | refresh |
+  approve | status`** (Knowledge layer, below).
+- **`smartass doctor [--json | --bundle | --fix]`** (`ops/doctor.py`): the checks `config`, `excel`,
+  `smartview_startup`, `epm`, `oauth`, `atlas`, `knowledge`, `output` (what `fin_status` runs too) and `leftovers`
+  (the command and the bundle only: it lists processes and reads the Startup folder).
+
+**No atlas.** `knowledge/atlas.present()` (read only, never creates the file, never waits on a lock): a missing file or
+one without members is no atlas. `need_atlas()` refuses every entry that needs it with one command
+(`no_atlas_command`: `smartass login` while a stored sign-in is missing, else `smartass atlas build`); `fin_lookup`
+answers from a knowledge.db that matches the semantic files over an empty atlas in memory, with one warning naming
+that command. `fin_status` and `smartass atlas status` make no atlas.db on a fresh home (`connect_read`).
+
+**An upgrading PC.** What an older release left is found by the `leftovers` check and removed by the command that owns
+it, each thing said first, each with its own proof: `smartass-engine.lnk` only when its target is in this install's
+`.venv`, an old `serve` only when its executable is (or its parent's), the old sign-in watcher's process only when its
+command line names this install's script, its Startup entries by their names, the pane's Startup entries by their own
+text, the files by their names in this install's home. `smartass setup` the Startup entries and old processes; `smartass
+doctor --fix` (which also removes this install's `smartass-engine.lnk` and stops its `serve`) the files - `secret.bin`,
+`update_attempt.json`, a Startup entry of the task pane, a crashed run's copy of Smart View's options, the bridge
+add-ins - and the settings only an older release read: the `[release]` and `[http]` tables of config.toml, taken out on
+its bytes after a backup (`config.toml.bak-<date>`; one of the same day with the same bytes is used again) and written
+only when the result parses as the old settings without those two tables, else left and the lines to delete said. The
+task pane's registration in Office's settings (`ops/pane_leftovers.py`: a Trusted Add-in Catalogs entry matched by the
+folder name only, never read; an `OPEN<n>` value naming `TNClaude64.xll`) is read only and reported with the steps in
+Excel: smartass writes nothing under Office's registry keys. The old svkit home is never changed; its record of Smart
+View's options counts only when Smart View's stored options (`CAOptionsXML`, read from the registry without COM) differ
+from it. An install the deleted installer script made in `%LOCALAPPDATA%\smartass\app` is another install to this one:
+its Startup entry and `serve` are reported and left (troubleshooting, "leftovers", has the steps by hand). The pane's
+folder left in this install's checkout (`addin/`, now ignored by git) is reported and left: smartass deletes nothing
+inside a git checkout. `scripts/check_fresh_home.py` proves a fresh install: setup and doctor on a new home in a temp
+folder of its own leave only the sign-in and the atlas to do.
 
 ## Verification
 
@@ -411,7 +453,4 @@ fields or an invalid spec, 401 secret, 409 busy, 413 over 1 MB, 503 Excel/EPM er
   `child_server.py`).
 - Test set: `uv run python -m smartass.testset run` replays recorded grids and compares with the approved golden
   numbers (9 questions).
-- `smartass doctor` checks the install (config, Excel, Smart View's start-up settings, EPM, oauth set-up and
-  sign-ins, atlas, knowledge (build checks against the current atlas; WARN when knowledge.db is older than the atlas
-  or the semantic files, or drafts await approval), output, HTTP API, update, leftovers of an older release);
-  `smartass doctor --fix` removes those leftovers, each named first.
+- `smartass doctor` checks the install (Command line, install and upgrade, above).

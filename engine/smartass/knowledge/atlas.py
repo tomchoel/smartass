@@ -36,6 +36,21 @@ def connect(path: Path = config.ATLAS_DB) -> sqlite3.Connection:
     return db
 
 
+def empty() -> sqlite3.Connection:
+    """An atlas with no members, in memory: what a home with no atlas reads as (no file is made)."""
+    db = sqlite3.connect(":memory:")
+    db.executescript(SCHEMA)
+    return db
+
+
+def connect_read() -> sqlite3.Connection:
+    """The home's atlas for a read (fin_status, `smartass atlas status`): connect() when the file is there (its CREATE
+    IF NOT EXISTS gives an older atlas the tables a status reads), else empty() - a status never makes an atlas.db on
+    a fresh home."""
+    path = Path(config.ATLAS_DB)                       # checked and opened: the same file
+    return connect(path) if path.exists() else empty()
+
+
 # What the build over REST knows of a member beyond today's seven columns: its real name (the key stays the one derived
 # from its label, as the zoom gave it), its Default alias, data storage, account type and time balance. They live in
 # a SIDE table, never in member: an installed older release (0.6.0) purges and rewrites member with a positional
@@ -120,9 +135,68 @@ def _read_only_uri(path: Path) -> str:
     return uri + "?mode=ro"
 
 
+def present(path: Path | None = None) -> bool:
+    """True when the atlas file (default: the home's) holds members - read only, never created: a missing file, or one
+    with no member rows (an older release's atlas.connect() made such a file on a fresh home), is no atlas. A file that
+    cannot be read, or that another process holds locked, is there (its own error says why; nothing builds over it).
+    Never waits: the tool calls ask it on the event loop (fin_drill)."""
+    p = Path(path or config.ATLAS_DB)
+    if not p.exists():
+        return False
+    try:                                # timeout 0: a lock (a build's swap) counts as there, never waited on
+        db = sqlite3.connect(_read_only_uri(p), uri=True, timeout=0)
+    except sqlite3.Error:
+        return True
+    try:
+        return db.execute("SELECT 1 FROM member LIMIT 1").fetchone() is not None
+    except sqlite3.OperationalError as e:
+        return "no such table" not in str(e)
+    except sqlite3.Error:
+        return True
+    finally:
+        db.close()
+
+
+# A PC with no atlas (the controller's ruling of 22.11): one command - `smartass login` while a sign-in is missing (it
+# signs in, then builds the atlas), else `smartass atlas build`. Here, beside present(), so that the tool calls and the
+# knowledge layer need not import the CLI's modules.
+def no_atlas_command() -> str:
+    """The one command for a PC with no atlas: `smartass login` while a sign-in is missing (it signs in, then builds
+    the atlas), else `smartass atlas build`. From the stored sign-ins only (no network)."""
+    from ..epm import oauth
+    try:
+        ready = oauth.configured() and all(s["state"] == "signed_in" for s in oauth.status())
+    except Exception:   # noqa: BLE001 - sign-ins that cannot be read: the sign-in comes first
+        ready = False
+    return "smartass atlas build" if ready else "smartass login"
+
+
+def need_atlas() -> None:
+    """The entries that need the atlas (fin_lookup's members, a drill, every answer's grids and knowledge layer) refuse
+    on a PC with none, naming one command (no_atlas_step); "none" is read without creating the file (present)."""
+    from ..model.errors import GuardError
+    if not present():
+        raise GuardError(f"no atlas on this PC yet ({config.ATLAS_DB}): every answer is built on it",
+                         f"{no_atlas_step()}, then ask again")
+
+
+def no_atlas_warning() -> str:
+    """fin_lookup's one warning on a PC with no atlas that still answers from its knowledge.db: what is missing and the
+    one command (no_atlas_step)."""
+    return (f"no atlas on this PC yet ({config.ATLAS_DB}): no cube member is found and no answer can be built - "
+            f"{no_atlas_step()}")
+
+
+def no_atlas_step() -> str:
+    """What a PC with no atlas does next, one command (no_atlas_command)."""
+    cmd = no_atlas_command()
+    return f"run `{cmd}` in a terminal" + (" (it signs you in to EPM, then builds the atlas)" if cmd == "smartass login"
+                                            else " (read-only, about half a minute, then the behaviour cards)")
+
+
 def trust(path: Path) -> tuple[int, int] | None:
     """(dimensions whose side rows are trusted, dimensions built with members) of the atlas file at path - read only,
-    never written (setup compares the release folder's copy by its modification time); None when it cannot be read.
+    never written; None when it cannot be read.
     Where a dimension has no trusted side rows (an atlas built before 0.7.0, or rebuilt since by one) the REST
     engine's strict member check is off (epm/rest.py: the check before the side table)."""
     try:

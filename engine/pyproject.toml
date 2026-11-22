@@ -1,6 +1,6 @@
 [project]
 name = "smartass"
-version = "0.7.0"
+version = "0.8.0"
 description = "smartass engine: read-only Oracle EPM (FinMax / FinLite / FinPlan) for AI agents and Excel"
 requires-python = ">=3.12"
 dependencies = [

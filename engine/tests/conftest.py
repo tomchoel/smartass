@@ -67,8 +67,9 @@ def _no_excel_no_network():
     in this process fail with GuardViolation (recorded, and the session fails at its end): Dispatch / DispatchEx of
     Excel.Application (win32com: the engine has no Excel of its own since Task 6, so any is a fault), the user's Excel
     (xl/target._launch_excel, the one place the engine starts Excel), a kill of a process (xl/hostproc.kill_ours: an
-    older release's hidden Excel at the sweep; ops/setup_user._kill: an older release's SSO watcher); a socket connect,
-    a name lookup or an asyncio connect (the Windows proactor's ConnectEx too) to anything but this machine. A test
+    older release's hidden Excel at the sweep; ops/setup_user._kill: an older release's SSO watcher or `serve`); a
+    socket connect, a name lookup or an asyncio connect (the Windows proactor's ConnectEx too) to anything but this
+    machine. A test
     that fakes one of them sets its own fake over this one (monkeypatch restores the guard after it). Out of reach:
     CHILD PROCESSES a test starts (tests/stdio_util.py's server, the scripts some tests run) carry none of these
     patches; and code a test module runs when it is imported (collection comes before this fixture's setup) - keep
@@ -145,6 +146,28 @@ def _no_live_drill_routes(monkeypatch):
     monkeypatch.setattr(config, "ANSWER_PREFETCH", False)        # tests never reach the live HTTP route
     monkeypatch.setattr(config, "INPROC", False)                 # batches run over COM: no add-in build, no compiler
     monkeypatch.setenv("SV_TEST_NO_HTTP_DRILL", "1")
+
+
+@pytest.fixture(autouse=True)
+def _no_atlas_build_at_login(monkeypatch):
+    """`smartass login` builds the atlas over EPM on a PC that has none: the suite never runs that build (a test that
+    signs in passes its own fake build, or says there is an atlas)."""
+    from smartass.ops import login
+    monkeypatch.setattr(login, "_build", lambda: _violation("tests never build the atlas over EPM"))
+
+
+@pytest.fixture(autouse=True)
+def _no_leftovers_of_this_pc(monkeypatch, tmp_path_factory):
+    """What an older release left on a PC (setup's and the doctor's leftovers) is looked for in an empty Startup folder
+    of the test's own, an empty process list and empty Office settings: the suite never reads, removes or stops this
+    PC's (its Startup entries, a running `serve`, the task pane's registration, its folder left in the checkout), unless
+    a test sets its own fakes."""
+    from smartass.ops import doctor, pane_leftovers, setup_user
+    monkeypatch.setattr(setup_user, "STARTUP", tmp_path_factory.mktemp("Startup"))
+    monkeypatch.setattr(doctor, "_pane_build", lambda: None)           # the checkout this suite runs in is not read
+    monkeypatch.setattr(setup_user, "_process_list", lambda: [])
+    monkeypatch.setattr(pane_leftovers, "_hkcu_subkeys", lambda path: {})
+    monkeypatch.setattr(pane_leftovers, "_hkcu_values", lambda path: {})
 
 
 @pytest.fixture(autouse=True)

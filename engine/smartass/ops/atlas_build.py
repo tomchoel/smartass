@@ -2,7 +2,7 @@
 FinLite and FinPlan), read-only against EPM, over the token session (build_rest: Planning REST's Get Member,
 epm/members.py; about 10 s for both pods, no Excel). The build writes a new file and swaps it in only when every
 dimension was built (build_into). Run it when `fin_status` or `smartass doctor` says the atlas is
-stale and the release folder has no fresher copy (`smartass setup` copies the monthly one)."""
+missing or stale."""
 from __future__ import annotations
 
 import contextlib
@@ -210,6 +210,22 @@ def run_build(connections: list[str] | None = None, dimensions: list[str] | None
     return done
 
 
+def outcome(done: list[dict]) -> tuple[str, bool]:
+    """(the build's last line, ok) for run_build's rows: built / failed / skipped counts, and why nothing was
+    replaced."""
+    failed = [d for d in done if d.get("error")]
+    skipped = [d for d in done if d.get("skipped")]
+    built = len(done) - len(failed) - len(skipped)
+    said = "".join(f"; {d['connection']}: {d['skipped']}" for d in skipped)
+    why = next((d["error"].removeprefix("atlas not replaced: ") for d in failed
+                if d["error"].startswith("atlas not replaced")), None)
+    failed = [d for d in failed if not d["error"].startswith("atlas not replaced")]
+    head = f"NOT replaced ({why}); " if why else ""
+    line = (f"atlas: {head}{built} built, {len(failed)} failed{f', {len(skipped)} skipped' if skipped else ''}{said} "
+            f"({config.ATLAS_DB})")
+    return line, not (failed or why)
+
+
 def cards_after_build(done: list[dict], derive: Callable | None = None, progress: Callable[[str], None] = print
                       ) -> list[dict]:
     """Behaviour cards for the cubes this build stored without error (FinLite copies FinMax). A card failure is a
@@ -232,6 +248,7 @@ def cards_after_build(done: list[dict], derive: Callable | None = None, progress
 
 
 def status() -> dict:
-    with contextlib.closing(atlas.connect()) as db:
+    """`smartass atlas status`: read only - a home with no atlas gets no atlas.db from it (atlas.connect_read)."""
+    with contextlib.closing(atlas.connect_read()) as db:
         return {**atlas.status(db), "cards": atlas.cards_status(db), "atlas_db": str(config.ATLAS_DB),
                 "last_build": last_attempt()}

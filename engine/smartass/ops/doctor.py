@@ -1,14 +1,18 @@
 """smartass doctor: cheap health checks (starts neither Excel nor a browser). Each check gives OK / WARN / FAIL,
-a detail and the fix. Used by the CLI, fin_status and the HTTP /health endpoint. `smartass doctor --fix` removes
-what an older release left behind (leftovers, fix_leftovers) - each file said before it goes."""
+a detail and the fix. Used by the CLI and fin_status (fin_status leaves out the leftovers check: run(leftovers=)).
+`smartass doctor --fix` removes what an older release left behind (leftovers, fix_leftovers) - each thing said
+before it goes; what lives in Office's own settings is only reported, with the steps to remove it in Excel."""
 from __future__ import annotations
 
 import contextlib
 import json
 import os
 import platform
+import re
 import sys
+import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.request
 import zipfile
@@ -30,16 +34,12 @@ class Check:
     fix: str = ""
 
 
-def _no_proxy_open(url_or_req, timeout: float):
-    return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url_or_req, timeout=timeout)
-
-
 def _config() -> Check:
     if config.CONFIG_ERROR:
         return Check("config", "FAIL", config.CONFIG_ERROR,
-                     "Fix the TOML syntax, or delete config.toml and re-run installer\\install.ps1.")
+                     "Fix the TOML syntax, or delete config.toml and run `smartass setup`.")
     if not config.USER_CONFIG.exists():
-        return Check("config", "WARN", f"no {config.USER_CONFIG}", "Run installer\\install.ps1.")
+        return Check("config", "WARN", f"no {config.USER_CONFIG}", "Run `smartass setup`.")
     return Check("config", "OK", str(config.USER_CONFIG))
 
 
@@ -90,12 +90,13 @@ def _oauth() -> Check:
 
 
 def _atlas(max_age_days: float = 35) -> Check:
-    p = config.ATLAS_DB
-    if not p.exists():
-        return Check("atlas", "FAIL", f"missing: {p}",
-                     "Re-run installer\\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.")
-    age = (time.time() - p.stat().st_mtime) / 86400
     from ..knowledge import atlas
+    p = config.ATLAS_DB
+    if not atlas.present(p):
+        step = atlas.no_atlas_step()
+        return Check("atlas", "FAIL", f"no atlas on this PC yet ({p}{'' if p.exists() else ': missing'})",
+                     f"{step[0].upper()}{step[1:]}.")
+    age = (time.time() - p.stat().st_mtime) / 86400
     trust = atlas.trust(p)
     if trust is not None and trust[0] < trust[1]:             # an atlas built before 0.7.0 (or rebuilt by one)
         what = "no dimension has" if not trust[0] else f"{trust[1] - trust[0]} of {trust[1]} dimensions have no"
@@ -104,7 +105,7 @@ def _atlas(max_age_days: float = 35) -> Check:
                      "is off.")
     status = "OK" if age <= max_age_days else "WARN"
     return Check("atlas", status, f"{p} ({age:.0f} days old)",
-                 "" if status == "OK" else "Re-run the installer after the monthly release, or run `smartass atlas build`.")
+                 "" if status == "OK" else "Run `smartass atlas build`.")
 
 
 def _knowledge() -> Check:
@@ -123,9 +124,11 @@ def _knowledge() -> Check:
     detail = (f"{len(sem.metrics)} metrics, {len(sem.facts)} facts, {len(sem.concepts)} concepts, "
               f"{len(sem.rules)} rules, {len(sem.entities)} entities, {len(sem.kpis)} kpis, "
               f"{len(sem.vocab)} vocab, {len(sem.notes)} notes")
-    if not config.ATLAS_DB.exists():
-        return Check("knowledge", "WARN", f"{detail}; members not checked (no atlas)",
-                     "Re-run installer\\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.")
+    from ..knowledge import atlas
+    if not atlas.present(config.ATLAS_DB):
+        step = atlas.no_atlas_step()
+        return Check("knowledge", "WARN", f"{detail}; members not checked: waits for the atlas",
+                     f"{step[0].upper()}{step[1:]}; the knowledge is checked against it after.")
     report = BuildReport(out=config.KNOWLEDGE_DB)
     with contextlib.closing(_atlas(config.ATLAS_DB)) as db:
         check(sem.metrics, sem.facts, db, report, sem.concepts, sem)
@@ -162,31 +165,6 @@ def _output() -> Check:
     return Check("output", "OK", str(d))
 
 
-def _http(timeout: float = 2) -> Check:
-    if not config.HTTP_SECRET:
-        return Check("http_api", "WARN", "no HTTP API secret (secret.bin)", "Run `smartass setup` (or installer\\install.ps1).")
-    req = urllib.request.Request(f"http://127.0.0.1:{config.HTTP_PORT}/health",
-                                 headers={"X-Smartass-Secret": config.HTTP_SECRET})
-    try:
-        _no_proxy_open(req, timeout).read()
-    except (urllib.error.URLError, OSError) as e:
-        return Check("http_api", "WARN", f"not answering on 127.0.0.1:{config.HTTP_PORT} ({e})",
-                     "Log off and on (Startup entry), or run `smartass serve`.")
-    return Check("http_api", "OK", f"127.0.0.1:{config.HTTP_PORT}")
-
-
-def _update() -> Check:
-    from . import update
-    r = update.check()
-    if r["status"] == "not configured":
-        return Check("update", "OK", "release folder not configured (release.folder)")
-    if r["status"] == "error":
-        return Check("update", "WARN", r["error"], "Check that the release folder is synced (OneDrive).")
-    if r["update_available"]:
-        return Check("update", "WARN", f"{r['current']} -> {r['target']}", "Run `smartass update` (or log off and on).")
-    return Check("update", "OK", f"{r['current']} is current")
-
-
 def _smartview_startup(read=dialogs.read_hkcu) -> Check:
     """Smart View settings of the user's Excel (smartass uses no Smart View, but it stays installed there; found
     2026-11-03): the extension update check at Office start opens Smart View's Login ~20 s after Excel opens, and a
@@ -214,12 +192,75 @@ SV_OPTIONS = {"104": "Log Message Display (HSV_LOGMESSAGE_DISPLAY: which message
               "110": "Show comment dialog on refresh (HSV_SHOW_COMMENTDIALOG_ON_REFRESH)"}   # Oracle's option ids
 
 
+# Smart View's stored options (HKCU, a string value holding XML: <option key="messageDisplay" value="2"/> ...): read
+# with winreg (xl/dialogs.read_hkcu), never through COM. Oracle's option ids of SV_OPTIONS as its keys there.
+SV_STORED = (r"Software\Hyperion Solutions\HyperionSmartView\Options", "CAOptionsXML")
+SV_STORED_KEYS = {"104": "messageDisplay", "109": "bDisplayHomePanelOnStartup", "110": "bCommentDlgEnable"}
+
+
+def _sv_stored() -> dict[str, str] | None:
+    """Smart View's stored options {key: value}; None when they cannot be read (no value, not XML)."""
+    from xml.etree import ElementTree
+    try:
+        xml = dialogs.read_hkcu(*SV_STORED)          # looked up at the call: the suite's fake reader
+        root = ElementTree.fromstring(xml) if isinstance(xml, str) and xml.strip() else None
+    except Exception:   # noqa: BLE001 - unreadable options prove nothing
+        return None
+    if root is None:
+        return None
+    return {str(o.get("key")): str(o.get("value")) for o in root.iter()
+            if str(o.tag).rsplit("}", 1)[-1] == "option" and o.get("key") is not None}
+
+
+def _number(value) -> int | None:
+    """An option's value as Smart View stores it (true -> 1, "0" -> 0, 2 -> 2); None when it is not one."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    text = str(value).strip().lower()
+    if text in ("true", "false"):
+        return int(text == "true")
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _differs(record: Path) -> bool:
+    """True only when it is proven that Smart View's stored options differ from the originals the record holds: the
+    record and the stored options both readable and a recorded option there with another value. Anything that cannot
+    be read or compared is no difference."""
+    try:
+        rec = json.loads(record.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    stored = _sv_stored()
+    if not isinstance(rec, dict) or not stored:
+        return False
+    for oid, value in rec.items():
+        key = SV_STORED_KEYS.get(str(oid))
+        was, now = _number(value), _number(stored[key]) if key in stored else None
+        if was is not None and now is not None and was != now:
+            return True
+    return False
+
+
 def _options_files() -> list[Path]:
-    """The left-behind copies of Smart View's options: the home's, and the old svkit home's (read only)."""
-    out = [config.SVKIT / SV_OPTIONS_FILE]
-    if config.LEGACY_HOME:
-        out.append(config.LEGACY_HOME / SV_OPTIONS_FILE)
-    return [p for p in out if p.exists()]
+    """The left-behind copies of Smart View's options: the home's (only a crashed run leaves it), and the old svkit
+    home's (read only) only when Smart View's stored options differ from it - an older engine always kept its record
+    there, so the file alone proves nothing (the false alarm on the owner's PC, 22.11). A home that IS the old svkit
+    home (SVKIT_DIR) holds the old engine's own record: nothing is checked there, and so nothing is ever changed."""
+    if config.LEGACY_HOME and Path(config.SVKIT).resolve() == Path(config.LEGACY_HOME).resolve():
+        return []
+    out = [p for p in [config.SVKIT / SV_OPTIONS_FILE] if p.exists()]
+    if config.LEGACY_HOME and (old := config.LEGACY_HOME / SV_OPTIONS_FILE).exists() and _differs(old):
+        out.append(old)
+    return out
+
+
+def _legacy(p: Path) -> bool:
+    return bool(config.LEGACY_HOME) and p.parent == config.LEGACY_HOME
 
 
 def _bridge_files() -> list[Path]:
@@ -235,43 +276,363 @@ def _recorded(p: Path) -> str:
     return "; ".join(f"{SV_OPTIONS.get(str(k), f'option {k}')} = {v!r}" for k, v in rec.items()) or "empty"
 
 
+OLD_SECRET_BIN = "secret.bin"     # the HTTP API's secret (DPAPI) an older release (up to 0.7.0) kept in the home
+OLD_UPDATE_ATTEMPT = "update_attempt.json"   # the updater's last try at login, an older release's (up to 0.7.0)
+# The sections of config.toml only an older release read (up to 0.7.0): what is gone with them.
+UNUSED_SECTIONS = {"release": "the updater", "http": "the HTTP API"}
+# A table header line of config.toml: [name] or [[name]], with either line end.
+_HEADER = re.compile(r"(?m)^[ \t]*(\[\[?)([^\]\r\n]+)\]\]?[ \t]*(?:#[^\r\n]*)?\r?$")
+
+
+def _secret_file() -> Path | None:
+    p = config.HOME / OLD_SECRET_BIN
+    return p if p.exists() else None
+
+
+def _update_attempt_file() -> Path | None:
+    p = config.HOME / OLD_UPDATE_ATTEMPT
+    return p if p.exists() else None
+
+
+def _user_settings() -> dict:
+    """The user's config.toml, read from the file now ({} when it is missing or not TOML: the config check says so)."""
+    try:
+        return tomllib.loads(config.USER_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def _plain_http_secret() -> bool:
+    """True when the user's config.toml, read from the file now, still holds a plain [http] secret (an older release
+    moved it to secret.bin; nothing reads it any more)."""
+    return config.get(_user_settings(), "http.secret") is not None
+
+
+def _unused_settings() -> list[str]:
+    """The settings of UNUSED_SECTIONS the user's config.toml, read from the file now, still sets (release.folder,
+    http.port, ...), by name; http.secret is said on its own (_plain_http_secret). An empty section is none."""
+    data = _user_settings()
+    return [f"{s}.{k}" for s in UNUSED_SECTIONS if isinstance(data.get(s), dict) for k in data[s]
+            if f"{s}.{k}" != "http.secret"]
+
+
+def _real_headers(text: str) -> list[re.Match]:
+    """The table headers of config.toml's text ([name] and [[name]]): a header-looking line counts only where the text
+    before it is TOML on its own (one inside a multi-line string is not a header)."""
+    out = []
+    for m in _HEADER.finditer(text):
+        try:
+            tomllib.loads(text[:m.start()])
+        except tomllib.TOMLDecodeError:
+            continue
+        out.append(m)
+    return out
+
+
+def _section_end(text: str, heads: list[re.Match], i: int) -> int:
+    """Where header i's section ends: at the next header, before the comment lines just above it (they belong to it)."""
+    end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+    while i + 1 < len(heads):
+        line = text.rfind("\n", heads[i].end(), end - 1) + 1
+        if line <= heads[i].end() or not text[line:end].lstrip(" \t").startswith("#"):
+            break
+        end = line
+    return end
+
+
+def _drop_sections(raw: bytes, names) -> bytes | None:
+    """config.toml's bytes without the named tables (each header with its lines up to the next header; comment lines
+    just above that one stay with it); every other byte as it was - line ends, no newline at the end. None when in
+    doubt: not UTF-8 TOML, or the result is not exactly the old settings without those tables."""
+    try:
+        text = raw.decode("utf-8")
+        old = tomllib.loads(text)
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+    heads = _real_headers(text)
+    out = text
+    for i in reversed(range(len(heads))):
+        if heads[i].group(2).strip() in names:
+            out = out[:heads[i].start()] + out[_section_end(text, heads, i):]
+    try:
+        new = tomllib.loads(out)
+    except tomllib.TOMLDecodeError:
+        return None
+    return out.encode("utf-8") if new == {k: v for k, v in old.items() if k not in names} else None
+
+
+def _by_hand(raw: bytes, names) -> str:
+    """The lines of config.toml that set the named tables, for the user to delete by hand ('lines 4-6 ([http])')."""
+    text = raw.decode("utf-8", errors="replace")
+    heads = _real_headers(text)
+    line = lambda pos: text.count("\n", 0, pos) + 1   # noqa: E731
+    out = [f"lines {line(h.start())}-{line(max(h.start(), _section_end(text, heads, i) - 1))} "
+           f"({h.group(1)}{h.group(2).strip()}{h.group(1).replace('[', ']')})"   # the header, never a comment on it
+           for i, h in enumerate(heads) if h.group(2).strip().split(".")[0].strip() in names]
+    keys = re.compile(r"^[ \t]*(" + "|".join(map(re.escape, names)) + r")[ \t]*[.=]", re.M)
+    first = heads[0].start() if heads else len(text)
+    out += [f"line {line(m.start())}" for m in keys.finditer(text, 0, first)]
+    return ", ".join(out) or "the lines that set " + " and ".join(f"[{n}]" for n in names)
+
+
+CATALOGUE_STEP = ("in Excel: File > Options > Trust Center > Trust Center Settings > Trusted Add-in Catalogs: remove "
+                  "{url}, tick 'Next time Office starts, clear all previously-started web add-ins cache', OK, "
+                  "restart Excel")
+XLL_STEP = ("in Excel: File > Options > Add-ins > Manage: Excel Add-ins > Go: untick TNClaude ({name} loads {xll}; use "
+            "the dialog - do not edit the OPEN values in the registry, Excel renumbers them), restart Excel, then "
+            "delete {folder} by hand")
+
+
+def _pane_build() -> Path | None:
+    """The old task pane's folder left in this install's git checkout: its build output (node_modules, dist) was
+    ignored by the pane's own .gitignore under addin/, which the pull deleted with the pane. Reported, never deleted:
+    smartass removes nothing inside a git checkout."""
+    p = Path(config.REPO_DIR) / "addin"
+    return p if p.is_dir() else None
+
+
+def _manual_items() -> list[tuple[str, str]]:
+    """(what, the step by hand) for what only the user removes: the pane's registration in Office's settings and its
+    folder left in the checkout."""
+    out = _office_items()
+    if p := _pane_build():
+        out.append((f"the old task pane's folder {p} is left in this git checkout (untracked; nothing uses it)",
+                    f"delete {p} by hand (`smartass doctor --fix` never deletes a folder inside a git checkout)"))
+    return out
+
+
+def _addin_folder(xll: Path) -> Path:
+    """The folder to delete by hand once the classic add-in is unticked in Excel: svkit\\addin, which holds the add-in
+    (in dna) and the pane's copy beside it; the add-in's own folder when it is not in a dna folder."""
+    return xll.parent.parent if xll.parent.name.lower() == "dna" else xll.parent
+
+
+def _office_items() -> list[tuple[str, str]]:
+    """(what, the manual step) for the pane's registration in Office's own settings: never changed by smartass."""
+    from . import pane_leftovers as pane
+    out = [(f"Office trusts the Excel task pane's add-in catalogue {url} (the pane is gone)",
+            CATALOGUE_STEP.format(url=url)) for url in pane.catalogues()]
+    out += [(f"Excel loads the task pane's classic add-in {xll} at start ({name})",
+             XLL_STEP.format(name=name, xll=xll, folder=_addin_folder(Path(xll)))) for name, xll in pane.excel_addins()]
+    return out
+
+
+def _http_api_items(serves: list) -> list[str]:
+    """What the HTTP API and the task pane of an older release left that `doctor --fix` removes or stops (serves: the
+    running `serve`s, setup_user._serves())."""
+    from . import pane_leftovers as pane
+    from . import setup_user
+    out = []
+    if found := setup_user.engine_startup():
+        out.append(f"the Startup entry {setup_user.ENGINE_STARTUP} starts `smartass serve` (the HTTP API, gone)"
+                   if found[1] else f"the Startup entry {setup_user.ENGINE_STARTUP} of another smartass install: left "
+                   "as it is - remove it there")
+    for s in serves:
+        out.append(f"an older `smartass serve` of this install runs (pid {s.proc.pid})" if s.ours else
+                   f"a `smartass serve` of another smartass install runs (pid {s.proc.pid}): left as it is - stop it "
+                   "there")
+    out += [f"the Excel task pane's Startup entry {p} (the pane is gone)"
+            for p in pane.startup_entries(setup_user.STARTUP)]
+    if p := _secret_file():
+        out.append(f"the HTTP API's secret file {p} (unused)")
+    return out
+
+
+def _config_items() -> list[str]:
+    """What the user's config.toml and the home still hold for the HTTP API and the updater (gone), never a value."""
+    out = []
+    if _plain_http_secret():
+        out.append(f"{config.USER_CONFIG} still holds a plain [http] secret (unused; the value is not shown)")
+    if names := _unused_settings():
+        out.append(f"{config.USER_CONFIG} sets {', '.join(names)}: no longer used ({_gone(names)} gone)")
+    if p := _update_attempt_file():
+        out.append(f"the updater's record {p} (unused: the updater is gone)")
+    return out
+
+
+def _gone(names: list[str]) -> str:
+    """'the updater is' / 'the updater and the HTTP API are', for the sections the names are in."""
+    parts = [what for s, what in UNUSED_SECTIONS.items() if any(n.startswith(s + ".") for n in names)]
+    return " and ".join(parts) + (" are" if len(parts) > 1 else " is")
+
+
 def _leftovers() -> Check:
-    """What an older release (up to 0.6.0, with its hidden Excel and VBA bridge) left in the home: a copy of Smart
-    View's options that a crashed run could not put back (nothing can restore them now: set them by hand), and the
-    bridge add-ins it built."""
-    opts, bridges = _options_files(), _bridge_files()
-    if not opts and not bridges:
-        return Check("leftovers", "OK", "nothing an older release left behind")
+    """What an older release left: in the home, from 0.6.0 and before (its hidden Excel and VBA bridge), a copy of
+    Smart View's options that a crashed run could not put back (nothing can restore them now: set them by hand) - the
+    old svkit home's copy only when Smart View's stored options differ from it - and the bridge add-ins it built; from
+    0.7.0 and before, the HTTP API (its Startup entry, a running `serve`, its secret), the updater (its record, the
+    release settings in config.toml) and the Excel task pane (its Startup entry; its registration in Office's settings,
+    which the user removes)."""
+    from . import setup_user
+    opts, bridges, office = _options_files(), _bridge_files(), _manual_items()
+    serves, unreadable = setup_user._serves()
+    http = _http_api_items(serves) + _config_items()
+    # Pythons whose command line could not be read are said, never a finding of their own: a managed PC's service
+    # Python stays unreadable, and nothing here could clear it.
+    unread = (f"the command line of {unreadable} Python process(es) could not be read: an older `smartass serve` "
+              "among them would not be found" if unreadable else "")
+    if not opts and not bridges and not http and not office:
+        return Check("leftovers", "OK", "nothing an older release left behind" + (f" ({unread})" if unread else ""))
     said, fixes = [], []
     for p in opts:
+        if _legacy(p):
+            said.append(f"Smart View's options differ from the originals an older smartass recorded in {p}: "
+                        f"{_recorded(p)}")
+            fixes.append("set those back by hand in Excel: Smart View ribbon > Options (close the other Excels first), "
+                         f"or, when the values you have now are the ones you want, delete {p} by hand")
+            continue
         said.append(f"an older smartass crashed with Smart View's options changed; the originals recorded in {p}: "
                     f"{_recorded(p)}")
         fixes.append("set those back by hand in Excel: Smart View ribbon > Options (close the other Excels first)")
     if bridges:
         said.append(f"{len(bridges)} VBA bridge add-in file(s) of an older release in {config.SVKIT} (unused)")
-    fixes.append("then run `smartass doctor --fix` to remove the left-behind files")
-    return Check("leftovers", "WARN", "; ".join(said), "; ".join(fixes))
+    said += http
+    if [p for p in opts if not _legacy(p)] or bridges or http:
+        fixes.append("then run `smartass doctor --fix` to remove the left-behind files and entries")
+    for what, step in office:
+        said.append(what)
+        fixes.append(step)
+    return Check("leftovers", "WARN", "; ".join(said + ([unread] if unread else [])), "; ".join(fixes))
+
+
+def pending_leftovers() -> bool:
+    """True when `smartass doctor` would list a leftover that is a file, a setting in config.toml or an entry in
+    Office's settings (what `smartass setup` leaves to `doctor --fix` or to the user) - cheap: no process listing."""
+    from . import pane_leftovers as pane
+    from . import setup_user
+    return bool(_options_files() or _bridge_files() or _secret_file() or _config_items()
+                or pane.startup_entries(setup_user.STARTUP) or _manual_items())
+
+
+def fixable_leftovers() -> bool:
+    """True when `smartass doctor --fix` can clear one of pending_leftovers(): a file or a setting in config.toml.
+    Office's settings (the pane's registration) and a record in the old svkit home are only the user's to change."""
+    from . import pane_leftovers as pane
+    from . import setup_user
+    return bool([p for p in _options_files() if not _legacy(p)] or _bridge_files() or _secret_file()
+                or _config_items() or pane.startup_entries(setup_user.STARTUP))
 
 
 def fix_leftovers(say=print) -> list[Path]:
     """`smartass doctor --fix`: the left-behind files removed, each said first (the options file after its recorded
     values; the old svkit home's copy is never changed); a file in use (a bridge still loaded in an Excel) stays and
-    is said so. Returns the files removed."""
+    is said so. The HTTP API's Startup entry, secret file and plain secret go, this install's `serve` is stopped
+    (setup_user), the updater's record and the settings only an older release read go, the task pane's Startup entry
+    goes; its registration in Office's settings is only said, with the steps in Excel. Returns the files removed."""
+    from . import pane_leftovers as pane
+    from . import setup_user
     removed = []
     for p in _options_files():
-        say(f"Smart View options an older smartass left changed (set them by hand in Smart View > Options): "
-            f"{_recorded(p)}")
-        if config.LEGACY_HOME and p.parent == config.LEGACY_HOME:
+        if _legacy(p):
+            say(f"Smart View's options differ from the originals an older smartass recorded (set them by hand in Smart "
+                f"View > Options): {_recorded(p)}")
             say(f"left as it is (the old svkit home is never changed): {p}")
             continue
+        say(f"Smart View options an older smartass left changed (set them by hand in Smart View > Options): "
+            f"{_recorded(p)}")
         say(f"removing {p}")
         removed += _remove(p, say)
     for p in _bridge_files():
         say(f"removing the unused VBA bridge add-in {p}")
         removed += _remove(p, say)
-    if not removed:
+    setup_user.stop_old_serve(say)
+    removed += setup_user.drop_engine_startup(say)
+    for p in pane.startup_entries(setup_user.STARTUP):
+        say(f"removing {p} (the Excel task pane's Startup entry; the pane is gone)")
+        removed += _remove(p, say)
+    if p := _secret_file():
+        say(f"removing the HTTP API's secret file {p} (the HTTP API is gone)")
+        removed += _remove(p, say)
+    if p := _update_attempt_file():
+        say(f"removing the updater's record {p} (the updater is gone)")
+        removed += _remove(p, say)
+    changed = _fix_config(say)
+    for what, step in _office_items():
+        say(f"left for you (Office's own settings, never changed by smartass): {what} - {step}")
+    if p := _pane_build():
+        say(f"left for you (a folder in this git checkout, never deleted by smartass): {p} - delete it by hand")
+    if not removed and not changed:
         say("nothing removed")
     return removed
+
+
+def _fix_config(say) -> bool:
+    """The sections only an older release read ([release]: the updater's; [http]: the HTTP API's port and plain
+    secret) taken out of config.toml whole, each said first; a value is never said. A copy of the file goes next to it
+    first (config.toml.bak-<date>, never over an earlier one), and it is said. The new file is written only when it is
+    exactly the old settings without those two tables (_drop_sections); otherwise the file is left as it is and the
+    lines to delete by hand are said. What is still set after it (a dotted key, an inline table) is said to be left."""
+    secret, names = _plain_http_secret(), _unused_settings()
+    if not secret and not names:
+        return False
+    cfg = config.USER_CONFIG
+    try:
+        raw = cfg.read_bytes()
+    except OSError as e:
+        say(f"could not read {cfg} ({e.strerror or e}); delete its {_sections()} sections by hand")
+        return False
+    new = _drop_sections(raw, UNUSED_SECTIONS)
+    if new is None:
+        what = ", ".join((["a plain [http] secret"] if secret else []) + names)
+        say(f"{cfg} is left as it is ({what}: no longer used; taking out its {_sections()} sections would change "
+            f"more than them) - delete it by hand: {_by_hand(raw, UNUSED_SECTIONS)}")
+        return False
+    if secret:
+        say(f"removing the plain [http] secret from {cfg} (the HTTP API is gone; the value is not shown)")
+    if names:
+        say(f"removing {', '.join(names)} from {cfg}: no longer used ({_gone(names)} gone)")
+    if new != raw:
+        tmp = None
+        try:
+            bak = _backup(cfg, raw, say)
+            fd, name = tempfile.mkstemp(dir=cfg.parent, prefix=cfg.name + ".", suffix=".tmp")   # never a user's file
+            tmp = Path(name)
+            with os.fdopen(fd, "wb") as f:
+                f.write(new)
+            os.replace(tmp, cfg)
+        except OSError as e:
+            try:
+                if tmp is not None:
+                    tmp.unlink(missing_ok=True)     # no half-done copy left next to it
+            except OSError:
+                pass
+            say(f"could not change {cfg} ({e.strerror or e}); delete its {_sections()} sections by hand")
+            return False
+        say(f"{cfg} changed; the copy from before is {bak}")
+        if secret:
+            say(f"the backup {bak} still holds the plain [http] secret - delete it when you no longer need it")
+    left = _unused_settings()
+    if _plain_http_secret():                        # written another way (a dotted key, an inline table)
+        say(f"the plain [http] secret is still in {cfg}: delete it by hand")
+    if left:
+        say(f"{', '.join(left)} still set in {cfg}: delete it by hand")
+    return new != raw and not (left or _plain_http_secret())
+
+
+def _sections() -> str:
+    return " and ".join(f"[{s}]" for s in UNUSED_SECTIONS)
+
+
+def _backup(cfg: Path, raw: bytes, say) -> Path:
+    """A copy of config.toml next to it, config.toml.bak-<date> (-2, -3 ... when that name is taken: an earlier backup
+    is never overwritten), said before it is written; a copy of the same day that already holds these bytes (a retry
+    after a write that failed) is used as it is. OSError when it cannot be written (then nothing is changed)."""
+    stamp = time.strftime("%Y-%m-%d")
+    for n in range(1, 1000):
+        bak = cfg.with_name(f"{cfg.name}.bak-{stamp}" + (f"-{n}" if n > 1 else ""))
+        if bak.exists():
+            try:
+                if bak.read_bytes() == raw:
+                    say(f"{cfg} is already backed up in {bak}")
+                    return bak
+            except OSError:
+                pass
+            continue
+        say(f"backing up {cfg} to {bak} before it is changed")
+        with open(bak, "xb") as f:                 # x: never over a file that appeared meanwhile
+            f.write(raw)
+        return bak
+    raise FileExistsError(f"no free backup name for {cfg}")
 
 
 def _remove(p: Path, say) -> list[Path]:
@@ -279,19 +640,20 @@ def _remove(p: Path, say) -> list[Path]:
         p.unlink()
         return [p]
     except OSError as e:
-        say(f"could not remove {p} ({e.strerror or e}); it may be loaded in an Excel - close that Excel and run "
-            "`smartass doctor --fix` again")
+        say(f"could not remove {p} ({e.strerror or e}); it may be in use (an add-in loaded in an Excel: close that "
+            "Excel) - then run `smartass doctor --fix` again")
         return []
 
 
-CHECKS = (_config, _excel, _smartview_startup, _epm, _oauth, _atlas, _knowledge, _output, _http, _update, _leftovers)
+# What fin_status runs on every call (each cheap); `smartass doctor` and the bundle add LEFTOVERS: a process scan and
+# a read of every Startup file (an older release's leftovers), paid once by the command, never by a tool call.
+CHECKS = (_config, _excel, _smartview_startup, _epm, _oauth, _atlas, _knowledge, _output)
+LEFTOVERS = (_leftovers,)
 
 
-def run(include_http: bool = True) -> list[Check]:
+def run(leftovers: bool = False) -> list[Check]:
     out = []
-    for f in CHECKS:
-        if f is _http and not include_http:
-            continue
+    for f in CHECKS + (LEFTOVERS if leftovers else ()):
         try:
             out.append(f())
         except Exception as e:   # noqa: BLE001 - a check never breaks the doctor
@@ -341,7 +703,7 @@ def bundle(dest_dir: Path | None = None) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     path = dest_dir / f"smartass-doctor-{time.strftime('%Y%m%d-%H%M%S')}.zip"
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("doctor.json", json.dumps(as_dict(run()), indent=2))
+        z.writestr("doctor.json", json.dumps(as_dict(run(leftovers=True)), indent=2))
         z.writestr("versions.json", json.dumps(_versions(), indent=2))
         if config.USER_CONFIG.exists():
             z.writestr("config.toml", logsetup.redact(config.USER_CONFIG.read_text(encoding="utf-8")))
