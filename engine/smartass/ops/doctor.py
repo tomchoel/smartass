@@ -191,12 +191,72 @@ SV_OPTIONS = {"104": "Log Message Display (HSV_LOGMESSAGE_DISPLAY: which message
               "110": "Show comment dialog on refresh (HSV_SHOW_COMMENTDIALOG_ON_REFRESH)"}   # Oracle's option ids
 
 
+# Smart View's stored options (HKCU, a string value holding XML: <option key="messageDisplay" value="2"/> ...): read
+# with winreg (xl/dialogs.read_hkcu), never through COM. Oracle's option ids of SV_OPTIONS as its keys there.
+SV_STORED = (r"Software\Hyperion Solutions\HyperionSmartView\Options", "CAOptionsXML")
+SV_STORED_KEYS = {"104": "messageDisplay", "109": "bDisplayHomePanelOnStartup", "110": "bCommentDlgEnable"}
+
+
+def _sv_stored() -> dict[str, str] | None:
+    """Smart View's stored options {key: value}; None when they cannot be read (no value, not XML)."""
+    from xml.etree import ElementTree
+    try:
+        xml = dialogs.read_hkcu(*SV_STORED)          # looked up at the call: the suite's fake reader
+        root = ElementTree.fromstring(xml) if isinstance(xml, str) and xml.strip() else None
+    except Exception:   # noqa: BLE001 - unreadable options prove nothing
+        return None
+    if root is None:
+        return None
+    return {str(o.get("key")): str(o.get("value")) for o in root.iter()
+            if str(o.tag).rsplit("}", 1)[-1] == "option" and o.get("key") is not None}
+
+
+def _number(value) -> int | None:
+    """An option's value as Smart View stores it (true -> 1, "0" -> 0, 2 -> 2); None when it is not one."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    text = str(value).strip().lower()
+    if text in ("true", "false"):
+        return int(text == "true")
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _differs(record: Path) -> bool:
+    """True only when it is proven that Smart View's stored options differ from the originals the record holds: the
+    record and the stored options both readable and a recorded option there with another value. Anything that cannot
+    be read or compared is no difference."""
+    try:
+        rec = json.loads(record.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    stored = _sv_stored()
+    if not isinstance(rec, dict) or not stored:
+        return False
+    for oid, value in rec.items():
+        key = SV_STORED_KEYS.get(str(oid))
+        was, now = _number(value), _number(stored[key]) if key in stored else None
+        if was is not None and now is not None and was != now:
+            return True
+    return False
+
+
 def _options_files() -> list[Path]:
-    """The left-behind copies of Smart View's options: the home's, and the old svkit home's (read only)."""
-    out = [config.SVKIT / SV_OPTIONS_FILE]
-    if config.LEGACY_HOME:
-        out.append(config.LEGACY_HOME / SV_OPTIONS_FILE)
-    return [p for p in out if p.exists()]
+    """The left-behind copies of Smart View's options: the home's (only a crashed run leaves it), and the old svkit
+    home's (read only) only when Smart View's stored options differ from it - an older engine always kept its record
+    there, so the file alone proves nothing (the false alarm on the owner's PC, 22.11)."""
+    out = [p for p in [config.SVKIT / SV_OPTIONS_FILE] if p.exists()]
+    if config.LEGACY_HOME and (old := config.LEGACY_HOME / SV_OPTIONS_FILE).exists() and _differs(old):
+        out.append(old)
+    return out
+
+
+def _legacy(p: Path) -> bool:
+    return bool(config.LEGACY_HOME) and p.parent == config.LEGACY_HOME
 
 
 def _bridge_files() -> list[Path]:
@@ -369,10 +429,11 @@ def _gone(names: list[str]) -> str:
 
 def _leftovers() -> Check:
     """What an older release left: in the home, from 0.6.0 and before (its hidden Excel and VBA bridge), a copy of
-    Smart View's options that a crashed run could not put back (nothing can restore them now: set them by hand) and
-    the bridge add-ins it built; from 0.7.0 and before, the HTTP API (its Startup entry, a running `serve`, its
-    secret), the updater (its record, the release settings in config.toml) and the Excel task pane (its Startup entry;
-    its registration in Office's settings, which the user removes)."""
+    Smart View's options that a crashed run could not put back (nothing can restore them now: set them by hand) - the
+    old svkit home's copy only when Smart View's stored options differ from it - and the bridge add-ins it built; from
+    0.7.0 and before, the HTTP API (its Startup entry, a running `serve`, its secret), the updater (its record, the
+    release settings in config.toml) and the Excel task pane (its Startup entry; its registration in Office's settings,
+    which the user removes)."""
     from . import setup_user
     opts, bridges, office = _options_files(), _bridge_files(), _office_items()
     serves, unreadable = setup_user._serves()
@@ -385,13 +446,19 @@ def _leftovers() -> Check:
         return Check("leftovers", "OK", "nothing an older release left behind" + (f" ({unread})" if unread else ""))
     said, fixes = [], []
     for p in opts:
+        if _legacy(p):
+            said.append(f"Smart View's options differ from the originals an older smartass recorded in {p}: "
+                        f"{_recorded(p)}")
+            fixes.append("set those back by hand in Excel: Smart View ribbon > Options (close the other Excels first), "
+                         f"or, when the values you have now are the ones you want, delete {p} by hand")
+            continue
         said.append(f"an older smartass crashed with Smart View's options changed; the originals recorded in {p}: "
                     f"{_recorded(p)}")
         fixes.append("set those back by hand in Excel: Smart View ribbon > Options (close the other Excels first)")
     if bridges:
         said.append(f"{len(bridges)} VBA bridge add-in file(s) of an older release in {config.SVKIT} (unused)")
     said += http
-    if opts or bridges or http:
+    if [p for p in opts if not _legacy(p)] or bridges or http:
         fixes.append("then run `smartass doctor --fix` to remove the left-behind files and entries")
     for what, step in office:
         said.append(what)
@@ -409,11 +476,13 @@ def fix_leftovers(say=print) -> list[Path]:
     from . import setup_user
     removed = []
     for p in _options_files():
-        say(f"Smart View options an older smartass left changed (set them by hand in Smart View > Options): "
-            f"{_recorded(p)}")
-        if config.LEGACY_HOME and p.parent == config.LEGACY_HOME:
+        if _legacy(p):
+            say(f"Smart View's options differ from the originals an older smartass recorded (set them by hand in Smart "
+                f"View > Options): {_recorded(p)}")
             say(f"left as it is (the old svkit home is never changed): {p}")
             continue
+        say(f"Smart View options an older smartass left changed (set them by hand in Smart View > Options): "
+            f"{_recorded(p)}")
         say(f"removing {p}")
         removed += _remove(p, say)
     for p in _bridge_files():

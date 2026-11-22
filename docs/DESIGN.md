@@ -407,6 +407,7 @@ never stops the rest.
 - `smartass doctor` checks the install (config, Excel, Smart View's start-up settings, EPM, oauth set-up and
   sign-ins, atlas, knowledge (build checks against the current atlas; WARN when knowledge.db is older than the atlas
   or the semantic files, or drafts await approval), output, and leftovers of an older release (the command and the
-  bundle only: fin_status's doctor summary leaves that check out, it scans processes and the Startup folder);
-  `smartass doctor --fix` removes those leftovers, each named first, except what lives in Office's own settings
-  (reported with the steps in Excel).
+  bundle only: fin_status's doctor summary leaves that check out, it scans processes and the Startup folder; the old
+  svkit home's record of Smart View's options counts only when Smart View's stored options, read from the registry
+  without COM, differ from it); `smartass doctor --fix` removes those leftovers, each named first, except what
+  lives in Office's own settings (reported with the steps in Excel).
