@@ -54,7 +54,7 @@ def new_book(monkeypatch, tmp_home, tmp_path):
 
     def target(h, target, title, build_new=False):
         asked.append(build_new)
-        return xltarget._new_target(None, title, [(7, 70, app)], build_new=build_new)
+        return xltarget._new_target(title, [(7, 70, app)], build_new=build_new)
     monkeypatch.setattr(exceljob, "_target", target)
     monkeypatch.setattr(exceljob, "remember", lambda pre, out: None)
     return SimpleNamespace(app=app, mine=mine, folder=folder, sessions=sessions, asked=asked)
@@ -175,14 +175,14 @@ def test_every_route_of_a_new_workbook_marks_its_target_new(new_book, monkeypatc
     if route == "no Excel":
         made = new_book.folder / "made.xlsx"
         monkeypatch.setattr(xltarget, "_new_analysis_file", lambda title: made)
-        monkeypatch.setattr(xltarget, "_open_path", lambda h, path, excels, *a: xltarget.Target(
+        monkeypatch.setattr(xltarget, "_open_path", lambda path, excels, *a: xltarget.Target(
             app=new_book.app, wb=None, pid=8, hwnd=0))
-        t = xltarget._new_target(None, "T", [])
+        t = xltarget._new_target("T", [])
     else:
         monkeypatch.setattr(xltarget, "_save_new", lambda app, wb, title: new_book.folder / "added.xlsx")
         monkeypatch.setattr(fakexl._Workbooks, "Add", lambda self, *a: fakexl.Workbook(
             ["Sources"], app=new_book.app, styles_ver=False), raising=False)
-        t = xltarget._new_target(None, "T", [(7, 70, new_book.app)], build_new=route == "built")
+        t = xltarget._new_target("T", [(7, 70, new_book.app)], build_new=route == "built")
     assert t.new is True and t.created is True and (t.made is not None) == (route == "built")
     assert xltarget.Target(app=None, wb=None, pid=0, hwnd=0, created=True).new is False
 

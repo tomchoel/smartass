@@ -215,6 +215,6 @@ def test_with_no_excel_no_seed_and_no_stored_base_the_user_excel_is_launched_on_
     saved = []
     monkeypatch.setattr(target, "_save_new", lambda app, wb, title: saved.append((app, wb, title)) or env / "x.xlsx")
     monkeypatch.setattr(target, "_new_analysis_file", lambda title: pytest.fail("the template route builds no file"))
-    t = target._new_target(None, "Q", [], set(), build_new=True)
+    t = target._new_target("Q", [], set(), build_new=True)
     assert spawned == [(tpl, set(), target.OPEN_TIMEOUT_S)] and saved == [("app", book, "Q")]   # a cold Excel's time
     assert t.wb is book and t.from_template and t.new and t.created and t.made is None

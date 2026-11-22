@@ -48,7 +48,7 @@ def test_a_login_never_falls_through_to_launching_another_excel(monkeypatch, tmp
     monkeypatch.setattr(target, "_launch_excel", lambda path: pytest.fail("an Excel was launched"))
     for t in ("new", "active", str(tmp_path / "x.xlsx")):
         with pytest.raises(HostError, match="Smart View's Login is open"):
-            target.resolve_target(None, t)
+            target.resolve_target(t)
 
 
 def test_the_target_is_refused_before_its_first_com_call_when_a_login_opened_meanwhile(monkeypatch):
@@ -58,7 +58,7 @@ def test_the_target_is_refused_before_its_first_com_call_when_a_login_opened_mea
                                                                            (5, "#32770", "Login")])
     with pytest.raises(HostError, match=r"Smart View's Login is open in the Excel showing 'Budget.xlsx - Excel' "
                                         r"\(pid 7\)"):
-        target._finish_target(None, target.Target(NoCom(), NoCom(), 7, 70), allow_archive=False)
+        target._finish_target(target.Target(NoCom(), NoCom(), 7, 70), allow_archive=False)
 
 
 def test_an_excel_whose_title_cannot_be_read_is_named_by_its_pid(monkeypatch):
@@ -74,7 +74,7 @@ def test_without_a_login_the_target_is_made_ready_as_before(monkeypatch):
     ready = []
     monkeypatch.setattr(target, "_wait_ready", lambda app, **k: ready.append(k))
     t = target.Target(object(), object(), 7, 70)
-    assert target._finish_target(None, t, allow_archive=False) is t and ready == [{"pid": 7, "name": "b.xlsx"}]
+    assert target._finish_target(t, allow_archive=False) is t and ready == [{"pid": 7, "name": "b.xlsx"}]
 
 
 class Clock:
@@ -134,5 +134,5 @@ def test_a_launched_excel_whose_workbook_opened_is_watched_before_it_is_used(mon
         raise dialogs.login_refusal(pid, [])
     monkeypatch.setattr(dialogs, "watch_after_start", watch)
     with pytest.raises(HostError, match="Login is open"):
-        target._open_path(None, f, [], [])
+        target._open_path(f, [], [])
     assert watched == [9]

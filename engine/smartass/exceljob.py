@@ -37,8 +37,10 @@ class RestoreError(RuntimeError):
 
 
 def _target(h, target: str, title: str, build_new: bool = False):
+    """The job's workbook (xl/target.resolve_target). h: the job's runner, which every job seam takes; the resolve
+    needs none of it."""
     from .xl import target as xltarget
-    return xltarget.resolve_target(h, target, allow_archive=False, title=title, build_new=build_new)
+    return xltarget.resolve_target(target, allow_archive=False, title=title, build_new=build_new)
 
 
 def _new_book() -> tuple | None:

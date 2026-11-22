@@ -1256,7 +1256,7 @@ def _new_target_seam(xl: Excel, holder: dict):
 
     def target(h, target, title, build_new=False):
         if "t" not in holder:
-            holder["t"] = xltarget._new_target(None, title, [(xl.pid, 0, xl.app)], {xl.pid}, build_new)
+            holder["t"] = xltarget._new_target(title, [(xl.pid, 0, xl.app)], {xl.pid}, build_new)
             return holder["t"]
         return Target(app=xl.app, wb=holder["t"].wb, pid=xl.pid, hwnd=0, created=True)
     return target
@@ -1524,7 +1524,7 @@ def mixed_executors() -> None:
             if app is None:
                 raise NoWindow("this Excel did not answer by its workbook window for 30 s")
             if "name" not in holder:
-                t = xltarget._new_target(None, title, [(mx.pid, ex7, app)], {mx.pid}, build_new)
+                t = xltarget._new_target(title, [(mx.pid, ex7, app)], {mx.pid}, build_new)
                 holder["name"] = t.made.name if t.made is not None else str(t.wb.Name)
                 return t
             jobs.hold_turn(mx.pid, what="this request", app=app)

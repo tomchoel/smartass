@@ -108,26 +108,25 @@ ARCHIVE_REFUSAL = ("'{name}' is in the Produktregnskapet archive (audit record) 
                    "Use target='new', or allow it explicitly for this one request (allow_archive=true).")
 
 
-def resolve_target(h, target: str = "session", allow_archive: bool = False, title: str | None = None,
+def resolve_target(target: str = "session", allow_archive: bool = False, title: str | None = None,
                    build_new: bool = False) -> Target:
-    """h: the job's runner (xl/userjobs.UserJobs; the resolve itself uses nothing of it). target: 'session' (default:
-    this session's own analysis workbook - created on its first question, reopened if closed), 'active' (the workbook
-    the user is working in), 'new' (a new file, which becomes the session's workbook), an absolute file path, or the
-    name of an open workbook (e.g. an unsaved 'Book1'). build_new: the caller builds a new workbook itself
+    """target: 'session' (default: this session's own analysis workbook - created on its first question, reopened if
+    closed), 'active' (the workbook the user is working in), 'new' (a new file, which becomes the session's
+    workbook), an absolute file path, or the name of an open workbook (e.g. an unsaved 'Book1'). build_new: the caller builds a new workbook itself
     (exceljob.excel_job: the first answer's built file is the workbook) - a target that resolves to a new workbook in a
     running Excel then comes back with its file reserved and not opened (Target.made, wb None; open_new opens it), made
     ready all the same, and does not become the session's workbook here: the caller sets it once the answer is in it.
     A failure after the reservation deletes the file (discard_new)."""
     with jobs.starting():
-        return _resolve(h, target, allow_archive, title, build_new)
+        return _resolve(target, allow_archive, title, build_new)
 
 
-def _resolve(h, target: str, allow_archive: bool, title: str | None, build_new: bool) -> Target:
+def _resolve(target: str, allow_archive: bool, title: str | None, build_new: bool) -> Target:
     from ..core import session
     if target == "session":
         wb_path = session.workbook()
         if wb_path:
-            t = resolve_target(h, wb_path, allow_archive, title)
+            t = resolve_target(wb_path, allow_archive, title)
             t.created = True                          # the session's own file: saved after each answer
             return t
         target = "new"
@@ -140,7 +139,7 @@ def _resolve(h, target: str, allow_archive: bool, title: str | None, build_new: 
             t = _find_named([(i.pid, i.hwnd, i.app) for i in insts if i.app is not None], target)
             jobs.hold_turn(t.pid, what="this request", app=t.app)
             with stage("ready"):
-                return _finish_target(h, t, allow_archive)      # the archive guard applies here too
+                return _finish_target(t, allow_archive)         # the archive guard applies here too
         if instances.is_archive(p) and not allow_archive:       # refuse BEFORE opening anything
             raise InputError(ARCHIVE_REFUSAL.format(name=p.name))
     with stage("find Excel windows"):
@@ -154,29 +153,29 @@ def _resolve(h, target: str, allow_archive: bool, title: str | None, build_new: 
                 wb = None
             if wb is not None and not name.lower().endswith(".xlam"):
                 jobs.hold_turn(pid, what="this request", app=app)   # same workbook: agents take turns
-                return _finish_target(h, Target(app, wb, pid, hwnd), allow_archive)
+                return _finish_target(Target(app, wb, pid, hwnd), allow_archive)
         target = "new"                                # nothing open: fall back to a new analysis workbook
     if target == "new":
         with stage("new workbook"):
-            t = _new_target(h, title or "Analysis", excels, {i.pid for i in insts}, build_new)
+            t = _new_target(title or "Analysis", excels, {i.pid for i in insts}, build_new)
         if t.made is not None:                        # the caller builds it, opens it, and makes it the session's
             try:
                 with stage("ready"):
-                    return _finish_target(h, t, allow_archive)
+                    return _finish_target(t, allow_archive)
             except BaseException as e:
                 _noted(e, discard_new(t))
                 raise
         with stage("ready"):
-            t = _finish_target(h, t, allow_archive)
+            t = _finish_target(t, allow_archive)
         session.set_workbook(t.path)                  # a new file becomes this session's workbook
         return t
     with stage("open workbook"):
-        t = _open_path(h, Path(target), excels, insts)
+        t = _open_path(Path(target), excels, insts)
     with stage("ready"):
-        return _finish_target(h, t, allow_archive)
+        return _finish_target(t, allow_archive)
 
 
-def _new_target(h, title: str, excels, known: set[int] | None = None, build_new: bool = False) -> Target:
+def _new_target(title: str, excels, known: set[int] | None = None, build_new: bool = False) -> Target:
     """A new analysis workbook in a FREE Excel, so parallel agents do not wait for each other: the first Excel whose
     turn is free; else (below MAX_EXCELS) a new Excel window started on the TN template; else wait for the first.
     If it cannot be saved, the new workbook is closed unsaved (and an Excel started for it is closed again).
@@ -203,7 +202,7 @@ def _new_target(h, title: str, excels, known: set[int] | None = None, build_new:
             choice, wb = _spawn_excel(tpl, known or set(), OPEN_TIMEOUT_S)   # a cold Excel; its look stores the base
         spawned = True
     if choice is None:                                # no Excel at all: the file is made without Excel, /x opens it
-        t = _open_path(h, _new_analysis_file(title), excels)
+        t = _open_path(_new_analysis_file(title), excels)
         t.created = t.new = True
         return t
     pid, hwnd, app = choice
@@ -380,7 +379,7 @@ def _spawn_excel(tpl: Path, known: set[int], limit: float = SPAWN_TIMEOUT_S):
     raise HostError(f"A new Excel (pid {proc.pid}) did not open the TN template within {limit:.0f} s.")
 
 
-def _finish_target(h, t: Target, allow_archive: bool) -> Target:
+def _finish_target(t: Target, allow_archive: bool) -> Target:
     dialogs.refuse_login(t.pid)                             # before any further COM into that Excel
     if (instances.is_archive(t.path) or instances.is_archive(t.full_name)) and not allow_archive:
         raise InputError(ARCHIVE_REFUSAL.format(name=t.name))
@@ -463,7 +462,7 @@ def _wait_busy_holder(pid: int, path: Path) -> Target | None:
         time.sleep(0.5)
 
 
-def _open_path(h, path: Path, excels, insts: list[instances.XlInstance] | None = None) -> Target:
+def _open_path(path: Path, excels, insts: list[instances.XlInstance] | None = None) -> Target:
     """The workbook at `path`, wherever it is open: any Excel that answers, else a busy Excel showing its window
     (which is named if it stays busy); else opened in the user's running Excel; else in a new Excel."""
     if not path.exists():

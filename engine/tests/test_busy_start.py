@@ -82,8 +82,8 @@ def test_the_active_workbooks_name_is_read_with_a_busy_excel_waited_for(clock, m
     app = App(active=wb)
     monkeypatch.setattr(instances, "excel_instances", lambda: [instances.XlInstance(7, 70, ["answer"], app)])
     monkeypatch.setattr(jobs, "hold_turn", lambda *a, **k: True)
-    monkeypatch.setattr(target, "_finish_target", lambda h, t, allow: t)
-    t = target.resolve_target(None, "active")
+    monkeypatch.setattr(target, "_finish_target", lambda t, allow: t)
+    t = target.resolve_target("active")
     assert t.wb is wb and t.pid == 7
 
 
@@ -243,7 +243,7 @@ def _launched(clock, monkeypatch, tmp_path):
     book.write_bytes(b"x")
     monkeypatch.setattr(target, "_launch_excel", lambda path: _Proc())
     monkeypatch.setattr(instances, "interactive_excels", lambda: [])
-    target._open_path(None, book, [], [])
+    target._open_path(book, [], [])
 
 
 @pytest.mark.parametrize("wait", [_rejected_com, _asked, _ready, _turn, _busy_holder, _after_start, _spawn, _launched],
