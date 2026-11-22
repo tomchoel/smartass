@@ -423,8 +423,7 @@ def _smoke(a: str, k: str) -> int:
             spec = AnalysisSpec.model_validate(cases[cid]["spec"])
             t0 = time.perf_counter()
             try:
-                pre, notes = await server._prepare(spec.model_dump(), server._provider(), spec, "session",
-                                                   complete=True)
+                pre, notes = await server._prepare(spec.model_dump(), server._provider(), spec, complete=True)
                 lines = getattr(pre.frame, "lines", {}) or {}
                 print(f"{cid}: prepare OK in {time.perf_counter() - t0:.1f} s | queries {len(spec.queries)} | "
                       f"line sets {len(lines)} | notes {len(notes)}", flush=True)

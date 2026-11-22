@@ -667,7 +667,7 @@ def test_a_new_question_is_drawn_by_excel_job(monkeypatch):
     async def user(fn, what):
         return fn(None)
 
-    async def prepare(raw, provider, spec=None, target="session", complete=False):
+    async def prepare(raw, provider, spec=None, complete=False):     # server._prepare's signature: no target
         return SimpleNamespace(spec=spec), []
     monkeypatch.setattr(server, "_user", user)
     monkeypatch.setattr(server, "_provider", lambda: "provider")

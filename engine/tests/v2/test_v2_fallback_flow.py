@@ -45,7 +45,7 @@ def test_the_excel_fallback_is_gone():
 
 
 def test_a_grid_neither_engine_could_fetch_is_a_warning_and_no_excel_job(no_excel):
-    pre, _ = asyncio.run(server._prepare(spec_dict(), Flaky(facts()), target="active"))
+    pre, _ = asyncio.run(server._prepare(spec_dict(), Flaky(facts())))
     assert no_excel == [] and len(pre.failed) == 1
     assert any("could not be fetched" in w and "lost the request" in w for w in pre.warnings)
 

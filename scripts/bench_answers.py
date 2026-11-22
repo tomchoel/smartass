@@ -252,7 +252,7 @@ async def bench(cases: list[dict], rounds: int) -> int:
             return await server._new_question(spec, target)
         # server._new_question's own steps minus guard_chart (the case has no chart block; the draw adds one)
         server.guard_key_points(spec)
-        pre, notes = await server._prepare(spec.model_dump(), server._provider(), spec, target, complete=True)
+        pre, notes = await server._prepare(spec.model_dump(), server._provider(), spec, complete=True)
         return server._with_notes(await server._draw_job(lambda h: server.excel_job(h, pre, target), "fin_analyze",
                                                          spec.question), notes)
 

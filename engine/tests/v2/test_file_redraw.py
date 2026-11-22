@@ -541,8 +541,8 @@ def _wire_server(monkeypatch, stored: dict, job):
     async def user(fn, what):
         return fn(None)
 
-    async def prepare(raw, provider, spec=None, target="session", complete=False):
-        return SimpleNamespace(raw=raw, target=target), []
+    async def prepare(raw, provider, spec=None, complete=False):     # server._prepare's signature: no target
+        return SimpleNamespace(raw=raw), []
     monkeypatch.setattr(server, "_user", user)
     monkeypatch.setattr(server, "_provider", lambda: "provider")
     monkeypatch.setattr(server, "_prepare", prepare)

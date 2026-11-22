@@ -171,14 +171,12 @@ def _has_lines(raw: dict) -> bool:
     return any(isinstance(b, dict) and b.get("type") == "lines" for b in raw.get("blocks") or [])
 
 
-async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target: str = "session",
-                   complete: bool = False):
+async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, complete: bool = False):
     """(Prepared, drill warnings). A stored or patched raw spec with lines blocks is re-drilled, so lines are fresh.
     Every grid is fetched over HTTP (the provider route, then Planning REST: data/provider.py); one neither engine
     could fetch is a warning (Prepared.failed) - no Excel is asked for a grid. complete (new questions and follow-up
     patches, not fin_refresh): the P&L chain is completed in the spec (pipeline.prepare), and the completed spec is
-    what gets stored. target: no longer used here (the Excel fallback that pulled into it is gone); kept so its
-    callers (fin_analyze, fin_refresh, scripts/bench_answers.py) keep their calls."""
+    what gets stored. No workbook is involved: the drawing job takes the target."""
     with runlog.span("prepare"):
         notes: list[str] = []
         kw = {"complete": True} if complete else {}
@@ -240,7 +238,7 @@ def _default_target(target: str) -> str:
 async def _new_question(spec: AnalysisSpec, target: str) -> dict:
     guard_chart(spec)                  # new questions only: every other path gets an implicit chart
     guard_key_points(spec)             # new questions only: a stored spec keeps its first 5 (a warning)
-    pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target, complete=True)
+    pre, notes = await _prepare(spec.model_dump(), _provider(), spec, complete=True)
     return _with_notes(await _draw_job(lambda h: excel_job(h, pre, target), "fin_analyze", spec.question), notes)
 
 
@@ -264,7 +262,7 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     stored, active, path = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
     q2, raw, _ = find_question(stored, q, active)
     patched = restore_chain(merge_patch(raw, patch))
-    pre, notes = await _prepare(patched, provider, target=path, complete=True)
+    pre, notes = await _prepare(patched, provider, complete=True)
     return _with_notes(await _draw_job(lambda h: redraw_job(h, pre, q2, path), "fin_analyze follow-up",
                                    patched.get("question")), notes)
 
@@ -305,7 +303,7 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
                          "error": f"skipped: EPM sign-in needed (see Q{unsigned})"})
             continue
         try:
-            pre, notes = await _prepare(stored[q]["spec"]["v2"], provider, target=path)
+            pre, notes = await _prepare(stored[q]["spec"]["v2"], provider)
             out = _with_notes(await _draw_job(
                 lambda h, q=q, pre=pre: redraw_job(h, pre, q, path),
                 "fin_refresh", stored[q]["spec"]["v2"].get("question")), notes)
