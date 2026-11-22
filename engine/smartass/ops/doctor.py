@@ -385,8 +385,8 @@ XLL_STEP = ("in Excel: File > Options > Add-ins > Manage: Excel Add-ins > Go: un
 
 def _pane_build() -> Path | None:
     """The old task pane's folder left in this install's git checkout: its build output (node_modules, dist) was
-    ignored by addin/tn-claude/.gitignore, which the pull deleted with the pane. Reported, never deleted: smartass
-    removes nothing inside a git checkout."""
+    ignored by the pane's own .gitignore under addin/, which the pull deleted with the pane. Reported, never deleted:
+    smartass removes nothing inside a git checkout."""
     p = Path(config.REPO_DIR) / "addin"
     return p if p.is_dir() else None
 
