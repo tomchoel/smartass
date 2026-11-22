@@ -342,6 +342,15 @@ def test_a_failed_build_leaves_todays_atlas_untouched_and_says_so(tmp_path):
             "connection", "dimension", "name", "label", "parent", "depth", "ord"]
 
 
+def test_a_build_of_no_dimension_replaces_nothing(tmp_path):
+    target = tmp_path / "atlas.db"
+    _today(target)
+    said = []
+    done, swapped = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        _Source(TREES, DIMS), ["FinMax"], ["Nonesuch"], db=db, progress=lambda m: None), progress=said.append)
+    assert done == [] and not swapped and "nothing was built" in said[-1]
+
+
 def test_a_build_that_raises_leaves_todays_atlas_untouched(tmp_path):
     target = tmp_path / "atlas.db"
     _today(target)

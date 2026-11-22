@@ -130,8 +130,9 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
             done = run(db)
         failed = [d for d in done if d.get("error")]
         if failed or not done:
-            progress(f"atlas not replaced: {len(failed)} {'dimension' if len(failed) == 1 else 'dimensions'} or "
-                     f"cubes failed; {target} is unchanged")
+            why = (f"{len(failed)} {'dimension' if len(failed) == 1 else 'dimensions'} or cubes failed" if failed
+                   else "nothing was built (no such dimension?)")
+            progress(f"atlas not replaced: {why}; {target} is unchanged")
             return done, False
         try:
             with contextlib.closing(sqlite3.connect(new)) as src, contextlib.closing(sqlite3.connect(target)) as dst:
