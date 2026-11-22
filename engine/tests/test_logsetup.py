@@ -75,8 +75,13 @@ def test_each_shape_that_leaked_is_scrubbed(shape, said):
     ("device_code: {s} ok", "device_code: *** ok"),
     ("see ?state=1&code={x} there", "see ?... there"),                  # the named key not first in the query
     ("sent Bearer {x} ok", "sent Bearer *** ok"),
+    ("Password: {s} ok", "Password: *** ok"),                           # a named key in another case: still caught
+    ("Client_Secret: {s} ok", "Client_Secret: *** ok"),
+    ("SessionId: {s} ok", "SessionId: *** ok"),
+    ("Access_Token: {s} ok", "Access_Token: *** ok"),
 ], ids=["cookie-pairs", "cookie-list", "escaped-34", "escaped-x27", "device_code-pair", "device_code-json",
-        "device_code-short", "query-key-later", "bearer-token"])
+        "device_code-short", "query-key-later", "bearer-token", "Password", "Client_Secret", "SessionId",
+        "Access_Token"])
 def test_each_shape_still_found_leaking_is_scrubbed(shape, said):
     x, s = secrets.token_hex(12), _short()
     text = shape.format(x=x, s=s)

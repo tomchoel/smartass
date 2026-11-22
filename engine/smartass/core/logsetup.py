@@ -15,12 +15,13 @@ _EQ = r"[ \t]*(?:=|%3D|%3A)[ \t]*"                             # name = value, U
 _Q = r"(?:[\"']|&(?:amp;)*(?:quot|apos|#0?39|#34|#[xX]0?2[27]);)"   # a quote, also HTML-escaped (once or more)
 _NAMES = (r"sID|JSESSIONID|ORA_[\w-]*|OAM[\w-]*|_WL_[\w-]*|X-Smartass-Secret|device_code|"
           r"[\w-]*(?:session|token|secret|password|passwd)[\w-]*")
-# The secret keys by their whole, exact names, in their own case: after one of them "name: value" is scrubbed whatever
-# the value's length (never a generic name: value rule - the scrub runs on reply warnings, whose sentences have colons:
-# 'SID: 4', 'Session_id: unknown', 'Oamaru: 3' are text). id_token is not here: 'id_token: missing' is text, and an ID
-# token is a JWT (the JWT rule) of more than 16 characters (the rule of the 16 key-like characters).
-_KEYS = (r"sID|sessionId|session_id|JSESSIONID|ssoToken|sso_token|access_token|refresh_token|client_secret|"
-         r"device_code|password|passwd|X-Smartass-Secret")
+# The secret keys by their whole names (no prefix: 'Oamaru: 3' is text): after one of them "name: value" is scrubbed
+# whatever the value's length (never a generic name: value rule - the scrub runs on reply warnings, whose sentences
+# have colons). sID and session_id only in their own case ('SID: 4', 'Session_id: unknown' are text), the others in
+# any. id_token is not here: 'id_token: missing' is text, and an ID token is a JWT (the JWT rule) of more than 16
+# characters (the rule of the 16 key-like characters).
+_KEYS = (r"sID|session_id|(?i:sessionId|JSESSIONID|ssoToken|sso_token|access_token|refresh_token|client_secret|"
+         r"device_code|password|passwd|X-Smartass-Secret)")
 # A query after a space or at the start is scrubbed only when it names a secret key ('Use ?period=Sep' is text).
 _QUERY_KEYS = rf"code|{_NAMES}"
 _PATTERNS = [
