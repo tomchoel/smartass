@@ -224,8 +224,9 @@ def test_comment_lines_just_above_the_next_section_stay_with_it(home):
 def test_when_in_doubt_the_file_is_left_as_it_is_and_the_lines_are_said(home):
     """A sub-table of [http] would be left behind by taking the section out: the result is not the old config minus
     the two tables, so nothing is written and the lines to delete by hand are said."""
-    raw = b"[paths]\nanalyser = 'C:/a'\n\n[http]\nport = 1\n\n[http.extra]\nx = 1\n"
+    raw = b"[paths]\nanalyser = 'C:/a'\n\n[http]   # the port was 8765\nport = 1\n\n[http.extra]\nx = 1\n"
     new, said = _fixed(home, raw)
     assert new == raw and _backups(home) == []
     hand = [s for s in said if "by hand" in s]
-    assert hand and "lines 4-6" in hand[0] and "lines 7-8" in hand[0], said
+    assert hand and "lines 4-6 ([http])" in hand[0] and "lines 7-8 ([http.extra])" in hand[0], said
+    assert "8765" not in " ".join(said)                     # a comment on a header line is never said

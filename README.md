@@ -31,6 +31,7 @@ safe to re-run:
 git clone https://github.com/tomchoel/smartass.git; cd smartass\engine
 uv sync --frozen
 uv run --frozen smartass setup
+# then add [oauth] to %LOCALAPPDATA%\smartass\config.toml (see below) before:
 uv run --frozen smartass login
 ```
 

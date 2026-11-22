@@ -10,12 +10,14 @@ same one. Prints the checks and exits 0 only then.
 Each stage runs in a fresh Python (config is read at import, as by a user's separate commands) with these fakes: the
 process list is empty and a kill is a tripwire (no running `serve` or watcher is looked at or stopped); the registry
 readers of Smart View and Office answer "not set"; doctor's EPM check is a stub (it needs the network). A registry
-WRITE (winreg SetValue*/CreateKey*/DeleteKey*/DeleteValue), a COM object, a network connection and any child process
-but `mklink /J` of the skill links inside the temp folder are tripwires. Before anything runs, every place a stage can
-write (home, config, atlas, knowledge, the sign-ins, the analyser and output folders, the user profile, the Startup
-folder, the PATH stand-in, the old svkit home) is checked to be inside the temp folder; the stage refuses otherwise.
-The real profile's MCP files, home config, Startup folder and user PATH are read (stat, a listing, the value) before
-and after: the script fails if any changed. No EPM, no Excel, no network.
+WRITE (winreg SetValue*/CreateKey*/DeleteKey*/DeleteValue), a COM object (win32com.client), a network connection and
+any child process started through subprocess but `mklink /J` of the skill links inside the temp folder are
+tripwires. Before anything runs, every place a stage can write (home, config, atlas, knowledge, the sign-ins, the
+analyser and output folders, the user profile, the Startup folder, the PATH stand-in, the old svkit home) is checked
+to be inside the temp folder; the stage refuses otherwise. What setup would change in the real profile - the
+smartass entries of the agents' MCP files and their .bak-smartass copies, the home's config.toml, the Startup
+folder's listing, the user PATH - is read before and after: the script fails if any changed (the agents rewrite
+their own files at any time: only setup's entries are compared). No EPM, no Excel, no network.
 
 Usage (from the repo root):
     engine\.venv\Scripts\python.exe scripts\check_fresh_home.py [--keep]
@@ -23,6 +25,7 @@ Usage (from the repo root):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -87,7 +90,7 @@ def _tripwires(root: Path) -> None:
         setattr(winreg, name, lambda *a, _n=name, **k: _trip(f"registry write winreg.{_n}"))
     for name in ("Dispatch", "DispatchEx", "GetObject", "GetActiveObject"):
         setattr(win32com.client, name, lambda *a, _n=name, **k: _trip(f"COM win32com.client.{_n}"))
-    real_connect, real_lookup, real_run = socket.socket.connect, socket.getaddrinfo, subprocess.run
+    real_connect, real_lookup, real_popen = socket.socket.connect, socket.getaddrinfo, subprocess.Popen
     local = ("127.0.0.1", "::1", "localhost")
 
     def connect(self, address):
@@ -98,13 +101,13 @@ def _tripwires(root: Path) -> None:
     def lookup(host, *args, **kwargs):
         return real_lookup(host, *args, **kwargs) if host in local else _trip(f"name lookup {host}")
 
-    def run(args, *a, **k):
+    def popen(args, *a, **k):                       # under subprocess.run, call, check_output ... too
         if (isinstance(args, list) and [str(x).lower() for x in args[:4]] == ["cmd", "/c", "mklink", "/j"]
                 and _inside(root, args[4])):
             CALLS["mklink /J inside the temp folder"] = CALLS.get("mklink /J inside the temp folder", 0) + 1
-            return real_run(args, *a, **k)
+            return real_popen(args, *a, **k)
         _trip(f"child process {args!r}")
-    socket.socket.connect, socket.getaddrinfo, subprocess.run = connect, lookup, run
+    socket.socket.connect, socket.getaddrinfo, subprocess.Popen = connect, lookup, popen
 
 
 def _fakes() -> None:
@@ -198,8 +201,15 @@ def _real_places() -> dict[str, tuple]:
     startup = Path(os.environ.get("APPDATA") or user / "AppData" / "Roaming").joinpath(*STARTUP[2:])
     home = Path(os.environ.get("SMARTASS_HOME") or Path(os.environ["LOCALAPPDATA"]) / "smartass")
     out: dict[str, tuple] = {}
-    for p in (user / ".claude.json", user / ".copilot" / "mcp-config.json", home / "config.toml"):
-        out[str(p)] = (p.stat().st_mtime_ns, p.stat().st_size) if p.exists() else ("missing",)
+    for p in (user / ".claude.json", user / ".copilot" / "mcp-config.json"):
+        try:
+            servers = json.loads(p.read_text(encoding="utf-8")).get("mcpServers", {}) if p.exists() else {}
+            mine = json.dumps({n: servers.get(n) for n in ("smartass", "smartview", "smartass2")}, sort_keys=True)
+        except (OSError, ValueError, AttributeError):
+            mine = "unreadable"
+        out[f"{p} (setup's entries)"] = (mine, p.with_name(p.name + ".bak-smartass").exists())
+    cfg = home / "config.toml"
+    out[str(cfg)] = (hashlib.sha256(cfg.read_bytes()).hexdigest(),) if cfg.exists() else ("missing",)
     out[str(startup)] = tuple(sorted(x.name for x in startup.iterdir())) if startup.is_dir() else ("missing",)
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
@@ -241,11 +251,12 @@ def judge(doc: dict) -> list[str]:
 
 
 def readme_names_the_oauth_step_before_login() -> bool:
-    """The README's install says that [oauth] goes into config.toml before `smartass login` (a fresh PC starts with
-    doctor's set-up text)."""
+    """The README's install commands name the [oauth] step before `smartass login` (a fresh PC starts with doctor's
+    set-up text): in the first code block of its Install section, [oauth] comes before the login line."""
     readme = (REPO / "README.md").read_text(encoding="utf-8")
-    install = " ".join(readme.split("## Install", 1)[1].split("\n## ", 1)[0].split())
-    return re.search(r"\[oauth\]` in that config\.toml .{0,200}? before `smartass login`", install) is not None
+    install = readme.split("## Install", 1)[1].split("\n## ", 1)[0]
+    block = install.split("```", 2)[1] if install.count("```") >= 2 else ""
+    return "[oauth]" in block and "smartass login" in block and block.index("[oauth]") < block.index("smartass login")
 
 
 def _text(checks: list[dict]) -> str:
@@ -322,7 +333,7 @@ def main(argv=None) -> int:
         changed = [k for k in before if before[k] != after.get(k)]
         problems += [f"changed outside the temp folder: {k}" for k in changed]
         print(f"untouched outside the temp folder: {len(before) - len(changed)} of {len(before)} places read before "
-              "and after (the real MCP files, home config, Startup folder and user PATH)")
+              "and after (setup's entries in the real MCP files, the home config, the Startup folder, the user PATH)")
         if a.keep:
             print(f"kept: {root}")
         elif _unlink_skills(root):

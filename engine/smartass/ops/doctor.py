@@ -362,7 +362,8 @@ def _by_hand(raw: bytes, names) -> str:
     text = raw.decode("utf-8", errors="replace")
     heads = _real_headers(text)
     line = lambda pos: text.count("\n", 0, pos) + 1   # noqa: E731
-    out = [f"lines {line(h.start())}-{line(max(h.start(), _section_end(text, heads, i) - 1))} ({h.group(0).strip()})"
+    out = [f"lines {line(h.start())}-{line(max(h.start(), _section_end(text, heads, i) - 1))} "
+           f"({h.group(1)}{h.group(2).strip()}{h.group(1).replace('[', ']')})"   # the header, never a comment on it
            for i, h in enumerate(heads) if h.group(2).strip().split(".")[0].strip() in names]
     keys = re.compile(r"^[ \t]*(" + "|".join(map(re.escape, names)) + r")[ \t]*[.=]", re.M)
     first = heads[0].start() if heads else len(text)
