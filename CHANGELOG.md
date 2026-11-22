@@ -43,14 +43,14 @@
 **Figures (live, read-only, no Excel, 21-22.11.2026)**
 
 - Grids on both routes: 21 of 21 real grids from stored answers identical cell for cell (20 plus a FinLite extra);
-  rows and columns come back in the order asked (4 of 4); a grid split into 2 requests: its 466 637 number cells
-  equal, and 11 label cells differ only where a member's name changed in EPM since the atlas was built (accepted:
-  the numbers are the same). docs/audit/2026-11-21-rest-vs-provider.md.
+  rows and columns come back in the order asked (4 of 4); a grid split into 2 requests: 466 637 cells equal, and 11
+  label cells differ only where a member's name changed in EPM since the atlas was built (accepted: the numbers are
+  the same). docs/audit/2026-11-21-rest-vs-provider.md.
 - Members left out: an invented code in a real FinMax and a real FinPlan request was left out with one warning, and
   every other figure (315 and 116 facts) equalled the first route's. Of 6 stored requests with a member EPM no
   longer has, 2 were fetched with it left out and warned; in 4 it was the only entity asked, so their grid is not
   fetched and the reply warns.
-- Atlas: Get Member read all 22 dimension trees of both pods (32 dimensions with FinLite's copy of FinMax's) in 9 to
+- Atlas: Get Member read all 22 dimension trees of both pods (32 dimensions with FinLite's copy of FinMax's) in 8 to
   12 s over four gate runs (the last: 7.9 s plan1, 0.9 s stratmodel; the build 23.6 s in all), where the hidden
   Excel's zooms took 133 s, its start not counted. No real difference from the old atlas: 169 members added since,
   3 moved to another parent, 16 with a new alias and 3 renamed (268, 4, 17 and 6 when FinLite's copy of FinMax's

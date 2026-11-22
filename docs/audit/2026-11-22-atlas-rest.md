@@ -273,7 +273,8 @@ re-parented are 3 (`un.SY.G332` in FinMax and FinLite, `pj.L1.L1.L1PBA6`, `pj.L8
 counts as at a45bda9 and a695d72.
 
 An earlier run of all parts, 22.11.2026 08:13-08:32 at c3cc57e (Task 4c's stricter name check), passed the same way
-(build 23.8 s, exposure 1 key, the same compare classes, specs 511 s, both engines all equal); the phase's ledger
+(build 19.5 s in all, Get Member 7.2 s plan1 and 1.0 s stratmodel; exposure 1 key; the same compare classes; specs
+511.4 s; both engines all equal); the phase's ledger
 records it.
 
 The commits after 8049f2a (Task 8 of the phase) change the scrub of texts (`core/logsetup.py`, which the

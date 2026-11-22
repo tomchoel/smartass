@@ -201,12 +201,17 @@ are. If one of these symptoms shows up, the cause below is already known; no new
 | Symptom | Known cause | What to do |
 |---|---|---|
 | A build in a newly started Excel window is slow in `open target.new workbook` | A cold Excel start for a new interactive Excel (a parallel agent, or no Excel open), and the 12 s from when the workbook shows that smartass watches a new Excel for Smart View's Login before its first call (until 25 s after Excel's start where Smart View's start-up check is on). | None; the next build in that Excel is fast. |
-| An answer in an Excel smartass has just started waits 10 minutes and fails, with Smart View's Login open there | That Login opened later than the watch (25 s after Excel's start, on a slow PC), after smartass's first call into that Excel. | Sign in in the Login or close it, then ask again. |
-| Every first workbook made with no Excel open has default column widths and fonts, not the TN template's, and none is kept for the next time | The stored look of a new workbook has a column width that is not a standard one, so it is not used; and as a look is stored, smartass does not make that workbook from the template, which would store a new one. | An open item: tell the maintainer. The answers in it are right. |
 | A new analysis workbook has no TN cell styles (`TN Heltall`, ...) in its style gallery | Since phase 3c the first answer's built file is the workbook; the styles are installed when something needs them. | Run `xl_tidy` on a sheet (it merges them from the TN template), or ignore: the answer's own cells carry their formats. |
 | An empty (0-byte) analysis file, or one with an answer's sheets but no formulas, tables, Sources rows or stored spec, in the analyser folder | The server was killed (or Excel died) while the first answer of a new workbook was made: the name is reserved as an empty file, then the built file is written and Excel opens it; only the job's clean-up deletes it, and the session points at it only after the job's save. | Close it in Excel without saving if it is open, and delete it; ask the question again. |
 | A new analysis file that a failed answer (or a probe) deleted is back in the analyser folder minutes later, online-only | OneDrive restores a file Excel had just saved to the cloud when the local delete races that upload (seen with probe files Excel saved and closed, 20.11.2026). | Delete it again. |
 | Progress notes (`still working: …`) keep arriving after a call to your Excel timed out | The abandoned job's COM call is still hung; its ticker runs until that call returns. The client drops notes for a finished request. | Harmless. It stops when Excel answers or closes. |
+
+## Open items since 0.7.0 (known, not decided yet)
+
+| Symptom | Known cause | What to do |
+|---|---|---|
+| An answer in an Excel smartass has just started waits 10 minutes and fails, with Smart View's Login open there | That Login opened later than the watch (25 s after Excel's start, on a slow PC), after smartass's first call into that Excel. | Sign in in the Login or close it, then ask again. |
+| Every first workbook made with no Excel open has default column widths and fonts, not the TN template's, and none is kept for the next time | The stored look of a new workbook has a column width that is not a standard one, so it is not used; and as a look is stored, smartass does not make that workbook from the template, which would store a new one. | An open item: tell the maintainer. The answers in it are right. |
 
 ## An Excel step behaves differently since 2026-11-19 (the fast COM wrapper)
 

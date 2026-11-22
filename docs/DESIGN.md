@@ -246,7 +246,7 @@ never stops the rest.
   is INCOMPLETE (at most 3 per request); a refused POV member or only member stops that grid: it is not fetched, the
   reply warns naming the member, and the answer is drawn without its numbers. No Excel is asked for a grid.
 - **Atlas** (`atlas.db`, `knowledge/atlas.py`): `smartass atlas build` (`ops/atlas_build.py`) reads every
-  dimension tree with Get Member (`epm/members.py`; live 9-12 s of Get Member for both pods and 22-24 s for the
+  dimension tree with Get Member (`epm/members.py`; live 8-12 s of Get Member for both pods and 20-24 s for the
   build in all over four gate runs, the last 8.8 s and 23.6 s: docs/audit/2026-11-22-atlas-rest.md) into a NEW file,
   a copy of the atlas, and swaps it in (SQLite's backup, one transaction) only when every dimension was built (a full
   build then derives the behaviour cards from data, as before: about two minutes more, the CLI's figure); otherwise it
