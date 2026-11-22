@@ -1,5 +1,6 @@
 """The drill's pure parts, used by the token route (drill_token), drillstep and svhttp: the errors, the cell's
-defaults, the SUI query handling, the answer parsing and the paging bookkeeping. Nothing here touches the network or Excel.
+defaults, the SUI query handling, the answer parsing and the paging bookkeeping. Nothing here touches the network or
+Excel.
 
 Error messages and log lines never carry a URL query (the drill link holds an sso_token): redact() every URL that is
 logged or put in a message."""

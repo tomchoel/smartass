@@ -691,7 +691,7 @@ def test_a_drill_link_the_http_route_cannot_fetch_is_a_clear_error_never_excel(m
 @pytest.mark.parametrize("error, advice", [
     ("NoScope", "Add the scope of the pod named above under [oauth.scopes]"),
     ("AtlasStale", "Build the atlas (`smartass atlas build`), then drill again."),
-    ("TokenRefused", "Run `smartass login --force` to sign in again (without --force a pod that still looks signed in is"),
+    ("TokenRefused", "Run `smartass login --force` to sign in again (without --force a pod that still looks"),
     ("NoFallback", "Try again in a minute."),                   # the data-source lookup busy: transient
     ("NoToken", "Run `smartass login --status`"),             # no access token: the sign-in, not 'try again'
     ("GridRefused", "Look the cell's members up with fin_lookup"),   # an alias clash: deterministic

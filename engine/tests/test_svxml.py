@@ -96,10 +96,12 @@ def test_an_answer_that_is_not_the_providers_is_never_quoted(text):
 
 
 def _desc(text: str) -> str:
-    """The provider's own <desc> error text as raise_for_exception passes it on (escaped in the XML, as EPM sends it)."""
+    """The provider's own <desc> error text as raise_for_exception passes it on (escaped in the XML, as EPM sends
+    it)."""
     import html
+    answer = f'<exception errcode="1000" type="error"><desc>{html.escape(text)}</desc></exception>'
     with pytest.raises(svxml.SvXmlError) as e:
-        svxml.raise_for_exception(f'<exception errcode="1000" type="error"><desc>{html.escape(text)}</desc></exception>')
+        svxml.raise_for_exception(answer)
     return str(e.value)
 
 

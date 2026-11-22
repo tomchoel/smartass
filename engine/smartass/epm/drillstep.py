@@ -310,9 +310,9 @@ def _link_advice(e: Exception) -> str:
         return ("Look the cell's members up with fin_lookup and name each by its member code (a name that is also "
                 "another member's alias is ambiguous), then drill again.")
     if isinstance(e, svhttp.TokenRefused):
-        return ("Run `smartass login --force` to sign in again (without --force a pod that still looks signed in is "
-                "skipped), then drill again. If EPM still refuses, the refusal may be a missing EPM role or OAuth scope "
-                "for this pod: ask the EPM administrator.")
+        return ("Run `smartass login --force` to sign in again (without --force a pod that still looks signed in "
+                "is skipped), then drill again. If EPM still refuses, the refusal may be a missing EPM role or OAuth "
+                "scope for this pod: ask the EPM administrator.")
     return "Try again in a minute."
 
 
