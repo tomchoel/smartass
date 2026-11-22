@@ -191,8 +191,10 @@ What differs from the tasks above. The ledger of every ruling is
   `smartview_startup` check, reworded (Smart View's start-up Login blocks smartass in that Excel). New:
   `smartass doctor --fix` and the `leftovers` check for what an older release left.
 - **Task 7 ran on a revised brief.** `scripts/compare_grid_routes.py` and `scripts/compare_atlas.py` were NOT
-  deleted in it: code the gates cover changed after their run of 22.11 08:13 (local time), so the controller re-runs
-  both gates on the release head, records them in the audits and deletes the scripts then. Task 7 also removed the
-  resolve's unused runner parameter that Task 6 left.
+  deleted in it: code the gates cover changed after their run of 22.11 08:13 (local time), so the controller ran
+  both gates again at 8049f2a (22.11 12:27-12:44, passed); Task 8 recorded that run in both audits ("Final run") and
+  then deleted the scripts. Task 7 also removed the resolve's unused runner parameter that Task 6 left.
+- **Task 8, not in the plan:** the last review findings (the scrub's narrower named keys, `_open_path`'s busy guard,
+  the launch guard's aliases, one retry helper), the docs corrections and the final gate figures.
 - **Not done in this phase:** the plan's "Also to test" (Oracle's newer agent-facing REST endpoints of 26.04 /
   26.11): no probe was run, and nothing depends on them.

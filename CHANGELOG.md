@@ -59,7 +59,7 @@
 - Both gates ran a last time on 22.11.2026 (12:27-12:44, commit 8049f2a) and passed; each audit records that run
   under "Final run". The changes after it touch how secrets are scrubbed from texts, how the workbooks of an Excel
   smartass has just started are read, the test guards and the docs: not how numbers or members are fetched, and not
-  the atlas build.
+  the atlas build. The two gate scripts were then deleted; their results stay in the audits.
 
 **What a PC needs now**
 
@@ -117,8 +117,9 @@
   `EpmSession`'s allowlist (docs/DESIGN.md, Runtime); the doctor's `epm` check is a plain GET of `epm.base`
   without a token (is the server reachable).
 - Deleted: `data/adhoc.py`, `xl/pull_adhoc.py`, `xl/host.py`, `xl/hidden.py`, `xl/login.py`, `epm/ops.py`,
-  `epm/sso.py`, `engine/sso_watcher.ps1`, `engine/vba/`, `smartass atlas build --excel`. The setting
-  `paths.smartview_dll` and the variables `SV_SMARTVIEW_DLL`, `SV_CALL_TIMEOUT` and `SV_LOGIN_GRACE` are ignored.
+  `epm/sso.py`, `engine/sso_watcher.ps1`, `engine/vba/`, `smartass atlas build --excel`, and the gates of this
+  phase, `scripts/compare_grid_routes.py` and `scripts/compare_atlas.py`. The setting `paths.smartview_dll` and the
+  variables `SV_SMARTVIEW_DLL`, `SV_CALL_TIMEOUT` and `SV_LOGIN_GRACE` are ignored.
 - `fin_status(restart=True)` without the relay starts the EPM sessions and the Excel job runner afresh.
   `smartass doctor` lost its `smartview` and `vba_access` checks and gained `leftovers`; `smartass doctor --fix
   --json` prints only the JSON on stdout (the fix's lines go to stderr).
