@@ -184,6 +184,26 @@ def test_the_workbench_tools_run_in_the_user_excel_without_the_hidden_one(excel,
     assert ran == [f"user-job-{tool}"] and excel.reached.calls == []
 
 
+def test_the_default_session_target_with_no_session_workbook_is_a_new_one_in_the_running_user_excel(excel, monkeypatch,
+                                                                                                   tmp_path):
+    """Task 5 review, Minor 3: the most common production path - target 'session' (the default) with no session
+    workbook yet becomes 'new' in the running Excel; with a known base its file is reserved for the job to build
+    (target._reserved_target). Nothing is launched and no Excel of the engine's own is reached."""
+    from smartass.core import session
+    from smartass.model.spec import AnalysisSpec
+    monkeypatch.setattr(session, "workbook", lambda: None)
+    monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
+
+    def excel_job(h, pre, target="session"):                 # as exceljob.excel_job when the base is known
+        t = exceljob._target(h, target, "Q", build_new=True)
+        return {"q": 1, "workbook": t.path, "sheets": ["Q1 Answer"]}
+    monkeypatch.setattr(server, "excel_job", excel_job)
+    asyncio.run(server.fin_analyze(spec=AnalysisSpec.model_validate(spec_dict())))
+    assert excel.reached.calls == [] and excel.threads == ["user-job-fin_analyze"]
+    assert len(excel.targets) == 1 and Path(excel.targets[0]).parent == tmp_path
+    assert Path(excel.targets[0]).name.endswith(" Q.xlsx") and Path(excel.targets[0]).exists()
+
+
 @pytest.mark.parametrize("restart", [False, True])
 def test_fin_status_starts_no_excel_to_report(excel, monkeypatch, restart):
     from test_v2_server import _status_base
