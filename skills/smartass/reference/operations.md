@@ -112,7 +112,7 @@ read.
 | Command | Does |
 |---|---|
 | `smartass doctor` (`--json`, `--bundle`, `--fix`) | Health checks with a fix per problem; `--bundle` zips logs, redacted config and versions for the maintainer; `--fix` removes what an older release left (each file named first) |
-| `smartass atlas status` / `smartass atlas build [--cube X] [--dimension D]` | Atlas age and the last build's outcome; rebuild over Planning REST with the user's sign-in (read-only, no Excel, about half a minute). It replaces the atlas only when every dimension was built, else says `NOT replaced (<why>)`. Then `gen_atlas_md.py` refreshes `reference\cubes.md` |
+| `smartass atlas status` / `smartass atlas build [--cube X] [--dimension D]` | Atlas age and the last build's outcome; rebuild over Planning REST with the user's sign-in (read-only, no Excel; the member trees in about half a minute, then the behaviour cards from data). It replaces the atlas only when every dimension was built, else says `NOT replaced (<why>)`. Then `gen_atlas_md.py` refreshes `reference\cubes.md` |
 | `smartass login` (`--status`, `--force`, `--forget`) | EPM sign-in for the bearer route: prints a page and a code (page opens, code on the clipboard), waits for the approval. Needed once, and again after 7 days without use |
 | `smartass setup` | Per-user setup (config, secret, MCP entries, skill link, Startup entries, PATH, atlas copy) |
 | `smartass update` | Install the release from the release folder |

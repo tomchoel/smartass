@@ -114,8 +114,9 @@ asked for a grid. The reply's `routes` counts the grids per engine (`http`, `res
   WARN: Re-run the installer after the monthly release, or run `smartass atlas build`.
 
 `smartass atlas build` (since 0.7.0) reads every dimension over Planning REST with your sign-in: read-only, no
-Excel, about half a minute for both pods (docs\audit\2026-11-22-atlas-rest.md). It builds a new file and replaces
-the atlas only when every dimension was built. `smartass atlas status` shows the last attempt as `last_build`.
+Excel, the member trees of both pods in about half a minute (docs\audit\2026-11-22-atlas-rest.md); a full build then
+derives the behaviour cards from data, as before. It builds a new file and replaces the atlas only when every
+dimension was built. `smartass atlas status` shows the last attempt as `last_build`.
 
 - **Symptom:** the build's last line is `atlas: NOT replaced (<why>); ...` and it exits 1. `smartass knowledge
   refresh` says "Atlas: NOT replaced (...); the refresh used the atlas as it was".
@@ -129,7 +130,7 @@ the atlas only when every dimension was built. `smartass atlas status` shows the
     30 s; build again.
 
   Your atlas is unchanged in every case.
-- **Symptom:** the build's last line ends with `; FinMax: dimension X is new in EPM; this release cannot read it -
+- **Symptom:** the build's last line contains `; FinMax: dimension X is new in EPM; this release cannot read it -
   update smartass` (also in `atlas status`).
 - **Cause:** EPM has a dimension this release has no read rule for (each dimension is allowed by name). It is
   skipped and its old rows are kept (none, when it is new); the rest of the atlas is replaced.

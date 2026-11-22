@@ -18,7 +18,8 @@
   limits on the Sources sheet. The old Excel route left such a member out without a word. When the refused member is
   a POV member or the only one on its axis, the answer fails with an error that names it.
 - **The member catalogue (the atlas) builds in seconds.** `smartass atlas build` now reads EPM over Planning REST:
-  no Excel, about half a minute for both pods. It replaces your atlas only when every dimension was built; otherwise
+  no Excel, the member trees of both pods in about half a minute; a full build then derives the behaviour cards from
+  data, as before. It replaces your atlas only when every dimension was built; otherwise
   it says "NOT replaced" and why, and the atlas stays as it was. The atlas file gains a side table with each
   member's real EPM name. A release before 0.7.0 can still write the file, and this release reads an older file.
 - **No automatic "Telenor SSO" click any more.** The watcher that clicked it in Smart View's Login is gone, also when
@@ -30,7 +31,7 @@
 - **With no Excel open,** smartass opens your Excel on the new workbook, as before; the workbook is no longer made
   in a hidden Excel first.
 - Tool names, parameters and reply fields are unchanged. `fin_status(restart=True)` without the relay now starts
-  the EPM sessions and the Excel job runner afresh (`restarted: "sessions"`). `smartass doctor` lost its
+  the EPM sessions and the Excel job runner afresh. `smartass doctor` lost its
   `smartview` and `vba_access` checks and gained `leftovers`.
 
 **Figures (live, read-only, no Excel, 21-22.11.2026)**

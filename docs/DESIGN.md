@@ -29,7 +29,7 @@ v1 (the `sv_*` gate/recipe pipeline, retired 2026-11-04) is described in
 | `fin_lookup(query, kind, cube)` | Metrics by name or alias (description, members, `differs`), atlas members and product concepts (`kind="concept"`), with caveats; `kind="answer"`: past answers from answer memory |
 | `fin_drill(cell, group_by, top)` | A spec with one `lines` block: FinLite ledger lines ranked and tied to the cube |
 | `fin_critic(q, scores, notes)` | The stored answer's critic brief + the rubric (`knowledge/agent/critic.md`); with `scores` (six criterion scores 1–5) computes the score (mean rounded half up) and stores it |
-| `fin_status(restart)` | Version, atlas age, knowledge build and refresh due, doctor problems, `save_after_reply` (the newest outcome of a save Excel did after a reply, and how many are still to come); `restart=True` gives a fresh server process (without the relay: new EPM sessions and a new job runner, `restarted: "sessions"`) |
+| `fin_status(restart)` | Version, atlas age, knowledge build and refresh due, doctor problems, `save_after_reply` (the newest outcome of a save Excel did after a reply, and how many are still to come); `restart=True` gives a fresh server process (without the relay: new EPM sessions and a new job runner) |
 | `xl_snapshot`, `xl_revert`, `xl_tidy` | Snapshot / undo around Excel MCP edits; TN style + tn-formelstil check |
 
 Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. Error text: every tool runs under
@@ -209,9 +209,10 @@ never stops the rest.
   the method, the whole path (no pattern), the query names and values that path takes, the header names it takes,
   and for a POST the body. The bearer goes only over https to the session's own pod, and only when `[oauth.scopes]`
   has a scope for it; the URL is built from the pod's origin, never from a host a caller wrote; a redirect is never
-  followed; a gate's answer (3xx, 401, 403) takes one new token and goes once more; an answer is read up to 64 MB; a
-  token, a session key, a cookie or a URL query is never in a log line, an error text or a reply (`logsetup.redact`
-  is the one scrub). The rules, one by one:
+  followed; a 401 takes one new token and the request goes once more (the grids, Planning REST and the atlas's
+  reads: any gate answer, 3xx, 401 or 403); an answer is read up to 64 MB; a token, a session key, a cookie or a URL
+  query is never in a log line, an error text or a reply (`drillcore.redact` on every URL shown; `logsetup.redact`
+  on every log line, reply text and run-log line). The rules, one by one:
   - `POST /HyperionPlanning/SmartView`: the grids' provider route. No query, `Content-Type: text/xml` only, a body
     of at most 16 MB that `svxml.check_read_only` admits (the provider XML's read requests only).
   - The drill's own four (`drill_token`): `GET /aif/ui/model/applications/servicetype` (no query);
@@ -236,7 +237,8 @@ never stops the rest.
 - **Atlas** (`atlas.db`, `knowledge/atlas.py`): `smartass atlas build` (`ops/atlas_build.py`) reads every
   dimension tree with Get Member (`epm/members.py`; live about 10 s of Get Member for both pods, 20-25 s for the
   build in all: docs/audit/2026-11-22-atlas-rest.md) into a NEW file, a copy of the atlas, and swaps it in (SQLite's
-  backup, one transaction) only when every dimension was built; otherwise it says "atlas not replaced: <why>" and the
+  backup, one transaction) only when every dimension was built (a full build then derives the behaviour cards from
+  data, as before); otherwise it says "atlas not replaced: <why>" and the
   atlas is unchanged. One build at a time (a lock next to the atlas); every attempt is recorded next to it
   (`atlas.db.last.json`), and `smartass atlas status` shows it as `last_build`. A dimension EPM lists that this
   release has no rule for is skipped, its rows kept, and said ("dimension X is new in EPM; this release cannot read
@@ -265,7 +267,8 @@ never stops the rest.
   `_spawn_excel` (the TN template: a parallel agent's new workbook, or a first workbook with no Excel, no seed and
   no stored base). The only processes smartass ends are an older release's: at server start an Excel that release
   started hidden, when its `pids.json` proves it (pid, creation time, `-Embedding`; then the file goes), and in
-  `smartass setup` that release's sign-in watcher of this install. `tests/test_neutral_imports.py` pins all three.
+  `smartass setup` that release's sign-in watcher of this install. `tests/test_neutral_imports.py` pins the start
+  sites; `tests/conftest.py` and `tests/test_suite_guards.py` pin the kills.
 
 ## Knowledge layer (`knowledge/`, sub-spec 2 §1–§4, §8)
 
