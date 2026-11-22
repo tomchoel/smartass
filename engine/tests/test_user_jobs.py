@@ -12,6 +12,7 @@ import pytest
 import pywintypes
 
 from smartass.core import config
+from smartass.core.serverkit import with_next_step
 from smartass.xl import jobs
 from smartass.core.errors import HostError, HostTimeout, InputError
 from smartass.xl.userjobs import UserJobs
@@ -115,8 +116,9 @@ async def test_an_excel_that_disconnected_is_said_so_and_counted(hresult):
     with pytest.raises(HostError) as e:
         await h.call(job, timeout=10, what="fin_x")
     assert type(e.value) is HostError
-    assert str(e.value) == ("Your Excel stopped answering or closed during fin_x; smartass closed nothing. If it "
-                            "closed, open it again; then retry.")
+    assert str(e.value) == ("Excel closed or disconnected during fin_x; smartass never closes or restarts your Excel. "
+                            "Check that Excel is open, then ask again.")
+    assert with_next_step(str(e.value), e.value) == str(e.value)       # it says what to do: no restart hint after it
     assert h.restarts == 1 and h.last_error.startswith("Excel disconnected: ")
 
 

@@ -96,8 +96,8 @@ async def run(h: UserJobs, fn: Callable[[Any], Any], timeout: float | None, what
     except pywintypes.com_error as e:
         if e.hresult in DEAD_HRESULTS:
             h._mark_dead(f"Excel disconnected: {e}")
-            raise HostError(f"Your Excel stopped answering or closed during {what}; smartass closed nothing. If "
-                            "it closed, open it again; then retry.") from None
+            raise HostError(f"Excel closed or disconnected during {what}; smartass never closes or restarts your "
+                            "Excel. Check that Excel is open, then ask again.") from None
         log.warning("COM error during %s", what, exc_info=True)
         if is_busy(e):
             raise HostError(f"Excel was busy during {what} - probably a cell is being edited or a dialog is open"
