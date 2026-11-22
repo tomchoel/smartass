@@ -32,15 +32,16 @@ def main(argv: list[str] | None = None) -> int:
     lg.add_argument("--status", action="store_true", help="show the sign-ins, change nothing")
     lg.add_argument("--force", action="store_true", help="sign in again, also where a sign-in exists")
     lg.add_argument("--forget", action="store_true", help="delete the stored sign-ins from this PC")
-    at = sub.add_parser("atlas", help="the local member atlas: status, or build it from Smart View")
+    at = sub.add_parser("atlas", help="the local member atlas: status, or build it from EPM")
     at_sub = at.add_subparsers(dest="atlas_cmd", required=True)
     at_sub.add_parser("status", help="what the atlas holds and whether it is stale")
-    b = at_sub.add_parser("build", help="rebuild from Smart View (own hidden Excel; read-only; a few minutes)")
+    b = at_sub.add_parser("build", help="rebuild over the EPM sign-in (Planning REST, read-only, no Excel, about 10 s); "
+                          "replaces the atlas only when every dimension was built")
     b.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
                    help="only this cube (repeatable; default all three)")
     b.add_argument("--dimension", action="append", help="only this dimension (repeatable; no purge of the cube)")
-    b.add_argument("--rest", action="store_true",
-                   help="over the EPM sign-in (Planning REST, no Excel, about 10 s); replaces the atlas when complete")
+    b.add_argument("--excel", action="store_true",
+                   help="the old route: Smart View's zoom in the engine's own hidden Excel (a few minutes)")
     ac = at_sub.add_parser("cards", help="derive behaviour cards from data (read-only, about 2 minutes)")
     ac.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
                     help="only this cube (repeatable; default all three; FinLite copies FinMax)")
@@ -50,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     kb.add_argument("--semantic", help="semantic folder (default: knowledge/semantic)")
     kb.add_argument("--atlas", help="atlas.db (default: the home folder's)")
     kb.add_argument("--out", help="knowledge.db to write (default: the home folder's)")
-    kr = kn_sub.add_parser("refresh", help="monthly: rebuild the atlas (live, a few minutes), diff it, draft facts, "
+    kr = kn_sub.add_parser("refresh", help="monthly: rebuild the atlas (live, read-only), diff it, draft facts, "
                            "rebuild knowledge.db, run the offline test set, write the impact report")
     kr.add_argument("--no-atlas", action="store_true", help="skip the atlas rebuild (use the local atlas)")
     kr.add_argument("--month", help="the closed month YYYY-MM (default: the latest an answer saw, else last month)")
@@ -112,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             failed = [d for d in done if d.get("error")]
             print(f"cards: {len(done) - len(failed)} derived, {len(failed)} failed ({config.ATLAS_DB})")
             return 1 if failed else 0
-        done = atlas_build.run_build(a.cube, a.dimension, rest=a.rest)
+        done = atlas_build.run_build(a.cube, a.dimension, excel=a.excel)
         failed = [d for d in done if d.get("error")]
         print(f"atlas: {len(done) - len(failed)} built, {len(failed)} failed ({config.ATLAS_DB})")
         return 1 if failed else 0

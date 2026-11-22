@@ -144,12 +144,14 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
         new.unlink(missing_ok=True)
 
 
-def run_build(connections: list[str] | None = None, dimensions: list[str] | None = None, rest: bool = False
+def run_build(connections: list[str] | None = None, dimensions: list[str] | None = None, excel: bool = False
               ) -> list[dict]:
-    """The CLI path. rest: over the token session into a new file swapped in when complete (build_into); else its own
-    hidden Excel for the build, closed at the end (Smart View options restored). A full build (no `dimensions`)
-    then derives the behaviour cards of the cubes built (cards_after_build) - after the swap."""
-    if rest:
+    """The CLI path (and `smartass knowledge refresh`'s): over the token session into a new file swapped in when
+    complete (build_into) - the default since the gate (docs/audit/2026-11-22-atlas-rest.md); excel: the old route,
+    its own hidden Excel for the build, closed at the end (Smart View options restored; deleted in Task 6). A full
+    build (no `dimensions`) then derives the behaviour cards of the cubes built (cards_after_build) - after the
+    swap."""
+    if not excel:
         from ..epm import members, oauth
         try:
             done, replaced = build_into(config.ATLAS_DB, lambda db: build_rest(

@@ -374,9 +374,40 @@ def test_reading_the_atlas_never_adds_the_columns(tmp_path):
         assert atlas.canonical(db, "FinMax", "All Accounts", "ac.old") == "ac.OLD"
 
 
-def test_the_cli_builds_over_rest_only_when_asked_and_the_old_route_stays(monkeypatch, capsys):
+def test_the_cli_builds_over_rest_and_the_old_route_stays_behind_a_flag(monkeypatch, capsys):
+    """The gate passed (docs/audit/2026-11-22-atlas-rest.md): REST is the default; --excel is the hidden Excel's zoom
+    until Task 6."""
     seen = []
-    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims, rest: seen.append(rest) or [
+    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims, excel: seen.append(excel) or [
         {"connection": "FinMax", "dimension": "x", "members": 3}])
-    assert cli.main(["atlas", "build"]) == 0 and cli.main(["atlas", "build", "--rest"]) == 0
+    assert cli.main(["atlas", "build"]) == 0 and cli.main(["atlas", "build", "--excel"]) == 0
     assert seen == [False, True]
+
+
+def test_run_build_goes_over_rest_into_the_atlas_and_derives_the_cards_after_the_swap(tmp_path, monkeypatch):
+    target = tmp_path / "atlas.db"
+    _today(target)
+    monkeypatch.setattr(atlas_build.config, "ATLAS_DB", target)
+    monkeypatch.setattr(members, "Source", lambda: _Source(TREES, DIMS))
+    cards = []
+    monkeypatch.setattr(atlas_build, "cards_after_build", lambda done: cards.append(len(done)))
+    done = atlas_build.run_build()
+    assert [d.get("error") for d in done] == [None] * 4 and cards == [4]
+    with contextlib.closing(sqlite3.connect(target)) as db:
+        assert db.execute("SELECT count(*) FROM member WHERE name='ac.OLD'").fetchone()[0] == 0
+    atlas_build.run_build(["FinPlan"], ["Account"])
+    assert cards == [4]                                     # a partial build derives no cards
+
+
+def test_run_build_without_a_sign_in_changes_nothing(tmp_path, monkeypatch):
+    target = tmp_path / "atlas.db"
+    _today(target)
+    before = target.read_bytes()
+    monkeypatch.setattr(atlas_build.config, "ATLAS_DB", target)
+
+    class NoSignIn(_Source):
+        def dimensions(self, conn):
+            raise oauth.NotSignedIn("sign in")
+    monkeypatch.setattr(members, "Source", lambda: NoSignIn(TREES, DIMS))
+    done = atlas_build.run_build()
+    assert len(done) == 1 and "smartass login" in done[0]["error"] and target.read_bytes() == before
