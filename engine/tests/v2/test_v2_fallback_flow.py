@@ -108,6 +108,23 @@ def test_the_reply_names_the_rest_route_and_one_warning_says_the_second_engine_w
     assert "rest" not in plain.routes and not any("second engine" in w for w in plain.warnings)
 
 
+def test_the_rest_warnings_provider_error_carries_no_session_key_or_query():
+    """Final review A, M4: the REST warning quotes the provider route's error, a reply field that never passes the tool
+    guard (the data-source lookup's errors quote EPM's URLs as they are): the engine's one scrub is applied to it, as
+    to the failed grids' warning."""
+    import secrets
+    x = secrets.token_urlsafe(24)
+
+    class Leaky(_Rest):
+        def fetch(self, req):
+            got = super().fetch(req)
+            got.fallback = f"Smart View provider: lost the request (sessionId: {x}; see https://h.example/p?code={x})"
+            return got
+    pre = prepare(spec_dict(), resolver(), Leaky(facts(), lambda req: True))
+    said = [w for w in pre.warnings if "second engine" in w]
+    assert len(said) == 1 and "lost the request" in said[0] and x not in said[0]
+
+
 def test_a_grid_rest_fetched_needs_no_excel_job(no_excel):
     pre, _ = asyncio.run(server._prepare(spec_dict(), _Rest(facts(), lambda req: req.periods[0] == "Sep 25")))
     assert no_excel == [] and pre.routes.get("rest") and pre.failed == []
