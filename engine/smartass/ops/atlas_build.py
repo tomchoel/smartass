@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import sqlite3
+import tempfile
 import time
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -132,9 +134,12 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
     target open sees the old atlas or the new one; a lock another process holds longer than SWAP_TIMEOUT_S leaves it
     unchanged."""
     target = Path(target)
-    new = target.with_name(target.name + ".new")
-    new.unlink(missing_ok=True)
     target.parent.mkdir(parents=True, exist_ok=True)
+    lock = _lock(target)
+    if lock is None:
+        progress(f"atlas not replaced: another atlas build is running; {target} is unchanged")
+        return [{"connection": "-", "error": "atlas not replaced: another atlas build is running"}], False
+    new: Path | None = None
     done: list[dict] = []
 
     def outcome(replaced: bool, why: str = "") -> tuple[list[dict], bool]:
@@ -144,6 +149,10 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
             progress(f"atlas not replaced: {why}; {target} is unchanged")
         return done, replaced
     try:
+        fd, name = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".new")   # a name of its own
+        os.close(fd)
+        new = Path(name)
+        new.unlink()
         if target.exists():
             try:
                 _copy(target, new)
@@ -165,7 +174,31 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
             return outcome(False, f"{target.name} could not be written ({e})")
         return outcome(True)
     finally:
-        new.unlink(missing_ok=True)
+        if new is not None:
+            new.unlink(missing_ok=True)
+        _unlock(lock)
+
+
+def _lock(target: Path):
+    """The build's lock next to the atlas (one build at a time); None when another build holds it. Windows releases
+    it when the holder's process ends, so a crashed build leaves no stale lock."""
+    import msvcrt
+    fh = open(Path(target).with_name(Path(target).name + ".build.lock"), "a+b")   # noqa: SIM115 - held until _unlock
+    try:
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        fh.close()
+        return None
+    return fh
+
+
+def _unlock(fh) -> None:
+    import msvcrt
+    with contextlib.suppress(OSError):
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    fh.close()
 
 
 def _last_path(target: Path) -> Path:

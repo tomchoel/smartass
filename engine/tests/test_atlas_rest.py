@@ -444,6 +444,31 @@ def test_the_cli_says_not_replaced_on_its_last_line_and_fails(monkeypatch, capsy
     assert last.startswith("atlas: NOT replaced (nothing was built (no such dimension?))")
 
 
+def test_a_second_build_while_one_runs_says_so_and_touches_nothing(tmp_path):
+    """Task 4 review, Minor 8: two builds at once. The first holds a lock next to the atlas; the second does not run,
+    says the first is running and replaces nothing; each build's new file has its own name."""
+    import msvcrt
+    target = tmp_path / "atlas.db"
+    _today(target)
+    before = target.read_bytes()
+    ran, said = [], []
+    with open(tmp_path / "atlas.db.build.lock", "a+b") as held:
+        held.seek(0)
+        msvcrt.locking(held.fileno(), msvcrt.LK_NBLCK, 1)
+        done, swapped = atlas_build.build_into(target, lambda db: ran.append(1) or [], progress=said.append)
+        held.seek(0)
+        msvcrt.locking(held.fileno(), msvcrt.LK_UNLCK, 1)
+    assert not swapped and ran == [] and target.read_bytes() == before
+    assert done == [{"connection": "-", "error": "atlas not replaced: another atlas build is running"}]
+    names = []
+    atlas_build.build_into(target, lambda db: names.append(db.execute("PRAGMA database_list").fetchone()[2]) or [
+        {"connection": "FinMax", "dimension": "x", "members": 0}], progress=lambda m: None)
+    atlas_build.build_into(target, lambda db: names.append(db.execute("PRAGMA database_list").fetchone()[2]) or [
+        {"connection": "FinMax", "dimension": "x", "members": 0}], progress=lambda m: None)
+    assert names[0] != names[1] and all(n.endswith(".new") for n in names)
+    assert not list(tmp_path.glob("*.new"))
+
+
 def test_a_build_that_raises_leaves_todays_atlas_untouched(tmp_path):
     target = tmp_path / "atlas.db"
     _today(target)
