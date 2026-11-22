@@ -18,7 +18,6 @@ LEFTOVER_USES = {
     ("smartass/core/logsetup.py", "X-Smartass-Secret"): "an older release's log lines may still carry the header: the "
                                                         "scrub keeps it (doctor --bundle)",
     ("smartass/ops/pane_leftovers.py", "tn-claude"): "the pane's Startup entry is found by what it names",
-    ("smartass/ops/pane_leftovers.py", "server.mjs"): "the pane's Startup entry is found by what it names",
 }
 
 
@@ -94,16 +93,17 @@ def test_the_engine_opens_no_listening_socket_and_holds_no_http_server():
     assert [s for p in _sources() for s in server_sites(p.read_text(encoding="utf-8"), _rel(p))] == []
 
 
-DOC_NAMES = ["smartass serve", "HTTP API", "X-Smartass-Secret", "httpapi", "http_api", "POST /analyze", "tn-claude",
+DOC_NAMES = ["smartass serve`", "HTTP API", "X-Smartass-Secret", "httpapi", "http_api", "POST /analyze", "tn-claude",
              "server.mjs", "task pane", "xl changes", "xl revert", "xl check", "http.port", "secret_step"]
 DOC_LEFTOVERS = {
-    ("docs/troubleshooting.md", "smartass serve"): "the leftovers section: what an older release ran, and its removal",
+    ("docs/troubleshooting.md", "smartass serve`"): "the leftovers section: what an older release ran, and its removal",
     ("docs/troubleshooting.md", "HTTP API"): "the leftovers section",
     ("docs/troubleshooting.md", "task pane"): "the leftovers section and its manual steps in Excel",
     ("docs/troubleshooting.md", "server.mjs"): "the leftovers section: the pane's server, if it still runs",
     ("docs/DESIGN.md", "task pane"): "ops/pane_leftovers: an older release's task pane in Office's settings",
+    ("docs/DESIGN.md", "smartass serve`"): "what smartass ends: setup's stop of an older release's serve",
     ("skills/smartass/reference/operations.md", "HTTP API"): "the home's files: secret.bin left from before 0.8.0",
-    ("skills/smartass/reference/operations.md", "smartass serve"): "setup stops an older release's serve",
+    ("skills/smartass/reference/operations.md", "smartass serve`"): "setup stops an older release's serve",
     ("skills/smartass/reference/operations.md", "task pane"): "doctor --fix reports an old task pane's registration",
 }
 

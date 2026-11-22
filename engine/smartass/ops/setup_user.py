@@ -167,8 +167,10 @@ def drop_engine_startup(say) -> list[Path]:
 
 
 def _process_list():
+    """The running processes with their name only: a Python's command line, and a serve's parent, are read one by one
+    (reading every process's parent took over three minutes on the owner's PC, 525 processes, 22.11)."""
     import psutil
-    return psutil.process_iter(["name", "cmdline", "ppid"])
+    return psutil.process_iter(["name"])
 
 
 def _is_serve(cmd: list[str]) -> bool:
@@ -186,9 +188,11 @@ def _serves(scripts: Path | None = None) -> list[tuple[int, bool]]:
     found = []
     for p in _process_list():
         try:
-            cmd = [str(c) for c in (p.info["cmdline"] or [])]
-            if (p.info["name"] or "").lower() in ("python.exe", "pythonw.exe") and _is_serve(cmd):
-                found.append((p.pid, p.info.get("ppid"), want in " ".join(cmd).replace("/", "\\").lower()))
+            if (p.info["name"] or "").lower() not in ("python.exe", "pythonw.exe"):
+                continue
+            cmd = [str(c) for c in (p.cmdline() or [])]
+            if _is_serve(cmd):
+                found.append((p.pid, p.ppid(), want in " ".join(cmd).replace("/", "\\").lower()))
         except psutil.Error:
             continue
     ours = {pid for pid, _, named in found if named}

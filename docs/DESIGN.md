@@ -292,8 +292,9 @@ never stops the rest.
   no stored base). What smartass ends: an Excel it launched itself for a new workbook that could not be saved, when
   nothing else is open in it (`_discard_new` quits it), and an older release's processes: at server start an Excel
   that release started hidden, when its `pids.json` proves it (pid, creation time, `-Embedding`; then the file
-  goes), and in `smartass setup` that release's sign-in watcher of this install. Outside the engine package two
-  more sites end processes. The relay (`run_server.py` `end_tree`) ends a server that has not exited 60 s after it
+  goes), and in `smartass setup` that release's sign-in watcher and its `smartass serve` of this install (`smartass
+  doctor --fix` stops that serve too; ours when its command line names this install's `.venv`, or its parent's
+  does). Outside the engine package one more site ends processes. The relay (`run_server.py` `end_tree`) ends a server that has not exited 60 s after it
   was told to stop, with every process under it except each Excel and what runs under that Excel: an Excel smartass
   launched is a child of the server process, and it is your Excel. Anything that ends the server's tree from outside
   ends such an Excel with it: an open item (whether Claude Code does when it ends its MCP server is not known). `tests/test_neutral_imports.py` pins the start sites;

@@ -360,6 +360,9 @@ def _fix_plain_secret(say) -> bool:
     except OSError as e:
         say(f"could not change {cfg} ({e.strerror or e}); delete its [http] secret line by hand")
         return False
+    if _plain_http_secret():                        # written another way (a dotted key, an inline table)
+        say(f"the plain [http] secret is still in {cfg}: delete it by hand")
+        return False
     return True
 
 

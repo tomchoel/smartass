@@ -19,7 +19,16 @@ XLL = r"C:\Users\someone\AppData\Local\svkit\addin\dna\TNClaude64.xll"
 
 
 def _proc(pid, cmd, ppid=1, name=None):
-    return types.SimpleNamespace(pid=pid, info={"name": name or cmd[0].split("\\")[-1], "cmdline": cmd, "ppid": ppid})
+    """A process as _process_list gives it: its name in info; the command line and the parent only when asked for,
+    and only of a Python (reading them for every process is what made the real list slow)."""
+    exe = name or cmd[0].split("\\")[-1]
+
+    def python_only(value):
+        def read():
+            assert exe.lower().startswith("python"), "read for a process that is not a Python"
+            return value
+        return read
+    return types.SimpleNamespace(pid=pid, info={"name": exe}, cmdline=python_only(cmd), ppid=python_only(ppid))
 
 
 def _serve(exe, pid, ppid=1):
@@ -132,12 +141,21 @@ def test_the_panes_classic_add_in_is_found_in_excels_open_values(pc):
     assert pane_leftovers.excel_addins() == [("OPEN2", XLL)]
 
 
+PANE_VBS = ("' Starts the TN Claude pane server without a window (for the Startup folder).\n"
+            'Set sh = CreateObject("WScript.Shell")\nsh.Run "cmd /c node server.mjs", 0, False\n')   # 0.7.0's script
+PANE_CMD = "@echo off\nrem TN Claude task pane - local server (https://localhost:3000).\ncd /d \"%~dp0\"\nnode server.mjs\n"
+
+
 def test_a_pane_startup_entry_is_found_by_what_it_names(pc):
     (pc.startup / "pane.lnk").write_bytes(b"\x4c\x00" + "C:\\x\\start-claude-pane-hidden.vbs".encode("utf-16-le"))
-    (pc.startup / "Claude.vbs").write_text('sh.Run "cmd /c node server.mjs", 0, False')
+    (pc.startup / "folder.lnk").write_bytes(b"\x4c" + "C:\\dev\\addin\\tn-claude\\run.cmd".encode("utf-16-le"))
+    (pc.startup / "Claude.vbs").write_text(PANE_VBS)
+    (pc.startup / "Claude.cmd").write_text(PANE_CMD)
     (pc.startup / "smartass-engine.lnk").write_bytes("pythonw.exe -m smartass.ops.cli serve".encode("utf-16-le"))
     (pc.startup / "other.lnk").write_bytes(b"\x00" + "C:\\tools\\sync.exe".encode("utf-16-le"))
-    assert [p.name for p in pane_leftovers.startup_entries(pc.startup)] == ["Claude.vbs", "pane.lnk"]
+    (pc.startup / "my-node-app.cmd").write_text("cd /d C:\\work\\my-app\nnode server.mjs\n")   # another Node project
+    found = [p.name for p in pane_leftovers.startup_entries(pc.startup)]
+    assert found == ["Claude.cmd", "Claude.vbs", "folder.lnk", "pane.lnk"]
 
 
 def test_nothing_writes_under_offices_settings():
@@ -146,6 +164,26 @@ def test_nothing_writes_under_offices_settings():
     src = Path(pane_leftovers.__file__).read_text(encoding="utf-8") + Path(doctor.__file__).read_text(encoding="utf-8")
     assert not any(w in src for w in ("DeleteKey", "DeleteValue", "SetValue", "CreateKey", "KEY_SET_VALUE",
                                       "KEY_WRITE", "KEY_ALL_ACCESS"))
+
+
+REAL = {"values": pane_leftovers._hkcu_values, "subkeys": pane_leftovers._hkcu_subkeys,
+        "processes": setup_user._process_list}                 # taken at import, before conftest's fakes are set
+
+
+def test_the_real_readers_read_without_changing_anything(monkeypatch):
+    """The readers conftest fakes in every other test, run once on neutral ground: HKCU values and subkeys of keys
+    that are not smartass's (read only), a missing key, and this process in the process list."""
+    import os
+    monkeypatch.setattr(pane_leftovers, "_hkcu_values", REAL["values"])
+    env = REAL["values"]("Environment")
+    assert isinstance(env, dict) and all(isinstance(k, str) for k in env)
+    assert REAL["values"](r"Software\smartass-test\no such key") == {}
+    assert REAL["subkeys"](r"Software\smartass-test\no such key") == {}
+    panel = REAL["subkeys"]("Control Panel")
+    assert panel and all(isinstance(v, dict) for v in panel.values())
+    me = [p for p in REAL["processes"]() if p.pid == os.getpid()]
+    assert len(me) == 1 and me[0].info["name"].lower().startswith("python") and me[0].ppid() == os.getppid()
+    assert any("pytest" in c or "py.test" in c for c in me[0].cmdline())
 
 
 # ---------------------------------------------------------------- doctor
@@ -162,7 +200,7 @@ def test_a_pc_with_nothing_left_is_ok(pc):
 
 def test_doctor_lists_everything_the_http_api_and_the_pane_left(pc):
     (pc.startup / "smartass-engine.lnk").write_bytes(b"lnk")
-    (pc.startup / "Claude.vbs").write_text("node server.mjs")
+    (pc.startup / "Claude.vbs").write_text(PANE_VBS)
     (pc.home / "secret.bin").write_bytes(b"DPAPI")
     secret = "plain-secret-" + "x" * 12
     (pc.home / "config.toml").write_text(f'[paths]\nanalyser = "C:/a"\n[http]\nport = 1\nsecret = "{secret}"\n')
@@ -187,7 +225,7 @@ def test_office_settings_alone_are_reported_with_the_manual_steps_and_no_fix(pc)
 def test_doctor_fix_removes_this_installs_files_and_entries_each_said_first(pc):
     lnk, vbs, sec = pc.startup / "smartass-engine.lnk", pc.startup / "Claude.vbs", pc.home / "secret.bin"
     lnk.write_bytes(b"lnk")
-    vbs.write_text("node server.mjs")
+    vbs.write_text(PANE_VBS)
     sec.write_bytes(b"DPAPI")
     secret = "plain-secret-" + "y" * 12
     cfg = pc.home / "config.toml"
@@ -227,6 +265,17 @@ def test_the_fix_takes_the_secret_only_from_the_http_section(pc):
     cfg.write_text('[other]\nsecret = "keep-me"\n\n[http]\nsecret = "drop-me"\n')
     doctor.fix_leftovers(say=lambda s: None)
     assert cfg.read_text() == '[other]\nsecret = "keep-me"\n\n[http]\n'
+
+
+def test_a_secret_the_fix_cannot_take_out_is_said_to_be_left(pc):
+    """A secret written as a dotted key outside the [http] section is a plain secret to TOML, but not a line of that
+    section: the fix does not claim it went."""
+    cfg, secret = pc.home / "config.toml", "plain-secret-" + "z" * 12
+    cfg.write_text(f'http.secret = "{secret}"\n')
+    said = []
+    doctor.fix_leftovers(say=said.append)
+    assert cfg.read_text() == f'http.secret = "{secret}"\n' and doctor._leftovers().status == "WARN"
+    assert any("delete it by hand" in s for s in said) and secret not in " ".join(said)
 
 
 def test_a_broken_config_is_not_touched_by_the_fix(pc):

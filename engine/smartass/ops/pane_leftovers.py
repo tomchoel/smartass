@@ -17,7 +17,9 @@ XLL = "TNClaude64.xll"                                      # the classic add-in
 OFFICE = r"Software\Microsoft\Office\16.0"
 CATALOGUES_KEY = OFFICE + r"\WEF\TrustedCatalogs"          # one subkey per trusted catalogue: Id, Url, Flags
 EXCEL_OPTIONS_KEY = OFFICE + r"\Excel\Options"             # OPEN, OPEN1, ...: the add-ins Excel loads at start
-STARTUP_MARKS = ("start-claude-pane", "server.mjs", "tn-claude")   # what a Startup entry of the pane names
+# What only the pane's start scripts and a shortcut to them carry (the node command line they run is any Node app's):
+# their names, the folder, and the title in their first lines ("TN Claude pane", "TN Claude task pane").
+STARTUP_MARKS = ("start-claude-pane", "tn-claude", "tn claude pane", "tn claude task pane")
 STARTUP_KINDS = (".lnk", ".vbs", ".cmd", ".bat", ".js", ".ps1", ".url")
 
 
@@ -80,8 +82,8 @@ def excel_addins() -> list[tuple[str, str]]:
 
 
 def _names_pane(data: bytes) -> bool:
-    """True when a file's bytes name the pane's start script or server (a .lnk keeps its target as UTF-16, at any
-    offset; a script as plain text)."""
+    """True when a file's bytes carry one of STARTUP_MARKS (a .lnk keeps its target as UTF-16, at any offset; a
+    script as plain text)."""
     texts = [data.decode("latin-1")]
     for start in (0, 1):
         part = data[start:]
@@ -91,7 +93,8 @@ def _names_pane(data: bytes) -> bool:
 
 
 def startup_entries(folder: Path) -> list[Path]:
-    """The pane's entries in the Startup folder: a shortcut or script there that names its start script or server."""
+    """The pane's entries in the Startup folder: a shortcut or script there that names its start scripts or folder, or
+    carries their title."""
     try:
         files = sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in STARTUP_KINDS)
     except OSError:
