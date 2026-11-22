@@ -252,7 +252,8 @@ def test_the_panes_classic_add_in_is_found_in_excels_open_values(pc):
 
 PANE_VBS = ("' Starts the TN Claude pane server without a window (for the Startup folder).\n"
             'Set sh = CreateObject("WScript.Shell")\nsh.Run "cmd /c node server.mjs", 0, False\n')   # 0.7.0's script
-PANE_CMD = "@echo off\nrem TN Claude task pane - local server (https://localhost:3000).\ncd /d \"%~dp0\"\nnode server.mjs\n"
+PANE_CMD = ("@echo off\nrem TN Claude task pane - local server (https://localhost:3000).\n"
+            "cd /d \"%~dp0\"\nnode server.mjs\n")
 
 
 def test_a_pane_startup_entry_is_found_by_what_it_names(pc):
@@ -463,13 +464,38 @@ def test_setup_leaves_files_and_the_config_to_doctor_fix_and_says_so_in_its_last
 
 
 @pytest.mark.parametrize("leftover", ["update_attempt.json", "svbridge_1.xlam", "smartview_options_original.json",
-                                      "pane entry", "office"])
+                                      "pane entry"])
 def test_each_leftover_doctor_fix_handles_makes_setups_last_line(pc, monkeypatch, leftover):
     if leftover == "pane entry":
         (pc.startup / "start-claude-pane.vbs").write_text("' TN Claude pane")
-    elif leftover == "office":
-        pc.options.update({"OPEN2": f'/R "{XLL}"'})
     else:
         (pc.home / leftover).write_text("{}")
     out, _ = _setup(pc, monkeypatch)
-    assert "smartass doctor --fix" in out[-1]
+    assert out[-1] == setup_user.PENDING and "smartass doctor --fix" in out[-1]
+
+
+MANUAL = ("leftovers: an older release left settings that `smartass doctor` lists with steps to take by hand: run "
+          "`smartass doctor` and follow its manual steps")
+
+
+@pytest.mark.parametrize("leftover", ["office", "old svkit record"])
+def test_a_leftover_only_the_user_can_clear_makes_setups_last_line_name_the_manual_steps(pc, monkeypatch, leftover):
+    """Task 3 review, Minor 5: Office's settings (the pane's registration) and a differing record in the old svkit home
+    are never changed by `doctor --fix`: setup's last line sends the user to doctor's manual steps, not to --fix."""
+    if leftover == "office":
+        pc.options.update({"OPEN2": f'/R "{XLL}"'})
+    else:
+        old = pc.home.parent / "svkit"
+        old.mkdir()
+        (old / doctor.SV_OPTIONS_FILE).write_text('{"104": 2}')
+        monkeypatch.setattr(config, "LEGACY_HOME", old)
+        monkeypatch.setattr(doctor, "_differs", lambda p: True)
+    out, _ = _setup(pc, monkeypatch)
+    assert out[-1] == MANUAL and "--fix" not in out[-1]
+
+
+def test_a_manual_leftover_beside_one_doctor_fix_clears_keeps_the_fix_line(pc, monkeypatch):
+    pc.options.update({"OPEN2": f'/R "{XLL}"'})
+    (pc.home / "secret.bin").write_bytes(b"DPAPI")
+    out, _ = _setup(pc, monkeypatch)
+    assert out[-1] == setup_user.PENDING

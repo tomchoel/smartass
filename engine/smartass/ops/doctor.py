@@ -476,6 +476,15 @@ def pending_leftovers() -> bool:
                 or pane.startup_entries(setup_user.STARTUP) or _office_items())
 
 
+def fixable_leftovers() -> bool:
+    """True when `smartass doctor --fix` can clear one of pending_leftovers(): a file or a setting in config.toml.
+    Office's settings (the pane's registration) and a record in the old svkit home are only the user's to change."""
+    from . import pane_leftovers as pane
+    from . import setup_user
+    return bool([p for p in _options_files() if not _legacy(p)] or _bridge_files() or _secret_file()
+                or _config_items() or pane.startup_entries(setup_user.STARTUP))
+
+
 def fix_leftovers(say=print) -> list[Path]:
     """`smartass doctor --fix`: the left-behind files removed, each said first (the options file after its recorded
     values; the old svkit home's copy is never changed); a file in use (a bridge still loaded in an Excel) stays and
