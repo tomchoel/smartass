@@ -1,14 +1,17 @@
 """smartass doctor: cheap health checks (starts neither Excel nor a browser). Each check gives OK / WARN / FAIL,
-a detail and the fix. Used by the CLI, fin_status and the HTTP /health endpoint. `smartass doctor --fix` removes
-what an older release left behind (leftovers, fix_leftovers) - each file said before it goes."""
+a detail and the fix. Used by the CLI and fin_status. `smartass doctor --fix` removes what an older release left
+behind (leftovers, fix_leftovers) - each thing said before it goes; what lives in Office's own settings is only
+reported, with the steps to remove it in Excel."""
 from __future__ import annotations
 
 import contextlib
 import json
 import os
 import platform
+import re
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.request
 import zipfile
@@ -28,10 +31,6 @@ class Check:
     status: str            # OK | WARN | FAIL
     detail: str
     fix: str = ""
-
-
-def _no_proxy_open(url_or_req, timeout: float):
-    return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url_or_req, timeout=timeout)
 
 
 def _config() -> Check:
@@ -162,19 +161,6 @@ def _output() -> Check:
     return Check("output", "OK", str(d))
 
 
-def _http(timeout: float = 2) -> Check:
-    if not config.HTTP_SECRET:
-        return Check("http_api", "WARN", "no HTTP API secret (secret.bin)", "Run `smartass setup` (or installer\\install.ps1).")
-    req = urllib.request.Request(f"http://127.0.0.1:{config.HTTP_PORT}/health",
-                                 headers={"X-Smartass-Secret": config.HTTP_SECRET})
-    try:
-        _no_proxy_open(req, timeout).read()
-    except (urllib.error.URLError, OSError) as e:
-        return Check("http_api", "WARN", f"not answering on 127.0.0.1:{config.HTTP_PORT} ({e})",
-                     "Log off and on (Startup entry), or run `smartass serve`.")
-    return Check("http_api", "OK", f"127.0.0.1:{config.HTTP_PORT}")
-
-
 def _update() -> Check:
     from . import update
     r = update.check()
@@ -235,12 +221,79 @@ def _recorded(p: Path) -> str:
     return "; ".join(f"{SV_OPTIONS.get(str(k), f'option {k}')} = {v!r}" for k, v in rec.items()) or "empty"
 
 
+SECRET_FILE_LEFT = "secret.bin"     # the HTTP API's secret (DPAPI) an older release (up to 0.7.0) kept in the home
+_SECTION = re.compile(r"(?m)^[ \t]*\[([^\]]+)\][ \t]*(?:#.*)?$")
+_PLAIN_SECRET = re.compile(r"(?m)^[ \t]*secret[ \t]*=.*(?:\r?\n|$)")
+
+
+def _secret_file() -> Path | None:
+    p = config.HOME / SECRET_FILE_LEFT
+    return p if p.exists() else None
+
+
+def _plain_http_secret() -> bool:
+    """True when the user's config.toml, read from the file now, still holds a plain [http] secret (an older release
+    moved it to secret.bin; nothing reads it any more). A config that cannot be read is the config check's to say."""
+    try:
+        return config.get(tomllib.loads(config.USER_CONFIG.read_text(encoding="utf-8")), "http.secret") is not None
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+
+
+def _drop_http_secret(text: str) -> str:
+    """config.toml without the `secret = ...` line of its [http] section (other sections untouched)."""
+    heads = list(_SECTION.finditer(text))
+    for i, h in enumerate(heads):
+        if h.group(1).strip() == "http":
+            end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+            return text[:h.end()] + _PLAIN_SECRET.sub("", text[h.end():end], count=1) + text[end:]
+    return text
+
+
+CATALOGUE_STEP = ("in Excel: File > Options > Trust Center > Trust Center Settings > Trusted Add-in Catalogs: remove "
+                  "{url}, tick 'Next time Office starts, clear all previously-started web add-ins cache', OK, "
+                  "restart Excel")
+XLL_STEP = ("in Excel: File > Options > Add-ins > Manage: Excel Add-ins > Go: untick TNClaude ({name} loads {xll}; use "
+            "the dialog - do not edit the OPEN values in the registry, Excel renumbers them), restart Excel, then "
+            "delete {folder} by hand")
+
+
+def _office_items() -> list[tuple[str, str]]:
+    """(what, the manual step) for the pane's registration in Office's own settings: never changed by smartass."""
+    from . import pane_leftovers as pane
+    out = [(f"Office trusts the Excel task pane's add-in catalogue {url} (the pane is gone)",
+            CATALOGUE_STEP.format(url=url)) for url in pane.catalogues()]
+    out += [(f"Excel loads the task pane's classic add-in {xll} at start ({name})",
+             XLL_STEP.format(name=name, xll=xll, folder=Path(xll).parent)) for name, xll in pane.excel_addins()]
+    return out
+
+
+def _http_api_items() -> list[str]:
+    """What the HTTP API and the task pane of an older release left that `doctor --fix` removes or stops."""
+    from . import pane_leftovers as pane
+    from . import setup_user
+    out = []
+    if (setup_user.STARTUP / setup_user.ENGINE_STARTUP).exists():
+        out.append(f"the Startup entry {setup_user.ENGINE_STARTUP} starts `smartass serve`, the HTTP API, which is gone")
+    for pid, ours in setup_user._serves():
+        out.append(f"an older `smartass serve` of this install runs (pid {pid})" if ours else
+                   f"a `smartass serve` of another smartass install runs (pid {pid}): left as it is - stop it there")
+    out += [f"the Excel task pane's Startup entry {p} (the pane is gone)"
+            for p in pane.startup_entries(setup_user.STARTUP)]
+    if p := _secret_file():
+        out.append(f"the HTTP API's secret file {p} (unused)")
+    if _plain_http_secret():
+        out.append(f"{config.USER_CONFIG} still holds a plain [http] secret (unused; the value is not shown)")
+    return out
+
+
 def _leftovers() -> Check:
-    """What an older release (up to 0.6.0, with its hidden Excel and VBA bridge) left in the home: a copy of Smart
-    View's options that a crashed run could not put back (nothing can restore them now: set them by hand), and the
-    bridge add-ins it built."""
-    opts, bridges = _options_files(), _bridge_files()
-    if not opts and not bridges:
+    """What an older release left: in the home, from 0.6.0 and before (its hidden Excel and VBA bridge), a copy of
+    Smart View's options that a crashed run could not put back (nothing can restore them now: set them by hand) and
+    the bridge add-ins it built; from 0.7.0 and before, the HTTP API (its Startup entry, a running `serve`, its secret)
+    and the Excel task pane (its Startup entry; its registration in Office's settings, which the user removes)."""
+    opts, bridges, http, office = _options_files(), _bridge_files(), _http_api_items(), _office_items()
+    if not opts and not bridges and not http and not office:
         return Check("leftovers", "OK", "nothing an older release left behind")
     said, fixes = [], []
     for p in opts:
@@ -249,14 +302,23 @@ def _leftovers() -> Check:
         fixes.append("set those back by hand in Excel: Smart View ribbon > Options (close the other Excels first)")
     if bridges:
         said.append(f"{len(bridges)} VBA bridge add-in file(s) of an older release in {config.SVKIT} (unused)")
-    fixes.append("then run `smartass doctor --fix` to remove the left-behind files")
+    said += http
+    if opts or bridges or http:
+        fixes.append("then run `smartass doctor --fix` to remove the left-behind files and entries")
+    for what, step in office:
+        said.append(what)
+        fixes.append(step)
     return Check("leftovers", "WARN", "; ".join(said), "; ".join(fixes))
 
 
 def fix_leftovers(say=print) -> list[Path]:
     """`smartass doctor --fix`: the left-behind files removed, each said first (the options file after its recorded
     values; the old svkit home's copy is never changed); a file in use (a bridge still loaded in an Excel) stays and
-    is said so. Returns the files removed."""
+    is said so. The HTTP API's Startup entry, secret file and plain secret go, this install's `serve` is stopped
+    (setup_user), the task pane's Startup entry goes; its registration in Office's settings is only said, with the
+    steps in Excel. Returns the files removed."""
+    from . import pane_leftovers as pane
+    from . import setup_user
     removed = []
     for p in _options_files():
         say(f"Smart View options an older smartass left changed (set them by hand in Smart View > Options): "
@@ -269,9 +331,36 @@ def fix_leftovers(say=print) -> list[Path]:
     for p in _bridge_files():
         say(f"removing the unused VBA bridge add-in {p}")
         removed += _remove(p, say)
-    if not removed:
+    setup_user.stop_old_serve(say)
+    removed += setup_user.drop_engine_startup(say)
+    for p in pane.startup_entries(setup_user.STARTUP):
+        say(f"removing {p} (the Excel task pane's Startup entry; the pane is gone)")
+        removed += _remove(p, say)
+    if p := _secret_file():
+        say(f"removing the HTTP API's secret file {p} (the HTTP API is gone)")
+        removed += _remove(p, say)
+    changed = _fix_plain_secret(say)
+    for what, step in _office_items():
+        say(f"left for you (Office's own settings, never changed by smartass): {what} - {step}")
+    if not removed and not changed:
         say("nothing removed")
     return removed
+
+
+def _fix_plain_secret(say) -> bool:
+    """The plain [http] secret taken out of config.toml (written whole, then put in place); the value is never said."""
+    if not _plain_http_secret():
+        return False
+    cfg = config.USER_CONFIG
+    say(f"removing the plain [http] secret from {cfg} (the HTTP API is gone; the value is not shown)")
+    try:
+        tmp = cfg.with_name(cfg.name + ".tmp")
+        tmp.write_text(_drop_http_secret(cfg.read_text(encoding="utf-8")), encoding="utf-8")
+        os.replace(tmp, cfg)
+    except OSError as e:
+        say(f"could not change {cfg} ({e.strerror or e}); delete its [http] secret line by hand")
+        return False
+    return True
 
 
 def _remove(p: Path, say) -> list[Path]:
@@ -279,19 +368,17 @@ def _remove(p: Path, say) -> list[Path]:
         p.unlink()
         return [p]
     except OSError as e:
-        say(f"could not remove {p} ({e.strerror or e}); it may be loaded in an Excel - close that Excel and run "
-            "`smartass doctor --fix` again")
+        say(f"could not remove {p} ({e.strerror or e}); it may be in use (an add-in loaded in an Excel: close that "
+            "Excel) - then run `smartass doctor --fix` again")
         return []
 
 
-CHECKS = (_config, _excel, _smartview_startup, _epm, _oauth, _atlas, _knowledge, _output, _http, _update, _leftovers)
+CHECKS = (_config, _excel, _smartview_startup, _epm, _oauth, _atlas, _knowledge, _output, _update, _leftovers)
 
 
-def run(include_http: bool = True) -> list[Check]:
+def run() -> list[Check]:
     out = []
     for f in CHECKS:
-        if f is _http and not include_http:
-            continue
         try:
             out.append(f())
         except Exception as e:   # noqa: BLE001 - a check never breaks the doctor

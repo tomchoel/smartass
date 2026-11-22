@@ -36,12 +36,6 @@ try {
     & $py -m smartass.ops.cli setup
     if ($LASTEXITCODE) { throw "smartass setup failed ($LASTEXITCODE)" }
     if ($dev) { git -C $app config core.hooksPath .githooks }
-    $running = Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' or Name='python.exe'" |
-        Where-Object { $_.CommandLine -like "*$engine*" -and $_.CommandLine -like '*cli serve*' }
-    if (-not $running) {
-        Start-Process (Join-Path $engine '.venv\Scripts\pythonw.exe') -ArgumentList '-m','smartass.ops.cli','serve' `
-            -WorkingDirectory $engine -WindowStyle Hidden
-    }
-    if (-not $NoDoctor) { Start-Sleep 2; & $py -m smartass.ops.cli doctor }
+    if (-not $NoDoctor) { & $py -m smartass.ops.cli doctor }
 } finally { Pop-Location }
 Write-Host "smartass installed ($(if ($dev) {'dev checkout'} else {$app})). Restart Copilot CLI / Claude Code to load it."

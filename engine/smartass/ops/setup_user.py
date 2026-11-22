@@ -1,16 +1,14 @@
 """Per-user setup, run by installer\\install.ps1 (`smartass setup`). Idempotent: every step reports
-created/updated/unchanged. Never needs admin rights."""
+created/updated/unchanged. Never needs admin rights. What an older release started at logon (the Smart View SSO
+watcher, the HTTP API `smartass serve`) is removed and stopped here when it is provably this install's."""
 from __future__ import annotations
 
 import json
 import os
-import re
-import secrets
 import shutil
 import subprocess
 import sys
 import time
-import tomllib
 from pathlib import Path
 
 from ..core import config, retry
@@ -32,24 +30,7 @@ enabled = []            # e.g. ["produktregnskap"]
 
 [release]
 # version = "0.2.0"     # pin a version (also downwards); empty = latest
-
-[http]
-# port = 47811          # the API secret is in secret.bin next to this file (DPAPI: only this Windows user)
 """
-
-_SECTION = re.compile(r"(?m)^[ \t]*\[([^\]]+)\][ \t]*(?:#.*)?$")
-_PLAIN_SECRET = re.compile(r"(?m)^[ \t]*secret[ \t]*=.*(?:\r?\n|$)")
-
-
-def _drop_http_secret(text: str) -> str:
-    """config.toml without the `secret = ...` line of its [http] section (other sections untouched)."""
-    heads = list(_SECTION.finditer(text))
-    for i, h in enumerate(heads):
-        if h.group(1).strip() == "http":
-            end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
-            return text[:h.end()] + _PLAIN_SECRET.sub("", text[h.end():end], count=1) + text[end:]
-    return text
-
 
 def write_user_config(path: Path = config.USER_CONFIG) -> str:
     if path.exists():
@@ -57,34 +38,6 @@ def write_user_config(path: Path = config.USER_CONFIG) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
     return "created"
-
-
-def _plain_secret(cfg: Path) -> str | None:
-    try:
-        return config.get(tomllib.loads(cfg.read_text(encoding="utf-8")), "http.secret")
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
-
-
-def secret_step(cfg: Path = config.USER_CONFIG, secret_file: Path = config.SECRET_FILE) -> str:
-    """The HTTP API secret, DPAPI-protected in secret.bin. A plain-text http.secret in config.toml is moved
-    there once and removed from the file; without either a new one is generated. An existing readable
-    secret.bin is kept."""
-    plain = _plain_secret(cfg)
-    if config.read_secret(secret_file) and not plain:
-        return "secret: unchanged"
-    how = "migrated from config.toml" if plain else "created"
-    if not config.read_secret(secret_file):
-        secret_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = secret_file.with_name(secret_file.name + ".tmp")
-        tmp.write_bytes(config.protect_secret(plain or secrets.token_urlsafe(32)))
-        os.replace(tmp, secret_file)
-    if plain:
-        text = cfg.read_text(encoding="utf-8")
-        tmp = cfg.with_name(cfg.name + ".tmp")
-        tmp.write_text(_drop_http_secret(text), encoding="utf-8")
-        os.replace(tmp, cfg)
-    return f"secret: {how} (secret.bin, DPAPI)"
 
 
 def mcp_entries(python: Path, relay: Path) -> dict:
@@ -175,31 +128,93 @@ def drop_legacy_skill(dst: Path, backup_root: Path) -> str:
     return "none"
 
 
-def make_shortcut(lnk: Path, target: str, args: str, workdir: str) -> None:
-    import win32com.client
-    lnk.parent.mkdir(parents=True, exist_ok=True)
-    sc = win32com.client.Dispatch("WScript.Shell").CreateShortcut(str(lnk))
-    sc.TargetPath, sc.Arguments, sc.WorkingDirectory, sc.WindowStyle = target, args, workdir, 7
-    sc.Save()
-
-
 LEGACY_STARTUP = ("smartass-sso-watcher.lnk", "svkit-sso-watcher.lnk")   # the SSO watcher's, removed (Task 6)
 WATCHER_PS1 = config.ENGINE_DIR / "sso_watcher.ps1"      # an older release's Smart View SSO watcher (deleted)
 
 
+ENGINE_STARTUP = "smartass-engine.lnk"      # an older release's (up to 0.7.0): `smartass serve` at logon (removed)
+VENV_SCRIPTS = config.ENGINE_DIR / ".venv" / "Scripts"   # this install's interpreters
+
+
 def startup_entries() -> list[str]:
-    venv = config.ENGINE_DIR / ".venv" / "Scripts"
-    (config.HOME / "logs").mkdir(parents=True, exist_ok=True)
-    make_shortcut(STARTUP / "smartass-engine.lnk", str(venv / "pythonw.exe"), "-m smartass.ops.cli serve",
-                  str(config.ENGINE_DIR))
-    out = ["startup: smartass-engine.lnk"]
+    """smartass starts nothing at logon any more (the agent's MCP client starts the server): what an older release
+    put in the Startup folder is removed, and what it started is stopped when it is provably this install's."""
+    out = []
     for name in LEGACY_STARTUP:
         legacy = STARTUP / name
         if legacy.exists():
             legacy.unlink()
             out.append(f"startup: removed {name} (the Smart View SSO watcher is gone)")
+    drop_engine_startup(out.append)
+    stop_old_serve(out.append)
     out += stop_old_watcher()
-    return out
+    return out or ["startup: nothing to remove"]
+
+
+def drop_engine_startup(say) -> list[Path]:
+    """The Startup entry smartass-engine.lnk an older release made (it started `smartass serve`), removed after it is
+    said; [the file] when it went."""
+    lnk = STARTUP / ENGINE_STARTUP
+    if not lnk.exists():
+        return []
+    say(f"startup: removing {ENGINE_STARTUP} (it started `smartass serve`, the HTTP API, which is gone)")
+    try:
+        lnk.unlink()
+    except OSError as e:
+        say(f"startup: could not remove {lnk} ({e.strerror or e}); delete it by hand")
+        return []
+    return [lnk]
+
+
+def _process_list():
+    import psutil
+    return psutil.process_iter(["name", "cmdline", "ppid"])
+
+
+def _is_serve(cmd: list[str]) -> bool:
+    low = [c.lower() for c in cmd]
+    return any(a == "smartass.ops.cli" and b == "serve" for a, b in zip(low, low[1:]))
+
+
+def _serves(scripts: Path | None = None) -> list[tuple[int, bool]]:
+    """(pid, ours) of each running Python whose command line runs `smartass.ops.cli serve`, a child before its parent.
+    Ours when its command line names THIS install's venv (VENV_SCRIPTS, case-insensitive, as a whole folder), or when
+    its parent is such a one: the venv's python.exe is a launcher that runs the base interpreter as its child, whose
+    command line names that interpreter instead. Any other (another checkout's, or one whose parent is gone) is not."""
+    import psutil
+    want = str(scripts or VENV_SCRIPTS).replace("/", "\\").rstrip("\\").lower() + "\\"
+    found = []
+    for p in _process_list():
+        try:
+            cmd = [str(c) for c in (p.info["cmdline"] or [])]
+            if (p.info["name"] or "").lower() in ("python.exe", "pythonw.exe") and _is_serve(cmd):
+                found.append((p.pid, p.info.get("ppid"), want in " ".join(cmd).replace("/", "\\").lower()))
+        except psutil.Error:
+            continue
+    ours = {pid for pid, _, named in found if named}
+    ours |= {pid for pid, ppid, _ in found if ppid in ours}
+    pids = {pid for pid, _, _ in found}
+    found.sort(key=lambda f: 0 if f[1] in pids else 1)              # a child first: its launcher ends with it
+    return [(pid, pid in ours) for pid, _, _ in found]
+
+
+def stop_old_serve(say, found=None, kill=None) -> None:
+    """The HTTP API (`smartass serve`) an older release started at logon, stopped when its command line proves it is
+    this install's (_serves), each stop said before it is done; another install's is left running, and said so."""
+    import psutil
+    found, kill = found or _serves, kill or _kill
+    for pid, ours in found():
+        if not ours:
+            say(f"startup: a `smartass serve` of another smartass install (pid {pid}) is left running")
+            continue
+        say(f"startup: stopping this install's old `smartass serve` (pid {pid}): the HTTP API is gone")
+        try:
+            kill(pid)
+        except psutil.NoSuchProcess:              # its launcher ended with its child
+            say(f"startup: the old `smartass serve` (pid {pid}) had already ended")
+        except psutil.Error as e:
+            say(f"startup: the old `smartass serve` (pid {pid}) could not be stopped ({type(e).__name__}); it ends at "
+                "the next logoff")
 
 
 def _watchers(script: Path = WATCHER_PS1) -> list[tuple[int, bool]]:
@@ -345,7 +360,7 @@ def copy_atlas() -> str:
 
 def run() -> list[str]:
     config.HOME.mkdir(parents=True, exist_ok=True)
-    out = [f"config: {write_user_config()} ({config.USER_CONFIG})", secret_step()]
+    out = [f"config: {write_user_config()} ({config.USER_CONFIG})"]
     e = mcp_entries(config.ENGINE_DIR / ".venv" / "Scripts" / "python.exe", config.ENGINE_DIR / "run_server.py")
     out.append(f"copilot mcp: {register_mcp(USER / '.copilot' / 'mcp-config.json', e['copilot'], create=True)}")
     out.append(f"claude mcp: {register_mcp(USER / '.claude.json', e['claude'])}")

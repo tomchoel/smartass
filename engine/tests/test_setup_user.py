@@ -61,11 +61,11 @@ def test_path_step_skips_without_smartass_exe(tmp_path):
     assert setup_user.path_step(str(tmp_path / "python.exe"), **reg.kw()).startswith("path: skipped")
     assert not reg.writes
 
-def test_user_config_is_written_once_without_a_plain_secret(tmp_path):
+def test_user_config_is_written_once_without_an_http_section(tmp_path):
     p = tmp_path / "config.toml"
     assert setup_user.write_user_config(p) == "created"
     first = p.read_text(encoding="utf-8")
-    assert "[http]" in first and "\nsecret = " not in first and "[packs]" in first
+    assert "[http]" not in first and "secret" not in first and "[packs]" in first
     assert setup_user.write_user_config(p) == "kept"
     assert p.read_text(encoding="utf-8") == first
 
@@ -128,12 +128,6 @@ def test_drop_legacy_skill_removes_link_keeps_target(tmp_path):
     assert not old.exists() and any(backup.iterdir())
 
 
-def test_make_shortcut_creates_missing_startup_folder(tmp_path):
-    lnk = tmp_path / "Microsoft" / "Windows" / "Startup" / "x.lnk"
-    setup_user.make_shortcut(lnk, "cmd.exe", "/c exit", str(tmp_path))
-    assert lnk.exists()
-
-
 def test_register_mcp_drops_the_v2_side_by_side_entry(tmp_path):
     p = tmp_path / ".claude.json"
     p.write_text(json.dumps({"mcpServers": {
@@ -180,19 +174,18 @@ def test_register_mcp_gives_up_on_a_replace_that_stays_refused(tmp_path, monkeyp
     assert len(calls) == setup_user.REPLACE_TRIES and json.loads(p.read_text(encoding="utf-8")) == {"mcpServers": {}}
 
 
-def test_setup_makes_no_sso_watcher_shortcut_and_removes_an_older_releases(tmp_path, monkeypatch):
-    """Task 6: the Smart View SSO watcher is gone. Setup makes only the engine's Startup shortcut, removes the
-    watcher's (and the svkit one) where an older release left it, and stops a watcher only when it is ours."""
+def test_setup_makes_no_startup_shortcut_and_removes_an_older_releases_watcher(tmp_path, monkeypatch):
+    """Task 6: the Smart View SSO watcher is gone; phase 4 Task 1: so is the engine's own Startup shortcut. Setup
+    makes none, removes the watcher's (and the svkit one) where an older release left it, and stops a watcher only
+    when it is ours."""
     monkeypatch.setattr(setup_user, "STARTUP", tmp_path)
-    monkeypatch.setattr(setup_user.config, "HOME", tmp_path / "home")
-    made = []
-    monkeypatch.setattr(setup_user, "make_shortcut", lambda lnk, *a: made.append(lnk.name))
     for name in ("smartass-sso-watcher.lnk", "svkit-sso-watcher.lnk"):
         (tmp_path / name).write_text("x")
     monkeypatch.setattr(setup_user, "_watchers", lambda: [])
     out = setup_user.startup_entries()
-    assert made == ["smartass-engine.lnk"] and not list(tmp_path.glob("*sso-watcher.lnk"))
-    assert out[0] == "startup: smartass-engine.lnk" and sum("removed" in s for s in out) == 2
+    assert list(tmp_path.iterdir()) == []
+    assert out == [f"startup: removed {n} (the Smart View SSO watcher is gone)"
+                   for n in ("smartass-sso-watcher.lnk", "svkit-sso-watcher.lnk")]
 
 
 def test_only_this_installs_watcher_is_stopped_another_is_left_and_said(monkeypatch):

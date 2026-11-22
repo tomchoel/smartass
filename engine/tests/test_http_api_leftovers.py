@@ -1,0 +1,237 @@
+"""What the HTTP API and the Excel task pane of an older release (up to 0.7.0) left on a PC (light-fast phase 4 Task 1):
+`smartass setup` removes the Startup entry smartass-engine.lnk and stops a running `smartass serve` whose command line
+proves it is this install's; `smartass doctor` lists those, the secret file, a plain [http] secret in config.toml and
+the pane's registration; `doctor --fix` removes this install's own files and Startup entries, each said first, and
+only REPORTS what lives in Office's own settings (the trusted catalogue, Excel's add-in list). Registry, Startup folder
+and process list are fakes here (tests/conftest.py keeps the suite off this PC's)."""
+import types
+from pathlib import Path
+
+import psutil
+import pytest
+
+from smartass.core import config
+from smartass.ops import doctor, pane_leftovers, setup_user
+
+VENV = r"C:\work\smartass\engine\.venv\Scripts"
+CATALOGUE_URL = r"\\files.example\home\someone\TNClaudeCatalog"
+XLL = r"C:\Users\someone\AppData\Local\svkit\addin\dna\TNClaude64.xll"
+
+
+def _proc(pid, cmd, ppid=1, name=None):
+    return types.SimpleNamespace(pid=pid, info={"name": name or cmd[0].split("\\")[-1], "cmdline": cmd, "ppid": ppid})
+
+
+def _serve(exe, pid, ppid=1):
+    return _proc(pid, [exe, "-m", "smartass.ops.cli", "serve"], ppid)
+
+
+@pytest.fixture
+def pc(monkeypatch, tmp_path):
+    """A PC of the test's own: home, config, old svkit home, Startup folder, process list and Office's settings."""
+    home, startup = tmp_path / "home", tmp_path / "Startup"
+    home.mkdir()
+    startup.mkdir()
+    for name in ("HOME", "SVKIT"):
+        monkeypatch.setattr(config, name, home)
+    monkeypatch.setattr(config, "USER_CONFIG", home / "config.toml")
+    monkeypatch.setattr(config, "LEGACY_HOME", None)
+    monkeypatch.setattr(setup_user, "STARTUP", startup)
+    monkeypatch.setattr(setup_user, "VENV_SCRIPTS", Path(VENV))
+    state = types.SimpleNamespace(home=home, startup=startup, procs=[], killed=[], subkeys={}, options={})
+    monkeypatch.setattr(setup_user, "_process_list", lambda: state.procs)
+    monkeypatch.setattr(setup_user, "_kill", state.killed.append)
+    monkeypatch.setattr(pane_leftovers, "_hkcu_subkeys", lambda path: state.subkeys)
+    monkeypatch.setattr(pane_leftovers, "_hkcu_values", lambda path: state.options)
+    return state
+
+
+# ---------------------------------------------------------------- setup
+
+
+def test_setup_makes_no_startup_entry_and_no_secret_any_more():
+    assert not hasattr(setup_user, "make_shortcut") and not hasattr(setup_user, "secret_step")
+    assert "[http]" not in setup_user.CONFIG_TEMPLATE and "secret" not in setup_user.CONFIG_TEMPLATE
+
+
+def test_setup_removes_the_engines_startup_entry_and_says_so(pc):
+    (pc.startup / "smartass-engine.lnk").write_bytes(b"lnk")
+    (pc.startup / "other-tool.lnk").write_bytes(b"lnk")
+    out = setup_user.startup_entries()
+    assert not (pc.startup / "smartass-engine.lnk").exists() and (pc.startup / "other-tool.lnk").exists()
+    assert out == ["startup: removing smartass-engine.lnk (it started `smartass serve`, the HTTP API, which is gone)"]
+
+
+def test_setup_with_nothing_left_says_there_is_nothing_to_do(pc):
+    assert setup_user.startup_entries() == ["startup: nothing to remove"]
+
+
+def test_a_serve_is_ours_only_when_its_command_line_names_this_installs_venv(pc):
+    pc.procs = [
+        _serve(VENV + r"\pythonw.exe", 10),                                          # the venv's launcher ...
+        _serve(r"C:\Users\someone\AppData\Roaming\uv\python\cpython-3.12\pythonw.exe", 11, ppid=10),  # its child
+        _serve(VENV.upper() + r"\PYTHON.EXE", 12),                                   # a lone one, any case
+        _serve(r"C:\other\smartass\engine\.venv\Scripts\pythonw.exe", 20),         # another install's
+        _serve(r"C:\Python312\pythonw.exe", 21, ppid=999),                          # names no venv at all
+        _serve(VENV + r"2\pythonw.exe", 22),                                         # a look-alike path
+        _proc(30, [VENV + r"\pythonw.exe", "-m", "smartass.ops.cli", "doctor"]),    # ours, but not serve
+        _proc(31, ["node.exe", "server.mjs"]),
+        _proc(32, ["cmd.exe", "/c", "smartass.ops.cli", "serve"]),                  # not a Python
+    ]
+    found = setup_user._serves()
+    assert sorted(found) == [(10, True), (11, True), (12, True), (20, False), (21, False), (22, False)]
+    assert [pid for pid, _ in found].index(11) < [pid for pid, _ in found].index(10)   # the child before its launcher
+
+
+def test_setup_stops_this_installs_serve_saying_so_first_and_leaves_another(pc):
+    pc.procs = [_serve(VENV + r"\pythonw.exe", 10), _serve(r"C:\other\.venv\Scripts\pythonw.exe", 20)]
+    said = []
+    setup_user.stop_old_serve(lambda s: said.append((s, list(pc.killed))))
+    assert pc.killed == [10]
+    assert said == [("startup: stopping this install's old `smartass serve` (pid 10): the HTTP API is gone", []),
+                    ("startup: a `smartass serve` of another smartass install (pid 20) is left running", [10])]
+
+
+def test_a_serve_that_ended_meanwhile_or_cannot_be_stopped_is_said(pc):
+    def kill(pid):
+        raise (psutil.NoSuchProcess(pid) if pid == 10 else psutil.AccessDenied(pid))
+    said = []
+    setup_user.stop_old_serve(said.append, found=lambda: [(10, True), (11, True)], kill=kill)
+    assert "(pid 10) had already ended" in said[1]
+    assert "(pid 11) could not be stopped (AccessDenied)" in said[3] and "next logoff" in said[3]
+
+
+def test_setup_stops_the_serve_and_removes_the_entry_in_one_go(pc):
+    (pc.startup / "smartass-engine.lnk").write_bytes(b"lnk")
+    pc.procs = [_serve(VENV + r"\pythonw.exe", 10)]
+    out = setup_user.startup_entries()
+    assert pc.killed == [10] and len(out) == 2 and not (pc.startup / "smartass-engine.lnk").exists()
+
+
+# ---------------------------------------------------------------- the pane's registration (read only)
+
+
+def test_the_panes_catalogue_is_found_by_its_folder_name_or_by_its_manifest(pc, tmp_path):
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    (shared / "manifest.xml").write_text(f"<OfficeApp><Id>{pane_leftovers.MANIFEST_ID.upper()}</Id></OfficeApp>")
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "manifest.xml").write_text("<OfficeApp><Id>11111111-2222-3333-4444-555555555555</Id></OfficeApp>")
+    pc.subkeys = {"{AAAA}": {"Id": "{AAAA}", "Url": CATALOGUE_URL + "\\", "Flags": 1},
+                  "{BBBB}": {"Id": "{BBBB}", "Url": str(shared), "Flags": 1},
+                  "{CCCC}": {"Id": "{CCCC}", "Url": str(other), "Flags": 1},
+                  "{DDDD}": {"Id": "{DDDD}", "Url": str(tmp_path / "gone" / "Catalog"), "Flags": 1},
+                  "{EEEE}": {"Id": "{EEEE}"}}
+    assert pane_leftovers.catalogues() == [CATALOGUE_URL + "\\", str(shared)]
+
+
+def test_the_panes_classic_add_in_is_found_in_excels_open_values(pc):
+    pc.options = {"OPEN": '/R "C:\\Program Files\\Other\\other.xll"', "OPEN1": "other.xlam",
+                  "OPEN2": f'/R "{XLL}"', "Options": 0, "OPENX": f'"{XLL}"'}
+    assert pane_leftovers.excel_addins() == [("OPEN2", XLL)]
+
+
+def test_a_pane_startup_entry_is_found_by_what_it_names(pc):
+    (pc.startup / "pane.lnk").write_bytes(b"\x4c\x00" + "C:\\x\\start-claude-pane-hidden.vbs".encode("utf-16-le"))
+    (pc.startup / "Claude.vbs").write_text('sh.Run "cmd /c node server.mjs", 0, False')
+    (pc.startup / "smartass-engine.lnk").write_bytes("pythonw.exe -m smartass.ops.cli serve".encode("utf-16-le"))
+    (pc.startup / "other.lnk").write_bytes(b"\x00" + "C:\\tools\\sync.exe".encode("utf-16-le"))
+    assert [p.name for p in pane_leftovers.startup_entries(pc.startup)] == ["Claude.vbs", "pane.lnk"]
+
+
+def test_nothing_writes_under_offices_settings():
+    """Ruling of 22.11: the trusted catalogue and Excel's add-in list are Office's own state. The doctor reads them;
+    no code of the engine can write or delete there (the user removes them in Excel)."""
+    src = Path(pane_leftovers.__file__).read_text(encoding="utf-8") + Path(doctor.__file__).read_text(encoding="utf-8")
+    assert not any(w in src for w in ("DeleteKey", "DeleteValue", "SetValue", "CreateKey", "KEY_SET_VALUE",
+                                      "KEY_WRITE", "KEY_ALL_ACCESS"))
+
+
+# ---------------------------------------------------------------- doctor
+
+
+def test_the_http_api_check_is_gone():
+    assert "_http" not in [f.__name__ for f in doctor.CHECKS]
+
+
+def test_a_pc_with_nothing_left_is_ok(pc):
+    c = doctor._leftovers()
+    assert c.status == "OK" and doctor.fix_leftovers(say=lambda s: None) == []
+
+
+def test_doctor_lists_everything_the_http_api_and_the_pane_left(pc):
+    (pc.startup / "smartass-engine.lnk").write_bytes(b"lnk")
+    (pc.startup / "Claude.vbs").write_text("node server.mjs")
+    (pc.home / "secret.bin").write_bytes(b"DPAPI")
+    secret = "plain-secret-" + "x" * 12
+    (pc.home / "config.toml").write_text(f'[paths]\nanalyser = "C:/a"\n[http]\nport = 1\nsecret = "{secret}"\n')
+    pc.procs = [_serve(VENV + r"\pythonw.exe", 10), _serve(r"C:\other\.venv\Scripts\pythonw.exe", 20)]
+    pc.subkeys = {"{AAAA}": {"Url": CATALOGUE_URL}}
+    pc.options = {"OPEN2": f'/R "{XLL}"'}
+    c = doctor._leftovers()
+    assert c.status == "WARN" and secret not in c.detail and secret not in c.fix
+    for said in ("smartass-engine.lnk", "pid 10", "pid 20", "another smartass install", str(pc.home / "secret.bin"),
+                 "plain [http] secret", "Claude.vbs", CATALOGUE_URL, XLL, "OPEN2"):
+        assert said in c.detail, said
+    assert "smartass doctor --fix" in c.fix and "Trusted Add-in Catalogs" in c.fix and "Manage: Excel Add-ins" in c.fix
+    assert "renumbers" in c.fix and str(Path(XLL).parent) in c.fix
+
+
+def test_office_settings_alone_are_reported_with_the_manual_steps_and_no_fix(pc):
+    pc.subkeys = {"{AAAA}": {"Url": CATALOGUE_URL}}
+    c = doctor._leftovers()
+    assert c.status == "WARN" and CATALOGUE_URL in c.detail and "--fix" not in c.fix
+
+
+def test_doctor_fix_removes_this_installs_files_and_entries_each_said_first(pc):
+    lnk, vbs, sec = pc.startup / "smartass-engine.lnk", pc.startup / "Claude.vbs", pc.home / "secret.bin"
+    lnk.write_bytes(b"lnk")
+    vbs.write_text("node server.mjs")
+    sec.write_bytes(b"DPAPI")
+    secret = "plain-secret-" + "y" * 12
+    cfg = pc.home / "config.toml"
+    cfg.write_text(f'[paths]\nanalyser = "C:/a"\n\n[http]\nport = 1\nsecret = "{secret}"\n\n[packs]\nenabled = []\n')
+    pc.procs = [_serve(VENV + r"\pythonw.exe", 10)]
+    pc.subkeys = {"{AAAA}": {"Url": CATALOGUE_URL}}
+    pc.options = {"OPEN2": f'/R "{XLL}"'}
+    said = []
+
+    def say(s):
+        said.append(s)
+        assert pc.killed == [] or "stopping" not in s           # the stop is said before it is done
+    removed = doctor.fix_leftovers(say=say)
+    assert sorted(removed) == sorted([lnk, vbs, sec]) and not lnk.exists() and not vbs.exists() and not sec.exists()
+    assert pc.killed == [10]
+    assert cfg.read_text() == '[paths]\nanalyser = "C:/a"\n\n[http]\nport = 1\n\n[packs]\nenabled = []\n'
+    text = "\n".join(said)
+    assert secret not in text
+    for what in (f"removing {vbs}", f"removing the HTTP API's secret file {sec}", "removing the plain [http] secret",
+                 "stopping this install's old `smartass serve` (pid 10)", "removing smartass-engine.lnk"):
+        assert what in text, what
+    assert "Trusted Add-in Catalogs" in text and "TNClaude" in text            # left for the user, and said
+    left = doctor._leftovers()
+    assert CATALOGUE_URL in left.detail and "secret" not in left.detail and "smartass-engine" not in left.detail
+
+
+def test_a_plain_secret_is_read_from_the_file_so_the_check_is_clean_right_after_the_fix(pc):
+    cfg = pc.home / "config.toml"
+    cfg.write_text('[http]\nsecret = "abcdefghijklmnop"\n')
+    assert doctor._leftovers().status == "WARN"
+    doctor.fix_leftovers(say=lambda s: None)
+    assert doctor._leftovers().status == "OK" and cfg.read_text() == "[http]\n"
+
+
+def test_the_fix_takes_the_secret_only_from_the_http_section(pc):
+    cfg = pc.home / "config.toml"
+    cfg.write_text('[other]\nsecret = "keep-me"\n\n[http]\nsecret = "drop-me"\n')
+    doctor.fix_leftovers(say=lambda s: None)
+    assert cfg.read_text() == '[other]\nsecret = "keep-me"\n\n[http]\n'
+
+
+def test_a_broken_config_is_not_touched_by_the_fix(pc):
+    cfg = pc.home / "config.toml"
+    cfg.write_text('[http]\nsecret = "abc\n')                                # not TOML: the config check says so
+    assert doctor._leftovers().status == "OK"
+    doctor.fix_leftovers(say=lambda s: None)
+    assert cfg.read_text() == '[http]\nsecret = "abc\n'
