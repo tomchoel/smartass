@@ -90,6 +90,8 @@ def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 
     if kind == "answer":
         from . import answers
         return {"answers": [_past(r) for r in answers.search(query, limit)]}
+    from .ops.atlas_build import need_atlas
+    need_atlas()
     from .knowledge.resolver import freshness_notes
     with contextlib.closing(_resolver()) as r:
         out = r.search(query, kind, cube, limit)
@@ -144,8 +146,11 @@ async def _draw_job(fn, what: str, question: str | None) -> dict:
 
 
 async def _drill(cell: dict):
-    """The FinLite ledger lines behind one cube cell (v1 drill: Smart View link, token route, reconciliation)."""
+    """The FinLite ledger lines behind one cube cell (v1 drill: Smart View link, token route, reconciliation). No atlas:
+    refused before EPM is asked (atlas_build.need_atlas)."""
     from .epm import drillstep
+    from .ops.atlas_build import need_atlas
+    need_atlas()
     return await drillstep.drill(cell, connection="FinLite")
 
 

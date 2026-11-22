@@ -120,6 +120,27 @@ def _read_only_uri(path: Path) -> str:
     return uri + "?mode=ro"
 
 
+def present(path: Path | None = None) -> bool:
+    """True when the atlas file (default: the home's) holds members - read only, never created: a missing file, or one
+    with no member rows (atlas.connect() makes such a file on a fresh home), is no atlas. A file that cannot be read is
+    there (its own error says why; nothing builds over it)."""
+    p = Path(path or config.ATLAS_DB)
+    if not p.exists():
+        return False
+    try:
+        db = sqlite3.connect(_read_only_uri(p), uri=True)
+    except sqlite3.Error:
+        return True
+    try:
+        return db.execute("SELECT 1 FROM member LIMIT 1").fetchone() is not None
+    except sqlite3.OperationalError as e:
+        return "no such table" not in str(e)
+    except sqlite3.Error:
+        return True
+    finally:
+        db.close()
+
+
 def trust(path: Path) -> tuple[int, int] | None:
     """(dimensions whose side rows are trusted, dimensions built with members) of the atlas file at path - read only,
     never written; None when it cannot be read.

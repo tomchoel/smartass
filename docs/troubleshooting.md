@@ -108,10 +108,13 @@ asked for a grid. The reply's `routes` counts the grids per engine (`http`, `res
 
 ## atlas
 
-- **Symptom:** `FAIL  atlas  missing: ...\atlas.db` or `WARN  atlas  ...\atlas.db (N days old)` (older than 35 days).
-- **Cause:** the member atlas (used to find members by name) was never copied, or is out of date.
-- **Fix:** FAIL: Re-run installer\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.
-  WARN: Re-run the installer after the monthly release, or run `smartass atlas build`.
+- **Symptom:** `FAIL  atlas  no atlas on this PC yet (...\atlas.db: missing)` (a tool call says the same: "no atlas
+  on this PC yet") or `WARN  atlas  ...\atlas.db (N days old)` (older than 35 days).
+- **Cause:** the member atlas (used to find members by name, and to lay out every grid) was never built on this PC
+  (`smartass login --no-atlas`, or a build that failed), or is out of date. An atlas file without members counts as
+  none.
+- **Fix:** FAIL: the one command it names - `smartass login` while a sign-in is missing (it signs in, then builds the
+  atlas), else `smartass atlas build`. WARN: Run `smartass atlas build`.
 
 `smartass atlas build` (since 0.7.0) reads every dimension over Planning REST with your sign-in: read-only, no Excel,
 the member trees of both pods in about 25 s (docs\audit\2026-11-22-atlas-rest.md); a full build then derives the

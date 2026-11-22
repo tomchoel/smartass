@@ -89,12 +89,14 @@ def _oauth() -> Check:
 
 
 def _atlas(max_age_days: float = 35) -> Check:
-    p = config.ATLAS_DB
-    if not p.exists():
-        return Check("atlas", "FAIL", f"missing: {p}",
-                     "Re-run installer\\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.")
-    age = (time.time() - p.stat().st_mtime) / 86400
     from ..knowledge import atlas
+    from .atlas_build import no_atlas_step
+    p = config.ATLAS_DB
+    if not atlas.present(p):
+        step = no_atlas_step()
+        return Check("atlas", "FAIL", f"no atlas on this PC yet ({p}{'' if p.exists() else ': missing'})",
+                     f"{step[0].upper()}{step[1:]}.")
+    age = (time.time() - p.stat().st_mtime) / 86400
     trust = atlas.trust(p)
     if trust is not None and trust[0] < trust[1]:             # an atlas built before 0.7.0 (or rebuilt by one)
         what = "no dimension has" if not trust[0] else f"{trust[1] - trust[0]} of {trust[1]} dimensions have no"
@@ -103,7 +105,7 @@ def _atlas(max_age_days: float = 35) -> Check:
                      "is off.")
     status = "OK" if age <= max_age_days else "WARN"
     return Check("atlas", status, f"{p} ({age:.0f} days old)",
-                 "" if status == "OK" else "Re-run the installer after the monthly release, or run `smartass atlas build`.")
+                 "" if status == "OK" else "Run `smartass atlas build`.")
 
 
 def _knowledge() -> Check:
@@ -122,9 +124,12 @@ def _knowledge() -> Check:
     detail = (f"{len(sem.metrics)} metrics, {len(sem.facts)} facts, {len(sem.concepts)} concepts, "
               f"{len(sem.rules)} rules, {len(sem.entities)} entities, {len(sem.kpis)} kpis, "
               f"{len(sem.vocab)} vocab, {len(sem.notes)} notes")
-    if not config.ATLAS_DB.exists():
-        return Check("knowledge", "WARN", f"{detail}; members not checked (no atlas)",
-                     "Re-run installer\\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.")
+    from ..knowledge import atlas
+    from .atlas_build import no_atlas_step
+    if not atlas.present(config.ATLAS_DB):
+        step = no_atlas_step()
+        return Check("knowledge", "WARN", f"{detail}; members not checked: waits for the atlas",
+                     f"{step[0].upper()}{step[1:]}; the knowledge is checked against it after.")
     report = BuildReport(out=config.KNOWLEDGE_DB)
     with contextlib.closing(_atlas(config.ATLAS_DB)) as db:
         check(sem.metrics, sem.facts, db, report, sem.concepts, sem)

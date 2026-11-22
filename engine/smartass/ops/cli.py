@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     lg.add_argument("--status", action="store_true", help="show the sign-ins, change nothing")
     lg.add_argument("--force", action="store_true", help="sign in again, also where a sign-in exists")
     lg.add_argument("--forget", action="store_true", help="delete the stored sign-ins from this PC")
+    lg.add_argument("--no-atlas", action="store_true",
+                    help="do not build the atlas (a PC with none gets it here: about half a minute, then the cards)")
     at = sub.add_parser("atlas", help="the local member atlas: status, or build it from EPM")
     at_sub = at.add_subparsers(dest="atlas_cmd", required=True)
     at_sub.add_parser("status", help="what the atlas holds and whether it is stale")
@@ -70,7 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if doctor.overall(rs) == "FAIL" else 0
     if a.cmd == "login":
         from . import login
-        return login.show() if a.status else login.forget() if a.forget else login.run(force=a.force)
+        return login.show() if a.status else login.forget() if a.forget else login.run(force=a.force,
+                                                                                         atlas=not a.no_atlas)
     if a.cmd == "setup":
         from . import setup_user
         for line in setup_user.run():
@@ -89,18 +92,9 @@ def main(argv: list[str] | None = None) -> int:
             failed = [d for d in done if d.get("error")]
             print(f"cards: {len(done) - len(failed)} derived, {len(failed)} failed ({config.ATLAS_DB})")
             return 1 if failed else 0
-        done = atlas_build.run_build(a.cube, a.dimension)
-        failed = [d for d in done if d.get("error")]
-        skipped = [d for d in done if d.get("skipped")]
-        built = len(done) - len(failed) - len(skipped)
-        said = "".join(f"; {d['connection']}: {d['skipped']}" for d in skipped)
-        why = next((d["error"].removeprefix("atlas not replaced: ") for d in failed
-                    if d["error"].startswith("atlas not replaced")), None)
-        failed = [d for d in failed if not d["error"].startswith("atlas not replaced")]
-        head = f"NOT replaced ({why}); " if why else ""
-        print(f"atlas: {head}{built} built, {len(failed)} failed{f', {len(skipped)} skipped' if skipped else ''}{said} "
-              f"({config.ATLAS_DB})")
-        return 1 if failed or why else 0
+        line, ok = atlas_build.outcome(atlas_build.run_build(a.cube, a.dimension))
+        print(line)
+        return 0 if ok else 1
     if a.cmd == "knowledge":
         return _knowledge(a)
     return 2

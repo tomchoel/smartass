@@ -149,6 +149,14 @@ def _no_live_drill_routes(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_atlas_build_at_login(monkeypatch):
+    """`smartass login` builds the atlas over EPM on a PC that has none: the suite never runs that build (a test that
+    signs in passes its own fake build, or says there is an atlas)."""
+    from smartass.ops import login
+    monkeypatch.setattr(login, "_build", lambda: _violation("tests never build the atlas over EPM"))
+
+
+@pytest.fixture(autouse=True)
 def _no_leftovers_of_this_pc(monkeypatch, tmp_path_factory):
     """What an older release left on a PC (setup's and the doctor's leftovers) is looked for in an empty Startup folder
     of the test's own, an empty process list and empty Office settings: the suite never reads, removes or stops this

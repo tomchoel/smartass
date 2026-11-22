@@ -27,6 +27,7 @@ def fake(monkeypatch):
         calls.append(("finish", pod))
         state[pod] = "signed_in"
     monkeypatch.setattr(oauth, "finish_login", finish)
+    monkeypatch.setattr(login, "_no_atlas", lambda: False)        # an atlas is there (the build is tested below)
     return state, calls
 
 
@@ -77,11 +78,12 @@ def test_status_and_forget_lines(fake, monkeypatch):
 
 def test_the_cli_routes_login_and_its_flags(monkeypatch):
     seen = []
-    monkeypatch.setattr(login, "run", lambda force=False: seen.append(("run", force)) or 0)
+    monkeypatch.setattr(login, "run", lambda force=False, atlas=True: seen.append(("run", force, atlas)) or 0)
     monkeypatch.setattr(login, "show", lambda: seen.append("show") or 0)
     monkeypatch.setattr(login, "forget", lambda: seen.append("forget") or 0)
-    assert [cli.main(a) for a in (["login"], ["login", "--force"], ["login", "--status"], ["login", "--forget"])] == [0] * 4
-    assert seen == [("run", False), ("run", True), "show", "forget"]
+    argvs = (["login"], ["login", "--force"], ["login", "--status"], ["login", "--forget"], ["login", "--no-atlas"])
+    assert [cli.main(a) for a in argvs] == [0] * 5
+    assert seen == [("run", False, True), ("run", True, True), "show", "forget", ("run", False, False)]
 
 
 def test_doctor_oauth_fails_when_not_set_up_or_the_home_scope_is_missing_and_warns_when_a_sign_in_is(fake, monkeypatch):
@@ -139,3 +141,76 @@ def test_doctor_says_when_the_identity_domain_is_refused_for_not_being_https(fak
     monkeypatch.setattr(oauth, "configured", lambda: False)
     c = doctor._oauth()
     assert (c.status, c.detail, c.fix) == ("FAIL", "not set up: [oauth] idcs is not an https URL", oauth.NOT_SET_UP)
+
+
+# ---------------------------------------------------------------- the atlas built at the first login (Task 2)
+
+
+@pytest.fixture
+def no_atlas(fake, monkeypatch):
+    """A PC with no atlas; the build is a fake (conftest makes the real one a violation): done rows as run_build gives."""
+    have = {"atlas": False}
+    monkeypatch.setattr(login, "_no_atlas", lambda: not have["atlas"])
+    built = []
+
+    def build():
+        built.append(1)
+        have["atlas"] = True
+        return [{"connection": "FinMax", "dimension": "All Accounts", "members": 10, "seconds": 1.0}]
+    return have, built, build
+
+
+def test_login_builds_the_atlas_when_there_is_none_saying_what_and_how_long(no_atlas):
+    have, built, build = no_atlas
+    out = []
+    assert login.run(out=out.append, open_page=lambda u: None, copy=lambda c: None, build=build) == 0
+    text = "\n".join(out)
+    assert built == [1] and "Signed in to strat.example." in text
+    assert out.index("Signed in to strat.example.") < next(i for i, s in enumerate(out) if "No atlas" in s)
+    assert "half a minute" in text and "--no-atlas" in text and "atlas: 1 built, 0 failed" in text
+    assert any(s.startswith("Atlas built in ") and s.endswith(" s.") for s in out)
+
+
+def test_login_builds_when_every_pod_is_already_signed_in_and_never_over_an_atlas(no_atlas, fake):
+    have, built, build = no_atlas
+    state, calls = fake
+    state["https://strat.example"] = "signed_in"
+    assert login.run(out=lambda s: None, build=build) == 0 and built == [1] and calls == []
+    assert login.run(out=lambda s: None, build=build) == 0 and built == [1]          # there now: never rebuilt
+
+
+def test_login_no_atlas_skips_the_build(no_atlas):
+    have, built, build = no_atlas
+    out = []
+    assert login.run(atlas=False, out=out.append, open_page=lambda u: None, copy=lambda c: None, build=build) == 0
+    assert built == [] and not any("No atlas" in s for s in out)
+
+
+def test_a_failed_sign_in_builds_nothing_and_says_when_the_atlas_comes(no_atlas, monkeypatch):
+    have, built, build = no_atlas
+
+    def refuse(pod, device):
+        raise oauth.OAuthError("the sign-in code ended before it was approved")
+    monkeypatch.setattr(oauth, "finish_login", refuse)
+    out = []
+    assert login.run(out=out.append, open_page=lambda u: None, copy=lambda c: None, build=build) == 1
+    assert built == [] and "built after every sign-in has succeeded" in out[-1] and "smartass login" in out[-1]
+
+
+@pytest.mark.parametrize("failure", ["raises", "not replaced"])
+def test_a_failed_build_keeps_the_sign_in_and_says_which_command_to_run_later(no_atlas, failure):
+    def build():
+        if failure == "raises":
+            raise RuntimeError("EPM did not answer")
+        return [{"connection": "-", "error": "atlas not replaced: 1 dimension or cube failed"}]
+    out = []
+    assert login.run(out=out.append, open_page=lambda u: None, copy=lambda c: None, build=build) == 0
+    assert "Signed in to strat.example." in out
+    assert "your sign-in is kept" in out[-1] and "`smartass atlas build`" in out[-1]
+
+
+def test_status_and_forget_never_build(no_atlas):
+    have, built, build = no_atlas
+    login.show(out=lambda s: None)
+    login.forget(out=lambda s: None)
+    assert built == []

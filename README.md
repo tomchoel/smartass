@@ -57,7 +57,8 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 
 `smartass doctor [--json | --bundle | --fix]`, `smartass atlas status`,
 `smartass atlas build [--cube X] [--dimension D]` (over Planning REST, no Excel), `smartass setup`,
-`smartass login [--status | --force | --forget]` (EPM sign-in for the bearer route, see
+`smartass login [--status | --force | --forget | --no-atlas]` (EPM sign-in for the bearer route; builds the atlas on a
+PC that has none; see
 `docs\troubleshooting.md`, "oauth").
 
 ## Layout

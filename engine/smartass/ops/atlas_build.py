@@ -24,6 +24,34 @@ NEW_DIMENSION = "dimension {dim} is new in EPM; this release cannot read it - up
 NOT_SIGNED_IN = "not signed in to EPM - run `smartass login`"   # why a REST build without a token replaced nothing
 
 
+def no_atlas_command() -> str:
+    """The one command for a PC with no atlas: `smartass login` while a sign-in is missing (it signs in, then builds
+    the atlas), else `smartass atlas build`. From the stored sign-ins only (no network)."""
+    from ..epm import oauth
+    try:
+        ready = oauth.configured() and all(s["state"] == "signed_in" for s in oauth.status())
+    except Exception:   # noqa: BLE001 - sign-ins that cannot be read: the sign-in comes first
+        ready = False
+    return "smartass atlas build" if ready else "smartass login"
+
+
+def need_atlas() -> None:
+    """The entries that need the atlas (fin_lookup's members, a drill, every answer's grids and knowledge layer) refuse
+    on a PC with none, naming one command (no_atlas_step); "none" is read without creating the file (atlas.present)."""
+    from ..knowledge import atlas
+    from ..model.errors import GuardError
+    if not atlas.present():
+        raise GuardError(f"no atlas on this PC yet ({config.ATLAS_DB}): every answer is built on it",
+                         f"{no_atlas_step()}, then ask again")
+
+
+def no_atlas_step() -> str:
+    """What a PC with no atlas does next, one command (no_atlas_command)."""
+    cmd = no_atlas_command()
+    return f"run `{cmd}` in a terminal" + (" (it signs you in to EPM, then builds the atlas)" if cmd == "smartass login"
+                                            else " (read-only, about half a minute, then the behaviour cards)")
+
+
 def _canon(name: str) -> str:
     return name.removeprefix("All ").replace(" ", "").casefold()
 
@@ -208,6 +236,21 @@ def run_build(connections: list[str] | None = None, dimensions: list[str] | None
     if replaced and not dimensions:
         cards_after_build(done)
     return done
+
+
+def outcome(done: list[dict]) -> tuple[str, bool]:
+    """(the build's last line, ok) for run_build's rows: built / failed / skipped counts, and why nothing was replaced."""
+    failed = [d for d in done if d.get("error")]
+    skipped = [d for d in done if d.get("skipped")]
+    built = len(done) - len(failed) - len(skipped)
+    said = "".join(f"; {d['connection']}: {d['skipped']}" for d in skipped)
+    why = next((d["error"].removeprefix("atlas not replaced: ") for d in failed
+                if d["error"].startswith("atlas not replaced")), None)
+    failed = [d for d in failed if not d["error"].startswith("atlas not replaced")]
+    head = f"NOT replaced ({why}); " if why else ""
+    line = (f"atlas: {head}{built} built, {len(failed)} failed{f', {len(skipped)} skipped' if skipped else ''}{said} "
+            f"({config.ATLAS_DB})")
+    return line, not (failed or why)
 
 
 def cards_after_build(done: list[dict], derive: Callable | None = None, progress: Callable[[str], None] = print

@@ -391,6 +391,9 @@ def ensure_built(notes: list[str] | None = None) -> Path:
         if not missing and fresh:
             return path
         report = build(semantic, Path(config.ATLAS_DB), path)
+    if not report.ok:
+        from ..ops.atlas_build import need_atlas
+        need_atlas()                # no atlas at all: one command to run, not the build's member errors
     if not report.ok and not missing and same_semantic:
         if notes is not None:       # only the atlas changed: never block answers on a refresh, keep what works
             notes.append(f"knowledge.db kept from {meta.get('built_at', '?')}: the new atlas breaks it: "
