@@ -688,6 +688,34 @@ def test_a_drill_link_the_http_route_cannot_fetch_is_a_clear_error_never_excel(m
         asyncio.run(server._link("FinLite", _CELL))
 
 
+@pytest.mark.parametrize("error, advice", [
+    ("NoScope", "Add the scope of the pod named above under [oauth.scopes]"),
+    ("AtlasStale", "Build the atlas (`smartass atlas build`), then drill again."),
+    ("TokenRefused", "Run `smartass login` to sign in again, then drill again."),
+    ("NoFallback", "Try again in a minute."),                   # the data-source lookup busy: transient
+    ("SvHttpError", "Try again in a minute."),
+    ("RequestLost", "Try again in a minute."),
+])
+def test_a_drill_link_that_fails_gives_the_next_step_of_its_cause(monkeypatch, error, advice):
+    """'Try again in a minute' only for a transient failure; a missing scope, a stale atlas and a refused token each
+    get their own next step - one only: the tool's guard adds none to a message that has one."""
+    import asyncio
+    from smartass.core import serverkit
+    from smartass.epm import svhttp
+    from smartass.epm import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+
+    def broken(conn, cell):
+        raise getattr(svhttp, error)("Smart View provider: it failed")
+    monkeypatch.setattr(server, "_http_link", broken)
+    with pytest.raises(server.ToolError) as e:
+        asyncio.run(server._link("FinLite", _CELL))
+    text = str(e.value)
+    assert "it failed" in text and "no other route" in text and f"Next step: {advice}" in text
+    assert text.count("Next step:") == 1 and serverkit.with_next_step(text) == text
+    assert ("Try again in a minute" in text) == (advice == "Try again in a minute.")
+
+
 def test_with_the_http_route_switched_off_the_drill_link_says_so(monkeypatch):
     import asyncio
     from smartass.epm import drillstep as server

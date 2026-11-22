@@ -291,7 +291,21 @@ async def _link(connection: str, cell: dict) -> dict:
     except Exception as e:   # noqa: BLE001 - SvHttpError or anything else
         raise ToolError(f"the drill link of {connection} cell {' / '.join(map(str, cell.values()))} could not be "
                         f"fetched over the Smart View provider route ({e}); Planning REST has no drill-report "
-                        "request, so there is no other route - try again in a minute") from None
+                        f"request, so there is no other route. Next step: {_link_advice(e)}") from None
+
+
+def _link_advice(e: Exception) -> str:
+    """The next step after a failed drill link, by its cause: another try only helps a transient failure; a missing
+    scope, a stale atlas and a token EPM refused twice each have their own."""
+    from ..core.serverkit import NEXT_STEP
+    from . import svhttp
+    if isinstance(e, svhttp.NoScope):
+        return NEXT_STEP["NoScope"]
+    if isinstance(e, svhttp.AtlasStale):
+        return "Build the atlas (`smartass atlas build`), then drill again."
+    if isinstance(e, svhttp.TokenRefused):
+        return "Run `smartass login` to sign in again, then drill again."
+    return "Try again in a minute."
 
 
 async def _drill_cell(connection: str, cell: dict, max_lines: int, split: str) -> tuple[list[dict], float | None]:
