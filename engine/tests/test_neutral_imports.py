@@ -220,22 +220,55 @@ def test_every_process_start_is_one_of_the_allowed_and_only_launch_excel_starts_
 # audits, the plans, the specs and docs/archive are history and keep the old names.
 DOCS = ["README.md", "docs/DESIGN.md", "docs/troubleshooting.md", "docs/release.md", "installer/install.ps1",
         "engine/defaults.toml", "skills/smartass/SKILL.md", "skills/smartass/reference/*.md"]
-DOC_NAMES = [*NAMES, "the hidden Excel", "engine's own hidden Excel", "VBA bridge", "vba_access", "VBA project",
-             "smartview_dll", "HsAddin", "SSO watcher", "pull_adhoc", "adhoc.py", "--excel", "B_Ping", "SV_LOGIN_GRACE",
-             "SV_CALL_TIMEOUT", "WebView2", "xl/host", "epm/ops", "Smart View options", "Global options"]
+DOC_NAMES = [*NAMES, "hidden Excel", "VBA bridge", "vba_access", "VBA project", "smartview_dll", "HsAddin",
+             "SSO watcher", "pull_adhoc", "adhoc.py", "--excel", "B_Ping", "SV_LOGIN_GRACE", "SV_CALL_TIMEOUT",
+             "WebView2", "xl/host", "epm/ops", "Smart View options", "Global options"]
 DOC_LEFTOVERS = {("docs/troubleshooting.md", "svbridge"): "doctor --fix removes an older release's bridge files",
                  ("docs/troubleshooting.md", "VBA bridge"): "the doctor's leftovers text, quoted",
                  ("skills/smartass/reference/operations.md", "svbridge"): "the files an older release left"}
+# A name a document may use a known number of times (history, or a script's own Excel): one use more or less is a
+# finding, so a new line that says the engine has a hidden Excel is judged, not let through with the file.
+DOC_TIMES = {
+    ("docs/DESIGN.md", "hidden Excel"): (4, "check_insert ran in the engine's hidden Excel of 0.6.0 and now in one of "
+                                           "its own; two measurements made in a script's own hidden Excel"),
+    ("docs/troubleshooting.md", "hidden Excel"): (2, "what a release before 0.7.0 ran; check_fastcom's own Excel"),
+}
+
+
+def doc_findings(repo: Path, docs: list[str]) -> list[str]:
+    """'file: name' for every deleted part a listed document names (whitespace folded, so a name wrapped over two
+    lines is found), unless DOC_LEFTOVERS allows it or DOC_TIMES allows exactly that many uses; a pattern that matches
+    no file is a finding too (a renamed document would leave the guard nothing to read)."""
+    found = []
+    for pattern in docs:
+        paths = sorted(repo.glob(pattern))
+        if not paths:
+            found.append(f"{pattern}: no such file")
+        for p in paths:
+            rel, text = p.relative_to(repo).as_posix(), " ".join(p.read_text(encoding="utf-8").split())
+            for n in DOC_NAMES:
+                times, used = DOC_TIMES.get((rel, n), (0, ""))[0], text.count(n)
+                if used != times and (rel, n) not in DOC_LEFTOVERS:
+                    found.append(f"{rel}: {n} {used} time(s), {times} allowed")
+    return found
 
 
 def test_the_docs_a_user_or_an_agent_reads_name_no_deleted_part():
-    repo = ENGINE.parent
-    found = []
-    for pattern in DOCS:
-        for p in sorted(repo.glob(pattern)):
-            rel, text = p.relative_to(repo).as_posix(), p.read_text(encoding="utf-8")
-            found += [f"{rel}: {n}" for n in DOC_NAMES if n in text and (rel, n) not in DOC_LEFTOVERS]
-    assert found == []
+    assert doc_findings(ENGINE.parent, DOCS) == []
+    assert all(why for _, why in DOC_TIMES.values()) and all(DOC_LEFTOVERS.values())
+
+
+def test_the_docs_guard_fails_on_a_listed_file_that_is_missing(tmp_path):
+    """A document renamed or moved would leave the guard nothing to read: a pattern that matches no file is a finding."""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "here.md").write_text("plain text", encoding="utf-8")
+    assert doc_findings(tmp_path, ["docs/here.md", "docs/gone.md", "skills/*/reference/*.md"]) == [
+        "docs/gone.md: no such file", "skills/*/reference/*.md: no such file"]
+
+
+def test_the_docs_guard_finds_a_name_wrapped_over_two_lines(tmp_path):
+    (tmp_path / "d.md").write_text("smartass starts a hidden\n  Excel for the grids.", encoding="utf-8")
+    assert doc_findings(tmp_path, ["d.md"]) == ["d.md: hidden Excel 1 time(s), 0 allowed"]
 
 
 def test_the_errors_live_in_one_neutral_module():
