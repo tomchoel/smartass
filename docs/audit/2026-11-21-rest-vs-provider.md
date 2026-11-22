@@ -82,6 +82,10 @@ counted as differences (the stale-alias class, accepted since) and the wrong-mem
   exports "only cells for which the user has read-write access" and names no marker for the others, so over REST a
   cell the user may not read cannot be told apart from an empty one: it reads as missing, not as #NoAccess. The
   reply's one warning for REST grids says so. To be checked when a no-access cell is available.
+- **The split loop after the gate (open item)**: the gate ran on d2cf8a4; 93c6215 changed the split loop afterwards
+  (each part's answer is checked before the next part is sent), covered offline by item 1's test of Task 3c
+  (`test_rest.py::test_a_split_grid_whose_first_answer_is_not_the_grid_asked_sends_no_other_part`, 8ab749e); the
+  controller re-runs the grids part before the release.
 - **Unknown member** (an invented code, `ac.ZZ_NO_SUCH_MEMBER`): REST's HTTP 400 names it (`MemberRefused`); on
   rows it can be left out, in the POV it cannot. The provider route fails the grid without naming it.
 - **Cell budget**: EPM refuses a grid over 500 000 cells as it counts them: the grid's data rows and its two header
