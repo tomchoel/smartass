@@ -125,38 +125,70 @@ def build_rest(source, connections: list[str] | None = None, dimensions: list[st
 def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
                progress: Callable[[str], None] = print) -> tuple[list[dict], bool]:
     """run(db) on a NEW file - a copy of target (its cards and every other table kept) - which replaces target only
-    when run returned and recorded no error:
-    never a half-built atlas in place. (done, replaced). An error, or run raising, leaves target untouched (and
-    says so); the new file is removed. The swap is SQLite's backup into target, one transaction: a reader that has
+    when run returned and recorded no error: never a half-built atlas in place. (done, replaced). When nothing is
+    replaced, done ends with {"connection": "-", "error": "atlas not replaced: <why>"} and progress says so; an error,
+    or run raising, leaves target untouched; the new file is removed. Every attempt is recorded next to target
+    (last_attempt: `atlas status`). The swap is SQLite's backup into target, one transaction: a reader that has
     target open sees the old atlas or the new one; a lock another process holds longer than SWAP_TIMEOUT_S leaves it
-    unchanged (not replaced, said so)."""
+    unchanged."""
     target = Path(target)
     new = target.with_name(target.name + ".new")
     new.unlink(missing_ok=True)
     target.parent.mkdir(parents=True, exist_ok=True)
+    done: list[dict] = []
+
+    def outcome(replaced: bool, why: str = "") -> tuple[list[dict], bool]:
+        _record(target, replaced, why, done)
+        if not replaced:
+            done.append({"connection": "-", "error": f"atlas not replaced: {why}"})
+            progress(f"atlas not replaced: {why}; {target} is unchanged")
+        return done, replaced
     try:
         if target.exists():
             try:
                 _copy(target, new)
             except (sqlite3.Error, TimeoutError) as e:
-                progress(f"atlas not built: {target} could not be read ({e}); it is unchanged")
-                return [{"connection": "-", "error": f"the atlas could not be read: {e}"}], False
-        with contextlib.closing(atlas.connect(new)) as db:
-            done = run(db)
+                return outcome(False, f"{target.name} could not be read ({e})")
+        try:
+            with contextlib.closing(atlas.connect(new)) as db:
+                done = run(db)
+        except BaseException as e:
+            _record(target, False, f"the build stopped ({type(e).__name__})", done)
+            raise
         failed = [d for d in done if d.get("error")]
         if failed or not done:
-            why = (f"{len(failed)} {'dimension' if len(failed) == 1 else 'dimensions'} or cubes failed" if failed
-                   else "nothing was built (no such dimension?)")
-            progress(f"atlas not replaced: {why}; {target} is unchanged")
-            return done, False
+            return outcome(False, f"{len(failed)} {'dimension or cube' if len(failed) == 1 else 'dimensions or cubes'} "
+                                  "failed" if failed else "nothing was built (no such dimension?)")
         try:
             _copy(new, target)
         except (sqlite3.Error, TimeoutError) as e:
-            progress(f"atlas not replaced: {target} could not be written ({e}); it is unchanged")
-            return [*done, {"connection": "-", "error": f"the atlas could not be replaced: {e}"}], False
-        return done, True
+            return outcome(False, f"{target.name} could not be written ({e})")
+        return outcome(True)
     finally:
         new.unlink(missing_ok=True)
+
+
+def _last_path(target: Path) -> Path:
+    return Path(target).with_name(Path(target).name + ".last.json")
+
+
+def _record(target: Path, replaced: bool, why: str, done: list[dict]) -> None:
+    """The attempt, for `atlas status`: when, replaced or not, why, the dimensions this release could not read."""
+    import datetime as dt
+    import json
+    rec = {"at": dt.datetime.now().isoformat(timespec="seconds"), "replaced": replaced, "why": why,
+           "skipped": [f"{d['connection']}: {d['skipped']}" for d in done if d.get("skipped")]}
+    with contextlib.suppress(OSError):
+        _last_path(target).write_text(json.dumps(rec, indent=1), encoding="utf-8")
+
+
+def last_attempt(target: Path | None = None) -> dict | None:
+    """The last REST build's attempt on target (default the atlas): {at, replaced, why, skipped}; None before any."""
+    import json
+    try:
+        return json.loads(_last_path(target or config.ATLAS_DB).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
 def _copy(src_path: Path, dst_path: Path) -> None:
@@ -226,4 +258,5 @@ def cards_after_build(done: list[dict], derive: Callable | None = None, progress
 
 def status() -> dict:
     with contextlib.closing(atlas.connect()) as db:
-        return {**atlas.status(db), "cards": atlas.cards_status(db), "atlas_db": str(config.ATLAS_DB)}
+        return {**atlas.status(db), "cards": atlas.cards_status(db), "atlas_db": str(config.ATLAS_DB),
+                "last_build": last_attempt()}

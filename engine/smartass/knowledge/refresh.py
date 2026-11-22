@@ -185,8 +185,15 @@ class RefreshResult:
     first: bool = False
 
     @property
+    def atlas_not_replaced(self) -> str | None:
+        """Why the atlas build replaced nothing (atlas_build.build_into's last row), else None."""
+        return next((a["error"] for a in self.atlas or [] if str(a.get("error", "")).startswith("atlas not replaced")),
+                    None)
+
+    @property
     def ok(self) -> bool:
-        return self.build.ok and all(r.get("ok") is not False for r in self.testset)
+        return (self.build.ok and all(r.get("ok") is not False for r in self.testset)
+                and not any(a.get("error") for a in self.atlas or []))
 
 
 def _affected(d: AtlasDiff, metrics: list[Metric]) -> list[str]:
@@ -202,8 +209,10 @@ def _report(r: RefreshResult, metrics: list[Metric]) -> str:
     lines = [f"# Knowledge refresh {_ym(r.month)}", "",
              f"Run {dt.datetime.now():%Y-%m-%d %H:%M}. Atlas: "
              + ("not rebuilt (--no-atlas)" if r.atlas is None else
-                f"rebuilt, {sum(1 for a in r.atlas if not a.get('error'))} dimension(s), "
-                f"{sum(1 for a in r.atlas if a.get('error'))} failed"), ""]
+                f"NOT replaced ({r.atlas_not_replaced}); the refresh used the atlas as it was" if r.atlas_not_replaced
+                else f"rebuilt, {sum(1 for a in r.atlas if not a.get('error') and not a.get('skipped'))} dimension(s), "
+                f"{sum(1 for a in r.atlas if a.get('error'))} failed"
+                + "".join(f"; {a['connection']}: {a['skipped']}" for a in r.atlas if a.get("skipped"))), ""]
     lines += ["## Atlas diff", ""]
     if r.first:
         lines += ["No snapshot from an earlier refresh: this first refresh saves the baseline.", ""]

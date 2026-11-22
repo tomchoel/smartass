@@ -411,7 +411,37 @@ def test_a_build_of_no_dimension_replaces_nothing(tmp_path):
     said = []
     done, swapped = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
         _Source(TREES, DIMS), ["FinMax"], ["Nonesuch"], db=db, progress=lambda m: None), progress=said.append)
-    assert done == [] and not swapped and "nothing was built" in said[-1]
+    assert done == [{"connection": "-", "error": "atlas not replaced: nothing was built (no such dimension?)"}]
+    assert not swapped and "nothing was built" in said[-1]
+
+
+def test_every_attempt_is_recorded_for_atlas_status(tmp_path, monkeypatch):
+    """atlas status shows the last attempt - when, replaced or not, why, the dimensions it could not read - also when
+    nothing was replaced (the error rows went with the new file)."""
+    target = tmp_path / "atlas.db"
+    _today(target)
+    dims = {**DIMS, "FinMax": [*DIMS["FinMax"], ("Colours", "All Colours")]}
+    atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        _Source(TREES, dims), ["FinMax"], db=db, progress=lambda m: None), progress=lambda m: None)
+    last = atlas_build.last_attempt(target)
+    assert last["replaced"] is True and last["why"] == "" and last["at"]
+    assert last["skipped"] == ["FinMax: dimension All Colours is new in EPM; this release cannot read it - update smartass"]
+    done, _ = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        _Source(TREES, DIMS, fail=("Entities",)), ["FinMax"], db=db, progress=lambda m: None), progress=lambda m: None)
+    assert done[-1] == {"connection": "-", "error": "atlas not replaced: 1 dimension or cube failed"}
+    last = atlas_build.last_attempt(target)
+    assert last["replaced"] is False and last["why"] == "1 dimension or cube failed" and last["skipped"] == []
+    monkeypatch.setattr(atlas_build.config, "ATLAS_DB", target)
+    assert atlas_build.status()["last_build"] == last
+
+
+def test_the_cli_says_not_replaced_on_its_last_line_and_fails(monkeypatch, capsys):
+    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims, excel: [
+        {"connection": "FinMax", "dimension": "All Accounts", "members": 3},
+        {"connection": "-", "error": "atlas not replaced: nothing was built (no such dimension?)"}])
+    assert cli.main(["atlas", "build"]) == 1
+    last = capsys.readouterr().out.strip().splitlines()[-1]
+    assert last.startswith("atlas: NOT replaced (nothing was built (no such dimension?))")
 
 
 def test_a_build_that_raises_leaves_todays_atlas_untouched(tmp_path):

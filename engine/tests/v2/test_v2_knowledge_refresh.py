@@ -94,6 +94,19 @@ def test_refresh_end_to_end_with_fakes(tmp_path, monkeypatch):
     assert snap_now["FinMax"]["All Entities"]["un.SY.G910"][0] == "un.SY.2BUS"         # the new snapshot is saved
 
 
+def test_a_refresh_whose_atlas_was_not_replaced_says_so_and_is_not_ok(tmp_path, monkeypatch):
+    """Task 4 review, Minor 2: an atlas build that replaced nothing is not "rebuilt": the report says not replaced and
+    why, and the refresh is not ok (the CLI exits non-zero); the rest of the refresh runs on the unchanged atlas."""
+    a, sem, k, home = _wire(tmp_path, monkeypatch)
+    not_replaced = [{"connection": "FinMax", "dimension": "All Accounts", "error": "HTTP 500"},
+                    {"connection": "-", "error": "atlas not replaced: 1 dimension or cube failed"}]
+    out = refresh.refresh(sem, a, k, home, (2026, 10), rebuild_atlas=lambda: not_replaced,
+                          run_testset=lambda: [{"id": "b01", "ok": True, "diffs": []}])
+    assert out.build.ok and not out.ok
+    report = (home / "knowledge" / "reports" / "2026-10.md").read_text(encoding="utf-8")
+    assert "Atlas: NOT replaced (atlas not replaced: 1 dimension or cube failed)" in report and "rebuilt" not in report
+
+
 def test_refresh_without_atlas_rebuild_and_first_snapshot(tmp_path, monkeypatch):
     a, sem, k = knowledge(tmp_path, monkeypatch)
     home = tmp_path / "home"

@@ -118,9 +118,13 @@ def main(argv: list[str] | None = None) -> int:
         skipped = [d for d in done if d.get("skipped")]
         built = len(done) - len(failed) - len(skipped)
         said = "".join(f"; {d['connection']}: {d['skipped']}" for d in skipped)
-        print(f"atlas: {built} built, {len(failed)} failed{f', {len(skipped)} skipped' if skipped else ''}{said} "
+        why = next((d["error"].removeprefix("atlas not replaced: ") for d in failed
+                    if d["error"].startswith("atlas not replaced")), None)
+        failed = [d for d in failed if not d["error"].startswith("atlas not replaced")]
+        head = f"NOT replaced ({why}); " if why else ""
+        print(f"atlas: {head}{built} built, {len(failed)} failed{f', {len(skipped)} skipped' if skipped else ''}{said} "
               f"({config.ATLAS_DB})")
-        return 1 if failed else 0
+        return 1 if failed or why else 0
     if a.cmd == "knowledge":
         return _knowledge(a)
     if a.cmd == "update":
@@ -212,6 +216,8 @@ def _knowledge(a) -> int:
         print(f"diff {res.diff.counts()}{' (first refresh: baseline saved)' if res.first else ''}; "
               f"{len(res.drafts)} draft(s) written; test set {ok}/{len(res.testset)}")
         print(res.build.to_text())
+        if res.atlas_not_replaced:
+            print(f"{res.atlas_not_replaced} - this refresh used the atlas as it was")
         print(f"report: {res.report}")
         return 0 if res.ok else 1
     if a.knowledge_cmd == "approve":
