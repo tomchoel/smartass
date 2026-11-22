@@ -543,15 +543,21 @@ def _fix_config(say) -> bool:
     if names:
         say(f"removing {', '.join(names)} from {cfg}: no longer used ({_gone(names)} gone)")
     if new != raw:
+        tmp = cfg.with_name(cfg.name + ".tmp")
         try:
             bak = _backup(cfg, raw, say)
-            tmp = cfg.with_name(cfg.name + ".tmp")
             tmp.write_bytes(new)
             os.replace(tmp, cfg)
         except OSError as e:
+            try:
+                tmp.unlink(missing_ok=True)         # no half-done copy left next to it
+            except OSError:
+                pass
             say(f"could not change {cfg} ({e.strerror or e}); delete its {_sections()} sections by hand")
             return False
         say(f"{cfg} changed; the copy from before is {bak}")
+        if secret:
+            say(f"the backup {bak} still holds the plain [http] secret - delete it when you no longer need it")
     left = _unused_settings()
     if _plain_http_secret():                        # written another way (a dotted key, an inline table)
         say(f"the plain [http] secret is still in {cfg}: delete it by hand")
@@ -566,11 +572,18 @@ def _sections() -> str:
 
 def _backup(cfg: Path, raw: bytes, say) -> Path:
     """A copy of config.toml next to it, config.toml.bak-<date> (-2, -3 ... when that name is taken: an earlier backup
-    is never overwritten), said before it is written. OSError when it cannot be written (then nothing is changed)."""
+    is never overwritten), said before it is written; a copy of the same day that already holds these bytes (a retry
+    after a write that failed) is used as it is. OSError when it cannot be written (then nothing is changed)."""
     stamp = time.strftime("%Y-%m-%d")
     for n in range(1, 1000):
         bak = cfg.with_name(f"{cfg.name}.bak-{stamp}" + (f"-{n}" if n > 1 else ""))
         if bak.exists():
+            try:
+                if bak.read_bytes() == raw:
+                    say(f"{cfg} is already backed up in {bak}")
+                    return bak
+            except OSError:
+                pass
             continue
         say(f"backing up {cfg} to {bak} before it is changed")
         with open(bak, "xb") as f:                 # x: never over a file that appeared meanwhile

@@ -230,3 +230,46 @@ def test_when_in_doubt_the_file_is_left_as_it_is_and_the_lines_are_said(home):
     hand = [s for s in said if "by hand" in s]
     assert hand and "lines 4-6 ([http])" in hand[0] and "lines 7-8 ([http.extra])" in hand[0], said
     assert "8765" not in " ".join(said)                     # a comment on a header line is never said
+
+
+def test_a_failed_write_leaves_no_tmp_file_and_a_retry_adds_no_second_backup(home, monkeypatch):
+    """Task 3 review, Minor 1: config.toml that cannot be replaced (read-only, in use) is left as it is, its .tmp is
+    cleaned up, and a retry reuses the identical backup of the same day instead of writing another."""
+    cfg = home / "config.toml"
+    cfg.write_text("[paths]\nanalyser = 'C:/a'\n\n[release]\nfolder = 'C:/rel'\n")
+    before = cfg.read_bytes()
+
+    def refuse(src, dst):
+        raise PermissionError(13, "Access is denied")
+    monkeypatch.setattr(doctor.os, "replace", refuse)
+    for _ in range(2):
+        said = []
+        doctor.fix_leftovers(say=said.append)
+        assert cfg.read_bytes() == before and any("could not change" in s for s in said)
+        assert not (home / "config.toml.tmp").exists()
+    baks = sorted(p.name for p in home.glob("config.toml.bak-*"))
+    assert len(baks) == 1, baks
+    assert any("already backed up" in s for s in said)
+
+
+def test_the_backup_of_a_plain_secret_is_said_to_still_hold_it(home):
+    """Task 3 review, Minor 2: the secret leaves config.toml, but the copy from before keeps it in plain text - the fix
+    says so (never the value), so the user can delete the copy."""
+    secret = secrets.token_urlsafe(18)
+    cfg = home / "config.toml"
+    cfg.write_text(f"[paths]\nanalyser = 'C:/a'\n\n[http]\nsecret = '{secret}'\n")
+    said = []
+    doctor.fix_leftovers(say=said.append)
+    bak = next(home.glob("config.toml.bak-*"))
+    assert secret in bak.read_text() and secret not in cfg.read_text()
+    at = next(i for i, s in enumerate(said) if "the copy from before is" in s)
+    assert said[at + 1] == f"the backup {bak} still holds the plain [http] secret - delete it when you no longer need it"
+    assert secret not in " ".join(said)
+
+
+def test_a_backup_without_a_secret_says_nothing_of_one(home):
+    cfg = home / "config.toml"
+    cfg.write_text("[paths]\nanalyser = 'C:/a'\n\n[release]\nfolder = 'C:/rel'\n")
+    said = []
+    doctor.fix_leftovers(say=said.append)
+    assert not any("still holds" in s for s in said)
