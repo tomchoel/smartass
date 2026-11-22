@@ -324,7 +324,7 @@ def test_the_atlas_is_read_by_name_without_a_pass_over_a_dimension_when_every_na
     db.set_trace_callback(statements.append)
     _grid(_Epm(), db, entities=("un.SY.E1", "un.SY.E2"), periods=("Aug 26",), pov={"All Scenarios": "Actual"})
     db.set_trace_callback(None)
-    scans = [s for s in statements if "SELECT name, label FROM member" in s and " IN (" not in s]
+    scans = [s for s in statements if s.startswith("SELECT name, label") and " IN (" not in s]
     assert len(scans) == 1 and "'All Time Periods'" in scans[0]                # 'Aug 26' answered as Y26M08 only
 
 
@@ -341,6 +341,60 @@ def test_a_member_kept_under_its_label_keeps_that_label_when_its_name_is_another
                         [Axis("Account", ["EBX Ebitda X"]), Axis("Entity", ["1TEC Tech"])], [Axis("Period", ["Dec"])],
                         db)
     assert f.values[2][:2] == ["EBX Ebitda X", "1TEC Tech"] and f.warnings == []
+
+
+def _real_names(db, real=()):
+    """The atlas as the build over REST stores it: every member with its real name (REAL, else its key)."""
+    atlas.add_member_columns(db)
+    for conn, dim, members_ in ATLAS:
+        atlas.store(db, conn, dim, [{"name": n, "label": lab, "parent": None if i == 0 else dim, "depth": int(i > 0),
+                                     "order": i, "real_name": dict(real).get(n, REAL.get(lab, n))}
+                                    for i, (n, lab) in enumerate(members_)], 1.0)
+
+
+def _swapped(path, body):
+    """FinPlan's two entities answered in each other's place (each always under the same name)."""
+    if path.endswith("exportdataslice"):
+        return 200, json.dumps({"pov": ["BalanceTypes", "Target", "Final", "FY26"], "columns": [["Dec"]],
+                                "rows": [{"headers": ["EBX", "2BUS"], "data": ["1"]},
+                                         {"headers": ["EBX", "1TEC"], "data": ["2"]}]})
+
+
+def _finplan(db, epm):
+    return rest.fetch_grid(_session(epm), "FinPlan", {"Scenario": "Target", "Version": "Final", "Years": "FY26"},
+                           [Axis("Account", ["EBX Ebitda X"]), Axis("Entity", ["1TEC Tech", "2BUS Biz"])],
+                           [Axis("Period", ["Dec"])], db)
+
+
+def test_a_member_kept_under_its_label_must_be_answered_under_its_real_name_where_the_atlas_has_it(db):
+    """Task 3's review, Minor 2: with the real names the build over REST stores, the place is no longer the only link
+    between a label and its number - two members answered in each other's place are caught; an atlas without them
+    (built by the hidden Excel) still relies on the order (REST answers in the order asked, live)."""
+    assert [r[:2] for r in _finplan(db, _Epm(answer=_swapped)).values[2:]] == [["EBX Ebitda X", "1TEC Tech"],
+                                                                              ["EBX Ebitda X", "2BUS Biz"]]
+    _real_names(db)
+    assert [r[:2] for r in _finplan(db, _Epm()).values[2:]] == [["EBX Ebitda X", "1TEC Tech"],
+                                                               ["EBX Ebitda X", "2BUS Biz"]]
+    with pytest.raises(rest.RestError, match="different layout.*1TEC Tech answered as 2BUS"):
+        _finplan(db, _Epm(answer=_swapped))
+
+
+def test_a_member_whose_key_is_not_its_real_name_is_matched_by_its_real_name(db):
+    """Live: most FinMax projects' keys, derived from 'code alias (prefix)', are not EPM's names (pj.SY.SY.X for
+    pj.SY.X). REST answers the real name: with the atlas's real name it is that member; without it, an error."""
+    def answer(path, body):
+        if path.endswith("exportdataslice"):
+            got = Epm_default._slice(body)
+            j = json.loads(got[1])
+            for r in j["rows"]:
+                r["headers"] = ["un.E2" if h == "un.SY.E2" else h for h in r["headers"]]
+            return 200, json.dumps(j)
+    Epm_default = _Epm()
+    with pytest.raises(rest.RestError, match="different layout.*un.SY.E2 answered as un.E2"):
+        _grid(_Epm(answer=answer), db, accounts=("ac.C30",), entities=("un.SY.E2",))
+    _real_names(db, real=[("un.SY.E2", "un.E2")])
+    f = _grid(_Epm(answer=answer), db, accounts=("ac.C30",), entities=("un.SY.E2",))
+    assert f.values[2][:2] == ["C30 REVENUES (ac)", "E2 Entity two (un.SY)"] and f.warnings == []
 
 
 def test_a_member_asked_by_its_label_is_answered_under_its_name(db):
