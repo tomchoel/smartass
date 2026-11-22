@@ -8,7 +8,7 @@ import pywintypes
 
 from smartass.core import config, session
 from smartass.xl import dialogs, styling
-from smartass.xl import instances, jobs, login, target
+from smartass.xl import instances, jobs, target
 from smartass.xl.dialogs import Dialog
 from smartass.xl.host import HostError
 
@@ -37,7 +37,8 @@ class FakeApp:
 def fast(monkeypatch):
     monkeypatch.setattr(target.time, "sleep", lambda s: None)
     monkeypatch.setattr(jobs, "hold_turn", lambda *a, **k: True)
-    monkeypatch.setattr(login, "wait_login_cleared", lambda *a, **k: None)
+    monkeypatch.setattr(dialogs, "watch_after_start", lambda *a, **k: None)
+    monkeypatch.setattr(dialogs, "refuse_login", lambda *a, **k: None)
 
 
 def test_open_path_fails_fast_when_the_new_excel_exits(tmp_path, monkeypatch, fast):
@@ -110,7 +111,7 @@ def _excels(monkeypatch, windows: dict, apps: dict, engine=()):
                                  for pid, caps in windows.items()])
     monkeypatch.setattr(instances, "_app_from_window", lambda ex7: apps.get(ex7 // 100))
     monkeypatch.setattr(instances, "_is_embedding", lambda pid: False)
-    monkeypatch.setattr(login, "login_open", lambda pid: [])
+    monkeypatch.setattr(dialogs, "login_open", lambda pid: [])
 
 
 def test_target_open_in_the_second_excel_is_used_there(tmp_path, monkeypatch, fast):

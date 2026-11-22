@@ -11,12 +11,16 @@ classify/blocking/ie_fallback/stale_sv_webview2_from are pure; the rest is thin 
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
+
+from ..core.errors import HostError
 
 DIALOG_CLASSES = ("#32770", "NUIDialog")      # Win32 message boxes (Smart View's) and Excel's own alerts
 LOGIN_TITLES = ("login", "sign in")
 IE_CLASS = "Internet Explorer_Server"
 SV_WEBVIEW_DIR = r"oracle\smartview\webview"    # Smart View's fixed WebView2 user data folder under %APPDATA%
+LAUNCH_GRACE_S = 12            # a fresh Excel shows Smart View's Login at start-up (seen 19-22 s after; checked 12 s)
 
 
 @dataclass(frozen=True)
@@ -241,3 +245,43 @@ def close(hwnds: list[int]) -> None:
 
 def webview2_holders(exclude_parent: int | None) -> list[str]:
     return webview2_holders_from(_webview2_rows(), exclude_parent)
+
+
+def login_open(pid: int) -> list[int]:
+    """Smart View's Login windows open in Excel `pid` (empty = none)."""
+    return [d.hwnd for d in scan(pid) if d.kind == "login" and d.cls == "#32770" and d.title == "Login"]
+
+
+STARTUP_HINT = ("If it shows at every Excel start, untick 'Check for updates when Microsoft Office starts' in Smart "
+                "View > Options > Extensions (close Excel first).")
+
+
+def login_refusal(pid: int, captions: list[str] | None = None) -> HostError:
+    """The refusal for an Excel whose Smart View Login is open: which Excel (its workbook windows' titles, read without
+    COM, when it shows any) and what to do."""
+    shown = [c for c in captions or [] if c]
+    which = f"the Excel showing {', '.join(repr(c) for c in shown[:3])} (pid {pid})" if shown else f"Excel (pid {pid})"
+    return HostError(f"Smart View's Login is open in {which}; smartass does not touch an Excel while it is (COM into it "
+                     "would block). Next step: sign in there or close that Login window, then ask again. "
+                     + STARTUP_HINT)
+
+
+def refuse_login(pid: int, captions: list[str] | None = None) -> None:
+    """Refuse (login_refusal) when Smart View's Login is open in Excel `pid`: checked once, before the first COM."""
+    if login_open(pid):
+        raise login_refusal(pid, captions)
+
+
+def watch_after_start(pid: int, grace: float = LAUNCH_GRACE_S, alive=None, clock=None, sleep=None) -> None:
+    """An Excel smartass just launched: watched for grace seconds (Smart View's Login may come right after its start)
+    before the first COM call; a Login seen is refused at once (login_refusal). alive: the job's abort check, each
+    round."""
+    clock, sleep = clock or time.monotonic, sleep or time.sleep
+    t0 = clock()
+    while True:
+        if alive is not None:
+            alive()
+        refuse_login(pid)
+        if clock() - t0 >= grace:
+            return
+        sleep(0.5)

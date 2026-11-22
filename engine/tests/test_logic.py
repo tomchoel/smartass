@@ -68,64 +68,6 @@ def test_progress_job_clears_its_notify_after_the_job():
     assert t.notify is None and getattr(timing._local, "pending_notify", None) is None
 
 
-def test_wait_login_recovers_an_ie_fallback_login_by_itself(monkeypatch):
-    from smartass.xl import dialogs
-    from smartass.xl import login
-    from smartass.xl.dialogs import Dialog
-    state = {"ie": True, "recovered": 0}
-    clock = {"t": 0.0}
-    monkeypatch.setattr(login.time, "monotonic", lambda: clock["t"])
-
-    def scan(pid):
-        return [Dialog(2, "#32770", "Login", "", "login", ie=True)] if state["ie"] else []
-
-    def recover(pid, hwnds):
-        state["recovered"] += 1
-        state["ie"] = False                       # Smart View reopens the login in WebView2; the watcher clicks it
-        return {"ended": [10], "closed": hwnds}
-    monkeypatch.setattr(dialogs, "scan", scan)
-    monkeypatch.setattr(login, "recover_ie_login", recover)
-    monkeypatch.setattr(login, "login_open", lambda pid: [2] if state["ie"] else [])
-    monkeypatch.setattr(login.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
-    login.wait_login_cleared(1, limit=60)
-    assert state["recovered"] == 1
-
-
-def test_wait_login_after_recovery_waits_for_the_new_login_and_spaces_retries(monkeypatch):
-    from smartass.xl import dialogs
-    from smartass.xl import login
-    from smartass.xl.dialogs import Dialog
-    clock = {"t": 0.0}
-    monkeypatch.setattr(login.time, "monotonic", lambda: clock["t"])
-    monkeypatch.setattr(login.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
-    # IE login until 1 s; then nothing for 5 s (Smart View has not reopened yet); a new login 6-9 s; then signed in
-    def login_at(t):
-        return [2] if t < 1 or 6 <= t < 9 else []
-    monkeypatch.setattr(login, "login_open", lambda pid: login_at(clock["t"]))
-    monkeypatch.setattr(dialogs, "scan", lambda pid: [Dialog(2, "#32770", "Login", "", "login", ie=True)]
-                        if clock["t"] < 1 else [])
-    rec = []
-    monkeypatch.setattr(login, "recover_ie_login", lambda pid, h: rec.append(clock["t"]) or {"ended": [], "closed": h})
-    login.wait_login_cleared(1, limit=60)
-    assert clock["t"] >= 9 and len(rec) == 1      # did not return in the gap before the new login
-
-
-def test_smart_view_box_guard_dismisses_each_box_once_and_keeps_its_text(monkeypatch):
-    import time as _t
-
-    from smartass.xl import dialogs
-    from smartass.xl import login
-    from smartass.xl.dialogs import Dialog
-    box = Dialog(5, "#32770", "Oracle Smart View for Office", "Empty response from provider.", "message")
-    pressed = []
-    monkeypatch.setattr(dialogs, "scan", lambda pid: [box] if 5 not in pressed else [])
-    monkeypatch.setattr(dialogs, "press_ok", lambda h: pressed.append(h) or True)
-    monkeypatch.setattr(login, "BOX_POLL_S", 0.01)
-    with login.SmartViewBoxes(1) as g:
-        _t.sleep(0.1)
-    assert pressed == [5] and g.texts == ["Empty response from provider."]
-
-
 def test_com_retries_a_busy_excel_then_says_so_in_words(monkeypatch):
     import pytest
     import pywintypes

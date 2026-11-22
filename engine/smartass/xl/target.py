@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import pywintypes
 
-from . import instances, jobs, login
+from . import dialogs, instances, jobs
 from ..core import config
 from ..core.errors import HostError, InputError
 from .hostproc import retry_busy
@@ -127,8 +127,6 @@ def resolve_target(h: JobHost, target: str = "session", allow_archive: bool = Fa
 
 def _resolve(h: JobHost, target: str, allow_archive: bool, title: str | None, build_new: bool) -> Target:
     from ..core import session
-    from ..epm import sso
-    sso.ensure_global_watcher()
     if target == "session":
         wb_path = session.workbook()
         if wb_path:
@@ -149,7 +147,7 @@ def _resolve(h: JobHost, target: str, allow_archive: bool, title: str | None, bu
         if instances.is_archive(p) and not allow_archive:       # refuse BEFORE opening anything
             raise InputError(ARCHIVE_REFUSAL.format(name=p.name))
     with stage("find Excel windows"):
-        insts = instances.excel_instances()                     # waits for any open EPM login before touching an Excel
+        insts = instances.excel_instances()                     # refuses at once if a Smart View Login is open
     excels = [(i.pid, i.hwnd, i.app) for i in insts if i.app is not None]
     if target == "active":
         for pid, hwnd, app in excels:
@@ -375,14 +373,14 @@ def _spawn_excel(tpl: Path, known: set[int]):
             for wb in app.Workbooks:
                 if str(wb.Name).lower().startswith(tpl.stem.lower()):
                     jobs.hold_turn(pid, wait=False)
-                    login.wait_login_cleared(pid, appear_grace=12)     # a fresh Excel may show the EPM login at start-up
+                    dialogs.watch_after_start(pid, alive=jobs._check_alive)   # Smart View's Login may come at start-up
                     jobs.log.info("started Excel pid %s for a parallel agent", pid)
                     return (pid, hwnd, app), wb
     raise HostError(f"A new Excel (pid {proc.pid}) did not open the TN template within 120 s.")
 
 
 def _finish_target(h: JobHost, t: Target, allow_archive: bool) -> Target:
-    login.wait_login_cleared(t.pid)                         # before any further COM into that Excel
+    dialogs.refuse_login(t.pid)                             # before any further COM into that Excel
     if (instances.is_archive(t.path) or instances.is_archive(t.full_name)) and not allow_archive:
         raise InputError(ARCHIVE_REFUSAL.format(name=t.name))
     _wait_ready(t.app, pid=t.pid, name=t.name)
@@ -501,7 +499,7 @@ def _open_path(h: JobHost, path: Path, excels, insts: list[instances.XlInstance]
             for wb in app.Workbooks:
                 if instances._norm(wb.FullName) == instances._norm(path):
                     jobs.hold_turn(pid, what="this request", app=app)
-                    login.wait_login_cleared(pid, appear_grace=12)     # a fresh Excel shows the EPM login at start-up
+                    dialogs.watch_after_start(pid, alive=jobs._check_alive)   # Smart View's Login may come at start-up
                     return Target(app, wb, pid, hwnd)
         if proc.poll() is not None:
             raise HostError(f"Excel (pid {proc.pid}) closed before it opened {path.name}. "

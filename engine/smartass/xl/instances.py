@@ -13,7 +13,7 @@ import win32file
 import win32gui
 import win32process
 
-from . import fastcom, login
+from . import dialogs, fastcom
 from ..core import config
 from ..core.errors import HostError
 
@@ -78,18 +78,18 @@ def engine_excel_pids() -> set[int]:
     return {int(i["pid"]) for i in _PidRegistry().load() if isinstance(i, dict) and i.get("pid")}
 
 
-def excel_instances(_retry_login: bool = True) -> list[XlInstance]:
-    """Every visible, user-facing Excel process (not the engine's hidden ones), most recently active first, including
-    Excels that do not answer COM right now (app=None). An Excel showing the EPM Login dialog is waited for (the SSO
-    watcher clicks it) before it is touched."""
-    out, pending = [], []
+def excel_instances() -> list[XlInstance]:
+    """Every visible, user-facing Excel process (not one an older release's engine started), most recently active
+    first, including Excels that do not answer COM right now (app=None). An Excel showing Smart View's Login is never
+    touched (COM into it blocks): the job is refused at once, naming that Excel by its windows' titles
+    (dialogs.login_refusal) - nothing waits for or clicks the Login."""
+    out = []
     engine = engine_excel_pids()
     for pid, h, ex7s in _excel_windows():
         if pid in engine or _is_embedding(pid):
             continue
-        if login.login_open(pid):
-            pending.append(pid)                   # no COM into an Excel whose EPM login is open (deadlock)
-            continue
+        if dialogs.login_open(pid):               # window enumeration only: no COM into that Excel
+            raise dialogs.login_refusal(pid, [c for _e, c in ex7s])
         if not ex7s:
             continue
         app = None
@@ -98,19 +98,13 @@ def excel_instances(_retry_login: bool = True) -> list[XlInstance]:
             if app is not None:
                 break
         out.append(XlInstance(pid, h, [c for _e, c in ex7s], app))
-    if pending and _retry_login:
-        from ..epm import sso
-        sso.ensure_global_watcher()
-        for pid in pending:
-            login.wait_login_cleared(pid)
-        return excel_instances(_retry_login=False)
     return out
 
 
-def interactive_excels(_retry_login: bool = True) -> list[tuple[int, int, object]]:
+def interactive_excels() -> list[tuple[int, int, object]]:
     """[(pid, main hwnd, Application)] of the visible, user-started Excel instances that answer COM, most recently
     active first (excel_instances() also lists the ones that are busy)."""
-    return [(i.pid, i.hwnd, i.app) for i in excel_instances(_retry_login) if i.app is not None]
+    return [(i.pid, i.hwnd, i.app) for i in excel_instances() if i.app is not None]
 
 
 def _caption_book(caption: str) -> str:
@@ -128,7 +122,6 @@ def busy_holder(instances: list[XlInstance], name: str) -> XlInstance | None:
 
 def busy_error(pid: int, name: str) -> HostError:
     """Name what blocks the Excel holding `name`: a dialog (dialogs.scan) or else cell edit mode."""
-    from . import dialogs
     try:
         found = dialogs.scan(pid)
     except Exception:   # noqa: BLE001

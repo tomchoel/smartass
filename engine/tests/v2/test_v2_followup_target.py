@@ -77,9 +77,9 @@ def test_followup_on_book1_resolves_the_open_unsaved_workbook(home, monkeypatch)
     """read_stored with the defaulted 'Book1' finds the open unsaved book by name (resolve_target, fix A)."""
     from test_open_excel import Books, FakeApp, NamedWb, _by_name
 
-    from smartass.xl import jobs, login, sheets
+    from smartass.xl import dialogs, jobs, sheets
     monkeypatch.setattr(jobs, "hold_turn", lambda *a, **k: True)
-    monkeypatch.setattr(login, "wait_login_cleared", lambda *a, **k: None)
+    monkeypatch.setattr(dialogs, "refuse_login", lambda *a, **k: None)
     monkeypatch.setattr(session, "workbook", lambda: "C:/an/Session.xlsx")
     _store("Book1")
     book1 = NamedWb("Book1")

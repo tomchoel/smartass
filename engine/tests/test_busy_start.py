@@ -11,7 +11,7 @@ import pytest
 import pywintypes
 
 from smartass.core import config
-from smartass.xl import dialogs, instances, jobs, login, target
+from smartass.xl import dialogs, instances, jobs, target
 from smartass.xl.host import HostError
 from smartass.xl.inproc import later, runner
 from smartass.xl.workbench import books
@@ -221,12 +221,10 @@ def _busy_holder(clock, monkeypatch, tmp_path):
     target._wait_busy_holder(7, Path(r"C:\a\answer.xlsx"))
 
 
-def _login(clock, monkeypatch, tmp_path):
-    monkeypatch.setattr(login, "login_open", lambda pid: [1])
-    monkeypatch.setattr(dialogs, "is_hung", lambda w: False)
-    monkeypatch.setattr(dialogs, "scan", lambda pid: [])
-    monkeypatch.setattr(login.timing, "say", lambda *a, **k: None)
-    login.wait_login_cleared(7, limit=600)
+def _after_start(clock, monkeypatch, tmp_path):
+    monkeypatch.setattr(dialogs, "login_open", lambda pid: [])         # no Login: the whole start-up grace is watched
+    monkeypatch.setattr(dialogs, "LAUNCH_GRACE_S", 600)
+    dialogs.watch_after_start(7, grace=600, alive=jobs._check_alive)
 
 
 class _Proc:
@@ -250,7 +248,7 @@ def _launched(clock, monkeypatch, tmp_path):
     target._open_path(None, book, [], [])
 
 
-@pytest.mark.parametrize("wait", [_rejected_com, _asked, _ready, _turn, _busy_holder, _login, _spawn, _launched],
+@pytest.mark.parametrize("wait", [_rejected_com, _asked, _ready, _turn, _busy_holder, _after_start, _spawn, _launched],
                          ids=lambda f: f.__name__.strip("_"))
 def test_an_abandoned_job_stops_in_every_wait(clock, monkeypatch, tmp_path, wait):
     """Review 2 (Task 2): the job's abort was checked only between the add-in's busy answers; a call Excel rejects

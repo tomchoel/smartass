@@ -136,18 +136,6 @@ def test_connect_without_a_session_id_says_sign_in_and_retry():
     assert "not signed in" in msg and "retry" in msg
 
 
-def test_login_dialog_message_asks_the_user_not_the_agent(monkeypatch):
-    import pytest
-
-    from smartass.xl import login
-    from smartass.xl.host import HostError
-    monkeypatch.setattr(login, "login_open", lambda pid: [1])
-    monkeypatch.setattr(login.time, "sleep", lambda s: None)
-    with pytest.raises(HostError) as e:
-        login.wait_login_cleared(1, limit=0.01)
-    assert "Ask the user" in str(e.value) and "PowerPoint" in str(e.value)
-
-
 def test_a_missing_sign_in_becomes_the_sign_in_message(monkeypatch, tmp_path, caplog):          # Review Focus 4
     import asyncio
     import json
