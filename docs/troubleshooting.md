@@ -179,8 +179,9 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
 - **Cause:** a release up to 0.7.0 ran a localhost HTTP API (`smartass serve`, started at logon by the Startup entry
   `smartass-engine.lnk`, with its secret in `secret.bin`) for an Excel task pane. Both are gone: the agent starts the
   MCP server itself, and nothing runs at logon.
-- **Fix:** run `smartass setup` or `smartass doctor --fix`. They remove the Startup entry and stop that `serve` when
-  its command line names this install's `.venv` (another install's is left running, and said); `doctor --fix` also
+- **Fix:** run `smartass setup` or `smartass doctor --fix`. They remove the Startup entry when it starts this install's
+  `.venv`, and stop that `serve` when its executable is in this install's `.venv` (another install's entry and
+  `serve` are left, and said); `doctor --fix` also
   removes `secret.bin`, the plain secret line (the value is never shown) and a Startup entry of the pane, each named
   first.
 - The pane's registration lives in Office's own settings, which smartass never changes. Remove it in Excel:

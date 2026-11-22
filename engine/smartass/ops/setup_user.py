@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 from ..core import config, retry
 
@@ -148,11 +150,39 @@ def startup_entries() -> list[str]:
     return out or ["startup: nothing to remove"]
 
 
-def drop_engine_startup(say) -> list[Path]:
-    """The Startup entry smartass-engine.lnk an older release made (it started `smartass serve`), removed after it is
-    said; [the file] when it went."""
+def _names(data: bytes, text: str) -> bool:
+    """True when a file's bytes carry text (any case): a shortcut keeps its target as UTF-16 at any offset, and
+    sometimes as ANSI too."""
+    texts = [data.decode("latin-1")]
+    for start in (0, 1):
+        part = data[start:]
+        texts.append(part[:len(part) // 2 * 2].decode("utf-16-le", errors="ignore"))
+    return text.lower() in " ".join(texts).lower()
+
+
+def engine_startup() -> tuple[Path, bool] | None:
+    """(the Startup entry smartass-engine.lnk, ours) when there is one: ours when its target names THIS install's venv
+    Scripts folder (every release made it start that folder's pythonw.exe); None when there is none."""
     lnk = STARTUP / ENGINE_STARTUP
     if not lnk.exists():
+        return None
+    try:
+        data = lnk.read_bytes()
+    except OSError:
+        return lnk, False
+    return lnk, _names(data, str(VENV_SCRIPTS).rstrip("\\") + "\\")
+
+
+def drop_engine_startup(say) -> list[Path]:
+    """The Startup entry smartass-engine.lnk an older release made (it started `smartass serve`), removed after it is
+    said when it is this install's (engine_startup); another install's is left, and said. [the file] when it went."""
+    found = engine_startup()
+    if found is None:
+        return []
+    lnk, ours = found
+    if not ours:
+        say(f"startup: {ENGINE_STARTUP} starts another smartass install's `smartass serve` (it does not name this "
+            "install's .venv): left as it is")
         return []
     say(f"startup: removing {ENGINE_STARTUP} (it started `smartass serve`, the HTTP API, which is gone)")
     try:
@@ -163,59 +193,100 @@ def drop_engine_startup(say) -> list[Path]:
     return [lnk]
 
 
+SERVE_NAMES = ("python.exe", "pythonw.exe", "smartass.exe")   # what runs a `serve`: a Python, or the console script
+LAUNCHER_WAIT_S = 2.0          # how long a launcher whose child was stopped may take to end with it
+
+
 def _process_list():
-    """The running processes with their name only: a Python's command line, and a serve's parent, are read one by one
-    (reading every process's parent took over three minutes on the owner's PC, 525 processes, 22.11)."""
+    """The running processes with their name only: a command line, and a serve's parent, are read one by one, only
+    for SERVE_NAMES (reading every process's parent took over three minutes on the owner's PC, 525 processes, 22.11).
+    The objects are kept: psutil's Process carries its creation time, so a stop through it never hits a pid that a
+    new process has taken since."""
     import psutil
     return psutil.process_iter(["name"])
 
 
 def _is_serve(cmd: list[str]) -> bool:
+    """`python -m smartass.ops.cli serve`, or the console script `smartass(.exe) serve` (any folder)."""
     low = [c.lower() for c in cmd]
-    return any(a == "smartass.ops.cli" and b == "serve" for a, b in zip(low, low[1:]))
+    return any(b == "serve" and (a == "smartass.ops.cli" or re.split(r"[\\/]", a)[-1] in ("smartass", "smartass.exe"))
+               for a, b in zip(low, low[1:]))
 
 
-def _serves(scripts: Path | None = None) -> list[tuple[int, bool]]:
-    """(pid, ours) of each running Python whose command line runs `smartass.ops.cli serve`, a child before its parent.
-    Ours when its command line names THIS install's venv (VENV_SCRIPTS, case-insensitive, as a whole folder), or when
-    its parent is such a one: the venv's python.exe is a launcher that runs the base interpreter as its child, whose
-    command line names that interpreter instead. Any other (another checkout's, or one whose parent is gone) is not."""
+class Serve(NamedTuple):
+    proc: object                  # the psutil.Process the listing found (its identity includes the creation time)
+    ours: bool
+    children: tuple[int, ...]     # the pids of the serves it launched
+
+
+def _serves(scripts: Path | None = None) -> tuple[list[Serve], int]:
+    """(each running `serve` - a Python or smartass.exe whose command line runs it - a child before its parent; how
+    many Pythons' command lines could not be read). Ours when the command line's FIRST element, the executable, is in
+    THIS install's venv (VENV_SCRIPTS, case-insensitive, as a whole folder), or when its parent is such a one: the
+    venv's python.exe and smartass.exe are launchers that run the base interpreter as their child, whose command line
+    names that interpreter instead. Any other (another checkout's, or one whose parent is gone) is not."""
     import psutil
     want = str(scripts or VENV_SCRIPTS).replace("/", "\\").rstrip("\\").lower() + "\\"
-    found = []
+    found, unreadable = [], 0
     for p in _process_list():
         try:
-            if (p.info["name"] or "").lower() not in ("python.exe", "pythonw.exe"):
+            if (p.info["name"] or "").lower() not in SERVE_NAMES:
                 continue
             cmd = [str(c) for c in (p.cmdline() or [])]
             if _is_serve(cmd):
-                found.append((p.pid, p.ppid(), want in " ".join(cmd).replace("/", "\\").lower()))
-        except psutil.Error:
+                found.append((p, p.ppid(), cmd[0].replace("/", "\\").lower().startswith(want)))
+        except psutil.NoSuchProcess:
             continue
-    ours = {pid for pid, _, named in found if named}
-    ours |= {pid for pid, ppid, _ in found if ppid in ours}
-    pids = {pid for pid, _, _ in found}
+        except psutil.Error:
+            unreadable += 1
+    ours = {p.pid for p, _, named in found if named}
+    ours |= {p.pid for p, ppid, _ in found if ppid in ours}
+    pids = {p.pid for p, _, _ in found}
     found.sort(key=lambda f: 0 if f[1] in pids else 1)              # a child first: its launcher ends with it
-    return [(pid, pid in ours) for pid, _, _ in found]
+    return [Serve(p, p.pid in ours, tuple(c.pid for c, ppid, _ in found if ppid == p.pid)) for p, _, _ in found], \
+        unreadable
 
 
 def stop_old_serve(say, found=None, kill=None) -> None:
     """The HTTP API (`smartass serve`) an older release started at logon, stopped when its command line proves it is
-    this install's (_serves), each stop said before it is done; another install's is left running, and said so."""
+    this install's (_serves), each stop said before it is done; another install's is left running, and said so. The
+    stop goes to the process object the listing found, and only while it still runs (a pid a new process has taken
+    is never stopped); a launcher whose child was stopped is given LAUNCHER_WAIT_S to end with it first. Pythons
+    whose command line could not be read are said."""
     import psutil
     found, kill = found or _serves, kill or _kill
-    for pid, ours in found():
-        if not ours:
-            say(f"startup: a `smartass serve` of another smartass install (pid {pid}) is left running")
+    serves, unreadable = found()
+    stopped: set[int] = set()
+    for s in serves:
+        p = s.proc
+        if not s.ours:
+            say(f"startup: a `smartass serve` of another smartass install (pid {p.pid}) is left running")
             continue
-        say(f"startup: stopping this install's old `smartass serve` (pid {pid}): the HTTP API is gone")
+        if stopped.intersection(s.children):
+            try:
+                p.wait(timeout=LAUNCHER_WAIT_S)
+                say(f"startup: the old `smartass serve`'s launcher (pid {p.pid}) ended with it")
+                continue
+            except psutil.TimeoutExpired:
+                pass                                # still running: stopped below, through the same object
+            except psutil.Error:
+                say(f"startup: the old `smartass serve`'s launcher (pid {p.pid}) ended with it")
+                continue
+        if not p.is_running():                      # ended, or its pid belongs to a new process now
+            say(f"startup: the old `smartass serve` (pid {p.pid}) had already ended")
+            continue
+        say(f"startup: stopping this install's old `smartass serve` (pid {p.pid}): the HTTP API is gone")
         try:
-            kill(pid)
+            kill(p)
+            stopped.add(p.pid)
         except psutil.NoSuchProcess:              # its launcher ended with its child
-            say(f"startup: the old `smartass serve` (pid {pid}) had already ended")
+            say(f"startup: the old `smartass serve` (pid {p.pid}) had already ended")
         except psutil.Error as e:
-            say(f"startup: the old `smartass serve` (pid {pid}) could not be stopped ({type(e).__name__}); it ends at "
+            say(f"startup: the old `smartass serve` (pid {p.pid}) could not be stopped ({type(e).__name__}); it ends at "
                 "the next logoff")
+    if unreadable:
+        say(f"startup: the command line of {unreadable} Python process(es) could not be read: an old `smartass serve` "
+            "among them was not looked at")
 
 
 def _watchers(script: Path = WATCHER_PS1) -> list[tuple[int, bool]]:
@@ -235,9 +306,11 @@ def _watchers(script: Path = WATCHER_PS1) -> list[tuple[int, bool]]:
     return out
 
 
-def _kill(pid: int) -> None:
+def _kill(p) -> None:
+    """Stop a process through the psutil.Process its listing found (psutil refuses one whose pid a new process has
+    taken: NoSuchProcess); a bare pid (the SSO watcher's listing) is looked up now."""
     import psutil
-    psutil.Process(pid).kill()
+    (p if isinstance(p, psutil.Process) else psutil.Process(p)).kill()
 
 
 def stop_old_watcher(found=None, kill=None) -> list[str]:

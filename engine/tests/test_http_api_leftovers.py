@@ -4,6 +4,7 @@ proves it is this install's; `smartass doctor` lists those, the secret file, a p
 the pane's registration; `doctor --fix` removes this install's own files and Startup entries, each said first, and
 only REPORTS what lives in Office's own settings (the trusted catalogue, Excel's add-in list). Registry, Startup folder
 and process list are fakes here (tests/conftest.py keeps the suite off this PC's)."""
+import re
 import types
 from pathlib import Path
 
@@ -18,21 +19,39 @@ CATALOGUE_URL = r"\\files.example\home\someone\TNClaudeCatalog"
 XLL = r"C:\Users\someone\AppData\Local\svkit\addin\dna\TNClaude64.xll"
 
 
-def _proc(pid, cmd, ppid=1, name=None):
+def _proc(pid, cmd, ppid=1, name=None, running=True, exits=False, readable=True):
     """A process as _process_list gives it: its name in info; the command line and the parent only when asked for,
-    and only of a Python (reading them for every process is what made the real list slow)."""
-    exe = name or cmd[0].split("\\")[-1]
+    and only of a Python or smartass.exe (reading them for every process is what made the real list slow).
+    running: False once its pid belongs to another process (psutil's is_running on the listed object); exits: it ends
+    within the wait (a launcher whose child was stopped); readable: False when its command line is refused."""
+    exe = name or re.split(r"[\\/]", cmd[0])[-1]
 
     def python_only(value):
         def read():
-            assert exe.lower().startswith("python"), "read for a process that is not a Python"
+            assert exe.lower() in ("python.exe", "pythonw.exe", "smartass.exe"), "read for a process that is not ours"
+            if not readable:
+                raise psutil.AccessDenied(pid)
             return value
         return read
-    return types.SimpleNamespace(pid=pid, info={"name": exe}, cmdline=python_only(cmd), ppid=python_only(ppid))
+
+    def wait(timeout=None):
+        if exits:
+            return 0
+        raise psutil.TimeoutExpired(timeout, pid)
+    return types.SimpleNamespace(pid=pid, info={"name": exe}, cmdline=python_only(cmd), ppid=python_only(ppid),
+                                 is_running=lambda: running, wait=wait)
 
 
-def _serve(exe, pid, ppid=1):
-    return _proc(pid, [exe, "-m", "smartass.ops.cli", "serve"], ppid)
+def _lnk(target: str) -> bytes:
+    """A shortcut's bytes as Windows writes them: its target path in UTF-16, at some offset."""
+    return b"\x4c\x00\x00\x00" + target.encode("utf-16-le") + b"\x00\x00"
+
+
+OUR_LNK = _lnk(VENV + r"\pythonw.exe")
+
+
+def _serve(exe, pid, ppid=1, **kw):
+    return _proc(pid, [exe, "-m", "smartass.ops.cli", "serve"], ppid, **kw)
 
 
 @pytest.fixture
@@ -49,7 +68,7 @@ def pc(monkeypatch, tmp_path):
     monkeypatch.setattr(setup_user, "VENV_SCRIPTS", Path(VENV))
     state = types.SimpleNamespace(home=home, startup=startup, procs=[], killed=[], subkeys={}, options={})
     monkeypatch.setattr(setup_user, "_process_list", lambda: state.procs)
-    monkeypatch.setattr(setup_user, "_kill", state.killed.append)
+    monkeypatch.setattr(setup_user, "_kill", lambda p: state.killed.append(p.pid))
     monkeypatch.setattr(pane_leftovers, "_hkcu_subkeys", lambda path: state.subkeys)
     monkeypatch.setattr(pane_leftovers, "_hkcu_values", lambda path: state.options)
     return state
@@ -64,11 +83,23 @@ def test_setup_makes_no_startup_entry_and_no_secret_any_more():
 
 
 def test_setup_removes_the_engines_startup_entry_and_says_so(pc):
-    (pc.startup / "smartass-engine.lnk").write_bytes(b"lnk")
+    (pc.startup / "smartass-engine.lnk").write_bytes(OUR_LNK)
     (pc.startup / "other-tool.lnk").write_bytes(b"lnk")
     out = setup_user.startup_entries()
     assert not (pc.startup / "smartass-engine.lnk").exists() and (pc.startup / "other-tool.lnk").exists()
     assert out == ["startup: removing smartass-engine.lnk (it started `smartass serve`, the HTTP API, which is gone)"]
+
+
+def test_another_installs_startup_entry_is_left_and_said(pc):
+    """Review 10: the entry is this install's only when its target names this install's venv."""
+    lnk = pc.startup / "smartass-engine.lnk"
+    lnk.write_bytes(_lnk(r"C:\other\smartass\engine\.venv\Scripts\pythonw.exe"))
+    out = setup_user.startup_entries()
+    assert lnk.exists() and out == ["startup: smartass-engine.lnk starts another smartass install's `smartass serve` "
+                                    "(it does not name this install's .venv): left as it is"]
+    c = doctor._leftovers()
+    assert "smartass-engine.lnk of another smartass install" in c.detail
+    assert doctor.fix_leftovers(say=lambda s: None) == [] and lnk.exists()
 
 
 def test_setup_with_nothing_left_says_there_is_nothing_to_do(pc):
@@ -86,10 +117,20 @@ def test_a_serve_is_ours_only_when_its_command_line_names_this_installs_venv(pc)
         _proc(30, [VENV + r"\pythonw.exe", "-m", "smartass.ops.cli", "doctor"]),    # ours, but not serve
         _proc(31, ["node.exe", "server.mjs"]),
         _proc(32, ["cmd.exe", "/c", "smartass.ops.cli", "serve"]),                  # not a Python
+        _proc(13, [VENV + r"\smartass.exe", "serve"]),                                # the console script (review 4)
+        _proc(14, [r"C:\uv\python\python.exe", VENV + r"\smartass.exe", "serve"], ppid=13),   # ... its child
+        _proc(23, [r"C:\Python312\python.exe", "-m", "smartass.ops.cli", "serve", "--log", VENV + r"\x"]),  # review 3
+        _proc(24, [r"C:\other\.venv\Scripts\smartass.exe", "serve"]),             # another install's console script
+        _proc(25, [VENV + r"\python.exe", "-m", "smartass.ops.cli", "serve"], readable=False),   # review 5
     ]
-    found = setup_user._serves()
-    assert sorted(found) == [(10, True), (11, True), (12, True), (20, False), (21, False), (22, False)]
-    assert [pid for pid, _ in found].index(11) < [pid for pid, _ in found].index(10)   # the child before its launcher
+    found, unreadable = setup_user._serves()
+    pids = [s.proc.pid for s in found]
+    assert sorted((s.proc.pid, s.ours) for s in found) == [(10, True), (11, True), (12, True), (13, True), (14, True),
+                                                            (20, False), (21, False), (22, False), (23, False),
+                                                            (24, False)]
+    assert pids.index(11) < pids.index(10) and pids.index(14) < pids.index(13)   # the child before its launcher
+    assert unreadable == 1
+    assert next(s for s in found if s.proc.pid == 10).children == (11,)
 
 
 def test_setup_stops_this_installs_serve_saying_so_first_and_leaves_another(pc):
@@ -102,16 +143,46 @@ def test_setup_stops_this_installs_serve_saying_so_first_and_leaves_another(pc):
 
 
 def test_a_serve_that_ended_meanwhile_or_cannot_be_stopped_is_said(pc):
-    def kill(pid):
-        raise (psutil.NoSuchProcess(pid) if pid == 10 else psutil.AccessDenied(pid))
+    def kill(p):
+        raise (psutil.NoSuchProcess(p.pid) if p.pid == 10 else psutil.AccessDenied(p.pid))
     said = []
-    setup_user.stop_old_serve(said.append, found=lambda: [(10, True), (11, True)], kill=kill)
+    found = [setup_user.Serve(_serve(VENV + r"\pythonw.exe", 10), True, ()),
+             setup_user.Serve(_serve(VENV + r"\pythonw.exe", 11), True, ())]
+    setup_user.stop_old_serve(said.append, found=lambda: (found, 0), kill=kill)
     assert "(pid 10) had already ended" in said[1]
     assert "(pid 11) could not be stopped (AccessDenied)" in said[3] and "next logoff" in said[3]
 
 
+def test_a_pid_reused_between_the_listing_and_the_stop_is_never_killed(pc):
+    """Review 2: the stop goes to the process object the listing found; once its pid belongs to another process
+    (is_running is False on that object) nothing is killed."""
+    pc.procs = [_serve(VENV + r"\pythonw.exe", 10, running=False)]
+    said = []
+    setup_user.stop_old_serve(said.append)
+    assert pc.killed == [] and said == ["startup: the old `smartass serve` (pid 10) had already ended"]
+
+
+@pytest.mark.parametrize("exits, killed", [(True, [11]), (False, [11, 10])])
+def test_a_launcher_that_ends_with_its_child_is_not_killed(pc, exits, killed):
+    pc.procs = [_serve(VENV + r"\pythonw.exe", 10, exits=exits),
+                _serve(r"C:\Users\someone\AppData\Roaming\uv\python\cpython-3.12\pythonw.exe", 11, ppid=10)]
+    said = []
+    setup_user.stop_old_serve(said.append)
+    assert pc.killed == killed
+    assert any("(pid 10) ended with it" in s for s in said) is exits
+
+
+def test_a_python_whose_command_line_cannot_be_read_is_said(pc):
+    pc.procs = [_proc(25, [VENV + r"\python.exe", "-m", "smartass.ops.cli", "serve"], readable=False)]
+    said = []
+    setup_user.stop_old_serve(said.append)
+    assert pc.killed == [] and said == ["startup: the command line of 1 Python process(es) could not be read: an old "
+                                        "`smartass serve` among them was not looked at"]
+    assert "could not be read" in doctor._leftovers().detail
+
+
 def test_setup_stops_the_serve_and_removes_the_entry_in_one_go(pc):
-    (pc.startup / "smartass-engine.lnk").write_bytes(b"lnk")
+    (pc.startup / "smartass-engine.lnk").write_bytes(OUR_LNK)
     pc.procs = [_serve(VENV + r"\pythonw.exe", 10)]
     out = setup_user.startup_entries()
     assert pc.killed == [10] and len(out) == 2 and not (pc.startup / "smartass-engine.lnk").exists()
@@ -207,7 +278,7 @@ def test_a_pc_with_nothing_left_is_ok(pc):
 
 
 def test_doctor_lists_everything_the_http_api_and_the_pane_left(pc):
-    (pc.startup / "smartass-engine.lnk").write_bytes(b"lnk")
+    (pc.startup / "smartass-engine.lnk").write_bytes(OUR_LNK)
     (pc.startup / "Claude.vbs").write_text(PANE_VBS)
     (pc.home / "secret.bin").write_bytes(b"DPAPI")
     secret = "plain-secret-" + "x" * 12
@@ -232,7 +303,7 @@ def test_office_settings_alone_are_reported_with_the_manual_steps_and_no_fix(pc)
 
 def test_doctor_fix_removes_this_installs_files_and_entries_each_said_first(pc):
     lnk, vbs, sec = pc.startup / "smartass-engine.lnk", pc.startup / "Claude.vbs", pc.home / "secret.bin"
-    lnk.write_bytes(b"lnk")
+    lnk.write_bytes(OUR_LNK)
     vbs.write_text(PANE_VBS)
     sec.write_bytes(b"DPAPI")
     secret = "plain-secret-" + "y" * 12

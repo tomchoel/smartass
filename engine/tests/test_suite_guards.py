@@ -3,6 +3,7 @@ puts a sentinel ONE LEVEL BELOW the guard (the COM call that would create Excel,
 guard could not start Excel or open a connection: what is tested is that the guard stops the call first."""
 import asyncio
 import socket
+import types
 import urllib.request
 
 import pytest
@@ -64,7 +65,8 @@ def test_no_process_can_be_killed(below):
     with pytest.raises(GuardViolation, match="never kill a process"):
         setup_user.stop_old_watcher(found=lambda: [(4242, True)])
     with pytest.raises(GuardViolation, match="never kill a process"):
-        setup_user.stop_old_serve(lambda s: None, found=lambda: [(4242, True)])
+        found = [setup_user.Serve(types.SimpleNamespace(pid=4242, is_running=lambda: True), True, ())]
+        setup_user.stop_old_serve(lambda s: None, found=lambda: (found, 0))
     assert below == []
 
 

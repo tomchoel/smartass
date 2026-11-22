@@ -287,11 +287,18 @@ def _http_api_items() -> list[str]:
     from . import pane_leftovers as pane
     from . import setup_user
     out = []
-    if (setup_user.STARTUP / setup_user.ENGINE_STARTUP).exists():
-        out.append(f"the Startup entry {setup_user.ENGINE_STARTUP} starts `smartass serve` (the HTTP API, gone)")
-    for pid, ours in setup_user._serves():
-        out.append(f"an older `smartass serve` of this install runs (pid {pid})" if ours else
-                   f"a `smartass serve` of another smartass install runs (pid {pid}): left as it is - stop it there")
+    if found := setup_user.engine_startup():
+        out.append(f"the Startup entry {setup_user.ENGINE_STARTUP} starts `smartass serve` (the HTTP API, gone)"
+                   if found[1] else f"the Startup entry {setup_user.ENGINE_STARTUP} of another smartass install: left "
+                   "as it is - remove it there")
+    serves, unreadable = setup_user._serves()
+    for s in serves:
+        out.append(f"an older `smartass serve` of this install runs (pid {s.proc.pid})" if s.ours else
+                   f"a `smartass serve` of another smartass install runs (pid {s.proc.pid}): left as it is - stop it "
+                   "there")
+    if unreadable:
+        out.append(f"the command line of {unreadable} Python process(es) could not be read (an older `smartass serve` "
+                   "among them would not be found)")
     out += [f"the Excel task pane's Startup entry {p} (the pane is gone)"
             for p in pane.startup_entries(setup_user.STARTUP)]
     if p := _secret_file():
