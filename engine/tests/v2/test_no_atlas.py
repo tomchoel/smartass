@@ -164,6 +164,65 @@ def test_fin_lookup_answers_from_an_existing_knowledge_db_with_one_warning_namin
     assert gone.exists() == (atlas_file == "empty file")
 
 
+@pytest.mark.parametrize("kind", ["metric", "member", "entity", "kpi", "vocab", "concept", "rule", "any"])
+def test_every_lookup_kind_answers_from_an_existing_knowledge_db_without_an_atlas(tmp_path, monkeypatch, kind):
+    """Task 3 review, Minor 8: not only 'any' and 'member' - every kind answers from knowledge.db with the one warning
+    (members are the atlas's: none); nothing is created."""
+    gone, _, _ = _knowledge_without_atlas(tmp_path, monkeypatch, "no file")
+    signed_in(monkeypatch, None)
+    out = asyncio.run(serverkit.guard(server.fin_lookup)("opex" if kind != "rule" else "", kind=kind))
+    assert isinstance(out, dict) and out.get("members", []) == [], out
+    assert len(out["warnings"]) == 1 and "no atlas" in out["warnings"][0] and LOGIN in out["warnings"][0]
+    assert not gone.exists()
+
+
+def test_connect_read_opens_the_file_it_checked(tmp_path, monkeypatch):
+    """Task 3 review, Minor 3: connect_read checks config.ATLAS_DB and opens that same file (not connect()'s default
+    bound at import)."""
+    import sqlite3
+    real, default = tmp_path / "atlas.db", tmp_path / "default" / "atlas.db"
+    with sqlite3.connect(real) as db:
+        db.execute("CREATE TABLE marker (x)")
+    db.close()
+    monkeypatch.setattr(config, "ATLAS_DB", real)
+    monkeypatch.setattr(atlas.connect, "__defaults__", (default,))
+    db = atlas.connect_read()
+    try:
+        assert db.execute("SELECT count(*) FROM marker").fetchone() == (0,)
+    finally:
+        db.close()
+    assert not default.exists()
+
+
+def test_open_without_atlas_closes_both_connections_when_the_resolver_fails(tmp_path, monkeypatch):
+    """Task 3 review, Minor 4: a KnowledgeResolver that raises leaves no connection open (knowledge.db's included)."""
+    import sqlite3
+
+    from smartass.knowledge import resolver
+    _knowledge_without_atlas(tmp_path, monkeypatch, "no file")
+    opened, real_connect, real_empty = [], sqlite3.connect, atlas.empty
+
+    def connect(*args, **kwargs):
+        opened.append(real_connect(*args, **kwargs))
+        return opened[-1]
+
+    def empty():
+        opened.append(real_empty())
+        return opened[-1]
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError("no resolver")
+    monkeypatch.setattr(resolver.sqlite3, "connect", connect)
+    monkeypatch.setattr(resolver.atlas, "empty", empty)
+    monkeypatch.setattr(resolver, "KnowledgeResolver", refuse)
+    with pytest.raises(RuntimeError):
+        resolver.open_without_atlas(26)
+    assert len(opened) >= 2
+    for db in opened:
+        with pytest.raises(sqlite3.ProgrammingError):
+            db.execute("SELECT 1")
+
+
 def test_fin_lookup_refuses_when_knowledge_db_is_not_usable_either(tmp_path, monkeypatch):
     """knowledge.db older than the semantic files cannot be rebuilt without an atlas: the one command, as before."""
     _, sem, _ = _knowledge_without_atlas(tmp_path, monkeypatch, "no file")

@@ -433,10 +433,14 @@ def open_without_atlas(forecast_year: int) -> KnowledgeResolver | None:
     except (OSError, sqlite3.Error):
         return None
     empty = atlas.empty()
+    known = None
     try:
-        return KnowledgeResolver(sqlite3.connect(path), empty, forecast_year)
+        known = sqlite3.connect(path)
+        return KnowledgeResolver(known, empty, forecast_year)
     except Exception:
-        empty.close()
+        for db in (known, empty):
+            if db is not None:
+                db.close()
         raise
 
 

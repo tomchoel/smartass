@@ -47,7 +47,8 @@ def connect_read() -> sqlite3.Connection:
     """The home's atlas for a read (fin_status, `smartass atlas status`): connect() when the file is there (its CREATE
     IF NOT EXISTS gives an older atlas the tables a status reads), else empty() - a status never makes an atlas.db on
     a fresh home."""
-    return connect() if Path(config.ATLAS_DB).exists() else empty()
+    path = Path(config.ATLAS_DB)                       # checked and opened: the same file
+    return connect(path) if path.exists() else empty()
 
 
 # What the build over REST knows of a member beyond today's seven columns: its real name (the key stays the one derived
