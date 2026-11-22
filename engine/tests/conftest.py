@@ -64,10 +64,10 @@ def _no_excel_no_network():
     """The suite never starts Excel and never reaches the network, whatever a default is (2026-11-22: a test reached
     atlas_build.run_build's hidden-Excel route and started the engine's Excel). From the first test's setup to the end
     of the session - every test and every fixture, module- and session-scoped ones included - the lowest start points
-    in this process fail with GuardViolation (recorded, and the session fails at its end): Dispatch / DispatchEx of Excel.Application (win32com: the engine has
-    no Excel of its own since Task 6, so any is a fault), the user's Excel (xl/target._launch_excel, the one place the
-    engine starts Excel), a kill of a process (xl/hostproc.kill_ours: an older release's hidden Excel at the sweep;
-    ops/setup_user._kill: an older release's SSO watcher); a socket connect,
+    in this process fail with GuardViolation (recorded, and the session fails at its end): Dispatch / DispatchEx of
+    Excel.Application (win32com: the engine has no Excel of its own since Task 6, so any is a fault), the user's Excel
+    (xl/target._launch_excel, the one place the engine starts Excel), a kill of a process (xl/hostproc.kill_ours: an
+    older release's hidden Excel at the sweep; ops/setup_user._kill: an older release's SSO watcher); a socket connect,
     a name lookup or an asyncio connect (the Windows proactor's ConnectEx too) to anything but this machine. A test
     that fakes one of them sets its own fake over this one (monkeypatch restores the guard after it). Out of reach:
     CHILD PROCESSES a test starts (tests/stdio_util.py's server, the scripts some tests run) carry none of these

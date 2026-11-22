@@ -390,7 +390,8 @@ def test_the_raw_desc_is_kept_for_the_classification_and_never_shown():
     import secrets
     x = secrets.token_hex(12)
     with pytest.raises(svxml.SvXmlError) as e:
-        svxml.raise_for_exception(f'<exception errcode="1000"><desc>Member Cookie: {x} &amp;amp; more</desc></exception>')
+        svxml.raise_for_exception(f'<exception errcode="1000"><desc>Member Cookie: {x} &amp;amp; more</desc>'
+                                  '</exception>')
     assert e.value.raw == f"Member Cookie: {x} &amp; more" and e.value.code == 1000
     assert x not in str(e.value) and x not in repr(e.value) and x not in str(e.value.args)
     assert svxml.SvXmlError("no member list").raw == "no member list"
