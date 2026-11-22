@@ -45,6 +45,13 @@ def need_atlas() -> None:
                          f"{no_atlas_step()}, then ask again")
 
 
+def no_atlas_warning() -> str:
+    """fin_lookup's one warning on a PC with no atlas that still answers from its knowledge.db: what is missing and the
+    one command (no_atlas_step)."""
+    return (f"no atlas on this PC yet ({config.ATLAS_DB}): no cube member is found and no answer can be built - "
+            f"{no_atlas_step()}")
+
+
 def no_atlas_step() -> str:
     """What a PC with no atlas does next, one command (no_atlas_command)."""
     cmd = no_atlas_command()

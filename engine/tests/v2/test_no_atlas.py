@@ -126,3 +126,78 @@ def test_the_doctor_says_no_atlas_with_its_one_command_and_knowledge_waits_for_i
     assert k.status == "WARN" and "waits for the atlas" in k.detail and command in k.fix
     assert "semantic" not in k.fix
     assert atlas_build.no_atlas_command() == command.strip("`")
+
+
+# ---------------------------------------------------------------- Task 3 (a): fin_lookup answers from knowledge.db
+
+
+def _knowledge_without_atlas(tmp_path, monkeypatch, atlas_file: str):
+    """knowledge.db built while the atlas was there; then the atlas is gone (missing, or the schema alone) and any
+    open of it fails the test."""
+    import sqlite3
+    _, sem, k = knowledge(tmp_path, monkeypatch)
+    gone = tmp_path / "now" / "atlas.db"
+    gone.parent.mkdir()
+    if atlas_file == "empty file":
+        with sqlite3.connect(gone) as db:
+            db.executescript(atlas.SCHEMA)
+    monkeypatch.setattr(config, "ATLAS_DB", gone)
+    monkeypatch.setattr(atlas, "connect", lambda *a, **k: pytest.fail("the atlas was opened"))
+    return gone, sem, k
+
+
+@pytest.mark.parametrize("atlas_file", ["no file", "empty file"])
+@pytest.mark.parametrize("state, command, other", [(None, LOGIN, BUILD), ("signed_in", BUILD, LOGIN)])
+def test_fin_lookup_answers_from_an_existing_knowledge_db_with_one_warning_naming_the_command(
+        tmp_path, monkeypatch, atlas_file, state, command, other):
+    """The controller's carry-in (a) of 22.11: a PC whose knowledge.db is there but whose atlas is not keeps getting
+    fin_lookup's answers (metrics, rules ...; no members: they are the atlas's), with ONE warning naming the one
+    command; nothing is created."""
+    gone, _, _ = _knowledge_without_atlas(tmp_path, monkeypatch, atlas_file)
+    signed_in(monkeypatch, state)
+    out = asyncio.run(serverkit.guard(server.fin_lookup)("opex"))
+    assert [m["id"] for m in out["metrics"]] == ["opex"] and out["members"] == []
+    assert len(out["warnings"]) == 1, out["warnings"]
+    assert "no atlas" in out["warnings"][0] and command in out["warnings"][0] and other not in out["warnings"][0]
+    member = asyncio.run(serverkit.guard(server.fin_lookup)("C60", kind="member"))
+    assert member["members"] == [] and len(member["warnings"]) == 1
+    assert gone.exists() == (atlas_file == "empty file")
+
+
+def test_fin_lookup_refuses_when_knowledge_db_is_not_usable_either(tmp_path, monkeypatch):
+    """knowledge.db older than the semantic files cannot be rebuilt without an atlas: the one command, as before."""
+    _, sem, _ = _knowledge_without_atlas(tmp_path, monkeypatch, "no file")
+    (sem / "metrics" / "extra.toml").write_text('name = "Extra"\ndescription = "x"\nsign = "cost"\n'
+                                                'status = "approved"\n[finmax]\nmembers = ["ac.C60"]\n',
+                                                encoding="utf-8")
+    signed_in(monkeypatch, "signed_in")
+    said = _said(lambda: serverkit.guard(server.fin_lookup)("opex"))
+    assert "no atlas" in said and BUILD in said and "smartass knowledge build" not in said
+
+
+@pytest.mark.parametrize("entry", [e for e in ENTRIES if not e.startswith("fin_lookup")])
+@pytest.mark.parametrize("state, command, other", [(None, LOGIN, BUILD), ("signed_in", BUILD, LOGIN)])
+def test_with_a_knowledge_db_and_no_atlas_every_other_entry_still_refuses_with_one_command(
+        no_atlas, monkeypatch, tmp_path, entry, state, command, other):
+    """Only fin_lookup answers from knowledge.db without an atlas: an answer, a refresh and a drill need the cubes'
+    members, so they keep the one command (Task 2's review, Important 1)."""
+    import sqlite3
+    import time
+
+    from kutil import make_atlas, make_semantic
+
+    from smartass.knowledge.build import build
+    built = tmp_path / "built"
+    a, sem, k = built / "atlas.db", make_semantic(built / "semantic"), built / "knowledge.db"
+    make_atlas(a)
+    db = sqlite3.connect(a)                           # a real build records itself: knowledge.db carries its stamp
+    with db:
+        db.execute("INSERT INTO build VALUES ('FinMax', 'All Accounts', ?, 8, 1.0, NULL)", (time.time(),))
+    db.close()
+    assert build(sem, a, k).ok                        # the home's atlas (config.ATLAS_DB) is the fixture's: none
+    monkeypatch.setattr(config, "SEMANTIC_DIR", sem)
+    monkeypatch.setattr(config, "KNOWLEDGE_DB", k)
+    signed_in(monkeypatch, state)
+    said = _said(ENTRIES[entry])
+    assert "no atlas" in said and command in said, said
+    assert other not in said and "smartass knowledge build" not in said, said

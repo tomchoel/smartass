@@ -421,6 +421,27 @@ def freshness_notes(db) -> list[str]:
     return []
 
 
+def open_without_atlas(forecast_year: int) -> KnowledgeResolver | None:
+    """fin_lookup on a PC with no atlas: a KnowledgeResolver on the knowledge.db that is there when it matches the
+    semantic files (the one ensure_built would keep), over an empty atlas in memory - no file is created, and no member
+    is found (members are the atlas's). None when there is no usable knowledge.db (missing, unreadable, or older than
+    the semantic files: it cannot be rebuilt without an atlas)."""
+    from ..core import config
+    path = Path(config.KNOWLEDGE_DB)
+    try:
+        if not path.exists() or str(summary(path).get("semantic_hash", "")) != semantic_hash(Path(config.SEMANTIC_DIR)):
+            return None
+    except (OSError, sqlite3.Error):
+        return None
+    empty = sqlite3.connect(":memory:")
+    empty.executescript(atlas.SCHEMA)
+    try:
+        return KnowledgeResolver(sqlite3.connect(path), empty, forecast_year)
+    except Exception:
+        empty.close()
+        raise
+
+
 def open_resolver(forecast_year: int, notes: list[str] | None = None) -> KnowledgeResolver:
     """A KnowledgeResolver on knowledge.db (built when missing) and the local atlas; the caller closes it (close())."""
     path = ensure_built(notes)

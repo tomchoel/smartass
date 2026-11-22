@@ -86,11 +86,18 @@ def _past(row: dict) -> dict:
 def lookup(query: str, kind: str = "any", cube: str | None = None, limit: int = 15) -> dict:
     """{metrics: [id, name, aliases, description, differs, members, caveats ...], members: [... with caveats],
     concepts: [id, title, kind, blocks, notes ...], entities, kpis, vocab, rules};
-    kind 'answer': {answers: past answers from answers.db (workbook, q, question, when, score, top key values)}."""
+    kind 'answer': {answers: past answers from answers.db (workbook, q, question, when, score, top key values)}.
+    No atlas: the answer comes from the knowledge.db that is there (no members), with one warning naming the command;
+    with no usable knowledge.db either it is refused with that command (atlas_build.need_atlas)."""
     if kind == "answer":
         from . import answers
         return {"answers": [_past(r) for r in answers.search(query, limit)]}
-    from .ops.atlas_build import need_atlas
+    from .knowledge.resolver import open_without_atlas
+    from .ops.atlas_build import need_atlas, no_atlas_warning
+    bare = None if atlas.present() else open_without_atlas(dt.date.today().year % 100)
+    if bare is not None:
+        with contextlib.closing(bare) as r:
+            return {**r.search(query, kind, cube, limit), "warnings": [no_atlas_warning()]}
     need_atlas()
     from .knowledge.resolver import freshness_notes
     with contextlib.closing(_resolver()) as r:
