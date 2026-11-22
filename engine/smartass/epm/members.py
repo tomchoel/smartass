@@ -11,8 +11,8 @@ How the zoom's display is rebuilt from the tree (each rule found in today's atla
   tree_from_labels reads bottom-up), so the display is written so and read by the same function - the key derived
   from the label (grid.name_from_label), a member kept under its label, a shared member under each parent, a name
   given twice under one parent (atlas.store keeps the first) all come out as before;
-- the zoom shows neither the Dynamic Time Series members (`H-T-D` .. `D-T-D`, the first children of a period
-  dimension's top in Get Member's answer) nor a member whose `usedIn` does not name the plan type (with its subtree):
+- the zoom shows neither the Dynamic Time Series members of a period dimension (`H-T-D` .. `D-T-D`, the first
+  children of its top in Get Member's answer) nor a member whose `usedIn` does not name the plan type (with its subtree):
   FinLite's dimensions are FinMax's application dimensions, read once for both.
 Each row also carries the member's real name, alias, data storage, account type and time balance (EXTRA: the atlas's
 side table, atlas.store; nothing reads the types yet).
@@ -83,14 +83,15 @@ def label(n: dict) -> str:
     return n.get("alias") or n["name"]
 
 
-def rows(tree: dict, cube: str) -> list[dict]:
+def rows(tree: dict, cube: str, period: bool = False) -> list[dict]:
     """The atlas rows of one dimension for plan type cube: [{label, name, depth, parent, order, *EXTRA}], as
-    ops.dump_dimension + tree_from_labels gave them (see the module's text)."""
+    ops.dump_dimension + tree_from_labels gave them (see the module's text). period: a period dimension (the plan
+    type's list says dimType 'Period'), the only kind whose Dynamic Time Series members are left out."""
     labels: list[str] = []
     extras: list[dict] = []
 
     def shown(n: dict, depth: int) -> bool:
-        if depth == 1 and DTS.fullmatch(n["name"]):
+        if period and depth == 1 and DTS.fullmatch(n["name"]):
             return False
         return "usedIn" not in n or cube in n["usedIn"]
 
@@ -118,12 +119,13 @@ class Source:
         self.sv = sv or svhttp.shared()
         self._trees: dict[tuple[str, str], dict] = {}
 
-    def dimensions(self, conn: str) -> list[tuple[str, str]]:
-        """(REST name, atlas name) of every dimension of the connection's plan type, attribute dimensions aside: the
-        atlas names a dimension by its Default alias, else its name (rest.map_dimensions)."""
+    def dimensions(self, conn: str) -> list[tuple[str, str, str | None]]:
+        """(REST name, atlas name, dimType) of every dimension of the connection's plan type, attribute dimensions
+        aside: the atlas names a dimension by its Default alias, else its name (rest.map_dimensions)."""
         _, app, cube = svhttp.CUBES[conn]
         listed = rest.read_dimensions(self.sv.rest_session(conn), app, cube)
-        return [(n, a or n) for n, a, *t in listed if not (t and str(t[0]).startswith("Attribute"))]
+        return [(n, a or n, t[0] if t else None) for n, a, *t in listed
+                if not (t and str(t[0]).startswith("Attribute"))]
 
     def tree(self, conn: str, dim: str) -> dict:
         _, app, _ = svhttp.CUBES[conn]

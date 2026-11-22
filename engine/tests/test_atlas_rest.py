@@ -92,11 +92,14 @@ def test_dynamic_time_series_and_members_of_another_plan_type_are_left_out():
                 *(node(f"{x}-T-D", None, used=()) for x in "HYSPQMWD"),
                 node("Y1", "Year one", node("Q1", "Quarter one"), node("Q9", "Lite only", node("M9", "m"),
                                                                        used=("FinLite",))))
-    assert [r["label"] for r in members.rows(tree, "FinMax")] == ["All Time Periods", "Year one", "Quarter one"]
-    assert [r["label"] for r in members.rows(tree, "FinLite")] == ["All Time Periods", "Year one", "Lite only", "m",
-                                                                  "Quarter one"]
+    assert [r["label"] for r in members.rows(tree, "FinMax", period=True)] == ["All Time Periods", "Year one",
+                                                                               "Quarter one"]
+    assert [r["label"] for r in members.rows(tree, "FinLite", period=True)] == ["All Time Periods", "Year one",
+                                                                                "Lite only", "m", "Quarter one"]
     deeper = node("X", None, node("Y", None, node("H-T-D", None)))      # a name like it below the top is kept
-    assert [r["label"] for r in members.rows(deeper, "FinMax")] == ["X", "Y", "H-T-D"]
+    assert [r["label"] for r in members.rows(deeper, "FinMax", period=True)] == ["X", "Y", "H-T-D"]
+    other = node("X", None, node("H-T-D", None))                      # and in a dimension that is not a period one
+    assert [r["label"] for r in members.rows(other, "FinMax")] == ["X", "H-T-D"]
 
 
 def test_a_dimension_of_one_member_is_one_row():
@@ -297,7 +300,7 @@ def test_the_source_reads_finlites_trees_once_with_finmaxs(monkeypatch):
     monkeypatch.setattr(members.rest, "read_dimensions", lambda s, app, cube: [
         ("Accounts", "All Accounts", "Account"), ("Version", None, "Version"), ("Colour", None, "Attribute Text")])
     src = members.Source(Sv())
-    assert src.dimensions("FinLite") == [("Accounts", "All Accounts"), ("Version", "Version")]
+    assert src.dimensions("FinLite") == [("Accounts", "All Accounts", "Account"), ("Version", "Version", "Version")]
     assert src.tree("FinMax", "Accounts") is src.tree("FinLite", "Accounts")
     src.tree("FinPlan", "Accounts")
     assert reads == [("FinMax", "FinMax", "Accounts"), ("FinPlan", "FinPlan", "Accounts")]
@@ -333,6 +336,19 @@ def test_a_dimension_epm_lists_without_a_rule_is_skipped_and_keeps_its_rows(tmp_
     with contextlib.closing(atlas.connect(target)) as db:
         assert atlas.has_member(db, "FinMax", "All Colours", "c")              # kept
         assert not atlas.has_member(db, "FinMax", "All Gone", "c")             # purged: EPM no longer lists it
+
+
+def test_only_a_period_dimension_loses_its_dynamic_time_series_members(tmp_path):
+    """The plan type's list says which dimension is the period one (dimType 'Period', live for TimePeriods and Period):
+    only there are X-T-D members under the top left out (Task 4 review, Minor 9)."""
+    tree = node("TimePeriods", "All Time Periods", node("Y-T-D", None), node("Y1", "Year one"))
+    other = node("Scenarios", "All Scenarios", node("Y-T-D", None), node("S1", "Scenario one"))
+    src = _Source({"TimePeriods": tree, "Scenarios": other},
+                  {"FinMax": [("TimePeriods", "All Time Periods", "Period"), ("Scenarios", "All Scenarios", "Custom")]})
+    with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
+        atlas_build.build_rest(src, ["FinMax"], db=db, progress=lambda m: None)
+        assert not atlas.has_member(db, "FinMax", "All Time Periods", "Y-T-D")
+        assert atlas.has_member(db, "FinMax", "All Scenarios", "Y-T-D")
 
 
 def test_the_cli_says_a_skipped_dimension_on_its_last_line(monkeypatch, capsys):

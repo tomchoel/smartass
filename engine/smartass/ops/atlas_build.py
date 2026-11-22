@@ -97,10 +97,10 @@ def build_rest(source, connections: list[str] | None = None, dimensions: list[st
                 progress(f"{conn}: {e}")
                 continue
             app = svhttp.CUBES[conn][1]
-            unread = {dim for rest_name, dim in dims if not members.readable(app, rest_name)}
+            unread = {dim for rest_name, dim, *_ in dims if not members.readable(app, rest_name)}
             if wanted is None:
                 atlas.purge(db, conn, keep=unread)
-            for rest_name, dim in dims:
+            for rest_name, dim, *kind in dims:
                 if wanted and not wanted & {_canon(rest_name), _canon(dim)}:
                     continue
                 if dim in unread:                     # no rule for it: never read, never an error, its rows kept
@@ -109,7 +109,7 @@ def build_rest(source, connections: list[str] | None = None, dimensions: list[st
                     continue
                 t0 = time.monotonic()
                 try:
-                    rows = members.rows(source.tree(conn, rest_name), cube)
+                    rows = members.rows(source.tree(conn, rest_name), cube, period=bool(kind and kind[0] == "Period"))
                     atlas.store(db, conn, dim, rows, time.monotonic() - t0)
                     done.append({"connection": conn, "dimension": dim, "members": len(rows),
                                  "seconds": round(time.monotonic() - t0, 1)})
