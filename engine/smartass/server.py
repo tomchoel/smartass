@@ -176,8 +176,9 @@ def _has_lines(raw: dict) -> bool:
 async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target: str = "session",
                    complete: bool = False):
     """(Prepared, drill warnings). A stored or patched raw spec with lines blocks is re-drilled, so lines are fresh.
-    Grids the HTTP route could not fetch are pulled as ad hoc grids in the user's Excel (one job), then the model is
-    prepared again with those results fixed; this fallback runs at most once. complete (new questions and follow-up
+    Grids neither engine could fetch (the provider route, then Planning REST: data/provider.py) are pulled as ad hoc
+    grids in the user's Excel (one job), then the model is prepared again with those results fixed; this fallback
+    runs at most once. complete (new questions and follow-up
     patches, not fin_refresh): the P&L chain is completed in the spec (pipeline.prepare), and the completed spec is
     what gets stored."""
     with runlog.span("prepare"):

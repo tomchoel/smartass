@@ -95,14 +95,39 @@ def test_a_grid_neither_route_can_fetch_is_the_provider_routes_error_with_rests(
         prov.fetch(FM)
 
 
+def test_a_period_the_atlas_does_not_have_is_filed_under_the_period_asked_with_rests_warning(atlas_path,
+                                                                                               monkeypatch):
+    """REST keeps its own name for a member the atlas cannot label (a warning); the facts are filed by the layout
+    asked (grid.parse), so the request's own period - not REST's name - and no crash."""
+    import test_rest
+    monkeypatch.setitem(test_rest.REAL, "Oct 26", "Y26M10")
+    prov, _, _ = _route(atlas_path, monkeypatch, svhttp.SvHttpError("Smart View provider: session expired"))
+    req = GridRequest("fm", "FinMax", ("ac.C30",), ("un.SY.E1",), ("Sep 26", "Oct 26"), "Actual", "", "Periodic")
+    got = prov.fetch(req)
+    assert sorted(f.period for f in got.facts) == ["Oct 26", "Sep 26"]
+    assert got.warnings == ["FinMax: the atlas has no label for All Time Periods member Y26M10 (kept as its name)"]
+
+
+class _Closing:
+    def __init__(self, db, closed):
+        self.db, self.closed = db, closed
+
+    def __getattr__(self, name):
+        return getattr(self.db, name)
+
+    def close(self):
+        self.closed.append(1)
+        self.db.close()
+
+
 def test_rest_reads_the_atlas_on_the_thread_that_fetches_and_closes_it(atlas_path, monkeypatch):
-    opened = []
+    opened, closed = [], []
     real = atlas.connect
 
     def connect(path=atlas_path):
         db = real(path)
         opened.append(threading.get_ident())
-        return db
+        return _Closing(db, closed)
     monkeypatch.setattr(atlas, "connect", connect)
     prov, _, _ = _route(atlas_path, monkeypatch, svhttp.SvHttpError("Smart View provider: session expired"))
     out = []
@@ -111,4 +136,4 @@ def test_rest_reads_the_atlas_on_the_thread_that_fetches_and_closes_it(atlas_pat
         t.start()
     for t in threads:
         t.join()
-    assert out == ["rest"] * 3 and len(set(opened)) == 3
+    assert out == ["rest"] * 3 and len(set(opened)) == 3 and len(closed) == 3
