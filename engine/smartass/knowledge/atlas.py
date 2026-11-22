@@ -111,6 +111,28 @@ def real_owners(db, conn: str, dim: str) -> dict[str, set[str]] | None:
     return out
 
 
+def trust(path: Path) -> tuple[int, int] | None:
+    """(dimensions whose side rows are trusted, dimensions built with members) of the atlas file at path - read only,
+    never written (setup compares the release folder's copy by its modification time); None when it cannot be read.
+    Where a dimension has no trusted side rows (an atlas built before 0.7.0, or rebuilt since by one) the REST
+    engine's strict member check is off (epm/rest.py: the check before the side table)."""
+    try:
+        db = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        built = db.execute("SELECT connection, dimension, built_at FROM build WHERE n > 0 AND error IS NULL").fetchall()
+        if not _has_real(db):
+            return 0, len(built)
+        trusted = sum(db.execute("SELECT 1 FROM member_real WHERE connection=? AND dimension=? AND built_at=? LIMIT 1",
+                                 row).fetchone() is not None for row in built)
+        return trusted, len(built)
+    except sqlite3.Error:
+        return None
+    finally:
+        db.close()
+
+
 def store_cards(db, conn: str, dim: str, rows: list[tuple]) -> None:
     """rows: (name, parent, operator, time_balance, account_type, shared); replaces the dimension's cards. A row
     without a time balance keeps the one its (name, parent) had (the time balance is derived in a later step, which

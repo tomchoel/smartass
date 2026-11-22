@@ -329,6 +329,11 @@ def copy_atlas() -> str:
     dst = config.ATLAS_DB
     if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
         return "atlas: local copy is current"
+    from ..knowledge import atlas
+    mine, theirs = atlas.trust(dst) if dst.exists() else None, atlas.trust(src)
+    if mine and mine[0] and not (theirs and theirs[0]):    # never a downgrade of the strict member check over REST
+        return (f"atlas: local copy kept - it has EPM's real member names, which the release's copy in {src.parent} "
+                "has not (built before 0.7.0); publish an atlas built with `smartass atlas build` by 0.7.0 or later")
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_suffix(".db.tmp")
     shutil.copy2(src, tmp)

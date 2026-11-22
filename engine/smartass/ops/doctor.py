@@ -95,6 +95,13 @@ def _atlas(max_age_days: float = 35) -> Check:
         return Check("atlas", "FAIL", f"missing: {p}",
                      "Re-run installer\\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.")
     age = (time.time() - p.stat().st_mtime) / 86400
+    from ..knowledge import atlas
+    trust = atlas.trust(p)
+    if trust is not None and trust[0] < trust[1]:             # an atlas built before 0.7.0 (or rebuilt by one)
+        what = "no dimension has" if not trust[0] else f"{trust[1] - trust[0]} of {trust[1]} dimensions have no"
+        return Check("atlas", "WARN", f"{p} ({age:.0f} days old); {what} EPM's real member names",
+                     "Rebuild once with `smartass atlas build` - until then the strict member check over Planning REST "
+                     "is off.")
     status = "OK" if age <= max_age_days else "WARN"
     return Check("atlas", status, f"{p} ({age:.0f} days old)",
                  "" if status == "OK" else "Re-run the installer after the monthly release, or run `smartass atlas build`.")
