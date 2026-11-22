@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ENGINE = Path(__file__).resolve().parents[1]
 GONE = ["smartass.xl.host", "smartass.xl.hidden", "smartass.xl.login", "smartass.epm.ops", "smartass.epm.sso"]
 # Names of the deleted parts: none may appear in the engine's code, comments or texts - except where a leftover of
@@ -103,6 +105,69 @@ def test_only_the_users_excel_is_ever_started_and_only_on_a_workbook():
     assert creating == []
     assert excel_exe == ["smartass/xl/target.py:_launch_excel"]
     assert launch_callers == {"smartass/xl/target.py:_open_path", "smartass/xl/target.py:_spawn_excel"}
+
+
+# Every process start (Task 6b): os.startfile / ShellExecute* start whatever a file's type opens - a workbook path
+# starts Excel without naming it - and a subprocess or os call can take Excel's path from a variable. So each start is
+# allowed by its (file, function), with why; anything else, whatever it names, fails the guard.
+START_NAMES = {"startfile", "ShellExecute", "ShellExecuteW", "ShellExecuteEx", "ShellExecuteExW", "CreateProcess",
+               "CreateProcessW", "CreateProcessAsUser"}
+SUBPROCESS_STARTS = {"Popen", "run", "call", "check_call", "check_output", "getoutput", "getstatusoutput"}
+OS_STARTS = {"startfile", "system", "popen", "spawnl", "spawnle", "spawnlp", "spawnv", "spawnve", "spawnvp", "execv",
+             "execve", "execl", "execlp", "execvp", "posix_spawn"}
+ALLOWED_STARTS = {
+    "smartass/xl/target.py:_launch_excel": "the user's Excel on a workbook (EXCEL.EXE /x <file>)",
+    "run_server.py:start_child": "the relay's server child (this Python)",
+    "smartass/ops/login.py:_copy": "clip.exe: the sign-in code to the clipboard",
+    "smartass/ops/setup_user.py:link_skill": "cmd mklink /J: the skill's junction",
+    "smartass/ops/update.py:apply": "the release's installer (smartass update)",
+    "smartass/ops/update.py:start_if_available": "the release's installer, detached (serve at login)",
+    "smartass/xl/inproc/build.py:_compile": "csc.exe: the in-process add-in's compiler",
+}
+
+
+def process_starts(source: str, rel: str) -> list[str]:
+    """'rel:function receiver.name' of every call in source that starts a process: os.startfile / ShellExecute* /
+    CreateProcess* on any receiver or imported bare, subprocess.<start> and os.<start> (the receiver resolved: a
+    bare .run is asyncio's, a doctor's or a COM object's, not a process), Popen / startfile imported bare."""
+    tree = ast.parse(source)
+    parents = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+
+    def enclosing(node):
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return node.name
+        return "<module>"
+    out = []
+    for node, name in _calls(tree):
+        f = node.func
+        recv = f.value.id if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) else ""
+        if (name in START_NAMES or (recv == "subprocess" and name in SUBPROCESS_STARTS)
+                or (recv == "os" and name in OS_STARTS) or (isinstance(f, ast.Name) and name == "Popen")):
+            out.append(f"{rel}:{enclosing(node)} {recv + '.' if recv else ''}{name}")
+    return out
+
+
+@pytest.mark.parametrize("source, found", [
+    ("import os\ndef open_book(book):\n    os.startfile(book)\n", ["x.py:open_book os.startfile"]),
+    ("import subprocess\ndef go(exe, p):\n    subprocess.Popen([exe, p])\n", ["x.py:go subprocess.Popen"]),
+    ("from subprocess import Popen\ndef go(exe, p):\n    Popen([exe, p])\n", ["x.py:go Popen"]),
+    ("import win32api\ndef go(p):\n    win32api.ShellExecute(0, 'open', p, None, None, 1)\n",
+     ["x.py:go win32api.ShellExecute"]),
+    ("from win32com.shell import shell\ndef go(p):\n    shell.ShellExecuteEx(lpFile=p)\n",
+     ["x.py:go shell.ShellExecuteEx"]),
+    ("import os\ndef go(p):\n    os.system(f'start {p}')\n", ["x.py:go os.system"]),
+    ("import asyncio\ndef go(c, doctor, app):\n    asyncio.run(c)\n    doctor.run()\n    app.Run('M')\n", []),
+], ids=["startfile", "popen-variable", "popen-imported", "shellexecute", "shellexecuteex", "os-system", "not-a-start"])
+def test_the_launch_guard_sees_a_process_start_that_does_not_name_excel(source, found):
+    assert process_starts(source, "x.py") == found
+
+
+def test_every_process_start_is_one_of_the_allowed_and_only_launch_excel_starts_excel():
+    starts = [s for p in _sources() for s in process_starts(p.read_text(encoding="utf-8"), _rel(p))]
+    assert sorted({s.split(" ")[0] for s in starts}) == sorted(ALLOWED_STARTS)
+    assert all(reason for reason in ALLOWED_STARTS.values())
 
 
 # The documents a user or an agent reads for how smartass works now (light-fast phase 2 Task 7). The CHANGELOG, the
