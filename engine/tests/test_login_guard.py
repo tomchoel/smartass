@@ -52,9 +52,18 @@ def test_a_login_never_falls_through_to_launching_another_excel(monkeypatch, tmp
 
 
 def test_the_target_is_refused_before_its_first_com_call_when_a_login_opened_meanwhile(monkeypatch):
+    """Named by its main window's title, read without COM (no COM into that Excel either way)."""
     monkeypatch.setattr(dialogs, "login_open", lambda pid: [5])
-    with pytest.raises(HostError, match=r"Smart View's Login is open in Excel \(pid 7\)"):
+    monkeypatch.setattr(dialogs, "windows", lambda pid=None, parent=None: [(70, "XLMAIN", "Budget.xlsx - Excel"),
+                                                                           (5, "#32770", "Login")])
+    with pytest.raises(HostError, match=r"Smart View's Login is open in the Excel showing 'Budget.xlsx - Excel' "
+                                        r"\(pid 7\)"):
         target._finish_target(None, target.Target(NoCom(), NoCom(), 7, 70), allow_archive=False)
+
+
+def test_an_excel_whose_title_cannot_be_read_is_named_by_its_pid(monkeypatch):
+    monkeypatch.setattr(dialogs, "windows", lambda pid=None, parent=None: [])
+    assert str(dialogs.login_refusal(7)).startswith("Smart View's Login is open in Excel (pid 7);")
 
 
 def test_without_a_login_the_target_is_made_ready_as_before(monkeypatch):
@@ -83,7 +92,8 @@ class Clock:
 def test_after_a_launch_a_login_that_comes_is_refused_at_once(monkeypatch):
     c = Clock()
     monkeypatch.setattr(dialogs, "login_open", lambda pid: [5] if c.t >= 4 else [])
-    with pytest.raises(HostError, match=r"Login is open in Excel \(pid 9\)"):
+    monkeypatch.setattr(dialogs, "windows", lambda pid=None, parent=None: [(90, "XLMAIN", "Book1 - Excel")])
+    with pytest.raises(HostError, match=r"Login is open in the Excel showing 'Book1 - Excel' \(pid 9\)"):
         dialogs.watch_after_start(9, clock=c.now, sleep=c.sleep)
     assert 4 <= c.t < 5                                  # not the whole grace, and no wait for a click
 
@@ -121,7 +131,7 @@ def test_a_launched_excel_whose_workbook_opened_is_watched_before_it_is_used(mon
 
     def watch(pid, **k):
         watched.append(pid)
-        raise dialogs.login_refusal(pid)
+        raise dialogs.login_refusal(pid, [])
     monkeypatch.setattr(dialogs, "watch_after_start", watch)
     with pytest.raises(HostError, match="Login is open"):
         target._open_path(None, f, [], [])

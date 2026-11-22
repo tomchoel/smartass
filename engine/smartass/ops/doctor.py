@@ -211,9 +211,9 @@ def _smartview_startup(read=_read_hkcu) -> Check:
 # Smart View's options an older release (up to 0.6.0) changed while its hidden Excel ran, and restored at its shutdown
 # from this file; the file left behind means a run crashed with them changed.
 SV_OPTIONS_FILE = "smartview_options_original.json"
-SV_OPTIONS = {"104": "which messages Smart View shows (Options > Advanced: Display Messages / Log Message Display)",
-              "109": "whether Smart View's panel opens when Excel starts (Options > Advanced)",
-              "110": "Smart View's comment dialog on refresh (Options > Advanced)"}
+SV_OPTIONS = {"104": "Log Message Display (HSV_LOGMESSAGE_DISPLAY: which messages Smart View shows)",
+              "109": "Display Home panel on startup (HSV_DISPLAY_HOMEPANEL_ONSTARTUP)",
+              "110": "Show comment dialog on refresh (HSV_SHOW_COMMENTDIALOG_ON_REFRESH)"}   # Oracle's option ids
 
 
 def _options_files() -> list[Path]:

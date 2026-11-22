@@ -87,10 +87,10 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
     replaced, done ends with {"connection": "-", "error": "atlas not replaced: <why>"} and progress says so; an error,
     or run raising, leaves target untouched; the new file is removed. Every attempt that holds the build lock is
     recorded next to target (last_attempt: `atlas status`); one refused by the lock says so in its own output only,
-    so it never masks the running build's record. The swap is SQLite's backup into target, one transaction: a reader that has
-    target open sees the old atlas or the new one; a lock another process holds longer than SWAP_TIMEOUT_S leaves it
-    unchanged. refused: {exception type: why} - run raising one of them is a reason like the others (not replaced,
-    said and recorded), not an exception."""
+    so it never masks the running build's record. The swap is SQLite's backup into target, one transaction: a reader
+    that has target open sees the old atlas or the new one; a lock another process holds longer than SWAP_TIMEOUT_S
+    leaves it unchanged. refused: {exception type: why} - run raising one of them is a reason like the others (not
+    replaced, said and recorded), not an exception."""
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     lock = _lock(target)

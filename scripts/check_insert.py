@@ -54,9 +54,9 @@ provider.
    route right after add-in runs, two builds loaded), each phase from a new server's state and the add-in phase's
    last save after the reply still queued at the switch, each job on an STA thread of its own through
    xl/userjobs.UserJobs as the server runs it; sheet = model, the executor of each phase, the saves after the reply,
-   Excel ready and saved, the garbage collector on a new thread afterwards. That Excel not answering - a job within MIXED_JOB_S, or one of
-   the script's own calls into it between jobs (each on a thread of its own, with MIXED_JOB_S to answer) - is one
-   DIFF, never a hang: that Excel is killed by its pid, and nothing more is asked of it.
+   Excel ready and saved, the garbage collector on a new thread afterwards. That Excel not answering - a job within
+   MIXED_JOB_S, or one of the script's own calls into it between jobs (each on a thread of its own, with MIXED_JOB_S
+   to answer) - is one DIFF, never a hang: that Excel is killed by its pid, and nothing more is asked of it.
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 
 Prints OK / DIFF per item (never a cell value: addresses and property names only); exit 0 only when all are OK.
@@ -1470,8 +1470,8 @@ def mixed_executors() -> None:
     (_new_server_state, a new UserJobs), and the add-in phase's last save after the reply is still queued when the
     COM phase starts (PENDING_DELAY_S): it runs during the COM jobs, and its outcome is checked after them. Every job
     runs on an STA thread of its own through UserJobs.call (the server's runner), reaching this Excel by its workbook
-    window as the server's jobs reach the user's. Per job: sheet = model; per phase: the executor it ran (the add-in's Run
-    asked, or not), every save after a reply went through, the workbook saved, Excel ready; at the end both builds
+    window as the server's jobs reach the user's. Per job: sheet = model; per phase: the executor it ran (the add-in's
+    Run asked, or not), every save after a reply went through, the workbook saved, Excel ready; at the end both builds
     still loaded, and the garbage collector run on a new thread returns and Excel still answers there.
     Excel stopping to answer anywhere is ONE DIFF and that Excel is killed by its pid, never a hang (Task D3): every
     call of the script's own into it runs on a thread of its own (ask: the thread that started it and owns its

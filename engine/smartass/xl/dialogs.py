@@ -88,20 +88,25 @@ STARTUP_HINT = ("If it shows at every Excel start, untick 'Check for updates whe
                 "View > Options > Extensions (close Excel first).")
 
 
+def titles(pid: int) -> list[str]:
+    """The titles of Excel `pid`'s main windows ('Budget.xlsx - Excel'), read without COM."""
+    return [t for _h, cls, t in windows(pid=pid) if cls == "XLMAIN" and t]
+
+
 def login_refusal(pid: int, captions: list[str] | None = None) -> HostError:
-    """The refusal for an Excel whose Smart View Login is open: which Excel (its workbook windows' titles, read without
-    COM, when it shows any) and what to do."""
-    shown = [c for c in captions or [] if c]
+    """The refusal for an Excel whose Smart View Login is open: which Excel (captions: its workbook windows' titles;
+    else its main windows' titles - all read without COM) and what to do."""
+    shown = [c for c in (titles(pid) if captions is None else captions) if c]
     which = f"the Excel showing {', '.join(repr(c) for c in shown[:3])} (pid {pid})" if shown else f"Excel (pid {pid})"
-    return HostError(f"Smart View's Login is open in {which}; smartass does not touch an Excel while it is (COM into it "
-                     "would block). Next step: sign in there or close that Login window, then ask again. "
+    return HostError(f"Smart View's Login is open in {which}; smartass does not touch an Excel while it is (COM "
+                     "into it would block). Next step: sign in there or close that Login window, then ask again. "
                      + STARTUP_HINT)
 
 
-def refuse_login(pid: int, captions: list[str] | None = None) -> None:
+def refuse_login(pid: int) -> None:
     """Refuse (login_refusal) when Smart View's Login is open in Excel `pid`: checked once, before the first COM."""
     if login_open(pid):
-        raise login_refusal(pid, captions)
+        raise login_refusal(pid)
 
 
 def watch_after_start(pid: int, grace: float = LAUNCH_GRACE_S, alive=None, clock=None, sleep=None) -> None:

@@ -110,13 +110,14 @@ ARCHIVE_REFUSAL = ("'{name}' is in the Produktregnskapet archive (audit record) 
 
 def resolve_target(h, target: str = "session", allow_archive: bool = False, title: str | None = None,
                    build_new: bool = False) -> Target:
-    """h: the job's runner (xl/userjobs.UserJobs; the resolve itself uses nothing of it). target: 'session' (default: this session's own analysis workbook - created on its first question, reopened
-    if closed), 'active' (the workbook the user is working in), 'new' (a new file, which becomes the session's
-    workbook), an absolute file path, or the name of an open workbook (e.g. an unsaved 'Book1'). build_new: the caller
-    builds a new workbook itself (exceljob.excel_job: the first answer's built file is the workbook) - a target that
-    resolves to a new workbook in a running Excel then comes back with its file reserved and not opened (Target.made,
-    wb None; open_new opens it), made ready all the same, and does not become the session's workbook here:
-    the caller sets it once the answer is in it. A failure after the reservation deletes the file (discard_new)."""
+    """h: the job's runner (xl/userjobs.UserJobs; the resolve itself uses nothing of it). target: 'session' (default:
+    this session's own analysis workbook - created on its first question, reopened if closed), 'active' (the workbook
+    the user is working in), 'new' (a new file, which becomes the session's workbook), an absolute file path, or the
+    name of an open workbook (e.g. an unsaved 'Book1'). build_new: the caller builds a new workbook itself
+    (exceljob.excel_job: the first answer's built file is the workbook) - a target that resolves to a new workbook in a
+    running Excel then comes back with its file reserved and not opened (Target.made, wb None; open_new opens it), made
+    ready all the same, and does not become the session's workbook here: the caller sets it once the answer is in it.
+    A failure after the reservation deletes the file (discard_new)."""
     with jobs.starting():
         return _resolve(h, target, allow_archive, title, build_new)
 
@@ -199,7 +200,7 @@ def _new_target(h, title: str, excels, known: set[int] | None = None, build_new:
         choice = excels[0]
     if choice is None and not _seed_has_label(config.NEW_WORKBOOK_SEED) and new_base() is None and tpl.exists():
         with stage("start Excel"):                    # no Excel, no seed, no stored base: the template route needs none
-            choice, wb = _spawn_excel(tpl, known or set())     # (its look stores the base for the next new workbook)
+            choice, wb = _spawn_excel(tpl, known or set(), OPEN_TIMEOUT_S)   # a cold Excel; its look stores the base
         spawned = True
     if choice is None:                                # no Excel at all: the file is made without Excel, /x opens it
         t = _open_path(h, _new_analysis_file(title), excels)
@@ -356,11 +357,15 @@ def _discard_new(app, wb, spawned: bool) -> None:
             pass
 
 
-def _spawn_excel(tpl: Path, known: set[int]):
-    """Start a new interactive Excel on the TN template (opens as a new unsaved workbook) and take its turn."""
+SPAWN_TIMEOUT_S = 120              # an Excel started beside a running one opens the template within this
+
+
+def _spawn_excel(tpl: Path, known: set[int], limit: float = SPAWN_TIMEOUT_S):
+    """Start a new interactive Excel on the TN template (opens as a new unsaved workbook) and take its turn. limit:
+    how long it may take to show the template (a first Excel on a cold PC: OPEN_TIMEOUT_S, as _open_path)."""
     proc = _launch_excel(tpl)
     t0 = time.monotonic()
-    while time.monotonic() - t0 < 120:
+    while time.monotonic() - t0 < limit:
         jobs._check_alive()
         time.sleep(1)
         for pid, hwnd, app in instances.interactive_excels():
@@ -370,9 +375,9 @@ def _spawn_excel(tpl: Path, known: set[int]):
                 if str(wb.Name).lower().startswith(tpl.stem.lower()):
                     jobs.hold_turn(pid, wait=False)
                     dialogs.watch_after_start(pid, alive=jobs._check_alive)   # Smart View's Login may come at start-up
-                    jobs.log.info("started Excel pid %s for a parallel agent", pid)
+                    jobs.log.info("started Excel pid %s on the TN template", pid)
                     return (pid, hwnd, app), wb
-    raise HostError(f"A new Excel (pid {proc.pid}) did not open the TN template within 120 s.")
+    raise HostError(f"A new Excel (pid {proc.pid}) did not open the TN template within {limit:.0f} s.")
 
 
 def _finish_target(h, t: Target, allow_archive: bool) -> Target:

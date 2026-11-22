@@ -179,7 +179,8 @@ def test_the_first_file_is_built_without_excel_labelled_with_its_sources_log(env
     p = target._build_first_file(env / "out" / "First.xlsx")
     parts = _parts(p)
     assert 'name="Sources"' in parts["xl/workbook.xml"] and len(openpyxl.load_workbook(p).sheetnames) == 1
-    assert "MSIP_Label_x_Enabled" in parts["docProps/custom.xml"] and "MSIP_Label_x_SiteId" in parts["docProps/custom.xml"]
+    custom = parts["docProps/custom.xml"]
+    assert "MSIP_Label_x_Enabled" in custom and "MSIP_Label_x_SiteId" in custom
     assert "Aptos Narrow" in parts["xl/styles.xml"]
     assert target._seed_has_label(p)
 
@@ -209,10 +210,11 @@ def test_with_no_excel_no_seed_and_no_stored_base_the_user_excel_is_launched_on_
     monkeypatch.setattr(jobs, "hold_turn", lambda *a, **k: True)
     book = object()
     spawned = []
-    monkeypatch.setattr(target, "_spawn_excel", lambda t, known: spawned.append((t, known)) or ((5, 50, "app"), book))
+    monkeypatch.setattr(target, "_spawn_excel",
+                        lambda t, known, limit=None: spawned.append((t, known, limit)) or ((5, 50, "app"), book))
     saved = []
     monkeypatch.setattr(target, "_save_new", lambda app, wb, title: saved.append((app, wb, title)) or env / "x.xlsx")
     monkeypatch.setattr(target, "_new_analysis_file", lambda title: pytest.fail("the template route builds no file"))
     t = target._new_target(None, "Q", [], set(), build_new=True)
-    assert spawned == [(tpl, set())] and saved == [("app", book, "Q")]
+    assert spawned == [(tpl, set(), target.OPEN_TIMEOUT_S)] and saved == [("app", book, "Q")]   # a cold Excel's time
     assert t.wb is book and t.from_template and t.new and t.created and t.made is None

@@ -1,4 +1,5 @@
-"""The user's Excel instances (attach via the main window), workbook paths and the sensitivity label of a new workbook."""
+"""The user's Excel instances (attach via the main window), workbook paths and the sensitivity label of a new
+workbook."""
 from __future__ import annotations
 
 import os

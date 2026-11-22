@@ -15,9 +15,9 @@ ENGINE = Path(__file__).resolve().parents[1]
 GONE = ["smartass.xl.host", "smartass.xl.hidden", "smartass.xl.login", "smartass.epm.ops", "smartass.epm.sso"]
 # Names of the deleted parts: none may appear in the engine's code, comments or texts - except where a leftover of
 # an older release is cleaned up (each such use named here, with why).
-NAMES = ["ExcelHost", "HiddenExcel", "svbridge", "sso_watcher", "HypConnect", "ensure_global_watcher", "GLOBAL_OPTIONS",
-         "BAS_FILES", "modBridge", "smartview_body", "wait_login_cleared", "SmartViewBoxes", "on_host", "_attach_bridge",
-         "ensure_bridge_file", "smartview_version"]
+NAMES = ["ExcelHost", "HiddenExcel", "svbridge", "sso_watcher", "HypConnect", "ensure_global_watcher",
+         "GLOBAL_OPTIONS", "BAS_FILES", "modBridge", "smartview_body", "wait_login_cleared", "SmartViewBoxes",
+         "on_host", "_attach_bridge", "ensure_bridge_file", "smartview_version"]
 BRIDGE_MACRO = re.compile(r"\bB_[A-Z][A-Za-z]+\b")          # the bridge's macros: B_Ping, B_Connect, B_SetOption ...
 LEFTOVER_USES = {("smartass/ops/doctor.py", "svbridge"): "doctor --fix removes an older release's bridge files",
                  ("smartass/ops/setup_user.py", "sso_watcher"): "setup stops an older release's watcher"}
@@ -33,7 +33,8 @@ print(json.dumps({"walked": len(mods), "loaded": sorted(m for m in sys.modules i
 
 
 def _sources():
-    return sorted(p for p in [*(ENGINE / "smartass").rglob("*.py"), *ENGINE.glob("*.py")] if "__pycache__" not in p.parts)
+    files = [*(ENGINE / "smartass").rglob("*.py"), *ENGINE.glob("*.py")]
+    return sorted(p for p in files if "__pycache__" not in p.parts)
 
 
 def _rel(p: Path) -> str:
@@ -74,8 +75,8 @@ def _calls(tree):
 
 def test_only_the_users_excel_is_ever_started_and_only_on_a_workbook():
     """No COM creation of Excel (DispatchEx, EnsureDispatch, GetObject, CoCreateInstance, Dispatch of an Excel progid);
-    a process start names Excel (config.EXCEL_EXE or 'excel' in a literal) only in target._launch_excel, which only _open_path (a workbook file) and
-    _spawn_excel (the TN template, a new workbook) call."""
+    a process start names Excel (config.EXCEL_EXE or 'excel' in a literal) only in target._launch_excel, which only
+    _open_path (a workbook file) and _spawn_excel (the TN template, a new workbook) call."""
     creating, excel_exe, launch_callers = [], [], set()
     for p in _sources():
         tree = ast.parse(p.read_text(encoding="utf-8"))
