@@ -17,7 +17,10 @@ from ..core import config
 from ..knowledge import atlas
 
 CUBES = ("FinMax", "FinLite", "FinPlan")
-SWAP_TIMEOUT_S = 30.0          # build_into waits at most this long for another process's lock on the atlas
+SWAP_TIMEOUT_S = 30.0
+# A dimension EPM lists that the allowlist has no member-tree rule for (epmhttp.MEMBER_TREES is fixed: each rule a
+# whole path, no pattern): skipped, its old rows kept, said in the result, the CLI's last line and `atlas status`.
+NEW_DIMENSION = "dimension {dim} is new in EPM; this release cannot read it - update smartass"          # build_into waits at most this long for another process's lock on the atlas
 DUMP_TIMEOUT_S = 600
 
 Call = Callable[..., Awaitable]
@@ -73,8 +76,10 @@ def build_rest(source, connections: list[str] | None = None, dimensions: list[st
                progress: Callable[[str], None] = print) -> list[dict]:
     """build's shape over the token session. source: members.Source (dimensions(conn) -> [(REST name, atlas name)],
     tree(conn, REST name) -> Get Member's tree). `dimensions`: any spelling of a dimension (its atlas name, its REST
-    name, with or without 'All ' and spaces). A full build of a cube purges it first; errors (members.TreeError,
-    svhttp.SvHttpError) are recorded per dimension and never stop the build; oauth.NotSignedIn stops it."""
+    name, with or without 'All ' and spaces). A full build of a cube purges it first, except a dimension EPM lists
+    that the allowlist cannot read: that one is skipped ({"skipped": NEW_DIMENSION}), its rows kept. Errors
+    (members.TreeError, svhttp.SvHttpError) are recorded per dimension and never stop the build; oauth.NotSignedIn
+    stops it."""
     from ..epm import members, svhttp
     own = db is None
     db = db or atlas.connect()
@@ -89,10 +94,16 @@ def build_rest(source, connections: list[str] | None = None, dimensions: list[st
                 done.append({"connection": conn, "error": str(e)})
                 progress(f"{conn}: {e}")
                 continue
+            app = svhttp.CUBES[conn][1]
+            unread = {dim for rest_name, dim in dims if not members.readable(app, rest_name)}
             if wanted is None:
-                atlas.purge(db, conn)
+                atlas.purge(db, conn, keep=unread)
             for rest_name, dim in dims:
                 if wanted and not wanted & {_canon(rest_name), _canon(dim)}:
+                    continue
+                if dim in unread:                     # no rule for it: never read, never an error, its rows kept
+                    done.append({"connection": conn, "dimension": dim, "skipped": NEW_DIMENSION.format(dim=dim)})
+                    progress(f"{conn}/{dim}: {done[-1]['skipped']}")
                     continue
                 t0 = time.monotonic()
                 try:
@@ -196,7 +207,7 @@ def cards_after_build(done: list[dict], derive: Callable | None = None, progress
                       ) -> list[dict]:
     """Behaviour cards for the cubes this build stored without error (FinLite copies FinMax). A card failure is a
     warning only: the atlas is kept and the build's result does not change."""
-    ok = sorted({d["connection"] for d in done if d.get("dimension") and not d.get("error")})
+    ok = sorted({d["connection"] for d in done if d.get("dimension") and not d.get("error") and not d.get("skipped")})
     if not ok:
         return []
     if derive is None:

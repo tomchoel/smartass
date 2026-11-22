@@ -104,6 +104,12 @@ def rows(tree: dict, cube: str) -> list[dict]:
     return tree_from_labels(labels, extras)
 
 
+def readable(app: str, dim: str) -> bool:
+    """The allowlist has a member-tree rule for this dimension (epmhttp.MEMBER_TREES, fixed: a dimension EPM adds
+    later is not read until a release adds its rule)."""
+    return (app, dim) in epmhttp.MEMBER_TREES
+
+
 class Source:
     """The plan types' dimensions and their trees on the pods' sessions (svhttp.SvHttp.rest_session), each tree read
     once per build (FinLite's are FinMax's)."""

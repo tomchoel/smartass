@@ -120,12 +120,13 @@ def cards_status(db) -> list[dict]:
     return out
 
 
-def purge(db, conn: str) -> None:
+def purge(db, conn: str, keep: set[str] | frozenset[str] = frozenset()) -> None:
+    """Every dimension of the connection goes (members, build rows, side rows), except those in keep."""
+    marks = ",".join("?" * len(keep))
+    tables = ["member", "build", *(["member_real"] if _has_real(db) else [])]
     with db:
-        db.execute("DELETE FROM member WHERE connection=?", (conn,))
-        db.execute("DELETE FROM build WHERE connection=?", (conn,))
-        if _has_real(db):
-            db.execute("DELETE FROM member_real WHERE connection=?", (conn,))
+        for t in tables:
+            db.execute(f"DELETE FROM {t} WHERE connection=? AND dimension NOT IN ({marks})", (conn, *sorted(keep)))
 
 
 def status(db) -> dict:

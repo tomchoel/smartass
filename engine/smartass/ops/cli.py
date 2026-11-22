@@ -115,7 +115,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if failed else 0
         done = atlas_build.run_build(a.cube, a.dimension, excel=a.excel)
         failed = [d for d in done if d.get("error")]
-        print(f"atlas: {len(done) - len(failed)} built, {len(failed)} failed ({config.ATLAS_DB})")
+        skipped = [d for d in done if d.get("skipped")]
+        built = len(done) - len(failed) - len(skipped)
+        said = "".join(f"; {d['connection']}: {d['skipped']}" for d in skipped)
+        print(f"atlas: {built} built, {len(failed)} failed{f', {len(skipped)} skipped' if skipped else ''}{said} "
+              f"({config.ATLAS_DB})")
         return 1 if failed else 0
     if a.cmd == "knowledge":
         return _knowledge(a)

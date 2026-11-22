@@ -315,6 +315,36 @@ def test_a_full_build_purges_the_cube_and_a_partial_one_does_not(tmp_path):
         assert not atlas.has_member(db, "FinMax", "All Gone", "g")             # a full build purges it
 
 
+def test_a_dimension_epm_lists_without_a_rule_is_skipped_and_keeps_its_rows(tmp_path):
+    """The allowlist names every dimension it may read (epmhttp.MEMBER_TREES, fixed). A dimension EPM lists that has no
+    rule is not read and not an error: its old rows are kept through the cube's purge, the swap goes on, and the result
+    says loudly that this release cannot read it (Task 4 review, Minor 1; controller ruling)."""
+    target = tmp_path / "atlas.db"
+    with contextlib.closing(atlas.connect(target)) as db:
+        for dim in ("All Colours", "All Gone"):
+            atlas.store(db, "FinMax", dim, [{"name": "c", "label": "c", "parent": None, "depth": 0, "order": 0}], 1.0)
+    dims = {**DIMS, "FinMax": [*DIMS["FinMax"], ("Colours", "All Colours")]}
+    src = _Source(TREES, dims)
+    done, swapped = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        src, ["FinMax"], db=db, progress=lambda m: None), progress=lambda m: None)
+    assert swapped and ("FinMax", "Colours") not in src.read
+    assert done[-1] == {"connection": "FinMax", "dimension": "All Colours",
+                        "skipped": "dimension All Colours is new in EPM; this release cannot read it - update smartass"}
+    with contextlib.closing(atlas.connect(target)) as db:
+        assert atlas.has_member(db, "FinMax", "All Colours", "c")              # kept
+        assert not atlas.has_member(db, "FinMax", "All Gone", "c")             # purged: EPM no longer lists it
+
+
+def test_the_cli_says_a_skipped_dimension_on_its_last_line(monkeypatch, capsys):
+    skipped = "dimension All Colours is new in EPM; this release cannot read it - update smartass"
+    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims, excel: [
+        {"connection": "FinMax", "dimension": "All Accounts", "members": 3},
+        {"connection": "FinMax", "dimension": "All Colours", "skipped": skipped}])
+    assert cli.main(["atlas", "build"]) == 0
+    last = capsys.readouterr().out.strip().splitlines()[-1]
+    assert last.startswith("atlas: 1 built, 0 failed, 1 skipped") and skipped in last
+
+
 def test_errors_are_recorded_per_dimension_and_never_stop_the_build(tmp_path):
     src = _Source(TREES, DIMS, fail=("Entities", "FinLite"))
     with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
