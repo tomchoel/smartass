@@ -144,8 +144,9 @@ def launch_grace(started: float, clock=None) -> float:
 
 def watch_after_start(pid: int, grace: float = LAUNCH_GRACE_S, alive=None, clock=None, sleep=None) -> None:
     """An Excel smartass just launched: watched for grace seconds (Smart View's Login may come right after its start;
-    the launch sites give launch_grace) before the first COM call; a Login seen is refused at once (login_refusal).
-    alive: the job's abort check, each round."""
+    the launch sites give launch_grace). The launch sites call it once they found the workbook in that Excel (a read
+    of its workbook list) and took that Excel's turn (its first contact), as 0.6.0 did, and before the job's first
+    step there; a Login seen is refused at once (login_refusal). alive: the job's abort check, each round."""
     clock, sleep = clock or time.monotonic, sleep or time.sleep
     t0 = clock()
     while True:

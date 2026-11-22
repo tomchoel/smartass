@@ -30,9 +30,10 @@
   you use Smart View by hand: you click it yourself. While Smart View's Login is open in any Excel on your screen,
   smartass does no work in Excel at all, also when your workbook is in another Excel. The reply says so and names
   the window with the Login.
-- **An Excel smartass has just started is watched for that Login.** Before its first step there, smartass waits 12
-  seconds after the workbook shows. Where Smart View's start-up check is on, it waits until 25 seconds after Excel
-  started, as that Login comes about 20 seconds after the start.
+- **An Excel smartass has just started is watched for that Login.** Once the workbook shows there and smartass has
+  read that Excel's list of workbooks, it watches for 12 seconds before the answer's first step there. Where Smart
+  View's start-up check is on, it waits until 25 seconds after Excel started, as that Login comes about 20 seconds
+  after the start.
 - **A drill link has no second route.** Planning REST cannot give a cell's drill link. When the first route cannot
   fetch it, the drill fails with the reason and one next step (for example `smartass login --force`, or drill
   again in a minute).

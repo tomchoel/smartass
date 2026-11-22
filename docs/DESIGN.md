@@ -273,8 +273,9 @@ never stops the rest.
   installed and can open its Login (at every Excel start when its start-up update check is on: doctor
   `smartview_startup`). Excel's COM blocks while that Login is open, so smartass refuses at once to work while one is
   open in any visible Excel (also for a job whose workbook is in another Excel), and names that Excel by its window
-  title. After it launched an Excel it watches that Excel for a Login before its first call: 12 s from when the
-  workbook showed; where Smart View's start-up check is on (`HKCU\Software\Oracle\SmartView\extensions`
+  title. After it launched an Excel and found the workbook there (a read of that Excel's workbook list and the first
+  contact of its turn, in 0.6.0's order), it watches that Excel for a Login before the job's first step there: 12 s
+  from when the workbook showed; where Smart View's start-up check is on (`HKCU\Software\Oracle\SmartView\extensions`
   `CheckOnStartup`, read from the registry, no COM; a policy setting reads as not set) until 25 s after the launch
   when that is later, as that Login comes 19-22 s after Excel starts. A Login later than that (a slow start) is not
   caught: that job waits until its deadline. Nothing clicks, closes or waits for a sign-in.
