@@ -204,9 +204,20 @@ def test_a_failed_build_keeps_the_sign_in_and_says_which_command_to_run_later(no
             raise RuntimeError("EPM did not answer")
         return [{"connection": "-", "error": "atlas not replaced: 1 dimension or cube failed"}]
     out = []
-    assert login.run(out=out.append, open_page=lambda u: None, copy=lambda c: None, build=build) == 0
+    assert login.run(out=out.append, open_page=lambda u: None, copy=lambda c: None, build=build) == 3   # carry-in e
     assert "Signed in to strat.example." in out
     assert "your sign-in is kept" in out[-1] and "`smartass atlas build`" in out[-1]
+
+
+def test_a_failed_build_with_every_pod_already_signed_in_is_exit_3_too(no_atlas, fake):
+    """`smartass login && ...` in a script must not go on as if the PC were ready."""
+    state, _ = fake
+    state["https://strat.example"] = "signed_in"
+
+    def build():
+        raise RuntimeError("EPM did not answer")
+    assert login.run(out=lambda s: None, build=build) == 3
+    assert login.run(atlas=False, out=lambda s: None, build=build) == 0        # --no-atlas: no build, the sign-in
 
 
 def test_status_and_forget_never_build(no_atlas):
