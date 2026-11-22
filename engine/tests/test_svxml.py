@@ -375,3 +375,15 @@ def test_drill_url_none_without_a_report():
 def test_drill_url_raises_provider_exceptions():
     with pytest.raises(svxml.SvXmlError, match="not valid"):
         svxml.drill_url('<exception errcode="1000" type="error"><desc>Your session is not valid.</desc></exception>')
+
+
+def test_the_raw_desc_is_kept_for_the_classification_and_never_shown():
+    """Final review A, M1: the error keeps the provider's raw text (unescaped, uncut) for svhttp's classification;
+    its text, args and repr are the scrubbed one."""
+    import secrets
+    x = secrets.token_hex(12)
+    with pytest.raises(svxml.SvXmlError) as e:
+        svxml.raise_for_exception(f'<exception errcode="1000"><desc>Member Cookie: {x} &amp;amp; more</desc></exception>')
+    assert e.value.raw == f"Member Cookie: {x} &amp; more" and e.value.code == 1000
+    assert x not in str(e.value) and x not in repr(e.value) and x not in str(e.value.args)
+    assert svxml.SvXmlError("no member list").raw == "no member list"

@@ -387,11 +387,11 @@ class SvHttp:
                          lambda e: e.code in (4996, 4997))  # unknown member or dimension: a new session won't help
 
     def _execute(self, conn: str, lay: Layout) -> list[list]:
-        def wrong(e) -> bool:                             # a member the cube lacks there
-            return bool(WRONG_MEMBER.fullmatch(str(e).strip()))
+        def wrong(e) -> bool:                             # a member the cube lacks there (the raw text: never the
+            return bool(WRONG_MEMBER.fullmatch(e.raw.strip()))   # scrubbed one, which a label can change)
 
         def clash(e) -> bool:                             # alias clash: deterministic too
-            return any(m in str(e) for m in ALIAS_CLASH)
+            return any(m in e.raw for m in ALIAS_CLASH)
         return self._ask(conn, lambda sid, cube: svxml.execute_grid(sid, cube, lay), svxml.grid_values,
                          lambda e: wrong(e) or clash(e), lambda e: WrongMember if wrong(e) else GridRefused)
 

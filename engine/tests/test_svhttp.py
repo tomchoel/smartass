@@ -676,6 +676,22 @@ def test_an_alias_clash_does_not_spend_a_reconnect(db_path):
     assert t.tags().count("ConnectToProvider") == 1 and t.tags().count("ExecuteGrid") == 1
 
 
+@pytest.mark.parametrize("desc, refused", [
+    ("Duplicate name Cookie: Choc found in grid; cannot resolve. Please replace it with qualified name.",
+     svhttp.GridRefused),
+    ("Member Cookie: Choc is out of place.", svhttp.WrongMember)], ids=["alias clash", "wrong member"])
+def test_the_providers_error_is_classified_on_its_raw_text_and_shown_scrubbed(db_path, desc, refused):
+    """Final review A, M1: the scrub's cookie rule takes the rest of the line, so a label holding 'Cookie:' (invented
+    here) lost its class when the scrubbed text was classified - an alias clash then went to REST. Classified on the
+    provider's raw <desc>, shown scrubbed."""
+    t = FakeTransport(f'<exception errcode="1000" type="error"><desc>{desc}</desc></exception>', answer(GRID))
+    with pytest.raises(svhttp.SvHttpError) as e:
+        _q(_sv(t, db_path))
+    assert type(e.value) is refused and isinstance(e.value, svhttp.NoFallback) == (refused is svhttp.GridRefused)
+    assert "Cookie: ***" in str(e.value) and "Choc" not in str(e.value)
+    assert t.tags().count("ExecuteGrid") == 1                        # deterministic: no reconnect
+
+
 # ---------------------------------------------------------------- BearerTransport (OAuth access token, no browser)
 class _Tokens:
     """epm/oauth.py as the transport sees it: scope_for and access_token (which may raise)."""

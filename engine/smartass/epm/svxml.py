@@ -18,11 +18,14 @@ SPECIAL = {"#noaccess": "#NoAccess", "#no access": "#NoAccess", "#missing": "#Mi
 
 
 class SvXmlError(Exception):
-    """The provider answered with <exception>, or with something that is not provider XML."""
+    """The provider answered with <exception>, or with something that is not provider XML. Its text is what may be
+    shown (the provider's <desc> scrubbed and cut: _scrubbed); raw is the provider's own text, unescaped and whole,
+    for svhttp's classification only - never shown, logged or put in args (final review A, M1)."""
 
-    def __init__(self, desc: str, code: int | None = None):
+    def __init__(self, desc: str, code: int | None = None, raw: str | None = None):
         super().__init__(desc)
         self.code = code
+        self.raw = desc if raw is None else raw
 
 
 def check_read_only(body: str) -> None:
@@ -135,7 +138,8 @@ def drill_url(text: str) -> tuple[str, str] | None:
 def raise_for_exception(text: str) -> None:
     m = re.search(r'<exception\b[^>]*\berrcode="(-?\d+)"[^>]*>.*?<desc>(.*?)</desc>', text, re.S)
     if m:
-        raise SvXmlError(_scrubbed(html.unescape(m.group(2)).strip()), int(m.group(1)))
+        raw = html.unescape(m.group(2)).strip()
+        raise SvXmlError(_scrubbed(raw), int(m.group(1)), raw)
     if "<res_" not in text:
         raise SvXmlError(f"not a Smart View provider answer ({_shape(text)})")
 
