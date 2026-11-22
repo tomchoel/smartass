@@ -79,9 +79,9 @@ drill lines over the token are the browser route's row for row, with exact ties;
 - **Symptom:** `FAIL  oauth  <pod>: no scope (epm.base: no answers)`; every tool reply that reads EPM says "no OAuth
   scope is configured for https://<pod>".
 - **Cause:** the pod of `epm.base` has no scope under `[oauth.scopes]`. Every answer reads the closed month and the
-  list of data sources from that pod first, and those have no fallback through Excel: no answer works, no drill
-  either. Another pod without a scope loses only what is asked of that pod: its grids are pulled through Smart View
-  in the hidden Excel instead (slower).
+  list of data sources from that pod first, and those have no other route: no answer works, no drill either.
+  Another pod without a scope loses only what is asked of that pod: its grids cannot be fetched (Planning REST needs
+  the same scope), and the reply's warnings say so.
 - **Fix:** Add the pod's scope under [oauth.scopes] in config.toml (the identity domain's administrator reads it
   where that environment was added to the OAuth client as a resource), then run `smartass login`.
 - **Symptom:** `WARN  oauth  <pod>: not signed in` or `<pod>: sign-in ended`; a tool reply gives a page and a code.
@@ -96,6 +96,20 @@ drill lines over the token are the browser route's row for row, with exact ties;
 - **Left over from before 0.6.0, safe to delete by hand:** the old hidden browser's profile folders
   `%LOCALAPPDATA%\smartass\drill_edge*` and failed drill pages `logs\drill_fail_*`. smartass no longer uses them and
   never deletes them itself. A `[drill] channels` line in config.toml is ignored.
+
+## How a grid is fetched (since phase 2: the Excel fallback is gone)
+
+Every grid goes first over the Smart View provider route (HTTP, your token). A grid that route cannot fetch is
+fetched once over Oracle's Planning REST `exportdataslice` with the same token, the second engine; no Excel is ever
+asked for a grid. The reply's `routes` counts the grids per engine (`http`, `rest`). What a warning means:
+
+| Warning or error in the reply | Meaning | What to do |
+|---|---|---|
+| "N grid(s) were fetched over Planning REST, the second engine: the Smart View provider route could not fetch them (...)" | The numbers are complete and the same as the provider route's (live gate: docs\audit\2026-11-21-rest-vs-provider.md). Over REST a cell you have no access to cannot be told apart from an empty one: it reads as missing, not #NoAccess. | Nothing, unless you expected #NoAccess cells. |
+| "FinPlan: EPM refused Entity member X over Planning REST ... so it was left out: its figures are missing from this answer and every total that includes it (metrics) is INCOMPLETE - check the member or rebuild the atlas (`smartass atlas build`)" | EPM no longer has that member there (renamed or removed since the atlas or the question), or you may not read it. The rest of the grid is fetched without it, so a total that includes it shows only the others. The same text is under Caveats on the Answer and in Known limits on the Sources sheet. | Check the member with fin_lookup; rebuild the atlas; ask again with today's member. |
+| "... could not fetch it either (query q): Planning REST refused the ... grid: ... member X ... cannot be left out - check the member or rebuild the atlas" | The refused member is a POV member or the only member on its axis (often the question's one entity): leaving it out would change what every number means, so the grid is not fetched. | As above: correct the member (fin_lookup) and ask again. |
+| "N grid(s) could not be fetched (the Smart View provider route, then Planning REST): ..." | Neither engine could fetch them; the reasons follow. Those numbers are missing from the answer. | Ask again in a minute; if it repeats, `smartass doctor`. |
+| A drill: "the drill link of ... could not be fetched over the Smart View provider route (...); Planning REST has no drill-report request, so there is no other route" | Only the provider route can give a cell's drill link. | Try again in a minute. |
 
 ## atlas
 

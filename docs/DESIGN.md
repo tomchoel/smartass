@@ -40,8 +40,19 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    (`model/validate.py`: unknown member or metric, open month without `preliminary`, period mismatch), plan the
    grid requests (`model/requests.py`, `model/series.py`) and fetch them in parallel over Smart View HTTP
    (`data/provider.py` → `epm/svhttp.py`). `lines` blocks drill first (`epm/drillstep.py`, concurrently).
-2. **Fallback**: grids HTTP could not fetch are pulled once as ad hoc grids in the user's Excel
-   (`data/adhoc.py` → `xl/pull_adhoc.py`), then prepare runs again with those facts fixed.
+2. **Second engine** (`data/provider.py`): a grid request the Smart View provider route could not fetch is fetched
+   once over Oracle's Planning REST `exportdataslice` (`epm/rest.py`, through the same `EpmSession` of the pod),
+   parsed by the same `facts_from_parsed`. Not for an error REST meets as well (`svhttp.NoFallback`: no token, a
+   token refused twice, a pod without a scope, a stale atlas, an alias clash, the data-source lookup busy) or a
+   missing sign-in. A member the cube does not have where the grid puts it (the provider's `WrongMember`; REST's
+   HTTP 400 names it) is left out of the request when it is on an axis of several (at most 3, every grid of the
+   request): it gets no fact, the path of a missing cell, and one warning and one warn caveat per member (the
+   Answer's Caveats, the Sources sheet's Known limits) say its figures are missing and every total with it is
+   INCOMPLETE. A POV member or an axis's only member fails the request with an error that names it, the grid and
+   `smartass atlas build`. A grid neither engine could fetch is a warning (`Prepared.failed`); no Excel is asked
+   for a grid. `routes` counts `rest`, and one warning says how many grids came over REST and that a cell you may
+   not read reads as empty there (Oracle exports only cells with read-write access). Live gate:
+   `docs/audit/2026-11-21-rest-vs-provider.md`.
 3. **Compute** (`model/analyze.py`): facts → `model/frame.py` → block builders (`model/blocks/*`) → expression
    trees (`model/expr.py`) → values, findings, material lines and `key_values` (`model/findings.py`).
 4. **Excel job** (one job in the user's Excel, `exceljob.excel_job`): the answer's sheets are built as one .xlsx
@@ -156,7 +167,7 @@ never stops the rest.
 |---|---|
 | `core/` | `config` (paths, settings, DPAPI secret), `logsetup`, `timing` (stages, progress), `session` (session workbooks, `sessions.json`), `serverkit` (guard, Excel jobs, lifespan) |
 | `model/` | spec, periods, requests, series, resolver interface, frame, expressions, blocks, validate, findings, lines (pure; no Excel, no network) |
-| `data/` | providers (HTTP, ad hoc combo), recorder (offline replay for the test set) |
+| `data/` | the provider (the Smart View provider route, Planning REST as its second engine), recorder (offline replay for the test set) |
 | `render/` | layout and look (pure), the built file (`xlsx`, `xlsx_charts`), chart rules, read-back, layout check |
 | `epm/` | Smart View HTTP/XML, grids, `ops` (bridge grids, atlas dumps), SSO, OAuth sign-in, the drill over the token (`drill_token` on `epmhttp`, `drillcore`, `drillstep`) and its lines |
 | `knowledge/` | atlas (SQLite), semantic files (`semantic`, `seed`), `build` (knowledge.db), `KnowledgeResolver`, monthly `refresh` |
@@ -185,12 +196,13 @@ never stops the rest.
   and code a tool reply shows when the sign-in is missing), stored DPAPI-protected; the refresh token is single use,
   so every refresh runs under a cross-process lock, and the servers renew it daily. Without `[oauth]` in
   config.toml a tool call answers with the set-up text. The pod of `epm.base` must have a scope: the closed month and
-  the data-source list are read there with no Excel fallback, so without it no answer works (doctor FAIL); a grid on
-  another pod without a scope is pulled through Smart View in the hidden Excel. Live 19.11.2026: grids, the closed
+  the data-source list are read there with no other route, so without it no answer works (doctor FAIL); a grid on
+  another pod without a scope cannot be fetched (a warning that names the scope to add). Live 19.11.2026: grids, the closed
   month and drill links are the old browser route's cell for cell (first grid 0.7 s against about 20 s); 21.11.2026:
   drill lines on four cells are the browser route's row for row (docs/audit/2026-11-19-drill-token-vs-browser.md).
-  The same token also opens the documented Planning REST API (`exportdataslice`, member properties), which is not
-  used yet.
+  The same token opens the documented Planning REST API: `exportdataslice` is the grids' second engine (above);
+  member properties are not used yet. The drill link (GetDrillThroughReports) has no second route: Planning REST has
+  no drill-report request, so a link the provider route cannot fetch is an error.
 - **Atlas**: `atlas.db`, rebuilt with `smartass atlas build` (or copied from the monthly release by `smartass
   setup`).
 

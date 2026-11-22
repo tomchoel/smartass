@@ -2,8 +2,8 @@
 
 **What it is.** An engine (MCP server `smartass`) that lets an AI agent (Claude Code, Copilot CLI) work read-only
 against Telenor Norge's Oracle EPM cubes FinMax, FinLite and FinPlan. The agent writes an **AnalysisSpec v2**
-(plan, queries, typed blocks); `fin_analyze` fetches the data (Smart View's HTTP protocol, an ad hoc grid in Excel
-as the fallback), computes every value in Python and draws the answer in Excel: a formatted `Q<n> Answer` sheet
+(plan, queries, typed blocks); `fin_analyze` fetches the data (Smart View's HTTP protocol, Oracle's Planning REST
+as the second engine), computes every value in Python and draws the answer in Excel: a formatted `Q<n> Answer` sheet
 whose numbers are live formulas on one data table per question (`Data_Q<n>`), with checks, findings, the material
 lines and their drivers. Follow-ups patch the stored spec; monthly packs refresh to the latest closed month.
 
@@ -83,7 +83,7 @@ engine\                      run_server.py (relay), child_server.py, VERSION, de
 engine\smartass\             server.py, pipeline.py, exceljob.py (the Excel job), followup.py, workbench.py and the packages:
   core\       config, logs, timing, session, serverkit (tool guard, Excel jobs, lifespan)
   model\      spec, periods, expressions, blocks, findings, validation (no Excel, no network)
-  data\       providers: Smart View HTTP, ad hoc grid fallback, recorder
+  data\       providers: Smart View HTTP, Planning REST (second engine), recorder
   render\     data table, answer sheet, charts, style
   epm\        Smart View HTTP/XML, grids, sign-in, the drill over the token and its lines
   knowledge\  atlas, resolver, interim metric catalogue

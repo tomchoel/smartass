@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Planning REST is the second engine; the Excel fallback for a grid is gone (phase 2)
+
+- **A grid the Smart View provider route cannot fetch** is fetched once over Oracle's documented Planning REST API
+  (`exportdataslice`) with the same sign-in, no Excel. The reply's `routes` counts `rest`, and one warning says
+  how many grids came that way. Live gate (22.11.2026, read-only): 21 of 21 real grids identical on both routes,
+  the order proof 4 of 4, a 466 637-cell split equal (docs/audit/2026-11-21-rest-vs-provider.md).
+- **A member EPM no longer has** (renamed or removed since the atlas or the question) is left out of that grid over
+  REST when other members remain on its axis. The answer then has one warning and one caveat per such member
+  (Caveats on the Answer, Known limits on the Sources sheet) saying its figures are missing and every total that
+  includes it is INCOMPLETE. A POV member or the only member of its axis (often the question's one entity) cannot
+  be left out: the error names it and says to check it or run `smartass atlas build`. The Excel fallback did this
+  silently, and not at all for an axis's only member.
+- **Gone:** the ad hoc grid in your Excel when a grid could not be fetched (`data/adhoc.py`, `xl/pull_adhoc.py`).
+  A grid neither engine can fetch is now a warning. A drill link the provider route cannot fetch is an error with
+  its reason (Planning REST has no drill-report request), no longer a Smart View pull in the hidden Excel. A split
+  drill reads its children's values over REST when the provider route cannot.
+- **Over REST a cell you may not read reads as empty**, not #NoAccess: Oracle exports only cells with read-write
+  access and documents no marker (never seen live; an open item). The REST warning says so.
+- No pod without a scope, refused token, stale atlas or alias clash is sent to REST: it would meet the same error.
+  Tool names, parameters and reply fields are unchanged.
+
 ### Drill lines over the token; the hidden browser is gone (0.6.0)
 
 - **No browser.** smartass no longer installs Playwright or starts a hidden Edge. Grids and now also the ledger

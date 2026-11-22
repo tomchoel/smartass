@@ -11,8 +11,8 @@
   After an update, reconnect every open session: one still on 0.4.0 in the same Excel has no first-contact check, so
   a 0.5.0 save after the reply can run in the middle of its job.
 - **Two Excels.** The engine's own hidden Excel (`DispatchEx`, one COM thread, the VBA bridge `vba\modBridge.bas`
-  + Oracle's `smartview_body.bas` loaded into an unsaved workbook) does ad hoc fallback grids; the answer is drawn
-  in the user's Excel (session workbook, or `target="active"`). Only the engine's own Excel is ever killed or
+  + Oracle's `smartview_body.bas` loaded into an unsaved workbook) fetches no grid any more (phase 2); the answer is
+  drawn in the user's Excel (session workbook, or `target="active"`). Only the engine's own Excel is ever killed or
   restarted; the PIDs it started are in `%LOCALAPPDATA%\smartass\pids.json` with the owning server.
 - **How an answer reaches Excel.** The answer's sheets are built as an .xlsx without Excel (under
   `%LOCALAPPDATA%\smartass\tmp`, deleted when the answer is in), inserted into the workbook in one call (Excel's
@@ -67,9 +67,10 @@
   waiting save after the reply at its first contact, so that save can run between its batches. The add-in runs
   nothing but job files the engine writes to `inproc\jobs` (a formula calling it gets #N/A); the user's settings it
   turns off while it works are put back by each batch itself, also when a step fails.
-- **Fetch route.** Smart View HTTP with the user's OAuth token (`smartass login`; no browser). A grid HTTP could not
-  fetch (a pod without a scope, a lost request) is pulled as an ad hoc grid in Excel instead (`routes` in the reply;
-  a warning says why). A missing sign-in is answered with a page and a code instead (show both to the user; after
+- **Fetch route.** Smart View HTTP with the user's OAuth token (`smartass login`; no browser). A grid that route
+  could not fetch (a lost request, a broken session, a member the cube no longer has) is fetched once over Planning
+  REST, the second engine, with the same token (`routes` in the reply counts `rest`; one warning says so). Never
+  through Excel. A pod without a scope, a refused token or a stale atlas stops both engines: the grid is a warning. A missing sign-in is answered with a page and a code instead (show both to the user; after
   the approval call again); a PC without `[oauth]` in config.toml gets the set-up text.
 - **Read-only.** Submit, calculate and business rules do not exist in the bridge.
 - **Smart View options.** Global options 104 (messages: none), 109 (home panel off), 110 (comment dialog off) are
@@ -124,7 +125,10 @@ Every error names one next step. The common ones:
 | `invalid spec: …` / `Extra inputs are not permitted` | The spec breaks the contract (unknown field, a block metric not in its query, budget on a FinMax query …). Fix the named field. |
 | `query q1: Actual covers … but … covers …` | Actual and plan periods do not line up; set `plan_periods` or align `periods`. |
 | Warning `Smart View rejected these members …, so they were left out` | Those lines are missing (not zero); tell the user and pick a more specific member. |
-| Warning `HTTP route failed (…); the grid was read through Smart View in Excel instead` | The data WAS fetched, through Excel. No action needed for the answer. |
+| Warning `N grid(s) were fetched over Planning REST, the second engine: …` | The data WAS fetched, over REST: same numbers. A cell the user may not read shows as empty there (not #NoAccess). No action needed for the answer. |
+| Warning `…: EPM refused <dimension> member X over Planning REST … left out: its figures are missing from this answer and every total that includes it (…) is INCOMPLETE …` (also a warn caveat) | The member no longer exists there (or the user may not read it): it was left out and the totals that include it show only the rest. Tell the user which totals are incomplete; check the member with fin_lookup and patch the spec, or ask the user to run `smartass atlas build`. Do not quote those totals as complete. |
+| Error/warning `… member X … cannot be left out - check the member or rebuild the atlas` | A POV member or the query's only entity (or another single member) is refused: that grid is not fetched. Find today's member with fin_lookup and patch the spec. |
+| Warning `N grid(s) could not be fetched (the Smart View provider route, then Planning REST): …` | Neither engine could fetch them; those numbers are missing. Retry; if it repeats, `smartass doctor`. |
 | `checks.sheet_equals_model` = `DIFF in n cells` (+ `mismatches`) | Excel calculated something else than the model: report it; do not quote those cells. |
 | Login window / `Smart View's sign-in window stopped responding` / `stayed open for more than 30s` | Sign-in: the SSO watcher clicks 'Telenor SSO'. The engine restarts its own hidden Excel when its Login hangs; a Login in the user's Excel needs the user. If an app holding WebView2 is named (often PowerPoint), ask the user to close it. |
 | Doctor `WARN oauth <pod>: not signed in` / `sign-in ended`, or a tool reply with a sign-in page and code | Nothing reaches that pod until the user approves. Show the user the page and code from the reply (or run `smartass login` in the background and show what it prints), let them approve, then call again. |
