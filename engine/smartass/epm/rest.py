@@ -449,7 +449,10 @@ def _cell(v):
     if not _PLAIN.fullmatch(s):
         raise RestError(f"non-numeric data in the Planning REST grid: a cell shaped '{_shape(s)}' is not a plain "
                         "number (digits, one '.', an exponent), and it is never guessed")
-    return float(s)
+    f = float(s)
+    if not math.isfinite(f):                          # '1e999': plain in form, too large for a number
+        raise RestError("non-numeric data in the Planning REST grid: a number that is not finite")
+    return f
 
 
 def _labels(db, conn: str, dim: str, spellings: set[str]) -> tuple[dict, dict]:
