@@ -187,7 +187,7 @@ never stops the rest.
 | `epm/` | the HTTPS boundary (`epmhttp`), OAuth sign-in (`oauth`), Smart View's provider XML (`svhttp`, `svxml`), grids, Planning REST (`rest`: the second grid engine; `members`: the atlas's trees), the drill over the token (`drill_token`, `drillcore`, `drillstep`) and its lines |
 | `knowledge/` | atlas (SQLite), semantic files (`semantic`, `seed`), `build` (knowledge.db), `KnowledgeResolver`, monthly `refresh` |
 | `xl/` | the user's Excel (`userjobs`: the job runner; `hostproc`: a job's COM thread and the sweep of an older release's Excels; `jobs`: turns; `instances`, `target`, `dialogs`: Smart View's Login guard; `sheets`), `styling`, `formulas`, `movein`, `sources`, `sheetorder`, `inproc` (batches of Excel operations, their COM executor and the in-process add-in), `drill_xl`, snapshots (`workbench/history`), vendored TN style and formula checker |
-| `ops/` | `cli`, `doctor`, `setup_user`, `update`, `atlas_build`, `pane_leftovers` (an older release's task pane in Office's settings, read only) |
+| `ops/` | `cli`, `doctor`, `setup_user`, `login`, `atlas_build`, `pane_leftovers` (an older release's task pane in Office's settings, read only) |
 | `testset/` | the B-question test set: specs in git, recordings and golden numbers outside git |
 
 ## Runtime
@@ -292,13 +292,14 @@ never stops the rest.
   nothing else is open in it (`_discard_new` quits it), and an older release's processes: at server start an Excel
   that release started hidden, when its `pids.json` proves it (pid, creation time, `-Embedding`; then the file
   goes), and in `smartass setup` that release's sign-in watcher and its `smartass serve` of this install (`smartass
-  doctor --fix` stops that serve too; ours when its command line names this install's `.venv`, or its parent's
-  does). Outside the engine package one more site ends processes. The relay (`run_server.py` `end_tree`) ends a server that has not exited 60 s after it
-  was told to stop, with every process under it except each Excel and what runs under that Excel: an Excel smartass
-  launched is a child of the server process, and it is your Excel. Anything that ends the server's tree from outside
-  ends such an Excel with it: an open item (whether Claude Code does when it ends its MCP server is not known). `tests/test_neutral_imports.py` pins the start sites;
-  `tests/conftest.py` and `tests/test_suite_guards.py` pin the engine's kills, `tests/test_relay_stop.py` the
-  relay's.
+  doctor --fix` stops that serve too; ours when its executable is in this install's `.venv`, or its parent's is; it
+  is stopped through the process object the listing found, so a pid a new process has taken since is never hit).
+  Outside the engine package one more site ends processes. The relay (`run_server.py` `end_tree`) ends a server
+  that has not exited 60 s after it was told to stop, with every process under it except each Excel and what runs
+  under that Excel: an Excel smartass launched is a child of the server process, and it is your Excel. Anything that
+  ends the server's tree from outside ends such an Excel with it: an open item (whether Claude Code does when it ends
+  its MCP server is not known). `tests/test_neutral_imports.py` pins the start sites; `tests/conftest.py` and
+  `tests/test_suite_guards.py` pin the engine's kills, `tests/test_relay_stop.py` the relay's.
 
 ## Knowledge layer (`knowledge/`, sub-spec 2 §1–§4, §8)
 

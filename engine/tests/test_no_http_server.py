@@ -70,6 +70,10 @@ def server_sites(source: str, rel: str) -> list[str]:
                 out.append(f"{rel}: {name}()")
             out += [f"{rel}: {name}(transport=...)" for k in node.keywords if k.arg == "transport"
                     and not (isinstance(k.value, ast.Constant) and k.value.value == "stdio")]
+            first = node.args[0] if isinstance(f, ast.Attribute) and name == "run" and node.args else None
+            # FastMCP.run("sse"): the transport by position (a method; a bare run(...) is a local helper)
+            if isinstance(first, ast.Constant) and isinstance(first.value, str) and first.value != "stdio":
+                out.append(f"{rel}: {name}(transport=...)")
     return out
 
 
@@ -82,10 +86,12 @@ def server_sites(source: str, rel: str) -> list[str]:
     ("import asyncio\nasync def go(h):\n    await asyncio.start_server(h, '127.0.0.1', 0)\n", ["x.py: start_server()"]),
     ("def go(mcp):\n    mcp.run(transport='sse')\n", ["x.py: run(transport=...)"]),
     ("def go(mcp):\n    mcp.run()\n    mcp.run(transport='stdio')\n", []),
+    ("def go(mcp):\n    mcp.run('sse')\n", ["x.py: run(transport=...)"]),                       # review 11: by position
+    ("def go(mcp):\n    mcp.run('stdio')\n", []),
     ("import uvicorn\n", ["x.py: import uvicorn"]),
     ("import urllib.request\nimport http.client\nfrom smartass.xl import jobs\njobs.bind_job()\n", []),
 ], ids=["http-server", "socketserver", "from-http-import-server", "socket-listen", "asyncio-server", "mcp-sse",
-        "mcp-stdio", "uvicorn", "a-client-is-not-a-server"])
+        "mcp-stdio", "mcp-sse-by-position", "mcp-stdio-by-position", "uvicorn", "a-client-is-not-a-server"])
 def test_the_server_guard_sees_each_way_to_listen(source, found):
     assert server_sites(source, "x.py") == found
 
