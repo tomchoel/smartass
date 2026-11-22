@@ -118,6 +118,7 @@ def test_ordinary_sentences_pass_the_scrub_unchanged(text):
 @pytest.mark.parametrize("text", [
     "Revenue from Basic subscriptions fell 4 %", "Basic Infrastructure costs", "Budget authorization: approved by CFO",
     "authorization: approved", "Authorization: pending (2026-11)", "session ID: unknown", "Session_id: unknown",
+    "Basic 50%-growth-in-2026-q4 of the plan",                     # one class for Basic's shape and value: no '%'
 ])
 def test_ordinary_text_basic_and_authorization_ate_passes_unchanged(text):
     assert logsetup.redact(text) == text

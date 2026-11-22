@@ -26,9 +26,16 @@ _NAMES = (r"sID|JSESSIONID|ORA_[\w-]*|OAM[\w-]*|_WL_[\w-]*|X-Smartass-Secret|dev
 _KEYS = (r"sID|session_id|(?i:sessionId|JSESSIONID|ssoToken|sso_token|access_token|refresh_token|client[ _-]secret|"
          r"device_code|password|passwd|X-Smartass-Secret)")
 _KEYLIKE = r"[A-Za-z0-9._~+/=%-]"                              # a key's characters, URL-encoded ones too
-# A credential's shape: 16 key-like characters, or 12 with a digit, one of + / = % or a capital after a small letter
-# (base64: 'dXNlcjpwYXNz'); 'Basic subscriptions' is text
-_SHAPED = rf"(?:(?={_KEYLIKE}*(?:[0-9+/=%]|(?-i:[a-z][A-Z]))){_KEYLIKE}{{12}}|{_KEYLIKE}{{16}})"
+_B64 = r"[A-Za-z0-9._~+/=-]"                                    # ... and base64's (Basic credentials): no '%'
+
+
+def _shaped(c: str) -> str:
+    """A credential's shape in characters c: 16 of them, or 12 with a digit, one of + / = % or a capital after a small
+    letter (base64: 'dXNlcjpwYXNz'); 'Basic subscriptions' is text."""
+    return rf"(?:(?={c}*(?:[0-9+/=%]|(?-i:[a-z][A-Z]))){c}{{12}}|{c}{{16}})"
+
+
+_SHAPED = _shaped(_KEYLIKE)
 _EQUOTE = r"&(?:amp;)*(?:quot|apos|#0?39|#34|#[xX]0?2[27]);"   # a quote HTML-escaped (once or more)
 # A query after a space or at the start is scrubbed only when it names a secret key ('Use ?period=Sep' is text).
 _QUERY_KEYS = rf"code|{_NAMES}"
@@ -44,7 +51,7 @@ _PATTERNS = [
      r"\1***"),                    # an Authorization header: a scheme's value, else a credential's shape ('approved')
     (re.compile(r"\b(Bearer(?:\s+|%20|\+))(?!\*\*\*)[A-Za-z0-9._~+/=-]{16,}", re.I),
      r"\1***"),                                                   # a token's length: not 'the cost bearer of'
-    (re.compile(rf"\b(Basic\s+)(?!\*\*\*)(?={_SHAPED})[A-Za-z0-9._~+/=-]+"), r"\1***"),   # basic credentials
+    (re.compile(rf"\b(Basic\s+)(?!\*\*\*)(?={_shaped(_B64)}){_B64}+"), r"\1***"),        # basic credentials
     (re.compile(r"\beyJ[\w-]*\.[\w-]+(?:\.[\w-]*)?"), "***"),                          # a JWT (header.payload.sig)
     (re.compile(r"\b((?:set-)?cookie[ \t]*:[ \t]*)[^\n<]*", re.I), r"\1***"),            # a cookie header, whole
     (re.compile(r"([\"'](?:set-)?cookie[\"'][ \t]*[:,][ \t]*[\"'])[^\"']+", re.I), r"\1***"),  # ... dict key, pair
