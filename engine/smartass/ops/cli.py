@@ -81,8 +81,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.bundle:
             print(doctor.bundle())
             return 0
-        if a.fix:
-            doctor.fix_leftovers()
+        if a.fix:                                     # with --json stdout is the JSON alone: the fix's lines to stderr
+            doctor.fix_leftovers(say=(lambda s: print(s, file=sys.stderr)) if a.json else print)
         rs = doctor.run()
         print(json.dumps(doctor.as_dict(rs), indent=2) if a.json else doctor.to_text(rs))
         return 1 if doctor.overall(rs) == "FAIL" else 0

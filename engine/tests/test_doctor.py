@@ -141,9 +141,21 @@ def test_the_old_svkit_homes_copy_is_reported_but_never_changed(monkeypatch, tmp
 def test_cli_doctor_fix_runs_the_fix_then_the_checks(monkeypatch, capsys):
     from smartass.ops import cli
     order = []
-    monkeypatch.setattr(doctor, "fix_leftovers", lambda: order.append("fix"))
+    monkeypatch.setattr(doctor, "fix_leftovers", lambda say=print: order.append("fix"))
     monkeypatch.setattr(doctor, "run", lambda: order.append("run") or [])
     assert cli.main(["doctor", "--fix"]) == 0 and order == ["fix", "run"]
+
+
+def test_cli_doctor_fix_json_prints_only_json_and_the_fix_lines_to_stderr(monkeypatch, capsys):
+    import json
+
+    from smartass.ops import cli
+    monkeypatch.setattr(doctor, "fix_leftovers", lambda say=print: say("removing C:/old/svbridge_1.xlam"))
+    monkeypatch.setattr(doctor, "run", lambda: [doctor.Check("config", "OK", "fine")])
+    assert cli.main(["doctor", "--fix", "--json"]) == 0
+    out = capsys.readouterr()
+    assert json.loads(out.out)["checks"][0]["name"] == "config" and "removing" in out.err
+    assert cli.main(["doctor", "--fix"]) == 0 and "removing" in capsys.readouterr().out      # without --json: stdout
 
 
 def test_the_com_writers_are_gone():
