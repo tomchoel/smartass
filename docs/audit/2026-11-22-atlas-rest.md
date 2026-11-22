@@ -61,7 +61,7 @@ after `INSERT OR IGNORE` (as `atlas.store` keeps them):
 
 | Result | Dimensions |
 | --- | --- |
-| keys, labels, depths and orders all equal, and the row count and `build.n` equal | 22: FinMax and FinLite BalanceTypes, Currencies, Functions (FinMax), GLSources, Products, Scenarios, TimePeriods; FinPlan Account (1391 / 1383 rows, the 8 `INSERT OR IGNORE` duplicates and the 2 plan-type exclusions included), BalanceTypes, Products, Period, Scenario, Version, Years |
+| keys, labels, depths and orders all equal, and the row count and `build.n` equal | 20: FinMax and FinLite BalanceTypes, Currencies, Functions (FinMax), GLSources, Products, Scenarios, TimePeriods; FinPlan Account (1391 / 1383 rows, the 8 `INSERT OR IGNORE` duplicates and the 2 plan-type exclusions included), BalanceTypes, Products, Period, Scenario, Version, Years |
 | keys, depths and orders equal; 2 labels differ | FinMax and FinLite Accounts (an alias changed since: the accepted class of Task 3) |
 | members added / removed since; every common key's depth and label equal, the relative order of the common keys equal | FinMax and FinLite Counterparts (+31 / -1), Entities (+41 / -2), LegalEntities (+31 / -1); FinMax Systems (+4), Reserves (+1, 104 776 / 104 772 rows); FinPlan Entity (+6) |
 | members added / removed since, 15 labels differ, relative order of the common keys NOT equal | FinMax Projects (+61 / -2): looked at in the gate |
@@ -83,7 +83,110 @@ and nothing was added to `svxml.check_read_only`.
 Get Member: 2 + 2 + 20 without a projection, 22 with it (46 GETs, 25 of them on plan1's 14 dimensions); the plan-type
 dimension list (already allowlisted in Task 2): 6 GETs. Nothing else.
 
+(The commit that first recorded this section, 147117c, said 22 of 32 in its message: 20 is the count.)
+
 ### Verdict: go on with Get Member
 
 A route returns the hierarchy with what the atlas rows need, for every dimension, in about 8.4 s for both pods
 together (today's build table records 133 s of hidden-Excel zooms, Excel's start not counted). Step 1 builds on it.
+
+### Not used yet: EPM's account type and time balance (controller ruling, 2026-11-22)
+
+Get Member carries `accountType` and `timeBalance` on account-type dimensions only (FinPlan Account; FinMax
+BalanceTypes - FinMax's Accounts dimension has neither). They are stored in the new atlas member columns
+(`account_type`, `time_balance`) and **nothing reads them in this task**: the behaviour cards keep the account type
+and time balance derived from data, exactly as before. FinPlan Account, EPM's value against today's card (counts, one
+GET, read-only):
+
+| EPM `accountType` / card `account_type` | members |
+| --- | --- |
+| Revenue / statistic | 894 |
+| Revenue / None | 147 |
+| Revenue / revenue | 76 |
+| Revenue / expense | 47 |
+| Revenue / balance | 1 |
+| Liability / balance | 35 |
+| Asset / balance | 32 |
+| Equity / balance | 2 |
+| Non expense / statistic | 2 |
+| (not in Get Member's tree) / statistic, balance, None | 16, 2, 5 |
+
+| EPM `timeBalance` / card `time_balance` | members |
+| --- | --- |
+| None / flow | 607 |
+| None / None | 294 |
+| None / balance_last | 1 |
+| Non Last / balance_last | 131 |
+| Non Last / None | 109 |
+| Average / average | 62 |
+| Average / None | 32 |
+| (not in Get Member's tree) / None, flow | 22, 1 |
+
+EPM's account type is not the cards' concept (FinPlan types nearly every account Revenue, statistics and costs
+included). Its time balance agrees wherever the data decided (1 disagreement); using it would newly decide about 435
+accounts the data left undecided (294 + 109 + 32) - which changes how the resolver treats them (levels or flows). A
+decision for the owner later, not for this phase.
+
+### The success status
+
+Get Member answers **201** (Oracle documents it as this GET's "historical" success status); the client
+(`members.read_tree`) accepts exactly 201 - a 200 or any other status is an error naming the status.
+
+## Gate (Step 2), 2026-11-22 03:25-03:35 UTC: passed
+
+Script: `scripts/compare_atlas.py <work folder> all` (deleted with the hidden-Excel build in Task 6), run from
+`engine/` at commit a45bda9. It copies today's atlas (read-only) into a work folder in the scratch area, builds over
+REST into a copy there (`atlas_build.build_into` + `build_rest`, as `smartass atlas build` does) and points every
+consumer check at those copies (`config.ATLAS_DB` / `KNOWLEDGE_DB` are set before anything opens a database; a work
+folder in the smartass home is refused). The owner's `atlas.db` and `knowledge.db` were not written (their
+modification time is still 2026-11-10). Every line is the script's own output, shortened.
+
+| Part | Result |
+| --- | --- |
+| Build | 32 dimensions, 0 errors, swapped in: 22.0 s in all (copying, SQLite backup and storing included); Get Member **9.7 s for plan1** (FinMax and FinLite: 14 trees, each read once) and **0.9 s for stratmodel** (8) |
+| Compare | 20 of 32 dimensions identical (keys, depths, labels, order, row count, `build.n`); the rest only in the classes below; **real differences: 0** |
+| Labels | the alias-changed class proven live on the provider route (12 of 12 samples: the rebuilt label is EPM's; today's label is refused) |
+| Knowledge | knowledge.db from each atlas: built, 0 errors, 0 warnings, every count equal (37 metrics, 45 facts, 88 metric members, 68 794 cards ...) except `member_fts` 54 275 -> 54 359 (+84: the entities added since, FinMax 39 + FinLite 39 + FinPlan 6) |
+| Offline test set | golden numbers: 9 of 9 passed with today's atlas, **9 of 9 with the rebuilt one** |
+| Stored specs | 460 stored specs of answers.db, all planned; 18 782 members asked, 18 771 resolved with either atlas; the same 11 missed by both (FinPlan Account 6, Entity 5: label-keyed members the stored answers name and EPM no longer has - Task 3b's class); missed only with the rebuilt atlas: none |
+| grid_smoke | b01 prepare OK 4.1 s, b07 OK 1.1 s, b16 OK 14.1 s (1 line set) |
+
+### The classes (per connection and dimension)
+
+- **Added since** (counts; codes when fewer than 20): Counterparts +30 (FinMax and FinLite each), Entities +39, Legal
+  Entities +30, Projects +59, Reserves +1 (`re.SN.0017960393`), Systems +4 (`sy.S05666`, `sy.S05795`, `sy.S05796`,
+  `sy.S05797`), FinPlan Entity +6 (label-keyed, not named). **Removed since**: 0.
+- **Re-parented since** (one code removed under one parent, added under another; its subtree keeps its keys, its
+  place in the order and its depth follow it): `un.SY.G332` (Entities, FinMax and FinLite), `pj.L1.L1.L1PBA6` and
+  `pj.L8.L8.L8PBA6` (Projects). The 24 Projects keys whose relative order differs are all below these two (0
+  elsewhere); every parent's children are in the same order in both atlases.
+- **Alias changed since**: code-keyed (the same key, another label): `ac.24074` (FinMax and FinLite Accounts, under 2
+  parents) and 15 projects: `pj.BR.BR.BRZ142`, `pj.BR.BR.BRZ186`, `pj.SY.SY.SY4Y15`, `pj.SY.SY.SY5Y13`,
+  `pj.SY.SY.SY5Y15`, `pj.SY.SY.SY5Z22`, `pj.SY.SY.SY5Z24`, `pj.SY.SY.SY6P74`, `pj.SY.SY.SY7Z39`,
+  `pj.SY.SY.SY9Z11`, `pj.SY.SY.SYHA29`, `pj.SY.SY.SYLA18`, `pj.SY.SY.SYNA13`, `pj.SY.SY.SYRZ06`,
+  `pj.SY.SY.SYRZ15` - 16 members, at least the 6 Task 3 counted (its audit counts them, it does not list codes).
+  Label-keyed (today's key was a label without the "code alias (prefix)" form; its new alias has it, so its key is
+  now its code): 1 each in Counterparts, Entities and Legal Entities (FinMax and FinLite), paired with today's key by
+  place (parents, depth and children). Live, by asking the provider route for each sample by its label: the rebuilt
+  label is EPM's (12 of 12) and today's label is refused (12 of 12).
+- Depth differences: 0. Label differences outside the alias class: 0.
+
+### Found on the way (not changed here)
+
+- The atlas's keys derived from a "code alias (prefix)" label are not always EPM's member names: in the rebuilt atlas
+  139 634 of 139 777 Projects keys (`pj.SY.SY.X` for EPM's `pj.SY.X`), 1 437 of 5 609 Systems keys, 14 Reserves, 5
+  Entities, 4 GL Sources, 1 Counterparts, 1 Legal Entities and all 25 code-keyed FinPlan Account keys differ from the
+  real name. The provider route takes such a key only where EPM resolves it (a project control answered; the 15
+  alias-changed projects were refused by key as "Grid is Invalid" and answered by label). The keys stay as they are
+  (the contract of this task); the REST engine now matches these members by their real name (next point).
+- The exact-name check (Task 3's review, Minor 2; commit a45bda9): with the rebuilt atlas, Task 3's live comparison
+  (`scripts/compare_grid_routes.py` with config pointed at the copies) passed - order cases 4 of 4, the 21 real grids
+  and the split equal on both routes, the wrong-member class as in Task 3b (2 left out, 4 refused with the clear
+  error).
+
+### Verdict: passed
+
+`smartass atlas build` builds over REST by default (commit 9de44d6); `--excel` keeps the hidden Excel's zoom until
+Task 6. The owner's `atlas.db` is replaced by a rebuilt one only by the controller, after review. Before that: an
+installed release older than this branch writes the atlas with a positional INSERT of 7 values, which fails on a
+member table with the new columns - replace the atlas together with the release, not before.
