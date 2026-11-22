@@ -354,3 +354,17 @@ def test_no_pane_folder_no_finding(home, monkeypatch, tmp_path):
 def test_the_root_gitignore_ignores_the_old_panes_folder():
     lines = (ENGINE.parent / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert "addin/" in lines
+
+
+@pytest.mark.parametrize("differs", [True, False])
+def test_a_home_that_is_the_old_svkit_home_never_has_its_record_checked_or_changed(home, monkeypatch, differs):
+    """Final review, Minor 5: SVKIT_DIR can make the home the old svkit home. Its record of Smart View's options is
+    then the old engine's own: the check is skipped entirely (no false alarm), and `doctor --fix` never touches it."""
+    monkeypatch.setattr(config, "LEGACY_HOME", home)
+    record = home / doctor.SV_OPTIONS_FILE
+    record.write_text('{"104": 2}')
+    monkeypatch.setattr(doctor, "_differs", lambda p: differs)
+    assert doctor._options_files() == [] and doctor._leftovers().status == "OK"
+    said = []
+    doctor.fix_leftovers(say=said.append)
+    assert record.read_text() == '{"104": 2}' and not any(doctor.SV_OPTIONS_FILE in s for s in said)

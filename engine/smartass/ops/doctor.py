@@ -248,7 +248,10 @@ def _differs(record: Path) -> bool:
 def _options_files() -> list[Path]:
     """The left-behind copies of Smart View's options: the home's (only a crashed run leaves it), and the old svkit
     home's (read only) only when Smart View's stored options differ from it - an older engine always kept its record
-    there, so the file alone proves nothing (the false alarm on the owner's PC, 22.11)."""
+    there, so the file alone proves nothing (the false alarm on the owner's PC, 22.11). A home that IS the old svkit
+    home (SVKIT_DIR) holds the old engine's own record: nothing is checked there, and so nothing is ever changed."""
+    if config.LEGACY_HOME and Path(config.SVKIT).resolve() == Path(config.LEGACY_HOME).resolve():
+        return []
     out = [p for p in [config.SVKIT / SV_OPTIONS_FILE] if p.exists()]
     if config.LEGACY_HOME and (old := config.LEGACY_HOME / SV_OPTIONS_FILE).exists() and _differs(old):
         out.append(old)
