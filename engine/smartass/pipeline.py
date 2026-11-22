@@ -16,6 +16,7 @@ from .model.chain import complete_chain, restore_chain
 from .model.frame import Frame
 from .model.periods import parse
 from .model.requests import GridRequest
+from .model.resolver import UnknownMetric
 from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError
 from .epm.svhttp import SvHttpError
@@ -122,7 +123,7 @@ def left_out(spec: AnalysisSpec, got: list, resolver) -> tuple[list[str], list[d
         metrics = []
         for q in spec.queries:
             for m in q.metrics:
-                with contextlib.suppress(Exception):          # a metric the resolver cannot place names nothing
+                with contextlib.suppress(UnknownMetric):      # a metric with no members in the cube names nothing
                     if q.cube == cube and member in resolver.members(m, cube) and m not in metrics:
                         metrics.append(m)
         which = f" ({', '.join(metrics)})" if metrics else ""

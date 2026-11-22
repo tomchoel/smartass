@@ -68,6 +68,27 @@ def test_one_warning_and_one_caveat_per_member_however_many_requests_left_it_out
     assert all(c["severity"] == "warn" and "INCOMPLETE" in c["text"] for c in cav)
 
 
+def test_a_metric_the_resolver_cannot_place_names_nothing_and_any_other_error_is_not_hidden():
+    """left_out asks the resolver which metrics pick the member: UnknownMetric (a metric with no members in that cube)
+    names nothing; anything else is a real error and is raised, not swallowed."""
+    from types import SimpleNamespace
+
+    import pytest
+
+    from smartass.model.resolver import UnknownMetric
+    from smartass.model.spec import AnalysisSpec
+    from smartass.pipeline import left_out
+    spec = AnalysisSpec.model_validate(spec_dict())
+    got = [SimpleNamespace(dropped=[("FinMax", "All Accounts", "ac.C60")])]
+
+    def raising(error):
+        return SimpleNamespace(members=lambda metric, cube: (_ for _ in ()).throw(error))
+    texts, cavs = left_out(spec, got, raising(UnknownMetric("no FinMax definition")))
+    assert len(texts) == len(cavs) == 1 and "includes it is INCOMPLETE" in texts[0]
+    with pytest.raises(RuntimeError, match="atlas gone"):
+        left_out(spec, got, raising(RuntimeError("atlas gone")))
+
+
 def test_no_member_left_out_no_such_warning():
     out = _reply(prepare(spec_dict(), resolver(), FakeProvider(facts())))
     assert not any("left out" in w for w in out["warnings"])
