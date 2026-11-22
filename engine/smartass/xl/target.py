@@ -32,13 +32,12 @@ class Target:
     """The workbook a job works in. made: the new workbook's file the job itself reserved and builds (wb is None
     until open_new opens it); a failed job closes it unsaved and deletes that file (discard_new). from_template: a
     new workbook added from the TN template (its look tells the base a new workbook has: remember_new_base). new: the
-    workbook was created for this request (built as its file, added and saved as, or made by the hidden Excel when
-    no Excel was open): its first answer is saved inside the job, not after the reply (final review I1)."""
+    workbook was created for this request (built as its file, added and saved as, or made without Excel when no
+    Excel was open): its first answer is saved inside the job, not after the reply (final review I1)."""
     app: object
     wb: object
     pid: int
     hwnd: int
-    bridge: object = None
     created: bool = False
     sheets_added: list[str] = field(default_factory=list)
     made: Path | None = None
@@ -60,19 +59,6 @@ class Target:
     @property
     def full_name(self) -> str:
         return str(self.made) if self.wb is None else str(_read(lambda: self.wb.FullName, check=False))
-
-    def run(self, fn: str, *args):
-        """Bridge call. Smart View acts on the ACTIVE workbook/sheet, so the target sheet is activated right before
-        every call - if the user clicked into another workbook meanwhile, we act on ours, not theirs."""
-        if args and isinstance(args[0], str) and fn not in ("B_Ping", "B_SetOption", "B_GetOption", "B_LastError"):
-            name = args[0]
-            try:
-                ws = jobs.com(lambda: self.wb.Worksheets(name))
-                jobs.com(self.wb.Activate)
-                jobs.com(ws.Activate)
-            except pywintypes.com_error:
-                pass
-        return jobs.com(lambda: self.app.Run(f"'{self.bridge.Name}'!modBridge.{fn}", *args))
 
     def status(self, text: str | None):
         try:
@@ -122,22 +108,6 @@ def _wait_ready(app, limit: float = jobs.EDIT_WAIT_S, pid: int | None = None, na
                     "then ask again.")
 
 
-def _attach_bridge(h: JobHost, t: Target):
-    ver = instances.ensure_bridge_file(h)
-    path = instances.bridge_path(ver)
-    br = None
-    try:
-        br = jobs.com(lambda: t.app.Workbooks(path.name), limit=20)    # this exact version already loaded
-    except pywintypes.com_error as e:
-        if e.hresult != -2147352567:                 # anything but "not in collection" is a real error
-            raise
-    if br is None:
-        br = jobs.com(lambda: t.app.Workbooks.Open(str(path)), limit=120)
-    t.bridge = br
-    if t.run("B_Ping") != "pong":
-        raise HostError("The Smart View bridge add-in did not load in your Excel.")
-
-
 ARCHIVE_REFUSAL = ("'{name}' is in the Produktregnskapet archive (audit record) and is not written to. "
                    "Use target='new', or allow it explicitly for this one request (allow_archive=true).")
 
@@ -149,7 +119,7 @@ def resolve_target(h: JobHost, target: str = "session", allow_archive: bool = Fa
     workbook), an absolute file path, or the name of an open workbook (e.g. an unsaved 'Book1'). build_new: the caller
     builds a new workbook itself (exceljob.excel_job: the first answer's built file is the workbook) - a target that
     resolves to a new workbook in a running Excel then comes back with its file reserved and not opened (Target.made,
-    wb None; open_new opens it), made ready (bridge) all the same, and does not become the session's workbook here:
+    wb None; open_new opens it), made ready all the same, and does not become the session's workbook here:
     the caller sets it once the answer is in it. A failure after the reservation deletes the file (discard_new)."""
     with jobs.starting():
         return _resolve(h, target, allow_archive, title, build_new)
@@ -174,7 +144,7 @@ def _resolve(h: JobHost, target: str, allow_archive: bool, title: str | None, bu
                 insts = instances.excel_instances()
             t = _find_named([(i.pid, i.hwnd, i.app) for i in insts if i.app is not None], target)
             jobs.hold_turn(t.pid, what="this request", app=t.app)
-            with stage("ready + bridge"):
+            with stage("ready"):
                 return _finish_target(h, t, allow_archive)      # the archive guard applies here too
         if instances.is_archive(p) and not allow_archive:       # refuse BEFORE opening anything
             raise InputError(ARCHIVE_REFUSAL.format(name=p.name))
@@ -196,18 +166,18 @@ def _resolve(h: JobHost, target: str, allow_archive: bool, title: str | None, bu
             t = _new_target(h, title or "Analysis", excels, {i.pid for i in insts}, build_new)
         if t.made is not None:                        # the caller builds it, opens it, and makes it the session's
             try:
-                with stage("ready + bridge"):
+                with stage("ready"):
                     return _finish_target(h, t, allow_archive)
             except BaseException as e:
                 _noted(e, discard_new(t))
                 raise
-        with stage("ready + bridge"):
+        with stage("ready"):
             t = _finish_target(h, t, allow_archive)
         session.set_workbook(t.path)                  # a new file becomes this session's workbook
         return t
     with stage("open workbook"):
         t = _open_path(h, Path(target), excels, insts)
-    with stage("ready + bridge"):
+    with stage("ready"):
         return _finish_target(h, t, allow_archive)
 
 
@@ -215,8 +185,10 @@ def _new_target(h: JobHost, title: str, excels, known: set[int] | None = None, b
     """A new analysis workbook in a FREE Excel, so parallel agents do not wait for each other: the first Excel whose
     turn is free; else (below MAX_EXCELS) a new Excel window started on the TN template; else wait for the first.
     If it cannot be saved, the new workbook is closed unsaved (and an Excel started for it is closed again).
-    build_new (the caller builds the file): in a running Excel only the file's name is reserved (_reserved_target);
-    an Excel started for a parallel agent and no Excel at all make the workbook as before."""
+    No Excel at all: a copy of the labelled seed or a file built without Excel, opened in an Excel launched on it
+    (_new_analysis_file); with neither a seed nor a stored base, an Excel launched on the TN template, as for a
+    parallel agent (its look stores the base). build_new (the caller builds the file): in a running Excel only the
+    file's name is reserved (_reserved_target); an Excel started here makes the workbook as before."""
     from . import styling
     from ..core.timing import stage
     tpl = styling.template_path()
@@ -231,8 +203,12 @@ def _new_target(h: JobHost, title: str, excels, known: set[int] | None = None, b
     if choice is None and excels:
         jobs.hold_turn(excels[0][0], what="this request", app=excels[0][2])
         choice = excels[0]
-    if choice is None:                                # no Excel at all: the hidden one creates the file, /x opens it
-        t = _open_path(h, _new_analysis_file(h, title), excels)
+    if choice is None and not _seed_has_label(config.NEW_WORKBOOK_SEED) and new_base() is None and tpl.exists():
+        with stage("start Excel"):                    # no Excel, no seed, no stored base: the template route needs none
+            choice, wb = _spawn_excel(tpl, known or set())     # (its look stores the base for the next new workbook)
+        spawned = True
+    if choice is None:                                # no Excel at all: the file is made without Excel, /x opens it
+        t = _open_path(h, _new_analysis_file(title), excels)
         t.created = t.new = True
         return t
     pid, hwnd, app = choice
@@ -410,7 +386,6 @@ def _finish_target(h: JobHost, t: Target, allow_archive: bool) -> Target:
     if (instances.is_archive(t.path) or instances.is_archive(t.full_name)) and not allow_archive:
         raise InputError(ARCHIVE_REFUSAL.format(name=t.name))
     _wait_ready(t.app, pid=t.pid, name=t.name)
-    _attach_bridge(h, t)
     return t
 
 
@@ -599,7 +574,7 @@ def _seed_has_label(seed: Path) -> bool:
 def label_properties(now: dt.datetime | None = None) -> dict[str, str]:
     """Our sensitivity label as the custom document properties of a built file (MSIP_Label_<id>_*): a file with them
     opens labelled with AutoSave on and its Save writes; one without opens read-only and its Save writes nothing
-    (live, hidden Excel, 20.11.2026). Enabled, set now, assigned as instances._label assigns it (privileged), our
+    (live, 20.11.2026). Enabled, set now, assigned as instances._label assigns it (privileged), our
     site, name and content bits (config [label]: Excel records 2 for ours in its own files, the seed's), a new action
     id."""
     when = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc)
@@ -651,41 +626,50 @@ def remember_new_base(base) -> None:
         jobs.log.warning("could not store the base of a new workbook: %s", e)
 
 
-def _new_analysis_file(h: JobHost, title: str) -> Path:
-    """A copy of the labelled seed under the new name (no Excel started); without a usable seed the hidden Excel
-    makes the file the old way and its result becomes the seed (best effort)."""
-    path = _new_path(title)
+def _new_analysis_file(title: str) -> Path:
+    """The file of a new analysis workbook when no Excel is running, made without Excel: a copy of the labelled seed
+    under the new name; without a usable seed (or when its copy fails) the file is built (_build_first_file) and kept as
+    the seed for the next time (best effort). Its name is reserved (_reserve) either way."""
     seed = config.NEW_WORKBOOK_SEED
+    path: Path | None = None
     if _seed_has_label(seed):
-        reserved = False
         try:
             path = _reserve(title)
-            reserved = True
             shutil.copyfile(seed, path)
             return path
         except OSError:
-            if reserved:
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError:
-                    pass
-    made = h.on_host(lambda: _new_analysis_file_host(h, path))
+            pass                                      # a name reserved is built into below
+    try:
+        path = path or _reserve(title)
+    except OSError as e:
+        raise HostError(f"Could not create the new workbook in the analysis folder ({e}). Check that the folder "
+                        "exists and is writable, then ask again.") from None
+    try:
+        _build_first_file(path)
+    except BaseException:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     try:
         seed.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(made, seed)
+        shutil.copyfile(path, seed)
     except OSError:
         pass
-    return made
-
-
-def _new_analysis_file_host(h: JobHost, path: Path) -> Path:
-    wb = h.com(h.app.Workbooks.Add)
-    try:
-        wb.Worksheets(1).Name = "Sources"
-        instances._label(wb)
-        h.com(lambda: wb.SaveAs(str(path), 51))
-    finally:
-        h.com(lambda: wb.Close(False))
-    if not path.exists():
-        raise HostError(f"Could not create {path} (sensitivity label?).")
     return path
+
+
+def _build_first_file(path: Path) -> Path:
+    """A new workbook's file built without Excel (render/xlsx.build_sources): its furnished Sources log, our sensitivity
+    label as custom document properties (label_properties: such a file opens labelled with AutoSave on and its Save
+    writes - live, 20.11.2026), the TN template's theme when that file is there, and the stored base of a new workbook
+    when one is known (new_base), else XlsxWriter's defaults. No label configured (config.LABEL_ID empty): no label
+    properties."""
+    from ..render import xlsx
+    from . import styling
+    base = new_base()
+    if base is not None and base.col_px not in xlsx.STANDARD_COLUMNS:
+        base = None
+    props = label_properties() if config.LABEL_ID else {}
+    return xlsx.build_sources(path, base, xlsx.NewBook(props, styling.template_theme()))

@@ -2,15 +2,14 @@
 Every tool that works in the user's Excel - fin_analyze (a new question and a follow-up), fin_drill, fin_refresh,
 fin_critic, xl_snapshot / xl_revert / xl_tidy (the workbench) - runs its job through the real runner
 (serverkit._call_user -> xl/userjobs.UserJobs, a thread per job) and resolves its workbook through the real
-xl/target.resolve_target (the user's Excel found, its turn taken, the bridge add-in attached): the only code of a job
+xl/target.resolve_target (the user's Excel found, its turn taken, made ready): the only code of a job
 that uses the object the runner hands it (h). The Excel is a small fake; what a job draws after its workbook is found
 is replaced (it never uses h). fin_status, with and without restart, starts nothing either. conftest makes a real
 Excel start impossible; this pins that the code does not even try: HiddenExcel._ensure_started, ExcelHost._start,
 ExcelHost() and serverkit.host() all fail the test.
 
-Two paths still hand a job's work to the hidden Excel when they are needed (today's behaviour, kept until Task 6
-replaces them): the bridge add-in's build when its file is missing, and a new analysis file when no Excel is running
-and no labelled seed exists. Each is pinned below as a hand-off, so Task 6 has a test to flip."""
+Task 6 replaced the two paths that still handed a job's work to the hidden Excel: the bridge add-in is gone, and a new
+analysis file with no Excel running and no labelled seed is built without Excel (both pinned at the end)."""
 from __future__ import annotations
 
 import asyncio
@@ -62,7 +61,7 @@ class FakeWorkbooks:
 
 
 class FakeApp:
-    """The user's Excel: one workbook open and active, the bridge add-in answering its ping."""
+    """The user's Excel: one workbook open and active; a macro it is asked to run is recorded (none may be)."""
 
     def __init__(self, book: FakeBook):
         self.books, self.ActiveWorkbook, self.Ready, self.StatusBar = [book], book, True, False
@@ -71,7 +70,7 @@ class FakeApp:
 
     def Run(self, macro, *args):
         self.runs.append(macro)
-        return "pong" if macro.endswith("B_Ping") else "OK"
+        return "OK"
 
 
 class Reached:
@@ -95,16 +94,12 @@ class Reached:
 
 @pytest.fixture
 def excel(monkeypatch, tmp_path):
-    """The user's Excel with the answer workbook open, the bridge add-in built for the current sources, and the jobs'
-    threads recorded."""
+    """The user's Excel with the answer workbook open, and the jobs' threads recorded."""
     monkeypatch.setattr(config, "SVKIT", tmp_path / "svkit")
     config.SVKIT.mkdir()
-    bridge = instances.bridge_path(instances._bridge_hash())
-    bridge.write_bytes(b"")                                       # built: its build needs no hidden Excel
     path = tmp_path / "Answer.xlsx"
     path.write_bytes(b"")
     app = FakeApp(FakeBook(path))
-    app.books.append(FakeBook(bridge))
     monkeypatch.setattr(instances, "excel_instances", lambda *a, **k: [instances.XlInstance(PID, 1, [path.name], app)])
     monkeypatch.setattr(sso, "ensure_global_watcher", lambda: None)
     reached = Reached(monkeypatch)
@@ -133,7 +128,7 @@ def excel(monkeypatch, tmp_path):
     monkeypatch.setattr(sheets, "_stored_specs", lambda t: stored)
     monkeypatch.setattr(server, "_provider", lambda: FakeProvider(facts()))
     monkeypatch.setattr(server, "run_prepare", lambda raw, prov, lines=None, **kw: raw)
-    return type("Excel", (), {"app": app, "path": path, "bridge": bridge, "reached": reached, "threads": threads,
+    return type("Excel", (), {"app": app, "path": path, "reached": reached, "threads": threads,
                               "targets": targets})
 
 
@@ -141,7 +136,7 @@ def _ran_in_the_user_excel(excel, n: int, what: str) -> None:
     assert excel.reached.calls == [] and serverkit._host is None
     assert excel.threads == [f"user-job-{what}"] * n
     assert excel.targets == [str(excel.path)] * n
-    assert any(r.endswith("B_Ping") for r in excel.app.runs)           # the bridge attached, from its file
+    assert excel.app.runs == []                                       # no macro: the bridge add-in is gone
 
 
 def test_a_new_question_resolves_its_workbook_in_the_user_excel_without_the_hidden_one(excel):
@@ -204,51 +199,44 @@ def test_fin_status_starts_no_excel_to_report(excel, monkeypatch, restart):
     assert out["version"] == server.__version__ and excel.reached.calls == [] and serverkit._host is None
 
 
-class FakeHidden:
-    """The hidden Excel as the runner reaches it (serverkit.host): its work recorded, no Excel."""
-
-    def __init__(self, then):
-        self.app = object()
-        self.on_host_calls: list[str] = []
-        self.then = then
-
-    def on_host(self, fn, timeout=None):
-        self.on_host_calls.append(threading.current_thread().name)
-        return self.then(fn)
-
-
-def test_today_a_missing_bridge_file_is_built_by_the_hidden_excel(excel, monkeypatch):
-    """Cold path (a), kept until Task 6: the bridge add-in for the current sources is not built yet, so the user job
-    hands its build to the hidden Excel (instances.ensure_bridge_file -> h.on_host -> _build_bridge in that Excel's
-    thread, h.app its Application). Task 6 flips this test when the attach goes."""
-    excel.bridge.unlink()
-
-    def build(fn):                                               # the hidden Excel builds it, then the build returns
-        excel.bridge.write_bytes(b"")
-        return fn()
-    hid = FakeHidden(build)
-    monkeypatch.setattr(serverkit, "host", lambda: hid)
+def test_the_bridge_add_in_is_gone_a_job_attaches_nothing_to_the_user_excel(excel):
+    """Task 6 (flips Task 5's cold path (a)): nothing in the user's Excel called the bridge beyond its ping, so the
+    attach went with it. A job finds its workbook and attaches, builds or opens nothing more - no hidden Excel, no
+    add-in file."""
     from smartass.model.spec import AnalysisSpec
     asyncio.run(server.fin_analyze(spec=AnalysisSpec.model_validate(spec_dict()), target="active"))
-    assert hid.on_host_calls == ["user-job-fin_analyze"] and excel.reached.calls == []
-    assert serverkit.user_jobs().app is hid.app
+    assert excel.reached.calls == [] and excel.app.runs == [] and [b.Name for b in excel.app.books] == ["Answer.xlsx"]
+    assert not hasattr(instances, "ensure_bridge_file") and not hasattr(xltarget, "_attach_bridge")
+    assert not hasattr(xltarget.Target, "run") and not list(config.SVKIT.glob("svbridge*.xlam"))
 
 
-def test_today_a_new_workbook_with_no_excel_running_and_no_seed_is_made_by_the_hidden_excel(excel, monkeypatch,
-                                                                                         tmp_path):
-    """Cold path (b), kept until Task 6: no Excel is running and no labelled seed exists, so the user job hands the
-    new analysis file to the hidden Excel (target._new_analysis_file -> h.on_host -> _new_analysis_file_host). Task 6
-    flips this test when a first workbook can be made without it."""
+def test_a_new_workbook_with_no_excel_running_and_no_seed_is_built_and_opened_in_the_users_excel(excel, monkeypatch,
+                                                                                               tmp_path):
+    """Task 6 (flips Task 5's cold path (b)): no Excel is running and no labelled seed exists. With a stored base the
+    first workbook is built without Excel (its Sources log, our label as custom document properties) and the user's
+    Excel is launched on it (_launch_excel), as for any file; no hidden Excel is reached."""
+    import zipfile
+
+    from smartass.render.xlsx import Base
     monkeypatch.setattr(instances, "excel_instances", lambda *a, **k: [])
     monkeypatch.setattr(config, "NEW_WORKBOOK_SEED", tmp_path / "no-seed.xlsx")
+    monkeypatch.setattr(config, "LABEL_ID", "f604")
+    monkeypatch.setattr(config, "LABEL_SITE", "1676")
+    monkeypatch.setattr(config, "HOME", tmp_path)
     monkeypatch.setattr(xltarget, "_new_path", lambda title, taken=(): tmp_path / f"{title}.xlsx")
+    xltarget.remember_new_base(Base("Aptos Narrow", 11.0, 20, 64))
+    launched = []
 
-    def made(fn):
-        raise HostError("handed to the hidden Excel")            # stop there: the rest would start an Excel
-    hid = FakeHidden(made)
-    monkeypatch.setattr(serverkit, "host", lambda: hid)
+    def launch(path):
+        launched.append(Path(path))
+        raise HostError("launched the user's Excel")            # stop there: the rest waits for that Excel
+    monkeypatch.setattr(xltarget, "_launch_excel", launch)
     from smartass.model.spec import AnalysisSpec
     from mcp.server.mcpserver.exceptions import ToolError
-    with pytest.raises(ToolError, match="handed to the hidden Excel"):
+    with pytest.raises(ToolError, match="launched the user's Excel"):
         asyncio.run(server.fin_analyze(spec=AnalysisSpec.model_validate(spec_dict()), target="new"))
-    assert hid.on_host_calls == ["user-job-fin_analyze"] and excel.reached.calls == []
+    assert launched == [tmp_path / "Q.xlsx"] and excel.reached.calls == [] and serverkit._host is None
+    with zipfile.ZipFile(launched[0]) as z:
+        assert "MSIP_Label_f604_Enabled" in z.read("docProps/custom.xml").decode()
+        assert "Sources" in z.read("xl/workbook.xml").decode()
+    assert config.NEW_WORKBOOK_SEED.read_bytes() == launched[0].read_bytes()      # the seed for the next time

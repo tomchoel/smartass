@@ -1,4 +1,5 @@
-"""New workbooks: a copy of the seed when one carries the sensitivity label; else the hidden Excel (old path)."""
+"""New workbooks with no Excel running: a copy of the seed when one carries the sensitivity label; else a file built
+without Excel (target._build_first_file), kept as the seed."""
 import zipfile
 from pathlib import Path
 
@@ -27,13 +28,17 @@ def _xlsx(path: Path, custom: str | None) -> Path:
     return path
 
 
-class FakeHost:
-    def __init__(self):
-        self.calls = 0
+class Builds:
+    """target._build_first_file, recorded: each build writes a labelled file (or what made gives)."""
 
-    def on_host(self, fn):
-        self.calls += 1
-        return fn()
+    def __init__(self, monkeypatch, made=None):
+        self.calls = 0
+        self.made = made or (lambda path: _xlsx(path, CUSTOM))
+
+        def build(path):
+            self.calls += 1
+            return self.made(path)
+        monkeypatch.setattr(target, "_build_first_file", build)
 
 
 @pytest.fixture
@@ -45,37 +50,27 @@ def env(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_seed_with_label_is_copied_and_host_untouched(env, monkeypatch):
+def test_seed_with_label_is_copied_and_nothing_built(env, monkeypatch):
     _xlsx(config.NEW_WORKBOOK_SEED, CUSTOM)
-    monkeypatch.setattr(target, "_new_analysis_file_host",
-                        lambda h, p: pytest.fail("hidden Excel must not be used"))
-    h = FakeHost()
-    p = target._new_analysis_file(h, "A")
-    assert h.calls == 0
+    b = Builds(monkeypatch, made=lambda p: pytest.fail("a seed with our label is copied, nothing built"))
+    p = target._new_analysis_file("A")
+    assert b.calls == 0
     assert p.read_bytes() == config.NEW_WORKBOOK_SEED.read_bytes()
 
 
-def test_no_seed_runs_old_path_once_and_writes_seed(env, monkeypatch):
-    made = []
-
-    def fake(h, path):
-        _xlsx(path, CUSTOM)
-        made.append(path)
-        return path
-    monkeypatch.setattr(target, "_new_analysis_file_host", fake)
-    h = FakeHost()
-    p = target._new_analysis_file(h, "A")
-    assert h.calls == 1 and made == [p]
+def test_no_seed_builds_the_file_once_and_writes_seed(env, monkeypatch):
+    b = Builds(monkeypatch)
+    p = target._new_analysis_file("A")
+    assert b.calls == 1 and p.exists()
     assert config.NEW_WORKBOOK_SEED.read_bytes() == p.read_bytes()
 
 
 @pytest.mark.parametrize("custom", [None, CUSTOM.replace("MSIP_Label_x_Enabled", "Other")])
 def test_seed_without_label_is_ignored(env, monkeypatch, custom):
     _xlsx(config.NEW_WORKBOOK_SEED, custom)
-    monkeypatch.setattr(target, "_new_analysis_file_host", lambda h, path: _xlsx(path, CUSTOM))
-    h = FakeHost()
-    target._new_analysis_file(h, "A")
-    assert h.calls == 1
+    b = Builds(monkeypatch)
+    target._new_analysis_file("A")
+    assert b.calls == 1
     assert target._seed_has_label(config.NEW_WORKBOOK_SEED)   # rewritten from the labelled file
 
 
@@ -98,8 +93,8 @@ def test_two_copies_same_title_get_different_files(env, monkeypatch):
     seq = iter([first, first])                                  # both calls picked the same name before either copied
     real = target._new_path
     monkeypatch.setattr(target, "_new_path", lambda title, taken=frozenset(): next(seq, None) or real(title, taken))
-    a = target._new_analysis_file(FakeHost(), "T")
-    b = target._new_analysis_file(FakeHost(), "T")
+    a = target._new_analysis_file("T")
+    b = target._new_analysis_file("T")
     assert a != b and a.exists() and b.exists()
 
 
@@ -107,17 +102,16 @@ def test_cleanup_permission_error_does_not_escape(env, monkeypatch):
     _xlsx(config.NEW_WORKBOOK_SEED, CUSTOM)
     monkeypatch.setattr(target.shutil, "copyfile", lambda a, b: (_ for _ in ()).throw(OSError("x")))
     monkeypatch.setattr(Path, "unlink", lambda self, missing_ok=False: (_ for _ in ()).throw(PermissionError("locked")))
-    monkeypatch.setattr(target, "_new_analysis_file_host", lambda h, path: path)
-    assert target._new_analysis_file(FakeHost(), "A").name == "A.xlsx"
+    Builds(monkeypatch, made=lambda path: path)
+    assert target._new_analysis_file("A").name.startswith("A")
 
 
 def test_failed_copy_falls_back(env, monkeypatch):
     _xlsx(config.NEW_WORKBOOK_SEED, CUSTOM)
     monkeypatch.setattr(target.shutil, "copyfile", lambda a, b: (_ for _ in ()).throw(OSError("x")))
-    monkeypatch.setattr(target, "_new_analysis_file_host", lambda h, path: _xlsx(path, CUSTOM))
-    h = FakeHost()
-    target._new_analysis_file(h, "A")
-    assert h.calls == 1
+    b = Builds(monkeypatch)
+    target._new_analysis_file("A")
+    assert b.calls == 1
 
 
 LABELINFO = ('<?xml version="1.0" encoding="utf-8" standalone="yes"?><clbl:labelList xmlns:clbl="http://schemas.'
@@ -166,3 +160,59 @@ def test_the_label_name_and_content_bits_are_configured_beside_its_id():
     label = tomllib.loads((Path(config.__file__).resolve().parents[2] / "defaults.toml").read_text("utf-8"))["label"]
     assert (label["name"], str(label["content_bits"])) == ("Internal", "2")
     assert config.resolve({}, {"label": label}, "SV_LABEL_NAME", "label.name", None) == "Internal"
+
+
+def _parts(path: Path) -> dict[str, str]:
+    with zipfile.ZipFile(path) as z:
+        return {n: z.read(n).decode("utf-8", "replace") for n in z.namelist() if n.endswith(".xml")}
+
+
+def test_the_first_file_is_built_without_excel_labelled_with_its_sources_log(env, monkeypatch):
+    """Task 6, cold path (b): no hidden Excel - the file is built by render/xlsx (the writer of the 0.5.0 new
+    workbook): one furnished Sources sheet, our label as custom document properties, the stored base and the
+    template's theme when they are known."""
+    from smartass.render.xlsx import Base
+    from smartass.xl import styling
+    monkeypatch.setattr(config, "LABEL_SITE", "1676")
+    monkeypatch.setattr(target, "new_base", lambda: Base("Aptos Narrow", 11.0, 20, 64))
+    monkeypatch.setattr(styling, "template_theme", lambda: None)
+    p = target._build_first_file(env / "out" / "First.xlsx")
+    parts = _parts(p)
+    assert 'name="Sources"' in parts["xl/workbook.xml"] and len(openpyxl.load_workbook(p).sheetnames) == 1
+    assert "MSIP_Label_x_Enabled" in parts["docProps/custom.xml"] and "MSIP_Label_x_SiteId" in parts["docProps/custom.xml"]
+    assert "Aptos Narrow" in parts["xl/styles.xml"]
+    assert target._seed_has_label(p)
+
+
+def test_without_a_label_configured_the_first_file_carries_no_label(env, monkeypatch):
+    """No label configured (LABEL_ID empty): the built file has no label properties, and no seed is ever taken
+    (_seed_has_label is False without a label id, as before). Before Task 6 the hidden Excel called Office's label API
+    with the empty id instead: what that did was not observed (unverified)."""
+    from smartass.xl import styling
+    monkeypatch.setattr(config, "LABEL_ID", "")
+    monkeypatch.setattr(target, "new_base", lambda: None)
+    monkeypatch.setattr(styling, "template_theme", lambda: None)
+    p = target._new_analysis_file("A")
+    assert "MSIP_Label" not in _parts(p).get("docProps/custom.xml", "") and not target._seed_has_label(p)
+    assert 'name="Sources"' in _parts(p)["xl/workbook.xml"]
+
+
+def test_with_no_excel_no_seed_and_no_stored_base_the_user_excel_is_launched_on_the_template(env, monkeypatch):
+    """Task 6, cold path (b), the route that needs no stored base (Task 5 report (ii')): an Excel launched on the TN
+    template as for a parallel agent, its workbook saved as (Office's label API in the user's Excel, as any new
+    workbook added in a running Excel); from_template, so its look stores the base for the next new workbook."""
+    from smartass.xl import jobs, styling
+    tpl = env / "tn_template.xltx"
+    tpl.write_bytes(b"x")
+    monkeypatch.setattr(styling, "template_path", lambda: tpl)
+    monkeypatch.setattr(target, "new_base", lambda: None)
+    monkeypatch.setattr(jobs, "hold_turn", lambda *a, **k: True)
+    book = object()
+    spawned = []
+    monkeypatch.setattr(target, "_spawn_excel", lambda t, known: spawned.append((t, known)) or ((5, 50, "app"), book))
+    saved = []
+    monkeypatch.setattr(target, "_save_new", lambda app, wb, title: saved.append((app, wb, title)) or env / "x.xlsx")
+    monkeypatch.setattr(target, "_new_analysis_file", lambda title: pytest.fail("the template route builds no file"))
+    t = target._new_target(None, "Q", [], set(), build_new=True)
+    assert spawned == [(tpl, set())] and saved == [("app", book, "Q")]
+    assert t.wb is book and t.from_template and t.new and t.created and t.made is None

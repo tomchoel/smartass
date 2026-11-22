@@ -1,12 +1,10 @@
-"""The user's Excel instances (attach via the main window), workbook paths and the VBA bridge add-in."""
+"""The user's Excel instances (attach via the main window), workbook paths and the sensitivity label of a new workbook."""
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import psutil
 import pythoncom
@@ -18,9 +16,6 @@ import win32process
 from . import fastcom, login
 from ..core import config
 from ..core.errors import HostError
-
-if TYPE_CHECKING:
-    from .userjobs import JobHost
 
 WM_GETOBJECT, OBJID_NATIVEOM = 0x003D, -16
 
@@ -226,56 +221,10 @@ def is_archive(path) -> bool:
         return False
 
 
-# ------------------------------------------------------------------ bridge add-in
-def _bridge_hash() -> str:
-    h = hashlib.sha1()
-    for p in config.BAS_FILES:
-        h.update(p.read_bytes())
-    return h.hexdigest()[:12]
-
-
-def bridge_path(ver: str) -> Path:
-    """Versioned file name: a new build never collides with an older add-in still loaded in some Excel."""
-    return config.SVKIT / f"svbridge_{ver}.xlam"
-
-
-def ensure_bridge_file(h: JobHost) -> str:
-    """Build svbridge_<hash>.xlam with the hidden server Excel when the .bas sources changed; prune old builds."""
-    ver = _bridge_hash()
-    path = bridge_path(ver)
-    for old in config.SVKIT.glob("svbridge*.xlam"):
-        if old != path:
-            try:
-                old.unlink()
-            except OSError:
-                pass                                 # still loaded in an Excel; removed next time
-    if path.exists():
-        return ver
-    return h.on_host(lambda: _build_bridge(h, ver, path))   # the hidden Excel lives on the host thread
-
-
-def _build_bridge(h: JobHost, ver: str, path: Path) -> str:
-    if path.exists():                                # a parallel job built it meanwhile
-        return ver
-    wb = h.com(h.app.Workbooks.Add)
-    try:
-        for p in config.BAS_FILES:
-            m = wb.VBProject.VBComponents.Add(1)
-            m.Name = "SmartViewVBA" if p.stem == "smartview_body" else p.stem
-            m.CodeModule.AddFromString(p.read_text(encoding="cp1252"))
-        m = wb.VBProject.VBComponents.Add(1)
-        m.Name = "modBridgeVersion"
-        m.CodeModule.AddFromString(f'Public Function B_BridgeVersion() As String\n    B_BridgeVersion = "{ver}"\nEnd Function\n')
-        _label(wb)
-        h.com(lambda: wb.SaveAs(str(path), 55))
-    finally:
-        h.com(lambda: wb.Close(False))
-    if not path.exists():
-        raise HostError("Could not build the Smart View bridge add-in (svbridge.xlam).")
-    return ver
-
-
+# ------------------------------------------------------------------ sensitivity label
 def _label(wb):
+    """Our sensitivity label on a workbook in the user's Excel, through Office's label API (target._save_new: a new
+    workbook added from the template, before its SaveAs); a workbook already labelled is left as it is."""
     try:
         cur = wb.SensitivityLabel.GetLabel()
         if cur.LabelId:
