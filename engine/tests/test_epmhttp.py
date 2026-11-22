@@ -422,6 +422,19 @@ def test_a_getdata_body_that_is_not_a_drill_query_is_refused(make, body):
     assert op.sent == [] and tok.asked == []
 
 
+@pytest.mark.parametrize("body", [
+    "<req_ExecuteGrid><sID>x</sID><![CDATA[<action>retrieve</action>]]></req_ExecuteGrid>",
+    "<req_ExecuteGrid><sID>x</sID><action>retrieve</action><!-- x --></req_ExecuteGrid>",
+], ids=["cdata", "comment"])
+def test_a_smart_view_body_with_cdata_or_a_comment_is_never_sent(make, body):
+    """Final review A, M10: the reviewer's attack - the action hidden in CDATA - was sent; it is refused before a token
+    is asked for, and not quoted."""
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused) as e:
+        s.request("POST", "/HyperionPlanning/SmartView", headers={"Content-Type": "text/xml"}, body=body)
+    assert str(e.value) == "refused: not a single read-only Smart View request" and op.sent == [] and tok.asked == []
+
+
 def test_a_refused_smart_view_body_is_not_quoted(make, caplog):
     caplog.set_level(logging.DEBUG, logger="smartass.epm.epmhttp")
     s, op, _ = make()

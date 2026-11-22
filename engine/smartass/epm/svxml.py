@@ -29,7 +29,12 @@ class SvXmlError(Exception):
 
 
 def check_read_only(body: str) -> None:
-    """The transport's last guard: the body must be exactly one allowed request element, retrieve-only."""
+    """The transport's last guard: the body must be exactly one allowed request element, retrieve-only. The body is
+    read as text, so it may hold no markup the provider's parser reads otherwise: no CDATA, comment, DOCTYPE or
+    processing instruction ('<!', '<?'; final review A, M10 - an action inside CDATA passed the text checks below).
+    The builders here escape every '<' of a value, so none of theirs has one."""
+    if "<!" in body or "<?" in body:                    # never quoted: the body can hold a session id
+        raise ValueError("refused: not a single read-only Smart View request")
     m = re.fullmatch(r"\s*<req_(\w+)>.*</req_\1>\s*", body, re.S)
     if not m:                                           # its start can be a session id: never quoted
         raise ValueError("refused: not a single read-only Smart View request")

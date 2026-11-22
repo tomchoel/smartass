@@ -42,6 +42,13 @@ def test_execute_grid_is_a_retrieve_with_default_aliases():
     "<req_ExecuteGrid><action>retrieve</action><action>\nfreeformsubmit\n</action></req_ExecuteGrid>",
     "<req_ExecuteGrid><action>retrieve</action><action >submit</action></req_ExecuteGrid>",
     "<req_OpenCube></req_OpenCube><req_WriteBack/>",
+    # final review A, M10: the provider's parser sees no action inside CDATA or a comment - refused, any request
+    "<req_ExecuteGrid><sID>x</sID><![CDATA[<action>retrieve</action>]]></req_ExecuteGrid>",
+    "<req_ExecuteGrid><sID>x</sID><!-- <action>retrieve</action> --></req_ExecuteGrid>",
+    "<req_ExecuteGrid><sID>x</sID><action>retrieve</action><!-- x --></req_ExecuteGrid>",
+    "<req_OpenCube><sID>x</sID><cube><![cdata[FinMax]]></cube></req_OpenCube>",
+    "<req_ConnectToProvider><!DOCTYPE x [<!ENTITY a 'submit'>]></req_ConnectToProvider>",
+    "<req_ConnectToProvider><?x y?></req_ConnectToProvider>",
 ])
 def test_check_read_only_refuses_everything_else(body):
     with pytest.raises(ValueError, match="refused"):
