@@ -9,23 +9,40 @@ def pytest_configure(config):
     os.environ["SMARTASS_HOME"] = str(config._tmp_path_factory.mktemp("smartass_home"))
 
 
-LOOPBACK = ("localhost", "127.0.0.1", "::1", "")
+LOOPBACK = frozenset({"127.0.0.1", "::1"})
 
 
-def _loopback(address) -> bool:
-    if not isinstance(address, tuple):                  # an AF_UNIX path, a named pipe
+def _loopback(host) -> bool:
+    """Exactly this machine: 'localhost', 127.0.0.1 or ::1 (parsed: '127.evil.example' or '0x7f.1' is not)."""
+    import ipaddress
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "replace")
+    if host is None or str(host).lower() == "localhost":
         return True
-    host = str(address[0]).lower()
-    return host in LOOPBACK or host.startswith("127.")
+    try:
+        return str(ipaddress.ip_address(str(host).split("%")[0])) in LOOPBACK
+    except ValueError:
+        return False
 
 
-@pytest.fixture(autouse=True)
-def _no_excel_no_network(monkeypatch):
+def _address_ok(sock, address) -> bool:
+    import socket
+    if getattr(socket, "AF_UNIX", None) is not None and sock.family == socket.AF_UNIX:
+        return True                                     # a path on this machine
+    return isinstance(address, tuple) and _loopback(address[0])
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_excel_no_network():
     """The suite never starts Excel and never reaches the network, whatever a default is (2026-11-22: a test reached
-    atlas_build.run_build's hidden-Excel route and started the engine's Excel). Blocked at the lowest start points:
-    DispatchEx of Excel.Application (xl/host.py, the hidden Excel), the SSO dialog watcher that start launches, and
-    the user's Excel (xl/target._launch_excel); a socket connect or a name lookup to anything but this machine. A test
-    that fakes one of them installs its own fake over this one, as before."""
+    atlas_build.run_build's hidden-Excel route and started the engine's Excel). For the whole session - module-scoped
+    fixtures and import-time code of test modules included - the lowest start points in this process fail with an
+    AssertionError: DispatchEx of Excel.Application (xl/host.py, the hidden Excel), the SSO dialog watcher that start
+    launches (epm/sso.py), the user's Excel (xl/target._launch_excel); a socket connect, a name lookup or an asyncio
+    connect (the Windows proactor's ConnectEx too) to anything but this machine. A test that fakes one of them sets
+    its own fake over this one (monkeypatch restores the guard after it). Out of reach: CHILD PROCESSES a test starts
+    (tests/stdio_util.py's server, the scripts some tests run) carry none of these patches."""
+    import asyncio
     import socket
 
     from smartass.xl import host, target
@@ -38,29 +55,35 @@ def _no_excel_no_network(monkeypatch):
         if "excel" in str(progid).lower():
             no_excel()
         return real_dispatch_ex(progid, *args, **kwargs)
-    monkeypatch.setattr(host.wc, "DispatchEx", dispatch_ex)
-    monkeypatch.setattr(host.sso, "ensure_global_watcher", no_excel)
-    monkeypatch.setattr(target, "_launch_excel", no_excel)
 
+    def no_network(*args, **kwargs):
+        raise AssertionError("the test suite must never reach the network")
     real_connect, real_connect_ex, real_getaddrinfo = socket.socket.connect, socket.socket.connect_ex, socket.getaddrinfo
 
     def connect(self, address):
-        if not _loopback(address):
-            raise AssertionError("the test suite must never reach the network")
-        return real_connect(self, address)
+        return real_connect(self, address) if _address_ok(self, address) else no_network()
 
     def connect_ex(self, address):
-        if not _loopback(address):
-            raise AssertionError("the test suite must never reach the network")
-        return real_connect_ex(self, address)
+        return real_connect_ex(self, address) if _address_ok(self, address) else no_network()
 
     def getaddrinfo(host_, *args, **kwargs):
-        if not _loopback((host_ if not isinstance(host_, bytes) else host_.decode(), 0)):
-            raise AssertionError("the test suite must never reach the network")
-        return real_getaddrinfo(host_, *args, **kwargs)
-    monkeypatch.setattr(socket.socket, "connect", connect)
-    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
-    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+        return real_getaddrinfo(host_, *args, **kwargs) if _loopback(host_) else no_network()
+    mp = pytest.MonkeyPatch()
+    mp.setattr(host.wc, "DispatchEx", dispatch_ex)
+    mp.setattr(host.sso, "ensure_global_watcher", no_excel)
+    mp.setattr(target, "_launch_excel", no_excel)
+    mp.setattr(socket.socket, "connect", connect)
+    mp.setattr(socket.socket, "connect_ex", connect_ex)
+    mp.setattr(socket, "getaddrinfo", getaddrinfo)
+    proactor = getattr(asyncio, "IocpProactor", None)
+    if proactor is not None:
+        real_proactor_connect = proactor.connect
+
+        def proactor_connect(self, conn, address):
+            return real_proactor_connect(self, conn, address) if _address_ok(conn, address) else no_network()
+        mp.setattr(proactor, "connect", proactor_connect)
+    yield
+    mp.undo()
 
 
 @pytest.fixture(autouse=True)
