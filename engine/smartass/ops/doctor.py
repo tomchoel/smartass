@@ -1,7 +1,7 @@
 """smartass doctor: cheap health checks (starts neither Excel nor a browser). Each check gives OK / WARN / FAIL,
-a detail and the fix. Used by the CLI and fin_status (fin_status leaves out the leftovers check: run(leftovers=)). `smartass doctor --fix` removes what an older release left
-behind (leftovers, fix_leftovers) - each thing said before it goes; what lives in Office's own settings is only
-reported, with the steps to remove it in Excel."""
+a detail and the fix. Used by the CLI and fin_status (fin_status leaves out the leftovers check: run(leftovers=)).
+`smartass doctor --fix` removes what an older release left behind (leftovers, fix_leftovers) - each thing said
+before it goes; what lives in Office's own settings is only reported, with the steps to remove it in Excel."""
 from __future__ import annotations
 
 import contextlib
@@ -327,8 +327,9 @@ def _gone(names: list[str]) -> str:
 def _leftovers() -> Check:
     """What an older release left: in the home, from 0.6.0 and before (its hidden Excel and VBA bridge), a copy of
     Smart View's options that a crashed run could not put back (nothing can restore them now: set them by hand) and
-    the bridge add-ins it built; from 0.7.0 and before, the HTTP API (its Startup entry, a running `serve`, its secret),
-    the updater (its record, the release settings in config.toml) and the Excel task pane (its Startup entry; its registration in Office's settings, which the user removes)."""
+    the bridge add-ins it built; from 0.7.0 and before, the HTTP API (its Startup entry, a running `serve`, its
+    secret), the updater (its record, the release settings in config.toml) and the Excel task pane (its Startup entry;
+    its registration in Office's settings, which the user removes)."""
     opts, bridges, office = _options_files(), _bridge_files(), _office_items()
     http = _http_api_items() + _config_items()
     if not opts and not bridges and not http and not office:
@@ -354,8 +355,7 @@ def fix_leftovers(say=print) -> list[Path]:
     values; the old svkit home's copy is never changed); a file in use (a bridge still loaded in an Excel) stays and
     is said so. The HTTP API's Startup entry, secret file and plain secret go, this install's `serve` is stopped
     (setup_user), the updater's record and the settings only an older release read go, the task pane's Startup entry
-    goes; its registration in Office's settings is only said, with the
-    steps in Excel. Returns the files removed."""
+    goes; its registration in Office's settings is only said, with the steps in Excel. Returns the files removed."""
     from . import pane_leftovers as pane
     from . import setup_user
     removed = []

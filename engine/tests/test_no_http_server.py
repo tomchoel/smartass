@@ -107,7 +107,7 @@ DOC_LEFTOVERS = {
     ("docs/troubleshooting.md", "HTTP API"): "the leftovers section",
     ("docs/troubleshooting.md", "task pane"): "the leftovers section and its manual steps in Excel",
     ("docs/troubleshooting.md", "server.mjs"): "the leftovers section: the pane's server, if it still runs",
-    ("docs/troubleshooting.md", "http.port"): "the leftovers section: a setting no longer used, doctor --fix takes it out",
+    ("docs/troubleshooting.md", "http.port"): "the leftovers section: a setting no longer used (doctor --fix)",
     ("docs/DESIGN.md", "task pane"): "ops/pane_leftovers: an older release's task pane in Office's settings",
     ("docs/DESIGN.md", "smartass serve`"): "what smartass ends: setup's stop of an older release's serve",
     ("skills/smartass/reference/operations.md", "HTTP API"): "the home's files: secret.bin left from before 0.8.0",

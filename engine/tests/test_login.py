@@ -148,7 +148,7 @@ def test_doctor_says_when_the_identity_domain_is_refused_for_not_being_https(fak
 
 @pytest.fixture
 def no_atlas(fake, monkeypatch):
-    """A PC with no atlas; the build is a fake (conftest makes the real one a violation): done rows as run_build gives."""
+    """A PC with no atlas; the build is a fake (conftest makes the real one a violation), its rows as run_build's."""
     have = {"atlas": False}
     monkeypatch.setattr(login, "_no_atlas", lambda: not have["atlas"])
     built = []

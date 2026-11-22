@@ -239,7 +239,8 @@ def run_build(connections: list[str] | None = None, dimensions: list[str] | None
 
 
 def outcome(done: list[dict]) -> tuple[str, bool]:
-    """(the build's last line, ok) for run_build's rows: built / failed / skipped counts, and why nothing was replaced."""
+    """(the build's last line, ok) for run_build's rows: built / failed / skipped counts, and why nothing was
+    replaced."""
     failed = [d for d in done if d.get("error")]
     skipped = [d for d in done if d.get("skipped")]
     built = len(done) - len(failed) - len(skipped)

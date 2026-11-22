@@ -1,6 +1,6 @@
 """An atlas built before 0.7.0 has no trusted side table of EPM's real names, and the REST engine's strict member
-check is off on it (final review A, I1): `smartass doctor` (and with it fin_status's problems) says to rebuild once. Every member here
-is invented."""
+check is off on it (final review A, I1): `smartass doctor` (and with it fin_status's problems) says to rebuild once.
+Every member here is invented."""
 import os
 import time
 

@@ -144,7 +144,8 @@ def test_install_is_three_commands_in_the_readme():
     assert not (repo / "installer").exists()
     readme = (repo / "README.md").read_text(encoding="utf-8")
     install = readme.split("## Install", 1)[1].split("\n## ", 1)[0]
-    at = [install.index(c) for c in ("uv sync --frozen", "uv run --frozen smartass setup", "uv run --frozen smartass login")]
+    commands = ("uv sync --frozen", "uv run --frozen smartass setup", "uv run --frozen smartass login")
+    at = [install.index(c) for c in commands]
     assert at == sorted(at) and "release folder" not in install
 
 

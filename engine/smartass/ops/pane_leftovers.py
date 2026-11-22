@@ -1,10 +1,11 @@
 """The Excel task pane of an older release (addin/tn-claude, up to 0.7.0) as it may still be registered on a PC, found
 for `smartass doctor`. The pane was registered by hand (0.7.0's addin/README.md): a web add-in whose manifest sat
-in a shared-folder catalogue that Office trusts (a subkey of HKCU CATALOGUES_KEY whose Url ends in TNClaudeCatalog), and a classic Excel-DNA add-in TNClaude64.xll in the old svkit home that Excel loads from an OPENn
-value of its Options (the Add-ins dialog wrote it); its server's start script was meant for the Startup folder.
-Both registry places are Office's own settings (ruling of 22.11): this module only READS them - nothing in smartass
-writes under HKCU\\Software\\Microsoft\\Office - and the doctor says how to remove them in Excel. A Startup entry of the
-pane is a file of this user's, removed by `smartass doctor --fix`."""
+in a shared-folder catalogue that Office trusts (a subkey of HKCU CATALOGUES_KEY whose Url ends in TNClaudeCatalog),
+and a classic Excel-DNA add-in TNClaude64.xll in the old svkit home that Excel loads from an OPENn value of its Options
+(the Add-ins dialog wrote it); its server's start script was meant for the Startup folder. Both registry places are
+Office's own settings (ruling of 22.11): this module only READS them - nothing in smartass writes under
+HKCU\\Software\\Microsoft\\Office - and the doctor says how to remove them in Excel. A Startup entry of the pane is a
+file of this user's, removed by `smartass doctor --fix`."""
 from __future__ import annotations
 
 import re
@@ -47,8 +48,8 @@ def _hkcu_subkeys(path: str) -> dict[str, dict[str, object]]:
 
 
 def catalogues() -> list[str]:
-    """The Url of every trusted add-in catalogue that is the pane's: its last folder is named TNClaudeCatalog. Matched by
-    the Url alone - no catalogue's folder is read (a share that does not answer would make every doctor run wait)."""
+    """The Url of every trusted add-in catalogue that is the pane's: its last folder is named TNClaudeCatalog. Matched
+    by the Url alone - no catalogue's folder is read (a share that does not answer would make every doctor run wait)."""
     out = []
     for values in _hkcu_subkeys(CATALOGUES_KEY).values():
         url = str(values.get("Url") or "")

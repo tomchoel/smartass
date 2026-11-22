@@ -282,8 +282,8 @@ def stop_old_serve(say, found=None, kill=None) -> None:
         except psutil.NoSuchProcess:              # its launcher ended with its child
             say(f"startup: the old `smartass serve` (pid {p.pid}) had already ended")
         except psutil.Error as e:
-            say(f"startup: the old `smartass serve` (pid {p.pid}) could not be stopped ({type(e).__name__}); it ends at "
-                "the next logoff")
+            say(f"startup: the old `smartass serve` (pid {p.pid}) could not be stopped ({type(e).__name__}); it ends "
+                "at the next logoff")
     if unreadable:
         say(f"startup: the command line of {unreadable} Python process(es) could not be read: an old `smartass serve` "
             "among them was not looked at")
