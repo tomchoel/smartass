@@ -512,6 +512,16 @@ def test_a_split_grid_whose_middle_request_fails_is_no_grid_at_all(db, monkeypat
     assert len(_slices(epm)) == 2                                   # the third is never asked
 
 
+def test_a_split_grid_whose_first_answer_is_not_the_grid_asked_sends_no_other_part(db, monkeypatch):
+    """Each part's answer is checked before the next part is sent (93c6215): a 200 that is not the grid asked (here
+    two rows for the one asked) stops the grid at once - the other parts never reach EPM."""
+    monkeypatch.setattr(rest, "MAX_CELLS", rest.epm_cells(1, 4))   # a row is 2 headers and 2 cells
+    epm = _Epm(answer=_answer_with(rows=lambda rs: rs * 2))
+    with pytest.raises(rest.RestError, match="1 rows asked, 2 answered"):
+        _grid(epm, db, accounts=("ac.C30", "ac.C70", "ac.C90"))
+    assert len(_slices(epm)) == 1
+
+
 def test_a_request_body_over_the_size_cap_is_split_further_not_refused(db, monkeypatch):
     accounts, entities = ("ac.C30", "ac.C70", "ac.C90"), ("un.SY.E1", "un.SY.E2")
     whole = _grid(_Epm(), db, accounts=accounts, entities=entities)
