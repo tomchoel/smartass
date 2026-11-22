@@ -73,6 +73,10 @@ ENTRIES = {
 }
 
 
+# fin_analyze and fin_refresh ask EPM for the closed month first (SvHttpProvider.closed_months -> svhttp.closed_month:
+# a member enumeration over the session, no atlas read): on a real PC without a sign-in that call answers with the
+# sign-in page and code (NotSignedIn) before the atlas is looked at. Their rows with no sign-in pin the text the
+# stored sign-ins would choose, a state the server reaches only when EPM answers the closed month anyway.
 @pytest.mark.parametrize("entry", ENTRIES)
 @pytest.mark.parametrize("state, command, other", [(None, LOGIN, BUILD), ("ended", LOGIN, BUILD),
                                                    ("signed_in", BUILD, LOGIN)])

@@ -88,7 +88,7 @@ engine\smartass\             server.py, pipeline.py, exceljob.py (the Excel job)
   epm\        the HTTPS boundary, sign-in, Smart View HTTP/XML, Planning REST, grids, the drill over the token
   knowledge\  atlas, resolver, interim metric catalogue
   xl\         jobs in the user's Excel, sheets, styling, formula check, snapshots
-  ops\        cli, doctor (and an older release's leftovers), setup, update, atlas build
+  ops\        cli, doctor (and an older release's leftovers), setup, login, atlas build
   testset\    the B-question test set (golden numbers outside git)
 ```
 

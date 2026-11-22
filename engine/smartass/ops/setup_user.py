@@ -160,17 +160,31 @@ def _names(data: bytes, text: str) -> bool:
     return text.lower() in " ".join(texts).lower()
 
 
+def _lnk_target(lnk: Path) -> str:
+    """A shortcut's target as Windows reads it (WScript.Shell: a shortcut to a path that does not exist keeps no full
+    path string in its bytes, only its parts); '' when it cannot be read."""
+    try:
+        import win32com.client
+        return str(win32com.client.Dispatch("WScript.Shell").CreateShortcut(str(lnk)).TargetPath or "")
+    except Exception:   # noqa: BLE001 - not a shortcut Windows can read: its bytes are looked at instead
+        return ""
+
+
 def engine_startup() -> tuple[Path, bool] | None:
-    """(the Startup entry smartass-engine.lnk, ours) when there is one: ours when its target names THIS install's venv
-    Scripts folder (every release made it start that folder's pythonw.exe); None when there is none."""
+    """(the Startup entry smartass-engine.lnk, ours) when there is one: ours when its target is in THIS install's venv
+    Scripts folder (every release made it start that folder's pythonw.exe), read as Windows reads it, else found in its
+    bytes; None when there is none."""
     lnk = STARTUP / ENGINE_STARTUP
     if not lnk.exists():
         return None
+    want = str(VENV_SCRIPTS).replace("/", "\\").rstrip("\\") + "\\"
+    if _lnk_target(lnk).replace("/", "\\").lower().startswith(want.lower()):
+        return lnk, True
     try:
         data = lnk.read_bytes()
     except OSError:
         return lnk, False
-    return lnk, _names(data, str(VENV_SCRIPTS).rstrip("\\") + "\\")
+    return lnk, _names(data, want)
 
 
 def drop_engine_startup(say) -> list[Path]:

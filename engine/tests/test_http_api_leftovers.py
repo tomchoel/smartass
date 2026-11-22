@@ -173,12 +173,31 @@ def test_a_launcher_that_ends_with_its_child_is_not_killed(pc, exits, killed):
 
 
 def test_a_python_whose_command_line_cannot_be_read_is_said(pc):
+    """Said, but alone it is no finding: a managed PC's service Python stays unreadable, and `doctor --fix` could not
+    clear it."""
     pc.procs = [_proc(25, [VENV + r"\python.exe", "-m", "smartass.ops.cli", "serve"], readable=False)]
     said = []
     setup_user.stop_old_serve(said.append)
     assert pc.killed == [] and said == ["startup: the command line of 1 Python process(es) could not be read: an old "
                                         "`smartass serve` among them was not looked at"]
-    assert "could not be read" in doctor._leftovers().detail
+    c = doctor._leftovers()
+    assert c.status == "OK" and "1 Python process(es)" in c.detail and "--fix" not in c.fix
+    (pc.home / "secret.bin").write_bytes(b"DPAPI")
+    c = doctor._leftovers()
+    assert c.status == "WARN" and "1 Python process(es)" in c.detail and "secret.bin" in c.detail
+
+
+def test_a_real_shortcut_to_this_installs_venv_is_ours(pc, tmp_path):
+    """Review 10 on a shortcut Windows itself wrote (WScript.Shell, as the release up to 0.7.0 made it), in the test's
+    own Startup folder; one to another install's venv is not ours."""
+    import win32com.client
+    shell = win32com.client.Dispatch("WScript.Shell")
+    for target, ours in ((VENV + r"\pythonw.exe", True), (r"C:\other\engine\.venv\Scripts\pythonw.exe", False)):
+        lnk = shell.CreateShortcut(str(pc.startup / "smartass-engine.lnk"))
+        lnk.TargetPath, lnk.Arguments, lnk.WorkingDirectory = target, "-m smartass.ops.cli serve", str(tmp_path)
+        lnk.Save()
+        assert setup_user.engine_startup() == (pc.startup / "smartass-engine.lnk", ours)
+        (pc.startup / "smartass-engine.lnk").unlink()
 
 
 def test_setup_stops_the_serve_and_removes_the_entry_in_one_go(pc):
@@ -380,10 +399,10 @@ def test_fin_status_makes_no_process_listing_and_reads_no_startup_file(pc, monke
     monkeypatch.setattr(setup_user, "_process_list", never)
     monkeypatch.setattr(pane_leftovers, "startup_entries", never)
     assert doctor._leftovers not in doctor.CHECKS
-    monkeypatch.setattr(doctor, "CHECKS", tuple(f for f in doctor.CHECKS if f is not doctor._epm))   # no network
+    monkeypatch.setattr(doctor, "CHECKS", (lambda: doctor.Check("stub", "WARN", "a problem"),))   # no network, no files
     (pc.home / "secret.bin").write_bytes(b"DPAPI")                     # a leftover the CLI's doctor would list
     out = asyncio.run(server.fin_status())
-    assert "leftovers" not in [p["name"] for p in out["doctor"]["problems"]]
+    assert [p["name"] for p in out["doctor"]["problems"]] == ["stub"]
 
 
 def test_the_doctor_command_and_the_bundle_include_the_leftovers(pc, monkeypatch, capsys):

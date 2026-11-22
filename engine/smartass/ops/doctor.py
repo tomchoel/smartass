@@ -282,8 +282,9 @@ def _office_items() -> list[tuple[str, str]]:
     return out
 
 
-def _http_api_items() -> list[str]:
-    """What the HTTP API and the task pane of an older release left that `doctor --fix` removes or stops."""
+def _http_api_items(serves: list) -> list[str]:
+    """What the HTTP API and the task pane of an older release left that `doctor --fix` removes or stops (serves: the
+    running `serve`s, setup_user._serves())."""
     from . import pane_leftovers as pane
     from . import setup_user
     out = []
@@ -291,14 +292,10 @@ def _http_api_items() -> list[str]:
         out.append(f"the Startup entry {setup_user.ENGINE_STARTUP} starts `smartass serve` (the HTTP API, gone)"
                    if found[1] else f"the Startup entry {setup_user.ENGINE_STARTUP} of another smartass install: left "
                    "as it is - remove it there")
-    serves, unreadable = setup_user._serves()
     for s in serves:
         out.append(f"an older `smartass serve` of this install runs (pid {s.proc.pid})" if s.ours else
                    f"a `smartass serve` of another smartass install runs (pid {s.proc.pid}): left as it is - stop it "
                    "there")
-    if unreadable:
-        out.append(f"the command line of {unreadable} Python process(es) could not be read (an older `smartass serve` "
-                   "among them would not be found)")
     out += [f"the Excel task pane's Startup entry {p} (the pane is gone)"
             for p in pane.startup_entries(setup_user.STARTUP)]
     if p := _secret_file():
@@ -330,10 +327,16 @@ def _leftovers() -> Check:
     the bridge add-ins it built; from 0.7.0 and before, the HTTP API (its Startup entry, a running `serve`, its
     secret), the updater (its record, the release settings in config.toml) and the Excel task pane (its Startup entry;
     its registration in Office's settings, which the user removes)."""
+    from . import setup_user
     opts, bridges, office = _options_files(), _bridge_files(), _office_items()
-    http = _http_api_items() + _config_items()
+    serves, unreadable = setup_user._serves()
+    http = _http_api_items(serves) + _config_items()
+    # Pythons whose command line could not be read are said, never a finding of their own: a managed PC's service
+    # Python stays unreadable, and nothing here could clear it.
+    unread = (f"the command line of {unreadable} Python process(es) could not be read: an older `smartass serve` "
+              "among them would not be found" if unreadable else "")
     if not opts and not bridges and not http and not office:
-        return Check("leftovers", "OK", "nothing an older release left behind")
+        return Check("leftovers", "OK", "nothing an older release left behind" + (f" ({unread})" if unread else ""))
     said, fixes = [], []
     for p in opts:
         said.append(f"an older smartass crashed with Smart View's options changed; the originals recorded in {p}: "
@@ -347,7 +350,7 @@ def _leftovers() -> Check:
     for what, step in office:
         said.append(what)
         fixes.append(step)
-    return Check("leftovers", "WARN", "; ".join(said), "; ".join(fixes))
+    return Check("leftovers", "WARN", "; ".join(said + ([unread] if unread else [])), "; ".join(fixes))
 
 
 def fix_leftovers(say=print) -> list[Path]:
