@@ -25,9 +25,11 @@ def _violation(what: str):
 
 def pytest_sessionfinish(session, exitstatus):
     """A guard that stopped a call fails the session, even when the test that made the call passed (the engine may
-    have caught the violation). tests/test_suite_guards.py makes violations on purpose and takes its own back."""
+    have caught the violation). Only a run that was OK is made failed: an interrupted run or an internal error keeps
+    its own status. tests/test_suite_guards.py makes violations on purpose and takes its own back."""
     if VIOLATIONS:
-        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+        if session.exitstatus == pytest.ExitCode.OK:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
         reporter = session.config.pluginmanager.get_plugin("terminalreporter")
         if reporter is not None:
             reporter.write_line(f"the suite's guards stopped {len(VIOLATIONS)} call(s): "

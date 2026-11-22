@@ -95,6 +95,22 @@ def test_a_recorded_violation_fails_the_session_at_its_end():
     assert session.exitstatus == pytest.ExitCode.TESTS_FAILED and "never reach the network" in said[0]
 
 
+@pytest.mark.parametrize("status", [pytest.ExitCode.INTERRUPTED, pytest.ExitCode.INTERNAL_ERROR])
+def test_a_recorded_violation_keeps_a_worse_exit_status(status):
+    """Task 10 (final review, Minor 3): an interrupted run or an internal error keeps its own status; the guard's line
+    is still written."""
+    import types
+
+    import conftest
+    said = []
+    reporter = types.SimpleNamespace(write_line=lambda text, **kw: said.append(text))
+    session = types.SimpleNamespace(exitstatus=status, config=types.SimpleNamespace(
+        pluginmanager=types.SimpleNamespace(get_plugin=lambda name: reporter)))
+    VIOLATIONS.append("the test suite must never reach the network")          # taken back after the test (_ours)
+    conftest.pytest_sessionfinish(session, status)
+    assert session.exitstatus == status and "never reach the network" in said[0]
+
+
 @pytest.mark.parametrize("call", [
     lambda: socket.create_connection(("login.example.com", 443), timeout=1),
     lambda: socket.create_connection(("203.0.113.7", 443), timeout=1),
