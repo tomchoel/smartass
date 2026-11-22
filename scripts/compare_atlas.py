@@ -18,7 +18,10 @@ Parts (run one or all; build first - the others read its files):
   knowledge  knowledge/build from each atlas into <work>: errors, warnings and every count;
   offline  the offline test set (golden numbers) with the rebuilt atlas and its knowledge.db (a child process);
   specs    every stored spec of answers.db planned against each atlas: members resolved / not (codes of a miss);
-  smoke    grid_smoke: server._prepare for test cases b01 / b07 / b16 against the rebuilt atlas (live, read-only).
+  smoke    grid_smoke: server._prepare for test cases b01 / b07 / b16 against the rebuilt atlas (live, read-only);
+  routes   scripts/compare_grid_routes.py grids against the rebuilt atlas (both engines on real grids).
+The build part also checks the schema (the member table's seven columns, the side table) and runs release 0.6.0's
+writer on a copy of the rebuilt atlas (it must work; the side rows it leaves are then not trusted).
 
 Prints counts, booleans, seconds, Oracle's property values and member CODES only (a label-keyed member - FinPlan's,
 periods, scenarios - is counted, never named) - no label, no alias text, no figure, no token, cookie or URL query; an
@@ -115,10 +118,67 @@ def part_build() -> bool:
         source, db=db, progress=lambda m: None), progress=lambda m: say("build: " + m.split(";")[0]))
     total = time.monotonic() - t0
     errors = [d for d in done if d.get("error")]
+    skipped = [d for d in done if d.get("skipped")]
     say(f"build: {len(done)} dimensions, {len(errors)} errors {[why(Exception(d['error'])) for d in errors]}, "
-        f"replaced {replaced}, {total:.1f} s in all; Get Member seconds per application (pod): "
+        f"{len(skipped)} skipped, replaced {replaced}, {total:.1f} s in all; Get Member seconds per application (pod): "
         f"{ {k: round(v, 1) for k, v in secs.items()} }")
-    return replaced and not errors
+    return replaced and not errors and schema() and older_release()
+
+
+MEMBER_COLUMNS = ["connection", "dimension", "name", "label", "parent", "depth", "ord"]
+
+
+def schema() -> bool:
+    """The member table has exactly the seven columns every release knows; the side table holds every real member."""
+    with contextlib.closing(ro(REBUILT)) as db:
+        cols = [r[1] for r in db.execute("PRAGMA table_info(member)")]
+        side = db.execute("SELECT count(*) FROM member_real").fetchone()[0]
+        trusted = db.execute("SELECT count(*) FROM member_real r JOIN build b ON b.connection = r.connection AND "
+                             "b.dimension = r.dimension AND b.built_at = r.built_at").fetchone()[0]
+        twins = db.execute("SELECT count(*) FROM (SELECT 1 FROM member_real GROUP BY connection, dimension, name, "
+                           "parent HAVING count(*) > 1)").fetchone()[0]
+        rows = db.execute("SELECT count(*) FROM member").fetchone()[0]
+    say(f"schema: member columns are the seven {cols == MEMBER_COLUMNS} | member rows {rows} | side rows {side}, "
+        f"trusted {trusted} | (key, parent) pairs with more than one real member {twins}")
+    return cols == MEMBER_COLUMNS and side == trusted and side >= rows
+
+
+def older_release() -> bool:
+    """Release 0.6.0's writer on a copy of the rebuilt atlas: its purge and its positional 7-value INSERT of FinPlan
+    (the rows as they are, a new build stamp). It must work; FinPlan's side rows are then no longer trusted, FinMax's
+    still are."""
+    from smartass.knowledge import atlas
+    old = WORK / "atlas_old_writer.db"
+    old.unlink(missing_ok=True)
+    with contextlib.closing(ro(REBUILT)) as src, contextlib.closing(sqlite3.connect(old)) as dst:
+        src.backup(dst)
+    with contextlib.closing(sqlite3.connect(old)) as db:
+        dims = [d for d, in db.execute("SELECT dimension FROM build WHERE connection='FinPlan'")]
+        before = {d: db.execute("SELECT * FROM member WHERE connection='FinPlan' AND dimension=?", (d,)).fetchall()
+                  for d in dims}
+        try:
+            with db:                                   # atlas.purge as 0.6.0 has it
+                db.execute("DELETE FROM member WHERE connection=?", ("FinPlan",))
+                db.execute("DELETE FROM build WHERE connection=?", ("FinPlan",))
+            for d, rows_ in before.items():            # atlas.store as 0.6.0 has it
+                with db:
+                    db.execute("DELETE FROM member WHERE connection=? AND dimension=?", ("FinPlan", d))
+                    db.executemany("INSERT OR IGNORE INTO member VALUES (?,?,?,?,?,?,?)", rows_)
+                    db.execute("INSERT OR REPLACE INTO build VALUES (?,?,?,?,?,?)",
+                               ("FinPlan", d, time.time() + 1, len(rows_), 1.0, None))
+            worked = True
+        except sqlite3.Error as e:
+            worked = False
+            say(f"older release: its writer FAILED ({type(e).__name__})")
+        same = all(db.execute("SELECT count(*) FROM member WHERE connection='FinPlan' AND dimension=?",
+                              (d,)).fetchone()[0] == len(r) for d, r in before.items())
+        finplan = sum(len(atlas.real_names(db, "FinPlan", d, {r[2] for r in rows_})) for d, rows_ in before.items())
+        fm = db.execute("SELECT dimension, name FROM member WHERE connection='FinMax' LIMIT 1").fetchone()
+        finmax = bool(atlas.real_names(db, "FinMax", fm[0], {fm[1]}))
+    old.unlink(missing_ok=True)
+    say(f"older release (0.6.0's purge and positional INSERT on a copy, FinPlan): worked {worked}, rows as before "
+        f"{same}, FinPlan keys with a trusted real name after it {finplan}, FinMax's still trusted {finmax}")
+    return worked and same and finplan == 0 and finmax
 
 
 # ---------------------------------------------------------------- compare
@@ -403,6 +463,28 @@ def _specs(a: str, k: str) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- Task 3's grid comparison against the rebuilt atlas
+def part_routes() -> bool:
+    """scripts/compare_grid_routes.py grids (both engines on the stored answers' grids, Task 3b's wrong-member class)
+    with config pointed at the rebuilt atlas and its knowledge.db: the REST engine's real-name check on real grids."""
+    r = subprocess.run([sys.executable, __file__, str(WORK), "_routes", str(REBUILT), str(K_REBUILT)],
+                       capture_output=True, text=True, timeout=3600)
+    lines = [x for x in r.stdout.strip().splitlines() if not re.match(r"\d\d ", x)]   # summaries, not each grid
+    for line in lines:
+        say(f"routes: {line}")
+    say(f"routes: grids OK {sum(1 for x in r.stdout.splitlines() if re.match(r'\d\d .*\| OK$', x))}, exit "
+        f"{r.returncode}")
+    return r.returncode == 0
+
+
+def _routes(a: str, k: str) -> int:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cgr", Path(__file__).with_name("compare_grid_routes.py"))
+    cgr = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cgr)
+    return cgr.main(["grids"])
+
+
 # ---------------------------------------------------------------- grid_smoke against the rebuilt atlas
 def part_smoke() -> bool:
     r = subprocess.run([sys.executable, __file__, str(WORK), "_smoke", str(REBUILT), str(K_REBUILT)],
@@ -440,12 +522,12 @@ def _smoke(a: str, k: str) -> int:
 def main(argv: list[str]) -> int:
     part = argv[0] if argv else "all"
     if CHILD:                            # a child process: config already points at the files given
-        return {"_offline": _offline, "_specs": _specs, "_smoke": _smoke}[part](argv[1], argv[2])
+        return {"_offline": _offline, "_specs": _specs, "_smoke": _smoke, "_routes": _routes}[part](argv[1], argv[2])
     try:
         good = True
         for name, fn in (("build", part_build), ("compare", part_compare), ("labels", part_labels),
                          ("knowledge", part_knowledge), ("offline", part_offline), ("specs", part_specs),
-                         ("smoke", part_smoke)):
+                         ("smoke", part_smoke), ("routes", part_routes)):
             if part in (name, "all"):
                 t0 = time.monotonic()
                 ok = fn()
