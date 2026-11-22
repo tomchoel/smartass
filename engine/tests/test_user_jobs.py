@@ -115,8 +115,8 @@ async def test_an_excel_that_disconnected_is_said_so_and_counted(hresult):
     with pytest.raises(HostError) as e:
         await h.call(job, timeout=10, what="fin_x")
     assert type(e.value) is HostError
-    assert str(e.value) == ("The Smart View Excel process died during the call; it will restart on the next call. "
-                            "Retry.")
+    assert str(e.value) == ("Your Excel stopped answering or closed during fin_x; smartass closed nothing. If it "
+                            "closed, open it again; then retry.")
     assert h.restarts == 1 and h.last_error.startswith("Excel disconnected: ")
 
 

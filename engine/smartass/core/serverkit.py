@@ -72,7 +72,8 @@ ESCALATE = ("if it repeats, call fin_status (in a terminal: `smartass doctor`) a
 GENERIC_NEXT = "Retry once; " + ESCALATE
 NEXT_STEP = {
     "InputError": "Correct the input named above and call the tool again.",
-    "HostError": "Call fin_status(restart=True) (restarts the server), then retry; " + ESCALATE,
+    "HostError": ("Call fin_status(restart=True) (fresh EPM sessions and Excel-job runner; behind the relay, a fresh "
+                  "server), then retry; ") + ESCALATE,
     "DrillError": "Retry the drill once; " + ESCALATE,
     "CellTooWide": "Narrow the cell (e.g. child entities) and drill again.",
     "TimeoutError": "Retry with a smaller request (fewer members or periods).",

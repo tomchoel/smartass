@@ -17,6 +17,14 @@ def test_explain_names_tool_cause_and_next_step():
     assert "Next step:" in server.explain("fin_analyze", ValueError("bad"))
 
 
+def test_the_restart_advice_says_what_a_restart_does_now():
+    """Without the relay fin_status(restart=True) starts fresh EPM sessions and a fresh runner of Excel jobs; only
+    behind the relay is the server itself replaced (Task 6 review, Minor 3)."""
+    assert server.NEXT_STEP["HostError"].startswith(
+        "Call fin_status(restart=True) (fresh EPM sessions and Excel-job runner; behind the relay, a fresh server), "
+        "then retry; ")
+
+
 def test_explain_uses_the_advice_of_a_base_class():
     assert "fin_status(restart=True)" in server.explain("fin_analyze", HostTimeout("slow"))
     assert "Narrow the cell" in server.explain("fin_drill", CellTooWide("too wide"))
