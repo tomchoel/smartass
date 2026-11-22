@@ -761,7 +761,7 @@ class _Job:
         (xl/inproc/later.py give_back) - not after a RestoreError (the workbook may be damaged: nothing saves it).
         The job is over then (end)."""
         from .xl import jobs
-        from .xl.host import HostError
+        from .core.errors import HostError
         from .xl.inproc import later
         from .xl.inproc.runner import BatchError
         self.end()

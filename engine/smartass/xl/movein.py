@@ -46,7 +46,7 @@ from xml.etree import ElementTree
 from ..core import config
 from ..render.xlsx import Base, BuiltFile
 from ..render.xlsx_charts import LabelFix
-from .host import HostError, InputError
+from ..core.errors import HostError, InputError
 from .inproc.batch import MISSING, Batch
 from .jobs import book_name
 from .inproc.runner import Result, run

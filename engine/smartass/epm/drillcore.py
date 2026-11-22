@@ -1,5 +1,5 @@
-"""The drill's pure parts, used by the token route (drill_token) and drillstep: the errors, the SUI query handling,
-the answer parsing and the paging bookkeeping. Nothing here touches the network or Excel.
+"""The drill's pure parts, used by the token route (drill_token), drillstep and svhttp: the errors, the cell's
+defaults, the SUI query handling, the answer parsing and the paging bookkeeping. Nothing here touches the network or Excel.
 
 Error messages and log lines never carry a URL query (the drill link holds an sso_token): redact() every URL that is
 logged or put in a message."""
@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ..core import config
+from ..core.errors import InputError
 
 log = logging.getLogger("smartview.drill")
 
@@ -29,6 +30,20 @@ class TooManyLines(DrillError):
 class CellTooWide(DrillError):
     """EPMFDM-140373: the cell spans more than 3 dimensions with over 1000 children each (summary drill refused).
     Narrow it (e.g. child entities) and drill again."""
+
+
+DRILL_DEFAULTS = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}
+
+
+def drill_cell_defaults(cell: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+    """A drill cell needs an account and a period; a missing entity drills the top member, with a warning."""
+    missing = {"All Accounts", "All Time Periods"} - set(cell)
+    if missing:
+        raise InputError(f"fin_drill needs these dimensions in cell: {sorted(missing)}")
+    if "All Entities" in cell:
+        return dict(cell), []
+    return {**cell, "All Entities": "All Entities"}, [
+        "All Entities not given - drilled the top member; name an entity to narrow it"]
 
 
 # ------------------------------------------------------------------ pure helpers

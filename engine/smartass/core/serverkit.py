@@ -9,14 +9,17 @@ import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import config, logsetup, runlog
+from .errors import HostError, InputError
 from ..epm import oauth
-from ..xl import instances
-from ..xl.host import ExcelHost, HostError, InputError
+
+if TYPE_CHECKING:
+    from ..xl.host import ExcelHost
 
 logsetup.configure(config.SERVER_LOG)
 logsetup.add_secret(config.HTTP_SECRET)
@@ -33,8 +36,10 @@ _host: ExcelHost | None = None
 
 
 def host() -> ExcelHost:
+    """The engine's hidden Excel (xl/host.py), made on first use: nothing on a tool call's path imports it before."""
     global _host
     if _host is None:
+        from ..xl.host import ExcelHost
         _host = ExcelHost(visible=False)
     return _host
 
@@ -195,6 +200,7 @@ async def _call(fn, timeout: float | None = None, what: str = "call"):
 
 def _is_our_analysis_file(path: str) -> bool:
     """A file the MCP itself created in the analyser folder (config.ANALYSER_DIR; never a user's or an archive workbook)."""
+    from ..xl import instances
     try:
         parent, root = Path(path).resolve().parent, config.ANALYSER_DIR.resolve()
         return (parent == root or parent.parent == root) and not instances.is_archive(path)   # analyser\[<project>\]

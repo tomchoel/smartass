@@ -7,6 +7,7 @@ import re
 import time
 
 from ..core import config, timing
+from .drillcore import DRILL_DEFAULTS, drill_cell_defaults  # noqa: F401 - re-exported: the drill's cell rules
 from .grid import Axis, Layout, full_pov, parse, tree_from_labels
 from ..xl.host import ExcelHost, HostError, InputError, ProviderEmpty
 
@@ -343,20 +344,6 @@ def _query_once(h: ExcelHost, conn: str, pov: dict, rows: list[Axis], cols: list
         raise HostError("Smart View returned a different layout than requested (rows/columns moved): "
                         + "; ".join(bad[:5]))
     return lay, p, secs
-
-
-DRILL_DEFAULTS = {"All Scenarios": "Actual", "All Currencies": "NOK", "All Balance Types": "Periodic"}
-
-
-def drill_cell_defaults(cell: dict[str, str]) -> tuple[dict[str, str], list[str]]:
-    """A drill cell needs an account and a period; a missing entity drills the top member, with a warning."""
-    missing = {"All Accounts", "All Time Periods"} - set(cell)
-    if missing:
-        raise InputError(f"fin_drill needs these dimensions in cell: {sorted(missing)}")
-    if "All Entities" in cell:
-        return dict(cell), []
-    return {**cell, "All Entities": "All Entities"}, [
-        "All Entities not given - drilled the top member; name an entity to narrow it"]
 
 
 def drill_link(h: ExcelHost, conn: str, cell: dict[str, str]) -> dict:

@@ -30,7 +30,7 @@ from ..knowledge import atlas
 from . import epmhttp, oauth, svxml
 from ..core import config
 from .grid import INVALID, MISSING, NOACCESS, Axis, Layout, full_pov, parse, validate_axes, verify_labels
-from ..xl.host import InputError
+from ..core.errors import InputError
 
 log = logging.getLogger(__name__)
 
@@ -306,7 +306,7 @@ class SvHttp:
     def drill_link(self, conn: str, cell: dict[str, str]) -> dict:
         """ops.drill_link over HTTP: {cube_value, url (relative to the EPM base), report}. One 1x1 retrieve gives
         the value and the Default-alias labels Smart View sends; then GetDrillThroughReports (read-only)."""
-        from .ops import DRILL_DEFAULTS, drill_cell_defaults
+        from .drillcore import DRILL_DEFAULTS, drill_cell_defaults
         cell, _ = drill_cell_defaults(cell)
         if cell.get("All Balance Types", "Periodic") != "Periodic":
             raise InputError("Drill-through works on Periodic data only; use a period member (quarter/year) "
@@ -327,7 +327,7 @@ class SvHttp:
     def child_values(self, conn: str, parts: list[dict], rest: bool = False) -> list | None:
         """A drill split's children's cube values: the parts differ in one dimension - one column grid, float or
         None per part (None for the whole list when they differ in nothing); rest: over the second engine."""
-        from .ops import DRILL_DEFAULTS
+        from .drillcore import DRILL_DEFAULTS
         first = parts[0]
         dim = next((k for k in first if any(p.get(k) != first[k] for p in parts)), None)
         if dim is None:

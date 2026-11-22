@@ -16,7 +16,7 @@ from .knowledge import atlas
 from .core import runlog
 from .core.timing import COM_PREFIX
 from .core import serverkit as kit
-from .xl.host import InputError
+from .core.errors import InputError
 
 from .epm.oauth import NotSignedIn
 from .followup import find_question, merge_patch, v2_questions

@@ -429,7 +429,7 @@ def write_sources(t, q: int, pre, ws_data, header, fetched: str, status: dict | 
     from ..xl import movein
     from .inproc.batch import Batch
     from .inproc.runner import run
-    from .host import HostError
+    from ..core.errors import HostError
     from .jobs import book_name, com
     from .styling import setup_name
     name = book_name(t)

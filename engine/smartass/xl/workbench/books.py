@@ -9,7 +9,7 @@ from openpyxl.utils import get_column_letter as L
 
 from ..instances import busy_error, busy_holder, excel_instances, interactive_excels, is_archive, local_path
 from ..jobs import com, hold_turn, starting
-from ..host import HostError, InputError
+from ...core.errors import HostError, InputError
 
 log = logging.getLogger("smartview.workbench")
 MAX_READ_CELLS = 5000

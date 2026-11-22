@@ -12,13 +12,17 @@ import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pywintypes
 
 from . import instances, jobs, login
 from ..core import config
-from .host import ExcelHost, HostError, InputError
+from ..core.errors import HostError, InputError
 from .hostproc import retry_busy
+
+if TYPE_CHECKING:
+    from .host import ExcelHost
 
 NAME_WAIT_S = 60                    # a busy Excel is waited for this long when the workbook's name or path is read
 

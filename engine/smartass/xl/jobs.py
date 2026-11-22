@@ -9,7 +9,7 @@ import time
 import pywintypes
 
 from ..core import config, timing
-from .host import HostError
+from ..core.errors import HostError
 from .hostproc import is_busy, retry_busy
 
 EDIT_WAIT_S = 30

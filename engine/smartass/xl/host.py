@@ -20,9 +20,11 @@ import win32com.client as wc
 import win32process
 
 from ..core import config
+from ..core.errors import HostError, HostTimeout, InputError  # noqa: F401 - re-exported: the same classes
 from . import dialogs, fastcom
 from ..epm import sso
-from .hostproc import HiddenExcel, _excel_pids, _PidRegistry, ComThread, is_busy, kill_ours, windows_of, _is_ours
+from .hidden import HiddenExcel
+from .hostproc import _excel_pids, _PidRegistry, ComThread, is_busy, kill_ours, windows_of, _is_ours
 
 log = logging.getLogger("smartview.host")
 BOX_WATCH_S = 3.0
@@ -30,14 +32,6 @@ RELEASE_WAIT_S = 10.0       # a job's objects not released this long after its a
                             # answer (a user job given up on, the hidden Excel restarted)
 
 DEAD_HRESULTS = {-2147023174, -2147023170, -2147417848}   # RPC unavailable, call failed, object disconnected
-
-
-class HostError(Exception):
-    """Raised for failures the model should see (message is meant to be actionable)."""
-
-
-class HostTimeout(HostError):
-    pass
 
 
 class SignInBlocked(HostError):
@@ -106,10 +100,6 @@ def plain(out, what: str = "a job"):
             continue
         todo += [v for v in items if not isinstance(v, scalar)]     # a grid of numbers costs one pass, no stack
     return out
-
-
-class InputError(ValueError):
-    """Bad input from the caller (spec, address, name, path) - not a host failure, so no restart advice."""
 
 
 def rewrap(e: Exception, msg: str) -> Exception:

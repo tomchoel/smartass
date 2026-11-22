@@ -14,10 +14,9 @@ from dataclasses import dataclass, field
 from mcp.server.mcpserver.exceptions import ToolError
 
 from ..core import config, timing
-from . import ops
 from . import drilltime, oauth
 from .drill_token import _REQUEST_S
-from .drillcore import CellTooWide, NoDrillData, TooManyLines
+from .drillcore import CellTooWide, NoDrillData, TooManyLines, drill_cell_defaults
 
 log = logging.getLogger("smartview")
 SOURCE = "Kilde: Data Integration drill-through (FinLite)."
@@ -125,7 +124,7 @@ async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: 
 
     from . import drill_lines as dl
     t0, stages = time.monotonic(), {}
-    cell, warnings = ops.drill_cell_defaults(cell)
+    cell, warnings = drill_cell_defaults(cell)
     notes = _NOTES.set(_Notes(say))                 # the pieces' tasks inherit it
     try:
         with timed(stages, "drill"):
@@ -280,7 +279,7 @@ async def _link(connection: str, cell: dict) -> dict:
     has no drill-report request, and the Excel route is gone - a failure is a clear error."""
     import asyncio
 
-    from ..xl.host import InputError
+    from ..core.errors import InputError
     if _http_off():
         raise ToolError(HTTP_OFF)
     try:

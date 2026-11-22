@@ -6,6 +6,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import psutil
 import pythoncom
@@ -16,7 +17,10 @@ import win32process
 
 from . import fastcom, login
 from ..core import config
-from .host import ExcelHost, HostError
+from ..core.errors import HostError
+
+if TYPE_CHECKING:
+    from .host import ExcelHost
 
 WM_GETOBJECT, OBJID_NATIVEOM = 0x003D, -16
 
