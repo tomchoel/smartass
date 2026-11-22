@@ -10,6 +10,7 @@ import os
 import platform
 import re
 import sys
+import tempfile
 import time
 import tomllib
 import urllib.error
@@ -581,14 +582,18 @@ def _fix_config(say) -> bool:
     if names:
         say(f"removing {', '.join(names)} from {cfg}: no longer used ({_gone(names)} gone)")
     if new != raw:
-        tmp = cfg.with_name(cfg.name + ".tmp")
+        tmp = None
         try:
             bak = _backup(cfg, raw, say)
-            tmp.write_bytes(new)
+            fd, name = tempfile.mkstemp(dir=cfg.parent, prefix=cfg.name + ".", suffix=".tmp")   # never a user's file
+            tmp = Path(name)
+            with os.fdopen(fd, "wb") as f:
+                f.write(new)
             os.replace(tmp, cfg)
         except OSError as e:
             try:
-                tmp.unlink(missing_ok=True)         # no half-done copy left next to it
+                if tmp is not None:
+                    tmp.unlink(missing_ok=True)     # no half-done copy left next to it
             except OSError:
                 pass
             say(f"could not change {cfg} ({e.strerror or e}); delete its {_sections()} sections by hand")

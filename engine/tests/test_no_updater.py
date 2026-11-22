@@ -368,3 +368,21 @@ def test_a_home_that_is_the_old_svkit_home_never_has_its_record_checked_or_chang
     said = []
     doctor.fix_leftovers(say=said.append)
     assert record.read_text() == '{"104": 2}' and not any(doctor.SV_OPTIONS_FILE in s for s in said)
+
+
+@pytest.mark.parametrize("write_fails", [False, True])
+def test_a_users_own_config_toml_tmp_is_never_overwritten_or_deleted(home, monkeypatch, write_fails):
+    """Final review, Minor 6: the new config.toml is written under a unique temp name next to it, so a file the user
+    named config.toml.tmp is left as it is, also when the write fails; no temp file is left behind."""
+    cfg = home / "config.toml"
+    cfg.write_text("[paths]\nanalyser = 'C:/a'\n\n[release]\nfolder = 'C:/rel'\n")
+    mine = home / "config.toml.tmp"
+    mine.write_text("mine")
+    if write_fails:
+        def refuse(src, dst):
+            raise PermissionError(13, "Access is denied")
+        monkeypatch.setattr(doctor.os, "replace", refuse)
+    doctor.fix_leftovers(say=lambda s: None)
+    assert mine.read_text() == "mine"
+    assert sorted(p.name for p in home.iterdir() if p.name.endswith(".tmp")) == ["config.toml.tmp"]
+    assert ("[release]" in cfg.read_text()) == write_fails
