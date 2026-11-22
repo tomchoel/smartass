@@ -23,6 +23,7 @@ SWAP_TIMEOUT_S = 30.0          # build_into waits at most this long for another 
 # A dimension EPM lists that the allowlist has no member-tree rule for (epmhttp.MEMBER_TREES is fixed: each rule a
 # whole path, no pattern): skipped, its old rows kept, said in the result, the CLI's last line and `atlas status`.
 NEW_DIMENSION = "dimension {dim} is new in EPM; this release cannot read it - update smartass"
+NOT_SIGNED_IN = "not signed in to EPM - run `smartass login`"   # why a REST build without a token replaced nothing
 DUMP_TIMEOUT_S = 600
 
 Call = Callable[..., Awaitable]
@@ -125,14 +126,16 @@ def build_rest(source, connections: list[str] | None = None, dimensions: list[st
 
 
 def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
-               progress: Callable[[str], None] = print) -> tuple[list[dict], bool]:
+               progress: Callable[[str], None] = print, refused: dict[type, str] | None = None
+               ) -> tuple[list[dict], bool]:
     """run(db) on a NEW file - a copy of target (its cards and every other table kept) - which replaces target only
     when run returned and recorded no error: never a half-built atlas in place. (done, replaced). When nothing is
     replaced, done ends with {"connection": "-", "error": "atlas not replaced: <why>"} and progress says so; an error,
     or run raising, leaves target untouched; the new file is removed. Every attempt is recorded next to target
     (last_attempt: `atlas status`). The swap is SQLite's backup into target, one transaction: a reader that has
     target open sees the old atlas or the new one; a lock another process holds longer than SWAP_TIMEOUT_S leaves it
-    unchanged."""
+    unchanged. refused: {exception type: why} - run raising one of them is a reason like the others (not replaced,
+    said and recorded), not an exception."""
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     lock = _lock(target)
@@ -162,6 +165,9 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
             with contextlib.closing(atlas.connect(new)) as db:
                 done = run(db)
         except BaseException as e:
+            why = next((w for t, w in (refused or {}).items() if isinstance(e, t)), None)
+            if why is not None:
+                return outcome(False, why)
             _record(target, False, f"the build stopped ({type(e).__name__})", done)
             raise
         failed = [d for d in done if d.get("error")]
@@ -246,11 +252,8 @@ def run_build(connections: list[str] | None = None, dimensions: list[str] | None
     swap."""
     if not excel:
         from ..epm import members, oauth
-        try:
-            done, replaced = build_into(config.ATLAS_DB, lambda db: build_rest(
-                members.Source(), connections, dimensions, db))
-        except oauth.NotSignedIn:
-            return [{"connection": "-", "error": "not signed in to EPM: run `smartass login`; the atlas is unchanged"}]
+        done, replaced = build_into(config.ATLAS_DB, lambda db: build_rest(
+            members.Source(), connections, dimensions, db), refused={oauth.NotSignedIn: NOT_SIGNED_IN})
         if replaced and not dimensions:
             cards_after_build(done)
         return done

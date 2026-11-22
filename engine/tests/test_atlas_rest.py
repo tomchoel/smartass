@@ -593,4 +593,26 @@ def test_run_build_without_a_sign_in_changes_nothing(tmp_path, monkeypatch):
             raise oauth.NotSignedIn("sign in")
     monkeypatch.setattr(members, "Source", lambda: NoSignIn(TREES, DIMS))
     done = atlas_build.run_build()
-    assert len(done) == 1 and "smartass login" in done[0]["error"] and target.read_bytes() == before
+    assert done == [{"connection": "-", "error": f"atlas not replaced: {NOT_SIGNED_IN}"}]
+    assert target.read_bytes() == before
+    last = atlas_build.last_attempt(target)
+    assert last["replaced"] is False and last["why"] == NOT_SIGNED_IN
+
+
+NOT_SIGNED_IN = "not signed in to EPM - run `smartass login`"
+
+
+def test_the_cli_says_not_replaced_and_why_when_not_signed_in(tmp_path, monkeypatch, capsys):
+    """Task 4b review, Important 2: "not signed in" takes the same honest path as every other reason - the CLI's last
+    line says NOT replaced and why, and it exits non-zero."""
+    target = tmp_path / "atlas.db"
+    _today(target)
+    monkeypatch.setattr(atlas_build.config, "ATLAS_DB", target)
+
+    class NoSignIn(_Source):
+        def dimensions(self, conn):
+            raise oauth.NotSignedIn("sign in")
+    monkeypatch.setattr(members, "Source", lambda: NoSignIn(TREES, DIMS))
+    assert cli.main(["atlas", "build"]) == 1
+    last = capsys.readouterr().out.strip().splitlines()[-1]
+    assert last.startswith(f"atlas: NOT replaced ({NOT_SIGNED_IN}); 0 built, 0 failed")
