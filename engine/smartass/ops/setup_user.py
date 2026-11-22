@@ -1,4 +1,4 @@
-"""Per-user setup, run by installer\\install.ps1 (`smartass setup`). Idempotent: every step reports
+"""Per-user setup (`smartass setup`, the second of the README's three install commands). Idempotent: every step reports
 created/updated/unchanged. Never needs admin rights. What an older release started at logon (the Smart View SSO
 watcher, the HTTP API `smartass serve`) is removed and stopped here when it is provably this install's."""
 from __future__ import annotations

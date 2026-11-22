@@ -16,7 +16,7 @@ from smartass.core import config
 from smartass.ops import doctor, setup_user
 
 NAMES = ["RELEASE_FOLDER", "RELEASE_PIN", "SMARTASS_RELEASE", "copy_atlas", "latest.json", "WithAtlas",
-         "smartass update", "publish_release", "update.check", "update.apply"]
+         "smartass update", "publish_release", "update.check", "update.apply", "install.ps1"]
 # The setup template every PC got up to 0.7.0: a [release] section holding only a comment.
 OLD_TEMPLATE = """[paths]
 # analyser = 'C:\\Users\\you\\analyser'
@@ -135,3 +135,22 @@ def test_the_updaters_attempt_file_is_a_leftover_doctor_fix_removes(home):
     said = []
     assert doctor.fix_leftovers(say=said.append) == [p] and not p.exists()
     assert any(str(p) in s and s.startswith("removing") for s in said)
+
+
+def test_install_is_three_commands_in_the_readme():
+    """The installer is deleted (Task 2: the smaller of rewriting it and the README's three lines); the README's install
+    is uv sync, smartass setup, smartass login, in that order."""
+    repo = ENGINE.parent
+    assert not (repo / "installer").exists()
+    readme = (repo / "README.md").read_text(encoding="utf-8")
+    install = readme.split("## Install", 1)[1].split("\n## ", 1)[0]
+    at = [install.index(c) for c in ("uv sync --frozen", "uv run --frozen smartass setup", "uv run --frozen smartass login")]
+    assert at == sorted(at) and "release folder" not in install
+
+
+def test_the_config_check_says_to_run_setup(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "CONFIG_ERROR", None)
+    monkeypatch.setattr(config, "USER_CONFIG", tmp_path / "config.toml")
+    assert doctor._config().fix == "Run `smartass setup`."
+    monkeypatch.setattr(config, "CONFIG_ERROR", "config.toml: Expected ']'")
+    assert "`smartass setup`" in doctor._config().fix

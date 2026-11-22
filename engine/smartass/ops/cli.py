@@ -25,7 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--json", action="store_true")
     d.add_argument("--fix", action="store_true",
                    help="remove what an older release left behind (each thing said first)")
-    sub.add_parser("setup", help="per-user setup (run by installer\\install.ps1)")
+    sub.add_parser("setup", help="per-user setup: config, MCP entries, skill link, PATH")
     lg = sub.add_parser("login", help="sign in to EPM for grids and drill lines (one browser approval per pod)")
     lg.add_argument("--status", action="store_true", help="show the sign-ins, change nothing")
     lg.add_argument("--force", action="store_true", help="sign in again, also where a sign-in exists")

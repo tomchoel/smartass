@@ -216,8 +216,8 @@ def test_every_process_start_is_one_of_the_allowed_and_only_launch_excel_starts_
 
 # The documents a user or an agent reads for how smartass works now (light-fast phase 2 Task 7). The CHANGELOG, the
 # audits, the plans, the specs and docs/archive are history and keep the old names.
-DOCS = ["README.md", "docs/DESIGN.md", "docs/troubleshooting.md", "docs/release.md", "installer/install.ps1",
-        "engine/defaults.toml", "skills/smartass/SKILL.md", "skills/smartass/reference/*.md"]
+DOCS = ["README.md", "docs/DESIGN.md", "docs/troubleshooting.md", "docs/release.md", "engine/defaults.toml",
+        "skills/smartass/SKILL.md", "skills/smartass/reference/*.md"]
 DOC_NAMES = [*NAMES, "hidden Excel", "VBA bridge", "vba_access", "VBA project", "smartview_dll", "HsAddin",
              "SSO watcher", "pull_adhoc", "adhoc.py", "--excel", "B_Ping", "SV_LOGIN_GRACE", "SV_CALL_TIMEOUT",
              "WebView2", "xl/host", "epm/ops", "Smart View options", "Global options"]

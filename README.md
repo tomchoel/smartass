@@ -24,15 +24,24 @@ v1 (the `sv_*` tools and the `xl_*` workbench) was retired in November 2026; the
 
 ## Install (colleagues)
 
+Needs git, [uv](https://docs.astral.sh/uv/getting-started/installation/) and desktop Excel. Per user, no admin rights,
+safe to re-run:
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File "<release folder>\<version>\installer\install.ps1"
+git clone https://github.com/tomchoel/smartass.git; cd smartass\engine
+uv sync --frozen
+uv run --frozen smartass setup
+uv run --frozen smartass login
 ```
 
-Then restart Copilot CLI or Claude Code, open a new terminal (the installer adds `smartass` to your user PATH), and
-run `smartass doctor`. If `smartass` is not found, use the full path
-`%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe`. Per user, no admin, safe to re-run.
-EPM access needs `[oauth]` in `%LOCALAPPDATA%\smartass\config.toml` (identity domain, client id, a scope per pod)
-and one `smartass login` (docs\troubleshooting.md, "oauth"); no browser is installed or started.
+`smartass setup` writes your `%LOCALAPPDATA%\smartass\config.toml`, registers the MCP server for Claude Code and
+Copilot CLI, links the skill and puts `smartass` on your user PATH. EPM access needs `[oauth]` in that config.toml
+(identity domain, client id, a scope per pod; docs\troubleshooting.md, "oauth") before `smartass login`, which signs
+you in (one approval in your browser; no browser is installed or started by smartass) and builds the member atlas
+when there is none (about half a minute, then the behaviour cards; `--no-atlas` skips it, `smartass atlas build`
+builds it later). Then restart Copilot CLI or Claude Code, open a new terminal and run `smartass doctor`.
+Update: `git pull`, then `uv sync --frozen` in `engine` (and `smartass setup` when the CHANGELOG says so).
+Working on smartass itself: `git config core.hooksPath .githooks` turns on the pre-commit data and secret guard.
 Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 
 ## Data safety
@@ -67,7 +76,6 @@ PC that has none; see
 .github\workflows\ci.yml     CI: ruff, pytest, data/secret guard
 .githooks\pre-commit         runs scripts\check_staged.py
 docs\                        DESIGN, troubleshooting, release, specs, plans (docs\archive: earlier designs)
-installer\install.ps1        per-user installer
 scripts\                     check_staged.py, bump.ps1
 knowledge\  packs\           business maps and metric catalogue; pack-only inputs (packs\produktregnskap)
 skills\smartass\             master copy of the agent skill

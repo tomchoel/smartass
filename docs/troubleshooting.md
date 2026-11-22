@@ -6,15 +6,15 @@ the same as in the doctor (`engine\smartass\ops\doctor.py`).
 
 User settings live in `%LOCALAPPDATA%\smartass\config.toml`; defaults in `engine\defaults.toml`.
 
-`smartass` not found? Open a new terminal after install (the installer adds it to your user PATH). Otherwise run it
+`smartass` not found? Open a new terminal after install (`smartass setup` adds it to your user PATH). Otherwise run it
 by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe`.
 
 ## config
 
 - **Symptom:** `FAIL  config  <TOML error>` or `WARN  config  no ...\smartass\config.toml`.
-- **Cause:** `config.toml` has a syntax error, or the installer has not run for this user.
-- **Fix:** FAIL: Fix the TOML syntax, or delete config.toml and re-run installer\install.ps1.
-  WARN: Run installer\install.ps1.
+- **Cause:** `config.toml` has a syntax error, or `smartass setup` has not run for this user.
+- **Fix:** FAIL: Fix the TOML syntax, or delete config.toml and run `smartass setup`.
+  WARN: Run `smartass setup`.
 
 ## excel
 

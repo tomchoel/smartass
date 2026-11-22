@@ -36,9 +36,9 @@ class Check:
 def _config() -> Check:
     if config.CONFIG_ERROR:
         return Check("config", "FAIL", config.CONFIG_ERROR,
-                     "Fix the TOML syntax, or delete config.toml and re-run installer\\install.ps1.")
+                     "Fix the TOML syntax, or delete config.toml and run `smartass setup`.")
     if not config.USER_CONFIG.exists():
-        return Check("config", "WARN", f"no {config.USER_CONFIG}", "Run installer\\install.ps1.")
+        return Check("config", "WARN", f"no {config.USER_CONFIG}", "Run `smartass setup`.")
     return Check("config", "OK", str(config.USER_CONFIG))
 
 
