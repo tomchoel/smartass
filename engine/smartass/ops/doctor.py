@@ -397,13 +397,19 @@ def _manual_items() -> list[tuple[str, str]]:
     return out
 
 
+def _addin_folder(xll: Path) -> Path:
+    """The folder to delete by hand once the classic add-in is unticked in Excel: svkit\\addin, which holds the add-in
+    (in dna) and the pane's copy beside it; the add-in's own folder when it is not in a dna folder."""
+    return xll.parent.parent if xll.parent.name.lower() == "dna" else xll.parent
+
+
 def _office_items() -> list[tuple[str, str]]:
     """(what, the manual step) for the pane's registration in Office's own settings: never changed by smartass."""
     from . import pane_leftovers as pane
     out = [(f"Office trusts the Excel task pane's add-in catalogue {url} (the pane is gone)",
             CATALOGUE_STEP.format(url=url)) for url in pane.catalogues()]
     out += [(f"Excel loads the task pane's classic add-in {xll} at start ({name})",
-             XLL_STEP.format(name=name, xll=xll, folder=Path(xll).parent)) for name, xll in pane.excel_addins()]
+             XLL_STEP.format(name=name, xll=xll, folder=_addin_folder(Path(xll)))) for name, xll in pane.excel_addins()]
     return out
 
 

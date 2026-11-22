@@ -538,3 +538,14 @@ def test_the_cli_prints_setups_lines_as_they_come(monkeypatch, capsys):
     monkeypatch.setattr(setup_user, "run", run)
     assert cli.main(["setup"]) == 0
     assert seen == ["config: kept\n"] and capsys.readouterr().out == ""
+
+
+def test_the_folder_to_delete_after_the_classic_add_in_is_the_svkit_addin_folder(pc):
+    """Final review, Minor 3: the step names one folder, the one troubleshooting names: svkit\\addin (the add-in in
+    dna and the pane's copy beside it), deleted after the add-in is unticked in Excel's dialog and Excel restarted."""
+    pc.options.update({"OPEN2": f'/R "{XLL}"'})
+    c = doctor._leftovers()
+    step = c.fix[c.fix.index("untick TNClaude"):]
+    folder = r"C:\Users\someone\AppData\Local\svkit\addin"
+    assert f"then delete {folder} by hand" in step and folder + "\\dna by hand" not in step
+    assert step.index("restart Excel") < step.index(f"delete {folder}")
