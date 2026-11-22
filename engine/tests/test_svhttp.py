@@ -638,9 +638,18 @@ def test_no_token_and_a_busy_data_source_lookup_are_not_sent_on_to_the_second_en
 def test_no_access_token_is_its_own_kind_of_no_fallback_so_its_reply_fits_its_cause():
     """Carry-in (Task 3c review, Minor): the drill link's next step by cause - a missing token is not 'try again'."""
     t = svhttp.BearerTransport(tokens=_Tokens(oauth.OAuthError("refresh token expired")), opener=_Wire(lambda *a: 1))
-    with pytest.raises(svhttp.NoToken, match="no EPM access token .*refresh token expired"):
+    with pytest.raises(svhttp.NoToken, match="no EPM access token .*refresh token expired") as e:
         t.post("https://plan1.example", svxml.connect())
-    assert issubclass(svhttp.NoToken, svhttp.NoFallback)
+    assert issubclass(svhttp.NoToken, svhttp.NoFallback) and e.value.transient is False
+
+
+def test_a_token_missing_for_a_transient_cause_is_marked_so():
+    """Carry-in (Task 5 review, Minor 7): the identity domain not answering is transient (oauth.Transient)."""
+    t = svhttp.BearerTransport(tokens=_Tokens(oauth.Transient("the identity domain did not answer (URLError)")),
+                               opener=_Wire(lambda *a: 1))
+    with pytest.raises(svhttp.NoToken, match="did not answer") as e:
+        t.post("https://plan1.example", svxml.connect())
+    assert e.value.transient is True
 
 
 def test_the_second_engine_sends_through_the_grid_routes_session_of_the_cubes_pod(db_path):

@@ -754,6 +754,26 @@ def test_a_drill_link_without_an_access_token_keeps_the_sign_in_text_and_one_sig
     assert "`smartass login --force`" in text.split("Next step: ", 1)[1]
 
 
+@pytest.mark.parametrize("why", ["the identity domain did not answer (URLError)",
+                                 "another query is still renewing the EPM sign-in",
+                                 "another smartass process is still renewing the EPM sign-in"])
+def test_a_drill_link_without_a_token_for_a_transient_cause_says_to_drill_again_not_to_sign_in(monkeypatch, why):
+    """Carry-in (Task 5 review, Minor 7): oauth's transient reasons (oauth.Transient) say to try again shortly; only
+    an ended sign-in points to `smartass login`."""
+    import asyncio
+    from smartass.epm import drillstep as server
+    from smartass.epm import svhttp
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+
+    def no_token(conn, cell):
+        raise svhttp.NoToken(f"no EPM access token for https://plan1.example: {why}", transient=True)
+    monkeypatch.setattr(server, "_http_link", no_token)
+    with pytest.raises(server.ToolError) as e:
+        asyncio.run(server._link("FinLite", _CELL))
+    step = str(e.value).split("Next step: ", 1)[1]
+    assert why in str(e.value) and "again shortly" in step and "smartass login" not in step
+
+
 def test_with_the_http_route_switched_off_the_drill_link_says_so(monkeypatch):
     import asyncio
     from smartass.epm import drillstep as server

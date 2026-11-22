@@ -75,7 +75,12 @@ class TokenRefused(NoFallback):
 
 class NoToken(NoFallback):
     """No access token could be had for the pod (oauth.OAuthError: the identity domain did not answer or could not
-    renew the sign-in): the second engine asks for the same token. Its text carries oauth's reason."""
+    renew the sign-in): the second engine asks for the same token. Its text carries oauth's reason; transient: oauth's
+    reason was one a moment later may not have (oauth.Transient), not an ended sign-in."""
+
+    def __init__(self, msg: str, transient: bool = False):
+        super().__init__(msg)
+        self.transient = transient
 
 
 class AtlasStale(NoFallback):
@@ -496,7 +501,8 @@ class BearerTransport:
         except oauth.NotSignedIn:
             raise
         except oauth.OAuthError as e:
-            raise NoToken(f"no EPM access token for {base}: {e}") from None           # REST asks for the same token
+            raise NoToken(f"no EPM access token for {base}: {e}",                      # REST asks for the same token
+                          transient=isinstance(e, oauth.Transient)) from None
         except epmhttp.NoScope:
             raise NoScope(f"no OAuth scope is configured for {base} ([oauth.scopes] in config.toml)") from None
         except (epmhttp.Refused, epmhttp.TooLarge) as e:   # their texts quote no body, token or query

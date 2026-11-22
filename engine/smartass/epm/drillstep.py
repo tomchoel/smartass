@@ -303,6 +303,8 @@ def _link_advice(e: Exception) -> str:
         return NEXT_STEP["NoScope"]
     if isinstance(e, svhttp.AtlasStale):
         return "Build the atlas (`smartass atlas build`), then drill again."
+    if isinstance(e, svhttp.NoToken) and e.transient:
+        return "Drill again shortly: the identity domain did not answer just now; nothing needs signing in."
     if isinstance(e, svhttp.NoToken):
         return ("Run `smartass login --status`: a sign-in that has ended needs `smartass login --force`; one still "
                 "shown as signed in could not be renewed just now, so drill again in a minute.")
