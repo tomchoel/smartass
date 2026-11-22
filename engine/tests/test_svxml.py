@@ -95,6 +95,53 @@ def test_an_answer_that_is_not_the_providers_is_never_quoted(text):
     assert not any(part in said for part in ("sID", "token", "cookie", "Bearer", "JSESSIONID"))
 
 
+def _desc(text: str) -> str:
+    """The provider's own <desc> error text as raise_for_exception passes it on (escaped in the XML, as EPM sends it)."""
+    import html
+    with pytest.raises(svxml.SvXmlError) as e:
+        svxml.raise_for_exception(f'<exception errcode="1000" type="error"><desc>{html.escape(text)}</desc></exception>')
+    return str(e.value)
+
+
+def _invented(n: int = 24) -> str:
+    """A random token-like string, made at run time (no realistic secret in a fixture)."""
+    import secrets
+    return secrets.token_urlsafe(n)
+
+
+def test_a_session_id_tag_in_the_providers_own_error_text_is_scrubbed():
+    sid = _invented()
+    said = _desc(f"Session <sID>{sid}</sID> is not valid. Grid is Invalid")
+    assert sid not in said and "Grid is Invalid" in said and "Session" in said
+
+
+def test_a_jwt_shaped_string_in_the_providers_own_error_text_is_scrubbed():
+    jwt = ".".join(["eyJ" + _invented(12), "eyJ" + _invented(20), _invented(30)])
+    said = _desc(f"token {jwt} rejected for member ac.C60")
+    assert jwt not in said and not any(part in said for part in jwt.split(".")) and "ac.C60" in said
+
+
+def test_a_bearer_token_in_the_providers_own_error_text_is_scrubbed():
+    tok = _invented()
+    said = _desc(f"Authorization: Bearer {tok} - access denied")
+    assert tok not in said and "access denied" in said
+
+
+@pytest.mark.parametrize("cookies", ["Cookie: JSESSIONID={a}; ORA_OCIS_42={b}",
+                                     "Set-Cookie: {a}={b}; Path=/; Secure",
+                                     "session JSESSIONID={a} and ORA_OCIS_42={b} ended"])
+def test_cookie_pairs_in_the_providers_own_error_text_are_scrubbed(cookies):
+    a, b = _invented(8), _invented(8)
+    said = _desc("Grid is Invalid. " + cookies.format(a=a, b=b))
+    assert a not in said and b not in said and said.startswith("Grid is Invalid.")
+
+
+def test_the_providers_own_error_text_is_capped_in_length():
+    said = _desc("Grid is Invalid: " + "x" * 5000)
+    assert said.startswith("Grid is Invalid: xxx") and len(said) < 700 and "5017 characters" in said
+    assert _desc("Grid is Invalid: " + "y" * 400) == "Grid is Invalid: " + "y" * 400      # a usual text is kept whole
+
+
 def test_data_sources_give_the_pod_per_app():
     text = ('<res_GetProvisionedDataSources><Product id="HP"><Server name="FinMax" '
             'context="https://plan1.example/HyperionPlanning/SmartView" appName="FinMax"/></Product>'

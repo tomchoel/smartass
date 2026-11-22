@@ -134,9 +134,32 @@ def drill_url(text: str) -> tuple[str, str] | None:
 def raise_for_exception(text: str) -> None:
     m = re.search(r'<exception\b[^>]*\berrcode="(-?\d+)"[^>]*>.*?<desc>(.*?)</desc>', text, re.S)
     if m:
-        raise SvXmlError(html.unescape(m.group(2)).strip(), int(m.group(1)))
+        raise SvXmlError(_scrubbed(html.unescape(m.group(2)).strip()), int(m.group(1)))
     if "<res_" not in text:
         raise SvXmlError(f"not a Smart View provider answer ({_shape(text)})")
+
+
+DESC_MAX = 500                  # the provider's own error text is a sentence or two; more is cut
+_SCRUB = [
+    (re.compile(r"<sID>.*?</sID>", re.S | re.I), "<sID>[removed]</sID>"),
+    (re.compile(r"\bsID\s*[=:]\s*[^\s<>\"'&;]+", re.I), "sID=[removed]"),
+    (re.compile(r"\beyJ[\w-]*\.[\w-]+(?:\.[\w-]*)?"), "[token removed]"),                  # a JWT (header.payload.sig)
+    (re.compile(r"\b(Bearer\s+)\S+", re.I), r"\1[removed]"),
+    (re.compile(r"\b((?:set-)?cookie\s*:\s*)[^\n<]*", re.I), r"\1[removed]"),               # a cookie header, whole
+    (re.compile(r"\b(JSESSIONID|ORA_[\w-]*|OAM[\w-]*|_WL_[\w-]*|[\w-]*(?:session|token)[\w-]*)=[^\s;<>\"'&]+", re.I),
+     r"\1=[removed]"),                                                                    # a session cookie pair
+]
+
+
+def _scrubbed(desc: str) -> str:
+    """The provider's own error text (<desc>) as it may reach a tool reply: Oracle's sentence (member names, 'Grid is
+    Invalid'), with anything shaped like a session id, a token or a cookie replaced, and cut at DESC_MAX characters.
+    Nothing shows it ever holds one; this is hardening (Task 3c review)."""
+    for pattern, repl in _SCRUB:
+        desc = pattern.sub(repl, desc)
+    if len(desc) > DESC_MAX:
+        desc = f"{desc[:DESC_MAX]} [cut: {len(desc)} characters]"
+    return desc
 
 
 def _shape(text: str) -> str:
