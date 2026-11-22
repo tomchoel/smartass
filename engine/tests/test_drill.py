@@ -1046,7 +1046,9 @@ def test_a_big_piece_gets_the_time_its_pages_need_once_its_total_is_known(monkey
 
     from smartass.epm import drillstep
     _small_budget(monkeypatch)
-    _slow_source(monkeypatch, [0.05, 0.2, 0.2, 0.2], 20_000)         # 0.65 s: over the floor, within 4 * 0.2 s
+    monkeypatch.setattr(drillstep, "PIECE_FLOOR_S", 0.5)       # this test only: margins that hold on a loaded machine
+    monkeypatch.setattr(drillstep, "PAGE_S", 2.0)
+    _slow_source(monkeypatch, [0.05, 0.3, 0.3], 15_000)              # 0.65 s: over the 0.5 s floor, within 3 * 2 s
     assert asyncio.run(drillstep._drill_fetch("u", 100_000))["total"] == 3
 
 

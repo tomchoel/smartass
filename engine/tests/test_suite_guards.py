@@ -6,6 +6,16 @@ import socket
 import urllib.request
 
 import pytest
+from conftest import VIOLATIONS, GuardViolation
+
+
+@pytest.fixture(autouse=True)
+def _ours():
+    """The violations these tests make on purpose are taken back after each one, so they do not fail the session
+    (conftest.pytest_sessionfinish); any other stays."""
+    before = len(VIOLATIONS)
+    yield
+    del VIOLATIONS[before:]
 
 
 @pytest.fixture
@@ -35,9 +45,9 @@ def test_excel_cannot_be_dispatched_and_the_users_excel_cannot_be_launched(below
 
     from smartass.xl import target
     for start in (wc.Dispatch, wc.DispatchEx):
-        with pytest.raises(AssertionError, match="never start Excel"):
+        with pytest.raises(GuardViolation, match="never start Excel"):
             start("Excel.Application")
-    with pytest.raises(AssertionError, match="never start Excel"):
+    with pytest.raises(GuardViolation, match="never start Excel"):
         target._launch_excel("x.xlsx")
     assert below == []
 
@@ -46,11 +56,39 @@ def test_no_process_can_be_killed(below):
     """The sweep of an older release's hidden Excels and setup's stop of its SSO watcher are the engine's only kills."""
     from smartass.ops import setup_user
     from smartass.xl import hostproc
-    with pytest.raises(AssertionError, match="never kill a process"):
+    with pytest.raises(GuardViolation, match="never kill a process"):
         hostproc.kill_ours(4242, 1.0)
-    with pytest.raises(AssertionError, match="never kill a process"):
+    with pytest.raises(GuardViolation, match="never kill a process"):
         setup_user.stop_old_watcher(found=lambda: [(4242, True)])
     assert below == []
+
+
+def test_a_violation_is_not_swallowed_by_a_broad_except_and_is_recorded():
+    """Engine code that catches Exception (a clean-up, a fallback) cannot hide a guarded call: the guard raises a
+    BaseException, and records it so the session fails even if something caught that too."""
+    from smartass.xl import target
+    before = len(VIOLATIONS)
+    with pytest.raises(GuardViolation, match="never start Excel"):
+        try:
+            target._launch_excel("x.xlsx")
+        except Exception:   # noqa: BLE001 - what a broad engine handler does
+            pass
+    assert VIOLATIONS[before:] == ["the test suite must never start Excel"]
+
+
+def test_a_recorded_violation_fails_the_session_at_its_end():
+    import types
+
+    import conftest
+    said = []
+    reporter = types.SimpleNamespace(write_line=lambda text, **kw: said.append(text))
+    session = types.SimpleNamespace(exitstatus=pytest.ExitCode.OK, config=types.SimpleNamespace(
+        pluginmanager=types.SimpleNamespace(get_plugin=lambda name: reporter)))
+    conftest.pytest_sessionfinish(session, pytest.ExitCode.OK)
+    assert session.exitstatus == pytest.ExitCode.OK and said == []          # nothing recorded: the session stands
+    VIOLATIONS.append("the test suite must never reach the network")          # taken back after the test (_ours)
+    conftest.pytest_sessionfinish(session, pytest.ExitCode.OK)
+    assert session.exitstatus == pytest.ExitCode.TESTS_FAILED and "never reach the network" in said[0]
 
 
 @pytest.mark.parametrize("call", [
@@ -63,7 +101,7 @@ def test_no_process_can_be_killed(below):
     lambda: asyncio.run(asyncio.wait_for(asyncio.open_connection("203.0.113.7", 443), 2)),
 ])
 def test_the_network_cannot_be_reached(call):
-    with pytest.raises(AssertionError, match="never reach the network"):
+    with pytest.raises(GuardViolation, match="never reach the network"):
         call()
 
 

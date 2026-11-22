@@ -9,6 +9,31 @@ def pytest_configure(config):
     os.environ["SMARTASS_HOME"] = str(config._tmp_path_factory.mktemp("smartass_home"))
 
 
+class GuardViolation(BaseException):
+    """A guard of the suite stopped a call (Excel, a process kill, the network, EPM). A BaseException, not an
+    Exception: a broad `except Exception` in the engine cannot swallow it (final review A, M6), and each one is also
+    recorded (VIOLATIONS), so the session fails at its end even if something caught it all the same."""
+
+
+VIOLATIONS: list[str] = []
+
+
+def _violation(what: str):
+    VIOLATIONS.append(what)
+    raise GuardViolation(what)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """A guard that stopped a call fails the session, even when the test that made the call passed (the engine may
+    have caught the violation). tests/test_suite_guards.py makes violations on purpose and takes its own back."""
+    if VIOLATIONS:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter is not None:
+            reporter.write_line(f"the suite's guards stopped {len(VIOLATIONS)} call(s): "
+                                + "; ".join(sorted(set(VIOLATIONS))), red=True)
+
+
 LOOPBACK = frozenset({"127.0.0.1", "::1"})
 
 
@@ -37,7 +62,7 @@ def _no_excel_no_network():
     """The suite never starts Excel and never reaches the network, whatever a default is (2026-11-22: a test reached
     atlas_build.run_build's hidden-Excel route and started the engine's Excel). From the first test's setup to the end
     of the session - every test and every fixture, module- and session-scoped ones included - the lowest start points
-    in this process fail with an AssertionError: Dispatch / DispatchEx of Excel.Application (win32com: the engine has
+    in this process fail with GuardViolation (recorded, and the session fails at its end): Dispatch / DispatchEx of Excel.Application (win32com: the engine has
     no Excel of its own since Task 6, so any is a fault), the user's Excel (xl/target._launch_excel, the one place the
     engine starts Excel), a kill of a process (xl/hostproc.kill_ours: an older release's hidden Excel at the sweep;
     ops/setup_user._kill: an older release's SSO watcher); a socket connect,
@@ -55,10 +80,10 @@ def _no_excel_no_network():
     from smartass.xl import hostproc, target
 
     def no_excel(*args, **kwargs):
-        raise AssertionError("the test suite must never start Excel")
+        _violation("the test suite must never start Excel")
 
     def no_kill(*args, **kwargs):
-        raise AssertionError("the test suite must never kill a process")
+        _violation("the test suite must never kill a process")
     real_dispatch, real_dispatch_ex = wc.Dispatch, wc.DispatchEx
 
     def dispatch(progid, *args, **kwargs):
@@ -72,7 +97,7 @@ def _no_excel_no_network():
         return real_dispatch_ex(progid, *args, **kwargs)
 
     def no_network(*args, **kwargs):
-        raise AssertionError("the test suite must never reach the network")
+        _violation("the test suite must never reach the network")
     real_connect, real_connect_ex = socket.socket.connect, socket.socket.connect_ex
     real_getaddrinfo = socket.getaddrinfo
 
@@ -113,7 +138,7 @@ def _no_live_drill_routes(monkeypatch):
     from smartass.epm import drill_token
 
     def _no_epm():
-        raise AssertionError("tests never reach EPM")
+        _violation("tests never reach EPM")
     monkeypatch.setattr(drill_token, "shared", _no_epm)
     monkeypatch.setattr(config, "ANSWER_PREFETCH", False)        # tests never reach the live HTTP route
     monkeypatch.setattr(config, "INPROC", False)                 # batches run over COM: no add-in build, no compiler
