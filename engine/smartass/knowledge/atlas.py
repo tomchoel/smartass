@@ -111,13 +111,22 @@ def real_owners(db, conn: str, dim: str) -> dict[str, set[str]] | None:
     return out
 
 
+def _read_only_uri(path: Path) -> str:
+    """SQLite's read-only URI of a file: absolute() keeps a mapped drive a drive (resolve() would make it a UNC path),
+    and a UNC path's host goes into the path ('file:////host/share/...'): SQLite takes no URI authority."""
+    uri = Path(path).absolute().as_uri()
+    if not uri.startswith("file:///"):
+        uri = "file:////" + uri[len("file://"):]
+    return uri + "?mode=ro"
+
+
 def trust(path: Path) -> tuple[int, int] | None:
     """(dimensions whose side rows are trusted, dimensions built with members) of the atlas file at path - read only,
     never written (setup compares the release folder's copy by its modification time); None when it cannot be read.
     Where a dimension has no trusted side rows (an atlas built before 0.7.0, or rebuilt since by one) the REST
     engine's strict member check is off (epm/rest.py: the check before the side table)."""
     try:
-        db = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+        db = sqlite3.connect(_read_only_uri(path), uri=True)
     except sqlite3.Error:
         return None
     try:

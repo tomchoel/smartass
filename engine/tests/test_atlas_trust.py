@@ -48,6 +48,13 @@ def test_trust_reads_without_writing_and_an_unreadable_file_is_none(tmp_path):
     assert not (tmp_path / "missing.db").exists()
 
 
+def test_the_read_only_uri_keeps_a_drive_and_puts_a_unc_host_in_the_path():
+    """SQLite takes no URI authority: 'file://host/share/...' fails to open (probed on a UNC path to this PC), and
+    resolve() turns a mapped drive into such a path - the release folder can be on a network share."""
+    assert atlas._read_only_uri(r"\\server\share\rel\atlas.db") == "file:////server/share/rel/atlas.db?mode=ro"
+    assert atlas._read_only_uri(r"Z:\rel\atlas.db") == "file:///Z:/rel/atlas.db?mode=ro"
+
+
 def _release(tmp_path, monkeypatch, local_real, release_real):
     rel = tmp_path / "release"
     (rel / "atlas").mkdir(parents=True)
@@ -65,6 +72,13 @@ def test_setup_keeps_a_local_atlas_with_real_names_over_a_newer_release_copy_wit
     said = setup_user.copy_atlas()
     assert said.startswith("atlas: local copy kept") and "real member names" in said and "smartass atlas build" in said
     assert atlas.trust(local) == (2, 2)
+
+
+def test_setup_keeps_a_local_atlas_with_real_names_over_a_release_copy_it_cannot_read(tmp_path, monkeypatch):
+    local = _release(tmp_path, monkeypatch, local_real=True, release_real=False)
+    (tmp_path / "release" / "atlas" / "atlas.db").write_bytes(b"not a database")
+    said = setup_user.copy_atlas()
+    assert said.startswith("atlas: local copy kept") and "could not be read" in said and atlas.trust(local) == (2, 2)
 
 
 def test_setup_copies_a_newer_release_atlas_as_before_otherwise(tmp_path, monkeypatch):

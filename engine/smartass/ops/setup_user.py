@@ -331,7 +331,9 @@ def copy_atlas() -> str:
         return "atlas: local copy is current"
     from ..knowledge import atlas
     mine, theirs = atlas.trust(dst) if dst.exists() else None, atlas.trust(src)
-    if mine and mine[0] and not (theirs and theirs[0]):    # never a downgrade of the strict member check over REST
+    if mine and mine[0] and theirs is None:
+        return f"atlas: local copy kept - the release's copy {src} could not be read as an atlas"
+    if mine and mine[0] and not theirs[0]:                 # never a downgrade of the strict member check over REST
         return (f"atlas: local copy kept - it has EPM's real member names, which the release's copy in {src.parent} "
                 "has not (built before 0.7.0); publish an atlas built with `smartass atlas build` by 0.7.0 or later")
     dst.parent.mkdir(parents=True, exist_ok=True)
