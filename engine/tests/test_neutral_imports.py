@@ -129,7 +129,6 @@ ALLOWED_STARTS = {
     "smartass/ops/login.py:_copy": "clip.exe: the sign-in code to the clipboard",
     "smartass/ops/login.py:run": "the browser on the identity domain's sign-in page (webbrowser.open, as open_page)",
     "smartass/ops/setup_user.py:link_skill": "cmd mklink /J: the skill's junction",
-    "smartass/ops/update.py:apply": "the release's installer (smartass update)",
     "smartass/xl/inproc/build.py:_compile": "csc.exe: the in-process add-in's compiler",
 }
 

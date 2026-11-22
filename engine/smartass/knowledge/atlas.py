@@ -122,7 +122,7 @@ def _read_only_uri(path: Path) -> str:
 
 def trust(path: Path) -> tuple[int, int] | None:
     """(dimensions whose side rows are trusted, dimensions built with members) of the atlas file at path - read only,
-    never written (setup compares the release folder's copy by its modification time); None when it cannot be read.
+    never written; None when it cannot be read.
     Where a dimension has no trusted side rows (an atlas built before 0.7.0, or rebuilt since by one) the REST
     engine's strict member check is off (epm/rest.py: the check before the side table)."""
     try:

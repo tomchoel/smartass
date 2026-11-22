@@ -2,7 +2,7 @@
 FinLite and FinPlan), read-only against EPM, over the token session (build_rest: Planning REST's Get Member,
 epm/members.py; about 10 s for both pods, no Excel). The build writes a new file and swaps it in only when every
 dimension was built (build_into). Run it when `fin_status` or `smartass doctor` says the atlas is
-stale and the release folder has no fresher copy (`smartass setup` copies the monthly one)."""
+missing or stale."""
 from __future__ import annotations
 
 import contextlib

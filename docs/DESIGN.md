@@ -266,8 +266,7 @@ never stops the rest.
   side rows are then stale, and this release ignores them until its next build. With a trusted side table the REST
   engine accepts only a real name of the key it asked for. EPM's account type and time balance are stored, not used
   (the behaviour cards still derive theirs from data). A full build then derives the cards (`atlas cards`,
-  read-only grids). `smartass setup` copies the monthly atlas from the release folder, but never over a local atlas
-  with a trusted side table when the copy has none; the doctor's `atlas` check warns on an atlas without one
+  read-only grids). The doctor's `atlas` check warns on an atlas without a trusted side table
   (`knowledge/atlas.trust`): the strict check is off there until the next build.
 - **Your Excel** (`xl/userjobs.py` `UserJobs`): every job in it (an answer, a follow-up, a drill's sheets, the
   `xl_*` tools) runs on an STA thread of its own, so jobs in different Excels run side by side; work in one Excel

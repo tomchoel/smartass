@@ -161,18 +161,6 @@ def _output() -> Check:
     return Check("output", "OK", str(d))
 
 
-def _update() -> Check:
-    from . import update
-    r = update.check()
-    if r["status"] == "not configured":
-        return Check("update", "OK", "release folder not configured (release.folder)")
-    if r["status"] == "error":
-        return Check("update", "WARN", r["error"], "Check that the release folder is synced (OneDrive).")
-    if r["update_available"]:
-        return Check("update", "WARN", f"{r['current']} -> {r['target']}", "Run `smartass update`.")
-    return Check("update", "OK", f"{r['current']} is current")
-
-
 def _smartview_startup(read=dialogs.read_hkcu) -> Check:
     """Smart View settings of the user's Excel (smartass uses no Smart View, but it stays installed there; found
     2026-11-03): the extension update check at Office start opens Smart View's Login ~20 s after Excel opens, and a
@@ -222,8 +210,10 @@ def _recorded(p: Path) -> str:
 
 
 OLD_SECRET_BIN = "secret.bin"     # the HTTP API's secret (DPAPI) an older release (up to 0.7.0) kept in the home
+OLD_UPDATE_ATTEMPT = "update_attempt.json"   # the updater's last try at login, an older release's (up to 0.7.0)
+# The sections of config.toml only an older release read (up to 0.7.0): what is gone with them.
+UNUSED_SECTIONS = {"release": "the updater", "http": "the HTTP API"}
 _SECTION = re.compile(r"(?m)^[ \t]*\[([^\]]+)\][ \t]*(?:#.*)?$")
-_PLAIN_SECRET = re.compile(r"(?m)^[ \t]*secret[ \t]*=.*(?:\r?\n|$)")
 
 
 def _secret_file() -> Path | None:
@@ -231,22 +221,41 @@ def _secret_file() -> Path | None:
     return p if p.exists() else None
 
 
+def _update_attempt_file() -> Path | None:
+    p = config.HOME / OLD_UPDATE_ATTEMPT
+    return p if p.exists() else None
+
+
+def _user_settings() -> dict:
+    """The user's config.toml, read from the file now ({} when it is missing or not TOML: the config check says so)."""
+    try:
+        return tomllib.loads(config.USER_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
 def _plain_http_secret() -> bool:
     """True when the user's config.toml, read from the file now, still holds a plain [http] secret (an older release
-    moved it to secret.bin; nothing reads it any more). A config that cannot be read is the config check's to say."""
-    try:
-        return config.get(tomllib.loads(config.USER_CONFIG.read_text(encoding="utf-8")), "http.secret") is not None
-    except (OSError, tomllib.TOMLDecodeError):
-        return False
+    moved it to secret.bin; nothing reads it any more)."""
+    return config.get(_user_settings(), "http.secret") is not None
 
 
-def _drop_http_secret(text: str) -> str:
-    """config.toml without the `secret = ...` line of its [http] section (other sections untouched)."""
+def _unused_settings() -> list[str]:
+    """The settings of UNUSED_SECTIONS the user's config.toml, read from the file now, still sets (release.folder,
+    http.port, ...), by name; http.secret is said on its own (_plain_http_secret). An empty section is none."""
+    data = _user_settings()
+    return [f"{s}.{k}" for s in UNUSED_SECTIONS if isinstance(data.get(s), dict) for k in data[s]
+            if f"{s}.{k}" != "http.secret"]
+
+
+def _drop_sections(text: str, names) -> str:
+    """config.toml without the named sections: each header with everything up to the next header (other sections
+    untouched)."""
     heads = list(_SECTION.finditer(text))
-    for i, h in enumerate(heads):
-        if h.group(1).strip() == "http":
+    for i in reversed(range(len(heads))):
+        if heads[i].group(1).strip() in names:
             end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
-            return text[:h.end()] + _PLAIN_SECRET.sub("", text[h.end():end], count=1) + text[end:]
+            text = text[:heads[i].start()] + text[end:]
     return text
 
 
@@ -282,17 +291,34 @@ def _http_api_items() -> list[str]:
             for p in pane.startup_entries(setup_user.STARTUP)]
     if p := _secret_file():
         out.append(f"the HTTP API's secret file {p} (unused)")
+    return out
+
+
+def _config_items() -> list[str]:
+    """What the user's config.toml and the home still hold for the HTTP API and the updater (gone), never a value."""
+    out = []
     if _plain_http_secret():
         out.append(f"{config.USER_CONFIG} still holds a plain [http] secret (unused; the value is not shown)")
+    if names := _unused_settings():
+        out.append(f"{config.USER_CONFIG} sets {', '.join(names)}: no longer used ({_gone(names)} gone)")
+    if p := _update_attempt_file():
+        out.append(f"the updater's record {p} (unused: the updater is gone)")
     return out
+
+
+def _gone(names: list[str]) -> str:
+    """'the updater is' / 'the updater and the HTTP API are', for the sections the names are in."""
+    parts = [what for s, what in UNUSED_SECTIONS.items() if any(n.startswith(s + ".") for n in names)]
+    return " and ".join(parts) + (" are" if len(parts) > 1 else " is")
 
 
 def _leftovers() -> Check:
     """What an older release left: in the home, from 0.6.0 and before (its hidden Excel and VBA bridge), a copy of
     Smart View's options that a crashed run could not put back (nothing can restore them now: set them by hand) and
-    the bridge add-ins it built; from 0.7.0 and before, the HTTP API (its Startup entry, a running `serve`, its secret)
-    and the Excel task pane (its Startup entry; its registration in Office's settings, which the user removes)."""
-    opts, bridges, http, office = _options_files(), _bridge_files(), _http_api_items(), _office_items()
+    the bridge add-ins it built; from 0.7.0 and before, the HTTP API (its Startup entry, a running `serve`, its secret),
+    the updater (its record, the release settings in config.toml) and the Excel task pane (its Startup entry; its registration in Office's settings, which the user removes)."""
+    opts, bridges, office = _options_files(), _bridge_files(), _office_items()
+    http = _http_api_items() + _config_items()
     if not opts and not bridges and not http and not office:
         return Check("leftovers", "OK", "nothing an older release left behind")
     said, fixes = [], []
@@ -315,7 +341,8 @@ def fix_leftovers(say=print) -> list[Path]:
     """`smartass doctor --fix`: the left-behind files removed, each said first (the options file after its recorded
     values; the old svkit home's copy is never changed); a file in use (a bridge still loaded in an Excel) stays and
     is said so. The HTTP API's Startup entry, secret file and plain secret go, this install's `serve` is stopped
-    (setup_user), the task pane's Startup entry goes; its registration in Office's settings is only said, with the
+    (setup_user), the updater's record and the settings only an older release read go, the task pane's Startup entry
+    goes; its registration in Office's settings is only said, with the
     steps in Excel. Returns the files removed."""
     from . import pane_leftovers as pane
     from . import setup_user
@@ -339,7 +366,10 @@ def fix_leftovers(say=print) -> list[Path]:
     if p := _secret_file():
         say(f"removing the HTTP API's secret file {p} (the HTTP API is gone)")
         removed += _remove(p, say)
-    changed = _fix_plain_secret(say)
+    if p := _update_attempt_file():
+        say(f"removing the updater's record {p} (the updater is gone)")
+        removed += _remove(p, say)
+    changed = _fix_config(say)
     for what, step in _office_items():
         say(f"left for you (Office's own settings, never changed by smartass): {what} - {step}")
     if not removed and not changed:
@@ -347,23 +377,32 @@ def fix_leftovers(say=print) -> list[Path]:
     return removed
 
 
-def _fix_plain_secret(say) -> bool:
-    """The plain [http] secret taken out of config.toml (written whole, then put in place); the value is never said."""
-    if not _plain_http_secret():
+def _fix_config(say) -> bool:
+    """The sections only an older release read ([release]: the updater's; [http]: the HTTP API's port and plain
+    secret) taken out of config.toml whole (written whole, then put in place), each said first; a value is never said.
+    What is still set after it (a dotted key, an inline table) is said to be left."""
+    secret, names = _plain_http_secret(), _unused_settings()
+    if not secret and not names:
         return False
     cfg = config.USER_CONFIG
-    say(f"removing the plain [http] secret from {cfg} (the HTTP API is gone; the value is not shown)")
+    if secret:
+        say(f"removing the plain [http] secret from {cfg} (the HTTP API is gone; the value is not shown)")
+    if names:
+        say(f"removing {', '.join(names)} from {cfg}: no longer used ({_gone(names)} gone)")
     try:
         tmp = cfg.with_name(cfg.name + ".tmp")
-        tmp.write_text(_drop_http_secret(cfg.read_text(encoding="utf-8")), encoding="utf-8")
+        tmp.write_text(_drop_sections(cfg.read_text(encoding="utf-8"), UNUSED_SECTIONS), encoding="utf-8")
         os.replace(tmp, cfg)
     except OSError as e:
-        say(f"could not change {cfg} ({e.strerror or e}); delete its [http] secret line by hand")
+        say(f"could not change {cfg} ({e.strerror or e}); delete its {' and '.join(f'[{s}]' for s in UNUSED_SECTIONS)} "
+            "sections by hand")
         return False
+    left = _unused_settings()
     if _plain_http_secret():                        # written another way (a dotted key, an inline table)
         say(f"the plain [http] secret is still in {cfg}: delete it by hand")
-        return False
-    return True
+    if left:
+        say(f"{', '.join(left)} still set in {cfg}: delete it by hand")
+    return not (left or _plain_http_secret())
 
 
 def _remove(p: Path, say) -> list[Path]:
@@ -376,7 +415,7 @@ def _remove(p: Path, say) -> list[Path]:
         return []
 
 
-CHECKS = (_config, _excel, _smartview_startup, _epm, _oauth, _atlas, _knowledge, _output, _update, _leftovers)
+CHECKS = (_config, _excel, _smartview_startup, _epm, _oauth, _atlas, _knowledge, _output, _leftovers)
 
 
 def run() -> list[Check]:

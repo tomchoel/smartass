@@ -135,7 +135,8 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
   update smartass` (also in `atlas status`).
 - **Cause:** EPM has a dimension this release has no read rule for (each dimension is allowed by name). It is
   skipped and its old rows are kept (none, when it is new); the rest of the atlas is replaced.
-- **Fix:** Run `smartass update` when a release that knows it is out; nothing else is needed meanwhile.
+- **Fix:** Update smartass (`git pull`, then `uv sync --frozen` in `engine`) when a release that knows it is out;
+  nothing else is needed meanwhile.
 - **An older smartass on the same atlas:** an installed release before 0.7.0 can still rebuild this atlas file. This
   release then ignores the real member names of the dimensions it rebuilt until its own next `atlas build`.
 - **Symptom:** `WARN  atlas  ...\atlas.db (N days old); no dimension has EPM's real member names` (or "K of N
@@ -152,14 +153,6 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
 - **Cause:** the folder for answer workbooks (`paths.analyser`) does not exist and cannot be created, or is
   read-only (for example OneDrive not signed in).
 - **Fix:** Set paths.analyser in config.toml to a folder you can write.
-
-## update
-
-- **Symptom:** `WARN  update  <error>` or `WARN  update  <current> -> <target>`.
-  (`OK  update  release folder not configured` is normal until `release.folder` is set.)
-- **Cause:** the release folder cannot be read (not synced yet), or a newer release is available.
-- **Fix:** error: Check that the release folder is synced (OneDrive).
-  Newer release: Run `smartass update`.
 
 ## leftovers
 
@@ -197,6 +190,17 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
     registry by hand, Excel renumbers those values and rewrites them when it closes. Then delete the add-in's folder
     (`%LOCALAPPDATA%\svkit\addin`) by hand; smartass never changes the old svkit folder.
   - If the pane's local server still runs (`node server.mjs` on port 3000), end it in Task Manager, or log off.
+
+**The updater (up to 0.7.0)**
+
+- **Symptom:** `WARN  leftovers` naming `release.folder`, `release.version` or `http.port` ("no longer used") in
+  config.toml, or the updater's record `update_attempt.json` in the home.
+- **Cause:** a release up to 0.7.0 updated itself from a shared release folder (`smartass update`) and copied the
+  monthly atlas from there. Both are gone: smartass is updated from git, and `smartass login` builds the atlas over
+  EPM when there is none (`smartass atlas build` rebuilds it at any time).
+- **Fix:** run `smartass doctor --fix`: it names the settings (never their values) and takes the `[release]` and
+  `[http]` sections out of config.toml, and removes the record. A setting written another way (a dotted key, an
+  inline table) is said to be left: delete it by hand.
 
 ## Any check: `FAIL  <check>  <ExceptionType>: <message>`
 

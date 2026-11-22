@@ -27,9 +27,6 @@ CONFIG_TEMPLATE = """# smartass user settings. Defaults live in engine/defaults.
 
 [packs]
 enabled = []            # e.g. ["produktregnskap"]
-
-[release]
-# version = "0.2.0"     # pin a version (also downwards); empty = latest
 """
 
 def write_user_config(path: Path = config.USER_CONFIG) -> str:
@@ -339,29 +336,6 @@ def path_step(executable: str | None = None, **reg) -> str:
     return f"path: {r} ({scripts}; open a new terminal to use `smartass`)"
 
 
-def copy_atlas() -> str:
-    if not config.RELEASE_FOLDER:
-        return "atlas: no release folder configured"
-    src = Path(config.RELEASE_FOLDER) / "atlas" / "atlas.db"
-    if not src.exists():
-        return f"atlas: none in {src.parent}"
-    dst = config.ATLAS_DB
-    if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
-        return "atlas: local copy is current"
-    from ..knowledge import atlas
-    mine, theirs = atlas.trust(dst) if dst.exists() else None, atlas.trust(src)
-    if mine and mine[0] and theirs is None:
-        return f"atlas: local copy kept - the release's copy {src} could not be read as an atlas"
-    if mine and mine[0] and not theirs[0]:                 # never a downgrade of the strict member check over REST
-        return (f"atlas: local copy kept - it has EPM's real member names, which the release's copy in {src.parent} "
-                "has not (built before 0.7.0); publish an atlas built with `smartass atlas build` by 0.7.0 or later")
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dst.with_suffix(".db.tmp")
-    shutil.copy2(src, tmp)
-    os.replace(tmp, dst)
-    return f"atlas: copied from {src}"
-
-
 def run() -> list[str]:
     config.HOME.mkdir(parents=True, exist_ok=True)
     out = [f"config: {write_user_config()} ({config.USER_CONFIG})"]
@@ -376,5 +350,4 @@ def run() -> list[str]:
                    f"; legacy smartview: {drop_legacy_skill(skills / 'smartview', backup)}")
     out += startup_entries()
     out.append(path_step())
-    out.append(copy_atlas())
     return out

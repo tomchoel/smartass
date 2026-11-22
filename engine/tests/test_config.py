@@ -94,23 +94,6 @@ def test_an_old_drill_section_in_the_user_config_is_ignored(tmp_path):
     assert out.split() == ["None", "False"]
 
 
-def test_release_folder_expands_env_vars_and_empty_means_not_configured(tmp_path):
-    import os
-    import subprocess
-    import sys
-    code = "from smartass.core import config as c; print(repr(c.RELEASE_FOLDER))"
-
-    def run(value):
-        (tmp_path / "config.toml").write_text(f"[release]\nfolder = '{value}'\n", encoding="utf-8")
-        env = {**os.environ, "SMARTASS_HOME": str(tmp_path), "SMARTASS_TEST_SHARE": r"C:\share"}
-        env.pop("SMARTASS_RELEASE", None)
-        return subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True,
-                              check=True).stdout.strip()
-
-    assert run(r"%SMARTASS_TEST_SHARE%\rel") == repr(r"C:\share\rel")
-    assert run("") == repr(None)
-
-
 def test_shipped_defaults_parse_and_hold_org_values():
 
     s, err = config.load_settings(config.DEFAULTS_FILE, config.DEFAULTS_FILE.with_name("absent.toml"))

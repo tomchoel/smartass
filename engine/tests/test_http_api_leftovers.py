@@ -249,7 +249,7 @@ def test_doctor_fix_removes_this_installs_files_and_entries_each_said_first(pc):
     removed = doctor.fix_leftovers(say=say)
     assert sorted(removed) == sorted([lnk, vbs, sec]) and not lnk.exists() and not vbs.exists() and not sec.exists()
     assert pc.killed == [10]
-    assert cfg.read_text() == '[paths]\nanalyser = "C:/a"\n\n[http]\nport = 1\n\n[packs]\nenabled = []\n'
+    assert cfg.read_text() == '[paths]\nanalyser = "C:/a"\n\n[packs]\nenabled = []\n'       # the section whole (Task 2)
     text = "\n".join(said)
     assert secret not in text
     for what in (f"removing {vbs}", f"removing the HTTP API's secret file {sec}", "removing the plain [http] secret",
@@ -265,14 +265,14 @@ def test_a_plain_secret_is_read_from_the_file_so_the_check_is_clean_right_after_
     cfg.write_text('[http]\nsecret = "abcdefghijklmnop"\n')
     assert doctor._leftovers().status == "WARN"
     doctor.fix_leftovers(say=lambda s: None)
-    assert doctor._leftovers().status == "OK" and cfg.read_text() == "[http]\n"
+    assert doctor._leftovers().status == "OK" and cfg.read_text() == ""
 
 
 def test_the_fix_takes_the_secret_only_from_the_http_section(pc):
     cfg = pc.home / "config.toml"
     cfg.write_text('[other]\nsecret = "keep-me"\n\n[http]\nsecret = "drop-me"\n')
     doctor.fix_leftovers(say=lambda s: None)
-    assert cfg.read_text() == '[other]\nsecret = "keep-me"\n\n[http]\n'
+    assert cfg.read_text() == '[other]\nsecret = "keep-me"\n\n'
 
 
 def test_a_secret_the_fix_cannot_take_out_is_said_to_be_left(pc):

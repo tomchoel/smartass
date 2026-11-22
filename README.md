@@ -56,7 +56,7 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 ## Command line
 
 `smartass doctor [--json | --bundle | --fix]`, `smartass atlas status`,
-`smartass atlas build [--cube X] [--dimension D]` (over Planning REST, no Excel), `smartass setup`, `smartass update`,
+`smartass atlas build [--cube X] [--dimension D]` (over Planning REST, no Excel), `smartass setup`,
 `smartass login [--status | --force | --forget]` (EPM sign-in for the bearer route, see
 `docs\troubleshooting.md`, "oauth").
 
@@ -67,7 +67,7 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 .githooks\pre-commit         runs scripts\check_staged.py
 docs\                        DESIGN, troubleshooting, release, specs, plans (docs\archive: earlier designs)
 installer\install.ps1        per-user installer
-scripts\                     check_staged.py, bump.ps1, publish_release.ps1
+scripts\                     check_staged.py, bump.ps1
 knowledge\  packs\           business maps and metric catalogue; pack-only inputs (packs\produktregnskap)
 skills\smartass\             master copy of the agent skill
 engine\                      run_server.py (relay), child_server.py, VERSION, defaults.toml, tests\

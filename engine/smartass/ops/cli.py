@@ -1,5 +1,4 @@
-"""smartass command line: doctor, setup (installer), update, login (EPM sign-in for the bearer route), atlas,
-knowledge."""
+"""smartass command line: doctor, setup, login (EPM sign-in for the bearer route), atlas, knowledge."""
 from __future__ import annotations
 
 import argparse
@@ -27,8 +26,6 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--fix", action="store_true",
                    help="remove what an older release left behind (each thing said first)")
     sub.add_parser("setup", help="per-user setup (run by installer\\install.ps1)")
-    u = sub.add_parser("update", help="install the release from the release folder")
-    u.add_argument("--force", action="store_true")
     lg = sub.add_parser("login", help="sign in to EPM for grids and drill lines (one browser approval per pod)")
     lg.add_argument("--status", action="store_true", help="show the sign-ins, change nothing")
     lg.add_argument("--force", action="store_true", help="sign in again, also where a sign-in exists")
@@ -106,10 +103,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if failed or why else 0
     if a.cmd == "knowledge":
         return _knowledge(a)
-    if a.cmd == "update":
-        from . import update
-        print(update.apply(force=a.force))
-        return 0
     return 2
 
 

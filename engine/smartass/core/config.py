@@ -191,11 +191,6 @@ LABEL_SITE = _pick("SV_LABEL_SITE", "label.site")
 LABEL_NAME = _pick("SV_LABEL_NAME", "label.name", "Internal")      # written into a built file's label properties
 LABEL_CONTENT_BITS = _pick("SV_LABEL_CONTENT_BITS", "label.content_bits", 2)   # ... with the marking bits Excel records
 
-_release = _pick("SMARTASS_RELEASE", "release.folder")
-RELEASE_FOLDER = str(_path(_release)) if _release else _release   # %VAR% and ~ expand; empty = not configured
-RELEASE_PIN = get(SETTINGS, "release.version")
-
-
 def _dpapi():
     """win32crypt: the sign-ins (epm/oauth.py) are DPAPI-protected for this Windows user."""
     import win32crypt

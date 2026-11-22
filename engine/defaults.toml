@@ -13,9 +13,6 @@ content_bits = 2
 [archive]        # under the user's OneDrive for Business root; never written unless explicitly allowed
 subdir = "Analyse (Telenor Norge AS) - Produktregnskapet"
 
-[release]        # SharePoint/Teams release folder (synced local path); empty until it exists
-folder = ""
-
 [oauth]          # grids and drill lines over plain HTTPS with the user's own OAuth token (smartass login). Required:
 idcs = ""        # without idcs, client_id and at least one scope no call reaches EPM. The identity domain's base URL,
 client_id = ""   # and a PUBLIC client registered there with device-code + refresh-token grants (no secret exists).
