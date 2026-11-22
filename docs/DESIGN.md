@@ -427,21 +427,21 @@ one without members is no atlas. `need_atlas()` refuses every entry that needs i
 answers from a knowledge.db that matches the semantic files over an empty atlas in memory, with one warning naming
 that command. `fin_status` and `smartass atlas status` make no atlas.db on a fresh home (`connect_read`).
 
-**An upgrading PC.** What an older release left is found by the `leftovers` check and removed by the command that
-owns it, each thing said first and only when it is this install's: `smartass setup` the Startup entries and old
-processes; `smartass doctor --fix` (which also does setup's part) the files - `secret.bin`, `update_attempt.json`, a
-Startup entry of the task pane, a crashed run's copy of Smart View's options, the bridge add-ins - and the settings
-only an older release read: the `[release]` and `[http]` tables of config.toml, taken out on its bytes after a backup
-(`config.toml.bak-<date>`; one of the same day with the same bytes is used again) and written only when the result
-parses as the old settings without those two tables, else left and the lines to delete said. The task pane's
-registration in Office's settings (`ops/pane_leftovers.py`: a Trusted Add-in Catalogs entry matched by the folder
-name only, never read; an `OPEN<n>` value naming `TNClaude64.xll`) is read only and reported with the steps in
-Excel: smartass writes nothing under Office's registry keys. The old svkit home is never changed; its record of Smart
-View's options counts only when Smart View's stored options (`CAOptionsXML`, read from the registry without COM)
-differ from it. An install the deleted installer script made in `%LOCALAPPDATA%\smartass\app` is another install
-to this one: its Startup entry and `serve` are reported and left (troubleshooting, "leftovers", has the steps by
-hand). `scripts/check_fresh_home.py` proves a fresh install: setup and doctor on a new home in a temp folder of its
-own leave only the sign-in and the atlas to do.
+**An upgrading PC.** What an older release left is found by the `leftovers` check and removed by the command that owns
+it, each thing said first and only when it is this install's: `smartass setup` the Startup entries and old processes;
+`smartass doctor --fix` (which also removes this install's `smartass-engine.lnk` and stops its `serve`) the files -
+`secret.bin`, `update_attempt.json`, a Startup entry of the task pane, a crashed run's copy of Smart View's options, the
+bridge add-ins - and the settings only an older release read: the `[release]` and `[http]` tables of config.toml, taken
+out on its bytes after a backup (`config.toml.bak-<date>`; one of the same day with the same bytes is used again) and
+written only when the result parses as the old settings without those two tables, else left and the lines to delete
+said. The task pane's registration in Office's settings (`ops/pane_leftovers.py`: a Trusted Add-in Catalogs entry
+matched by the folder name only, never read; an `OPEN<n>` value naming `TNClaude64.xll`) is read only and reported with
+the steps in Excel: smartass writes nothing under Office's registry keys. The old svkit home is never changed; its
+record of Smart View's options counts only when Smart View's stored options (`CAOptionsXML`, read from the registry
+without COM) differ from it. An install the deleted installer script made in `%LOCALAPPDATA%\smartass\app` is another
+install to this one: its Startup entry and `serve` are reported and left (troubleshooting, "leftovers", has the steps by
+hand). `scripts/check_fresh_home.py` proves a fresh install: setup and doctor on a new home in a temp folder of its own
+leave only the sign-in and the atlas to do.
 
 ## Verification
 

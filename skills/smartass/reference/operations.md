@@ -125,7 +125,7 @@ Every error names one next step. The common ones:
 
 | Symptom | Meaning / action |
 |---|---|
-| `` no atlas on this PC yet (…): every answer is built on it - run `smartass login` in a terminal … `` (or `` … run `smartass atlas build` … ``) | The PC has no member atlas (a new PC, or a login run with `--no-atlas`): nothing was drawn. Ask the user to run the one command it names in a terminal, then call again. `fin_lookup` still answers from the knowledge base with one warning of the same kind; it finds no member until the atlas is built. |
+| `` no atlas on this PC yet (…): every answer is built on it - run `smartass login` in a terminal … `` (or `` … run `smartass atlas build` … ``) | The PC has no member atlas (a new PC, or a login run with `--no-atlas`): nothing was drawn. Ask the user to run the one command it names in a terminal, then call again. `fin_lookup` still answers from the knowledge base with one warning of the same kind (when knowledge.db matches the knowledge files; else it refuses the same way); it finds no member until the atlas is built. `fin_analyze` / `fin_refresh` on a PC that is not signed in answer with the sign-in page and code first. |
 | `unknown entity 'X' in FinMax - find the member with fin_lookup` (or an unknown metric) | Hard guard: nothing was drawn. Look the name up and send the spec again. |
 | `invalid spec: …` / `Extra inputs are not permitted` | The spec breaks the contract (unknown field, a block metric not in its query, budget on a FinMax query …). Fix the named field. |
 | `query q1: Actual covers … but … covers …` | Actual and plan periods do not line up; set `plan_periods` or align `periods`. |

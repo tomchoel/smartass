@@ -263,7 +263,8 @@ def test_the_backup_of_a_plain_secret_is_said_to_still_hold_it(home):
     bak = next(home.glob("config.toml.bak-*"))
     assert secret in bak.read_text() and secret not in cfg.read_text()
     at = next(i for i, s in enumerate(said) if "the copy from before is" in s)
-    assert said[at + 1] == f"the backup {bak} still holds the plain [http] secret - delete it when you no longer need it"
+    assert said[at + 1] == (f"the backup {bak} still holds the plain [http] secret - delete it when you no longer "
+                            "need it")
     assert secret not in " ".join(said)
 
 

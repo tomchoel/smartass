@@ -25,9 +25,12 @@
   built, login says which command to run later and ends with exit code 3.
 - **A tool call on a PC without a member catalogue names one command.** The reply says "no atlas on this PC yet" and
   what to run in a terminal: `smartass login` while a sign-in is missing (it signs in, then builds the catalogue),
-  else `smartass atlas build`. Then ask again. `fin_lookup` keeps answering from the knowledge base the PC already
-  has (metrics, rules, entities and the like), with one warning that names the same command; it finds no cube member
-  until the catalogue is built. The other tools refuse until then.
+  else `smartass atlas build`. Then ask again. (`fin_analyze` and `fin_refresh` on a PC that is not signed in
+  first answer with the sign-in page and code, as before.) `fin_lookup` keeps answering from the knowledge base the
+  PC already has (metrics, rules, entities and the like), with one warning that names the same command; it finds no
+  cube member until the catalogue is built, and when an update changed the knowledge files since that knowledge base
+  was built, it refuses with the same command too. `fin_analyze`, `fin_refresh` and `fin_drill` refuse until the
+  catalogue is built; `fin_status`, `fin_critic` and the `xl_*` tools do not need it.
 - **Updates come from git:** `git pull`, then `uv sync` in `engine`. A release is a tag and its entry here
   (docs\release.md).
 - **The health check no longer warns for ever about the old svkit folder.** An older smartass kept a record of three
@@ -41,9 +44,9 @@
 **Upgrading from 0.7.0**
 
 Each leftover is removed by the command that owns it. `smartass setup` removes what would start or run old code: the
-Startup entry and the old background service. `smartass doctor --fix` removes files and edits `config.toml` (and
-does setup's part too, when setup was not run). Both act only on what belongs to this install, and say each thing
-before they do it.
+Startup entry and the old background service. `smartass doctor --fix` removes files and edits `config.toml` (it
+also removes this install's `smartass-engine.lnk` and stops its old `smartass serve`, when setup was not run). Both
+act only on what belongs to this install, and say each thing before they do it.
 
 1. Get the new code: `git pull`, then `uv sync` in `engine`.
 2. Run `smartass setup`. It removes the old Startup entry `smartass-engine.lnk` and stops this install's old

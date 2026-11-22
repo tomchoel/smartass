@@ -21,9 +21,9 @@ The install (README, "Install") is three commands: `uv sync`, `smartass setup`, 
 - **After the `[oauth]` step, before `smartass login`:** `WARN  oauth  <pod>: not signed in` (a tool call answers
   with a page and a code), `FAIL  atlas  no atlas on this PC yet` and `WARN  knowledge  ...; members not checked:
   waits for the atlas`. Each fix names one command, `smartass login`: it signs you in, then builds the atlas.
-- **After `smartass login`:** every check OK. When it ends with "The atlas was not built (...); your sign-in is
-  kept. Run `smartass atlas build` later to build the atlas." (exit code 3), run `smartass atlas build` when EPM
-  answers again (see "atlas" below).
+- **After `smartass login`:** `oauth`, `atlas` and `knowledge` OK. When it ends with "The atlas was not built (...);
+  your sign-in is kept. Run `smartass atlas build` later to build the atlas." (exit code 3), run `smartass atlas build`
+  when EPM answers again (see "atlas" below).
 
 `smartass login`'s exit codes: 0 signed in (and the atlas there, or skipped with `--no-atlas`), 1 a sign-in failed
 (nothing is built), 2 `[oauth]` is not set up, 3 signed in but the atlas the PC lacks was not built.
@@ -136,9 +136,11 @@ asked for a grid. The reply's `routes` counts the grids per engine (`http`, `res
   atlas), else `smartass atlas build`. WARN: Run `smartass atlas build`.
 - **Symptom (a tool call):** a reply "no atlas on this PC yet (<path>): every answer is built on it - run
   `smartass login` in a terminal (it signs you in to EPM, then builds the atlas), then ask again" (or "run
-  `smartass atlas build` in a terminal ..." when you are signed in). `fin_lookup` still answers from the knowledge
-  base already on the PC (metrics, rules, entities ...), with one warning: "no atlas on this PC yet (<path>): no
-  cube member is found and no answer can be built - run ..."; it finds no member until the atlas is built.
+  `smartass atlas build` in a terminal ..." when you are signed in). `fin_analyze` and `fin_refresh` on a PC that
+  is not signed in answer first with the sign-in page and code. `fin_lookup` still answers from the knowledge base
+  already on the PC (metrics, rules, entities ...) when it matches the knowledge files, with one warning: "no atlas
+  on this PC yet (<path>): no cube member is found and no answer can be built - run ..."; it finds no member until
+  the atlas is built. After an update that changed the knowledge files it refuses with the one command too.
 - **Fix:** run the one command the reply names in a terminal, then ask again.
 
 `smartass atlas build` (since 0.7.0) reads every dimension over Planning REST with your sign-in: read-only, no Excel,
@@ -185,8 +187,9 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
 
 What an older release left is removed by the command that owns it. `smartass setup` removes what would start or run
 old code: the Startup entries and this install's old background processes. `smartass doctor --fix` removes files and
-edits `config.toml`, after a backup copy (and does setup's part too, when setup was not run). Each says every thing
-before it does it, and acts only on what belongs to this install. What lives in Office's own settings is yours to
+edits `config.toml`, after a backup copy (it also removes this install's `smartass-engine.lnk` and stops its old
+`smartass serve`, when setup was not run). Each says every thing before it does it, and acts only on what belongs to
+this install. What lives in Office's own settings is yours to
 remove in Excel (below). `smartass setup`'s last line says what comes next: "leftovers: ... run `smartass doctor`,
 then `smartass doctor --fix`", or, when only steps by hand are left, "... run `smartass doctor` and follow its
 manual steps". The `leftovers` check runs in `smartass doctor` (and `--bundle`) only, not in `fin_status`.
