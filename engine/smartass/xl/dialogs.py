@@ -4,8 +4,10 @@ target (instances.busy_error names it in the reply), and Smart View's Login.
 smartass uses no Smart View any more, but Smart View stays installed in the user's Excel and can show its own EPM
 Login - at every Excel start when its start-up update check is on (doctor: smartview_startup). COM into an Excel whose
 Login is open blocks, so a job never touches such an Excel: it is refused at once with a text that says which Excel
-and what to do (refuse_login, login_refusal), and after smartass launches an Excel it watches LAUNCH_GRACE_S for a
-Login before its first COM call (watch_after_start). Nothing here clicks, closes or waits for a sign-in.
+and what to do (refuse_login, login_refusal), and after smartass launches an Excel it watches for a Login before its
+first COM call (watch_after_start): LAUNCH_GRACE_S, and where Smart View's start-up check is on (read from the registry,
+no COM: startup_check_on) to STARTUP_LOGIN_S after the launch (launch_grace). Nothing here clicks, closes or waits for
+a sign-in.
 classify is pure; the rest is thin Win32."""
 from __future__ import annotations
 
@@ -16,7 +18,9 @@ from ..core.errors import HostError
 
 DIALOG_CLASSES = ("#32770", "NUIDialog")      # Win32 message boxes and Excel's own alerts
 LOGIN_TITLES = ("login", "sign in")
-LAUNCH_GRACE_S = 12            # a fresh Excel shows Smart View's Login at start-up (seen 19-22 s after; checked 12 s)
+LAUNCH_GRACE_S = 12            # an Excel smartass launched is watched this long for a Login before its first COM call
+STARTUP_LOGIN_S = 25           # with Smart View's start-up check on, its Login comes 19-22 s after Excel starts
+STARTUP_CHECK = (r"Software\Oracle\SmartView\extensions", "CheckOnStartup")   # HKCU: 1 = the check is on
 
 
 @dataclass(frozen=True)
@@ -109,10 +113,39 @@ def refuse_login(pid: int) -> None:
         raise login_refusal(pid)
 
 
+def read_hkcu(path: str, name: str):
+    """An HKCU registry value, or None (missing, or not Windows)."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as k:
+            return winreg.QueryValueEx(k, name)[0]
+    except (ImportError, OSError):
+        return None
+
+
+def startup_check_on() -> bool | None:
+    """Smart View's 'Check for updates when Microsoft Office starts' (its Login at every Excel start), read from the
+    registry without COM: True on, False off, None when it is not set or cannot be read."""
+    try:
+        value = read_hkcu(*STARTUP_CHECK)
+    except Exception:   # noqa: BLE001 - unreadable: today's timing
+        return None
+    return None if value is None else str(value) == "1"
+
+
+def launch_grace(started: float, clock=None) -> float:
+    """How long, from now, the watch of an Excel launched at started (time.monotonic) runs: LAUNCH_GRACE_S; with Smart
+    View's start-up check on, to STARTUP_LOGIN_S after the launch when that is later (its Login comes 19-22 s after
+    Excel starts, often after the workbook showed)."""
+    if startup_check_on() is not True:
+        return LAUNCH_GRACE_S
+    return max(LAUNCH_GRACE_S, STARTUP_LOGIN_S - ((clock or time.monotonic)() - started))
+
+
 def watch_after_start(pid: int, grace: float = LAUNCH_GRACE_S, alive=None, clock=None, sleep=None) -> None:
-    """An Excel smartass just launched: watched for grace seconds (Smart View's Login may come right after its start)
-    before the first COM call; a Login seen is refused at once (login_refusal). alive: the job's abort check, each
-    round."""
+    """An Excel smartass just launched: watched for grace seconds (Smart View's Login may come right after its start;
+    the launch sites give launch_grace) before the first COM call; a Login seen is refused at once (login_refusal).
+    alive: the job's abort check, each round."""
     clock, sleep = clock or time.monotonic, sleep or time.sleep
     t0 = clock()
     while True:

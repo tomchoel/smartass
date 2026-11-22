@@ -24,7 +24,8 @@
   member's real EPM name. A release before 0.7.0 can still write the file, and this release reads an older file.
 - **No automatic "Telenor SSO" click any more.** The watcher that clicked it in Smart View's Login is gone, also when
   you use Smart View by hand: you click it yourself. While Smart View's Login is open in an Excel, smartass stays out
-  of that Excel and says so in the reply, naming the window.
+  of that Excel and says so in the reply, naming the window. In an Excel smartass has just started it watches for
+  that Login before its first call: 12 s, and where Smart View's start-up check is on until 25 s after the start.
 - **A drill link has no second route.** Planning REST cannot give a cell's drill link. When the provider route cannot
   fetch it, the drill fails with the reason and one next step (for example `smartass login --force`, or drill
   again in a minute).

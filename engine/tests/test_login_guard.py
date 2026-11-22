@@ -136,3 +136,85 @@ def test_a_launched_excel_whose_workbook_opened_is_watched_before_it_is_used(mon
     with pytest.raises(HostError, match="Login is open"):
         target._open_path(f, [], [])
     assert watched == [9]
+
+
+# ---- Task 6b: a Login after the 12 s grace, where Smart View's start-up check is on (read from the registry, no COM)
+
+def _shown_3_s_after_the_launch(monkeypatch, value):
+    """An Excel launched at t=0 whose workbook showed at t=3; Smart View's Login (if any) comes at t=21. value: what
+    the registry gives for the start-up check (an exception: it cannot be read)."""
+    c = Clock()
+    c.t = 3.0
+
+    def read(path, name):
+        assert (path, name) == dialogs.STARTUP_CHECK
+        if isinstance(value, Exception):
+            raise value
+        return value
+    monkeypatch.setattr(dialogs, "read_hkcu", read)
+    monkeypatch.setattr(dialogs, "login_open", lambda pid: [5] if c.t >= 21 else [])
+    monkeypatch.setattr(dialogs, "windows", lambda pid=None, parent=None: [])
+    return c
+
+
+def test_with_the_start_up_check_on_a_login_21_s_after_the_launch_is_refused_at_once(monkeypatch):
+    """The watch runs to STARTUP_LOGIN_S after the launch (not 12 s after the workbook showed): the Login seen there
+    is the refusal naming that Excel, not a COM call that blocks until the job's deadline."""
+    c = _shown_3_s_after_the_launch(monkeypatch, 1)
+    with pytest.raises(HostError, match=r"Smart View's Login is open in Excel \(pid 9\)"):
+        dialogs.watch_after_start(9, grace=dialogs.launch_grace(0.0, clock=c.now), clock=c.now, sleep=c.sleep)
+    assert 21 <= c.t < 21.5
+
+
+@pytest.mark.parametrize("value", [0, None, OSError("access denied")], ids=["off", "not set", "unreadable"])
+def test_with_the_start_up_check_off_or_unreadable_the_watch_is_todays_12_s(monkeypatch, value):
+    c = _shown_3_s_after_the_launch(monkeypatch, value)
+    dialogs.watch_after_start(9, grace=dialogs.launch_grace(0.0, clock=c.now), clock=c.now, sleep=c.sleep)
+    assert 15 <= c.t < 15.5                              # 12 s from when the workbook showed, as before
+
+
+def test_with_the_start_up_check_on_the_watch_is_never_shorter_than_todays_grace(monkeypatch):
+    c = _shown_3_s_after_the_launch(monkeypatch, 1)
+    assert dialogs.STARTUP_LOGIN_S == 25 and dialogs.launch_grace(0.0, clock=c.now) == 22
+    c.t = 20.0                                           # a slow start: the workbook showed 20 s after the launch
+    assert dialogs.launch_grace(0.0, clock=c.now) == dialogs.LAUNCH_GRACE_S
+
+
+def test_the_suite_never_reads_this_pcs_smart_view_setting():
+    assert dialogs.startup_check_on() is None
+
+
+class _Tpl:
+    Name = "tn_template1"
+
+
+@pytest.mark.parametrize("value, grace", [(1, (24, 25)), (0, (12, 12)), (None, (12, 12))], ids=["on", "off", "unset"])
+@pytest.mark.parametrize("launch", ["_spawn_excel", "_open_path"])
+def test_both_launch_sites_watch_from_the_launch(monkeypatch, tmp_path, value, grace, launch):
+    """_spawn_excel and _open_path give the watch launch_grace from the moment they launched Excel."""
+    book = tmp_path / "a.xlsx"
+    book.write_bytes(b"x")
+
+    class Book:
+        Name, FullName = "tn_template1", str(book)
+
+    class App:
+        Workbooks = [Book()]
+
+    class Proc:
+        pid = 4242
+
+        def poll(self):
+            return None
+    monkeypatch.setattr(dialogs, "read_hkcu", lambda path, name: value)
+    monkeypatch.setattr(target, "_launch_excel", lambda path: Proc())
+    monkeypatch.setattr(target.time, "sleep", lambda s: None)
+    monkeypatch.setattr(jobs, "hold_turn", lambda *a, **k: True)
+    monkeypatch.setattr(instances, "interactive_excels", lambda: [(9, 90, App())])
+    watched = []
+    monkeypatch.setattr(dialogs, "watch_after_start", lambda pid, **k: watched.append((pid, k["grace"])))
+    if launch == "_spawn_excel":
+        target._spawn_excel(tmp_path / "tn_template.xltx", set())
+    else:
+        target._open_path(book, [], [])
+    assert [p for p, _g in watched] == [9] and grace[0] <= watched[0][1] <= grace[1]

@@ -261,7 +261,8 @@ never stops the rest.
   installed and can open its Login (at every Excel start when its start-up update check is on: doctor
   `smartview_startup`). Excel's COM blocks while that Login is open, so smartass refuses at once to work while one is
   open in any visible Excel, and names that Excel by its window title. After it launched an Excel it watches 12 s
-  for a Login before its first call. Nothing clicks, closes or waits for a sign-in.
+  for a Login before its first call; where Smart View's start-up check is on (read from the registry, no COM) until
+  25 s after the launch, as that Login comes 19-22 s after Excel starts. Nothing clicks, closes or waits for a sign-in.
 - **What can start an Excel:** only `xl/target._launch_excel` (`EXCEL.EXE /x <file>`: your Excel, visible, on a
   workbook), called by `_open_path` (a target file, or a first workbook's file when no Excel runs) and
   `_spawn_excel` (the TN template: a parallel agent's new workbook, or a first workbook with no Excel, no seed and

@@ -364,7 +364,7 @@ def _spawn_excel(tpl: Path, known: set[int], limit: float = SPAWN_TIMEOUT_S):
     """Start a new interactive Excel on the TN template (opens as a new unsaved workbook) and take its turn. limit:
     how long it may take to show the template (a first Excel on a cold PC: OPEN_TIMEOUT_S, as _open_path)."""
     proc = _launch_excel(tpl)
-    t0 = time.monotonic()
+    t0 = time.monotonic()                             # the launch: Smart View's start-up Login is timed from here
     while time.monotonic() - t0 < limit:
         jobs._check_alive()
         time.sleep(1)
@@ -374,7 +374,7 @@ def _spawn_excel(tpl: Path, known: set[int], limit: float = SPAWN_TIMEOUT_S):
             for wb in app.Workbooks:
                 if str(wb.Name).lower().startswith(tpl.stem.lower()):
                     jobs.hold_turn(pid, wait=False)
-                    dialogs.watch_after_start(pid, alive=jobs._check_alive)   # Smart View's Login may come at start-up
+                    dialogs.watch_after_start(pid, grace=dialogs.launch_grace(t0), alive=jobs._check_alive)
                     jobs.log.info("started Excel pid %s on the TN template", pid)
                     return (pid, hwnd, app), wb
     raise HostError(f"A new Excel (pid {proc.pid}) did not open the TN template within {limit:.0f} s.")
@@ -492,7 +492,7 @@ def _open_path(path: Path, excels, insts: list[instances.XlInstance] | None = No
             raise
         return Target(app, wb, pid, hwnd)
     proc = _launch_excel(path)
-    t0 = time.monotonic()
+    t0 = time.monotonic()                             # the launch: Smart View's start-up Login is timed from here
     while time.monotonic() - t0 < OPEN_TIMEOUT_S:
         jobs._check_alive()
         time.sleep(1)
@@ -500,7 +500,7 @@ def _open_path(path: Path, excels, insts: list[instances.XlInstance] | None = No
             for wb in app.Workbooks:
                 if instances._norm(wb.FullName) == instances._norm(path):
                     jobs.hold_turn(pid, what="this request", app=app)
-                    dialogs.watch_after_start(pid, alive=jobs._check_alive)   # Smart View's Login may come at start-up
+                    dialogs.watch_after_start(pid, grace=dialogs.launch_grace(t0), alive=jobs._check_alive)
                     return Target(app, wb, pid, hwnd)
         if proc.poll() is not None:
             raise HostError(f"Excel (pid {proc.pid}) closed before it opened {path.name}. "

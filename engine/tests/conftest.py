@@ -118,3 +118,11 @@ def _no_live_drill_routes(monkeypatch):
     monkeypatch.setattr(config, "ANSWER_PREFETCH", False)        # tests never reach the live HTTP route
     monkeypatch.setattr(config, "INPROC", False)                 # batches run over COM: no add-in build, no compiler
     monkeypatch.setenv("SV_TEST_NO_HTTP_DRILL", "1")
+
+
+@pytest.fixture(autouse=True)
+def _no_smart_view_setting_of_this_pc(monkeypatch):
+    """The post-launch watch's length depends on Smart View's start-up check, read from the registry
+    (dialogs.startup_check_on): the suite never reads this PC's; it is 'not set' unless a test sets its own."""
+    from smartass.xl import dialogs
+    monkeypatch.setattr(dialogs, "read_hkcu", lambda path, name: None)
