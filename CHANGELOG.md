@@ -65,9 +65,7 @@
   lines. The last fix round then changed how the first route's error is sorted (from Oracle's own text) and how a
   number over Planning REST is read (only a plain number), besides the scrub, setup, the doctor and the docs; it did
   not change the atlas build. The routes comparison was run again after the final fix round; the audit records it.
-  <!-- Task 9: the controller's routes run after this round; it records the result in
-  docs/audit/2026-11-21-rest-vs-provider.md. --> The two gate scripts were deleted after the run at 8049f2a; their
-  results stay in the audits.
+  The two gate scripts were deleted after the run at 8049f2a; their results stay in the audits.
 
 **What a PC needs now**
 

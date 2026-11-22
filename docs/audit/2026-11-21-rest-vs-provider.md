@@ -249,4 +249,13 @@ ordinary text after `Basic` and `Authorization:`, and the `%` values after a coo
 that Task 8's change stopped catching are caught again) and `pipeline.py` (the REST warning's quoted error is
 scrubbed); not `data/provider.py`, `epm/epmhttp.py`, the name check or the atlas build. So the controller runs
 the routes part again at the head of the final fix round and records that run here, below.
-<!-- Task 9: the controller records here the run of the routes part at Task 9's head (date, head, result). -->
+
+The routes part was run once more by the controller at 30d6daa (Task 9's head; 22.11.2026 15:26-15:31, read-only,
+without Excel): passed, exit 0. 69 different requests from 460 answers, 63 fetched by the provider; both left-out
+probes OK; the 6 wrong-member requests as before (4 refused: the only Entity; 2 left out with one warning each); raw
+REST cells that are not numbers: 1521 blanks read as empty; all equal.
+
+Task 10's commits come after that run. Of the fetch routes they touch only `epm/rest.py`'s `_cell` (a JSON integer
+too large for a float, such as `10**400`, now fails its grid with a `RestError` naming its type, as a text `1e999`
+already did, instead of an `OverflowError`); the controller runs the routes comparison once more at the release head
+and appends its result here.
