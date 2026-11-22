@@ -25,9 +25,10 @@ stratmodel, compared with the provider route by key paths, types and booleans on
   number, so the order matters there: REST answers rows and columns in the order asked (live 2026-11-22: three such
   members asked against outline order on rows and on columns, per application, each read alone first for its name,
   cell for cell the provider route's answer);
-- cells: numbers come as text and are read with float(), as svxml reads the provider's; an empty cell ("" live, " "
-  in Oracle's documentation) is None, as the provider route's Fetched holds a blank (live 2026-11-22: every missing
-  cell of 20 grids is "" over REST and None from the provider);
+- cells: numbers come as text and are read only in their plain form (digits, one '.', an exponent; anything else is
+  an error naming the cell's shape, never a guess); an empty cell ("" live, " " in Oracle's documentation) is None,
+  as the provider route's Fetched holds a blank (live 2026-11-22: every missing cell of 20 grids is "" over REST and
+  None from the provider);
 - no suppression: every row and column asked comes back (the provider route suppresses nothing either - grid.parse
   does). The answer must be exactly the grid asked for (_answer, _matrix), then the provider route's own layout check
   runs (svhttp.check_layout);
@@ -413,26 +414,42 @@ def _answer(j, lay: Layout, rows: list[Axis]) -> tuple[list[str], list[str], lis
     return j["pov"], cols[0], heads, data
 
 
+# A plain number as REST writes one: digits, one '.' and digits, an exponent - nothing a number format adds (a
+# thousands separator, a decimal comma, a sign '+', an underscore): such a cell is an error, never a guess.
+_PLAIN = re.compile(r"-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
+
+
+def _shape(s: str) -> str:
+    """What a cell looks like, never its value: each run of digits as 9, of letters as a, the rest as it is, cut."""
+    out = re.sub(r"[^\W\d_]+", "a", re.sub(r"\d+", "9", s))
+    return out if len(out) <= 20 else f"{out[:20]}..."
+
+
 def _cell(v):
-    """A REST cell as the provider route's Fetched holds it: a float, None (an empty cell, svxml's blank), Smart View's
-    label (#Missing, #NoAccess, #Invalid), or the text itself - which the layout check refuses as non-numeric data."""
+    """A REST cell as the provider route's Fetched holds it: a float, None (an empty cell, svxml's blank) or Smart
+    View's label (#Missing, #NoAccess, #Invalid). Anything else fails the grid (RestError, 'non-numeric data', naming
+    the cell's shape or JSON type, never its value): a text that is not a plain number (_PLAIN) is never guessed - under
+    an EPM number format of another user '1.234' could mean 1 234 (final review A)."""
     if v is None:
         return None
-    if isinstance(v, bool) or not isinstance(v, (str, int, float)):
-        return json.dumps(v)
-    if isinstance(v, (int, float)):
-        return float(v) if math.isfinite(v) else str(v)
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if not math.isfinite(v):
+            raise RestError("non-numeric data in the Planning REST grid: a number that is not finite")
+        return float(v)
+    if not isinstance(v, str):
+        kind = {True: "true", False: "false"}.get(v) if isinstance(v, bool) else (
+            "list" if isinstance(v, list) else "object" if isinstance(v, dict) else type(v).__name__)
+        raise RestError(f"non-numeric data in the Planning REST grid: a JSON {kind}, not a number")
     s = v.strip()
     if not s:
         return None
     special = svxml.SPECIAL.get(s.casefold())
     if special:
         return special
-    try:
-        f = float(s)
-    except ValueError:
-        return v
-    return f if math.isfinite(f) else v
+    if not _PLAIN.fullmatch(s):
+        raise RestError(f"non-numeric data in the Planning REST grid: a cell shaped '{_shape(s)}' is not a plain "
+                        "number (digits, one '.', an exponent), and it is never guessed")
+    return float(s)
 
 
 def _labels(db, conn: str, dim: str, spellings: set[str]) -> tuple[dict, dict]:

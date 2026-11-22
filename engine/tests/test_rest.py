@@ -620,6 +620,36 @@ def test_a_cell_that_is_not_a_number_or_a_label_fails_the_grid(db, cell):
         _grid(_Epm(cell=lambda *a: cell), db, accounts=("ac.C30",), periods=("Sep 26",))
 
 
+
+# Task 9 (final review A, "not verified"): a cell is a plain number or it fails the grid - never a guess under another
+# number format. The error names the cell's shape (digits as 9, letters as a), never its value.
+@pytest.mark.parametrize("cell, shape", [
+    ("1,234.5", "9,9.9"), ("1 234,5", "9 9,9"), ("1.234.567", "9.9.9"), ("1_000", "9_9"), ("+5", "+9"), (".5", ".9"),
+    ("5.", "9."), ("0x1A", "9a9a"), ("\uff11\uff12", "9"), ("12 345", "9 9"), ("NaN", "a"),
+])
+def test_a_cell_that_is_not_a_plain_number_fails_the_grid_naming_its_shape_never_its_value(db, cell, shape):
+    with pytest.raises(rest.RestError, match="non-numeric data") as e:
+        _grid(_Epm(cell=lambda *a: cell), db, accounts=("ac.C30",), periods=("Sep 26",))
+    assert f"shaped '{shape}'" in str(e.value) and cell not in str(e.value)
+
+
+@pytest.mark.parametrize("cell, want", [("1E3", 1000.0), ("1e+3", 1000.0), ("-1.5e-3", -0.0015), ("007", 7.0),
+                                        ("5.000", 5.0)])
+def test_a_plain_number_is_read_with_any_exponent(db, cell, want):
+    """'5.000' is 5.0: under an EPM preference with '.' as the thousands separator it would mean 5 000, and nothing in
+    the cell tells them apart - an open item (the gates prove equality under the owner's preferences)."""
+    f = _grid(_Epm(cell=lambda *a: cell), db, accounts=("ac.C30",), periods=("Sep 26",))
+    assert f.values[2][2] == want
+
+
+@pytest.mark.parametrize("cell, said", [(True, "a JSON true"), ([1], "a JSON list"), ({"v": 1}, "a JSON object"),
+                                        (float("nan"), "a number that is not finite")])
+def test_a_cell_of_another_json_type_fails_the_grid_by_its_type(db, cell, said):
+    with pytest.raises(rest.RestError, match="non-numeric data") as e:
+        _grid(_Epm(cell=lambda *a: cell), db, accounts=("ac.C30",), periods=("Sep 26",))
+    assert said in str(e.value)
+
+
 # ---------------------------------------------------------------- the cell budget: split along rows, stitched
 def test_a_grid_over_the_cell_budget_is_split_along_rows_and_stitched(db, monkeypatch):
     """Cells as EPM counts them (rest.epm_cells): the grid's rows with its two header rows, times a row's member
