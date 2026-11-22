@@ -16,5 +16,5 @@ def test_importing_the_v2_server_does_not_import_v1():
 def test_serverkit_names_the_v2_server_uses():
     from smartass.core import serverkit as kit
     for name in ("lifespan", "guard", "_err", "with_next_step", "explain", "READ", "LOCAL", "WRITE", "ADMIN",
-                 "_call_user", "_with_progress", "host", "_ctx", "progress_secs", "_is_our_analysis_file"):
+                 "_call_user", "_with_progress", "_ctx", "progress_secs", "_is_our_analysis_file"):
         assert hasattr(kit, name), name

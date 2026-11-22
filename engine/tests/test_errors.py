@@ -3,7 +3,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from smartass.core import serverkit as server
 from smartass.epm.drillcore import CellTooWide
-from smartass.xl.host import HostTimeout
+from smartass.core.errors import HostTimeout
 
 
 class HostError(Exception):
@@ -15,6 +15,14 @@ def test_explain_names_tool_cause_and_next_step():
     assert msg.startswith("fin_analyze failed - HostError: Excel did not answer")
     assert "Next step:" in msg and "fin_status(restart=True)" in msg
     assert "Next step:" in server.explain("fin_analyze", ValueError("bad"))
+
+
+def test_the_restart_advice_says_what_a_restart_does_now():
+    """Without the relay fin_status(restart=True) starts fresh EPM sessions and a fresh runner of Excel jobs; only
+    behind the relay is the server itself replaced (Task 6 review, Minor 3)."""
+    assert server.NEXT_STEP["HostError"].startswith(
+        "Call fin_status(restart=True) (fresh EPM sessions and Excel-job runner; behind the relay, a fresh server), "
+        "then retry; ")
 
 
 def test_explain_uses_the_advice_of_a_base_class():
@@ -61,13 +69,11 @@ class _FailingHost:
         raise self.exc
 
 
-async def _tool_error_via_host(monkeypatch, exc, user_excel=False) -> str:
-    monkeypatch.setattr(server, "_host", _FailingHost(exc))
+async def _tool_error_via_host(monkeypatch, exc) -> str:
+    monkeypatch.setattr(server, "_users", _FailingHost(exc))     # the runner of Excel jobs (the only one since Task 6)
 
     async def sv_fake():
-        if user_excel:
-            return await server._call_user(lambda h: None, what="fake")
-        return await server._call(lambda h: None, what="fake")
+        return await server._call_user(lambda h: None, what="fake")
     with pytest.raises(ToolError) as e:
         await server.guard(sv_fake)()
     return str(e.value)
@@ -75,7 +81,7 @@ async def _tool_error_via_host(monkeypatch, exc, user_excel=False) -> str:
 
 @pytest.mark.anyio
 async def test_host_error_via_call_gets_the_restart_hint_exactly_once(monkeypatch):
-    from smartass.xl.host import HostError as RealHostError
+    from smartass.core.errors import HostError as RealHostError
     msg = await _tool_error_via_host(monkeypatch, RealHostError("COM error during query: boom"))
     assert msg.startswith("COM error during query: boom. Next step:")
     assert msg.count("fin_status(restart=True)") == 1 and msg.lower().count("next step") == 1
@@ -83,7 +89,7 @@ async def test_host_error_via_call_gets_the_restart_hint_exactly_once(monkeypatc
 
 @pytest.mark.anyio
 async def test_a_message_with_its_own_advice_gets_no_second_advice(monkeypatch):
-    from smartass.xl.host import HostError as RealHostError
+    from smartass.core.errors import HostError as RealHostError
     own = "Unexpected KeyError during query: 'x'. If it repeats, run fin_status(restart=True)."
     assert await _tool_error_via_host(monkeypatch, RealHostError(own)) == own
 
@@ -98,8 +104,8 @@ async def test_a_message_with_its_own_advice_gets_no_second_advice(monkeypatch):
 
 @pytest.mark.anyio
 async def test_input_errors_never_suggest_a_restart(monkeypatch):
-    from smartass.xl.host import InputError
-    msg = await _tool_error_via_host(monkeypatch, InputError("Unknown pull sheet 'm'. Pulls: ['ytd']"), user_excel=True)
+    from smartass.core.errors import InputError
+    msg = await _tool_error_via_host(monkeypatch, InputError("Unknown pull sheet 'm'. Pulls: ['ytd']"))
     assert "fin_status(restart=True)" not in msg and "fin_status" not in msg
     assert msg.count("Next step:") == 1 and "Correct the input" in msg
 
@@ -120,32 +126,6 @@ async def test_drill_errors_keep_their_class_advice():
     msg = str(e.value)
     assert "DrillError: getData returned HTTP 500" in msg and "Retry the drill once" in msg
     assert msg.count("Next step:") == 1
-
-
-def test_rewrap_keeps_input_errors_as_input_errors():
-    from smartass.xl.host import HostError as RealHostError
-    from smartass.xl.host import InputError, rewrap
-    assert type(rewrap(InputError("bad spec"), "bad spec (removed: none)")) is InputError
-    assert type(rewrap(RuntimeError("boom"), "boom (removed: none)")) is RealHostError
-
-
-def test_connect_without_a_session_id_says_sign_in_and_retry():
-    from smartass.xl.host import _explain
-    msg = _explain("B_Connect", "ERR|-15|invalid parameter|Argument sID in the request is an empty string or NULL. "
-                                "Try to connect again.")
-    assert "not signed in" in msg and "retry" in msg
-
-
-def test_login_dialog_message_asks_the_user_not_the_agent(monkeypatch):
-    import pytest
-
-    from smartass.xl import login
-    from smartass.xl.host import HostError
-    monkeypatch.setattr(login, "login_open", lambda pid: [1])
-    monkeypatch.setattr(login.time, "sleep", lambda s: None)
-    with pytest.raises(HostError) as e:
-        login.wait_login_cleared(1, limit=0.01)
-    assert "Ask the user" in str(e.value) and "PowerPoint" in str(e.value)
 
 
 def test_a_missing_sign_in_becomes_the_sign_in_message(monkeypatch, tmp_path, caplog):          # Review Focus 4

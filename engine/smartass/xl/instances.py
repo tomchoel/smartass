@@ -1,7 +1,7 @@
-"""The user's Excel instances (attach via the main window), workbook paths and the VBA bridge add-in."""
+"""The user's Excel instances (attach via the main window), workbook paths and the sensitivity label of a new
+workbook."""
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 from dataclasses import dataclass
@@ -14,9 +14,9 @@ import win32file
 import win32gui
 import win32process
 
-from . import fastcom, login
+from . import dialogs, fastcom
 from ..core import config
-from .host import ExcelHost, HostError
+from ..core.errors import HostError
 
 WM_GETOBJECT, OBJID_NATIVEOM = 0x003D, -16
 
@@ -74,23 +74,24 @@ def _app_from_window(ex7: int):
 
 
 def engine_excel_pids() -> set[int]:
-    """The hidden automation Excels the smartass servers started (pids.json): never a user's Excel."""
+    """The hidden Excels an older release's engine started (pids.json, while it exists: hostproc.sweep_leftovers):
+    never a user's Excel."""
     from .hostproc import _PidRegistry
     return {int(i["pid"]) for i in _PidRegistry().load() if isinstance(i, dict) and i.get("pid")}
 
 
-def excel_instances(_retry_login: bool = True) -> list[XlInstance]:
-    """Every visible, user-facing Excel process (not the engine's hidden ones), most recently active first, including
-    Excels that do not answer COM right now (app=None). An Excel showing the EPM Login dialog is waited for (the SSO
-    watcher clicks it) before it is touched."""
-    out, pending = [], []
+def excel_instances() -> list[XlInstance]:
+    """Every visible, user-facing Excel process (not one an older release's engine started), most recently active
+    first, including Excels that do not answer COM right now (app=None). An Excel showing Smart View's Login is never
+    touched (COM into it blocks): the job is refused at once, naming that Excel by its windows' titles
+    (dialogs.login_refusal) - nothing waits for or clicks the Login."""
+    out = []
     engine = engine_excel_pids()
     for pid, h, ex7s in _excel_windows():
         if pid in engine or _is_embedding(pid):
             continue
-        if login.login_open(pid):
-            pending.append(pid)                   # no COM into an Excel whose EPM login is open (deadlock)
-            continue
+        if dialogs.login_open(pid):               # window enumeration only: no COM into that Excel
+            raise dialogs.login_refusal(pid, [c for _e, c in ex7s if c] or None)   # none: its main windows' titles
         if not ex7s:
             continue
         app = None
@@ -99,19 +100,13 @@ def excel_instances(_retry_login: bool = True) -> list[XlInstance]:
             if app is not None:
                 break
         out.append(XlInstance(pid, h, [c for _e, c in ex7s], app))
-    if pending and _retry_login:
-        from ..epm import sso
-        sso.ensure_global_watcher()
-        for pid in pending:
-            login.wait_login_cleared(pid)
-        return excel_instances(_retry_login=False)
     return out
 
 
-def interactive_excels(_retry_login: bool = True) -> list[tuple[int, int, object]]:
+def interactive_excels() -> list[tuple[int, int, object]]:
     """[(pid, main hwnd, Application)] of the visible, user-started Excel instances that answer COM, most recently
     active first (excel_instances() also lists the ones that are busy)."""
-    return [(i.pid, i.hwnd, i.app) for i in excel_instances(_retry_login) if i.app is not None]
+    return [(i.pid, i.hwnd, i.app) for i in excel_instances() if i.app is not None]
 
 
 def _caption_book(caption: str) -> str:
@@ -129,7 +124,6 @@ def busy_holder(instances: list[XlInstance], name: str) -> XlInstance | None:
 
 def busy_error(pid: int, name: str) -> HostError:
     """Name what blocks the Excel holding `name`: a dialog (dialogs.scan) or else cell edit mode."""
-    from . import dialogs
     try:
         found = dialogs.scan(pid)
     except Exception:   # noqa: BLE001
@@ -222,56 +216,10 @@ def is_archive(path) -> bool:
         return False
 
 
-# ------------------------------------------------------------------ bridge add-in
-def _bridge_hash() -> str:
-    h = hashlib.sha1()
-    for p in config.BAS_FILES:
-        h.update(p.read_bytes())
-    return h.hexdigest()[:12]
-
-
-def bridge_path(ver: str) -> Path:
-    """Versioned file name: a new build never collides with an older add-in still loaded in some Excel."""
-    return config.SVKIT / f"svbridge_{ver}.xlam"
-
-
-def ensure_bridge_file(h: ExcelHost) -> str:
-    """Build svbridge_<hash>.xlam with the hidden server Excel when the .bas sources changed; prune old builds."""
-    ver = _bridge_hash()
-    path = bridge_path(ver)
-    for old in config.SVKIT.glob("svbridge*.xlam"):
-        if old != path:
-            try:
-                old.unlink()
-            except OSError:
-                pass                                 # still loaded in an Excel; removed next time
-    if path.exists():
-        return ver
-    return h.on_host(lambda: _build_bridge(h, ver, path))   # the hidden Excel lives on the host thread
-
-
-def _build_bridge(h: ExcelHost, ver: str, path: Path) -> str:
-    if path.exists():                                # a parallel job built it meanwhile
-        return ver
-    wb = h.com(h.app.Workbooks.Add)
-    try:
-        for p in config.BAS_FILES:
-            m = wb.VBProject.VBComponents.Add(1)
-            m.Name = "SmartViewVBA" if p.stem == "smartview_body" else p.stem
-            m.CodeModule.AddFromString(p.read_text(encoding="cp1252"))
-        m = wb.VBProject.VBComponents.Add(1)
-        m.Name = "modBridgeVersion"
-        m.CodeModule.AddFromString(f'Public Function B_BridgeVersion() As String\n    B_BridgeVersion = "{ver}"\nEnd Function\n')
-        _label(wb)
-        h.com(lambda: wb.SaveAs(str(path), 55))
-    finally:
-        h.com(lambda: wb.Close(False))
-    if not path.exists():
-        raise HostError("Could not build the Smart View bridge add-in (svbridge.xlam).")
-    return ver
-
-
+# ------------------------------------------------------------------ sensitivity label
 def _label(wb):
+    """Our sensitivity label on a workbook in the user's Excel, through Office's label API (target._save_new: a new
+    workbook added from the template, before its SaveAs); a workbook already labelled is left as it is."""
     try:
         cur = wb.SensitivityLabel.GetLabel()
         if cur.LabelId:

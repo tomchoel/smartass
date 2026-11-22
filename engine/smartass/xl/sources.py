@@ -8,8 +8,10 @@ Layout (fixed: rows never move, so every 'row <r>' text and link target stays ri
            cube FinLite, route 'drill'.
   P1       'Known limits' (LIMITS_COL: two columns right of the log)
   P2..PK   one line per distinct warn/block caveat text of the workbook's answers (what is already there, merged
-           with this answer's caveats; NO_LIMITS while there is none). Rewritten in place, column P only, and only
-           when the answer adds a line.
+           with this answer's caveats; NO_LIMITS while there is none). A caveat true of one answer only (DATED: a
+           member left out over Planning REST) names its question and day ('Q3 (2026-11-22): ...'), and the
+           question's next draw replaces its own such lines. Rewritten in place, column P only, and only when the
+           lines change.
 Sheet name: 'Sources', or 'Sources SV' when 'Sources' is not a v2 log (the user's own sheet, or a v1 log - left as
 it is; _kind tells them apart).
 
@@ -32,6 +34,8 @@ log is provenance, not the answer. write_sources does the same in batches of its
 from __future__ import annotations
 
 import dataclasses
+import datetime
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -39,6 +43,7 @@ LIMITS_TITLE = "Known limits"
 NO_LIMITS = "None recorded for the answers in this workbook."
 OURS_A1 = ("Fetched",)                   # A1 of a Sources sheet smartass wrote (v1 and v2 logs; _kind tells them apart)
 SEVERITIES = ("warn", "block")
+DATED = ("left-out:",)                   # caveat ids true of one answer only: the line names its question and day
 LOG_COLUMNS = ("Fetched", "Q", "Query id", "Question", "Cube", "Scenario/Version", "POV", "Periods", "Route", "Rows",
                "Control total", "Status", "Data sheet", "Supersedes")
 DATA_COL, SUPERSEDES_COL, QUESTION_COL, TOTAL_COL = 13, 14, 4, 11
@@ -119,13 +124,20 @@ def _kind(a1, b1, used) -> str:
     return "user"
 
 
-def limits(caveats, old=()) -> list[str]:
-    """The distinct warn/block caveat texts: the lines already on the sheet first, then the new ones (order kept)."""
-    out = [x for x in old if x and x != NO_LIMITS]
+def limits(caveats, old=(), q: int | None = None, fetched: str = "") -> list[str]:
+    """The distinct warn/block caveat texts: the lines already on the sheet first, then the new ones (order kept). A
+    caveat true of one answer only (DATED) is said as 'Q<q> (<day fetched>): <text>', so a line from an old answer
+    cannot be read as today's; question q's earlier such lines go - this answer of it says them again if they still
+    hold."""
+    own = re.compile(rf"Q{q} \(\d{{4}}-\d\d-\d\d\): ") if q is not None else None
+    out = [x for x in old if x and x != NO_LIMITS and not (own and own.match(x))]
+    day = re.match(r"\d{4}-\d\d-\d\d", fetched or "")
+    day = day.group() if day else datetime.date.today().isoformat()
     for c in caveats or ():
         text = str(c.get("text") or "").strip()
         if c.get("severity") in SEVERITIES and text:
-            out.append(text)
+            dated = q is not None and str(c.get("id") or "").startswith(DATED)
+            out.append(f"Q{q} ({day}): {text}" if dated else text)
     return list(dict.fromkeys(out))
 
 
@@ -358,7 +370,7 @@ def record_write(b, wbn, t, q: int, pre, log: Log, header, fetched: str, status:
             if back:
                 backs.append((back, link(kname, f"A{r}", f"{kname} row {r}")))
             rows[qid] = r
-        lines = limits(pre.caveats, log.limits) or [NO_LIMITS]
+        lines = limits(pre.caveats, log.limits, q, fetched) or [NO_LIMITS]
         p = _col(LIMITS_COL)
         if grid:
             first, end = log.last + 1, log.last + len(grid)
@@ -417,7 +429,7 @@ def write_sources(t, q: int, pre, ws_data, header, fetched: str, status: dict | 
     from ..xl import movein
     from .inproc.batch import Batch
     from .inproc.runner import run
-    from .host import HostError
+    from ..core.errors import HostError
     from .jobs import book_name, com
     from .styling import setup_name
     name = book_name(t)

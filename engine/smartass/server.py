@@ -2,7 +2,7 @@
 """smartass: the MCP server (stdio; started by run_server.py through child_server.py). Tools: fin_analyze (new
 question or follow-up patch), fin_lookup, fin_status, fin_refresh, fin_drill, and xl_snapshot / xl_revert / xl_tidy
 for edits to open workbooks made with Excel MCP. Error text (guard), Excel jobs (_call_user, progress notes) and the
-lifespan (keeping the EPM sign-ins fresh, closing the hidden Excel) come from core.serverkit."""
+lifespan (keeping the EPM sign-ins fresh) come from core.serverkit."""
 from __future__ import annotations
 
 import asyncio
@@ -13,13 +13,11 @@ from mcp.server.mcpserver import Context, MCPServer
 
 from . import __version__
 from .knowledge import atlas
-from .core import runlog
+from .core import logsetup, runlog
 from .core.timing import COM_PREFIX
 from .core import serverkit as kit
-from .xl.host import InputError
+from .core.errors import InputError
 
-from .data.adhoc import adhoc_fetch
-from .data.provider import ComboProvider
 from .epm.oauth import NotSignedIn
 from .followup import find_question, merge_patch, v2_questions
 from .model.chain import restore_chain
@@ -173,13 +171,12 @@ def _has_lines(raw: dict) -> bool:
     return any(isinstance(b, dict) and b.get("type") == "lines" for b in raw.get("blocks") or [])
 
 
-async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target: str = "session",
-                   complete: bool = False):
+async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, complete: bool = False):
     """(Prepared, drill warnings). A stored or patched raw spec with lines blocks is re-drilled, so lines are fresh.
-    Grids the HTTP route could not fetch are pulled as ad hoc grids in the user's Excel (one job), then the model is
-    prepared again with those results fixed; this fallback runs at most once. complete (new questions and follow-up
+    Every grid is fetched over HTTP (the provider route, then Planning REST: data/provider.py); one neither engine
+    could fetch is a warning (Prepared.failed) - no Excel is asked for a grid. complete (new questions and follow-up
     patches, not fin_refresh): the P&L chain is completed in the spec (pipeline.prepare), and the completed spec is
-    what gets stored."""
+    what gets stored. No workbook is involved: the drawing job takes the target."""
     with runlog.span("prepare"):
         notes: list[str] = []
         kw = {"complete": True} if complete else {}
@@ -193,12 +190,6 @@ async def _prepare(raw: dict, provider, spec: AnalysisSpec | None = None, target
                 runlog.add({f"drills.{k}": v for k, v in drilltime.take().items()})
         with runlog.span("prepare.fetch"):
             pre = await asyncio.to_thread(run_prepare, raw, provider, lines=lines, **kw)
-        failed = getattr(pre, "failed", None)
-        if failed:
-            fixed = await _user(lambda h: adhoc_fetch(h, failed, target), "ad hoc fallback")
-            with runlog.span("prepare.fetch"):
-                pre = await asyncio.to_thread(run_prepare, raw, ComboProvider(provider, {**pre.fetched, **fixed}),
-                                              lines=lines, **kw)
     return pre, notes
 
 
@@ -247,7 +238,7 @@ def _default_target(target: str) -> str:
 async def _new_question(spec: AnalysisSpec, target: str) -> dict:
     guard_chart(spec)                  # new questions only: every other path gets an implicit chart
     guard_key_points(spec)             # new questions only: a stored spec keeps its first 5 (a warning)
-    pre, notes = await _prepare(spec.model_dump(), _provider(), spec, target, complete=True)
+    pre, notes = await _prepare(spec.model_dump(), _provider(), spec, complete=True)
     return _with_notes(await _draw_job(lambda h: excel_job(h, pre, target), "fin_analyze", spec.question), notes)
 
 
@@ -256,7 +247,8 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
                       target: str = "session", ctx: Context | None = None) -> dict:
     """Run one analysis. New question: spec = AnalysisSpec v2. Follow-up: patch = JSON merge patch on the stored
     spec of Q<q> (default: the active Q<n> Answer, else the latest); the question's sheets are replaced (same names).
-    Fetches over Smart View HTTP, computes, and builds Q<n> Answer (live formulas on table Data_Q<n>) + Q<n> Data in
+    Fetches over the Smart View provider route (Planning REST second), computes, and builds Q<n> Answer (live
+    formulas on table Data_Q<n>) + Q<n> Data in
     the session workbook (target 'session', 'new' or 'active', an absolute path or the name of an open workbook).
     A follow-up's target default: the workbook of your latest answer. Returns key_values (quote only these),
     material lines, findings, checks, warnings, layout (check findings, each with its fix: patch them) and charts
@@ -271,7 +263,7 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
     stored, active, path = await _user(lambda h: read_stored(h, target), "fin_analyze follow-up")
     q2, raw, _ = find_question(stored, q, active)
     patched = restore_chain(merge_patch(raw, patch))
-    pre, notes = await _prepare(patched, provider, target=path, complete=True)
+    pre, notes = await _prepare(patched, provider, complete=True)
     return _with_notes(await _draw_job(lambda h: redraw_job(h, pre, q2, path), "fin_analyze follow-up",
                                    patched.get("question")), notes)
 
@@ -312,7 +304,7 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
                          "error": f"skipped: EPM sign-in needed (see Q{unsigned})"})
             continue
         try:
-            pre, notes = await _prepare(stored[q]["spec"]["v2"], provider, target=path)
+            pre, notes = await _prepare(stored[q]["spec"]["v2"], provider)
             out = _with_notes(await _draw_job(
                 lambda h, q=q, pre=pre: redraw_job(h, pre, q, path),
                 "fin_refresh", stored[q]["spec"]["v2"].get("question")), notes)
@@ -322,14 +314,14 @@ async def fin_refresh(target: str = "session", ctx: Context | None = None) -> di
                          **{k: out[k] for k in REFRESH_SAYS if out.get(k)}})
         except RestoreError as e:
             broken = q
-            done.append({"q": q, "ok": False, "error": str(e)})
+            done.append({"q": q, "ok": False, "error": logsetup.redact(e)})
         except NotSignedIn as e:                # nothing done yet: the reply is the sign-in page and code (guard)
             if not done:
                 raise
             unsigned = q                        # else what was redrawn stays in the reply, then the sign-in
             done.append({"q": q, "ok": False, "error": await kit._sign_in_reply(e)})
         except Exception as e:   # noqa: BLE001 - one question never stops the pack
-            done.append({"q": q, "ok": False, "error": str(e)})
+            done.append({"q": q, "ok": False, "error": logsetup.redact(e)})     # a reply field: past the guard
     return {"refreshed": done, "workbook": workbook}
 
 
@@ -406,10 +398,10 @@ async def fin_critic(q: int | None = None, scores: list[int] | None = None, note
 async def fin_status(restart: bool = False) -> dict:
     """Health: version, atlas age, knowledge build (metrics, facts, drafts awaiting approval), where answer files go,
     the last save Excel did after a reply (save_after_reply: workbook, ok, error, seconds, when; and how many are still
-    to come), and the doctor checks (config, Excel, Smart View, VBA access, EPM, oauth sign-in, atlas, knowledge, output
-    folder, HTTP API, update; only problems listed).
-    restart=True after repeated errors or to load new code: the relay starts a fresh server process (its hidden
-    Excel closes); run without the relay, only this server's own Excel is closed (it restarts on the next pull).
+    to come), and the doctor checks (config, Excel, Smart View start-up, EPM, oauth sign-in, atlas, knowledge, output
+    folder, HTTP API, update, leftovers of an older release; only problems listed).
+    restart=True after repeated errors or to load new code: the relay starts a fresh server process; run without the
+    relay, this server's EPM sessions and its runner of Excel jobs start afresh (the next call makes new ones).
     A stale atlas: run `smartass atlas build` in a terminal."""
     import os
 
@@ -419,10 +411,11 @@ async def fin_status(restart: bool = False) -> dict:
         if os.environ.get("SVKIT_PROXY"):
             out["restarted"] = "relay"             # run_server.py replaced the child before forwarding this call
         else:
-            old, kit._host = kit._host, None
-            if old is not None:
-                await asyncio.to_thread(old.shutdown)
-            out["restarted"] = "excel"
+            from .epm import drill_token, svhttp
+            svhttp.reset()                           # the grids' sessions and data-source list
+            drill_token.reset()                      # the drill's route and sessions
+            kit._users = None                        # the runner of Excel jobs (its last error, its count)
+            out["restarted"] = "sessions"
     with contextlib.closing(atlas.connect()) as db:
         st = atlas.status(db)
     from .knowledge.build import summary

@@ -23,7 +23,7 @@ from smartass.model.errors import GuardError
 from smartass.model.lines import LineSet
 from smartass.render import look, xlsx
 from smartass.xl import movein, sheets
-from smartass.xl.host import HostError
+from smartass.core.errors import HostError
 from smartass.xl.inproc import runner
 from smartass.xl.inproc.batch import Batch
 from smartass.xl.inproc.runner import BatchError
@@ -667,7 +667,7 @@ def test_a_new_question_is_drawn_by_excel_job(monkeypatch):
     async def user(fn, what):
         return fn(None)
 
-    async def prepare(raw, provider, spec=None, target="session", complete=False):
+    async def prepare(raw, provider, spec=None, complete=False):     # server._prepare's signature: no target
         return SimpleNamespace(spec=spec), []
     monkeypatch.setattr(server, "_user", user)
     monkeypatch.setattr(server, "_provider", lambda: "provider")

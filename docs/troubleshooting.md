@@ -22,16 +22,14 @@ by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe
 - **Cause:** desktop Excel is not installed, or it is installed in a non-standard place.
 - **Fix:** Install desktop Excel (Microsoft 365), or set paths.excel_exe in config.toml.
 
-## smartview
-
-- **Symptom:** `FAIL  smartview  HsAddin.dll not found at <path>`.
-- **Cause:** the Oracle Smart View add-in is not installed, or is installed in a non-standard place.
-- **Fix:** Install Oracle Smart View (Company Portal), or set paths.smartview_dll in config.toml.
-
 ## smartview_startup
 
-- **Symptom:** `WARN  smartview_startup  Smart View checks for extension updates at every Excel start ...` (an EPM
-  login window ~20 s after any Excel opens; smartass then reports Excel as busy until it is clicked).
+smartass uses no Smart View (since 0.7.0), but Smart View stays installed in your Excel and can still open its own
+Login there. While that Login is open, Excel does not answer smartass (see "Smart View's Login is open in your Excel"
+below).
+
+- **Symptom:** `WARN  smartview_startup  Smart View checks for extension updates at every Excel start (its Login opens
+  ~20 s after Excel opens, and smartass does not touch that Excel until it is signed in or closed)`.
 - **Cause:** Smart View's extension update check at Office start (`HKCU\Software\Oracle\SmartView\extensions`
   `CheckOnStartup=1`) needs an EPM session, so it opens the login (found 2026-11-03 in Smart View's own traffic log).
 - **Fix:** close Excel; Smart View > Options > Extensions: untick "Check for updates when Microsoft Office starts".
@@ -39,14 +37,6 @@ by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe
 - **Symptom:** `WARN  smartview_startup  Smart View diagnostics capture is on ...`
 - **Fix:** Smart View > Options > Advanced: turn diagnostics off (`Profile=0`), then delete
   `%APPDATA%\Oracle\SmartView\Diagnostics` (it holds sign-in cookies in plain text).
-
-## vba_access
-
-- **Symptom:** `FAIL  vba_access  Excel blocks access to the VBA project object model ...`.
-- **Cause:** the hidden Excel loads its Smart View bridge through the VBA project, which Excel refuses unless
-  `HKCU\Software\Microsoft\Office\16.0\Excel\Security` `AccessVBOM=1` (a value under `Software\Policies` wins).
-- **Fix:** close Excel; File > Options > Trust Center > Trust Center Settings > Macro Settings: tick "Trust access to
-  the VBA project object model". A policy value needs IT.
 
 ## epm
 
@@ -79,9 +69,9 @@ drill lines over the token are the browser route's row for row, with exact ties;
 - **Symptom:** `FAIL  oauth  <pod>: no scope (epm.base: no answers)`; every tool reply that reads EPM says "no OAuth
   scope is configured for https://<pod>".
 - **Cause:** the pod of `epm.base` has no scope under `[oauth.scopes]`. Every answer reads the closed month and the
-  list of data sources from that pod first, and those have no fallback through Excel: no answer works, no drill
-  either. Another pod without a scope loses only what is asked of that pod: its grids are pulled through Smart View
-  in the hidden Excel instead (slower).
+  list of data sources from that pod first, and those have no other route: no answer works, no drill either.
+  Another pod without a scope loses only what is asked of that pod: its grids cannot be fetched (Planning REST needs
+  the same scope), and the reply's warnings say so.
 - **Fix:** Add the pod's scope under [oauth.scopes] in config.toml (the identity domain's administrator reads it
   where that environment was added to the OAuth client as a resource), then run `smartass login`.
 - **Symptom:** `WARN  oauth  <pod>: not signed in` or `<pod>: sign-in ended`; a tool reply gives a page and a code.
@@ -91,11 +81,30 @@ drill lines over the token are the browser route's row for row, with exact ties;
   approve with Telenor SSO. Or approve the code the tool reply shows and call the tool again.
   `smartass login --status` shows the sign-ins, `--forget` deletes them from this PC.
 - The sign-in is stored per pod in `%LOCALAPPDATA%\smartass\oauth\`, DPAPI-protected for your Windows user; smartass
-  never sees a password. The token is only ever sent with read-only requests: the Smart View provider's and the
-  drill's own (its query, view and getData).
+  never sees a password. The token is only ever sent with read-only requests: the Smart View provider's, the
+  drill's own (its query, view and getData) and Planning REST's reads (a grid's export, a plan type's dimensions,
+  a dimension's members).
+- **Symptom:** a reply says EPM refused the access token twice (HTTP 401/403).
+- **Fix:** Run `smartass login --force`: plain `smartass login` skips a pod that still looks signed in. If it
+  repeats, ask the EPM administrator to check your role and the OAuth client's scope for that pod.
 - **Left over from before 0.6.0, safe to delete by hand:** the old hidden browser's profile folders
   `%LOCALAPPDATA%\smartass\drill_edge*` and failed drill pages `logs\drill_fail_*`. smartass no longer uses them and
   never deletes them itself. A `[drill] channels` line in config.toml is ignored.
+
+## How a grid is fetched (since 0.7.0: the Excel fallback is gone)
+
+Every grid goes first over the Smart View provider route (HTTP, your token). A grid that route cannot fetch is
+fetched once over Oracle's Planning REST `exportdataslice` with the same token, the second engine; no Excel is ever
+asked for a grid. The reply's `routes` counts the grids per engine (`http`, `rest`). What a warning means:
+
+| Warning or error in the reply | Meaning | What to do |
+|---|---|---|
+| "N grid(s) were fetched over Planning REST, the second engine: the Smart View provider route could not fetch them (...)" | The numbers are complete and the same as the provider route's (live gate: docs\audit\2026-11-21-rest-vs-provider.md). Over REST a cell you have no access to cannot be told apart from an empty one: it reads as missing, not #NoAccess. | Nothing, unless you expected #NoAccess cells. |
+| "FinPlan: EPM refused Entity member X over Planning REST ... so it was left out: its figures are missing from this answer and every total that includes it (metrics) is INCOMPLETE - check the member or rebuild the atlas (`smartass atlas build`)" | EPM no longer has that member there (renamed or removed since the atlas or the question), or you may not read it. The rest of the grid is fetched without it (at most 3 members are left out of one request), so a total that includes it shows only the others. The same text is under Caveats on the Answer, and in Known limits on the Sources sheet after the question and the day ("Q3 (2026-11-22): ..."), until that question is answered again without it. | Check the member with fin_lookup; rebuild the atlas; ask again with today's member. |
+| "... could not fetch it either (query q): Planning REST refused the ... grid: ... member X ... cannot be left out - check the member or rebuild the atlas" | The refused member is a POV member or the only member on its axis (often the question's one entity): leaving it out would change what every number means, so that grid is not fetched. The answer is still drawn, without that grid's numbers, and this warning names the member. The same when more than 3 members of one request are refused ("Planning REST refused more than 3 members of the ... grid"). | As above: correct the member (fin_lookup) and ask again. |
+| "N grid(s) could not be fetched (the Smart View provider route, then Planning REST): ..." | Neither engine could fetch them; the reasons follow. Those numbers are missing from the answer. | Ask again in a minute; if it repeats, `smartass doctor`. |
+| A drill: "the drill link of ... could not be fetched over the Smart View provider route (...); Planning REST has no drill-report request, so there is no other route. Next step: ..." | Only the provider route can give a cell's drill link. | The reply's next step, by cause: the scope to add, `smartass atlas build`, `smartass login --force` (a token EPM refused), `smartass login --status` (no access token), the members by their codes (a grid EPM refused for an alias clash), else try again in a minute. |
+| "... EPM refused the access token twice (HTTP 401/403)" | EPM's gate refused a token this PC still holds as valid, also after one new token. Usually a stale sign-in; it can also be a missing EPM role or a missing OAuth scope for that pod. | Run `smartass login --force` (plain `smartass login` skips a pod that still looks signed in), then ask again. If it repeats, ask the EPM administrator to check your role and the OAuth client's scope for that pod. |
 
 ## atlas
 
@@ -103,6 +112,39 @@ drill lines over the token are the browser route's row for row, with exact ties;
 - **Cause:** the member atlas (used to find members by name) was never copied, or is out of date.
 - **Fix:** FAIL: Re-run installer\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.
   WARN: Re-run the installer after the monthly release, or run `smartass atlas build`.
+
+`smartass atlas build` (since 0.7.0) reads every dimension over Planning REST with your sign-in: read-only, no Excel,
+the member trees of both pods in about 25 s (docs\audit\2026-11-22-atlas-rest.md); a full build then derives the
+behaviour cards from data, as before: about two minutes more. It builds a new file and replaces the atlas only when
+every dimension was built. `smartass atlas status` shows the last attempt as `last_build`.
+
+- **Symptom:** the build's last line is `atlas: NOT replaced (<why>); ...` and it exits 1. `smartass knowledge
+  refresh` prints "atlas not replaced: <why> - this refresh used the atlas as it was", and its report file says
+  "Atlas: NOT replaced (<why>); the refresh used the atlas as it was".
+- **Cause and fix, by the reason given:**
+  - "not signed in to EPM - run `smartass login`": run it, then build again.
+  - "1 dimension or cube failed" (or more): the line above it names each failed dimension and EPM's reason. Build
+    again later; if it repeats, `smartass doctor`.
+  - "another atlas build is running": wait for it to end (another terminal, or a knowledge refresh).
+  - "nothing was built (no such dimension?)": a `--dimension` name that no cube has; check the spelling.
+  - "atlas.db could not be read / written (... in use by another process ...)": a server held the atlas for over
+    30 s; build again.
+
+  Your atlas is unchanged in every case.
+- **Symptom:** the build's last line contains `; FinMax: dimension X is new in EPM; this release cannot read it -
+  update smartass` (also in `atlas status`).
+- **Cause:** EPM has a dimension this release has no read rule for (each dimension is allowed by name). It is
+  skipped and its old rows are kept (none, when it is new); the rest of the atlas is replaced.
+- **Fix:** Run `smartass update` when a release that knows it is out; nothing else is needed meanwhile.
+- **An older smartass on the same atlas:** an installed release before 0.7.0 can still rebuild this atlas file. This
+  release then ignores the real member names of the dimensions it rebuilt until its own next `atlas build`.
+- **Symptom:** `WARN  atlas  ...\atlas.db (N days old); no dimension has EPM's real member names` (or "K of N
+  dimensions have no ...").
+- **Cause:** the atlas was built before 0.7.0 (or an older release rebuilt those dimensions since). It works, but
+  without the strict member check over Planning REST: when a grid comes over the second route, smartass cannot check
+  that EPM answered for the member it asked for, in the rare case where one member's key is another member's name.
+- **Fix:** Rebuild once with `smartass atlas build`. `smartass setup` never replaces an atlas that has the real
+  names with a release copy that has none; it says "atlas: local copy kept" and why.
 
 ## output
 
@@ -118,6 +160,8 @@ drill lines over the token are the browser route's row for row, with exact ties;
   the background engine (`smartass serve`, started by the Startup entry `smartass-engine.lnk`) is not running.
 - **Fix:** no secret: run `smartass setup` (it also moves an old plain `http.secret` out of config.toml).
   Not answering: Log off and on (Startup entry), or run `smartass serve`.
+- **Symptom:** HTTP `409 busy` from `POST /analyze`.
+- **Cause and fix:** another request is running (one at a time). Wait and send it again.
 
 ## update
 
@@ -127,48 +171,34 @@ drill lines over the token are the browser route's row for row, with exact ties;
 - **Fix:** error: Check that the release folder is synced (OneDrive).
   Newer release: Run `smartass update` (or log off and on).
 
+## leftovers
+
+- **Symptom:** `WARN  leftovers  an older smartass crashed with Smart View's options changed; the originals recorded in
+  ...\smartview_options_original.json: ...` and/or `N VBA bridge add-in file(s) of an older release in ... (unused)`.
+- **Cause:** a release before 0.7.0 ran a hidden Excel of its own with Smart View, changed three of Smart View's global
+  options while it ran, and put them back when it stopped. The file is left when such a run crashed: nothing can put
+  those options back now. The `svbridge_*.xlam` files are add-ins it built; nothing uses them now.
+- **Fix:** Set the recorded values back by hand in Excel: Smart View ribbon > Options (close the other Excels
+  first). Then run `smartass doctor --fix`: it names each file and removes it. A bridge file still loaded in an Excel
+  stays (it says so): close that Excel and run it again. A copy in the old svkit folder is reported, never changed.
+- At server start smartass also ends an Excel such a release started hidden and left running, but only one its
+  `pids.json` proves was its own; then that file goes. `smartass setup` removes that release's sign-in watcher from
+  the Startup folder and stops it when it runs from this install.
+
 ## Any check: `FAIL  <check>  <ExceptionType>: <message>`
 
 The check itself crashed. Fix: Send the file from `smartass doctor --bundle` to the maintainer.
 
-## Smart View asks me to log in all the time
+## Smart View's Login is open in your Excel (since 0.7.0)
 
-The SSO watcher clicks "Telenor SSO" in Smart View's login dialog for you. It starts hidden at logon from the
-Startup entry `smartass-sso-watcher.lnk` and logs to `%LOCALAPPDATA%\smartass\logs\sso_watcher_ps.log`.
-
-- Check the log: no recent lines means the watcher is not running.
-- Restart it: double-click `smartass-sso-watcher.lnk` in the Startup folder (`Win+R`, `shell:startup`), or log off
-  and on. If the entry is missing, re-run `installer\install.ps1`.
-
-## Sign-in messages (login hardening, 2026-11)
-
-The engine tells you what it is doing within seconds and never closes or restarts your Excel.
-
-| Message | Meaning | What to do |
-|---|---|---|
-| "Smart View's Login is open in your Excel; waiting for the automatic SSO click" (note, after about 5 s) | The Login dialog in your Excel is waiting for the SSO watcher. | Usually nothing; if it stays, click "Telenor SSO" yourself or check the watcher (above). |
-| "The Smart View Login window in your Excel is not responding; nothing was closed" (after about 10 s) | Windows marks the Login window "Not responding". | Close that Login window (or that Excel) yourself, then ask again. |
-| "Smart View's sign-in window stopped responding (Windows marks it 'Not responding')" | The hidden Excel's Login hung; it was restarted once. | Retry; if it repeats, `smartass doctor --bundle`. |
-| "EPM gave an empty response ...; retrying" (note) | A transient Smart View connect error. The hidden Excel retries, then restarts itself once; your Excel retries the pull once. | Nothing, unless the call then fails: ask again; if every connect fails see the cookie row under Known limits. |
-| "EPM kept answering 'Empty response from provider' after a restart of the engine's Excel" | The hidden Excel's Smart View session stayed broken after one restart. | Wait a minute and ask again; if it persists, sign in once in your Excel and run `smartass doctor --bundle`. |
-| "Smart View in this Excel is not signed in correctly" | Your Excel answers every connect with an empty response and shows no Login. | Sign in once in your Excel (Smart View ribbon → Panel → connect), then ask again. |
-| HTTP API `409 busy` | Another `/gate` or `/answer` is running. | Wait and resend. |
-
-## "Smart View showed its sign-in window (WebView2 failed …)"
-
-Smart View's login page runs in WebView2. When WebView2 cannot start, Smart View says so ("WebView2 Runtime failed …
-switching to IE") and opens the login in Internet Explorer, where the Oracle page fails ("Script Error: Function
-expected"). That window cannot be closed, so the engine kills its own hidden Excel, starts a new one and retries the
-call once. If the second try fails the same way, you get this error.
-
-- Smart View keeps one WebView2 folder for all Office apps (`%APPDATA%\Oracle\SmartView\WebView`). If the error names
-  an app that holds it (e.g. `POWERPNT.EXE`), close that app and retry.
-- In your own (visible) Excel the engine recovers by itself since 2026-10-23: when the login has fallen back to
-  Internet Explorer, it ends Smart View's stale WebView2 of that Excel (or an orphan whose app is gone; never another
-  app's) and closes the broken IE windows, and Smart View reopens the login in WebView2 (at most twice per call;
-  `server.log`: "fell back to Internet Explorer; ended stale WebView2").
-- Sign in once in your own Excel (Smart View ribbon → Panel → connect), then retry.
-- Still failing: run `smartass doctor --bundle`.
+- **Symptom:** a reply says "Smart View's Login is open in the Excel showing '<window title>' (pid N); smartass does
+  not touch an Excel while it is ...", with the next step.
+- **Cause:** Smart View (installed in your Excel; smartass does not use it) opened its EPM Login there, often at Excel's
+  start (see `smartview_startup`). While that window is open, Excel does not answer calls from outside, so smartass
+  refuses at once instead of waiting. It no longer clicks "Telenor SSO" for you; that automatic click is gone, also
+  when you use Smart View by hand.
+- **Fix:** sign in in that Login, or close it, then ask again. If it shows at every Excel start, untick the start-up
+  check (`smartview_startup`).
 
 ## Known limits (accepted by the owner, 2026-10-23)
 
@@ -177,20 +207,19 @@ are. If one of these symptoms shows up, the cause below is already known; no new
 
 | Symptom | Known cause | What to do |
 |---|---|---|
-| Logins are clicked late (18–200 s), pulls are 2–3× slower than usual (`open default grid` 7–167 s), "The Oracle EPM login dialog is still open" | Another Office app, usually PowerPoint, holds Smart View's WebView2 folder. The SSO watcher's UI Automation then blocks for 47–118 s (`sso_watcher_ps.log`: "loop stalled"). | Close PowerPoint (and restart a long-running Excel), then retry. Measured: S2.build median 39.6 s → 25.8 s. |
-| The first FinMax call after a server start takes 15–30 s | It starts the hidden Excel (about 13–19 s) and does the hourly SSO login. | None; later calls are fast. |
-| A build in a newly started Excel window takes 35–50 s in `open target.new workbook` | A cold Excel start plus SSO for a new interactive Excel (a parallel agent, or no Excel open). | None; the next build in that Excel takes about 2 s. |
+| A build in a newly started Excel window is slow in `open target.new workbook` | A cold Excel start for a new interactive Excel (a parallel agent, or no Excel open), and the 12 s from when the workbook shows that smartass watches a new Excel for Smart View's Login before the answer's first step there (until 25 s after Excel's start where Smart View's start-up check is on). | None; the next build in that Excel is fast. |
 | A new analysis workbook has no TN cell styles (`TN Heltall`, ...) in its style gallery | Since phase 3c the first answer's built file is the workbook; the styles are installed when something needs them. | Run `xl_tidy` on a sheet (it merges them from the TN template), or ignore: the answer's own cells carry their formats. |
 | An empty (0-byte) analysis file, or one with an answer's sheets but no formulas, tables, Sources rows or stored spec, in the analyser folder | The server was killed (or Excel died) while the first answer of a new workbook was made: the name is reserved as an empty file, then the built file is written and Excel opens it; only the job's clean-up deletes it, and the session points at it only after the job's save. | Close it in Excel without saving if it is open, and delete it; ask the question again. |
 | A new analysis file that a failed answer (or a probe) deleted is back in the analyser folder minutes later, online-only | OneDrive restores a file Excel had just saved to the cloud when the local delete races that upload (seen with probe files Excel saved and closed, 20.11.2026). | Delete it again. |
 | Progress notes (`still working: …`) keep arriving after a call to your Excel timed out | The abandoned job's COM call is still hung; its ticker runs until that call returns. The client drops notes for a finished request. | Harmless. It stops when Excel answers or closes. |
-| Many `msedgewebview2.exe --type=crashpad-handler` processes for the Smart View WebView folder, with their parent gone | Each forced restart of the engine's hidden Excel leaves Smart View's WebView2 crash reporter behind. | Harmless (they do not lock the folder). They disappear at log off; ending them by hand is safe. |
-| "Empty response from provider" on every connect, in every Excel (also the engine's hidden one), and **no Login window** appears (not even after Disconnect All) | Smart View's shared WebView2 cookie store holds a broken session, e.g. after a login was interrupted (seen 2026-10-23 after stuck IE-fallback logins). Smart View reuses it silently and EPM rejects it. Not an Oracle block. | Close every Excel, rename `%APPDATA%\Oracle\SmartView\WebView\EBWebView\Default\Network\Cookies` and `Cookies-journal` (e.g. to `*.bak`), then connect: the Login appears and the watcher clicks Telenor SSO. This fixed it at once on 2026-10-23. Since `ca0accd` the engine fails fast with this advice instead of hanging. |
-| Matrix: `S9.lookup` is LIMIT | A fresh-profile lookup needs a real signed-in Excel; the COM Excel inherits the simulated environment. | Verify by hand on a new machine (colleague rollout). |
-| Matrix: `S10.5.textfixes` is LIMIT | The user override of a shipped text fix is verified in-process; no current drill line hits a shipped key. | None. |
-| Matrix: `S10.6.pack` is LIMIT | The `produktregnskap` pack has no runtime consumer yet; only its wiring is checked. | Roadmap: give it a consumer or remove it. |
-| Matrix: `S10.8.coldexcel` is LIMIT | A cold start needs no Excel running, and the owner's Excel is open during runs. | Run it with all Excels closed if needed. |
-| Matrix: `S5.drill.report` FAILs with "needs S#.build" under `--only drill` | It builds on S2.build's workbook from the same run. | Include `S2.build` in `--only`, or run the full matrix. |
+
+## Open items since 0.7.0 (known, not decided yet)
+
+| Symptom | Known cause | What to do |
+|---|---|---|
+| An answer in an Excel smartass has just started waits 10 minutes and fails, with Smart View's Login open there | That Login opened later than the watch (25 s after Excel's start, on a slow PC), after the answer's first step in that Excel. | Sign in in the Login or close it, then ask again. |
+| An Excel smartass started closes without saving when you press Stop in the Excel task pane | An Excel smartass starts (no Excel open, or a parallel agent) is a child of the smartass server process. The pane's Stop ends the run's whole process tree, and that Excel with it; so does anything that ends the server's processes from outside. smartass's own stop of a server that does not exit never ends an Excel. | Save your work in such an Excel before you press Stop. An open item. |
+| Every first workbook made with no Excel open has default column widths and fonts, not the TN template's, and none is kept for the next time | The stored look of a new workbook has a column width that is not a standard one, so it is not used; and as a look is stored, smartass does not make that workbook from the template, which would store a new one. | An open item: tell the maintainer. The answers in it are right. |
 
 ## An Excel step behaves differently since 2026-11-19 (the fast COM wrapper)
 
@@ -201,7 +230,7 @@ are. If one of these symptoms shows up, the cause below is already known; no new
   x1.7 faster Excel jobs).
 - **Check:** set the environment variable `SV_FASTCOM=0` for the smartass server, restart it and repeat the step: the
   standard pywin32 wrapper is used. If the problem goes away, report the step; `scripts\check_fastcom.py` compares
-  both wrappers idiom by idiom in a hidden Excel of its own.
+  both wrappers idiom by idiom in a script's own hidden Excel.
 
 ## The reply says the save after the last answer failed (since phase 3c)
 

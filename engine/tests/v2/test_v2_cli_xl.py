@@ -69,7 +69,7 @@ def test_check_args(fakes, capsys):
 
 
 def test_an_error_is_one_json_object_with_exit_1(monkeypatch, capsys):
-    from smartass.xl.host import InputError
+    from smartass.core.errors import InputError
 
     def boom(cid, wb, force):
         raise InputError("S!A1 was edited after change c1; pass force=true to revert anyway.")

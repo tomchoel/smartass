@@ -23,7 +23,7 @@ from smartass.core import config
 from smartass.model.lines import LineSet
 from smartass.render import look
 from smartass.xl import movein, sheets
-from smartass.xl.host import HostError, InputError
+from smartass.core.errors import HostError, InputError
 from smartass.xl.inproc import runner
 from smartass.xl.inproc.batch import Batch
 from smartass.xl.inproc.runner import BatchError
@@ -541,8 +541,8 @@ def _wire_server(monkeypatch, stored: dict, job):
     async def user(fn, what):
         return fn(None)
 
-    async def prepare(raw, provider, spec=None, target="session", complete=False):
-        return SimpleNamespace(raw=raw, target=target), []
+    async def prepare(raw, provider, spec=None, complete=False):     # server._prepare's signature: no target
+        return SimpleNamespace(raw=raw), []
     monkeypatch.setattr(server, "_user", user)
     monkeypatch.setattr(server, "_provider", lambda: "provider")
     monkeypatch.setattr(server, "_prepare", prepare)
@@ -609,6 +609,18 @@ def test_fin_refresh_goes_on_after_a_failure_and_stops_after_a_failed_restore(mo
     assert seen == [1, 2, 3] and [got[q]["ok"] for q in (1, 2, 3, 4)] == [False, True, False, False]
     assert "busy" in got[1]["error"] and "restore was incomplete" in got[3]["error"]
     assert got[4]["skipped"] is True and "Q3" in got[4]["error"] and out["workbook"] == PATH
+
+
+def test_a_refreshed_questions_error_carries_no_session_key_or_query(monkeypatch):
+    """A question's error is a reply field (the guard does not see it): the engine's one scrub is applied."""
+    import secrets
+    x = secrets.token_urlsafe(24)
+
+    def job(pre, q, target):
+        raise HostError(f"lost: sessionId: {x} at https://h.example/p?code={x}")
+    _wire_server(monkeypatch, _stored(1), job)
+    got = asyncio.run(server.fin_refresh(target=PATH))["refreshed"][0]
+    assert got["ok"] is False and got["error"].startswith("lost: sessionId: ") and x not in got["error"]
 
 
 # ------------------------------------------------------------------ carry-overs in _fit_text_rows

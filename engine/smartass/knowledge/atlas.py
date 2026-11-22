@@ -36,14 +36,110 @@ def connect(path: Path = config.ATLAS_DB) -> sqlite3.Connection:
     return db
 
 
+# What the build over REST knows of a member beyond today's seven columns: its real name (the key stays the one derived
+# from its label, as the zoom gave it), its Default alias, data storage, account type and time balance. They live in
+# a SIDE table, never in member: an installed older release (0.6.0) purges and rewrites member with a positional
+# 7-value INSERT, which must keep working on an atlas this release built. The side table holds every real member
+# behind a key - two members that give one key under one parent included (member keeps one row for them) - and the
+# stamp of the build that wrote it: real_names trusts it only while the dimension's build row carries that stamp (an
+# older release that rebuilt the members left it behind: then it is ignored). Only a store of real names creates it.
+REAL_FIELDS = ("real_name", "alias", "storage", "account_type", "time_balance")
+_REAL_SCHEMA = """CREATE TABLE IF NOT EXISTS member_real (
+  connection TEXT, dimension TEXT, name TEXT, parent TEXT, real_name TEXT, alias TEXT, storage TEXT,
+  account_type TEXT, time_balance TEXT, built_at REAL, PRIMARY KEY (connection, dimension, name, parent, real_name)
+)"""
+
+
+def _has_real(db) -> bool:
+    return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='member_real'").fetchone() is not None
+
+
 def store(db, conn: str, dim: str, members: list[dict], seconds: float, error: str | None = None):
+    """Replace a dimension's members (the first of a (name, parent) given twice is kept) and record the build. The
+    members' real names and properties (REAL_FIELDS, from the build over REST) replace the dimension's side rows,
+    stamped with this build; a store without them only clears its side rows."""
+    now = time.time()
+    real = [m for m in members if m.get("real_name")]
     with db:
         db.execute("DELETE FROM member WHERE connection=? AND dimension=?", (conn, dim))
         db.executemany(
-            "INSERT OR IGNORE INTO member VALUES (?,?,?,?,?,?,?)",
+            "INSERT OR IGNORE INTO member (connection, dimension, name, label, parent, depth, ord) "
+            "VALUES (?,?,?,?,?,?,?)",
             [(conn, dim, m["name"], m["label"], m["parent"], m["depth"], m["order"]) for m in members])
-        db.execute("INSERT OR REPLACE INTO build VALUES (?,?,?,?,?,?)",
-                   (conn, dim, time.time(), len(members), seconds, error))
+        if real:
+            db.execute(_REAL_SCHEMA)
+        if real or _has_real(db):
+            db.execute("DELETE FROM member_real WHERE connection=? AND dimension=?", (conn, dim))
+            db.executemany("INSERT OR IGNORE INTO member_real VALUES (?,?,?,?,?,?,?,?,?,?)",
+                           [(conn, dim, m["name"], m["parent"], *(m.get(f) for f in REAL_FIELDS), now) for m in real])
+        db.execute("INSERT OR REPLACE INTO build VALUES (?,?,?,?,?,?)", (conn, dim, now, len(members), seconds, error))
+
+
+def real_names(db, conn: str, dim: str, names: set[str]) -> dict[str, set[str]]:
+    """{key: EPM's real names behind it} for these keys of one dimension, from a side table whose stamp is the
+    dimension's build's; {} for a key it does not hold, and for all when there is none or it is stale."""
+    if not names or not _has_real(db):
+        return {}
+    out: dict[str, set[str]] = {}
+    ordered = sorted(names)
+    for i in range(0, len(ordered), 500):              # SQLite's limit on query parameters
+        part = ordered[i:i + 500]
+        for n, rn in db.execute(
+                "SELECT r.name, r.real_name FROM member_real r JOIN build b ON b.connection = r.connection AND "
+                "b.dimension = r.dimension AND b.built_at = r.built_at WHERE r.connection=? AND r.dimension=? AND "
+                f"r.name IN ({','.join('?' * len(part))})", (conn, dim, *part)):
+            out.setdefault(n, set()).add(rn)
+    return out
+
+
+def real_owners(db, conn: str, dim: str) -> dict[str, set[str]] | None:
+    """{casefolded real name: the keys whose trusted side rows hold it} over one dimension; None where the dimension has
+    no trusted side rows (none stored, or an older release rebuilt it since). A store gives all of a dimension's side
+    rows one stamp, so one row tells (an untrusted dimension costs no pass); a trusted one is read in one pass - for
+    the rare key that has no side row of its own."""
+    if not _has_real(db):
+        return None
+    stamp = db.execute("SELECT built_at FROM member_real WHERE connection=? AND dimension=? LIMIT 1",
+                       (conn, dim)).fetchone()
+    built = db.execute("SELECT built_at FROM build WHERE connection=? AND dimension=?", (conn, dim)).fetchone()
+    if stamp is None or built is None or stamp[0] != built[0]:
+        return None
+    out: dict[str, set[str]] = {}
+    for n, rn in db.execute("SELECT name, real_name FROM member_real WHERE connection=? AND dimension=? AND built_at=?",
+                            (conn, dim, built[0])):
+        out.setdefault(rn.casefold(), set()).add(n)
+    return out
+
+
+def _read_only_uri(path: Path) -> str:
+    """SQLite's read-only URI of a file: absolute() keeps a mapped drive a drive (resolve() would make it a UNC path),
+    and a UNC path's host goes into the path ('file:////host/share/...'): SQLite takes no URI authority."""
+    uri = Path(path).absolute().as_uri()
+    if not uri.startswith("file:///"):
+        uri = "file:////" + uri[len("file://"):]
+    return uri + "?mode=ro"
+
+
+def trust(path: Path) -> tuple[int, int] | None:
+    """(dimensions whose side rows are trusted, dimensions built with members) of the atlas file at path - read only,
+    never written (setup compares the release folder's copy by its modification time); None when it cannot be read.
+    Where a dimension has no trusted side rows (an atlas built before 0.7.0, or rebuilt since by one) the REST
+    engine's strict member check is off (epm/rest.py: the check before the side table)."""
+    try:
+        db = sqlite3.connect(_read_only_uri(path), uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        built = db.execute("SELECT connection, dimension, built_at FROM build WHERE n > 0 AND error IS NULL").fetchall()
+        if not _has_real(db):
+            return 0, len(built)
+        trusted = sum(db.execute("SELECT 1 FROM member_real WHERE connection=? AND dimension=? AND built_at=? LIMIT 1",
+                                 row).fetchone() is not None for row in built)
+        return trusted, len(built)
+    except sqlite3.Error:
+        return None
+    finally:
+        db.close()
 
 
 def store_cards(db, conn: str, dim: str, rows: list[tuple]) -> None:
@@ -74,10 +170,13 @@ def cards_status(db) -> list[dict]:
     return out
 
 
-def purge(db, conn: str) -> None:
+def purge(db, conn: str, keep: set[str] | frozenset[str] = frozenset()) -> None:
+    """Every dimension of the connection goes (members, build rows, side rows), except those in keep."""
+    marks = ",".join("?" * len(keep))
+    tables = ["member", "build", *(["member_real"] if _has_real(db) else [])]
     with db:
-        db.execute("DELETE FROM member WHERE connection=?", (conn,))
-        db.execute("DELETE FROM build WHERE connection=?", (conn,))
+        for t in tables:
+            db.execute(f"DELETE FROM {t} WHERE connection=? AND dimension NOT IN ({marks})", (conn, *sorted(keep)))
 
 
 def status(db) -> dict:

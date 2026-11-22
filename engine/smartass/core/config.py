@@ -12,7 +12,6 @@ ENGINE_DIR = PKG.parent
 REPO_DIR = ENGINE_DIR.parent
 DEFAULTS_FILE = ENGINE_DIR / "defaults.toml"
 PACKS_DIR = REPO_DIR / "packs"
-BAS_FILES = [ENGINE_DIR / "vba" / "smartview_body.bas", ENGINE_DIR / "vba" / "modBridge.bas"]
 
 
 def merge(base: dict, over: dict) -> dict:
@@ -156,7 +155,7 @@ def _path(v) -> Path:
 
 ONEDRIVE = Path(os.environ.get("OneDriveCommercial") or os.environ.get("OneDrive") or Path.home())
 
-PID_FILE = HOME / "pids.json"                              # PIDs this server started (never kill others)
+PID_FILE = HOME / "pids.json"                              # an older release's hidden Excels (swept, then removed)
 ATLAS_DB = HOME / "atlas.db"
 NEW_WORKBOOK_SEED = HOME / "new_workbook_seed.xlsx"        # a labelled empty workbook; new analysis files are copies
 SERVER_LOG = HOME / "logs" / "server.log"
@@ -190,8 +189,6 @@ _EXCEL = [r"%ProgramFiles%\Microsoft Office\Root\Office16\EXCEL.EXE",
           r"%ProgramFiles(x86)%\Microsoft Office\Root\Office16\EXCEL.EXE",
           r"%ProgramFiles%\Microsoft Office\Office16\EXCEL.EXE"]
 EXCEL_EXE = find_first(_pick("SV_EXCEL_EXE", "paths.excel_exe"), "excel.exe", _EXCEL) or os.path.expandvars(_EXCEL[0])
-_SV_DLL = [r"%ProgramFiles(x86)%\Oracle\SmartView\bin\HsAddin.dll", r"%ProgramFiles%\Oracle\SmartView\bin\HsAddin.dll"]
-SMARTVIEW_DLL = find_first(_pick("SV_SMARTVIEW_DLL", "paths.smartview_dll"), None, _SV_DLL) or os.path.expandvars(_SV_DLL[0])
 
 USER_CALL_TIMEOUT_S = float(os.environ.get("SV_USER_CALL_TIMEOUT", "600"))   # whole analysis incl. several pulls
 QUEUE_TIMEOUT_S = float(os.environ.get("SV_QUEUE_TIMEOUT", "900"))
@@ -237,24 +234,6 @@ def load_http_secret(env=os.environ, path: Path = SECRET_FILE, settings: dict | 
 
 
 HTTP_SECRET = load_http_secret()
-
-# Global Smart View options set while the server runs and restored on shutdown (they are user prefs).
-GLOBAL_OPTIONS = {104: 3, 109: False, 110: False}         # messages: none; no home panel; no comment dialog
-# Sheet options for our own grids.
-# Suppression OFF (6/7/9 rows, 41/42/43 columns, 44 blocks): results are mapped by position, and the user's own
-# Smart View defaults would otherwise drop rows and shift every label onto the wrong member.
-SHEET_OPTIONS = {5: 0, 6: False, 7: False, 9: False, 41: False, 42: False, 43: False, 44: False,
-                 13: "#Missing", 14: "#NoAccess", 17: "#Invalid"}
-
-CALL_TIMEOUT_S = float(os.environ.get("SV_CALL_TIMEOUT", "180"))
-# While a hidden-Excel call runs, look for Smart View dialogs (dialogs.py) after DIALOG_CHECK_AFTER_S, every
-# DIALOG_POLL_S. A WebView2 Login window gets LOGIN_GRACE_S for the SSO watcher: SSO once needed 18 s; a hung window
-# is stuck at once.
-DIALOG_CHECK_AFTER_S = 5.0
-DIALOG_POLL_S = 2.0
-LOGIN_GRACE_S = float(os.environ.get("SV_LOGIN_GRACE", "30"))
-TRANSIENT_RETRY_WAIT_S = 3.0                        # before the one retry after rc=752 / rc=57704
-RESET_WAIT_S = 10.0                                 # after killing our Excel, wait this long for the COM call to return
 
 # ---------------------------------------------------------------- drill-through (fin_drill)
 EPM_BASE = _pick("SV_EPM_BASE", "epm.base")

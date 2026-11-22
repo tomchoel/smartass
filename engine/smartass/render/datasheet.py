@@ -20,7 +20,7 @@ from ..model.periods import closed_for, label, resolve
 
 REFRESH_TEXT = "Refresh: fin_refresh, or ask a follow-up. Do not edit this table by hand."
 TOLERANCE = 1.0                    # NOK: EPM's static total against the table's live sum
-ROUTES = {"http": "HTTP", "adhoc": "Smart View ad hoc", "replay": "Replay"}
+ROUTES = {"http": "HTTP", "rest": "Planning REST", "replay": "Replay"}
 
 
 class Header(list):

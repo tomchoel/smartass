@@ -9,7 +9,7 @@ import time
 import pywintypes
 
 from ..core import config, timing
-from .host import HostError
+from ..core.errors import HostError
 from .hostproc import is_busy, retry_busy
 
 EDIT_WAIT_S = 30
@@ -43,13 +43,13 @@ def bind_job(token: "JobToken | None" = None) -> None:
 
 
 def unbind_job() -> None:
-    """The job's end on its thread (host._call_once, after its turns are released): nothing of it stays bound there."""
+    """The job's end on its thread (userjobs.run, after its turns are released): nothing of it stays bound there."""
     for name in ("token", "turns", "start_left"):
         _job.__dict__.pop(name, None)
 
 
 def give_up(token: JobToken) -> None:
-    """The host gives up on the job of token (an Excel that does not answer: host._call_once): its next COM call
+    """The host gives up on the job of token (an Excel that does not answer: userjobs.run): its next COM call
     raises JobAborted, and a job waiting for a turn it still holds is refused (Turn.acquire) - in this process and in
     another one (Turn.mark_given_up)."""
     token.aborted = True
@@ -146,7 +146,7 @@ class Turn:
     Excel would only interleave and could put numbers on each other's sheets. Different Excels run in parallel.
 
     A turn belongs to the job whose thread took it (its token). When the host gives up on that job (an Excel that does
-    not answer: host._call_once), its thread may stay blocked in Excel and keeps the turn: it never writes again (its
+    not answer: userjobs.run), its thread may stay blocked in Excel and keeps the turn: it never writes again (its
     next call raises JobAborted) and frees the turn when it ends. A job of this process that waits for such a turn is
     refused after ABANDONED_WAIT_S with what holds it (live, 21.11.2026: the next job waited silently until it was
     given up on too); one that ends meanwhile hands the turn over as any other. A job of ANOTHER process learns it from

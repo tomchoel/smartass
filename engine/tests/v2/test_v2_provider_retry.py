@@ -19,6 +19,10 @@ class SV:
     def __init__(self, fails, text="lost the request (TimeoutError: signal timed out)"):
         self.fails, self.text, self.calls = fails, text, 0
 
+    def fetch_rest(self, *a):                   # the second engine fails too (tests/test_second_engine.py: when not)
+        self.rest_calls = getattr(self, "rest_calls", 0) + 1
+        raise SvHttpError("Planning REST at x: answered HTTP 503")
+
     def retrieve(self, *a):
         self.calls += 1
         if self.calls <= self.fails:
@@ -36,9 +40,11 @@ def test_one_lost_request_is_retried(monkeypatch):
 
 def test_two_lost_requests_fail_and_other_errors_fail_at_once(monkeypatch):
     monkeypatch.setattr(prov, "RETRY_WAIT_S", 0)
-    with pytest.raises(SvHttpError):
-        SvHttpProvider(SV(fails=2)).fetch(REQ)
+    sv = SV(fails=2)
+    with pytest.raises(SvHttpError, match="lost the request.*could not fetch it either"):
+        SvHttpProvider(sv).fetch(REQ)
+    assert sv.calls == 2 and sv.rest_calls == 1
     sv = SV(fails=1, text="rejected members: ac.X")
     with pytest.raises(SvHttpError):
         SvHttpProvider(sv).fetch(REQ)
-    assert sv.calls == 1
+    assert sv.calls == 1 and sv.rest_calls == 1

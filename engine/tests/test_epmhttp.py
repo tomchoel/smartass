@@ -5,6 +5,7 @@ import http.client
 import io
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.request
@@ -421,6 +422,19 @@ def test_a_getdata_body_that_is_not_a_drill_query_is_refused(make, body):
     assert op.sent == [] and tok.asked == []
 
 
+@pytest.mark.parametrize("body", [
+    "<req_ExecuteGrid><sID>x</sID><![CDATA[<action>retrieve</action>]]></req_ExecuteGrid>",
+    "<req_ExecuteGrid><sID>x</sID><action>retrieve</action><!-- x --></req_ExecuteGrid>",
+], ids=["cdata", "comment"])
+def test_a_smart_view_body_with_cdata_or_a_comment_is_never_sent(make, body):
+    """Final review A, M10: the reviewer's attack - the action hidden in CDATA - was sent; it is refused before a token
+    is asked for, and not quoted."""
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused) as e:
+        s.request("POST", "/HyperionPlanning/SmartView", headers={"Content-Type": "text/xml"}, body=body)
+    assert str(e.value) == "refused: not a single read-only Smart View request" and op.sent == [] and tok.asked == []
+
+
 def test_a_refused_smart_view_body_is_not_quoted(make, caplog):
     caplog.set_level(logging.DEBUG, logger="smartass.epm.epmhttp")
     s, op, _ = make()
@@ -735,25 +749,351 @@ def test_a_q_quote_that_ends_early_or_cannot_be_read_with_certainty_is_refused(m
 def test_the_repos_real_drill_query_still_passes():
     assert epmhttp._read_only_sql(REAL_QUERY) and epmhttp._sql_tokens(REAL_QUERY)[:4] == ["SELECT", "ENTITY", ",", "AMOUNTX"]
 
-def test_no_code_path_sends_the_smart_view_rule_today():
-    """ALLOWED keeps POST /HyperionPlanning/SmartView for the grid route's later move onto EpmSession (the plan
-    allows it). Today the grids go over svhttp.BearerTransport: the one module that imports epmhttp is drill_token,
-    and it never names that path."""
+def test_the_provider_route_sends_the_smart_view_rule_and_nothing_else_does():
+    """POST /HyperionPlanning/SmartView is the grid route's (svhttp.BearerTransport, through its pods' EpmSessions);
+    the drill (drill_token), the REST grid (rest) and the atlas's member trees (members) are the only other modules
+    that import epmhttp, and none names that path; only rest names the Planning REST grid paths, only members the
+    member-tree read."""
     import ast
     import warnings
     from pathlib import Path
     root = Path(epmhttp.__file__).parents[1]
-    importers = set()
+    importers = {}
     for p in [*root.rglob("*.py"), *(root.parents[1] / "scripts").rglob("*.py")]:
         with warnings.catch_warnings():                       # a script's own escape sequences are not this test's
             warnings.simplefilter("ignore", SyntaxWarning)
-            tree = ast.parse(p.read_text(encoding="utf-8"))
+            text = p.read_text(encoding="utf-8")
+            tree = ast.parse(text)
         for node in ast.walk(tree):
             names = [a.name for a in getattr(node, "names", ())] if isinstance(node, (ast.Import, ast.ImportFrom)) else []
             module = getattr(node, "module", None) or ""
             if any(n.rsplit(".", 1)[-1] == "epmhttp" for n in [*names, module]):
-                importers.add(p.name)
-    assert importers == {"drill_token.py"}
-    text = (root / "epm" / "drill_token.py").read_text(encoding="utf-8")
-    assert "SmartView" not in text and "SMART_VIEW" not in text
-    assert epmhttp.ALLOWED[epmhttp.SMART_VIEW].method == "POST"                # kept, for that later move
+                importers[p.name] = text
+    assert set(importers) == {"drill_token.py", "svhttp.py", "rest.py", "members.py"}
+    assert [n for n, text in importers.items() if "SmartView" in text or "SMART_VIEW" in text] == ["svhttp.py"]
+    assert "epmhttp.SMART_VIEW" in importers["svhttp.py"] and epmhttp.ALLOWED[epmhttp.SMART_VIEW].method == "POST"
+    assert [n for n, text in importers.items() if "export_slice" in text or "dimension_list" in text
+            or "rest/v3" in text] == ["rest.py"]
+    assert [n for n, text in importers.items() if "member_tree" in text or "MEMBER_FIELDS" in text] == ["members.py"]
+
+
+def test_a_smart_view_body_has_its_own_size_cap(make):
+    """A provider request is about 4 bytes a grid cell: a grid past 1 MB is sent, as the provider route always did;
+    a body over MAX_SMART_VIEW_BODY_BYTES is not, and a getData body keeps MAX_BODY_BYTES."""
+    from smartass.epm import svxml
+    s, op, tok = make(answers=[(200, "<res_OpenApplication/>", {})])
+    big = svxml.open_application("s" * (2 << 20), "FinMax")
+    s.request("POST", "/HyperionPlanning/SmartView", body=big)
+    assert op.sent[0].data == big.encode()
+    pad = "s" * (epmhttp.MAX_SMART_VIEW_BODY_BYTES + 1 - len(svxml.open_application("", "FinMax")))
+    with pytest.raises(epmhttp.Refused, match=f"over {epmhttp.MAX_SMART_VIEW_BODY_BYTES} bytes"):
+        s.request("POST", "/HyperionPlanning/SmartView", body=svxml.open_application(pad, "FinMax"))
+    with pytest.raises(epmhttp.Refused, match=f"over {epmhttp.MAX_BODY_BYTES} bytes"):
+        s.request("POST", GET_DATA, body='{"QUERY": "' + "x" * epmhttp.MAX_BODY_BYTES + '"}')
+    assert len(op.sent) == 1 and len(tok.asked) == 1
+
+
+def test_a_caller_may_name_more_statuses_that_take_one_new_token(make):
+    """renew_on: the grid route's gate answers (a 3xx or a 403 as well as a 401) take one new token and one more
+    try, as a 401 does - its cookies go too; by default a 3xx is the answer."""
+    from smartass.epm import svxml
+    s, op, tok = make(tokens=["at-1", "at-2"], answers=[(302, "", {"Set-Cookie": "JSESSIONID=old; Path=/"}),
+                                                       (200, "<res_ConnectToProvider/>", {})])
+    r = s.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect(), renew_on=(401, 302, 403))
+    assert r.status == 200 and [x.get_header("Authorization") for x in op.sent] == ["Bearer at-1", "Bearer at-2"]
+    assert op.sent[1].get_header("Cookie") is None and tok.asked[1] == (POD, "at-1")
+    s2, op2, _ = make(tokens=["at-1", "at-2"], answers=[(302, "", {})])
+    assert s2.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect()).status == 302
+    assert len(op2.sent) == 1
+
+
+@pytest.mark.parametrize("renew_on", [(200,), (500,), (401, 500), (404,), (True,), (401.0,), ("401",), 401, None])
+def test_only_a_gates_answer_may_take_a_new_token(make, renew_on):
+    """renew_on names statuses whose request never ran (a gate's 3xx, 401, 403): a 200 or a 500 already ran, and
+    sending it again would run it twice. Anything else is refused before a token is asked for."""
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request("GET", "/aif/ui/model/applications/servicetype", renew_on=renew_on)
+    assert op.sent == [] and tok.asked == []
+    s.request("GET", "/aif/ui/model/applications/servicetype", renew_on=(301, 302, 303, 307, 401, 403))
+    assert len(op.sent) == 1
+
+
+def test_a_caller_may_keep_a_gate_status_as_the_answer(make):
+    """renew_if only narrows renew_on: an answer it turns down is returned as it is - one send, one token, the
+    cookies kept (the grid route: a 401 that carries provider XML reached the provider)."""
+    from smartass.epm import svxml
+    s, op, tok = make(tokens=["at-1", "at-2"], answers=[(200, "", {"Set-Cookie": "JSESSIONID=one; Path=/"}),
+                                                       (401, "<res_x/>", {})])
+    s.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect())
+    r = s.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect(), renew_on=(401,),
+                  renew_if=lambda r: "<res_" not in r.text)
+    assert r.status == 401 and len(op.sent) == 2 and tok.asked == [(POD, None), (POD, None)]
+    assert s.request("POST", "/HyperionPlanning/SmartView", body=svxml.connect()).status == 401   # the jar kept it
+    assert op.sent[2].get_header("Cookie") == "JSESSIONID=one"
+
+
+# ---------------------------------------------------------------- Planning REST: exportdataslice and the dimension list
+SLICE = "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/exportdataslice"
+DIMS = "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/dimensions?aliasTableName=Default"
+
+
+def _grid(**over):
+    """An exportdataslice body as rest.py builds it (Oracle's documented shape); over replaces gridDefinition keys."""
+    seg = {"dimensions": ["Accounts", "Entities"], "members": [["ac.A", "ac.B"], ["E1"]]}
+    grid = {"suppressMissingBlocks": False, "suppressMissingRows": False, "suppressMissingColumns": False,
+            "pov": {"dimensions": ["Scenarios"], "members": [["Actual"]]},
+            "columns": [{"dimensions": ["TimePeriods"], "members": [["Sep 26"]]}], "rows": [seg]}
+    return {"exportPlanningData": False, "gridDefinition": {**grid, **over}}
+
+
+def test_the_rest_rules_are_the_configured_cubes_exactly():
+    """The paths are built from the applications and plan types the grid route reads (svhttp.CUBES), as whole
+    strings: one exportdataslice and one dimension list (with its Default aliases) per (application, plan type) -
+    no pattern, no other path under the REST tree."""
+    from smartass.epm import svhttp
+    assert set(epmhttp.REST_CUBES) == {(app, cube) for _, app, cube in svhttp.CUBES.values()}
+    rest = {p: r for p, r in epmhttp.ALLOWED.items() if p.startswith("/HyperionPlanning/rest/")}
+    assert rest == {
+        **{epmhttp.export_slice(app, cube): epmhttp._Rule("POST", {}, frozenset({"content-type"}), "application/json")
+           for app, cube in epmhttp.REST_CUBES},
+        **{epmhttp.dimension_list(app, cube): epmhttp._Rule("GET", {"aliasTableName": (1, 1, re.compile("Default"))},
+                                                             frozenset(), None)
+           for app, cube in epmhttp.REST_CUBES},
+        **{epmhttp.member_tree(app, dim): epmhttp._Rule("GET", {"fields": (1, 1, re.compile(re.escape(
+            epmhttp.MEMBER_FIELDS)))}, frozenset(), None) for app, dim in epmhttp.MEMBER_TREES}}
+    assert epmhttp.export_slice("FinMax", "FinLite") == (
+        "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinLite/exportdataslice")
+    assert not any("import" in p.lower() or "job" in p.lower() or "clear" in p.lower() for p in epmhttp.ALLOWED)
+
+
+def test_an_exportdataslice_grid_and_a_dimension_list_are_sent(make):
+    s, op, tok = make(answers=[(200, "{}", {})])
+    for app, cube in epmhttp.REST_CUBES:
+        s.request("POST", epmhttp.export_slice(app, cube), body=json.dumps(_grid()))
+    s.request("GET", DIMS)
+    s.request("GET", "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinPlan/dimensions"
+                     "?aliasTableName=Default")
+    s.request("POST", SLICE, headers={"Content-Type": "application/json; charset=utf-8"}, body=json.dumps(_grid(
+        pov={"dimensions": [], "members": []}, suppressMissingBlocks=True,
+        rows=[{"dimensions": ["Accounts"], "members": [["ac.A", "C30 REVENUES (ac)", "X99 Margin % (pc)"]]},
+              {"dimensions": ["Accounts"], "members": [["ac.B"]]}])))           # a label with brackets is a name
+    assert [(r.get_method(), r.full_url) for r in op.sent] == [
+        ("POST", POD + "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/exportdataslice"),
+        ("POST", POD + "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinLite/exportdataslice"),
+        ("POST", POD + "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinPlan/exportdataslice"),
+        ("GET", POD + DIMS),
+        ("GET", POD + "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinPlan/dimensions"
+                      "?aliasTableName=Default"),
+        ("POST", POD + SLICE)]
+    assert op.sent[0].get_header("Content-type") == "application/json" and op.sent[3].data is None
+
+
+@pytest.mark.parametrize("method, url", [
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/importdataslice"),   # a write
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/cleardataslice"),
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/jobs"),                               # rules, jobs
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/jobs"),
+    ("GET", "/HyperionPlanning/rest/v3/applications"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Accounts/members/ac.A"),      # not a tree read
+    ("POST", "/HyperionPlanning/rest/v3/applications/Vision/plantypes/Plan1/exportdataslice"),     # not configured
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinPlan/exportdataslice"),   # not a pair
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinMax/exportdataslice"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/Vision/plantypes/Plan1/dimensions?aliasTableName=Default"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinPlan/dimensions?aliasTableName=Default"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions"),                          # 405 on the pods
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/dimensions"),         # its one query item
+    ("GET", DIMS.replace("Default", "Other")), ("GET", DIMS + "&aliasTableName=Default"),
+    ("GET", DIMS + "&limit=-1"), ("GET", DIMS + "&q=%7B%7D"), ("GET", DIMS.replace("Default", "%44efault")),
+    ("GET", DIMS.replace("Default", "default")), ("GET", DIMS.replace("Default", "DefaultX")),       # the value as sent
+    ("GET", DIMS.replace("=Default", "=")), ("GET", DIMS.replace("=Default", "")),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/dimensions/Accounts"
+            "?aliasTableName=Default"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax?aliasTableName=Default"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes"),
+    ("GET", SLICE), ("POST", DIMS), ("PUT", SLICE), ("DELETE", DIMS), ("post", SLICE),            # the method
+    ("POST", "/HyperionPlanning/rest/v3/applications/Fin%4Dax/plantypes/FinMax/exportdataslice"),  # encoded
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax%2Fexportdataslice"),
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/exportdata%73lice"),
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/x/../FinMax/exportdataslice"),   # dots
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/./plantypes/FinMax/exportdataslice"),
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/exportdataslice/.."),
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/exportdataslice/x"),  # extra segment
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/exportdataslice/"),
+    ("POST", "/HyperionPlanning/rest/v3/applications//FinMax/plantypes/FinMax/exportdataslice"),
+    ("POST", "/HyperionPlanning/rest/v3/applications/finmax/plantypes/FinMax/exportdataslice"),    # case
+    ("POST", "/HyperionPlanning/rest/V3/applications/FinMax/plantypes/FinMax/exportdataslice"),
+    ("POST", "/HyperionPlanning/rest/v1/applications/FinMax/plantypes/FinMax/exportdataslice"),    # another version
+    ("POST", "/HyperionPlanning/rest/11.1.2.4/applications/FinMax/plantypes/FinMax/exportdataslice"),
+    ("POST", SLICE + ";jsessionid=x"),                                                            # ;params
+    ("POST", SLICE + "?x=1"), ("POST", SLICE + "?aliasTableName=Default"),                        # no query
+    ("POST", "https://evil.example" + SLICE), ("GET", "https://plan1.example:8443" + DIMS),      # another origin
+    ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/exportdataslice\t"),
+])
+def test_what_is_not_exactly_a_rest_rule_is_refused_before_a_token(make, method, url):
+    s, op, tok = make()
+    body = json.dumps(_grid()) if method.upper() in ("POST", "PUT") else None
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request(method, url, body=body)
+    assert op.sent == [] and tok.asked == []
+
+
+@pytest.mark.parametrize("headers", [{"Content-Type": "text/xml"},
+                                     {"Content-Type": "application/x-www-form-urlencoded"},
+                                     {"Accept": "application/json"}, {"X-Requested-With": "XMLHttpRequest"},
+                                     {"Authorization": "Basic x"}, {"Cookie": "a=b"}])
+def test_a_rest_request_takes_no_header_but_a_json_content_type(make, headers):
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request("POST", SLICE, headers=headers, body=json.dumps(_grid()))
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request("GET", DIMS, headers=headers)
+    assert op.sent == [] and tok.asked == []
+
+
+# ---------------------------------------------------------------- Planning REST: a dimension's member tree (Task 4)
+TREE_PATH = "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members/TimePeriods"
+TREE = TREE_PATH + "?fields=name,alias,dataStorage,usedIn,accountType,timeBalance,children"
+
+
+def test_a_member_tree_is_a_dimension_read_from_its_top_member_and_nothing_else():
+    """Oracle's "Get Member" (GET .../applications/{app}/dimensions/{dim}/members/{member}: the member and, by
+    default, its whole visible subtree; it creates nothing) - only for the (application, dimension) pairs of
+    MEMBER_TREES, from the dimension's top member, as whole paths, with exactly one query item - the fields the atlas
+    keeps, so the largest dimension's answer stays far under MAX_ANSWER_BYTES - and no header. The pairs are the
+    dimensions the pods' plan-type lists named on 2026-11-21 (FinMax 14, FinPlan 8; FinLite's 10 are FinMax's)."""
+    assert epmhttp.MEMBER_FIELDS == "name,alias,dataStorage,usedIn,accountType,timeBalance,children"
+    assert epmhttp.MEMBER_TREES == (
+        *(("FinMax", d) for d in ("Accounts", "BalanceTypes", "Counterparts", "Currencies", "Entities", "Functions",
+                                  "GLSources", "LegalEntities", "Products", "Projects", "Reserves", "Scenarios",
+                                  "Systems", "TimePeriods")),
+        *(("FinPlan", d) for d in ("Account", "BalanceTypes", "Entity", "Period", "Products", "Scenario", "Version",
+                                   "Years")))
+    assert epmhttp.member_tree("FinMax", "TimePeriods") == TREE_PATH
+    assert {app for app, _ in epmhttp.MEMBER_TREES} <= {app for app, _ in epmhttp.REST_CUBES}
+
+
+def test_a_member_tree_is_sent(make):
+    s, op, tok = make(answers=[(201, "{}", {})])
+    for app, dim in epmhttp.MEMBER_TREES:
+        assert s.request("GET", epmhttp.member_tree(app, dim) + "?fields=" + epmhttp.MEMBER_FIELDS).status == 201
+    assert [(r.get_method(), r.full_url, r.data) for r in op.sent] == [
+        ("GET", POD + epmhttp.member_tree(app, dim) + "?fields=" + epmhttp.MEMBER_FIELDS, None)
+        for app, dim in epmhttp.MEMBER_TREES]
+    assert op.sent[13].full_url == POD + TREE
+    assert op.sent[17].full_url == POD + TREE.replace("TimePeriods", "Period").replace("FinMax", "FinPlan")
+
+
+_Q = "?fields=name,alias,dataStorage,usedIn,accountType,timeBalance,children"
+_APPS = "/HyperionPlanning/rest/v3/applications"
+
+
+@pytest.mark.parametrize("method, url", [
+    ("GET", _APPS + "/FinMax/dimensions/TimePeriods/members/Jan" + _Q),                       # not the top member
+    ("GET", _APPS + "/FinMax/dimensions/Account/members/Account" + _Q),                         # not on the list
+    ("GET", _APPS + "/FinPlan/dimensions/TimePeriods/members/TimePeriods" + _Q),
+    ("GET", _APPS + "/FinMax/dimensions/Period/members/Period" + _Q),
+    ("GET", _APPS + "/FinLite/dimensions/Accounts/members/Accounts" + _Q),                      # a plan type
+    ("GET", _APPS + "/FinMax/dimensions/Accounts/members/Entities" + _Q),                       # a cross pair
+    ("GET", _APPS + "/Vision/dimensions/Period/members/Period" + _Q),
+    ("GET", _APPS + "/FinMax/dimensions/TimePeriods/members" + _Q),                             # a collection
+    ("GET", _APPS + "/FinMax/dimensions/TimePeriods" + _Q),
+    ("GET", TREE_PATH + "/children" + _Q), ("GET", TREE_PATH + "/" + _Q), ("GET", TREE_PATH + "/.." + _Q),
+    ("GET", TREE_PATH.replace("/members/TimePeriods", "/members/TimePeriods/../Accounts") + _Q),    # dots
+    ("GET", TREE_PATH.replace("TimePeriods/members", "Time%50eriods/members") + _Q),               # encoded
+    ("GET", TREE_PATH.replace("members/TimePeriods", "members/Time%20Periods") + _Q),
+    ("GET", TREE_PATH.replace("members/TimePeriods", "members/timeperiods") + _Q),                 # case
+    ("GET", TREE.replace("/v3/", "/v1/")), ("GET", TREE.replace("/v3/", "/V3/")),                  # another version
+    ("GET", TREE_PATH), ("GET", TREE_PATH + "?x"), ("GET", TREE_PATH + "?maxDepth=-1"),           # its one query item
+    ("GET", TREE + "&maxDepth=-1"), ("GET", TREE + "&maxDepth=0"), ("GET", TREE + "&aliasTableName=Default"),
+    ("GET", TREE + "&fields=name"), ("GET", TREE + "&q=%7B%7D"), ("GET", TREE + ";x=1"),
+    ("GET", TREE_PATH + "?fields=name"), ("GET", TREE_PATH + "?fields="),                          # its value as sent
+    ("GET", TREE_PATH + "?fields=name,alias,dataStorage,usedIn,accountType,timeBalance,children,formula"),
+    ("GET", TREE_PATH + "?fields=name%2Calias%2CdataStorage%2CusedIn%2CaccountType%2CtimeBalance%2Cchildren"),
+    ("GET", TREE_PATH + "?fields=NAME,alias,dataStorage,usedIn,accountType,timeBalance,children"),
+    ("GET", TREE_PATH + "?fields=name,alias,dataStorage,usedIn,accountType,timeBalance,children "),
+    ("POST", TREE), ("PUT", TREE), ("DELETE", TREE), ("PATCH", TREE), ("get", TREE),             # the method
+    ("POST", _APPS + "/FinMax/dimensions/TimePeriods/members"),                                   # Add Member
+    ("POST", _APPS + "/FinMax/plantypes/FinMax/dimensions/TimePeriods/memberselectionmembers"),
+    ("POST", _APPS + "/FinMax/members/action/search"),
+    ("GET", "https://evil.example" + TREE), ("GET", "https://plan1.example:8443" + TREE),           # another origin
+    ("GET", "http://plan1.example" + TREE),
+])
+def test_what_is_not_exactly_a_member_tree_read_is_refused_before_a_token(make, method, url):
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request(method, url, body="{}" if method.upper() in ("POST", "PUT", "PATCH") else None)
+    assert op.sent == [] and tok.asked == []
+
+
+@pytest.mark.parametrize("headers", [{"Content-Type": "application/json"}, {"Accept": "application/json"},
+                                     {"X-HTTP-Method-Override": "DELETE"}, {"Authorization": "Basic x"},
+                                     {"Cookie": "a=b"}])
+def test_a_member_tree_read_takes_no_header_and_no_body(make, headers):
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request("GET", TREE, headers=headers)
+    with pytest.raises(epmhttp.Refused, match="refused: GET .* with a body"):
+        s.request("GET", TREE, body="{}")
+    assert op.sent == [] and tok.asked == []
+
+
+_BAD_SEG = {"dimensions": ["Accounts"], "members": [["ac.A"]]}
+# Oracle's member functions (a grid smartass builds names its members; GridRequest holds names only): refused, in any
+# case and with a space before the bracket; '@' starts an Essbase function. No atlas member has either form (live
+# 2026-11-22: 0 of 376 485 names and labels).
+FUNCTIONS = ["ILvl0Descendants(Accounts)", "Descendants(ac.A)", "IDescendants(ac.A)", "Children(ac.A)",
+             "IChildren(ac.A)", "Lvl0Descendants(ac.A)", "Ancestors(ac.A)", "IAncestors(ac.A)", "Siblings(ac.A)",
+             "ISiblings(ac.A)", "Parent(ac.A)", "IParent(ac.A)", "Relative(ac.A, 0)", "UDA(Accounts, x)",
+             "children (ac.A)", " ILVL0DESCENDANTS( Accounts )", "@Relative(ac.A, 0)", "@ac.A", "Foo(ac.A)"]
+
+
+@pytest.mark.parametrize("body", [
+    "not json", "[]", "null", '"x"',
+    json.dumps({**_grid(), "importData": True}),                               # a key it does not take
+    json.dumps({**_grid(), "exportPlanningData": True}),                       # supporting detail, comments: no
+    json.dumps({**_grid(), "exportPlanningData": "false"}),
+    json.dumps({**_grid(), "exportPlanningData": 0}),
+    json.dumps({"exportPlanningData": False}),                                 # no grid
+    json.dumps({"gridDefinition": _grid()["gridDefinition"]}),                 # the flag is always sent, as false
+    json.dumps(_grid(action="submit")),
+    json.dumps(_grid(suppressMissingRows=1)), json.dumps(_grid(suppressMissingBlocks="true")),
+    json.dumps(_grid(suppressMissingColumns=None)),
+    json.dumps({**_grid(), "gridDefinition": {k: v for k, v in _grid()["gridDefinition"].items() if k != "pov"}}),
+    json.dumps(_grid(rows=[])), json.dumps(_grid(columns=[])), json.dumps(_grid(rows=_BAD_SEG)),
+    json.dumps(_grid(pov=[_BAD_SEG])),
+    json.dumps(_grid(rows=[{**_BAD_SEG, "query": "x"}])),
+    json.dumps(_grid(rows=[{"dimensions": ["Accounts"]}])),
+    json.dumps(_grid(rows=[{"dimensions": "Accounts", "members": [["ac.A"]]}])),
+    json.dumps(_grid(rows=[{"dimensions": [], "members": []}])),
+    json.dumps(_grid(rows=[{"dimensions": ["Accounts"], "members": ["ac.A"]}])),
+    json.dumps(_grid(rows=[{"dimensions": ["Accounts"], "members": [["ac.A"], ["E1"]]}])),
+    json.dumps(_grid(rows=[{"dimensions": ["Accounts", "Entities"], "members": [["ac.A"], []]}])),
+    json.dumps(_grid(rows=[{"dimensions": ["Accounts"], "members": [[1]]}])),
+    json.dumps(_grid(rows=[{"dimensions": ["Accounts"], "members": [[""]]}])),
+    json.dumps(_grid(rows=[{"dimensions": [""], "members": [["ac.A"]]}])),
+    json.dumps(_grid(rows=[{"dimensions": ["Accounts"], "members": [["ac.A\n"]]}])),
+    json.dumps(_grid(pov={"dimensions": ["Scenarios"], "members": [["Actual", "Budget"]]})),      # one POV member
+    *[json.dumps(_grid(rows=[{"dimensions": ["Accounts"], "members": [[f]]}])) for f in FUNCTIONS],   # member functions
+    json.dumps(_grid(columns=[{"dimensions": ["TimePeriods"], "members": [["Children(Q3 26)"]]}])),
+    json.dumps(_grid(pov={"dimensions": ["Scenarios"], "members": [["@Relative(Actual, 0)"]]})),
+    '{"exportPlanningData": false, "exportPlanningData": true, "gridDefinition": {}}',          # a key twice
+    json.dumps(_grid()).replace('"rows"', '"rows": [], "rows"', 1),
+])
+def test_an_exportdataslice_body_that_is_not_one_grid_is_refused(make, body):
+    s, op, tok = make()
+    with pytest.raises(epmhttp.Refused, match="refused"):
+        s.request("POST", SLICE, body=body)
+    assert op.sent == [] and tok.asked == []
+
+
+def test_an_exportdataslice_body_has_a_size_cap_and_is_never_quoted(make, caplog):
+    s, op, tok = make()
+    many = [f"SECRET-{i:07d}" for i in range(epmhttp.MAX_BODY_BYTES // 12)]
+    with pytest.raises(epmhttp.Refused, match=f"over {epmhttp.MAX_BODY_BYTES} bytes"):
+        s.request("POST", SLICE, body=json.dumps(_grid(rows=[{"dimensions": ["Accounts"], "members": [many]}])))
+    with pytest.raises(epmhttp.Refused) as e:
+        s.request("POST", SLICE, body=json.dumps({**_grid(), "SECRET-key": "SECRET-value"}))
+    assert "SECRET" not in str(e.value) and "SECRET" not in caplog.text
+    assert op.sent == [] and tok.asked == []

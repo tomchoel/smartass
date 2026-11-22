@@ -1,12 +1,13 @@
 """The token route's one way to EPM: HTTPS requests to one pod with the user's OAuth access token (epm/oauth.py) and
-a cookie jar, as a browser tab of that pod sends them - no browser, no Excel. The drill over the token (drill_token)
-is built on it.
+a cookie jar, as a browser tab of that pod sends them - no browser, no Excel. The grids (svhttp.BearerTransport, the
+Smart View provider XML), the second grid engine (rest: Planning REST exportdataslice) and the drill over the token
+(drill_token) are built on it.
 
 What it holds to, whatever a caller asks for:
 - read-only towards EPM: a request that is not exactly on ALLOWED is refused before a token is asked for - its
-  method, its path, the query names that path takes, the header names it takes and, for the two POST targets, the
-  body (Smart View provider XML that svxml.check_read_only admits; the drill's getData query object). The same token
-  would be accepted by EPM's write endpoints;
+  method, its path, the query names that path takes, the header names it takes and, for the POST targets, the body
+  (Smart View provider XML that svxml.check_read_only admits; the drill's getData query object; one exportdataslice
+  grid definition). The same token would be accepted by EPM's write endpoints (importdataslice, jobs): never here;
 - the bearer goes only to the session's own pod, and only when config.OAUTH_SCOPES has a scope for it: the URL that
   is sent is built from the pod's origin and the allowed path, never from the host a caller wrote; a redirect is
   never followed (a 3xx is the answer, for the caller to judge);
@@ -37,6 +38,46 @@ log = logging.getLogger(__name__)
 
 SMART_VIEW = "/HyperionPlanning/SmartView"
 GET_DATA = "/aif/ui/model/drilldown/getData"
+PLANNING_REST = "/HyperionPlanning/rest/v3/applications"
+# Planning REST (Oracle's documented API): the (application, plan type) pairs the grid route reads - svhttp.CUBES's,
+# pinned equal by tests/test_epmhttp.py (svhttp imports this module, not the other way round). Each rule below is a
+# whole path built from them: no pattern, so an encoded, dotted, longer or other-case path is none of them.
+REST_CUBES = (("FinMax", "FinMax"), ("FinMax", "FinLite"), ("FinPlan", "FinPlan"))
+
+
+def export_slice(app: str, cube: str) -> str:
+    """POST: one grid's cells (exportdataslice exports: a read; importdataslice is never on ALLOWED)."""
+    return f"{PLANNING_REST}/{app}/plantypes/{cube}/exportdataslice"
+
+
+def dimension_list(app: str, cube: str) -> str:
+    """GET (Oracle's "Get Dimensions for a Plan Type", 26.04): the plan type's dimensions under the names REST takes,
+    with their Default aliases (?aliasTableName=Default) - rest.py maps the atlas's names onto them."""
+    return f"{PLANNING_REST}/{app}/plantypes/{cube}/dimensions"
+
+# Oracle's "Get Member" (GET, the member and by default its whole visible subtree; it creates nothing - Add Member is a
+# POST to .../members, never here): the atlas reads a dimension's tree from its top member, which is the dimension's
+# own name. Only these (application, dimension) pairs, as whole paths: the dimensions the plan-type lists
+# (dimension_list) named on 2026-11-21 - FinLite's are FinMax's application dimensions. Its one query item is exactly
+# MEMBER_FIELDS: the properties the atlas keeps (all of them: some 800 to 1300 bytes a member, live, which would put
+# the largest dimension, 140 000 members, over MAX_ANSWER_BYTES).
+MEMBER_TREES = (
+    *(("FinMax", d) for d in ("Accounts", "BalanceTypes", "Counterparts", "Currencies", "Entities", "Functions",
+                              "GLSources", "LegalEntities", "Products", "Projects", "Reserves", "Scenarios", "Systems",
+                              "TimePeriods")),
+    *(("FinPlan", d) for d in ("Account", "BalanceTypes", "Entity", "Period", "Products", "Scenario", "Version",
+                               "Years")))
+
+
+MEMBER_FIELDS = "name,alias,dataStorage,usedIn,accountType,timeBalance,children"
+
+
+def member_tree(app: str, dim: str) -> str:
+    """GET (with ?fields=MEMBER_FIELDS): dimension dim of application app as one tree, read from its top member
+    (Oracle's Get Member)."""
+    return f"{PLANNING_REST}/{app}/dimensions/{dim}/members/{dim}"
+
+
 ANY = re.compile(r".*")
 DIGITS = re.compile(r"\d{1,12}")
 MILLIS = re.compile(r"\d{1,13}")                       # the cache buster: int(time.time() * 1000), 13 digits now
@@ -54,8 +95,8 @@ _DRILL_HEADERS = frozenset({"accept", "content-type", "x-requested-with", "page_
 # The brief's table, with what each request may carry besides: the query names are those the drill sends today
 # (sui_url keeps Smart View's link minus DRILLURL; drill_token's view and getData URLs), nothing else.
 ALLOWED: dict[str, _Rule] = {
-    # No caller today: the grids go over svhttp.BearerTransport. Kept for the grid route's later move onto EpmSession,
-    # which the plan allows; tests/test_epmhttp.py pins that no code path sends it until then.
+    # The grid route's one request (svhttp.BearerTransport: no query, Content-Type text/xml only); tests/test_epmhttp.py
+    # pins that nothing else sends it.
     SMART_VIEW: _Rule("POST", {}, frozenset({"content-type"}), "text/xml"),          # + svxml.check_read_only(body)
     "/aif/ui/model/applications/servicetype": _Rule("GET", {}, _DRILL_HEADERS, None),
     "/aif/modules/com/hyperion/aif/gl/main/FdmeeMain.jsp": _Rule("GET", {
@@ -67,8 +108,29 @@ ALLOWED: dict[str, _Rule] = {
         "_": (0, 1, MILLIS)}, _DRILL_HEADERS, None),
     GET_DATA: _Rule("POST", {"limit": (1, 1, re.compile(r"\d{1,5}")), "offset": (1, 1, DIGITS)}, _DRILL_HEADERS,
                     "application/json"),
+    # The REST grid (rest.py): no query, Content-Type application/json only, a body _slice_grid admits.
+    **{export_slice(app, cube): _Rule("POST", {}, frozenset({"content-type"}), "application/json")
+       for app, cube in REST_CUBES},
+    **{dimension_list(app, cube): _Rule("GET", {"aliasTableName": (1, 1, re.compile("Default"))}, frozenset(), None)
+       for app, cube in REST_CUBES},
+    # A dimension's member tree (the atlas): exactly the fields query, no header, no body.
+    **{member_tree(app, dim): _Rule("GET", {"fields": (1, 1, re.compile(re.escape(MEMBER_FIELDS)))}, frozenset(), None)
+       for app, dim in MEMBER_TREES},
 }
+SLICE_PATHS = frozenset(export_slice(app, cube) for app, cube in REST_CUBES)
 GET_DATA_KEYS = {"QUERY": str, "PARAMS": list, "PARAMSTYPE": list}   # drillcore.parse_sui / drill_derive build these
+# exportdataslice's body (Oracle's documented request; rest.py builds it): exactly these keys at every level
+SLICE_KEYS = frozenset({"exportPlanningData", "gridDefinition"})
+SLICE_GRID_KEYS = frozenset({"suppressMissingBlocks", "suppressMissingRows", "suppressMissingColumns", "pov", "columns",
+                             "rows"})
+SLICE_AXIS_KEYS = frozenset({"dimensions", "members"})
+_SLICE_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,255}")   # a dimension or member name: no control character
+# Oracle's member functions (Children(x), ILvl0Descendants(x) ...) and Essbase's @-functions: a grid smartass builds
+# names its members (GridRequest holds names; no atlas member has either form, live 2026-11-22), so a member that
+# reads as a function - '@...', a word right before a bracket, or a function's name before one - is refused.
+_SLICE_FUNCTION = re.compile(r"\s*(?:@|[A-Za-z_]\w*\(|(?:I?L?R?Siblings|I?Children|I?Descendants|I?Ancestors|I?Parents?"
+                             r"|I?Lvl0Descendants|Level0Descendants|Relative|UDA|Attribute|Generation|Level|Match"
+                             r"|Range)\s*\()", re.I)
 # Statement words that write or administer: never a word of a drill query (outside strings, quoted names, comments)
 SQL_WRITES = frozenset({"INSERT", "UPDATE", "DELETE", "MERGE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE",
                         "EXEC", "EXECUTE", "CALL", "BEGIN", "COMMIT", "DECLARE"})
@@ -76,9 +138,16 @@ _SQL_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_$#]*")
 HEADER_VALUES = {"x-requested-with": re.compile("XMLHttpRequest")}
 SECRET_HEADERS = ("x-appbuilder-client-id",)            # values scrubbed from an error text and a repr, like the token
 HIDDEN_HEADERS = ("set-cookie", "set-cookie2")          # kept by the jar, never handed to a caller
-MAX_BODY_BYTES = 1 << 20                                # a getData query or a provider request is far smaller
+MAX_BODY_BYTES = 1 << 20                                # a getData query is far smaller
+# A provider request is about 4 bytes a grid cell (svxml.execute_grid, measured 2026-11-21): 1 MB would stop a grid of
+# some 260 000 cells, which the provider route always sent; 16 MB is about 4 million, about as many as an answer under
+# MAX_ANSWER_BYTES holds (12 to 18 bytes a cell in the provider's answer shape: 3.7 to 5.6 million).
+MAX_SMART_VIEW_BODY_BYTES = 16 << 20
 MAX_ANSWER_BYTES = 64 << 20                             # a 5000-line getData page is about 7 MB (1.3 kB a line)
 MAX_TIMEOUT_S = 600.0
+# A gate's answers: EPM did not take the token, so the request never ran and may go once more with a new one. A 200
+# or a 500 did run (sending it again would run it twice): request() refuses a renew_on outside these.
+GATE_STATUSES = (301, 302, 303, 307, 401, 403)        # a tuple: renew_on takes one (svhttp, rest)
 _URL = re.compile(r"[\x21-\x7e]+")                      # printable ASCII: urlsplit drops tab and line breaks silently
 _NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")      # an HTTP header name (RFC 9110 token)
 _VALUE = re.compile(r"[\x20-\x7e]*")                    # no line break: http.client would quote the value in its error
@@ -135,13 +204,18 @@ class EpmSession:
         self._jar = http.cookiejar.CookieJar()          # thread-safe; only ever sent to self.origin
 
     def request(self, method: str, url: str, headers: dict | None = None, body: str | None = None,
-                timeout: float = 120.0) -> Response:
-        """Send one allowlisted request with the bearer; a 401 takes one new token (reject=the refused one), drops
-        the session's cookies (they came with the refused token) and is sent once more. Any status is an answer
-        (a 3xx too: never followed). Refused before anything is sent; oauth.OAuthError / NotSignedIn as the token
-        source raises them; OSError when the request left and no whole answer came (its text scrubbed of
-        secrets); TooLarge for an answer over MAX_ANSWER_BYTES."""
+                timeout: float = 120.0, renew_on: tuple[int, ...] = (401,), renew_if=None) -> Response:
+        """Send one allowlisted request with the bearer; a 401 (or another status of renew_on, all of them gate
+        answers: GATE_STATUSES) takes one new token (reject=the refused one), drops the session's cookies (they came
+        with the refused token) and is sent once more - unless renew_if(the answer) says no, which keeps that answer
+        as it is (it can only narrow renew_on: the grid route keeps a gate status that carries provider XML, which
+        reached the provider). Any other status is an answer (a 3xx too: never followed). Refused before anything is
+        sent; oauth.OAuthError / NotSignedIn as the token source raises them; OSError when the request left and no
+        whole answer came (its text scrubbed of secrets); TooLarge for an answer over MAX_ANSWER_BYTES."""
         try:
+            if (not isinstance(renew_on, tuple)
+                    or not all(type(s) is int and s in GATE_STATUSES for s in renew_on)):   # a bool is no status
+                raise Refused("refused: only a gate's answer (3xx, 401, 403) may take a new token and go again")
             target, rule = self._target(method, url, body)
             sent = self._headers(headers, rule)
             if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 < timeout <= MAX_TIMEOUT_S:
@@ -155,7 +229,7 @@ class EpmSession:
         t0 = time.monotonic()
         token = self._tokens.access_token(self.origin)
         r = self._send(method, target, sent, data, token, timeout)
-        if r.status == 401:                             # the hour may have ended early: one new token, one more try
+        if r.status in renew_on and (renew_if is None or renew_if(r)):   # the hour may have ended early: one more
             self._jar.clear()                           # first: the cookies go even when no new token comes
             token = self._tokens.access_token(self.origin, reject=token)
             r = self._send(method, target, sent, data, token, timeout)
@@ -282,14 +356,29 @@ def _check_query(method: str, shown: str, query: str, rule: _Rule) -> None:
 def _check_body(method: str, shown: str, path: str, body) -> None:
     if not isinstance(body, str):
         raise Refused(f"refused: POST {shown} without a body")
-    if len(body.encode("utf-8")) > MAX_BODY_BYTES:
-        raise Refused(f"refused: POST {shown} with a body over {MAX_BODY_BYTES} bytes")
+    cap = MAX_SMART_VIEW_BODY_BYTES if path == SMART_VIEW else MAX_BODY_BYTES
+    if len(body.encode("utf-8")) > cap:
+        raise Refused(f"refused: POST {shown} with a body over {cap} bytes")
     if path == SMART_VIEW:
         try:
             svxml.check_read_only(body)
         except ValueError:                              # its text quotes the body's start (a session id): not here
             raise Refused("refused: not a single read-only Smart View request") from None
         return
+    j = _json_object(shown, body)
+    if path in SLICE_PATHS:
+        if not _slice_grid(j):                          # its text is never quoted (member names)
+            raise Refused(f"refused: POST {shown} with a body that is not one exportdataslice grid")
+        return
+    if not isinstance(j, dict) or any(k not in GET_DATA_KEYS or not isinstance(v, GET_DATA_KEYS[k])
+                                      for k, v in j.items()):
+        raise Refused(f"refused: POST {shown} with a body that is not a drill query ({', '.join(GET_DATA_KEYS)})")
+    if "QUERY" in j and not _read_only_sql(j["QUERY"]):
+        raise Refused("refused: the drill query is not one read-only SELECT")      # its text is never quoted
+
+
+def _json_object(shown: str, body: str):
+    """The body as JSON with no key twice (a second key would be read by one parser and not by another)."""
 
     def no_twice(pairs):
         keys = [k for k, _ in pairs]
@@ -297,14 +386,34 @@ def _check_body(method: str, shown: str, path: str, body) -> None:
             raise ValueError("a key twice")
         return dict(pairs)
     try:
-        j = json.loads(body, object_pairs_hook=no_twice)
+        return json.loads(body, object_pairs_hook=no_twice)
     except ValueError:
         raise Refused(f"refused: POST {shown} with a body that is not one JSON object") from None
-    if not isinstance(j, dict) or any(k not in GET_DATA_KEYS or not isinstance(v, GET_DATA_KEYS[k])
-                                      for k, v in j.items()):
-        raise Refused(f"refused: POST {shown} with a body that is not a drill query ({', '.join(GET_DATA_KEYS)})")
-    if "QUERY" in j and not _read_only_sql(j["QUERY"]):
-        raise Refused("refused: the drill query is not one read-only SELECT")      # its text is never quoted
+
+
+def _slice_grid(j) -> bool:
+    """One exportdataslice grid: exportPlanningData false (no supporting detail or comments), the three suppress
+    flags as booleans, a POV with one member per dimension, and at least one column and one row segment - each a
+    list of dimension names with one non-empty member list per dimension; no name is a member function. Nothing
+    else, at any level."""
+    def names(xs) -> bool:
+        return isinstance(xs, list) and all(isinstance(x, str) and _SLICE_NAME.fullmatch(x)
+                                            and not _SLICE_FUNCTION.match(x) for x in xs)
+
+    def segment(s, pov: bool = False) -> bool:
+        if not isinstance(s, dict) or set(s) != SLICE_AXIS_KEYS:
+            return False
+        dims, members = s["dimensions"], s["members"]
+        return (names(dims) and (pov or bool(dims)) and isinstance(members, list) and len(members) == len(dims)
+                and all(names(m) and (len(m) == 1 if pov else bool(m)) for m in members))
+    if not isinstance(j, dict) or set(j) != SLICE_KEYS or j["exportPlanningData"] is not False:
+        return False
+    g = j["gridDefinition"]
+    return (isinstance(g, dict) and set(g) == SLICE_GRID_KEYS
+            and all(type(g[k]) is bool for k in ("suppressMissingBlocks", "suppressMissingRows",
+                                                 "suppressMissingColumns"))
+            and segment(g["pov"], pov=True)
+            and all(isinstance(g[k], list) and g[k] and all(segment(s) for s in g[k]) for k in ("columns", "rows")))
 
 
 _Q_CLOSE = {"[": "]", "{": "}", "(": ")", "<": ">"}   # Oracle's q'[...]': a bracket closes with its pair
@@ -412,6 +521,13 @@ def _check_value(name: str, value) -> None:
 
 _sessions: dict[str, EpmSession] = {}
 _sessions_lock = threading.Lock()
+
+
+def reset() -> None:
+    """The next drill gets fresh sessions (new cookie jars and keys): fin_status(restart=True) without the relay. A
+    drill in flight finishes on the session it has."""
+    with _sessions_lock:
+        _sessions.clear()
 
 
 def session(base: str) -> EpmSession:

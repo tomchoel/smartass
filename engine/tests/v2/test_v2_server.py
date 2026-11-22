@@ -170,7 +170,7 @@ def _status_base(monkeypatch):
     monkeypatch.setattr(build, "summary", lambda path: {"metrics": 2, "facts": 5, "drafts": 0, "built_at": "x"})
     from smartass.ops import doctor
     monkeypatch.setattr(doctor, "run", lambda: [doctor.Check("excel", "OK", "x"),
-                                                doctor.Check("vba_access", "FAIL", "blocked", "tick it")])
+                                                doctor.Check("oauth", "FAIL", "not set up", "add [oauth]")])
 
 
 class _FakeDb:
@@ -201,19 +201,23 @@ def test_fin_status_shows_the_last_save_after_a_reply(monkeypatch):
     assert out["save_after_reply"] == {"last": last, "waiting": 0}
 
 
-def test_fin_status_restart_without_relay_restarts_our_excel(monkeypatch):
+def test_fin_status_restart_without_relay_starts_the_sessions_and_the_job_runner_afresh(monkeypatch):
+    """Task 6: no hidden Excel to restart any more - the EPM sessions (grids, drill) and the runner of Excel jobs are
+    what this server holds; each is made afresh on the next call. The reply field keeps its key."""
     import asyncio
+
+    from smartass.epm import drill_token, epmhttp, svhttp
     _status_base(monkeypatch)
     monkeypatch.delenv("SVKIT_PROXY", raising=False)
-    closed = []
-
-    class Old:
-        def shutdown(self):
-            closed.append(True)
-    monkeypatch.setattr(server.kit, "_host", Old())
+    monkeypatch.setattr(svhttp, "_shared", object())
+    monkeypatch.setattr(drill_token, "_shared", object())
+    monkeypatch.setattr(epmhttp, "_sessions", {"https://p": object()})
+    runner = server.kit.user_jobs()
+    runner.last_error = "fin_x exceeded 600s in the user's Excel"
     out = asyncio.run(server.fin_status(restart=True))
-    assert closed == [True] and server.kit._host is None
-    assert out["restarted"] == "excel"
+    assert out["restarted"] == "sessions" and svhttp._shared is None and drill_token._shared is None
+    assert epmhttp._sessions == {}
+    assert server.kit.user_jobs() is not runner and server.kit.user_jobs().last_error is None
 
 
 def test_fin_status_without_restart_changes_nothing(monkeypatch):
@@ -223,7 +227,7 @@ def test_fin_status_without_restart_changes_nothing(monkeypatch):
     assert "restarted" not in out and out["metrics"] == 2
     assert out["atlas"] == {"oldest_age_days": 3.0, "stale": False, "dimensions_built": 1}
     assert out["doctor"]["overall"] == "FAIL"
-    assert [p["name"] for p in out["doctor"]["problems"]] == ["vba_access"]
+    assert [p["name"] for p in out["doctor"]["problems"]] == ["oauth"]
 
 
 def test_instructions_mention_the_critic_and_the_prompts():

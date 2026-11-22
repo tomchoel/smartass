@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-from .host import InputError
+from ..core.errors import InputError
 
 _DATE_LIKE = re.compile(r"^\s*(\d{1,4}[-./]\d{1,2}([-./]\d{1,4})?|[A-Za-z]{3,9}[-./ ]\d{1,4}"
                         r"|\d{1,2}[-./ ][A-Za-z]{3,9}([-./ ]\d{1,4})?)\s*$")

@@ -42,10 +42,24 @@ def test_execute_grid_is_a_retrieve_with_default_aliases():
     "<req_ExecuteGrid><action>retrieve</action><action>\nfreeformsubmit\n</action></req_ExecuteGrid>",
     "<req_ExecuteGrid><action>retrieve</action><action >submit</action></req_ExecuteGrid>",
     "<req_OpenCube></req_OpenCube><req_WriteBack/>",
+    # final review A, M10: the provider's parser sees no action inside CDATA or a comment - refused, any request
+    "<req_ExecuteGrid><sID>x</sID><![CDATA[<action>retrieve</action>]]></req_ExecuteGrid>",
+    "<req_ExecuteGrid><sID>x</sID><!-- <action>retrieve</action> --></req_ExecuteGrid>",
+    "<req_ExecuteGrid><sID>x</sID><action>retrieve</action><!-- x --></req_ExecuteGrid>",
+    "<req_OpenCube><sID>x</sID><cube><![cdata[FinMax]]></cube></req_OpenCube>",
+    "<req_ConnectToProvider><!DOCTYPE x [<!ENTITY a 'submit'>]></req_ConnectToProvider>",
+    "<req_ConnectToProvider><?x y?></req_ConnectToProvider>",
 ])
 def test_check_read_only_refuses_everything_else(body):
     with pytest.raises(ValueError, match="refused"):
         svxml.check_read_only(body)
+
+
+def test_a_refused_body_is_not_quoted():
+    """A malformed body can start with a session id: the refusal names no part of it."""
+    with pytest.raises(ValueError, match="refused") as e:
+        svxml.check_read_only("<sID>sid-SECRET-123</sID><req_ExecuteGrid></req_ExecuteGrid>")
+    assert "SECRET" not in str(e.value) and "sid-" not in str(e.value)
 
 
 def test_session_requests_pass_the_allowlist():
@@ -61,6 +75,104 @@ def test_sid_and_exceptions():
     assert e.value.code == 1000 and str(e.value) == "Grid is <bad>"
     with pytest.raises(svxml.SvXmlError, match="not a Smart View provider answer"):
         svxml.sid_of("<html>401 Authorization Required</html>")
+
+
+SECRETS = ("sid-7f3a9c",
+           "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0b20ifQ.c2lnbmF0dXJlX29mX3Rva2Vu",  # allow-secret (an invented token)
+           "JSESSIONID=c00k1e9", "ORA_OCIS_42=ocis-c00k1e")
+# Answers that are not the provider's, each carrying a session id, a token and cookies: one with an <exception>
+# element but no desc passes the transport (svhttp._provider_xml), and its text must still never be quoted.
+NOT_PROVIDER = [
+    f"<exception><sID>{SECRETS[0]}</sID><token>{SECRETS[1]}</token></exception> Set-Cookie: {SECRETS[2]}; {SECRETS[3]}",
+    f"<html><body>Signed out. <input name='sID' value='{SECRETS[0]}'> Bearer {SECRETS[1]} {SECRETS[2]} "
+    f"{SECRETS[3]}</body></html>",
+    f"sID={SECRETS[0]}&token={SECRETS[1]}&cookie={SECRETS[2]}&{SECRETS[3]}",
+    f"<req_Connect><sID>{SECRETS[0]}</sID></req_Connect>{SECRETS[1]}{SECRETS[2]}{SECRETS[3]}",
+]
+
+
+@pytest.mark.parametrize("text", NOT_PROVIDER)
+def test_an_answer_that_is_not_the_providers_is_never_quoted(text):
+    """Its error text reaches the tool reply (a failed grid's warning, a drill link's error): it says what the answer
+    looked like in words of our own, never a part of it - no session id, token or cookie can be in it."""
+    with pytest.raises(svxml.SvXmlError) as e:
+        svxml.raise_for_exception(text)
+    said = str(e.value)
+    assert said.startswith("not a Smart View provider answer (") and not any(s in said for s in SECRETS)
+    assert not any(part in said for part in ("sID", "token", "cookie", "Bearer", "JSESSIONID"))
+
+
+def _desc(text: str) -> str:
+    """The provider's own <desc> error text as raise_for_exception passes it on (escaped in the XML, as EPM sends
+    it)."""
+    import html
+    answer = f'<exception errcode="1000" type="error"><desc>{html.escape(text)}</desc></exception>'
+    with pytest.raises(svxml.SvXmlError) as e:
+        svxml.raise_for_exception(answer)
+    return str(e.value)
+
+
+def _invented(n: int = 24) -> str:
+    """A random token-like string, made at run time (no realistic secret in a fixture)."""
+    import secrets
+    return secrets.token_urlsafe(n)
+
+
+def test_a_session_id_tag_in_the_providers_own_error_text_is_scrubbed():
+    sid = _invented()
+    said = _desc(f"Session <sID>{sid}</sID> is not valid. Grid is Invalid")
+    assert sid not in said and "Grid is Invalid" in said and "Session" in said
+
+
+def test_a_jwt_shaped_string_in_the_providers_own_error_text_is_scrubbed():
+    jwt = ".".join(["eyJ" + _invented(12), "eyJ" + _invented(20), _invented(30)])
+    said = _desc(f"token {jwt} rejected for member ac.C60")
+    assert jwt not in said and not any(part in said for part in jwt.split(".")) and "ac.C60" in said
+
+
+def test_a_bearer_token_in_the_providers_own_error_text_is_scrubbed():
+    tok = _invented()
+    said = _desc(f"Authorization: Bearer {tok} - access denied")
+    assert tok not in said and "access denied" in said
+
+
+@pytest.mark.parametrize("cookies", ["Cookie: JSESSIONID={a}; ORA_OCIS_42={b}",
+                                     "Set-Cookie: {a}={b}; Path=/; Secure",
+                                     "session JSESSIONID={a} and ORA_OCIS_42={b} ended"])
+def test_cookie_pairs_in_the_providers_own_error_text_are_scrubbed(cookies):
+    a, b = _invented(8), _invented(8)
+    said = _desc("Grid is Invalid. " + cookies.format(a=a, b=b))
+    assert a not in said and b not in said and said.startswith("Grid is Invalid.")
+
+
+@pytest.mark.parametrize("shape", [
+    "Grid is Invalid. JSESSIONID = {x}",
+    "Grid is Invalid. ssoToken = {x}",
+    "Grid is Invalid. sessionId: {x}",
+    'Grid is Invalid. {{"token": "{x}"}}',
+    "Grid is Invalid. See https://h.example/p?code={x}&state=1",
+    "Grid is Invalid. Authorization: Basic {x}",
+    "Grid is Invalid. Basic {x}",
+    "Grid is Invalid. X-Auth: {x}",
+    "Grid is Invalid. https://h.example/p;sID%3D{x}",
+    "Grid is Invalid. session &amp;lt;sID&amp;gt;{x}&amp;lt;/sID&amp;gt; ended",
+])
+def test_every_shape_of_a_session_key_or_query_in_the_providers_error_text_is_scrubbed(shape):
+    x = _invented()
+    said = _desc(shape.format(x=x))
+    assert x not in said and said.startswith("Grid is Invalid.")
+
+
+def test_a_bearer_token_is_replaced_once_and_cleanly():
+    jwt = ".".join(["eyJ" + _invented(12), "eyJ" + _invented(20), _invented(30)])
+    said = _desc(f"Authorization denied: Bearer {jwt} - access denied")
+    assert "Bearer ***" in said and "removed]" not in said and "access denied" in said
+
+
+def test_the_providers_own_error_text_is_capped_in_length():
+    said = _desc("Grid is Invalid: " + "x" * 5000)
+    assert said.startswith("Grid is Invalid: xxx") and len(said) < 700 and "5017 characters" in said
+    assert _desc("Grid is Invalid: " + "y" * 400) == "Grid is Invalid: " + "y" * 400      # a usual text is kept whole
 
 
 def test_data_sources_give_the_pod_per_app():
@@ -270,3 +382,16 @@ def test_drill_url_none_without_a_report():
 def test_drill_url_raises_provider_exceptions():
     with pytest.raises(svxml.SvXmlError, match="not valid"):
         svxml.drill_url('<exception errcode="1000" type="error"><desc>Your session is not valid.</desc></exception>')
+
+
+def test_the_raw_desc_is_kept_for_the_classification_and_never_shown():
+    """Final review A, M1: the error keeps the provider's raw text (unescaped, uncut) for svhttp's classification;
+    its text, args and repr are the scrubbed one."""
+    import secrets
+    x = secrets.token_hex(12)
+    with pytest.raises(svxml.SvXmlError) as e:
+        svxml.raise_for_exception(f'<exception errcode="1000"><desc>Member Cookie: {x} &amp;amp; more</desc>'
+                                  '</exception>')
+    assert e.value.raw == f"Member Cookie: {x} &amp; more" and e.value.code == 1000
+    assert x not in str(e.value) and x not in repr(e.value) and x not in str(e.value.args)
+    assert svxml.SvXmlError("no member list").raw == "no member list"

@@ -18,7 +18,7 @@ from ...core import config
 from ..instances import local_path
 from ..jobs import com, fast_excel
 from ..target import _wait_ready
-from ..host import InputError
+from ...core.errors import InputError
 
 SNAP_DIR = config.SVKIT / "snapshots"
 KEEP_DAYS = 7

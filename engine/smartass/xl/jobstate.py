@@ -29,7 +29,7 @@ import logging
 from pathlib import Path
 
 from ..core import config
-from .host import HostError
+from ..core.errors import HostError
 from .inproc import runner
 from .inproc.batch import Batch
 

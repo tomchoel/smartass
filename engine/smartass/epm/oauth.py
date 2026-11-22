@@ -53,6 +53,11 @@ class OAuthError(Exception):
     """The bearer route cannot authenticate right now (svhttp.BearerTransport makes it an SvHttpError)."""
 
 
+class Transient(OAuthError):
+    """The identity domain did not answer, or another query or process was renewing the sign-in: a moment later the
+    same call may work; nothing needs signing in."""
+
+
 class NotSignedIn(OAuthError):
     """This pod has no usable sign-in. It reaches the tool call as it is, which answers with sign_in_reply() (the
     page and a code); `smartass login` does the same in a terminal."""
@@ -117,7 +122,7 @@ def _post_form(path: str, fields: dict, timeout: float = 30) -> tuple[int, dict]
     except urllib.error.HTTPError as e:
         status, text = e.code, e.read().decode("utf-8", "replace")
     except OSError as e:                                    # URLError, timeouts, TLS
-        raise OAuthError(f"the identity domain did not answer ({type(e).__name__})") from None
+        raise Transient(f"the identity domain did not answer ({type(e).__name__})") from None
     try:
         j = json.loads(text)
     except ValueError:
@@ -162,7 +167,7 @@ def _locked(pod: str, wait_s: float | None = None):
     with _tlocks_guard:
         tlock = _tlocks.setdefault(pod, threading.Lock())
     if not tlock.acquire(timeout=wait_s):
-        raise OAuthError("another query is still renewing the EPM sign-in")
+        raise Transient("another query is still renewing the EPM sign-in")
     try:
         f = _file(pod)
         f.parent.mkdir(parents=True, exist_ok=True)
@@ -175,7 +180,7 @@ def _locked(pod: str, wait_s: float | None = None):
                     break
                 except OSError:
                     if time.monotonic() - t0 > wait_s:
-                        raise OAuthError("another smartass process is still renewing the EPM sign-in") from None
+                        raise Transient("another smartass process is still renewing the EPM sign-in") from None
                     time.sleep(0.05)
             try:
                 yield

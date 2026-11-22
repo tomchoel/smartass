@@ -10,6 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable
 
+from ..epm import svhttp
 from ..epm.grid import INVALID, NOACCESS, Axis
 from ..epm.svhttp import ALIAS_CLASH
 from . import atlas
@@ -82,8 +83,8 @@ def grid(sv, conn: str, pov: dict, dim: str, names: list[str], cdim: str, cols: 
     blocked: dict[str, set[str]] = {c: set() for c in cols}
     rows_checked: list[bool] = []
 
-    def clash(e: Exception) -> bool:
-        return any(m in str(e) for m in ALIAS_CLASH)
+    def clash(e: Exception) -> bool:                  # by its class, sorted on the provider's raw text: the
+        return isinstance(e, svhttp.GridRefused)      # scrubbed text loses its words when a label trips the scrub
 
     def part(ns: list[str]) -> None:
         try:
@@ -310,7 +311,5 @@ def _line(d: dict) -> str:
 def run(connections: list[str] | None = None, progress: Callable[[str], None] = print) -> list[dict]:
     """The CLI path: the shared HTTP route on the real atlas (closed at the end)."""
     import contextlib
-
-    from ..epm import svhttp
     with contextlib.closing(atlas.connect()) as db:
         return derive_all(svhttp.shared(), db, connections, progress)

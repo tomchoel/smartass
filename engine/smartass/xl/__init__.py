@@ -1,10 +1,10 @@
-"""Working inside the USER's interactive Excel (any open workbook), on the server's COM thread.
+"""Working inside the USER's interactive Excel (any open workbook), on a job's own STA thread (xl/userjobs.py).
 
 Proven on 2026-10-13 (spikes/spike_hwnd.py):
 - attach through the Excel main window (AccessibleObjectFromWindow on XLMAIN>XLDESK>EXCEL7), never GetObject(path) -
   that spawns a hidden '-Embedding' Excel when the workbook is not in the ROT yet;
-- load the VBA bridge as a hidden add-in (svbridge.xlam) into that Excel; add-ins resolve by name, they are not enumerated;
-- never send COM calls while Smart View's 'Login' dialog is open in that Excel (deadlock) - wait for the SSO watcher;
-- Smart View acts on the ACTIVE workbook/sheet, so the target sheet is activated (the user's view jumps to it).
-The user's Excel is NEVER killed or saved by this package.
+- never send COM calls while Smart View's 'Login' dialog is open in that Excel (it blocks): such an Excel is refused
+  at once (xl/dialogs.py) - smartass uses no Smart View, but it stays installed in the user's Excel.
+The user's Excel is NEVER killed or saved by this package; the only Excel it starts is the user's own, on a workbook
+(target._launch_excel).
 """

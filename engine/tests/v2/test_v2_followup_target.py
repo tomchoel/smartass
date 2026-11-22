@@ -77,9 +77,9 @@ def test_followup_on_book1_resolves_the_open_unsaved_workbook(home, monkeypatch)
     """read_stored with the defaulted 'Book1' finds the open unsaved book by name (resolve_target, fix A)."""
     from test_open_excel import Books, FakeApp, NamedWb, _by_name
 
-    from smartass.xl import jobs, login, sheets
+    from smartass.xl import dialogs, jobs, sheets
     monkeypatch.setattr(jobs, "hold_turn", lambda *a, **k: True)
-    monkeypatch.setattr(login, "wait_login_cleared", lambda *a, **k: None)
+    monkeypatch.setattr(dialogs, "refuse_login", lambda *a, **k: None)
     monkeypatch.setattr(session, "workbook", lambda: "C:/an/Session.xlsx")
     _store("Book1")
     book1 = NamedWb("Book1")
@@ -133,7 +133,7 @@ def test_critic_takes_an_explicit_target(home, monkeypatch):
 
 
 def test_critic_on_a_closed_unsaved_book_falls_back_to_its_stored_answer(home, monkeypatch):
-    from smartass.xl.host import InputError
+    from smartass.core.errors import InputError
     _store_brief("Book1")
     _store_brief("C:/x.xlsx", q=1)
     _store_brief("Book1", q=2)
@@ -144,7 +144,7 @@ def test_critic_on_a_closed_unsaved_book_falls_back_to_its_stored_answer(home, m
 
 
 def test_critic_explicit_target_that_is_not_open_is_an_error(home, monkeypatch):
-    from smartass.xl.host import InputError
+    from smartass.core.errors import InputError
     _store_brief("Book1")
     _critic_wire(monkeypatch, fail=InputError("Give an absolute path for target (got 'Book7')"))
     with pytest.raises(InputError):

@@ -1,15 +1,20 @@
+import http.client
+import io
 import re
 import sqlite3
 import threading
+import types
+import urllib.error
+from urllib.parse import urlsplit
 
 import pytest
 from svxml_util import answer
 
 from smartass.knowledge import atlas
-from smartass.epm import oauth, svhttp, svxml
+from smartass.epm import epmhttp, oauth, svhttp, svxml
 from smartass.core import config
 from smartass.epm.grid import Axis
-from smartass.xl.host import InputError
+from smartass.core.errors import InputError
 
 
 def _store(db, conn, dims, error=None):
@@ -444,6 +449,25 @@ def test_drill_link_reconnects_once_on_an_expired_session(lite_db):
     assert t.tags().count("ConnectToProvider") == 2
 
 
+def test_a_drill_link_error_puts_no_session_id_token_or_cookie_into_the_reply(lite_db, monkeypatch):
+    """drillstep._link quotes the route's error in the tool reply: an answer that is not the provider's, carrying a
+    session id, a token and a cookie, twice (the one reconnect), reaches it in words of our own only."""
+    import asyncio
+
+    from smartass.epm import drillstep
+    secrets = ("sid-7f3a9c",
+               "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0b20ifQ.c2lnbmF0dXJlX29mX3Rva2Vu",  # allow-secret (an invented token)
+               "JSESSIONID=c00k1e9")
+    bad = f"<exception><sID>{secrets[0]}</sID><token>{secrets[1]}</token></exception> Set-Cookie: {secrets[2]}"
+    sv = _sv(FakeTransport(answer(ONE_CELL), bad, bad), lite_db)
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+    monkeypatch.setattr(drillstep, "_http_link", sv.drill_link)
+    with pytest.raises(drillstep.ToolError) as e:
+        asyncio.run(drillstep._link("FinLite", CELL))
+    said = str(e.value)
+    assert "not a Smart View provider answer (other XML," in said and not any(s in said for s in secrets)
+
+
 PARTS = [{"All Accounts": "ac.C60080", "All Entities": e, "All Time Periods": "Sep 26"}
          for e in ("un.SY.2TEC", "un.SY.2BUS")]
 
@@ -454,6 +478,20 @@ def test_child_values_one_column(lite_db):
     t = FakeTransport(answer(grid))
     assert _sv(t, lite_db).child_values("FinLite", PARTS) == [-3.0, None]
     assert t.tags().count("ExecuteGrid") == 1
+
+
+def test_child_values_over_rest_ask_the_same_one_column_grid_of_the_second_engine(lite_db, monkeypatch):
+    sv = _sv(FakeTransport(), lite_db)
+    asked = []
+
+    def fetch_rest(conn, pov, rows, cols):
+        asked.append((conn, rows[0].dimension, rows[0].members, cols[0].members))
+        lay = svhttp.layout(conn, FINLITE_DIMS, pov, rows, cols)
+        return svhttp.Fetched(lay, [[None] * 5, [None] * 5, ["x", -3.0], ["y", None]], 0.0, "rest")
+    monkeypatch.setattr(sv, "fetch_rest", fetch_rest)
+    monkeypatch.setattr(sv, "fetch", lambda *a: pytest.fail("the provider route"))
+    assert sv.child_values("FinLite", PARTS, rest=True) == [-3.0, None]
+    assert asked == [("FinLite", "All Entities", ["un.SY.2TEC", "un.SY.2BUS"], ["Sep 26"])]
 
 
 def test_child_values_none_when_parts_do_not_differ(lite_db):
@@ -536,6 +574,98 @@ def test_a_lost_request_goes_again_on_a_new_session_and_the_old_one_is_dropped(d
 
 
 
+def test_the_errors_the_second_engine_would_meet_as_well_are_no_fallback(db_path, tmp_path):
+    """A stale atlas, an alias clash, a pod without a scope and a token refused twice are svhttp.NoFallback: the
+    provider's error is the answer, REST is not tried."""
+    clash = ('<exception errcode="1000" type="error"><desc>Found duplicate aliases or member name conflicting with '
+             'alias under parent x.</desc></exception>')
+    t = FakeTransport(clash, answer(GRID))
+    with pytest.raises(svhttp.GridRefused) as e:
+        _q(_sv(t, db_path))
+    assert isinstance(e.value, svhttp.NoFallback) and t.tags().count("ExecuteGrid") == 1      # no reconnect
+    with pytest.raises(svhttp.AtlasStale):
+        _q(_sv(FakeTransport(), tmp_path / "empty.db"))
+    with pytest.raises(svhttp.AtlasStale):
+        _sv(FakeTransport(), db_path).retrieve("FinMax", {"All Bogus": "x"}, [Axis("All Accounts", ["a"])],
+                                              [Axis("All Time Periods", ["p"])], True, False)
+    assert issubclass(svhttp.NoScope, svhttp.NoFallback) and issubclass(svhttp.TokenRefused, svhttp.NoFallback)
+    for t in (FakeTransport(EXPIRED, EXPIRED), FakeTransport(answer(SHIFTED))):     # what a new route may fix
+        with pytest.raises(svhttp.SvHttpError) as e:
+            _q(_sv(t, db_path))
+        assert not isinstance(e.value, svhttp.NoFallback)
+
+
+# live 2026-11-22, a member the cube no longer has (REST: 'The member ... does not exist in the Entity dimension')
+MISMATCH = ('<exception errcode="1000" type="error"><desc>Member name and Alias placed on row 3 do not match.'
+            '</desc></exception>')
+OUT_OF_PLACE = '<exception errcode="1000" type="error"><desc>Member x is out of place.</desc></exception>'
+
+
+@pytest.mark.parametrize("body", [INVALID, INVALID.replace("<desc>", "<desc>Error: "), MISMATCH, OUT_OF_PLACE])
+def test_a_wrong_member_is_final_on_the_provider_route_and_goes_on_to_the_second_engine(db_path, body):
+    """Deterministic (no reconnect), but not NoFallback: Planning REST's HTTP 400 names the member, so the second
+    engine can leave it out (data/provider.py)."""
+    t = FakeTransport(body, answer(GRID))
+    with pytest.raises(svhttp.WrongMember) as e:
+        _q(_sv(t, db_path))
+    assert not isinstance(e.value, svhttp.NoFallback) and t.tags().count("ExecuteGrid") == 1
+
+
+@pytest.mark.parametrize("desc", ["session expired: the grid is out of place in the queue",
+                                  "Cannot connect: Member name and Alias placed on row 3 do not match",
+                                  "Grid is Invalidated by a restart, try again", "Member x is out of place. Retry"])
+def test_a_transient_error_that_only_contains_a_wrong_member_phrase_is_not_taken_for_one(db_path, desc):
+    t = FakeTransport(f'<exception errcode="1000" type="error"><desc>{desc}</desc></exception>', answer(GRID))
+    _q(_sv(t, db_path))                                                 # reconnected once, then answered
+    assert t.tags().count("ExecuteGrid") == 2
+
+
+def test_no_token_and_a_busy_data_source_lookup_are_not_sent_on_to_the_second_engine(db_path, monkeypatch):
+    """REST meets the same token and waits on the same lock: the wait would only double."""
+    sv = _sv(FakeTransport(), db_path)
+    monkeypatch.setattr(svhttp.config, "SVHTTP_TIMEOUT_S", 0.01)
+    sv._bases_lock.acquire()
+    try:
+        with pytest.raises(svhttp.NoFallback, match="busy looking up"):
+            _q(sv)
+    finally:
+        sv._bases_lock.release()
+    t = svhttp.BearerTransport(tokens=_Tokens(oauth.OAuthError("refresh token expired")), opener=_Wire(lambda *a: 1))
+    with pytest.raises(svhttp.NoFallback, match="no EPM access token"):
+        t.post("https://plan1.example", svxml.connect())
+
+
+def test_no_access_token_is_its_own_kind_of_no_fallback_so_its_reply_fits_its_cause():
+    """Carry-in (Task 3c review, Minor): the drill link's next step by cause - a missing token is not 'try again'."""
+    t = svhttp.BearerTransport(tokens=_Tokens(oauth.OAuthError("refresh token expired")), opener=_Wire(lambda *a: 1))
+    with pytest.raises(svhttp.NoToken, match="no EPM access token .*refresh token expired") as e:
+        t.post("https://plan1.example", svxml.connect())
+    assert issubclass(svhttp.NoToken, svhttp.NoFallback) and e.value.transient is False
+
+
+def test_a_token_missing_for_a_transient_cause_is_marked_so():
+    """Carry-in (Task 5 review, Minor 7): the identity domain not answering is transient (oauth.Transient)."""
+    t = svhttp.BearerTransport(tokens=_Tokens(oauth.Transient("the identity domain did not answer (URLError)")),
+                               opener=_Wire(lambda *a: 1))
+    with pytest.raises(svhttp.NoToken, match="did not answer") as e:
+        t.post("https://plan1.example", svxml.connect())
+    assert e.value.transient is True
+
+
+def test_the_second_engine_sends_through_the_grid_routes_session_of_the_cubes_pod(db_path):
+    t = svhttp.BearerTransport(tokens=_Tokens("at-1"), opener=_Wire(lambda *a: (200, SOURCES)))
+    sv = _sv(t, db_path)
+    assert sv.rest_session("FinPlan") is t.session("https://strat.example")
+    assert sv.rest_session("FinLite") is sv.rest_session("FinMax") is t.session("https://plan1.example")
+    with pytest.raises(svhttp.SvHttpError, match="no HTTP route"):
+        sv.rest_session("Vision")
+    with pytest.raises(svhttp.SvHttpError, match="the bearer route's sessions"):
+        _sv(FakeTransport(), db_path).rest_session("FinMax")
+    empty = svhttp.BearerTransport(tokens=_Tokens("at-1"), opener=_Wire(lambda *a: (200, NO_SOURCES)))
+    with pytest.raises(svhttp.SvHttpError, match="no Smart View data source"):
+        _sv(empty, db_path).rest_session("FinMax")
+
+
 def test_an_alias_clash_does_not_spend_a_reconnect(db_path):
     """FinPlan's 'Duplicate name ... qualified name' is deterministic: cards_fetch.grid splits the chunk itself."""
     clash = ('<exception errcode="1000" type="error"><desc>Duplicate name oWUKONORGE WUKONORGE Elim found in grid; '
@@ -544,6 +674,22 @@ def test_an_alias_clash_does_not_spend_a_reconnect(db_path):
     with pytest.raises(svhttp.SvHttpError, match="qualified name"):
         _q(_sv(t, db_path))
     assert t.tags().count("ConnectToProvider") == 1 and t.tags().count("ExecuteGrid") == 1
+
+
+@pytest.mark.parametrize("desc, refused", [
+    ("Duplicate name Cookie: Choc found in grid; cannot resolve. Please replace it with qualified name.",
+     svhttp.GridRefused),
+    ("Member Cookie: Choc is out of place.", svhttp.WrongMember)], ids=["alias clash", "wrong member"])
+def test_the_providers_error_is_classified_on_its_raw_text_and_shown_scrubbed(db_path, desc, refused):
+    """Final review A, M1: the scrub's cookie rule takes the rest of the line, so a label holding 'Cookie:' (invented
+    here) lost its class when the scrubbed text was classified - an alias clash then went to REST. Classified on the
+    provider's raw <desc>, shown scrubbed."""
+    t = FakeTransport(f'<exception errcode="1000" type="error"><desc>{desc}</desc></exception>', answer(GRID))
+    with pytest.raises(svhttp.SvHttpError) as e:
+        _q(_sv(t, db_path))
+    assert type(e.value) is refused and isinstance(e.value, svhttp.NoFallback) == (refused is svhttp.GridRefused)
+    assert "Cookie: ***" in str(e.value) and "Choc" not in str(e.value)
+    assert t.tags().count("ExecuteGrid") == 1                        # deterministic: no reconnect
 
 
 # ---------------------------------------------------------------- BearerTransport (OAuth access token, no browser)
@@ -567,17 +713,55 @@ class _Tokens:
         return t
 
 
+class _Answer(io.BytesIO):
+    """A 2xx answer as urllib hands it back."""
+
+    def __init__(self, status, text, headers):
+        super().__init__(text.encode("utf-8"))
+        self.status, self.headers = status, headers
+
+    def info(self):
+        return self.headers
+
+
+class _Wire:
+    """urllib's opener under the transport's EpmSessions: records every request it is given and its timeout;
+    answer(origin, body, token) - the origin and the bearer as they were sent - gives (status, text) or (status,
+    text, headers), or raises. A status outside 2xx is raised as urllib.error.HTTPError, as urllib's opener does."""
+
+    def __init__(self, answer):
+        self.answer, self.requests, self.timeouts = answer, [], []
+
+    def open(self, req, timeout):
+        self.requests.append(req)
+        self.timeouts.append(timeout)
+        u = urlsplit(req.full_url)
+        token = (req.get_header("Authorization") or "").removeprefix("Bearer ")
+        status, text, *more = self.answer(f"{u.scheme}://{u.hostname}", req.data.decode("utf-8"), token)
+        headers = http.client.HTTPMessage()
+        for k, v in (more[0] if more else {}).items():
+            headers[k] = v
+        if 200 <= status < 300:
+            return _Answer(status, text, headers)
+        raise urllib.error.HTTPError(req.full_url, status, "no", headers, io.BytesIO(text.encode("utf-8")))
+
+
+def _transport(tokens, answer=lambda *a: pytest.fail("sent")):
+    """A BearerTransport whose pod sessions send over a _Wire (by default one that must not be reached)."""
+    return svhttp.BearerTransport(tokens=tokens, opener=_Wire(answer))
+
+
 def _bearer(tokens, *answers):
-    """(transport, what was sent): answers are (status, text) or an exception, in order."""
+    """(transport, what was sent: (origin, token)): answers are (status, text) or an exception, in order."""
     sent, queue = [], list(answers)
 
-    def send(base, body, token):
-        sent.append((base, token))
+    def answer(origin, body, token):
+        sent.append((origin, token))
         a = queue.pop(0) if len(queue) > 1 else queue[0]
         if isinstance(a, Exception):
             raise a
         return a
-    return svhttp.BearerTransport(tokens=tokens, send=send), sent
+    return _transport(tokens, answer), sent
 
 
 OK_XML = (200, "<res_ConnectToProvider><sID>s1</sID></res_ConnectToProvider>")
@@ -598,16 +782,121 @@ def test_bearer_refuses_writes_before_it_asks_for_a_token():
     assert tokens.asked == [] and sent == []
 
 
-def test_a_refused_token_gets_one_new_one():
+def test_the_provider_request_goes_through_the_pods_epm_session():
+    """One boundary: the transport builds no request of its own. Its POST is the session's - the pod's origin and
+    the allowed path, the bearer, text/xml and the session's own framing (Accept-Encoding: identity) - on one
+    EpmSession per pod (one cookie jar), which is not the drill's (epmhttp.session: its key belongs to its jar)."""
+    wire = _Wire(lambda *a: OK_XML)
+    t = svhttp.BearerTransport(tokens=_Tokens("at-1"), opener=wire)
+    for base in ("https://STRAT.example:443/", "https://strat.example", "https://plan1.example"):
+        t.post(base, svxml.connect())
+    s = t.session("https://strat.example")
+    assert isinstance(s, epmhttp.EpmSession) and s.origin == "https://strat.example"
+    assert t.session("https://strat.example") is s and t.session("https://plan1.example") is not s
+    assert s is not epmhttp.session("https://strat.example")
+    assert [(r.get_method(), r.full_url) for r in wire.requests] == [
+        ("POST", "https://strat.example/HyperionPlanning/SmartView")] * 2 + [
+        ("POST", "https://plan1.example/HyperionPlanning/SmartView")]
+    r = wire.requests[0]
+    assert r.get_header("Authorization") == "Bearer at-1" and r.get_header("Content-type") == "text/xml"
+    assert r.get_header("Accept-encoding") == "identity" and r.data == svxml.connect().encode()
+
+
+def test_the_provider_route_is_held_to_the_sessions_allowlist(monkeypatch):
+    monkeypatch.delitem(epmhttp.ALLOWED, epmhttp.SMART_VIEW)
+    tokens = _Tokens("at-1")
+    t, sent = _bearer(tokens, OK_XML)
+    with pytest.raises(svhttp.SvHttpError, match="not on the allowlist") as e:
+        t.post("https://strat.example", svxml.connect())
+    assert not isinstance(e.value, svhttp.RequestLost) and sent == [] and tokens.asked == []
+
+
+def test_a_write_never_leaves_even_past_the_transports_own_check(monkeypatch):
+    """The session checks the body itself (svxml.check_read_only): without the transport's check a write is still
+    refused before a token is asked for, and the refusal does not quote the body."""
+    monkeypatch.setattr(svhttp, "svxml", types.SimpleNamespace(check_read_only=lambda body: None))
+    tokens = _Tokens("at-1")
+    t, sent = _bearer(tokens, OK_XML)
+    with pytest.raises(svhttp.SvHttpError, match="not a single read-only Smart View request") as e:
+        t.post("https://strat.example", "<req_SubmitData><sID>SID-SECRET</sID></req_SubmitData>")
+    assert sent == [] and tokens.asked == [] and "SID-SECRET" not in str(e.value)
+
+
+def test_a_body_over_the_sessions_cap_never_leaves(monkeypatch):
+    monkeypatch.setattr(epmhttp, "MAX_SMART_VIEW_BODY_BYTES", 100)
+    tokens = _Tokens("at-1")
+    t, sent = _bearer(tokens, OK_XML)
+    with pytest.raises(svhttp.SvHttpError, match="body over 100 bytes") as e:
+        t.post("https://strat.example", svxml.connect())
+    assert not isinstance(e.value, svhttp.RequestLost) and sent == [] and tokens.asked == []
+
+
+@pytest.mark.parametrize("refused", [GATE_401, (302, ""), (403, "<html>403</html>")])
+def test_a_refused_token_gets_one_new_one(refused):
     tokens = _Tokens("at-1", "at-2")
-    t, sent = _bearer(tokens, GATE_401, OK_XML)
+    t, sent = _bearer(tokens, refused, OK_XML)
     assert "<sID>s1</sID>" in t.post("https://strat.example", svxml.connect())
     assert sent == [("https://strat.example", "at-1"), ("https://strat.example", "at-2")]
     assert tokens.asked == [("https://strat.example", None), ("https://strat.example", "at-1")]
 
 
+@pytest.mark.parametrize("status", [401, 302, 403])
+def test_a_gate_status_that_carries_provider_xml_is_not_sent_again(status):
+    """Provider XML means the request reached the provider: it is the answer whatever the status, and it is never
+    sent again on the same sID (the session's one new token is for a gate that let nothing through)."""
+    tokens = _Tokens("at-1", "at-2")
+    t, sent = _bearer(tokens, (status, OK_XML[1]))
+    assert "<sID>s1</sID>" in t.post("https://strat.example", svxml.connect())
+    t2, sent2 = _bearer(_Tokens("at-1", "at-2"), (status, '<exception errcode="1"><desc>x</desc></exception>'))
+    assert "<exception" in t2.post("https://strat.example", svxml.connect())
+    assert sent == [("https://strat.example", "at-1")] and tokens.asked == [("https://strat.example", None)]
+    assert len(sent2) == 1
+
+
+@pytest.mark.parametrize("refused", [GATE_401, (302, ""), (403, "<html>403</html>")])
+def test_a_token_refused_twice_is_sent_twice_and_no_more(refused):
+    tokens = _Tokens("at-1", "at-2", "at-3")
+    t, sent = _bearer(tokens, refused)
+    with pytest.raises(svhttp.SvHttpError, match=f"refused the access token twice \\(HTTP {refused[0]}\\)") as e:
+        t.post("https://strat.example", svxml.connect())
+    assert not isinstance(e.value, svhttp.RequestLost)
+    assert [tok for _, tok in sent] == ["at-1", "at-2"] and len(tokens.asked) == 2
+
+
+def test_a_pod_keeps_its_cookies_and_a_refused_token_takes_them_along():
+    """One jar per pod, as a browser has: EPM's cookie comes back on the pod's next request, never on another pod's;
+    a refused token drops the cookies that came with it (the session's 401 rule) before the one more try."""
+    answers = [(200, OK_XML[1], {"Set-Cookie": "JSESSIONID=one; Path=/"}), OK_XML, OK_XML, GATE_401, OK_XML]
+    wire = _Wire(lambda *a: answers.pop(0))
+    t = svhttp.BearerTransport(tokens=_Tokens("at-1", "at-1", "at-1", "at-1", "at-2"), opener=wire)
+    for base in ("https://strat.example", "https://strat.example", "https://plan1.example", "https://strat.example"):
+        t.post(base, svxml.connect())
+    cookies = [r.get_header("Cookie") for r in wire.requests]
+    assert cookies == [None, "JSESSIONID=one", None, "JSESSIONID=one", None]
+    assert [r.get_header("Authorization") for r in wire.requests[3:]] == ["Bearer at-1", "Bearer at-2"]
+
+
+@pytest.mark.parametrize("limit, want", [(120.0, 108.0 + 256.0), (10.0, 9.0 + 256.0), (1000.0, epmhttp.MAX_TIMEOUT_S)])
+def test_a_request_has_the_old_first_byte_limit_plus_the_read_of_the_largest_answer(monkeypatch, limit, want):
+    """The session's timeout is a deadline for the whole answer; SVHTTP_TIMEOUT_S was urllib's limit per receive. So
+    the deadline is the old 90 % of it (the server's time to the first byte) plus the read of the largest answer the
+    session takes (MAX_ANSWER_BYTES, 64 MB) at a slow 256 kB/s, within the most an EpmSession takes."""
+    monkeypatch.setattr(config, "SVHTTP_TIMEOUT_S", limit)
+    wire = _Wire(lambda *a: OK_XML)
+    svhttp.BearerTransport(tokens=_Tokens("at-1"), opener=wire).post("https://strat.example", svxml.connect())
+    assert wire.timeouts == [pytest.approx(want)]
+
+
+def test_an_answer_over_the_size_cap_is_an_svhttp_error_not_a_lost_request(monkeypatch):
+    monkeypatch.setattr(epmhttp, "MAX_ANSWER_BYTES", 10)
+    t, sent = _bearer(_Tokens("at-1"), OK_XML)
+    with pytest.raises(svhttp.SvHttpError, match="is over") as e:
+        t.post("https://strat.example", svxml.connect())
+    assert not isinstance(e.value, svhttp.RequestLost) and len(sent) == 1
+
+
 def test_not_signed_in_reaches_the_caller_as_it_is():                       # Review Focus 4
-    t = svhttp.BearerTransport(tokens=_Tokens(oauth.NotSignedIn("not signed in")), send=lambda *a: OK_XML)
+    t = _transport(_Tokens(oauth.NotSignedIn("not signed in")))
     with pytest.raises(oauth.NotSignedIn):
         t.post("https://strat.example", svxml.connect())
 
@@ -626,28 +915,28 @@ def test_a_sign_in_that_ends_after_a_refusal_reaches_the_caller_as_it_is():
     (_Tokens("at-1", oauth.OAuthError("another query is still renewing")), lambda *a: GATE_401, "still renewing")])
 def test_everything_else_is_an_svhttp_error(tokens, send, msg):
     with pytest.raises(svhttp.SvHttpError, match=msg) as e:
-        svhttp.BearerTransport(tokens=tokens, send=send).post("https://strat.example", svxml.connect())
+        _transport(tokens, send).post("https://strat.example", svxml.connect())
     assert not isinstance(e.value, svhttp.RequestLost)             # never retried as a lost request
 
 
 def test_without_any_oauth_set_up_the_caller_gets_the_set_up_text():
-    t = svhttp.BearerTransport(tokens=_Tokens("at-1", scopes=(), configured=False), send=lambda *a: OK_XML)
+    t = _transport(_Tokens("at-1", scopes=(), configured=False))
     with pytest.raises(oauth.NotSetUp) as e:
         t.post("https://plan1.example", svxml.connect())
     assert str(e.value) == oauth.NOT_SET_UP
 
 
 def test_a_pod_without_a_scope_says_where_to_add_it():
+    tokens = _Tokens("at-1", scopes=())
     with pytest.raises(svhttp.NoScope) as e:                      # an SvHttpError: another pod's grid falls back
-        svhttp.BearerTransport(tokens=_Tokens("at-1", scopes=())).post("https://plan1.example/", svxml.connect())
-    assert isinstance(e.value, svhttp.SvHttpError)
+        _transport(tokens).post("https://plan1.example/", svxml.connect())
+    assert isinstance(e.value, svhttp.SvHttpError) and tokens.asked == []
     assert str(e.value) == "no OAuth scope is configured for https://plan1.example ([oauth.scopes] in config.toml)"
 
 
 def test_the_home_pod_without_a_scope_stops_the_closed_month_with_the_add_the_scope_step(db_path):
     from smartass.core import serverkit
-    sv = svhttp.SvHttp(svhttp.BearerTransport(tokens=_Tokens("at-1", scopes=("https://strat.example",)),
-                                              send=lambda *a: pytest.fail("sent")), home="https://plan1.example",
+    sv = svhttp.SvHttp(_transport(_Tokens("at-1", scopes=("https://strat.example",))), home="https://plan1.example",
                        db_path=db_path)
     with pytest.raises(svhttp.NoScope) as e:
         sv.closed_month("FinMax")
@@ -657,12 +946,21 @@ def test_the_home_pod_without_a_scope_stops_the_closed_month_with_the_add_the_sc
 
 
 @pytest.mark.parametrize("answer_", [TimeoutError("timed out"), ConnectionResetError("reset"),
-                                     (502, "<html>Bad Gateway</html>")])
+                                     http.client.IncompleteRead(b"<res_"), (502, "<html>Bad Gateway</html>")])
 def test_a_request_that_may_have_reached_epm_is_lost_not_sent_again(answer_):
     t, sent = _bearer(_Tokens("at-1"), answer_)
-    with pytest.raises(svhttp.RequestLost):
+    with pytest.raises(svhttp.RequestLost) as e:
         t.post("https://strat.example", svxml.connect())
     assert len(sent) == 1
+    assert str(e.value).startswith("Smart View provider at https://strat.example: ")
+    assert "at-1" not in str(e.value)
+
+
+def test_a_lost_request_is_named_by_its_kind_only():
+    t, _ = _bearer(_Tokens("at-SECRET"), ConnectionResetError("reset while sending Bearer at-SECRET"))
+    with pytest.raises(svhttp.RequestLost) as e:
+        t.post("https://strat.example", svxml.connect())
+    assert str(e.value) == "Smart View provider at https://strat.example: lost the request (ConnectionResetError)"
 
 
 def test_bearer_accepts_a_provider_answer_with_any_http_status():
@@ -672,7 +970,7 @@ def test_bearer_accepts_a_provider_answer_with_any_http_status():
 
 def test_a_grid_over_the_bearer_route_is_the_same_contract(db_path):
     fake = FakeTransport(answer(GRID))
-    t = svhttp.BearerTransport(tokens=_Tokens("at-1"), send=lambda base, body, token: (200, fake.post(base, body)))
+    t = _transport(_Tokens("at-1"), lambda origin, body, token: (200, fake.post(origin, body)))
     lay, parsed, _ = _q(_sv(t, db_path))
     assert [r[1:] for r in parsed.rows] == [[100.0, 110.0], [50.0, None]]
     assert fake.tags() == ["GetProvisionedDataSources", "ConnectToProvider", "OpenApplication", "OpenCube", "ExecuteGrid"]
@@ -689,41 +987,10 @@ def test_not_signed_in_is_not_swallowed_into_the_excel_fallback(db_path):
     """run_prepare with a provider whose transport raises NotSignedIn raises NotSignedIn (no 'routes: excel')."""
     from smartass import pipeline
     from smartass.data.provider import SvHttpProvider
-    t = svhttp.BearerTransport(tokens=_Tokens(oauth.NotSignedIn("x")), send=lambda *a: OK_XML)
+    t = _transport(_Tokens(oauth.NotSignedIn("x")), lambda *a: OK_XML)
     with pytest.raises(oauth.NotSignedIn):
         pipeline.run_prepare({}, SvHttpProvider(_sv(t, db_path)))
 
-
-def test_bearer_sends_the_token_and_keeps_one_cookie_jar_per_pod(monkeypatch):
-    """The real sender against a fake opener: Authorization on every request, redirects never followed, an HTTP
-    error is an answer (status, text), and each pod has its own opener (cookie jar)."""
-    import io
-    import urllib.error
-    seen = []
-
-    class Opener:
-        def __init__(self, n):
-            self.n = n
-
-        def open(self, req, timeout):
-            seen.append((self.n, req.full_url, req.get_header("Authorization"), req.get_header("Content-type"), req.data))
-            if b"GetProvisionedDataSources" in req.data:
-                raise urllib.error.HTTPError(req.full_url, 401, "no", {}, io.BytesIO(b"<html>401</html>"))
-            return _Resp(200, b"<res_ConnectToProvider><sID>s1</sID></res_ConnectToProvider>")
-
-    class _Resp(io.BytesIO):
-        def __init__(self, status, data):
-            super().__init__(data)
-            self.status = status
-    built = []
-    monkeypatch.setattr(svhttp.urllib.request, "build_opener", lambda *h: built.append(h) or Opener(len(built)))
-    t = svhttp.BearerTransport(tokens=_Tokens("at-1"))
-    assert t._https("https://strat.example", svxml.connect(), "at-1")[0] == 200
-    assert t._https("https://strat.example", svxml.provisioned_data_sources(), "at-1") == (401, "<html>401</html>")
-    t._https("https://plan1.example", svxml.connect(), "at-1")
-    assert [n for n, *_ in seen] == [1, 1, 2] and len(built) == 2
-    assert seen[0][1:4] == ("https://strat.example/HyperionPlanning/SmartView", "Bearer at-1", "text/xml")
-    assert any(h is svhttp._NoRedirect for h in built[0])
 
 # ---------------------------------------------------------------- M4: the bearer only over https to the pod's own origin
 @pytest.mark.parametrize("base", [

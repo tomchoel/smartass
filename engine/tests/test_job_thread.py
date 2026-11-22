@@ -14,11 +14,11 @@ import pywintypes
 
 from smartass import exceljob
 from smartass.core import config
-from smartass.xl import host as xlhost
-from smartass.xl import hostproc, jobs
-from smartass.xl.host import ExcelHost, HostError, HostTimeout
+from smartass.core.errors import HostError, HostTimeout
+from smartass.xl import hostproc, jobs, userjobs
 from smartass.xl.hostproc import ComThread
 from smartass.xl.inproc import runner
+from smartass.xl.userjobs import UserJobs
 
 
 class Proxy:
@@ -77,31 +77,8 @@ def no_gc():
         gc.enable()
 
 
-def _host() -> ExcelHost:
-    h = ExcelHost.__new__(ExcelHost)                 # the user-Excel jobs need no hidden Excel
-    h.last_error, h.pid = None, None
-    return h
-
-
-class _Registry:
-    def remove(self, pid):
-        pass
-
-
-def _hidden_host() -> ExcelHost:
-    """The host with its own long-lived COM thread and a hidden Excel that is only a pid: nothing is started (its
-    start is a no-op) and nothing is killed (the tests patch kill_ours)."""
-    h = ExcelHost.__new__(ExcelHost)
-    h.thread = ComThread()
-    h.thread.start()
-    h.registry = _Registry()
-    h.app = h.wb = None
-    h.pid, h.ctime = 4848, 1.0
-    h.connected = {}
-    h.restarts, h.last_error, h.reset_gen = 0, None, 0
-    h._resetting, h._reset_lock = threading.Event(), threading.Lock()
-    h._ensure_started = lambda: None
-    return h
+def _host() -> UserJobs:
+    return UserJobs()                                # the runner of the user-Excel jobs (Task 6: the only one)
 
 
 def _made(released: list) -> None:
@@ -139,7 +116,7 @@ async def test_every_object_a_job_made_is_released_on_its_own_thread(make, no_gc
     released: list = []
     go = threading.Event()
     try:
-        await _host().call(make(released, go), timeout=0.5, what="the job", user_excel=True)
+        await _host().call(make(released, go), timeout=0.5, what="the job")
     except HostError:
         pass
     go.set()
@@ -162,8 +139,8 @@ async def test_a_later_job_on_another_thread_releases_none_of_an_earlier_jobs_ob
     def second(hh):
         gc.collect()                                 # the garbage collector, as it runs on any thread by itself
         return "second"
-    assert await h.call(first, timeout=10, what="first", user_excel=True) == "first"
-    assert await h.call(second, timeout=10, what="second", user_excel=True) == "second"
+    assert await h.call(first, timeout=10, what="first") == "first"
+    assert await h.call(second, timeout=10, what="second") == "second"
     assert released == ["user-job-first", "user-job-first"]
 
 
@@ -190,7 +167,7 @@ async def test_a_failed_jobs_error_comes_first_when_releasing_its_objects_does_n
     t0 = time.monotonic()
     try:
         with pytest.raises(HostError) as e:
-            await _host().call(job, timeout=5, what="the job", user_excel=True)
+            await _host().call(job, timeout=5, what="the job")
         assert not isinstance(e.value, HostTimeout) and "Excel refused the call" in str(e.value)
         assert time.monotonic() - t0 < 2
     finally:
@@ -206,7 +183,7 @@ async def test_a_release_that_does_not_return_does_not_keep_the_next_job_waiting
     turn is free."""
     monkeypatch.setattr(config, "SVKIT", tmp_path)
     monkeypatch.setattr(jobs, "ABANDONED_WAIT_S", 0.3)
-    monkeypatch.setattr(xlhost, "RELEASE_WAIT_S", 0.3)
+    monkeypatch.setattr(userjobs, "RELEASE_WAIT_S", 0.3)
     h = _host()
     excel = threading.Event()
 
@@ -221,10 +198,10 @@ async def test_a_release_that_does_not_return_does_not_keep_the_next_job_waiting
         return "ran"
     t0 = time.monotonic()
     try:
-        assert await h.call(job, timeout=5, what="fin_refresh", user_excel=True) == "answered"
+        assert await h.call(job, timeout=5, what="fin_refresh") == "answered"
         assert time.monotonic() - t0 < 2
         with pytest.raises(HostError) as e:
-            await h.call(next_job, timeout=10, what="fin_analyze", user_excel=True)
+            await h.call(next_job, timeout=10, what="fin_analyze")
         assert not isinstance(e.value, HostTimeout)
         assert "fin_refresh" in str(e.value) and "this request was not started" in str(e.value)
     finally:
@@ -232,77 +209,12 @@ async def test_a_release_that_does_not_return_does_not_keep_the_next_job_waiting
     deadline = time.monotonic() + 10
     while True:                                      # the release returned: the turn is free again
         try:
-            assert await h.call(next_job, timeout=5, what="fin_analyze", user_excel=True) == "ran"
+            assert await h.call(next_job, timeout=5, what="fin_analyze") == "ran"
             break
         except HostError:
             if time.monotonic() > deadline:
                 raise
             await asyncio.sleep(0.1)
-
-
-@pytest.mark.anyio
-async def test_a_hidden_jobs_release_that_does_not_return_restarts_the_hidden_excel(monkeypatch, no_gc):
-    """Task D2 review, Important 1: the hidden Excel's jobs (the EPM pulls) run one after another on the host's one
-    long-lived thread. A release after a job's answer that does not return wedged that thread: every later call queued
-    for QUEUE_TIMEOUT_S and failed, with no reset. Now a release that has not returned RELEASE_WAIT_S after the answer
-    restarts the hidden Excel as a job that does not answer does: the kill makes the blocked release return, and the
-    next call runs."""
-    monkeypatch.setattr(xlhost, "RELEASE_WAIT_S", 0.3)
-    monkeypatch.setattr(config, "QUEUE_TIMEOUT_S", 3)
-    monkeypatch.setattr(config, "RESET_WAIT_S", 3)
-    excel = threading.Event()                        # set: that Excel answers again (here: it was killed)
-    killed: list = []
-
-    def kill(pid, ctime):                            # the reset's kill of the engine's own Excel
-        killed.append(pid)
-        excel.set()
-        return True
-    monkeypatch.setattr(xlhost, "kill_ours", kill)
-    monkeypatch.setattr(xlhost, "windows_of", lambda pid: [])
-    h = _hidden_host()
-
-    def pull(hh):
-        stuck = _Stuck(excel)                        # released by the collector at the job's end
-        stuck.me = stuck
-        return "pulled"
-    try:
-        t0 = time.monotonic()
-        assert await h.call(pull, timeout=5, what="an EPM pull") == "pulled"
-        assert time.monotonic() - t0 < 2             # the answer first
-        assert await h.call(lambda hh: "next", timeout=5, what="the next pull") == "next"
-        assert killed == [4848] and h.pid is None and h.restarts == 1
-    finally:
-        excel.set()
-        h.thread.q.put((None, None))
-
-
-def test_the_release_after_a_job_handed_to_the_hidden_excel_from_a_user_job_is_watched_too(monkeypatch, no_gc):
-    """on_host (a user job's work in the hidden Excel: the bridge add-in's build, a new analysis file) runs on the same
-    host thread: its release is watched as ExcelHost.call's."""
-    monkeypatch.setattr(xlhost, "RELEASE_WAIT_S", 0.3)
-    monkeypatch.setattr(config, "RESET_WAIT_S", 3)
-    excel = threading.Event()
-    killed: list = []
-
-    def kill(pid, ctime):
-        killed.append(pid)
-        excel.set()
-        return True
-    monkeypatch.setattr(xlhost, "kill_ours", kill)
-    monkeypatch.setattr(xlhost, "windows_of", lambda pid: [])
-    h = _hidden_host()
-
-    def build(hh=None):
-        stuck = _Stuck(excel)
-        stuck.me = stuck
-        return "built"
-    try:
-        assert h.on_host(build, timeout=5) == "built"
-        assert h.on_host(lambda: "next", timeout=5) == "next"
-        assert killed == [4848]
-    finally:
-        excel.set()
-        h.thread.q.put((None, None))
 
 
 @pytest.mark.anyio
@@ -315,7 +227,7 @@ async def test_a_job_that_returns_a_com_object_fails_on_its_own_thread():
                                        pythoncom.IID_IDispatch)
         return {"workbook": "x.xlsx", "checks": [("ok", d)]}
     with pytest.raises(HostError) as e:
-        await _host().call(job, timeout=10, what="the job", user_excel=True)
+        await _host().call(job, timeout=10, what="the job")
     assert "COM object" in str(e.value)
 
 
@@ -357,10 +269,10 @@ async def test_a_jobs_end_collects_only_when_no_other_com_job_is_running(monkeyp
         a_runs.set()
         a_go.wait(10)
         return "a"
-    first = asyncio.ensure_future(h.call(a, timeout=20, what="A", user_excel=True))
+    first = asyncio.ensure_future(h.call(a, timeout=20, what="A"))
     try:
         assert await asyncio.to_thread(a_runs.wait, 10)
-        assert await h.call(lambda hh: "b", timeout=10, what="B", user_excel=True) == "b"
+        assert await h.call(lambda hh: "b", timeout=10, what="B") == "b"
         await _ended("user-job-B")                   # B's end has run, while A runs
         assert calls.threads == []
     finally:
@@ -428,10 +340,10 @@ async def test_two_overlapping_jobs_objects_are_released_on_their_own_threads_wi
     def b(hh):
         _batch_failed(released)
         return "b"
-    first = asyncio.ensure_future(h.call(a, timeout=20, what="A", user_excel=True))
+    first = asyncio.ensure_future(h.call(a, timeout=20, what="A"))
     try:
         assert await asyncio.to_thread(a_done.wait, 10)
-        assert await h.call(b, timeout=10, what="B", user_excel=True) == "b"
+        assert await h.call(b, timeout=10, what="B") == "b"
         await _ended("user-job-B")
     finally:
         a_go.set()

@@ -14,10 +14,9 @@ from dataclasses import dataclass, field
 from mcp.server.mcpserver.exceptions import ToolError
 
 from ..core import config, timing
-from . import ops
 from . import drilltime, oauth
 from .drill_token import _REQUEST_S
-from .drillcore import CellTooWide, NoDrillData, TooManyLines
+from .drillcore import CellTooWide, NoDrillData, TooManyLines, drill_cell_defaults
 
 log = logging.getLogger("smartview")
 SOURCE = "Kilde: Data Integration drill-through (FinLite)."
@@ -46,11 +45,6 @@ class DrillResult:
     split_check: float | None = None
     warnings: list[str] = field(default_factory=list)
     stages: dict = field(default_factory=dict)
-
-
-async def _call(fn, what: str = "call"):
-    from ..core.serverkit import _call as call
-    return await call(fn, what=what)
 
 
 @contextmanager
@@ -125,7 +119,7 @@ async def drill(cell: dict, *, say=say, connection: str = "FinLite", max_lines: 
 
     from . import drill_lines as dl
     t0, stages = time.monotonic(), {}
-    cell, warnings = ops.drill_cell_defaults(cell)
+    cell, warnings = drill_cell_defaults(cell)
     notes = _NOTES.set(_Notes(say))                 # the pieces' tasks inherit it
     try:
         with timed(stages, "drill"):
@@ -271,21 +265,52 @@ def _http_off() -> bool:
     return os.environ.get("SV_TEST_NO_HTTP_DRILL") == "1"
 
 
+HTTP_OFF = ("the drill link needs the Smart View provider's HTTP route, which is switched off here "
+            "(SV_TEST_NO_HTTP_DRILL=1); there is no other route for it")
+
+
 async def _link(connection: str, cell: dict) -> dict:
-    """The drill link over HTTP (no Excel); Smart View in the hidden Excel only if the HTTP route fails (logged)."""
+    """The drill link over the provider's HTTP route (GetDrillThroughReports). It has no second route: Planning REST
+    has no drill-report request, and the Excel route is gone - a failure is a clear error."""
     import asyncio
 
-    from ..xl.host import InputError
-    if not _http_off():
-        try:
-            with drilltime.span("http drill link"):
-                return await asyncio.to_thread(_http_link, connection, cell)
-        except (InputError, oauth.NotSignedIn):          # a missing sign-in is answered with the code, not Excel
-            raise
-        except Exception as e:   # noqa: BLE001 - SvHttpError or anything else: the Excel route answers
-            log.warning("drill link: HTTP failed (%s); using Smart View in Excel", e)
-    return await _call(lambda h: drilltime.timed("excel drill link", ops.drill_link, h, connection, cell),
-                       what="drill link")
+    from ..core.errors import InputError
+    if _http_off():
+        raise ToolError(HTTP_OFF)
+    try:
+        with drilltime.span("http drill link"):
+            return await asyncio.to_thread(_http_link, connection, cell)
+    except (InputError, oauth.NotSignedIn):              # a missing sign-in is answered with the code
+        raise
+    except Exception as e:   # noqa: BLE001 - SvHttpError or anything else
+        raise ToolError(f"the drill link of {connection} cell {' / '.join(map(str, cell.values()))} could not be "
+                        f"fetched over the Smart View provider route ({e}); Planning REST has no drill-report "
+                        f"request, so there is no other route. Next step: {_link_advice(e)}") from None
+
+
+def _link_advice(e: Exception) -> str:
+    """The next step after a failed drill link, by its cause: another try only helps a transient failure; a missing
+    scope, a stale atlas, no access token, a grid EPM refused for an alias clash and a token EPM refused twice each
+    have their own."""
+    from ..core.serverkit import NEXT_STEP
+    from . import svhttp
+    if isinstance(e, svhttp.NoScope):
+        return NEXT_STEP["NoScope"]
+    if isinstance(e, svhttp.AtlasStale):
+        return "Build the atlas (`smartass atlas build`), then drill again."
+    if isinstance(e, svhttp.NoToken) and e.transient:
+        return "Drill again shortly: the identity domain did not answer just now; nothing needs signing in."
+    if isinstance(e, svhttp.NoToken):
+        return ("Run `smartass login --status`: a sign-in that has ended needs `smartass login --force`; one still "
+                "shown as signed in could not be renewed just now, so drill again in a minute.")
+    if isinstance(e, svhttp.GridRefused):
+        return ("Look the cell's members up with fin_lookup and name each by its member code (a name that is also "
+                "another member's alias is ambiguous), then drill again.")
+    if isinstance(e, svhttp.TokenRefused):
+        return ("Run `smartass login --force` to sign in again (without --force a pod that still looks signed in "
+                "is skipped), then drill again. If EPM still refuses, the refusal may be a missing EPM role or OAuth "
+                "scope for this pod: ask the EPM administrator.")
+    return "Try again in a minute."
 
 
 async def _drill_cell(connection: str, cell: dict, max_lines: int, split: str) -> tuple[list[dict], float | None]:
@@ -443,22 +468,25 @@ async def _derived_piece(cell: dict, cube, template: tuple, body: str, state: di
 
 
 async def _child_values(connection: str, parts: list[dict]) -> list | None:
-    """The split children's cube values in one host job, or None (then every child is linked as before)."""
+    """The split children's cube values as one column grid - over the provider route, else over Planning REST - or
+    None (then every child is linked as before: the values are only an optimisation). After an error REST would meet
+    as well (svhttp.NoFallback: the same token, scope or atlas) REST is not asked: the wait would only double. A grid
+    the provider refused for an alias clash (GridRefused) is asked of REST, which resolves the clash."""
     import asyncio
 
-    from . import drill_split, svhttp
-    if not _http_off():
-        try:
-            return await asyncio.to_thread(lambda: svhttp.shared().child_values(connection, parts))
-        except oauth.NotSignedIn:                       # answered with the sign-in code, not Excel
-            raise
-        except Exception as e:   # noqa: BLE001 - fall back to Smart View in Excel
-            log.warning("split values: HTTP failed (%s); using Smart View in Excel", e)
-    try:
-        return await _call(lambda h: drill_split.child_values_on(h, connection, parts), what="split values")
-    except Exception as e:   # noqa: BLE001 - only an optimisation
-        log.info("split values not read (%s); linking every child", e)
+    from . import svhttp
+    if _http_off():
         return None
+    for over_rest in (False, True):
+        try:
+            return await asyncio.to_thread(lambda: svhttp.shared().child_values(connection, parts, rest=over_rest))
+        except oauth.NotSignedIn:                       # answered with the sign-in code
+            raise
+        except Exception as e:   # noqa: BLE001 - only an optimisation
+            log.info("split values not read over %s (%s)", "Planning REST" if over_rest else "HTTP", e)
+            if isinstance(e, svhttp.NoFallback) and not isinstance(e, svhttp.GridRefused):
+                break
+    return None
 
 
 def _lines_of(pieces: list[dict], view: dict, parent_cube: float | None = None) -> dict:

@@ -1,4 +1,5 @@
-"""Engine logging: one rotating file per process kind, with sso tokens, bearer tokens and the HTTP secret redacted."""
+"""Engine logging: one rotating file per process kind, every line redacted (redact: session keys, tokens, cookies,
+credential headers, URL query strings and the HTTP secret)."""
 from __future__ import annotations
 
 import logging
@@ -8,9 +9,65 @@ import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-_PATTERNS = [re.compile(r"(sso_token=)[^&\s'\"]+"),
-             re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/=-]+"),
-             re.compile(r"((?:X-Smartass-Secret|secret)\s*[:=]\s*['\"]?)[^\s'\",}]+", re.I)]
+_TAG = r"(?:<|&(?:amp;)*lt;)"                               # '<', also HTML-escaped once or more
+_END = r"(?:>|&(?:amp;)*gt;)"
+_EQ = r"[ \t]*(?:=|%3D|%3A)[ \t]*"                             # name = value, URL-encoded name=value
+_Q = r"(?:[\"']|&(?:amp;)*(?:quot|apos|#0?39|#34|#[xX]0?2[27]);)"   # a quote, also HTML-escaped (once or more)
+_NAMES = (r"sID|JSESSIONID|ORA_[\w-]*|OAM[\w-]*|_WL_[\w-]*|X-Smartass-Secret|device_code|"
+          r"[\w-]*(?:session|token|secret|password|passwd)[\w-]*")
+# The secret keys by their whole names (no prefix: 'Oamaru: 3' is text): after one of them "name: value" is scrubbed
+# whatever the value's length. Never a generic name: value rule: the scrub runs on texts whose sentences have colons -
+# every log line, every tool error (core/serverkit), the run log, the provider's own error text (epm/svxml) and the two
+# reply warnings that quote an engine's error (pipeline.prepare: the grids not fetched, the grids fetched over REST);
+# the other reply warnings are the engine's own words and do not pass it. sID and session_id only in their own case
+# ('SID: 4', 'Session_id: unknown' are text), the others in any; client secret also with a space or a hyphen.
+# id_token is not here: 'id_token: missing' is text, and an ID token is a JWT (the JWT rule) of more than 16
+# characters (the rule of the 16 key-like characters, which also takes 'session ID: <value>').
+_KEYS = (r"sID|session_id|(?i:sessionId|JSESSIONID|ssoToken|sso_token|access_token|refresh_token|client[ _-]secret|"
+         r"device_code|password|passwd|X-Smartass-Secret)")
+_KEYLIKE = r"[A-Za-z0-9._~+/=%-]"                              # a key's characters, URL-encoded ones too
+_B64 = r"[A-Za-z0-9._~+/=-]"                                    # ... and base64's (Basic credentials): no '%'
+
+
+def _shaped(c: str) -> str:
+    """A credential's shape in characters c: 16 of them, or 12 with a digit, one of + / = % or a capital after a small
+    letter (base64: 'dXNlcjpwYXNz'); 'Basic subscriptions' is text."""
+    return rf"(?:(?={c}*(?:[0-9+/=%]|(?-i:[a-z][A-Z]))){c}{{12}}|{c}{{16}})"
+
+
+_SHAPED = _shaped(_KEYLIKE)
+_EQUOTE = r"&(?:amp;)*(?:quot|apos|#0?39|#34|#[xX]0?2[27]);"   # a quote HTML-escaped (once or more)
+# A query after a space or at the start is scrubbed only when it names a secret key ('Use ?period=Sep' is text).
+_QUERY_KEYS = rf"code|{_NAMES}"
+_PATTERNS = [
+    (re.compile(rf"({_TAG}\s*sID\s*{_END}).*?({_TAG}\s*/\s*sID\s*{_END})", re.S | re.I), r"\1***\2"),
+    (re.compile(r"(?<=[\w/.%-])\?(?=[\w%])[^\s'\"<>]+"), "?..."),          # a URL's query string, whole (not 'label?)')
+    (re.compile(rf"(?:^|(?<=\s))\?(?=(?:[^\s'\"<>&]*&)*(?:{_QUERY_KEYS})=)[^\s'\"<>]+", re.I),
+     "?..."),                                                      # ... after a space or at the start: a secret key's only
+    (re.compile(r"%3F(?=[\w.~-]+%3D)[^\s'\"<>]+", re.I), "%3F..."),           # a URL-encoded query (%3Fname%3D...)
+    (re.compile(r"\b((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*[\"']?)(?:(?:Bearer|Basic|Digest|Negotiate|NTLM)"
+                rf"[ \t]+[^\s\"',;<>&}}]+|(?:[A-Za-z][\w-]*[ \t]+)?(?=[^\s\"',;<>&}}]*?{_SHAPED})"
+                r"[^\s\"',;<>&}]+)", re.I),
+     r"\1***"),                    # an Authorization header: a scheme's value, else a credential's shape ('approved')
+    (re.compile(r"\b(Bearer(?:\s+|%20|\+))(?!\*\*\*)[A-Za-z0-9._~+/=-]{16,}", re.I),
+     r"\1***"),                                                   # a token's length: not 'the cost bearer of'
+    (re.compile(rf"\b(Basic\s+)(?!\*\*\*)(?={_shaped(_B64)}){_B64}+"), r"\1***"),        # basic credentials
+    (re.compile(r"\beyJ[\w-]*\.[\w-]+(?:\.[\w-]*)?"), "***"),                          # a JWT (header.payload.sig)
+    (re.compile(r"\b((?:set-)?cookie[ \t]*:[ \t]*)[^\n<]*", re.I), r"\1***"),            # a cookie header, whole
+    (re.compile(r"([\"'](?:set-)?cookie[\"'][ \t]*[:,][ \t]*[\"'])[^\"']+", re.I), r"\1***"),  # ... dict key, pair
+    (re.compile(r"([\"'](?:set-)?cookie[\"'][ \t]*:[ \t]*\[)[^\]]*", re.I), r"\1***"),     # ... a list of values
+    (re.compile(r"\b(x-[\w-]+[ \t]*:[ \t]*)(?!\*\*\*)(?=[A-Za-z0-9._~+/=-]{12})[^\s,;<>\"']+", re.I),
+     r"\1***"),                                                         # an X-... header's key-like value
+    # a session key, token, secret or cookie: name=value (any value), "name": "value" (JSON), name: value (a value of
+    # 16 key-like characters or more - not the words after a class name in a logged error, 'NoToken: no EPM ...')
+    (re.compile(rf"({_Q}?(?<![\w-])(?:{_NAMES}){_Q}?{_EQ}{_Q}?)(?!\*\*\*)[^\s;<>\"'&,}}]+", re.I), r"\1***"),
+    (re.compile(rf"([\"'](?:{_NAMES})[\"'][ \t]*:[ \t]*[\"'])(?!\*\*\*)[^\"']+", re.I), r"\1***"),
+    (re.compile(rf"({_EQUOTE}(?:{_NAMES}){_EQUOTE}[ \t]*:[ \t]*{_EQUOTE})(?!\*\*\*)[^&\"'<>]+", re.I),
+     r"\1***"),                                                   # ... the same pair with its quotes HTML-escaped
+    (re.compile(rf"((?<![\w-])(?:{_NAMES}|session[ \t]+id)[ \t]*:[ \t]*{_Q}?)(?!\*\*\*)(?={_KEYLIKE}{{16}})"
+                r"[^\s;<>\"'&,}]+", re.I), r"\1***"),
+    (re.compile(rf"((?<![\w-])(?:{_KEYS})[ \t]*:[ \t]*{_Q}?)(?!\*\*\*)[^\s;<>\"'&,}}]+"), r"\1***"),
+]
 _secrets: list[str] = []
 
 
@@ -20,9 +77,12 @@ def add_secret(value: str | None) -> None:
 
 
 def redact(text) -> str:
+    """text as it may go into a log line, a tool reply, the run log or an exception text: every shape of a session
+    key, token, cookie, credential header or URL query string replaced (_PATTERNS), and the secrets this process
+    holds (add_secret). The one scrub for all of them (also svxml's: the provider's own error text)."""
     out = str(text)
-    for p in _PATTERNS:
-        out = p.sub(r"\1***", out)
+    for p, repl in _PATTERNS:
+        out = p.sub(repl, out)
     for s in _secrets:
         out = out.replace(s, "***")
     return out

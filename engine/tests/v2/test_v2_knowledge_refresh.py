@@ -94,6 +94,39 @@ def test_refresh_end_to_end_with_fakes(tmp_path, monkeypatch):
     assert snap_now["FinMax"]["All Entities"]["un.SY.G910"][0] == "un.SY.2BUS"         # the new snapshot is saved
 
 
+def test_a_refresh_whose_atlas_was_not_replaced_says_so_and_is_not_ok(tmp_path, monkeypatch):
+    """Task 4 review, Minor 2: an atlas build that replaced nothing is not "rebuilt": the report says not replaced and
+    why, and the refresh is not ok (the CLI exits non-zero); the rest of the refresh runs on the unchanged atlas."""
+    a, sem, k, home = _wire(tmp_path, monkeypatch)
+    not_replaced = [{"connection": "FinMax", "dimension": "All Accounts", "error": "HTTP 500"},
+                    {"connection": "-", "error": "atlas not replaced: 1 dimension or cube failed"}]
+    out = refresh.refresh(sem, a, k, home, (2026, 10), rebuild_atlas=lambda: not_replaced,
+                          run_testset=lambda: [{"id": "b01", "ok": True, "diffs": []}])
+    assert out.build.ok and not out.ok
+    report = (home / "knowledge" / "reports" / "2026-10.md").read_text(encoding="utf-8")
+    assert "Atlas: NOT replaced (1 dimension or cube failed); the refresh used" in report and "rebuilt" not in report
+
+
+def test_a_refresh_without_a_sign_in_says_the_atlas_was_not_replaced(tmp_path, monkeypatch):
+    """Task 4b review, Important 2: the monthly refresh's atlas build without a sign-in (the likeliest reason) is not
+    "rebuilt": the report says NOT replaced and why, and the refresh is not ok."""
+    from smartass.epm import members, oauth
+    from smartass.ops import atlas_build
+    a, sem, k, home = _wire(tmp_path, monkeypatch)
+    monkeypatch.setattr(atlas_build.config, "ATLAS_DB", tmp_path / "rebuilt" / "atlas.db")
+
+    class NoSignIn:
+        def __getattr__(self, name):
+            raise oauth.NotSignedIn("sign in")
+    monkeypatch.setattr(members, "Source", NoSignIn)
+    out = refresh.refresh(sem, a, k, home, (2026, 10), rebuild_atlas=atlas_build.run_build,
+                          run_testset=lambda: [{"id": "b01", "ok": True, "diffs": []}])
+    assert not out.ok and out.atlas_not_replaced
+    report = (home / "knowledge" / "reports" / "2026-10.md").read_text(encoding="utf-8")
+    assert "Atlas: NOT replaced (not signed in to EPM - run `smartass login`); the refresh used" in report
+    assert "rebuilt" not in report
+
+
 def test_refresh_without_atlas_rebuild_and_first_snapshot(tmp_path, monkeypatch):
     a, sem, k = knowledge(tmp_path, monkeypatch)
     home = tmp_path / "home"

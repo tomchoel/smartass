@@ -2,8 +2,8 @@
 
 **What it is.** An engine (MCP server `smartass`) that lets an AI agent (Claude Code, Copilot CLI) work read-only
 against Telenor Norge's Oracle EPM cubes FinMax, FinLite and FinPlan. The agent writes an **AnalysisSpec v2**
-(plan, queries, typed blocks); `fin_analyze` fetches the data (Smart View's HTTP protocol, an ad hoc grid in Excel
-as the fallback), computes every value in Python and draws the answer in Excel: a formatted `Q<n> Answer` sheet
+(plan, queries, typed blocks); `fin_analyze` fetches the data (Smart View's HTTP protocol, Oracle's Planning REST
+as the second engine), computes every value in Python and draws the answer in Excel: a formatted `Q<n> Answer` sheet
 whose numbers are live formulas on one data table per question (`Data_Q<n>`), with checks, findings, the material
 lines and their drivers. Follow-ups patch the stored spec; monthly packs refresh to the latest closed month.
 
@@ -38,13 +38,17 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 ## Data safety
 
 - **Read-only against EPM.** The engine only retrieves data; it never submits data to the cubes.
-- **Your own login.** Every user connects with their own Smart View / Telenor SSO login and sees only what
-  they are allowed to see.
+- **Your own login.** Every user signs in to EPM once with their own account (`smartass login`, approved with Telenor
+  SSO in their browser) and sees only what they are allowed to see. Every request to EPM with your sign-in passes one
+  allowlist of read requests.
 - **Nothing leaves the PC** except the calls to EPM themselves. The HTTP API listens on `127.0.0.1` only and
   needs a per-user secret (DPAPI-protected).
-- **Your own workbooks are never saved** by the engine. Changes made in a workbook you opened are left unsaved
-  for you to review (`xl_snapshot` before an edit, `xl_revert` undoes it). Only the engine's own answer workbooks
-  are saved, in your `analyser` folder (`paths.analyser`). The engine never closes or restarts your Excel.
+- **Your own workbooks are never saved** by the engine. Changes made in a workbook you opened are left unsaved for you
+  to review (`xl_snapshot` before an edit, `xl_revert` undoes it). Only the engine's own answer workbooks are saved, in
+  your `analyser` folder (`paths.analyser`). The engine never restarts your Excel, and closes one only when it started
+  that Excel itself for a new workbook that could not be saved. A server that does not stop within a minute has its
+  own processes ended, never an Excel. Open item: the Excel task pane's Stop ends everything its run started, also an
+  Excel smartass started for that run, and so does anything that ends the server's processes from outside.
 - **The Produktregnskapet archive is protected:** answers are never written there.
 - **No data, databases or tokens in git.** The pre-commit hook and CI enforce this (`scripts\check_staged.py`);
   logs and `smartass doctor --bundle` redact tokens and secrets.
@@ -65,9 +69,10 @@ Errors: 400 (bad JSON, unknown fields, invalid spec or input, with its message),
 
 ## Command line
 
-`smartass doctor [--json | --bundle]`, `smartass atlas status`, `smartass atlas build [--cube X] [--dimension D]`,
-`smartass setup`, `smartass update`, `smartass serve`, `smartass login [--status | --force | --forget]` (EPM sign-in for
-the bearer route, see `docs\troubleshooting.md`, "oauth").
+`smartass doctor [--json | --bundle | --fix]`, `smartass atlas status`,
+`smartass atlas build [--cube X] [--dimension D]` (over Planning REST, no Excel), `smartass setup`, `smartass update`,
+`smartass serve`, `smartass login [--status | --force | --forget]` (EPM sign-in for the bearer route, see
+`docs\troubleshooting.md`, "oauth").
 
 ## Layout
 
@@ -76,18 +81,18 @@ the bearer route, see `docs\troubleshooting.md`, "oauth").
 .githooks\pre-commit         runs scripts\check_staged.py
 docs\                        DESIGN, troubleshooting, release, specs, plans (docs\archive: earlier designs)
 installer\install.ps1        per-user installer
-scripts\                     check_staged.py, bump.ps1, publish_release.ps1, probe_bearer.py
+scripts\                     check_staged.py, bump.ps1, publish_release.ps1
 knowledge\  packs\           business maps and metric catalogue; pack-only inputs (packs\produktregnskap)
 skills\smartass\             master copy of the agent skill
-engine\                      run_server.py (relay), child_server.py, VERSION, defaults.toml, vba\, tests\
+engine\                      run_server.py (relay), child_server.py, VERSION, defaults.toml, tests\
 engine\smartass\             server.py, pipeline.py, exceljob.py (the Excel job), followup.py, workbench.py and the packages:
   core\       config, logs, timing, session, serverkit (tool guard, Excel jobs, lifespan)
   model\      spec, periods, expressions, blocks, findings, validation (no Excel, no network)
-  data\       providers: Smart View HTTP, ad hoc grid fallback, recorder
+  data\       providers: Smart View HTTP, Planning REST (second engine), recorder
   render\     data table, answer sheet, charts, style
-  epm\        Smart View HTTP/XML, grids, sign-in, the drill over the token and its lines
+  epm\        the HTTPS boundary, sign-in, Smart View HTTP/XML, Planning REST, grids, the drill over the token
   knowledge\  atlas, resolver, interim metric catalogue
-  xl\         Excel host (hidden + user Excel), sheets, styling, formula check, snapshots
+  xl\         jobs in the user's Excel, sheets, styling, formula check, snapshots
   ops\        cli, doctor, setup, update, httpapi, atlas build
   testset\    the B-question test set (golden numbers outside git)
 ```

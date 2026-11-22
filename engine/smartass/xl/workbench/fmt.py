@@ -11,7 +11,7 @@ from . import books, history
 from .. import formulas as fx
 from ..jobs import com
 from ..target import _wait_ready
-from ..host import InputError
+from ...core.errors import InputError
 
 TN_EMPH = {"": "", "sum": "Sum", "hovedsum": "Hovedsum", "grand": "Hovedsum", "input": "Input", "nokkel": "Nøkkel",
            "nøkkel": "Nøkkel", "key": "Nøkkel"}

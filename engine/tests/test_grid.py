@@ -64,17 +64,6 @@ def test_parse_pov_problem_and_missing():
     assert p.rows == [["ac.C30", None]]
 
 
-def test_grid_labels_standard_and_odd_mode():
-    from smartass.epm.ops import _grid_labels
-    fm = ((None, "All Accounts", "All Entities"), (None, "All Time Periods", None), ("All Balance Types", "#No Access", None))
-    assert _grid_labels(fm, [1, 0, 2, 2]) == ["All Time Periods", "All Balance Types", "All Accounts", "All Entities"]
-    fp = ((None, None, "Scenario", "Version"), (None, None, "Years", None), (None, None, "Period", None),
-          ("Account", "Entity", 0.0, None))
-    assert _grid_labels(fp, [1, 1, 0, 0, 2, 2]) == ["Years", "Period", "Account", "Entity", "Scenario", "Version"]
-    # 2026-10-13 transient 'Ad hoc' mode: no in-sheet POV row -> must be rejected
-    assert _grid_labels(((None, "TimePeriods"), ("BalanceTypes", "#No Access")), [2, 2, 0, 1]) is None
-
-
 def test_two_column_dims_join_their_headers():
     rows = [Axis("Entity", ["BANORWAY"])]
     cols = [Axis("Years", ["FY25", "FY26"]), Axis("Period", ["TotalYear"])]

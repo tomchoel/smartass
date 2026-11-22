@@ -103,6 +103,7 @@ def test_account_type_uses_every_hierarchy_and_signs_only_inside_the_pnl():
 
 # --- Task 3: fetch the slices and store the cards in atlas.db --------------------------------------------------------
 
+from smartass.epm import svhttp, svxml  # noqa: E402
 from smartass.knowledge import atlas, cards_fetch  # noqa: E402
 
 
@@ -240,8 +241,8 @@ def test_a_member_whose_name_clashes_with_an_alias_is_found_and_left_out():
         def fetch(self, conn, pov, rows, cols):
             if "SDx Revenue" in rows[0].members:
                 self.calls.append(("fail", len(rows[0].members)))
-                raise RuntimeError("Smart View provider: Found duplicate aliases or member name conflicting with "
-                                   "alias under parent 'ac.Statistics'.")
+                raise svhttp.GridRefused("Smart View provider: Found duplicate aliases or member name conflicting "
+                                         "with alias under parent 'ac.Statistics'.")
             return super().fetch(conn, pov, rows, cols)
     names = ["A", "B", "SDx Revenue", "C", "D"] + [f"m{i}" for i in range(40)]   # 1 clash of 45: under the cap
     sv = Clash({("YearTotal", n): 1.0 for n in names})
@@ -256,6 +257,27 @@ def test_a_member_whose_name_clashes_with_an_alias_is_found_and_left_out():
     sv.calls.clear()
     cards_fetch.grid(sv, "FinPlan", {}, "Account", names, "Period", ["YearTotal"], clashes=known)
     assert not [c for c in sv.calls if c[0] == "fail"]                  # a known clash is not searched again
+
+
+def test_an_alias_clash_whose_label_the_scrub_rewrites_is_still_split_off():
+    """Task 10 (final review, Minor 2): the clash is known by its class (svhttp.GridRefused, sorted on the provider's
+    raw text), not by its scrubbed text - a label holding 'Cookie:' (invented) loses 'qualified name' to the scrub, and
+    the card derivation then failed instead of leaving that member out."""
+    with pytest.raises(svxml.SvXmlError) as raw:
+        svxml.raise_for_exception('<exception errcode="1000"><desc>Duplicate name Cookie: Choc found in grid; cannot '
+                                  'resolve. Please replace it with qualified name.</desc></exception>')
+    refused = svhttp.GridRefused(f"Smart View provider: {raw.value}")        # as svhttp._ask raises it
+    assert not any(m in str(refused) for m in svhttp.ALIAS_CLASH)            # the scrub took the words
+
+    class Clash(FakeSv):
+        def fetch(self, conn, pov, rows, cols):
+            if "Choc" in rows[0].members:
+                raise refused
+            return super().fetch(conn, pov, rows, cols)
+    names = ["A", "B", "Choc", "C"] + [f"m{i}" for i in range(40)]
+    vals, blocked = cards_fetch.grid(Clash({("YearTotal", n): 1.0 for n in names}), "FinPlan", {}, "Account", names,
+                                     "Period", ["YearTotal"])
+    assert blocked == {"YearTotal": {"Choc"}} and vals["A"]["YearTotal"] == 1.0
 
 
 def test_a_mixed_pnl_total_has_no_account_type():
@@ -454,9 +476,9 @@ def test_a_clash_in_the_column_or_pov_is_raised_not_searched():
     class ColClash(FakeSv):
         def fetch(self, conn, pov, rows, cols):
             self.calls.append(1)
-            raise RuntimeError(CLASH)
+            raise svhttp.GridRefused(CLASH)
     sv = ColClash({})
-    with pytest.raises(RuntimeError, match="qualified name"):
+    with pytest.raises(svhttp.GridRefused, match="qualified name"):
         cards_fetch.grid(sv, "FinPlan", {}, "Entity", [f"m{i}" for i in range(100)], "Account", ["OPEX", "Revenue"],
                          chunk=50)
     assert len(sv.calls) == 2
@@ -468,7 +490,7 @@ def test_too_many_clashes_are_raised():
     class Many(FakeSv):
         def fetch(self, conn, pov, rows, cols):
             if any(n.startswith("bad") for n in rows[0].members):
-                raise RuntimeError(CLASH)
+                raise svhttp.GridRefused(CLASH)
             return super().fetch(conn, pov, rows, cols)
     names = [f"ok{i}" for i in range(90)] + [f"bad{i}" for i in range(10)]          # 10 % clash
     with pytest.raises(ValueError, match="clash"):

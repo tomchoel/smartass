@@ -1,35 +1,36 @@
 """Grids over the Smart View provider's HTTP protocol - no Excel, no COM (Stage 0, 2026-10-25:
-docs/specs/2026-10-25-stage0-epm-access-probe.md). retrieve() returns what ops._query_once returns,
-(Layout, Parsed, seconds), so extract.route can use either route; the COM route stays the fallback.
+docs/specs/2026-10-25-stage0-epm-access-probe.md). retrieve() returns (Layout, Parsed, seconds); fetch() the checked
+grid unparsed (Fetched). The second engine (epm/rest.py: Planning REST, fetch_rest) is the fallback for a grid this
+route could not fetch (data/provider.py).
 
-Error contract for extract.route: InputError only for a query that is wrong whatever the route (a dimension
-used twice, no members, no row/column axis); everything else - including an incomplete or stale atlas, which COM
-does not need - is SvHttpError, so the caller falls back to Smart View in Excel. A missing sign-in (oauth.NotSignedIn)
-is the one exception: it is raised as it is and never falls back.
+Error contract: InputError only for a query that is wrong whatever the route (a dimension used twice, no members, no
+row/column axis); everything else is SvHttpError - NoFallback when the second engine would meet it as well (the same
+token, scope or atlas, or an alias clash), so only the others are fetched again over REST. A member the cube does not
+have where the grid puts it (WrongMember) is final on this route (no reconnect) but goes on to REST, whose HTTP 400
+names it (data/provider.py leaves it out). A missing sign-in (oauth.NotSignedIn) is raised as it is and never falls
+back.
 
 BearerTransport posts over plain HTTPS with the user's OAuth access token (epm/oauth.py; no browser) to every pod that
-has a scope; without a sign-in it raises oauth.NotSignedIn, which the tool call answers with the sign-in page and code.
+has a scope, each request through the pod's epmhttp.EpmSession (its allowlist, its origin, its one new token on a
+refusal); without a sign-in it raises oauth.NotSignedIn, which the tool call answers with the sign-in page and code.
 Tests use a fake transport."""
 from __future__ import annotations
 
 import datetime as dt
-import http.cookiejar
 import logging
 import re
 import threading
 import time
-import urllib.error
-import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 from urllib.parse import urlsplit
 
 from ..knowledge import atlas
-from . import oauth, svxml
+from . import epmhttp, oauth, svxml
 from ..core import config
 from .grid import INVALID, MISSING, NOACCESS, Axis, Layout, full_pov, parse, validate_axes, verify_labels
-from ..xl.host import InputError
+from ..core.errors import InputError
 
 log = logging.getLogger(__name__)
 
@@ -44,16 +45,58 @@ CUBES = {"FinMax": (config.SVHTTP_FINMAX_SERVER, "FinMax", "FinMax"),
 # 'Found duplicate aliases or member name conflicting with alias under parent ...' and
 # 'Duplicate name <m> found in grid; cannot resolve. Please replace it with qualified name.'
 ALIAS_CLASH = ("duplicate aliases", "qualified name")
+# A member the cube does not have where the grid puts it (live 2026-11-22, stored answers with members renamed since):
+# deterministic, and REST's HTTP 400 names it ('The member ... does not exist in the ... dimension'). Matched from the
+# start of the provider's message (its desc), the whole sentence, so a transient error that only quotes a phrase is
+# not taken for one.
+WRONG_MEMBER = re.compile(r"(?:Error: )?(?:Grid is Invalid\.(?: .*)?|Member name and Alias placed on row \d+ do not "
+                          r"match\.?|Member \S.* is out of place\.?)", re.S)
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 class SvHttpError(Exception):
-    """The HTTP route could not answer; extract.route then uses Smart View in Excel."""
+    """The HTTP route could not answer; the second engine (epm/rest.py) is tried unless it is NoFallback."""
 
 
-class NoScope(SvHttpError):
+class NoFallback(SvHttpError):
+    """An error the second engine would meet as well - the same token, scope or atlas - or an alias clash it would
+    resolve without saying which (GridRefused), so the grid is not fetched again over REST: this error is the answer.
+    A member the cube does not have is WrongMember, which goes on to REST."""
+
+
+class NoScope(NoFallback):
     """The pod has no scope under [oauth.scopes]: no token can be asked for it (serverkit.NEXT_STEP says which scope
-    to add and where it comes from). For the home pod (epm.base) no answer works; another pod's grid falls back."""
+    to add and where it comes from). The second engine sends to the same pod with the same scope."""
+
+
+class TokenRefused(NoFallback):
+    """EPM's gate refused the access token twice (the session's one new token did not help either)."""
+
+
+class NoToken(NoFallback):
+    """No access token could be had for the pod (oauth.OAuthError: the identity domain did not answer or could not
+    renew the sign-in): the second engine asks for the same token. Its text carries oauth's reason; transient: oauth's
+    reason was one a moment later may not have (oauth.Transient), not an ended sign-in."""
+
+    def __init__(self, msg: str, transient: bool = False):
+        super().__init__(msg)
+        self.transient = transient
+
+
+class AtlasStale(NoFallback):
+    """The atlas has no dimensions for the connection, or one of them was not built, or the grid names a dimension
+    it does not have: build it (`smartass atlas build`). Both engines lay the grid out from the atlas."""
+
+
+class GridRefused(NoFallback):
+    """The provider refuses the grid for an alias clash whatever the session (a member name that is another member's
+    alias: ambiguous - REST would resolve it without saying which)."""
+
+
+class WrongMember(SvHttpError):
+    """The provider refuses the grid for a member the cube does not have where the grid puts it (WRONG_MEMBER: 'Grid
+    is Invalid', a name and alias that do not match, a member out of place), whatever the session - so no reconnect;
+    but not NoFallback: Planning REST's HTTP 400 names the member, so the second engine can leave it out."""
 
 
 class RequestLost(SvHttpError):
@@ -71,10 +114,60 @@ def _norm_dim(name: str) -> str:
 
 @dataclass
 class Fetched:
-    """A provider grid as fetched: Smart View's own shape from A1 (POV row, column headers, row labels, data)."""
+    """A provider grid as fetched: Smart View's own shape from A1 (POV row, column headers, row labels, data). route:
+    which engine fetched it ("http": the provider; "rest": epm/rest.py); warnings: what that engine wants said."""
     layout: Layout
     values: list[list]
     seconds: float
+    route: str = "http"
+    warnings: list[str] = field(default_factory=list)
+
+
+def dimensions_in(db, conn: str) -> list[str]:
+    """The connection's dimensions in the atlas (an open atlas.db); SvHttpError if it has none or any of them was
+    not built (failed or empty; age does not matter) - a grid would then be built on a wrong dimension list."""
+    dims = atlas.known_dimensions(db, conn)              # incl. failed builds (their members are deleted)
+    stale = [d for d in dims if not atlas.built(db, conn, d)]
+    if not dims:
+        raise AtlasStale(f"the atlas has no dimensions for {conn}: build it with `smartass atlas build`")
+    if stale:
+        raise AtlasStale(f"the atlas is incomplete or stale for {conn} (dimensions {', '.join(stale)})")
+    return dims
+
+
+def layout(conn: str, dims: list[str], pov: dict | None, rows: list[Axis], cols: list[Axis]) -> Layout:
+    """The grid's layout on the cube's dimensions (any spelling of a dimension, 'Accounts' or 'All Accounts'): the
+    axes as asked and a POV member for every other dimension. InputError for a query wrong on every route;
+    SvHttpError for a dimension the atlas does not have."""
+    by_norm = {_norm_dim(d): d for d in dims}
+
+    def canon(d: str) -> str:
+        return by_norm.get(_norm_dim(d), d)
+    pov = {canon(d): m for d, m in (pov or {}).items()}
+    rows = [Axis(canon(a.dimension), a.members) for a in rows]
+    cols = [Axis(canon(a.dimension), a.members) for a in cols]
+    problems = validate_axes(dims, pov, rows, cols)
+    unknown = [p for p in problems if p.startswith("unknown dimension")]
+    if unknown:                       # the atlas may lack a dimension the cube has
+        raise AtlasStale(f"the atlas is incomplete or stale for {conn} ({'; '.join(unknown)})")
+    if problems:
+        raise InputError("Invalid query: " + "; ".join(problems))
+    return Layout(full_pov(dims, pov, rows, cols), rows, cols)
+
+
+def check_layout(lay: Layout, values: list[list], who: str = "the provider") -> None:
+    """The layout check a grid must pass before anything is built on it (both engines): it covers the layout, its
+    data cells are numbers or Smart View's labels, no POV member was appended, and every label that names its member
+    is the member asked for at that place. SvHttpError otherwise; who: the engine, for the text."""
+    _check_grid(lay, values, who)
+    full = parse(lay, values, False, False)
+    if full.pov_problems:              # an appended POV member: the layout is not the cube's
+        raise SvHttpError(f"{who} appended POV members; the atlas may lack a dimension ("
+                          + "; ".join(full.pov_problems) + ")")
+    bad = verify_labels(lay, full)
+    if bad:
+        raise SvHttpError(f"{who} returned a different layout than requested (rows/columns moved): "
+                          + "; ".join(bad[:5]))
 
 
 class SvHttp:
@@ -110,17 +203,34 @@ class SvHttp:
                               "set svhttp.allow_test = true to use it")
         return base
 
+    def _base(self, conn: str) -> str:
+        """The pod of the connection's data source (base_for), one lookup at a time."""
+        server, app, _ = CUBES[conn]
+        if not self._bases_lock.acquire(timeout=config.SVHTTP_TIMEOUT_S * 2):   # behind a cold start's sign-in
+            raise NoFallback("the HTTP route is busy looking up the EPM data sources")    # REST waits on this lock too
+        try:
+            return self.base_for(server, app)
+        finally:
+            self._bases_lock.release()
+
+    def rest_session(self, conn: str) -> epmhttp.EpmSession:
+        """The EpmSession of the connection's pod that the grid route sends through (one cookie jar per pod): the
+        second engine (epm/rest.py) sends through it too. The pod is the data source's (base_for: a cached list
+        once it was read), checked by pod_origin; SvHttpError when it cannot be found or the transport has no
+        sessions (only the bearer route has them)."""
+        if conn not in CUBES:
+            raise SvHttpError(f"no HTTP route for connection {conn}")
+        session = getattr(self.t, "session", None)
+        if session is None:
+            raise SvHttpError("the second engine needs the bearer route's sessions")
+        return session(pod_origin(self._base(conn)))
+
     def _take(self, conn: str) -> tuple[str, str, str]:
         """(pod base, cube, sID) for ONE request: an idle session of the pool, else a new one. A session is never
         used by two requests at once: parallel grids on one sID come back wrong (2-3 of 8 corrupted, live
         2026-11-03), on their own sIDs all 8 are right."""
-        server, app, cube = CUBES[conn]
-        if not self._bases_lock.acquire(timeout=config.SVHTTP_TIMEOUT_S * 2):   # behind a cold start's sign-in
-            raise SvHttpError("the HTTP route is busy looking up the EPM data sources")
-        try:
-            base = self.base_for(server, app)
-        finally:
-            self._bases_lock.release()
+        _, app, cube = CUBES[conn]
+        base = self._base(conn)
         if not self._lock.acquire(timeout=config.SVHTTP_TIMEOUT_S):
             raise SvHttpError("the HTTP route is busy with another query")
         try:
@@ -144,19 +254,23 @@ class SvHttp:
 
     def dimensions(self, conn: str) -> list[str]:
         """The connection's dimensions from the atlas; SvHttpError if it has none or any of them was not built
-        (failed or empty; age does not matter) - the grid would then be built on a wrong dimension list, COM knows
-        better."""
+        (failed or empty; age does not matter) - the grid would then be built on a wrong dimension list."""
         db = atlas.connect(self.db_path)
         try:
-            dims = atlas.known_dimensions(db, conn)              # incl. failed builds (their members are deleted)
-            stale = [d for d in dims if not atlas.built(db, conn, d)]
+            return dimensions_in(db, conn)
         finally:
             db.close()
-        if not dims:
-            raise SvHttpError(f"the atlas has no dimensions for {conn}: build it with `smartass atlas build`")
-        if stale:
-            raise SvHttpError(f"the atlas is incomplete or stale for {conn} (dimensions {', '.join(stale)})")
-        return dims
+
+    def fetch_rest(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis]) -> "Fetched":
+        """The same grid over the second engine (epm/rest.py: Planning REST) on the pod's session. The atlas is opened
+        here, on the calling thread (a sqlite connection belongs to the thread that opened it), and closed."""
+        from . import rest
+        session = self.rest_session(conn)
+        db = atlas.connect(self.db_path)
+        try:
+            return rest.fetch_grid(session, conn, pov, rows, cols, db)
+        finally:
+            db.close()
 
     def retrieve(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis],
                  suppress_missing: bool, suppress_zeros: bool):
@@ -164,42 +278,20 @@ class SvHttp:
         return f.layout, parse(f.layout, f.values, suppress_missing, suppress_zeros), f.seconds
 
     def fetch(self, conn: str, pov: dict | None, rows: list[Axis], cols: list[Axis]) -> "Fetched":
-        """The checked provider grid, unparsed: what a source sheet is written from (core/source.py)."""
+        """The checked provider grid, unparsed: what the facts are parsed from (data/provider.py)."""
         if conn not in CUBES:
             raise SvHttpError(f"no HTTP route for connection {conn}")
         t0 = time.monotonic()
-        dims = self.dimensions(conn)
-        by_norm = {_norm_dim(d): d for d in dims}
-
-        def canon(d: str) -> str:
-            return by_norm.get(_norm_dim(d), d)
-        pov = {canon(d): m for d, m in (pov or {}).items()}
-        rows = [Axis(canon(a.dimension), a.members) for a in rows]
-        cols = [Axis(canon(a.dimension), a.members) for a in cols]
-        problems = validate_axes(dims, pov, rows, cols)
-        unknown = [p for p in problems if p.startswith("unknown dimension")]
-        if unknown:                       # the atlas may lack a dimension the cube has: let COM decide
-            raise SvHttpError(f"the atlas is incomplete or stale for {conn} ({'; '.join(unknown)})")
-        if problems:
-            raise InputError("Invalid query: " + "; ".join(problems))
-        lay = Layout(full_pov(dims, pov, rows, cols), rows, cols)
+        lay = layout(conn, self.dimensions(conn), pov, rows, cols)
         values = self._execute(conn, lay)
-        _check_grid(lay, values)
-        full = parse(lay, values, False, False)
-        if full.pov_problems:              # COM shows the same as a warning; here it means the layout is not the cube's
-            raise SvHttpError("the provider appended POV members; the atlas may lack a dimension ("
-                              + "; ".join(full.pov_problems) + ")")
-        bad = verify_labels(lay, full)
-        if bad:
-            raise SvHttpError("Smart View provider returned a different layout than requested (rows/columns "
-                              "moved): " + "; ".join(bad[:5]))
+        check_layout(lay, values)
         return Fetched(lay, values, time.monotonic() - t0)
 
     def closed_month(self, conn: str = "FinMax") -> str:
         """The last closed month ('Current Reporting Month') as 'Sep 26': the one child of member CurrRepMonth in
         provider dimension TimePeriods, '[CurrRepMonth].[Y26M09]' (proven live 2026-10-25, FinMax only: FinLite is
-        answered from the FinMax session). A month in the future or more than 3 months back is refused, so the
-        caller's COM route gives a second opinion instead of a silently wrong month."""
+        answered from the FinMax session). A month in the future or more than 3 months back is refused: a clear error
+        instead of a silently wrong month."""
         if conn not in ("FinMax", "FinLite"):
             raise SvHttpError(f"{conn} has no Current Reporting Month")
         names = self._enum("FinMax", "TimePeriods", "CurrRepMonth")
@@ -216,9 +308,9 @@ class SvHttp:
         return f"{_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
 
     def drill_link(self, conn: str, cell: dict[str, str]) -> dict:
-        """ops.drill_link over HTTP: {cube_value, url (relative to the EPM base), report}. One 1x1 retrieve gives
+        """A cell's drill link over HTTP: {cube_value, url (relative to the EPM base), report}. One 1x1 retrieve gives
         the value and the Default-alias labels Smart View sends; then GetDrillThroughReports (read-only)."""
-        from .ops import DRILL_DEFAULTS, drill_cell_defaults
+        from .drillcore import DRILL_DEFAULTS, drill_cell_defaults
         cell, _ = drill_cell_defaults(cell)
         if cell.get("All Balance Types", "Periodic") != "Periodic":
             raise InputError("Drill-through works on Periodic data only; use a period member (quarter/year) "
@@ -236,26 +328,27 @@ class SvHttp:
         return {"cube_value": val if isinstance(val, float) else None,
                 "url": got[1] if got else None, "report": got[0] if got else None}
 
-    def child_values(self, conn: str, parts: list[dict]) -> list | None:
-        """drill_split.child_values_on over HTTP: the parts differ in one dimension - one column retrieve,
-        float or None per part (None for the whole list when they differ in nothing)."""
-        from .ops import DRILL_DEFAULTS
+    def child_values(self, conn: str, parts: list[dict], rest: bool = False) -> list | None:
+        """A drill split's children's cube values: the parts differ in one dimension - one column grid, float or
+        None per part (None for the whole list when they differ in nothing); rest: over the second engine."""
+        from .drillcore import DRILL_DEFAULTS
         first = parts[0]
         dim = next((k for k in first if any(p.get(k) != first[k] for p in parts)), None)
         if dim is None:
             return None
         col = "All Time Periods" if dim != "All Time Periods" else "All Accounts"
         pov = {**DRILL_DEFAULTS, **{k: v for k, v in first.items() if k not in (dim, col)}}
-        f = self.fetch(conn, pov, [Axis(dim, [p[dim] for p in parts])], [Axis(col, [first[col]])])
+        f = (self.fetch_rest if rest else self.fetch)(conn, pov, [Axis(dim, [p[dim] for p in parts])],
+                                                     [Axis(col, [first[col]])])
         lay = f.layout
         return [v if isinstance(v, float) else None
                 for v in (f.values[1 + lay.nc + i][lay.nr] for i in range(len(parts)))]
 
-    def _ask(self, conn: str, body, read, fatal) -> object:
+    def _ask(self, conn: str, body, read, fatal, refused=lambda e: SvHttpError) -> object:
         """POST body(sid, cube) on a session of its own and read(answer); at most SVHTTP_SESSIONS at once per
         connection. An error fatal(e) does not rule out (maybe an expired session) drops that session and tries
-        once more on a new one. A session whose request was lost on the way is dropped too (EPM may still be
-        working on it)."""
+        once more on a new one; a fatal one is raised at once as the class refused(e) gives. A session whose request
+        was lost on the way is dropped too (EPM may still be working on it)."""
         slot = self._slot(conn)
         if not slot.acquire(timeout=config.SVHTTP_TIMEOUT_S):
             raise SvHttpError("the HTTP route is busy with other queries")
@@ -279,7 +372,7 @@ class SvHttp:
                         with self._lock:
                             self._bases = None                # ... and re-read where the apps live
                     if fatal(e) or attempt == 2:
-                        raise SvHttpError(f"Smart View provider: {e}") from None
+                        raise (refused(e) if fatal(e) else SvHttpError)(f"Smart View provider: {e}") from None
                     log.info("svhttp %s: %s - reconnecting once", conn, e)
                     continue
                 self._give(conn, sid)
@@ -293,27 +386,32 @@ class SvHttp:
                          lambda e: e.code in (4996, 4997))  # unknown member or dimension: a new session won't help
 
     def _execute(self, conn: str, lay: Layout) -> list[list]:
+        def wrong(e) -> bool:                             # a member the cube lacks there (the raw text: never the
+            return bool(WRONG_MEMBER.fullmatch(e.raw.strip()))   # scrubbed one, which a label can change)
+
+        def clash(e) -> bool:                             # alias clash: deterministic too
+            return any(m in e.raw for m in ALIAS_CLASH)
         return self._ask(conn, lambda sid, cube: svxml.execute_grid(sid, cube, lay), svxml.grid_values,
-                         lambda e: "Grid is Invalid" in str(e)        # unknown member: deterministic
-                         or any(m in str(e) for m in ALIAS_CLASH))   # alias clash: deterministic too
+                         lambda e: wrong(e) or clash(e), lambda e: WrongMember if wrong(e) else GridRefused)
 
 
-def _check_grid(lay: Layout, values: list[list]) -> None:
+def _check_grid(lay: Layout, values: list[list], who: str = "the provider") -> None:
     """The returned slice must cover the requested layout (wider is fine: appended POV cells) and every data cell
     must be a number, blank or a Smart View label (#Missing, #NoAccess, #Invalid); anything else is not data."""
     m = lay.matrix()
     h, w = len(m), len(m[0])
     if len(values) < h:
-        raise SvHttpError(f"the provider returned fewer rows than requested ({len(values)} < {h})")
+        raise SvHttpError(f"{who} returned fewer rows than requested ({len(values)} < {h})")
     got_w = min((len(r) for r in values), default=0)
     if got_w < w:
-        raise SvHttpError(f"the provider returned fewer columns than requested ({got_w} < {w})")
+        raise SvHttpError(f"{who} returned fewer columns than requested ({got_w} < {w})")
     labels = MISSING | NOACCESS | INVALID
     for r in range(1 + lay.nc, h):
         for c in range(lay.nr, lay.nr + len(lay.col_tuples)):
             v = values[r][c]
             if isinstance(v, str) and v.strip() not in labels:
-                raise SvHttpError(f"non-numeric data in the provider grid (row {r + 1}, column {c + 1}: {v[:40]!r})")
+                raise SvHttpError(f"non-numeric data in the grid {who} returned (row {r + 1}, column {c + 1}: "
+                                  f"{v[:40]!r})")
 
 
 _URL = re.compile(r"[\x21-\x7e]+")                      # printable ASCII: urlsplit drops tab and line breaks silently
@@ -338,84 +436,83 @@ def pod_origin(base: str) -> str:
     return oauth.origin(base)
 
 
-def _fetch_ms() -> int:
-    return max(1, int(config.SVHTTP_TIMEOUT_S * 900))       # 90 % of the job's time limit, in ms
+SLOW_READ_BYTES_S = 256 << 10      # a slow but working line: the largest answer (64 MB) in 256 s
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
+def timeout_s() -> float:
+    """One request's deadline for its whole answer (EpmSession reads to it). config.SVHTTP_TIMEOUT_S was urllib's
+    limit per receive, so a big grid could take longer in all: the deadline is its old 90 % (the server's time to the
+    first byte) plus the read of the largest answer the session takes (MAX_ANSWER_BYTES) at SLOW_READ_BYTES_S -
+    364 s by default - within the most an EpmSession takes (600 s). A request that never answers waits that long
+    before it is RequestLost (and sent again on a new sID, see SvHttp._ask)."""
+    first_byte = max(1, int(config.SVHTTP_TIMEOUT_S * 900)) / 1000
+    return min(first_byte + epmhttp.MAX_ANSWER_BYTES / SLOW_READ_BYTES_S, epmhttp.MAX_TIMEOUT_S)
 
 
-AUTH_REFUSED = (301, 302, 303, 307, 401, 403)     # EPM's gate did not take the token: the request never ran
+def _provider_xml(text: str) -> bool:
+    """The provider answered (its XML): the request reached it, whatever the status - never sent again on its sID."""
+    return "<res_" in text or "<exception" in text
 
 
 class BearerTransport:
     """Posts provider XML over plain HTTPS with the user's OAuth access token: no browser, no sign-in page (live
     2026-11-19 on plan1 and stratmodel: /HyperionPlanning/SmartView takes the token; grids, the closed month and
-    drill links are cell for cell the browser route's; a cold first grid 0.7 s against about 20 s). The bearer is only
-    sent over https to the origin of a pod with a configured scope (pod_origin: never to the scheme or port EPM's
-    data-source list gives). oauth.NotSignedIn reaches the caller as it is (the tool call answers with
-    the sign-in page and code), and so does oauth.NotSetUp when this PC has no [oauth] set-up at all; a pod without a
-    scope, any other oauth.OAuthError and a token EPM refuses twice are SvHttpError.
+    drill links are cell for cell the browser route's; a cold first grid 0.7 s against about 20 s). It builds no
+    request of its own: each goes through the pod's epmhttp.EpmSession, whose allowlist takes exactly this POST
+    (Content-Type text/xml, a body svxml.check_read_only admits) and which sends the bearer only over https to the
+    pod's origin. The base is checked first (pod_origin: never the scheme or port EPM's data-source list gives - the
+    session would quietly make any of them its pod's origin). oauth.NotSignedIn reaches the caller as it is (the tool
+    call answers with the sign-in page and code), and so does oauth.NotSetUp when this PC has no [oauth] set-up at
+    all; a pod without a scope, any other oauth.OAuthError and a token EPM refuses twice (the session's one new token
+    on a gate answer, epmhttp.GATE_STATUSES: TokenRefused) are SvHttpError; a request that left without a whole
+    answer is RequestLost.
 
-    One cookie jar per pod, as a browser has: EPM opens a server session for every request that brings no cookie.
-    The cookie alone does not authenticate (302 without the token). Like every transport here it sends nothing
-    that svxml.check_read_only refuses - the same token would be accepted by EPM's write endpoints."""
+    One session (one cookie jar) per pod, as a browser has: EPM opens a server session for every request that brings
+    no cookie. The cookie alone does not authenticate (302 without the token). The sessions are the grid route's
+    own, not the drill's (epmhttp.session): the drill's key belongs to the EPM session of its jar, and a refused
+    token clears a session's jar - a grid's 401 would sign the drill's key out mid-drill, and the drill's renewal
+    waits only for its own requests. Like every transport here it sends nothing that svxml.check_read_only refuses -
+    the same token would be accepted by EPM's write endpoints. opener: tests put a fake wire under the sessions."""
 
-    def __init__(self, tokens=oauth, send: Callable[[str, str, str], tuple[int, str]] | None = None):
+    def __init__(self, tokens=oauth, opener=None):
         self._tokens = tokens
-        self._send = send or self._https
-        self._openers: dict[str, urllib.request.OpenerDirector] = {}
+        self._opener = opener
+        self._sessions: dict[str, epmhttp.EpmSession] = {}
         self._lock = threading.Lock()
+
+    def session(self, origin: str) -> epmhttp.EpmSession:
+        """The grid route's EpmSession for a pod origin (pod_origin's answer)."""
+        with self._lock:
+            s = self._sessions.get(origin)
+            if s is None:
+                s = self._sessions[origin] = epmhttp.EpmSession(origin, tokens=self._tokens, opener=self._opener)
+            return s
 
     def post(self, base: str, body: str) -> str:
         svxml.check_read_only(body)
         if not self._tokens.configured():
             raise oauth.NotSetUp()                       # the reply says what config.toml needs, not "retry"
-        base = pod_origin(base)                          # the only URL the bearer goes to, whatever EPM listed
-        if self._tokens.scope_for(base) is None:
-            raise NoScope(f"no OAuth scope is configured for {base} ([oauth.scopes] in config.toml)")
-        token = self._token(base)
-        status = 0
-        for attempt in (1, 2):
-            try:
-                status, text = self._send(base, body, token)
-            except OSError as e:                  # it may have reached EPM: never again on this sID
-                raise RequestLost(f"Smart View provider at {base}: lost the request ({type(e).__name__})") from None
-            if "<res_" in text or "<exception" in text:
-                return text                                       # provider XML, whatever the status: svxml judges
-            if status not in AUTH_REFUSED:
-                raise RequestLost(f"Smart View provider at {base}: answered HTTP {status} without provider XML")
-            if attempt == 1:                                      # the hour may have ended early: one new token
-                token = self._token(base, reject=token)
-        raise SvHttpError(f"Smart View provider at {base}: EPM refused the access token twice (HTTP {status})")
-
-    def _token(self, base: str, reject: str | None = None) -> str:
-        """The pod's access token. NotSignedIn as it is; any other OAuthError is an SvHttpError."""
+        base = pod_origin(base)                          # the only origin the bearer goes to, whatever EPM listed
         try:
-            return self._tokens.access_token(base, reject=reject)
+            r = self.session(base).request("POST", epmhttp.SMART_VIEW, headers={"Content-Type": "text/xml"},
+                                           body=body, timeout=timeout_s(), renew_on=epmhttp.GATE_STATUSES,
+                                           renew_if=lambda r: not _provider_xml(r.text))
         except oauth.NotSignedIn:
             raise
         except oauth.OAuthError as e:
-            raise SvHttpError(f"no EPM access token for {base}: {e}") from None
-
-    def _opener(self, base: str) -> urllib.request.OpenerDirector:
-        with self._lock:
-            op = self._openers.get(base)
-            if op is None:
-                op = self._openers[base] = urllib.request.build_opener(
-                    _NoRedirect, urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-            return op
-
-    def _https(self, base: str, body: str, token: str) -> tuple[int, str]:
-        req = urllib.request.Request(base + "/HyperionPlanning/SmartView", data=body.encode("utf-8"), method="POST",
-                                     headers={"Authorization": "Bearer " + token, "Content-Type": "text/xml"})
-        try:
-            with self._opener(base).open(req, timeout=_fetch_ms() / 1000) as r:
-                return r.status, r.read().decode("utf-8", "replace")
-        except urllib.error.HTTPError as e:
-            return e.code, e.read().decode("utf-8", "replace")
+            raise NoToken(f"no EPM access token for {base}: {e}",                      # REST asks for the same token
+                          transient=isinstance(e, oauth.Transient)) from None
+        except epmhttp.NoScope:
+            raise NoScope(f"no OAuth scope is configured for {base} ([oauth.scopes] in config.toml)") from None
+        except (epmhttp.Refused, epmhttp.TooLarge) as e:   # their texts quote no body, token or query
+            raise SvHttpError(f"Smart View provider at {base}: {e}") from None
+        except OSError as e:                             # it may have reached EPM: never again on this sID
+            raise RequestLost(f"Smart View provider at {base}: lost the request ({type(e).__name__})") from None
+        if _provider_xml(r.text):
+            return r.text                                # provider XML, whatever the status: svxml judges
+        if r.status in epmhttp.GATE_STATUSES:            # the session took one new token for it already
+            raise TokenRefused(f"Smart View provider at {base}: EPM refused the access token twice (HTTP {r.status})")
+        raise RequestLost(f"Smart View provider at {base}: answered HTTP {r.status} without provider XML")
 
 
 _shared: SvHttp | None = None
@@ -429,3 +526,11 @@ def shared() -> SvHttp:
         if _shared is None:
             _shared = SvHttp(BearerTransport())
         return _shared
+
+
+def reset() -> None:
+    """The next grid gets a fresh route (new sessions, the data-source list read again): fin_status(restart=True)
+    without the relay. A request in flight finishes on the route it has."""
+    global _shared
+    with _shared_lock:
+        _shared = None

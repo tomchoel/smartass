@@ -209,7 +209,7 @@ def test_a_lock_that_cannot_be_had_is_an_oauth_error_not_an_unlocked_refresh(oa,
     t.start()
     held.wait(5)
     try:
-        with pytest.raises(oauth.OAuthError, match="still renewing"):
+        with pytest.raises(oauth.Transient, match="still renewing"):      # a moment later it may work
             oauth.access_token(POD)
     finally:
         release.set()
@@ -449,12 +449,17 @@ def test_the_identity_domain_must_be_an_https_url(idcs, want):
     assert config.oauth_idcs(idcs) == want
 
 
+class _NoWire:
+    def open(self, req, timeout):
+        pytest.fail("sent")
+
+
 def test_an_identity_domain_that_is_not_https_is_not_set_up(monkeypatch, oa):
     monkeypatch.setattr(config, "OAUTH_IDCS", config.oauth_idcs("http://idcs.example"))
     from smartass.epm import svhttp, svxml
     assert not oauth.configured() and oauth.pods() == []
     with pytest.raises(oauth.NotSetUp) as e:                       # a tool call answers with the set-up text
-        svhttp.BearerTransport(send=lambda *a: pytest.fail("sent")).post(POD, svxml.connect())
+        svhttp.BearerTransport(opener=_NoWire()).post(POD, svxml.connect())
     assert str(e.value) == oauth.NOT_SET_UP
 
 
@@ -466,3 +471,15 @@ def test_nothing_is_posted_to_an_identity_domain_that_is_not_https(monkeypatch):
         with pytest.raises(oauth.NotSetUp):
             oauth._post_form("/oauth2/v1/token", {"grant_type": "refresh_token", "refresh_token": "rt-SECRET"})
     assert opened == []
+
+
+def test_an_identity_domain_that_does_not_answer_is_a_transient_oauth_error(monkeypatch):
+    """Carry-in (Task 5 review, Minor 7): a blip of the identity domain is oauth.Transient, not an ended sign-in."""
+    monkeypatch.setattr(oauth.config, "OAUTH_IDCS", "https://idcs.example")
+
+    class Opener:
+        def open(self, req, timeout=None):
+            raise oauth.urllib.error.URLError("unreachable")
+    monkeypatch.setattr(oauth.urllib.request, "build_opener", lambda *h: Opener())
+    with pytest.raises(oauth.Transient, match="did not answer"):
+        oauth._post_form("/oauth2/v1/token", {"grant_type": "refresh_token"})

@@ -14,7 +14,8 @@ import pytest
 sys.path.insert(0, __file__.rsplit("\\tests", 1)[0])
 from smartass.core import config  # noqa: E402
 from smartass.xl import jobs  # noqa: E402
-from smartass.xl.host import ExcelHost, HostError, HostTimeout  # noqa: E402
+from smartass.core.errors import HostError, HostTimeout  # noqa: E402
+from smartass.xl.userjobs import UserJobs  # noqa: E402
 
 HOLDER = r"""
 import sys, time
@@ -80,8 +81,7 @@ async def test_a_job_given_up_on_does_not_keep_the_next_job_waiting_for_that_exc
     monkeypatch.setattr(config, "SVKIT", tmp_path)
     monkeypatch.setattr(jobs, "TURN_WAIT_S", 60)
     monkeypatch.setattr(jobs, "ABANDONED_WAIT_S", 0.5)
-    h = ExcelHost.__new__(ExcelHost)                 # the user-Excel jobs need no hidden Excel
-    h.last_error, h.pid = None, None
+    h = UserJobs()                                   # the runner of the user-Excel jobs
     excel_answers = threading.Event()
 
     def stuck(hh):
@@ -94,11 +94,11 @@ async def test_a_job_given_up_on_does_not_keep_the_next_job_waiting_for_that_exc
         return "ran"
 
     with pytest.raises(HostTimeout):
-        await h.call(stuck, timeout=0.3, what="fin_refresh", user_excel=True)
+        await h.call(stuck, timeout=0.3, what="fin_refresh")
     t0 = time.monotonic()
     try:
         with pytest.raises(HostError) as e:
-            await h.call(next_job, timeout=20, what="fin_analyze", user_excel=True)
+            await h.call(next_job, timeout=20, what="fin_analyze")
         assert not isinstance(e.value, HostTimeout)
         assert "fin_refresh" in str(e.value) and "this request was not started" in str(e.value)
         assert time.monotonic() - t0 < jobs.ABANDONED_WAIT_S + 2
@@ -107,7 +107,7 @@ async def test_a_job_given_up_on_does_not_keep_the_next_job_waiting_for_that_exc
     deadline = time.monotonic() + 10
     while True:                                      # the job given up on ends and frees the turn
         try:
-            assert await h.call(next_job, timeout=5, what="fin_analyze", user_excel=True) == "ran"
+            assert await h.call(next_job, timeout=5, what="fin_analyze") == "ran"
             break
         except HostError:
             if time.monotonic() > deadline:

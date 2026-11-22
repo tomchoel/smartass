@@ -1,7 +1,7 @@
 """The add-in, built on first use: Runner.cs compiled with the .NET Framework compiler that ships with Windows, next to
 a renamed copy of Excel-DNA's 64-bit loader (vendor/, zlib licence: vendor/LICENSE-ExcelDna.txt).
 
-As the Smart View bridge (xl/instances.py bridge_path): a loaded add-in's file stays locked and its function names
+As with the old Smart View bridge add-in (until 0.6.0): a loaded add-in's file stays locked and its function names
 stay taken in that Excel, so every build has its own. hash8 is the sha1 of everything that defines a build: Runner.cs
 (line endings normalised), the vendored files, the .dna and .xll.config texts, the compiler flags, the jobs folder
 (compiled into the add-in: it runs job files from that one folder only) and the batch version. The build is config.INPROC_DIR / smartass_run_<hash8> holding smartass_run_<hash8>.xll (the loader),

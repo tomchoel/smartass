@@ -2,6 +2,8 @@
 import asyncio
 import json
 
+import pytest
+
 from smartass.core import config, runlog
 
 
@@ -80,6 +82,27 @@ def test_guard_logs_a_run_for_fin_analyze_and_not_for_fin_lookup(monkeypatch, tm
     lines = [json.loads(x) for x in (tmp_path / "runs.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [(x["tool"], x["ok"]) for x in lines] == [("fin_analyze", True), ("fin_drill", False)]
     assert "prepare" in lines[0]["timings"]
+
+
+@pytest.mark.parametrize("raised", ["ToolError", "RuntimeError"])
+def test_a_failed_tools_run_log_line_and_reply_carry_no_session_key_or_query(monkeypatch, tmp_path, raised):
+    """The guard's run-log line of a failure gets the same scrub as the reply (logsetup.redact), a ToolError too."""
+    import secrets
+
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from smartass.core import serverkit
+    monkeypatch.setattr(config, "RUN_LOG", tmp_path / "runs.jsonl")
+    x = secrets.token_urlsafe(24)
+    kind = ToolError if raised == "ToolError" else RuntimeError
+
+    async def fin_drill():
+        raise kind(f"drill link lost: JSESSIONID = {x}; https://h.example/p?code={x}")
+    with pytest.raises(ToolError) as e:
+        asyncio.run(serverkit.guard(fin_drill)())
+    line = json.loads((tmp_path / "runs.jsonl").read_text(encoding="utf-8"))
+    assert line["ok"] is False and "drill link lost" in line["error"] and x not in line["error"]
+    assert x not in str(e.value)
 
 
 def test_a_drawn_answer_logs_the_excel_job_stages_and_its_com_call_total(monkeypatch, tmp_path):

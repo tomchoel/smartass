@@ -1,22 +1,26 @@
-"""Smart View dialogs in our hidden Excel: find, classify, and decide whether the sign-in is stuck.
+"""Dialogs in the user's Excel, found by window enumeration only (no COM): which dialog blocks an Excel that holds the
+target (instances.busy_error names it in the reply), and Smart View's Login.
 
-Smart View signs in through a 'Login' window. Normally it hosts WebView2 and the global SSO watcher clicks
-'Telenor SSO' within 1-20 s. When WebView2 fails, Smart View says so in a message box and falls back to Internet
-Explorer, whose Oracle IDCS page fails ('Script Error: Function expected'). In our hidden Excel that Excel is killed and
-restarted. In a visible Excel the usual cause is an earlier, unfinished WebView2 login of the same Excel still holding
-the WebView2 folder: ending that stale WebView2 and closing the IE windows lets Smart View reopen the login in WebView2
-(login.recover_ie_login; WM_CLOSE closes the IE Login and 'Script Error' windows - seen live 2026-10-23).
-classify/blocking/ie_fallback/stale_sv_webview2_from are pure; the rest is thin Win32.
-"""
+smartass uses no Smart View any more, but Smart View stays installed in the user's Excel and can show its own EPM
+Login - at every Excel start when its start-up update check is on (doctor: smartview_startup). COM into an Excel whose
+Login is open blocks, so a job never touches such an Excel: it is refused at once with a text that says which Excel
+and what to do (refuse_login, login_refusal), and after smartass launches an Excel it watches for a Login before its
+first COM call (watch_after_start): LAUNCH_GRACE_S, and where Smart View's start-up check is on (read from the registry,
+no COM: startup_check_on) to STARTUP_LOGIN_S after the launch (launch_grace). Nothing here clicks, closes or waits for
+a sign-in.
+classify is pure; the rest is thin Win32."""
 from __future__ import annotations
 
-import re
+import time
 from dataclasses import dataclass
 
-DIALOG_CLASSES = ("#32770", "NUIDialog")      # Win32 message boxes (Smart View's) and Excel's own alerts
+from ..core.errors import HostError
+
+DIALOG_CLASSES = ("#32770", "NUIDialog")      # Win32 message boxes and Excel's own alerts
 LOGIN_TITLES = ("login", "sign in")
-IE_CLASS = "Internet Explorer_Server"
-SV_WEBVIEW_DIR = r"oracle\smartview\webview"    # Smart View's fixed WebView2 user data folder under %APPDATA%
+LAUNCH_GRACE_S = 12            # an Excel smartass launched is watched this long for a Login before its first COM call
+STARTUP_LOGIN_S = 25           # with Smart View's start-up check on, its Login comes 19-22 s after Excel starts
+STARTUP_CHECK = (r"Software\Oracle\SmartView\extensions", "CheckOnStartup")   # HKCU: 1 = the check is on
 
 
 @dataclass(frozen=True)
@@ -25,40 +29,14 @@ class Dialog:
     cls: str
     title: str
     text: str
-    kind: str              # 'login' | 'webview2_fallback' | 'message'
-    ie: bool = False       # a Login window rendered by Internet Explorer (WebView2 already failed)
-    hung: bool = False     # Windows reports the window as not responding
-
-
-def is_hung(hwnd: int) -> bool:
-    """Windows' own 'Not responding' test (no input processed for 5 s)."""
-    import ctypes
-    try:
-        return bool(ctypes.windll.user32.IsHungAppWindow(hwnd))
-    except OSError:
-        return False
+    kind: str              # 'login' | 'message'
 
 
 def classify(cls: str, title: str, text: str) -> str | None:
-    t = (title or "").strip().lower()
-    if "webview2" in f"{title} {text}".lower() or t == "script error":
-        return "webview2_fallback"
-    if t in LOGIN_TITLES:
+    if (title or "").strip().lower() in LOGIN_TITLES:
         return "login"
     if cls in DIALOG_CLASSES:
         return "message"
-    return None
-
-
-def blocking(found: list[Dialog], first_seen: dict[int, float], now: float, grace: float) -> Dialog | None:
-    """The dialog that means the sign-in is stuck, or None. A responsive WebView2 Login gets `grace` s for the SSO
-    watcher; a hung or Internet Explorer Login or a WebView2-fallback box is stuck at once. first_seen is updated."""
-    for d in found:
-        first_seen.setdefault(d.hwnd, now)
-    for d in found:
-        if d.kind == "webview2_fallback" or (d.kind == "login" and (d.ie or d.hung
-                                                                     or now - first_seen[d.hwnd] >= grace)):
-            return d
     return None
 
 
@@ -76,8 +54,7 @@ def scan(pid: int) -> list[Dialog]:
         text = " ".join(t.strip() for c, t in kids if c == "Static" and t.strip())[:300]
         kind = classify(cls, title, text)
         if kind:
-            out.append(Dialog(hwnd, cls, title, text, kind, any(c == IE_CLASS for c, _t in kids),
-                              kind == "login" and is_hung(hwnd)))
+            out.append(Dialog(hwnd, cls, title, text, kind))
     return out
 
 
@@ -106,138 +83,76 @@ def windows(pid: int | None = None, parent: int | None = None) -> list[tuple[int
     return out
 
 
-def webview2_holders_from(rows: list[tuple[int, int, str]], exclude_parent: int | None) -> list[str]:
-    """Apps (exe names) whose WebView2 browser process holds Smart View's WebView2 folder, from
-    [(pid, parent pid, command line)] of msedgewebview2.exe; our own Excel (exclude_parent) is left out."""
-    out: list[str] = []
-    for _pid, ppid, cmd in rows:
-        low = (cmd or "").lower()
-        if "--type=" in low or SV_WEBVIEW_DIR not in low or ppid == exclude_parent:
-            continue
-        m = re.search(r"--webview-exe-name=(\S+)", cmd)
-        name = m.group(1) if m else "?"
-        if name not in out:
-            out.append(name)
-    return out
+def login_open(pid: int) -> list[int]:
+    """Smart View's Login windows open in Excel `pid` (empty = none)."""
+    return [d.hwnd for d in scan(pid) if d.kind == "login" and d.cls == "#32770" and d.title == "Login"]
 
 
-SV_BOX_TITLE = "Oracle Smart View for Office"
+STARTUP_HINT = ("If it shows at every Excel start, untick 'Check for updates when Microsoft Office starts' in Smart "
+                "View > Options > Extensions (close Excel first).")
 
 
-def sv_boxes(found: list[Dialog]) -> list[Dialog]:
-    """Smart View's own modal message boxes (e.g. 'Empty response from provider.'). In our hidden Excel they are
-    switched off (option 104); in a visible Excel they block the call that raised them until someone clicks OK."""
-    return [d for d in found if d.kind == "message" and d.title == SV_BOX_TITLE]
+def titles(pid: int) -> list[str]:
+    """The titles of Excel `pid`'s main windows ('Budget.xlsx - Excel'), read without COM."""
+    return [t for _h, cls, t in windows(pid=pid) if cls == "XLMAIN" and t]
 
 
-def close_sv_boxes(pid: int, scan=None, press=None, close=None) -> list[str]:
-    """Close Smart View's message boxes in process `pid` only (OK when that is the only button, else WM_CLOSE).
-    Returns the texts closed. Never raises: the watcher must not disturb the host."""
+def login_refusal(pid: int, captions: list[str] | None = None) -> HostError:
+    """The refusal for an Excel whose Smart View Login is open: which Excel (captions: its workbook windows' titles;
+    else its main windows' titles - all read without COM) and what to do."""
+    shown = [c for c in (titles(pid) if captions is None else captions) if c]
+    which = f"the Excel showing {', '.join(repr(c) for c in shown[:3])} (pid {pid})" if shown else f"Excel (pid {pid})"
+    return HostError(f"Smart View's Login is open in {which}; smartass does not touch an Excel while it is (COM "
+                     "into it would block). Next step: sign in there or close that Login window, then ask again. "
+                     + STARTUP_HINT)
+
+
+def refuse_login(pid: int) -> None:
+    """Refuse (login_refusal) when Smart View's Login is open in Excel `pid`: checked once, before the first COM."""
+    if login_open(pid):
+        raise login_refusal(pid)
+
+
+def read_hkcu(path: str, name: str):
+    """An HKCU registry value, or None (missing, or not Windows)."""
     try:
-        found = sv_boxes((scan or globals()["scan"])(pid))
-        texts = []
-        for d in found:
-            if not (press or press_ok)(d.hwnd):
-                (close or globals()["close"])([d.hwnd])
-            texts.append(d.text)
-        return texts
-    except Exception:   # noqa: BLE001
-        return []
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as k:
+            return winreg.QueryValueEx(k, name)[0]
+    except (ImportError, OSError):
+        return None
 
 
-def not_signed_in(attempts: list[list[str]]) -> bool:
-    """EPM answered 'Empty response from provider' to two connect attempts (attempts = the box texts each failed
-    attempt raised): this Excel's Smart View session is not valid (it shows no Login, so the SSO watcher cannot
-    help). Retrying does not fix it; a manual sign-in does."""
-    return sum(any("empty response from provider" in (t or "").lower() for t in a) for a in attempts) >= 2
-
-
-def ok_only(buttons: list[str]) -> bool:
-    """A box that only informs (its single button is OK) - safe to dismiss. Never OK/Cancel or Yes/No questions."""
-    return [b.replace("&", "").strip().lower() for b in buttons] == ["ok"]
-
-
-def buttons(hwnd: int) -> list[str]:
-    return [t for _h, c, t in windows(parent=hwnd) if c == "Button"]
-
-
-def press_ok(hwnd: int) -> bool:
-    """Click OK on an information box; False (nothing done) for any box with other buttons."""
-    import pywintypes
-    import win32con
-    import win32gui
-
+def startup_check_on() -> bool | None:
+    """Smart View's 'Check for updates when Microsoft Office starts' (its Login at every Excel start), read from the
+    registry without COM: True on, False off, None when it is not set or cannot be read."""
     try:
-        if not ok_only(buttons(hwnd)):
-            return False
-        ok = win32gui.FindWindowEx(hwnd, 0, "Button", None)
-        win32gui.PostMessage(ok, win32con.BM_CLICK, 0, 0)
-        return True
-    except pywintypes.error:
-        return False
+        value = read_hkcu(*STARTUP_CHECK)
+    except Exception:   # noqa: BLE001 - unreadable: today's timing
+        return None
+    return None if value is None else str(value) == "1"
 
 
-def ie_fallback(found: list[Dialog]) -> list[int]:
-    """Windows of a sign-in that already fell back to Internet Explorer (an IE-rendered Login, a 'Script Error' or a
-    WebView2-failed box): broken for good, so they can be closed. Empty while a WebView2 Login is still in progress."""
-    return [d.hwnd for d in found if d.kind == "webview2_fallback" or (d.kind == "login" and d.ie)]
+def launch_grace(started: float, clock=None) -> float:
+    """How long, from now, the watch of an Excel launched at started (time.monotonic) runs: LAUNCH_GRACE_S; with Smart
+    View's start-up check on, to STARTUP_LOGIN_S after the launch when that is later (its Login comes 19-22 s after
+    Excel starts, often after the workbook showed)."""
+    if startup_check_on() is not True:
+        return LAUNCH_GRACE_S
+    return max(LAUNCH_GRACE_S, STARTUP_LOGIN_S - ((clock or time.monotonic)() - started))
 
 
-def stale_sv_webview2_from(rows: list[tuple[int, int, str]], excel_pid: int, alive) -> list[int]:
-    """Smart View WebView2 browser processes to end so the next login can start WebView2 again, from
-    [(pid, parent pid, command line)]: the ones of this Excel (its login is already on the IE fallback, so they are
-    a stuck earlier login) and orphans whose app is gone. Never one owned by another live app (e.g. PowerPoint)."""
-    out = []
-    for pid, ppid, cmd in rows:
-        low = (cmd or "").lower()
-        if "--type=" in low or SV_WEBVIEW_DIR not in low:
-            continue
-        if ppid == excel_pid or not alive(ppid):
-            out.append(pid)
-    return out
-
-
-def _webview2_rows() -> list[tuple[int, int, str]]:
-    """[(pid, parent pid, command line)] of every msedgewebview2.exe."""
-    import psutil
-
-    rows = []
-    for p in psutil.process_iter(["name", "ppid", "cmdline"]):
-        try:
-            if (p.info["name"] or "").lower() == "msedgewebview2.exe":
-                rows.append((p.pid, p.info["ppid"], " ".join(p.info["cmdline"] or [])))
-        except psutil.Error:
-            continue
-    return rows
-
-
-def end_stale_sv_webview2(excel_pid: int) -> list[int]:
-    """End the stale Smart View WebView2 browser processes (with their child processes); returns their pids."""
-    import psutil
-
-    ended = []
-    for pid in stale_sv_webview2_from(_webview2_rows(), excel_pid, psutil.pid_exists):
-        try:
-            p = psutil.Process(pid)
-            for k in p.children(recursive=True) + [p]:
-                k.kill()
-            ended.append(pid)
-        except psutil.Error:
-            continue
-    return ended
-
-
-def close(hwnds: list[int]) -> None:
-    import pywintypes
-    import win32con
-    import win32gui
-
-    for h in hwnds:
-        try:
-            win32gui.PostMessage(h, win32con.WM_CLOSE, 0, 0)
-        except pywintypes.error:
-            pass
-
-
-def webview2_holders(exclude_parent: int | None) -> list[str]:
-    return webview2_holders_from(_webview2_rows(), exclude_parent)
+def watch_after_start(pid: int, grace: float = LAUNCH_GRACE_S, alive=None, clock=None, sleep=None) -> None:
+    """An Excel smartass just launched: watched for grace seconds (Smart View's Login may come right after its start;
+    the launch sites give launch_grace). The launch sites call it once they found the workbook in that Excel (a read
+    of its workbook list) and took that Excel's turn (its first contact), as 0.6.0 did, and before the job's first
+    step there; a Login seen is refused at once (login_refusal). alive: the job's abort check, each round."""
+    clock, sleep = clock or time.monotonic, sleep or time.sleep
+    t0 = clock()
+    while True:
+        if alive is not None:
+            alive()
+        refuse_login(pid)
+        if clock() - t0 >= grace:
+            return
+        sleep(0.5)

@@ -39,7 +39,7 @@ from pathlib import Path
 
 from ...core import config, timing
 from .. import jobs
-from ..host import HostError
+from ...core.errors import HostError
 from . import build, runner
 
 log = logging.getLogger("smartview.inproc")

@@ -35,6 +35,33 @@ def indent_of(label) -> int:
     return len(label) - len(label.lstrip(" ")) if isinstance(label, str) else 0
 
 
+def tree_from_labels(labels: list[str], extras: list[dict] | None = None) -> list[dict]:
+    """Indentation -> depth/parent. Handles both ancestor-on-top and ancestor-at-bottom ordering (the latter is read
+    bottom-up, so siblings come in reverse display order). extras: one dict per label, merged into its row (the atlas
+    over REST adds a member's real name, alias and storage); the rows are the same with or without them."""
+    if not labels:
+        return []
+    ind = [indent_of(x) for x in labels]
+    bottom_up = ind[-1] < ind[0]                # top member last = ancestors below their children
+    seq = list(zip(labels, ind, extras if extras is not None else [{}] * len(labels)))
+    if bottom_up:
+        seq.reverse()
+    base = min(i for _, i, _ in seq)
+    steps = sorted({i for _, i, _ in seq})
+    step = (steps[1] - steps[0]) if len(steps) > 1 else 1
+    out, stack = [], []
+    for order, (lab, i, extra) in enumerate(seq):
+        depth = (i - base) // step if step else 0
+        while len(stack) > depth:
+            stack.pop()
+        parent = stack[-1] if stack else None
+        clean = lab.strip()
+        name = name_from_label(clean) or clean
+        out.append({**extra, "label": clean, "name": name, "depth": depth, "parent": parent, "order": order})
+        stack.append(name)
+    return out
+
+
 @dataclass
 class Axis:
     dimension: str
@@ -205,8 +232,8 @@ def parse(layout: Layout, values: tuple | list, suppress_missing: bool, suppress
 
 def verify_labels(lay: Layout, parsed) -> list[str]:
     """Each returned label must be the requested member (where Smart View's 'code alias (prefix)' display lets us
-    derive the name). A mismatch means rows/columns moved - never build formulas on that. Used by both routes
-    (COM and svhttp): `parsed` is parse(lay, values, False, False)."""
+    derive the name). A mismatch means rows/columns moved - never build formulas on that. Used by both engines
+    (svhttp.check_layout: the provider route and Planning REST): `parsed` is parse(lay, values, False, False)."""
     bad = []
     for kind, tuples, labels in (("row", lay.row_tuples, parsed.row_labels),
                                  ("column", lay.col_tuples, parsed.col_labels)):

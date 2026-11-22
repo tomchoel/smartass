@@ -1,0 +1,624 @@
+"""The atlas over the token session (epm/members.py, ops/atlas_build.build_rest / build_into): a dimension's member
+tree from Oracle's Get Member, turned into the rows the hidden Excel's zoom gave (ops.dump_dimension +
+tree_from_labels), the build into a new file swapped in only when it completed. EPM is faked (an opener under a real
+EpmSession, or a source object); every member, alias and code here is invented."""
+import contextlib
+import http.client
+import io
+import json
+import sqlite3
+import urllib.error
+
+import pytest
+
+from smartass.epm import epmhttp, members, oauth
+from smartass.epm.grid import tree_from_labels
+from smartass.knowledge import atlas
+from smartass.ops import atlas_build, cli
+
+POD = "https://plan1.example"
+
+
+def node(name, alias=None, *children, storage="Store Data", used=("FinMax", "FinLite"), **extra):
+    n = {"name": name, "dataStorage": storage, "usedIn": list(used), **extra}
+    if alias is not None:
+        n["alias"] = alias
+    if children:
+        n["children"] = list(children)
+    return n
+
+
+# An invented account tree as Get Member answers it (outline order), with a shared member under two parents and a
+# label without the "code alias (prefix)" form (kept under its label).
+ACCOUNTS = node("Accounts", "All Accounts",
+                node("ac.R", "R Revenue total (ac)",
+                     node("ac.R1", "R1 Sales one (ac)"),
+                     node("ac.R2", "R2 Sales two (ac)")),
+                node("ac.K", "K Key figures (ac)",
+                     node("ac.R1", "R1 Sales one (ac)", storage="Shared"),
+                     node("KPI1", None)))
+
+
+def smart_view_display(top, bottom=True, indent=5):
+    """What the zoom showed in the hidden Excel: indented labels, ancestors at the bottom (today's atlas)."""
+    out = []
+
+    def go(n, d):
+        if not bottom:
+            out.append(" " * indent * d + (n.get("alias") or n["name"]))
+        for c in n.get("children") or []:
+            go(c, d + 1)
+        if bottom:
+            out.append(" " * indent * d + (n.get("alias") or n["name"]))
+    go(top, 0)
+    return out
+
+
+KEYS = ("label", "name", "depth", "parent", "order")
+
+
+def test_the_rows_are_the_rows_the_zoom_gave():
+    """label = the Default alias, else the name; the name derived from the label as before (ac.R1 from its label,
+    KPI1 kept under its label); depth, parent and order as tree_from_labels reads an ancestors-at-the-bottom display:
+    siblings in reverse outline order; a shared member under each of its parents."""
+    got = members.rows(ACCOUNTS, "FinMax")
+    want = tree_from_labels(smart_view_display(ACCOUNTS))
+    assert [{k: r[k] for k in KEYS} for r in got] == want
+    assert [(r["name"], r["parent"], r["depth"]) for r in got] == [
+        ("All Accounts", None, 0), ("ac.K", "All Accounts", 1), ("KPI1", "ac.K", 2), ("ac.R1", "ac.K", 2),
+        ("ac.R", "All Accounts", 1), ("ac.R2", "ac.R", 2), ("ac.R1", "ac.R", 2)]
+    assert [r["order"] for r in got] == list(range(7))
+
+
+def test_each_row_carries_the_members_real_name_alias_storage_and_types():
+    tree = node("Account", None, node("EBX", "EBX Ebitda X", accountType="Revenue", timeBalance="None",
+                                      used=("FinPlan",)),
+                node("HC", None, storage="Never Share", accountType="Expense", timeBalance="Average",
+                     used=("FinPlan",)),
+                used=("FinPlan",))
+    got = {r["label"]: r for r in members.rows(tree, "FinPlan")}
+    assert {k: got["EBX Ebitda X"][k] for k in members.EXTRA} == {
+        "real_name": "EBX", "alias": "EBX Ebitda X", "storage": "Store Data", "account_type": "Revenue",
+        "time_balance": "None"}
+    assert got["EBX Ebitda X"]["name"] == "EBX Ebitda X"            # the key stays the label, as today
+    assert {k: got["HC"][k] for k in members.EXTRA} == {
+        "real_name": "HC", "alias": None, "storage": "Never Share", "account_type": "Expense",
+        "time_balance": "Average"}
+    assert got["Account"]["account_type"] is None and got["Account"]["real_name"] == "Account"
+
+
+def test_dynamic_time_series_and_members_of_another_plan_type_are_left_out():
+    """The zoom showed neither: the X-T-D members under the top of a period dimension (Get Member lists them first),
+    and members whose usedIn does not name the plan type (with their subtrees)."""
+    tree = node("TimePeriods", "All Time Periods",
+                *(node(f"{x}-T-D", None, used=()) for x in "HYSPQMWD"),
+                node("Y1", "Year one", node("Q1", "Quarter one"), node("Q9", "Lite only", node("M9", "m"),
+                                                                       used=("FinLite",))))
+    assert [r["label"] for r in members.rows(tree, "FinMax", period=True)] == ["All Time Periods", "Year one",
+                                                                               "Quarter one"]
+    assert [r["label"] for r in members.rows(tree, "FinLite", period=True)] == ["All Time Periods", "Year one",
+                                                                                "Lite only", "m", "Quarter one"]
+    deeper = node("X", None, node("Y", None, node("H-T-D", None)))      # a name like it below the top is kept
+    assert [r["label"] for r in members.rows(deeper, "FinMax", period=True)] == ["X", "Y", "H-T-D"]
+    other = node("X", None, node("H-T-D", None))                      # and in a dimension that is not a period one
+    assert [r["label"] for r in members.rows(other, "FinMax")] == ["X", "H-T-D"]
+
+
+def test_a_dimension_of_one_member_is_one_row():
+    assert [{k: r[k] for k in KEYS} for r in members.rows(node("Version", None), "FinMax")] == [
+        {"label": "Version", "name": "Version", "depth": 0, "parent": None, "order": 0}]
+
+
+MEMBER_COLUMNS = ["connection", "dimension", "name", "label", "parent", "depth", "ord"]
+
+
+def test_a_name_used_twice_under_one_parent_is_one_key_with_both_real_names(tmp_path):
+    """Two members whose labels give one key under one parent: the member table keeps the first (INSERT OR IGNORE),
+    as the hidden Excel's build did, and counts both; the side table keeps the real name of each (Task 4 review,
+    Important 1: live 14 such rows)."""
+    tree = node("Accounts", "All Accounts", node("ac.A", "A First (ac)"), node("ac.A2", "A Second (ac)"))
+    rows = members.rows(tree, "FinMax")
+    assert [r["name"] for r in rows] == ["All Accounts", "ac.A", "ac.A"]
+    with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
+        atlas.store(db, "FinMax", "All Accounts", rows, 1.0)
+        assert db.execute("SELECT count(*) FROM member").fetchone()[0] == 2
+        assert db.execute("SELECT label FROM member WHERE name='ac.A'").fetchone() == ("A Second (ac)",)
+        assert atlas.status(db)["built"][0]["members"] == 3
+        assert atlas.real_names(db, "FinMax", "All Accounts", {"ac.A", "All Accounts"}) == {
+            "ac.A": {"ac.A", "ac.A2"}, "All Accounts": {"Accounts"}}
+        assert [r[1] for r in db.execute("PRAGMA table_info(member)")] == MEMBER_COLUMNS
+
+
+def test_an_older_release_rebuilding_a_rest_atlas_works_and_its_side_table_is_then_ignored(tmp_path):
+    """Release 0.6.0 writes the atlas with a purge and a positional 7-value INSERT: on a REST-built atlas that works
+    (the member table has exactly its 7 columns); the side table it does not know is left behind with the old build's
+    stamp, so it is no longer believed."""
+    with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
+        atlas.store(db, "FinMax", "All Accounts", members.rows(ACCOUNTS, "FinMax"), 1.0)
+        assert atlas.real_names(db, "FinMax", "All Accounts", {"KPI1"}) == {"KPI1": {"KPI1"}}
+        with db:                                           # 0.6.0: atlas.purge, then atlas.store as it was
+            db.execute("DELETE FROM member WHERE connection=?", ("FinMax",))
+            db.execute("DELETE FROM build WHERE connection=?", ("FinMax",))
+            db.execute("INSERT OR IGNORE INTO member VALUES (?,?,?,?,?,?,?)",
+                       ("FinMax", "All Accounts", "KPI1", "KPI1", "All Accounts", 1, 0))
+            db.execute("INSERT OR REPLACE INTO build VALUES (?,?,?,?,?,?)",
+                       ("FinMax", "All Accounts", 2e9, 1, 1.0, None))
+        assert atlas.has_member(db, "FinMax", "All Accounts", "KPI1")
+        assert atlas.real_names(db, "FinMax", "All Accounts", {"KPI1"}) == {}
+
+
+def test_a_store_without_real_names_clears_the_dimensions_side_rows(tmp_path):
+    """This release's own hidden-Excel route stores no real names: the dimension's side rows go with the old rows."""
+    with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
+        atlas.store(db, "FinMax", "All Accounts", members.rows(ACCOUNTS, "FinMax"), 1.0)
+        atlas.store(db, "FinMax", "All Accounts", [{"name": "x", "label": "x", "parent": None, "depth": 0,
+                                                    "order": 0}], 1.0)
+        assert db.execute("SELECT count(*) FROM member_real").fetchone()[0] == 0
+        atlas.store(db, "FinMax", "All Accounts", members.rows(ACCOUNTS, "FinMax"), 1.0)
+        atlas.purge(db, "FinMax")
+        assert db.execute("SELECT count(*) FROM member_real").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("answer", [
+    [], "x", {"children": []}, {"name": 3}, {"name": "A", "children": {}}, {"name": "A", "children": ["B"]},
+    {"name": "A", "children": [{"name": "B", "alias": 5}]}, {"name": "A", "usedIn": "FinMax"},
+    {"name": "A", "children": [{"name": "B", "children": [{"alias": "no name"}]}]},
+])
+def test_an_answer_that_is_not_a_member_tree_is_refused(answer):
+    with pytest.raises(members.TreeError, match="not a Planning REST member tree"):
+        members.check_tree(answer)
+
+
+# ---------------------------------------------------------------- the request (a real EpmSession, a fake wire)
+class _Tokens:
+    def scope_for(self, base):
+        return "urn:scope"
+
+    def access_token(self, base, reject=None):
+        if isinstance(self, Exception):
+            raise self
+        return "at-1"
+
+
+class _Answer(io.BytesIO):
+    def __init__(self, status, text):
+        super().__init__(text.encode())
+        self.status, self.headers = status, http.client.HTTPMessage()
+
+    def info(self):
+        return self.headers
+
+
+class _Opener:
+    def __init__(self, status, text):
+        self.status, self.text, self.sent = status, text, []
+
+    def open(self, req, timeout):
+        self.sent.append(req)
+        if 200 <= self.status < 300:
+            return _Answer(self.status, self.text)
+        raise urllib.error.HTTPError(req.full_url, self.status, "no", http.client.HTTPMessage(),
+                                     io.BytesIO(self.text.encode()))
+
+
+def _session(status, text):
+    op = _Opener(status, text)
+    return epmhttp.EpmSession(POD, tokens=_Tokens(), opener=op), op
+
+
+def test_the_tree_is_read_with_the_allowlisted_request_and_201_is_its_answer():
+    s, op = _session(201, json.dumps(ACCOUNTS))
+    assert members.read_tree(s, "FinMax", "Accounts") == ACCOUNTS
+    assert [(r.get_method(), r.full_url, r.data) for r in op.sent] == [
+        ("GET", POD + "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Accounts/members/Accounts?fields="
+         + epmhttp.MEMBER_FIELDS, None)]
+
+
+@pytest.mark.parametrize("status, text, match", [
+    (200, json.dumps(ACCOUNTS), "HTTP 200"),          # exactly the status seen live, not a range
+    (202, json.dumps(ACCOUNTS), "HTTP 202"),
+    (400, '{"detail": "The member X does not exist"}', "HTTP 400"),
+    (404, "{}", "HTTP 404"), (500, "{}", "HTTP 500"), (401, "{}", "HTTP 401"),
+    (201, "<html>", "not JSON"),
+])
+def test_any_other_answer_is_an_error_naming_its_status_never_its_text(status, text, match):
+    s, _ = _session(status, text)
+    with pytest.raises(members.TreeError, match=match) as e:
+        members.read_tree(s, "FinMax", "Accounts")
+    assert "does not exist" not in str(e.value) and "<html>" not in str(e.value)
+
+
+def test_a_dimension_without_a_rule_is_refused_before_anything_is_sent():
+    s, op = _session(201, "{}")
+    with pytest.raises(members.TreeError, match="refused"):
+        members.read_tree(s, "FinMax", "Attributes")
+    assert op.sent == []
+
+
+def test_a_missing_sign_in_reaches_the_caller_as_it_is():
+    class NoToken(_Tokens):
+        def access_token(self, base, reject=None):
+            raise oauth.NotSignedIn("sign in")
+    s = epmhttp.EpmSession(POD, tokens=NoToken(), opener=_Opener(201, "{}"))
+    with pytest.raises(oauth.NotSignedIn):
+        members.read_tree(s, "FinMax", "Accounts")
+
+
+# ---------------------------------------------------------------- the build
+class _Source:
+    """members.Source as the build sees it: the plan types' dimensions (REST name, atlas name) and the trees."""
+
+    def __init__(self, trees, dims, fail=()):
+        self.trees, self.dims, self.fail, self.read = trees, dims, set(fail), []
+
+    def dimensions(self, conn):
+        if conn in self.fail:
+            raise members.TreeError(f"{conn}: HTTP 500")
+        return self.dims[conn]
+
+    def tree(self, conn, dim):
+        self.read.append((conn, dim))
+        if dim in self.fail:
+            raise members.TreeError(f"{dim}: HTTP 500")
+        return self.trees[dim]
+
+
+ENTITIES = node("Entities", "All Entities", node("un.SY", "SY Group (un)", node("un.SY.E1", "E1 One (un.SY)")))
+TREES = {"Accounts": ACCOUNTS, "Entities": ENTITIES,
+         "Account": node("Account", None, node("EBX", "EBX Ebitda X", accountType="Revenue", timeBalance="None",
+                                               used=("FinPlan",)), used=("FinPlan",))}
+DIMS = {"FinMax": [("Accounts", "All Accounts"), ("Entities", "All Entities")],
+        "FinLite": [("Accounts", "All Accounts")], "FinPlan": [("Account", "Account")]}
+
+
+def _rows(db, conn, dim):
+    return db.execute("SELECT name, label, parent, depth, ord FROM member WHERE connection=? AND dimension=? "
+                      "ORDER BY ord", (conn, dim)).fetchall()
+
+
+def test_build_rest_stores_every_dimension_of_every_cube(tmp_path):
+    src = _Source(TREES, DIMS)
+    with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
+        done = atlas_build.build_rest(src, db=db, progress=lambda m: None)
+        assert [(d["connection"], d["dimension"], d["members"]) for d in done] == [
+            ("FinMax", "All Accounts", 7), ("FinMax", "All Entities", 3), ("FinLite", "All Accounts", 7),
+            ("FinPlan", "Account", 2)]
+        assert src.read == [("FinMax", "Accounts"), ("FinMax", "Entities"), ("FinLite", "Accounts"),
+                            ("FinPlan", "Account")]
+        want = [(r["name"], r["label"], r["parent"], r["depth"], r["order"])
+                for r in tree_from_labels(smart_view_display(ACCOUNTS))]
+        assert _rows(db, "FinMax", "All Accounts") == want == _rows(db, "FinLite", "All Accounts")
+        assert atlas.has_member(db, "FinMax", "All Entities", "un.SY.E1")
+
+
+def test_the_source_reads_finlites_trees_once_with_finmaxs(monkeypatch):
+    """FinLite's dimensions are FinMax's application dimensions: one Get Member per (application, dimension) a build;
+    the plan types' lists leave attribute dimensions out and name each dimension as the atlas does."""
+    class Sv:
+        def rest_session(self, conn):
+            return conn
+    reads = []
+    monkeypatch.setattr(members, "read_tree", lambda s, app, dim: reads.append((s, app, dim)) or {"name": dim})
+    monkeypatch.setattr(members.rest, "read_dimensions", lambda s, app, cube: [
+        ("Accounts", "All Accounts", "Account"), ("Version", None, "Version"), ("Colour", None, "Attribute Text")])
+    src = members.Source(Sv())
+    assert src.dimensions("FinLite") == [("Accounts", "All Accounts", "Account"), ("Version", "Version", "Version")]
+    assert src.tree("FinMax", "Accounts") is src.tree("FinLite", "Accounts")
+    src.tree("FinPlan", "Accounts")
+    assert reads == [("FinMax", "FinMax", "Accounts"), ("FinPlan", "FinPlan", "Accounts")]
+
+
+def test_a_full_build_purges_the_cube_and_a_partial_one_does_not(tmp_path):
+    with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
+        atlas.store(db, "FinMax", "All Gone", [{"name": "g", "label": "g", "parent": None, "depth": 0, "order": 0}],
+                    1.0)
+        atlas_build.build_rest(_Source(TREES, DIMS), ["FinMax"], ["Entities"], db=db, progress=lambda m: None)
+        assert atlas.has_member(db, "FinMax", "All Gone", "g")                 # a partial build keeps the cube
+        done = atlas_build.build_rest(_Source(TREES, DIMS), ["FinMax"], ["accounts"], db=db, progress=lambda m: None)
+        assert [d["dimension"] for d in done] == ["All Accounts"]              # any spelling of the dimension
+        atlas_build.build_rest(_Source(TREES, DIMS), ["FinMax"], db=db, progress=lambda m: None)
+        assert not atlas.has_member(db, "FinMax", "All Gone", "g")             # a full build purges it
+
+
+def test_a_dimension_epm_lists_without_a_rule_is_skipped_and_keeps_its_rows(tmp_path):
+    """The allowlist names every dimension it may read (epmhttp.MEMBER_TREES, fixed). A dimension EPM lists that has no
+    rule is not read and not an error: its old rows are kept through the cube's purge, the swap goes on, and the result
+    says loudly that this release cannot read it (Task 4 review, Minor 1; controller ruling)."""
+    target = tmp_path / "atlas.db"
+    with contextlib.closing(atlas.connect(target)) as db:
+        for dim in ("All Colours", "All Gone"):
+            atlas.store(db, "FinMax", dim, [{"name": "c", "label": "c", "parent": None, "depth": 0, "order": 0}], 1.0)
+    dims = {**DIMS, "FinMax": [*DIMS["FinMax"], ("Colours", "All Colours")]}
+    src = _Source(TREES, dims)
+    done, swapped = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        src, ["FinMax"], db=db, progress=lambda m: None), progress=lambda m: None)
+    assert swapped and ("FinMax", "Colours") not in src.read
+    assert done[-1] == {"connection": "FinMax", "dimension": "All Colours",
+                        "skipped": "dimension All Colours is new in EPM; this release cannot read it - update smartass"}
+    with contextlib.closing(atlas.connect(target)) as db:
+        assert atlas.has_member(db, "FinMax", "All Colours", "c")              # kept
+        assert not atlas.has_member(db, "FinMax", "All Gone", "c")             # purged: EPM no longer lists it
+
+
+def test_only_a_period_dimension_loses_its_dynamic_time_series_members(tmp_path):
+    """The plan type's list says which dimension is the period one (dimType 'Period', live for TimePeriods and Period):
+    only there are X-T-D members under the top left out (Task 4 review, Minor 9)."""
+    tree = node("TimePeriods", "All Time Periods", node("Y-T-D", None), node("Y1", "Year one"))
+    other = node("Scenarios", "All Scenarios", node("Y-T-D", None), node("S1", "Scenario one"))
+    src = _Source({"TimePeriods": tree, "Scenarios": other},
+                  {"FinMax": [("TimePeriods", "All Time Periods", "Period"), ("Scenarios", "All Scenarios", "Custom")]})
+    with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
+        atlas_build.build_rest(src, ["FinMax"], db=db, progress=lambda m: None)
+        assert not atlas.has_member(db, "FinMax", "All Time Periods", "Y-T-D")
+        assert atlas.has_member(db, "FinMax", "All Scenarios", "Y-T-D")
+
+
+def test_the_cli_says_a_skipped_dimension_on_its_last_line(monkeypatch, capsys):
+    skipped = "dimension All Colours is new in EPM; this release cannot read it - update smartass"
+    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims: [
+        {"connection": "FinMax", "dimension": "All Accounts", "members": 3},
+        {"connection": "FinMax", "dimension": "All Colours", "skipped": skipped}])
+    assert cli.main(["atlas", "build"]) == 0
+    last = capsys.readouterr().out.strip().splitlines()[-1]
+    assert last.startswith("atlas: 1 built, 0 failed, 1 skipped") and skipped in last
+
+
+def test_errors_are_recorded_per_dimension_and_never_stop_the_build(tmp_path):
+    src = _Source(TREES, DIMS, fail=("Entities", "FinLite"))
+    with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
+        done = atlas_build.build_rest(src, db=db, progress=lambda m: None)
+        assert [(d["connection"], d.get("dimension"), bool(d.get("error"))) for d in done] == [
+            ("FinMax", "All Accounts", False), ("FinMax", "All Entities", True), ("FinLite", None, True),
+            ("FinPlan", "Account", False)]
+        st = {(b["connection"], b["dimension"]): b for b in atlas.status(db)["built"]}
+        assert st["FinMax", "All Entities"]["error"] == "Entities: HTTP 500"
+
+
+def _today(path):
+    """Today's atlas: the old schema (no extra columns), a member, a card and a table smartass no longer writes."""
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE member (connection TEXT, dimension TEXT, name TEXT, label TEXT, parent TEXT, depth INT, ord INT,
+                             PRIMARY KEY (connection, dimension, name, parent));
+        CREATE TABLE build (connection TEXT, dimension TEXT, built_at REAL, n INT, seconds REAL, error TEXT,
+                            PRIMARY KEY (connection, dimension));
+        CREATE TABLE card (connection TEXT, dimension TEXT, name TEXT, parent TEXT, operator TEXT, time_balance TEXT,
+                           account_type TEXT, shared INT, derived_at REAL,
+                           PRIMARY KEY (connection, dimension, name, parent));
+        CREATE TABLE snapshot (x);
+        INSERT INTO member VALUES ('FinMax', 'All Accounts', 'ac.OLD', 'OLD Old (ac)', 'All Accounts', 1, 1);
+        INSERT INTO member VALUES ('FinPlan', 'Account', 'Old', 'Old', 'Account', 1, 1);
+        INSERT INTO build VALUES ('FinMax', 'All Accounts', 1.0, 2, 1.0, NULL);
+        INSERT INTO card VALUES ('FinMax', 'All Accounts', 'ac.R1', 'ac.R', '+', 'flow', 'revenue', 0, 1.0);
+        INSERT INTO snapshot VALUES (1);""")
+    db.commit()
+    db.close()
+
+
+def test_a_completed_build_replaces_the_atlas_and_keeps_what_the_build_does_not_write(tmp_path):
+    target = tmp_path / "atlas.db"
+    _today(target)
+    done, swapped = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        _Source(TREES, DIMS), ["FinMax"], db=db, progress=lambda m: None), progress=lambda m: None)
+    assert swapped and not (tmp_path / "atlas.db.new").exists()
+    with contextlib.closing(sqlite3.connect(target)) as db:
+        assert db.execute("SELECT count(*) FROM member WHERE name='ac.OLD'").fetchone()[0] == 0     # purged
+        assert db.execute("SELECT count(*) FROM member WHERE connection='FinPlan'").fetchone()[0] == 1  # not built
+        assert db.execute("SELECT operator FROM card").fetchall() == [("+",)]                         # cards kept
+        assert db.execute("SELECT x FROM snapshot").fetchall() == [(1,)]
+        assert db.execute("SELECT real_name FROM member_real WHERE name='KPI1'").fetchone() == ("KPI1",)
+        assert [r[1] for r in db.execute("PRAGMA table_info(member)")] == MEMBER_COLUMNS
+
+
+def test_a_failed_build_leaves_todays_atlas_untouched_and_says_so(tmp_path):
+    target = tmp_path / "atlas.db"
+    _today(target)
+    before = target.read_bytes()
+    said = []
+    done, swapped = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        _Source(TREES, DIMS, fail=("Entities",)), ["FinMax"], db=db, progress=lambda m: None), progress=said.append)
+    assert not swapped and target.read_bytes() == before and not (tmp_path / "atlas.db.new").exists()
+    assert "not replaced" in said[-1] and "1 dimension" in said[-1]
+    with contextlib.closing(sqlite3.connect(target)) as db:                  # the old schema, as it was
+        assert [r[1] for r in db.execute("PRAGMA table_info(member)")] == [
+            "connection", "dimension", "name", "label", "parent", "depth", "ord"]
+
+
+def test_a_build_of_no_dimension_replaces_nothing(tmp_path):
+    target = tmp_path / "atlas.db"
+    _today(target)
+    said = []
+    done, swapped = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        _Source(TREES, DIMS), ["FinMax"], ["Nonesuch"], db=db, progress=lambda m: None), progress=said.append)
+    assert done == [{"connection": "-", "error": "atlas not replaced: nothing was built (no such dimension?)"}]
+    assert not swapped and "nothing was built" in said[-1]
+
+
+def test_every_attempt_is_recorded_for_atlas_status(tmp_path, monkeypatch):
+    """atlas status shows the last attempt - when, replaced or not, why, the dimensions it could not read - also when
+    nothing was replaced (the error rows went with the new file)."""
+    target = tmp_path / "atlas.db"
+    _today(target)
+    dims = {**DIMS, "FinMax": [*DIMS["FinMax"], ("Colours", "All Colours")]}
+    atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        _Source(TREES, dims), ["FinMax"], db=db, progress=lambda m: None), progress=lambda m: None)
+    last = atlas_build.last_attempt(target)
+    assert last["replaced"] is True and last["why"] == "" and last["at"]
+    assert last["skipped"] == [
+        "FinMax: dimension All Colours is new in EPM; this release cannot read it - update smartass"]
+    done, _ = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        _Source(TREES, DIMS, fail=("Entities",)), ["FinMax"], db=db, progress=lambda m: None), progress=lambda m: None)
+    assert done[-1] == {"connection": "-", "error": "atlas not replaced: 1 dimension or cube failed"}
+    last = atlas_build.last_attempt(target)
+    assert last["replaced"] is False and last["why"] == "1 dimension or cube failed" and last["skipped"] == []
+    monkeypatch.setattr(atlas_build.config, "ATLAS_DB", target)
+    assert atlas_build.status()["last_build"] == last
+
+
+def test_the_cli_says_not_replaced_on_its_last_line_and_fails(monkeypatch, capsys):
+    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims: [
+        {"connection": "FinMax", "dimension": "All Accounts", "members": 3},
+        {"connection": "-", "error": "atlas not replaced: nothing was built (no such dimension?)"}])
+    assert cli.main(["atlas", "build"]) == 1
+    last = capsys.readouterr().out.strip().splitlines()[-1]
+    assert last.startswith("atlas: NOT replaced (nothing was built (no such dimension?))")
+
+
+def test_a_second_build_while_one_runs_says_so_and_touches_nothing(tmp_path):
+    """Task 4 review, Minor 8: two builds at once. The first holds a lock next to the atlas; the second does not run,
+    says the first is running and replaces nothing; each build's new file has its own name."""
+    import msvcrt
+    target = tmp_path / "atlas.db"
+    _today(target)
+    before = target.read_bytes()
+    holder = {"at": "2026-11-22T08:00:00", "replaced": True, "why": "", "skipped": []}
+    atlas_build._last_path(target).write_text(json.dumps(holder), encoding="utf-8")   # what the running build wrote
+    ran, said = [], []
+    with open(tmp_path / "atlas.db.build.lock", "a+b") as held:
+        held.seek(0)
+        msvcrt.locking(held.fileno(), msvcrt.LK_NBLCK, 1)
+        done, swapped = atlas_build.build_into(target, lambda db: ran.append(1) or [], progress=said.append)
+        held.seek(0)
+        msvcrt.locking(held.fileno(), msvcrt.LK_UNLCK, 1)
+    assert not swapped and ran == [] and target.read_bytes() == before
+    assert done == [{"connection": "-", "error": "atlas not replaced: another atlas build is running"}]
+    assert said == [f"atlas not replaced: another atlas build is running; {target} is unchanged"]
+    # only the build that holds the lock writes the record (Task 4c review, Minor 2): a refused one never masks it
+    assert atlas_build.last_attempt(target) == holder
+    names = []
+    atlas_build.build_into(target, lambda db: names.append(db.execute("PRAGMA database_list").fetchone()[2]) or [
+        {"connection": "FinMax", "dimension": "x", "members": 0}], progress=lambda m: None)
+    atlas_build.build_into(target, lambda db: names.append(db.execute("PRAGMA database_list").fetchone()[2]) or [
+        {"connection": "FinMax", "dimension": "x", "members": 0}], progress=lambda m: None)
+    assert names[0] != names[1] and all(n.endswith(".new") for n in names)
+    assert not list(tmp_path.glob("*.new"))
+
+
+def test_a_build_that_raises_leaves_todays_atlas_untouched(tmp_path):
+    target = tmp_path / "atlas.db"
+    _today(target)
+    before = target.read_bytes()
+
+    def run(db):
+        atlas_build.build_rest(_Source(TREES, DIMS), ["FinMax"], db=db, progress=lambda m: None)
+        raise oauth.NotSignedIn("sign in")
+    with pytest.raises(oauth.NotSignedIn):
+        atlas_build.build_into(target, run, progress=lambda m: None)
+    assert target.read_bytes() == before and not (tmp_path / "atlas.db.new").exists()
+
+
+def test_an_atlas_another_process_holds_locked_is_left_unchanged_after_a_bounded_wait(tmp_path, monkeypatch):
+    """Python's backup would retry as long as the lock lasts: the swap gives up after SWAP_TIMEOUT_S, says so, and the
+    atlas is as it was; a lock released in time does not stop it."""
+    import threading
+    target = tmp_path / "atlas.db"
+    _today(target)
+    monkeypatch.setattr(atlas_build, "SWAP_TIMEOUT_S", 0.5)
+    def run(db):
+        return atlas_build.build_rest(_Source(TREES, DIMS), ["FinPlan"], db=db, progress=lambda m: None)
+    holder = sqlite3.connect(target, isolation_level=None, check_same_thread=False)
+    real_copy = atlas_build._copy
+
+    def copy_then_lock(src, dst):                       # the copy of today's atlas reads; the swap meets the lock
+        if dst == target:
+            holder.execute("BEGIN EXCLUSIVE")
+        real_copy(src, dst)
+    monkeypatch.setattr(atlas_build, "_copy", copy_then_lock)
+    said = []
+    done, swapped = atlas_build.build_into(target, run, progress=said.append)
+    holder.execute("ROLLBACK")
+    assert not swapped and "could not be written" in said[-1] and "in use" in said[-1]
+    with contextlib.closing(sqlite3.connect(target)) as db:
+        assert db.execute("SELECT count(*) FROM member WHERE connection='FinPlan'").fetchone()[0] == 1   # as it was
+    monkeypatch.setattr(atlas_build, "SWAP_TIMEOUT_S", 10.0)
+
+    def lock_briefly(src, dst):
+        if dst == target:
+            holder.execute("BEGIN EXCLUSIVE")
+            threading.Timer(0.3, lambda: holder.execute("ROLLBACK")).start()
+        real_copy(src, dst)
+    monkeypatch.setattr(atlas_build, "_copy", lock_briefly)
+    done, swapped = atlas_build.build_into(target, run, progress=said.append)
+    holder.close()
+    assert swapped
+
+
+def test_a_first_build_creates_the_atlas(tmp_path):
+    target = tmp_path / "home" / "atlas.db"
+    done, swapped = atlas_build.build_into(target, lambda db: atlas_build.build_rest(
+        _Source(TREES, DIMS), db=db, progress=lambda m: None), progress=lambda m: None)
+    assert swapped
+    with contextlib.closing(atlas.connect(target)) as db:
+        assert atlas.known_dimensions(db, "FinPlan") == ["Account"]
+
+
+def test_reading_the_atlas_adds_no_table(tmp_path):
+    """Only a store of real names creates the side table: opening today's atlas to read it adds nothing."""
+    target = tmp_path / "atlas.db"
+    _today(target)
+    with contextlib.closing(atlas.connect(target)) as db:
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='member_real'").fetchone()
+        assert atlas.real_names(db, "FinMax", "All Accounts", {"ac.OLD"}) == {}
+        assert atlas.canonical(db, "FinMax", "All Accounts", "ac.old") == "ac.OLD"
+
+
+def test_the_cli_builds_over_rest_only_the_old_excel_route_is_gone(monkeypatch, capsys):
+    """The gate passed (docs/audit/2026-11-22-atlas-rest.md); Task 6 deleted the hidden Excel's zoom and its --excel."""
+    seen = []
+    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims: seen.append((cubes, dims)) or [
+        {"connection": "FinMax", "dimension": "x", "members": 3}])
+    assert cli.main(["atlas", "build"]) == 0 and seen == [(None, None)]
+    with pytest.raises(SystemExit):
+        cli.main(["atlas", "build", "--excel"])
+    assert not hasattr(atlas_build, "build")
+
+
+def test_run_build_goes_over_rest_into_the_atlas_and_derives_the_cards_after_the_swap(tmp_path, monkeypatch):
+    target = tmp_path / "atlas.db"
+    _today(target)
+    monkeypatch.setattr(atlas_build.config, "ATLAS_DB", target)
+    monkeypatch.setattr(members, "Source", lambda: _Source(TREES, DIMS))
+    cards = []
+    monkeypatch.setattr(atlas_build, "cards_after_build", lambda done: cards.append(len(done)))
+    done = atlas_build.run_build()
+    assert [d.get("error") for d in done] == [None] * 4 and cards == [4]
+    with contextlib.closing(sqlite3.connect(target)) as db:
+        assert db.execute("SELECT count(*) FROM member WHERE name='ac.OLD'").fetchone()[0] == 0
+    atlas_build.run_build(["FinPlan"], ["Account"])
+    assert cards == [4]                                     # a partial build derives no cards
+
+
+def test_run_build_without_a_sign_in_changes_nothing(tmp_path, monkeypatch):
+    target = tmp_path / "atlas.db"
+    _today(target)
+    before = target.read_bytes()
+    monkeypatch.setattr(atlas_build.config, "ATLAS_DB", target)
+
+    class NoSignIn(_Source):
+        def dimensions(self, conn):
+            raise oauth.NotSignedIn("sign in")
+    monkeypatch.setattr(members, "Source", lambda: NoSignIn(TREES, DIMS))
+    done = atlas_build.run_build()
+    assert done == [{"connection": "-", "error": f"atlas not replaced: {NOT_SIGNED_IN}"}]
+    assert target.read_bytes() == before
+    last = atlas_build.last_attempt(target)
+    assert last["replaced"] is False and last["why"] == NOT_SIGNED_IN
+
+
+NOT_SIGNED_IN = "not signed in to EPM - run `smartass login`"
+
+
+def test_the_cli_says_not_replaced_and_why_when_not_signed_in(tmp_path, monkeypatch, capsys):
+    """Task 4b review, Important 2: "not signed in" takes the same honest path as every other reason - the CLI's last
+    line says NOT replaced and why, and it exits non-zero."""
+    target = tmp_path / "atlas.db"
+    _today(target)
+    monkeypatch.setattr(atlas_build.config, "ATLAS_DB", target)
+
+    class NoSignIn(_Source):
+        def dimensions(self, conn):
+            raise oauth.NotSignedIn("sign in")
+    monkeypatch.setattr(members, "Source", lambda: NoSignIn(TREES, DIMS))
+    assert cli.main(["atlas", "build"]) == 1
+    last = capsys.readouterr().out.strip().splitlines()[-1]
+    assert last.startswith(f"atlas: NOT replaced ({NOT_SIGNED_IN}); 0 built, 0 failed")

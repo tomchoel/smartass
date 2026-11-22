@@ -8,27 +8,38 @@ from __future__ import annotations
 import html
 import re
 
+from ..core import logsetup
 from .grid import Layout
 
 ALLOWED = frozenset({"ConnectToProvider", "GetProvisionedDataSources", "OpenApplication", "OpenCube", "ExecuteGrid",
                      "EnumMembers", "GetDrillThroughReports"})     # lists drill reports; Execute... is never allowed
 CLIENT_XML_VERSION = "4.2.5.7.3"
-_SPECIAL = {"#noaccess": "#NoAccess", "#no access": "#NoAccess", "#missing": "#Missing", "#invalid": "#Invalid"}
+SPECIAL = {"#noaccess": "#NoAccess", "#no access": "#NoAccess", "#missing": "#Missing", "#invalid": "#Invalid"}
 
 
 class SvXmlError(Exception):
-    """The provider answered with <exception>, or with something that is not provider XML."""
+    """The provider answered with <exception>, or with something that is not provider XML. Its text is what may be
+    shown (the provider's <desc> scrubbed and cut: _scrubbed); raw is the provider's own text, unescaped and whole,
+    for svhttp's classification only - never shown, logged or put in args (final review A, M1)."""
 
-    def __init__(self, desc: str, code: int | None = None):
+    def __init__(self, desc: str, code: int | None = None, raw: str | None = None):
         super().__init__(desc)
         self.code = code
+        self.raw = desc if raw is None else raw
 
 
 def check_read_only(body: str) -> None:
-    """The transport's last guard: the body must be exactly one allowed request element, retrieve-only."""
+    """The transport's last guard: the body must be exactly one allowed request element, retrieve-only. The body is
+    read as text, so it may hold no markup the provider's parser reads otherwise: no CDATA, comment, DOCTYPE or
+    processing instruction ('<!', '<?'; final review A, M10 - an action inside CDATA passed the text checks below).
+    The builders here escape every '<' of a value, so none of theirs has one."""
+    if "<!" in body or "<?" in body:                    # never quoted: the body can hold a session id
+        raise ValueError("refused: not a single read-only Smart View request")
     m = re.fullmatch(r"\s*<req_(\w+)>.*</req_\1>\s*", body, re.S)
-    name = m.group(1) if m else body[:40]
-    if not m or body.count("<req_") != 1 or name not in ALLOWED:
+    if not m:                                           # its start can be a session id: never quoted
+        raise ValueError("refused: not a single read-only Smart View request")
+    name = m.group(1)                                   # an element name (\w+), nothing of the body's content
+    if body.count("<req_") != 1 or name not in ALLOWED:
         raise ValueError(f"refused: {name!r} is not a single read-only Smart View request")
     if name == "ExecuteGrid" and (len(re.findall(r"<\s*action\b", body, re.I)) != 1
                                   or "<action>retrieve</action>" not in body):
@@ -132,9 +143,31 @@ def drill_url(text: str) -> tuple[str, str] | None:
 def raise_for_exception(text: str) -> None:
     m = re.search(r'<exception\b[^>]*\berrcode="(-?\d+)"[^>]*>.*?<desc>(.*?)</desc>', text, re.S)
     if m:
-        raise SvXmlError(html.unescape(m.group(2)).strip(), int(m.group(1)))
+        raw = html.unescape(m.group(2)).strip()
+        raise SvXmlError(_scrubbed(raw), int(m.group(1)), raw)
     if "<res_" not in text:
-        raise SvXmlError("not a Smart View provider answer: " + re.sub(r"\s+", " ", text)[:120])
+        raise SvXmlError(f"not a Smart View provider answer ({_shape(text)})")
+
+
+DESC_MAX = 500                  # the provider's own error text is a sentence or two; more is cut
+def _scrubbed(desc: str) -> str:
+    """The provider's own error text (<desc>) as it may reach a tool reply: Oracle's sentence (member names, 'Grid is
+    Invalid'), with anything shaped like a session id, a token, a cookie or a URL query replaced by the engine's one
+    scrub (logsetup.redact, which every log line gets too), and cut at DESC_MAX characters. Nothing shows it ever
+    holds one; this is hardening (Task 3c review)."""
+    desc = logsetup.redact(desc)
+    if len(desc) > DESC_MAX:
+        desc = f"{desc[:DESC_MAX]} [cut: {len(desc)} characters]"
+    return desc
+
+
+def _shape(text: str) -> str:
+    """What an answer that is not the provider's looks like, in words of our own and its length - never a part of it:
+    the error reaches the tool reply, and such an answer may hold a session id, a token or a cookie."""
+    head = text.lstrip()[:500].casefold()
+    kind = ("empty" if not head else "an HTML page" if "<html" in head or head.startswith("<!doctype")
+            else "JSON" if head.startswith(("{", "[")) else "other XML" if head.startswith("<") else "text")
+    return f"{kind}, {len(text)} characters"
 
 
 def sid_of(text: str) -> str:
@@ -171,7 +204,7 @@ def data_sources(text: str) -> dict[str, list[tuple[str, str]]]:
 def _cell(v: str, t: str):
     if v == "":
         return None
-    special = _SPECIAL.get(v.strip().casefold())
+    special = SPECIAL.get(v.strip().casefold())
     if special:
         return special
     if t not in ("0", "7"):

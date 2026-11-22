@@ -52,11 +52,11 @@ provider.
    Mixed executors (Task D, D2; --parts mixed): whole jobs through the add-in, then over COM, then through the add-in
    again, in ONE Excel process of its own with an OLD smartass build loaded (live, 21.11.2026: Excel froze on the COM
    route right after add-in runs, two builds loaded), each phase from a new server's state and the add-in phase's
-   last save after the reply still queued at the switch, each job on an STA thread of its own through ExcelHost.call
-   as the server runs it; sheet = model, the executor of each phase, the saves after the reply, Excel ready and saved,
-   the garbage collector on a new thread afterwards. That Excel not answering - a job within MIXED_JOB_S, or one of
-   the script's own calls into it between jobs (each on a thread of its own, with MIXED_JOB_S to answer) - is one
-   DIFF, never a hang: that Excel is killed by its pid, and nothing more is asked of it.
+   last save after the reply still queued at the switch, each job on an STA thread of its own through
+   xl/userjobs.UserJobs as the server runs it; sheet = model, the executor of each phase, the saves after the reply,
+   Excel ready and saved, the garbage collector on a new thread afterwards. That Excel not answering - a job within
+   MIXED_JOB_S, or one of the script's own calls into it between jobs (each on a thread of its own, with MIXED_JOB_S
+   to answer) - is one DIFF, never a hang: that Excel is killed by its pid, and nothing more is asked of it.
 4. Timing: the move-in alone, both routes, --rounds rounds each.
 
 Prints OK / DIFF per item (never a cell value: addresses and property names only); exit 0 only when all are OK.
@@ -1256,7 +1256,7 @@ def _new_target_seam(xl: Excel, holder: dict):
 
     def target(h, target, title, build_new=False):
         if "t" not in holder:
-            holder["t"] = xltarget._new_target(None, title, [(xl.pid, 0, xl.app)], {xl.pid}, build_new)
+            holder["t"] = xltarget._new_target(title, [(xl.pid, 0, xl.app)], {xl.pid}, build_new)
             return holder["t"]
         return Target(app=xl.app, wb=holder["t"].wb, pid=xl.pid, hwnd=0, created=True)
     return target
@@ -1458,7 +1458,7 @@ def _froze(e: BaseException, no_window: type) -> bool:
     """A job's failure that means its Excel stopped answering: the job's own deadline (HostTimeout), no answer by the
     workbook window (no_window: the target seam's), or a turn held by an earlier job given up on - one whose release
     after its answer did not return (jobs.ABANDONED)."""
-    from smartass.xl.host import HostTimeout
+    from smartass.core.errors import HostTimeout
     return isinstance(e, (HostTimeout, no_window)) or str(e).startswith(jobs.ABANDONED.split("(")[0])
 
 
@@ -1467,11 +1467,11 @@ def mixed_executors() -> None:
     21.11.2026 before Excel froze: whole jobs through the add-in (its saves after the reply), then through the COM
     executor (its saves in the job), then through the add-in again - a new workbook's first answer, a second answer
     with a Lines sheet, follow-ups and a refresh of both questions. Each phase starts from a new server's state
-    (_new_server_state, a new ExcelHost), and the add-in phase's last save after the reply is still queued when the
+    (_new_server_state, a new UserJobs), and the add-in phase's last save after the reply is still queued when the
     COM phase starts (PENDING_DELAY_S): it runs during the COM jobs, and its outcome is checked after them. Every job
-    runs on an STA thread of its own through ExcelHost.call(user_excel=True), reaching this Excel by its workbook window
-    as the server's jobs reach the user's. Per job: sheet = model; per phase: the executor it ran (the add-in's Run
-    asked, or not), every save after a reply went through, the workbook saved, Excel ready; at the end both builds
+    runs on an STA thread of its own through UserJobs.call (the server's runner), reaching this Excel by its workbook
+    window as the server's jobs reach the user's. Per job: sheet = model; per phase: the executor it ran (the add-in's
+    Run asked, or not), every save after a reply went through, the workbook saved, Excel ready; at the end both builds
     still loaded, and the garbage collector run on a new thread returns and Excel still answers there.
     Excel stopping to answer anywhere is ONE DIFF and that Excel is killed by its pid, never a hang (Task D3): every
     call of the script's own into it runs on a thread of its own (ask: the thread that started it and owns its
@@ -1486,8 +1486,9 @@ def mixed_executors() -> None:
     from smartass.core import session
     from smartass.xl import instances
     from smartass.xl import target as xltarget
-    from smartass.xl.host import ExcelHost, HostError
+    from smartass.core.errors import HostError
     from smartass.xl.hostproc import ComThread
+    from smartass.xl.userjobs import UserJobs
     xll, old = _old_build()
     owner = ComThread(name="mixed-excel")                      # every call of the script's own into that Excel
     owner.start()
@@ -1523,7 +1524,7 @@ def mixed_executors() -> None:
             if app is None:
                 raise NoWindow("this Excel did not answer by its workbook window for 30 s")
             if "name" not in holder:
-                t = xltarget._new_target(None, title, [(mx.pid, ex7, app)], {mx.pid}, build_new)
+                t = xltarget._new_target(title, [(mx.pid, ex7, app)], {mx.pid}, build_new)
                 holder["name"] = t.made.name if t.made is not None else str(t.wb.Name)
                 return t
             jobs.hold_turn(mx.pid, what="this request", app=app)
@@ -1553,7 +1554,7 @@ def mixed_executors() -> None:
         with _patched(seams):
             for phase, inproc in MIXED_PHASES:
                 _new_server_state()
-                h = ExcelHost()
+                h = UserJobs()
                 results, n0, began = [], len(asked), time.time()
                 leave = phase == "add-in"
                 with _patched({(config, "INPROC"): inproc,
@@ -1562,8 +1563,7 @@ def mixed_executors() -> None:
                         job = (lambda hh, pre=pre: exceljob.excel_job(hh, pre)) if q is None else (
                             lambda hh, pre=pre, q=q: exceljob.redraw_job(hh, pre, q, "this workbook"))
                         try:
-                            out = asyncio.run(h.call(job, timeout=MIXED_JOB_S, what=f"mixed {phase}",
-                                                     user_excel=True))
+                            out = asyncio.run(h.call(job, timeout=MIXED_JOB_S, what=f"mixed {phase}"))
                             results.append((label, (out.get("checks") or {}).get("sheet_equals_model")))
                         except Exception as e:   # noqa: BLE001 - a failure is a finding
                             if _froze(e, NoWindow):

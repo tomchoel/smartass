@@ -13,7 +13,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from ..core import config
+from ..core import config, retry
 
 SERVER_NAME = "smartass"
 LEGACY_SERVER_NAMES = ("smartview", "smartass2")   # smartview renamed 2026-10-23, smartass2 (v2 beside v1) retired 2026-11-04
@@ -116,8 +116,24 @@ def register_mcp(path: Path, entry: dict, create: bool = False) -> str:
     servers[SERVER_NAME] = new
     tmp = path.with_name(path.name + ".tmp-smartass")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+    _replace(tmp, path)
     return "updated"
+
+
+REPLACE_TRIES, REPLACE_PAUSE_S = 10, 0.1    # Windows can hold a file it has just written for a moment (WinError 5)
+
+
+def _replace(tmp: Path, path: Path) -> None:
+    """os.replace, tried again briefly while Windows refuses it (PermissionError: antivirus or the indexer holds the
+    file just written); after REPLACE_TRIES the error is raised and the temp file removed (path is unchanged)."""
+    try:
+        retry.tried_again(lambda: os.replace(tmp, path), REPLACE_TRIES, REPLACE_PAUSE_S)
+    except PermissionError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def _is_junction(p: Path) -> bool:
@@ -167,20 +183,63 @@ def make_shortcut(lnk: Path, target: str, args: str, workdir: str) -> None:
     sc.Save()
 
 
+LEGACY_STARTUP = ("smartass-sso-watcher.lnk", "svkit-sso-watcher.lnk")   # the SSO watcher's, removed (Task 6)
+WATCHER_PS1 = config.ENGINE_DIR / "sso_watcher.ps1"      # an older release's Smart View SSO watcher (deleted)
+
+
 def startup_entries() -> list[str]:
     venv = config.ENGINE_DIR / ".venv" / "Scripts"
-    logs = config.HOME / "logs"
-    logs.mkdir(parents=True, exist_ok=True)
+    (config.HOME / "logs").mkdir(parents=True, exist_ok=True)
     make_shortcut(STARTUP / "smartass-engine.lnk", str(venv / "pythonw.exe"), "-m smartass.ops.cli serve",
                   str(config.ENGINE_DIR))
-    make_shortcut(STARTUP / "smartass-sso-watcher.lnk", "powershell.exe",
-                  f'-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{config.ENGINE_DIR / "sso_watcher.ps1"}"'
-                  f' -LogDir "{logs}"', str(config.ENGINE_DIR))
-    out = ["startup: smartass-engine.lnk, smartass-sso-watcher.lnk"]
-    legacy = STARTUP / "svkit-sso-watcher.lnk"
-    if legacy.exists():
-        legacy.unlink()
-        out.append("startup: removed legacy svkit-sso-watcher.lnk")
+    out = ["startup: smartass-engine.lnk"]
+    for name in LEGACY_STARTUP:
+        legacy = STARTUP / name
+        if legacy.exists():
+            legacy.unlink()
+            out.append(f"startup: removed {name} (the Smart View SSO watcher is gone)")
+    out += stop_old_watcher()
+    return out
+
+
+def _watchers(script: Path = WATCHER_PS1) -> list[tuple[int, bool]]:
+    """(pid, ours) of each running PowerShell whose command line names an sso_watcher.ps1: ours only when it names
+    THIS install's script by its full path (case-insensitive) - another checkout's watcher on this PC is not."""
+    import psutil
+    want = str(script).lower()
+    out = []
+    for p in psutil.process_iter(["name", "cmdline"]):
+        try:
+            if (p.info["name"] or "").lower() in ("powershell.exe", "pwsh.exe"):
+                cmd = " ".join(p.info["cmdline"] or []).lower()
+                if "sso_watcher.ps1" in cmd:
+                    out.append((p.pid, want in cmd))
+        except psutil.Error:
+            continue
+    return out
+
+
+def _kill(pid: int) -> None:
+    import psutil
+    psutil.Process(pid).kill()
+
+
+def stop_old_watcher(found=None, kill=None) -> list[str]:
+    """The SSO watcher an older release started at logon, stopped when its command line proves it is ours (it names
+    this install's script path); any other is left running, and said so."""
+    import psutil
+    found, kill = found or _watchers, kill or _kill
+    out = []
+    for pid, ours in found():
+        if not ours:
+            out.append(f"startup: an SSO watcher of another smartass install (pid {pid}) is left running")
+            continue
+        try:
+            kill(pid)
+            out.append(f"startup: stopped the old Smart View SSO watcher (pid {pid})")
+        except psutil.Error as e:                 # gone meanwhile, or not ours to end: setup goes on
+            out.append(f"startup: the old Smart View SSO watcher (pid {pid}) could not be stopped ({type(e).__name__});"
+                       " it ends at the next logoff")
     return out
 
 
@@ -270,6 +329,13 @@ def copy_atlas() -> str:
     dst = config.ATLAS_DB
     if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
         return "atlas: local copy is current"
+    from ..knowledge import atlas
+    mine, theirs = atlas.trust(dst) if dst.exists() else None, atlas.trust(src)
+    if mine and mine[0] and theirs is None:
+        return f"atlas: local copy kept - the release's copy {src} could not be read as an atlas"
+    if mine and mine[0] and not theirs[0]:                 # never a downgrade of the strict member check over REST
+        return (f"atlas: local copy kept - it has EPM's real member names, which the release's copy in {src.parent} "
+                "has not (built before 0.7.0); publish an atlas built with `smartass atlas build` by 0.7.0 or later")
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_suffix(".db.tmp")
     shutil.copy2(src, tmp)

@@ -154,6 +154,32 @@ def test_rows_never_move_when_known_limits_grow():
     assert _v(ws, 10, P) == "Limit number 7."
 
 
+LEFT_OUT = {"id": "left-out:FinMax:ac.C60", "severity": "warn",
+            "text": "FinMax: EPM refused All Accounts member ac.C60 over Planning REST ... is INCOMPLETE"}
+
+
+def test_a_left_out_members_line_names_its_question_and_day_and_goes_when_that_question_no_longer_has_it():
+    """A member left out over REST is true of one answer: its Known limits line says which question and which day, so
+    an old line cannot be read as today's, and the question's next draw without the drop removes it - the lines of
+    other questions and the static limits stay."""
+    wb, t = _book(("Q3 Answer", "Q3 Data", "Q4 Answer", "Q4 Data"))
+    _run(t, wb, _pre(caveats=[CAVEATS[0], LEFT_OUT]))
+    _run(t, wb, _pre(caveats=[LEFT_OUT]), q=4)
+    ws = wb.Worksheets("Sources")
+    dated = [f"Q3 (2026-11-05): {LEFT_OUT['text']}", f"Q4 (2026-11-05): {LEFT_OUT['text']}"]
+    assert [_v(ws, r, P) for r in range(2, 5)] == [CAVEATS[0]["text"], *dated]
+    _run(t, wb, _pre(caveats=[CAVEATS[0]]), redraw=True)                 # Q3 again, the member back
+    assert [_v(ws, r, P) for r in range(2, 5)] == [CAVEATS[0]["text"], dated[1], None]
+    _run(t, wb, _pre(caveats=[]), q=4, redraw=True)
+    assert [_v(ws, r, P) for r in range(2, 4)] == [CAVEATS[0]["text"], None]
+
+
+def test_a_questions_own_dated_lines_are_matched_by_its_whole_number():
+    old = ["Q10 (2026-11-01): a member left out", "Q1 (2026-11-01): a member left out", "A static limit."]
+    assert sources.limits([], old, 1, FETCHED) == ["Q10 (2026-11-01): a member left out", "A static limit."]
+    assert sources.limits([LEFT_OUT], old, 1, FETCHED) == [*old[::2], f"Q1 (2026-11-05): {LEFT_OUT['text']}"]
+
+
 def test_no_warn_or_block_caveat_says_none():
     wb, t = _book()
     rows, _ = _run(t, wb, _pre(caveats=[CAVEATS[2]]))

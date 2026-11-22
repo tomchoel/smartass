@@ -213,6 +213,19 @@ def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines:
                      formulas=formulas, charts=charts, chart_lint=chart_lint, label_fixes=label_fixes)
 
 
+def build_sources(path: Path, base: Base | None, book: NewBook) -> Path:
+    """A new workbook with no answer yet: only its furnished Sources log (_sources), in base (None: XlsxWriter's
+    Calibri 11), with book's custom document properties (the sensitivity label) and theme - the first workbook when no
+    Excel is running and no labelled seed exists (target._new_analysis_file); the job then brings its answer in."""
+    with xlsxwriter.Workbook(str(path), _options(base)) as wb:
+        _sources(wb, _Formats(wb))
+        for name, value in book.properties.items():
+            wb.set_custom_property(name, value, "text")
+        if book.theme is not None:
+            wb.use_custom_theme(io.StringIO(book.theme))
+    return Path(path)
+
+
 class _Formats:
     """One XlsxWriter format per distinct set of properties."""
 

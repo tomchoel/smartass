@@ -10,12 +10,14 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from .core import logsetup
 from .model.analyze import Result, compute, plan_requests
 from .model.blocks.concept import concept_caveats
 from .model.chain import complete_chain, restore_chain
 from .model.frame import Frame
 from .model.periods import parse
 from .model.requests import GridRequest
+from .model.resolver import UnknownMetric
 from .model.spec import AnalysisSpec, LinesBlock
 from .model.validate import GuardError
 from .epm.svhttp import SvHttpError
@@ -37,9 +39,9 @@ class Prepared:
     routes: dict[str, int] = field(default_factory=dict)
     fetch_seconds: float = 0.0
     aggregation: dict[str, str] = field(default_factory=dict)
-    failed: list[GridRequest] = field(default_factory=list)          # grids the HTTP route could not fetch
+    failed: list[GridRequest] = field(default_factory=list)          # grids neither engine could fetch (warned)
     failed_errors: list[str] = field(default_factory=list)
-    fetched: dict = field(default_factory=dict)       # GridRequest -> FetchResult the HTTP route fetched (reused by the fallback round)
+    fetched: dict = field(default_factory=dict)       # GridRequest -> FetchResult (its route, what was left out)
     caveats: list[dict] = field(default_factory=list)  # {id, text, severity} of the facts the answer touched
 
 
@@ -78,8 +80,8 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     def fetch_one(req):
         try:
             return provider.fetch(req), None
-        except SvHttpError as e:        # only the HTTP route's failure; a wrong member (InputError) is wrong on every route
-            return None, str(e)
+        except SvHttpError as e:        # neither engine could fetch it: a warning; InputError is wrong on every route
+            return None, logsetup.redact(e)     # a reply field: it never passes the tool guard's redaction
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as ex:
         fetched = list(ex.map(fetch_one, reqs))
@@ -90,15 +92,48 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     frame.lines = dict(lines)
     warnings = [w for g in got for w in g.warnings]
     if failed:
-        warnings.append(f"{len(failed)} grid(s) could not be fetched over HTTP: {'; '.join(failed_errors[:3])}")
+        warnings.append(f"{len(failed)} grid(s) could not be fetched (the Smart View provider route, then Planning "
+                        f"REST): {'; '.join(failed_errors[:3])}" + (f" (and {len(failed) - 3} more)" if len(failed) > 3
+                                                                    else ""))
     routes: dict[str, int] = {}
     for g in got:
         routes[g.route] = routes.get(g.route, 0) + 1
+    second = [g for g in got if g.route == "rest"]
+    if second:                          # one warning, however many grids: the reply's routes count them
+        warnings.append(f"{len(second)} grid(s) were fetched over Planning REST, the second engine: the Smart View "
+                        f"provider route could not fetch them ({logsetup.redact(second[0].fallback)}). Over REST a "
+                        "cell you have no access to cannot be told apart from an empty one (Oracle exports only cells "
+                        "you may read and write): such a cell is missing, not #NoAccess")
+    left_warnings, left_caveats = left_out(spec, got, resolver)
+    warnings += left_warnings
     result = compute(spec, resolver, closed, frame)
     aggregation = {m: resolver.aggregation(m) for q in spec.queries for m in q.metrics}
     return Prepared(spec, raw, closed, reqs, frame, result, warnings, routes, sum(g.seconds for g in got),
                     aggregation, failed, failed_errors, {g.request: g for g in got},
-                    caveats(spec, reqs, resolver) + concept_caveats(spec, resolver))
+                    caveats(spec, reqs, resolver) + concept_caveats(spec, resolver) + left_caveats)
+
+
+def left_out(spec: AnalysisSpec, got: list, resolver) -> tuple[list[str], list[dict]]:
+    """One warning and one warn caveat (the Answer's Caveats, the Sources sheet's Known limits) per member the second
+    engine left out (FetchResult.dropped: EPM refused it over Planning REST), however many requests asked it. It has
+    no fact - the path of a missing cell - so a total over several members shows the others' sum: the text says it is
+    INCOMPLETE and names the spec's metrics that pick the member (resolver.members)."""
+    texts: list[str] = []
+    cavs: list[dict] = []
+    for cube, dim, member in dict.fromkeys(d for g in got for d in getattr(g, "dropped", ())):
+        metrics = []
+        for q in spec.queries:
+            for m in q.metrics:
+                with contextlib.suppress(UnknownMetric):      # a metric with no members in the cube names nothing
+                    if q.cube == cube and member in resolver.members(m, cube) and m not in metrics:
+                        metrics.append(m)
+        which = f" ({', '.join(metrics)})" if metrics else ""
+        text = (f"{cube}: EPM refused {dim} member {member} over Planning REST (it does not exist there, or you have "
+                f"no access to it), so it was left out: its figures are missing from this answer and every total that "
+                f"includes it{which} is INCOMPLETE - check the member or rebuild the atlas (`smartass atlas build`)")
+        texts.append(text)
+        cavs.append({"id": f"left-out:{cube}:{member}", "text": text, "severity": "warn"})
+    return texts, cavs
 
 
 _YEAR = re.compile(r"(?:Yr|FY) ?(\d{2})")

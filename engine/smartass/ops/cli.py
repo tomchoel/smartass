@@ -24,6 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("doctor", help="health checks (cheap)")
     d.add_argument("--bundle", action="store_true", help="zip logs, redacted config and versions for the maintainer")
     d.add_argument("--json", action="store_true")
+    d.add_argument("--fix", action="store_true", help="remove what an older release left behind (each file said first)")
     sub.add_parser("serve", help="localhost HTTP API (started at login)")
     sub.add_parser("setup", help="per-user setup (run by installer\\install.ps1)")
     u = sub.add_parser("update", help="install the release from the release folder")
@@ -32,10 +33,12 @@ def main(argv: list[str] | None = None) -> int:
     lg.add_argument("--status", action="store_true", help="show the sign-ins, change nothing")
     lg.add_argument("--force", action="store_true", help="sign in again, also where a sign-in exists")
     lg.add_argument("--forget", action="store_true", help="delete the stored sign-ins from this PC")
-    at = sub.add_parser("atlas", help="the local member atlas: status, or build it from Smart View")
+    at = sub.add_parser("atlas", help="the local member atlas: status, or build it from EPM")
     at_sub = at.add_subparsers(dest="atlas_cmd", required=True)
     at_sub.add_parser("status", help="what the atlas holds and whether it is stale")
-    b = at_sub.add_parser("build", help="rebuild from Smart View (own hidden Excel; read-only; a few minutes)")
+    b = at_sub.add_parser("build", help="rebuild over the EPM sign-in (Planning REST, read-only, no Excel: the member "
+                          "trees in about 25 s, then the behaviour cards, about 2 minutes); replaces the atlas only "
+                          "when every dimension was built")
     b.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
                    help="only this cube (repeatable; default all three)")
     b.add_argument("--dimension", action="append", help="only this dimension (repeatable; no purge of the cube)")
@@ -48,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     kb.add_argument("--semantic", help="semantic folder (default: knowledge/semantic)")
     kb.add_argument("--atlas", help="atlas.db (default: the home folder's)")
     kb.add_argument("--out", help="knowledge.db to write (default: the home folder's)")
-    kr = kn_sub.add_parser("refresh", help="monthly: rebuild the atlas (live, a few minutes), diff it, draft facts, "
+    kr = kn_sub.add_parser("refresh", help="monthly: rebuild the atlas (live, read-only), diff it, draft facts, "
                            "rebuild knowledge.db, run the offline test set, write the impact report")
     kr.add_argument("--no-atlas", action="store_true", help="skip the atlas rebuild (use the local atlas)")
     kr.add_argument("--month", help="the closed month YYYY-MM (default: the latest an answer saw, else last month)")
@@ -78,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.bundle:
             print(doctor.bundle())
             return 0
+        if a.fix:                                     # with --json stdout is the JSON alone: the fix's lines to stderr
+            doctor.fix_leftovers(say=(lambda s: print(s, file=sys.stderr)) if a.json else print)
         rs = doctor.run()
         print(json.dumps(doctor.as_dict(rs), indent=2) if a.json else doctor.to_text(rs))
         return 1 if doctor.overall(rs) == "FAIL" else 0
@@ -112,8 +117,16 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if failed else 0
         done = atlas_build.run_build(a.cube, a.dimension)
         failed = [d for d in done if d.get("error")]
-        print(f"atlas: {len(done) - len(failed)} built, {len(failed)} failed ({config.ATLAS_DB})")
-        return 1 if failed else 0
+        skipped = [d for d in done if d.get("skipped")]
+        built = len(done) - len(failed) - len(skipped)
+        said = "".join(f"; {d['connection']}: {d['skipped']}" for d in skipped)
+        why = next((d["error"].removeprefix("atlas not replaced: ") for d in failed
+                    if d["error"].startswith("atlas not replaced")), None)
+        failed = [d for d in failed if not d["error"].startswith("atlas not replaced")]
+        head = f"NOT replaced ({why}); " if why else ""
+        print(f"atlas: {head}{built} built, {len(failed)} failed{f', {len(skipped)} skipped' if skipped else ''}{said} "
+              f"({config.ATLAS_DB})")
+        return 1 if failed or why else 0
     if a.cmd == "knowledge":
         return _knowledge(a)
     if a.cmd == "update":
@@ -124,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _user_job(fn):
-    """Run fn as v2 runs a user-Excel job (server._user -> host.call(user_excel=True)): COM on this thread, a job
+    """Run fn as v2 runs a user-Excel job (server._user -> xl/userjobs.UserJobs): COM on this thread, a job
     token bound, the per-Excel turns taken while resolving the workbook released afterwards."""
     import pythoncom
 
@@ -205,6 +218,8 @@ def _knowledge(a) -> int:
         print(f"diff {res.diff.counts()}{' (first refresh: baseline saved)' if res.first else ''}; "
               f"{len(res.drafts)} draft(s) written; test set {ok}/{len(res.testset)}")
         print(res.build.to_text())
+        if res.atlas_not_replaced:
+            print(f"{res.atlas_not_replaced} - this refresh used the atlas as it was")
         print(f"report: {res.report}")
         return 0 if res.ok else 1
     if a.knowledge_cmd == "approve":

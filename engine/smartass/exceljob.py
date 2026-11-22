@@ -37,8 +37,10 @@ class RestoreError(RuntimeError):
 
 
 def _target(h, target: str, title: str, build_new: bool = False):
+    """The job's workbook (xl/target.resolve_target). h: the job's runner, which every job seam takes; the resolve
+    needs none of it."""
     from .xl import target as xltarget
-    return xltarget.resolve_target(h, target, allow_archive=False, title=title, build_new=build_new)
+    return xltarget.resolve_target(target, allow_archive=False, title=title, build_new=build_new)
 
 
 def _new_book() -> tuple | None:
@@ -60,7 +62,7 @@ def _new_book() -> tuple | None:
 
 def _save_spec(t, q: int, raw: dict, b, rows) -> bool:
     """The spec recorded into the close-out batch b, in _svmeta's row for Q<q> (rows: sheets.SpecRows from the look;
-    the hidden sheet made first when there is none, as save_meta makes it): True when it is made. No drawn range is
+    the hidden sheet made first when there is none): True when it is made. No drawn range is
     stored: a follow-up replaces the question's sheets whole."""
     from .xl import sheets
     return sheets.save_spec(t, q, {"v2": raw}, ids={}, create=True, b=b, rows=rows)
@@ -761,7 +763,7 @@ class _Job:
         (xl/inproc/later.py give_back) - not after a RestoreError (the workbook may be damaged: nothing saves it).
         The job is over then (end)."""
         from .xl import jobs
-        from .xl.host import HostError
+        from .core.errors import HostError
         from .xl.inproc import later
         from .xl.inproc.runner import BatchError
         self.end()

@@ -428,24 +428,6 @@ def test_the_users_excel_is_attached_through_the_fast_wrapper(monkeypatch):
     assert instances._app_from_window(1) == "app" and wrapped == [pointer]
 
 
-def test_the_hidden_excel_is_started_through_the_fast_wrapper(monkeypatch):
-    from smartass.xl import host
-
-    class Stop(Exception):
-        pass
-    started, wrapped = object(), []
-    monkeypatch.setattr(host.sso, "ensure_global_watcher", lambda: None)
-    monkeypatch.setattr(host.wc, "DispatchEx", lambda progid: started)
-
-    def wrap(ob, name=None):
-        wrapped.append(ob)
-        raise Stop
-    monkeypatch.setattr(host.fastcom, "wrap", wrap)
-    with pytest.raises(Stop):
-        host.ExcelHost._start(SimpleNamespace())
-    assert wrapped == [started]
-
-
 def test_the_pywin32_internals_this_module_relies_on_are_there():
     assert callable(dynamic.MakeOleRepr) and len(dynamic.ALL_INVOKE_TYPES) == 4
     for name in ("_LazyAddAttr_", "_make_method_", "_wrap_dispatch_", "_NewEnum", "_get_good_object_"):

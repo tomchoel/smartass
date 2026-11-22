@@ -60,7 +60,7 @@ from win32com.client import dynamic
 
 from ...core import config, timing
 from .. import fastcom, jobs
-from ..host import HostError
+from ...core.errors import HostError
 from ..hostproc import is_busy, retry_busy
 from . import build
 
