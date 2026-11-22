@@ -196,6 +196,52 @@ name of a key used twice - live: 5 FinPlan account keys, 1 entity key), 0f62eb8 
 to 30 s), 9e21637 (test guards); none changes what the gate compares.
 
 `smartass atlas build` builds over REST by default (commit 9de44d6); `--excel` keeps the hidden Excel's zoom until
-Task 6. The owner's `atlas.db` is replaced by a rebuilt one only by the controller, after review. Before that: an
-installed release older than this branch writes the atlas with a positional INSERT of 7 values, which fails on a
-member table with the new columns - replace the atlas together with the release, not before.
+Task 6. The owner's `atlas.db` is replaced by a rebuilt one only by the controller, after review. (The concern
+recorded here at first - an older release's positional INSERT failing on a member table with new columns - is
+resolved by the fix round below: the member table keeps its seven columns.)
+
+## Fix round (Task 4b) and the gates re-run, 2026-11-22 06:03-06:16 UTC: passed
+
+What changed after the review (each its own commit): the real name, alias, data storage, account type and time
+balance left the `member` table for a side table `member_real` (keyed connection, dimension, key, parent, real name;
+every real member behind a key; stamped with its build) - `member` has exactly the seven columns every release knows
+again (749574b); a dimension EPM lists without an allowlist rule is skipped, its rows kept (ef4dc5d); a build that
+replaced nothing says so and fails, `atlas status` shows the last attempt (ab447b0); one build at a time (4099ab7);
+the X-T-D filter applies to the period dimension only - the plan type's list says dimType 'Period' for TimePeriods and
+Period (aaab1d3); the test guards (71f1eb3); line lengths (e306f02).
+
+Script: `scripts/compare_atlas.py <work folder> all` at commit a695d72, from `engine/`, the same work-folder rules as
+above (the owner's files untouched). Every line is the script's own output, shortened.
+
+| Part | Result |
+| --- | --- |
+| Build | 32 dimensions, 0 errors, 0 skipped, swapped in: 23.4 s in all; Get Member 10.9 s plan1, 1.1 s stratmodel |
+| Schema | the member table has exactly the seven columns; 376 753 member rows, 376 767 side rows, all trusted; 11 (key, parent) pairs have more than one real member behind them (the twins the member table keeps once) |
+| An older release on this atlas | release 0.6.0's purge and positional 7-value INSERT of FinPlan on a copy of the rebuilt atlas: worked, rows as before; FinPlan's side rows no longer trusted (0 keys), FinMax's still trusted |
+| Compare | the same as at a45bda9: 20 of 32 identical, 0 real differences; added 268, removed 0, re-parented 4, alias changed 16 members (code-keyed) + 3 label-keyed renames per FinMax and FinLite, 24 out-of-order keys all below a re-parented member. The period-only X-T-D filter changed no row |
+| Labels | 12 of 12 samples: the rebuilt label is EPM's, today's is refused |
+| Knowledge | equal but `member_fts` 54 275 -> 54 359 (the added entities) |
+| Offline test set | 9 of 9 golden with either atlas |
+| Stored specs | 460 specs, 18 771 of 18 782 members resolved with either atlas, the same 11 missed by both |
+| grid_smoke | b01 OK 2.7 s, b07 OK 0.8 s, b16 OK 18.6 s |
+| Both engines (`compare_grid_routes.py grids` on the rebuilt atlas) | 21 real grids + the split: all equal (22 OK); the drop probes OK on FinMax and FinPlan; wrong members: 2 left out with a warning, 4 refused with the clear error (one FinPlan entity, not in the atlas) - as in Task 3b; recorded in docs/audit/2026-11-21-rest-vs-provider.md too |
+
+### How an older release and this one share one atlas file
+
+The `member`, `build` and `card` tables are exactly what release 0.6.0 reads and writes. This release adds only
+`member_real`, which 0.6.0 never opens. 0.6.0's `atlas build` / `knowledge refresh` on an atlas this release built:
+its purge and positional INSERT work (shown above on a copy); the side rows it leaves carry the old build's stamp,
+and this release's REST engine then ignores them and uses exactly the check before a45bda9 (key or place) until the
+next REST build writes them again. This release's reads never add a table; only a store of real names creates
+`member_real`, and a store without them (the hidden-Excel route, until Task 6) clears that dimension's side rows.
+
+### Deviations and open items
+
+- The alias class is proven by asking the provider route by LABEL, not by code (the review's Minor 4): a code-keyed
+  label carries its code, and the proof shows the rebuilt label is a live alias while today's is refused.
+- Order of commits (the review's Minor 5): the default switch (9de44d6) was committed before the first gate run
+  (a45bda9); this re-run at a695d72 covers every later change.
+- Task 3's 5 entity "stale aliases" (the review's question (c)): likely the 5 Entities keys that are not EPM's real
+  names (Task 3 probably counted a key / real-name mismatch); a question for the controller, nothing depends on it.
+- Open, not for this phase (the review's Minor 10): `rest.py` still SENDS the atlas key in the exportdataslice body;
+  sending a trusted real name instead would stop depending on EPM resolving keys like `pj.SY.SY.X`.

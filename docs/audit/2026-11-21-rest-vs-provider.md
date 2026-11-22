@@ -159,3 +159,19 @@ probe budget 799848 cells: failed in 2.5s: RestError HTTP 400; EPM counted 93318
 probe split: the largest grid over MAX_CELLS 250000: REST requests 2 | layout equal True | equal 466637 close 0 differ 0 stale aliases 11 | facts 1833, equal True | provider 7.7s rest 6.1s | OK
 result: all equal
 ```
+
+## Re-run with the atlas built over REST (Task 4b), 2026-11-22 06:12-06:16 UTC: passed
+
+`scripts/compare_grid_routes.py grids` run by `scripts/compare_atlas.py <work folder> routes` at commit a695d72, with
+config pointed at a copy of the atlas rebuilt over REST (its side table of real names trusted, so the REST engine's
+exact real-name check of a45bda9 / b11bbd3 / 749574b is active) - the owner's atlas untouched. It also covers this
+file's open re-run after 93c6215.
+
+- Stored answers 460, planned 460, 913 requests; 69 different requests, 63 fetched by the provider (6 refused by it as
+  WrongMember: their own class below).
+- 21 grids (20 + the FinLite extra) and the split: **all equal** on both routes (22 OK), 0 stale aliases.
+- Drop probes (an invented code in a real request): FinMax and FinPlan left out with one warning, every fact equal to
+  the provider's for the request as stored (315 and 116 facts).
+- Wrong members, 6 requests: 2 left out (Account #3) with a warning and a caveat, what remains equal; 4 refused with
+  the clear error (the request's only Entity; 1 distinct FinPlan entity, not in the rebuilt atlas either).
+- Result: all equal.
