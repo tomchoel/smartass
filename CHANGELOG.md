@@ -118,7 +118,8 @@
   without a token (is the server reachable).
 - Deleted: `data/adhoc.py`, `xl/pull_adhoc.py`, `xl/host.py`, `xl/hidden.py`, `xl/login.py`, `epm/ops.py`,
   `epm/sso.py`, `engine/sso_watcher.ps1`, `engine/vba/`, `smartass atlas build --excel`, and the gates of this
-  phase, `scripts/compare_grid_routes.py` and `scripts/compare_atlas.py`. The setting `paths.smartview_dll` and the
+  phase, `scripts/compare_grid_routes.py` and `scripts/compare_atlas.py`, and `scripts/probe_bearer.py` (it sent the
+  token outside `EpmSession`'s allowlist). The setting `paths.smartview_dll` and the
   variables `SV_SMARTVIEW_DLL`, `SV_CALL_TIMEOUT` and `SV_LOGIN_GRACE` are ignored.
 - `fin_status(restart=True)` without the relay starts the EPM sessions and the Excel job runner afresh.
   `smartass doctor` lost its `smartview` and `vba_access` checks and gained `leftovers`; `smartass doctor --fix

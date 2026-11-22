@@ -79,7 +79,7 @@ Errors: 400 (bad JSON, unknown fields, invalid spec or input, with its message),
 .githooks\pre-commit         runs scripts\check_staged.py
 docs\                        DESIGN, troubleshooting, release, specs, plans (docs\archive: earlier designs)
 installer\install.ps1        per-user installer
-scripts\                     check_staged.py, bump.ps1, publish_release.ps1, probe_bearer.py
+scripts\                     check_staged.py, bump.ps1, publish_release.ps1
 knowledge\  packs\           business maps and metric catalogue; pack-only inputs (packs\produktregnskap)
 skills\smartass\             master copy of the agent skill
 engine\                      run_server.py (relay), child_server.py, VERSION, defaults.toml, tests\
