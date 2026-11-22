@@ -243,6 +243,17 @@ def test_a_list_that_no_longer_maps_is_read_again_once_not_kept(db):
     assert sum(u.endswith("Default") for _, u in epm.sent) == 2
 
 
+def test_a_stale_atlas_found_in_the_list_is_read_once_not_on_every_fetch(db):
+    """The list was just read and the same atlas does not map on it: a later fetch is the same AtlasStale from the
+    cached list (until it expires), not one more read."""
+    epm = _Epm(listed={**LISTED, "FinMax": LISTED["FinMax"] + [("Products", "All Products")]})
+    s = _session(epm)
+    for _ in range(3):
+        with pytest.raises(svhttp.AtlasStale):
+            _grid(epm, db, s=s)
+    assert sum(u.endswith("Default") for _, u in epm.sent) == 1 and _slices(epm) == []
+
+
 # ---------------------------------------------------------------- dimension names: from the plan type's own list
 @pytest.mark.parametrize("conn, want", [
     ("FinMax", {"All Accounts": "Accounts", "All Balance Types": "BalanceTypes", "All Currencies": "Currencies",
@@ -283,8 +294,9 @@ def test_a_dimension_the_list_does_not_have_is_an_error_naming_it_never_a_guess(
 
 def test_a_dimension_rest_lists_and_the_atlas_lacks_is_a_stale_atlas():
     """The provider route finds this as POV members Smart View appends; REST would just leave the dimension out."""
-    with pytest.raises(rest.RestError, match="atlas is incomplete or stale for FinPlan.*Products"):
+    with pytest.raises(svhttp.AtlasStale, match="atlas is incomplete or stale for FinPlan.*Products") as e:
         rest.map_dimensions("FinPlan", ["Account"], [("Account", None), ("Products", "All Products")])
+    assert isinstance(e.value, rest.RestError) and "smartass atlas build" in str(e.value)
     assert rest.map_dimensions("FinPlan", ["Account"], [("Account", None), ("Colour", None, "Attribute Dimension")]) \
         == {"Account": "Account"}
 
@@ -341,7 +353,7 @@ def test_a_member_asked_by_its_label_is_answered_under_its_name(db):
 
 
 def test_a_member_the_atlas_does_not_know_keeps_its_name_and_adds_one_warning(db, monkeypatch):
-    monkeypatch.setattr(rest, "MAX_CELLS", 4)                                 # the member in two requests
+    monkeypatch.setattr(rest, "MAX_CELLS", rest.epm_cells(1, 4))              # the member in two requests
     f = _grid(_Epm(), db, accounts=("ac.C30",), entities=("un.SY.E1", "un.SY.E9"))
     assert [r[:2] for r in f.values[2:]] == [["C30 REVENUES (ac)", "E1 Entity one (un.SY)"], ["C30 REVENUES (ac)",
                                                                                             "un.SY.E9"]]
@@ -370,11 +382,12 @@ def test_a_cell_that_is_not_a_number_or_a_label_fails_the_grid(db, cell):
 
 # ---------------------------------------------------------------- the cell budget: split along rows, stitched
 def test_a_grid_over_the_cell_budget_is_split_along_rows_and_stitched(db, monkeypatch):
-    """Cells as EPM counts them (live 2026-11-22: 'Error Threshold: 500000, Current Value: 588028' for 42 000 rows of
-    2 member headers and 12 cells): a row is its member headers and its data cells - here 2 + 2."""
+    """Cells as EPM counts them (rest.epm_cells): the grid's rows with its two header rows, times a row's member
+    headers and data cells - here 2 + 2."""
     accounts, entities = ("ac.C30", "ac.C70", "ac.C90"), ("un.SY.E1", "un.SY.E2")
     whole = _grid(_Epm(), db, accounts=accounts, entities=entities)
-    for cells, requests in ((8, 3), (4, 6), (24, 1), (16, 2)):
+    for rows, requests in ((2, 3), (1, 6), (6, 1), (4, 2)):
+        cells = rest.epm_cells(rows, 4)
         monkeypatch.setattr(rest, "MAX_CELLS", cells)
         epm = _Epm()
         f = _grid(epm, db, accounts=accounts, entities=entities)
@@ -383,23 +396,31 @@ def test_a_grid_over_the_cell_budget_is_split_along_rows_and_stitched(db, monkey
         assert len(sent) == requests
         for b in sent:
             (seg,) = b["gridDefinition"]["rows"]
-            assert len(list(product(*seg["members"]))) * 4 <= cells
+            assert rest.epm_cells(len(list(product(*seg["members"]))), 4) <= cells
 
 
-def test_a_grid_of_exactly_the_cell_budget_is_one_request_and_one_row_more_is_two(db, monkeypatch):
+def test_epm_counts_the_grids_rows_and_its_two_header_rows_times_a_rows_headers_and_cells():
+    """Pinned to what EPM said live (2026-11-22): 'Error Threshold: 500000, Current Value: 588028' for 42 000 rows
+    of 2 member headers and 12 cells - (42 000 + 2) x 14; 588 000 without the header rows."""
+    assert rest.epm_cells(42_000, 2 + 12) == 588_028
+    assert rest.epm_cells(rest.MAX_CELLS // 14 - 2, 14) <= rest.MAX_CELLS < rest.epm_cells(rest.MAX_CELLS // 14 - 1, 14)
+
+
+def test_a_grid_of_exactly_the_cell_budget_is_one_request_and_one_cell_less_is_two(db, monkeypatch):
     accounts, entities = ("ac.C30", "ac.C70", "ac.C90"), ("un.SY.E1", "un.SY.E2")
-    monkeypatch.setattr(rest, "MAX_CELLS", 24)                     # 6 rows of 2 headers and 2 cells
+    monkeypatch.setattr(rest, "MAX_CELLS", rest.epm_cells(6, 4))   # 6 rows of 2 headers and 2 cells: (6 + 2) x 4
+    assert rest.MAX_CELLS == 32
     epm = _Epm()
     _grid(epm, db, accounts=accounts, entities=entities)
     assert len(_slices(epm)) == 1
-    monkeypatch.setattr(rest, "MAX_CELLS", 23)
+    monkeypatch.setattr(rest, "MAX_CELLS", 31)
     epm = _Epm()
     _grid(epm, db, accounts=accounts, entities=entities)
     assert len(_slices(epm)) == 2
 
 
 def test_a_split_grid_whose_middle_request_fails_is_no_grid_at_all(db, monkeypatch):
-    monkeypatch.setattr(rest, "MAX_CELLS", 4)                      # a row is 2 headers and 2 cells
+    monkeypatch.setattr(rest, "MAX_CELLS", rest.epm_cells(1, 4))   # a row is 2 headers and 2 cells
     n = []
 
     def answer(path, body):
@@ -439,7 +460,7 @@ def test_the_cell_budget_is_half_epms_threshold():
 
 
 def test_one_row_over_the_cell_budget_is_an_error_not_a_bigger_request(db, monkeypatch):
-    monkeypatch.setattr(rest, "MAX_CELLS", 3)                      # a row is 4
+    monkeypatch.setattr(rest, "MAX_CELLS", rest.epm_cells(1, 4) - 1)   # one row and the header rows are 12
     epm = _Epm()
     with pytest.raises(rest.RestError, match="cell budget"):
         _grid(epm, db)
@@ -447,7 +468,7 @@ def test_one_row_over_the_cell_budget_is_an_error_not_a_bigger_request(db, monke
 
 
 def test_split_requests_that_disagree_on_the_columns_fail_the_grid(db, monkeypatch):
-    monkeypatch.setattr(rest, "MAX_CELLS", 4)
+    monkeypatch.setattr(rest, "MAX_CELLS", rest.epm_cells(1, 4))
     n = []
 
     def answer(path, body):

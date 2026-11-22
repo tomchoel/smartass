@@ -26,12 +26,17 @@ stratmodel, compared with the provider route by key paths, types and booleans on
 - no suppression: every row and column asked comes back (the provider route suppresses nothing either - grid.parse
   does). The answer must be exactly the grid asked for (_answer, _matrix), then the provider route's own layout check
   runs (svhttp.check_layout);
-- a grid over MAX_CELLS (cells as EPM counts them: a row's member headers and its data cells) is split along its rows
-  into requests of at most MAX_CELLS cells (and bodies within the rule's size cap, epmhttp.MAX_BODY_BYTES), stitched
-  in order; EPM itself refuses a request over 500 000 (live).
+- a grid over MAX_CELLS (cells as EPM counts them, epm_cells: its rows and two header rows, times a row's member
+  headers and data cells) is split along its rows into requests of at most MAX_CELLS cells (and bodies within the
+  rule's size cap, epmhttp.MAX_BODY_BYTES), stitched in order; EPM itself refuses a request over 500 000 (live);
+- no access: Oracle documents that exportdataslice exports only cells the user has read-write access to, and no
+  marker for the others (#NoAccess was never seen on either route, live 2026-11-22): a cell the user may not read
+  cannot be told apart from an empty one, which is read as None - the reply's warning for REST grids says so
+  (pipeline.prepare). A "#NoAccess" text is still read as Smart View's label.
 
 Errors are svhttp.SvHttpError (RestError): EPM refusing the grid (HTTP 400, Oracle's message scrubbed), a 404 on the
-plan type (NotConfigured), an answer that is not the grid asked for. A 400 whose message is Oracle's sentence for a
+plan type (NotConfigured), an answer that is not the grid asked for, a dimension the plan type lists and the atlas
+lacks (AtlasStale). A 400 whose message is Oracle's sentence for a
 member the plan type does not have there (or the user may not read: _NO_MEMBER, live 2026-11-22) and names a member
 asked - exactly as it was sent, in that dimension - is MemberRefused: data/provider.py leaves a member of an axis of
 several out of the request and fetches it again; a POV member or an axis's only member cannot be left out. A 400
@@ -54,11 +59,12 @@ from .grid import Axis, Layout, name_from_label
 from .svhttp import Fetched, SvHttpError
 
 ROUTE = "rest"
-# Cells per request as EPM counts them: a row is its member headers and its data cells. EPM refuses a grid over its
-# threshold with HTTP 400 ('Unable to load the form as the number of cells exceeded the threshold ... Error
-# Threshold: 500000', live 2026-11-22; 466 000 counted cells answered in 5.7 s, 2.8 MB): a request takes half of it.
+# Cells per request as EPM counts them (epm_cells). EPM refuses a grid over its threshold with HTTP 400 ('Unable to
+# load the form as the number of cells exceeded the threshold ... Error Threshold: 500000', live 2026-11-22; 466 000
+# counted cells answered in 5.7 s, 2.8 MB): a request takes half of it.
 EPM_CELL_THRESHOLD = 500_000
 MAX_CELLS = EPM_CELL_THRESHOLD // 2
+HEADER_ROWS = 2                                       # the POV row and the one column dimension's row
 LIST_TTL_S = 3600.0                                   # a plan type's dimension list is read again after an hour
 MAX_MESSAGE = 300                                     # characters of Oracle's message in an error text
 _JWT = re.compile(r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
@@ -87,6 +93,10 @@ class TokenRefused(RestError, svhttp.TokenRefused):
     """EPM's gate refused the access token twice (the session's one new token did not help)."""
 
 
+class AtlasStale(RestError, svhttp.AtlasStale):
+    """The plan type lists a dimension the atlas lacks: build the atlas (`smartass atlas build`)."""
+
+
 class MemberRefused(RestError):
     """EPM refused the grid for one member asked (HTTP 400: it does not exist there, or the user may not read it).
     dimension: the atlas's; member: as asked; droppable: it is on an axis of several members, so the grid can be
@@ -106,9 +116,10 @@ class _NamesMember(RestError):
         self.rest_dimension, self.member = rest_dimension, member
 
 
-# (pod, app, cube) -> (when read, the plan type's (name, alias, type)): read again after LIST_TTL_S, or at once when it
-# no longer maps the atlas's dimensions (a dimension renamed in EPM needs no restart)
-_listed: dict[tuple[str, str, str], tuple[float, list[tuple]]] = {}
+# (pod, app, cube) -> (when read, the plan type's (name, alias, type), the atlas's dimensions it did not map when it
+# was read, else None): read again after LIST_TTL_S, or at once (once) when it no longer maps the atlas's dimensions
+# (a dimension renamed in EPM needs no restart)
+_listed: dict[tuple[str, str, str], tuple[float, list[tuple], tuple[str, ...] | None]] = {}
 _listed_lock = threading.Lock()
 _clock = time.monotonic
 
@@ -131,13 +142,15 @@ def fetch_grid(session: epmhttp.EpmSession, conn: str, pov: dict | None, rows: l
             raise RestError(f"{a.dimension} member {twice[0]} is asked twice: Planning REST answers it once")
     names = _rest_dimensions(session, conn, app, cube, dims)
     per_row = lay.nr + len(lay.col_tuples)            # as EPM counts a row: its member headers and its cells
-    if per_row > MAX_CELLS:
-        raise RestError(f"one row of {per_row} cells is over the cell budget of a REST request ({MAX_CELLS})")
+    most = MAX_CELLS // per_row - HEADER_ROWS         # data rows per request
+    if most < 1:
+        raise RestError(f"one row of {per_row} cells and the header rows ({epm_cells(1, per_row)}) are over the cell "
+                        f"budget of a REST request ({MAX_CELLS})")
     got_pov = got_cols = None
     heads: list[list[str]] = []
     data: list[list] = []
     try:
-        answers = [(part, _post(session, app, cube, body)) for part, body in _requests(lay, names, MAX_CELLS // per_row)]
+        answers = [(part, _post(session, app, cube, body)) for part, body in _requests(lay, names, most)]
     except _NamesMember as e:
         raise _refused(conn, lay, names, e) from None
     for part, j in answers:
@@ -150,6 +163,13 @@ def fetch_grid(session: epmhttp.EpmSession, conn: str, pov: dict | None, rows: l
     values, warnings = _matrix(atlas_db, conn, lay, names, got_pov, got_cols, heads, data)
     svhttp.check_layout(lay, values, "Planning REST")
     return Fetched(lay, values, time.monotonic() - t0, ROUTE, warnings)
+
+
+def epm_cells(rows: int, per_row: int) -> int:
+    """Cells of a request as EPM counts them against its threshold: the grid's data rows and its HEADER_ROWS, times a
+    row's width (its member headers and its data cells). Live 2026-11-22: 'Current Value: 588028' for 42 000 rows of
+    2 headers and 12 cells, (42 000 + 2) x 14."""
+    return (rows + HEADER_ROWS) * per_row
 
 
 # ---------------------------------------------------------------- dimension names
@@ -172,26 +192,35 @@ def map_dimensions(conn: str, dims: list[str], listed: list[tuple]) -> dict[str,
                         f"(it lists {', '.join(n + (f' ({a})' if a else '') for n, a in base) or 'none'})")
     extra = [n for n, _ in base if n not in out.values()]
     if extra:
-        raise RestError(f"the atlas is incomplete or stale for {conn} (Planning REST also lists {', '.join(extra)})")
+        raise AtlasStale(f"the atlas is incomplete or stale for {conn} (Planning REST also lists {', '.join(extra)}): "
+                         "build it with `smartass atlas build`")
     return out
 
 
 def _rest_dimensions(session, conn: str, app: str, cube: str, dims: list[str]) -> dict[str, str]:
     """The atlas's dimensions mapped to the plan type's REST names, from its list - cached, read again once it is
-    LIST_TTL_S old, and at once (once) when the cached one no longer maps."""
+    LIST_TTL_S old, and at once (once) when the cached one no longer maps. A list read for these very dimensions that
+    did not map them is not read again before it expires: the same error (a stale atlas) from the cached list."""
     key = (session.origin, app, cube)
     with _listed_lock:
-        read_at, listed = _listed.get(key, (None, None))
+        read_at, listed, failed = _listed.get(key, (None, None, None))
     if listed is not None and _clock() - read_at < LIST_TTL_S:
+        if failed == tuple(dims):
+            return map_dimensions(conn, dims, listed)     # raises as it did when it was read
         try:
             return map_dimensions(conn, dims, listed)
         except RestError:                             # renamed in EPM since it was read: read it again
-            with _listed_lock:
-                _listed.pop(key, None)
+            pass
     listed = _read_list(session, app, cube)
+    try:
+        out = map_dimensions(conn, dims, listed)
+    except RestError:
+        with _listed_lock:
+            _listed[key] = (_clock(), listed, tuple(dims))
+        raise
     with _listed_lock:
-        _listed[key] = (_clock(), listed)
-    return map_dimensions(conn, dims, listed)
+        _listed[key] = (_clock(), listed, None)
+    return out
 
 
 def _read_list(session, app: str, cube: str) -> list[tuple]:

@@ -97,7 +97,9 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     second = [g for g in got if g.route == "rest"]
     if second:                          # one warning, however many grids: the reply's routes count them
         warnings.append(f"{len(second)} grid(s) were fetched over Planning REST, the second engine: the Smart View "
-                        f"provider route could not fetch them ({second[0].fallback})")
+                        f"provider route could not fetch them ({second[0].fallback}). Over REST a cell you have no "
+                        "access to cannot be told apart from an empty one (Oracle exports only cells you may read and "
+                        "write): such a cell is missing, not #NoAccess")
     left_warnings, left_caveats = left_out(spec, got, resolver)
     warnings += left_warnings
     result = compute(spec, resolver, closed, frame)

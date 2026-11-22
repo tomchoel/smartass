@@ -107,6 +107,7 @@ def test_the_reply_names_the_rest_route_and_one_warning_says_the_second_engine_w
     assert n >= 2 and pre.routes == {"rest": n}
     said = [w for w in pre.warnings if "second engine" in w]
     assert len(said) == 1 and f"{n} grid(s)" in said[0] and "lost the request" in said[0]
+    assert "cannot be told apart from an empty one" in said[0]          # #NoAccess over REST (Oracle documents none)
     assert pre.result.key_values["Key figures · EBITDA"]["Actual"] == 65.0          # the same numbers
     plain = prepare(spec_dict(), resolver(), _Rest(facts(), lambda req: False))
     assert "rest" not in plain.routes and not any("second engine" in w for w in plain.warnings)

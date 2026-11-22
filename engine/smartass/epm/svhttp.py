@@ -196,7 +196,7 @@ class SvHttp:
         """The pod of the connection's data source (base_for), one lookup at a time."""
         server, app, _ = CUBES[conn]
         if not self._bases_lock.acquire(timeout=config.SVHTTP_TIMEOUT_S * 2):   # behind a cold start's sign-in
-            raise SvHttpError("the HTTP route is busy looking up the EPM data sources")
+            raise NoFallback("the HTTP route is busy looking up the EPM data sources")    # REST waits on this lock too
         try:
             return self.base_for(server, app)
         finally:
@@ -489,7 +489,7 @@ class BearerTransport:
         except oauth.NotSignedIn:
             raise
         except oauth.OAuthError as e:
-            raise SvHttpError(f"no EPM access token for {base}: {e}") from None
+            raise NoFallback(f"no EPM access token for {base}: {e}") from None        # REST asks for the same token
         except epmhttp.NoScope:
             raise NoScope(f"no OAuth scope is configured for {base} ([oauth.scopes] in config.toml)") from None
         except (epmhttp.Refused, epmhttp.TooLarge) as e:   # their texts quote no body, token or query

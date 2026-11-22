@@ -587,6 +587,21 @@ def test_a_transient_error_that_only_contains_a_wrong_member_phrase_is_not_taken
     assert t.tags().count("ExecuteGrid") == 2
 
 
+def test_no_token_and_a_busy_data_source_lookup_are_not_sent_on_to_the_second_engine(db_path, monkeypatch):
+    """REST meets the same token and waits on the same lock: the wait would only double."""
+    sv = _sv(FakeTransport(), db_path)
+    monkeypatch.setattr(svhttp.config, "SVHTTP_TIMEOUT_S", 0.01)
+    sv._bases_lock.acquire()
+    try:
+        with pytest.raises(svhttp.NoFallback, match="busy looking up"):
+            _q(sv)
+    finally:
+        sv._bases_lock.release()
+    t = svhttp.BearerTransport(tokens=_Tokens(oauth.OAuthError("refresh token expired")), opener=_Wire(lambda *a: 1))
+    with pytest.raises(svhttp.NoFallback, match="no EPM access token"):
+        t.post("https://plan1.example", svxml.connect())
+
+
 def test_the_second_engine_sends_through_the_grid_routes_session_of_the_cubes_pod(db_path):
     t = svhttp.BearerTransport(tokens=_Tokens("at-1"), opener=_Wire(lambda *a: (200, SOURCES)))
     sv = _sv(t, db_path)
