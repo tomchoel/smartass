@@ -360,6 +360,18 @@ def _discard_new(app, wb, spawned: bool) -> None:
 SPAWN_TIMEOUT_S = 120              # an Excel started beside a running one opens the template within this
 
 
+def _launched_books(app, attr: str) -> list[tuple[object, str]]:
+    """(workbook, its Name or FullName: attr) of each workbook in an Excel while _spawn_excel or _open_path wait for
+    the one they launched to show its file. A cold Excel rejects calls while it loads (Smart View, OneDrive): then
+    none, read again next round; any other COM error is raised."""
+    try:
+        return [(wb, str(getattr(wb, attr))) for wb in app.Workbooks]
+    except pywintypes.com_error as e:
+        if not jobs.is_busy(e):
+            raise
+        return []
+
+
 def _spawn_excel(tpl: Path, known: set[int], limit: float = SPAWN_TIMEOUT_S):
     """Start a new interactive Excel on the TN template (opens as a new unsaved workbook) and take its turn. limit:
     how long it may take to show the template (a first Excel on a cold PC: OPEN_TIMEOUT_S, as _open_path). As there,
@@ -372,13 +384,7 @@ def _spawn_excel(tpl: Path, known: set[int], limit: float = SPAWN_TIMEOUT_S):
         for pid, hwnd, app in instances.interactive_excels():
             if pid in known:
                 continue
-            try:
-                books = [(wb, str(wb.Name)) for wb in app.Workbooks]
-            except pywintypes.com_error as e:
-                if not jobs.is_busy(e):
-                    raise
-                continue                              # a cold Excel rejects calls while it loads: next round
-            for wb, name in books:
+            for wb, name in _launched_books(app, "Name"):
                 if name.lower().startswith(tpl.stem.lower()):
                     jobs.hold_turn(pid, wait=False)
                     dialogs.watch_after_start(pid, grace=dialogs.launch_grace(t0), alive=jobs._check_alive)
@@ -507,8 +513,8 @@ def _open_path(path: Path, excels, insts: list[instances.XlInstance] | None = No
         jobs._check_alive()
         time.sleep(1)
         for pid, hwnd, app in instances.interactive_excels():
-            for wb in app.Workbooks:
-                if instances._norm(wb.FullName) == instances._norm(path):
+            for wb, full in _launched_books(app, "FullName"):
+                if instances._norm(full) == instances._norm(path):
                     jobs.hold_turn(pid, what="this request", app=app)
                     dialogs.watch_after_start(pid, grace=dialogs.launch_grace(t0), alive=jobs._check_alive)
                     return Target(app, wb, pid, hwnd)

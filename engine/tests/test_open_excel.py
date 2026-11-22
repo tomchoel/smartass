@@ -603,3 +603,60 @@ def test_spawn_excel_raises_a_com_error_that_is_not_busy(tmp_path, monkeypatch, 
     monkeypatch.setattr(instances, "interactive_excels", lambda: [(9, 90, BrokenApp())])
     with pytest.raises(pywintypes.com_error):
         target._spawn_excel(tmp_path / "tn_template.xltx", set())
+
+
+# ---- Task 8: _open_path's scan of a cold Excel's workbooks has _spawn_excel's busy guard (one helper)
+
+def test_open_path_waits_while_a_cold_excel_rejects_its_workbooks(tmp_path, monkeypatch, fast):
+    f = tmp_path / "a.xlsx"
+    f.write_bytes(b"x")
+
+    class ColdApp:
+        def __init__(self):
+            self.reads = 0
+
+        @property
+        def Workbooks(self):
+            self.reads += 1
+            if self.reads <= 2:
+                raise pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+            return [FakeWb(str(f))]
+    app = ColdApp()
+    monkeypatch.setattr(target, "_launch_excel", lambda p: FakeProc(exits_after=None))
+    monkeypatch.setattr(instances, "interactive_excels", lambda: [(9, 90, app)])
+    t = target._open_path(f, [], [])
+    assert (t.pid, t.app, app.reads) == (9, app, 3)
+
+
+def test_open_path_waits_while_a_cold_excel_rejects_a_workbooks_full_name(tmp_path, monkeypatch, fast):
+    f = tmp_path / "a.xlsx"
+    f.write_bytes(b"x")
+
+    class ColdBook:
+        reads = 0
+
+        @property
+        def FullName(self):
+            ColdBook.reads += 1
+            if ColdBook.reads == 1:
+                raise pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
+            return str(f)
+    app = FakeApp([ColdBook()])
+    monkeypatch.setattr(target, "_launch_excel", lambda p: FakeProc(exits_after=None))
+    monkeypatch.setattr(instances, "interactive_excels", lambda: [(9, 90, app)])
+    t = target._open_path(f, [], [])
+    assert (t.pid, t.app, ColdBook.reads) == (9, app, 2)
+
+
+def test_open_path_raises_a_com_error_that_is_not_busy(tmp_path, monkeypatch, fast):
+    f = tmp_path / "a.xlsx"
+    f.write_bytes(b"x")
+
+    class BrokenApp:
+        @property
+        def Workbooks(self):
+            raise pywintypes.com_error(-2147352567, "Exception occurred.", None, None)
+    monkeypatch.setattr(target, "_launch_excel", lambda p: FakeProc(exits_after=None))
+    monkeypatch.setattr(instances, "interactive_excels", lambda: [(9, 90, BrokenApp())])
+    with pytest.raises(pywintypes.com_error):
+        target._open_path(f, [], [])
