@@ -59,9 +59,17 @@ def test_a_stage_refuses_when_a_place_it_could_write_is_outside_its_temp_folder(
     assert not (tmp_path / "elsewhere" / "config.toml").exists()
 
 
-def test_a_fresh_home_comes_up_with_only_the_sign_in_and_the_atlas_to_do():
-    r = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True, encoding="utf-8", timeout=600)
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "OK: a fresh home comes up with only the sign-in and the atlas to do" in r.stdout
-    assert "PROBLEM" not in r.stdout and "untouched outside the temp folder: 5 of 5" in r.stdout
-    assert "epm check (a stub)" in r.stdout and "process list (empty)" in r.stdout
+def test_a_fresh_home_comes_up_with_only_the_sign_in_and_the_atlas_to_do(monkeypatch, capsys):
+    """The driver runs here, its stages in fresh Pythons as by hand, with Excel pointed at a file that exists: the
+    suite runs on PCs without desktop Excel (CI). Run by hand, the script keeps the real check (EXCEL.EXE looked for
+    on this PC) and says so."""
+    m = _script()
+    env = m._env
+    monkeypatch.setattr(m, "_env", lambda root: {**env(root), "SV_EXCEL_EXE": sys.executable})
+    assert m.main([]) == 0
+    out = capsys.readouterr().out
+    assert "OK: a fresh home comes up with only the sign-in and the atlas to do" in out
+    assert "PROBLEM" not in out and "untouched outside the temp folder: 5 of 5" in out
+    assert "epm check (a stub)" in out and "process list (empty)" in out
+    excel = [line for line in out.splitlines() if line.split()[1:2] == ["excel"]]
+    assert len(excel) == 2 and all(line.split()[0] == "OK" and sys.executable in line for line in excel), excel
