@@ -3,22 +3,13 @@ the release's own installer. A dev checkout (repo with .git) never updates itsel
 from __future__ import annotations
 
 import json
-import logging
 import subprocess
-import time
 from pathlib import Path
 
 from .. import __version__
 from ..core import config
 
 CREATE_NO_WINDOW = 0x08000000
-DETACHED = 0x00000008
-RETRY_AFTER_S = 30 * 60
-log = logging.getLogger("smartass.update")
-
-
-def _attempt_file() -> Path:
-    return config.HOME / "update_attempt.json"
 
 
 def parse(v: str) -> tuple[int, ...]:
@@ -62,31 +53,3 @@ def apply(force: bool = False) -> str:
         return f"no update ({r.get('error') or r['status']}, current {r['current']})"
     p = subprocess.run(_cmd(r["installer"]), capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
     return f"installed {r['target']}" if p.returncode == 0 else f"installer failed ({p.returncode}): {p.stderr[-2000:]}"
-
-
-def _recent_attempt(target: str, now: float) -> bool:
-    try:
-        a = json.loads(_attempt_file().read_text(encoding="utf-8"))
-        return a.get("target") == target and now - float(a.get("time", 0)) < RETRY_AFTER_S
-    except (OSError, ValueError, TypeError, AttributeError):
-        return False
-
-
-def start_if_available(now: float | None = None) -> bool:
-    """Called by `smartass serve` at login: start the installer detached and let it restart serve. A target tried
-    within RETRY_AFTER_S is skipped, so a release whose version does not change after install cannot loop."""
-    if is_dev_checkout():
-        return False
-    r = check()
-    if not r["update_available"]:
-        return False
-    now = time.time() if now is None else now
-    if _recent_attempt(r["target"], now):
-        log.warning("update to %s was already attempted less than %d minutes ago (still on %s) - skipped",
-                    r["target"], RETRY_AFTER_S // 60, r["current"])
-        return False
-    f = _attempt_file()
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps({"target": r["target"], "from": r["current"], "time": now}), encoding="utf-8")
-    subprocess.Popen(_cmd(r["installer"]), creationflags=DETACHED | CREATE_NO_WINDOW, close_fds=True)
-    return True

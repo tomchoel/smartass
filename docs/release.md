@@ -1,7 +1,7 @@
 # Release checklist
 
 A release is an unpacked snapshot `<release folder>\<version>\` plus `<release folder>\latest.json` and (optionally)
-`<release folder>\atlas\atlas.db`. Users get it through the update check at login (`smartass serve`) or
+`<release folder>\atlas\atlas.db`. Users get it with
 `smartass update`. `latest.json` is written last, so clients never see a half-copied release.
 
 Users point at the release folder with `release.folder` in `config.toml` (or `SMARTASS_RELEASE`). Environment

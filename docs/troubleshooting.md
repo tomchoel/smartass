@@ -76,7 +76,7 @@ drill lines over the token are the browser route's row for row, with exact ties;
   where that environment was added to the OAuth client as a resource), then run `smartass login`.
 - **Symptom:** `WARN  oauth  <pod>: not signed in` or `<pod>: sign-in ended`; a tool reply gives a page and a code.
 - **Cause:** no sign-in was made on this PC, or it was not used for 7 days (Oracle's lifetime for a refresh token;
-  the MCP server and `smartass serve` renew it daily while they run), or the identity domain withdrew it.
+  the MCP server renews it daily while it runs), or the identity domain withdrew it.
 - **Fix:** Run `smartass login`: a page opens in your browser and the code is on the clipboard; paste it and
   approve with Telenor SSO. Or approve the code the tool reply shows and call the tool again.
   `smartass login --status` shows the sign-ins, `--forget` deletes them from this PC.
@@ -153,23 +153,13 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
   read-only (for example OneDrive not signed in).
 - **Fix:** Set paths.analyser in config.toml to a folder you can write.
 
-## http_api
-
-- **Symptom:** `WARN  http_api  no HTTP API secret (secret.bin)` or `WARN  http_api  not answering on 127.0.0.1:<port>`.
-- **Cause:** the installer has not written the per-user secret (`%LOCALAPPDATA%\smartass\secret.bin`, DPAPI), or
-  the background engine (`smartass serve`, started by the Startup entry `smartass-engine.lnk`) is not running.
-- **Fix:** no secret: run `smartass setup` (it also moves an old plain `http.secret` out of config.toml).
-  Not answering: Log off and on (Startup entry), or run `smartass serve`.
-- **Symptom:** HTTP `409 busy` from `POST /analyze`.
-- **Cause and fix:** another request is running (one at a time). Wait and send it again.
-
 ## update
 
 - **Symptom:** `WARN  update  <error>` or `WARN  update  <current> -> <target>`.
   (`OK  update  release folder not configured` is normal until `release.folder` is set.)
 - **Cause:** the release folder cannot be read (not synced yet), or a newer release is available.
 - **Fix:** error: Check that the release folder is synced (OneDrive).
-  Newer release: Run `smartass update` (or log off and on).
+  Newer release: Run `smartass update`.
 
 ## leftovers
 
@@ -184,6 +174,29 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
 - At server start smartass also ends an Excel such a release started hidden and left running, but only one its
   `pids.json` proves was its own; then that file goes. `smartass setup` removes that release's sign-in watcher from
   the Startup folder and stops it when it runs from this install.
+
+**The HTTP API and the Excel task pane (up to 0.7.0)**
+
+- **Symptom:** `WARN  leftovers` naming `smartass-engine.lnk`, a running `smartass serve`, `secret.bin`, a plain
+  `[http] secret` in config.toml, the task pane's Startup entry, its add-in catalogue (`...\TNClaudeCatalog`) or its
+  classic add-in (`TNClaude64.xll`, loaded by an `OPEN<n>` value).
+- **Cause:** a release up to 0.7.0 ran a localhost HTTP API (`smartass serve`, started at logon by the Startup entry
+  `smartass-engine.lnk`, with its secret in `secret.bin`) for an Excel task pane. Both are gone: the agent starts the
+  MCP server itself, and nothing runs at logon.
+- **Fix:** run `smartass setup` or `smartass doctor --fix`. They remove the Startup entry and stop that `serve` when
+  its command line names this install's `.venv` (another install's is left running, and said); `doctor --fix` also
+  removes `secret.bin`, the plain secret line (the value is never shown) and a Startup entry of the pane, each named
+  first.
+- The pane's registration lives in Office's own settings, which smartass never changes. Remove it in Excel:
+  - **The add-in catalogue:** File > Options > Trust Center > Trust Center Settings > Trusted Add-in Catalogs: select
+    the catalogue ending in `TNClaudeCatalog`, Remove, tick "Next time Office starts, clear all previously-started
+    web add-ins cache", OK, and restart Excel. The folder on the file share and its `manifest.xml` can then be
+    deleted by hand.
+  - **The classic add-in:** File > Options > Add-ins > Manage: Excel Add-ins > Go: untick `TNClaude` (or the entry
+    naming `TNClaude64.xll`), OK, and restart Excel. Use the dialog: do not delete the `OPEN<n>` value in the
+    registry by hand, Excel renumbers those values and rewrites them when it closes. Then delete the add-in's folder
+    (`%LOCALAPPDATA%\svkit\addin`) by hand; smartass never changes the old svkit folder.
+  - If the pane's local server still runs (`node server.mjs` on port 3000), end it in Task Manager, or log off.
 
 ## Any check: `FAIL  <check>  <ExceptionType>: <message>`
 
@@ -218,7 +231,7 @@ are. If one of these symptoms shows up, the cause below is already known; no new
 | Symptom | Known cause | What to do |
 |---|---|---|
 | An answer in an Excel smartass has just started waits 10 minutes and fails, with Smart View's Login open there | That Login opened later than the watch (25 s after Excel's start, on a slow PC), after the answer's first step in that Excel. | Sign in in the Login or close it, then ask again. |
-| An Excel smartass started closes without saving when you press Stop in the Excel task pane | An Excel smartass starts (no Excel open, or a parallel agent) is a child of the smartass server process. The pane's Stop ends the run's whole process tree, and that Excel with it; so does anything that ends the server's processes from outside. smartass's own stop of a server that does not exit never ends an Excel. | Save your work in such an Excel before you press Stop. An open item. |
+| An Excel smartass started closes without saving when something ends the smartass server's processes from outside | An Excel smartass starts (no Excel open, or a parallel agent) is a child of the smartass server process; ending the server's whole process tree ends that Excel with it. smartass's own stop of a server that does not exit never ends an Excel. | Save your work in such an Excel before you end the server. An open item. |
 | Every first workbook made with no Excel open has default column widths and fonts, not the TN template's, and none is kept for the next time | The stored look of a new workbook has a column width that is not a standard one, so it is not used; and as a look is stored, smartass does not make that workbook from the template, which would store a new one. | An open item: tell the maintainer. The answers in it are right. |
 
 ## An Excel step behaves differently since 2026-11-19 (the fast COM wrapper)

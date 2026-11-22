@@ -187,7 +187,7 @@ never stops the rest.
 | `epm/` | the HTTPS boundary (`epmhttp`), OAuth sign-in (`oauth`), Smart View's provider XML (`svhttp`, `svxml`), grids, Planning REST (`rest`: the second grid engine; `members`: the atlas's trees), the drill over the token (`drill_token`, `drillcore`, `drillstep`) and its lines |
 | `knowledge/` | atlas (SQLite), semantic files (`semantic`, `seed`), `build` (knowledge.db), `KnowledgeResolver`, monthly `refresh` |
 | `xl/` | the user's Excel (`userjobs`: the job runner; `hostproc`: a job's COM thread and the sweep of an older release's Excels; `jobs`: turns; `instances`, `target`, `dialogs`: Smart View's Login guard; `sheets`), `styling`, `formulas`, `movein`, `sources`, `sheetorder`, `inproc` (batches of Excel operations, their COM executor and the in-process add-in), `drill_xl`, snapshots (`workbench/history`), vendored TN style and formula checker |
-| `ops/` | `cli`, `doctor`, `setup_user`, `update`, `httpapi`, `atlas_build` |
+| `ops/` | `cli`, `doctor`, `setup_user`, `update`, `atlas_build`, `pane_leftovers` (an older release's task pane in Office's settings, read only) |
 | `testset/` | the B-question test set: specs in git, recordings and golden numbers outside git |
 
 ## Runtime
@@ -295,10 +295,8 @@ never stops the rest.
   goes), and in `smartass setup` that release's sign-in watcher of this install. Outside the engine package two
   more sites end processes. The relay (`run_server.py` `end_tree`) ends a server that has not exited 60 s after it
   was told to stop, with every process under it except each Excel and what runs under that Excel: an Excel smartass
-  launched is a child of the server process, and it is your Excel. The task pane's Stop
-  (`addin/tn-claude/server.mjs`, `taskkill /T /F`) ends a pane run's whole process tree, and with it an Excel that
-  run's server launched: an open item, as is anything that ends the server's tree from outside (whether Claude Code
-  does when it ends its MCP server is not known). `tests/test_neutral_imports.py` pins the start sites;
+  launched is a child of the server process, and it is your Excel. Anything that ends the server's tree from outside
+  ends such an Excel with it: an open item (whether Claude Code does when it ends its MCP server is not known). `tests/test_neutral_imports.py` pins the start sites;
   `tests/conftest.py` and `tests/test_suite_guards.py` pin the engine's kills, `tests/test_relay_stop.py` the
   relay's.
 
@@ -399,12 +397,6 @@ never stops the rest.
   or `###`, the Data header, the Sources rows. The findings go in the reply as `layout`, each with its fix, and the
   agent applies the fix by patch.
 
-## HTTP API (`ops/httpapi.py`, `smartass serve`)
-
-Localhost only, per-user secret (`secret.bin`, DPAPI), one request at a time: `GET /health` (the doctor checks)
-and `POST /analyze` (`{"spec", "target"}`, the same `_new_question` as `fin_analyze`). 400 for bad JSON, unknown
-fields or an invalid spec, 401 secret, 409 busy, 413 over 1 MB, 503 Excel/EPM error, 500 (logged) otherwise.
-
 ## Verification
 
 - Unit tests: `cd engine; uv run pytest -q` (no Excel or EPM; the stdio smoke test starts
@@ -413,5 +405,6 @@ fields or an invalid spec, 401 secret, 409 busy, 413 over 1 MB, 503 Excel/EPM er
   numbers (9 questions).
 - `smartass doctor` checks the install (config, Excel, Smart View's start-up settings, EPM, oauth set-up and
   sign-ins, atlas, knowledge (build checks against the current atlas; WARN when knowledge.db is older than the atlas
-  or the semantic files, or drafts await approval), output, HTTP API, update, leftovers of an older release);
-  `smartass doctor --fix` removes those leftovers, each named first.
+  or the semantic files, or drafts await approval), output, update, leftovers of an older release);
+  `smartass doctor --fix` removes those leftovers, each named first, except what lives in Office's own settings
+  (reported with the steps in Excel).

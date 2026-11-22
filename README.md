@@ -41,37 +41,23 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 - **Your own login.** Every user signs in to EPM once with their own account (`smartass login`, approved with Telenor
   SSO in their browser) and sees only what they are allowed to see. Every request to EPM with your sign-in passes one
   allowlist of read requests.
-- **Nothing leaves the PC** except the calls to EPM themselves. The HTTP API listens on `127.0.0.1` only and
-  needs a per-user secret (DPAPI-protected).
+- **Nothing leaves the PC** except the calls to EPM themselves. smartass opens no port: the agent starts the MCP
+  server and talks to it over stdio.
 - **Your own workbooks are never saved** by the engine. Changes made in a workbook you opened are left unsaved for you
   to review (`xl_snapshot` before an edit, `xl_revert` undoes it). Only the engine's own answer workbooks are saved, in
   your `analyser` folder (`paths.analyser`). The engine never restarts your Excel, and closes one only when it started
   that Excel itself for a new workbook that could not be saved. A server that does not stop within a minute has its
-  own processes ended, never an Excel. Open item: the Excel task pane's Stop ends everything its run started, also an
-  Excel smartass started for that run, and so does anything that ends the server's processes from outside.
+  own processes ended, never an Excel. Open item: anything that ends the server's processes from outside also ends an
+  Excel smartass started for it.
 - **The Produktregnskapet archive is protected:** answers are never written there.
 - **No data, databases or tokens in git.** The pre-commit hook and CI enforce this (`scripts\check_staged.py`);
   logs and `smartass doctor --bundle` redact tokens and secrets.
-
-## HTTP API (`smartass serve`)
-
-Started at login; listens on `127.0.0.1` only (`http.port`), every request with the header `X-Smartass-Secret`
-(stored DPAPI-protected in `%LOCALAPPDATA%\smartass\secret.bin` by `smartass setup`). One request at a time (a
-second gets 409).
-
-| Endpoint | Body | Returns |
-|---|---|---|
-| `GET /health` | – | the `smartass doctor` checks |
-| `POST /analyze` | `{"spec": <AnalysisSpec v2>, "target": "session"}` | what `fin_analyze(spec=...)` returns |
-
-Errors: 400 (bad JSON, unknown fields, invalid spec or input, with its message), 401 (secret), 413 (body over
-1 MB), 503 (Excel/EPM error with its message).
 
 ## Command line
 
 `smartass doctor [--json | --bundle | --fix]`, `smartass atlas status`,
 `smartass atlas build [--cube X] [--dimension D]` (over Planning REST, no Excel), `smartass setup`, `smartass update`,
-`smartass serve`, `smartass login [--status | --force | --forget]` (EPM sign-in for the bearer route, see
+`smartass login [--status | --force | --forget]` (EPM sign-in for the bearer route, see
 `docs\troubleshooting.md`, "oauth").
 
 ## Layout
@@ -93,7 +79,7 @@ engine\smartass\             server.py, pipeline.py, exceljob.py (the Excel job)
   epm\        the HTTPS boundary, sign-in, Smart View HTTP/XML, Planning REST, grids, the drill over the token
   knowledge\  atlas, resolver, interim metric catalogue
   xl\         jobs in the user's Excel, sheets, styling, formula check, snapshots
-  ops\        cli, doctor, setup, update, httpapi, atlas build
+  ops\        cli, doctor (and an older release's leftovers), setup, update, atlas build
   testset\    the B-question test set (golden numbers outside git)
 ```
 

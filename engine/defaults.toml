@@ -16,9 +16,6 @@ subdir = "Analyse (Telenor Norge AS) - Produktregnskapet"
 [release]        # SharePoint/Teams release folder (synced local path); empty until it exists
 folder = ""
 
-[http]           # localhost-only API (the secret is per user, in config.toml)
-port = 47811
-
 [oauth]          # grids and drill lines over plain HTTPS with the user's own OAuth token (smartass login). Required:
 idcs = ""        # without idcs, client_id and at least one scope no call reaches EPM. The identity domain's base URL,
 client_id = ""   # and a PUBLIC client registered there with device-code + refresh-token grants (no secret exists).

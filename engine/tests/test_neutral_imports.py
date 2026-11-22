@@ -130,7 +130,6 @@ ALLOWED_STARTS = {
     "smartass/ops/login.py:run": "the browser on the identity domain's sign-in page (webbrowser.open, as open_page)",
     "smartass/ops/setup_user.py:link_skill": "cmd mklink /J: the skill's junction",
     "smartass/ops/update.py:apply": "the release's installer (smartass update)",
-    "smartass/ops/update.py:start_if_available": "the release's installer, detached (serve at login)",
     "smartass/xl/inproc/build.py:_compile": "csc.exe: the in-process add-in's compiler",
 }
 
@@ -235,10 +234,14 @@ DOC_TIMES = {
 }
 
 
-def doc_findings(repo: Path, docs: list[str]) -> list[str]:
+def doc_findings(repo: Path, docs: list[str], names=None, leftovers=None, times=None) -> list[str]:
     """'file: name' for every deleted part a listed document names (whitespace folded, so a name wrapped over two
     lines is found), unless DOC_LEFTOVERS allows it or DOC_TIMES allows exactly that many uses; a pattern that matches
-    no file is a finding too (a renamed document would leave the guard nothing to read)."""
+    no file is a finding too (a renamed document would leave the guard nothing to read). Another guard passes its own
+    names, leftovers and times."""
+    names = DOC_NAMES if names is None else names
+    leftovers = DOC_LEFTOVERS if leftovers is None else leftovers
+    counts = DOC_TIMES if times is None else times
     found = []
     for pattern in docs:
         paths = sorted(repo.glob(pattern))
@@ -246,10 +249,10 @@ def doc_findings(repo: Path, docs: list[str]) -> list[str]:
             found.append(f"{pattern}: no such file")
         for p in paths:
             rel, text = p.relative_to(repo).as_posix(), " ".join(p.read_text(encoding="utf-8").split())
-            for n in DOC_NAMES:
-                times, used = DOC_TIMES.get((rel, n), (0, ""))[0], text.count(n)
-                if used != times and (rel, n) not in DOC_LEFTOVERS:
-                    found.append(f"{rel}: {n} {used} time(s), {times} allowed")
+            for n in names:
+                allowed, used = counts.get((rel, n), (0, ""))[0], text.count(n)
+                if used != allowed and (rel, n) not in leftovers:
+                    found.append(f"{rel}: {n} {used} time(s), {allowed} allowed")
     return found
 
 

@@ -1,5 +1,5 @@
 """Engine logging: one rotating file per process kind, every line redacted (redact: session keys, tokens, cookies,
-credential headers, URL query strings and the HTTP secret)."""
+credential headers, URL query strings and any secret a process adds with add_secret)."""
 from __future__ import annotations
 
 import logging

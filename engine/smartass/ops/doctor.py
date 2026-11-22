@@ -169,7 +169,7 @@ def _update() -> Check:
     if r["status"] == "error":
         return Check("update", "WARN", r["error"], "Check that the release folder is synced (OneDrive).")
     if r["update_available"]:
-        return Check("update", "WARN", f"{r['current']} -> {r['target']}", "Run `smartass update` (or log off and on).")
+        return Check("update", "WARN", f"{r['current']} -> {r['target']}", "Run `smartass update`.")
     return Check("update", "OK", f"{r['current']} is current")
 
 
@@ -221,13 +221,13 @@ def _recorded(p: Path) -> str:
     return "; ".join(f"{SV_OPTIONS.get(str(k), f'option {k}')} = {v!r}" for k, v in rec.items()) or "empty"
 
 
-SECRET_FILE_LEFT = "secret.bin"     # the HTTP API's secret (DPAPI) an older release (up to 0.7.0) kept in the home
+OLD_SECRET_BIN = "secret.bin"     # the HTTP API's secret (DPAPI) an older release (up to 0.7.0) kept in the home
 _SECTION = re.compile(r"(?m)^[ \t]*\[([^\]]+)\][ \t]*(?:#.*)?$")
 _PLAIN_SECRET = re.compile(r"(?m)^[ \t]*secret[ \t]*=.*(?:\r?\n|$)")
 
 
 def _secret_file() -> Path | None:
-    p = config.HOME / SECRET_FILE_LEFT
+    p = config.HOME / OLD_SECRET_BIN
     return p if p.exists() else None
 
 
@@ -274,7 +274,7 @@ def _http_api_items() -> list[str]:
     from . import setup_user
     out = []
     if (setup_user.STARTUP / setup_user.ENGINE_STARTUP).exists():
-        out.append(f"the Startup entry {setup_user.ENGINE_STARTUP} starts `smartass serve`, the HTTP API, which is gone")
+        out.append(f"the Startup entry {setup_user.ENGINE_STARTUP} starts `smartass serve` (the HTTP API, gone)")
     for pid, ours in setup_user._serves():
         out.append(f"an older `smartass serve` of this install runs (pid {pid})" if ours else
                    f"a `smartass serve` of another smartass install runs (pid {pid}): left as it is - stop it there")

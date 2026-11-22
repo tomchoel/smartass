@@ -399,7 +399,7 @@ async def fin_status(restart: bool = False) -> dict:
     """Health: version, atlas age, knowledge build (metrics, facts, drafts awaiting approval), where answer files go,
     the last save Excel did after a reply (save_after_reply: workbook, ok, error, seconds, when; and how many are still
     to come), and the doctor checks (config, Excel, Smart View start-up, EPM, oauth sign-in, atlas, knowledge, output
-    folder, HTTP API, update, leftovers of an older release; only problems listed).
+    folder, update, leftovers of an older release; only problems listed).
     restart=True after repeated errors or to load new code: the relay starts a fresh server process; run without the
     relay, this server's EPM sessions and its runner of Excel jobs start afresh (the next call makes new ones).
     A stale atlas: run `smartass atlas build` in a terminal."""
@@ -424,7 +424,7 @@ async def fin_status(restart: bool = False) -> dict:
     refresh = due(config.HOME, config.KNOWLEDGE_DB)
     from .ops import doctor
     from .xl.inproc import later
-    checks = await asyncio.to_thread(doctor.run)         # network checks (EPM 5 s, HTTP 2 s) off the event loop
+    checks = await asyncio.to_thread(doctor.run)         # the EPM check (5 s) off the event loop
     return {**out, "behind_relay": bool(os.environ.get("SVKIT_PROXY")), "analyser": str(config.ANALYSER_DIR),
             "save_after_reply": later.status(),
             "atlas": {"oldest_age_days": st["oldest_age_days"], "stale": st["stale"],

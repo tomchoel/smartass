@@ -1,1 +1,1 @@
-"""Operating smartass: the CLI (doctor, setup, update, serve) and the local HTTP API."""
+"""Operating smartass: the CLI (doctor, setup, update, login, atlas, knowledge)."""

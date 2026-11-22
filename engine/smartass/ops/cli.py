@@ -1,5 +1,5 @@
-"""smartass command line: doctor, serve (HTTP API + update at login), setup (installer), update, login (EPM sign-in
-for the bearer route), atlas, xl (task pane), knowledge."""
+"""smartass command line: doctor, setup (installer), update, login (EPM sign-in for the bearer route), atlas,
+knowledge."""
 from __future__ import annotations
 
 import argparse
@@ -24,8 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("doctor", help="health checks (cheap)")
     d.add_argument("--bundle", action="store_true", help="zip logs, redacted config and versions for the maintainer")
     d.add_argument("--json", action="store_true")
-    d.add_argument("--fix", action="store_true", help="remove what an older release left behind (each file said first)")
-    sub.add_parser("serve", help="localhost HTTP API (started at login)")
+    d.add_argument("--fix", action="store_true",
+                   help="remove what an older release left behind (each thing said first)")
     sub.add_parser("setup", help="per-user setup (run by installer\\install.ps1)")
     u = sub.add_parser("update", help="install the release from the release folder")
     u.add_argument("--force", action="store_true")
@@ -59,22 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     ka.add_argument("ids", nargs="+", help="metric or fact ids, or 'all'")
     ka.add_argument("--by", default="tom")
     kn_sub.add_parser("status", help="last build, drafts awaiting approval, last report")
-    xl = sub.add_parser("xl", help="the Excel task pane's actions on open workbooks (one JSON object on stdout)")
-    xl_sub = xl.add_subparsers(dest="xl_cmd", required=True)
-    xc = xl_sub.add_parser("changes", help="the snapshot/change log (kept 7 days), newest first")
-    xc.add_argument("--workbook")
-    xc.add_argument("--limit", type=int, default=30)
-    xr = xl_sub.add_parser("revert", help="undo a change from its snapshot (default: the workbook's latest)")
-    xr.add_argument("--id")
-    xr.add_argument("--workbook")
-    xr.add_argument("--force", action="store_true")
-    xk = xl_sub.add_parser("check", help="tn-formelstil check of the live formulas")
-    xk.add_argument("--workbook")
-    xk.add_argument("--sheet")
     a = ap.parse_args(argv)
-
-    if a.cmd == "xl":
-        return _xl(a)
 
     if a.cmd == "doctor":
         from . import doctor
@@ -86,14 +71,6 @@ def main(argv: list[str] | None = None) -> int:
         rs = doctor.run()
         print(json.dumps(doctor.as_dict(rs), indent=2) if a.json else doctor.to_text(rs))
         return 1 if doctor.overall(rs) == "FAIL" else 0
-    if a.cmd == "serve":
-        from ..core import config, logsetup
-        from . import httpapi, update
-        logsetup.configure(config.HOME / "logs" / "engine.log")
-        logsetup.add_secret(config.HTTP_SECRET)
-        if update.start_if_available():
-            return 0                                  # the installer restarts `serve` when it is done
-        return httpapi.serve()
     if a.cmd == "login":
         from . import login
         return login.show() if a.status else login.forget() if a.forget else login.run(force=a.force)
@@ -134,51 +111,6 @@ def main(argv: list[str] | None = None) -> int:
         print(update.apply(force=a.force))
         return 0
     return 2
-
-
-def _user_job(fn):
-    """Run fn as v2 runs a user-Excel job (server._user -> xl/userjobs.UserJobs): COM on this thread, a job
-    token bound, the per-Excel turns taken while resolving the workbook released afterwards."""
-    import pythoncom
-
-    from ..xl import jobs
-    pythoncom.CoInitialize()
-    jobs.bind_job()
-    try:
-        return fn()
-    finally:
-        jobs.release_turns()
-
-
-def _xl_changes(workbook, limit):
-    from ..xl.workbench import history
-    return history.changes(workbook, limit)
-
-
-def _xl_revert(change_id, workbook, force):
-    from .. import workbench
-    return workbench.revert(change_id, workbook, force)
-
-
-def _xl_check(workbook, sheet):
-    from .. import workbench
-    return workbench._check(workbook, sheet)
-
-
-def _xl(a) -> int:
-    """{"ok": true, "result": ...} or {"ok": false, "error": ...} - one line, what the task pane parses."""
-    try:
-        if a.xl_cmd == "changes":
-            res = _xl_changes(a.workbook, a.limit)                  # files only: no Excel turn
-        elif a.xl_cmd == "revert":
-            res = _user_job(lambda: _xl_revert(a.id, a.workbook, a.force))
-        else:
-            res = _user_job(lambda: _xl_check(a.workbook, a.sheet))
-        print(json.dumps({"ok": True, "result": res}, ensure_ascii=False, default=str))
-        return 0
-    except Exception as e:   # noqa: BLE001 - the pane shows the message
-        print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
-        return 1
 
 
 def _refresh_month(text: str | None, home) -> tuple[int, int]:
