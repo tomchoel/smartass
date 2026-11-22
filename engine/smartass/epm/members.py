@@ -14,8 +14,8 @@ How the zoom's display is rebuilt from the tree (each rule found in today's atla
 - the zoom shows neither the Dynamic Time Series members (`H-T-D` .. `D-T-D`, the first children of a period
   dimension's top in Get Member's answer) nor a member whose `usedIn` does not name the plan type (with its subtree):
   FinLite's dimensions are FinMax's application dimensions, read once for both.
-Each row also carries the member's real name, alias, data storage, account type and time balance (EXTRA: new atlas
-columns; nothing reads the types yet).
+Each row also carries the member's real name, alias, data storage, account type and time balance (EXTRA: the atlas's
+side table, atlas.store; nothing reads the types yet).
 
 Errors are TreeError (its text names the status, never the answer's text); oauth.NotSignedIn reaches the caller as
 it is (the build stops, the atlas is not replaced)."""

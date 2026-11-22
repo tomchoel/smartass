@@ -16,9 +16,10 @@ stratmodel, compared with the provider route by key paths, types and booleans on
   then answers a name the atlas does not know ('Y26M09'). Each label is the atlas's: of the member asked for at that
   place (REST resolved the spelling the atlas keeps - its answered name may even be one the atlas holds for another
   member, live), else of the member REST answered; else the name is kept and one warning says so. A top member is
-  sent and answered under its dimension's REST name. Where the atlas was built over REST (epm/members.py) it holds
-  each member's real name, and REST must answer exactly that name at its place. In an atlas without them (the hidden
-  Excel's) a member kept under its label has its place as the only link between label and number, so the order
+  sent and answered under its dimension's REST name. Where the atlas was built over REST (epm/members.py) its side
+  table holds the real names behind each key (two members can give one key), and REST must answer one of them, or
+  the key itself, at its place. In an atlas without a trusted side table (the hidden Excel's, or one an older release
+  rebuilt) a member kept under its label has its place as the only link between label and number, so the order
   matters there: REST answers rows and columns in the order asked (live
   2026-11-22: three such members asked against outline order on rows and on columns, per application, each read
   alone first for its name, cell for cell the provider route's answer);
@@ -55,6 +56,7 @@ import threading
 import time
 from collections import Counter
 
+from ..knowledge import atlas
 from . import epmhttp, oauth, svhttp, svxml
 from .drillcore import redact
 from .grid import Axis, Layout, name_from_label
@@ -434,43 +436,38 @@ def _cell(v):
 def _labels(db, conn: str, dim: str, spellings: set[str]) -> tuple[dict, dict]:
     """The atlas's members of one dimension among these spellings: ({folded name: (name, label, real names)}, {folded
     label: (name, label, real names)}) - by name exactly (one indexed query), else by name in any case or by label (one
-    pass). The real names are EPM's, where the atlas was built over REST (its real_name column; a name used twice in a
-    dimension can have two); else empty."""
-    real = "real_name" if any(r[1] == "real_name" for r in db.execute("PRAGMA table_info(member)")) else "NULL"
-    by_name: dict[str, tuple[str, str, frozenset[str]]] = {}
-    by_label: dict[str, tuple[str, str, frozenset[str]]] = {}
-
-    def add(into: dict, key: str, n: str, lab: str, rn: str | None) -> None:
-        old = into.get(key)
-        if old is None:
-            into[key] = (n, lab, frozenset({rn} if rn else ()))
-        elif old[0] == n and rn:
-            into[key] = (*old[:2], old[2] | {rn})
+    pass). The real names are EPM's from the atlas's side table where it is trusted (atlas.real_names: an atlas the
+    build over REST wrote, not rebuilt since by an older release); else empty."""
+    by_name: dict[str, tuple[str, str]] = {}
+    by_label: dict[str, tuple[str, str]] = {}
     want = {s.casefold() for s in spellings}
     ordered = sorted(spellings)
     for i in range(0, len(ordered), 500):              # SQLite's limit on query parameters
         part = ordered[i:i + 500]
-        for n, lab, rn in db.execute(f"SELECT name, label, {real} FROM member WHERE connection=? AND dimension=? AND "
-                                     f"name IN ({','.join('?' * len(part))})", (conn, dim, *part)):
-            add(by_name, n.casefold(), n, lab or n, rn)
+        for n, lab in db.execute(f"SELECT name, label FROM member WHERE connection=? AND dimension=? AND name IN "
+                                 f"({','.join('?' * len(part))})", (conn, dim, *part)):
+            by_name[n.casefold()] = (n, lab or n)
     if want - set(by_name):
-        for n, lab, rn in db.execute(f"SELECT name, label, {real} FROM member WHERE connection=? AND dimension=?",
-                                     (conn, dim)):
+        for n, lab in db.execute("SELECT name, label FROM member WHERE connection=? AND dimension=?", (conn, dim)):
             if n.casefold() in want:
-                add(by_name, n.casefold(), n, lab or n, rn)
+                by_name.setdefault(n.casefold(), (n, lab or n))
             if lab and lab.casefold() in want:
-                add(by_label, lab.casefold(), n, lab, rn)
-    return by_name, by_label
+                by_label.setdefault(lab.casefold(), (n, lab))
+    reals = atlas.real_names(db, conn, dim, {n for n, _ in [*by_name.values(), *by_label.values()]})
+
+    def with_reals(d: dict) -> dict:
+        return {k: (n, lab, frozenset(reals.get(n, ()))) for k, (n, lab) in d.items()}
+    return with_reals(by_name), with_reals(by_label)
 
 
 def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], cols: list[str],
             heads: list[list[str]], data: list[list]) -> tuple[list[list], list[str]]:
     """The provider's matrix from A1 with the atlas's labels for the names REST answered, and the warnings. Each
-    place's name must be the member asked there: exactly its real name where the atlas has it (an atlas built over
-    REST), exactly the key where the atlas keeps the member under a 'code alias (prefix)' label, the dimension's REST
-    name for a top member; elsewhere (an older atlas that keeps the label as the name)
-    one member asked is always one name answered, and two members two names - and the place itself ties label and
-    number, so REST must answer in the order asked (live: it does). Otherwise RestError."""
+    place's name must be the member asked there: one of its real names or the key itself where the atlas's side table
+    is trusted (an atlas built over REST), exactly the key where the atlas keeps the member under a 'code alias
+    (prefix)' label, the dimension's REST name for a top member; elsewhere (an older atlas that keeps the label as the
+    name) one member asked is always one name answered, and two members two names - and the place itself ties label
+    and number, so REST must answer in the order asked (live: it does). Otherwise RestError."""
     places: dict[str, list[tuple[str, str]]] = {}     # dimension -> [(asked, answered), ...] in grid order
     for (d, m), got in zip(lay.pov, pov):
         places.setdefault(d, []).append((m, got))
@@ -490,7 +487,7 @@ def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], c
             known = by_name.get(asked.casefold()) or by_label.get(asked.casefold())
             if top or (known and (known[2] or name_from_label(known[1]))):   # REST answers that very name
                 if got.casefold() not in ({names[d].casefold()} if top else
-                                          {x.casefold() for x in known[2] or (known[0],)}):
+                                          {x.casefold() for x in (*known[2], known[0])}):
                     raise RestError(f"Planning REST returned a different layout than requested: {d} {asked} "
                                     f"answered as {got}")
                 label[d, asked, got] = known[1] if known else d

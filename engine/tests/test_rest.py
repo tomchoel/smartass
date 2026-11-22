@@ -347,7 +347,6 @@ def test_a_member_kept_under_its_label_keeps_that_label_when_its_name_is_another
 
 def _real_names(db, real=()):
     """The atlas as the build over REST stores it: every member with its real name (REAL, else its key)."""
-    atlas.add_member_columns(db)
     for conn, dim, members_ in ATLAS:
         atlas.store(db, conn, dim, [{"name": n, "label": lab, "parent": None if i == 0 else dim, "depth": int(i > 0),
                                      "order": i, "real_name": dict(real).get(n, REAL.get(lab, n))}
@@ -403,6 +402,52 @@ def test_a_key_used_twice_with_two_real_names_takes_either(db):
         assert _finplan(db, _Epm(answer=answering(real))).values[2][:2] == ["EBX Ebitda X", "1TEC Tech"]
     with pytest.raises(rest.RestError, match="different layout.*1TEC Tech answered as 1TECC"):
         _finplan(db, _Epm(answer=answering("1TECC")))
+
+
+def test_twins_under_one_parent_may_be_answered_under_either_real_name_or_the_key(db):
+    """The reviewer's case (Task 4 review, Important 1): two members give one key under one parent; the member table
+    keeps one row, the side table both real names. EPM resolving the key to either member is right; so is the key
+    itself (the check before a45bda9); a third name is not."""
+    atlas.store(db, "FinMax", "All Accounts", [
+        {"name": "All Accounts", "label": "All Accounts", "parent": None, "depth": 0, "order": 0,
+         "real_name": "Accounts"},
+        {"name": "ac.C30", "label": "C30 REVENUES (ac)", "parent": "All Accounts", "depth": 1, "order": 1,
+         "real_name": "ac.C30B"},
+        {"name": "ac.C30", "label": "C30 REVENUES (ac)", "parent": "All Accounts", "depth": 1, "order": 2,
+         "real_name": "ac.C30C"},
+        {"name": "ac.C70", "label": "C70 COSTS (ac)", "parent": "All Accounts", "depth": 1, "order": 3,
+         "real_name": "ac.C70"}], 1.0)
+
+    def answering(name):
+        def answer(path, body):
+            if path.endswith("exportdataslice"):
+                j = json.loads(_Epm()._slice(body)[1])
+                for r in j["rows"]:
+                    r["headers"] = [name if h == "ac.C30" else h for h in r["headers"]]
+                return 200, json.dumps(j)
+        return answer
+    for name in ("ac.C30B", "ac.C30C", "ac.C30"):
+        assert _grid(_Epm(answer=answering(name)), db).values[2][0] == "C30 REVENUES (ac)"
+    with pytest.raises(rest.RestError, match="different layout.*ac.C30 answered as ac.C30D"):
+        _grid(_Epm(answer=answering("ac.C30D")), db)
+
+
+def test_a_side_table_an_older_release_left_behind_is_not_believed(db):
+    """After a 0.6.0 build (member rows rewritten, the build row's stamp new, the side table untouched) the check is
+    exactly the old one: a real name the stale side table holds no longer passes; the key does."""
+    _real_names(db, real=[("un.SY.E2", "un.E2")])
+    with db:
+        db.execute("UPDATE build SET built_at = built_at + 1 WHERE connection='FinMax' AND dimension='All Entities'")
+
+    def answer(path, body):
+        if path.endswith("exportdataslice"):
+            j = json.loads(_Epm()._slice(body)[1])
+            for r in j["rows"]:
+                r["headers"] = ["un.E2" if h == "un.SY.E2" else h for h in r["headers"]]
+            return 200, json.dumps(j)
+    with pytest.raises(rest.RestError, match="different layout.*un.SY.E2 answered as un.E2"):
+        _grid(_Epm(answer=answer), db, accounts=("ac.C30",), entities=("un.SY.E2",))
+    assert _grid(_Epm(), db, accounts=("ac.C30",), entities=("un.SY.E2",)).values[2][1] == "E2 Entity two (un.SY)"
 
 
 def test_a_member_whose_key_is_not_its_real_name_is_matched_by_its_real_name(db):

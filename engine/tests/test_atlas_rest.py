@@ -104,19 +104,54 @@ def test_a_dimension_of_one_member_is_one_row():
         {"label": "Version", "name": "Version", "depth": 0, "parent": None, "order": 0}]
 
 
-def test_a_name_used_twice_under_one_parent_is_kept_once_as_the_atlas_stores_it(tmp_path):
-    """Two members whose labels give one name under one parent (store's INSERT OR IGNORE keeps the first); the
-    build counts both, as the hidden Excel's build did."""
+MEMBER_COLUMNS = ["connection", "dimension", "name", "label", "parent", "depth", "ord"]
+
+
+def test_a_name_used_twice_under_one_parent_is_one_key_with_both_real_names(tmp_path):
+    """Two members whose labels give one key under one parent: the member table keeps the first (INSERT OR IGNORE),
+    as the hidden Excel's build did, and counts both; the side table keeps the real name of each (Task 4 review,
+    Important 1: live 14 such rows)."""
     tree = node("Accounts", "All Accounts", node("ac.A", "A First (ac)"), node("ac.A2", "A Second (ac)"))
     rows = members.rows(tree, "FinMax")
     assert [r["name"] for r in rows] == ["All Accounts", "ac.A", "ac.A"]
     with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
-        atlas.add_member_columns(db)
         atlas.store(db, "FinMax", "All Accounts", rows, 1.0)
         assert db.execute("SELECT count(*) FROM member").fetchone()[0] == 2
-        assert db.execute("SELECT label, real_name FROM member WHERE name='ac.A'").fetchone() == ("A Second (ac)",
-                                                                                                   "ac.A2")
+        assert db.execute("SELECT label FROM member WHERE name='ac.A'").fetchone() == ("A Second (ac)",)
         assert atlas.status(db)["built"][0]["members"] == 3
+        assert atlas.real_names(db, "FinMax", "All Accounts", {"ac.A", "All Accounts"}) == {
+            "ac.A": {"ac.A", "ac.A2"}, "All Accounts": {"Accounts"}}
+        assert [r[1] for r in db.execute("PRAGMA table_info(member)")] == MEMBER_COLUMNS
+
+
+def test_an_older_release_rebuilding_a_rest_atlas_works_and_its_side_table_is_then_ignored(tmp_path):
+    """Release 0.6.0 writes the atlas with a purge and a positional 7-value INSERT: on a REST-built atlas that works
+    (the member table has exactly its 7 columns); the side table it does not know is left behind with the old build's
+    stamp, so it is no longer believed."""
+    with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
+        atlas.store(db, "FinMax", "All Accounts", members.rows(ACCOUNTS, "FinMax"), 1.0)
+        assert atlas.real_names(db, "FinMax", "All Accounts", {"KPI1"}) == {"KPI1": {"KPI1"}}
+        with db:                                           # 0.6.0: atlas.purge, then atlas.store as it was
+            db.execute("DELETE FROM member WHERE connection=?", ("FinMax",))
+            db.execute("DELETE FROM build WHERE connection=?", ("FinMax",))
+            db.execute("INSERT OR IGNORE INTO member VALUES (?,?,?,?,?,?,?)",
+                       ("FinMax", "All Accounts", "KPI1", "KPI1", "All Accounts", 1, 0))
+            db.execute("INSERT OR REPLACE INTO build VALUES (?,?,?,?,?,?)",
+                       ("FinMax", "All Accounts", 2e9, 1, 1.0, None))
+        assert atlas.has_member(db, "FinMax", "All Accounts", "KPI1")
+        assert atlas.real_names(db, "FinMax", "All Accounts", {"KPI1"}) == {}
+
+
+def test_a_store_without_real_names_clears_the_dimensions_side_rows(tmp_path):
+    """This release's own hidden-Excel route stores no real names: the dimension's side rows go with the old rows."""
+    with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
+        atlas.store(db, "FinMax", "All Accounts", members.rows(ACCOUNTS, "FinMax"), 1.0)
+        atlas.store(db, "FinMax", "All Accounts", [{"name": "x", "label": "x", "parent": None, "depth": 0,
+                                                    "order": 0}], 1.0)
+        assert db.execute("SELECT count(*) FROM member_real").fetchone()[0] == 0
+        atlas.store(db, "FinMax", "All Accounts", members.rows(ACCOUNTS, "FinMax"), 1.0)
+        atlas.purge(db, "FinMax")
+        assert db.execute("SELECT count(*) FROM member_real").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("answer", [
@@ -239,7 +274,6 @@ def _rows(db, conn, dim):
 def test_build_rest_stores_every_dimension_of_every_cube(tmp_path):
     src = _Source(TREES, DIMS)
     with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
-        atlas.add_member_columns(db)
         done = atlas_build.build_rest(src, db=db, progress=lambda m: None)
         assert [(d["connection"], d["dimension"], d["members"]) for d in done] == [
             ("FinMax", "All Accounts", 7), ("FinMax", "All Entities", 3), ("FinLite", "All Accounts", 7),
@@ -273,7 +307,6 @@ def test_a_full_build_purges_the_cube_and_a_partial_one_does_not(tmp_path):
     with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
         atlas.store(db, "FinMax", "All Gone", [{"name": "g", "label": "g", "parent": None, "depth": 0, "order": 0}],
                     1.0)
-        atlas.add_member_columns(db)
         atlas_build.build_rest(_Source(TREES, DIMS), ["FinMax"], ["Entities"], db=db, progress=lambda m: None)
         assert atlas.has_member(db, "FinMax", "All Gone", "g")                 # a partial build keeps the cube
         done = atlas_build.build_rest(_Source(TREES, DIMS), ["FinMax"], ["accounts"], db=db, progress=lambda m: None)
@@ -285,7 +318,6 @@ def test_a_full_build_purges_the_cube_and_a_partial_one_does_not(tmp_path):
 def test_errors_are_recorded_per_dimension_and_never_stop_the_build(tmp_path):
     src = _Source(TREES, DIMS, fail=("Entities", "FinLite"))
     with contextlib.closing(atlas.connect(tmp_path / "a.db")) as db:
-        atlas.add_member_columns(db)
         done = atlas_build.build_rest(src, db=db, progress=lambda m: None)
         assert [(d["connection"], d.get("dimension"), bool(d.get("error"))) for d in done] == [
             ("FinMax", "All Accounts", False), ("FinMax", "All Entities", True), ("FinLite", None, True),
@@ -325,7 +357,8 @@ def test_a_completed_build_replaces_the_atlas_and_keeps_what_the_build_does_not_
         assert db.execute("SELECT count(*) FROM member WHERE connection='FinPlan'").fetchone()[0] == 1  # not built
         assert db.execute("SELECT operator FROM card").fetchall() == [("+",)]                         # cards kept
         assert db.execute("SELECT x FROM snapshot").fetchall() == [(1,)]
-        assert db.execute("SELECT real_name FROM member WHERE name='KPI1'").fetchone() == ("KPI1",)
+        assert db.execute("SELECT real_name FROM member_real WHERE name='KPI1'").fetchone() == ("KPI1",)
+        assert [r[1] for r in db.execute("PRAGMA table_info(member)")] == MEMBER_COLUMNS
 
 
 def test_a_failed_build_leaves_todays_atlas_untouched_and_says_so(tmp_path):
@@ -409,13 +442,13 @@ def test_a_first_build_creates_the_atlas(tmp_path):
         assert atlas.known_dimensions(db, "FinPlan") == ["Account"]
 
 
-def test_reading_the_atlas_never_adds_the_columns(tmp_path):
-    """Only a build migrates (its new file): opening today's atlas to read it writes nothing - an installed older
-    release keeps writing it as before."""
+def test_reading_the_atlas_adds_no_table(tmp_path):
+    """Only a store of real names creates the side table: opening today's atlas to read it adds nothing."""
     target = tmp_path / "atlas.db"
     _today(target)
     with contextlib.closing(atlas.connect(target)) as db:
-        assert "real_name" not in [r[1] for r in db.execute("PRAGMA table_info(member)")]
+        assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='member_real'").fetchone()
+        assert atlas.real_names(db, "FinMax", "All Accounts", {"ac.OLD"}) == {}
         assert atlas.canonical(db, "FinMax", "All Accounts", "ac.old") == "ac.OLD"
 
 

@@ -36,36 +36,60 @@ def connect(path: Path = config.ATLAS_DB) -> sqlite3.Connection:
     return db
 
 
-# What the build over REST adds to a member (epm/members.py EXTRA): its real name (the key stays the one derived from
-# its label, as the zoom gave it), its Default alias, data storage, account type and time balance. Added to the
-# member table by add_member_columns - only by a build, on its new file: reading the atlas never adds them, and the
-# old readers name their columns, so they do not notice.
-MEMBER_EXTRA = ("real_name", "alias", "storage", "account_type", "time_balance")
-_BASE = ("connection", "dimension", "name", "label", "parent", "depth", "ord")
+# What the build over REST knows of a member beyond today's seven columns: its real name (the key stays the one derived
+# from its label, as the zoom gave it), its Default alias, data storage, account type and time balance. They live in
+# a SIDE table, never in member: an installed older release (0.6.0) purges and rewrites member with a positional
+# 7-value INSERT, which must keep working on an atlas this release built. The side table holds every real member
+# behind a key - two members that give one key under one parent included (member keeps one row for them) - and the
+# stamp of the build that wrote it: real_names trusts it only while the dimension's build row carries that stamp (an
+# older release that rebuilt the members left it behind: then it is ignored). Only a store of real names creates it.
+REAL_FIELDS = ("real_name", "alias", "storage", "account_type", "time_balance")
+_REAL_SCHEMA = """CREATE TABLE IF NOT EXISTS member_real (
+  connection TEXT, dimension TEXT, name TEXT, parent TEXT, real_name TEXT, alias TEXT, storage TEXT,
+  account_type TEXT, time_balance TEXT, built_at REAL, PRIMARY KEY (connection, dimension, name, parent, real_name)
+)"""
 
 
-def add_member_columns(db) -> None:
-    """The schema migration of the build over REST: the MEMBER_EXTRA columns, where the member table lacks them."""
-    have = {r[1] for r in db.execute("PRAGMA table_info(member)")}
-    with db:
-        for c in MEMBER_EXTRA:
-            if c not in have:
-                db.execute(f"ALTER TABLE member ADD COLUMN {c} TEXT")
+def _has_real(db) -> bool:
+    return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='member_real'").fetchone() is not None
 
 
 def store(db, conn: str, dim: str, members: list[dict], seconds: float, error: str | None = None):
-    """Replace a dimension's members (the first of a (name, parent) given twice is kept) and record the build. A
-    member's MEMBER_EXTRA values are stored where the table has those columns (add_member_columns)."""
-    extra = [c for c in MEMBER_EXTRA if c in {r[1] for r in db.execute("PRAGMA table_info(member)")}]
-    cols = (*_BASE, *extra)
+    """Replace a dimension's members (the first of a (name, parent) given twice is kept) and record the build. The
+    members' real names and properties (REAL_FIELDS, from the build over REST) replace the dimension's side rows,
+    stamped with this build; a store without them only clears its side rows."""
+    now = time.time()
+    real = [m for m in members if m.get("real_name")]
     with db:
         db.execute("DELETE FROM member WHERE connection=? AND dimension=?", (conn, dim))
         db.executemany(
-            f"INSERT OR IGNORE INTO member ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
-            [(conn, dim, m["name"], m["label"], m["parent"], m["depth"], m["order"], *(m.get(c) for c in extra))
-             for m in members])
-        db.execute("INSERT OR REPLACE INTO build VALUES (?,?,?,?,?,?)",
-                   (conn, dim, time.time(), len(members), seconds, error))
+            "INSERT OR IGNORE INTO member (connection, dimension, name, label, parent, depth, ord) "
+            "VALUES (?,?,?,?,?,?,?)",
+            [(conn, dim, m["name"], m["label"], m["parent"], m["depth"], m["order"]) for m in members])
+        if real:
+            db.execute(_REAL_SCHEMA)
+        if real or _has_real(db):
+            db.execute("DELETE FROM member_real WHERE connection=? AND dimension=?", (conn, dim))
+            db.executemany("INSERT OR IGNORE INTO member_real VALUES (?,?,?,?,?,?,?,?,?,?)",
+                           [(conn, dim, m["name"], m["parent"], *(m.get(f) for f in REAL_FIELDS), now) for m in real])
+        db.execute("INSERT OR REPLACE INTO build VALUES (?,?,?,?,?,?)", (conn, dim, now, len(members), seconds, error))
+
+
+def real_names(db, conn: str, dim: str, names: set[str]) -> dict[str, set[str]]:
+    """{key: EPM's real names behind it} for these keys of one dimension, from a side table whose stamp is the
+    dimension's build's; {} for a key it does not hold, and for all when there is none or it is stale."""
+    if not names or not _has_real(db):
+        return {}
+    out: dict[str, set[str]] = {}
+    ordered = sorted(names)
+    for i in range(0, len(ordered), 500):              # SQLite's limit on query parameters
+        part = ordered[i:i + 500]
+        for n, rn in db.execute(
+                "SELECT r.name, r.real_name FROM member_real r JOIN build b ON b.connection = r.connection AND "
+                "b.dimension = r.dimension AND b.built_at = r.built_at WHERE r.connection=? AND r.dimension=? AND "
+                f"r.name IN ({','.join('?' * len(part))})", (conn, dim, *part)):
+            out.setdefault(n, set()).add(rn)
+    return out
 
 
 def store_cards(db, conn: str, dim: str, rows: list[tuple]) -> None:
@@ -100,6 +124,8 @@ def purge(db, conn: str) -> None:
     with db:
         db.execute("DELETE FROM member WHERE connection=?", (conn,))
         db.execute("DELETE FROM build WHERE connection=?", (conn,))
+        if _has_real(db):
+            db.execute("DELETE FROM member_real WHERE connection=?", (conn,))
 
 
 def status(db) -> dict:

@@ -113,8 +113,8 @@ def build_rest(source, connections: list[str] | None = None, dimensions: list[st
 
 def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
                progress: Callable[[str], None] = print) -> tuple[list[dict], bool]:
-    """run(db) on a NEW file - a copy of target (its cards and every other table kept; the member columns of the REST
-    build added: atlas.add_member_columns) - which replaces target only when run returned and recorded no error:
+    """run(db) on a NEW file - a copy of target (its cards and every other table kept) - which replaces target only
+    when run returned and recorded no error:
     never a half-built atlas in place. (done, replaced). An error, or run raising, leaves target untouched (and
     says so); the new file is removed. The swap is SQLite's backup into target, one transaction: a reader that has
     target open sees the old atlas or the new one; a lock another process holds longer than SWAP_TIMEOUT_S leaves it
@@ -131,7 +131,6 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
                 progress(f"atlas not built: {target} could not be read ({e}); it is unchanged")
                 return [{"connection": "-", "error": f"the atlas could not be read: {e}"}], False
         with contextlib.closing(atlas.connect(new)) as db:
-            atlas.add_member_columns(db)
             done = run(db)
         failed = [d for d in done if d.get("error")]
         if failed or not done:
