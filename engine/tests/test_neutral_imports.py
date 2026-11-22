@@ -41,7 +41,8 @@ def test_the_server_and_every_epm_data_and_knowledge_module_import_nothing_of_th
 
 
 def test_the_user_excel_jobs_import_nothing_of_the_hidden_excel():
-    got = _run(USER_PATH, "smartass.xl.jobs", "smartass.xl.target", "smartass.xl.instances", "smartass.exceljob",
+    got = _run(USER_PATH, "smartass.xl.userjobs", "smartass.xl.jobs", "smartass.xl.target", "smartass.xl.instances",
+               "smartass.exceljob",
                "smartass.workbench", "smartass.xl.workbench.fmt", "smartass.xl.workbench.history",
                "smartass.core.serverkit")
     assert [m for m in HIDDEN if m in got["loaded"]] == []

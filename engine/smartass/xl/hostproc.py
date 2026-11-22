@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import contextlib
+import dataclasses
 import gc
 import json
 import logging
@@ -23,6 +24,7 @@ from ..core import config
 
 log = logging.getLogger("smartview.host")
 RETRY_HRESULTS = {-2147418111, -2147417846}        # RPC_E_CALL_REJECTED, RPC_E_SERVERCALL_RETRYLATER
+DEAD_HRESULTS = {-2147023174, -2147023170, -2147417848}   # RPC unavailable, call failed, object disconnected
 VBA_E_IGNORE = -2146777998                         # 0x800AC472: Excel busy (recalculating), inside DISP_E_EXCEPTION
 
 
@@ -192,8 +194,8 @@ class ComThread(threading.Thread):
     them. A proxy released on another thread while that apartment is alive calls that Excel from there and waits for
     it: for ever, when that Excel has stopped responding (live, 21.11.2026: stack A, between one job's thread and the
     next one's). After each job (_run_job) its outcome goes to the caller first, then the objects it made are released
-    here, and only then does the job's 'after' run (host._call_once: its turns in the user's Excel released; a release
-    that does not return is watched: host._watch_release).
+    here, and only then does the job's 'after' run (userjobs.run: its turns in the user's Excel released; a release
+    that does not return is watched: userjobs._watch_release, host._watch_release for the hidden Excel's).
     What is enforced:
     - the job's result holds no COM object (host.plain), and the frames its error carries are cleared here (_frames,
       _clear): their locals go here, not where the error is read;
@@ -252,6 +254,33 @@ class ComThread(threading.Thread):
         fut: cf.Future = cf.Future()
         self.q.put((fn, fut, after))
         return fut
+
+
+def plain(out, what: str = "a job"):
+    """out when it holds no COM object (a job's result is plain data: a COM object in it would be released on the
+    thread that reads the result, not on the job's own - Task D2); else TypeError, raised on the job's thread."""
+    import pythoncom
+    from win32com.client import dynamic
+    com_types = (pythoncom.TypeIIDs[pythoncom.IID_IUnknown], dynamic.CDispatch)
+    scalar = (str, bytes, int, float, type(None))
+    todo, seen = [out], set()
+    while todo:
+        x = todo.pop()
+        if id(x) in seen:
+            continue
+        seen.add(id(x))
+        if isinstance(x, com_types):
+            raise TypeError(f"{what} returned a COM object ({type(x).__name__}); a job's result must be plain data")
+        if isinstance(x, dict):
+            items = [*x.keys(), *x.values()]
+        elif isinstance(x, (list, tuple, set, frozenset)):
+            items = x
+        elif dataclasses.is_dataclass(x) and not isinstance(x, type):
+            items = [getattr(x, f.name) for f in dataclasses.fields(x)]
+        else:
+            continue
+        todo += [v for v in items if not isinstance(v, scalar)]     # a grid of numbers costs one pass, no stack
+    return out
 
 
 _running = 0                                      # COM jobs running in this process now (_run_job)

@@ -135,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _user_job(fn):
-    """Run fn as v2 runs a user-Excel job (server._user -> host.call(user_excel=True)): COM on this thread, a job
+    """Run fn as v2 runs a user-Excel job (server._user -> xl/userjobs.UserJobs): COM on this thread, a job
     token bound, the per-Excel turns taken while resolving the workbook released afterwards."""
     import pythoncom
 

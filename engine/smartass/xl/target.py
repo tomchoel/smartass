@@ -22,7 +22,7 @@ from ..core.errors import HostError, InputError
 from .hostproc import retry_busy
 
 if TYPE_CHECKING:
-    from .host import ExcelHost
+    from .userjobs import JobHost
 
 NAME_WAIT_S = 60                    # a busy Excel is waited for this long when the workbook's name or path is read
 
@@ -122,7 +122,7 @@ def _wait_ready(app, limit: float = jobs.EDIT_WAIT_S, pid: int | None = None, na
                     "then ask again.")
 
 
-def _attach_bridge(h: ExcelHost, t: Target):
+def _attach_bridge(h: JobHost, t: Target):
     ver = instances.ensure_bridge_file(h)
     path = instances.bridge_path(ver)
     br = None
@@ -142,7 +142,7 @@ ARCHIVE_REFUSAL = ("'{name}' is in the Produktregnskapet archive (audit record) 
                    "Use target='new', or allow it explicitly for this one request (allow_archive=true).")
 
 
-def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = False, title: str | None = None,
+def resolve_target(h: JobHost, target: str = "session", allow_archive: bool = False, title: str | None = None,
                    build_new: bool = False) -> Target:
     """target: 'session' (default: this session's own analysis workbook - created on its first question, reopened
     if closed), 'active' (the workbook the user is working in), 'new' (a new file, which becomes the session's
@@ -155,7 +155,7 @@ def resolve_target(h: ExcelHost, target: str = "session", allow_archive: bool = 
         return _resolve(h, target, allow_archive, title, build_new)
 
 
-def _resolve(h: ExcelHost, target: str, allow_archive: bool, title: str | None, build_new: bool) -> Target:
+def _resolve(h: JobHost, target: str, allow_archive: bool, title: str | None, build_new: bool) -> Target:
     from ..core import session
     from ..epm import sso
     sso.ensure_global_watcher()
@@ -211,7 +211,7 @@ def _resolve(h: ExcelHost, target: str, allow_archive: bool, title: str | None, 
         return _finish_target(h, t, allow_archive)
 
 
-def _new_target(h: ExcelHost, title: str, excels, known: set[int] | None = None, build_new: bool = False) -> Target:
+def _new_target(h: JobHost, title: str, excels, known: set[int] | None = None, build_new: bool = False) -> Target:
     """A new analysis workbook in a FREE Excel, so parallel agents do not wait for each other: the first Excel whose
     turn is free; else (below MAX_EXCELS) a new Excel window started on the TN template; else wait for the first.
     If it cannot be saved, the new workbook is closed unsaved (and an Excel started for it is closed again).
@@ -405,7 +405,7 @@ def _spawn_excel(tpl: Path, known: set[int]):
     raise HostError(f"A new Excel (pid {proc.pid}) did not open the TN template within 120 s.")
 
 
-def _finish_target(h: ExcelHost, t: Target, allow_archive: bool) -> Target:
+def _finish_target(h: JobHost, t: Target, allow_archive: bool) -> Target:
     login.wait_login_cleared(t.pid)                         # before any further COM into that Excel
     if (instances.is_archive(t.path) or instances.is_archive(t.full_name)) and not allow_archive:
         raise InputError(ARCHIVE_REFUSAL.format(name=t.name))
@@ -489,7 +489,7 @@ def _wait_busy_holder(pid: int, path: Path) -> Target | None:
         time.sleep(0.5)
 
 
-def _open_path(h: ExcelHost, path: Path, excels, insts: list[instances.XlInstance] | None = None) -> Target:
+def _open_path(h: JobHost, path: Path, excels, insts: list[instances.XlInstance] | None = None) -> Target:
     """The workbook at `path`, wherever it is open: any Excel that answers, else a busy Excel showing its window
     (which is named if it stays busy); else opened in the user's running Excel; else in a new Excel."""
     if not path.exists():
@@ -651,7 +651,7 @@ def remember_new_base(base) -> None:
         jobs.log.warning("could not store the base of a new workbook: %s", e)
 
 
-def _new_analysis_file(h: ExcelHost, title: str) -> Path:
+def _new_analysis_file(h: JobHost, title: str) -> Path:
     """A copy of the labelled seed under the new name (no Excel started); without a usable seed the hidden Excel
     makes the file the old way and its result becomes the seed (best effort)."""
     path = _new_path(title)
@@ -678,7 +678,7 @@ def _new_analysis_file(h: ExcelHost, title: str) -> Path:
     return made
 
 
-def _new_analysis_file_host(h: ExcelHost, path: Path) -> Path:
+def _new_analysis_file_host(h: JobHost, path: Path) -> Path:
     wb = h.com(h.app.Workbooks.Add)
     try:
         wb.Worksheets(1).Name = "Sources"

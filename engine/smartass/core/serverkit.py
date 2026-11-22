@@ -1,6 +1,7 @@
 """Server helpers shared by the v2 MCP server: the lifespan (keeping the EPM sign-ins fresh, closing the hidden
 Excel), the tool guard (any exception -> readable text with one next step), tool annotations, the hidden-Excel host
-and the user-Excel job call with progress notes. Lifted from v1 server.py; nothing here imports a tool module."""
+(made on first use) and the user-Excel job call with progress notes (xl/userjobs.py). Lifted from v1 server.py;
+nothing here imports a tool module."""
 from __future__ import annotations
 
 import contextvars
@@ -17,6 +18,7 @@ from mcp.types import ToolAnnotations
 from . import config, logsetup, runlog
 from .errors import HostError, InputError
 from ..epm import oauth
+from ..xl.userjobs import UserJobs
 
 if TYPE_CHECKING:
     from ..xl.host import ExcelHost
@@ -33,6 +35,7 @@ WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent
 ADMIN = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
 
 _host: ExcelHost | None = None
+_users: UserJobs | None = None
 
 
 def host() -> ExcelHost:
@@ -42,6 +45,14 @@ def host() -> ExcelHost:
         from ..xl.host import ExcelHost
         _host = ExcelHost(visible=False)
     return _host
+
+
+def user_jobs() -> UserJobs:
+    """The runner of jobs in the user's Excel. It reaches the hidden Excel (host) only when a job asks for it."""
+    global _users
+    if _users is None:
+        _users = UserJobs(hidden=lambda: host())
+    return _users
 
 
 def _keep_signed_in() -> None:
@@ -209,8 +220,8 @@ def _is_our_analysis_file(path: str) -> bool:
 
 
 async def _call_user(fn, what: str):
-    """host().call for jobs that drive the user's Excel (never killed on timeout)."""
+    """A job that drives the user's Excel (user_jobs: never killed on timeout), every failure a readable ToolError."""
     try:
-        return await host().call(_with_progress(fn), what=what, user_excel=True)
+        return await user_jobs().call(_with_progress(fn), what=what)
     except (HostError, InputError) as e:
         raise _err(e) from None

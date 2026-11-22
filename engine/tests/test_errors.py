@@ -62,7 +62,7 @@ class _FailingHost:
 
 
 async def _tool_error_via_host(monkeypatch, exc, user_excel=False) -> str:
-    monkeypatch.setattr(server, "_host", _FailingHost(exc))
+    monkeypatch.setattr(server, "_users" if user_excel else "_host", _FailingHost(exc))     # the user-Excel runner
 
     async def sv_fake():
         if user_excel:

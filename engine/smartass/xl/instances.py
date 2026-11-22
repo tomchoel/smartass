@@ -20,7 +20,7 @@ from ..core import config
 from ..core.errors import HostError
 
 if TYPE_CHECKING:
-    from .host import ExcelHost
+    from .userjobs import JobHost
 
 WM_GETOBJECT, OBJID_NATIVEOM = 0x003D, -16
 
@@ -239,7 +239,7 @@ def bridge_path(ver: str) -> Path:
     return config.SVKIT / f"svbridge_{ver}.xlam"
 
 
-def ensure_bridge_file(h: ExcelHost) -> str:
+def ensure_bridge_file(h: JobHost) -> str:
     """Build svbridge_<hash>.xlam with the hidden server Excel when the .bas sources changed; prune old builds."""
     ver = _bridge_hash()
     path = bridge_path(ver)
@@ -254,7 +254,7 @@ def ensure_bridge_file(h: ExcelHost) -> str:
     return h.on_host(lambda: _build_bridge(h, ver, path))   # the hidden Excel lives on the host thread
 
 
-def _build_bridge(h: ExcelHost, ver: str, path: Path) -> str:
+def _build_bridge(h: JobHost, ver: str, path: Path) -> str:
     if path.exists():                                # a parallel job built it meanwhile
         return ver
     wb = h.com(h.app.Workbooks.Add)

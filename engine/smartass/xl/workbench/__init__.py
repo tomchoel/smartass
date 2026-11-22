@@ -7,5 +7,5 @@ Agreed with the user 2026-10-15:
 - the screen is frozen while writing, then Excel jumps to the changed area;
 - the user's workbook is NEVER saved here (no Save / SaveAs anywhere in this package);
 - every written formula goes through the tn-formelstil checker; 'block' findings must be fixed.
-All functions run on a user-Excel job thread (host.call(user_excel=True)) and take that Excel's turn.
+All functions run on a user-Excel job thread (xl/userjobs.py) and take that Excel's turn.
 """
