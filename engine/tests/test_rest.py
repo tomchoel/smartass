@@ -484,6 +484,22 @@ def test_a_key_without_a_side_row_passes_as_itself_only_when_no_other_key_names_
         _grid(_Epm(), db, accounts=("ac.C30",), entities=("un.SY.E1",))
 
 
+def test_a_spelling_the_atlas_does_not_keep_takes_its_label_from_the_key_whose_member_epm_named(db, monkeypatch):
+    """Task 4c review, Minor 3 (the reviewer's scratch case): un.SY.E2's member is named un.SY.E1 in EPM. Asked in a
+    spelling the atlas does not keep and answered un.SY.E1, the label is E2's (the side table records that name behind
+    un.SY.E2), never the label of the key merely spelled un.SY.E1. The labels _matrix gives are what is checked: the
+    layout check after it (svhttp.check_layout, which caught the old label only for 'code alias (prefix)' labels) is
+    left out here."""
+    monkeypatch.setattr(rest.svhttp, "check_layout", lambda *a, **k: None)
+    _no_entry(db, "un.SY.E1")
+    f = _grid(_Epm(answer=_answering("Entity two", "un.SY.E1")), db, accounts=("ac.C30",), entities=("Entity two",))
+    assert f.values[2][:2] == ["C30 REVENUES (ac)", "E2 Entity two (un.SY)"]
+    with db:                                          # an older release rebuilt it: the key spelled so, as before
+        db.execute("UPDATE build SET built_at = built_at + 1 WHERE connection='FinMax' AND dimension='All Entities'")
+    f = _grid(_Epm(answer=_answering("Entity two", "un.SY.E1")), db, accounts=("ac.C30",), entities=("Entity two",))
+    assert f.values[2][:2] == ["C30 REVENUES (ac)", "E1 Entity one (un.SY)"]
+
+
 def test_a_key_without_a_side_row_keeps_the_old_check_where_the_side_table_is_not_trusted(db):
     """The same atlas after an older release rebuilt the dimension (its side rows no longer trusted): exactly the check
     before a45bda9 - the key itself passes."""

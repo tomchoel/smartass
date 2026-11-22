@@ -509,7 +509,7 @@ def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], c
                 label[d, asked, got] = known[1] if known else d
             elif known:                               # REST resolved the label the atlas keeps as the name
                 label[d, asked, got] = known[1]
-            elif hit := by_name.get(got.casefold()):  # asked in a spelling the atlas does not keep
+            elif hit := _answered(db, conn, d, got, by_name, owners):   # asked in a spelling the atlas does not keep
                 label[d, asked, got] = hit[1]
             else:
                 label[d, asked, got] = got
@@ -525,6 +525,22 @@ def _matrix(db, conn: str, lay: Layout, names: dict[str, str], pov: list[str], c
             m[r][d] = label[a.dimension, combo[d], heads[i][d]]
         m[r][lay.nr:lay.nr + len(data[i])] = data[i]
     return m, warnings
+
+
+def _answered(db, conn: str, dim: str, got: str, by_name: dict, owners: list) -> tuple | None:
+    """The atlas's member EPM answered as got, for a member asked in a spelling the atlas does not keep: with a trusted
+    side table the key whose side rows record got as EPM's name (atlas.real_owners) - never a key that is merely
+    spelled like got, which may be another member's (Task 4c review, Minor 3); none or two such keys: None. Else (no
+    trusted side table) the key spelled got. owners: real_owners of dim, read once per grid and dimension."""
+    if not owners:
+        owners.append(atlas.real_owners(db, conn, dim))
+    if owners[0] is None:
+        return by_name.get(got.casefold())
+    keys = owners[0].get(got.casefold(), set())
+    if len(keys) != 1:
+        return None
+    key = next(iter(keys))
+    return _labels(db, conn, dim, {key})[0].get(key.casefold())
 
 
 def _one_to_one(dim: str, pairs: list[tuple[str, str]]) -> None:

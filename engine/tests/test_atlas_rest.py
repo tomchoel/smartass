@@ -471,6 +471,8 @@ def test_a_second_build_while_one_runs_says_so_and_touches_nothing(tmp_path):
     target = tmp_path / "atlas.db"
     _today(target)
     before = target.read_bytes()
+    holder = {"at": "2026-11-22T08:00:00", "replaced": True, "why": "", "skipped": []}
+    atlas_build._last_path(target).write_text(json.dumps(holder), encoding="utf-8")   # what the running build wrote
     ran, said = [], []
     with open(tmp_path / "atlas.db.build.lock", "a+b") as held:
         held.seek(0)
@@ -480,8 +482,9 @@ def test_a_second_build_while_one_runs_says_so_and_touches_nothing(tmp_path):
         msvcrt.locking(held.fileno(), msvcrt.LK_UNLCK, 1)
     assert not swapped and ran == [] and target.read_bytes() == before
     assert done == [{"connection": "-", "error": "atlas not replaced: another atlas build is running"}]
-    last = atlas_build.last_attempt(target)                 # the refused attempt is recorded too (Task 4b review)
-    assert last["replaced"] is False and last["why"] == "another atlas build is running"
+    assert said == [f"atlas not replaced: another atlas build is running; {target} is unchanged"]
+    # only the build that holds the lock writes the record (Task 4c review, Minor 2): a refused one never masks it
+    assert atlas_build.last_attempt(target) == holder
     names = []
     atlas_build.build_into(target, lambda db: names.append(db.execute("PRAGMA database_list").fetchone()[2]) or [
         {"connection": "FinMax", "dimension": "x", "members": 0}], progress=lambda m: None)

@@ -155,9 +155,14 @@ def schema() -> bool:
         twins = db.execute("SELECT count(*) FROM (SELECT 1 FROM member_real GROUP BY connection, dimension, name, "
                            "parent HAVING count(*) > 1)").fetchone()[0]
         rows = db.execute("SELECT count(*) FROM member").fetchone()[0]
+        bare = db.execute("SELECT count(*) FROM (SELECT DISTINCT m.connection, m.dimension, m.name FROM member m WHERE "
+                          "NOT EXISTS (SELECT 1 FROM member_real r JOIN build b ON b.connection = r.connection AND "
+                          "b.dimension = r.dimension AND b.built_at = r.built_at WHERE r.connection = m.connection "
+                          "AND r.dimension = m.dimension AND r.name = m.name))").fetchone()[0]
         shared = exposure(db)
     say(f"schema: member columns are the seven {cols == MEMBER_COLUMNS} | member rows {rows} | side rows {side}, "
-        f"trusted {trusted} | (key, parent) pairs with more than one real member {twins}")
+        f"trusted {trusted} | (key, parent) pairs with more than one real member {twins} | member keys with no "
+        f"trusted side row {bare}")
     say("schema: keys that are EPM's name of a member behind another key (REST answering such a key as itself is "
         "refused), per dimension: " + (", ".join(f"{c}/{d} {n} (not among their own real names {o})"
                                                  for (c, d), (n, o) in sorted(shared.items())) or "none"))
