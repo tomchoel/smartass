@@ -691,8 +691,10 @@ def test_a_drill_link_the_http_route_cannot_fetch_is_a_clear_error_never_excel(m
 @pytest.mark.parametrize("error, advice", [
     ("NoScope", "Add the scope of the pod named above under [oauth.scopes]"),
     ("AtlasStale", "Build the atlas (`smartass atlas build`), then drill again."),
-    ("TokenRefused", "Run `smartass login` to sign in again, then drill again."),
+    ("TokenRefused", "Run `smartass login --force` to sign in again (without --force a pod that still looks signed in is"),
     ("NoFallback", "Try again in a minute."),                   # the data-source lookup busy: transient
+    ("NoToken", "Run `smartass login --status`"),             # no access token: the sign-in, not 'try again'
+    ("GridRefused", "Look the cell's members up with fin_lookup"),   # an alias clash: deterministic
     ("SvHttpError", "Try again in a minute."),
     ("RequestLost", "Try again in a minute."),
 ])
@@ -714,6 +716,42 @@ def test_a_drill_link_that_fails_gives_the_next_step_of_its_cause(monkeypatch, e
     assert "it failed" in text and "no other route" in text and f"Next step: {advice}" in text
     assert text.count("Next step:") == 1 and serverkit.with_next_step(text) == text
     assert ("Try again in a minute" in text) == (advice == "Try again in a minute.")
+
+
+def test_a_refused_token_gets_login_force_and_names_a_missing_role_or_scope(monkeypatch):
+    """Carry-in (Task 3c review, Important): login without --force skips a pod that still looks signed in, so the user
+    looped; and EPM's gate refuses a valid token for a missing role or scope too."""
+    import asyncio
+    from smartass.epm import svhttp
+    from smartass.epm import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+
+    def refused(conn, cell):
+        raise svhttp.TokenRefused("Smart View provider at https://p: EPM refused the access token twice (HTTP 403)")
+    monkeypatch.setattr(server, "_http_link", refused)
+    with pytest.raises(server.ToolError) as e:
+        asyncio.run(server._link("FinLite", _CELL))
+    step = str(e.value).split("Next step: ", 1)[1]
+    assert "`smartass login --force`" in step and "role" in step and "scope" in step
+
+
+def test_a_drill_link_without_an_access_token_keeps_the_sign_in_text_and_one_sign_in_step(monkeypatch):
+    """Carry-in (Task 3c review, Minor): the oauth error's own text stays in the reply, and the one next step is about
+    the sign-in - not a generic 'try again in a minute' after it."""
+    import asyncio
+    from smartass.epm import svhttp
+    from smartass.epm import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+    why = "no EPM access token for https://plan1.example: the identity domain could not renew the sign-in (400)"
+
+    def no_token(conn, cell):
+        raise svhttp.NoToken(why)
+    monkeypatch.setattr(server, "_http_link", no_token)
+    with pytest.raises(server.ToolError) as e:
+        asyncio.run(server._link("FinLite", _CELL))
+    text = str(e.value)
+    assert why in text and text.count("Next step:") == 1 and "Try again in a minute" not in text
+    assert "`smartass login --force`" in text.split("Next step: ", 1)[1]
 
 
 def test_with_the_http_route_switched_off_the_drill_link_says_so(monkeypatch):

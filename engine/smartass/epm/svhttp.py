@@ -73,6 +73,11 @@ class TokenRefused(NoFallback):
     """EPM's gate refused the access token twice (the session's one new token did not help either)."""
 
 
+class NoToken(NoFallback):
+    """No access token could be had for the pod (oauth.OAuthError: the identity domain did not answer or could not
+    renew the sign-in): the second engine asks for the same token. Its text carries oauth's reason."""
+
+
 class AtlasStale(NoFallback):
     """The atlas has no dimensions for the connection, or one of them was not built, or the grid names a dimension
     it does not have: build it (`smartass atlas build`). Both engines lay the grid out from the atlas."""
@@ -491,7 +496,7 @@ class BearerTransport:
         except oauth.NotSignedIn:
             raise
         except oauth.OAuthError as e:
-            raise NoFallback(f"no EPM access token for {base}: {e}") from None        # REST asks for the same token
+            raise NoToken(f"no EPM access token for {base}: {e}") from None           # REST asks for the same token
         except epmhttp.NoScope:
             raise NoScope(f"no OAuth scope is configured for {base} ([oauth.scopes] in config.toml)") from None
         except (epmhttp.Refused, epmhttp.TooLarge) as e:   # their texts quote no body, token or query

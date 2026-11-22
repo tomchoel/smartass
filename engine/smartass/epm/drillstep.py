@@ -296,15 +296,24 @@ async def _link(connection: str, cell: dict) -> dict:
 
 def _link_advice(e: Exception) -> str:
     """The next step after a failed drill link, by its cause: another try only helps a transient failure; a missing
-    scope, a stale atlas and a token EPM refused twice each have their own."""
+    scope, a stale atlas, no access token, a grid EPM refused for an alias clash and a token EPM refused twice each
+    have their own."""
     from ..core.serverkit import NEXT_STEP
     from . import svhttp
     if isinstance(e, svhttp.NoScope):
         return NEXT_STEP["NoScope"]
     if isinstance(e, svhttp.AtlasStale):
         return "Build the atlas (`smartass atlas build`), then drill again."
+    if isinstance(e, svhttp.NoToken):
+        return ("Run `smartass login --status`: a sign-in that has ended needs `smartass login --force`; one still "
+                "shown as signed in could not be renewed just now, so drill again in a minute.")
+    if isinstance(e, svhttp.GridRefused):
+        return ("Look the cell's members up with fin_lookup and name each by its member code (a name that is also "
+                "another member's alias is ambiguous), then drill again.")
     if isinstance(e, svhttp.TokenRefused):
-        return "Run `smartass login` to sign in again, then drill again."
+        return ("Run `smartass login --force` to sign in again (without --force a pod that still looks signed in is "
+                "skipped), then drill again. If EPM still refuses, the refusal may be a missing EPM role or OAuth scope "
+                "for this pod: ask the EPM administrator.")
     return "Try again in a minute."
 
 
